@@ -3,11 +3,21 @@
 #include "diagnostics/logger.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include "common/scope_exit.h"
 #include <unordered_set>
 
 namespace Comet {
+    namespace {
+        std::atomic<uint64_t> next_material_instance{0};
+    }
+
+    Scene::Scene() {
+        m_registry.on_destroy<MeshRendererComponent>().connect<&Scene::clear_material_overrides>(
+            *this);
+    }
+
     bool Scene::set_post_process(const PostProcessSettings& settings) {
         if(!settings.validate())
             return false;
@@ -103,6 +113,7 @@ namespace Comet {
         m_audio_play_requests.clear();
         m_contact_events.clear();
         m_session_values.clear();
+        m_material_overrides.clear();
         m_runtime_active = true;
         return true;
     }
@@ -179,6 +190,7 @@ namespace Comet {
         m_audio_play_requests.clear();
         m_contact_events.clear();
         m_session_values.clear();
+        m_material_overrides.clear();
     }
 
     std::optional<ParameterValue> Scene::get_session_value(const std::string_view key) const {
@@ -206,6 +218,75 @@ namespace Comet {
             return false;
         m_session_values.erase(std::string(key));
         return true;
+    }
+
+    void Scene::clear_material_overrides(entt::registry&, const entt::entity entity) {
+        m_material_overrides.erase(entity);
+    }
+
+    std::shared_ptr<const MaterialOverrides> Scene::get_material_overrides(const Entity entity) {
+        if(!m_runtime_active || !is_valid(entity))
+            return nullptr;
+        const auto found = m_material_overrides.find(entity.m_handle);
+        if(found == m_material_overrides.end())
+            return nullptr;
+        if(!entity.has_component<MeshRendererComponent>()
+            || entity.get_component<MeshRendererComponent>().material != found->second->material) {
+            m_material_overrides.erase(found);
+            return nullptr;
+        }
+        return found->second;
+    }
+
+    Result<void> Scene::set_material_scalar(const Entity entity, const std::string_view name,
+        const float value, const MaterialParameterValidator& materials) {
+        return set_material_parameter(entity, name, value, materials);
+    }
+
+    Result<void> Scene::set_material_vector(const Entity entity, const std::string_view name,
+        const Math::Vec4 value, const MaterialParameterValidator& materials) {
+        return set_material_parameter(entity, name, value, materials);
+    }
+
+    Result<void> Scene::set_material_parameter(const Entity entity, const std::string_view name,
+        const std::variant<float, Math::Vec4> value, const MaterialParameterValidator& materials) {
+        if(!m_runtime_active)
+            return Result<void>::failure("Material overrides require an active scene runtime");
+        if(!is_valid(entity) || !entity.has_component<MeshRendererComponent>())
+            return Result<void>::failure("Current entity needs an existing Mesh Renderer");
+        const auto previous = get_material_overrides(entity);
+        const auto material = entity.get_component<MeshRendererComponent>().material;
+        if(!material)
+            return Result<void>::failure("Current Mesh Renderer needs a material");
+        if(name.empty() || name.find('\0') != std::string_view::npos)
+            return Result<void>::failure("Expected a material property name");
+        MaterialOverrides candidate = previous ? *previous : MaterialOverrides{};
+        candidate.material = material;
+        if(!previous)
+            candidate.instance_id =
+                next_material_instance.fetch_add(1, std::memory_order_relaxed) + 1;
+        const std::string property(name);
+        if(const auto* scalar = std::get_if<float>(&value)) {
+            if(!std::isfinite(*scalar))
+                return Result<void>::failure("Material scalar must be finite");
+            candidate.vector_properties.erase(property);
+            candidate.scalar_properties.insert_or_assign(property, *scalar);
+        } else {
+            const auto vector = std::get<Math::Vec4>(value);
+            if(!Math::is_finite(vector))
+                return Result<void>::failure("Material vector must be finite");
+            candidate.scalar_properties.erase(property);
+            candidate.vector_properties.insert_or_assign(property, vector);
+        }
+        // 相同值也重验，防止已发布 Shader 布局变更后接受陈旧参数。
+        if(auto checked = materials.validate(candidate); !checked)
+            return checked;
+        if(previous && previous->scalar_properties == candidate.scalar_properties
+            && previous->vector_properties == candidate.vector_properties)
+            return Result<void>::success();
+        m_material_overrides.insert_or_assign(
+            entity.m_handle, std::make_shared<const MaterialOverrides>(std::move(candidate)));
+        return Result<void>::success();
     }
 
     bool Scene::append_contact_event(ContactEvent event) {

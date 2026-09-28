@@ -14,6 +14,7 @@
 namespace Comet {
     class ShaderInterface;
     struct ShaderProgramMaterial;
+    struct MaterialOverrides;
 
     class COMET_API MaterialLayout {
     public:
@@ -71,6 +72,7 @@ namespace Comet {
         [[nodiscard]] const std::vector<VectorProperty>& get_vectors() const { return m_vectors; }
 
         Result<void> validate(const ShaderInterface& shader, uint32_t material_set = 1) const;
+        [[nodiscard]] Result<void> validate_parameters(const MaterialOverrides& overrides) const;
 
     private:
         MaterialLayout() = default;

@@ -54,6 +54,34 @@ namespace Comet::Tests {
             return engine->get_render_resources().try_create_texture(
                 {.width = 1, .height = 1, .pixels = std::move(rgba)});
         }
+
+        std::shared_ptr<ShaderProgramArtifact> scalar_program(const std::filesystem::path& path,
+            AssetHandle handle, const std::string& scalar, float maximum) {
+            const auto saved = write_text_file_atomic(
+                path, "#version 450\nlayout(location=0) out vec4 color;\n"
+                      "layout(set=1,binding=0,std140) uniform MaterialData {\n"
+                      "vec4 color; float "
+                          + scalar
+                          + ";} material;\n"
+                            "void main(){color=vec4(material.color.rgb*material."
+                          + scalar + ",material.color.a);}\n");
+            EXPECT_TRUE(saved);
+            if(!saved)
+                return nullptr;
+            auto compiled =
+                ShaderCompiler::compile({.source = path, .stage = ShaderStage::Fragment});
+            EXPECT_TRUE(compiled.succeeded()) << compiled.diagnostics;
+            if(!compiled.succeeded())
+                return nullptr;
+            auto program = std::make_shared<ShaderProgramArtifact>();
+            program->handle = handle;
+            program->vertex_words.assign(UNLIT_COLOR_VERT.begin(), UNLIT_COLOR_VERT.end());
+            program->fragment_words = std::move(compiled.words);
+            program->material =
+                ShaderProgramMaterial{.scalars = {{scalar, scalar, 0.1f, 0, maximum, 0.05f}},
+                    .vectors = {{"color", "Color", {1, 1, 1, 1}, true}}};
+            return program;
+        }
     };
 
     TEST_F(MaterialRenderingTest, ProjectProgramHandleCreatesPipelineAndRejectsIncompatibleCode) {
@@ -153,6 +181,98 @@ namespace Comet::Tests {
                       .get_material_statistics()
                       .cached_material_versions,
             1u);
+    }
+
+    TEST_F(
+        MaterialRenderingTest, RuntimeOverrideChangesRetryRejectedProgramAndStopRestoresBaseline) {
+        constexpr AssetHandle program_handle(9140);
+        constexpr AssetHandle material_handle(9141);
+        constexpr AssetHandle mesh_handle(9142);
+        TemporaryDirectory directory;
+        const auto source = directory.path() / "material.frag";
+        const auto original = scalar_program(source, program_handle, "intensity", 10);
+        const auto limited = scalar_program(source, program_handle, "intensity", 0.2f);
+        const auto renamed = scalar_program(source, program_handle, "gain", 10);
+        ASSERT_TRUE(original);
+        ASSERT_TRUE(limited);
+        ASSERT_TRUE(renamed);
+        auto& assets = engine->get_asset_registry();
+        ASSERT_TRUE(assets.register_asset(program_handle, original));
+        const auto material = std::make_shared<Material>("runtime", "unlit_color", program_handle);
+        ASSERT_TRUE(assets.register_asset(material_handle, material));
+        const auto mesh = engine->get_render_resources().try_create_mesh(
+            {.vertices = {{{-0.5f, -0.5f, -2}}, {{0.5f, -0.5f, -2}}, {{0, 0.5f, -2}}},
+                .indices = {0, 1, 2}});
+        ASSERT_TRUE(mesh);
+        ASSERT_TRUE(assets.register_asset(mesh_handle, mesh.value()));
+        RenderScene scene;
+        scene.cameras.push_back({.primary = true});
+        scene.render_items.push_back({.entity_id = 1,
+            .mesh_handle = mesh_handle,
+            .material_handle = material_handle,
+            .material_overrides =
+                std::make_shared<const MaterialOverrides>(MaterialOverrides{.instance_id = 91,
+                    .material = material_handle,
+                    .scalar_properties = {{"intensity", 0.75f}}})});
+        auto& renderer = engine->get_renderer();
+        const auto draw = [&] {
+            const auto prepared = renderer.prepare_frame();
+            EXPECT_TRUE(prepared);
+            if(!prepared || prepared.value() != Renderer::FramePreparation::Ready)
+                return false;
+            const auto rendered = renderer.render_frame(scene);
+            EXPECT_TRUE(rendered);
+            if(!rendered)
+                return false;
+            EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().draw_calls, 1u);
+            return true;
+        };
+        const auto published = [&] {
+            const auto* active =
+                renderer.get_material_programs().published(program_handle, "unlit_color");
+            return active ? active->source : nullptr;
+        };
+        ASSERT_TRUE(draw());
+        EXPECT_EQ(published(), original);
+        ASSERT_TRUE(assets.replace_asset(program_handle, limited));
+        ASSERT_TRUE(draw());
+        EXPECT_EQ(published(), original);
+        EXPECT_EQ(
+            renderer.get_scene_renderer().get_material_statistics().material_versions_created, 0u);
+        // 输入不变时仍保留原程序；不会把失败候选部分发布。
+        ASSERT_TRUE(draw());
+        EXPECT_EQ(published(), original);
+        scene.render_items.front().material_overrides =
+            std::make_shared<const MaterialOverrides>(MaterialOverrides{.instance_id = 91,
+                .material = material_handle,
+                .scalar_properties = {{"intensity", 0.1f}}});
+        ASSERT_TRUE(draw());
+        EXPECT_EQ(published(), limited);
+
+        ASSERT_TRUE(assets.replace_asset(program_handle, renamed));
+        ASSERT_TRUE(draw());
+        EXPECT_EQ(published(), limited);
+        // Stop 后提取的快照没有运行覆盖；同一失败源现在可以完整发布。
+        scene.render_items.front().material_overrides.reset();
+        ASSERT_TRUE(draw());
+        EXPECT_EQ(published(), renamed);
+        scene.render_items.front().material_overrides =
+            std::make_shared<const MaterialOverrides>(MaterialOverrides{.instance_id = 92,
+                .material = material_handle,
+                .scalar_properties = {{"gain", 0.5f}}});
+        ASSERT_TRUE(draw());
+        // 同 Handle 材质切换模板，旧覆盖不兼容时继续画完整旧版本。
+        ASSERT_TRUE(assets.replace_asset(
+            material_handle, std::make_shared<Material>("replacement", "pbr")));
+        ASSERT_TRUE(draw());
+        EXPECT_EQ(
+            renderer.get_scene_renderer().get_material_statistics().material_versions_created, 0u);
+        ASSERT_TRUE(draw());
+        scene.render_items.front().material_overrides.reset();
+        ASSERT_TRUE(draw());
+        EXPECT_EQ(
+            renderer.get_scene_renderer().get_material_statistics().material_versions_created, 1u);
+        renderer.wait_idle();
     }
 
     TEST_F(MaterialRenderingTest, FailedFramePreparationCannotReuseAcquiredFrame) {
@@ -364,7 +484,7 @@ namespace Comet::Tests {
         renderer.set_overlay({});
     }
 
-    TEST_F(MaterialRenderingTest, ReadsPixelsFromTwoLayoutsBeforeAndAfterParameterChanges) {
+    TEST_F(MaterialRenderingTest, ReadsPixelsFromTwoLayoutsAndIsolatedOverridesAcrossReloads) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();
         auto color = Attachment::get_color_attachment(Format::R8G8B8A8_UNORM);
@@ -410,13 +530,24 @@ namespace Comet::Tests {
         const auto solid = std::make_shared<Material>("solid", "unlit_color");
         EXPECT_TRUE(solid->set_vector_property("color", {0.2f, 0.8f, 0.4f, 1}));
         EXPECT_TRUE(solid->set_scalar_property("intensity", 0.5f));
-        const std::vector<ResolvedRenderItem> items{
+        const auto solid_revision = solid->get_revision();
+        const auto overridden =
+            std::make_shared<const MaterialOverrides>(MaterialOverrides{.instance_id = 77,
+                .material = AssetHandle{2},
+                .scalar_properties = {{"intensity", 0.25f}},
+                .vector_properties = {{"color", {1, 0.2f, 0.2f, 1}}}});
+        std::vector<ResolvedRenderItem> items{
             {.model_matrix = Math::translate(Math::Mat4(1), {-0.5f, 0, 0}),
                 .mesh = mesh,
                 .material = {AssetHandle(1), textured}},
-            {.model_matrix = Math::translate(Math::Mat4(1), {0.5f, 0, 0}),
+            {.model_matrix = Math::translate(Math::Mat4(1), {0.25f, 0, 0})
+                             * Math::scale(Math::Mat4(1), {0.5f, 1, 1}),
                 .mesh = mesh,
-                .material = {AssetHandle(2), solid}}};
+                .material = {AssetHandle(2), solid}},
+            {.model_matrix = Math::translate(Math::Mat4(1), {0.75f, 0, 0})
+                             * Math::scale(Math::Mat4(1), {0.5f, 1, 1}),
+                .mesh = mesh,
+                .material = {AssetHandle(2), solid, overridden}}};
 
         vk::UniqueDeviceMemory memory;
         auto readback = device.get().createBufferUnique(vk::BufferCreateInfo({}, 4 * 64 * 32 * 4,
@@ -517,19 +648,24 @@ namespace Comet::Tests {
                 auto blue = texture({0, 0, 255, 255});
                 ASSERT_TRUE(blue) << blue.error();
                 textured->set_texture_property("base_color_texture", std::move(blue).value());
-                // 材质不变，仅替换 Shader；旧槽位此时尚未回收。
+                items.back().material.overrides =
+                    std::make_shared<const MaterialOverrides>(MaterialOverrides{.instance_id = 77,
+                        .material = AssetHandle{2},
+                        .scalar_properties = {{"intensity", 0.5f}},
+                        .vector_properties = {{"color", {0, 0.4f, 1, 1}}}});
+                // 共享资产不变；替换单实体覆盖和 Shader，旧槽位此时尚未回收。
                 const auto published = materials->reload_shaders(
                     pipelines, {{"unlit_color", updated.at("unlit_color")}}, SampleCount::Count1);
                 ASSERT_TRUE(published) << published.error();
-                EXPECT_EQ(published.value().material_versions, 1u);
+                EXPECT_EQ(published.value().material_versions, 2u);
                 EXPECT_EQ(published.value().material_bindings, 0u);
             }
             if(iteration == 2) {
                 const auto published =
                     materials->reload_shaders(pipelines, relocated, SampleCount::Count1);
                 ASSERT_TRUE(published) << published.error();
-                EXPECT_EQ(published.value().material_versions, 2u);
-                EXPECT_EQ(published.value().material_bindings, 2u);
+                EXPECT_EQ(published.value().material_versions, 3u);
+                EXPECT_EQ(published.value().material_bindings, 3u);
                 for(const auto& layout : materials->get_material_layouts()) {
                     if(layout->get_name() != "pbr" && layout->get_name() != "unlit_color") {
                         EXPECT_EQ(layout, MaterialLayout::find_builtin(layout->get_name()));
@@ -553,6 +689,7 @@ namespace Comet::Tests {
                 EXPECT_EQ(repeated.value().material_versions, 0u);
                 EXPECT_EQ(repeated.value().material_bindings, 0u);
                 EXPECT_EQ(materials->get_material_layouts(), before);
+                items.back().material.overrides.reset();
             }
             frames.wait_for_current_slot();
             const auto slot = frames.get_current_frame_slot_index();
@@ -588,7 +725,7 @@ namespace Comet::Tests {
             const auto submission = frames.submit(waits.value(), {});
             ASSERT_TRUE(submission) << submission.error();
             frames.end_frame();
-            const std::array<uint32_t, 4> expected_creations{2, 1, 0, 0};
+            const std::array<uint32_t, 4> expected_creations{3, 2, 0, 0};
             EXPECT_EQ(materials->get_statistics().material_versions_created,
                 expected_creations[iteration]);
             EXPECT_EQ(materials->get_statistics().material_bindings_created,
@@ -619,13 +756,20 @@ namespace Comet::Tests {
             };
             if(iteration == 0) {
                 check(16, {247, 3, 3});
-                check(48, {26, 102, 51});
+                check(40, {26, 102, 51});
+                check(56, {64, 13, 13});
             } else {
                 check(16, {3, 3, 125});
-                check(48, {13, 51, 26});
+                check(40, {13, 51, 26});
+                check(56, iteration == 3 ? Math::Vec3i(13, 51, 26) : Math::Vec3i(0, 26, 64));
             }
         }
         device.get().unmapMemory(*memory);
+        EXPECT_EQ(solid->get_revision(), solid_revision);
+        EXPECT_EQ(solid->get_vector_property("color"), Math::Vec4(0.2f, 0.8f, 0.4f, 1));
+        EXPECT_EQ(solid->get_scalar_property("intensity"), 0.5f);
+        EXPECT_FLOAT_EQ(overridden->scalar_properties.at("intensity"), 0.25f);
+        EXPECT_EQ(overridden->vector_properties.at("color"), Math::Vec4(1, 0.2f, 0.2f, 1));
         auto rebuilt = MaterialRenderer::create(
             device, pipelines, engine->get_render_resources(), 2, SampleCount::Count1, &relocated);
         ASSERT_TRUE(rebuilt) << rebuilt.error();

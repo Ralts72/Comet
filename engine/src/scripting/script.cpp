@@ -339,8 +339,8 @@ namespace Comet {
             ++m_impl->scene_generation;
             m_impl->parameters_changed = true;
         }
-        m_impl->bindings = {
-            entity, invocation.scene, invocation.input, m_impl->scene_generation, std::nullopt};
+        m_impl->bindings = {entity, invocation.scene, invocation.input, m_impl->scene_generation,
+            std::nullopt, invocation.materials};
         m_impl->parameters = &parameters;
         m_impl->delta_time = invocation.delta_time;
         m_impl->phase = phase;

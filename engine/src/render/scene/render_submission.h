@@ -14,11 +14,13 @@
 namespace Comet {
     class Mesh;
     class Material;
+    struct MaterialOverrides;
     struct Environment;
 
     struct MaterialBinding {
         AssetHandle material_handle = INVALID_ASSET_HANDLE;
         std::shared_ptr<const Material> resource;
+        std::shared_ptr<const MaterialOverrides> overrides;
     };
 
     struct ResolvedRenderItem {

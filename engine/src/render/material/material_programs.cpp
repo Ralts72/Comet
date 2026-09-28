@@ -4,12 +4,41 @@
 #include "asset/registry.h"
 #include "graphics/pipeline/shader_interface.h"
 #include "render/material/material_layout.h"
+#include "render/material/material.h"
 #include "render/material/material_shader.h"
 
 #include <algorithm>
 #include <utility>
 
 namespace Comet {
+    Result<void> MaterialPrograms::validate(const MaterialOverrides& overrides) const {
+        const auto material = m_assets.resolve<Material>(overrides.material);
+        if(!material)
+            return Result<void>::failure(
+                "Material is unavailable: " + std::to_string(overrides.material.value()));
+        auto layout = MaterialLayout::find_builtin(material->get_template_name());
+        if(material->get_shader_program()) {
+            const auto* active =
+                published(material->get_shader_program(), material->get_template_name());
+            if(active) {
+                layout = active->layout;
+            } else {
+                // on_start 早于首次绘制；只校验 CPU 产物，不提前发布 GPU 契约。
+                const auto source = latest(material->get_shader_program());
+                if(!source)
+                    return Result<void>::failure("Material Shader program is unavailable");
+                auto described = describe(*source, material->get_template_name(), layout);
+                if(!described)
+                    return Result<void>::failure(described.error());
+                layout = std::move(described).value();
+            }
+        }
+        if(!layout)
+            return Result<void>::failure(
+                "Material layout is unavailable: " + material->get_template_name());
+        return layout->validate_parameters(overrides);
+    }
+
     std::shared_ptr<const ShaderProgramArtifact> MaterialPrograms::latest(
         const AssetHandle handle) const {
         return m_assets.resolve<ShaderProgramArtifact>(handle);

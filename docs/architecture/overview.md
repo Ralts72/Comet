@@ -70,7 +70,7 @@ GpuResourceResult 的失败路径先保存错误码，调用 `error()` 时才生
 
 ```text
 Engine
-├── Scene（只有组件与 AssetHandle）
+├── Scene（组件、AssetHandle 与非持久运行态；不持有 GPU 资源）
 ├── SceneRuntime → System[]（活动时借用 Scene，停止时逆序退出）
 │   └── PhysicsSystem → Jolt world / bodies（Play／app 专有；Stop 销毁）
 │   └── AudioSystem → AudioPlayback / Voice（有声音源时创建；Stop 销毁）
@@ -335,7 +335,23 @@ VM 将 UUID 绑定成已有的受保护实体引用，不把 Scene 指针写进 
 参数表与会话值复用单个名称／值校验；会话值额外禁止实体引用，不为单次赋值构造临时参数表。
 Lua 只借用当前阶段的 InputState；原始按键和动作查询来自同一快照，不依赖 InputActions 或 RuntimeInput。
 Script::Invocation 与 LuaBindings::Context 各只传一个 input，结束调用后解除借用，不自行采集或消耗输入。
-模块依赖、受控实体／材质 API 与源码热替换见路线图，不在 VM 内提前建立管理框架。
+材质写入也只借用当前调用的 MaterialParameterValidator；Engine 将 MaterialPrograms 接入 ScriptSystem，
+Lua／Scene 不包含 render 或 graphics 头。Result 的错误先存入外层 Context，再调用 luaL_error，
+不让 Result／字符串局部对象跨越 longjmp。更多组件操作、模块依赖与源码热替换按路线图扩展。
+
+### 脚本材质覆盖
+
+`comet.set_material_scalar/vector → Scene → MaterialParameterValidator → MaterialPrograms`。
+Scene 检查活动运行态、本实体 MeshRenderer、参数名及有限值；MaterialPrograms 解析共享 Material，
+复用 MaterialLayout 校验名称、类型和标量范围。有项目程序时优先使用已发布布局；从未发布时，
+只对已加载 Artifact 调用既有 describe 预检，不提前宣称 GPU 发布成功，也不把新候选覆盖到旧发布布局。
+
+Scene 按实体保存 `shared_ptr<const MaterialOverrides>`，包含材质 Handle、稳定运行实例身份与 float／Vec4 覆盖。
+同值仍校验，但不替换快照；改变值才构造新快照，不复制共享 Material 或 Texture。
+SceneExtractor 和 SceneResolver 逐层持有快照，渲染时按“实体覆盖 → Material 值 → 布局默认值”打包。
+暂停保留、单步照常写入；Runtime 启停、实体／MeshRenderer 删除及可观察的材质 Handle 换绑清除覆盖。
+覆盖不进入场景序列化、Edit 历史和 `.mat`；Stop 后旧提交仍持有自己的快照及 GPU 资源直到帧完成。
+目前只修改当前实体，未开放纹理覆盖、全局参数或跨实体材质操作。
 
 ## 渲染诊断
 
@@ -379,7 +395,7 @@ Editor 在 on_update 消费面板请求并原子写入项目私有状态目录�
 | `render/material/material_layout.h` | 不可变 MaterialLayout 参数布局、默认值、编辑语义与 Shader 校验 | 可变材质实例、GPU owner |
 | `render/material/material_runtime.h` | MaterialRuntimeCache 准备并缓存 Texture 引用和参数字节 | 创建 Vulkan 对象 |
 | `render/material/material_shader.h` | 具名程序字节码、内置程序与材质映射、固定接口校验、覆盖合并 | GPU owner、后台任务、发布事务 |
-| `render/material/material_programs.h` | 跨目标重建保存已发布程序版本；统一项目程序的 CPU 契约预检 | 目标相关 Pipeline、源码编译、文件监视 |
+| `render/material/material_programs.h` | 跨目标重建保存已发布程序版本；项目程序预检与实体材质参数校验 | 目标相关 Pipeline、源码编译、文件监视 |
 | `render/material/material_renderer.h` | 帧／材质 descriptor、Pipeline 选择、排序与绘制 | 解析 Scene 或资产文件 |
 | `tools/shader/compiler.h` | CPU 源编译、依赖快照和诊断；CLI 负责文件输出 | Vulkan 对象、编辑器热重载编排 |
 | `graphics/pipeline/shader_interface.h` | SPIR-V 入口级自有反射数据，仅公开 Comet 类型 | 自动生成编辑语义、完整字节码校验 |
@@ -493,7 +509,8 @@ Editor 通过 Renderer 获取该快照，不直接访问 SceneRenderer 的目标
 独立面板初始化使用 MaterialLayout::builtins；收到发布列表后不再补回未发布模板。目标重建后同值布局仍可用于 UI，不让面板引用 Renderer。
 布局构造后不可变，以对象身份区分版本；Material 可修改，以自身 revision 标记真实变化。
 MaterialLayout 保留 metadata 声明顺序，PreparedMaterial 单独按 binding 排序纹理绑定；热更物理 binding 不改变 Inspector 槽位顺序。
-MaterialRuntimeCache 按 Handle 索引，比较 Material 对象身份／revision 和布局身份；失败也缓存，变化后才重试。
+MaterialRuntimeCache 按 `(Material Handle, instance_id)` 索引，0 表示共享材质基线，其余表示实体运行覆盖。
+比较 Material 对象身份／revision、布局身份与覆盖快照身份；失败也缓存，输入变化后才重试。
 prepare／rebind 返回 Result 和具体诊断，不自行写日志；MaterialRenderer 负责去重报告与回退。
 未使用项按渲染周期回收，已取得的 PreparedMaterial 仍拥有当时的 Texture 和参数副本。
 
@@ -504,12 +521,13 @@ CPU 缓存淘汰不代表 GPU 已完成，不能据此删除 retained owners。
 可恢复的 GPU 候选失败可沿用旧 MaterialResources，同一 PreparedMaterial／PipelineState 候选延后 60 个 frame serial 重试，
 新候选可立即尝试；失败记录只弱引用 PipelineState，不延长旧 Pipeline 寿命。
 DeviceLost 则交给应用退出清理边界，不把失效设备当作可继续渲染的旧版本。
-CPU 准备失败与 GPU 创建失败共用回退判断，只保留同 Handle 且匹配当前 PipelineState 的旧版本；无旧版、不支持模板则跳过。
+CPU 准备失败与 GPU 创建失败共用回退判断，只保留同 Handle／运行实例的完整旧 MaterialResources，
+包括匹配它的 PipelineState；缓存限定于当前 RenderState，因此不跨不兼容 RenderPass 回退。无旧版、不支持模板则跳过。
 清除引用、移除物体或切换到其他 Handle 不回退到无关材质；回退项仍标记使用。
 绘制周期结束时清理未使用缓存；无相机的绘制周期也执行这一步。隐藏视口保留有效缓存，避免恢复时全部重建。
 Renderer 每次 prepare_frame 在 acquire 前检查 Registry，移除已注销材质的 CPU／GPU 缓存，隐藏／延期同样执行。
 同 Handle 的新版本不触发这类淘汰，仍允许准备失败时回退旧兼容版本；在途帧保活不受缓存淘汰影响。
-队列按模板名与材质 Handle 排序。
+队列按模板名、材质 Handle 与运行实例身份排序。
 
 编辑器材质文件修改采用显式准备／提交，区别于上述绘制时的延迟准备：
 AssetManager::prepare_material_update 保留源 revision、序列化内容及只读运行时候选，不改原材质文件或该材质的 Registry 条目。
@@ -568,7 +586,11 @@ MaterialRenderer 准备完整 PipelineState、CPU 缓存和驻留 GPU 材质候�
 项目程序先在场景 pass 录制前按本帧引用去重准备，MaterialRenderer 的逐物体绘制只消费已选 Pipeline；候选失败保留旧版。保存成功字节码用于目标重建，关闭编辑器不持久保存开发覆盖。DebugRenderer 只使用内嵌程序。
 
 只换 Pipeline 而材质数据不变时复用参数 buffer／pool／set，不修改在途帧持有的旧包装。
-缓存判等同时使用 PreparedMaterial 与 PipelineState；旧版回退只能用于同 Handle 且兼容当前管线。
+缓存判等同时使用 PreparedMaterial 与 PipelineState；旧版回退限定同 Handle／运行实例及当前目标兼容域。
+Shader 候选需同时通过驻留实体覆盖的布局校验；字段删除／改型不兼容时拒绝整批候选，保留旧画面并报告错误。
+项目程序准备前按当前提交淘汰已失效的运行实例；若候选仅因覆盖不兼容而失败，覆盖快照变化／移除会解除失败抑制。
+输入不变时不重试；Shader 自身错误、缺纹理等其他失败不因参数动画反复重试。缓存移除不影响在途帧保活。
+材质资产换模板导致旧覆盖不兼容时同样保留旧完整版本；覆盖不会自动猜测映射到新字段，Stop 后使用新资产基线。
 ReloadReport 区分候选准备、CPU 打包、GPU 创建耗时；不设置固定性能倍数断言。
 大量布局重建仍同步占用 owner，CPU 后台化不代表 GPU 创建没有主线程成本。
 

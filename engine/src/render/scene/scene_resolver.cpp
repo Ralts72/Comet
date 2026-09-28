@@ -173,6 +173,8 @@ namespace Comet {
         return ResolvedRenderItem{.entity_id = render_item.entity_id,
             .model_matrix = render_item.model_matrix,
             .mesh = mesh,
-            .material = {.material_handle = render_item.material_handle, .resource = material}};
+            .material = {.material_handle = render_item.material_handle,
+                .resource = material,
+                .overrides = render_item.material_overrides}};
     }
 }

@@ -8,10 +8,17 @@
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
 #include "asset/registry.h"
+#include "asset/artifact/shader_program_artifact.h"
+#include "asset/serialization/material_serializer.h"
 #include "audio/audio.h"
 #include "core/project.h"
+#include "common/file_io.h"
 #include "common/scope_exit.h"
 #include "diagnostics/logger.h"
+#include "render/material/material.h"
+#include "render/material/material_programs.h"
+#include "pbr_vert.h"
+#include "pbr_frag.h"
 #include <spdlog/sinks/callback_sink.h>
 
 #include <gtest/gtest.h>
@@ -21,11 +28,12 @@ namespace Comet::Tests {
     protected:
         const AssetHandle handle{42};
         AssetRegistry assets;
+        MaterialPrograms materials{assets};
         Scene scene;
         SceneRuntime runtime;
         void SetUp() override {
             ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-            ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
+            ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets, &materials)));
         }
         void source(std::string code) {
             auto script = Script::create(std::move(code), "test.lua");
@@ -41,6 +49,211 @@ namespace Comet::Tests {
             return entity;
         }
     };
+
+    TEST_F(ScriptSystemTest, OnStartWritesProjectMaterialBeforeFirstShaderPublication) {
+        const AssetHandle material_handle{77}, program_handle{78};
+        auto program = std::make_shared<ShaderProgramArtifact>();
+        program->handle = program_handle;
+        program->vertex_words.assign(PBR_VERT.begin(), PBR_VERT.end());
+        program->fragment_words.assign(PBR_FRAG.begin(), PBR_FRAG.end());
+        ASSERT_TRUE(assets.register_asset(program_handle, program));
+        const auto material = std::make_shared<Material>("project", "pbr", program_handle);
+        ASSERT_TRUE(assets.register_asset(material_handle, material));
+        const auto revision = material->get_revision();
+        source(R"(return {
+            on_start = function()
+                comet.set_material_scalar('roughness', 0.25)
+                comet.set_material_vector('base_color', 0.2, 1, 0.25, 1)
+            end
+        })");
+        auto entity = actor();
+        entity.add_component<MeshRendererComponent>(AssetHandle{11}, material_handle);
+        ASSERT_EQ(materials.published(program_handle, "pbr"), nullptr);
+
+        const auto started = runtime.start(scene);
+        ASSERT_TRUE(started) << started.error().message;
+        const auto overrides = scene.get_material_overrides(entity);
+        ASSERT_TRUE(overrides);
+        EXPECT_FLOAT_EQ(overrides->scalar_properties.at("roughness"), 0.25f);
+        EXPECT_EQ(overrides->vector_properties.at("base_color"), Math::Vec4(0.2f, 1, 0.25f, 1));
+        EXPECT_EQ(materials.published(program_handle, "pbr"), nullptr);
+        EXPECT_EQ(material->get_revision(), revision);
+        EXPECT_FALSE(material->get_scalar_property("roughness"));
+        EXPECT_FALSE(material->get_vector_property("base_color"));
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(scene.get_material_overrides(entity));
+    }
+
+    TEST_F(ScriptSystemTest, MaterialOverridesAreIsolatedAndRespectPauseStepAndStop) {
+        const AssetHandle material_handle{77};
+        const auto material = std::make_shared<Material>("shared", "pbr");
+        const Math::Vec4 authored_color(1, 0.5f, 0, 1);
+        ASSERT_TRUE(material->set_vector_property("base_color", authored_color));
+        ASSERT_TRUE(material->set_scalar_property("roughness", 0.6f));
+        ASSERT_TRUE(assets.register_asset(material_handle, material));
+        const auto revision = material->get_revision();
+        source(R"(return {
+            on_start = function(self)
+                self.roughness = 0.25
+                comet.set_material_scalar('roughness', self.roughness)
+                comet.set_material_vector('base_color', 0.2, 1, 0.25, 1)
+            end,
+            fixed_update = function(self, dt)
+                self.roughness = self.roughness + dt
+                comet.set_material_scalar('roughness', self.roughness)
+            end,
+            update = function(self)
+                comet.set_material_vector('base_color', 0.2, 1, 0.25, 1)
+            end
+        })");
+        auto target = actor();
+        target.add_component<MeshRendererComponent>(AssetHandle{11}, material_handle);
+        auto peer = scene.create_entity("Shared Material Peer");
+        peer.add_component<MeshRendererComponent>(AssetHandle{11}, material_handle);
+        EXPECT_FALSE(scene.set_material_scalar(target, "roughness", 0.25f, materials));
+
+        ASSERT_TRUE(runtime.start(scene));
+        const auto initial = scene.get_material_overrides(target);
+        ASSERT_TRUE(initial);
+        EXPECT_EQ(initial->material, material_handle);
+        EXPECT_NE(initial->instance_id, 0u);
+        EXPECT_FLOAT_EQ(initial->scalar_properties.at("roughness"), 0.25f);
+        EXPECT_EQ(initial->vector_properties.at("base_color"), Math::Vec4(0.2f, 1, 0.25f, 1));
+        EXPECT_FALSE(scene.get_material_overrides(peer));
+        ASSERT_TRUE(scene.set_material_scalar(target, "roughness", 0.25f, materials));
+        EXPECT_EQ(scene.get_material_overrides(target), initial);
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(scene.get_material_overrides(target), initial);
+
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        ASSERT_TRUE(runtime.advance(1));
+        EXPECT_EQ(scene.get_material_overrides(target), initial);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        const auto stepped = scene.get_material_overrides(target);
+        ASSERT_TRUE(stepped);
+        EXPECT_NE(stepped, initial);
+        EXPECT_FLOAT_EQ(stepped->scalar_properties.at("roughness"), 0.26f);
+        EXPECT_FLOAT_EQ(initial->scalar_properties.at("roughness"), 0.25f);
+        EXPECT_FALSE(scene.get_material_overrides(peer));
+        EXPECT_EQ(material->get_revision(), revision);
+        EXPECT_EQ(material->get_vector_property("base_color"), authored_color);
+        EXPECT_EQ(material->get_scalar_property("roughness"), 0.6f);
+
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(scene.get_material_overrides(target));
+        EXPECT_FALSE(scene.get_material_overrides(peer));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(scene.get_material_overrides(target));
+        EXPECT_FLOAT_EQ(
+            scene.get_material_overrides(target)->scalar_properties.at("roughness"), 0.25f);
+        EXPECT_NE(scene.get_material_overrides(target), stepped);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(ScriptSystemTest, InvalidMaterialWritesLeaveTheLastAcceptedSnapshotUnchanged) {
+        const AssetHandle material_handle{77};
+        const auto material = std::make_shared<Material>("shared", "pbr");
+        ASSERT_TRUE(assets.register_asset(material_handle, material));
+        const auto revision = material->get_revision();
+        auto entity = scene.create_entity();
+        entity.add_component<MeshRendererComponent>(AssetHandle{11}, material_handle);
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(scene.set_material_scalar(entity, "roughness", 0.25f, materials));
+        ASSERT_TRUE(
+            scene.set_material_vector(entity, "base_color", {0.2f, 1, 0.25f, 1}, materials));
+        const auto accepted = scene.get_material_overrides(entity);
+        ASSERT_TRUE(accepted);
+        for(const char* invalid :
+            {"comet.set_material_scalar('missing', 0.5)", "comet.set_material_scalar('', 0.5)",
+                "comet.set_material_scalar('roughness\\0extra', 0.5)",
+                "comet.set_material_scalar('base_color', 0.5)",
+                "comet.set_material_vector('roughness', 1, 1, 1, 1)",
+                "comet.set_material_vector('base_color_texture', 1, 1, 1, 1)",
+                "comet.set_material_scalar('roughness', 'invalid')",
+                "comet.set_material_scalar('roughness', nil)",
+                "comet.set_material_scalar('roughness', 0)",
+                "comet.set_material_scalar('roughness', 1.01)",
+                "comet.set_material_scalar('roughness', math.huge)",
+                "comet.set_material_scalar('roughness', -math.huge)",
+                "comet.set_material_scalar('roughness', 0/0)",
+                "comet.set_material_vector('base_color', math.huge, 1, 1, 1)",
+                "comet.set_material_vector('base_color', 1, -math.huge, 1, 1)",
+                "comet.set_material_vector('base_color', 1, 1, 0/0, 1)",
+                "comet.set_material_vector('base_color', 1, 1, 1, math.huge)",
+                "comet.set_material_vector('base_color', 1, 1, 1)",
+                "comet.set_material_vector('base_color', {1, 1, 1, 1})"}) {
+            SCOPED_TRACE(invalid);
+            const auto script =
+                Script::create(std::string("return {update = function() ") + invalid + " end}");
+            ASSERT_TRUE(script) << script.error().message;
+            auto instance = script.value()->instantiate();
+            ASSERT_TRUE(instance) << instance.error().message;
+            const auto update = instance.value()->invoke(
+                Script::Phase::Update, entity, {}, {.scene = &scene, .materials = &materials});
+            ASSERT_FALSE(update);
+            EXPECT_FALSE(update.error().message.empty());
+            EXPECT_EQ(scene.get_material_overrides(entity), accepted);
+            EXPECT_FLOAT_EQ(accepted->scalar_properties.at("roughness"), 0.25f);
+            EXPECT_EQ(accepted->vector_properties.at("base_color"), Math::Vec4(0.2f, 1, 0.25f, 1));
+            EXPECT_EQ(material->get_revision(), revision);
+        }
+        const auto script = Script::create(
+            "return {update = function() comet.set_material_scalar('roughness', 0.5) end}");
+        ASSERT_TRUE(script);
+        auto without_validator = script.value()->instantiate();
+        ASSERT_TRUE(without_validator);
+        EXPECT_FALSE(without_validator.value()->invoke(
+            Script::Phase::Update, entity, {}, {.scene = &scene}));
+        EXPECT_EQ(scene.get_material_overrides(entity), accepted);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(ScriptSystemTest, MaterialWritesRejectMissingRendererAssetAndLayout) {
+        source("return {update = function() comet.set_material_scalar('roughness', 0.25) end}");
+        auto entity = actor();
+        const auto expect_failure = [&] {
+            ASSERT_TRUE(runtime.start(scene));
+            const auto update = runtime.advance(0);
+            ASSERT_FALSE(update);
+            EXPECT_FALSE(update.error().message.empty());
+            EXPECT_FALSE(runtime.is_active());
+            EXPECT_FALSE(scene.get_material_overrides(entity));
+        };
+        expect_failure();
+        auto& renderer = entity.add_component<MeshRendererComponent>();
+        expect_failure();
+        renderer.material = AssetHandle{77};
+        expect_failure();
+        renderer.material = handle;
+        expect_failure();
+        renderer.material = AssetHandle{77};
+        ASSERT_TRUE(assets.register_asset(
+            renderer.material, std::make_shared<Material>("unknown", "unknown")));
+        expect_failure();
+    }
+
+    TEST_F(ScriptSystemTest, FailedMaterialWriteStopsRuntimeAndClearsAcceptedOverrides) {
+        const AssetHandle material_handle{77};
+        ASSERT_TRUE(
+            assets.register_asset(material_handle, std::make_shared<Material>("shared", "pbr")));
+        source(R"(return {
+            on_start = function() comet.set_material_scalar('roughness', 0.25) end,
+            update = function() comet.set_material_scalar('roughness', 0.5) end
+        })");
+        auto entity = actor();
+        entity.add_component<MeshRendererComponent>(AssetHandle{11}, material_handle);
+        ASSERT_TRUE(runtime.start(scene));
+        const auto accepted = scene.get_material_overrides(entity);
+        ASSERT_TRUE(accepted);
+        ASSERT_TRUE(assets.unregister_asset(material_handle));
+        EXPECT_FALSE(scene.set_material_scalar(entity, "roughness", 0.25f, materials));
+        EXPECT_EQ(scene.get_material_overrides(entity), accepted);
+        EXPECT_FALSE(runtime.advance(0));
+        EXPECT_FALSE(runtime.is_active());
+        EXPECT_FALSE(scene.get_material_overrides(entity));
+        EXPECT_FLOAT_EQ(accepted->scalar_properties.at("roughness"), 0.25f);
+    }
 
     TEST_F(ScriptSystemTest, LifecycleHasIsolatedStateAndSharedFixedTiming) {
         source(R"(
@@ -520,6 +733,19 @@ namespace Comet::Tests {
         const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
         ASSERT_TRUE(project) << project.error();
         ASSERT_TRUE(runtime.set_input_actions(project.value().input_actions()));
+        const auto material_path = project.value().paths().assets() / "materials/cube.mat";
+        const auto material_source = read_text_file(material_path);
+        ASSERT_TRUE(material_source) << material_source.error();
+        const auto authored = MaterialSerializer{}.load(material_path);
+        ASSERT_TRUE(authored) << authored.error();
+        const auto material = std::make_shared<Material>("cube", authored.value().template_name);
+        for(const auto& [name, value] : authored.value().scalar_properties)
+            ASSERT_TRUE(material->set_scalar_property(name, value));
+        for(const auto& [name, value] : authored.value().vector_properties)
+            ASSERT_TRUE(material->set_vector_property(name, value));
+        const AssetHandle material_handle{6482638524486200214ULL};
+        ASSERT_TRUE(assets.register_asset(material_handle, material));
+        const auto material_revision = material->get_revision();
         for(const auto& [name, script_handle] :
             {std::pair{"spin.lua", AssetHandle{7821648321594001021}},
                 std::pair{"move_cube.lua", AssetHandle{14309634625000312001ULL}},
@@ -552,8 +778,10 @@ namespace Comet::Tests {
 
         const auto goal_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d07");
         const auto center_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d02");
+        const auto player_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d05");
         ASSERT_TRUE(goal_uuid);
         ASSERT_TRUE(center_uuid);
+        ASSERT_TRUE(player_uuid);
         EXPECT_FALSE(playing.value()->find_entity(*goal_uuid));
         const auto score = playing.value()->get_session_value("demo.score");
         ASSERT_TRUE(score);
@@ -568,15 +796,36 @@ namespace Comet::Tests {
                             .get_component<TransformComponent>()
                             .translation.y,
             0.4f);
+        const auto center = playing.value()->find_entity(*center_uuid);
+        const auto player = playing.value()->find_entity(*player_uuid);
+        ASSERT_TRUE(center);
+        ASSERT_TRUE(player);
+        EXPECT_EQ(center.get_component<MeshRendererComponent>().material, material_handle);
+        EXPECT_EQ(player.get_component<MeshRendererComponent>().material, material_handle);
+        const auto tint = playing.value()->get_material_overrides(center);
+        ASSERT_TRUE(tint);
+        EXPECT_EQ(tint->vector_properties.at("base_color"), Math::Vec4(0.2f, 1, 0.25f, 1));
+        EXPECT_FALSE(playing.value()->get_material_overrides(player));
+        EXPECT_FALSE(edit_scene.value()->get_material_overrides(
+            edit_scene.value()->find_entity(*center_uuid)));
+        EXPECT_EQ(material->get_revision(), material_revision);
+        EXPECT_EQ(material->get_vector_property("base_color"),
+            authored.value().vector_properties.at("base_color"));
         ASSERT_TRUE(runtime.stop());
         EXPECT_FALSE(playing.value()->get_session_value("demo.score"));
+        EXPECT_FALSE(playing.value()->get_material_overrides(center));
         EXPECT_TRUE(edit_scene.value()->find_entity(*goal_uuid));
         auto restarted = serializer.clone(*edit_scene.value());
         ASSERT_TRUE(restarted) << restarted.error();
         ASSERT_TRUE(runtime.start(*restarted.value()));
         EXPECT_TRUE(restarted.value()->find_entity(*goal_uuid));
         EXPECT_FALSE(restarted.value()->get_session_value("demo.score"));
+        EXPECT_FALSE(restarted.value()->get_material_overrides(
+            restarted.value()->find_entity(*center_uuid)));
         ASSERT_TRUE(runtime.stop());
+        const auto unchanged_material_source = read_text_file(material_path);
+        ASSERT_TRUE(unchanged_material_source) << unchanged_material_source.error();
+        EXPECT_EQ(unchanged_material_source.value(), material_source.value());
     }
 
     TEST_F(ScriptSystemTest, DemoGoalIgnoresContactsWithUnassignedActors) {

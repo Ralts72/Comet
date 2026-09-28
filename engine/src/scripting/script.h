@@ -11,19 +11,27 @@
 namespace Comet {
     class Entity;
     class InputState;
+    class MaterialParameterValidator;
     class Scene;
     // 不可变源码与字段默认值；运行实例不存入资产缓存。
     class COMET_API Script final {
     public:
         enum class Phase {
-            Start, FixedUpdate, Update, Stop,
-            CollisionEnter, CollisionExit, TriggerEnter, TriggerExit
+            Start,
+            FixedUpdate,
+            Update,
+            Stop,
+            CollisionEnter,
+            CollisionExit,
+            TriggerEnter,
+            TriggerExit
         };
         struct Invocation {
             double delta_time = 0;
             Scene* scene = nullptr;
             const InputState* input = nullptr;
             Entity contact_other;
+            const MaterialParameterValidator* materials = nullptr;
         };
         class COMET_API Instance final {
         public:

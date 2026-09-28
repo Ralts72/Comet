@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -7,9 +8,12 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <variant>
 #include <vector>
 
+#include "asset/data/material_data.h"
 #include "common/export.h"
+#include "common/result.h"
 #include "scene/entity.h"
 #include "scene/property.h"
 #include "scene/scene_settings.h"
@@ -29,7 +33,7 @@ namespace Comet {
             Entity second;
         };
 
-        Scene() = default;
+        Scene();
 
         ~Scene() = default;
 
@@ -56,10 +60,17 @@ namespace Comet {
         [[nodiscard]] bool request_play_one_shot(Entity entity);
 
         // 仅当前 Runtime 有效，不序列化。
-        [[nodiscard]] std::optional<ParameterValue> get_session_value(
-            std::string_view key) const;
+        [[nodiscard]] std::optional<ParameterValue> get_session_value(std::string_view key) const;
         [[nodiscard]] bool set_session_value(std::string_view key, ParameterValue value);
         [[nodiscard]] bool erase_session_value(std::string_view key);
+
+        // 仅当前 Runtime 的实体材质覆盖；快照不修改共享资产，不序列化。
+        [[nodiscard]] Result<void> set_material_scalar(Entity entity, std::string_view name,
+            float value, const MaterialParameterValidator& materials);
+        [[nodiscard]] Result<void> set_material_vector(Entity entity, std::string_view name,
+            Math::Vec4 value, const MaterialParameterValidator& materials);
+        [[nodiscard]] std::shared_ptr<const MaterialOverrides> get_material_overrides(
+            Entity entity);
 
         [[nodiscard]] bool set_parent(Entity child, Entity parent);
 
@@ -138,6 +149,9 @@ namespace Comet {
         void end_runtime() noexcept;
         [[nodiscard]] bool append_contact_event(ContactEvent event);
         void clear_contact_events() noexcept;
+        void clear_material_overrides(entt::registry& registry, entt::entity entity);
+        [[nodiscard]] Result<void> set_material_parameter(Entity entity, std::string_view name,
+            std::variant<float, Math::Vec4> value, const MaterialParameterValidator& materials);
 
         template<typename Component>
         using QueryComponent = std::conditional_t<is_scene_read_only_component_v<Component>,
@@ -157,6 +171,8 @@ namespace Comet {
         bool m_runtime_active = false;
         SceneEnvironment m_environment;
         PostProcessSettings m_post_process;
+        std::unordered_map<entt::entity, std::shared_ptr<const MaterialOverrides>>
+            m_material_overrides;
         entt::registry m_registry;
         std::unordered_map<EntityId, entt::entity> m_entities_by_id;
         std::unordered_map<EntityUuid, entt::entity> m_entities_by_uuid;

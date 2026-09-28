@@ -51,6 +51,7 @@ namespace Comet {
         Script::Invocation invocation;
         invocation.scene = m_scene;
         invocation.contact_other = contact_other;
+        invocation.materials = m_materials;
         if(context) {
             invocation.delta_time = context->delta_time;
             invocation.input = &context->input;

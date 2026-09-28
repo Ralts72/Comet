@@ -113,6 +113,8 @@ namespace Comet {
             std::shared_ptr<const ShaderProgramArtifact> source;
             std::shared_ptr<const ShaderProgramArtifact> failed_source;
             std::shared_ptr<const PipelineState> pipeline;
+            std::map<MaterialInstanceKey, std::shared_ptr<const MaterialOverrides>> overrides;
+            bool failed_overrides = false;
         };
         struct FrameResources {
             std::shared_ptr<DescriptorSetLayout> layout;
@@ -136,6 +138,7 @@ namespace Comet {
         };
         struct CachedMaterial {
             std::shared_ptr<MaterialResources> resources;
+            std::shared_ptr<const MaterialOverrides> overrides;
             std::shared_ptr<const PreparedMaterial> failed_candidate;
             std::weak_ptr<const PipelineState> failed_pipeline;
             uint64_t retry_after_serial = 0;
@@ -182,7 +185,7 @@ namespace Comet {
         std::unordered_map<std::string, std::shared_ptr<const PipelineState>> m_pipelines;
         std::map<std::pair<AssetHandle, std::string>, ProjectPipeline> m_project_pipelines;
         MaterialRuntimeCache m_prepared;
-        std::unordered_map<AssetHandle, CachedMaterial> m_materials;
+        std::map<MaterialInstanceKey, CachedMaterial> m_materials;
         std::unordered_map<AssetHandle, uint64_t> m_unsupported;
         Statistics m_statistics;
     };

@@ -146,6 +146,46 @@ namespace Comet::LuaBindings {
                 return luaL_error(state, "Current entity needs a valid Audio Source");
             return 0;
         }
+        int set_material_scalar(lua_State* state) {
+            auto& context = current(state);
+            if(!context.scene || !context.materials)
+                return luaL_error(state, "Material parameters require an active material service");
+            size_t length = 0;
+            const char* name = luaL_checklstring(state, 1, &length);
+            const float value = number(state, 2);
+            context.return_value.reset();
+            {
+                const auto result = context.scene->set_material_scalar(
+                    context.entity, std::string_view(name, length), value, *context.materials);
+                if(!result)
+                    context.return_value = result.error();
+            }
+            // Result 已析构；错误文本由 lua_pcall 外的 Context 持有。
+            if(context.return_value)
+                return luaL_error(
+                    state, "%s", std::get<std::string>(*context.return_value).c_str());
+            return 0;
+        }
+        int set_material_vector(lua_State* state) {
+            auto& context = current(state);
+            if(!context.scene || !context.materials)
+                return luaL_error(state, "Material parameters require an active material service");
+            size_t length = 0;
+            const char* name = luaL_checklstring(state, 1, &length);
+            const Math::Vec4 value{
+                number(state, 2), number(state, 3), number(state, 4), number(state, 5)};
+            context.return_value.reset();
+            {
+                const auto result = context.scene->set_material_vector(
+                    context.entity, std::string_view(name, length), value, *context.materials);
+                if(!result)
+                    context.return_value = result.error();
+            }
+            if(context.return_value)
+                return luaL_error(
+                    state, "%s", std::get<std::string>(*context.return_value).c_str());
+            return 0;
+        }
         std::string_view session_key(lua_State* state) {
             size_t length = 0;
             const char* text = luaL_checklstring(state, 1, &length);
@@ -324,7 +364,8 @@ namespace Comet::LuaBindings {
         const luaL_Reg api[]{{"rotate", rotate}, {"translate", translate}, {"position", position},
             {"self_entity", self_entity}, {"find_entity", find_entity},
             {"create_entity", create_entity}, {"destroy_entity", destroy_entity},
-            {"play_one_shot", play_one_shot}, {"session_get", session_get},
+            {"play_one_shot", play_one_shot}, {"set_material_scalar", set_material_scalar},
+            {"set_material_vector", set_material_vector}, {"session_get", session_get},
             {"session_set", session_set}, {"key_down", key_down}, {"action_value", action_value},
             {"action_down", action_down}, {"action_pressed", action_pressed},
             {"action_released", action_released}, {nullptr, nullptr}};

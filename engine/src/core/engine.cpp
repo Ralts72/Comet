@@ -4,6 +4,7 @@
 #include "core/window.h"
 #include "graphics/device.h"
 #include "render/renderer.h"
+#include "render/material/material_programs.h"
 #include "render/render_diagnostics.h"
 #include "render/render_context.h"
 #include "render/resource/render_resources.h"
@@ -89,7 +90,9 @@ namespace Comet {
         // 注册顺序也是各更新阶段的执行顺序；SceneRuntime 停止时按逆序清理。
         if(auto added = add_system(std::make_unique<CameraControllerSystem>()); !added)
             return added;
-        if(auto added = add_system(std::make_unique<ScriptSystem>(*m_asset_registry)); !added)
+        if(auto added = add_system(std::make_unique<ScriptSystem>(
+               *m_asset_registry, &m_renderer->get_material_programs()));
+            !added)
             return added;
         if(auto added = add_system(std::make_unique<PhysicsSystem>()); !added)
             return added;

@@ -1,7 +1,11 @@
 #include <gtest/gtest.h>
 
+#include "asset/registry.h"
+#include "render/material/material.h"
+#include "render/material/material_programs.h"
 #include "render/scene/scene_extractor.h"
 #include "scene/scene.h"
+#include "scene/scene_runtime.h"
 #include "support/math_assertions.h"
 
 #include <algorithm>
@@ -13,6 +17,92 @@ namespace Comet::Tests {
         const RenderScene render_scene = SceneExtractor::extract(scene);
 
         EXPECT_TRUE(render_scene.render_items.empty());
+    }
+
+    TEST(SceneExtractorTest, MaterialOverridesArePerEntityImmutableRenderSnapshots) {
+        AssetRegistry assets;
+        const AssetHandle material_handle{20};
+        ASSERT_TRUE(
+            assets.register_asset(material_handle, std::make_shared<Material>("shared", "pbr")));
+        MaterialPrograms materials(assets);
+        Scene scene;
+        auto target = scene.create_entity("Target");
+        auto peer = scene.create_entity("Peer");
+        target.add_component<MeshRendererComponent>(AssetHandle{10}, material_handle);
+        peer.add_component<MeshRendererComponent>(AssetHandle{10}, material_handle);
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.start(scene));
+        const Math::Vec4 color(0.2f, 1, 0.25f, 1);
+        ASSERT_TRUE(scene.set_material_vector(target, "base_color", color, materials));
+        const auto original = scene.get_material_overrides(target);
+        ASSERT_TRUE(original);
+        const auto extracted = SceneExtractor::extract(scene);
+        ASSERT_EQ(extracted.render_items.size(), 2u);
+        const auto target_item =
+            std::ranges::find(extracted.render_items, target.get_id(), &RenderItem::entity_id);
+        const auto peer_item =
+            std::ranges::find(extracted.render_items, peer.get_id(), &RenderItem::entity_id);
+        ASSERT_NE(target_item, extracted.render_items.end());
+        ASSERT_NE(peer_item, extracted.render_items.end());
+        EXPECT_EQ(target_item->material_handle, peer_item->material_handle);
+        EXPECT_EQ(target_item->material_overrides, original);
+        EXPECT_FALSE(peer_item->material_overrides);
+
+        ASSERT_TRUE(scene.set_material_scalar(target, "roughness", 0.25f, materials));
+        const auto next = SceneExtractor::extract(scene);
+        const auto updated =
+            std::ranges::find(next.render_items, target.get_id(), &RenderItem::entity_id);
+        ASSERT_NE(updated, next.render_items.end());
+        ASSERT_TRUE(updated->material_overrides);
+        EXPECT_NE(updated->material_overrides, original);
+        EXPECT_FLOAT_EQ(updated->material_overrides->scalar_properties.at("roughness"), 0.25f);
+        EXPECT_TRUE(original->scalar_properties.empty());
+        EXPECT_EQ(original->vector_properties.at("base_color"), color);
+        EXPECT_EQ(target_item->material_overrides, original);
+
+        ASSERT_TRUE(runtime.stop());
+        const auto stopped = SceneExtractor::extract(scene);
+        for(const auto& item : stopped.render_items)
+            EXPECT_FALSE(item.material_overrides);
+        EXPECT_EQ(target_item->material_overrides, original);
+        ASSERT_TRUE(runtime.start(scene));
+        for(const auto& item : SceneExtractor::extract(scene).render_items)
+            EXPECT_FALSE(item.material_overrides);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(SceneExtractorTest, MaterialRebindingAndComponentRemovalDiscardRuntimeOverrides) {
+        AssetRegistry assets;
+        for(const auto handle : {AssetHandle{20}, AssetHandle{30}})
+            ASSERT_TRUE(assets.register_asset(handle, std::make_shared<Material>("shared", "pbr")));
+        MaterialPrograms materials(assets);
+        Scene scene;
+        auto target = scene.create_entity();
+        target.add_component<MeshRendererComponent>(AssetHandle{10}, AssetHandle{20});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(scene.set_material_scalar(target, "roughness", 0.25f, materials));
+        const auto before_rebind = scene.get_material_overrides(target);
+        ASSERT_TRUE(before_rebind);
+        target.get_component<MeshRendererComponent>().material = AssetHandle{30};
+        const auto rebound = SceneExtractor::extract(scene);
+        ASSERT_EQ(rebound.render_items.size(), 1u);
+        EXPECT_EQ(rebound.render_items.front().material_handle, AssetHandle{30});
+        EXPECT_FALSE(rebound.render_items.front().material_overrides);
+        ASSERT_TRUE(scene.set_material_scalar(target, "roughness", 0.5f, materials));
+        const auto before_removal = scene.get_material_overrides(target);
+        ASSERT_TRUE(before_removal);
+        EXPECT_EQ(before_removal->material, AssetHandle{30});
+        EXPECT_NE(before_removal->instance_id, before_rebind->instance_id);
+        target.remove_component<MeshRendererComponent>();
+        EXPECT_TRUE(SceneExtractor::extract(scene).render_items.empty());
+        target.add_component<MeshRendererComponent>(AssetHandle{10}, AssetHandle{30});
+        const auto restored = SceneExtractor::extract(scene);
+        ASSERT_EQ(restored.render_items.size(), 1u);
+        EXPECT_FALSE(restored.render_items.front().material_overrides);
+        EXPECT_FLOAT_EQ(before_rebind->scalar_properties.at("roughness"), 0.25f);
+        EXPECT_FLOAT_EQ(before_removal->scalar_properties.at("roughness"), 0.5f);
+        ASSERT_TRUE(runtime.stop());
     }
 
     TEST(SceneExtractorTest, ExtractsOnlyEntitiesWithRequiredComponents) {

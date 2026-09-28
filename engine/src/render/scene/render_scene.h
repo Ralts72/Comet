@@ -8,9 +8,12 @@
 #include "scene/scene_settings.h"
 
 #include <optional>
+#include <memory>
 #include <vector>
 
 namespace Comet {
+    struct MaterialOverrides;
+
     struct COMET_API RenderCamera {
         enum class Projection { Perspective, Orthographic };
         enum class ProjectionIssue {
@@ -39,6 +42,7 @@ namespace Comet {
         Math::Mat4 model_matrix = Math::Mat4(1.0f);
         AssetHandle mesh_handle = INVALID_ASSET_HANDLE;
         AssetHandle material_handle = INVALID_ASSET_HANDLE;
+        std::shared_ptr<const MaterialOverrides> material_overrides;
     };
 
     struct RenderScene {

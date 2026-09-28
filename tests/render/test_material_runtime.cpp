@@ -7,6 +7,7 @@
 #include "render/render_context.h"
 #include "render/resource/render_resources.h"
 #include "asset/data/mesh_data.h"
+#include "asset/data/material_data.h"
 #include "asset/data/texture_data.h"
 #include "asset/registry.h"
 #include "render/material/material.h"
@@ -188,6 +189,153 @@ namespace Comet::Tests {
         ASSERT_TRUE(fixed_result) << fixed_result.error();
         const auto fixed = std::make_shared<MaterialLayout>(std::move(fixed_result).value());
         EXPECT_TRUE(cache.prepare(AssetHandle(1), material, fixed));
+    }
+
+    TEST(MaterialRuntimeTest, IsolatesRuntimeOverridesAndPreservesSharedMaterialAndOldSnapshots) {
+        MaterialRuntimeCache cache;
+        const AssetHandle handle(81);
+        const auto material = std::make_shared<Material>("shared", "unlit_color");
+        const auto layout = MaterialLayout::find_builtin("unlit_color");
+        ASSERT_TRUE(layout);
+        ASSERT_TRUE(material->set_scalar_property("intensity", 0.4f));
+        ASSERT_TRUE(material->set_vector_property("color", {0.1f, 0.2f, 0.3f, 1}));
+        const auto revision = material->get_revision();
+        const auto first_overrides =
+            std::make_shared<MaterialOverrides>(MaterialOverrides{.instance_id = 1,
+                .material = handle,
+                .scalar_properties = {{"intensity", 0.25f}},
+                .vector_properties = {{"color", {0.2f, 0.4f, 0.6f, 1}}}});
+        const auto second_overrides =
+            std::make_shared<MaterialOverrides>(MaterialOverrides{.instance_id = 2,
+                .material = handle,
+                .scalar_properties = {{"intensity", 0.75f}},
+                .vector_properties = {{"color", {0.6f, 0.4f, 0.2f, 1}}}});
+        const auto base = cache.prepare(handle, material, layout);
+        const auto first = cache.prepare(handle, material, layout, first_overrides);
+        const auto second = cache.prepare(handle, material, layout, second_overrides);
+        ASSERT_TRUE(base);
+        ASSERT_TRUE(first) << first.error();
+        ASSERT_TRUE(second) << second.error();
+        EXPECT_NE(first.value(), second.value());
+        EXPECT_EQ(first.value(), cache.prepare(handle, material, layout, first_overrides).value());
+        EXPECT_EQ(
+            second.value(), cache.prepare(handle, material, layout, second_overrides).value());
+        EXPECT_EQ(base.value(), cache.prepare(handle, material, layout).value());
+        std::array<float, 8> values{};
+        std::memcpy(values.data(), first.value()->parameters.data(), sizeof(values));
+        EXPECT_FLOAT_EQ(values[0], 0.2f);
+        EXPECT_FLOAT_EQ(values[4], 0.25f);
+        std::memcpy(values.data(), second.value()->parameters.data(), sizeof(values));
+        EXPECT_FLOAT_EQ(values[0], 0.6f);
+        EXPECT_FLOAT_EQ(values[4], 0.75f);
+        EXPECT_EQ(material->get_revision(), revision);
+        EXPECT_FLOAT_EQ(*material->get_scalar_property("intensity"), 0.4f);
+        EXPECT_EQ(*material->get_vector_property("color"), Math::Vec4(0.1f, 0.2f, 0.3f, 1));
+
+        auto changed_overrides = std::make_shared<MaterialOverrides>(*first_overrides);
+        changed_overrides->scalar_properties["intensity"] = 0.9f;
+        const auto changed = cache.prepare(handle, material, layout, changed_overrides);
+        ASSERT_TRUE(changed);
+        EXPECT_NE(first.value(), changed.value());
+        std::memcpy(values.data(), changed.value()->parameters.data(), sizeof(values));
+        EXPECT_FLOAT_EQ(values[4], 0.9f);
+        std::memcpy(values.data(), first.value()->parameters.data(), sizeof(values));
+        EXPECT_FLOAT_EQ(values[4], 0.25f);
+
+        const auto cleared_overrides = std::make_shared<MaterialOverrides>(
+            MaterialOverrides{.instance_id = 1, .material = handle});
+        const auto cleared = cache.prepare(handle, material, layout, cleared_overrides);
+        ASSERT_TRUE(cleared);
+        std::memcpy(values.data(), cleared.value()->parameters.data(), sizeof(values));
+        EXPECT_FLOAT_EQ(values[0], 0.1f);
+        EXPECT_FLOAT_EQ(values[4], 0.4f);
+        EXPECT_EQ(
+            second.value(), cache.prepare(handle, material, layout, second_overrides).value());
+    }
+
+    TEST(MaterialRuntimeTest, RebindsRuntimeOverridesAndRejectsIncompatibleLayoutTransaction) {
+        MaterialRuntimeCache cache;
+        const AssetHandle handle(82);
+        const auto material = std::make_shared<Material>("shared", "solid");
+        auto original_layout = MaterialLayout::create(
+            "solid", {}, 32, {{"intensity", 16, 1.0f}}, {{"color", 0, {1, 1, 1, 1}}});
+        ASSERT_TRUE(original_layout);
+        const auto layout = std::make_shared<MaterialLayout>(std::move(original_layout).value());
+        const auto overrides =
+            std::make_shared<MaterialOverrides>(MaterialOverrides{.instance_id = 3,
+                .material = handle,
+                .scalar_properties = {{"intensity", 0.6f}},
+                .vector_properties = {{"color", {0.2f, 0.3f, 0.4f, 1}}}});
+        const auto original = cache.prepare(handle, material, layout, overrides);
+        ASSERT_TRUE(original);
+        auto shifted_layout = MaterialLayout::create(
+            "solid", {}, 48, {{"intensity", 0, 1.0f}}, {{"color", 16, {1, 1, 1, 1}}});
+        ASSERT_TRUE(shifted_layout);
+        const auto shifted = std::make_shared<MaterialLayout>(std::move(shifted_layout).value());
+        auto candidates = cache;
+        const auto rebound = candidates.rebind(MaterialInstanceKey{handle, 3}, shifted);
+        ASSERT_TRUE(rebound) << rebound.error();
+        ASSERT_EQ(rebound.value()->parameters.size(), 48u);
+        std::array<float, 12> values{};
+        std::memcpy(values.data(), rebound.value()->parameters.data(), sizeof(values));
+        EXPECT_FLOAT_EQ(values[0], 0.6f);
+        EXPECT_FLOAT_EQ(values[4], 0.2f);
+        EXPECT_FLOAT_EQ(values[5], 0.3f);
+        EXPECT_FLOAT_EQ(values[6], 0.4f);
+        EXPECT_EQ(original.value(), cache.prepare(handle, material, layout, overrides).value());
+
+        auto incompatible_layout =
+            MaterialLayout::create("solid", {}, 32, {}, {{"color", 0, {1, 1, 1, 1}}});
+        ASSERT_TRUE(incompatible_layout);
+        const auto incompatible =
+            std::make_shared<MaterialLayout>(std::move(incompatible_layout).value());
+        EXPECT_FALSE(candidates.rebind(MaterialInstanceKey{handle, 3}, incompatible));
+        EXPECT_EQ(original.value(), cache.prepare(handle, material, layout, overrides).value());
+        std::array<float, 8> old_values{};
+        std::memcpy(old_values.data(), original.value()->parameters.data(), sizeof(old_values));
+        EXPECT_FLOAT_EQ(old_values[0], 0.2f);
+        EXPECT_FLOAT_EQ(old_values[4], 0.6f);
+
+        ASSERT_TRUE(material->set_vector_property("color", {0, 1, 0, 1}));
+        const auto revised = cache.prepare(handle, material, layout, overrides);
+        ASSERT_TRUE(revised);
+        EXPECT_NE(original.value(), revised.value());
+        std::memcpy(old_values.data(), revised.value()->parameters.data(), sizeof(old_values));
+        EXPECT_FLOAT_EQ(old_values[0], 0.2f);
+        auto replacement = std::make_shared<Material>("replacement", "solid");
+        const auto replaced = cache.prepare(handle, replacement, layout, overrides);
+        ASSERT_TRUE(replaced);
+        EXPECT_NE(revised.value(), replaced.value());
+    }
+
+    TEST(MaterialRuntimeTest, CollectsRuntimeInstancesAndRejectsMismatchedIdentity) {
+        MaterialRuntimeCache cache;
+        const AssetHandle handle(83);
+        const auto material = std::make_shared<Material>("shared", "unlit_color");
+        const auto layout = MaterialLayout::find_builtin("unlit_color");
+        auto overrides = std::make_shared<MaterialOverrides>(MaterialOverrides{
+            .instance_id = 4, .material = handle, .scalar_properties = {{"intensity", 0.5f}}});
+        const auto old = cache.prepare(handle, material, layout, overrides);
+        ASSERT_TRUE(old);
+        cache.collect_unused();
+        cache.collect_unused();
+        const auto current = cache.prepare(handle, material, layout, overrides);
+        ASSERT_TRUE(current);
+        EXPECT_NE(old.value(), current.value());
+        const auto base = cache.prepare(handle, material, layout);
+        ASSERT_TRUE(base);
+        cache.erase(MaterialInstanceKey{handle, 4});
+        EXPECT_FALSE(cache.rebind(MaterialInstanceKey{handle, 4}, layout));
+        EXPECT_EQ(base.value(), cache.prepare(handle, material, layout).value());
+        ASSERT_TRUE(cache.prepare(handle, material, layout, overrides));
+        cache.erase(handle);
+        EXPECT_FALSE(cache.rebind(MaterialInstanceKey{handle, 4}, layout));
+        EXPECT_FALSE(cache.rebind(handle, layout));
+        EXPECT_EQ(old.value()->layout, layout);
+        EXPECT_FALSE(cache.prepare(AssetHandle(84), material, layout, overrides));
+        const auto invalid =
+            std::make_shared<MaterialOverrides>(MaterialOverrides{.material = handle});
+        EXPECT_FALSE(cache.prepare(handle, material, layout, invalid));
     }
 
     class MaterialRuntimeGpuTest: public EngineTest {

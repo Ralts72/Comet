@@ -1,6 +1,7 @@
 #include "render/material/material_runtime.h"
 #include "render/material/material_layout.h"
 
+#include "asset/data/material_data.h"
 #include "render/material/material.h"
 
 #include <algorithm>
@@ -11,13 +12,17 @@
 namespace Comet {
     Result<std::shared_ptr<const PreparedMaterial>> MaterialRuntimeCache::prepare(
         const AssetHandle handle, const std::shared_ptr<const Material>& material,
-        const std::shared_ptr<const MaterialLayout>& layout) {
+        const std::shared_ptr<const MaterialLayout>& layout,
+        const std::shared_ptr<const MaterialOverrides>& overrides) {
         using Preparation = Result<std::shared_ptr<const PreparedMaterial>>;
         if(!material || !layout)
             return Preparation::failure("Material preparation requires a source and layout");
-        auto& entry = m_entries[handle];
+        if(overrides && (overrides->instance_id == 0 || overrides->material != handle))
+            return Preparation::failure("Material overrides require a matching runtime identity");
+        const MaterialInstanceKey key{handle, overrides ? overrides->instance_id : 0};
+        auto& entry = m_entries[key];
         entry.used = true;
-        if(entry.source == material && entry.layout == layout
+        if(entry.source == material && entry.layout == layout && entry.overrides == overrides
             && entry.material_revision == material->get_revision()) {
             if(!entry.error.empty())
                 return Preparation::failure(entry.error);
@@ -25,6 +30,7 @@ namespace Comet {
         }
         entry.source = material;
         entry.layout = layout;
+        entry.overrides = overrides;
         entry.material_revision = material->get_revision();
         entry.prepared.reset();
         entry.error.clear();
@@ -33,17 +39,33 @@ namespace Comet {
                           + "', renderer provided '" + layout->get_name() + "'";
             return Preparation::failure(entry.error);
         }
+        if(overrides) {
+            if(const auto checked = layout->validate_parameters(*overrides); !checked) {
+                entry.error = checked.error();
+                return Preparation::failure(entry.error);
+            }
+        }
         auto prepared = std::make_shared<PreparedMaterial>();
         prepared->layout = layout;
         prepared->parameters.resize(layout->get_parameter_size());
         for(const auto& property : layout->get_scalars()) {
-            const float value =
+            float value =
                 material->get_scalar_property(property.name).value_or(property.default_value);
+            if(overrides) {
+                const auto found = overrides->scalar_properties.find(property.name);
+                if(found != overrides->scalar_properties.end())
+                    value = found->second;
+            }
             std::memcpy(prepared->parameters.data() + property.offset, &value, sizeof(value));
         }
         for(const auto& property : layout->get_vectors()) {
-            const auto value =
+            auto value =
                 material->get_vector_property(property.name).value_or(property.default_value);
+            if(overrides) {
+                const auto found = overrides->vector_properties.find(property.name);
+                if(found != overrides->vector_properties.end())
+                    value = found->second;
+            }
             for(int component = 0; component < 4; ++component) {
                 std::memcpy(
                     prepared->parameters.data() + property.offset + component * sizeof(float),
@@ -65,20 +87,26 @@ namespace Comet {
     }
 
     Result<std::shared_ptr<const PreparedMaterial>> MaterialRuntimeCache::rebind(
-        AssetHandle handle, const std::shared_ptr<const MaterialLayout>& layout) {
-        const auto found = m_entries.find(handle);
+        MaterialInstanceKey key, const std::shared_ptr<const MaterialLayout>& layout) {
+        const auto found = m_entries.find(key);
         if(found == m_entries.end())
             return Result<std::shared_ptr<const PreparedMaterial>>::failure(
                 "Resident material source is missing");
         const auto source = found->second.source;
+        const auto overrides = found->second.overrides;
         const bool used = found->second.used;
-        auto result = prepare(handle, source, layout);
+        auto result = prepare(key.material_handle, source, layout, overrides);
         found->second.used = used;
         return result;
     }
 
     void MaterialRuntimeCache::swap(MaterialRuntimeCache& other) noexcept {
         m_entries.swap(other.m_entries);
+    }
+
+    void MaterialRuntimeCache::erase(const AssetHandle handle) {
+        std::erase_if(
+            m_entries, [&](const auto& entry) { return entry.first.material_handle == handle; });
     }
 
     void MaterialRuntimeCache::collect_unused() {

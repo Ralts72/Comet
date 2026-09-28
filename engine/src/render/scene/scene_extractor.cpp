@@ -35,7 +35,8 @@ namespace Comet {
                 render_scene.render_items.push_back({.entity_id = entity.get_id(),
                     .model_matrix = world_transform.world_matrix,
                     .mesh_handle = mesh.mesh,
-                    .material_handle = mesh.material});
+                    .material_handle = mesh.material,
+                    .material_overrides = scene.get_material_overrides(entity)});
             });
 
         render_scene.lights.reserve(scene.component_count<LightComponent>());

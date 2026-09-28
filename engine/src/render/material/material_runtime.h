@@ -6,15 +6,23 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace Comet {
     class Material;
     class Texture;
     class MaterialLayout;
+    struct MaterialOverrides;
+
+    struct MaterialInstanceKey {
+        AssetHandle material_handle;
+        uint64_t instance_id = 0;
+
+        auto operator<=>(const MaterialInstanceKey&) const = default;
+    };
 
     struct PreparedMaterial {
         struct TextureBinding {
@@ -34,12 +42,18 @@ namespace Comet {
     public:
         [[nodiscard]] Result<std::shared_ptr<const PreparedMaterial>> prepare(AssetHandle handle,
             const std::shared_ptr<const Material>& material,
-            const std::shared_ptr<const MaterialLayout>& layout);
+            const std::shared_ptr<const MaterialLayout>& layout,
+            const std::shared_ptr<const MaterialOverrides>& overrides = {});
 
         void collect_unused();
-        void erase(AssetHandle handle) { m_entries.erase(handle); }
+        void erase(AssetHandle handle);
+        void erase(MaterialInstanceKey key) { m_entries.erase(key); }
         Result<std::shared_ptr<const PreparedMaterial>> rebind(
-            AssetHandle handle, const std::shared_ptr<const MaterialLayout>& layout);
+            MaterialInstanceKey key, const std::shared_ptr<const MaterialLayout>& layout);
+        Result<std::shared_ptr<const PreparedMaterial>> rebind(
+            AssetHandle handle, const std::shared_ptr<const MaterialLayout>& layout) {
+            return rebind(MaterialInstanceKey{handle}, layout);
+        }
         void swap(MaterialRuntimeCache& other) noexcept;
         void merge(MaterialRuntimeCache&& candidates);
 
@@ -47,11 +61,12 @@ namespace Comet {
         struct Entry {
             std::shared_ptr<const Material> source;
             std::shared_ptr<const MaterialLayout> layout;
+            std::shared_ptr<const MaterialOverrides> overrides;
             uint64_t material_revision = 0;
             std::shared_ptr<const PreparedMaterial> prepared;
             std::string error;
             bool used = false;
         };
-        std::unordered_map<AssetHandle, Entry> m_entries;
+        std::map<MaterialInstanceKey, Entry> m_entries;
     };
 }

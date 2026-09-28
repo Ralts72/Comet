@@ -1,6 +1,7 @@
 #pragma once
 
 #include "asset/handle.h"
+#include "asset/data/material_data.h"
 #include "common/export.h"
 #include "common/result.h"
 #include "render/material/material_shader.h"
@@ -15,7 +16,7 @@ namespace Comet {
     class ShaderProgramArtifact;
 
     // 跨 RenderPass/目标重建保留已通过 GPU 发布的程序版本；不拥有目标相关 Pipeline。
-    class COMET_API MaterialPrograms {
+    class COMET_API MaterialPrograms final: public MaterialParameterValidator {
     public:
         struct Published {
             std::shared_ptr<const ShaderProgramArtifact> source;
@@ -23,6 +24,8 @@ namespace Comet {
         };
 
         explicit MaterialPrograms(const AssetRegistry& assets) : m_assets(assets) {}
+
+        [[nodiscard]] Result<void> validate(const MaterialOverrides& overrides) const override;
 
         [[nodiscard]] std::shared_ptr<const ShaderProgramArtifact> latest(AssetHandle handle) const;
         [[nodiscard]] const Published* published(

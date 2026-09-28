@@ -1,5 +1,6 @@
 #include "render/material/material_layout.h"
 #include "asset/data/shader_program_data.h"
+#include "asset/data/material_data.h"
 #include "diagnostics/logger.h"
 #include "graphics/pipeline/shader_interface.h"
 
@@ -69,6 +70,26 @@ namespace Comet {
             return fail("texture properties do not match shader bindings");
         if(parameter_block_found != (m_parameter_size > 0))
             return fail("parameter block is missing from shader");
+        return Result<void>::success();
+    }
+
+    Result<void> MaterialLayout::validate_parameters(const MaterialOverrides& overrides) const {
+        for(const auto& [name, value] : overrides.scalar_properties) {
+            const auto found = std::ranges::find(m_scalars, name, &ScalarProperty::name);
+            if(found == m_scalars.end())
+                return Result<void>::failure("Unknown scalar material parameter: " + name);
+            if(!std::isfinite(value))
+                return Result<void>::failure("Material parameter must be finite: " + name);
+            if(found->min_value < found->max_value
+                && (value < found->min_value || value > found->max_value))
+                return Result<void>::failure("Material parameter is out of range: " + name);
+        }
+        for(const auto& [name, value] : overrides.vector_properties) {
+            if(std::ranges::find(m_vectors, name, &VectorProperty::name) == m_vectors.end())
+                return Result<void>::failure("Unknown vector material parameter: " + name);
+            if(!Math::is_finite(value))
+                return Result<void>::failure("Material parameter must be finite: " + name);
+        }
         return Result<void>::success();
     }
 

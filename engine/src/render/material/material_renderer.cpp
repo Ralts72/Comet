@@ -3,6 +3,7 @@
 #include "render/material/material_layout.h"
 #include "asset/registry.h"
 #include "asset/artifact/shader_program_artifact.h"
+#include "asset/data/material_data.h"
 
 #include "diagnostics/logger.h"
 #include "graphics/device.h"
@@ -28,7 +29,6 @@
 #include <cmath>
 #include <cstddef>
 #include <iterator>
-#include <set>
 #include <string_view>
 #include <tuple>
 
@@ -71,9 +71,9 @@ namespace Comet {
     void MaterialRenderer::collect_removed_assets(const AssetRegistry& assets) {
         // 仅淘汰已注销身份；同 Handle 的旧版本仍可作为准备失败时的回退。
         std::erase_if(m_materials, [&](const auto& entry) {
-            if(assets.resolve<Material>(entry.first))
+            if(assets.resolve<Material>(entry.first.material_handle))
                 return false;
-            m_prepared.erase(entry.first);
+            m_prepared.erase(entry.first.material_handle);
             return true;
         });
         std::erase_if(m_unsupported,
@@ -332,7 +332,7 @@ namespace Comet {
         if(!prepared)
             return Preparation::failure({prepared.error()});
         std::shared_ptr<MaterialResources> previous;
-        if(const auto cached = m_materials.find(handle); cached != m_materials.end())
+        if(const auto cached = m_materials.find({handle}); cached != m_materials.end())
             previous = cached->second.resources;
         auto resources = create_material(prepared.value(), pipeline, previous);
         if(!resources)
@@ -343,7 +343,7 @@ namespace Comet {
 
     void MaterialRenderer::MaterialUpdate::publish() && {
         m_owner->m_prepared.merge(std::move(m_prepared));
-        auto& cached = m_owner->m_materials[m_handle];
+        auto& cached = m_owner->m_materials[{m_handle}];
         cached = {};
         cached.resources = std::move(m_resources);
         cached.used = true;
@@ -352,15 +352,66 @@ namespace Comet {
 
     Result<void, GraphicsError> MaterialRenderer::prepare_programs(
         const RenderSubmission& submission) {
-        std::set<std::pair<AssetHandle, std::string>> requested;
+        using RuntimeOverrides =
+            std::map<MaterialInstanceKey, std::shared_ptr<const MaterialOverrides>>;
+        std::map<std::pair<AssetHandle, std::string>, RuntimeOverrides> requested;
+        std::map<MaterialInstanceKey, const MaterialBinding*> instances;
         for(const auto& item : submission.render_items) {
-            if(!item.material.resource || !item.material.resource->get_shader_program())
+            const auto& material = item.material;
+            if(!material.resource)
                 continue;
-            requested.emplace(item.material.resource->get_shader_program(),
-                item.material.resource->get_template_name());
+            const MaterialInstanceKey key{
+                material.material_handle, material.overrides ? material.overrides->instance_id : 0};
+            if(key.instance_id)
+                instances.insert_or_assign(key, &material);
+            if(!material.resource->get_shader_program())
+                continue;
+            const auto program = std::pair{
+                material.resource->get_shader_program(), material.resource->get_template_name()};
+            auto& overrides = requested[program];
+            if(key.instance_id)
+                overrides.insert_or_assign(key, material.overrides);
+            m_project_pipelines.try_emplace(program);
         }
-        for(const auto& [handle, template_name] : requested) {
-            auto prepared = project_pipeline(handle, template_name);
+        // 先移除本次提交已不使用的运行实例；在途帧仍拥有完整旧资源。
+        std::erase_if(m_materials, [&](const auto& entry) {
+            const auto& key = entry.first;
+            if(key.instance_id && !instances.contains(key)) {
+                m_prepared.erase(key);
+                return true;
+            }
+            return false;
+        });
+        for(const auto& [key, material] : instances) {
+            const auto found = m_materials.find(key);
+            if(found == m_materials.end())
+                continue;
+            auto& cached = found->second;
+            if(cached.resources && cached.overrides != material->overrides) {
+                // 事务重绑必须读取当前快照，而不是失败候选看到的旧覆盖。
+                if(auto refreshed = m_prepared.prepare(key.material_handle, material->resource,
+                       cached.resources->pipeline->layout, material->overrides);
+                    refreshed)
+                    cached.overrides = material->overrides;
+            }
+        }
+        for(auto& [program, active] : m_project_pipelines) {
+            const auto found = requested.find(program);
+            if(found == requested.end()) {
+                if(!active.overrides.empty()) {
+                    if(active.failed_overrides)
+                        active.failed_source.reset();
+                    active.overrides.clear();
+                }
+            } else if(active.overrides != found->second) {
+                // 只重试因运行覆盖拒绝的候选；Shader 自身错误不受参数动画触发。
+                if(active.failed_overrides)
+                    active.failed_source.reset();
+                active.overrides = found->second;
+            }
+        }
+        for(const auto& [program, overrides] : requested) {
+            auto prepared = project_pipeline(program.first, program.second);
             if(!prepared)
                 return Result<void, GraphicsError>::failure(prepared.error());
         }
@@ -370,9 +421,16 @@ namespace Comet {
     Result<void, GraphicsError> MaterialRenderer::install_project_pipeline(AssetHandle handle,
         const std::string& template_name, const std::shared_ptr<const PipelineState>& builtin,
         ProjectPipeline& active, const std::shared_ptr<const ShaderProgramArtifact>& version) {
+        active.failed_overrides = false;
         auto layout = m_programs->describe(*version, template_name, builtin->layout);
         if(!layout)
             return Result<void, GraphicsError>::failure({layout.error()});
+        for(const auto& [key, overrides] : active.overrides) {
+            if(auto checked = layout.value()->validate_parameters(*overrides); !checked) {
+                active.failed_overrides = true;
+                return Result<void, GraphicsError>::failure({checked.error()});
+            }
+        }
         const auto name = "project Shader " + std::to_string(handle.value());
         auto vertex = Shader::create(m_device, name, version->vertex_words, version->vertex_entry);
         if(!vertex)
@@ -390,7 +448,8 @@ namespace Comet {
         auto materials = m_materials;
         for(auto& [material_handle, cached] : materials) {
             if(!cached.resources || cached.resources->pipeline->shader_program != handle
-                || cached.resources->pipeline->layout->get_name() != template_name)
+                || cached.resources->pipeline->layout->get_name() != template_name
+                || (material_handle.instance_id && !active.overrides.contains(material_handle)))
                 continue;
             auto rebound = prepared.rebind(material_handle, candidate.value()->layout);
             if(!rebound)
@@ -408,6 +467,7 @@ namespace Comet {
         m_materials.swap(materials);
         active.source = version;
         active.failed_source.reset();
+        active.failed_overrides = false;
         active.pipeline = std::move(candidate).value();
         return Result<void, GraphicsError>::success();
     }
@@ -539,24 +599,29 @@ namespace Comet {
             return Preparation::success(nullptr);
         }
         m_unsupported.erase(material.material_handle);
-        auto& cached = m_materials[material.material_handle];
+        const MaterialInstanceKey key{
+            material.material_handle, material.overrides ? material.overrides->instance_id : 0};
+        auto& cached = m_materials[key];
         cached.used = true;
+        cached.overrides = material.overrides;
         const auto keep_previous = [&](const GraphicsError& error) {
             if(error.is_device_lost())
                 return Preparation::failure(error);
-            std::shared_ptr<MaterialResources> previous;
-            if(cached.resources && cached.resources->pipeline == pipeline)
-                previous = cached.resources;
+            const auto& previous = cached.resources;
             if(cached.preparation_error != error.message) {
-                LOG_ERROR("Cannot prepare material for handle {}: {}; previous version {}",
-                    material.material_handle.value(), error.message,
-                    previous ? "retained" : "unavailable");
+                LOG_ERROR(
+                    "Cannot prepare material for handle {} instance {}: {}; previous complete "
+                    "version {} (template '{}', program {})",
+                    material.material_handle.value(), key.instance_id, error.message,
+                    previous ? "retained" : "unavailable",
+                    previous ? previous->prepared->layout->get_name() : std::string{},
+                    previous ? previous->pipeline->shader_program.value() : 0);
                 cached.preparation_error = error.message;
             }
             return Preparation::success(previous);
         };
-        const auto preparation =
-            m_prepared.prepare(material.material_handle, material.resource, pipeline->layout);
+        const auto preparation = m_prepared.prepare(
+            material.material_handle, material.resource, pipeline->layout, material.overrides);
         if(!preparation)
             return keep_previous({preparation.error()});
         const auto& prepared = preparation.value();
@@ -565,9 +630,7 @@ namespace Comet {
             return Preparation::success(cached.resources);
         if(cached.failed_candidate == prepared && cached.failed_pipeline.lock() == pipeline
             && frame_serial < cached.retry_after_serial) {
-            if(cached.resources && cached.resources->pipeline == pipeline)
-                return Preparation::success(cached.resources);
-            return Preparation::success(nullptr);
+            return Preparation::success(cached.resources);
         }
         auto candidate = create_material(prepared, pipeline, cached.resources);
         if(!candidate) {
@@ -716,10 +779,14 @@ namespace Comet {
                     queue.push_back({&item, std::move(material).value()});
             }
             std::stable_sort(queue.begin(), queue.end(), [](const DrawItem& a, const DrawItem& b) {
+                const auto a_instance =
+                    a.item->material.overrides ? a.item->material.overrides->instance_id : 0;
+                const auto b_instance =
+                    b.item->material.overrides ? b.item->material.overrides->instance_id : 0;
                 return std::tie(a.material->prepared->layout->get_name(),
-                           a.item->material.material_handle)
+                           a.item->material.material_handle, a_instance)
                        < std::tie(b.material->prepared->layout->get_name(),
-                           b.item->material.material_handle);
+                           b.item->material.material_handle, b_instance);
             });
             auto& command = frames.get_current_command_buffer();
             const Pipeline* active_pipeline = nullptr;
