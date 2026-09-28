@@ -143,6 +143,8 @@ namespace Comet {
         [[nodiscard]] bool schedule_loaded_texture_refresh(const AssetRecord& record);
         [[nodiscard]] bool schedule_material_refresh(const AssetRecord& record);
         [[nodiscard]] Result<bool, Error> schedule_environment(const AssetRecord& record);
+        enum class EnvironmentState { Unloaded, Preparing, Ready, Failed };
+        [[nodiscard]] Result<EnvironmentState, Error> environment_state(AssetHandle handle) const;
         Result<void, Error> publish_environment_previews(AssetCompletionBudget budget);
         // 空值表示未发布；Handle 表示已发布；错误表示不能继续处理队列。
         using ImportPublication = Result<std::optional<AssetHandle>, Error>;

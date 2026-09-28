@@ -205,6 +205,8 @@ SceneDocument 只接收激活结果并更新文档路径／保存点；EditorSce
 Stop 返回该场景时也不重置历史。Hierarchy 的 UI 状态清理由宿主保留；首次启动尚无 SceneEditor 时先绑定文档历史，
 服务装配完成后再绑定选择和引用追踪。
 Editor 每次更新取走上一 UI 帧的场景请求，只执行一个：文件弹窗提交、菜单、Play 控制、结构编辑、重命名、Mesh 拖入、资产赋值依次优先；未保存确认期间仅接收文件弹窗提交，取消弹窗则全部丢弃。未选中的请求不延后重放。
+Editor 保留帧顺序、跨面板请求仲裁与场景激活；ProjectSettings 负责项目名称、输入和启动场景的保存流程。
+MaterialShaderReload 负责内置材质程序的请求组装、主线程发布、重试与日志；ShaderReload 只做文件监控、CPU 编译和结果交付，Worker 不接触 Renderer。
 Renderer 不调用 UI 准备；SceneRenderer 不读 EditorMode/ImGui，不拥有 FrameScheduler 或呈现队列。
 `on_frame_ready` 只在取得可绘制帧后运行，拾取反馈在 Runtime 更新和场景解析后、场景与 overlay 录制前同步应用，
 因此选择框仍可进入当帧。交换链延期时不执行该回调或绘制，但 Runtime 继续推进。失败退出清空当前
@@ -230,7 +232,7 @@ InputState 同时拥有该阶段的物理与动作值，只读公开，可复制
 多个绑定合为一个按钮电平，释放其中一个仍按住的动作不会产生释放；轴与位移不伪装成按钮。
 CameraControllerSystem 只约定 `camera.*` 动作语义，具体设备、按键、反向和死区属于项目配置。
 
-项目输入设置的链路是 `InputSettingsPanel 草稿 → InputActions 校验 → 一次性请求 → Project 原子保存 → 停止态 RuntimeInput`。
+项目输入设置的链路是 `InputSettingsPanel 草稿 → InputActions 校验 → ProjectSettings 消费请求 → Project 原子保存 → 停止态 RuntimeInput`。
 面板不写文件、不操作 Engine；保存失败保留草稿，关闭丢弃未保存草稿，无变化保存由 Project 跳过写盘。
 动作和绑定数量上限由 InputActions 定义，项目解析和 UI 共用；键盘录入占用 ImGui 活动项及按键所有权，
 Esc 取消，失焦／关闭结束录入，不把捕获键同时交给编辑器快捷键。该面板仅在 Edit 可用，不代表游戏内改键已实现。
@@ -242,6 +244,9 @@ PhysicsSystem 排在脚本之后：动态刚体的外部 Transform 写入作为�
 Collider 的尺寸乘以本地正缩放，球体暂要求均匀缩放，
 刚体暂不允许父级，避免把局部 TRS 误当世界姿态。Scene 只保存 RigidBody／Collider 参数，
 Play／app 启动时创建 Jolt 世界和 body，Stop／启动失败时清理；Edit Scene 不模拟。
+接触通知表示逻辑进入／离开，不把 Jolt 休眠后停止报告接触当作离开。仅延续两端整步未活动、BodyID 仍有效的既有接触；
+静态体新增／移动或刚体移除／重建时，按受影响包围盒局部唤醒邻居，再由 Jolt 检测实际接触。
+ScriptSystem 用事件参与实体的 UUID、组件寿命和脚本 Handle 直接查询实例，不为每条通知遍历全部脚本。
 
 AudioSystem 接收同一暂停通知，停止 AudioPlayback 的设备回调，保留 Voice 播放状态；单步期间主线程独占混音推进，
 按 Context::delta_time 读取并丢弃采样。先推进原有声音，再清理结束实例、同步组件和接收本步末的新请求，
@@ -282,7 +287,8 @@ SceneResolver 只解析 Camera、Mesh、Material 和 Environment 引用，不负
 准备阶段的普通失败可保留兼容旧材质或跳过调试批次；DeviceLost 原样传播。
 不可恢复的准备／录制／提交／呈现失败使 Renderer 和 Engine 进入关闭准备，停止 System 与后台任务，
 拒绝新帧、目标切换、Shader 发布和材质候选，仍允许解绑回调；之后 wait_idle 幂等。
-prepare_frame 返回 false 只是延期。部分录制失败的命令缓冲不能结束后提交或复用；
+prepare_frame 返回 `FramePreparation::Ready`／`Deferred` 区分就绪与延期，错误保留 GraphicsError；
+render_frame 返回 `Result<void, GraphicsError>`。部分录制失败的命令缓冲不能结束后提交或复用；
 这不同于上面 System 在场景录制前失败时完成空场景帧的恢复路径。
 
 ## Lua 脚本与参数
@@ -324,6 +330,9 @@ VM 将 UUID 绑定成已有的受保护实体引用，不把 Scene 指针写进 
 
 源码最多 1 MiB、每 VM 的 Lua 堆最多 8 MiB、每次保护调用最多约 20 万条指令；
 不等于墙钟超时或安全沙箱。不开放文件、原生库、require、动态代码、元表和 rawset。
+默认参数解析与生命周期分发都在 lua_pcall 内；错误可能通过 longjmp 返回，不能依赖回调内 C++ 局部对象的析构。
+解析结果和绑定返回字符串由保护调用外层持有，回调只借用，正常或失败返回后统一释放；不承诺宿主内存耗尽后的恢复。
+参数表与会话值复用单个名称／值校验；会话值额外禁止实体引用，不为单次赋值构造临时参数表。
 Lua 只借用当前阶段的 InputState；原始按键和动作查询来自同一快照，不依赖 InputActions 或 RuntimeInput。
 Script::Invocation 与 LuaBindings::Context 各只传一个 input，结束调用后解除借用，不自行采集或消耗输入。
 模块依赖、受控实体／材质 API 与源码热替换见路线图，不在 VM 内提前建立管理框架。
@@ -454,6 +463,8 @@ LUT 在线程安全静态初始化中只积分一次，随后随每个缓存保�
 app/editor 共用引用准备：场景环境是可选引用，缺失时保留 Handle 并诊断；app 拒绝必需引用失败，编辑器允许修复。DeviceLost 始终向上传递。
 `request_load` 成功表示接受需求；`references_ready` 才判断完整环境已驻留。app 在等待期间保留候选 Scene，
 继续正常窗口事件与帧循环，就绪后再安装并启动 Runtime；背景／照明都关闭时不请求环境，失败的可选环境可回退。
+AssetManager 的私有 environment_state 从 Registry、当前 revision 的排队／预约及失败记录推导状态，不缓存第二份状态。
+重复请求不重排队；同步加载拒绝抢跑正在准备的任务；低清预览不算完成。失败等待源变化，已有完整版本仍优先作为可用版本。
 SceneResolver 不将 Registry 中尚未发布的环境当作错误，等待期间返回无环境纹理的提交；真实缺失／准备失败由资产层报告。
 已发布对象不是 Environment 时，SceneResolver 报告类型错误并按 Handle 去重，不依赖 AssetManager 的调度状态。
 ImportService 负责 CPU 导入与缓存，AssetManager 负责加载需求、revision 检查和运行时发布；二者不访问 ImGui。
@@ -467,8 +478,7 @@ EnvironmentArtifact v2 将背景、最高 16² 漫反射、最高 128² 镜面 m
 环境任务根据源尺寸估算工作集，默认共享 2 GiB CPU 预约预算；完成候选在发布或丢弃前不释放预约。
 主线程仅做小型头部／文件大小预检和 GPU 发布，CPU 大块读取、转换、校验与缓存写入在 Worker；预检后源增长超预算会失败。
 此预算不是进程 RSS 上限，也不覆盖普通纹理／Mesh 解码或 GPU 分配；GPU 创建仍使用现有资源工厂的预算及 Result。
-显式同步 load_environment 保留给阻塞式工具调用；app/editor 场景需求不使用它。文件复制与其他资产首次加载仍可能阻塞主线程。
-
+显式同步 load_environment 保留给尚未排队的阻塞式工具调用；app/editor 场景需求不使用它。文件复制与其他资产首次加载仍可能阻塞主线程。
 
 ### 材质准备与寿命
 
@@ -841,7 +851,7 @@ Generation 同时保活自己的 surface，旧代外部引用不能使 surface �
 设备丢失、不支持的配置及重试耗尽以 Result 错误传过 Renderer／Engine，由 Application 统一进入退出清理。
 request_swapchain_recreation 只登记请求并重置手动重试预算；begin_frame 是唯一推进恢复的入口。
 acquire／present 的自动重建请求不重置预算；提交末尾不直接重建，避免一次调用隐含多个恢复入口。
-prepare_frame 返回 Result<bool, GraphicsError>：true 可绘制、false 延期、失败保留原生码；render_frame 返回 Result<void, GraphicsError>。
+帧准备／录制结果沿用[一帧经过哪里](#一帧经过哪里)的 Ready／Deferred／错误协议。
 这不承诺全部底层录制／等待接口 noexcept；未迁移的第三方异常仍可能导致进程终止，不保证有序清理。
 Context 对外只提供借用 Surface 句柄，Surface owner 仅在 Context／Swapchain 内部共享。
 首次创建与恢复共用私有 Surface 候选创建函数，恢复路径额外校验当前呈现队列，再安装候选。

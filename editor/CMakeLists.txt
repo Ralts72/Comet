@@ -18,6 +18,7 @@ add_library(editor_core STATIC
         src/assets/source_monitor.cpp
         src/assets/material_editing.cpp
         src/render/shader_reload.cpp
+        src/render/material_shader_reload.cpp
         src/scene/command_history.cpp
         src/scene/editor_scene_session.cpp
         src/scene/scene_commands.cpp
@@ -46,6 +47,7 @@ endif ()
 add_library(editor_ui STATIC
         src/project/project_name_dialog.cpp
         src/project/input_settings_panel.cpp
+        src/project/project_settings.cpp
         src/assets/asset_reference.cpp
         src/assets/project_panel.cpp
         src/inspector/inspector.cpp

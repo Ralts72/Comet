@@ -1,6 +1,7 @@
 #include "scripting/script.h"
 #include "scene/entity.h"
 #include "scene/scene.h"
+#include "scene/scene_runtime.h"
 #include <gtest/gtest.h>
 
 namespace Comet::Tests {
@@ -138,6 +139,61 @@ namespace Comet::Tests {
         EXPECT_TRUE(Script::create(
             "assert(io == nil and os == nil and package == nil and debug == nil and load == nil and pcall == nil); return {}"));
         EXPECT_FALSE(Script::create("comet.rotate(0, 1, 0); return {}"));
+    }
+
+    TEST(ScriptSourceTest, InvalidPropertyConversionStaysWithinProtectedCall) {
+        for(const char* invalid : {"{1, 'invalid', 3}", "{type = 'unknown'}", "function() end",
+                "string.rep('x', 4097)"}) {
+            const auto source =
+                std::string("return {properties = {text = 'kept', invalid = ") + invalid + "}}";
+            const auto script = Script::create(source, "invalid_properties.lua");
+            ASSERT_FALSE(script);
+            EXPECT_NE(script.error().message.find("invalid_properties.lua"), std::string::npos);
+        }
+        EXPECT_FALSE(Script::create("return {properties = {[''] = true}}"));
+        EXPECT_FALSE(Script::create(R"(return {properties = {['a\0b'] = true}})"));
+        EXPECT_TRUE(
+            Script::create("return {properties = {text = 'valid', direction = {1, 2, 3}}}"));
+        const auto overflow = Script::create(R"(
+            local properties = {}
+            for i = 1, 129 do properties['key' .. i] = string.rep('x', 64) end
+            return {properties = properties}
+        )");
+        ASSERT_FALSE(overflow);
+        EXPECT_NE(overflow.error().message.find("name/count"), std::string::npos);
+    }
+
+    TEST(ScriptInvocationTest, BindingMemoryFailureReturnsWithoutLosingHostSessionData) {
+        Scene scene;
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.start(scene));
+        const std::string payload(4096, 'x');
+        ASSERT_TRUE(scene.set_session_value("payload", payload));
+        const auto script = Script::create(R"(
+            local script = {}
+            function script:on_start()
+                self.values = {}
+                for i = 1, 4096 do self.values[i] = false end
+            end
+            function script:update()
+                for i = 1, 4096 do self.values[i] = comet.session_get('payload') end
+            end
+            return script
+        )");
+        ASSERT_TRUE(script) << script.error().message;
+        for(int attempt = 0; attempt < 3; ++attempt) {
+            auto instance = script.value()->instantiate();
+            ASSERT_TRUE(instance) << instance.error().message;
+            ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, {}, {}, {.scene = &scene}));
+            // 预留表容量后，8 MiB 上限命中 session_get 的 Lua 字符串分配。
+            const auto result =
+                instance.value()->invoke(Script::Phase::Update, {}, {}, {.scene = &scene});
+            ASSERT_FALSE(result);
+            EXPECT_NE(result.error().message.find("memory"), std::string::npos);
+            ASSERT_TRUE(scene.get_session_value("payload"));
+            EXPECT_EQ(std::get<std::string>(*scene.get_session_value("payload")), payload);
+        }
+        ASSERT_TRUE(runtime.stop());
     }
 
     TEST(ScriptInvocationTest, EntityReferencesDoNotCrossSceneGenerations) {

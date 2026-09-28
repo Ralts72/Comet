@@ -215,6 +215,13 @@ namespace Comet::Tests {
         ASSERT_TRUE(clone_runtime.stop());
         EXPECT_FALSE(scene.set_session_value("game.score", std::numeric_limits<float>::infinity()));
         EXPECT_FALSE(scene.set_session_value("", 1.0f));
+        EXPECT_FALSE(scene.set_session_value(std::string(129, 'x'), 1.0f));
+        EXPECT_FALSE(scene.set_session_value(std::string_view("bad\0key", 7), 1.0f));
+        EXPECT_FALSE(scene.set_session_value("game.score", EntityUuid::generate()));
+        EXPECT_FALSE(scene.set_session_value(
+            "game.spawn", Math::Vec3(std::numeric_limits<float>::quiet_NaN(), 0, 0)));
+        EXPECT_EQ(
+            std::get<Math::Vec3>(*scene.get_session_value("game.spawn")), Math::Vec3(1, 2, 3));
         EXPECT_FALSE(scene.set_session_value("game.note", std::string(4097, 'x')));
         EXPECT_EQ(std::get<std::string>(*scene.get_session_value("game.note")), "ready");
         ASSERT_TRUE(runtime.set_state(State::Paused));

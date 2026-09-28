@@ -4,6 +4,7 @@
 #include "scene/scene_serializer.h"
 #include "scene/systems/physics_system.h"
 
+#include <algorithm>
 #include <gtest/gtest.h>
 
 namespace Comet::Tests {
@@ -12,9 +13,15 @@ namespace Comet::Tests {
         public:
             Result<void, Error> update(Scene& scene, const Context&) override {
                 contacts = scene.get_contact_events();
+                history.insert(history.end(), contacts.begin(), contacts.end());
                 return Result<void, Error>::success();
             }
+            size_t count(Scene::ContactEvent::Kind kind) const {
+                return std::count_if(history.begin(), history.end(),
+                    [kind](const auto& event) { return event.kind == kind; });
+            }
             std::vector<Scene::ContactEvent> contacts;
+            std::vector<Scene::ContactEvent> history;
         };
 
         Entity add_body(Scene& scene, const char* name, BodyMotion motion,
@@ -97,6 +104,119 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(1.0 / 60.0));
         EXPECT_LT(falling.get_component<TransformComponent>().translation.y, 2);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(PhysicsSystemTest, SleepingContactPersistsUntilBodyActuallyMovesAway) {
+        Scene scene;
+        add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
+        auto resting = add_body(scene, "Resting", BodyMotion::Dynamic, {0, 2, 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        auto probe = std::make_unique<ContactProbe>();
+        auto* observed = probe.get();
+        ASSERT_TRUE(runtime.add_system(std::move(probe)));
+        ASSERT_TRUE(runtime.start(scene));
+        for(int step = 0; step < 200; ++step)
+            ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1u);
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionExit), 0u);
+        EXPECT_NEAR(resting.get_component<TransformComponent>().translation.y, 0.5f, 0.03f);
+
+        resting.edit_transform(
+            [](TransformComponent& transform) { transform.translation = {20, 3, 0}; });
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionExit), 1u);
+        resting.edit_transform(
+            [](TransformComponent& transform) { transform.translation = {0, 0.5f, 0}; });
+        for(int step = 0; step < 200; ++step)
+            ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 2u);
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionExit), 1u);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(PhysicsSystemTest, MovingStaticSupportWakesRestingBodyAndEndsContact) {
+        Scene scene;
+        auto floor = add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0});
+        auto resting = add_body(scene, "Resting", BodyMotion::Dynamic, {0, 0.5f, 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        auto probe = std::make_unique<ContactProbe>();
+        auto* observed = probe.get();
+        ASSERT_TRUE(runtime.add_system(std::move(probe)));
+        ASSERT_TRUE(runtime.start(scene));
+        for(int step = 0; step < 200; ++step)
+            ASSERT_TRUE(runtime.advance(0.01));
+        const auto rest_y = resting.get_component<TransformComponent>().translation.y;
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionExit), 0u);
+        floor.edit_transform([](TransformComponent& transform) { transform.translation.x = 10; });
+        for(int step = 0; step < 10; ++step)
+            ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionExit), 1u);
+        EXPECT_LT(resting.get_component<TransformComponent>().translation.y, rest_y - 0.02f);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(PhysicsSystemTest, StaticSensorEditsRecheckSleepingOverlapAndDropDestroyedContacts) {
+        Scene scene;
+        add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
+        add_body(scene, "Resting", BodyMotion::Dynamic, {0, 0.5f, 0});
+        auto sensor = add_body(scene, "Sensor", BodyMotion::Static, {10, 0.5f, 0});
+        sensor.get_component<ColliderComponent>().is_trigger = true;
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        auto probe = std::make_unique<ContactProbe>();
+        auto* observed = probe.get();
+        ASSERT_TRUE(runtime.add_system(std::move(probe)));
+        ASSERT_TRUE(runtime.start(scene));
+        for(int step = 0; step < 200; ++step)
+            ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerEnter), 0u);
+        sensor.edit_transform(
+            [](TransformComponent& transform) { transform.translation.x = 0.8f; });
+        for(int step = 0; step < 200; ++step)
+            ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerEnter), 1u);
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerExit), 0u);
+
+        sensor.get_component<ColliderComponent>().half_extents = Math::Vec3(0.1f);
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerExit), 1u);
+        sensor.get_component<ColliderComponent>().half_extents = Math::Vec3(0.5f);
+        for(int step = 0; step < 200; ++step)
+            ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerEnter), 2u);
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerExit), 1u);
+
+        scene.destroy_entity(sensor);
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerExit), 1u);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(PhysicsSystemTest, NewStaticSensorDetectsAnAlreadySleepingBody) {
+        Scene scene;
+        add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
+        add_body(scene, "Resting", BodyMotion::Dynamic, {0, 0.5f, 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        auto probe = std::make_unique<ContactProbe>();
+        auto* observed = probe.get();
+        ASSERT_TRUE(runtime.add_system(std::move(probe)));
+        ASSERT_TRUE(runtime.start(scene));
+        for(int step = 0; step < 200; ++step)
+            ASSERT_TRUE(runtime.advance(0.01));
+        auto sensor = add_body(scene, "Sensor", BodyMotion::Static, {0, 0.5f, 0});
+        sensor.get_component<ColliderComponent>().is_trigger = true;
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerEnter), 1u);
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1u);
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionExit), 0u);
         ASSERT_TRUE(runtime.stop());
     }
 

@@ -8,6 +8,7 @@
 #include <Jolt/RegisterTypes.h>
 #include <Jolt/Physics/Body/Body.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayerInterfaceTable.h>
 #include <Jolt/Physics/Collision/BroadPhase/ObjectVsBroadPhaseLayerFilterTable.h>
 #include <Jolt/Physics/Collision/ObjectLayerPairFilterTable.h>
@@ -162,6 +163,7 @@ namespace Comet {
             BodyMotion motion;
             ColliderComponent collider;
             TransformComponent last_transform;
+            bool active_before_step = false;
         };
 
         struct Contact {
@@ -214,11 +216,28 @@ namespace Comet {
             if(id.IsInvalid())
                 return Result<void, Error>::failure({"Physics body capacity exceeded"});
             bodies.emplace(entity.get_uuid(), Body{entity, id, motion, collider, transform});
+            if(motion == BodyMotion::Static)
+                wake_nearby_bodies(id);
             return Result<void, Error>::success();
+        }
+
+        void wake_nearby_bodies(const JPH::BodyID id) {
+            JPH::AABox bounds;
+            {
+                const JPH::BodyLockRead lock(world.GetBodyLockInterface(), id);
+                if(!lock.Succeeded())
+                    return;
+                bounds = lock.GetBody().GetWorldSpaceBounds();
+            }
+            // 静态支撑或触发区变化也必须让休眠邻居重新检测接触。
+            bounds.ExpandBy(
+                JPH::Vec3::sReplicate(world.GetPhysicsSettings().mSpeculativeContactDistance));
+            world.GetBodyInterface().ActivateBodiesInAABox(bounds, {}, {});
         }
 
         void remove_body(std::map<EntityUuid, Body>::iterator it) {
             auto& interface = world.GetBodyInterface();
+            wake_nearby_bodies(it->second.id);
             interface.RemoveBody(it->second.id);
             interface.DestroyBody(it->second.id);
             bodies.erase(it);
@@ -245,12 +264,16 @@ namespace Comet {
                         delta_time);
                     it->second.last_transform = transform;
                 } else if(!same_pose(it->second.last_transform, transform)) {
+                    if(rigid.motion == BodyMotion::Static)
+                        wake_nearby_bodies(it->second.id);
                     auto activation = JPH::EActivation::DontActivate;
                     if(rigid.motion != BodyMotion::Static)
                         activation = JPH::EActivation::Activate;
                     world.GetBodyInterface().SetPositionAndRotationWhenChanged(it->second.id,
                         to_position(transform.translation), to_rotation(transform.rotation),
                         activation);
+                    if(rigid.motion == BodyMotion::Static)
+                        wake_nearby_bodies(it->second.id);
                     it->second.last_transform = transform;
                 }
                 return Result<void, Error>::success();
@@ -300,6 +323,19 @@ namespace Comet {
                 current.emplace(pair,
                     Contact{first_entity, second_entity,
                         first->second->collider.is_trigger || second->second->collider.is_trigger});
+            }
+            const auto& interface = world.GetBodyInterface();
+            for(const auto& [pair, contact] : previous_contacts) {
+                if(current.contains(pair))
+                    continue;
+                const auto first = by_id.find(pair.first);
+                const auto second = by_id.find(pair.second);
+                if(first == by_id.end() || second == by_id.end())
+                    continue;
+                // Jolt 不报告休眠接触；只有两端整步未活动才能沿用上一逻辑状态。
+                if(!first->second->active_before_step && !second->second->active_before_step
+                    && !interface.IsActive(pair.first) && !interface.IsActive(pair.second))
+                    current.emplace(pair, contact);
             }
             std::vector<Scene::ContactEvent> events;
             const auto kind_for = [](const Contact& contact, const bool entering) {
@@ -363,6 +399,8 @@ namespace Comet {
         const auto delta_time = static_cast<float>(context.delta_time);
         if(auto synced = m_impl->synchronize(scene, delta_time); !synced)
             return synced;
+        for(auto& [uuid, body] : m_impl->bodies)
+            body.active_before_step = m_impl->world.GetBodyInterface().IsActive(body.id);
         if(m_impl->world.Update(delta_time, 1, &m_impl->allocator, &m_impl->jobs)
             != JPH::EPhysicsUpdateError::None)
             return Result<void, Error>::failure({"Physics simulation failed"});

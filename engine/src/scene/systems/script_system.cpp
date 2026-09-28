@@ -37,9 +37,8 @@ namespace Comet {
         m_scene = nullptr;
     }
 
-    Result<void, Error> ScriptSystem::invoke(
-        const Key& key, Entry& entry, Script::Phase phase, const Context* context,
-        const Entity contact_other) {
+    Result<void, Error> ScriptSystem::invoke(const Key& key, Entry& entry, Script::Phase phase,
+        const Context* context, const Entity contact_other) {
         const auto& overrides = entry.entity.get_component<ScriptComponent>().parameters;
         if(!entry.overrides || *entry.overrides != overrides) {
             auto parameters = entry.script->resolve_parameters(overrides);
@@ -140,12 +139,17 @@ namespace Comet {
                     phase = Script::Phase::TriggerExit;
                     break;
             }
-            for(const auto& [self, other] : {std::pair{event.first, event.second},
-                     std::pair{event.second, event.first}}) {
-                for(auto& [key, entry] : m_entries)
-                    if(entry.entity == self && is_live(key, entry))
-                        if(auto result = invoke(key, entry, phase, &context, other); !result)
-                            return result;
+            for(const auto& [self, other] :
+                {std::pair{event.first, event.second}, std::pair{event.second, event.first}}) {
+                if(!self.has_component<ScriptComponent>())
+                    continue;
+                const auto& component = self.get_component<ScriptComponent>();
+                const Key key{self.get_uuid(), component.lifetime(), component.asset};
+                const auto found = m_entries.find(key);
+                if(found == m_entries.end() || !is_live(key, found->second))
+                    continue;
+                if(auto result = invoke(key, found->second, phase, &context, other); !result)
+                    return result;
             }
         }
         return Result<void, Error>::success();

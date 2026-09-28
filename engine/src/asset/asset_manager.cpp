@@ -192,29 +192,48 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
+    Result<AssetManager::EnvironmentState, Error> AssetManager::environment_state(
+        const AssetHandle handle) const {
+        const auto* record = m_database.find(handle);
+        if(!record || record->type != AssetType::Environment)
+            return Result<EnvironmentState, Error>::failure(
+                {"Environment is not indexed: " + std::to_string(handle.value())});
+        const auto environment = m_registry.resolve<Environment>(handle);
+        // 重载失败不影响已发布的完整版本；低清预览不算就绪。
+        if(environment && environment->has_lighting())
+            return Result<EnvironmentState, Error>::success(EnvironmentState::Ready);
+        if(!environment && m_registry.contains(handle))
+            return Result<EnvironmentState, Error>::failure({"Runtime environment type conflict"});
+        const auto revision = m_database.get_revision(handle);
+        if(const auto failed = m_failed_environments.find(handle);
+            failed != m_failed_environments.end() && failed->second == revision)
+            return Result<EnvironmentState, Error>::success(EnvironmentState::Failed);
+        const auto deferred = m_refresh_requests.find(handle);
+        if(m_task_queue->contains(handle, revision)
+            || (deferred != m_refresh_requests.end() && deferred->second == revision))
+            return Result<EnvironmentState, Error>::success(EnvironmentState::Preparing);
+        if(environment)
+            return Result<EnvironmentState, Error>::success(EnvironmentState::Failed);
+        return Result<EnvironmentState, Error>::success(EnvironmentState::Unloaded);
+    }
+
     Result<void, Error> AssetManager::request_load(
         const AssetHandle handle, const AssetType expected_type) {
         if(expected_type != AssetType::Environment)
             return ensure_loaded(handle, expected_type);
-        const auto* record = m_database.find(handle);
-        if(!record || record->type != expected_type)
-            return Result<void, Error>::failure(
-                {"Environment is not indexed: " + std::to_string(handle.value())});
-        const auto environment = m_registry.resolve<Environment>(handle);
-        if(environment && environment->has_lighting())
+        const auto state = environment_state(handle);
+        if(!state)
+            return Result<void, Error>::failure(state.error());
+        if(state.value() == EnvironmentState::Ready || state.value() == EnvironmentState::Preparing)
             return Result<void, Error>::success();
-        if(!environment && m_registry.contains(handle))
-            return Result<void, Error>::failure({"Runtime environment type conflict"});
-        const auto revision = m_database.get_revision(handle);
-        if(const auto failed = m_failed_environments.find(handle);
-            failed != m_failed_environments.end() && failed->second == revision)
+        if(state.value() == EnvironmentState::Failed)
             return Result<void, Error>::failure(
                 {"Environment preparation failed; waiting for source changes"});
-        auto scheduled = schedule_environment(*record);
+        auto scheduled = schedule_environment(*m_database.find(handle));
         if(!scheduled)
             return Result<void, Error>::failure(scheduled.error());
         if(!scheduled.value())
-            m_refresh_requests[handle] = revision;
+            m_refresh_requests[handle] = m_database.get_revision(handle);
         return Result<void, Error>::success();
     }
 
@@ -238,19 +257,26 @@ namespace Comet {
         const std::span<const AssetReference> references, const MissingAssetPolicy policy) const {
         bool ready = true;
         for(const auto& reference : references) {
-            const auto* record = m_database.find(reference.handle);
-            if(record && record->type == reference.type) {
-                if(reference.type != AssetType::Environment
-                    && m_registry.contains(reference.handle))
+            if(reference.type == AssetType::Environment) {
+                const auto state = environment_state(reference.handle);
+                if(state && state.value() == EnvironmentState::Ready)
                     continue;
-                const auto environment = m_registry.resolve<Environment>(reference.handle);
-                if(environment && environment->has_lighting())
-                    continue;
-                const auto revision = m_database.get_revision(reference.handle);
-                if(m_task_queue->contains(reference.handle, revision)
-                    || m_refresh_requests.contains(reference.handle)) {
+                if(state && state.value() == EnvironmentState::Preparing) {
                     ready = false;
                     continue;
+                }
+            } else {
+                const auto* record = m_database.find(reference.handle);
+                if(record && record->type == reference.type) {
+                    if(m_registry.contains(reference.handle))
+                        continue;
+                    const auto revision = m_database.get_revision(reference.handle);
+                    const auto deferred = m_refresh_requests.find(reference.handle);
+                    if(m_task_queue->contains(reference.handle, revision)
+                        || (deferred != m_refresh_requests.end() && deferred->second == revision)) {
+                        ready = false;
+                        continue;
+                    }
                 }
             }
             if(reference.required && policy == MissingAssetPolicy::FailRequired)
@@ -627,10 +653,15 @@ namespace Comet {
 
     Result<std::shared_ptr<Environment>, Error> AssetManager::load_environment(
         const AssetHandle handle) {
-        if(const auto current = m_registry.resolve<Environment>(handle);
-            current && !current->has_lighting())
+        const auto state = environment_state(handle);
+        if(!state)
+            return Result<std::shared_ptr<Environment>, Error>::failure(state.error());
+        if(state.value() == EnvironmentState::Preparing)
             return Result<std::shared_ptr<Environment>, Error>::failure(
                 {"Environment is still preparing; use request_load and references_ready"});
+        if(state.value() == EnvironmentState::Failed)
+            return Result<std::shared_ptr<Environment>, Error>::failure(
+                {"Environment preparation failed; waiting for source changes"});
         return load_runtime_asset<Environment>(m_database, m_registry, handle,
             AssetType::Environment,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Environment>, Error> {

@@ -31,6 +31,8 @@ namespace Comet {
     using ParameterMap = std::map<std::string, ParameterValue>;
     using PropertyValue =
         std::variant<bool, float, Math::Vec3, AssetHandle, std::string, ParameterMap, EntityUuid>;
+    [[nodiscard]] COMET_API bool valid_parameter_name(std::string_view name);
+    [[nodiscard]] COMET_API bool valid_parameter_value(const ParameterValue& value);
     [[nodiscard]] COMET_API bool valid_parameters(const ParameterMap& parameters);
 
     [[nodiscard]] COMET_API bool property_values_equal(

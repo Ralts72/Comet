@@ -10,6 +10,7 @@ extern "C" {
 }
 
 #include <cmath>
+#include <array>
 #include <cstdlib>
 #include <limits>
 #include <optional>
@@ -18,6 +19,9 @@ extern "C" {
 namespace Comet {
     struct Script::Instance::Impl {
         static constexpr size_t MEMORY_LIMIT = 8 * 1024 * 1024;
+        static constexpr std::array PHASE_NAMES{"on_start", "fixed_update", "update", "on_stop",
+            "on_collision_enter", "on_collision_exit", "on_trigger_enter", "on_trigger_exit"};
+        static_assert(PHASE_NAMES.size() == static_cast<size_t>(Phase::TriggerExit) + 1);
         lua_State* state = nullptr;
         size_t memory = 0;
         int budget = 0;
@@ -89,9 +93,7 @@ namespace Comet {
             lua_call(state, 0, 1);
             if(!lua_istable(state, -1))
                 return luaL_error(state, "Script must return a table");
-            for(const char* name :
-                {"on_start", "fixed_update", "update", "on_stop", "on_collision_enter",
-                    "on_collision_exit", "on_trigger_enter", "on_trigger_exit"}) {
+            for(const char* name : PHASE_NAMES) {
                 lua_getfield(state, -1, name);
                 const bool valid = lua_isnil(state, -1) || lua_isfunction(state, -1);
                 lua_pop(state, 1);
@@ -186,10 +188,8 @@ namespace Comet {
                 luaL_unref(state, LUA_REGISTRYINDEX, vm.parameter_table);
                 vm.parameter_table = replacement;
             }
-            const char* names[]{"on_start", "fixed_update", "update", "on_stop",
-                "on_collision_enter", "on_collision_exit", "on_trigger_enter", "on_trigger_exit"};
             lua_rawgeti(state, LUA_REGISTRYINDEX, vm.definition);
-            lua_getfield(state, -1, names[static_cast<int>(vm.phase)]);
+            lua_getfield(state, -1, PHASE_NAMES[static_cast<size_t>(vm.phase)]);
             if(lua_isnil(state, -1))
                 return 0;
             lua_rawgeti(state, LUA_REGISTRYINDEX, vm.self);
@@ -207,16 +207,12 @@ namespace Comet {
             return 0;
         }
 
-        static int default_table(lua_State* state) {
-            lua_rawgeti(state, LUA_REGISTRYINDEX, current(state).definition);
-            lua_getfield(state, -1, "properties");
-            return 1;
-        }
-        Result<void, Error> call(lua_CFunction function, int results = 0) {
+        Result<void, Error> call(lua_CFunction function, void* argument = nullptr) {
             budget = 200;
             lua_sethook(state, limit, LUA_MASKCOUNT, 1000);
             lua_pushcfunction(state, function);
-            const int status = lua_pcall(state, 0, results, 0);
+            lua_pushlightuserdata(state, argument);
+            const int status = lua_pcall(state, 1, 0, 0);
             lua_sethook(state, nullptr, 0, 0);
             if(status != LUA_OK) {
                 std::string message = "Lua raised a non-string error";
@@ -228,95 +224,101 @@ namespace Comet {
             return Result<void, Error>::success();
         }
 
-        Result<ParameterMap, Error> read_defaults() {
-            ParameterMap result;
-            if(auto read = call(default_table, 1); !read)
-                return Result<ParameterMap, Error>::failure(read.error());
-            if(lua_isnil(state, -1)) {
-                lua_settop(state, 0);
-                return Result<ParameterMap, Error>::success({});
-            }
-            if(!lua_istable(state, -1))
-                return Result<ParameterMap, Error>::failure({"properties must be a table"});
-            lua_pushnil(state);
-            while(lua_next(state, -2)) {
-                if(lua_type(state, -2) != LUA_TSTRING || result.size() >= 128)
-                    return Result<ParameterMap, Error>::failure(
-                        {"Invalid script property name/count"});
-                size_t length = 0;
-                const char* name = lua_tolstring(state, -2, &length);
-                ParameterValue value;
-                switch(lua_type(state, -1)) {
-                    case LUA_TBOOLEAN:
-                        value = static_cast<bool>(lua_toboolean(state, -1));
+        static int read_default_value(lua_State* state, ParameterValue& value) {
+            switch(lua_type(state, -1)) {
+                case LUA_TBOOLEAN:
+                    value = static_cast<bool>(lua_toboolean(state, -1));
+                    break;
+                case LUA_TNUMBER: {
+                    const auto number = lua_tonumber(state, -1);
+                    if(!std::isfinite(number)
+                        || std::abs(number) > std::numeric_limits<float>::max())
+                        return luaL_error(state, "Property needs a finite float");
+                    value = static_cast<float>(number);
+                    break;
+                }
+                case LUA_TSTRING: {
+                    size_t size = 0;
+                    const char* text = lua_tolstring(state, -1, &size);
+                    if(size > 4096)
+                        return luaL_error(state, "Property string exceeds 4096 bytes");
+                    value = std::string(text, size);
+                    break;
+                }
+                case LUA_TTABLE: {
+                    lua_getfield(state, -1, "type");
+                    const bool declared = !lua_isnil(state, -1);
+                    const bool entity_reference =
+                        lua_type(state, -1) == LUA_TSTRING && lua_rawlen(state, -1) == 6
+                        && std::string_view(lua_tostring(state, -1)) == "entity";
+                    lua_pop(state, 1);
+                    if(declared) {
+                        if(!entity_reference)
+                            return luaL_error(state, "Unknown script property type");
+                        lua_pushnil(state);
+                        while(lua_next(state, -2)) {
+                            if(lua_type(state, -2) != LUA_TSTRING || lua_rawlen(state, -2) != 4
+                                || std::string_view(lua_tostring(state, -2)) != "type")
+                                return luaL_error(state,
+                                    "Entity property only accepts type; assign its target in the scene");
+                            lua_pop(state, 1);
+                        }
+                        value = EntityUuid{};
                         break;
-                    case LUA_TNUMBER: {
+                    }
+                    if(lua_rawlen(state, -1) != 3)
+                        return luaL_error(state, "Vector property needs three numbers");
+                    Math::Vec3 vector;
+                    for(int i = 0; i < 3; ++i) {
+                        lua_rawgeti(state, -1, i + 1);
+                        if(lua_type(state, -1) != LUA_TNUMBER)
+                            return luaL_error(state, "Vector property needs numbers");
                         const auto number = lua_tonumber(state, -1);
                         if(!std::isfinite(number)
                             || std::abs(number) > std::numeric_limits<float>::max())
-                            return Result<ParameterMap, Error>::failure(
-                                {"Property needs a finite float"});
-                        value = static_cast<float>(number);
-                        break;
-                    }
-                    case LUA_TSTRING: {
-                        size_t size = 0;
-                        const char* text = lua_tolstring(state, -1, &size);
-                        value = std::string(text, size);
-                        break;
-                    }
-                    case LUA_TTABLE: {
-                        lua_getfield(state, -1, "type");
-                        const bool declared = !lua_isnil(state, -1);
-                        const bool entity_reference =
-                            lua_type(state, -1) == LUA_TSTRING && lua_rawlen(state, -1) == 6
-                            && std::string_view(lua_tostring(state, -1)) == "entity";
+                            return luaL_error(state, "Vector needs finite floats");
+                        vector[i] = static_cast<float>(number);
                         lua_pop(state, 1);
-                        if(declared) {
-                            if(!entity_reference)
-                                return Result<ParameterMap, Error>::failure(
-                                    {"Unknown script property type"});
-                            lua_pushnil(state);
-                            while(lua_next(state, -2)) {
-                                if(lua_type(state, -2) != LUA_TSTRING || lua_rawlen(state, -2) != 4
-                                    || std::string_view(lua_tostring(state, -2)) != "type")
-                                    return Result<ParameterMap, Error>::failure(
-                                        {"Entity property only accepts type; assign its target in the scene"});
-                                lua_pop(state, 1);
-                            }
-                            value = EntityUuid{};
-                            break;
-                        }
-                        if(lua_rawlen(state, -1) != 3)
-                            return Result<ParameterMap, Error>::failure(
-                                {"Vector property needs three numbers"});
-                        Math::Vec3 vector;
-                        for(int i = 0; i < 3; ++i) {
-                            lua_rawgeti(state, -1, i + 1);
-                            if(lua_type(state, -1) != LUA_TNUMBER)
-                                return Result<ParameterMap, Error>::failure(
-                                    {"Vector property needs numbers"});
-                            const auto number = lua_tonumber(state, -1);
-                            if(!std::isfinite(number)
-                                || std::abs(number) > std::numeric_limits<float>::max())
-                                return Result<ParameterMap, Error>::failure(
-                                    {"Vector needs finite floats"});
-                            vector[i] = static_cast<float>(number);
-                            lua_pop(state, 1);
-                        }
-                        value = vector;
-                        break;
                     }
-                    default:
-                        return Result<ParameterMap, Error>::failure(
-                            {"Unsupported script property type"});
+                    value = vector;
+                    break;
                 }
-                result.emplace(std::string(name, length), std::move(value));
+                default:
+                    return luaL_error(state, "Unsupported script property type");
+            }
+            return 0;
+        }
+
+        static int collect_defaults(lua_State* state) {
+            auto& vm = current(state);
+            auto& result = *static_cast<ParameterMap*>(lua_touserdata(state, 1));
+            lua_rawgeti(state, LUA_REGISTRYINDEX, vm.definition);
+            lua_getfield(state, -1, "properties");
+            if(lua_isnil(state, -1))
+                return 0;
+            if(!lua_istable(state, -1))
+                return luaL_error(state, "properties must be a table");
+            lua_pushnil(state);
+            while(lua_next(state, -2)) {
+                if(lua_type(state, -2) != LUA_TSTRING || result.size() >= 128)
+                    return luaL_error(state, "Invalid script property name/count");
+                size_t length = 0;
+                const char* name = lua_tolstring(state, -2, &length);
+                if(!valid_parameter_name(std::string_view(name, length)))
+                    return luaL_error(state, "Invalid script property name/count");
+                auto& value = result[std::string(name, length)];
+                read_default_value(state, value);
                 lua_pop(state, 1);
             }
-            lua_settop(state, 0);
-            if(!valid_parameters(result))
-                return Result<ParameterMap, Error>::failure({"Invalid script property values"});
+            return 0;
+        }
+
+        Result<ParameterMap, Error> read_defaults() {
+            // 回调只借用结果；Lua longjmp 返回后，外层仍能正常释放已解析的 C++ 值。
+            ParameterMap result;
+            const auto read = call(collect_defaults, &result);
+            if(!read)
+                return Result<ParameterMap, Error>::failure(read.error());
             return Result<ParameterMap, Error>::success(std::move(result));
         }
     };
@@ -337,7 +339,8 @@ namespace Comet {
             ++m_impl->scene_generation;
             m_impl->parameters_changed = true;
         }
-        m_impl->bindings = {entity, invocation.scene, invocation.input, m_impl->scene_generation};
+        m_impl->bindings = {
+            entity, invocation.scene, invocation.input, m_impl->scene_generation, std::nullopt};
         m_impl->parameters = &parameters;
         m_impl->delta_time = invocation.delta_time;
         m_impl->phase = phase;
@@ -384,8 +387,7 @@ namespace Comet {
             return Result<std::shared_ptr<Script>, Error>::failure(instance.error());
         auto defaults = instance.value()->m_impl->read_defaults();
         if(!defaults)
-            return Result<std::shared_ptr<Script>, Error>::failure(
-                {script->m_name + ": " + defaults.error().message});
+            return Result<std::shared_ptr<Script>, Error>::failure(defaults.error());
         script->m_defaults = std::move(defaults).value();
         return Result<std::shared_ptr<Script>, Error>::success(std::move(script));
     }

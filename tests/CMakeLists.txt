@@ -67,6 +67,7 @@ set(UNIT_TEST_SOURCES
         render/test_render_graph.cpp
         render/test_scene_extractor.cpp
         render/test_scene_picking.cpp
+        scene/test_audio_system.cpp
         scene/test_camera_controller.cpp
         scene/test_component_registry.cpp
         scene/test_entity_uuid.cpp

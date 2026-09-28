@@ -688,6 +688,10 @@ namespace Comet::Tests {
         const auto second = manager.get_database().find("two.hdr")->handle;
         ASSERT_TRUE(manager.request_load(first, AssetType::Environment));
         ASSERT_TRUE(manager.request_load(second, AssetType::Environment));
+        ASSERT_TRUE(manager.request_load(first, AssetType::Environment));
+        ASSERT_TRUE(manager.request_load(second, AssetType::Environment));
+        EXPECT_FALSE(manager.load_environment(first));
+        EXPECT_FALSE(manager.load_environment(second));
         const std::array references{AssetReference{first, AssetType::Environment},
             AssetReference{second, AssetType::Environment}};
         auto ready =
@@ -885,6 +889,13 @@ namespace Comet::Tests {
         EXPECT_EQ(registry.resolve<Environment>(handle), original.value());
         EXPECT_EQ(factory.texture_creation_count(), 6);
         EXPECT_EQ(manager.get_async_status().reserved_bytes, 0u);
+        const std::array references{AssetReference{handle, AssetType::Environment}};
+        const auto ready =
+            manager.references_ready(references, AssetManager::MissingAssetPolicy::FailRequired);
+        ASSERT_TRUE(ready);
+        EXPECT_TRUE(ready.value());
+        EXPECT_TRUE(manager.request_load(handle, AssetType::Environment));
+        EXPECT_EQ(manager.load_environment(handle).value(), original.value());
         factory.fail_texture_creation(false);
         write_hdr(source, 16, 8);
         ASSERT_TRUE(manager.scan().succeeded());

@@ -8,12 +8,6 @@
 #include <unordered_set>
 
 namespace Comet {
-    namespace {
-        bool valid_session_key(const std::string_view key) {
-            return !key.empty() && key.size() <= 128 && key.find('\0') == std::string_view::npos;
-        }
-    }
-
     bool Scene::set_post_process(const PostProcessSettings& settings) {
         if(!settings.validate())
             return false;
@@ -188,7 +182,7 @@ namespace Comet {
     }
 
     std::optional<ParameterValue> Scene::get_session_value(const std::string_view key) const {
-        if(!m_runtime_active || !valid_session_key(key))
+        if(!m_runtime_active || !valid_parameter_name(key))
             return std::nullopt;
         const auto found = m_session_values.find(std::string(key));
         if(found == m_session_values.end())
@@ -197,22 +191,18 @@ namespace Comet {
     }
 
     bool Scene::set_session_value(const std::string_view key, ParameterValue value) {
-        if(!m_runtime_active || !valid_session_key(key)
+        if(!m_runtime_active || !valid_parameter_name(key) || !valid_parameter_value(value)
             || std::holds_alternative<EntityUuid>(value))
             return false;
-        ParameterMap candidate;
-        candidate.emplace(std::string(key), std::move(value));
-        if(!valid_parameters(candidate))
+        std::string name(key);
+        if(m_session_values.size() >= 128 && !m_session_values.contains(name))
             return false;
-        if(m_session_values.size() >= 128 && !m_session_values.contains(std::string(key)))
-            return false;
-        m_session_values.insert_or_assign(
-            candidate.begin()->first, std::move(candidate.begin()->second));
+        m_session_values.insert_or_assign(std::move(name), std::move(value));
         return true;
     }
 
     bool Scene::erase_session_value(const std::string_view key) {
-        if(!m_runtime_active || !valid_session_key(key))
+        if(!m_runtime_active || !valid_parameter_name(key))
             return false;
         m_session_values.erase(std::string(key));
         return true;

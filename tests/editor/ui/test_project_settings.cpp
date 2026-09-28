@@ -1,6 +1,14 @@
 #ifdef COMET_TEST_EDITOR_UI
 #include "project/input_settings_panel.h"
+#include "project/project_creation.h"
+#include "project/project_settings.h"
+#include "asset/database.h"
+#include "common/file_io.h"
+#include "core/project.h"
+#include "scene/component_registry.h"
+#include "scene/scene_serializer.h"
 #include "support/imgui_context.h"
+#include "support/temporary_directory.h"
 
 #include <gtest/gtest.h>
 #include <imgui.h>
@@ -178,6 +186,64 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(window->Flags & ImGuiWindowFlags_Popup);
         EXPECT_FALSE(window->Flags & ImGuiWindowFlags_Modal);
         EXPECT_FALSE(panel.take_request());
+    }
+
+    TEST(ProjectSettingsTest, StartupSceneRequiresKnownOrSavedSceneAndReadableContents) {
+        Comet::Tests::TemporaryDirectory directory;
+        const auto root = directory.path() / "Project";
+        ASSERT_TRUE(create_project(root));
+        auto project = Comet::Project::load(root);
+        ASSERT_TRUE(project) << project.error();
+        Comet::AssetDatabase assets(project.value().paths());
+        ASSERT_TRUE(assets.scan().succeeded());
+        ProjectSettings settings(project.value());
+        const auto components = Comet::create_scene_component_registry();
+        const Comet::SceneSerializer serializer(components);
+        const auto initial = project.value().startup_scene();
+        const auto original = Comet::read_text_file(root / "assets" / initial);
+        ASSERT_TRUE(original);
+        const std::filesystem::path next = "scenes/new.scene";
+        ASSERT_TRUE(Comet::write_text_file_atomic(root / "assets" / next, original.value()));
+
+        EXPECT_FALSE(settings.set_startup_scene(next, {}, assets, serializer));
+        EXPECT_EQ(project.value().startup_scene(), initial);
+        ASSERT_TRUE(settings.set_startup_scene(next, next, assets, serializer));
+        EXPECT_EQ(Comet::Project::load(root).value().startup_scene(), next);
+        ASSERT_TRUE(settings.set_startup_scene(initial, {}, assets, serializer));
+
+        ASSERT_TRUE(Comet::write_text_file_atomic(root / "assets" / next, "{"));
+        EXPECT_FALSE(settings.set_startup_scene(next, next, assets, serializer));
+        EXPECT_FALSE(settings.set_startup_scene({}, {}, assets, serializer));
+        EXPECT_FALSE(
+            settings.set_startup_scene("../outside.scene", "../outside.scene", assets, serializer));
+        EXPECT_EQ(project.value().startup_scene(), initial);
+        EXPECT_EQ(Comet::Project::load(root).value().startup_scene(), initial);
+    }
+
+    TEST(ProjectSettingsTest, StartupSceneWriteConflictPreservesLoadedSettingsAndExternalFile) {
+        Comet::Tests::TemporaryDirectory directory;
+        const auto root = directory.path() / "Project";
+        ASSERT_TRUE(create_project(root));
+        auto project = Comet::Project::load(root);
+        ASSERT_TRUE(project) << project.error();
+        Comet::AssetDatabase assets(project.value().paths());
+        ProjectSettings settings(project.value());
+        const auto components = Comet::create_scene_component_registry();
+        const Comet::SceneSerializer serializer(components);
+        const auto initial = project.value().startup_scene();
+        const auto original = Comet::read_text_file(root / "assets" / initial);
+        ASSERT_TRUE(original);
+        const std::filesystem::path next = "scenes/new.scene";
+        ASSERT_TRUE(Comet::write_text_file_atomic(root / "assets" / next, original.value()));
+        const auto manifest = root / "project.json";
+        const auto external = Comet::read_text_file(manifest).value() + "\n";
+        ASSERT_TRUE(Comet::write_text_file_atomic(manifest, external));
+
+        const auto saved = settings.set_startup_scene(next, next, assets, serializer);
+        ASSERT_FALSE(saved);
+        EXPECT_NE(saved.error().find("changed since it was loaded"), std::string::npos);
+        EXPECT_EQ(project.value().startup_scene(), initial);
+        EXPECT_EQ(Comet::read_text_file(manifest).value(), external);
     }
 }
 #endif

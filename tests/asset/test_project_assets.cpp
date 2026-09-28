@@ -66,6 +66,29 @@ namespace Comet::Tests {
         }
     }
 
+    TEST(ProjectAssetsTest, DemoSceneRetainsAudioConfigurationWhenCloned) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
+        ASSERT_TRUE(project) << project.error();
+        auto loaded = serializer.load(
+            (project.value().paths().assets() / project.value().startup_scene()).string());
+        ASSERT_TRUE(loaded) << loaded.error();
+        ASSERT_EQ(loaded.value()->component_count<AudioSourceComponent>(), 1u);
+        const auto goal_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d07");
+        ASSERT_TRUE(goal_uuid);
+        const auto goal = loaded.value()->find_entity(*goal_uuid);
+        ASSERT_TRUE(goal);
+        EXPECT_FALSE(goal.get_component<AudioSourceComponent>().play_on_start);
+        auto clone = serializer.clone(*loaded.value());
+        ASSERT_TRUE(clone) << clone.error();
+        EXPECT_EQ(clone.value()->component_count<AudioSourceComponent>(), 1u);
+        EXPECT_FALSE(clone.value()
+                ->find_entity(goal.get_uuid())
+                .get_component<AudioSourceComponent>()
+                .play_on_start);
+    }
+
     class ProjectAssetIntegrationTest: public ::testing::TestWithParam<int> {};
 
     TEST_P(ProjectAssetIntegrationTest, DownloadedEnvironmentImportsAsCubemap) {

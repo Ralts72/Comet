@@ -3,14 +3,13 @@
 #include "graphics/resource/sampler.h"
 #include "assets/editor_assets.h"
 #include "assets/material_editing.h"
-#include "render/shader_reload.h"
+#include "render/material_shader_reload.h"
 #include "render/render_stats.h"
 #include "render/render_diagnostics.h"
 #include "common/file_io.h"
 #include "ui/path_dialog.h"
 #include "project/recent_projects.h"
-#include "project/project_name_dialog.h"
-#include "project/input_settings_panel.h"
+#include "project/project_settings.h"
 #include "project/project_creation.h"
 #include "project/editor_paths.h"
 #include "project/project_session.h"
@@ -120,24 +119,9 @@ namespace {
                 LOG_WARN("{}; using default editor language", preferred.error());
             }
 
-            const std::filesystem::path shader_root(COMET_BUILTIN_SHADER_DIRECTORY);
             constexpr auto quiet_period = CometEditor::DEFAULT_FILE_CHANGE_QUIET_PERIOD;
-            CometEditor::ShaderReload::Requests shader_requests;
-            for(const auto& program : Comet::builtin_material_shaders()) {
-                const auto name = std::string(program.name);
-                shader_requests.emplace(
-                    name + ".vert", Comet::ShaderCompiler::Request{
-                                        .source = shader_root / "material" / (name + ".vert"),
-                                        .stage = Comet::ShaderStage::Vertex});
-                shader_requests.emplace(
-                    name + ".frag", Comet::ShaderCompiler::Request{
-                                        .source = shader_root / "material" / (name + ".frag"),
-                                        .stage = Comet::ShaderStage::Fragment});
-            }
-            m_material_shader_reload = std::make_unique<CometEditor::ShaderReload>(
-                engine.get_task_scheduler(), std::move(shader_requests), shader_root, quiet_period);
-            if(!m_material_shader_reload->uses_native_notifications())
-                LOG_WARN("Built-in shader monitor is using periodic fallback checks");
+            m_material_shader_reload = std::make_unique<CometEditor::MaterialShaderReload>(
+                engine.get_task_scheduler(), COMET_BUILTIN_SHADER_DIRECTORY, quiet_period);
             std::error_code shortcut_file_error;
             if(std::filesystem::exists(m_shortcut_settings_path, shortcut_file_error)) {
                 auto user_shortcuts = CometEditor::EditorShortcuts::load(m_shortcut_settings_path);
@@ -250,8 +234,14 @@ namespace {
                 return action;
             if(get_engine().get_window().should_close())
                 return Comet::Result<void, Comet::Error>::success();
-            if(auto result = update_material_shaders(); !result)
-                return result;
+            auto shaders = m_material_shader_reload->update(get_engine().get_renderer());
+            if(!shaders)
+                return Comet::Result<void, Comet::Error>::failure(shaders.error());
+            if(shaders.value()) {
+                auto layouts = get_engine().get_renderer().get_material_layouts();
+                m_inspector_panel->asset_inspector().set_material_layouts(layouts);
+                m_project_panel->set_material_layouts(std::move(layouts));
+            }
             auto assets = m_assets->update();
             if(!assets)
                 return Comet::Result<void, Comet::Error>::failure(assets.error());
@@ -353,62 +343,6 @@ namespace {
                 LOG_ERROR("Cannot save allocation report: {}", saved.error());
             else
                 LOG_INFO("Allocation report saved to {}", path.string());
-        }
-
-        Comet::Result<void, Comet::Error> update_material_shaders() {
-            const auto compilation = m_material_shader_reload->update();
-            if(!compilation)
-                return Comet::Result<void, Comet::Error>::success();
-            if(!compilation->succeeded) {
-                LOG_ERROR("Material Shader compilation failed; previous version retained: {}",
-                    compilation->diagnostics);
-                return Comet::Result<void, Comet::Error>::success();
-            }
-            const auto& stages = compilation->stages;
-            Comet::MaterialShaders shaders;
-            for(const auto& program : Comet::builtin_material_shaders()) {
-                const auto name = std::string(program.name);
-                shaders.emplace(name, Comet::MaterialShaderProgram{stages.at(name + ".vert").words,
-                                          stages.at(name + ".frag").words});
-            }
-            auto result = get_engine().get_renderer().reload_material_shaders(std::move(shaders));
-            if(!result) {
-                if(result.error().is_device_lost())
-                    return Comet::Result<void, Comet::Error>::failure(result.error().as_error());
-                if(result.error().is_out_of_memory()) {
-                    if(!m_material_shader_reload->retry_delivery(compilation->revision)) {
-                        LOG_ERROR(
-                            "Material Shader publication retries exhausted; previous version retained, waiting for a new request: {}",
-                            result.error().message);
-                    } else if(m_reported_shader_retry != compilation->revision) {
-                        LOG_WARN(
-                            "Material Shader publication ran out of memory; previous version retained, retrying: {}",
-                            result.error().message);
-                        m_reported_shader_retry = compilation->revision;
-                    }
-                } else {
-                    LOG_ERROR("Material Shader publication failed; previous version retained: {}",
-                        result.error().message);
-                }
-                return Comet::Result<void, Comet::Error>::success();
-            }
-            m_reported_shader_retry = 0;
-            if(!compilation->diagnostics.empty())
-                LOG_WARN("{}", compilation->diagnostics);
-            if(result.value().pipelines == 0)
-                return Comet::Result<void, Comet::Error>::success();
-            auto material_layouts = get_engine().get_renderer().get_material_layouts();
-            m_inspector_panel->asset_inspector().set_material_layouts(material_layouts);
-            m_project_panel->set_material_layouts(std::move(material_layouts));
-            LOG_INFO(
-                "Published material Shader revision {} ({} stages compiled): {} pipelines, {} material versions, {} bindings",
-                compilation->revision, compilation->compiled_stages, result.value().pipelines,
-                result.value().material_versions, result.value().material_bindings);
-            LOG_INFO("Shader preparation: pipelines {:.2f} ms, candidate copies {:.2f} ms, "
-                     "material CPU {:.2f} ms, material GPU {:.2f} ms",
-                result.value().pipeline_preparation_ms, result.value().candidate_copy_ms,
-                result.value().material_cpu_ms, result.value().material_gpu_ms);
-            return Comet::Result<void, Comet::Error>::success();
         }
 
         bool finish_active_edit() {
@@ -513,10 +447,10 @@ namespace {
                     }
                     break;
                 case CometEditor::MenuBar::Command::RenameProject:
-                    m_project_name_dialog.request(m_project.name());
+                    m_project_settings.request_rename();
                     break;
                 case CometEditor::MenuBar::Command::ProjectInputSettings:
-                    m_input_settings_panel.request(m_project.input_actions());
+                    m_project_settings.request_input();
                     break;
                 case CometEditor::MenuBar::Command::KeyboardShortcuts:
                     m_shortcut_settings_dialog.request(m_shortcuts);
@@ -576,33 +510,14 @@ namespace {
                     }
                     break;
                 case CometEditor::MenuBar::Command::SetStartupScene: {
-                    if(!startup_scene_path || startup_scene_path->empty()) {
+                    if(!startup_scene_path) {
                         LOG_ERROR("Startup scene request has no path");
                         break;
                     }
-                    const auto& scene = *startup_scene_path;
-                    const auto* asset = m_assets->database().find(scene);
-                    const bool is_current_scene = scene == current_saved_scene();
-                    if(!is_current_scene && (!asset || asset->type != Comet::AssetType::Scene)) {
-                        LOG_WARN(
-                            "Startup scene is no longer available: {}", scene.generic_string());
-                        break;
-                    }
-                    const auto path = m_project.paths().resolve_asset_path(scene);
-                    if(!path) {
-                        LOG_ERROR("Cannot resolve startup scene: {}", path.error());
-                        break;
-                    }
-                    if(auto loaded = m_scene_serializer.load(path.value().string()); !loaded) {
-                        LOG_ERROR("Cannot use startup scene '{}': {}", scene.generic_string(),
-                            loaded.error());
-                        break;
-                    }
-                    const auto saved = m_project.save_startup_scene(scene);
+                    const auto saved = m_project_settings.set_startup_scene(*startup_scene_path,
+                        current_saved_scene(), m_assets->database(), m_scene_serializer);
                     if(!saved)
                         LOG_ERROR("Cannot set startup scene: {}", saved.error());
-                    else
-                        LOG_INFO("Startup scene set to '{}'", scene.generic_string());
                     break;
                 }
             }
@@ -721,11 +636,7 @@ namespace {
             m_console_panel->render();
             m_render_stats->render();
             m_path_dialog.render();
-            m_project_name_dialog.render();
-            if(m_editor_state.mode == CometEditor::EditorMode::Edit)
-                m_input_settings_panel.render();
-            else
-                m_input_settings_panel.set_visible(false);
+            m_project_settings.render(m_editor_state.mode == CometEditor::EditorMode::Edit);
             m_shortcut_settings_dialog.render();
             draw_unsaved_dialog();
             if(!m_scene_document->has_pending_request())
@@ -751,20 +662,7 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> process_editor_requests() {
-            if(auto actions = m_input_settings_panel.take_request()) {
-                const auto saved = m_project.save_input_actions(std::move(*actions));
-                m_input_settings_panel.complete(saved);
-                if(!saved) {
-                    LOG_WARN("Cannot save project input actions: {}", saved.error());
-                } else {
-                    const auto configured =
-                        get_engine().set_input_actions(m_project.input_actions());
-                    if(!configured)
-                        LOG_WARN(
-                            "Project input actions were saved; restart the editor to apply: {}",
-                            configured.error().message);
-                }
-            }
+            m_project_settings.update(get_engine());
             if(auto shortcuts = m_shortcut_settings_dialog.take_request()) {
                 const auto saved = shortcuts->save_overrides(m_shortcut_settings_path);
                 m_shortcut_settings_dialog.complete(saved);
@@ -772,14 +670,6 @@ namespace {
                     m_shortcuts = std::move(*shortcuts);
                 else
                     LOG_WARN("Cannot save editor shortcuts: {}", saved.error());
-            }
-            if(const auto name = m_project_name_dialog.take_request()) {
-                const auto saved = m_project.save_name(*name);
-                m_project_name_dialog.complete(saved);
-                if(!saved)
-                    LOG_WARN("Cannot rename project: {}", saved.error());
-                else
-                    LOG_INFO("Project renamed to '{}'", m_project.name());
             }
             if(auto assets = process_asset_requests(); !assets)
                 return assets;
@@ -1031,10 +921,10 @@ namespace {
 
         std::uint64_t m_reference_history_state = 0;
         Comet::Project m_project;
+        CometEditor::ProjectSettings m_project_settings{m_project};
         std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::EditorAssets> m_assets;
-        std::unique_ptr<CometEditor::ShaderReload> m_material_shader_reload;
-        uint64_t m_reported_shader_retry = 0;
+        std::unique_ptr<CometEditor::MaterialShaderReload> m_material_shader_reload;
         std::optional<CometEditor::SelectionService> m_selection;
         Comet::ComponentRegistry m_component_registry = Comet::create_scene_component_registry();
         CometEditor::CommandHistory m_command_history;
@@ -1052,8 +942,6 @@ namespace {
         std::unique_ptr<CometEditor::SceneDocument> m_scene_document;
         std::unique_ptr<CometEditor::EditorSceneSession> m_scene_session;
         CometEditor::PathDialog m_path_dialog;
-        CometEditor::ProjectNameDialog m_project_name_dialog;
-        CometEditor::InputSettingsPanel m_input_settings_panel;
         CometEditor::ShortcutSettingsDialog m_shortcut_settings_dialog;
         std::optional<std::filesystem::path> m_next_project;
         std::optional<std::filesystem::path> m_pending_project_creation;

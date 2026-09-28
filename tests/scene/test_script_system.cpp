@@ -227,18 +227,18 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
-    TEST_F(ScriptSystemTest, TriggerNotificationsReachOnlyParticipatingScripts) {
+    TEST_F(ScriptSystemTest, TriggerNotificationsReachBothParticipantsAndIgnoreOtherScripts) {
         ASSERT_TRUE(runtime.clear_systems());
         ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
         source(R"(return {
             on_trigger_enter = function(self, other)
                 assert(other:is_valid())
-                comet.translate(0, 1, 0)
+                comet.translate(1, 0, 0)
             end,
             on_trigger_exit = function(self, other)
                 assert(other:is_valid())
-                comet.translate(0, 2, 0)
+                comet.translate(2, 0, 0)
             end
         })");
         auto sensor = actor();
@@ -247,20 +247,22 @@ namespace Comet::Tests {
         auto unrelated = actor();
         unrelated.edit_transform(
             [](TransformComponent& transform) { transform.translation = {20, 0, 0}; });
-        auto target = scene.create_entity("Target");
+        auto target = actor();
         target.add_component<RigidBodyComponent>();
         target.add_component<ColliderComponent>();
         target.edit_transform(
             [](TransformComponent& transform) { transform.translation = {0, 0.3f, 0}; });
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(0.01));
-        EXPECT_FLOAT_EQ(sensor.get_component<TransformComponent>().translation.y, 1);
-        EXPECT_FLOAT_EQ(unrelated.get_component<TransformComponent>().translation.y, 0);
+        EXPECT_FLOAT_EQ(sensor.get_component<TransformComponent>().translation.x, 1);
+        EXPECT_FLOAT_EQ(target.get_component<TransformComponent>().translation.x, 1);
+        EXPECT_FLOAT_EQ(unrelated.get_component<TransformComponent>().translation.x, 20);
         target.edit_transform(
             [](TransformComponent& transform) { transform.translation = {10, 3, 0}; });
         ASSERT_TRUE(runtime.advance(0.01));
-        EXPECT_FLOAT_EQ(sensor.get_component<TransformComponent>().translation.y, 3);
-        EXPECT_FLOAT_EQ(unrelated.get_component<TransformComponent>().translation.y, 0);
+        EXPECT_FLOAT_EQ(sensor.get_component<TransformComponent>().translation.x, 3);
+        EXPECT_FLOAT_EQ(target.get_component<TransformComponent>().translation.x, 12);
+        EXPECT_FLOAT_EQ(unrelated.get_component<TransformComponent>().translation.x, 20);
         ASSERT_TRUE(runtime.stop());
     }
 

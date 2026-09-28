@@ -118,7 +118,8 @@ namespace Comet::LuaBindings {
             return push_entity_reference(state, entity, context.scene_generation);
         }
         int create_entity(lua_State* state) {
-            auto* scene = current(state).scene;
+            auto& context = current(state);
+            auto* scene = context.scene;
             if(!scene)
                 return luaL_error(state, "Entity creation requires an active scene");
             size_t length = 0;
@@ -126,7 +127,8 @@ namespace Comet::LuaBindings {
             const auto uuid = scene->request_create_entity(std::string_view(name, length));
             if(!uuid)
                 return luaL_error(state, "Cannot queue entity creation");
-            const auto value = uuid->to_string();
+            context.return_value = uuid->to_string();
+            const auto& value = std::get<std::string>(*context.return_value);
             lua_pushlstring(state, value.data(), value.size());
             return 1;
         }
@@ -148,7 +150,7 @@ namespace Comet::LuaBindings {
             size_t length = 0;
             const char* text = luaL_checklstring(state, 1, &length);
             const std::string_view key(text, length);
-            if(key.empty() || key.size() > 128 || key.find('\0') != std::string_view::npos)
+            if(!valid_parameter_name(key))
                 luaL_error(state, "Expected a session key of at most 128 bytes");
             return key;
         }
@@ -160,7 +162,8 @@ namespace Comet::LuaBindings {
         }
         int session_get(lua_State* state) {
             const auto key = session_key(state);
-            const auto value = session_scene(state).get_session_value(key);
+            auto& value = current(state).return_value;
+            value = session_scene(state).get_session_value(key);
             if(!value) {
                 lua_pushnil(state);
                 return 1;
