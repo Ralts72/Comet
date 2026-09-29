@@ -26,6 +26,7 @@
 
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <limits>
 
 namespace Comet::Tests {
     class ScriptSystemTest: public testing::Test {
@@ -509,6 +510,187 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
+    TEST_F(ScriptSystemTest, EventQueueRejectsInvalidInputsAndRecoversCapacityAfterDelivery) {
+        EXPECT_FALSE(scene.emit_event("test.event"));
+        ASSERT_TRUE(runtime.start(scene));
+        for(const auto& name :
+            {std::string{}, std::string("test\0hidden", 11), std::string(129, 'x')})
+            EXPECT_FALSE(scene.emit_event(name));
+        for(const ParameterValue& value :
+            {ParameterValue(Math::Vec4(1)), ParameterValue(EntityUuid::generate()),
+                ParameterValue(std::numeric_limits<float>::infinity()),
+                ParameterValue(std::string(4097, 'x'))})
+            EXPECT_FALSE(scene.emit_event("test.event", value));
+        for(int index = 0; index < 1024; ++index)
+            ASSERT_TRUE(scene.emit_event("test.event", static_cast<float>(index)));
+        EXPECT_FALSE(scene.emit_event("test.event"));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_TRUE(scene.emit_event("test.event"));
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(scene.emit_event("test.event"));
+    }
+
+    TEST_F(ScriptSystemTest, EventsBroadcastSnapshotsInOrderAndDeferNestedEmissions) {
+        source(R"(
+            local script = {properties = {sender = false}, events = {
+                ['test.value'] = 'on_value', ['test.nested'] = 'on_nested'}}
+            function script:on_start() self.received = 0 end
+            function script:update()
+                if not self.parameters.sender or self.sent then return end
+                self.sent = true
+                local value = {1, 2, 3}
+                comet.emit('test.value', value)
+                value[1] = 100
+                comet.emit('test.value', {4, 5, 6})
+                assert(self.received == 0)
+            end
+            function script:on_value(value)
+                self.received = self.received + 1
+                assert(value[1] == 1 + 3 * (self.received - 1))
+                comet.translate(value[1], value[2], value[3])
+                if self.received == 1 then
+                    self.first = value
+                else
+                    assert(self.first[1] == 1 and self.first[2] == 2 and self.first[3] == 3)
+                end
+                if self.parameters.sender and self.received == 1 then
+                    comet.emit('test.nested', 10)
+                end
+            end
+            function script:on_nested(value)
+                assert(self.received == 2)
+                comet.translate(0, 0, value)
+            end
+            return script
+        )");
+        auto sender = actor();
+        sender.get_component<ScriptComponent>().parameters["sender"] = true;
+        auto receiver = actor();
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0));
+        for(const auto entity : {sender, receiver})
+            EXPECT_EQ(entity.get_component<TransformComponent>().translation, Math::Vec3(5, 7, 9));
+        ASSERT_TRUE(runtime.advance(0));
+        for(const auto entity : {sender, receiver})
+            EXPECT_EQ(entity.get_component<TransformComponent>().translation, Math::Vec3(5, 7, 19));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(receiver.get_component<TransformComponent>().translation, Math::Vec3(5, 7, 19));
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(ScriptSystemTest, EventsWaitForUpdatesAndRespectPauseStepAndStop) {
+        source(R"(
+            local script = {events = {
+                ['test.start'] = 'on_started', ['test.tick'] = 'on_tick',
+                ['test.marker'] = 'on_marker'}}
+            function script:on_start()
+                self.fixed_ticks = 0
+                self.updated_ticks = 0
+                comet.emit('test.start')
+            end
+            function script:fixed_update()
+                self.fixed_ticks = self.fixed_ticks + 1
+                comet.emit('test.tick')
+            end
+            function script:update() self.updated_ticks = self.fixed_ticks end
+            function script:on_started(value)
+                assert(value == nil)
+                comet.translate(1, 0, 0)
+            end
+            function script:on_tick()
+                assert(self.updated_ticks == self.fixed_ticks)
+                comet.translate(0, 1, 0)
+            end
+            function script:on_marker(value) comet.translate(0, 0, value) end
+            return script
+        )");
+        auto entity = actor();
+        const auto& translation = entity.get_component<TransformComponent>().translation;
+        EXPECT_FALSE(scene.emit_event("test.marker", 100.0f));
+        ASSERT_TRUE(runtime.start(scene, SceneRuntime::State::Paused));
+        EXPECT_EQ(translation, Math::Vec3(0));
+        ASSERT_TRUE(scene.emit_event("test.marker", 2.0f));
+        ASSERT_TRUE(runtime.advance(1));
+        EXPECT_EQ(translation, Math::Vec3(0));
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(translation, Math::Vec3(1, 1, 2));
+        ASSERT_TRUE(runtime.advance(1));
+        EXPECT_EQ(translation, Math::Vec3(1, 1, 2));
+        ASSERT_TRUE(scene.emit_event("test.marker", 100.0f));
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(scene.emit_event("test.marker", 100.0f));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(translation, Math::Vec3(2, 1, 2));
+        ASSERT_TRUE(runtime.advance(0.03));
+        EXPECT_EQ(translation, Math::Vec3(2, 4, 2));
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(ScriptSystemTest, EventsUseLiveSubscriptionsAtDeliveryAfterEntityAndComponentChanges) {
+        source(R"(
+            local script = {properties = {amount = 1}, events = {['test.ping'] = 'on_ping'}}
+            function script:on_start() self.amount = self.parameters.amount end
+            function script:on_ping() comet.translate(self.amount, 0, 0) end
+            return script
+        )");
+        auto original = actor();
+        const auto uuid = original.get_uuid();
+        auto removed = actor();
+        auto replaced = actor();
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(scene.emit_event("test.ping"));
+
+        scene.destroy_entity(original);
+        auto replacement = scene.create_entity_with_uuid(uuid);
+        auto& replacement_script = replacement.add_component<ScriptComponent>();
+        replacement_script.asset = handle;
+        replacement_script.parameters["amount"] = 5.0f;
+        removed.remove_component<ScriptComponent>();
+        replaced.remove_component<ScriptComponent>();
+        auto& changed = replaced.add_component<ScriptComponent>();
+        changed.asset = handle;
+        changed.parameters["amount"] = 9.0f;
+
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_FLOAT_EQ(replacement.get_component<TransformComponent>().translation.x, 5);
+        EXPECT_FLOAT_EQ(replaced.get_component<TransformComponent>().translation.x, 9);
+        EXPECT_FLOAT_EQ(removed.get_component<TransformComponent>().translation.x, 0);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(ScriptSystemTest, FailedEventHandlerStopsRuntimeAndClearsPendingWork) {
+        source(R"(
+            local script = {events = {['test.fail'] = 'on_failure', ['test.next'] = 'on_next'}}
+            function script:on_failure()
+                comet.create_entity('Discarded')
+                comet.session_set('event.called', true)
+                comet.emit('test.next')
+                comet.restart_scene()
+                error('event handler failed')
+            end
+            function script:on_next() comet.translate(100, 0, 0) end
+            return script
+        )");
+        auto entity = actor();
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(scene.emit_event("test.fail"));
+        ASSERT_TRUE(scene.emit_event("test.next"));
+        const auto advanced = runtime.advance(0);
+        ASSERT_FALSE(advanced);
+        EXPECT_NE(advanced.error().message.find("event handler failed"), std::string::npos);
+        EXPECT_FALSE(runtime.is_active());
+        EXPECT_EQ(scene.entity_count(), 1u);
+        EXPECT_FALSE(scene.get_session_value("event.called"));
+        EXPECT_FALSE(scene.take_restart_request());
+        EXPECT_FLOAT_EQ(entity.get_component<TransformComponent>().translation.x, 0);
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_FLOAT_EQ(entity.get_component<TransformComponent>().translation.x, 0);
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST_F(ScriptSystemTest, TriggerNotificationsReachBothParticipantsAndIgnoreOtherScripts) {
         ASSERT_TRUE(runtime.clear_systems());
         ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
@@ -850,8 +1032,20 @@ namespace Comet::Tests {
         Input input;
         input.focus_event(true);
         input.key_event(Input::Key::Right, true);
-        for(int frame = 0; frame < 120; ++frame)
+        bool score_feedback_observed = false;
+        for(int frame = 0; frame < 120; ++frame) {
             ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
+            if(!score_feedback_observed && playing.value()->get_session_value("demo.score")) {
+                const auto center = playing.value()->find_entity(*center_uuid);
+                ASSERT_TRUE(center);
+                EXPECT_FLOAT_EQ(center.get_component<TransformComponent>().translation.y, 0.4f);
+                const auto tint = playing.value()->get_material_overrides(center);
+                ASSERT_TRUE(tint);
+                EXPECT_EQ(tint->vector_properties.at("base_color"), score_color);
+                score_feedback_observed = true;
+            }
+        }
+        EXPECT_TRUE(score_feedback_observed);
 
         const auto goal_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d07");
         const auto player_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d05");

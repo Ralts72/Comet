@@ -6,6 +6,10 @@ script.properties = {
     score_color = {type = "color", default = {0.2, 1, 0.25, 1}},
 }
 
+script.events = {
+    ["demo.score_changed"] = "on_score_changed",
+}
+
 function script:on_start()
     self.last_score = comet.session_get("demo.score") or 0
 end
@@ -23,7 +27,9 @@ function script:update()
     if comet.action_pressed("demo.restart") then
         comet.restart_scene()
     end
-    local score = comet.session_get("demo.score") or 0
+end
+
+function script:on_score_changed(score)
     if score > self.last_score then
         comet.translate(0, 0.4 * (score - self.last_score), 0)
         local color = self.parameters.score_color

@@ -14,6 +14,7 @@ extern "C" {
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 #include <variant>
 
 namespace Comet::LuaBindings {
@@ -299,6 +300,30 @@ namespace Comet::LuaBindings {
                 *value);
             return 1;
         }
+        void read_runtime_value(lua_State* state, const int index) {
+            auto& value = current(state).return_value;
+            switch(lua_type(state, index)) {
+                case LUA_TBOOLEAN:
+                    value = static_cast<bool>(lua_toboolean(state, index));
+                    break;
+                case LUA_TNUMBER:
+                    value = number(state, index);
+                    break;
+                case LUA_TSTRING: {
+                    size_t length = 0;
+                    const char* text = lua_tolstring(state, index, &length);
+                    if(length > 4096)
+                        luaL_error(state, "Runtime string exceeds 4096 bytes");
+                    value = std::string(text, length);
+                    break;
+                }
+                case LUA_TTABLE:
+                    value = read_vector3(state, index);
+                    break;
+                default:
+                    luaL_error(state, "Unsupported runtime value type");
+            }
+        }
         int session_set(lua_State* state) {
             const auto key = session_key(state);
             auto& scene = session_scene(state);
@@ -307,32 +332,33 @@ namespace Comet::LuaBindings {
                     return luaL_error(state, "Cannot remove session value");
                 return 0;
             }
-            bool accepted = false;
-            switch(lua_type(state, 2)) {
-                case LUA_TBOOLEAN:
-                    accepted =
-                        scene.set_session_value(key, static_cast<bool>(lua_toboolean(state, 2)));
-                    break;
-                case LUA_TNUMBER:
-                    accepted = scene.set_session_value(key, number(state, 2));
-                    break;
-                case LUA_TSTRING: {
-                    size_t length = 0;
-                    const char* text = lua_tolstring(state, 2, &length);
-                    if(length > 4096)
-                        return luaL_error(state, "Session string exceeds 4096 bytes");
-                    accepted = scene.set_session_value(key, std::string(text, length));
-                    break;
-                }
-                case LUA_TTABLE: {
-                    accepted = scene.set_session_value(key, read_vector3(state, 2));
-                    break;
-                }
-                default:
-                    return luaL_error(state, "Unsupported session value type");
-            }
+            read_runtime_value(state, 2);
+            auto& value = current(state).return_value;
+            const bool accepted = scene.set_session_value(key, std::move(*value));
+            value.reset();
             if(!accepted)
                 return luaL_error(state, "Cannot set session value");
+            return 0;
+        }
+        int emit(lua_State* state) {
+            luaL_checktype(state, 1, LUA_TSTRING);
+            size_t length = 0;
+            const char* text = luaL_checklstring(state, 1, &length);
+            const std::string_view name(text, length);
+            if(!valid_parameter_name(name))
+                return luaL_error(state, "Expected an event name of at most 128 bytes");
+            auto& context = current(state);
+            if(!context.scene)
+                return luaL_error(state, "Events require an active runtime scene");
+            if(lua_isnoneornil(state, 2))
+                context.return_value.reset();
+            else
+                read_runtime_value(state, 2);
+            const bool accepted = context.scene->emit_event(name, std::move(context.return_value));
+            context.return_value.reset();
+            if(!accepted)
+                return luaL_error(
+                    state, "Cannot queue event: runtime inactive or event limit reached");
             return 0;
         }
         int reference_valid(lua_State* state) {
@@ -428,9 +454,10 @@ namespace Comet::LuaBindings {
             {"restart_scene", restart_scene}, {"play_one_shot", play_one_shot},
             {"set_material_scalar", set_material_scalar},
             {"set_material_vector", set_material_vector}, {"session_get", session_get},
-            {"session_set", session_set}, {"key_down", key_down}, {"action_value", action_value},
-            {"action_down", action_down}, {"action_pressed", action_pressed},
-            {"action_released", action_released}, {nullptr, nullptr}};
+            {"session_set", session_set}, {"emit", emit}, {"key_down", key_down},
+            {"action_value", action_value}, {"action_down", action_down},
+            {"action_pressed", action_pressed}, {"action_released", action_released},
+            {nullptr, nullptr}};
         luaL_setfuncs(state, api, 1);
         lua_setglobal(state, "comet");
     }

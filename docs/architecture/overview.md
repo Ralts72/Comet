@@ -306,10 +306,10 @@ render_frame 返回 `Result<void, GraphicsError>`。部分录制失败的命令�
 
 | 所属位置 | 持有与职责 |
 | --- | --- |
-| Script | 不可变源码、字段定义（默认值与编辑语义）；创建独立 Instance |
+| Script | 不可变源码、字段定义（默认值与编辑语义）与事件声明；创建独立 Instance |
 | Script::Instance | VM、保护调用与 Lua 配置表；初始化期间借用源码，不长期复制源码 |
 | 私有 lua_bindings | 当前实体／授权输入的 API 适配，不访问 Editor 或渲染资源 |
-| ScriptSystem | 独占实例、保活所用 Script、同步组件寿命与阶段调用 |
+| ScriptSystem | 独占实例、保活所用 Script、同步组件寿命与阶段调用、交付场景通知 |
 | ScriptComponent | 持久化 Handle 与稀疏覆盖；非持久化寿命与活动定义弱引用 |
 
 复制组件不携带运行绑定。每实体独立 VM；阶段边界只查询脚本组件，新增批次按 UUID 启动，
@@ -325,7 +325,7 @@ ScriptSystem 仅在覆盖变化时 resolve_parameters，Instance 在有效值或
 两层快照分别检测覆盖和 Lua 输入，不引入跨层 revision 协议。
 明确编辑成默认值仍保存覆盖；“恢复默认参数”清空覆盖，可撤销但不重载源码。
 self.parameters 及 Vec3／Vec4 配置只读，支持 pairs／索引／长度；运行状态写到 self 的其他字段，不持久化。
-实体创建的 Vec3 与会话 Vec3 共用读取规则，普通数组与只读参数代理均可输入；
+实体创建、会话值和事件载荷的 Vec3 共用读取规则，普通数组与只读参数代理均可输入；
 必须恰好三个有限数值，拒绝额外键、数字字符串与错误维数，不通过复制参数表绕过只读语义。
 
 Script::PropertyMap 是导出字段的单一真值，不另外保存一份 defaults：每项包含 ParameterValue 默认值与编辑语义。
@@ -347,6 +347,26 @@ VM 将 UUID 绑定成已有的受保护实体引用，不把 Scene 指针写进 
 引用同时校验场景世代和 EntityId，有效引用按实体实例比较，未分配或缺失引用可安全调用 `is_valid()`。
 绑定后目标被删除、即使同 UUID 重建，已捕获的引用也不自动转向新实体；参数表重建或重新 Play 才重新解析配置。
 会话值仍只接收 bool／float／Vec3／string，不因共享 ParameterValue 类型而开放实体或 Vec4 存储。
+
+`script.events = { ["demo.score_changed"] = "on_score_changed" }` 声明场景内通知的接收方法，
+Script 创建时校验名称、方法存在且可调用，每个脚本最多 128 项；活动实例使用其所保活版本的声明。
+`comet.emit(name, value)` 只向 Scene 入队拥有值快照的 `Event`，不保存发布实体、Lua 表或函数引用。
+名称非空且不含 NUL，最多 128 字节；载荷可为空或为 bool／有限 float／Vec3／最多 4096 字节的 string，
+不接受 Entity、Vec4 或任意表。Scene 队列最多 1024 项，满时返回失败并走现有脚本错误路径。
+
+```text
+各次 Fixed Update → 提交结构请求
+普通 Update：同步脚本实例 → update → 接触回调 → 取出一次通知批次 → 逐条交付
+  → 后续 System（含 Audio）→ 提交结构请求
+```
+
+ScriptSystem 按入队顺序遍历通知，对每条通知按既有实例顺序调用 `self:handler(value)`；
+载荷 Vec3 复用只读值绑定。交付对象以此时的活动实例为准，删除／更换组件的旧实例不接收；
+交付前启动的新实例可以接收尚未消费的通知，已消费通知不会补发。结构删除请求仍在阶段末提交，
+因此仅请求删除、尚未实际销毁的实例仍参与当前批次。handler 产生的新通知留在 Scene，下一次普通更新才取出。
+`on_start` 可入队但不立即交付；暂停不消费，单步推进一批，Stop／失败／重新启动清空，不跨运行场景。
+handler 复用 Instance 的保护调用、参数缓存与失败清理，不新增 Runtime 阶段、动态连接令牌或全局 EventBus。
+会话值回答“当前状态是什么”，通知表达“刚发生了什么”；demo 的分数保留在会话，得分反馈改由通知触发。
 
 `comet.create_entity(name, options)` 将初始 Transform 与可选 MeshRenderer 值快照交给 Scene::EntityCreation，
 沿现有受限实体请求队列在阶段末提交，不在 Lua 回调内直接改 ECS 结构。

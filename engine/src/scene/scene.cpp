@@ -113,6 +113,7 @@ namespace Comet {
         m_entity_requests.clear();
         m_audio_play_requests.clear();
         m_contact_events.clear();
+        m_events.clear();
         m_session_values.clear();
         m_material_overrides.clear();
         m_restart_requested = false;
@@ -226,6 +227,7 @@ namespace Comet {
         m_entity_requests.clear();
         m_audio_play_requests.clear();
         m_contact_events.clear();
+        m_events.clear();
         m_session_values.clear();
         m_material_overrides.clear();
     }
@@ -256,6 +258,21 @@ namespace Comet {
             return false;
         m_session_values.erase(std::string(key));
         return true;
+    }
+
+    bool Scene::emit_event(const std::string_view name, std::optional<ParameterValue> value) {
+        if(!m_runtime_active || m_events.size() >= MAX_EVENTS || !valid_parameter_name(name))
+            return false;
+        if(value
+            && (!valid_parameter_value(*value) || std::holds_alternative<EntityUuid>(*value)
+                || std::holds_alternative<Math::Vec4>(*value)))
+            return false;
+        m_events.push_back({std::string(name), std::move(value)});
+        return true;
+    }
+
+    std::vector<Scene::Event> Scene::take_events() {
+        return std::exchange(m_events, {});
     }
 
     void Scene::clear_material_overrides(entt::registry&, const entt::entity entity) {

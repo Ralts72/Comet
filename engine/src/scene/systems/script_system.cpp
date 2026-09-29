@@ -38,7 +38,8 @@ namespace Comet {
     }
 
     Result<void, Error> ScriptSystem::invoke(const Key& key, Entry& entry, Script::Phase phase,
-        const Context* context, const Entity contact_other) {
+        const Context* context, const Entity contact_other, const std::string_view event_handler,
+        const ParameterValue* event_value) {
         const auto& overrides = entry.entity.get_component<ScriptComponent>().parameters;
         if(!entry.overrides || *entry.overrides != overrides) {
             auto parameters = entry.script->resolve_parameters(overrides);
@@ -52,6 +53,8 @@ namespace Comet {
         invocation.scene = m_scene;
         invocation.contact_other = contact_other;
         invocation.materials = m_materials;
+        invocation.event_handler = event_handler;
+        invocation.event_value = event_value;
         if(context) {
             invocation.delta_time = context->delta_time;
             invocation.input = &context->input;
@@ -151,10 +154,29 @@ namespace Comet {
         }
         return Result<void, Error>::success();
     }
+    Result<void, Error> ScriptSystem::dispatch_events(Scene& scene, const Context& context) {
+        const auto events = scene.take_events();
+        for(const auto& event : events) {
+            for(auto& [key, entry] : m_entries) {
+                const auto& handlers = entry.script->event_handlers();
+                const auto handler = handlers.find(event.name);
+                if(handler == handlers.end())
+                    continue;
+                const auto* value = event.value ? &*event.value : nullptr;
+                if(auto delivered = invoke(
+                       key, entry, Script::Phase::Event, &context, {}, handler->second, value);
+                    !delivered)
+                    return delivered;
+            }
+        }
+        return Result<void, Error>::success();
+    }
     Result<void, Error> ScriptSystem::update(Scene& scene, const Context& context) {
         if(auto updated = dispatch(scene, context, Script::Phase::Update); !updated)
             return updated;
-        return dispatch_contacts(scene, context);
+        if(auto contacted = dispatch_contacts(scene, context); !contacted)
+            return contacted;
+        return dispatch_events(scene, context);
     }
     void ScriptSystem::on_stop(Scene&) noexcept {
         stop_all();

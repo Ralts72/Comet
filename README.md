@@ -406,6 +406,24 @@ local id = comet.create_entity("Marker", {
 最多 128 个键，键长最多 128 字节；向量可直接传入导出的 Vec3 参数，不接受数字字符串或额外字段。
 写入立即对后续脚本调用可见；暂停保留，单步照常更新，Stop、运行失败或再次启动会清空。
 这些值不进入 `.scene`，也不会从编辑器 Play 写回 Edit 场景；`on_stop` 不访问会话状态。
+需要通知其他脚本时，用 `comet.emit("demo.score_changed", score)` 发布场景内通知，
+接收脚本声明事件名到方法名的映射，不必每帧轮询会话值：
+
+```lua
+local script = {}
+script.events = { ["demo.score_changed"] = "on_score_changed" }
+
+function script:on_score_changed(score)
+    -- 根据新分数更新本实体的表现。
+end
+
+return script
+```
+
+载荷支持与会话值相同的类型，也可省略；向量在接收端只读。通知在普通更新和接触回调结束后，
+按入队顺序交给当前声明了该事件的脚本实例；处理函数再发出的通知留到下次有效更新。
+暂停保留、单步交付一批，Stop／运行失败／重开清空；不跨场景、不持久化，也不自动重放给后来订阅的实例。
+通知不是状态存储：demo 仍用会话值保存分数，用通知驱动立方体上升和变色。
 脚本在更新阶段（含固定更新、碰撞和触发回调）可调用 `comet.restart_scene()` 请求重开本局；
 请求在下一次宿主更新处理，不中断当前脚本；`on_start`／`on_stop` 禁止重开。
 app 恢复启动基线，Editor 恢复保留的 Edit 场景，不重读磁盘；暂停状态保留，长按重开键不连续触发。

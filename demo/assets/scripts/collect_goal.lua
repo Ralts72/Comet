@@ -13,6 +13,7 @@ function script:on_trigger_enter(other)
     self.collected = true
     local score = (comet.session_get("demo.score") or 0) + 1
     comet.session_set("demo.score", score)
+    comet.emit("demo.score_changed", score)
     comet.play_one_shot()
     local x, y, z = comet.position()
     comet.create_entity("Collected_Goal_" .. score, {

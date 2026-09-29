@@ -5,6 +5,7 @@
 #include "scripting/script.h"
 #include <map>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 namespace Comet {
@@ -39,8 +40,10 @@ namespace Comet {
         Result<void, Error> synchronize(Scene& scene);
         Result<void, Error> dispatch(Scene& scene, const Context& context, Script::Phase phase);
         Result<void, Error> invoke(const Key& key, Entry& entry, Script::Phase phase,
-            const Context* context = nullptr, Entity contact_other = {});
+            const Context* context = nullptr, Entity contact_other = {},
+            std::string_view event_handler = {}, const ParameterValue* event_value = nullptr);
         Result<void, Error> dispatch_contacts(Scene& scene, const Context& context);
+        Result<void, Error> dispatch_events(Scene& scene, const Context& context);
         void stop_entry(const Key& key, Entry& entry) noexcept;
         void stop_all() noexcept;
 

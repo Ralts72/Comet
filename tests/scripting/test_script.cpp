@@ -373,6 +373,75 @@ namespace Comet::Tests {
         EXPECT_FALSE(Script::create("comet.rotate(0, 1, 0); return {}"));
     }
 
+    TEST(ScriptSourceTest, EventDeclarationsRequireNamedMethodsAndBoundedValidNames) {
+        for(const char* events : {"true", "'invalid'", "{[1] = 'on_event'}", "{[''] = 'on_event'}",
+                R"({['test\0hidden'] = 'on_event'})", "{['test.event'] = ''}",
+                R"({['test.event'] = 'on_event\0hidden'})", "{['test.event'] = false}",
+                "{['test.event'] = function() end}", "{['test.event'] = 'missing'}",
+                "{['test.event'] = 'not_a_function'}", "{[string.rep('x', 129)] = 'on_event'}"}) {
+            SCOPED_TRACE(events);
+            const auto code = std::string("return {on_event = function() end, not_a_function = 1, "
+                                          "events = ")
+                              + events + "}";
+            const auto script = Script::create(code, "event_schema.lua");
+            ASSERT_FALSE(script);
+            EXPECT_NE(script.error().message.find("event_schema.lua"), std::string::npos);
+        }
+        for(const int count : {128, 129}) {
+            const auto code = std::string("local script = {events = {}}; ")
+                              + "function script:on_event(value) end; for i = 1, "
+                              + std::to_string(count)
+                              + " do script.events['test.' .. i] = 'on_event' end; return script";
+            const auto script = Script::create(code);
+            EXPECT_EQ(static_cast<bool>(script), count == 128);
+        }
+        EXPECT_TRUE(Script::create("return {events = {}}"));
+    }
+
+    TEST(ScriptInvocationTest, EmitValidatesRuntimeNamesAndSessionCompatiblePayloads) {
+        Scene scene;
+        const auto actor = scene.create_entity();
+        const auto script =
+            Script::create("return {update = function() comet.emit('test.event', true) end}");
+        ASSERT_TRUE(script) << script.error().message;
+        const auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance);
+        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {}));
+        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene}));
+
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.start(scene));
+        for(const char* payload : {"nil", "false", "3.5", "'ready'", "{1, 2, 3}"}) {
+            SCOPED_TRACE(payload);
+            const auto emitting = Script::create(std::string("return {on_start = function() "
+                                                             "comet.emit('test.event', ")
+                                                 + payload + ") end}");
+            ASSERT_TRUE(emitting) << emitting.error().message;
+            const auto emitting_instance = emitting.value()->instantiate();
+            ASSERT_TRUE(emitting_instance);
+            const auto emitted = emitting_instance.value()->invoke(
+                Script::Phase::Start, actor, {}, {.scene = &scene});
+            EXPECT_TRUE(emitted) << emitted.error().message;
+        }
+        for(const char* invalid : {"comet.emit('', 1)", R"(comet.emit('test\0hidden', 1))",
+                "comet.emit(7, 1)", "comet.emit('test.event', {1, 2, 3, 4})",
+                "comet.emit('test.event', comet.self_entity())",
+                "comet.emit('test.event', function() end)", "comet.emit('test.event', {1, '2', 3})",
+                "comet.emit('test.event', math.huge)"}) {
+            SCOPED_TRACE(invalid);
+            const auto rejected =
+                Script::create(std::string("return {update = function() ") + invalid + " end}");
+            ASSERT_TRUE(rejected) << rejected.error().message;
+            const auto rejected_instance = rejected.value()->instantiate();
+            ASSERT_TRUE(rejected_instance);
+            const auto emitted = rejected_instance.value()->invoke(
+                Script::Phase::Update, actor, {}, {.scene = &scene});
+            ASSERT_FALSE(emitted);
+            EXPECT_FALSE(emitted.error().message.empty());
+        }
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST(ScriptSourceTest, InvalidPropertyConversionStaysWithinProtectedCall) {
         for(const char* invalid : {"{1, 'invalid', 3}", "{type = 'unknown'}", "function() end",
                 "string.rep('x', 4097)"}) {

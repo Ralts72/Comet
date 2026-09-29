@@ -23,6 +23,7 @@ namespace Comet {
     class SceneRuntime;
     class PhysicsSystem;
     class AudioSystem;
+    class ScriptSystem;
     class MaterialParameterValidator;
     struct MaterialOverrides;
 
@@ -36,6 +37,10 @@ namespace Comet {
             enum class Kind { CollisionEnter, CollisionExit, TriggerEnter, TriggerExit } kind;
             Entity first;
             Entity second;
+        };
+        struct Event {
+            std::string name;
+            std::optional<ParameterValue> value;
         };
 
         Scene();
@@ -72,6 +77,10 @@ namespace Comet {
         [[nodiscard]] std::optional<ParameterValue> get_session_value(std::string_view key) const;
         [[nodiscard]] bool set_session_value(std::string_view key, ParameterValue value);
         [[nodiscard]] bool erase_session_value(std::string_view key);
+
+        // 场景通知不序列化；交付期间发出的新通知留至下一次有效更新。
+        [[nodiscard]] bool emit_event(
+            std::string_view name, std::optional<ParameterValue> value = std::nullopt);
 
         // 仅当前 Runtime 的实体材质覆盖；快照不修改共享资产，不序列化。
         [[nodiscard]] Result<void> set_material_scalar(Entity entity, std::string_view name,
@@ -136,10 +145,12 @@ namespace Comet {
         friend class SceneRuntime;
         friend class PhysicsSystem;
         friend class AudioSystem;
+        friend class ScriptSystem;
         friend class ComponentRegistry;
 
         static constexpr std::size_t MAX_ENTITY_REQUESTS = 1024;
         static constexpr std::size_t MAX_AUDIO_PLAY_REQUESTS = 128;
+        static constexpr std::size_t MAX_EVENTS = 1024;
 
         struct EntityRequest {
             enum class Type { Create, Destroy } type;
@@ -156,6 +167,7 @@ namespace Comet {
         [[nodiscard]] bool begin_runtime();
         [[nodiscard]] bool commit_entity_requests();
         [[nodiscard]] std::vector<AudioPlayRequest> take_audio_play_requests();
+        [[nodiscard]] std::vector<Event> take_events();
         void end_runtime() noexcept;
         [[nodiscard]] bool append_contact_event(ContactEvent event);
         void clear_contact_events() noexcept;
@@ -177,6 +189,7 @@ namespace Comet {
         std::vector<EntityRequest> m_entity_requests;
         std::vector<AudioPlayRequest> m_audio_play_requests;
         std::vector<ContactEvent> m_contact_events;
+        std::vector<Event> m_events;
         ParameterMap m_session_values;
         bool m_runtime_active = false;
         bool m_restart_requested = false;

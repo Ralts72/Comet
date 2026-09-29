@@ -6,7 +6,10 @@
 #include "common/result.h"
 
 #include <filesystem>
+#include <map>
 #include <memory>
+#include <string>
+#include <string_view>
 
 namespace Comet {
     class Entity;
@@ -22,6 +25,7 @@ namespace Comet {
             Semantic semantic = Semantic::Default;
         };
         using PropertyMap = std::map<std::string, Property>;
+        using EventHandlers = std::map<std::string, std::string>;
 
         enum class Phase {
             Start,
@@ -31,7 +35,8 @@ namespace Comet {
             CollisionEnter,
             CollisionExit,
             TriggerEnter,
-            TriggerExit
+            TriggerExit,
+            Event
         };
         struct Invocation {
             double delta_time = 0;
@@ -39,6 +44,8 @@ namespace Comet {
             const InputState* input = nullptr;
             Entity contact_other;
             const MaterialParameterValidator* materials = nullptr;
+            std::string_view event_handler;
+            const ParameterValue* event_value = nullptr;
         };
         class COMET_API Instance final {
         public:
@@ -65,10 +72,12 @@ namespace Comet {
         [[nodiscard]] Result<ParameterMap, Error> resolve_parameters(
             const ParameterMap& overrides) const;
         [[nodiscard]] const PropertyMap& properties() const { return m_properties; }
+        [[nodiscard]] const EventHandlers& event_handlers() const { return m_event_handlers; }
 
     private:
         std::string m_source;
         std::string m_name;
         PropertyMap m_properties;
+        EventHandlers m_event_handlers;
     };
 }

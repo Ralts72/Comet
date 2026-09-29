@@ -39,6 +39,8 @@ namespace Comet {
         double delta_time = 0;
         Phase phase = Phase::Start;
         Entity contact_other;
+        std::string_view event_handler;
+        const ParameterValue* event_value = nullptr;
 
         ~Impl() {
             if(state)
@@ -190,13 +192,25 @@ namespace Comet {
                 vm.parameter_table = replacement;
             }
             lua_rawgeti(state, LUA_REGISTRYINDEX, vm.definition);
-            lua_getfield(state, -1, PHASE_NAMES[static_cast<size_t>(vm.phase)]);
-            if(lua_isnil(state, -1))
-                return 0;
+            if(vm.phase == Phase::Event) {
+                lua_pushlstring(state, vm.event_handler.data(), vm.event_handler.size());
+                lua_gettable(state, -2);
+                if(!lua_isfunction(state, -1))
+                    return luaL_error(state, "Event handler must be a function");
+            } else {
+                lua_getfield(state, -1, PHASE_NAMES[static_cast<size_t>(vm.phase)]);
+                if(lua_isnil(state, -1))
+                    return 0;
+            }
             lua_rawgeti(state, LUA_REGISTRYINDEX, vm.self);
             lua_rawgeti(state, LUA_REGISTRYINDEX, vm.parameter_table);
             lua_setfield(state, -2, "parameters");
-            if(vm.phase >= Phase::CollisionEnter) {
+            if(vm.phase == Phase::Event) {
+                if(vm.event_value)
+                    push_parameter(state, *vm.event_value);
+                else
+                    lua_pushnil(state);
+            } else if(vm.phase >= Phase::CollisionEnter && vm.phase <= Phase::TriggerExit) {
                 if(!vm.contact_other)
                     return luaL_error(state, "Contact entity is no longer available");
                 LuaBindings::push_entity_reference(
@@ -364,6 +378,47 @@ namespace Comet {
                 return Result<PropertyMap, Error>::failure(read.error());
             return Result<PropertyMap, Error>::success(std::move(result));
         }
+
+        static int collect_event_handlers(lua_State* state) {
+            auto& vm = current(state);
+            auto& result = *static_cast<EventHandlers*>(lua_touserdata(state, 1));
+            lua_rawgeti(state, LUA_REGISTRYINDEX, vm.definition);
+            const int definition = lua_absindex(state, -1);
+            lua_getfield(state, definition, "events");
+            if(lua_isnil(state, -1))
+                return 0;
+            if(!lua_istable(state, -1))
+                return luaL_error(state, "events must be a table");
+            lua_pushnil(state);
+            while(lua_next(state, -2)) {
+                if(lua_type(state, -2) != LUA_TSTRING || lua_type(state, -1) != LUA_TSTRING
+                    || result.size() >= 128)
+                    return luaL_error(state, "Invalid script event name/handler/count");
+                size_t name_length = 0;
+                size_t handler_length = 0;
+                const char* name = lua_tolstring(state, -2, &name_length);
+                const char* handler = lua_tolstring(state, -1, &handler_length);
+                if(!valid_parameter_name(std::string_view(name, name_length))
+                    || !valid_parameter_name(std::string_view(handler, handler_length)))
+                    return luaL_error(state, "Invalid script event name/handler/count");
+                lua_getfield(state, definition, handler);
+                if(!lua_isfunction(state, -1))
+                    return luaL_error(state, "Event handler '%s' must be a function", handler);
+                lua_pop(state, 1);
+                result.emplace(
+                    std::string(name, name_length), std::string(handler, handler_length));
+                lua_pop(state, 1);
+            }
+            return 0;
+        }
+
+        Result<EventHandlers, Error> read_event_handlers() {
+            EventHandlers result;
+            const auto read = call(collect_event_handlers, &result);
+            if(!read)
+                return Result<EventHandlers, Error>::failure(read.error());
+            return Result<EventHandlers, Error>::success(std::move(result));
+        }
     };
 
     Script::Instance::Instance(std::unique_ptr<Impl> impl) : m_impl(std::move(impl)) {}
@@ -371,8 +426,14 @@ namespace Comet {
 
     Result<void, Error> Script::Instance::invoke(
         Phase phase, Entity entity, const ParameterMap& parameters, Invocation invocation) {
-        if(static_cast<std::size_t>(phase) >= Impl::PHASE_NAMES.size())
+        if(static_cast<std::size_t>(phase) > static_cast<std::size_t>(Phase::Event))
             return Result<void, Error>::failure({"Invalid script phase"});
+        if(phase == Phase::Event) {
+            if(!valid_parameter_name(invocation.event_handler))
+                return Result<void, Error>::failure({"Invalid script event handler"});
+            if(invocation.event_value && !valid_parameter_value(*invocation.event_value))
+                return Result<void, Error>::failure({"Invalid script event value"});
+        }
         m_impl->parameters_changed =
             !m_impl->previous_parameters || *m_impl->previous_parameters != parameters;
         if(m_impl->parameters_changed && !valid_parameters(parameters))
@@ -390,9 +451,13 @@ namespace Comet {
         m_impl->delta_time = invocation.delta_time;
         m_impl->phase = phase;
         m_impl->contact_other = invocation.contact_other;
+        m_impl->event_handler = invocation.event_handler;
+        m_impl->event_value = invocation.event_value;
         const auto result = m_impl->call(Impl::dispatch);
         m_impl->bindings = {};
         m_impl->contact_other = {};
+        m_impl->event_handler = {};
+        m_impl->event_value = nullptr;
         m_impl->parameters = nullptr;
         if(result && m_impl->parameters_changed)
             m_impl->previous_parameters = parameters;
@@ -434,6 +499,10 @@ namespace Comet {
         if(!properties)
             return Result<std::shared_ptr<Script>, Error>::failure(properties.error());
         script->m_properties = std::move(properties).value();
+        auto events = instance.value()->m_impl->read_event_handlers();
+        if(!events)
+            return Result<std::shared_ptr<Script>, Error>::failure(events.error());
+        script->m_event_handlers = std::move(events).value();
         return Result<std::shared_ptr<Script>, Error>::success(std::move(script));
     }
 
