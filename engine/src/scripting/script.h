@@ -13,9 +13,16 @@ namespace Comet {
     class InputState;
     class MaterialParameterValidator;
     class Scene;
-    // 不可变源码与字段默认值；运行实例不存入资产缓存。
+    // 不可变源码与字段定义；运行实例不存入资产缓存。
     class COMET_API Script final {
     public:
+        struct Property {
+            enum class Semantic { Default, Color };
+            ParameterValue default_value;
+            Semantic semantic = Semantic::Default;
+        };
+        using PropertyMap = std::map<std::string, Property>;
+
         enum class Phase {
             Start,
             FixedUpdate,
@@ -57,11 +64,11 @@ namespace Comet {
         [[nodiscard]] Result<void, Error> validate_overrides(const ParameterMap& overrides) const;
         [[nodiscard]] Result<ParameterMap, Error> resolve_parameters(
             const ParameterMap& overrides) const;
-        [[nodiscard]] const ParameterMap& defaults() const { return m_defaults; }
+        [[nodiscard]] const PropertyMap& properties() const { return m_properties; }
 
     private:
         std::string m_source;
         std::string m_name;
-        ParameterMap m_defaults;
+        PropertyMap m_properties;
     };
 }

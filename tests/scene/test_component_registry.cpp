@@ -2,8 +2,27 @@
 #include "scene/scene.h"
 
 #include <gtest/gtest.h>
+#include <limits>
 
 namespace {
+    TEST(PropertyDescriptorTest, Vec4UsesTypedAccessAndValidatesEveryComponent) {
+        struct Parameters {
+            Comet::Math::Vec4 value{0};
+        } parameters;
+        auto property = Comet::make_property_descriptor("value", "Value", &Parameters::value);
+        EXPECT_EQ(property.type, Comet::PropertyType::Vec4);
+        const Comet::Math::Vec4 hdr_value(2, -1, 0.25f, 0.5f);
+        ASSERT_TRUE(property.assign_value(&parameters, hdr_value));
+        EXPECT_EQ(std::get<Comet::Math::Vec4>(*property.copy_value(&parameters)), hdr_value);
+        EXPECT_FALSE(property.accepts_value(Comet::Math::Vec3(1)));
+        EXPECT_FALSE(property.accepts_value(
+            Comet::Math::Vec4(1, 1, 1, std::numeric_limits<float>::quiet_NaN())));
+        property.numeric = {.minimum = 0, .maximum = 1, .enforce_bounds = true};
+        EXPECT_FALSE(property.assign_value(&parameters, Comet::Math::Vec4(0, 0, 0, 2)));
+        EXPECT_EQ(parameters.value, hdr_value);
+        EXPECT_TRUE(property.assign_value(&parameters, Comet::Math::Vec4(0.5f)));
+    }
+
     const Comet::PropertyDescriptor& require_property(
         const Comet::ComponentDescriptor& component, const std::string_view property_id) {
         const Comet::PropertyDescriptor* property = component.find_property(property_id);

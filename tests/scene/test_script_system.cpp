@@ -427,6 +427,8 @@ namespace Comet::Tests {
         EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 2.0f);
         EXPECT_FALSE(scene.set_session_value("game.target", reader.get_uuid()));
         EXPECT_FALSE(scene.get_session_value("game.target"));
+        EXPECT_FALSE(scene.set_session_value("game.color", Math::Vec4(1)));
+        EXPECT_FALSE(scene.get_session_value("game.color"));
         ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
         ASSERT_TRUE(runtime.advance(1));
         EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 2.0f);
@@ -763,6 +765,12 @@ namespace Comet::Tests {
         auto edit_scene =
             serializer.load((project.value().paths().assets() / "scenes/default.scene").string());
         ASSERT_TRUE(edit_scene) << edit_scene.error();
+        const auto center_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d02");
+        ASSERT_TRUE(center_uuid);
+        const Math::Vec4 score_color(1, 0.15f, 0.5f, 1);
+        auto edit_center = edit_scene.value()->find_entity(*center_uuid);
+        ASSERT_TRUE(edit_center);
+        edit_center.get_component<ScriptComponent>().parameters["score_color"] = score_color;
         auto playing = serializer.clone(*edit_scene.value());
         ASSERT_TRUE(playing) << playing.error();
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
@@ -777,10 +785,8 @@ namespace Comet::Tests {
             ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
 
         const auto goal_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d07");
-        const auto center_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d02");
         const auto player_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d05");
         ASSERT_TRUE(goal_uuid);
-        ASSERT_TRUE(center_uuid);
         ASSERT_TRUE(player_uuid);
         EXPECT_FALSE(playing.value()->find_entity(*goal_uuid));
         const auto score = playing.value()->get_session_value("demo.score");
@@ -804,7 +810,7 @@ namespace Comet::Tests {
         EXPECT_EQ(player.get_component<MeshRendererComponent>().material, material_handle);
         const auto tint = playing.value()->get_material_overrides(center);
         ASSERT_TRUE(tint);
-        EXPECT_EQ(tint->vector_properties.at("base_color"), Math::Vec4(0.2f, 1, 0.25f, 1));
+        EXPECT_EQ(tint->vector_properties.at("base_color"), score_color);
         EXPECT_FALSE(playing.value()->get_material_overrides(player));
         EXPECT_FALSE(edit_scene.value()->get_material_overrides(
             edit_scene.value()->find_entity(*center_uuid)));

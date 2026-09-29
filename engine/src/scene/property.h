@@ -20,6 +20,7 @@ namespace Comet {
         Bool,
         Float,
         Vec3,
+        Vec4,
         AssetHandle,
         String,
         Enum,
@@ -27,10 +28,11 @@ namespace Comet {
         EntityReference
     };
 
-    using ParameterValue = std::variant<bool, float, Math::Vec3, std::string, EntityUuid>;
+    using ParameterValue =
+        std::variant<bool, float, Math::Vec3, Math::Vec4, std::string, EntityUuid>;
     using ParameterMap = std::map<std::string, ParameterValue>;
-    using PropertyValue =
-        std::variant<bool, float, Math::Vec3, AssetHandle, std::string, ParameterMap, EntityUuid>;
+    using PropertyValue = std::variant<bool, float, Math::Vec3, Math::Vec4, AssetHandle,
+        std::string, ParameterMap, EntityUuid>;
     [[nodiscard]] COMET_API bool valid_parameter_name(std::string_view name);
     [[nodiscard]] COMET_API bool valid_parameter_value(const ParameterValue& value);
     [[nodiscard]] COMET_API bool valid_parameters(const ParameterMap& parameters);
@@ -111,6 +113,7 @@ namespace Comet {
         using PropertyValue = std::remove_cvref_t<Value>;
         static_assert(std::is_same_v<PropertyValue, bool> || std::is_same_v<PropertyValue, float>
                           || std::is_same_v<PropertyValue, Math::Vec3>
+                          || std::is_same_v<PropertyValue, Math::Vec4>
                           || std::is_same_v<PropertyValue, AssetHandle>
                           || std::is_same_v<PropertyValue, std::string>
                           || std::is_same_v<PropertyValue, EntityUuid>
@@ -124,6 +127,8 @@ namespace Comet {
                 return PropertyType::Float;
             } else if constexpr(std::is_same_v<PropertyValue, Math::Vec3>) {
                 return PropertyType::Vec3;
+            } else if constexpr(std::is_same_v<PropertyValue, Math::Vec4>) {
+                return PropertyType::Vec4;
             } else if constexpr(std::is_same_v<PropertyValue, std::string>) {
                 return PropertyType::String;
             } else if constexpr(std::is_same_v<PropertyValue, ParameterMap>) {

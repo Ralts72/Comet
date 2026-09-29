@@ -5,6 +5,7 @@
 namespace {
     struct TestComponent {
         float value = 0.0f;
+        Comet::Math::Vec4 vector{};
     };
 
     TEST(PropertyEditorRegistryTest, DispatchesByPropertyType) {
@@ -44,6 +45,23 @@ namespace {
         EXPECT_FLOAT_EQ(component.value, 12.0f);
         ASSERT_TRUE(property.assign_value(&component, component.value));
         EXPECT_FLOAT_EQ(component.value, 5.0f);
+    }
+
+    TEST(PropertyEditorRegistryTest, DispatchesVec4WithoutChangingItsRange) {
+        CometEditor::PropertyEditorRegistry registry;
+        ASSERT_TRUE(registry.register_editor(
+            Comet::PropertyType::Vec4, [](const Comet::PropertyDescriptor&, void* value) {
+                *static_cast<Comet::Math::Vec4*>(value) = {2.0f, -0.5f, 0.25f, 1.5f};
+                return CometEditor::PropertyEditResult{.changed = true};
+            }));
+        TestComponent component;
+        const auto property =
+            Comet::make_property_descriptor("vector", "Vector", &TestComponent::vector);
+        EXPECT_EQ(property.type, Comet::PropertyType::Vec4);
+        EXPECT_TRUE(registry.edit_property(property, &component.vector).changed);
+        const Comet::Math::Vec4 expected{2.0f, -0.5f, 0.25f, 1.5f};
+        ASSERT_TRUE(property.assign_value(&component, component.vector));
+        EXPECT_EQ(component.vector, expected);
     }
 
     TEST(PropertyEditorRegistryTest, RejectsDuplicateEditorsAndMissingValues) {

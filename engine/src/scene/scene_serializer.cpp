@@ -35,34 +35,34 @@ namespace Comet {
             std::vector<ComponentRecord> components;
         };
 
-        Result<Math::Vec3> read_vec3(
+        template<typename Vector>
+        Result<Vector> read_vector(
             const Json::Node& node, const Json::Context& context, const std::string_view location) {
             const auto elements = context.array(node, location);
             if(!elements)
-                return Result<Math::Vec3>::failure(elements.error());
-            if(elements.value().size() != 3) {
-                return Result<Math::Vec3>::failure(
-                    context.error(location, "expected exactly three numbers"));
+                return Result<Vector>::failure(elements.error());
+            if(elements.value().size() != Vector::length()) {
+                return Result<Vector>::failure(context.error(
+                    location, "expected exactly " + std::to_string(Vector::length()) + " numbers"));
             }
 
-            Math::Vec3 value;
+            Vector value;
             std::size_t index = 0;
             for(const auto element : elements.value()) {
                 const auto scalar = context.read_scalar<float>(element,
                     std::string(location) + "[" + std::to_string(index) + "]", "a finite number");
                 if(!scalar)
-                    return Result<Math::Vec3>::failure(scalar.error());
+                    return Result<Vector>::failure(scalar.error());
                 value[index] = scalar.value();
                 ++index;
             }
-            return Result<Math::Vec3>::success(value);
+            return Result<Vector>::success(value);
         }
 
-        void write_vec3(Json::Writer& writer, const Math::Vec3& value) {
+        template<typename Vector> void write_vector(Json::Writer& writer, const Vector& value) {
             writer.begin_array();
-            writer.value(value.x);
-            writer.value(value.y);
-            writer.value(value.z);
+            for(int component = 0; component < Vector::length(); ++component)
+                writer.value(value[component]);
             writer.end_array();
         }
 
@@ -88,9 +88,18 @@ namespace Comet {
                             item.type = PropertyType::Float;
                         else if(field.value.is_string())
                             item.type = PropertyType::String;
-                        else if(field.value.is_array())
-                            item.type = PropertyType::Vec3;
-                        else if(field.value.is_object())
+                        else if(field.value.is_array()) {
+                            const auto elements = context.array(field.value, location);
+                            if(!elements)
+                                return Result<PropertyValue>::failure(elements.error());
+                            if(elements.value().size() == 3)
+                                item.type = PropertyType::Vec3;
+                            else if(elements.value().size() == 4)
+                                item.type = PropertyType::Vec4;
+                            else
+                                return Result<PropertyValue>::failure(context.error(
+                                    location, "Vector parameter needs exactly 3 or 4 numbers"));
+                        } else if(field.value.is_object())
                             item.type = PropertyType::EntityReference;
                         else
                             return Result<PropertyValue>::failure(
@@ -144,7 +153,16 @@ namespace Comet {
                     return Result<PropertyValue>::success(std::move(value).value());
                 }
                 case PropertyType::Vec3: {
-                    auto value = read_vec3(node, context, location);
+                    auto value = read_vector<Math::Vec3>(node, context, location);
+                    if(!value)
+                        return Result<PropertyValue>::failure(value.error());
+                    if(!property.accepts_value(value.value()))
+                        return Result<PropertyValue>::failure(
+                            context.error(location, "value outside allowed bounds"));
+                    return Result<PropertyValue>::success(value.value());
+                }
+                case PropertyType::Vec4: {
+                    auto value = read_vector<Math::Vec4>(node, context, location);
                     if(!value)
                         return Result<PropertyValue>::failure(value.error());
                     if(!property.accepts_value(value.value()))
@@ -204,8 +222,8 @@ namespace Comet {
             std::visit(
                 [&writer](const auto& value) {
                     using T = std::remove_cvref_t<decltype(value)>;
-                    if constexpr(std::is_same_v<T, Math::Vec3>)
-                        write_vec3(writer, value);
+                    if constexpr(std::is_same_v<T, Math::Vec3> || std::is_same_v<T, Math::Vec4>)
+                        write_vector(writer, value);
                     else if constexpr(std::is_same_v<T, AssetHandle>)
                         writer.value(value.value());
                     else if constexpr(std::is_same_v<T, EntityUuid>)
@@ -216,9 +234,10 @@ namespace Comet {
                             writer.key(name);
                             std::visit(
                                 [&](const auto& item) {
-                                    if constexpr(std::is_same_v<std::remove_cvref_t<decltype(item)>,
-                                                     Math::Vec3>)
-                                        write_vec3(writer, item);
+                                    using T = std::remove_cvref_t<decltype(item)>;
+                                    if constexpr(std::is_same_v<T, Math::Vec3>
+                                                 || std::is_same_v<T, Math::Vec4>)
+                                        write_vector(writer, item);
                                     else if constexpr(std::is_same_v<
                                                           std::remove_cvref_t<decltype(item)>,
                                                           EntityUuid>)
@@ -568,7 +587,7 @@ namespace Comet {
         writer.field("lighting", environment.lighting);
         writer.field("lighting_intensity", environment.lighting_intensity);
         writer.key("background_color");
-        write_vec3(writer, environment.background_color);
+        write_vector(writer, environment.background_color);
         writer.end_object();
         const auto& post_process = scene.get_post_process();
         writer.key("post_process");
@@ -681,7 +700,8 @@ namespace Comet {
                 if(error)
                     return LoadResult::failure(
                         context.error("environment.background_color", "invalid color"));
-                auto color = read_vec3(color_node, context, "environment.background_color");
+                auto color =
+                    read_vector<Math::Vec3>(color_node, context, "environment.background_color");
                 if(!color)
                     return LoadResult::failure(color.error());
                 environment.background_color = color.value();

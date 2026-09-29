@@ -12,7 +12,7 @@ namespace Comet {
                 using T = std::remove_cvref_t<decltype(item)>;
                 if constexpr(std::is_same_v<T, float>)
                     return std::isfinite(item);
-                else if constexpr(std::is_same_v<T, Math::Vec3>)
+                else if constexpr(std::is_same_v<T, Math::Vec3> || std::is_same_v<T, Math::Vec4>)
                     return Math::is_finite(item);
                 else if constexpr(std::is_same_v<T, std::string>)
                     return item.size() <= 4096;
@@ -59,6 +59,8 @@ namespace Comet {
                 return *static_cast<const float*>(value);
             case PropertyType::Vec3:
                 return *static_cast<const Math::Vec3*>(value);
+            case PropertyType::Vec4:
+                return *static_cast<const Math::Vec4*>(value);
             case PropertyType::AssetHandle:
                 return *static_cast<const AssetHandle*>(value);
             case PropertyType::String:
@@ -90,6 +92,10 @@ namespace Comet {
                 else if constexpr(std::is_same_v<Value, Math::Vec3>)
                     return type == PropertyType::Vec3 && Math::is_finite(source)
                            && in_bounds(source.x) && in_bounds(source.y) && in_bounds(source.z);
+                else if constexpr(std::is_same_v<Value, Math::Vec4>)
+                    return type == PropertyType::Vec4 && Math::is_finite(source)
+                           && in_bounds(source.x) && in_bounds(source.y) && in_bounds(source.z)
+                           && in_bounds(source.w);
                 else if constexpr(std::is_same_v<Value, std::string>)
                     return type == PropertyType::String || type == PropertyType::Enum;
                 else if constexpr(std::is_same_v<Value, ParameterMap>)

@@ -651,7 +651,7 @@ namespace Comet::Tests {
         ProjectPaths paths(directory.path());
         std::filesystem::create_directories(paths.assets());
         ASSERT_TRUE(write_text_file_atomic(
-            paths.assets() / "spin.lua", "return {properties = {speed = 2}}"));
+            paths.assets() / "spin.lua", "return {properties = {speed = 2, tint = {1, 2, 3, 4}}}"));
         ASSERT_TRUE(MetadataSerializer{}.save(
             {.handle = handle, .type = AssetType::Script}, paths.assets() / "spin.lua.meta"));
         TaskScheduler scheduler(1);
@@ -660,15 +660,25 @@ namespace Comet::Tests {
         ASSERT_TRUE(manager.scan().succeeded());
         auto loaded = manager.load_script(handle);
         ASSERT_TRUE(loaded) << loaded.error().message;
-        EXPECT_EQ(std::get<float>(loaded.value()->defaults().at("speed")), 2);
+        EXPECT_EQ(std::get<float>(loaded.value()->properties().at("speed").default_value), 2);
+        EXPECT_EQ(
+            loaded.value()->properties().at("tint").semantic, Script::Property::Semantic::Default);
+        EXPECT_EQ(std::get<Math::Vec4>(loaded.value()->properties().at("tint").default_value),
+            Math::Vec4(1, 2, 3, 4));
         EXPECT_EQ(manager.load_script(handle).value(), loaded.value());
-        ASSERT_TRUE(write_text_file_atomic(
-            paths.assets() / "spin.lua", "return {properties = {speed = 200}}"));
+        ASSERT_TRUE(write_text_file_atomic(paths.assets() / "spin.lua",
+            "return {properties = {speed = 200, tint = {type = 'color', default = {4, 3, 2, 1}}}}"));
         ASSERT_TRUE(manager.scan().succeeded());
         auto updated = manager.load_script(handle);
         ASSERT_TRUE(updated);
         EXPECT_NE(updated.value(), loaded.value());
-        EXPECT_EQ(std::get<float>(updated.value()->defaults().at("speed")), 200);
+        EXPECT_EQ(std::get<float>(updated.value()->properties().at("speed").default_value), 200);
+        EXPECT_EQ(
+            updated.value()->properties().at("tint").semantic, Script::Property::Semantic::Color);
+        EXPECT_EQ(std::get<Math::Vec4>(updated.value()->properties().at("tint").default_value),
+            Math::Vec4(4, 3, 2, 1));
+        EXPECT_EQ(
+            loaded.value()->properties().at("tint").semantic, Script::Property::Semantic::Default);
     }
 
     TEST(AudioAssetTest, ScansAndLoadsWavByHandle) {

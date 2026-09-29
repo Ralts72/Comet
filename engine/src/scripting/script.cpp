@@ -164,8 +164,9 @@ namespace Comet {
                             entity = context.scene->find_entity(value);
                         LuaBindings::push_entity_reference(state, entity, context.scene_generation);
                     } else {
-                        lua_createtable(state, 3, 0);
-                        for(int i = 0; i < 3; ++i) {
+                        constexpr int components = std::is_same_v<T, Math::Vec4> ? 4 : 3;
+                        lua_createtable(state, components, 0);
+                        for(int i = 0; i < components; ++i) {
                             lua_pushnumber(state, value[i]);
                             lua_rawseti(state, -2, i + 1);
                         }
@@ -224,7 +225,43 @@ namespace Comet {
             return Result<void, Error>::success();
         }
 
-        static int read_default_value(lua_State* state, ParameterValue& value) {
+        static int read_vector_value(
+            lua_State* state, ParameterValue& value, const bool color = false) {
+            if(!lua_istable(state, -1))
+                return luaL_error(state, "Color default needs four numbers");
+            const auto components = lua_rawlen(state, -1);
+            if(color && components != 4)
+                return luaL_error(state, "Color default needs four numbers");
+            if(components != 3 && components != 4)
+                return luaL_error(state, "Vector property needs three or four numbers");
+            lua_pushnil(state);
+            while(lua_next(state, -2)) {
+                if(!lua_isinteger(state, -2) || lua_tointeger(state, -2) < 1
+                    || static_cast<lua_Unsigned>(lua_tointeger(state, -2)) > components)
+                    return luaL_error(
+                        state, "Vector property needs a dense array without extra keys");
+                lua_pop(state, 1);
+            }
+            Math::Vec4 vector(0);
+            for(size_t i = 0; i < components; ++i) {
+                lua_rawgeti(state, -1, static_cast<lua_Integer>(i + 1));
+                if(lua_type(state, -1) != LUA_TNUMBER)
+                    return luaL_error(state, "Vector property needs numbers");
+                const auto number = lua_tonumber(state, -1);
+                if(!std::isfinite(number) || std::abs(number) > std::numeric_limits<float>::max())
+                    return luaL_error(state, "Vector needs finite floats");
+                vector[i] = static_cast<float>(number);
+                lua_pop(state, 1);
+            }
+            if(components == 4)
+                value = vector;
+            else
+                value = Math::Vec3(vector);
+            return 0;
+        }
+
+        static int read_property(lua_State* state, Property& property) {
+            auto& value = property.default_value;
             switch(lua_type(state, -1)) {
                 case LUA_TBOOLEAN:
                     value = static_cast<bool>(lua_toboolean(state, -1));
@@ -251,36 +288,42 @@ namespace Comet {
                     const bool entity_reference =
                         lua_type(state, -1) == LUA_TSTRING && lua_rawlen(state, -1) == 6
                         && std::string_view(lua_tostring(state, -1)) == "entity";
+                    const bool color = lua_type(state, -1) == LUA_TSTRING
+                                       && lua_rawlen(state, -1) == 5
+                                       && std::string_view(lua_tostring(state, -1)) == "color";
                     lua_pop(state, 1);
                     if(declared) {
-                        if(!entity_reference)
+                        if(!entity_reference && !color)
                             return luaL_error(state, "Unknown script property type");
                         lua_pushnil(state);
                         while(lua_next(state, -2)) {
-                            if(lua_type(state, -2) != LUA_TSTRING || lua_rawlen(state, -2) != 4
-                                || std::string_view(lua_tostring(state, -2)) != "type")
+                            const bool type_field =
+                                lua_type(state, -2) == LUA_TSTRING && lua_rawlen(state, -2) == 4
+                                && std::string_view(lua_tostring(state, -2)) == "type";
+                            const bool default_field =
+                                color && lua_type(state, -2) == LUA_TSTRING
+                                && lua_rawlen(state, -2) == 7
+                                && std::string_view(lua_tostring(state, -2)) == "default";
+                            if(!type_field && !default_field) {
+                                if(color)
+                                    return luaL_error(
+                                        state, "Color property only accepts type and default");
                                 return luaL_error(state,
                                     "Entity property only accepts type; assign its target in the scene");
+                            }
                             lua_pop(state, 1);
                         }
-                        value = EntityUuid{};
+                        if(color) {
+                            lua_getfield(state, -1, "default");
+                            read_vector_value(state, value, true);
+                            lua_pop(state, 1);
+                            property.semantic = Property::Semantic::Color;
+                        } else {
+                            value = EntityUuid{};
+                        }
                         break;
                     }
-                    if(lua_rawlen(state, -1) != 3)
-                        return luaL_error(state, "Vector property needs three numbers");
-                    Math::Vec3 vector;
-                    for(int i = 0; i < 3; ++i) {
-                        lua_rawgeti(state, -1, i + 1);
-                        if(lua_type(state, -1) != LUA_TNUMBER)
-                            return luaL_error(state, "Vector property needs numbers");
-                        const auto number = lua_tonumber(state, -1);
-                        if(!std::isfinite(number)
-                            || std::abs(number) > std::numeric_limits<float>::max())
-                            return luaL_error(state, "Vector needs finite floats");
-                        vector[i] = static_cast<float>(number);
-                        lua_pop(state, 1);
-                    }
-                    value = vector;
+                    read_vector_value(state, value);
                     break;
                 }
                 default:
@@ -289,9 +332,9 @@ namespace Comet {
             return 0;
         }
 
-        static int collect_defaults(lua_State* state) {
+        static int collect_properties(lua_State* state) {
             auto& vm = current(state);
-            auto& result = *static_cast<ParameterMap*>(lua_touserdata(state, 1));
+            auto& result = *static_cast<PropertyMap*>(lua_touserdata(state, 1));
             lua_rawgeti(state, LUA_REGISTRYINDEX, vm.definition);
             lua_getfield(state, -1, "properties");
             if(lua_isnil(state, -1))
@@ -306,20 +349,20 @@ namespace Comet {
                 const char* name = lua_tolstring(state, -2, &length);
                 if(!valid_parameter_name(std::string_view(name, length)))
                     return luaL_error(state, "Invalid script property name/count");
-                auto& value = result[std::string(name, length)];
-                read_default_value(state, value);
+                auto& property = result[std::string(name, length)];
+                read_property(state, property);
                 lua_pop(state, 1);
             }
             return 0;
         }
 
-        Result<ParameterMap, Error> read_defaults() {
+        Result<PropertyMap, Error> read_properties() {
             // 回调只借用结果；Lua longjmp 返回后，外层仍能正常释放已解析的 C++ 值。
-            ParameterMap result;
-            const auto read = call(collect_defaults, &result);
+            PropertyMap result;
+            const auto read = call(collect_properties, &result);
             if(!read)
-                return Result<ParameterMap, Error>::failure(read.error());
-            return Result<ParameterMap, Error>::success(std::move(result));
+                return Result<PropertyMap, Error>::failure(read.error());
+            return Result<PropertyMap, Error>::success(std::move(result));
         }
     };
 
@@ -385,10 +428,10 @@ namespace Comet {
         auto instance = script->instantiate();
         if(!instance)
             return Result<std::shared_ptr<Script>, Error>::failure(instance.error());
-        auto defaults = instance.value()->m_impl->read_defaults();
-        if(!defaults)
-            return Result<std::shared_ptr<Script>, Error>::failure(defaults.error());
-        script->m_defaults = std::move(defaults).value();
+        auto properties = instance.value()->m_impl->read_properties();
+        if(!properties)
+            return Result<std::shared_ptr<Script>, Error>::failure(properties.error());
+        script->m_properties = std::move(properties).value();
         return Result<std::shared_ptr<Script>, Error>::success(std::move(script));
     }
 
@@ -407,8 +450,8 @@ namespace Comet {
         if(!valid_parameters(overrides))
             return Result<void, Error>::failure({"Invalid script parameter values"});
         for(const auto& [name, value] : overrides) {
-            const auto found = m_defaults.find(name);
-            if(found == m_defaults.end() || found->second.index() != value.index())
+            const auto found = m_properties.find(name);
+            if(found == m_properties.end() || found->second.default_value.index() != value.index())
                 return Result<void, Error>::failure(
                     {"Script parameter no longer matches declaration: " + name});
         }
@@ -418,7 +461,9 @@ namespace Comet {
     Result<ParameterMap, Error> Script::resolve_parameters(const ParameterMap& overrides) const {
         if(auto checked = validate_overrides(overrides); !checked)
             return Result<ParameterMap, Error>::failure(checked.error());
-        auto values = m_defaults;
+        ParameterMap values;
+        for(const auto& [name, property] : m_properties)
+            values.emplace(name, property.default_value);
         for(const auto& [name, value] : overrides)
             values.at(name) = value;
         return Result<ParameterMap, Error>::success(std::move(values));

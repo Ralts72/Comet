@@ -302,7 +302,8 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
 示例立方体通过 Script 组件引用 `demo/assets/scripts/spin.lua`，`speed` 为每秒角度，`enabled` 控制是否旋转。
 app 和 editor Play 共用该行为，不依赖 UUID 或项目路径；Edit 不执行旋转，Play 修改不保存回 Edit 场景。
 示例场景还有一个脚本交互：进入 Play（或运行 app）后，用左右方向键移动左侧小方块碰触右侧条纹目标。
-目标的触发回调会记录本次运行的分数、播放一次提示音、删除目标并创建 `Collected_Goal_1` 实体；中间的旋转立方体读取同一分数后上升并变绿。
+目标的触发回调会记录本次运行的分数、播放一次提示音、删除目标并创建 `Collected_Goal_1` 实体；中间的旋转立方体读取同一分数后上升并变色。
+颜色默认绿色；Edit 中选中 `Editor Cube`，在 Script 参数的 `score_color` 色框调整，再 Play 触发得分即可看到效果。
 变色只覆盖这个实体的材质参数；共用 `cube.mat` 的移动方块不变色，Stop 清除覆盖，不修改材质文件。
 在编辑器 Play 的层级面板可以看到新实体；它没有 Mesh，因而不在视口绘制。Stop 后重新 Play 可重试，运行时变化不会写回场景。
 空格仍可暂停／恢复中间立方体的旋转。左右方向键绑定在项目 `project.json`，不占用相机的 WASD 控制。
@@ -426,7 +427,18 @@ demo 的 `Move_Cube` 使用运动学刚体，与目标保持同一高度；Play�
 不会重新播放已经结束的音效。单步不发声，但音频时间同步推进；本步新音效在步末加入，随后随单步消耗时长，
 已经结束的直接清理，继续时只播放仍有效的剩余部分；Stop 全部丢弃。
 
-Lua 的 `properties` 声明显式导出的 bool／float／Vec3／string 及实体引用配置；只有编辑过的字段保存为实体覆盖。
+Lua 的 `properties` 声明显式导出的 bool／float／Vec3／Vec4／string 及实体引用配置；只有编辑过的字段保存为实体覆盖。
+裸三／四分量数组分别是 Vec3／Vec4，只有显式 `type = "color"` 才显示颜色控件，不根据变量名猜测：
+
+```lua
+script.properties = {
+    weights = {1, 0, 0, 1},
+    score_color = {type = "color", default = {0.2, 1, 0.25, 1}},
+}
+```
+
+颜色在运行时仍是 Vec4，使用 `self.parameters.score_color[1]` 到 `[4]` 分别读取 RGBA；
+数值允许有限的 HDR／负值，不自动做 gamma 转换。`.scene` 只保存覆盖值，颜色编辑语义保留在 Lua 中。
 实体声明只包含 `type = "entity"`，目标由场景配置，不在脚本源文件硬编码默认 UUID。
 Inspector 切换／清空 Script 引用会同时清空覆盖，一次 Undo 恢复旧脚本和参数；加载失败不改原绑定。
 “恢复默认参数”清空覆盖，可撤销，不重新加载源码。Play 面板跟随活动实例的定义，不混用更新后的资产参数。

@@ -48,6 +48,32 @@ namespace CometEditor {
             }
             return PropertyEditResult{.changed = changed, .finished = changed};
         }
+
+        template<typename T>
+        PropertyEditResult edit_parameter_value(const PropertyEditorRegistry& registry,
+            const std::string& name, const Comet::Script::Property& property, T& value,
+            Comet::Scene& scene, const std::optional<std::uint64_t> drop_generation) {
+            Comet::PropertyDescriptor descriptor{.id = name, .display_name = name};
+            if constexpr(std::is_same_v<T, bool>)
+                descriptor.type = Comet::PropertyType::Bool;
+            else if constexpr(std::is_same_v<T, float>)
+                descriptor.type = Comet::PropertyType::Float;
+            else if constexpr(std::is_same_v<T, Comet::Math::Vec3>)
+                descriptor.type = Comet::PropertyType::Vec3;
+            else if constexpr(std::is_same_v<T, Comet::Math::Vec4>) {
+                if(property.semantic == Comet::Script::Property::Semantic::Color)
+                    return PropertyEditResult::from_item(
+                        ImGui::ColorEdit4(Ui::label(name.c_str()).c_str(), &value.x,
+                            ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR));
+                descriptor.type = Comet::PropertyType::Vec4;
+            } else if constexpr(std::is_same_v<T, Comet::EntityUuid>) {
+                const bool changed =
+                    edit_entity_reference(name.c_str(), value, scene, drop_generation);
+                return PropertyEditResult{.changed = changed, .finished = changed};
+            } else
+                descriptor.type = Comet::PropertyType::String;
+            return registry.edit_property(descriptor, &value);
+        }
     }
 
     PropertyEditResult PropertyEditResult::from_item(const bool changed) {
@@ -101,6 +127,13 @@ namespace CometEditor {
                     ImGui::DragFloat3(Ui::label(property.display_name.c_str()).c_str(), &vector.x,
                         property.numeric.speed, minimum(property), maximum(property)));
             });
+        register_editor(
+            Comet::PropertyType::Vec4, [](const Comet::PropertyDescriptor& property, void* value) {
+                auto& vector = *static_cast<Comet::Math::Vec4*>(value);
+                return PropertyEditResult::from_item(
+                    ImGui::DragFloat4(Ui::label(property.display_name.c_str()).c_str(), &vector.x,
+                        property.numeric.speed, minimum(property), maximum(property)));
+            });
         register_editor(Comet::PropertyType::AssetHandle,
             [&database](const Comet::PropertyDescriptor& property, void* value) {
                 auto& handle = *static_cast<Comet::AssetHandle*>(value);
@@ -121,32 +154,19 @@ namespace CometEditor {
         return registry;
     }
 
-    PropertyEditResult PropertyEditorRegistry::edit_parameters(const Comet::ParameterMap& defaults,
-        Comet::ParameterMap& overrides, Comet::Scene& scene,
-        const std::optional<std::uint64_t> drop_generation) const {
+    PropertyEditResult PropertyEditorRegistry::edit_parameters(
+        const Comet::Script::PropertyMap& properties, Comet::ParameterMap& overrides,
+        Comet::Scene& scene, const std::optional<std::uint64_t> drop_generation) const {
         PropertyEditResult result;
-        for(const auto& [name, fallback] : defaults) {
-            auto value = fallback;
+        for(const auto& [name, property] : properties) {
+            auto value = property.default_value;
             if(const auto found = overrides.find(name); found != overrides.end())
                 value = found->second;
             ImGui::PushID(name.c_str());
             const auto item = std::visit(
                 [&](auto& scalar) {
-                    using T = std::remove_cvref_t<decltype(scalar)>;
-                    Comet::PropertyDescriptor descriptor{.id = name, .display_name = name};
-                    if constexpr(std::is_same_v<T, bool>)
-                        descriptor.type = Comet::PropertyType::Bool;
-                    else if constexpr(std::is_same_v<T, float>)
-                        descriptor.type = Comet::PropertyType::Float;
-                    else if constexpr(std::is_same_v<T, Comet::Math::Vec3>)
-                        descriptor.type = Comet::PropertyType::Vec3;
-                    else if constexpr(std::is_same_v<T, Comet::EntityUuid>) {
-                        const bool changed =
-                            edit_entity_reference(name.c_str(), scalar, scene, drop_generation);
-                        return PropertyEditResult{.changed = changed, .finished = changed};
-                    } else
-                        descriptor.type = Comet::PropertyType::String;
-                    return edit_property(descriptor, &scalar);
+                    return edit_parameter_value(
+                        *this, name, property, scalar, scene, drop_generation);
                 },
                 value);
             if(item.changed)

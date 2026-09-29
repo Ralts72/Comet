@@ -3,12 +3,16 @@
 #include "scene/scene.h"
 #include "scene/scene_runtime.h"
 #include <gtest/gtest.h>
+#include <limits>
 
 namespace Comet::Tests {
     TEST(ScriptSourceTest, EntityPropertiesRequireAnExplicitTypeAndSceneOwnedTarget) {
         auto script = Script::create("return {properties = {target = {type = 'entity'}}}");
         ASSERT_TRUE(script) << script.error().message;
-        EXPECT_EQ(std::get<EntityUuid>(script.value()->defaults().at("target")), EntityUuid{});
+        EXPECT_EQ(std::get<EntityUuid>(script.value()->properties().at("target").default_value),
+            EntityUuid{});
+        EXPECT_EQ(script.value()->properties().at("target").semantic,
+            Script::Property::Semantic::Default);
         EXPECT_TRUE(script.value()->validate_overrides({{"target", EntityUuid::generate()}}));
         EXPECT_FALSE(script.value()->validate_overrides({{"target", std::string("uuid")}}));
         EXPECT_FALSE(Script::create("return {properties = {target = {type = 'unknown'}}}"));
@@ -98,9 +102,167 @@ namespace Comet::Tests {
         ASSERT_TRUE(resolved);
         EXPECT_EQ(std::get<float>(resolved.value().at("speed")), 2);
         EXPECT_TRUE(std::get<bool>(resolved.value().at("enabled")));
-        EXPECT_EQ(std::get<float>(script.value()->defaults().at("speed")), 1);
+        EXPECT_EQ(std::get<float>(script.value()->properties().at("speed").default_value), 1);
         EXPECT_FALSE(script.value()->validate_overrides({{"missing", 2.0f}}));
         EXPECT_FALSE(script.value()->resolve_parameters({{"speed", false}}));
+    }
+
+    TEST(ScriptSourceTest, ColorsRequireAnExplicitSemanticWhileVectorSizesStayDistinct) {
+        const auto script = Script::create(R"(return {properties = {
+            direction = {1, 2, 3},
+            color_named_vector = {0.2, 1, 0.25, 0.5},
+            tint = {type = 'color', default = {-0.25, 2, 0.5, 1.5}},
+        }})");
+        ASSERT_TRUE(script) << script.error().message;
+        const auto& properties = script.value()->properties();
+        ASSERT_EQ(properties.size(), 3);
+        EXPECT_EQ(
+            std::get<Math::Vec3>(properties.at("direction").default_value), Math::Vec3(1, 2, 3));
+        EXPECT_EQ(properties.at("direction").semantic, Script::Property::Semantic::Default);
+        EXPECT_EQ(std::get<Math::Vec4>(properties.at("color_named_vector").default_value),
+            Math::Vec4(0.2f, 1, 0.25f, 0.5f));
+        EXPECT_EQ(
+            properties.at("color_named_vector").semantic, Script::Property::Semantic::Default);
+        EXPECT_EQ(std::get<Math::Vec4>(properties.at("tint").default_value),
+            Math::Vec4(-0.25f, 2, 0.5f, 1.5f));
+        EXPECT_EQ(properties.at("tint").semantic, Script::Property::Semantic::Color);
+
+        const auto resolved = script.value()->resolve_parameters(
+            {{"tint", Math::Vec4(4, 3, 2, 0.25f)}, {"color_named_vector", Math::Vec4(1, 2, 3, 4)}});
+        ASSERT_TRUE(resolved) << resolved.error().message;
+        EXPECT_EQ(std::get<Math::Vec4>(resolved.value().at("tint")), Math::Vec4(4, 3, 2, 0.25f));
+        EXPECT_EQ(std::get<Math::Vec4>(resolved.value().at("color_named_vector")),
+            Math::Vec4(1, 2, 3, 4));
+        EXPECT_EQ(std::get<Math::Vec3>(resolved.value().at("direction")), Math::Vec3(1, 2, 3));
+        EXPECT_EQ(std::get<Math::Vec4>(properties.at("tint").default_value),
+            Math::Vec4(-0.25f, 2, 0.5f, 1.5f));
+        EXPECT_EQ(properties.at("tint").semantic, Script::Property::Semantic::Color);
+        EXPECT_FALSE(script.value()->resolve_parameters({{"tint", Math::Vec3(1)}}));
+        EXPECT_FALSE(script.value()->resolve_parameters({{"color_named_vector", Math::Vec3(1)}}));
+        EXPECT_FALSE(script.value()->resolve_parameters({{"direction", Math::Vec4(1)}}));
+        EXPECT_FALSE(script.value()->resolve_parameters({{"tint", false}}));
+        EXPECT_FALSE(script.value()->resolve_parameters(
+            {{"tint", Math::Vec4(0, 0, 0, std::numeric_limits<float>::infinity())}}));
+    }
+
+    TEST(ScriptSourceTest, ColorDeclarationsRejectMissingDefaultsAndAdditionalMetadata) {
+        for(const char* invalid : {"{type = 'color'}", "{type = 'color', default = false}",
+                "{type = 'color', default = 'red'}", "{type = 'Color', default = {1, 2, 3, 4}}",
+                "{type = true, default = {1, 2, 3, 4}}", "{type = 'vec4', default = {1, 2, 3, 4}}",
+                "{type = 'color', default = {1, 2, 3, 4}, min = 0}",
+                "{type = 'color', default = {1, 2, 3, 4}, [1] = 0}",
+                R"({type = 'color\0extra', default = {1, 2, 3, 4}})",
+                R"({type = 'color', default = {1, 2, 3, 4}, ['default\0'] = true})"}) {
+            SCOPED_TRACE(invalid);
+            const auto script =
+                Script::create(std::string("return {properties = {tint = ") + invalid + "}}");
+            EXPECT_FALSE(script);
+        }
+    }
+
+    TEST(ScriptSourceTest, VectorAndColorArraysRejectHolesMixedKeysAndNonFiniteComponents) {
+        for(const char* invalid : {"{}", "{1, 2}", "{1, 2, 3, 4, 5}", "{[1] = 1, [2] = 2, [4] = 4}",
+                "{1, 2, 3, 4, [6] = 6}", "{1, 2, 3, 4, label = 'rgba'}", "{1, 2, 3, 4, [0] = 0}",
+                "{1, 2, 3, 4, [-1] = 0}", "{1, 2, 3, 4, [2.5] = 0}", "{1, 2, 3, 4, [true] = 0}",
+                "{1, 2, 3, '4'}", "{1, 2, 3, false}", "{1, 2, 3, math.huge}",
+                "{1, 2, 3, -math.huge}", "{1, 2, 3, 0/0}", "{1, 2, 3, 1e39}"}) {
+            SCOPED_TRACE(invalid);
+            EXPECT_FALSE(
+                Script::create(std::string("return {properties = {value = ") + invalid + "}}"));
+            EXPECT_FALSE(Script::create(
+                std::string("return {properties = {value = {type = 'color', default = ") + invalid
+                + "}}}"));
+        }
+        EXPECT_FALSE(Script::create(
+            "return {properties = {value = {type = 'color', default = {1, 2, 3}}}}"));
+        EXPECT_FALSE(Script::create("return {properties = {value = {1, 2, 3, label = 'xyz'}}}"));
+        EXPECT_FALSE(Script::create("return {properties = {value = {1, 2, 3, [0] = 0}}}"));
+    }
+
+    TEST(ScriptInvocationTest, FourComponentParametersSupportIndexLengthAndPairsAfterOverrides) {
+        const auto script = Script::create(R"(return {
+            properties = {
+                tint = {type = 'color', default = {1, 2, 3, 0.5}},
+                vector = {4, 5, 6, 7},
+            },
+            update = function(self, alpha)
+                local tint = self.parameters.tint
+                assert(#tint == 4 and tint[1] == 1 and tint[2] == 2 and tint[3] == 3)
+                assert(tint[4] == alpha and tint[5] == nil and tint.type == nil and tint.default == nil)
+                local count = 0
+                for key, value in pairs(tint) do
+                    assert(key >= 1 and key <= 4 and value == tint[key])
+                    count = count + 1
+                end
+                assert(count == 4)
+                assert(#self.parameters.vector == 4 and self.parameters.vector[4] == 7)
+                if self.saved then
+                    assert(self.saved[4] == 0.5)
+                    assert(self.saved ~= tint)
+                else
+                    self.saved = tint
+                end
+            end,
+        })");
+        ASSERT_TRUE(script) << script.error().message;
+        auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance);
+        const auto defaults = script.value()->resolve_parameters({});
+        ASSERT_TRUE(defaults);
+        ASSERT_TRUE(instance.value()->invoke(
+            Script::Phase::Update, {}, defaults.value(), {.delta_time = 0.5}));
+        const auto overridden =
+            script.value()->resolve_parameters({{"tint", Math::Vec4(1, 2, 3, 0.25f)}});
+        ASSERT_TRUE(overridden);
+        ASSERT_TRUE(instance.value()->invoke(
+            Script::Phase::Update, {}, overridden.value(), {.delta_time = 0.25}));
+    }
+
+    TEST(ScriptInvocationTest, FourComponentParametersRejectTopLevelAndNestedWrites) {
+        for(const char* mutation : {"self.parameters.tint[4] = 0", "self.parameters.vector[4] = 0",
+                "self.parameters.tint = {0, 0, 0, 0}", "table.insert(self.parameters.tint, 5)",
+                "self.parameters.tint.label = 'changed'"}) {
+            SCOPED_TRACE(mutation);
+            const auto source = std::string(R"(return {
+                properties = {tint = {type = 'color', default = {1, 2, 3, 4}}, vector = {1, 2, 3, 4}},
+                update = function(self) )")
+                                + mutation + " end}";
+            const auto script = Script::create(source);
+            ASSERT_TRUE(script) << script.error().message;
+            auto instance = script.value()->instantiate();
+            ASSERT_TRUE(instance);
+            const auto parameters = script.value()->resolve_parameters({});
+            ASSERT_TRUE(parameters);
+            const auto result =
+                instance.value()->invoke(Script::Phase::Update, {}, parameters.value());
+            ASSERT_FALSE(result);
+            EXPECT_NE(result.error().message.find("read-only"), std::string::npos);
+        }
+    }
+
+    TEST(ScriptInvocationTest, FourComponentParametersDoNotExpandTheSessionValueDomain) {
+        Scene scene;
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(scene.set_session_value("value", Math::Vec3(1, 2, 3)));
+        EXPECT_FALSE(scene.set_session_value("value", Math::Vec4(1, 2, 3, 4)));
+        EXPECT_EQ(std::get<Math::Vec3>(*scene.get_session_value("value")), Math::Vec3(1, 2, 3));
+        const auto script = Script::create(R"(return {
+            update = function()
+                local value = comet.session_get('value')
+                assert(#value == 3 and value[3] == 3)
+                comet.session_set('value', {1, 2, 3, 4})
+            end,
+        })");
+        ASSERT_TRUE(script);
+        auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance);
+        const auto result =
+            instance.value()->invoke(Script::Phase::Update, {}, {}, {.scene = &scene});
+        ASSERT_FALSE(result);
+        EXPECT_NE(result.error().message.find("three numbers"), std::string::npos);
+        EXPECT_EQ(std::get<Math::Vec3>(*scene.get_session_value("value")), Math::Vec3(1, 2, 3));
+        ASSERT_TRUE(runtime.stop());
     }
 
     TEST(ScriptInvocationTest, ParameterChangesAndFailureInvalidateOnlyTheConfigurationCache) {
@@ -265,7 +427,9 @@ namespace Comet::Tests {
         ASSERT_TRUE(script);
         auto instance = script.value()->instantiate();
         ASSERT_TRUE(instance);
-        const auto& parameters = script.value()->defaults();
+        const auto resolved = script.value()->resolve_parameters({});
+        ASSERT_TRUE(resolved);
+        const auto& parameters = resolved.value();
         ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, {}, parameters));
         ASSERT_TRUE(instance.value()->invoke(Script::Phase::Update, {}, parameters));
         ASSERT_TRUE(instance.value()->invoke(Script::Phase::Update, {}, parameters));

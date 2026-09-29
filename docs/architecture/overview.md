@@ -295,7 +295,7 @@ render_frame 返回 `Result<void, GraphicsError>`。部分录制失败的命令�
 
 | 所属位置 | 持有与职责 |
 | --- | --- |
-| Script | 不可变源码、字段默认值；创建独立 Instance |
+| Script | 不可变源码、字段定义（默认值与编辑语义）；创建独立 Instance |
 | Script::Instance | VM、保护调用与 Lua 配置表；初始化期间借用源码，不长期复制源码 |
 | 私有 lua_bindings | 当前实体／授权输入的 API 适配，不访问 Editor 或渲染资源 |
 | ScriptSystem | 独占实例、保活所用 Script、同步组件寿命与阶段调用 |
@@ -313,7 +313,14 @@ Inspector Edit 使用当前资产定义，Play 使用活动实例定义；Edit �
 ScriptSystem 仅在覆盖变化时 resolve_parameters，Instance 在有效值或运行场景变化时重建 Lua 配置表。
 两层快照分别检测覆盖和 Lua 输入，不引入跨层 revision 协议。
 明确编辑成默认值仍保存覆盖；“恢复默认参数”清空覆盖，可撤销但不重载源码。
-self.parameters 及 Vec3 配置只读，支持 pairs／索引／长度；运行状态写到 self 的其他字段，不持久化。
+self.parameters 及 Vec3／Vec4 配置只读，支持 pairs／索引／长度；运行状态写到 self 的其他字段，不持久化。
+
+Script::PropertyMap 是导出字段的单一真值，不另外保存一份 defaults：每项包含 ParameterValue 默认值与编辑语义。
+裸三／四分量数组分别解析成 Math::Vec3／Vec4；`{type = "color", default = {r, g, b, a}}` 为 Vec4 添加 Color 语义。
+Inspector 据此使用颜色控件或普通四分量控件，不按变量名推断；复用 Parameters 属性事务、撤销与 Play 副本。
+Color 不是 Shader 参数类型，也不自动绑定 uniform；脚本仍显式调用材质 API。
+Color／普通 Vec4 切换保留类型兼容的覆盖，Vec3／Vec4 不隐式升降维。所有分量必须是有限 float，颜色不限制在 0..1，
+不自动转换色彩空间。`.scene` 用三／四元素数组保存覆盖，不复制 Lua 默认值或编辑语义。
 
 实体参数用 `{type = "entity"}` 声明，ParameterValue 中保存独立的 EntityUuid 类型，
 Serializer 写为 `{"entity": "UUID"}`；普通字符串不按内容猜测成引用，目标可以暂时缺失。
@@ -326,13 +333,13 @@ Hierarchy 在完成非拖放点击时才切换选择，起拖期间不改变 Ins
 VM 将 UUID 绑定成已有的受保护实体引用，不把 Scene 指针写进 Lua 配置；
 引用同时校验场景世代和 EntityId，有效引用按实体实例比较，未分配或缺失引用可安全调用 `is_valid()`。
 绑定后目标被删除、即使同 UUID 重建，已捕获的引用也不自动转向新实体；参数表重建或重新 Play 才重新解析配置。
-会话值仍只接收 bool／float／Vec3／string，不因共享 ParameterValue 类型而开放实体存储。
+会话值仍只接收 bool／float／Vec3／string，不因共享 ParameterValue 类型而开放实体或 Vec4 存储。
 
 源码最多 1 MiB、每 VM 的 Lua 堆最多 8 MiB、每次保护调用最多约 20 万条指令；
 不等于墙钟超时或安全沙箱。不开放文件、原生库、require、动态代码、元表和 rawset。
 默认参数解析与生命周期分发都在 lua_pcall 内；错误可能通过 longjmp 返回，不能依赖回调内 C++ 局部对象的析构。
 解析结果和绑定返回字符串由保护调用外层持有，回调只借用，正常或失败返回后统一释放；不承诺宿主内存耗尽后的恢复。
-参数表与会话值复用单个名称／值校验；会话值额外禁止实体引用，不为单次赋值构造临时参数表。
+参数表与会话值复用单个名称／值校验；会话值额外限制类型，不为单次赋值构造临时参数表。
 Lua 只借用当前阶段的 InputState；原始按键和动作查询来自同一快照，不依赖 InputActions 或 RuntimeInput。
 Script::Invocation 与 LuaBindings::Context 各只传一个 input，结束调用后解除借用，不自行采集或消耗输入。
 材质写入也只借用当前调用的 MaterialParameterValidator；Engine 将 MaterialPrograms 接入 ScriptSystem，

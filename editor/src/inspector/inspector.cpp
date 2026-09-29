@@ -294,7 +294,7 @@ namespace CometEditor {
         if(m_state.mode == EditorMode::Edit && m_history.get_scene() == &m_selection.get_scene())
             drop_generation = m_history.generation();
         const auto result = m_property_editor_registry.edit_parameters(
-            script->defaults(), overrides, m_selection.get_scene(), drop_generation);
+            script->properties(), overrides, m_selection.get_scene(), drop_generation);
         apply_property_edit(entity, component, property, overrides, result);
     }
 

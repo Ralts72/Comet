@@ -13,6 +13,7 @@
 #include "scene/script_component.h"
 #include "scene/systems/script_system.h"
 #include "scene/scene_runtime.h"
+#include "scene/scene_serializer.h"
 
 #include "support/imgui_context.h"
 
@@ -23,6 +24,9 @@
 #include <vector>
 
 namespace CometEditor::Tests {
+    constexpr const char* COLOR_SCRIPT_SOURCE =
+        "return {properties = {score_color = {type = 'color', default = {2, 0.25, -0.5, 0.75}}}}";
+
     class EditingUiTest: public ::testing::Test {
     protected:
         Comet::Tests::ImGuiTestContext imgui;
@@ -111,17 +115,19 @@ namespace CometEditor::Tests {
             io.AddMouseButtonEvent(0, false);
             frame();
         }
-        void drag() {
+        void drag_at(ImVec2 point) {
             auto& io = ImGui::GetIO();
-            io.AddMousePosEvent(drag_point.x, drag_point.y);
+            io.AddMousePosEvent(point.x, point.y);
             frame();
             io.AddMouseButtonEvent(0, true);
             frame();
-            io.AddMousePosEvent(drag_point.x + 30, drag_point.y);
+            io.AddMousePosEvent(point.x + 30, point.y);
             frame();
-            io.AddMousePosEvent(drag_point.x + 60, drag_point.y);
+            io.AddMousePosEvent(point.x + 60, point.y);
             frame();
         }
+
+        void drag() { drag_at(drag_point); }
 
         void click(ImVec2 point) {
             auto& io = ImGui::GetIO();
@@ -147,6 +153,42 @@ namespace CometEditor::Tests {
             }
             ADD_FAILURE() << "Entity parameter widget not found";
             return {};
+        }
+
+        ImGuiID color_item_id(const char* item) {
+            auto* window = ImGui::FindWindowByName("Inspector");
+            ImGuiID id = window->GetID("script");
+            for(const char* part : {"parameters", "score_color", "score_color", item})
+                id = ImHashStr(part, 0, id);
+            return id;
+        }
+
+        ImVec2 color_item_point(const char* item = "##X") {
+            auto* window = ImGui::FindWindowByName("Inspector");
+            const auto red_id = color_item_id("##X");
+            const auto item_id = color_item_id(item);
+            for(float y = window->WorkRect.Min.y; y < window->WorkRect.Max.y; y += 3) {
+                ImGui::GetIO().AddMousePosEvent(window->WorkRect.Min.x + 20, y);
+                frame();
+                if(GImGui->HoveredId != red_id)
+                    continue;
+                for(float x = window->WorkRect.Min.x + 20; x < window->WorkRect.Max.x; x += 3) {
+                    ImGui::GetIO().AddMousePosEvent(x, y);
+                    frame();
+                    if(GImGui->HoveredId == item_id)
+                        return {x, y};
+                }
+                break;
+            }
+            ADD_FAILURE() << "Color parameter widget not found: " << item;
+            return {};
+        }
+
+        void restore_parameters() {
+            auto* window = ImGui::FindWindowByName("Inspector");
+            auto id = ImHashStr("parameters", 0, window->GetID("script"));
+            ImGui::ActivateItemByID(ImHashStr("Restore default parameters", 0, id));
+            frame();
         }
 
         void choose_entity(int row) {
@@ -406,6 +448,186 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(edit.active());
         EXPECT_TRUE(binding.parameters.empty());
         EXPECT_EQ(history.state_id(), before);
+    }
+
+    TEST_F(EditingUiTest, ScriptColorPickerUsesExportedDefaultAndRecordsOneUndoableGesture) {
+        auto script = Comet::Script::create(COLOR_SCRIPT_SOURCE);
+        ASSERT_TRUE(script);
+        const Comet::AssetHandle handle{1234};
+        ASSERT_TRUE(runtime_assets.register_asset(handle, script.value()));
+        auto& binding = entity.add_component<Comet::ScriptComponent>();
+        binding.asset = handle;
+        frame();
+        EXPECT_TRUE(binding.parameters.empty());
+
+        click(color_item_point("##ColorButton"));
+        ASSERT_FALSE(GImGui->OpenPopupStack.empty());
+        EXPECT_FLOAT_EQ(GImGui->ColorPickerRef.x, 2.0f);
+        EXPECT_FLOAT_EQ(GImGui->ColorPickerRef.y, 0.25f);
+        EXPECT_FLOAT_EQ(GImGui->ColorPickerRef.z, -0.5f);
+        EXPECT_FLOAT_EQ(GImGui->ColorPickerRef.w, 0.75f);
+        frame();
+        auto* picker = GImGui->OpenPopupStack.back().Window;
+        ASSERT_NE(picker, nullptr);
+        const ImVec2 picker_point{picker->DC.CursorStartPos.x + 30,
+            picker->DC.CursorStartPos.y + ImGui::GetTextLineHeightWithSpacing() + 40};
+        ImGui::GetIO().AddMousePosEvent(picker_point.x, picker_point.y);
+        frame();
+        EXPECT_EQ(GImGui->HoveredId, ImHashStr("sv", 0, picker->GetID("##picker")));
+        drag_at(picker_point);
+        EXPECT_TRUE(edit.active());
+        EXPECT_EQ(history.undo_size(), 0u);
+        ASSERT_TRUE(binding.parameters.contains("score_color"));
+        const auto picked = std::get<Comet::Math::Vec4>(binding.parameters.at("score_color"));
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_FALSE(edit.active());
+        EXPECT_EQ(history.undo_size(), 1u);
+        frame();
+        EXPECT_FALSE(edit.active());
+        EXPECT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_TRUE(binding.parameters.empty());
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(std::get<Comet::Math::Vec4>(binding.parameters.at("score_color")), picked);
+        ASSERT_TRUE(history.undo());
+        ImGui::ClosePopupToLevel(0, true);
+        frame();
+        EXPECT_TRUE(binding.parameters.empty());
+        EXPECT_FALSE(history.can_undo());
+
+        drag_at(color_item_point());
+        EXPECT_TRUE(edit.active());
+        EXPECT_EQ(history.undo_size(), 0u);
+        ASSERT_TRUE(binding.parameters.contains("score_color"));
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_FALSE(edit.active());
+        EXPECT_EQ(history.undo_size(), 1u);
+        const auto edited = std::get<Comet::Math::Vec4>(binding.parameters.at("score_color"));
+        EXPECT_GT(edited.x, 2.0f);
+        EXPECT_FLOAT_EQ(edited.y, 0.25f);
+        EXPECT_FLOAT_EQ(edited.z, -0.5f);
+        EXPECT_FLOAT_EQ(edited.w, 0.75f);
+        ASSERT_TRUE(history.undo());
+        EXPECT_TRUE(binding.parameters.empty());
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(std::get<Comet::Math::Vec4>(binding.parameters.at("score_color")), edited);
+
+        restore_parameters();
+        EXPECT_TRUE(binding.parameters.empty());
+        EXPECT_EQ(history.undo_size(), 2u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(std::get<Comet::Math::Vec4>(binding.parameters.at("score_color")), edited);
+        ASSERT_TRUE(history.redo());
+        EXPECT_TRUE(binding.parameters.empty());
+    }
+
+    TEST_F(EditingUiTest, ScriptColorAlphaGestureCanBeCanceledWithoutClamping) {
+        auto script = Comet::Script::create(COLOR_SCRIPT_SOURCE);
+        ASSERT_TRUE(script);
+        const Comet::AssetHandle handle{1234};
+        ASSERT_TRUE(runtime_assets.register_asset(handle, script.value()));
+        auto& binding = entity.add_component<Comet::ScriptComponent>();
+        binding.asset = handle;
+        const Comet::Math::Vec4 original{3, -1, 0.5f, 2};
+        binding.parameters.emplace("score_color", original);
+        frame();
+        drag_at(color_item_point("##W"));
+        ASSERT_TRUE(edit.active());
+        const auto edited = std::get<Comet::Math::Vec4>(binding.parameters.at("score_color"));
+        EXPECT_GT(edited.w, 2.0f);
+        EXPECT_FLOAT_EQ(edited.x, original.x);
+        EXPECT_FLOAT_EQ(edited.y, original.y);
+        EXPECT_FLOAT_EQ(edited.z, original.z);
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, true);
+        frame();
+        EXPECT_FALSE(edit.active());
+        EXPECT_EQ(std::get<Comet::Math::Vec4>(binding.parameters.at("score_color")), original);
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, false);
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_FALSE(history.can_undo());
+    }
+
+    TEST_F(EditingUiTest, PlainVec4UsesVectorWidgetEvenWhenItsNameContainsColor) {
+        auto script =
+            Comet::Script::create("return {properties = {score_color = {2, -1, 0.5, 3}}}");
+        ASSERT_TRUE(script);
+        const Comet::AssetHandle handle{1234};
+        ASSERT_TRUE(runtime_assets.register_asset(handle, script.value()));
+        auto& binding = entity.add_component<Comet::ScriptComponent>();
+        binding.asset = handle;
+        bool rendered = false;
+        ImVec2 vector_point;
+        ASSERT_TRUE(widgets.register_editor(
+            Comet::PropertyType::Vec4, [&, builtin = create_property_editor_registry(assets)](
+                                           const Comet::PropertyDescriptor& property, void* value) {
+                rendered = true;
+                const auto result = builtin.edit_property(property, value);
+                const auto start = ImGui::GetItemRectMin();
+                vector_point = {start.x + 20, start.y + 8};
+                return result;
+            }));
+        frame();
+        ASSERT_TRUE(rendered);
+        EXPECT_TRUE(binding.parameters.empty());
+        drag_at(vector_point);
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        ASSERT_TRUE(binding.parameters.contains("score_color"));
+        const auto edited = std::get<Comet::Math::Vec4>(binding.parameters.at("score_color"));
+        EXPECT_GT(edited.x, 2.0f);
+        EXPECT_FLOAT_EQ(edited.y, -1.0f);
+        EXPECT_FLOAT_EQ(edited.z, 0.5f);
+        EXPECT_FLOAT_EQ(edited.w, 3.0f);
+        EXPECT_EQ(history.undo_size(), 1u);
+    }
+
+    TEST_F(EditingUiTest, PlayColorEditsUseRunningMetadataAndLeaveEditSceneAndHistoryUntouched) {
+        auto script = Comet::Script::create(COLOR_SCRIPT_SOURCE);
+        ASSERT_TRUE(script);
+        const Comet::AssetHandle handle{1234};
+        ASSERT_TRUE(runtime_assets.register_asset(handle, script.value()));
+        auto& edit_binding = entity.add_component<Comet::ScriptComponent>();
+        edit_binding.asset = handle;
+        const Comet::Math::Vec4 original{3, -1, 0.5f, 2};
+        edit_binding.parameters.emplace("score_color", original);
+        Comet::SceneSerializer serializer(components);
+        auto cloned = serializer.clone(scene);
+        ASSERT_TRUE(cloned);
+        auto& runtime_scene = *cloned.value();
+        auto runtime_entity = runtime_scene.find_entity(entity.get_uuid());
+        auto& runtime_binding = runtime_entity.get_component<Comet::ScriptComponent>();
+        Comet::SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Comet::ScriptSystem>(runtime_assets)));
+        ASSERT_TRUE(runtime.start(runtime_scene));
+        state.mode = EditorMode::Play;
+        selection.set_scene(runtime_scene);
+        selection.select_entity(runtime_entity.get_id());
+        auto replacement =
+            Comet::Script::create("return {properties = {score_color = {1, 1, 1, 1}}}");
+        ASSERT_TRUE(replacement);
+        ASSERT_TRUE(runtime_assets.replace_asset(handle, replacement.value()));
+        const auto before = history.state_id();
+        frame();
+        drag_at(color_item_point());
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_GT(std::get<Comet::Math::Vec4>(runtime_binding.parameters.at("score_color")).x, 3);
+        EXPECT_EQ(std::get<Comet::Math::Vec4>(edit_binding.parameters.at("score_color")), original);
+        EXPECT_EQ(history.state_id(), before);
+        EXPECT_FALSE(history.can_undo());
+        EXPECT_FALSE(edit.active());
+        EXPECT_EQ(runtime_binding.running_script(), script.value());
+        restore_parameters();
+        EXPECT_TRUE(runtime_binding.parameters.empty());
+        EXPECT_EQ(std::get<Comet::Math::Vec4>(edit_binding.parameters.at("score_color")), original);
+        EXPECT_EQ(history.state_id(), before);
+        ASSERT_TRUE(runtime.stop());
+        selection.set_scene(scene);
+        selection.select_entity(entity.get_id());
+        state.mode = EditorMode::Edit;
     }
 
     TEST_F(EditingUiTest, PlayParameterEditorUsesActiveVersionNotReloadedAsset) {

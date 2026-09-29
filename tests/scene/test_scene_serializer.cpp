@@ -20,6 +20,52 @@
 #include <utility>
 
 namespace Comet::Tests {
+    TEST(SceneSerializerTest, VectorParametersPreserveDimensionsAndSparseOverrides) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        Scene scene;
+        auto actor = scene.create_entity("Actor");
+        const ParameterMap parameters{
+            {"direction", Math::Vec3(1, 2, 3)}, {"score_color", Math::Vec4(2, 0.25f, 0.5f, 0.75f)}};
+        actor.add_component<ScriptComponent>().parameters = parameters;
+        TemporaryDirectory directory;
+        const auto path = (directory.path() / "color.scene").string();
+        ASSERT_TRUE(serializer.save(scene, path));
+        auto loaded = serializer.load(path);
+        ASSERT_TRUE(loaded) << loaded.error();
+        auto clone = serializer.clone(*loaded.value());
+        ASSERT_TRUE(clone) << clone.error();
+        auto cloned_actor = clone.value()->find_entity(actor.get_uuid());
+        EXPECT_EQ(cloned_actor.get_component<ScriptComponent>().parameters, parameters);
+        cloned_actor.get_component<ScriptComponent>().parameters["score_color"] = Math::Vec4(1);
+        EXPECT_EQ(actor.get_component<ScriptComponent>().parameters, parameters);
+        auto text = serializer.serialize(scene);
+        ASSERT_TRUE(text);
+        EXPECT_EQ(text.value().find("semantic"), std::string::npos);
+    }
+
+    TEST(SceneSerializerTest, RejectsMalformedVectorParametersAndNonFiniteFourthComponent) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        for(const std::string value :
+            {"[]", "[1,2]", "[1,2,3,4,5]", "[1,2,3,null]", "[1,2,3,\"4\"]", "[1,2,3,1e100]"}) {
+            SCOPED_TRACE(value);
+            const auto json = R"({"version":2,"entities":[{
+                "uuid":"00000000-0000-4000-8000-000000000001",
+                "components":{"name":"Actor","script":{"asset":42,
+                "parameters":{"color":)"
+                              + value + "}}}}]}";
+            auto loaded = serializer.deserialize(json);
+            EXPECT_FALSE(loaded);
+            if(!loaded)
+                EXPECT_NE(loaded.error().find("parameters"), std::string::npos);
+        }
+        Scene scene;
+        auto& parameters = scene.create_entity().add_component<ScriptComponent>().parameters;
+        parameters["color"] = Math::Vec4(1, 1, 1, std::numeric_limits<float>::infinity());
+        EXPECT_FALSE(serializer.serialize(scene));
+    }
+
     TEST(SceneSerializerTest, EntityParametersRoundTripAndCloneWithoutGuessingStringValues) {
         const auto registry = create_scene_component_registry();
         const SceneSerializer serializer(registry);
@@ -686,7 +732,7 @@ namespace Comet::Tests {
     }
   ]
 })",
-            "exactly three numbers");
+            "exactly 3 numbers");
 
         expect_scene_error(
             R"({"version": 2, "entities": [], "runtime_id": 1})", "unknown field 'runtime_id'");

@@ -219,6 +219,8 @@ namespace Comet::LuaBindings {
                         lua_pushlstring(state, item.data(), item.size());
                     else if constexpr(std::is_same_v<T, EntityUuid>)
                         luaL_error(state, "Entity references are not session values");
+                    else if constexpr(std::is_same_v<T, Math::Vec4>)
+                        luaL_error(state, "Four-component vectors are not session values");
                     else {
                         lua_createtable(state, 3, 0);
                         for(int i = 0; i < 3; ++i) {
