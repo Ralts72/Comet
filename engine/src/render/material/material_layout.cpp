@@ -1,6 +1,6 @@
 #include "render/material/material_layout.h"
 #include "asset/data/shader_program_data.h"
-#include "asset/data/material_data.h"
+#include "scene/material_parameters.h"
 #include "diagnostics/logger.h"
 #include "graphics/pipeline/shader_interface.h"
 

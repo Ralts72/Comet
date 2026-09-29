@@ -72,8 +72,10 @@ namespace CometEditor::Tests {
                     ++move_count;
                     moved_handle = request->handle;
                     destination = request->destination;
-                    project->complete_move(*request, AssetSourceOperations::move(database,
-                                                         request->handle, request->destination));
+                    auto report = AssetSourceOperations::move(
+                        database, request->handle, request->destination);
+                    project->complete_move(*request, report);
+                    project->update_scan_report(std::move(report));
                 }
                 if(project->take_refresh_request()) {
                     ++refresh_count;
@@ -289,9 +291,10 @@ namespace CometEditor::Tests {
         EXPECT_EQ(request->handle, handle);
         EXPECT_EQ(request->revision, database.get_revision(handle));
         EXPECT_TRUE(std::filesystem::exists(paths.assets() / "a.png"));
-        project->complete_delete(*request,
-            AssetSourceOperations::remove_asset(database, request->handle,
-                [this](const std::filesystem::path& entry) { return move_to_fake_trash(entry); }));
+        auto report = AssetSourceOperations::remove_asset(database, request->handle,
+            [this](const std::filesystem::path& entry) { return move_to_fake_trash(entry); });
+        project->complete_delete(*request, report);
+        project->update_scan_report(std::move(report));
         frame();
         EXPECT_FALSE(database.find(handle));
         EXPECT_TRUE(std::filesystem::exists(root / "fake-system-trash/a.png"));
@@ -362,8 +365,9 @@ namespace CometEditor::Tests {
         EXPECT_EQ(request->handle, source);
         EXPECT_EQ(request->destination, "deferred.png");
         EXPECT_FALSE(project->take_move_request());
-        project->complete_move(
-            *request, AssetSourceOperations::move(database, request->handle, request->destination));
+        auto report = AssetSourceOperations::move(database, request->handle, request->destination);
+        project->complete_move(*request, report);
+        project->update_scan_report(std::move(report));
         frame();
         frame();
         EXPECT_FALSE(ImGui::FindWindowByName("Rename Asset")->Active);

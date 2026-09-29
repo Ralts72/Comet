@@ -1,6 +1,7 @@
 #include "core/engine.h"
 #include "render/material/material_layout.h"
 #include "render/material/material_programs.h"
+#include "scene/material_parameters.h"
 #include "core/math_utils.h"
 #include "support/engine_fixture.h"
 #include "render/renderer.h"

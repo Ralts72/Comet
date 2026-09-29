@@ -1234,20 +1234,20 @@ namespace CometEditor::Tests {
         io.AddKeyEvent(modifier, true);
         io.AddKeyEvent(ImGuiKey_S, true);
         frame();
-        EXPECT_FALSE(menu.take_command());
+        EXPECT_FALSE(menu.take_request());
         io.AddKeyEvent(ImGuiKey_S, false);
         frame();
         io.AddKeyEvent(ImGuiMod_Shift, true);
         io.AddKeyEvent(ImGuiKey_S, true);
         frame();
-        EXPECT_EQ(menu.take_command(), MenuBar::Command::SaveScene);
-        EXPECT_FALSE(menu.take_command());
+        EXPECT_EQ(menu.take_request(), (MenuBar::Request{MenuBar::Command::SaveScene, {}}));
+        EXPECT_FALSE(menu.take_request());
         io.AddKeyEvent(ImGuiKey_S, false);
         frame();
         state.mode = EditorMode::Play;
         io.AddKeyEvent(ImGuiKey_S, true);
         frame();
-        EXPECT_FALSE(menu.take_command());
+        EXPECT_FALSE(menu.take_request());
         io.AddKeyEvent(ImGuiKey_S, false);
         io.AddKeyEvent(ImGuiMod_Shift, false);
         io.AddKeyEvent(modifier, false);
@@ -1258,7 +1258,7 @@ namespace CometEditor::Tests {
         io.AddKeyEvent(ImGuiMod_Shift, true);
         io.AddKeyEvent(ImGuiKey_S, true);
         frame();
-        EXPECT_FALSE(menu.take_command());
+        EXPECT_FALSE(menu.take_request());
     }
 
     TEST_F(EditingUiTest, ShortcutsUsePlatformModifierAndConsumeRequestOnce) {
@@ -1273,8 +1273,8 @@ namespace CometEditor::Tests {
             io.AddKeyEvent(mac ? ImGuiMod_Super : ImGuiMod_Ctrl, true);
             io.AddKeyEvent(ImGuiKey_Z, true);
             frame();
-            EXPECT_EQ(menu.take_command(), MenuBar::Command::Undo);
-            EXPECT_FALSE(menu.take_command());
+            EXPECT_EQ(menu.take_request(), (MenuBar::Request{MenuBar::Command::Undo, {}}));
+            EXPECT_FALSE(menu.take_request());
             io.AddKeyEvent(mac ? ImGuiMod_Super : ImGuiMod_Ctrl, false);
             io.AddKeyEvent(ImGuiKey_Z, false);
             frame();
@@ -1291,13 +1291,13 @@ namespace CometEditor::Tests {
             io.AddKeyEvent(modifier, true);
             io.AddKeyEvent(ImGuiKey_C, true);
             frame();
-            EXPECT_EQ(menu.take_command(), MenuBar::Command::CopyEntity);
-            EXPECT_FALSE(menu.take_command());
+            EXPECT_EQ(menu.take_request(), (MenuBar::Request{MenuBar::Command::CopyEntity, {}}));
+            EXPECT_FALSE(menu.take_request());
             io.AddKeyEvent(ImGuiKey_C, false);
             frame();
             io.AddKeyEvent(ImGuiKey_V, true);
             frame();
-            EXPECT_EQ(menu.take_command(), MenuBar::Command::PasteEntity);
+            EXPECT_EQ(menu.take_request(), (MenuBar::Request{MenuBar::Command::PasteEntity, {}}));
             io.AddKeyEvent(ImGuiKey_V, false);
             io.AddKeyEvent(modifier, false);
             frame();
@@ -1308,11 +1308,11 @@ namespace CometEditor::Tests {
         io.AddKeyEvent(ImGuiMod_Ctrl, true);
         io.AddKeyEvent(ImGuiKey_C, true);
         frame();
-        EXPECT_FALSE(menu.take_command());
+        EXPECT_FALSE(menu.take_request());
         io.AddKeyEvent(ImGuiKey_C, false);
         io.AddKeyEvent(ImGuiKey_V, true);
         frame();
-        EXPECT_FALSE(menu.take_command());
+        EXPECT_FALSE(menu.take_request());
         io.AddKeyEvent(ImGuiKey_V, false);
         io.AddKeyEvent(ImGuiMod_Ctrl, false);
     }
@@ -1327,8 +1327,9 @@ namespace CometEditor::Tests {
             io.AddKeyEvent(modifier, true);
             io.AddKeyEvent(ImGuiKey_Backspace, true);
             frame();
-            EXPECT_EQ(menu.take_command(), MenuBar::Command::DeleteSelection);
-            EXPECT_FALSE(menu.take_command());
+            EXPECT_EQ(
+                menu.take_request(), (MenuBar::Request{MenuBar::Command::DeleteSelection, {}}));
+            EXPECT_FALSE(menu.take_request());
             io.AddKeyEvent(ImGuiKey_Backspace, false);
             io.AddKeyEvent(modifier, false);
             frame();
@@ -1339,7 +1340,7 @@ namespace CometEditor::Tests {
         io.AddKeyEvent(ImGuiMod_Super, true);
         io.AddKeyEvent(ImGuiKey_Backspace, true);
         frame();
-        EXPECT_FALSE(menu.take_command());
+        EXPECT_FALSE(menu.take_request());
         io.AddKeyEvent(ImGuiKey_Backspace, false);
         io.AddKeyEvent(ImGuiMod_Super, false);
     }
@@ -1376,8 +1377,9 @@ namespace CometEditor::Tests {
         ASSERT_NE(popup, nullptr);
         ImGui::ActivateItemByID(popup->GetID("scenes/current.scene"));
         frame("scenes/current.scene", "scenes/other.scene");
-        EXPECT_EQ(menu.take_command(), MenuBar::Command::SetStartupScene);
-        EXPECT_EQ(menu.take_startup_scene_path(), "scenes/current.scene");
+        EXPECT_EQ(menu.take_request(),
+            (MenuBar::Request{MenuBar::Command::SetStartupScene, "scenes/current.scene"}));
+        EXPECT_FALSE(menu.take_request());
     }
 
     TEST(MenuBarTest, RecentProjectSelectionProvidesPath) {
@@ -1411,8 +1413,8 @@ namespace CometEditor::Tests {
         ASSERT_NE(popup, nullptr);
         ImGui::ActivateItemByID(popup->GetID(project.generic_string().c_str()));
         frame();
-        EXPECT_EQ(menu.take_command(), MenuBar::Command::OpenProject);
-        EXPECT_EQ(menu.take_project_path(), project);
+        EXPECT_EQ(menu.take_request(), (MenuBar::Request{MenuBar::Command::OpenProject, project}));
+        EXPECT_FALSE(menu.take_request());
     }
 
     TEST(MenuBarTest, NewProjectOpensFromFileMenu) {
@@ -1437,7 +1439,7 @@ namespace CometEditor::Tests {
         ASSERT_NE(popup, nullptr);
         ImGui::ActivateItemByID(popup->GetID("New Project"));
         frame();
-        EXPECT_EQ(menu.take_command(), MenuBar::Command::NewProject);
+        EXPECT_EQ(menu.take_request(), (MenuBar::Request{MenuBar::Command::NewProject, {}}));
     }
 
     TEST(MenuBarTest, ProjectRenameOpensFromProjectMenu) {
@@ -1462,7 +1464,7 @@ namespace CometEditor::Tests {
         ASSERT_NE(popup, nullptr);
         ImGui::ActivateItemByID(popup->GetID("Rename Project..."));
         frame();
-        EXPECT_EQ(menu.take_command(), MenuBar::Command::RenameProject);
+        EXPECT_EQ(menu.take_request(), (MenuBar::Request{MenuBar::Command::RenameProject, {}}));
     }
 
     TEST(MenuBarTest, ProjectInputSettingsOpensFromSettingsMenu) {
@@ -1492,7 +1494,8 @@ namespace CometEditor::Tests {
         ASSERT_NE(popup, nullptr);
         ImGui::ActivateItemByID(popup->GetID("Input"));
         frame();
-        EXPECT_EQ(menu.take_command(), MenuBar::Command::ProjectInputSettings);
+        EXPECT_EQ(
+            menu.take_request(), (MenuBar::Request{MenuBar::Command::ProjectInputSettings, {}}));
     }
 
     TEST(MenuBarTest, StartupSceneCanBeChosenWithoutOpeningIt) {
@@ -1526,8 +1529,9 @@ namespace CometEditor::Tests {
         ASSERT_NE(popup, nullptr);
         ImGui::ActivateItemByID(popup->GetID(scene.generic_string().c_str()));
         frame();
-        EXPECT_EQ(menu.take_command(), MenuBar::Command::SetStartupScene);
-        EXPECT_EQ(menu.take_startup_scene_path(), scene);
+        EXPECT_EQ(
+            menu.take_request(), (MenuBar::Request{MenuBar::Command::SetStartupScene, scene}));
+        EXPECT_FALSE(menu.take_request());
     }
 }
 #endif

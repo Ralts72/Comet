@@ -1,7 +1,7 @@
 #pragma once
 
 #include "asset/handle.h"
-#include "asset/data/material_data.h"
+#include "scene/material_parameters.h"
 #include "common/export.h"
 #include "common/result.h"
 #include "render/material/material_shader.h"

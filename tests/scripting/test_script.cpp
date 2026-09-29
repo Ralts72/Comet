@@ -29,19 +29,25 @@ namespace Comet::Tests {
         EXPECT_FALSE(scene.take_restart_request());
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.start(scene));
-        for(const auto phase : {Script::Phase::Start, Script::Phase::Stop, Script::Phase::Update}) {
+        for(const auto phase : {Script::Phase::Start, Script::Phase::Stop}) {
             EXPECT_FALSE(instance.value()->invoke(phase, actor, {}, {.scene = &scene}));
+            EXPECT_FALSE(scene.take_restart_request());
+            EXPECT_FALSE(
+                instance.value()->invoke(phase, actor, {}, {.scene = &scene, .input = &input}));
             EXPECT_FALSE(scene.take_restart_request());
         }
         for(const auto phase : {Script::Phase::Update, Script::Phase::FixedUpdate,
                 Script::Phase::TriggerEnter, Script::Phase::TriggerExit,
                 Script::Phase::CollisionEnter, Script::Phase::CollisionExit}) {
             const auto called = instance.value()->invoke(
-                phase, actor, {}, {.scene = &scene, .input = &input, .contact_other = actor});
+                phase, actor, {}, {.scene = &scene, .contact_other = actor});
             ASSERT_TRUE(called) << called.error().message;
             EXPECT_TRUE(scene.take_restart_request());
             EXPECT_TRUE(scene.get_session_value("after.restart"));
         }
+        EXPECT_FALSE(instance.value()->invoke(
+            static_cast<Script::Phase>(-1), actor, {}, {.scene = &scene, .input = &input}));
+        EXPECT_FALSE(scene.take_restart_request());
         scene.destroy_entity(actor);
         EXPECT_FALSE(instance.value()->invoke(
             Script::Phase::Update, actor, {}, {.scene = &scene, .input = &input}));
@@ -303,9 +309,30 @@ namespace Comet::Tests {
         const auto result =
             instance.value()->invoke(Script::Phase::Update, {}, {}, {.scene = &scene});
         ASSERT_FALSE(result);
-        EXPECT_NE(result.error().message.find("three numbers"), std::string::npos);
+        EXPECT_NE(result.error().message.find("three finite numbers"), std::string::npos);
         EXPECT_EQ(std::get<Math::Vec3>(*scene.get_session_value("value")), Math::Vec3(1, 2, 3));
         ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(ScriptInvocationTest, SessionVectorsRejectInvalidShapeWithoutReplacingPreviousValue) {
+        for(const char* vector : {"{}", "{1, 2}", "{1, 2, 3, 4}", "{[1]=1, [3]=3}",
+                "{[0]=0, 1, 2, 3}", "{1, 2, 3, extra=4}", "{[1.5]=1, [2]=2, [3]=3}", "{1, '2', 3}",
+                "{1, true, 3}", "{1, math.huge, 3}", "{1, 0/0, 3}", "{1, 1e100, 3}"}) {
+            SCOPED_TRACE(vector);
+            Scene scene;
+            SceneRuntime runtime;
+            ASSERT_TRUE(runtime.start(scene));
+            ASSERT_TRUE(scene.set_session_value("value", Math::Vec3(4, 5, 6)));
+            const auto script = Script::create(
+                std::string("return {update = function() comet.session_set('value', ") + vector
+                + ") end}");
+            ASSERT_TRUE(script) << script.error().message;
+            auto instance = script.value()->instantiate();
+            ASSERT_TRUE(instance);
+            EXPECT_FALSE(
+                instance.value()->invoke(Script::Phase::Update, {}, {}, {.scene = &scene}));
+            EXPECT_EQ(std::get<Math::Vec3>(*scene.get_session_value("value")), Math::Vec3(4, 5, 6));
+        }
     }
 
     TEST(ScriptInvocationTest, ParameterChangesAndFailureInvalidateOnlyTheConfigurationCache) {

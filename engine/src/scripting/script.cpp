@@ -371,6 +371,8 @@ namespace Comet {
 
     Result<void, Error> Script::Instance::invoke(
         Phase phase, Entity entity, const ParameterMap& parameters, Invocation invocation) {
+        if(static_cast<std::size_t>(phase) >= Impl::PHASE_NAMES.size())
+            return Result<void, Error>::failure({"Invalid script phase"});
         m_impl->parameters_changed =
             !m_impl->previous_parameters || *m_impl->previous_parameters != parameters;
         if(m_impl->parameters_changed && !valid_parameters(parameters))
@@ -383,7 +385,7 @@ namespace Comet {
             m_impl->parameters_changed = true;
         }
         m_impl->bindings = {entity, invocation.scene, invocation.input, m_impl->scene_generation,
-            std::nullopt, invocation.materials};
+            std::nullopt, invocation.materials, phase != Phase::Start && phase != Phase::Stop};
         m_impl->parameters = &parameters;
         m_impl->delta_time = invocation.delta_time;
         m_impl->phase = phase;

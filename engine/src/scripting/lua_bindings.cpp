@@ -103,8 +103,8 @@ namespace Comet::LuaBindings {
         }
         int restart_scene(lua_State* state) {
             const auto& context = current(state);
-            if(!context.input || !context.scene || !context.scene->is_valid(context.entity)
-                || !context.scene->request_restart())
+            if(!context.can_request_restart || !context.scene
+                || !context.scene->is_valid(context.entity) || !context.scene->request_restart())
                 return luaL_error(state, "Scene restart requires an active runtime update");
             return 0;
         }
@@ -124,16 +124,16 @@ namespace Comet::LuaBindings {
             }
             return push_entity_reference(state, entity, context.scene_generation);
         }
-        Math::Vec3 creation_vector(lua_State* state, int index) {
+        Math::Vec3 read_vector3(lua_State* state, int index) {
             luaL_checktype(state, index, LUA_TTABLE);
             index = lua_absindex(state, index);
             if(luaL_len(state, index) != 3)
-                luaL_error(state, "Entity transform needs exactly three finite numbers");
+                luaL_error(state, "Vector needs exactly three finite numbers");
             lua_pushnil(state);
             while(lua_next(state, index)) {
                 if(!lua_isinteger(state, -2) || lua_tointeger(state, -2) < 1
                     || lua_tointeger(state, -2) > 3)
-                    luaL_error(state, "Entity transform needs exactly three finite numbers");
+                    luaL_error(state, "Vector needs exactly three finite numbers");
                 lua_pop(state, 1);
             }
             // 长度与索引遵循只读参数代理；原始键检查仍拒绝普通数组的额外字段。
@@ -141,7 +141,7 @@ namespace Comet::LuaBindings {
             for(int i = 0; i < 3; ++i) {
                 lua_geti(state, index, i + 1);
                 if(lua_type(state, -1) != LUA_TNUMBER)
-                    luaL_error(state, "Entity transform needs exactly three finite numbers");
+                    luaL_error(state, "Vector needs exactly three finite numbers");
                 vector[i] = number(state, -1);
                 lua_pop(state, 1);
             }
@@ -161,11 +161,11 @@ namespace Comet::LuaBindings {
                 const char* text = lua_tolstring(state, -2, &length);
                 const std::string_view key(text, length);
                 if(key == "translation")
-                    creation.transform.translation = creation_vector(state, -1);
+                    creation.transform.translation = read_vector3(state, -1);
                 else if(key == "rotation")
-                    creation.transform.rotation = creation_vector(state, -1);
+                    creation.transform.rotation = read_vector3(state, -1);
                 else if(key == "scale")
-                    creation.transform.scale = creation_vector(state, -1);
+                    creation.transform.scale = read_vector3(state, -1);
                 else if(key == "mesh_source") {
                     const Entity source = require_entity(state, -1);
                     if(!source.has_component<MeshRendererComponent>())
@@ -325,15 +325,7 @@ namespace Comet::LuaBindings {
                     break;
                 }
                 case LUA_TTABLE: {
-                    if(lua_rawlen(state, 2) != 3)
-                        return luaL_error(state, "Session vector needs three numbers");
-                    Math::Vec3 vector;
-                    for(int i = 0; i < 3; ++i) {
-                        lua_rawgeti(state, 2, i + 1);
-                        vector[i] = number(state, -1);
-                        lua_pop(state, 1);
-                    }
-                    accepted = scene.set_session_value(key, vector);
+                    accepted = scene.set_session_value(key, read_vector3(state, 2));
                     break;
                 }
                 default:

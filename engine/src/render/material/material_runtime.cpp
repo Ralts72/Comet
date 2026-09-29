@@ -1,7 +1,7 @@
 #include "render/material/material_runtime.h"
 #include "render/material/material_layout.h"
 
-#include "asset/data/material_data.h"
+#include "scene/material_parameters.h"
 #include "render/material/material.h"
 
 #include <algorithm>

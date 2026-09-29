@@ -26,6 +26,12 @@ namespace Comet {
             uint32_t present_queue_count = 1;
         };
 
+        struct FormatSupport {
+            bool sampled = false;
+            bool linear_filter = false;
+            bool depth_attachment = false;
+        };
+
         explicit Device(Context& context);
 
         Device(Context& context, CreateInfo create_info);
@@ -75,6 +81,8 @@ namespace Comet {
         [[nodiscard]] const PipelineCache& get_pipeline_cache() const { return *m_pipeline_cache; }
 
         [[nodiscard]] const DeviceCapability& get_capability() const { return m_capability; }
+        // 查询设备最优平铺图像的格式能力，不包含具体尺寸、用途组合或采样数校验。
+        [[nodiscard]] FormatSupport query_format_support(Format format) const;
 
         [[nodiscard]] CommandPool& get_default_command_pool() { return *m_default_command_pool; }
         [[nodiscard]] const CommandPool& get_default_command_pool() const {

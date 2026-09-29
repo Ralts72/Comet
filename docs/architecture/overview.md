@@ -33,6 +33,7 @@ ImGuiContext 是 UI 后端例外，`editor/editor.cpp` 是扫描范围外的宿�
 | `scene/systems/script_system.h` | Lua 行为实例的启动、阶段更新、寿命复核与逆序清理；字段仍属于 Scene 组件 |
 | `scene/systems/physics_system.h` | 固定步 Jolt 世界，按 Scene 刚体／碰撞体组件同步；只在运行态持有物理对象 |
 | `scene/systems/audio_system.h` | 普通更新同步声音源；运行期拥有设备与播放实例，Stop 清理 |
+| `scene/material_parameters.h` | 非持久的材质覆盖快照与 CPU 校验契约；不属于 `.mat` 序列化数据 |
 | `audio/audio.h` | AudioClip 已解码 CPU 数据与 AudioPlayback 播放实例；不向 Scene 公开 miniaudio 类型 |
 | `render/renderer.h` | 渲染子系统组合根，编排帧、RenderView、overlay 与拾取 |
 | `render/scene/scene_extractor.h` | Scene → 不含 GPU 对象的 RenderScene 快照 |
@@ -234,8 +235,9 @@ Engine 启动 Runtime 使用 InputStart::Rebase，在首张已授权输入上丢
 多个绑定合为一个按钮电平，释放其中一个仍按住的动作不会产生释放；轴与位移不伪装成按钮。
 CameraControllerSystem 只约定 `camera.*` 动作语义，具体设备、按键、反向和死区属于项目配置。
 
-项目输入设置的链路是 `InputSettingsPanel 草稿 → InputActions 校验 → ProjectSettings 消费请求 → Project 原子保存 → 停止态 RuntimeInput`。
-面板不写文件、不操作 Engine；保存失败保留草稿，关闭丢弃未保存草稿，无变化保存由 Project 跳过写盘。
+项目输入设置的链路是 `InputSettingsPanel 草稿 → ProjectSettings 校验／保存 → 宿主应用到停止态 RuntimeInput`。
+ProjectSettings 返回配置保存结果，不依赖 Engine；面板不写文件、不操作 Runtime。
+保存失败保留草稿，关闭丢弃未保存草稿，无变化保存由 Project 跳过写盘；运行时应用失败不冒充文件保存失败。
 动作和绑定数量上限由 InputActions 定义，项目解析和 UI 共用；键盘录入占用 ImGui 活动项及按键所有权，
 Esc 取消，失焦／关闭结束录入，不把捕获键同时交给编辑器快捷键。该面板仅在 Edit 可用，不代表游戏内改键已实现。
 
@@ -255,6 +257,9 @@ AudioSystem 接收同一暂停通知，停止 AudioPlayback 的设备回调，�
 避免提前消耗新音效时长；分数采样帧保留余量，不因连续单步积累截断误差。继续时从推进后的位置恢复设备输出，
 不重播已结束音效；Stop 丢弃全部声音。单步首次创建播放设备时直接以暂停状态初始化，不先启动再关闭设备。
 音频数据与设备仍由 Voice 保活，不向 Scene 或 Editor 暴露 miniaudio 类型。设备启停失败时清理声音并降级为本次运行静音。
+Scene 的短音效待处理队列与 AudioSystem 的活跃播放预算分别有界：最多 64 个并发 one-shot，先到先播；
+满额直接丢弃新请求，不保留延迟补播队列、不停止 Runtime，每次运行只警告一次。
+自动 Audio Source 独立随组件管理，不计入 one-shot 预算；单步完成的 Voice 及时回收，Stop 清空播放与告警状态。
 Offline 模式可同步读取 48 kHz 双声道 float PCM；Realtime 禁止外部读取，只有设备停止后才允许静默推进，
 避免设备线程与主线程同时消费混音图。正常播放仍跟随设备时钟，单步新增音效只定位到更新末，不提供步内事件时间戳。
 
@@ -316,6 +321,8 @@ ScriptSystem 仅在覆盖变化时 resolve_parameters，Instance 在有效值或
 两层快照分别检测覆盖和 Lua 输入，不引入跨层 revision 协议。
 明确编辑成默认值仍保存覆盖；“恢复默认参数”清空覆盖，可撤销但不重载源码。
 self.parameters 及 Vec3／Vec4 配置只读，支持 pairs／索引／长度；运行状态写到 self 的其他字段，不持久化。
+实体创建的 Vec3 与会话 Vec3 共用读取规则，普通数组与只读参数代理均可输入；
+必须恰好三个有限数值，拒绝额外键、数字字符串与错误维数，不通过复制参数表绕过只读语义。
 
 Script::PropertyMap 是导出字段的单一真值，不另外保存一份 defaults：每项包含 ParameterValue 默认值与编辑语义。
 裸三／四分量数组分别解析成 Math::Vec3／Vec4；`{type = "color", default = {r, g, b, a}}` 为 Vec4 添加 Color 语义。
@@ -347,7 +354,8 @@ Scene 也独立校验变换有限性和非零资源 Handle；阶段提交中完�
 暂停不执行脚本阶段，单步正常提交；失败或 Stop 丢弃未提交请求。已提交实体属于运行 Scene，
 Editor Stop 丢弃 Play 副本，不是在 SceneRuntime::stop 内逐个删除运行中创建的实体。
 
-`comet.restart_scene()` 只在更新调用中向 Scene 记录合并的重开意图；同阶段其他脚本／System 仍正常完成。
+`comet.restart_scene()` 只在更新调用中向 Scene 记录合并的重开意图；许可从 Script::Phase 得出，
+输入指针只表示是否提供输入，不代表调用阶段。同阶段其他脚本／System 仍正常完成。
 失败或 Stop 清掉意图；宿主在下一次 on_update 消费，不能从 Lua 栈内替换 Scene。
 GameApp 保留启动时的 Scene 基线，EditorSceneSession 复用保留的 Edit Scene；两者都经 Serializer 克隆，
 先完成候选准备，再停止旧 System、交换 Scene、启动新 System。基线只保存场景配置和 Handle，不复制 GPU 资源。
@@ -526,6 +534,11 @@ EnvironmentArtifact v2 将背景、最高 16² 漫反射、最高 128² 镜面 m
 
 ### 材质准备与寿命
 
+MaterialRenderer 保留资源所有权，主流程按阶段组织：同步运行实例／覆盖 → 准备程序，
+绘制时更新帧资源 → 准备并排序绘制列表 → 录制 → 回收未使用缓存。不另建转发 Manager。
+材质、天空盒与阴影通过 Device::query_format_support 查询最优平铺图像的采样、线性过滤和深度附件能力；
+该查询不替代具体尺寸、用途组合与采样数的创建校验，Vulkan 格式转换留在 graphics 实现内。
+
 内置 `unlit_color` / `pbr` 的初始 metadata 由 MaterialLayout::find_builtin 共享。
 内置与项目属性共用 MaterialLayout 的反射映射；项目 `.shader` 的 metadata 先转为属性声明，反射再填充 offset／块大小／binding。
 映射按 shader_name（为空时使用逻辑属性名）匹配已登记属性；
@@ -673,6 +686,7 @@ Restored 仅表示驱动接收并合并了兼容数据，不证明内部命中�
 | SceneEditor | 场景安装后的编辑状态重绑；模式／代际检查、实体结构、脚本绑定、引用赋值及选择更新 |
 | SceneCommands / CommandHistory | 具体逆操作与历史游标；不触发文件或 GPU 操作 |
 | SceneDocument / EditorSceneSession | 保存点／文档操作，以及 Play 副本／恢复 |
+| project/asset_operations | 协调场景资产移动与文档、启动场景、Session 路径；底层源文件事务仍由 EditorAssets 执行 |
 
 Editor 调度跨面板请求，结束活动手势并安装场景，编辑状态重绑交给 SceneEditor。Inspector 与 Gizmo 各自持有 PropertyEditTransaction，
 共享 CommandHistory；环境／后处理也走 begin／preview／commit／cancel。拖动预览，结束后只提交一次；
@@ -680,6 +694,13 @@ Editor 调度跨面板请求，结束活动手势并安装场景，编辑状态�
 资产请求携带 Handle/revision；AssetInspector 切换选择后清空旧草稿与请求，过期完成结果不覆盖当前选择。
 EditorAssets 执行读取；material_editing 负责模板迁移、校验与完整提交，宿主负责文件／GPU 操作。
 Play 组件调试不进入 Edit 历史，资产文件编辑也不混入场景历史。渲染生命周期保持同步回调，不改成事件总线。
+MenuBar 一次交付带路径的 Request，宿主仲裁消费；不再分别提取命令和路径。
+资产报告统一由宿主刷新 Project 与启动场景列表，面板的 complete 只处理对应对话框，不重复刷新索引视图。
+
+编辑器移动 Scene 资产后同步当前文档、项目启动路径和已记录的 Session 路径，不重新加载 Scene 或修改保存点／Undo。
+项目或 Session 保存失败会移回源文件并补偿已保存的项目设置；补偿自身失败明确报告并重新扫描，文档跟随实际索引位置。
+这是可失败的补偿流程，不承诺跨文件崩溃原子性；外部 Finder 移动不自动改写 project.json。
+当前文档与启动场景拒绝删除，需先打开其他文档或选择其他启动场景。普通资产继续使用系统回收站，不新增资产撤销系统。
 
 UI 共用能力留在 `editor/src/ui`：`dialogs` 管确认选择，`widgets::input_text` 管 ImGui 与可增长字符串之间的适配。
 实体名称、资产路径、项目名和属性值仍分别校验；共用控件不意味着合并它们的业务操作或保存策略。

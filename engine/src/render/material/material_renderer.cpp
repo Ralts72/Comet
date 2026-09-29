@@ -3,7 +3,7 @@
 #include "render/material/material_layout.h"
 #include "asset/registry.h"
 #include "asset/artifact/shader_program_artifact.h"
-#include "asset/data/material_data.h"
+#include "scene/material_parameters.h"
 
 #include "diagnostics/logger.h"
 #include "graphics/device.h"
@@ -125,11 +125,7 @@ namespace Comet {
         SamplerDesc environment_desc{.address_mode_u = SamplerAddressMode::ClampToEdge,
             .address_mode_v = SamplerAddressMode::ClampToEdge,
             .address_mode_w = SamplerAddressMode::ClampToEdge};
-        const auto features =
-            device.get_capability()
-                .physical_device.getFormatProperties(vk::Format::eR16G16B16A16Sfloat)
-                .optimalTilingFeatures;
-        if(!(features & vk::FormatFeatureFlagBits::eSampledImageFilterLinear)) {
+        if(!device.query_format_support(Format::R16G16B16A16_SFLOAT).linear_filter) {
             environment_desc.mag_filter = Filter::Nearest;
             environment_desc.min_filter = Filter::Nearest;
             environment_desc.mipmap_mode = SamplerMipmapMode::Nearest;
@@ -352,10 +348,8 @@ namespace Comet {
 
     Result<void, GraphicsError> MaterialRenderer::prepare_programs(
         const RenderSubmission& submission) {
-        using RuntimeOverrides =
-            std::map<MaterialInstanceKey, std::shared_ptr<const MaterialOverrides>>;
-        std::map<std::pair<AssetHandle, std::string>, RuntimeOverrides> requested;
-        std::map<MaterialInstanceKey, const MaterialBinding*> instances;
+        ProgramOverrides requested;
+        RuntimeInstances instances;
         for(const auto& item : submission.render_items) {
             const auto& material = item.material;
             if(!material.resource)
@@ -373,6 +367,17 @@ namespace Comet {
                 overrides.insert_or_assign(key, material.overrides);
             m_project_pipelines.try_emplace(program);
         }
+        sync_runtime_instances(instances);
+        sync_program_overrides(requested);
+        for(const auto& [program, overrides] : requested) {
+            auto prepared = project_pipeline(program.first, program.second);
+            if(!prepared)
+                return Result<void, GraphicsError>::failure(prepared.error());
+        }
+        return Result<void, GraphicsError>::success();
+    }
+
+    void MaterialRenderer::sync_runtime_instances(const RuntimeInstances& instances) {
         // 先移除本次提交已不使用的运行实例；在途帧仍拥有完整旧资源。
         std::erase_if(m_materials, [&](const auto& entry) {
             const auto& key = entry.first;
@@ -395,6 +400,9 @@ namespace Comet {
                     cached.overrides = material->overrides;
             }
         }
+    }
+
+    void MaterialRenderer::sync_program_overrides(const ProgramOverrides& requested) {
         for(auto& [program, active] : m_project_pipelines) {
             const auto found = requested.find(program);
             if(found == requested.end()) {
@@ -410,12 +418,6 @@ namespace Comet {
                 active.overrides = found->second;
             }
         }
-        for(const auto& [program, overrides] : requested) {
-            auto prepared = project_pipeline(program.first, program.second);
-            if(!prepared)
-                return Result<void, GraphicsError>::failure(prepared.error());
-        }
-        return Result<void, GraphicsError>::success();
     }
 
     Result<void, GraphicsError> MaterialRenderer::install_project_pipeline(AssetHandle handle,
@@ -708,127 +710,152 @@ namespace Comet {
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> MaterialRenderer::render(
         FrameScheduler& frames, const RenderSubmission& submission, const LightingData& lighting,
         const std::shared_ptr<ImageView>& shadow_map) {
-        const auto& view = submission.view_project_matrix;
-        const auto& items = submission.render_items;
+        using Draw = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
         if(!frames.is_recording_frame() || &frames.get_device() != &m_device
             || frames.get_current_frame_slot_index() >= m_frames.size() || !shadow_map)
-            return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
-                {"Invalid material render frame or shadow input"});
-        const auto previous_omissions =
-            std::pair(m_statistics.excess_lights, m_statistics.invalid_lights);
-        m_statistics = {};
+            return Draw::failure({"Invalid material render frame or shadow input"});
+
         std::vector<QueueSemaphoreSubmit> waits;
-        if(view) {
-            const auto& frame = m_frames.at(frames.get_current_frame_slot_index());
-            const auto camera_world = Math::inverse(view->view);
-            // 引擎标准透视矩阵的该项为 -1，正交为 0；不是任意投影的分类器。
-            const MaterialFrameData camera{*view, Math::Vec3(camera_world[3]),
-                view->projection[2][3] == 0 ? 1.0f : 0.0f, Math::Vec3(camera_world[2])};
-            frame->buffer->write(&camera);
-            auto environment = m_empty_environment;
-            auto frame_lighting = lighting;
-            if(submission.environment.lighting && submission.environment_resource
-                && submission.environment_resource->has_lighting()) {
-                environment = submission.environment_resource;
-                const float rotation = Math::radians(submission.environment.rotation);
-                const auto& image = environment->specular->get_image_view()->get_image();
-                frame_lighting.environment = {submission.environment.lighting_intensity,
-                    float(image->get_info().mip_levels - 1), std::sin(rotation),
-                    std::cos(rotation)};
-            }
-            frame->lighting->write(&frame_lighting);
-            if(frame->environment != environment) {
-                const std::array writes{
-                    DescriptorSet::ImageSamplerWrite{
-                        3, *environment->irradiance->get_image_view(), *frame->environment_sampler},
-                    DescriptorSet::ImageSamplerWrite{
-                        4, *environment->specular->get_image_view(), *frame->environment_sampler},
-                    DescriptorSet::ImageSamplerWrite{
-                        5, *environment->brdf->get_image_view(), *frame->environment_sampler}};
-                frame->descriptor->update(m_device, {}, writes);
-                frame->environment = environment;
-            }
-            for(const auto& texture :
-                {environment->irradiance, environment->specular, environment->brdf})
-                append_wait(waits, texture->get_ready_completion(),
-                    Flags<PipelineStage>(PipelineStage::FragmentShader));
-            if(frame->shadow_map != shadow_map) {
-                const DescriptorSet::ImageSamplerWrite write{
-                    2, *shadow_map, *frame->shadow_sampler};
-                frame->descriptor->update(m_device, {}, std::span(&write, 1));
-                frame->shadow_map = shadow_map;
-            }
-            m_statistics.light_count = static_cast<uint32_t>(lighting.light_count);
-            m_statistics.excess_lights = static_cast<uint32_t>(lighting.excess_lights);
-            m_statistics.invalid_lights = static_cast<uint32_t>(lighting.invalid_lights);
-            if((m_statistics.excess_lights || m_statistics.invalid_lights)
-                && previous_omissions
-                       != std::pair(m_statistics.excess_lights, m_statistics.invalid_lights))
-                LOG_WARN("Lighting omitted {} excess and {} invalid lights (limit {})",
-                    m_statistics.excess_lights, m_statistics.invalid_lights,
-                    LightingData::MAX_LIGHTS);
-            frames.retain_current_frame_resource(frame);
-            std::vector<DrawItem> queue;
-            queue.reserve(items.size());
-            for(const auto& item : items) {
-                auto material = prepare_material(item.material, frames.get_current_frame_serial());
-                if(!material)
-                    return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
-                        material.error());
-                if(material.value())
-                    queue.push_back({&item, std::move(material).value()});
-            }
-            std::stable_sort(queue.begin(), queue.end(), [](const DrawItem& a, const DrawItem& b) {
-                const auto a_instance =
-                    a.item->material.overrides ? a.item->material.overrides->instance_id : 0;
-                const auto b_instance =
-                    b.item->material.overrides ? b.item->material.overrides->instance_id : 0;
-                return std::tie(a.material->prepared->layout->get_name(),
-                           a.item->material.material_handle, a_instance)
-                       < std::tie(b.material->prepared->layout->get_name(),
-                           b.item->material.material_handle, b_instance);
-            });
-            auto& command = frames.get_current_command_buffer();
-            const Pipeline* active_pipeline = nullptr;
-            const MaterialResources* active_material = nullptr;
-            for(const auto& draw : queue) {
-                const auto& material = draw.material;
-                const auto& pipeline = material->pipeline->pipeline;
-                if(active_pipeline != pipeline.get()) {
-                    command.bind_pipeline(*pipeline);
-                    active_pipeline = pipeline.get();
-                    active_material = nullptr;
-                    ++m_statistics.pipeline_binds;
-                }
-                if(active_material != material.get()) {
-                    const std::array sets{*frame->descriptor, *material->descriptor};
-                    command.bind_descriptor_sets(*pipeline->get_layout(), sets);
-                    active_material = material.get();
-                    ++m_statistics.material_binds;
-                }
-                frames.retain_current_frame_resource(material);
-                frames.retain_current_frame_resource(draw.item->mesh);
-                append_wait(waits, draw.item->mesh->get_ready_completion(),
-                    Flags<PipelineStage>(PipelineStage::VertexInput));
-                for(const auto& texture : material->textures) {
-                    append_wait(waits, texture->get_ready_completion(),
-                        Flags<PipelineStage>(PipelineStage::FragmentShader));
-                }
-                const PushConstant push{.model = draw.item->model_matrix};
-                command.push_constants(*pipeline->get_layout(),
-                    Flags<ShaderStage>(ShaderStage::Vertex), 0, &push, sizeof(push));
-                draw.item->mesh->draw(command);
-                ++m_statistics.draw_calls;
-            }
+        update_frame_resources(frames, submission, lighting, shadow_map, waits);
+        if(submission.view_project_matrix) {
+            auto queue =
+                prepare_draw_queue(submission.render_items, frames.get_current_frame_serial());
+            if(!queue)
+                return Draw::failure(queue.error());
+            record_draws(frames, queue.value(), waits);
             std::erase_if(waits,
                 [](const auto& wait) { return wait.semaphore->get_counter_value() >= wait.value; });
         }
+        collect_unused_materials(frames.get_current_frame_serial());
+        return Draw::success(std::move(waits));
+    }
+
+    void MaterialRenderer::update_frame_resources(FrameScheduler& frames,
+        const RenderSubmission& submission, const LightingData& lighting,
+        const std::shared_ptr<ImageView>& shadow_map, std::vector<QueueSemaphoreSubmit>& waits) {
+        const auto previous_omissions =
+            std::pair(m_statistics.excess_lights, m_statistics.invalid_lights);
+        m_statistics = {};
+        if(!submission.view_project_matrix)
+            return;
+
+        const auto& view = *submission.view_project_matrix;
+        const auto& frame = m_frames.at(frames.get_current_frame_slot_index());
+        const auto camera_world = Math::inverse(view.view);
+        // 引擎标准透视矩阵的该项为 -1，正交为 0；不是任意投影的分类器。
+        const MaterialFrameData camera{view, Math::Vec3(camera_world[3]),
+            view.projection[2][3] == 0 ? 1.0f : 0.0f, Math::Vec3(camera_world[2])};
+        frame->buffer->write(&camera);
+        auto environment = m_empty_environment;
+        auto frame_lighting = lighting;
+        if(submission.environment.lighting && submission.environment_resource
+            && submission.environment_resource->has_lighting()) {
+            environment = submission.environment_resource;
+            const float rotation = Math::radians(submission.environment.rotation);
+            const auto& image = environment->specular->get_image_view()->get_image();
+            frame_lighting.environment = {submission.environment.lighting_intensity,
+                float(image->get_info().mip_levels - 1), std::sin(rotation), std::cos(rotation)};
+        }
+        frame->lighting->write(&frame_lighting);
+        if(frame->environment != environment) {
+            const std::array writes{
+                DescriptorSet::ImageSamplerWrite{
+                    3, *environment->irradiance->get_image_view(), *frame->environment_sampler},
+                DescriptorSet::ImageSamplerWrite{
+                    4, *environment->specular->get_image_view(), *frame->environment_sampler},
+                DescriptorSet::ImageSamplerWrite{
+                    5, *environment->brdf->get_image_view(), *frame->environment_sampler}};
+            frame->descriptor->update(m_device, {}, writes);
+            frame->environment = environment;
+        }
+        for(const auto& texture :
+            {environment->irradiance, environment->specular, environment->brdf})
+            append_wait(waits, texture->get_ready_completion(),
+                Flags<PipelineStage>(PipelineStage::FragmentShader));
+        if(frame->shadow_map != shadow_map) {
+            const DescriptorSet::ImageSamplerWrite write{2, *shadow_map, *frame->shadow_sampler};
+            frame->descriptor->update(m_device, {}, std::span(&write, 1));
+            frame->shadow_map = shadow_map;
+        }
+        m_statistics.light_count = static_cast<uint32_t>(lighting.light_count);
+        m_statistics.excess_lights = static_cast<uint32_t>(lighting.excess_lights);
+        m_statistics.invalid_lights = static_cast<uint32_t>(lighting.invalid_lights);
+        if((m_statistics.excess_lights || m_statistics.invalid_lights)
+            && previous_omissions
+                   != std::pair(m_statistics.excess_lights, m_statistics.invalid_lights))
+            LOG_WARN("Lighting omitted {} excess and {} invalid lights (limit {})",
+                m_statistics.excess_lights, m_statistics.invalid_lights, LightingData::MAX_LIGHTS);
+        frames.retain_current_frame_resource(frame);
+    }
+
+    Result<std::vector<MaterialRenderer::DrawItem>, GraphicsError> MaterialRenderer::
+        prepare_draw_queue(
+            const std::span<const ResolvedRenderItem> items, const uint64_t frame_serial) {
+        std::vector<DrawItem> queue;
+        queue.reserve(items.size());
+        for(const auto& item : items) {
+            auto material = prepare_material(item.material, frame_serial);
+            if(!material)
+                return Result<std::vector<DrawItem>, GraphicsError>::failure(material.error());
+            if(material.value())
+                queue.push_back({&item, std::move(material).value()});
+        }
+        std::stable_sort(queue.begin(), queue.end(), [](const DrawItem& a, const DrawItem& b) {
+            const auto a_instance =
+                a.item->material.overrides ? a.item->material.overrides->instance_id : 0;
+            const auto b_instance =
+                b.item->material.overrides ? b.item->material.overrides->instance_id : 0;
+            return std::tie(a.material->prepared->layout->get_name(),
+                       a.item->material.material_handle, a_instance)
+                   < std::tie(b.material->prepared->layout->get_name(),
+                       b.item->material.material_handle, b_instance);
+        });
+        return Result<std::vector<DrawItem>, GraphicsError>::success(std::move(queue));
+    }
+
+    void MaterialRenderer::record_draws(FrameScheduler& frames,
+        const std::span<const DrawItem> queue, std::vector<QueueSemaphoreSubmit>& waits) {
+        const auto& frame = m_frames.at(frames.get_current_frame_slot_index());
+        auto& command = frames.get_current_command_buffer();
+        const Pipeline* active_pipeline = nullptr;
+        const MaterialResources* active_material = nullptr;
+        for(const auto& draw : queue) {
+            const auto& material = draw.material;
+            const auto& pipeline = material->pipeline->pipeline;
+            if(active_pipeline != pipeline.get()) {
+                command.bind_pipeline(*pipeline);
+                active_pipeline = pipeline.get();
+                active_material = nullptr;
+                ++m_statistics.pipeline_binds;
+            }
+            if(active_material != material.get()) {
+                const std::array sets{*frame->descriptor, *material->descriptor};
+                command.bind_descriptor_sets(*pipeline->get_layout(), sets);
+                active_material = material.get();
+                ++m_statistics.material_binds;
+            }
+            frames.retain_current_frame_resource(material);
+            frames.retain_current_frame_resource(draw.item->mesh);
+            append_wait(waits, draw.item->mesh->get_ready_completion(),
+                Flags<PipelineStage>(PipelineStage::VertexInput));
+            for(const auto& texture : material->textures) {
+                append_wait(waits, texture->get_ready_completion(),
+                    Flags<PipelineStage>(PipelineStage::FragmentShader));
+            }
+            const PushConstant push{.model = draw.item->model_matrix};
+            command.push_constants(*pipeline->get_layout(), Flags<ShaderStage>(ShaderStage::Vertex),
+                0, &push, sizeof(push));
+            draw.item->mesh->draw(command);
+            ++m_statistics.draw_calls;
+        }
+    }
+
+    void MaterialRenderer::collect_unused_materials(const uint64_t frame_serial) {
         std::erase_if(m_materials, [](const auto& entry) { return !entry.second.used; });
         for(auto& [handle, cached] : m_materials)
             cached.used = false;
         m_prepared.collect_unused();
-        std::erase_if(m_unsupported,
-            [&](const auto& entry) { return entry.second != frames.get_current_frame_serial(); });
-        return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::success(std::move(waits));
+        std::erase_if(
+            m_unsupported, [&](const auto& entry) { return entry.second != frame_serial; });
     }
 }

@@ -13,6 +13,7 @@
 #include "project/project_creation.h"
 #include "project/editor_paths.h"
 #include "project/project_session.h"
+#include "project/asset_operations.h"
 #include "scene/editor_request_policy.h"
 #include "ui/dialogs.h"
 #include "scene/command_history.h"
@@ -247,10 +248,8 @@ namespace {
             auto assets = m_assets->update();
             if(!assets)
                 return Comet::Result<void, Comet::Error>::failure(assets.error());
-            if(assets.value()) {
-                m_project_panel->update_scan_report(std::move(*assets.value()));
-                refresh_available_scenes();
-            }
+            if(assets.value())
+                accept_asset_report(std::move(*assets.value()));
             if(auto mode = apply_editor_mode_request(); !mode)
                 return mode;
 
@@ -416,10 +415,15 @@ namespace {
             m_menu_bar->set_available_scenes(std::move(scenes));
         }
 
+        void accept_asset_report(Comet::AssetScanReport report) {
+            if(report.snapshot_updated)
+                refresh_available_scenes();
+            m_project_panel->update_scan_report(std::move(report));
+        }
+
         Comet::Result<void, Comet::Error> handle_command(
-            const CometEditor::MenuBar::Command command,
-            const std::optional<std::filesystem::path>& project_path,
-            const std::optional<std::filesystem::path>& startup_scene_path) {
+            const CometEditor::MenuBar::Request& request) {
+            const auto command = request.command;
             if(m_editor_state.mode != CometEditor::EditorMode::Edit) {
                 LOG_WARN("Scene commands are disabled in Play mode");
                 return Comet::Result<void, Comet::Error>::success();
@@ -437,10 +441,10 @@ namespace {
                         m_project.paths().root().parent_path());
                     break;
                 case CometEditor::MenuBar::Command::OpenProject:
-                    if(project_path) {
-                        if(auto switched = request_project_switch(*project_path); !switched) {
+                    if(!request.path.empty()) {
+                        if(auto switched = request_project_switch(request.path); !switched) {
                             m_path_dialog.request(CometEditor::PathDialog::Action::OpenProject,
-                                *project_path, m_project.paths().root());
+                                request.path, m_project.paths().root());
                             m_path_dialog.complete(switched);
                         }
                     } else {
@@ -512,11 +516,7 @@ namespace {
                     }
                     break;
                 case CometEditor::MenuBar::Command::SetStartupScene: {
-                    if(!startup_scene_path) {
-                        LOG_ERROR("Startup scene request has no path");
-                        break;
-                    }
-                    const auto saved = m_project_settings.set_startup_scene(*startup_scene_path,
+                    const auto saved = m_project_settings.set_startup_scene(request.path,
                         current_saved_scene(), m_assets->database(), m_scene_serializer);
                     if(!saved)
                         LOG_ERROR("Cannot set startup scene: {}", saved.error());
@@ -665,7 +665,13 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> process_editor_requests() {
-            m_project_settings.update(get_engine());
+            const auto settings = m_project_settings.update();
+            if(settings.input_changed) {
+                if(auto configured = get_engine().set_input_actions(m_project.input_actions());
+                    !configured)
+                    LOG_WARN("Project input actions were saved; restart the editor to apply: {}",
+                        configured.error().message);
+            }
             if(auto shortcuts = m_shortcut_settings_dialog.take_request()) {
                 const auto saved = shortcuts->save_overrides(m_shortcut_settings_path);
                 m_shortcut_settings_dialog.complete(saved);
@@ -690,19 +696,30 @@ namespace {
             if(const auto request = m_inspector_panel->asset_inspector().take_asset_read())
                 m_inspector_panel->asset_inspector().complete_asset_read(
                     *request, m_assets->read_material(*request));
-            if(const auto create = m_project_panel->take_create_material_request())
-                m_project_panel->complete_create_material(
-                    *create, m_assets->create_material(create->destination, create->data));
-            if(const auto create = m_project_panel->take_create_script_request())
-                m_project_panel->complete_create_script(
-                    *create, m_assets->create_script(create->destination));
-            if(const auto remove = m_project_panel->take_delete_request())
-                m_project_panel->complete_delete(*remove, m_assets->remove(remove->handle));
-            if(const auto move = m_project_panel->take_move_request())
-                m_project_panel->complete_move(
-                    *move, m_assets->move(move->handle, move->destination));
+            if(const auto create = m_project_panel->take_create_material_request()) {
+                auto report = m_assets->create_material(create->destination, create->data);
+                m_project_panel->complete_create_material(*create, report);
+                accept_asset_report(std::move(report));
+            }
+            if(const auto create = m_project_panel->take_create_script_request()) {
+                auto report = m_assets->create_script(create->destination);
+                m_project_panel->complete_create_script(*create, report);
+                accept_asset_report(std::move(report));
+            }
+            if(const auto remove = m_project_panel->take_delete_request()) {
+                auto report = CometEditor::remove_project_asset(
+                    *m_assets, m_project, *m_scene_document, remove->handle);
+                m_project_panel->complete_delete(*remove, report);
+                accept_asset_report(std::move(report));
+            }
+            if(const auto move = m_project_panel->take_move_request()) {
+                auto report = CometEditor::move_project_asset(*m_assets, m_project,
+                    *m_scene_document, *m_project_session, move->handle, move->destination);
+                m_project_panel->complete_move(*move, report);
+                accept_asset_report(std::move(report));
+            }
             if(m_project_panel->take_refresh_request())
-                m_project_panel->update_scan_report(m_assets->refresh());
+                accept_asset_report(m_assets->refresh());
             if(const auto edit = m_inspector_panel->asset_inspector().take_asset_edit()) {
                 const auto result = apply_asset_edit(*edit);
                 std::string error;
@@ -789,9 +806,7 @@ namespace {
             // 一次取走所有当帧请求；未选中的请求不留到新场景或新模式执行。
             const auto hierarchy_request = m_hierarchy_panel->take_request();
             const auto rename_request = m_hierarchy_panel->take_rename_request();
-            const auto menu_command = m_menu_bar->take_command();
-            const auto project_path = m_menu_bar->take_project_path();
-            const auto startup_scene_path = m_menu_bar->take_startup_scene_path();
+            const auto menu_request = m_menu_bar->take_request();
             const auto mesh_drop = m_viewport->panel().take_mesh_drop();
             const auto asset_assignment = m_inspector_panel->take_asset_assignment();
             const auto play_command = m_viewport->panel().take_play_command();
@@ -806,7 +821,7 @@ namespace {
             using Kind = CometEditor::SceneRequestKind;
             const auto selected = CometEditor::select_scene_request({
                 .file_dialog = file_request.has_value(),
-                .menu = menu_command.has_value(),
+                .menu = menu_request.has_value(),
                 .play = play_command.has_value(),
                 .structure = hierarchy_request.has_value(),
                 .rename = rename_request.has_value(),
@@ -821,7 +836,7 @@ namespace {
                 case Kind::FileDialog:
                     return handle_path_request(*file_request);
                 case Kind::Menu: {
-                    auto result = handle_command(*menu_command, project_path, startup_scene_path);
+                    auto result = handle_command(*menu_request);
                     if(!result && is_device_lost(result.error()))
                         return result;
                     break;

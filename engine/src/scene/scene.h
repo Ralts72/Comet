@@ -11,7 +11,6 @@
 #include <variant>
 #include <vector>
 
-#include "asset/data/material_data.h"
 #include "common/export.h"
 #include "common/result.h"
 #include "scene/entity.h"
@@ -24,6 +23,8 @@ namespace Comet {
     class SceneRuntime;
     class PhysicsSystem;
     class AudioSystem;
+    class MaterialParameterValidator;
+    struct MaterialOverrides;
 
     class COMET_API Scene {
     public:

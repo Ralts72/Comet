@@ -4,6 +4,7 @@
 #include "scene/entity.h"
 #include "scene/systems/system.h"
 
+#include <cstddef>
 #include <map>
 #include <memory>
 #include <vector>
@@ -24,6 +25,8 @@ namespace Comet {
         void on_stop(Scene& scene) noexcept override;
 
     private:
+        static constexpr std::size_t MAX_ONE_SHOT_VOICES = 64;
+
         struct Entry {
             Entity entity;
             AssetHandle clip;
@@ -42,5 +45,6 @@ namespace Comet {
         std::vector<std::unique_ptr<AudioPlayback::Voice>> m_one_shots;
         bool m_device_unavailable = false;
         bool m_paused = false;
+        bool m_one_shot_limit_reported = false;
     };
 }

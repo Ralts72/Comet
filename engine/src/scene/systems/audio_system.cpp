@@ -104,6 +104,15 @@ namespace Comet {
         }
 
         for(const auto& request : scene.take_audio_play_requests()) {
+            // 先到先播；饱和请求直接丢弃，不能恢复后再补播过期音效。
+            if(m_one_shots.size() >= MAX_ONE_SHOT_VOICES) {
+                if(!m_one_shot_limit_reported) {
+                    LOG_WARN("One-shot voice limit ({}) reached; dropping excess requests",
+                        MAX_ONE_SHOT_VOICES);
+                    m_one_shot_limit_reported = true;
+                }
+                continue;
+            }
             auto clip = m_assets.resolve<AudioClip>(request.clip);
             if(!clip)
                 return Result<void, Error>::failure(
@@ -128,6 +137,7 @@ namespace Comet {
         m_playback.reset();
         m_device_unavailable = false;
         m_paused = false;
+        m_one_shot_limit_reported = false;
         m_scene = nullptr;
     }
 }

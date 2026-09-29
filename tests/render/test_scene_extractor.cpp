@@ -3,6 +3,7 @@
 #include "asset/registry.h"
 #include "render/material/material.h"
 #include "render/material/material_programs.h"
+#include "scene/material_parameters.h"
 #include "render/scene/scene_extractor.h"
 #include "scene/scene.h"
 #include "scene/scene_runtime.h"

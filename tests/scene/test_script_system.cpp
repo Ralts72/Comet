@@ -1,5 +1,6 @@
 #include "scripting/script.h"
 #include "scene/script_component.h"
+#include "scene/material_parameters.h"
 #include "scene/scene.h"
 #include "scene/systems/script_system.h"
 #include "scene/systems/physics_system.h"
@@ -454,11 +455,12 @@ namespace Comet::Tests {
 
     TEST_F(ScriptSystemTest, ScriptsShareSceneSessionValuesWithoutPersistingAcrossRuns) {
         source(R"(return {
+            properties = {spawn = {1, 2, 3}},
             on_start = function(self)
                 comet.session_set('game.score', 1)
                 comet.session_set('game.ready', true)
                 comet.session_set('game.note', 'ready')
-                comet.session_set('game.spawn', {1, 2, 3})
+                comet.session_set('game.spawn', self.parameters.spawn)
             end,
             fixed_update = function(self)
                 comet.session_set('game.score', comet.session_get('game.score') + 1)

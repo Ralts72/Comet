@@ -42,18 +42,18 @@ namespace CometEditor {
         void update_scan_report(Comet::AssetScanReport scan_report);
         [[nodiscard]] bool take_refresh_request();
         [[nodiscard]] std::optional<MoveRequest> take_move_request();
-        void complete_move(const MoveRequest& request, Comet::AssetScanReport report);
+        void complete_move(const MoveRequest& request, const Comet::AssetScanReport& report);
         [[nodiscard]] std::optional<DeleteRequest> take_delete_request();
-        void complete_delete(const DeleteRequest& request, Comet::AssetScanReport report);
+        void complete_delete(const DeleteRequest& request, const Comet::AssetScanReport& report);
         void request_delete_selection();
         void set_material_layouts(
             std::vector<std::shared_ptr<const Comet::MaterialLayout>> layouts);
         [[nodiscard]] std::optional<CreateMaterialRequest> take_create_material_request();
         void complete_create_material(
-            const CreateMaterialRequest& request, Comet::AssetScanReport report);
+            const CreateMaterialRequest& request, const Comet::AssetScanReport& report);
         [[nodiscard]] std::optional<CreateScriptRequest> take_create_script_request();
         void complete_create_script(
-            const CreateScriptRequest& request, Comet::AssetScanReport report);
+            const CreateScriptRequest& request, const Comet::AssetScanReport& report);
         [[nodiscard]] std::optional<Comet::AssetHandle> take_mesh_reimport_request();
         [[nodiscard]] std::optional<std::filesystem::path> file_drop_directory(
             Comet::Math::Vec2 position) const;
@@ -84,8 +84,8 @@ namespace CometEditor {
         void request_create_script(const std::filesystem::path& directory);
         void render_create_material_dialog();
         void render_create_script_dialog();
-        void complete_create_asset(
-            const std::filesystem::path& destination, Comet::AssetScanReport report, bool script);
+        void complete_create_asset(const std::filesystem::path& destination,
+            const Comet::AssetScanReport& report, bool script);
 
         const Comet::AssetDatabase& m_database;
         std::filesystem::path m_asset_root;

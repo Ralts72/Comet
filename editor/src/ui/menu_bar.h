@@ -32,6 +32,12 @@ namespace CometEditor {
             PasteEntity,
             DeleteSelection
         };
+        struct Request {
+            Command command;
+            std::filesystem::path path;
+
+            bool operator==(const Request&) const = default;
+        };
 
         MenuBar(const EditorState& state, const CommandHistory& history,
             const EditorShortcuts& shortcuts);
@@ -41,9 +47,7 @@ namespace CometEditor {
             std::span<const std::filesystem::path> recent_projects = {});
         void set_available_scenes(std::vector<std::filesystem::path> scenes);
         void collect_shortcuts();
-        [[nodiscard]] std::optional<Command> take_command();
-        [[nodiscard]] std::optional<std::filesystem::path> take_project_path();
-        [[nodiscard]] std::optional<std::filesystem::path> take_startup_scene_path();
+        [[nodiscard]] std::optional<Request> take_request();
         [[nodiscard]] std::optional<Ui::Language> take_language_request();
 
         void register_panel(EditorPanel& panel);
@@ -62,9 +66,7 @@ namespace CometEditor {
         const EditorShortcuts& m_shortcuts;
         std::vector<EditorPanel*> m_panels;
         std::vector<std::filesystem::path> m_available_scenes;
-        std::optional<Command> m_requested_command;
-        std::optional<std::filesystem::path> m_requested_project_path;
-        std::optional<std::filesystem::path> m_requested_startup_scene_path;
+        std::optional<Request> m_request;
         std::optional<Ui::Language> m_requested_language;
         float m_fps = 0.0f;
     };

@@ -150,6 +150,22 @@ namespace Comet {
             std::shared_ptr<MaterialResources> material;
         };
 
+        using RuntimeInstances = std::map<MaterialInstanceKey, const MaterialBinding*>;
+        using RuntimeOverrides =
+            std::map<MaterialInstanceKey, std::shared_ptr<const MaterialOverrides>>;
+        using ProgramOverrides = std::map<std::pair<AssetHandle, std::string>, RuntimeOverrides>;
+
+        void sync_runtime_instances(const RuntimeInstances& instances);
+        void sync_program_overrides(const ProgramOverrides& requested);
+        void update_frame_resources(FrameScheduler& frames, const RenderSubmission& submission,
+            const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map,
+            std::vector<QueueSemaphoreSubmit>& waits);
+        Result<std::vector<DrawItem>, GraphicsError> prepare_draw_queue(
+            std::span<const ResolvedRenderItem> items, uint64_t frame_serial);
+        void record_draws(FrameScheduler& frames, std::span<const DrawItem> queue,
+            std::vector<QueueSemaphoreSubmit>& waits);
+        void collect_unused_materials(uint64_t frame_serial);
+
         Result<std::shared_ptr<const PipelineState>, GraphicsError> create_pipeline(
             PipelineManager& pipelines, const std::shared_ptr<Shader>& vertex,
             const std::shared_ptr<Shader>& fragment, std::shared_ptr<const MaterialLayout> layout,

@@ -619,7 +619,9 @@ namespace CometEditor::Tests {
         EXPECT_NE(selection.get_selected_asset(), material);
         ASSERT_TRUE(
             Comet::MaterialSerializer{}.save(request->data, paths.assets() / request->destination));
-        project->complete_create_material(*request, database.scan());
+        auto report = database.scan();
+        project->complete_create_material(*request, report);
+        project->update_scan_report(std::move(report));
         EXPECT_EQ(selection.get_selected_asset(), database.find(request->destination)->handle);
         frame();
         EXPECT_FALSE(ImGui::IsPopupOpen("New Material", ImGuiPopupFlags_AnyPopupId));
@@ -660,7 +662,9 @@ namespace CometEditor::Tests {
         frame();
         EXPECT_NE(selection.get_selected_asset(), material);
         std::ofstream(paths.assets() / request->destination) << "return {}";
-        project->complete_create_script(*request, database.scan());
+        auto report = database.scan();
+        project->complete_create_script(*request, report);
+        project->update_scan_report(std::move(report));
         const auto* created = database.find(request->destination);
         ASSERT_NE(created, nullptr);
         EXPECT_EQ(selection.get_selected_asset(), created->handle);

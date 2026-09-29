@@ -5,10 +5,28 @@
 #include <cmath>
 #include <limits>
 #include <type_traits>
+#include <utility>
 
 namespace Comet::Tests {
     static_assert(!std::is_constructible_v<Sampler, Device&, const SamplerDesc&>);
     using SamplerTest = EngineTest;
+
+    TEST_F(SamplerTest, FormatSupportMatchesOptimalImageCapabilities) {
+        const auto& device = engine->get_renderer().get_render_context().get_device();
+        for(const auto [format, native_format] :
+            {std::pair{Format::R16G16B16A16_SFLOAT, vk::Format::eR16G16B16A16Sfloat},
+                std::pair{Format::D32_SFLOAT, vk::Format::eD32Sfloat}}) {
+            const auto support = device.query_format_support(format);
+            const auto native = device.get_capability()
+                                    .physical_device.getFormatProperties(native_format)
+                                    .optimalTilingFeatures;
+            EXPECT_EQ(support.sampled, bool(native & vk::FormatFeatureFlagBits::eSampledImage));
+            EXPECT_EQ(support.linear_filter,
+                bool(native & vk::FormatFeatureFlagBits::eSampledImageFilterLinear));
+            EXPECT_EQ(support.depth_attachment,
+                bool(native & vk::FormatFeatureFlagBits::eDepthStencilAttachment));
+        }
+    }
 
     TEST_F(SamplerTest, InvalidParametersReturnErrorsBeforeNativeCreation) {
         auto& device = engine->get_renderer().get_render_context().get_device();

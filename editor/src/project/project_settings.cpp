@@ -1,7 +1,6 @@
 #include "project/project_settings.h"
 
 #include "asset/database.h"
-#include "core/engine.h"
 #include "core/project.h"
 #include "diagnostics/logger.h"
 #include "scene/scene.h"
@@ -26,17 +25,16 @@ namespace CometEditor {
             m_input_panel.set_visible(false);
     }
 
-    void ProjectSettings::update(Comet::Engine& engine) {
+    ProjectSettings::Update ProjectSettings::update() {
+        Update changes;
         if(auto actions = m_input_panel.take_request()) {
+            const bool changed = *actions != m_project.input_actions();
             const auto saved = m_project.save_input_actions(std::move(*actions));
             m_input_panel.complete(saved);
             if(!saved) {
                 LOG_WARN("Cannot save project input actions: {}", saved.error());
-            } else if(const auto configured = engine.set_input_actions(m_project.input_actions());
-                !configured) {
-                LOG_WARN("Project input actions were saved; restart the editor to apply: {}",
-                    configured.error().message);
-            }
+            } else
+                changes.input_changed = changed;
         }
         if(const auto name = m_name_dialog.take_request()) {
             const auto saved = m_project.save_name(*name);
@@ -46,6 +44,7 @@ namespace CometEditor {
             else
                 LOG_INFO("Project renamed to '{}'", m_project.name());
         }
+        return changes;
     }
 
     Comet::Result<void> ProjectSettings::set_startup_scene(const std::filesystem::path& path,

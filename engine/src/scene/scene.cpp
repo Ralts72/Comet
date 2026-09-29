@@ -1,4 +1,5 @@
 #include "scene/scene.h"
+#include "scene/material_parameters.h"
 
 #include "diagnostics/logger.h"
 

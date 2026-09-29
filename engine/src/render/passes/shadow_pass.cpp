@@ -25,12 +25,8 @@ namespace Comet {
         using Creation = Result<std::unique_ptr<ShadowPass>, GraphicsError>;
         if(frame_slots == 0)
             return Creation::failure({"Shadow pass requires frame slots"});
-        const auto features = device.get_capability()
-                                  .physical_device.getFormatProperties(vk::Format::eD32Sfloat)
-                                  .optimalTilingFeatures;
-        const auto required = vk::FormatFeatureFlagBits::eDepthStencilAttachment
-                              | vk::FormatFeatureFlagBits::eSampledImage;
-        if((features & required) != required)
+        const auto support = device.query_format_support(Format::D32_SFLOAT);
+        if(!support.depth_attachment || !support.sampled)
             return Creation::failure({"D32 shadow depth sampling is unsupported"});
         auto depth = Attachment::get_depth_attachment(Format::D32_SFLOAT);
         depth.description.initial_layout = ImageLayout::DepthStencilAttachmentOptimal;

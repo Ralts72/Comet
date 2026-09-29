@@ -11,6 +11,7 @@ add_library(editor_core STATIC
         src/project/editor_paths.cpp
         src/project/project_session.cpp
         src/project/project_creation.cpp
+        src/project/asset_operations.cpp
         src/assets/editor_assets.cpp
         src/assets/scene_asset_references.cpp
         src/assets/source_operations.cpp

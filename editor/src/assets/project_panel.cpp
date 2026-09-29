@@ -383,25 +383,24 @@ namespace CometEditor {
     }
 
     void ProjectPanel::complete_create_material(
-        const CreateMaterialRequest& request, Comet::AssetScanReport report) {
-        complete_create_asset(request.destination, std::move(report), false);
+        const CreateMaterialRequest& request, const Comet::AssetScanReport& report) {
+        complete_create_asset(request.destination, report, false);
     }
 
     void ProjectPanel::complete_create_script(
-        const CreateScriptRequest& request, Comet::AssetScanReport report) {
-        complete_create_asset(request.destination, std::move(report), true);
+        const CreateScriptRequest& request, const Comet::AssetScanReport& report) {
+        complete_create_asset(request.destination, report, true);
     }
 
     void ProjectPanel::complete_create_asset(const std::filesystem::path& destination,
-        Comet::AssetScanReport report, const bool script) {
+        const Comet::AssetScanReport& report, const bool script) {
         m_operation_error.clear();
-        const bool committed = report.snapshot_updated;
+        const bool committed = report.snapshot_updated && report.succeeded();
         if(!committed) {
             m_operation_error = "Asset could not be created";
             if(!report.issues.empty())
                 m_operation_error = report.issues.front().message;
         }
-        update_scan_report(std::move(report));
         if(committed) {
             if(const auto* record = m_database.find(destination))
                 m_selection.select_asset(record->handle);
@@ -481,29 +480,28 @@ namespace CometEditor {
         ImGui::EndDragDropTarget();
     }
 
-    void ProjectPanel::complete_move(const MoveRequest& request, Comet::AssetScanReport report) {
+    void ProjectPanel::complete_move(
+        const MoveRequest& request, const Comet::AssetScanReport& report) {
         m_operation_error.clear();
-        const bool committed = report.snapshot_updated;
+        const bool committed = report.snapshot_updated && report.succeeded();
         if(!committed) {
             m_operation_error = "Asset operation could not be committed";
             if(!report.issues.empty())
                 m_operation_error = report.issues.front().message;
         }
-        update_scan_report(std::move(report));
         if(committed && m_renaming_asset == request.handle)
             m_close_rename = true;
     }
 
     void ProjectPanel::complete_delete(
-        const DeleteRequest& request, Comet::AssetScanReport report) {
+        const DeleteRequest& request, const Comet::AssetScanReport& report) {
         m_operation_error.clear();
-        const bool committed = report.snapshot_updated;
+        const bool committed = report.snapshot_updated && report.succeeded();
         if(!committed) {
             m_operation_error = "Asset could not be deleted";
             if(!report.issues.empty())
                 m_operation_error = report.issues.front().message;
         }
-        update_scan_report(std::move(report));
         if(committed && m_deleting_asset == request.handle)
             m_close_delete = true;
     }

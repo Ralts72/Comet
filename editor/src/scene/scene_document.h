@@ -36,6 +36,9 @@ namespace CometEditor {
         [[nodiscard]] Comet::Result<void, Comet::Error> create_new();
         [[nodiscard]] Comet::Result<void, Comet::Error> open(const std::string& path);
         [[nodiscard]] Comet::Result<void, Comet::Error> save(const std::string& path);
+        // 仅重定位已移动的资产，不改变脏状态、场景内容或撤销历史。
+        void relocate_asset(
+            const std::filesystem::path& source, const std::filesystem::path& destination);
 
         [[nodiscard]] const std::string& get_path() const noexcept { return m_path; }
         [[nodiscard]] const std::filesystem::path& get_asset_relative_path() const noexcept {

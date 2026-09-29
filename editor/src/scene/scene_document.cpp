@@ -89,6 +89,14 @@ namespace CometEditor {
         return Comet::Result<void, Comet::Error>::success();
     }
 
+    void SceneDocument::relocate_asset(
+        const std::filesystem::path& source, const std::filesystem::path& destination) {
+        if(m_asset_relative_path != source)
+            return;
+        m_asset_relative_path = destination;
+        m_path = (m_paths.assets() / destination).string();
+    }
+
     void SceneDocument::request(Request request) {
         if(m_pending_request)
             return;

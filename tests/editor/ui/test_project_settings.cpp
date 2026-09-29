@@ -188,6 +188,54 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(panel.take_request());
     }
 
+    TEST(ProjectSettingsUiTest, OnlySuccessfulChangedInputProducesRuntimeUpdate) {
+        Comet::Tests::ImGuiTestContext imgui{{1200, 800}};
+        Comet::Tests::TemporaryDirectory directory;
+        const auto root = directory.path() / "Project";
+        ASSERT_TRUE(create_project(root));
+        auto loaded = Comet::Project::load(root);
+        ASSERT_TRUE(loaded);
+        auto project = std::move(loaded).value();
+        ProjectSettings settings(project);
+        settings.request_input();
+        const auto frame = [&] {
+            ImGui::NewFrame();
+            settings.render(true);
+            ImGui::Render();
+        };
+        frame();
+        frame();
+        auto* window = ImGui::FindWindowByName("Project Settings - Input");
+        ASSERT_NE(window, nullptr);
+        ImGui::ActivateItemByID(window->GetID("Save"));
+        frame();
+        EXPECT_FALSE(settings.update().input_changed);
+
+        ImGuiWindow* actions = nullptr;
+        for(auto* child : GImGui->Windows)
+            if(child->ParentWindow == window && child->ChildId == window->GetID("ActionList"))
+                actions = child;
+        ASSERT_NE(actions, nullptr);
+        ImGui::ActivateItemByID(actions->GetID("Add Action"));
+        frame();
+        ImGui::ActivateItemByID(window->GetID("Save"));
+        frame();
+        EXPECT_TRUE(settings.update().input_changed);
+        EXPECT_FALSE(settings.update().input_changed);
+        EXPECT_EQ(project.input_actions().actions().size(), 1);
+        EXPECT_EQ(Comet::Project::load(root).value().input_actions(), project.input_actions());
+
+        const auto external = Comet::read_text_file(root / "project.json").value() + "\n";
+        ASSERT_TRUE(Comet::write_text_file_atomic(root / "project.json", external));
+        ImGui::ActivateItemByID(actions->GetID("Add Action"));
+        frame();
+        ImGui::ActivateItemByID(window->GetID("Save"));
+        frame();
+        EXPECT_FALSE(settings.update().input_changed);
+        EXPECT_EQ(project.input_actions().actions().size(), 1);
+        EXPECT_EQ(Comet::read_text_file(root / "project.json").value(), external);
+    }
+
     TEST(ProjectSettingsTest, StartupSceneRequiresKnownOrSavedSceneAndReadableContents) {
         Comet::Tests::TemporaryDirectory directory;
         const auto root = directory.path() / "Project";

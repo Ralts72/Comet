@@ -193,4 +193,64 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
+    TEST(AudioSystemTest, OneShotBudgetDropsExcessWithoutDelayingPlaybackAndReleasesOnStepOrStop) {
+        AssetRegistry assets;
+        auto clip = load_cue();
+        ASSERT_NE(clip, nullptr);
+        ASSERT_TRUE(assets.register_asset(cue_handle, clip));
+        Scene scene;
+        auto entity = scene.create_entity("Cue");
+        auto& source = entity.add_component<AudioSourceComponent>();
+        source.clip = cue_handle;
+        source.play_on_start = false;
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.1}));
+        ASSERT_TRUE(runtime.add_system(
+            std::make_unique<AudioSystem>(assets, AudioPlayback::Mode::Offline)));
+        ASSERT_TRUE(runtime.start(scene));
+        const auto owners_without_voices = clip.use_count();
+        for(int frame = 0; frame < 4; ++frame) {
+            for(int request = 0; request < 32; ++request)
+                ASSERT_TRUE(scene.request_play_one_shot(entity));
+            ASSERT_TRUE(runtime.advance(0));
+        }
+        EXPECT_EQ(clip.use_count() - owners_without_voices, 64);
+        EXPECT_TRUE(runtime.is_active());
+
+        // 独立片段只用于溢出请求；丢弃后不应保留待播引用。
+        constexpr AssetHandle overflow_handle{43};
+        auto overflow = load_cue();
+        const std::weak_ptr<AudioClip> observed_overflow = overflow;
+        ASSERT_TRUE(assets.register_asset(overflow_handle, std::move(overflow)));
+        source.clip = overflow_handle;
+        ASSERT_TRUE(scene.request_play_one_shot(entity));
+        ASSERT_TRUE(runtime.advance(0));
+        ASSERT_TRUE(assets.unregister_asset(overflow_handle));
+        EXPECT_TRUE(observed_overflow.expired());
+        source.clip = cue_handle;
+
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        ASSERT_TRUE(runtime.advance(10));
+        EXPECT_EQ(clip.use_count() - owners_without_voices, 64);
+        for(int step = 0; step < 200 && clip.use_count() > owners_without_voices; ++step) {
+            ASSERT_TRUE(runtime.request_step());
+            ASSERT_TRUE(runtime.advance(0));
+        }
+        EXPECT_EQ(clip.use_count(), owners_without_voices);
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Running));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(clip.use_count(), owners_without_voices);
+        ASSERT_TRUE(scene.request_play_one_shot(entity));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(clip.use_count() - owners_without_voices, 1);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_EQ(clip.use_count(), owners_without_voices);
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(scene.request_play_one_shot(entity));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(clip.use_count() - owners_without_voices, 1);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_EQ(clip.use_count(), owners_without_voices);
+    }
+
 }

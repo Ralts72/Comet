@@ -33,11 +33,7 @@ namespace Comet {
         SamplerDesc sampler_desc{.address_mode_u = SamplerAddressMode::ClampToEdge,
             .address_mode_v = SamplerAddressMode::ClampToEdge,
             .address_mode_w = SamplerAddressMode::ClampToEdge};
-        const auto features =
-            device.get_capability()
-                .physical_device.getFormatProperties(vk::Format::eR16G16B16A16Sfloat)
-                .optimalTilingFeatures;
-        if(!(features & vk::FormatFeatureFlagBits::eSampledImageFilterLinear)) {
+        if(!device.query_format_support(Format::R16G16B16A16_SFLOAT).linear_filter) {
             sampler_desc.mag_filter = Filter::Nearest;
             sampler_desc.min_filter = Filter::Nearest;
             sampler_desc.mipmap_mode = SamplerMipmapMode::Nearest;

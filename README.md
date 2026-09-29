@@ -373,9 +373,10 @@ PageUp／PageDown、方向键及 Left／Right 的 Shift、Control、Alt、Super�
 Lua 在 `update`／`fixed_update` 中调用 `comet.action_value(name)` 或按钮专用的
 `comet.action_down/pressed/released(name)`；未知名称或错误类型会报告脚本错误。
 固定步保留零步帧的短按，多次补步只触发一次边沿；普通更新有独立快照，不与固定步抢输入。
-相机与脚本只读取同一阶段的 `InputState`；`RuntimeInput` 负责输入累积、动作求值与暂停基线，
-SceneRuntime 只调度阶段，不逐层传递额外的动作参数。物理快照仍供窗口／Gate 使用，不属于脚本系统。
 demo 的空格／手柄 South 切换方块旋转；运行状态保存在 Lua `self`，Stop 不回写场景参数。
+
+### Lua 实体与会话
+
 Lua 在运行阶段可用 `comet.self_entity()` 获取当前实体引用，或用
 `comet.find_entity(uuid)` 按场景内 UUID 查找；格式不合法会报错，实体不存在返回 `nil`。
 引用提供 `:is_valid()`、`:position()`、`:translate(x,y,z)` 和 `:rotate(x,y,z)`；位置与旋转沿用本地 Transform 和角度单位。
@@ -383,8 +384,6 @@ Lua 在运行阶段可用 `comet.self_entity()` 获取当前实体引用，或�
 跨实体配置可在 Lua 中声明 `player = {type = "entity"}`，再在 Inspector 按实体名称／层级路径选择，
 或在 Edit 中从 Hierarchy 拖入该参数框；场景保存 UUID，重命名不破坏引用。未分配或目标缺失时
 `self.parameters.player:is_valid()` 返回 false；有效引用可用 `==` 与碰撞回调的 `other` 比较。
-复制子树时内部引用指向新副本，外部引用保持原 UUID；删除目标保留引用，撤销删除后可恢复。
-Hierarchy 拖动实体时保留原选择，便于向 Inspector 分配引用；普通单击在松开鼠标后切换选择。
 脚本在启动／更新阶段（含碰撞和触发回调）可调用 `comet.create_entity(name)` 请求创建，返回新实体 UUID；
 也可调用 `comet.destroy_entity(reference)` 请求删除实体及其子树。结构变更在该阶段的所有 System 执行完后提交：
 本阶段内新 UUID 尚不能查到，待删除引用仍有效；下一阶段才能看到结果。暂停时不产生新请求，Stop 或运行失败会丢弃未提交请求。
@@ -398,29 +397,22 @@ local id = comet.create_entity("Marker", {
 })
 ```
 
-新实体始终为根实体，位置就是世界位置；未指定变换使用零位置／零旋转／单位缩放。
-变换字段也可直接使用已导出的 Vec3 参数，例如 `translation = self.parameters.spawn_position`。
-`mesh_source` 只捕获该实体 MeshRenderer 的网格和材质 Handle，不复制源变换、父子关系、脚本、物理、音频或材质运行覆盖。
-源引用须有效且有完整 MeshRenderer；所有参数先校验再入队，源随后销毁不影响快照。
-不指定 `mesh_source` 时仍只创建默认组件；这不是整实体克隆或 Prefab 实例化，不改变资产加载和缺失资源的处理规则。
-这些运行态变更不会写回 Edit 场景；脚本可在后续阶段通过返回的 UUID 查找新实体并修改 Transform。
+新实体为根，默认零位置／零旋转／单位缩放；变换也可直接使用导出的 Vec3 参数。
+`mesh_source` 只复制有效源实体的网格和材质引用，不复制其他组件、层级或运行时覆盖，不是 Prefab。
+创建与删除只作用于运行场景，不写回 Edit；详细快照与阶段协议见[Lua 架构](docs/architecture/overview.md#lua-脚本与参数)。
 不同实体的脚本可用 `comet.session_set(key, value)`／`comet.session_get(key)` 共享当前运行场景的分数、进度等临时值；
 `session_set(key, nil)` 删除。支持布尔、有限数值、最多 4096 字节的字符串和三个有限数值组成的向量；
-最多 128 个键，键长最多 128 字节。
+最多 128 个键，键长最多 128 字节；向量可直接传入导出的 Vec3 参数，不接受数字字符串或额外字段。
 写入立即对后续脚本调用可见；暂停保留，单步照常更新，Stop、运行失败或再次启动会清空。
 这些值不进入 `.scene`，也不会从编辑器 Play 写回 Edit 场景；`on_stop` 不访问会话状态。
 脚本在更新阶段（含固定更新、碰撞和触发回调）可调用 `comet.restart_scene()` 请求重开本局；
-调用不立即终止当前阶段，重复请求合并，宿主在下一次更新开始、取得渲染帧前处理。`on_start`／`on_stop` 不允许请求重开。
-app 从启动时保留的场景基线重建，Editor 从保留的 Edit 场景重建，不重读磁盘场景、不保存当前运行变化。
-候选准备失败保留旧局，不自动重试；新局启动失败时 Editor 恢复 Edit，app 按运行错误退出。
-暂停重开保持暂停，音频从暂停态初始化；按住重开键不连续重开，需松开再按。Stop 和关闭优先于重开。
-这是重建本局，不是跨场景切换、存档或保留脚本状态的热重载。
+请求在下一次宿主更新处理，不中断当前脚本；`on_start`／`on_stop` 禁止重开。
+app 恢复启动基线，Editor 恢复保留的 Edit 场景，不重读磁盘；暂停状态保留，长按重开键不连续触发。
+这不是跨场景切换或存档；候选失败与启动失败的不同处理见架构文档。
 刚体与碰撞体接触时，相关实体的脚本可实现 `on_collision_enter(self, other)`／`on_collision_exit(self, other)`；
 把碰撞体的 Trigger 打开后改为 `on_trigger_enter`／`on_trigger_exit`，不产生物理碰撞响应。
-`other` 是当前场景的受保护实体引用。接触在固定步采集，先按固定步、再按实体顺序于同帧普通 `update` 后交付；
-一帧补算多步时可能依次收到进入和离开。任一实体在交付前失效则跳过该通知，Stop／运行失败清空未交付通知。
-静态 Trigger 可检测动态／运动学刚体；休眠会保留既有接触，不因此单独发出 `on_trigger_exit`。
-重新活动或触发区变化后，由物理检测决定真实离开；移除／重建碰撞体也会结束旧接触。
+`other` 是当前场景的受保护实体引用；通知在同帧普通 `update` 后交付，已失效参与者不会收到通知。
+静态 Trigger 可检测动态／运动学刚体；物体休眠不等于离开触发区。
 
 ### 场景运行时
 
@@ -446,9 +438,10 @@ demo 的 `Move_Cube` 使用运动学刚体，与目标保持同一高度；Play�
 没有 Audio Source 或有效片段时调用会报告脚本错误。一般声音源仍可通过 `play_on_start` 在 Play／app 启动时自动播放，默认开启；Edit 不播放，Stop 销毁播放实例。
 项目 WAV 由 Git LFS 管理，与相邻 `.meta` 一起使用，也可从 Finder 拖入 Project；场景保存 Audio Clip 的 Handle、自动播放、循环和 0..1 音量。可在 Inspector 添加或编辑 Audio Source。
 首版将短音效完整解码到内存，限制为单／双声道、约 1600 万采样值；尚无流式音乐、空间定位或混音编辑器。
-无可用输出设备时会记录警告并静音继续运行。暂停场景会冻结已播放声音的位置，继续运行时接着播放，
-不会重新播放已经结束的音效。单步不发声，但音频时间同步推进；本步新音效在步末加入，随后随单步消耗时长，
-已经结束的直接清理，继续时只播放仍有效的剩余部分；Stop 全部丢弃。
+脚本短音效最多同时播放 64 个，超额新请求直接丢弃，不排队补播；不占用自动 Audio Source 的播放名额。
+无输出设备时静音继续；暂停冻结声音，单步静音推进声音时间，继续只播放剩余部分，Stop 全部丢弃。
+
+### Lua 参数与材质
 
 Lua 的 `properties` 声明显式导出的 bool／float／Vec3／Vec4／string 及实体引用配置；只有编辑过的字段保存为实体覆盖。
 裸三／四分量数组分别是 Vec3／Vec4，只有显式 `type = "color"` 才显示颜色控件，不根据变量名猜测：
@@ -477,14 +470,15 @@ comet.set_material_vector("base_color", 0.2, 1, 0.25, 1)
 
 这只创建运行时覆盖，不修改共享 Material、`.mat`、Edit 场景或 Undo 历史；暂停保留，单步按脚本更新，Stop 清除。
 名称、类型、有限值及标量声明范围须符合布局，否则按脚本错误处理；Vec4 不统一限制在 0..1。
-相同值复用现有快照，参数变化不重新编译 Shader。项目材质优先按已发布布局校验，首次绘制前按已加载产物预检；GPU 发布仍可单独失败。
+参数变化不重新编译 Shader；布局校验、快照复用及 GPU 发布边界见架构文档。
 暂不支持脚本纹理切换、全局 Shader 参数、require 或运行中源码替换。
 Lua 有内存与指令预算，但不是面向不可信代码的安全沙箱。调用、寿命和失败边界见[架构说明](docs/architecture/overview.md#lua-脚本与参数)。
 
 ## 编辑器使用
 
-- File → Open/Save 操作当前项目 assets 内的 `.scene`，拒绝越界路径。启动打开 project.json 指定的场景，
-  不恢复上次打开的其他文档；坏资源引用保留并记录 Log，后台导入完成后自动重试加载。
+- File → Open/Save 操作当前项目 assets 内的 `.scene`，拒绝越界路径。
+  编辑器优先恢复项目 Session 中上次明确打开／新建／保存的文档，恢复失败再尝试启动场景；
+  app 始终使用项目启动场景。坏资源引用保留并记录 Log，后台导入完成后自动重试加载。
 - Edit 使用独立相机；Play 运行场景副本及其 primary Camera，Stop 不回写运行时修改。
   2D/3D 只切换 Edit 投影；选中场景相机可在 Inspector 设置 Play/app 使用的透视或正交投影及正交高度。
   Play 分辨率可选 Free、16:9、HD、FHD，Fit 等比适应，1x 原尺寸裁切。
@@ -541,6 +535,8 @@ Lua 有内存与指令预算，但不是面向不可信代码的安全沙箱。�
   结构变化的目录快照和资产索引候选在后台准备，主线程复核后发布；右键 Refresh 仍立即同步重扫。
   空闲时不周期扫描；其他平台暂用 500 ms 轮询兜底。
   拖动资产到目录可移动，右键 Rename 改名；右键 Delete 或选中资产后按 Cmd/Ctrl+Backspace，均经确认后把资产及 `.meta` 成对送入系统回收站；
+  在编辑器内移动场景会同步保存路径、项目启动场景和 Session；配置保存失败会补偿回滚，不改变场景内容或 Undo。
+  当前打开的场景与启动场景不能直接删除，需先切换；外部 Finder 移动不自动改写项目配置。
   已被其他索引资产引用的文件不能删除，场景引用不会自动清空，资产删除不能通过编辑器 Undo 撤销。
   系统回收站调用失败时删除回滚；失败回滚依赖同卷硬链接，不支持时拒绝删除。
   从系统回收站恢复时需同时放回源文件与 `.meta`，然后 Refresh。`.comet/pending-deletions/`

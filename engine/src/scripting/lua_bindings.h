@@ -21,6 +21,7 @@ namespace Comet {
             // 由 lua_pcall 外的宿主持有，Lua 内存错误不能跳过 C++ 对象析构。
             std::optional<ParameterValue> return_value;
             const MaterialParameterValidator* materials = nullptr;
+            bool can_request_restart = false;
         };
 
         void install(lua_State* state, Context& context);

@@ -7,6 +7,7 @@
 #include "graphics/command/command_context.h"
 #include "diagnostics/profiler.h"
 #include "graphics/resource/allocator.h"
+#include "graphics/convert.h"
 
 #include <cstdio>
 
@@ -161,6 +162,16 @@ namespace Comet {
 
     Result<std::string> Device::build_allocation_report() const {
         return get_allocator().build_allocation_report();
+    }
+
+    Device::FormatSupport Device::query_format_support(const Format format) const {
+        const auto features =
+            m_capability.physical_device.getFormatProperties(Graphics::format_to_vk(format))
+                .optimalTilingFeatures;
+        return {.sampled = bool(features & vk::FormatFeatureFlagBits::eSampledImage),
+            .linear_filter = bool(features & vk::FormatFeatureFlagBits::eSampledImageFilterLinear),
+            .depth_attachment =
+                bool(features & vk::FormatFeatureFlagBits::eDepthStencilAttachment)};
     }
 
     std::unique_ptr<CommandContext> Device::create_command_context() {
