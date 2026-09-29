@@ -29,6 +29,7 @@
 #include <cmath>
 #include <cstddef>
 #include <iterator>
+#include <ranges>
 #include <string_view>
 #include <tuple>
 
@@ -324,6 +325,7 @@ namespace Comet {
         MaterialUpdate update;
         update.m_owner = this;
         update.m_handle = handle;
+        update.m_source = material;
         auto prepared = update.m_prepared.prepare(handle, material, pipeline->layout);
         if(!prepared)
             return Preparation::failure({prepared.error()});
@@ -344,11 +346,22 @@ namespace Comet {
         cached.resources = std::move(m_resources);
         cached.used = true;
         m_owner->m_unsupported.erase(m_handle);
+        if(m_source->get_shader_program()) {
+            auto& program = m_owner->m_project_pipelines.at(
+                {m_source->get_shader_program(), m_source->get_template_name()});
+            const auto previous = program.materials.find({m_handle});
+            if(program.failure_cause == ProjectPipeline::FailureCause::Materials
+                && (previous == program.materials.end() || previous->second.source != m_source
+                    || previous->second.revision != m_source->get_revision()))
+                program.failed_source.reset();
+            program.materials.insert_or_assign(MaterialInstanceKey{m_handle},
+                MaterialInput{m_source, m_source->get_revision(), {}});
+        }
     }
 
     Result<void, GraphicsError> MaterialRenderer::prepare_programs(
         const RenderSubmission& submission) {
-        ProgramOverrides requested;
+        ProgramMaterials requested;
         RuntimeInstances instances;
         for(const auto& item : submission.render_items) {
             const auto& material = item.material;
@@ -362,14 +375,16 @@ namespace Comet {
                 continue;
             const auto program = std::pair{
                 material.resource->get_shader_program(), material.resource->get_template_name()};
-            auto& overrides = requested[program];
-            if(key.instance_id)
-                overrides.insert_or_assign(key, material.overrides);
+            requested[program].insert_or_assign(
+                key, MaterialInput{
+                         material.resource, material.resource->get_revision(), material.overrides});
             m_project_pipelines.try_emplace(program);
         }
         sync_runtime_instances(instances);
-        sync_program_overrides(requested);
-        for(const auto& [program, overrides] : requested) {
+        sync_program_inputs(std::move(requested));
+        for(const auto& [program, active] : m_project_pipelines) {
+            if(active.materials.empty())
+                continue;
             auto prepared = project_pipeline(program.first, program.second);
             if(!prepared)
                 return Result<void, GraphicsError>::failure(prepared.error());
@@ -402,34 +417,50 @@ namespace Comet {
         }
     }
 
-    void MaterialRenderer::sync_program_overrides(const ProgramOverrides& requested) {
+    void MaterialRenderer::sync_program_inputs(ProgramMaterials&& requested) {
         for(auto& [program, active] : m_project_pipelines) {
             const auto found = requested.find(program);
-            if(found == requested.end()) {
-                if(!active.overrides.empty()) {
-                    if(active.failed_overrides)
-                        active.failed_source.reset();
-                    active.overrides.clear();
-                }
-            } else if(active.overrides != found->second) {
-                // 只重试因运行覆盖拒绝的候选；Shader 自身错误不受参数动画触发。
-                if(active.failed_overrides)
+            MaterialInputs materials;
+            if(found != requested.end())
+                materials = std::move(found->second);
+            if(active.failed_source
+                && active.failure_cause == ProjectPipeline::FailureCause::Materials) {
+                const bool unchanged = std::ranges::equal(
+                    active.materials, materials, [](const auto& previous, const auto& current) {
+                        return previous.first == current.first
+                               && previous.second.source == current.second.source
+                               && previous.second.revision == current.second.revision;
+                    });
+                if(!unchanged)
                     active.failed_source.reset();
-                active.overrides = found->second;
+            } else if(active.failed_source
+                      && active.failure_cause == ProjectPipeline::FailureCause::Overrides) {
+                const auto overridden = std::views::filter(
+                    [](const auto& material) { return bool(material.second.overrides); });
+                const bool unchanged = std::ranges::equal(active.materials | overridden,
+                    materials | overridden, [](const auto& previous, const auto& current) {
+                        return previous.first == current.first
+                               && previous.second.overrides == current.second.overrides;
+                    });
+                if(!unchanged)
+                    active.failed_source.reset();
             }
+            active.materials = std::move(materials);
         }
     }
 
     Result<void, GraphicsError> MaterialRenderer::install_project_pipeline(AssetHandle handle,
         const std::string& template_name, const std::shared_ptr<const PipelineState>& builtin,
         ProjectPipeline& active, const std::shared_ptr<const ShaderProgramArtifact>& version) {
-        active.failed_overrides = false;
+        active.failure_cause = ProjectPipeline::FailureCause::Shader;
         auto layout = m_programs->describe(*version, template_name, builtin->layout);
         if(!layout)
             return Result<void, GraphicsError>::failure({layout.error()});
-        for(const auto& [key, overrides] : active.overrides) {
-            if(auto checked = layout.value()->validate_parameters(*overrides); !checked) {
-                active.failed_overrides = true;
+        for(const auto& [key, material] : active.materials) {
+            if(!material.overrides)
+                continue;
+            if(auto checked = layout.value()->validate_parameters(*material.overrides); !checked) {
+                active.failure_cause = ProjectPipeline::FailureCause::Overrides;
                 return Result<void, GraphicsError>::failure({checked.error()});
             }
         }
@@ -449,13 +480,18 @@ namespace Comet {
         auto prepared = m_prepared;
         auto materials = m_materials;
         for(auto& [material_handle, cached] : materials) {
+            const auto input = active.materials.find(material_handle);
             if(!cached.resources || cached.resources->pipeline->shader_program != handle
                 || cached.resources->pipeline->layout->get_name() != template_name
-                || (material_handle.instance_id && !active.overrides.contains(material_handle)))
+                || input == active.materials.end())
                 continue;
-            auto rebound = prepared.rebind(material_handle, candidate.value()->layout);
-            if(!rebound)
+            const auto& material = input->second;
+            auto rebound = prepared.prepare(material_handle.material_handle, material.source,
+                candidate.value()->layout, material.overrides);
+            if(!rebound) {
+                active.failure_cause = ProjectPipeline::FailureCause::Materials;
                 return Result<void, GraphicsError>::failure({rebound.error()});
+            }
             auto resources = create_material(rebound.value(), candidate.value(), cached.resources);
             if(!resources)
                 return Result<void, GraphicsError>::failure(resources.error());
@@ -469,7 +505,6 @@ namespace Comet {
         m_materials.swap(materials);
         active.source = version;
         active.failed_source.reset();
-        active.failed_overrides = false;
         active.pipeline = std::move(candidate).value();
         return Result<void, GraphicsError>::success();
     }

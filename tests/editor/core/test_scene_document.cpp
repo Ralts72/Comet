@@ -129,14 +129,15 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(document.save(file.path()));
         const auto opened = document.open(file.path());
         ASSERT_FALSE(opened);
+        EXPECT_EQ(opened.error().message, preparation_error.message);
         EXPECT_EQ(opened.error().code, preparation_error.code);
         const auto created = document.create_new();
         ASSERT_FALSE(created);
+        EXPECT_EQ(created.error().message, preparation_error.message);
         EXPECT_EQ(created.error().code, preparation_error.code);
         EXPECT_EQ(active.get(), original);
         EXPECT_EQ(activation_attempts, 2);
         EXPECT_EQ(document.get_path(), file.path());
-        EXPECT_EQ(document.get_last_error(), "candidate preparation rejected");
     }
 
     TEST(SceneDocumentTest, OpenPreservesUnresolvedAssetReferences) {
@@ -161,7 +162,6 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(document.open(file.path()));
         EXPECT_EQ(document.get_path(), file.path());
         EXPECT_EQ(document.get_asset_relative_path(), "untitled.scene");
-        EXPECT_TRUE(document.get_last_error().empty());
         const auto restored = active->find_entity(uuid);
         ASSERT_TRUE(restored);
         const auto& renderer = restored.get_component<Comet::MeshRendererComponent>();
@@ -190,8 +190,9 @@ namespace CometEditor::Tests {
 
         const std::string invalid = "invalid scene";
         std::ofstream(file.path()) << invalid;
-        ASSERT_FALSE(document.open(file.path()));
-        EXPECT_FALSE(document.get_last_error().empty());
+        const auto opened = document.open(file.path());
+        ASSERT_FALSE(opened);
+        EXPECT_FALSE(opened.error().message.empty());
         ASSERT_TRUE(document.create_new());
         EXPECT_EQ(active->entity_count(), 0U);
         EXPECT_TRUE(document.get_path().empty());
@@ -250,7 +251,6 @@ namespace CometEditor::Tests {
             });
         ASSERT_TRUE(document.save(file.path()));
         EXPECT_EQ(document.get_path(), file.path());
-        EXPECT_TRUE(document.get_last_error().empty());
 
         active_scene->create_entity("Unsaved Entity");
         ASSERT_EQ(active_scene->entity_count(), 2U);
@@ -289,9 +289,10 @@ namespace CometEditor::Tests {
         EXPECT_EQ(preserved.value(), contents.value());
 
         ASSERT_TRUE(Comet::write_text_file_atomic(file.paths().assets() / "broken.scene", "{}"));
-        EXPECT_FALSE(document.open("broken.scene"));
+        const auto opened = document.open("broken.scene");
+        ASSERT_FALSE(opened);
+        EXPECT_FALSE(opened.error().message.empty());
         EXPECT_EQ(active.get(), original);
         EXPECT_EQ(document.get_path(), file.path());
-        EXPECT_FALSE(document.get_last_error().empty());
     }
 }

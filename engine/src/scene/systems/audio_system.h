@@ -39,7 +39,6 @@ namespace Comet {
 
         const AssetRegistry& m_assets;
         AudioPlayback::Mode m_mode;
-        Scene* m_scene = nullptr;
         std::unique_ptr<AudioPlayback> m_playback;
         std::map<EntityUuid, Entry> m_entries;
         std::vector<std::unique_ptr<AudioPlayback::Voice>> m_one_shots;

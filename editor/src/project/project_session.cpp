@@ -31,6 +31,7 @@ namespace CometEditor {
     Comet::Result<void> ProjectSession::load() {
         using Result = Comet::Result<void>;
         m_last_scene.reset();
+        m_save_pending = false;
         std::error_code error;
         const bool exists = std::filesystem::exists(m_file, error);
         if(error)
@@ -70,8 +71,10 @@ namespace CometEditor {
         if(!validated)
             return Result::failure(validated.error());
         const auto candidate = std::move(validated).value();
-        if(m_last_scene && *m_last_scene == candidate)
+        if(m_last_scene && *m_last_scene == candidate && !m_save_pending)
             return Result::success();
+        m_last_scene = candidate;
+        m_save_pending = true;
 
         Comet::Json::Writer writer;
         writer.begin_object();
@@ -83,7 +86,7 @@ namespace CometEditor {
             return Result::failure(contents.error());
         if(auto saved = Comet::write_text_file_atomic(m_file, contents.value()); !saved)
             return saved;
-        m_last_scene = candidate;
+        m_save_pending = false;
         return Result::success();
     }
 }

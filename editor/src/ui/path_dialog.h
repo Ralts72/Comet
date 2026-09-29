@@ -1,7 +1,6 @@
 #pragma once
 #include "common/error.h"
 #include "common/result.h"
-#include <array>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -28,6 +27,6 @@ namespace CometEditor {
         bool m_cancelled = false;
         std::optional<Request> m_request;
         std::string m_error;
-        std::array<char, 1024> m_path_buffer{};
+        std::string m_path;
     };
 }

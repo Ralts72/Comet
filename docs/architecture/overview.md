@@ -152,11 +152,11 @@ Application::Options 提供具名宿主选项：缓存／日志目录，以及�
 scene_output 不从 YAML 读取，也不代表 HDR／SDR 颜色模式。
 
 - Engine 创建失败：释放 Diagnostics，不调用应用钩子，允许重试启动。
-- on_init 一旦开始：预期失败沿 Result 返回，end 先做 Engine 关闭准备，再且仅一次调用 on_shutdown。
-  钩子需兼容部分初始化；关闭失败保留 Engine／Diagnostics，派生类资源先析构，且实例不能重启。
-- 原始错误优先返回，清理错误单独报告。Error 保存消息和 std::error_code；图形边界通过 as_error 保留类别和数值。
+- on_init 一旦开始：预期失败沿 Result 返回，run 先做 Engine 关闭准备，再且仅一次调用 void on_shutdown。
+  钩子需清理部分初始化的状态，不提供拒绝清理的失败协议；宿主资源释放后才销毁 Engine，Diagnostics 最后释放。
+- 返回初始化或运行的原始结果。Error 保存消息和 std::error_code；图形边界通过 as_error 保留类别和数值。
   Comet::run 转换为退出码；YAML 解析异常仅在 ConfigLoader 适配。
-- 底层不变量、第三方及标准库未预期异常不由 run／end／launch 捕获，不保证异常路径执行应用关闭钩子。
+- 底层不变量、第三方及标准库未预期异常不由 run／launch 捕获，不保证异常路径执行应用关闭钩子。
   LOG_FATAL 执行 assert／terminate、不展开栈，只用于明确终止的内部错误。
 
 ImGuiContext 的 unique_ptr／私有 deleter 管理原生 Context，create 只发布完整候选。
@@ -201,6 +201,9 @@ Engine::run → 内部 tick：事件与时间 → Application::on_update（消�
 完整数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
 Engine 拥有 Scene/Runtime，只同步借用宿主回调。Editor 为新场景统一执行资产准备与激活；准备失败不替换活动场景。
 SceneDocument 只接收激活结果并更新文档路径／保存点；EditorSceneSession 保留 Edit Scene，负责 Play 副本与失败恢复，恢复时不重新准备资产。
+文档操作错误通过 Result 返回，弹窗持有展示状态，不再在 SceneDocument 保存一份最近错误。
+ProjectSession 的合法场景路径立即更新内存，偏好落盘失败只警告；后续记录同一路径仍可重试，不回滚成功的资产移动。
+项目启动场景保存失败仍补偿源文件移动，不能将项目内容和本地会话偏好视为同一事务。
 安装阶段由 `Editor::commit_scene` 结束旧交互，再经 Engine 停止旧 Runtime、交换 Scene owner；
 `SceneEditor::bind_scene` 统一重绑选择与资产引用，新 Edit 场景才重置历史。进入 Play 时历史仍指向保留的 Edit 场景，
 Stop 返回该场景时也不重置历史。Hierarchy 的 UI 状态清理由宿主保留；首次启动尚无 SceneEditor 时先绑定文档历史，
@@ -217,6 +220,7 @@ CPU 诊断；正常关闭只取消未完成采样，保留上一条已完成帧�
 单步只推进一轮固定／普通更新。ViewportPanel 生产控制请求，由 Editor 在下一次 on_update 经 Engine 应用。
 Runtime 每次先于各 System::on_start 通知 on_pause_changed(初始暂停值)，之后仅在 Running／Paused 实际切换时通知；通知期间禁止重入 Runtime，
 不借该通知推进模拟或改场景结构。单步保持 Paused，不临时发出恢复／再暂停；Stop 直接清理，不先恢复子系统。
+Runtime 统一保证 System 启停顺序和部分启动失败清理；具体 System 不重复保存仅用于检查调用顺序的 Scene owner。
 两个宿主都收到同一个当帧 `Engine::FrameContext`：App 在 on_update 交付窗口 Gate 结果，Editor 在 on_frame_ready 交付 UI Gate 结果；上下文退出时丢弃授权，未授权释放按钮但不暂停模拟。
 Viewport 在实际进入 Running 时一次性聚焦（Play／Resume），不在按钮发出请求时提前授权。
 键盘／手柄跟随窗口焦点，鼠标另受画面悬停限制；Gate 分别维护整体与鼠标授权，避免工具栏点击／滚轮穿透，
@@ -534,7 +538,7 @@ EnvironmentArtifact v2 将背景、最高 16² 漫反射、最高 128² 镜面 m
 
 ### 材质准备与寿命
 
-MaterialRenderer 保留资源所有权，主流程按阶段组织：同步运行实例／覆盖 → 准备程序，
+MaterialRenderer 保留资源所有权，主流程按阶段组织：同步运行实例／材质输入 → 准备程序，
 绘制时更新帧资源 → 准备并排序绘制列表 → 录制 → 回收未使用缓存。不另建转发 Manager。
 材质、天空盒与阴影通过 Device::query_format_support 查询最优平铺图像的采样、线性过滤和深度附件能力；
 该查询不替代具体尺寸、用途组合与采样数的创建校验，Vulkan 格式转换留在 graphics 实现内。
@@ -629,8 +633,9 @@ MaterialRenderer 准备完整 PipelineState、CPU 缓存和驻留 GPU 材质候�
 只换 Pipeline 而材质数据不变时复用参数 buffer／pool／set，不修改在途帧持有的旧包装。
 缓存判等同时使用 PreparedMaterial 与 PipelineState；旧版回退限定同 Handle／运行实例及当前目标兼容域。
 Shader 候选需同时通过驻留实体覆盖的布局校验；字段删除／改型不兼容时拒绝整批候选，保留旧画面并报告错误。
-项目程序准备前按当前提交淘汰已失效的运行实例；若候选仅因覆盖不兼容而失败，覆盖快照变化／移除会解除失败抑制。
-输入不变时不重试；Shader 自身错误、缺纹理等其他失败不因参数动画反复重试。缓存移除不影响在途帧保活。
+项目程序准备前按当前提交同步材质输入并淘汰已失效的运行实例。覆盖不兼容失败随覆盖快照变化／移除解除；
+材质准备失败随该程序引用的材质集合、源对象或 revision 变化解除，重试读取当前源，不复用失败时的旧源。
+输入不变时不重试；Shader 自身错误不因材质或覆盖参数动画反复重试。缓存移除不影响在途帧保活。
 材质资产换模板导致旧覆盖不兼容时同样保留旧完整版本；覆盖不会自动猜测映射到新字段，Stop 后使用新资产基线。
 ReloadReport 区分候选准备、CPU 打包、GPU 创建耗时；不设置固定性能倍数断言。
 大量布局重建仍同步占用 owner，CPU 后台化不代表 GPU 创建没有主线程成本。

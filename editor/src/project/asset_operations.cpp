@@ -2,6 +2,7 @@
 
 #include "assets/editor_assets.h"
 #include "core/project.h"
+#include "diagnostics/logger.h"
 #include "project/project_session.h"
 #include "scene/scene_document.h"
 
@@ -18,16 +19,11 @@ namespace CometEditor {
             return report;
         }
 
-        Comet::AssetScanReport rollback_move(EditorAssets& assets, Comet::Project& project,
-            SceneDocument& document, const Comet::AssetHandle handle,
-            const std::filesystem::path& source, const bool startup_changed, std::string error) {
+        Comet::AssetScanReport rollback_move(EditorAssets& assets, SceneDocument& document,
+            const Comet::AssetHandle handle, const std::filesystem::path& source,
+            std::string error) {
             auto rollback = assets.move(handle, source);
             if(rollback.snapshot_updated && rollback.succeeded()) {
-                if(startup_changed) {
-                    if(auto restored = project.save_startup_scene(source); !restored)
-                        error += "; files restored, but startup scene could not be restored: "
-                                 + restored.error();
-                }
                 // 业务操作失败，但回滚扫描仍发布了真实索引（可能包含其他新资产）。
                 rollback.issues.push_back({source, std::move(error)});
                 return rollback;
@@ -58,13 +54,12 @@ namespace CometEditor {
         const bool startup_changed = project.startup_scene() == source;
         if(startup_changed) {
             if(auto saved = project.save_startup_scene(moved); !saved)
-                return rollback_move(assets, project, document, handle, source, false,
+                return rollback_move(assets, document, handle, source,
                     "Cannot update startup scene: " + saved.error());
         }
         if(session.last_scene() == source) {
             if(auto saved = session.record_scene(moved); !saved)
-                return rollback_move(assets, project, document, handle, source, startup_changed,
-                    "Cannot update editor session: " + saved.error());
+                LOG_WARN("Asset moved, but cannot save editor session: {}", saved.error());
         }
         document.relocate_asset(source, moved);
         return report;

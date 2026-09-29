@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <gtest/gtest.h>
+#include <limits>
 
 namespace Comet::Tests {
     namespace {
@@ -341,6 +342,50 @@ namespace Comet::Tests {
         ASSERT_TRUE(scene.clear_parent(child));
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(PhysicsSystemTest, RejectsSphereRadiusOverflowAndUnderflowAndCleansRuntime) {
+        for(const auto value :
+            {std::numeric_limits<float>::max(), std::numeric_limits<float>::min()}) {
+            SCOPED_TRACE(value);
+            Scene scene;
+            add_body(scene, "Floor", BodyMotion::Static, {0, -1, 0});
+            auto ball = add_body(scene, "Ball", BodyMotion::Dynamic, {0, 2, 0}, Math::Vec3(value));
+            auto& collider = ball.get_component<ColliderComponent>();
+            collider.shape = ColliderShape::Sphere;
+            collider.radius = value;
+            SceneRuntime runtime;
+            ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+
+            const auto started = runtime.start(scene);
+            ASSERT_FALSE(started);
+            EXPECT_NE(started.error().message.find("scaled radius"), std::string::npos);
+            EXPECT_FALSE(runtime.is_active());
+            EXPECT_FALSE(scene.request_restart());
+
+            collider.radius = 0.5f;
+            ball.edit_transform(
+                [](TransformComponent& transform) { transform.scale = Math::Vec3(1); });
+            ASSERT_TRUE(runtime.start(scene));
+            ASSERT_TRUE(runtime.advance(1.0 / 60.0));
+            EXPECT_LT(ball.get_component<TransformComponent>().translation.y, 2);
+
+            collider.radius = value;
+            ball.edit_transform(
+                [value](TransformComponent& transform) { transform.scale = Math::Vec3(value); });
+            const auto advanced = runtime.advance(1.0 / 60.0);
+            ASSERT_FALSE(advanced);
+            EXPECT_NE(advanced.error().message.find("scaled radius"), std::string::npos);
+            EXPECT_FALSE(runtime.is_active());
+            EXPECT_FALSE(scene.request_restart());
+
+            collider.radius = 0.5f;
+            ball.edit_transform(
+                [](TransformComponent& transform) { transform.scale = Math::Vec3(1); });
+            ASSERT_TRUE(runtime.start(scene));
+            ASSERT_TRUE(runtime.advance(1.0 / 60.0));
+            ASSERT_TRUE(runtime.stop());
+        }
     }
 
     TEST(PhysicsSystemTest, AppliesExternalPoseAtNextFixedStepAndRemovesDeletedBody) {

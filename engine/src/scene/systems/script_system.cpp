@@ -101,21 +101,17 @@ namespace Comet {
     }
 
     Result<void, Error> ScriptSystem::on_start(Scene& scene) {
-        if(m_scene)
-            return Result<void, Error>::failure({"Scripts are already running"});
         m_scene = &scene;
         return synchronize(scene);
     }
     Result<void, Error> ScriptSystem::dispatch(
         Scene& scene, const Context& context, Script::Phase phase) {
-        if(m_scene != &scene)
-            return Result<void, Error>::failure({"Scripts require their active scene"});
         if(auto synced = synchronize(scene); !synced)
             return synced;
+        // 结构请求在阶段结束后提交，synchronize 已保证本轮实例有效。
         for(auto& [key, entry] : m_entries)
-            if(is_live(key, entry))
-                if(auto result = invoke(key, entry, phase, &context); !result)
-                    return result;
+            if(auto result = invoke(key, entry, phase, &context); !result)
+                return result;
         return Result<void, Error>::success();
     }
     Result<void, Error> ScriptSystem::fixed_update(Scene& scene, const Context& context) {

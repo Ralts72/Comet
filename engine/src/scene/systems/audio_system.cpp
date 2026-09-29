@@ -10,15 +10,10 @@
 
 namespace Comet {
     Result<void, Error> AudioSystem::on_start(Scene& scene) {
-        if(m_scene)
-            return Result<void, Error>::failure({"Audio system is already running"});
-        m_scene = &scene;
         return synchronize(scene);
     }
 
     Result<void, Error> AudioSystem::update(Scene& scene, const Context& context) {
-        if(m_scene != &scene)
-            return Result<void, Error>::failure({"Audio system requires its active scene"});
         if(m_paused && m_playback) {
             if(auto advanced = m_playback->advance_silently(context.delta_time); !advanced)
                 return advanced;
@@ -138,6 +133,5 @@ namespace Comet {
         m_device_unavailable = false;
         m_paused = false;
         m_one_shot_limit_reported = false;
-        m_scene = nullptr;
     }
 }

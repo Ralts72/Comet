@@ -293,7 +293,7 @@ namespace {
             return Comet::Result<void, Comet::Error>::success();
         }
 
-        Comet::Result<void, Comet::Error> on_shutdown() override {
+        void on_shutdown() override {
             get_engine().get_window().confirm_close_requests(false);
             LOG_INFO("Editor shutting down...");
             get_engine().get_renderer().set_overlay({});
@@ -322,7 +322,6 @@ namespace {
             m_project_session.reset();
             m_recent_projects.reset();
             m_console_panel.reset();
-            return Comet::Result<void, Comet::Error>::success();
         }
 
     private:
@@ -403,7 +402,7 @@ namespace {
             if(auto recorded =
                     m_project_session->record_scene(m_scene_document->get_asset_relative_path());
                 !recorded)
-                LOG_WARN("Cannot update editor session: {}", recorded.error());
+                LOG_WARN("Cannot save editor session: {}", recorded.error());
         }
 
         void refresh_available_scenes() {

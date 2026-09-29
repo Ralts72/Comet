@@ -276,6 +276,161 @@ namespace Comet::Tests {
         renderer.wait_idle();
     }
 
+    class ProjectMaterialPublicationTest: public MaterialRenderingTest {
+    protected:
+        void SetUp() override {
+            MaterialRenderingTest::SetUp();
+            if(HasFatalFailure())
+                return;
+            auto& device = engine->get_renderer().get_render_context().get_device();
+            auto created_pass = RenderPass::create(device,
+                {Attachment::get_color_attachment(Format::R8G8B8A8_UNORM),
+                    Attachment::get_depth_attachment(Format::D32_SFLOAT)},
+                {RenderSubPass{
+                    {}, {SubpassColorAttachment(0)}, {SubpassDepthStencilAttachment(1)}}},
+                Format::R8G8B8A8_UNORM);
+            ASSERT_TRUE(created_pass) << created_pass.error();
+            pass = std::move(created_pass).value();
+            pipelines = std::make_unique<PipelineManager>(device, *pass);
+            programs = std::make_unique<MaterialPrograms>(engine->get_asset_registry());
+            auto created_materials = MaterialRenderer::create(device, *pipelines,
+                engine->get_render_resources(), 2, SampleCount::Count1, nullptr, programs.get());
+            ASSERT_TRUE(created_materials) << created_materials.error();
+            materials = std::move(created_materials).value();
+        }
+
+        void TearDown() override {
+            materials.reset();
+            programs.reset();
+            pipelines.reset();
+            pass.reset();
+            MaterialRenderingTest::TearDown();
+        }
+
+        std::shared_ptr<ShaderProgramArtifact> program(bool optional) {
+            auto result = std::make_shared<ShaderProgramArtifact>();
+            result->handle = program_handle;
+            result->vertex_words.assign(PBR_VERT.begin(), PBR_VERT.end());
+            result->fragment_words.assign(PBR_FRAG.begin(), PBR_FRAG.end());
+            result->material =
+                ShaderProgramMaterial{.textures = {{"base_color_texture", "Base Color", optional}},
+                    .scalars = {{"metallic", "Metallic", 0, 0, 1, 0.01f},
+                        {"roughness", "Roughness", 0.5f, 0.045f, 1, 0.01f}},
+                    .vectors = {{"base_color", "Base Color", {0.8f, 0.8f, 0.8f, 1}, true}}};
+            return result;
+        }
+
+        void publish_material(AssetHandle handle, const std::shared_ptr<Material>& source) {
+            auto update = materials->prepare_material_update(handle, source);
+            ASSERT_TRUE(update) << update.error();
+            std::move(update).value().publish();
+        }
+
+        std::shared_ptr<const ShaderProgramArtifact> published() const {
+            const auto* current = programs->published(program_handle, "pbr");
+            return current ? current->source : nullptr;
+        }
+
+        static constexpr AssetHandle program_handle{9200};
+        static constexpr AssetHandle first_handle{9201};
+        static constexpr AssetHandle second_handle{9202};
+        std::unique_ptr<RenderPass> pass;
+        std::unique_ptr<PipelineManager> pipelines;
+        std::unique_ptr<MaterialPrograms> programs;
+        std::unique_ptr<MaterialRenderer> materials;
+    };
+
+    TEST_F(ProjectMaterialPublicationTest, RemovedDependencyRetriesOnceButShaderErrorsStayCached) {
+        auto& assets = engine->get_asset_registry();
+        const auto optional = program(true);
+        ASSERT_TRUE(assets.register_asset(program_handle, optional));
+        auto compatible = std::make_shared<Material>("compatible", "pbr", program_handle);
+        auto missing_texture = std::make_shared<Material>("missing_texture", "pbr", program_handle);
+        auto image = texture({255, 255, 255, 255});
+        ASSERT_TRUE(image) << image.error();
+        compatible->set_texture_property("base_color_texture", image.value());
+        ASSERT_NO_FATAL_FAILURE(publish_material(first_handle, compatible));
+        ASSERT_NO_FATAL_FAILURE(publish_material(second_handle, missing_texture));
+        RenderSubmission submission;
+        submission.render_items = {{.material = {first_handle, compatible}},
+            {.material = {second_handle, missing_texture}}};
+        ASSERT_TRUE(materials->prepare_programs(submission));
+        const auto required = program(false);
+        ASSERT_TRUE(assets.replace_asset(program_handle, required));
+        messages.str({});
+        ASSERT_TRUE(materials->prepare_programs(submission));
+        EXPECT_EQ(published(), optional);
+        const auto failure = messages.str();
+        ASSERT_NE(failure.find("Missing texture property"), std::string::npos);
+        for(int repeat = 0; repeat < 3; ++repeat)
+            ASSERT_TRUE(materials->prepare_programs(submission));
+        EXPECT_EQ(messages.str(), failure);
+
+        submission.render_items.pop_back();
+        ASSERT_TRUE(materials->prepare_programs(submission));
+        EXPECT_EQ(published(), required);
+        EXPECT_EQ(messages.str(), failure);
+
+        auto invalid = program(false);
+        invalid->material->textures.front().name = "unknown_texture";
+        ASSERT_TRUE(assets.replace_asset(program_handle, invalid));
+        ASSERT_TRUE(materials->prepare_programs(submission));
+        EXPECT_EQ(published(), required);
+        const auto shader_failure = messages.str();
+        ASSERT_GT(shader_failure.size(), failure.size());
+        for(int revision = 0; revision < 3; ++revision) {
+            ASSERT_TRUE(compatible->set_scalar_property("metallic", 0.1f * revision));
+            submission.render_items.front().material.overrides =
+                std::make_shared<const MaterialOverrides>(MaterialOverrides{.instance_id = 1,
+                    .material = first_handle,
+                    .scalar_properties = {{"roughness", 0.2f + 0.1f * revision}}});
+            ASSERT_TRUE(materials->prepare_programs(submission));
+        }
+        EXPECT_EQ(published(), required);
+        EXPECT_EQ(messages.str(), shader_failure);
+    }
+
+    TEST_F(
+        ProjectMaterialPublicationTest, ChangedMaterialSourceAndPublishedEditsRetryDependencies) {
+        auto& assets = engine->get_asset_registry();
+        auto optional = program(true);
+        ASSERT_TRUE(assets.register_asset(program_handle, optional));
+        auto source = std::make_shared<Material>("source", "pbr", program_handle);
+        auto image = texture({255, 255, 255, 255});
+        ASSERT_TRUE(image) << image.error();
+        RenderSubmission submission;
+        for(int change = 0; change < 3; ++change) {
+            SCOPED_TRACE(change);
+            optional = program(true);
+            ASSERT_TRUE(assets.replace_asset(program_handle, optional));
+            source->set_texture_property("base_color_texture", nullptr);
+            ASSERT_NO_FATAL_FAILURE(publish_material(first_handle, source));
+            submission.render_items = {{.material = {first_handle, source}}};
+            ASSERT_TRUE(materials->prepare_programs(submission));
+            const auto required = program(false);
+            ASSERT_TRUE(assets.replace_asset(program_handle, required));
+            ASSERT_TRUE(materials->prepare_programs(submission));
+            EXPECT_EQ(published(), optional);
+
+            if(change != 0)
+                source = std::make_shared<Material>("replacement", "pbr", program_handle);
+            source->set_texture_property("base_color_texture", image.value());
+            if(change == 2) {
+                auto update = materials->prepare_material_update(first_handle, source);
+                ASSERT_TRUE(update) << update.error();
+                EXPECT_EQ(published(), optional);
+                std::move(update).value().publish();
+                // 不依赖下一次场景提取，显式编辑发布也会更新待重试的源。
+                auto next = materials->prepare_material_update(first_handle, source);
+                ASSERT_TRUE(next) << next.error();
+                EXPECT_EQ(published(), required);
+            }
+            submission.render_items.front().material.resource = source;
+            ASSERT_TRUE(materials->prepare_programs(submission));
+            EXPECT_EQ(published(), required);
+        }
+    }
+
     TEST_F(MaterialRenderingTest, FailedFramePreparationCannotReuseAcquiredFrame) {
         auto& renderer = engine->get_renderer();
         auto prepared = renderer.prepare_frame();

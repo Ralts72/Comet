@@ -17,7 +17,6 @@
 
 #include <gtest/gtest.h>
 #include <random>
-#include <stdexcept>
 #include <vector>
 
 namespace Comet::Tests {
@@ -35,7 +34,7 @@ namespace Comet::Tests {
                 ADD_FAILURE() << "Graphics must not be initialized";
                 return RunResult::failure({"Graphics must not be initialized"});
             }
-            RunResult on_shutdown() override { return RunResult::success(); }
+            void on_shutdown() override {}
         };
 
         inline static std::vector<std::string> received;
@@ -107,10 +106,7 @@ namespace Comet::Tests {
                 get_engine().get_window().request_close();
                 return RunResult::success();
             }
-            RunResult on_shutdown() override {
-                ++shutdowns;
-                return RunResult::success();
-            }
+            void on_shutdown() override { ++shutdowns; }
         } app;
         Config config;
         const auto frame_slots = config.render.max_frames_in_flight;
@@ -137,7 +133,7 @@ namespace Comet::Tests {
                 get_engine().get_window().request_close();
                 return RunResult::success();
             }
-            RunResult on_shutdown() override { return RunResult::success(); }
+            void on_shutdown() override {}
         };
         Config config;
         config.window.title = "Configured title";
@@ -162,7 +158,7 @@ namespace Comet::Tests {
                 get_engine().get_window().request_close();
                 return RunResult::success();
             }
-            RunResult on_shutdown() override { return RunResult::success(); }
+            void on_shutdown() override {}
         } app({.output_mode = OutputMode::Sdr});
         Config config;
         config.render.output_mode = OutputMode::Hdr;
@@ -182,7 +178,7 @@ namespace Comet::Tests {
                 get_engine().get_window().request_close();
                 return RunResult::success();
             }
-            RunResult on_shutdown() override { return RunResult::success(); }
+            void on_shutdown() override {}
         };
         Config config;
         config.window.width = 160;
@@ -210,10 +206,7 @@ namespace Comet::Tests {
                 get_engine().get_window().request_close();
                 return RunResult::success();
             }
-            RunResult on_shutdown() override {
-                LOG_INFO("project shutdown");
-                return RunResult::success();
-            }
+            void on_shutdown() override { LOG_INFO("project shutdown"); }
         } app({.cache_directory = paths.cache(), .log_directory = paths.logs()});
         Logger::shutdown();
         Config config;
@@ -233,12 +226,11 @@ namespace Comet::Tests {
         EXPECT_TRUE(Logger::get_log_file_path().empty());
     }
 
-    class ApplicationLifecycleTest: public ::testing::TestWithParam<std::pair<int, bool>> {
+    class ApplicationLifecycleTest: public ::testing::TestWithParam<int> {
     protected:
         class TestApplication final: public Application {
         public:
             int fail_at = 0;
-            bool fail_shutdown = false;
             int shutdowns = 0;
             bool engine_alive_during_shutdown = false;
             bool rendering_stopped_during_shutdown = false;
@@ -281,7 +273,7 @@ namespace Comet::Tests {
                 return RunResult::failure(
                     GraphicsError{"frame failure", vk::Result::eErrorDeviceLost}.as_error());
             }
-            RunResult on_shutdown() override {
+            void on_shutdown() override {
                 ++shutdowns;
                 engine_alive_during_shutdown = get_engine().get_window().get() != nullptr;
                 rendering_stopped_during_shutdown = !get_engine().get_renderer().prepare_frame();
@@ -289,12 +281,9 @@ namespace Comet::Tests {
                 if(fail_at == 4)
                     EXPECT_NE(ImGui::GetDrawData(), nullptr);
 #endif
-                if(fail_shutdown)
-                    return RunResult::failure({"shutdown failure"});
 #ifdef COMET_TEST_EDITOR_UI
                 ui.reset();
 #endif
-                return RunResult::success();
             }
         };
 
@@ -307,10 +296,8 @@ namespace Comet::Tests {
     };
 
     TEST_P(ApplicationLifecycleTest, CleansOnceAndPreservesPrimaryFailure) {
-        auto owner = std::make_unique<TestApplication>();
-        auto& app = *owner;
-        app.fail_at = GetParam().first;
-        app.fail_shutdown = GetParam().second;
+        TestApplication app;
+        app.fail_at = GetParam();
         Config config;
         config.window.width = 320;
         config.window.height = 240;
@@ -337,33 +324,17 @@ namespace Comet::Tests {
             EXPECT_EQ(result.error().code,
                 (GraphicsError{"", vk::Result::eErrorDeviceLost}.as_error().code));
             expected = "frame failure";
-        } else if(app.fail_shutdown)
-            expected = "shutdown failure";
+        }
         EXPECT_EQ(error, expected);
         EXPECT_EQ(app.shutdowns, 1);
         EXPECT_TRUE(app.engine_alive_during_shutdown);
         EXPECT_TRUE(app.rendering_stopped_during_shutdown);
 #ifdef COMET_TEST_EDITOR_UI
-        if(app.fail_shutdown)
-            EXPECT_NE(ImGui::GetCurrentContext(), nullptr);
-        else
-            EXPECT_EQ(ImGui::GetCurrentContext(), nullptr);
-#endif
-        if(app.fail_shutdown) {
-            const auto restarted = app.run(config);
-            ASSERT_FALSE(restarted);
-            EXPECT_EQ(restarted.error().message, "Application is already started");
-            EXPECT_EQ(app.shutdowns, 1);
-        }
-        owner.reset();
-#ifdef COMET_TEST_EDITOR_UI
         EXPECT_EQ(ImGui::GetCurrentContext(), nullptr);
 #endif
     }
 
-    INSTANTIATE_TEST_SUITE_P(NormalAndFailedExit, ApplicationLifecycleTest,
-        ::testing::Values(std::pair{0, false}, std::pair{0, true}, std::pair{1, false},
-            std::pair{1, true}, std::pair{2, false}, std::pair{2, true}, std::pair{3, false},
-            std::pair{3, true}, std::pair{4, false}, std::pair{4, true}));
+    INSTANTIATE_TEST_SUITE_P(
+        NormalAndFailedExit, ApplicationLifecycleTest, ::testing::Values(0, 1, 2, 3, 4));
 
 }

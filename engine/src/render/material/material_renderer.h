@@ -48,6 +48,7 @@ namespace Comet {
             MaterialUpdate() = default;
             MaterialRenderer* m_owner = nullptr;
             AssetHandle m_handle;
+            std::shared_ptr<const Material> m_source;
             MaterialRuntimeCache m_prepared;
             std::shared_ptr<MaterialResources> m_resources;
         };
@@ -109,12 +110,20 @@ namespace Comet {
             std::shared_ptr<DescriptorSetLayout> material_layout;
             std::shared_ptr<Pipeline> pipeline;
         };
+        struct MaterialInput {
+            std::shared_ptr<const Material> source;
+            uint64_t revision;
+            std::shared_ptr<const MaterialOverrides> overrides;
+        };
+        using MaterialInputs = std::map<MaterialInstanceKey, MaterialInput>;
         struct ProjectPipeline {
+            enum class FailureCause { Shader, Overrides, Materials };
+
             std::shared_ptr<const ShaderProgramArtifact> source;
             std::shared_ptr<const ShaderProgramArtifact> failed_source;
             std::shared_ptr<const PipelineState> pipeline;
-            std::map<MaterialInstanceKey, std::shared_ptr<const MaterialOverrides>> overrides;
-            bool failed_overrides = false;
+            MaterialInputs materials;
+            FailureCause failure_cause = FailureCause::Shader;
         };
         struct FrameResources {
             std::shared_ptr<DescriptorSetLayout> layout;
@@ -151,12 +160,10 @@ namespace Comet {
         };
 
         using RuntimeInstances = std::map<MaterialInstanceKey, const MaterialBinding*>;
-        using RuntimeOverrides =
-            std::map<MaterialInstanceKey, std::shared_ptr<const MaterialOverrides>>;
-        using ProgramOverrides = std::map<std::pair<AssetHandle, std::string>, RuntimeOverrides>;
+        using ProgramMaterials = std::map<std::pair<AssetHandle, std::string>, MaterialInputs>;
 
         void sync_runtime_instances(const RuntimeInstances& instances);
-        void sync_program_overrides(const ProgramOverrides& requested);
+        void sync_program_inputs(ProgramMaterials&& requested);
         void update_frame_resources(FrameScheduler& frames, const RenderSubmission& submission,
             const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map,
             std::vector<QueueSemaphoreSubmit>& waits);

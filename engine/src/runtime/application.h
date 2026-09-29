@@ -50,16 +50,13 @@ namespace Comet {
         }
 
         // on_init 一旦开始，退出时就会调用；必须能清理部分初始化的状态。
-        virtual Result<void, Error> on_shutdown() = 0;
+        virtual void on_shutdown() = 0;
 
     private:
-        [[nodiscard]] Result<void, Error> end();
-
         Options m_options;
         Config m_config;
         std::unique_ptr<Diagnostics> m_diagnostics;
         std::unique_ptr<Engine> m_engine;
-        bool m_shutdown_required = false;
     };
 
     COMET_API int run(Application* app, const LaunchOptions& options);

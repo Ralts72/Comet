@@ -110,12 +110,11 @@ namespace {
             return Comet::Result<void, Comet::Error>::success();
         }
 
-        Comet::Result<void, Comet::Error> on_shutdown() override {
+        void on_shutdown() override {
             LOG_INFO("app shutdown");
             m_asset_manager.reset();
             m_pending_scene.reset();
             m_initial_scene.reset();
-            return Comet::Result<void, Comet::Error>::success();
         }
 
     private:

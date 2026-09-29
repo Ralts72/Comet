@@ -84,6 +84,58 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(std::filesystem::exists(path));
     }
 
+    TEST_F(PathDialogTest, LongInitialPathIsNotTruncated) {
+        auto target = directory.path();
+        for(int index = 0; index < 16; ++index)
+            target /= "场景目录_" + std::string(80, 'a');
+        target /= "project.json";
+        ASSERT_GT(target.string().size(), 1024u);
+
+        dialog.request(PathDialog::Action::OpenProject, target, directory.path());
+        frame();
+        frame();
+        click("Open Project");
+        const auto request = dialog.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->action, PathDialog::Action::OpenProject);
+        EXPECT_EQ(request->path, target.string());
+        EXPECT_FALSE(dialog.take_request());
+    }
+
+    TEST_F(PathDialogTest, PathInputGrowsAndSubmitsOnceWithEnter) {
+        show(PathDialog::Action::SaveScene);
+        auto* popup = ImGui::FindWindowByName("Save Scene");
+        ASSERT_NE(popup, nullptr);
+        const auto input = popup->GetID("Path");
+        ImGui::ActivateItemByID(input);
+        frame();
+        ASSERT_EQ(ImGui::GetActiveID(), input);
+
+        auto& io = ImGui::GetIO();
+        const auto modifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+        io.AddKeyEvent(modifier, true);
+        io.AddKeyEvent(ImGuiKey_A, true);
+        frame();
+        io.AddKeyEvent(ImGuiKey_A, false);
+        io.AddKeyEvent(modifier, false);
+        frame();
+        const auto text = "场景/" + std::string(1536, 'a') + ".scene";
+        io.AddInputCharactersUTF8(text.c_str());
+        frame();
+        EXPECT_FALSE(dialog.take_request());
+
+        io.AddKeyEvent(ImGuiKey_Enter, true);
+        frame();
+        const auto request = dialog.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->action, PathDialog::Action::SaveScene);
+        EXPECT_EQ(request->path, text);
+        io.AddKeyEvent(ImGuiKey_Enter, false);
+        frame();
+        EXPECT_FALSE(dialog.take_request());
+        EXPECT_FALSE(std::filesystem::exists(path));
+    }
+
     TEST_F(PathDialogTest, FailedOpenStaysOpenAndRetryInstallsOnlyWhenExecuted) {
         show(PathDialog::Action::OpenScene);
         click("Open Scene");

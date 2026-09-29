@@ -265,6 +265,7 @@ Windows：`%APPDATA%/Comet/recent-projects.json`；Linux：`$XDG_STATE_HOME/come
 刚保存、尚未被资产索引的当前场景也会临时列出。
 编辑器会在项目的 `.comet/editor/session.json` 记录上次打开的场景；重新打开项目时优先恢复该场景，
 失效时回退到 `project.json` 的启动场景或空场景。明确新建的未保存场景也会记录为“空场景”。
+本地会话保存失败只警告，不撤销已完成的场景操作或资产移动；当前会话仍使用新路径。
 app 始终使用项目启动场景，不读取编辑器会话状态。
 项目需要 `project.json` 和 `assets/`；资源及相邻 `.meta` 一起迁移，`.comet/` 是可重建的本地数据。
 编辑器生成的 `.scene`（v2）、`.mat`（v2）、`.meta`（v3）使用 JSON，扩展名不变；

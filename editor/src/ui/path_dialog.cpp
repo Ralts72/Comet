@@ -1,6 +1,6 @@
 #include "ui/path_dialog.h"
 #include "ui/language.h"
-#include <algorithm>
+#include "ui/widgets.h"
 #include <utility>
 #include <imgui.h>
 namespace CometEditor {
@@ -13,17 +13,14 @@ namespace CometEditor {
         m_request.reset();
         m_error.clear();
 
-        std::string initial_path = current_path.string();
-        if(dialog == Action::SaveScene && initial_path.empty()) {
-            initial_path = (default_directory / "untitled.scene").string();
-        } else if(dialog == Action::CreateProject && initial_path.empty()) {
-            initial_path = (default_directory / "NewProject").string();
-        } else if(initial_path.empty()) {
-            initial_path = default_directory.string() + "/";
+        m_path = current_path.string();
+        if(dialog == Action::SaveScene && m_path.empty()) {
+            m_path = (default_directory / "untitled.scene").string();
+        } else if(dialog == Action::CreateProject && m_path.empty()) {
+            m_path = (default_directory / "NewProject").string();
+        } else if(m_path.empty()) {
+            m_path = default_directory.string() + "/";
         }
-        m_path_buffer.fill('\0');
-        std::copy_n(initial_path.data(), std::min(initial_path.size(), m_path_buffer.size() - 1),
-            m_path_buffer.data());
     }
 
     void PathDialog::render() {
@@ -57,14 +54,14 @@ namespace CometEditor {
         }
 
         ImGui::SetNextItemWidth(560.0f);
-        const bool submitted = ImGui::InputText(Ui::label("Path").c_str(), m_path_buffer.data(),
-            m_path_buffer.size(), ImGuiInputTextFlags_EnterReturnsTrue);
+        const bool submitted =
+            Ui::input_text(Ui::label("Path").c_str(), m_path, ImGuiInputTextFlags_EnterReturnsTrue);
 
         const char* action = is_open ? "Open" : "Save";
         if(m_action == Action::CreateProject)
             action = "Create";
         if((ImGui::Button(Ui::label(action).c_str(), ImVec2(100.0f, 0.0f)) || submitted)) {
-            m_request = Request{m_action, m_path_buffer.data()};
+            m_request = Request{m_action, m_path};
         }
         ImGui::SameLine();
         if(ImGui::Button(Ui::label("Cancel").c_str(), ImVec2(100.0f, 0.0f))) {

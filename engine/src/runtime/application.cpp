@@ -4,7 +4,6 @@
 #include "config/config_loader.h"
 #include "diagnostics/logger.h"
 
-#include <cstdio>
 #include <iostream>
 #include <utility>
 #include <vector>
@@ -37,33 +36,16 @@ namespace Comet {
             return RunResult::failure(engine.error());
         }
         m_engine = std::move(engine).value();
-        m_shutdown_required = true;
         auto result = on_init();
         if(result)
             result = m_engine->run([this](Engine::FrameContext& frame) { return on_update(frame); },
                 [this](Engine::FrameContext& frame) { return on_frame_ready(frame); },
                 [this](const Error& error) { return on_runtime_error(error); });
-        auto cleanup = end();
-        if(!cleanup) {
-            if(result)
-                return cleanup;
-            std::fprintf(
-                stderr, "Application cleanup also failed: %s\n", cleanup.error().message.c_str());
-        }
-        return result;
-    }
-
-    Result<void, Error> Application::end() {
-        using RunResult = Result<void, Error>;
-        if(!std::exchange(m_shutdown_required, false))
-            return RunResult::success();
         m_engine->prepare_shutdown();
-        // 钩子失败时保留 Engine，让派生类剩余成员先析构，避免悬空 GPU owner。
-        if(auto result = on_shutdown(); !result)
-            return result;
+        on_shutdown();
         m_engine.reset();
         m_diagnostics.reset();
-        return RunResult::success();
+        return result;
     }
 
     int run(Application* app, const LaunchOptions& options) {

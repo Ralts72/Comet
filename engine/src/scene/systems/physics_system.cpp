@@ -114,11 +114,11 @@ namespace Comet {
                     return Result<void, Error>::failure(
                         {"Invalid box collider: " + entity.get_uuid().to_string()});
             } else if(collider.shape == ColliderShape::Sphere) {
-                if(!std::isfinite(collider.radius) || collider.radius <= 0
-                    || transform.scale.x != transform.scale.y
+                const auto radius = collider.radius * transform.scale.x;
+                if(!std::isfinite(radius) || radius <= 0 || transform.scale.x != transform.scale.y
                     || transform.scale.x != transform.scale.z)
                     return Result<void, Error>::failure(
-                        {"Sphere collider requires a positive radius and uniform scale: "
+                        {"Sphere collider requires a finite positive scaled radius and uniform scale: "
                             + entity.get_uuid().to_string()});
             } else {
                 return Result<void, Error>::failure(

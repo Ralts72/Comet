@@ -39,7 +39,9 @@ namespace CometEditor::Tests {
         }
     };
 
-    TEST_F(ShaderReloadTest, CompilesWholeBatchAndDoesNotRepublishUnchangedInputs) {
+    TEST_F(ShaderReloadTest, CompilesMoreThanSixteenStagesAndDoesNotRepublishUnchangedInputs) {
+        for(int index = 0; index < 14; ++index)
+            requests.emplace("vertex_" + std::to_string(index), requests.at("vertex"));
         ShaderReload reload(scheduler, requests);
         const auto result = finish(reload);
         ASSERT_TRUE(result);
@@ -246,7 +248,9 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(ShaderReloadTest, InvalidBatchReportsOnceWithoutCompiling) {
-        for(const auto& invalid : {ShaderReload::Requests{}, ShaderReload::Requests{{"", {}}}}) {
+        for(const auto& invalid :
+            {ShaderReload::Requests{}, ShaderReload::Requests{{"", requests.at("vertex")}},
+                ShaderReload::Requests{{"vertex", {}}}}) {
             ShaderReload reload(scheduler, invalid);
             const auto result = finish(reload);
             ASSERT_TRUE(result);

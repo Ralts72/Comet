@@ -985,7 +985,6 @@ namespace CometEditor::Tests {
                 return Comet::Result<void, Comet::Error>::success();
             });
         ASSERT_TRUE(document.open(path));
-        EXPECT_TRUE(document.get_last_error().empty());
         EXPECT_FALSE(std::filesystem::exists(artifact_path()));
         EXPECT_EQ(factory.mesh_creation_count(), 0);
         complete_imports();

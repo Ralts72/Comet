@@ -35,9 +35,7 @@ namespace {
             get_engine().get_window().request_close();
             return Comet::Result<void, Comet::Error>::success();
         }
-        Comet::Result<void, Comet::Error> on_shutdown() override {
-            return Comet::Result<void, Comet::Error>::success();
-        }
+        void on_shutdown() override {}
     };
 }
 

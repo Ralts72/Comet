@@ -49,4 +49,27 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(malformed.last_scene());
         EXPECT_EQ(Comet::read_text_file(file).value(), "{");
     }
+
+    TEST(ProjectSessionTest, FailedSaveRetainsMemoryAndRetriesTheSameScene) {
+        Comet::Tests::TemporaryDirectory directory;
+        ASSERT_TRUE(std::filesystem::create_directory(directory.path() / "assets"));
+        const Comet::ProjectPaths paths(directory.path());
+        ProjectSession session(paths);
+        ASSERT_TRUE(session.record_scene("scenes/first.scene"));
+        const auto file = paths.editor_state() / "session.json";
+        ASSERT_TRUE(std::filesystem::remove(file));
+        ASSERT_TRUE(std::filesystem::create_directory(file));
+
+        EXPECT_FALSE(session.record_scene("scenes/current.scene"));
+        EXPECT_EQ(session.last_scene(), "scenes/current.scene");
+        EXPECT_FALSE(session.record_scene("scenes/current.scene"));
+        EXPECT_FALSE(session.record_scene("../outside.scene"));
+        EXPECT_EQ(session.last_scene(), "scenes/current.scene");
+
+        ASSERT_TRUE(std::filesystem::remove(file));
+        ASSERT_TRUE(session.record_scene("scenes/current.scene"));
+        ProjectSession reopened(paths);
+        ASSERT_TRUE(reopened.load());
+        EXPECT_EQ(reopened.last_scene(), session.last_scene());
+    }
 }

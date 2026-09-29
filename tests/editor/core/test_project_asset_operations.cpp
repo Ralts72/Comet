@@ -137,16 +137,30 @@ namespace CometEditor::Tests {
         EXPECT_EQ(Comet::read_text_file(manifest).value(), external);
     }
 
-    TEST_F(ProjectAssetOperationsTest, SessionWriteFailureCompensatesFilesAndProject) {
+    TEST_F(ProjectAssetOperationsTest, SessionWriteFailureKeepsMovedFilesAndProject) {
         const auto session_path = project->paths().editor_state() / "session.json";
         ASSERT_TRUE(std::filesystem::remove(session_path));
         ASSERT_TRUE(std::filesystem::create_directory(session_path));
         const auto report = move();
-        EXPECT_FALSE(report.succeeded());
+        EXPECT_TRUE(report.succeeded());
         EXPECT_TRUE(report.snapshot_updated);
-        EXPECT_NE(report.issues.front().message.find("editor session"), std::string::npos);
-        expect_original_paths();
-        EXPECT_EQ(Comet::Project::load(root).value().startup_scene(), initial);
+        EXPECT_EQ(assets->database().find(handle)->path, destination);
+        EXPECT_TRUE(std::filesystem::exists(project->paths().assets() / destination));
+        EXPECT_TRUE(
+            std::filesystem::exists(Comet::metadata_path(project->paths().assets() / destination)));
+        EXPECT_FALSE(std::filesystem::exists(project->paths().assets() / initial));
+        EXPECT_FALSE(
+            std::filesystem::exists(Comet::metadata_path(project->paths().assets() / initial)));
+        EXPECT_EQ(project->startup_scene(), destination);
+        EXPECT_EQ(Comet::Project::load(root).value().startup_scene(), destination);
+        EXPECT_EQ(document->get_asset_relative_path(), destination);
+        EXPECT_EQ(session->last_scene(), destination);
+
+        ASSERT_TRUE(std::filesystem::remove(session_path));
+        ASSERT_TRUE(session->record_scene(destination));
+        ProjectSession reopened(project->paths());
+        ASSERT_TRUE(reopened.load());
+        EXPECT_EQ(reopened.last_scene(), destination);
     }
 
     TEST_F(ProjectAssetOperationsTest, InvalidDestinationDoesNotUpdatePathReferences) {

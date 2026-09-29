@@ -44,8 +44,6 @@ namespace CometEditor {
         [[nodiscard]] const std::filesystem::path& get_asset_relative_path() const noexcept {
             return m_asset_relative_path;
         }
-        [[nodiscard]] const std::string& get_last_error() const noexcept { return m_last_error; }
-        void clear_error() noexcept { m_last_error.clear(); }
         [[nodiscard]] bool is_modified() const { return m_saved_state != m_history.state_id(); }
         void request(Request request);
         void decide(Decision decision);
@@ -65,7 +63,6 @@ namespace CometEditor {
         ActivateScene m_activate_scene;
         std::string m_path;
         std::filesystem::path m_asset_relative_path;
-        std::string m_last_error;
         enum class PendingState { Confirm, Saving, Discard };
         struct PendingRequest {
             Request action;

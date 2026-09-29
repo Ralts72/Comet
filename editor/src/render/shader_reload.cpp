@@ -33,11 +33,10 @@ namespace CometEditor {
 
     void ShaderReload::compile_batch(Compilation& output, const Requests& requests,
         const std::shared_ptr<const Compilation>& previous) {
-        if(requests.empty() || requests.size() > 16
-            || std::ranges::any_of(requests, [](const auto& entry) {
-                   return entry.first.empty() || entry.second.source.empty();
-               })) {
-            output.diagnostics = "Shader compilation requires 1..16 named source requests";
+        if(requests.empty() || std::ranges::any_of(requests, [](const auto& entry) {
+               return entry.first.empty() || entry.second.source.empty();
+           })) {
+            output.diagnostics = "Shader compilation requires at least one named source request";
             return;
         }
         bool success = true;
