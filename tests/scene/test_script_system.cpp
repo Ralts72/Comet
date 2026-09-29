@@ -17,11 +17,14 @@
 #include "diagnostics/logger.h"
 #include "render/material/material.h"
 #include "render/material/material_programs.h"
+#include "render/scene/scene_extractor.h"
+#include "support/math_assertions.h"
 #include "pbr_vert.h"
 #include "pbr_frag.h"
 #include <spdlog/sinks/callback_sink.h>
 
 #include <gtest/gtest.h>
+#include <algorithm>
 
 namespace Comet::Tests {
     class ScriptSystemTest: public testing::Test {
@@ -384,6 +387,68 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_EQ(scene.entity_count(), 1u);
         ASSERT_TRUE(runtime.advance(0));
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(ScriptSystemTest, CreatedMeshCapturesOnlyAssetReferencesAndOutlivesItsSource) {
+        const AssetHandle mesh_handle{11}, material_handle{77};
+        ASSERT_TRUE(
+            assets.register_asset(material_handle, std::make_shared<Material>("shared", "pbr")));
+        source(R"(return {
+            on_start = function(self)
+                comet.set_material_vector('base_color', 1, 0, 0, 1)
+                self.created = comet.create_entity('Marker', {
+                    mesh_source = comet.self_entity(),
+                    translation = {4, 5, 6},
+                    rotation = {0, 45, 0},
+                    scale = {0.2, 0.3, 0.4},
+                })
+                assert(comet.find_entity(self.created) == nil)
+                comet.destroy_entity(comet.self_entity())
+            end
+        })");
+        auto parent = scene.create_entity("Parent");
+        parent.edit_transform([](auto& value) { value.translation = {100, 100, 100}; });
+        auto original = actor();
+        const auto original_uuid = original.get_uuid();
+        ASSERT_TRUE(scene.set_parent(original, parent));
+        original.add_component<MeshRendererComponent>(mesh_handle, material_handle);
+        original.add_component<ColliderComponent>();
+        original.add_component<RigidBodyComponent>();
+        original.add_component<AudioSourceComponent>();
+        original.edit_transform([](auto& value) { value.scale = Math::Vec3(3); });
+
+        const auto started = runtime.start(scene);
+        ASSERT_TRUE(started) << started.error().message;
+        EXPECT_FALSE(scene.find_entity(original_uuid));
+        Entity marker;
+        scene.each<const NameComponent>([&](Entity entity, const NameComponent& name) {
+            if(name.name == "Marker")
+                marker = entity;
+        });
+        ASSERT_TRUE(marker);
+        EXPECT_FALSE(scene.get_parent(marker));
+        EXPECT_FALSE(marker.has_component<ScriptComponent>());
+        EXPECT_FALSE(marker.has_component<ColliderComponent>());
+        EXPECT_FALSE(marker.has_component<RigidBodyComponent>());
+        EXPECT_FALSE(marker.has_component<AudioSourceComponent>());
+        EXPECT_FALSE(scene.get_material_overrides(marker));
+        ASSERT_TRUE(marker.has_component<MeshRendererComponent>());
+        const auto& mesh = marker.get_component<MeshRendererComponent>();
+        EXPECT_EQ(mesh.mesh, mesh_handle);
+        EXPECT_EQ(mesh.material, material_handle);
+        const auto& transform = marker.get_component<TransformComponent>();
+        EXPECT_EQ(transform.translation, Math::Vec3(4, 5, 6));
+        EXPECT_EQ(transform.rotation, Math::Vec3(0, 45, 0));
+        EXPECT_EQ(transform.scale, Math::Vec3(0.2f, 0.3f, 0.4f));
+        const auto extracted = SceneExtractor::extract(scene);
+        ASSERT_EQ(extracted.render_items.size(), 1u);
+        EXPECT_EQ(extracted.render_items[0].entity_id, marker.get_id());
+        EXPECT_EQ(extracted.render_items[0].mesh_handle, mesh_handle);
+        EXPECT_EQ(extracted.render_items[0].material_handle, material_handle);
+        EXPECT_FALSE(extracted.render_items[0].material_overrides);
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_TRUE(marker);
         ASSERT_TRUE(runtime.stop());
     }
 
@@ -792,11 +857,36 @@ namespace Comet::Tests {
         const auto score = playing.value()->get_session_value("demo.score");
         ASSERT_TRUE(score);
         EXPECT_FLOAT_EQ(std::get<float>(*score), 1);
-        bool found_marker = false;
-        playing.value()->each<const NameComponent>([&](Entity, const NameComponent& name) {
-            found_marker |= name.name == "Collected_Goal_1";
+        Entity marker;
+        std::size_t marker_count = 0;
+        playing.value()->each<const NameComponent>([&](Entity entity, const NameComponent& name) {
+            if(name.name == "Collected_Goal_1") {
+                marker = entity;
+                ++marker_count;
+            }
         });
-        EXPECT_TRUE(found_marker);
+        ASSERT_TRUE(marker);
+        EXPECT_EQ(marker_count, 1u);
+        const auto edit_goal = edit_scene.value()->find_entity(*goal_uuid);
+        ASSERT_TRUE(edit_goal);
+        ASSERT_TRUE(marker.has_component<MeshRendererComponent>());
+        const auto& marker_mesh = marker.get_component<MeshRendererComponent>();
+        const auto& goal_mesh = edit_goal.get_component<MeshRendererComponent>();
+        EXPECT_EQ(marker_mesh.mesh, goal_mesh.mesh);
+        EXPECT_EQ(marker_mesh.material, goal_mesh.material);
+        EXPECT_TRUE(TestUtils::Vec3Equal(marker.get_component<TransformComponent>().translation,
+            edit_goal.get_component<TransformComponent>().translation + Math::Vec3(0, 0.8f, 0)));
+        EXPECT_EQ(marker.get_component<TransformComponent>().scale, Math::Vec3(0.15f));
+        EXPECT_FALSE(marker.has_component<ScriptComponent>());
+        EXPECT_FALSE(marker.has_component<ColliderComponent>());
+        EXPECT_FALSE(marker.has_component<AudioSourceComponent>());
+        EXPECT_FALSE(edit_scene.value()->find_entity(marker.get_uuid()));
+        const auto extracted = SceneExtractor::extract(*playing.value());
+        const auto marker_item =
+            std::ranges::find(extracted.render_items, marker.get_id(), &RenderItem::entity_id);
+        ASSERT_NE(marker_item, extracted.render_items.end());
+        EXPECT_EQ(marker_item->mesh_handle, goal_mesh.mesh);
+        EXPECT_EQ(marker_item->material_handle, goal_mesh.material);
         EXPECT_FLOAT_EQ(playing.value()
                             ->find_entity(*center_uuid)
                             .get_component<TransformComponent>()
@@ -823,6 +913,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(edit_scene.value()->find_entity(*goal_uuid));
         auto restarted = serializer.clone(*edit_scene.value());
         ASSERT_TRUE(restarted) << restarted.error();
+        EXPECT_FALSE(restarted.value()->find_entity(marker.get_uuid()));
         ASSERT_TRUE(runtime.start(*restarted.value()));
         EXPECT_TRUE(restarted.value()->find_entity(*goal_uuid));
         EXPECT_FALSE(restarted.value()->get_session_value("demo.score"));

@@ -34,9 +34,9 @@ namespace Comet::LuaBindings {
                 luaL_error(state, "Entity is unavailable in this script phase");
             return entity.get_component<TransformComponent>();
         }
-        const EntityReference& reference(lua_State* state) {
+        const EntityReference& reference(lua_State* state, const int index = 1) {
             return *static_cast<EntityReference*>(
-                luaL_checkudata(state, 1, ENTITY_REFERENCE_METATABLE));
+                luaL_checkudata(state, index, ENTITY_REFERENCE_METATABLE));
         }
         Entity resolve(lua_State* state, const EntityReference& reference) {
             const auto& context = current(state);
@@ -45,8 +45,8 @@ namespace Comet::LuaBindings {
             const Entity entity = context.scene->find_entity(reference.uuid);
             return entity && entity.get_id() == reference.entity_id ? entity : Entity{};
         }
-        Entity require_entity(lua_State* state) {
-            const Entity entity = resolve(state, reference(state));
+        Entity require_entity(lua_State* state, const int index = 1) {
+            const Entity entity = resolve(state, reference(state, index));
             if(!entity)
                 luaL_error(state, "Entity reference is stale or outside the active scene");
             return entity;
@@ -117,6 +117,61 @@ namespace Comet::LuaBindings {
             }
             return push_entity_reference(state, entity, context.scene_generation);
         }
+        Math::Vec3 creation_vector(lua_State* state, int index) {
+            luaL_checktype(state, index, LUA_TTABLE);
+            index = lua_absindex(state, index);
+            if(luaL_len(state, index) != 3)
+                luaL_error(state, "Entity transform needs exactly three finite numbers");
+            lua_pushnil(state);
+            while(lua_next(state, index)) {
+                if(!lua_isinteger(state, -2) || lua_tointeger(state, -2) < 1
+                    || lua_tointeger(state, -2) > 3)
+                    luaL_error(state, "Entity transform needs exactly three finite numbers");
+                lua_pop(state, 1);
+            }
+            // 长度与索引遵循只读参数代理；原始键检查仍拒绝普通数组的额外字段。
+            Math::Vec3 vector{};
+            for(int i = 0; i < 3; ++i) {
+                lua_geti(state, index, i + 1);
+                if(lua_type(state, -1) != LUA_TNUMBER)
+                    luaL_error(state, "Entity transform needs exactly three finite numbers");
+                vector[i] = number(state, -1);
+                lua_pop(state, 1);
+            }
+            return vector;
+        }
+        void read_creation_options(lua_State* state, Scene::EntityCreation& creation) {
+            if(lua_isnoneornil(state, 2))
+                return;
+            luaL_checktype(state, 2, LUA_TTABLE);
+            if(lua_getmetatable(state, 2))
+                luaL_error(state, "Entity creation options must be a plain table");
+            lua_pushnil(state);
+            while(lua_next(state, 2)) {
+                if(lua_type(state, -2) != LUA_TSTRING)
+                    luaL_error(state, "Entity creation option keys must be strings");
+                size_t length = 0;
+                const char* text = lua_tolstring(state, -2, &length);
+                const std::string_view key(text, length);
+                if(key == "translation")
+                    creation.transform.translation = creation_vector(state, -1);
+                else if(key == "rotation")
+                    creation.transform.rotation = creation_vector(state, -1);
+                else if(key == "scale")
+                    creation.transform.scale = creation_vector(state, -1);
+                else if(key == "mesh_source") {
+                    const Entity source = require_entity(state, -1);
+                    if(!source.has_component<MeshRendererComponent>())
+                        luaL_error(state, "Mesh source needs a MeshRenderer");
+                    const auto& renderer = source.get_component<MeshRendererComponent>();
+                    if(!renderer.mesh || !renderer.material)
+                        luaL_error(state, "Mesh source needs valid mesh and material handles");
+                    creation.mesh_renderer = renderer;
+                } else
+                    luaL_error(state, "Unknown entity creation option");
+                lua_pop(state, 1);
+            }
+        }
         int create_entity(lua_State* state) {
             auto& context = current(state);
             auto* scene = context.scene;
@@ -124,7 +179,12 @@ namespace Comet::LuaBindings {
                 return luaL_error(state, "Entity creation requires an active scene");
             size_t length = 0;
             const char* name = luaL_optlstring(state, 1, "Entity", &length);
-            const auto uuid = scene->request_create_entity(std::string_view(name, length));
+            // Lua 参数错误会 longjmp；创建描述不得持有需要析构的资源。
+            static_assert(std::is_trivially_destructible_v<Scene::EntityCreation>);
+            Scene::EntityCreation creation;
+            read_creation_options(state, creation);
+            const auto uuid =
+                scene->request_create_entity(std::string_view(name, length), creation);
             if(!uuid)
                 return luaL_error(state, "Cannot queue entity creation");
             context.return_value = uuid->to_string();

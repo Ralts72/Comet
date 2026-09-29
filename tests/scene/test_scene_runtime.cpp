@@ -141,6 +141,11 @@ namespace Comet::Tests {
         };
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(scene.find_entity(created));
+        const auto& transform = scene.find_entity(created).get_component<TransformComponent>();
+        EXPECT_EQ(transform.translation, Math::Vec3(0));
+        EXPECT_EQ(transform.rotation, Math::Vec3(0));
+        EXPECT_EQ(transform.scale, Math::Vec3(1));
+        EXPECT_FALSE(scene.find_entity(created).has_component<MeshRendererComponent>());
         EXPECT_FALSE(scene.request_create_entity(std::string(129, 'x')));
 
         requester->fixed = [&](Scene& current, const System::Context&) -> UpdateResult {
@@ -174,10 +179,139 @@ namespace Comet::Tests {
         EXPECT_FALSE(scene.request_create_entity("Stopped"));
     }
 
+    TEST_F(SceneRuntimeTest, EntityCreationOwnsItsInitialValuesUntilThePhaseCommits) {
+        auto* observer = add();
+        ASSERT_TRUE(runtime.start(scene));
+        Scene::EntityCreation creation{
+            .transform = {.translation = {2, 3, 4}, .rotation = {10, 20, 30}, .scale = {0, -2, 3}},
+            .mesh_renderer = MeshRendererComponent{AssetHandle{11}, AssetHandle{22}}};
+        const auto expected = creation;
+        std::string name = "Snapshot";
+        const auto requested = scene.request_create_entity(name, creation);
+        ASSERT_TRUE(requested);
+        name = "Changed";
+        creation.transform.translation = Math::Vec3(100);
+        creation.mesh_renderer->mesh = AssetHandle{33};
+        creation.mesh_renderer->material = AssetHandle{44};
+        observer->update_frame = [&](Scene& current, const System::Context&) {
+            EXPECT_FALSE(current.find_entity(*requested));
+            return UpdateResult::success();
+        };
+        advance(0);
+
+        const auto created = scene.find_entity(*requested);
+        ASSERT_TRUE(created);
+        EXPECT_EQ(created.get_component<NameComponent>().name, "Snapshot");
+        EXPECT_EQ(created.get_component<TransformComponent>().translation,
+            expected.transform.translation);
+        EXPECT_EQ(
+            created.get_component<TransformComponent>().rotation, expected.transform.rotation);
+        EXPECT_EQ(created.get_component<TransformComponent>().scale, expected.transform.scale);
+        ASSERT_TRUE(created.has_component<MeshRendererComponent>());
+        EXPECT_EQ(
+            created.get_component<MeshRendererComponent>().mesh, expected.mesh_renderer->mesh);
+        EXPECT_EQ(created.get_component<MeshRendererComponent>().material,
+            expected.mesh_renderer->material);
+        EXPECT_FALSE(scene.get_parent(created));
+        EXPECT_TRUE(scene.get_children(created).empty());
+        EXPECT_EQ(Math::Vec3(scene.get_world_matrix(created)[3]), expected.transform.translation);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(SceneRuntimeTest, InvalidEntityCreationDoesNotConsumeQueueCapacity) {
+        ASSERT_TRUE(runtime.start(scene));
+        for(const auto member : {&TransformComponent::translation, &TransformComponent::rotation,
+                &TransformComponent::scale}) {
+            for(const float invalid :
+                {std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity(),
+                    std::numeric_limits<float>::quiet_NaN()}) {
+                for(int axis = 0; axis < 3; ++axis) {
+                    Scene::EntityCreation creation;
+                    (creation.transform.*member)[axis] = invalid;
+                    EXPECT_FALSE(scene.request_create_entity("Invalid transform", creation));
+                }
+            }
+        }
+        for(const auto renderer :
+            {MeshRendererComponent{}, MeshRendererComponent{AssetHandle{11}, {}},
+                MeshRendererComponent{{}, AssetHandle{22}}}) {
+            EXPECT_FALSE(
+                scene.request_create_entity("Invalid renderer", {.mesh_renderer = renderer}));
+        }
+        EXPECT_FALSE(scene.request_create_entity(std::string_view("bad\0name", 8)));
+        for(int index = 0; index < 1024; ++index)
+            ASSERT_TRUE(scene.request_create_entity());
+        EXPECT_FALSE(scene.request_create_entity("Queue full"));
+        EXPECT_EQ(scene.entity_count(), 0u);
+        ASSERT_TRUE(runtime.stop());
+        ASSERT_TRUE(runtime.start(scene));
+        advance(0);
+        EXPECT_EQ(scene.entity_count(), 0u);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(SceneRuntimeTest, PausedEntityCreationPublishesAfterTheSteppedFixedPhase) {
+        auto* requester = add("requester");
+        auto* observer = add("observer");
+        EntityUuid created;
+        requester->fixed = [&](Scene& current, const System::Context&) {
+            const auto requested = current.request_create_entity("Stepped",
+                {.transform = {.translation = {1, 2, 3}},
+                    .mesh_renderer = MeshRendererComponent{AssetHandle{11}, AssetHandle{22}}});
+            if(!requested)
+                return UpdateResult::failure({"Cannot queue stepped entity"});
+            created = *requested;
+            return UpdateResult::success();
+        };
+        observer->fixed = [&](Scene& current, const System::Context&) {
+            EXPECT_FALSE(current.find_entity(created));
+            return UpdateResult::success();
+        };
+        observer->update_frame = [&](Scene& current, const System::Context&) {
+            const auto entity = current.find_entity(created);
+            EXPECT_TRUE(entity);
+            if(entity) {
+                EXPECT_EQ(
+                    entity.get_component<TransformComponent>().translation, Math::Vec3(1, 2, 3));
+                EXPECT_TRUE(entity.has_component<MeshRendererComponent>());
+            }
+            return UpdateResult::success();
+        };
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.set_state(State::Paused));
+        advance(1);
+        EXPECT_EQ(scene.entity_count(), 0u);
+        ASSERT_TRUE(runtime.request_step());
+        advance(0);
+        EXPECT_EQ(scene.entity_count(), 1u);
+        advance(1);
+        EXPECT_EQ(scene.entity_count(), 1u);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(SceneRuntimeTest, StopDiscardsPendingCreationWithoutPublishingStopRequests) {
+        auto* requester = add();
+        const Scene::EntityCreation creation{.transform = {.translation = {1, 2, 3}},
+            .mesh_renderer = MeshRendererComponent{AssetHandle{11}, AssetHandle{22}}};
+        requester->stop = [&](Scene& current) {
+            EXPECT_TRUE(current.request_create_entity("During stop", creation));
+        };
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(scene.request_create_entity("Pending", creation));
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_EQ(scene.entity_count(), 0u);
+        ASSERT_TRUE(runtime.start(scene));
+        advance(0);
+        EXPECT_EQ(scene.entity_count(), 0u);
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST_F(SceneRuntimeTest, FailedPhaseDiscardsUncommittedEntityRequests) {
         auto* requester = add();
         requester->update_frame = [&](Scene& current, const System::Context&) -> UpdateResult {
-            EXPECT_TRUE(current.request_create_entity("Discarded"));
+            EXPECT_TRUE(current.request_create_entity("Discarded",
+                {.transform = {.translation = {1, 2, 3}},
+                    .mesh_renderer = MeshRendererComponent{AssetHandle{11}, AssetHandle{22}}}));
             EXPECT_TRUE(current.set_session_value("game.score", 2.0f));
             return UpdateResult::failure({"phase failed"});
         };

@@ -335,6 +335,16 @@ VM 将 UUID 绑定成已有的受保护实体引用，不把 Scene 指针写进 
 绑定后目标被删除、即使同 UUID 重建，已捕获的引用也不自动转向新实体；参数表重建或重新 Play 才重新解析配置。
 会话值仍只接收 bool／float／Vec3／string，不因共享 ParameterValue 类型而开放实体或 Vec4 存储。
 
+`comet.create_entity(name, options)` 将初始 Transform 与可选 MeshRenderer 值快照交给 Scene::EntityCreation，
+沿现有受限实体请求队列在阶段末提交，不在 Lua 回调内直接改 ECS 结构。
+Lua 的 `mesh_source` 必须是当前场景的有效实体引用，入队前捕获其 mesh／material Handle；Scene 不保存源实体引用或 Lua 表。
+新实体为根，只应用显式变换，不复制源的 Script／Physics／Audio、层级或材质运行覆盖。
+省略 options 的空实体创建保持不变；未知字段、非法变换或缺失 MeshRenderer 在入队前失败。
+Scene 也独立校验变换有限性和非零资源 Handle；阶段提交中完成变换和组件初始化，初始化失败回滚本实体。
+这不保证句柄对应的资源已加载或 GPU 创建成功，既有资产／渲染路径仍负责这些失败。
+暂停不执行脚本阶段，单步正常提交；失败或 Stop 丢弃未提交请求。已提交实体属于运行 Scene，
+Editor Stop 丢弃 Play 副本，不是在 SceneRuntime::stop 内逐个删除运行中创建的实体。
+
 源码最多 1 MiB、每 VM 的 Lua 堆最多 8 MiB、每次保护调用最多约 20 万条指令；
 不等于墙钟超时或安全沙箱。不开放文件、原生库、require、动态代码、元表和 rawset。
 默认参数解析与生命周期分发都在 lua_pcall 内；错误可能通过 longjmp 返回，不能依赖回调内 C++ 局部对象的析构。

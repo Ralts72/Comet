@@ -27,6 +27,10 @@ namespace Comet {
 
     class COMET_API Scene {
     public:
+        struct EntityCreation {
+            TransformComponent transform;
+            std::optional<MeshRendererComponent> mesh_renderer;
+        };
         struct ContactEvent {
             enum class Kind { CollisionEnter, CollisionExit, TriggerEnter, TriggerExit } kind;
             Entity first;
@@ -54,7 +58,7 @@ namespace Comet {
 
         // 仅活动 Runtime 可请求；结构变更在当前启动／更新阶段结束后统一提交。
         [[nodiscard]] std::optional<EntityUuid> request_create_entity(
-            std::string_view name = "Entity");
+            std::string_view name = "Entity", const EntityCreation& creation = {});
         [[nodiscard]] bool request_destroy_entity(Entity entity);
         // 短音效请求保存源配置的快照；目标在本帧删除后仍可播完。
         [[nodiscard]] bool request_play_one_shot(Entity entity);
@@ -137,6 +141,7 @@ namespace Comet {
             EntityUuid uuid;
             EntityId id = INVALID_ENTITY_ID;
             std::string name;
+            EntityCreation creation;
         };
         struct AudioPlayRequest {
             AssetHandle clip;

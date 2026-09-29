@@ -118,9 +118,16 @@ namespace Comet {
         return true;
     }
 
-    std::optional<EntityUuid> Scene::request_create_entity(const std::string_view name) {
+    std::optional<EntityUuid> Scene::request_create_entity(
+        const std::string_view name, const EntityCreation& creation) {
         if(!m_runtime_active || m_entity_requests.size() >= MAX_ENTITY_REQUESTS || name.size() > 128
-            || name.find('\0') != std::string_view::npos)
+            || name.find('\0') != std::string_view::npos
+            || !Math::is_finite(creation.transform.translation)
+            || !Math::is_finite(creation.transform.rotation)
+            || !Math::is_finite(creation.transform.scale))
+            return std::nullopt;
+        if(creation.mesh_renderer
+            && (!creation.mesh_renderer->mesh || !creation.mesh_renderer->material))
             return std::nullopt;
         EntityUuid uuid;
         bool reserved = false;
@@ -130,8 +137,10 @@ namespace Comet {
                 return request.type == EntityRequest::Type::Create && request.uuid == uuid;
             });
         } while(find_entity(uuid) || reserved);
-        m_entity_requests.push_back(
-            {.type = EntityRequest::Type::Create, .uuid = uuid, .name = std::string(name)});
+        m_entity_requests.push_back({.type = EntityRequest::Type::Create,
+            .uuid = uuid,
+            .name = std::string(name),
+            .creation = creation});
         return uuid;
     }
 
@@ -173,8 +182,22 @@ namespace Comet {
         m_entity_requests.clear();
         for(const auto& request : requests) {
             if(request.type == EntityRequest::Type::Create) {
-                if(!create_entity_with_uuid(request.uuid, request.name))
+                auto entity = create_entity_with_uuid(request.uuid, request.name);
+                if(!entity)
                     return false;
+                // 新实体没有子节点；回滚直接移除索引，避免销毁遍历再次分配。
+                const auto id = entity.get_id();
+                ScopeExit rollback([&] {
+                    m_entities_by_id.erase(id);
+                    m_entities_by_uuid.erase(request.uuid);
+                    m_dirty_transforms.erase(entity.m_handle);
+                    m_registry.destroy(entity.m_handle);
+                });
+                if(!entity.try_set_transform(request.creation.transform))
+                    return false;
+                if(request.creation.mesh_renderer)
+                    entity.add_component<MeshRendererComponent>(*request.creation.mesh_renderer);
+                rollback.release();
                 continue;
             }
             const Entity entity = find_entity(request.uuid);

@@ -407,6 +407,185 @@ namespace Comet::Tests {
         EXPECT_NE(result.error().message.find("Expected an entity UUID"), std::string::npos);
     }
 
+    TEST(ScriptInvocationTest, EntityCreationOptionsPreserveEmptyRequestsAndSnapshotMeshHandles) {
+        Scene scene;
+        auto actor = scene.create_entity("Source");
+        actor.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{12});
+        TransformComponent source_transform;
+        source_transform.translation = {9, 8, 7};
+        source_transform.scale = {4, 4, 4};
+        ASSERT_TRUE(actor.try_set_transform(source_transform));
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.start(scene));
+        const auto script = Script::create(R"(return {
+            properties = {offset = {1, 2, 3}},
+            on_start = function(self)
+                self.created = {
+                    comet.create_entity(),
+                    comet.create_entity('Named', {}),
+                    comet.create_entity('NilOptions', nil),
+                    comet.create_entity('Marker', {mesh_source = comet.self_entity()}),
+                    comet.create_entity('Placed', {
+                        translation = self.parameters.offset,
+                        rotation = {10, 20, 30}, scale = {0.1, 0.2, 0.3},
+                    }),
+                }
+                for i = 1, #self.created do
+                    assert(type(self.created[i]) == 'string')
+                    assert(comet.find_entity(self.created[i]) == nil)
+                end
+            end,
+            update = function(self)
+                for i = 1, #self.created do
+                    assert(comet.find_entity(self.created[i]):is_valid())
+                end
+            end,
+        })");
+        ASSERT_TRUE(script) << script.error().message;
+        auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance);
+        const auto parameters = script.value()->resolve_parameters({});
+        ASSERT_TRUE(parameters);
+        ASSERT_TRUE(instance.value()->invoke(
+            Script::Phase::Start, actor, parameters.value(), {.scene = &scene}));
+        EXPECT_EQ(scene.entity_count(), 1u);
+        actor.get_component<MeshRendererComponent>().material = AssetHandle{13};
+        ASSERT_TRUE(runtime.advance(0));
+        ASSERT_EQ(scene.entity_count(), 6u);
+        ASSERT_TRUE(instance.value()->invoke(
+            Script::Phase::Update, actor, parameters.value(), {.scene = &scene}));
+        for(const auto created : scene.get_entities()) {
+            if(created == actor)
+                continue;
+            const auto& name = created.get_component<NameComponent>().name;
+            const auto& transform = created.get_component<TransformComponent>();
+            if(name == "Placed") {
+                EXPECT_EQ(transform.translation, Math::Vec3(1, 2, 3));
+                EXPECT_EQ(transform.rotation, Math::Vec3(10, 20, 30));
+                EXPECT_EQ(transform.scale, Math::Vec3(0.1f, 0.2f, 0.3f));
+            } else {
+                EXPECT_EQ(transform.translation, Math::Vec3(0));
+                EXPECT_EQ(transform.rotation, Math::Vec3(0));
+                EXPECT_EQ(transform.scale, Math::Vec3(1));
+            }
+            if(name == "Marker") {
+                ASSERT_TRUE(created.has_component<MeshRendererComponent>());
+                const auto& renderer = created.get_component<MeshRendererComponent>();
+                EXPECT_EQ(renderer.mesh, AssetHandle{11});
+                EXPECT_EQ(renderer.material, AssetHandle{12});
+            } else
+                EXPECT_FALSE(created.has_component<MeshRendererComponent>());
+        }
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    void expect_rejected_creation_options(const std::string& options) {
+        SCOPED_TRACE(options);
+        Scene scene;
+        auto actor = scene.create_entity();
+        actor.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{12});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.start(scene));
+        const auto script = Script::create(
+            "return {properties = {vector = {1, 2, 3, 4}}, update = function(self) comet.create_entity('Invalid', "
+            + options + ") end}");
+        ASSERT_TRUE(script) << script.error().message;
+        auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance);
+        const auto parameters = script.value()->resolve_parameters({});
+        ASSERT_TRUE(parameters);
+        EXPECT_FALSE(instance.value()->invoke(
+            Script::Phase::Update, actor, parameters.value(), {.scene = &scene}));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(scene.entity_count(), 1u);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(ScriptInvocationTest, EntityCreationRejectsUnknownOptionsAndNonDenseFiniteVectors) {
+        for(const char* options : {"false", "12", "'options'", "{unknown = 1}", "{[1] = 2}",
+                "{mesh = 11, material = 12}", R"({['translation\0extra'] = {1, 2, 3}})",
+                "{mesh_source = {}}", "{mesh_source = 'uuid'}", "{mesh_source = 11}",
+                "{mesh_source = false}", "{mesh_source = comet.self_entity(), physics = true}",
+                "{translation = self.parameters.vector}", "{translation = self.parameters}",
+                "self.parameters", "self.parameters.vector"})
+            expect_rejected_creation_options(options);
+        for(const char* field : {"translation", "rotation", "scale"})
+            for(const char* vector :
+                {"true", "{}", "{1, 2}", "{1, 2, 3, 4}", "{[1]=1, [3]=3}", "{[0]=0, 1, 2, 3}",
+                    "{1, 2, 3, extra=4}", "{[1.5]=1, [2]=2, [3]=3}", "{1, '2', 3}", "{1, true, 3}",
+                    "{1, math.huge, 3}", "{1, 0/0, 3}", "{1, 1e100, 3}"})
+                expect_rejected_creation_options(std::string("{") + field + " = " + vector + "}");
+    }
+
+    TEST(ScriptInvocationTest, EntityCreationRequiresAMeshSourceWithBothHandles) {
+        Scene scene;
+        auto actor = scene.create_entity();
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.start(scene));
+        const auto script = Script::create(R"(return {
+            update = function()
+                comet.create_entity('Invalid', {mesh_source = comet.self_entity()})
+            end,
+        })");
+        ASSERT_TRUE(script);
+        auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance);
+        for(int configuration = 0; configuration < 3; ++configuration) {
+            if(configuration == 1)
+                actor.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{});
+            if(configuration == 2)
+                actor.get_component<MeshRendererComponent>() = {AssetHandle{}, AssetHandle{12}};
+            const auto result =
+                instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene});
+            ASSERT_FALSE(result);
+            EXPECT_NE(result.error().message.find("Mesh source"), std::string::npos);
+            ASSERT_TRUE(runtime.advance(0));
+            EXPECT_EQ(scene.entity_count(), 1u);
+        }
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(ScriptInvocationTest, EntityCreationRejectsReusedAndForeignMeshSourceReferences) {
+        Scene first;
+        auto original = first.create_entity();
+        original.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{12});
+        const auto uuid = original.get_uuid();
+        SceneRuntime first_runtime;
+        ASSERT_TRUE(first_runtime.start(first));
+        const auto script = Script::create(R"(return {
+            on_start = function(self) self.source = comet.self_entity() end,
+            update = function(self)
+                comet.create_entity('Invalid', {mesh_source = self.source})
+            end,
+        })");
+        ASSERT_TRUE(script);
+        auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance);
+        ASSERT_TRUE(
+            instance.value()->invoke(Script::Phase::Start, original, {}, {.scene = &first}));
+        first.destroy_entity(original);
+        auto replacement = first.create_entity_with_uuid(uuid);
+        replacement.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{12});
+        auto result =
+            instance.value()->invoke(Script::Phase::Update, replacement, {}, {.scene = &first});
+        ASSERT_FALSE(result);
+        EXPECT_NE(result.error().message.find("stale"), std::string::npos);
+        ASSERT_TRUE(first_runtime.advance(0));
+        EXPECT_EQ(first.entity_count(), 1u);
+        Scene second;
+        auto foreign = second.create_entity_with_uuid(uuid);
+        foreign.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{12});
+        SceneRuntime second_runtime;
+        ASSERT_TRUE(second_runtime.start(second));
+        result = instance.value()->invoke(Script::Phase::Update, foreign, {}, {.scene = &second});
+        ASSERT_FALSE(result);
+        EXPECT_NE(result.error().message.find("stale"), std::string::npos);
+        ASSERT_TRUE(second_runtime.advance(0));
+        EXPECT_EQ(second.entity_count(), 1u);
+        ASSERT_TRUE(second_runtime.stop());
+        ASSERT_TRUE(first_runtime.stop());
+    }
+
     TEST(ScriptInvocationTest, CachedParametersAreReadOnlyAndStopErrorsAreObservable) {
         const auto script = Script::create(R"(return {
             properties = {speed = 1, direction = {1, 2, 3}},

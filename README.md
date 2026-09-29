@@ -305,7 +305,8 @@ app 和 editor Play 共用该行为，不依赖 UUID 或项目路径；Edit 不�
 目标的触发回调会记录本次运行的分数、播放一次提示音、删除目标并创建 `Collected_Goal_1` 实体；中间的旋转立方体读取同一分数后上升并变色。
 颜色默认绿色；Edit 中选中 `Editor Cube`，在 Script 参数的 `score_color` 色框调整，再 Play 触发得分即可看到效果。
 变色只覆盖这个实体的材质参数；共用 `cube.mat` 的移动方块不变色，Stop 清除覆盖，不修改材质文件。
-在编辑器 Play 的层级面板可以看到新实体；它没有 Mesh，因而不在视口绘制。Stop 后重新 Play 可重试，运行时变化不会写回场景。
+新实体在目标上方显示为小型条纹方块，使用目标原有网格和材质，不带碰撞或脚本；Play 层级面板也可选中它。
+Stop 后重新 Play 可重试，运行时变化不会写回 Edit 场景。
 空格仍可暂停／恢复中间立方体的旋转。左右方向键绑定在项目 `project.json`，不占用相机的 WASD 控制。
 项目 `.lua` 位于 assets，由 `.meta` 提供身份，也可从 Finder 导入；新增脚本无需改 CMake 或重编译宿主。
 引擎私有链接 Lua 5.4.8；参数编辑与运行限制见下方“场景运行时”。
@@ -383,10 +384,25 @@ Lua 在运行阶段可用 `comet.self_entity()` 获取当前实体引用，或�
 `self.parameters.player:is_valid()` 返回 false；有效引用可用 `==` 与碰撞回调的 `other` 比较。
 复制子树时内部引用指向新副本，外部引用保持原 UUID；删除目标保留引用，撤销删除后可恢复。
 Hierarchy 拖动实体时保留原选择，便于向 Inspector 分配引用；普通单击在松开鼠标后切换选择。
-脚本在 `on_start`、`fixed_update` 或 `update` 中可调用 `comet.create_entity(name)` 请求创建，返回新实体 UUID；
+脚本在启动／更新阶段（含碰撞和触发回调）可调用 `comet.create_entity(name)` 请求创建，返回新实体 UUID；
 也可调用 `comet.destroy_entity(reference)` 请求删除实体及其子树。结构变更在该阶段的所有 System 执行完后提交：
 本阶段内新 UUID 尚不能查到，待删除引用仍有效；下一阶段才能看到结果。暂停时不产生新请求，Stop 或运行失败会丢弃未提交请求。
-创建的实体只有默认组件，脚本可在后续阶段通过返回的 UUID 查找并设置 Transform；这些运行态变更不会写回 Edit 场景。
+`comet.create_entity(name, options)` 可指定初始 `translation`／`rotation`／`scale` 三分量数组，以及 `mesh_source` 实体引用：
+
+```lua
+local id = comet.create_entity("Marker", {
+    translation = {0, 1, 0},
+    scale = {0.15, 0.15, 0.15},
+    mesh_source = comet.self_entity(),
+})
+```
+
+新实体始终为根实体，位置就是世界位置；未指定变换使用零位置／零旋转／单位缩放。
+变换字段也可直接使用已导出的 Vec3 参数，例如 `translation = self.parameters.spawn_position`。
+`mesh_source` 只捕获该实体 MeshRenderer 的网格和材质 Handle，不复制源变换、父子关系、脚本、物理、音频或材质运行覆盖。
+源引用须有效且有完整 MeshRenderer；所有参数先校验再入队，源随后销毁不影响快照。
+不指定 `mesh_source` 时仍只创建默认组件；这不是整实体克隆或 Prefab 实例化，不改变资产加载和缺失资源的处理规则。
+这些运行态变更不会写回 Edit 场景；脚本可在后续阶段通过返回的 UUID 查找新实体并修改 Transform。
 不同实体的脚本可用 `comet.session_set(key, value)`／`comet.session_get(key)` 共享当前运行场景的分数、进度等临时值；
 `session_set(key, nil)` 删除。支持布尔、有限数值、最多 4096 字节的字符串和三个有限数值组成的向量；
 最多 128 个键，键长最多 128 字节。
