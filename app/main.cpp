@@ -34,6 +34,10 @@ namespace {
             if(!loaded)
                 return Init::failure({loaded.error()});
             auto scene = std::move(loaded).value();
+            auto initial = Comet::SceneSerializer(components).clone(*scene);
+            if(!initial)
+                return Init::failure({initial.error()});
+            m_initial_scene = std::move(initial).value();
 
             auto& engine = get_engine();
             m_asset_manager = std::make_unique<Comet::AssetManager>(m_project.paths(),
@@ -74,6 +78,10 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> on_update(Comet::Engine::FrameContext& frame) override {
+            if(frame.physical_input.key(Comet::Input::Key::Escape).pressed) {
+                get_engine().get_window().request_close();
+                return Comet::Result<void, Comet::Error>::success();
+            }
             const auto fps = static_cast<int>(std::round(frame.update.fps));
             if(!m_pending_scene && frame.update.fps > 0.0f && fps != m_displayed_fps) {
                 get_engine().get_window().set_title(
@@ -82,6 +90,10 @@ namespace {
             }
             if(auto assets = m_asset_manager->process_completions(); !assets)
                 return Comet::Result<void, Comet::Error>::failure(assets.error());
+            if(auto* scene = get_engine().get_scene(); scene && scene->take_restart_request()) {
+                if(auto restarted = restart_scene(); !restarted)
+                    return restarted;
+            }
             if(m_pending_scene) {
                 auto ready = m_asset_manager->references_ready(
                     m_pending_references, Comet::AssetManager::MissingAssetPolicy::FailRequired);
@@ -95,8 +107,6 @@ namespace {
                 }
             }
             frame.runtime_input = m_input_gate.read(frame.physical_input, !m_pending_scene);
-            if(frame.physical_input.key(Comet::Input::Key::Escape).pressed)
-                get_engine().get_window().request_close();
             return Comet::Result<void, Comet::Error>::success();
         }
 
@@ -104,14 +114,27 @@ namespace {
             LOG_INFO("app shutdown");
             m_asset_manager.reset();
             m_pending_scene.reset();
+            m_initial_scene.reset();
             return Comet::Result<void, Comet::Error>::success();
         }
 
     private:
+        Comet::Result<void, Comet::Error> restart_scene() {
+            const auto components = Comet::create_scene_component_registry();
+            auto candidate = Comet::SceneSerializer(components).clone(*m_initial_scene);
+            if(!candidate) {
+                LOG_ERROR("Cannot restart scene: {}", candidate.error());
+                return Comet::Result<void, Comet::Error>::success();
+            }
+            get_engine().set_scene(std::move(candidate).value());
+            return get_engine().start_scene_runtime();
+        }
+
         Comet::Project m_project;
         Comet::Input::Gate m_input_gate;
         std::unique_ptr<Comet::AssetManager> m_asset_manager;
         std::unique_ptr<Comet::Scene> m_pending_scene;
+        std::unique_ptr<Comet::Scene> m_initial_scene;
         std::vector<Comet::AssetReference> m_pending_references;
         int m_displayed_fps = -1;
     };

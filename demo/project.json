@@ -132,6 +132,16 @@
       ]
     },
     {
+      "name": "demo.restart",
+      "type": "button",
+      "bindings": [
+        {
+          "source": "key",
+          "control": "R"
+        }
+      ]
+    },
+    {
       "name": "demo.move_x",
       "type": "axis",
       "bindings": [

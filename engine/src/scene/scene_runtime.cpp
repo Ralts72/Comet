@@ -46,21 +46,29 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
-    Result<void, Error> SceneRuntime::start(Scene& scene) {
+    Result<void, Error> SceneRuntime::start(
+        Scene& scene, const State state, const InputStart input) {
         if(m_executing || is_active())
             return Result<void, Error>::failure({"Scene runtime is already active or executing"});
+        if((state != State::Running && state != State::Paused)
+            || (input != InputStart::Fresh && input != InputStart::Rebase))
+            return Result<void, Error>::failure({"Invalid runtime start state"});
         if(!scene.begin_runtime())
             return Result<void, Error>::failure({"Scene already has an active runtime"});
         m_scene = &scene;
-        m_state = State::Running;
+        m_state = state;
         m_step_pending = false;
         m_timing = {};
         m_accumulator = 0;
         m_input.reset();
+        if(input == InputStart::Rebase)
+            m_input.rebase();
         m_executing = true;
         ScopeExit cleanup([&] { stop_systems(); });
         while(m_started < m_systems.size()) {
-            if(auto result = m_systems[m_started++]->on_start(scene); !result)
+            auto& system = m_systems[m_started++];
+            system->on_pause_changed(state == State::Paused);
+            if(auto result = system->on_start(scene); !result)
                 return result;
         }
         if(!scene.commit_entity_requests())

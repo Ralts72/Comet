@@ -13,6 +13,7 @@ namespace Comet {
     class COMET_API SceneRuntime final {
     public:
         enum class State { Running, Paused };
+        enum class InputStart { Fresh, Rebase };
 
         struct Settings {
             double fixed_delta = 1.0 / 60.0;
@@ -38,7 +39,9 @@ namespace Comet {
         Result<void, Error> set_input_actions(InputActions actions);
         Result<void, Error> add_system(std::unique_ptr<System> system);
         Result<void, Error> clear_systems();
-        Result<void, Error> start(Scene& scene);
+        // Rebase 在首张授权输入上建立基线，不把开局前的按下／位移重放到新局。
+        Result<void, Error> start(
+            Scene& scene, State state = State::Running, InputStart input = InputStart::Fresh);
         Result<void, Error> stop();
         Result<void, Error> set_state(State state);
         Result<void, Error> request_step();

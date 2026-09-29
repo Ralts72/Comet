@@ -63,6 +63,10 @@ namespace Comet {
         // 短音效请求保存源配置的快照；目标在本帧删除后仍可播完。
         [[nodiscard]] bool request_play_one_shot(Entity entity);
 
+        // 只提交意图；宿主在下一次更新边界从本局基线重建，不在 System 内换场景。
+        [[nodiscard]] bool request_restart();
+        [[nodiscard]] bool take_restart_request();
+
         // 仅当前 Runtime 有效，不序列化。
         [[nodiscard]] std::optional<ParameterValue> get_session_value(std::string_view key) const;
         [[nodiscard]] bool set_session_value(std::string_view key, ParameterValue value);
@@ -174,6 +178,7 @@ namespace Comet {
         std::vector<ContactEvent> m_contact_events;
         ParameterMap m_session_values;
         bool m_runtime_active = false;
+        bool m_restart_requested = false;
         SceneEnvironment m_environment;
         PostProcessSettings m_post_process;
         std::unordered_map<entt::entity, std::shared_ptr<const MaterialOverrides>>

@@ -2,10 +2,53 @@
 #include "scene/entity.h"
 #include "scene/scene.h"
 #include "scene/scene_runtime.h"
+#include "input/input_state.h"
 #include <gtest/gtest.h>
 #include <limits>
 
 namespace Comet::Tests {
+    TEST(ScriptInvocationTest, RestartRequiresAnActiveRuntimeUpdateAndValidEntity) {
+        const auto script = Script::create(R"(
+            local function restart()
+                comet.restart_scene()
+                comet.session_set('after.restart', true)
+            end
+            return {on_start = restart, on_stop = restart, update = restart,
+                fixed_update = restart, on_trigger_enter = restart,
+                on_trigger_exit = restart, on_collision_enter = restart,
+                on_collision_exit = restart}
+        )");
+        ASSERT_TRUE(script) << script.error().message;
+        const auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance);
+        Scene scene;
+        const auto actor = scene.create_entity();
+        InputState input;
+        EXPECT_FALSE(instance.value()->invoke(
+            Script::Phase::Update, actor, {}, {.scene = &scene, .input = &input}));
+        EXPECT_FALSE(scene.take_restart_request());
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.start(scene));
+        for(const auto phase : {Script::Phase::Start, Script::Phase::Stop, Script::Phase::Update}) {
+            EXPECT_FALSE(instance.value()->invoke(phase, actor, {}, {.scene = &scene}));
+            EXPECT_FALSE(scene.take_restart_request());
+        }
+        for(const auto phase : {Script::Phase::Update, Script::Phase::FixedUpdate,
+                Script::Phase::TriggerEnter, Script::Phase::TriggerExit,
+                Script::Phase::CollisionEnter, Script::Phase::CollisionExit}) {
+            const auto called = instance.value()->invoke(
+                phase, actor, {}, {.scene = &scene, .input = &input, .contact_other = actor});
+            ASSERT_TRUE(called) << called.error().message;
+            EXPECT_TRUE(scene.take_restart_request());
+            EXPECT_TRUE(scene.get_session_value("after.restart"));
+        }
+        scene.destroy_entity(actor);
+        EXPECT_FALSE(instance.value()->invoke(
+            Script::Phase::Update, actor, {}, {.scene = &scene, .input = &input}));
+        EXPECT_FALSE(scene.take_restart_request());
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST(ScriptSourceTest, EntityPropertiesRequireAnExplicitTypeAndSceneOwnedTarget) {
         auto script = Script::create("return {properties = {target = {type = 'entity'}}}");
         ASSERT_TRUE(script) << script.error().message;

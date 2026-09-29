@@ -306,7 +306,8 @@ app 和 editor Play 共用该行为，不依赖 UUID 或项目路径；Edit 不�
 颜色默认绿色；Edit 中选中 `Editor Cube`，在 Script 参数的 `score_color` 色框调整，再 Play 触发得分即可看到效果。
 变色只覆盖这个实体的材质参数；共用 `cube.mat` 的移动方块不变色，Stop 清除覆盖，不修改材质文件。
 新实体在目标上方显示为小型条纹方块，使用目标原有网格和材质，不带碰撞或脚本；Play 层级面板也可选中它。
-Stop 后重新 Play 可重试，运行时变化不会写回 Edit 场景。
+运行中按 `R` 重新开始本局：恢复目标、初始位置和分数，清除得分标记与材质覆盖；app 无需关闭重开，
+Editor 无需 Stop／Play。按键由项目动作 `demo.restart` 配置；Edit 场景及撤销历史不变。
 空格仍可暂停／恢复中间立方体的旋转。左右方向键绑定在项目 `project.json`，不占用相机的 WASD 控制。
 项目 `.lua` 位于 assets，由 `.meta` 提供身份，也可从 Finder 导入；新增脚本无需改 CMake 或重编译宿主。
 引擎私有链接 Lua 5.4.8；参数编辑与运行限制见下方“场景运行时”。
@@ -408,6 +409,12 @@ local id = comet.create_entity("Marker", {
 最多 128 个键，键长最多 128 字节。
 写入立即对后续脚本调用可见；暂停保留，单步照常更新，Stop、运行失败或再次启动会清空。
 这些值不进入 `.scene`，也不会从编辑器 Play 写回 Edit 场景；`on_stop` 不访问会话状态。
+脚本在更新阶段（含固定更新、碰撞和触发回调）可调用 `comet.restart_scene()` 请求重开本局；
+调用不立即终止当前阶段，重复请求合并，宿主在下一次更新开始、取得渲染帧前处理。`on_start`／`on_stop` 不允许请求重开。
+app 从启动时保留的场景基线重建，Editor 从保留的 Edit 场景重建，不重读磁盘场景、不保存当前运行变化。
+候选准备失败保留旧局，不自动重试；新局启动失败时 Editor 恢复 Edit，app 按运行错误退出。
+暂停重开保持暂停，音频从暂停态初始化；按住重开键不连续重开，需松开再按。Stop 和关闭优先于重开。
+这是重建本局，不是跨场景切换、存档或保留脚本状态的热重载。
 刚体与碰撞体接触时，相关实体的脚本可实现 `on_collision_enter(self, other)`／`on_collision_exit(self, other)`；
 把碰撞体的 Trigger 打开后改为 `on_trigger_enter`／`on_trigger_exit`，不产生物理碰撞响应。
 `other` 是当前场景的受保护实体引用。接触在固定步采集，先按固定步、再按实体顺序于同帧普通 `update` 后交付；

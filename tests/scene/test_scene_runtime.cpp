@@ -121,6 +121,89 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.clear_systems());
     }
 
+    TEST_F(SceneRuntimeTest, InitiallyPausedStartPrecedesSystemStartupAndStepsOnlyOnRequest) {
+        auto* first = add("A");
+        auto* second = add("B");
+        first->pause = [&](bool paused) {
+            EXPECT_EQ(paused, runtime.get_state() == State::Paused);
+            EXPECT_FALSE(runtime.stop());
+            calls.order.push_back(paused ? "pause A" : "resume A");
+        };
+        second->pause = [&](bool paused) {
+            calls.order.push_back(paused ? "pause B" : "resume B");
+        };
+        EXPECT_FALSE(runtime.start(scene, static_cast<State>(99)));
+        EXPECT_FALSE(
+            runtime.start(scene, State::Running, static_cast<SceneRuntime::InputStart>(99)));
+        EXPECT_FALSE(runtime.is_active());
+        ASSERT_TRUE(runtime.start(scene, State::Paused));
+        EXPECT_EQ(
+            calls.order, (std::vector<std::string>{"pause A", "start A", "pause B", "start B"}));
+        advance(1);
+        EXPECT_TRUE(calls.fixed.empty());
+        EXPECT_TRUE(calls.updates.empty());
+        ASSERT_TRUE(runtime.request_step());
+        advance(0);
+        EXPECT_EQ(calls.fixed.size(), 2u);
+        EXPECT_EQ(calls.updates.size(), 2u);
+        EXPECT_EQ(runtime.get_state(), State::Paused);
+        advance(1);
+        EXPECT_EQ(calls.fixed.size(), 2u);
+        ASSERT_TRUE(runtime.stop());
+        calls.order.clear();
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_EQ(
+            calls.order, (std::vector<std::string>{"resume A", "start A", "resume B", "start B"}));
+        EXPECT_EQ(runtime.get_state(), State::Running);
+        ASSERT_TRUE(runtime.stop());
+        calls.order.clear();
+        second->start = [](Scene&) { return UpdateResult::failure({"startup failed"}); };
+        EXPECT_FALSE(runtime.start(scene, State::Paused));
+        EXPECT_EQ(calls.order, (std::vector<std::string>{"pause A", "start A", "pause B", "start B",
+                                   "stop B", "stop A"}));
+        EXPECT_FALSE(runtime.is_active());
+    }
+
+    TEST_F(SceneRuntimeTest, RestartRequestsCoalesceWithoutInterruptingTheCurrentPhase) {
+        EXPECT_FALSE(scene.request_restart());
+        EXPECT_FALSE(scene.take_restart_request());
+        const auto entity = scene.create_entity("Unchanged until host restart");
+        auto* requester = add("requester");
+        requester->update_frame = [&](Scene& current, const System::Context&) {
+            EXPECT_TRUE(current.request_restart());
+            EXPECT_TRUE(current.request_restart());
+            EXPECT_TRUE(current.set_session_value("after.request", true));
+            return UpdateResult::success();
+        };
+        auto* observer = add("observer");
+        observer->update_frame = [&](Scene& current, const System::Context&) {
+            EXPECT_TRUE(current.is_valid(entity));
+            EXPECT_TRUE(current.get_session_value("after.request"));
+            return UpdateResult::success();
+        };
+        ASSERT_TRUE(runtime.start(scene));
+        advance(0);
+        EXPECT_TRUE(runtime.is_active());
+        EXPECT_TRUE(scene.take_restart_request());
+        EXPECT_FALSE(scene.take_restart_request());
+
+        ASSERT_TRUE(runtime.set_state(State::Paused));
+        advance(1);
+        EXPECT_FALSE(scene.take_restart_request());
+        ASSERT_TRUE(runtime.request_step());
+        advance(0);
+        EXPECT_EQ(runtime.get_state(), State::Paused);
+        EXPECT_TRUE(scene.take_restart_request());
+        EXPECT_FALSE(scene.take_restart_request());
+        EXPECT_TRUE(scene.request_restart());
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(scene.take_restart_request());
+        EXPECT_FALSE(scene.request_restart());
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_FALSE(scene.take_restart_request());
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST_F(SceneRuntimeTest, EntityRequestsCommitOnlyAfterAllSystemsInEachPhase) {
         auto* requester = add("requester");
         auto* observer = add("observer");
@@ -313,6 +396,7 @@ namespace Comet::Tests {
                 {.transform = {.translation = {1, 2, 3}},
                     .mesh_renderer = MeshRendererComponent{AssetHandle{11}, AssetHandle{22}}}));
             EXPECT_TRUE(current.set_session_value("game.score", 2.0f));
+            EXPECT_TRUE(current.request_restart());
             return UpdateResult::failure({"phase failed"});
         };
         ASSERT_TRUE(runtime.start(scene));
@@ -321,6 +405,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(runtime.is_active());
         EXPECT_FALSE(scene.request_create_entity("Inactive"));
         EXPECT_FALSE(scene.get_session_value("game.score"));
+        EXPECT_FALSE(scene.take_restart_request());
     }
 
     TEST_F(SceneRuntimeTest, SessionValuesExistOnlyWhileRuntimeIsActive) {
@@ -663,7 +748,7 @@ namespace Comet::Tests {
         EXPECT_NEAR(runtime.get_timing().total_time, 0.14, 1e-9);
     }
 
-    TEST_F(SceneRuntimeTest, PauseNotifiesSystemsOnlyOnTransitionsAndRejectsReentry) {
+    TEST_F(SceneRuntimeTest, PauseNotifiesInitialStateAndTransitionsAndRejectsReentry) {
         auto* first = add("A");
         auto* second = add("B");
         std::vector<std::string> transitions;
@@ -682,6 +767,8 @@ namespace Comet::Tests {
         };
         EXPECT_FALSE(runtime.set_state(State::Paused));
         ASSERT_TRUE(runtime.start(scene));
+        EXPECT_EQ(transitions, (std::vector<std::string>{"resume A", "resume B"}));
+        transitions.clear();
         ASSERT_TRUE(runtime.set_state(State::Running));
         EXPECT_TRUE(transitions.empty());
         ASSERT_TRUE(runtime.set_state(State::Paused));
@@ -701,7 +788,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.start(scene));
         EXPECT_EQ(runtime.get_state(), State::Running);
         ASSERT_TRUE(runtime.set_state(State::Paused));
-        EXPECT_EQ(transitions.size(), before_stop + 2);
+        EXPECT_EQ(transitions.size(), before_stop + 4);
         ASSERT_TRUE(runtime.stop());
     }
 
@@ -864,6 +951,52 @@ namespace Comet::Tests {
         EXPECT_TRUE(updates.back().released);
         ASSERT_TRUE(runtime.stop());
         ASSERT_TRUE(runtime.set_input_actions({}));
+    }
+
+    TEST_F(SceneRuntimeTest, RestartInputRebasesTheFirstAuthorizedFrameWithoutReplayingEdges) {
+        auto actions =
+            InputActions::create({{"restart", InputActions::Type::Button, {{Input::Key::R}}}});
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(runtime.set_input_actions(std::move(actions).value()));
+        std::vector<InputState::Action> updates;
+        std::vector<InputState::Action> fixed;
+        auto* system = add();
+        system->fixed = [&](Scene&, const System::Context& context) {
+            fixed.push_back(*context.input.action("restart"));
+            return UpdateResult::success();
+        };
+        system->update_frame = [&](Scene&, const System::Context& context) {
+            updates.push_back(*context.input.action("restart"));
+            return UpdateResult::success();
+        };
+        Input::Gate gate;
+        for(int index = 0; index < 20; ++index)
+            input.publish_frame();
+        gate.read(input.publish_frame(), true);
+        input.key_event(Input::Key::R, true);
+        const auto& pressed = gate.read(input.publish_frame(), true);
+        ASSERT_TRUE(pressed.key(Input::Key::R).pressed);
+        ASSERT_TRUE(runtime.start(scene, State::Running, SceneRuntime::InputStart::Rebase));
+        ASSERT_TRUE(runtime.advance(0.1));
+        EXPECT_FALSE(updates.back().pressed);
+        ASSERT_TRUE(runtime.advance(0.1, &pressed));
+        EXPECT_TRUE(updates.back().down);
+        EXPECT_FALSE(updates.back().pressed);
+        EXPECT_TRUE(fixed.back().down);
+        EXPECT_FALSE(fixed.back().pressed);
+        ASSERT_TRUE(runtime.advance(0.1, &pressed));
+        EXPECT_FALSE(updates.back().pressed);
+        input.key_event(Input::Key::R, false);
+        const auto& released = gate.read(input.publish_frame(), true);
+        ASSERT_TRUE(runtime.advance(0.1, &released));
+        EXPECT_TRUE(updates.back().released);
+        EXPECT_TRUE(fixed.back().released);
+        input.key_event(Input::Key::R, true);
+        const auto& next_press = gate.read(input.publish_frame(), true);
+        ASSERT_TRUE(runtime.advance(0.1, &next_press));
+        EXPECT_TRUE(updates.back().pressed);
+        EXPECT_TRUE(fixed.back().pressed);
+        ASSERT_TRUE(runtime.stop());
     }
 
     TEST_F(SceneRuntimeTest, ActionMappingCannotBypassGateOrReplayDeniedPendingPress) {

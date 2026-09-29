@@ -607,11 +607,12 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
-    TEST_F(ScriptSystemTest, FailedScriptClearsQueuedEntityCreationAndSessionState) {
+    TEST_F(ScriptSystemTest, FailedScriptClearsPendingRuntimeRequestsAndSessionState) {
         source(R"(return {
             update = function(self)
                 comet.create_entity('Discarded')
                 comet.session_set('game.score', 1)
+                comet.restart_scene()
                 error('script failed')
             end
         })");
@@ -622,6 +623,7 @@ namespace Comet::Tests {
         EXPECT_NE(failed.error().message.find("script failed"), std::string::npos);
         EXPECT_EQ(scene.entity_count(), 1u);
         EXPECT_FALSE(scene.get_session_value("game.score"));
+        EXPECT_FALSE(scene.take_restart_request());
         EXPECT_FALSE(runtime.is_active());
     }
 
@@ -796,7 +798,7 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(rotation.y, 4);
     }
 
-    TEST_F(ScriptSystemTest, DemoGoalUsesInputTriggerAndSharedSessionState) {
+    TEST_F(ScriptSystemTest, DemoGoalAndRestartRestoreAnIsolatedRunFromTheAuthoredScene) {
         const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
         ASSERT_TRUE(project) << project.error();
         ASSERT_TRUE(runtime.set_input_actions(project.value().input_actions()));
@@ -907,6 +909,12 @@ namespace Comet::Tests {
         EXPECT_EQ(material->get_revision(), material_revision);
         EXPECT_EQ(material->get_vector_property("base_color"),
             authored.value().vector_properties.at("base_color"));
+        input.key_event(Input::Key::Right, false);
+        input.key_event(Input::Key::R, true);
+        ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
+        EXPECT_TRUE(playing.value()->take_restart_request());
+        EXPECT_FALSE(playing.value()->take_restart_request());
+        EXPECT_FALSE(playing.value()->find_entity(*goal_uuid));
         ASSERT_TRUE(runtime.stop());
         EXPECT_FALSE(playing.value()->get_session_value("demo.score"));
         EXPECT_FALSE(playing.value()->get_material_overrides(center));
@@ -914,11 +922,29 @@ namespace Comet::Tests {
         auto restarted = serializer.clone(*edit_scene.value());
         ASSERT_TRUE(restarted) << restarted.error();
         EXPECT_FALSE(restarted.value()->find_entity(marker.get_uuid()));
-        ASSERT_TRUE(runtime.start(*restarted.value()));
+        ASSERT_TRUE(runtime.start(
+            *restarted.value(), SceneRuntime::State::Running, SceneRuntime::InputStart::Rebase));
         EXPECT_TRUE(restarted.value()->find_entity(*goal_uuid));
         EXPECT_FALSE(restarted.value()->get_session_value("demo.score"));
         EXPECT_FALSE(restarted.value()->get_material_overrides(
             restarted.value()->find_entity(*center_uuid)));
+        EXPECT_EQ(restarted.value()
+                      ->find_entity(*player_uuid)
+                      .get_component<TransformComponent>()
+                      .translation,
+            edit_scene.value()
+                ->find_entity(*player_uuid)
+                .get_component<TransformComponent>()
+                .translation);
+        for(int frame = 0; frame < 3; ++frame) {
+            ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
+            EXPECT_FALSE(restarted.value()->take_restart_request());
+        }
+        input.key_event(Input::Key::R, false);
+        ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
+        input.key_event(Input::Key::R, true);
+        ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
+        EXPECT_TRUE(restarted.value()->take_restart_request());
         ASSERT_TRUE(runtime.stop());
         const auto unchanged_material_source = read_text_file(material_path);
         ASSERT_TRUE(unchanged_material_source) << unchanged_material_source.error();

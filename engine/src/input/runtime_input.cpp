@@ -87,7 +87,8 @@ namespace Comet {
     void RuntimeInput::prepare(const Input::Frame* input, bool paused) {
         auto frame = consume(input);
         if(paused || m_rebase) {
-            m_rebase = false;
+            if(frame.focused)
+                m_rebase = false;
             // 暂停／恢复／单步只采样电平，不回放边沿与位移。
             frame.clear_transients();
             m_pending_fixed = frame;

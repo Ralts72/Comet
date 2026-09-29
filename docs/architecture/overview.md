@@ -214,7 +214,7 @@ CPU 诊断；正常关闭只取消未完成采样，保留上一条已完成帧�
 
 **运行与输入：** SceneRuntime 是时间截断的唯一入口，先有界固定更新再普通更新；暂停仍维护 UI、资产与绘制，
 单步只推进一轮固定／普通更新。ViewportPanel 生产控制请求，由 Editor 在下一次 on_update 经 Engine 应用。
-Runtime 只在 Running／Paused 实际切换时按注册顺序调用 System::on_pause_changed；通知期间禁止重入 Runtime，
+Runtime 每次先于各 System::on_start 通知 on_pause_changed(初始暂停值)，之后仅在 Running／Paused 实际切换时通知；通知期间禁止重入 Runtime，
 不借该通知推进模拟或改场景结构。单步保持 Paused，不临时发出恢复／再暂停；Stop 直接清理，不先恢复子系统。
 两个宿主都收到同一个当帧 `Engine::FrameContext`：App 在 on_update 交付窗口 Gate 结果，Editor 在 on_frame_ready 交付 UI Gate 结果；上下文退出时丢弃授权，未授权释放按钮但不暂停模拟。
 Viewport 在实际进入 Running 时一次性聚焦（Play／Resume），不在按钮发出请求时提前授权。
@@ -229,6 +229,8 @@ Project 持有 InputActions 配置；宿主启动时交给 SceneRuntime 内的 R
 SceneRuntime 只调用 prepare／consume_fixed／update 及生命周期接口，不处理按钮合并或分别安装物理／动作参数。
 InputState 同时拥有该阶段的物理与动作值，只读公开，可复制保留；引用在输入 owner 下一次修改前有效。
 零固定步不丢短按，多步不重复边沿，暂停／单步同时重建两类状态的基线。
+Engine 启动 Runtime 使用 InputStart::Rebase，在首张已授权输入上丢弃旧边沿／位移并建立电平基线；
+未授权帧不提前清除此意图。不把 Window 的物理 serial 当作 Gate 授权流的 serial，重开后长按键不会变成新按下。
 多个绑定合为一个按钮电平，释放其中一个仍按住的动作不会产生释放；轴与位移不伪装成按钮。
 CameraControllerSystem 只约定 `camera.*` 动作语义，具体设备、按键、反向和死区属于项目配置。
 
@@ -307,7 +309,7 @@ render_frame 返回 `Result<void, GraphicsError>`。部分录制失败的命令�
 Inspector Edit 使用当前资产定义，Play 使用活动实例定义；Edit 定义切换会取消旧参数手势。
 更换脚本是 SceneEditor 的完整命令：先加载候选，再一次替换引用并清空覆盖，Edit 的 Undo 同时恢复二者。
 清空引用同样清空覆盖；选同一引用不重置参数；失败不改变原绑定。Play 直接改运行副本，不写 Edit 历史。
-同一资产的源码更新不会替换活动实例，重新 Play 才使用新版；不是运行中热重载。
+同一资产的源码更新不会替换活动实例，重开本局或再次 Play 才使用 Registry 中的新版；不是保留实例的热重载。
 
 参数检查与合并分开：Inspector 调用 validate_overrides，不生成无用的完整参数表；
 ScriptSystem 仅在覆盖变化时 resolve_parameters，Instance 在有效值或运行场景变化时重建 Lua 配置表。
@@ -344,6 +346,15 @@ Scene 也独立校验变换有限性和非零资源 Handle；阶段提交中完�
 这不保证句柄对应的资源已加载或 GPU 创建成功，既有资产／渲染路径仍负责这些失败。
 暂停不执行脚本阶段，单步正常提交；失败或 Stop 丢弃未提交请求。已提交实体属于运行 Scene，
 Editor Stop 丢弃 Play 副本，不是在 SceneRuntime::stop 内逐个删除运行中创建的实体。
+
+`comet.restart_scene()` 只在更新调用中向 Scene 记录合并的重开意图；同阶段其他脚本／System 仍正常完成。
+失败或 Stop 清掉意图；宿主在下一次 on_update 消费，不能从 Lua 栈内替换 Scene。
+GameApp 保留启动时的 Scene 基线，EditorSceneSession 复用保留的 Edit Scene；两者都经 Serializer 克隆，
+先完成候选准备，再停止旧 System、交换 Scene、启动新 System。基线只保存场景配置和 Handle，不复制 GPU 资源。
+重开保留 Edit 文档与历史；目标、Transform、会话值、Lua 实例、物理和声音均来自新一局。
+候选克隆／准备失败时旧局仍活动，请求已消费，不自动重试；替换后启动失败无法恢复旧模拟，
+Editor 回到原 Edit，app 沿现有错误返回退出。暂停重开在 on_start 前向各 System 声明暂停，避免自动播放短暂发声。
+这不是跨场景加载或资产版本快照：场景基线不重读磁盘，资产仍由 Registry 提供当前有效版本。
 
 源码最多 1 MiB、每 VM 的 Lua 堆最多 8 MiB、每次保护调用最多约 20 万条指令；
 不等于墙钟超时或安全沙箱。不开放文件、原生库、require、动态代码、元表和 rawset。

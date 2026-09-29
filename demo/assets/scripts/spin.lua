@@ -20,6 +20,9 @@ function script:fixed_update(dt)
 end
 
 function script:update()
+    if comet.action_pressed("demo.restart") then
+        comet.restart_scene()
+    end
     local score = comet.session_get("demo.score") or 0
     if score > self.last_score then
         comet.translate(0, 0.4 * (score - self.last_score), 0)

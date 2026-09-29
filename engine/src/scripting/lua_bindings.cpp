@@ -101,6 +101,13 @@ namespace Comet::LuaBindings {
                 return luaL_error(state, "Entity is unavailable in this script phase");
             return push_entity_reference(state, context.entity, context.scene_generation);
         }
+        int restart_scene(lua_State* state) {
+            const auto& context = current(state);
+            if(!context.input || !context.scene || !context.scene->is_valid(context.entity)
+                || !context.scene->request_restart())
+                return luaL_error(state, "Scene restart requires an active runtime update");
+            return 0;
+        }
         int find_entity(lua_State* state) {
             const auto& context = current(state);
             if(!context.scene)
@@ -426,7 +433,8 @@ namespace Comet::LuaBindings {
         const luaL_Reg api[]{{"rotate", rotate}, {"translate", translate}, {"position", position},
             {"self_entity", self_entity}, {"find_entity", find_entity},
             {"create_entity", create_entity}, {"destroy_entity", destroy_entity},
-            {"play_one_shot", play_one_shot}, {"set_material_scalar", set_material_scalar},
+            {"restart_scene", restart_scene}, {"play_one_shot", play_one_shot},
+            {"set_material_scalar", set_material_scalar},
             {"set_material_vector", set_material_vector}, {"session_get", session_get},
             {"session_set", session_set}, {"key_down", key_down}, {"action_value", action_value},
             {"action_down", action_down}, {"action_pressed", action_pressed},

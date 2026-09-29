@@ -161,7 +161,7 @@ namespace CometEditor::Tests {
             state, serializer, [this] { return active.get(); },
             [this](Owner candidate) { return activate(std::move(candidate), EditorMode::Play); },
             [this](Owner retained) { return replace(std::move(retained), EditorMode::Edit); },
-            [this] { return runtime.start(*active); });
+            [this](Comet::SceneRuntime::State initial) { return runtime.start(*active, initial); });
         session.request_mode(EditorMode::Play);
         EXPECT_FALSE(session.apply_mode_request());
         EXPECT_EQ(installations, 2);

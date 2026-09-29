@@ -105,12 +105,12 @@ namespace Comet {
         return m_scene_runtime.set_settings(settings);
     }
 
-    Result<void, Error> Engine::start_scene_runtime() {
+    Result<void, Error> Engine::start_scene_runtime(const SceneRuntime::State state) {
         if(m_shutdown_prepared)
             return Result<void, Error>::failure({"Engine is shutting down"});
         if(!m_scene)
             return Result<void, Error>::failure({"Cannot start runtime without an active scene"});
-        return m_scene_runtime.start(*m_scene);
+        return m_scene_runtime.start(*m_scene, state, SceneRuntime::InputStart::Rebase);
     }
 
     Result<void, Error> Engine::set_input_actions(InputActions actions) {

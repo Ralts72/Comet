@@ -66,10 +66,29 @@ namespace Comet::Tests {
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.add_system(
             std::make_unique<AudioSystem>(assets, AudioPlayback::Mode::Offline)));
-        EXPECT_FALSE(runtime.start(scene));
+        EXPECT_FALSE(runtime.start(scene, SceneRuntime::State::Paused));
         EXPECT_FALSE(runtime.is_active());
         ASSERT_TRUE(assets.register_asset(cue_handle, load_cue()));
         ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(AudioSystemTest, PausedStartKeepsAutomaticPlaybackReadyForSilentSteps) {
+        AssetRegistry assets;
+        ASSERT_TRUE(assets.register_asset(cue_handle, load_cue()));
+        Scene scene;
+        scene.create_entity("Sound").add_component<AudioSourceComponent>().clip = cue_handle;
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(
+            std::make_unique<AudioSystem>(assets, AudioPlayback::Mode::Offline)));
+        ASSERT_TRUE(runtime.start(scene, SceneRuntime::State::Paused));
+        ASSERT_TRUE(runtime.advance(10));
+        EXPECT_EQ(runtime.get_timing().frame_index, 0);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(runtime.get_state(), SceneRuntime::State::Paused);
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Running));
+        ASSERT_TRUE(runtime.advance(0.01));
         ASSERT_TRUE(runtime.stop());
     }
 

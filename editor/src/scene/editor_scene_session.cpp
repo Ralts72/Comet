@@ -26,24 +26,35 @@ namespace CometEditor {
         m_requested_mode = mode;
     }
 
-    Comet::Result<bool, Comet::Error> EditorSceneSession::apply_mode_request() {
-        if(!m_requested_mode) {
+    Comet::Result<bool, Comet::Error> EditorSceneSession::apply_mode_request(
+        const Comet::SceneRuntime::State restart_state) {
+        if(m_requested_mode) {
+            const EditorMode requested_mode = *m_requested_mode;
+            m_requested_mode.reset();
+            if(requested_mode != m_state.mode) {
+                if(requested_mode == EditorMode::Play)
+                    return start_play_mode(Comet::SceneRuntime::State::Running);
+                return exit_play_mode();
+            }
             return Comet::Result<bool, Comet::Error>::success(false);
         }
-
-        const EditorMode requested_mode = *m_requested_mode;
-        m_requested_mode.reset();
-        if(requested_mode == m_state.mode) {
-            return Comet::Result<bool, Comet::Error>::success(false);
+        if(m_state.mode == EditorMode::Play) {
+            auto* scene = m_get_active_scene();
+            if(scene && scene->take_restart_request())
+                return start_play_mode(restart_state);
         }
-        return requested_mode == EditorMode::Play ? enter_play_mode() : exit_play_mode();
+        return Comet::Result<bool, Comet::Error>::success(false);
     }
 
-    Comet::Result<bool, Comet::Error> EditorSceneSession::enter_play_mode() {
-        Comet::Scene* edit_scene = m_get_active_scene();
+    Comet::Result<bool, Comet::Error> EditorSceneSession::start_play_mode(
+        const Comet::SceneRuntime::State initial_state) {
+        const bool restarting = m_state.mode == EditorMode::Play;
+        Comet::Scene* edit_scene = m_edit_scene.get();
+        if(!restarting)
+            edit_scene = m_get_active_scene();
         if(edit_scene == nullptr) {
             return Comet::Result<bool, Comet::Error>::failure(
-                {"Cannot enter Play mode without an active scene"});
+                {"Cannot start Play without its Edit scene"});
         }
 
         auto runtime_scene = m_serializer.clone(*edit_scene);
@@ -53,17 +64,22 @@ namespace CometEditor {
         auto activated = m_activate_play_scene(std::move(runtime_scene).value());
         if(!activated)
             return Comet::Result<bool, Comet::Error>::failure(activated.error());
-        m_edit_scene = std::move(activated).value();
-        if(!m_edit_scene) {
-            LOG_FATAL("Entering Play mode did not retain the Edit scene");
+        if(!restarting) {
+            m_edit_scene = std::move(activated).value();
+            if(!m_edit_scene)
+                LOG_FATAL("Entering Play mode did not retain the Edit scene");
         }
-        if(auto started = m_start_runtime(); !started) {
+        if(auto started = m_start_runtime(initial_state); !started) {
             auto failed_scene = m_restore_edit_scene(std::move(m_edit_scene));
+            m_state.mode = EditorMode::Edit;
             return Comet::Result<bool, Comet::Error>::failure(started.error());
         }
 
         m_state.mode = EditorMode::Play;
-        LOG_INFO("Entered Play mode");
+        if(restarting)
+            LOG_INFO("Restarted Play from the Edit scene");
+        else
+            LOG_INFO("Entered Play mode");
         return Comet::Result<bool, Comet::Error>::success(true);
     }
 

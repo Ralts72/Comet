@@ -114,6 +114,7 @@ namespace Comet {
         m_contact_events.clear();
         m_session_values.clear();
         m_material_overrides.clear();
+        m_restart_requested = false;
         m_runtime_active = true;
         return true;
     }
@@ -177,6 +178,17 @@ namespace Comet {
         return requests;
     }
 
+    bool Scene::request_restart() {
+        if(!m_runtime_active)
+            return false;
+        m_restart_requested = true;
+        return true;
+    }
+
+    bool Scene::take_restart_request() {
+        return std::exchange(m_restart_requested, false);
+    }
+
     bool Scene::commit_entity_requests() {
         auto requests = std::move(m_entity_requests);
         m_entity_requests.clear();
@@ -209,6 +221,7 @@ namespace Comet {
 
     void Scene::end_runtime() noexcept {
         m_runtime_active = false;
+        m_restart_requested = false;
         m_entity_requests.clear();
         m_audio_play_requests.clear();
         m_contact_events.clear();

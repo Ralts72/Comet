@@ -1,6 +1,7 @@
 #pragma once
 
 #include "editor_state.h"
+#include "scene/scene_runtime.h"
 #include "common/result.h"
 #include "common/error.h"
 
@@ -17,14 +18,15 @@ namespace CometEditor {
     class EditorSceneSession final {
     public:
         using ActiveSceneGetter = std::function<Comet::Scene*()>;
-        // 激活失败不得替换活动场景；成功时返回保留的 Edit 场景。
+        // 激活失败不得替换活动场景；成功时返回之前的 Edit 或 Play 场景。
         using ActivatePlayScene =
             std::function<Comet::Result<std::unique_ptr<Comet::Scene>, Comet::Error>(
                 std::unique_ptr<Comet::Scene>)>;
         // 恢复保留的 Edit 场景不重新准备资产，并返回待销毁的 Play 场景。
         using RestoreEditScene =
             std::function<std::unique_ptr<Comet::Scene>(std::unique_ptr<Comet::Scene>)>;
-        using StartRuntime = std::function<Comet::Result<void, Comet::Error>()>;
+        using StartRuntime =
+            std::function<Comet::Result<void, Comet::Error>(Comet::SceneRuntime::State)>;
 
         EditorSceneSession(EditorState& state, const Comet::SceneSerializer& serializer,
             ActiveSceneGetter get_active_scene, ActivatePlayScene activate_play_scene,
@@ -37,10 +39,12 @@ namespace CometEditor {
 
         void request_mode(EditorMode mode);
 
-        [[nodiscard]] Comet::Result<bool, Comet::Error> apply_mode_request();
+        [[nodiscard]] Comet::Result<bool, Comet::Error> apply_mode_request(
+            Comet::SceneRuntime::State restart_state = Comet::SceneRuntime::State::Running);
 
     private:
-        [[nodiscard]] Comet::Result<bool, Comet::Error> enter_play_mode();
+        [[nodiscard]] Comet::Result<bool, Comet::Error> start_play_mode(
+            Comet::SceneRuntime::State initial_state);
         [[nodiscard]] Comet::Result<bool, Comet::Error> exit_play_mode();
 
         EditorState& m_state;

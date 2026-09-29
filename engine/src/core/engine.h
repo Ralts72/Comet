@@ -55,7 +55,8 @@ namespace Comet {
         [[nodiscard]] Result<void, Error> add_default_scene_systems();
         [[nodiscard]] Result<void, Error> set_runtime_settings(SceneRuntime::Settings settings);
         [[nodiscard]] Result<void, Error> set_input_actions(InputActions actions);
-        [[nodiscard]] Result<void, Error> start_scene_runtime();
+        [[nodiscard]] Result<void, Error> start_scene_runtime(
+            SceneRuntime::State state = SceneRuntime::State::Running);
         [[nodiscard]] Result<void, Error> stop_scene_runtime();
         [[nodiscard]] Result<void, Error> set_runtime_state(SceneRuntime::State state);
         [[nodiscard]] Result<void, Error> request_runtime_step();

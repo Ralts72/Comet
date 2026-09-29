@@ -167,7 +167,9 @@ namespace {
                 [this](std::unique_ptr<Comet::Scene> scene) {
                     return commit_scene(std::move(scene), CometEditor::EditorMode::Edit);
                 },
-                [engine_ptr] { return engine_ptr->start_scene_runtime(); });
+                [engine_ptr](Comet::SceneRuntime::State state) {
+                    return engine_ptr->start_scene_runtime(state);
+                });
             auto& scene = *engine.get_scene();
             if(auto configured = engine.set_input_actions(m_project.input_actions()); !configured)
                 return configured;
@@ -561,7 +563,8 @@ namespace {
                 return Comet::Result<void, Comet::Error>::success();
             }
 
-            const auto result = m_scene_session->apply_mode_request();
+            const auto result =
+                m_scene_session->apply_mode_request(get_engine().get_scene_runtime().get_state());
             if(!result) {
                 if(is_device_lost(result.error()))
                     return Comet::Result<void, Comet::Error>::failure(result.error());

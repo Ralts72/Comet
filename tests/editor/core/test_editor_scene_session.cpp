@@ -58,7 +58,10 @@ namespace CometEditor::Tests {
             [&](SceneOwner candidate) {
                 return Activation::success(replace(std::move(candidate)));
             },
-            replace, [&] { return runtime.start(*active_scene); });
+            replace,
+            [&](Comet::SceneRuntime::State initial) {
+                return runtime.start(*active_scene, initial);
+            });
 
         session.request_mode(EditorMode::Play);
         ASSERT_TRUE(session.apply_mode_request());
@@ -129,7 +132,9 @@ namespace CometEditor::Tests {
                 return Activation::success(replace(std::move(candidate), EditorMode::Play));
             },
             [&](SceneOwner retained) { return replace(std::move(retained), EditorMode::Edit); },
-            [&] { return runtime.start(*active_scene); });
+            [&](Comet::SceneRuntime::State initial) {
+                return runtime.start(*active_scene, initial);
+            });
 
         session.request_mode(EditorMode::Play);
         EXPECT_EQ(state.mode, EditorMode::Edit);
@@ -224,10 +229,10 @@ namespace CometEditor::Tests {
                 active.swap(retained);
                 return retained;
             },
-            [&] {
+            [&](Comet::SceneRuntime::State initial) {
                 events.emplace_back("runtime-start");
                 EXPECT_NE(active.get(), edit_scene);
-                return runtime.start(*active);
+                return runtime.start(*active, initial);
             });
 
         session.request_mode(EditorMode::Play);
@@ -271,7 +276,8 @@ namespace CometEditor::Tests {
                     return Activation::failure(preparation_error);
                 return Activation::success(replace(std::move(candidate)));
             },
-            replace, [&] { return runtime.start(*active); });
+            replace,
+            [&](Comet::SceneRuntime::State initial) { return runtime.start(*active, initial); });
         session.request_mode(EditorMode::Play);
         const auto rejected = session.apply_mode_request();
         ASSERT_FALSE(rejected);
@@ -306,7 +312,10 @@ namespace CometEditor::Tests {
             [&](SceneOwner candidate) {
                 return Activation::success(replace(std::move(candidate)));
             },
-            replace, [&] { return runtime.start(*active_scene); });
+            replace,
+            [&](Comet::SceneRuntime::State initial) {
+                return runtime.start(*active_scene, initial);
+            });
 
         session.request_mode(EditorMode::Play);
 
@@ -350,7 +359,8 @@ namespace CometEditor::Tests {
             [&](SceneOwner candidate) {
                 return Activation::success(replace(std::move(candidate)));
             },
-            replace, [&] { return runtime.start(*active); });
+            replace,
+            [&](Comet::SceneRuntime::State initial) { return runtime.start(*active, initial); });
 
         session.request_mode(EditorMode::Play);
         const auto failed = session.apply_mode_request();
@@ -392,7 +402,8 @@ namespace CometEditor::Tests {
             [&](SceneOwner candidate) {
                 return Activation::success(replace(std::move(candidate)));
             },
-            replace, [&] { return runtime.start(*active); });
+            replace,
+            [&](Comet::SceneRuntime::State initial) { return runtime.start(*active, initial); });
 
         session.request_mode(EditorMode::Play);
         EXPECT_FALSE(session.apply_mode_request());
@@ -408,6 +419,192 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(session.apply_mode_request());
         EXPECT_EQ(state.mode, EditorMode::Play);
         EXPECT_EQ(replacements, 1);
+    }
+
+    class RuntimeRestartTest: public ::testing::Test {
+    protected:
+        void SetUp() override {
+            original = active.get();
+            const auto entity = active->create_entity("Original");
+            entity_uuid = entity.get_uuid();
+            history.bind_scene(original);
+            PropertyEditTransaction edit(history, component_registry());
+            ASSERT_TRUE(edit.apply({entity_uuid, "name", "name"}, std::string("Edited")));
+            edited_state = history.state_id();
+            session = std::make_unique<EditorSceneSession>(
+                state, serializer, [this] { return active.get(); },
+                [this](SceneOwner candidate) {
+                    ++preparations;
+                    if(reject_preparation)
+                        return Activation::failure({"Preparation failed"});
+                    return Activation::success(replace(std::move(candidate)));
+                },
+                [this](SceneOwner retained) {
+                    ++restorations;
+                    return replace(std::move(retained));
+                },
+                [this](Comet::SceneRuntime::State initial) {
+                    ++starts;
+                    if(reject_start)
+                        return Comet::Result<void, Comet::Error>::failure({"Start failed"});
+                    return runtime.start(*active, initial);
+                });
+            session->request_mode(EditorMode::Play);
+            const auto started = session->apply_mode_request(Comet::SceneRuntime::State::Paused);
+            ASSERT_TRUE(started);
+            ASSERT_TRUE(started.value());
+            ASSERT_EQ(runtime.get_state(), Comet::SceneRuntime::State::Running);
+        }
+
+        SceneOwner replace(SceneOwner replacement) {
+            EXPECT_TRUE(runtime.stop());
+            active.swap(replacement);
+            return replacement;
+        }
+
+        EditorState state;
+        Comet::SceneSerializer serializer{component_registry()};
+        SceneOwner active = std::make_unique<Comet::Scene>();
+        Comet::Scene* original = nullptr;
+        Comet::EntityUuid entity_uuid;
+        CommandHistory history;
+        std::uint64_t edited_state = 0;
+        Comet::SceneRuntime runtime;
+        int preparations = 0;
+        int starts = 0;
+        int restorations = 0;
+        bool reject_preparation = false;
+        bool reject_start = false;
+        std::unique_ptr<EditorSceneSession> session;
+    };
+
+    TEST_F(RuntimeRestartTest, RebuildsFromRetainedEditAndPreservesHistory) {
+        auto* previous = active.get();
+        active->destroy_entity(active->find_entity(entity_uuid));
+        active->create_entity("Runtime_Only");
+        ASSERT_TRUE(active->set_session_value("score", 1.0f));
+        ASSERT_TRUE(active->request_restart());
+        ASSERT_TRUE(active->request_restart());
+
+        const auto restarted = session->apply_mode_request();
+        ASSERT_TRUE(restarted);
+        EXPECT_TRUE(restarted.value());
+        EXPECT_EQ(state.mode, EditorMode::Play);
+        EXPECT_TRUE(runtime.is_active());
+        EXPECT_NE(active.get(), previous);
+        EXPECT_NE(active.get(), original);
+        ASSERT_EQ(active->entity_count(), 1u);
+        const auto restored_entity = active->find_entity(entity_uuid);
+        ASSERT_TRUE(restored_entity);
+        EXPECT_EQ(restored_entity.get_component<Comet::NameComponent>().name, "Edited");
+        EXPECT_FALSE(active->get_session_value("score"));
+        EXPECT_EQ(history.get_scene(), original);
+        EXPECT_EQ(history.state_id(), edited_state);
+        const auto idle = session->apply_mode_request();
+        ASSERT_TRUE(idle);
+        EXPECT_FALSE(idle.value());
+        EXPECT_EQ(starts, 2);
+
+        session->request_mode(EditorMode::Edit);
+        ASSERT_TRUE(session->apply_mode_request());
+        EXPECT_EQ(active.get(), original);
+        EXPECT_FALSE(runtime.is_active());
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(active->find_entity(entity_uuid).get_component<Comet::NameComponent>().name,
+            "Original");
+    }
+
+    TEST_F(RuntimeRestartTest, StopTakesPrecedenceOverPendingRestart) {
+        ASSERT_TRUE(active->request_restart());
+        session->request_mode(EditorMode::Edit);
+        ASSERT_TRUE(session->apply_mode_request());
+        EXPECT_EQ(state.mode, EditorMode::Edit);
+        EXPECT_EQ(active.get(), original);
+        EXPECT_FALSE(runtime.is_active());
+        EXPECT_EQ(preparations, 1);
+        EXPECT_EQ(starts, 1);
+        EXPECT_EQ(restorations, 1);
+        const auto idle = session->apply_mode_request();
+        ASSERT_TRUE(idle);
+        EXPECT_FALSE(idle.value());
+    }
+
+    TEST_F(RuntimeRestartTest, PausedRestartDoesNotResumeOrCarryAPendingStep) {
+        ASSERT_TRUE(runtime.set_state(Comet::SceneRuntime::State::Paused));
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(active->request_restart());
+        const auto restarted = session->apply_mode_request(runtime.get_state());
+        ASSERT_TRUE(restarted);
+        EXPECT_TRUE(restarted.value());
+        EXPECT_EQ(state.mode, EditorMode::Play);
+        EXPECT_EQ(runtime.get_state(), Comet::SceneRuntime::State::Paused);
+        ASSERT_TRUE(runtime.advance(20));
+        EXPECT_EQ(runtime.get_timing().frame_index, 0u);
+        EXPECT_EQ(runtime.get_timing().fixed_index, 0u);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(runtime.get_timing().frame_index, 1u);
+        EXPECT_EQ(runtime.get_timing().fixed_index, 1u);
+        EXPECT_EQ(runtime.get_state(), Comet::SceneRuntime::State::Paused);
+    }
+
+    TEST_F(RuntimeRestartTest, CandidateFailuresKeepPausedPlayAndDoNotAutomaticallyRetry) {
+        const auto previous = active.get();
+        ASSERT_TRUE(runtime.set_state(Comet::SceneRuntime::State::Paused));
+        auto& edit_name = original->find_entity(entity_uuid).get_component<Comet::NameComponent>();
+        edit_name.name = std::string(1, '\xff');
+        ASSERT_TRUE(active->request_restart());
+        EXPECT_FALSE(session->apply_mode_request());
+        EXPECT_EQ(preparations, 1);
+        EXPECT_EQ(active.get(), previous);
+        EXPECT_TRUE(runtime.is_active());
+        EXPECT_EQ(runtime.get_state(), Comet::SceneRuntime::State::Paused);
+        EXPECT_EQ(history.get_scene(), original);
+
+        edit_name.name = "Edited";
+        reject_preparation = true;
+        ASSERT_TRUE(active->request_restart());
+        const auto rejected = session->apply_mode_request();
+        ASSERT_FALSE(rejected);
+        EXPECT_EQ(rejected.error().message, "Preparation failed");
+        EXPECT_EQ(preparations, 2);
+        EXPECT_EQ(active.get(), previous);
+        EXPECT_TRUE(runtime.is_active());
+        EXPECT_EQ(state.mode, EditorMode::Play);
+        EXPECT_EQ(runtime.get_state(), Comet::SceneRuntime::State::Paused);
+        EXPECT_EQ(history.state_id(), edited_state);
+        EXPECT_EQ(starts, 1);
+        EXPECT_EQ(restorations, 0);
+        reject_preparation = false;
+        const auto idle = session->apply_mode_request();
+        ASSERT_TRUE(idle);
+        EXPECT_FALSE(idle.value());
+        ASSERT_TRUE(active->request_restart());
+        ASSERT_TRUE(session->apply_mode_request(runtime.get_state()));
+        EXPECT_EQ(starts, 2);
+        EXPECT_EQ(runtime.get_state(), Comet::SceneRuntime::State::Paused);
+    }
+
+    TEST_F(RuntimeRestartTest, StartupFailureRestoresEditAndAllowsAnotherPlay) {
+        reject_start = true;
+        ASSERT_TRUE(active->request_restart());
+        const auto failed = session->apply_mode_request();
+        ASSERT_FALSE(failed);
+        EXPECT_EQ(failed.error().message, "Start failed");
+        EXPECT_EQ(active.get(), original);
+        EXPECT_EQ(state.mode, EditorMode::Edit);
+        EXPECT_FALSE(runtime.is_active());
+        EXPECT_EQ(restorations, 1);
+        EXPECT_EQ(history.state_id(), edited_state);
+        reject_start = false;
+        session->request_mode(EditorMode::Play);
+        ASSERT_TRUE(session->apply_mode_request());
+        EXPECT_TRUE(runtime.is_active());
+        EXPECT_EQ(state.mode, EditorMode::Play);
+        EXPECT_EQ(starts, 3);
+        session->request_mode(EditorMode::Edit);
+        ASSERT_TRUE(session->apply_mode_request());
+        EXPECT_EQ(active.get(), original);
     }
 
     TEST(EditorSceneSessionTest, ScriptParametersUseUndoSerializationAndPlayClone) {
