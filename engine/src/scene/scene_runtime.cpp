@@ -143,6 +143,12 @@ namespace Comet {
                 {"Scene runtime delta must be finite and nonnegative"});
         if(!is_active())
             return Result<void, Error>::success();
+        for(const auto& [name, enabled] : m_scene->take_input_context_requests()) {
+            if(auto changed = m_input.set_context_enabled(name, enabled); !changed) {
+                stop_systems();
+                return Result<void, Error>::failure({changed.error()});
+            }
+        }
         m_input.prepare(input, m_state == State::Paused);
         const bool stepping = std::exchange(m_step_pending, false);
         m_timing.fixed_steps = 0;

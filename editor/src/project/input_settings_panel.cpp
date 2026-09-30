@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <iterator>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <string_view>
@@ -99,8 +100,14 @@ namespace CometEditor {
         if(is_open())
             return;
         m_actions.clear();
+        m_contexts = current.contexts();
         for(const auto& action : current.actions()) {
-            ActionDraft draft{action.name, action.type, {}};
+            ActionDraft draft{action.name, action.type, {}, {}};
+            if(!action.context.empty()) {
+                const auto group = std::ranges::find(
+                    m_contexts, action.context, &Comet::InputActions::Context::name);
+                draft.context = std::distance(m_contexts.begin(), group);
+            }
             for(const auto& binding : action.bindings) {
                 const auto control = Comet::InputActions::format_binding(binding);
                 if(control)
@@ -121,6 +128,8 @@ namespace CometEditor {
         std::vector<Comet::InputActions::Action> actions;
         for(const auto& draft : m_actions) {
             Comet::InputActions::Action action{draft.name, draft.type, {}};
+            if(draft.context)
+                action.context = m_contexts[*draft.context].name;
             for(const auto& binding : draft.bindings) {
                 auto parsed = Comet::InputActions::parse_binding(
                     binding.source, binding.control, binding.scale, binding.deadzone);
@@ -130,7 +139,51 @@ namespace CometEditor {
             }
             actions.push_back(std::move(action));
         }
-        return Comet::InputActions::create(std::move(actions));
+        return Comet::InputActions::create(std::move(actions), m_contexts);
+    }
+
+    void InputSettingsPanel::render_contexts() {
+        if(!ImGui::CollapsingHeader(Ui::label("Input Contexts").c_str()))
+            return;
+        ImGui::BeginChild("ContextList", ImVec2(0, 135), true);
+        ImGui::TextWrapped(
+            "%s", Ui::text("Contexts switch independently; common actions stay enabled."));
+        for(std::size_t index = 0; index < m_contexts.size();) {
+            auto& context = m_contexts[index];
+            ImGui::PushID(static_cast<int>(index));
+            ImGui::SetNextItemWidth(180.0f);
+            Ui::input_text("##ContextName", context.name);
+            ImGui::SameLine();
+            ImGui::Checkbox(Ui::label("Initially Enabled").c_str(), &context.enabled);
+            const bool used = std::ranges::any_of(
+                m_actions, [&](const auto& action) { return action.context == index; });
+            ImGui::SameLine();
+            ImGui::BeginDisabled(used);
+            const bool remove = ImGui::Button(Ui::label("Remove Context").c_str());
+            ImGui::EndDisabled();
+            ImGui::PopID();
+            if(remove) {
+                m_contexts.erase(m_contexts.begin() + index);
+                for(auto& action : m_actions)
+                    if(action.context && *action.context > index)
+                        --*action.context;
+            } else
+                ++index;
+        }
+        ImGui::BeginDisabled(m_contexts.size() >= Comet::InputActions::MAX_CONTEXTS);
+        if(ImGui::Button(Ui::label("Add Context").c_str())) {
+            for(std::size_t number = 1; number <= Comet::InputActions::MAX_CONTEXTS; ++number) {
+                const auto name = "context_" + std::to_string(number);
+                if(std::ranges::none_of(
+                       m_contexts, [&](const auto& context) { return context.name == name; })) {
+                    m_contexts.push_back({name});
+                    break;
+                }
+            }
+        }
+        ImGui::EndDisabled();
+        ImGui::TextDisabled("%s", Ui::text("Unassign actions before removing a context."));
+        ImGui::EndChild();
     }
 
     void InputSettingsPanel::render_binding(
@@ -225,6 +278,20 @@ namespace CometEditor {
             ImGui::PopID();
             return;
         }
+        ImGui::SetNextItemWidth(220.0f);
+        const char* context_name = Ui::text("Common (Always Enabled)");
+        if(action.context)
+            context_name = m_contexts[*action.context].name.c_str();
+        if(ImGui::BeginCombo(Ui::label("Context").c_str(), context_name)) {
+            if(ImGui::Selectable(Ui::text("Common (Always Enabled)"), !action.context))
+                action.context.reset();
+            for(std::size_t context = 0; context < m_contexts.size(); ++context)
+                if(!m_contexts[context].name.empty()
+                    && ImGui::Selectable(
+                        m_contexts[context].name.c_str(), action.context == context))
+                    action.context = context;
+            ImGui::EndCombo();
+        }
         if(ImGui::BeginTable(
                "Bindings", 6, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollX)) {
             ImGui::TableSetupColumn(Ui::text("Source"), ImGuiTableColumnFlags_WidthFixed, 125);
@@ -302,6 +369,7 @@ namespace CometEditor {
             return;
         }
         ImGui::TextUnformatted(Ui::text("Project defaults; restart App or Play to apply."));
+        render_contexts();
         ImGui::BeginChild("ActionList", ImVec2(205, -70), true);
         ImGui::TextUnformatted(Ui::text("Actions"));
         ImGui::Separator();

@@ -29,14 +29,17 @@ namespace CometEditor {
             std::string name;
             Comet::InputActions::Type type = Comet::InputActions::Type::Button;
             std::vector<BindingDraft> bindings;
+            std::optional<std::size_t> context;
         };
 
         [[nodiscard]] Comet::Result<Comet::InputActions> build() const;
+        void render_contexts();
         void render_action(std::size_t index);
         void render_binding(std::size_t action_index, std::size_t binding_index);
         void capture_key();
 
         std::vector<ActionDraft> m_actions;
+        std::vector<Comet::InputActions::Context> m_contexts;
         std::optional<std::size_t> m_selected_action;
         std::optional<std::pair<std::size_t, std::size_t>> m_capturing;
         std::optional<Comet::InputActions> m_request;

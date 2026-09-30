@@ -361,6 +361,18 @@ namespace Comet::LuaBindings {
                     state, "Cannot queue event: runtime inactive or event limit reached");
             return 0;
         }
+        int set_input_context(lua_State* state) {
+            luaL_checktype(state, 1, LUA_TSTRING);
+            luaL_checktype(state, 2, LUA_TBOOLEAN);
+            size_t length = 0;
+            const char* name = lua_tolstring(state, 1, &length);
+            auto* scene = current(state).scene;
+            if(!scene
+                || !scene->request_input_context(
+                    std::string_view(name, length), lua_toboolean(state, 2)))
+                return luaL_error(state, "Cannot request input context change");
+            return 0;
+        }
         int reference_valid(lua_State* state) {
             lua_pushboolean(state, static_cast<bool>(resolve(state, reference(state))));
             return 1;
@@ -454,8 +466,8 @@ namespace Comet::LuaBindings {
             {"restart_scene", restart_scene}, {"play_one_shot", play_one_shot},
             {"set_material_scalar", set_material_scalar},
             {"set_material_vector", set_material_vector}, {"session_get", session_get},
-            {"session_set", session_set}, {"emit", emit}, {"key_down", key_down},
-            {"action_value", action_value}, {"action_down", action_down},
+            {"session_set", session_set}, {"emit", emit}, {"set_input_context", set_input_context},
+            {"key_down", key_down}, {"action_value", action_value}, {"action_down", action_down},
             {"action_pressed", action_pressed}, {"action_released", action_released},
             {nullptr, nullptr}};
         luaL_setfuncs(state, api, 1);

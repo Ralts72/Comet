@@ -230,7 +230,7 @@ Viewport 在实际进入 Running 时一次性聚焦（Play／Resume），不在�
 
 Project 持有 InputActions 配置；宿主启动时交给 SceneRuntime 内的 RuntimeInput，仅停止状态允许替换。
 `Window → Input::Frame → Gate → RuntimeInput → InputState → System／Lua`：
-动作不读取平台或 ImGui，不绕过授权。RuntimeInput 拥有映射、普通／固定阶段快照和待消费的物理输入；
+动作不读取平台或 ImGui，不绕过授权。RuntimeInput 拥有映射、活动动作组、普通／固定阶段快照和待消费输入；
 SceneRuntime 只调用 prepare／consume_fixed／update 及生命周期接口，不处理按钮合并或分别安装物理／动作参数。
 InputState 同时拥有该阶段的物理与动作值，只读公开，可复制保留；引用在输入 owner 下一次修改前有效。
 零固定步不丢短按，多步不重复边沿，暂停／单步同时重建两类状态的基线。
@@ -239,10 +239,23 @@ Engine 启动 Runtime 使用 InputStart::Rebase，在首张已授权输入上丢
 多个绑定合为一个按钮电平，释放其中一个仍按住的动作不会产生释放；轴与位移不伪装成按钮。
 CameraControllerSystem 只约定 `camera.*` 动作语义，具体设备、按键、反向和死区属于项目配置。
 
+InputActions 保存 `Context{name, enabled}` 默认配置及 Action 的组引用，创建时统一校验；
+无组动作始终启用，多个组可同时启用，不隐含互斥关系、优先级或控制消费。
+RuntimeInput 保存本局的活动组状态，reset 恢复默认；InputState 仍是只读的阶段结果，System／Lua 不持有映射配置。
+`comet.set_input_context → Scene::request_input_context → SceneRuntime::advance → RuntimeInput::set_context_enabled`：
+Scene 只存非持久的、按组名合并的有界请求，不拥有输入状态。Runtime 在下一次 advance 的输入准备前消费，
+因此同帧多次 Fixed Update、普通 Update 和通知 handler 使用同一套组状态；未知组走运行失败清理，不静默忽略。
+请求允许在 on_start 发出，on_stop 无活动 Scene；Stop／失败清空，暂停时可应用已排队请求但不推进模拟。
+
+组禁用后动作保留类型、输出零值与一次必要的释放；新启用组采样电平，不合成 pressed，也不接收切换前的 delta。
+转换只影响该组，不能全局 rebase 抹掉公共动作。RuntimeInput 同时保留已按活动组过滤的固定步瞬时积累，
+避免零固定步时把旧输入交给新启用组，也避免丢失启用后的新短按；设备断连／失焦仍遵循物理输入授权规则。
+这不是 Gameplay 广播通知：启停请求有唯一消费方 RuntimeInput，不经过 script.events，也没有新增回调链或 EventBus。
+
 项目输入设置的链路是 `InputSettingsPanel 草稿 → ProjectSettings 校验／保存 → 宿主应用到停止态 RuntimeInput`。
 ProjectSettings 返回配置保存结果，不依赖 Engine；面板不写文件、不操作 Runtime。
 保存失败保留草稿，关闭丢弃未保存草稿，无变化保存由 Project 跳过写盘；运行时应用失败不冒充文件保存失败。
-动作和绑定数量上限由 InputActions 定义，项目解析和 UI 共用；键盘录入占用 ImGui 活动项及按键所有权，
+动作、上下文和绑定数量上限由 InputActions 定义，项目解析和 UI 共用；键盘录入占用 ImGui 活动项及按键所有权，
 Esc 取消，失焦／关闭结束录入，不把捕获键同时交给编辑器快捷键。该面板仅在 Edit 可用，不代表游戏内改键已实现。
 
 PhysicsSystem 排在脚本之后：动态刚体的外部 Transform 写入作为传送同步，随后 Jolt 模拟并回写；

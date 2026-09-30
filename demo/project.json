@@ -2,9 +2,14 @@
   "version": 1,
   "name": "sampler",
   "startup_scene": "scenes/default.scene",
+  "input_contexts": [
+    {"name": "gameplay", "enabled": true},
+    {"name": "camera", "enabled": true}
+  ],
   "input_actions": [
     {
       "name": "camera.move_x",
+      "context": "camera",
       "type": "axis",
       "bindings": [
         {
@@ -25,6 +30,7 @@
     },
     {
       "name": "camera.move_y",
+      "context": "camera",
       "type": "axis",
       "bindings": [
         {
@@ -49,6 +55,7 @@
     },
     {
       "name": "camera.move_z",
+      "context": "camera",
       "type": "axis",
       "bindings": [
         {
@@ -69,6 +76,7 @@
     },
     {
       "name": "camera.boost",
+      "context": "camera",
       "type": "button",
       "bindings": [
         {
@@ -79,6 +87,7 @@
     },
     {
       "name": "camera.look",
+      "context": "camera",
       "type": "button",
       "bindings": [
         {
@@ -89,6 +98,7 @@
     },
     {
       "name": "camera.look_x",
+      "context": "camera",
       "type": "delta",
       "bindings": [
         {
@@ -99,6 +109,7 @@
     },
     {
       "name": "camera.look_y",
+      "context": "camera",
       "type": "delta",
       "bindings": [
         {
@@ -109,6 +120,7 @@
     },
     {
       "name": "camera.zoom",
+      "context": "camera",
       "type": "delta",
       "bindings": [
         {
@@ -119,6 +131,7 @@
     },
     {
       "name": "spin.toggle",
+      "context": "gameplay",
       "type": "button",
       "bindings": [
         {
@@ -143,6 +156,7 @@
     },
     {
       "name": "demo.move_x",
+      "context": "gameplay",
       "type": "axis",
       "bindings": [
         {

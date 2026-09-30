@@ -8,15 +8,49 @@
 
 namespace Comet {
     namespace {
-        Result<InputActions> read_input_actions(Json::Node node, const Json::Context& context) {
+        Result<std::vector<InputActions::Context>> read_input_contexts(
+            Json::Node root, const Json::Context& context) {
+            using Result = Comet::Result<std::vector<InputActions::Context>>;
+            std::vector<InputActions::Context> contexts;
+            Json::Node node;
+            if(root["input_contexts"].get(node))
+                return Result::success(std::move(contexts));
+            const auto entries = context.array(node, "input_contexts");
+            if(!entries)
+                return Result::failure(entries.error());
+            for(const auto entry : entries.value()) {
+                const auto location = "input_contexts[" + std::to_string(contexts.size()) + "]";
+                if(auto valid = context.validate_keys(entry, {"name", "enabled"}, location); !valid)
+                    return Result::failure(valid.error());
+                auto name = context.read_field<std::string>(entry, "name", "a string", location);
+                if(!name)
+                    return Result::failure(name.error());
+                InputActions::Context group{std::move(name).value()};
+                Json::Node enabled;
+                if(!entry["enabled"].get(enabled)) {
+                    auto value =
+                        context.read_scalar<bool>(enabled, location + ".enabled", "a boolean");
+                    if(!value)
+                        return Result::failure(value.error());
+                    group.enabled = value.value();
+                }
+                contexts.push_back(std::move(group));
+                if(contexts.size() > InputActions::MAX_CONTEXTS)
+                    return Result::failure(context.error(location, "too many input contexts"));
+            }
+            return Result::success(std::move(contexts));
+        }
+
+        Result<InputActions> read_input_actions(Json::Node node, const Json::Context& context,
+            std::vector<InputActions::Context> contexts) {
             const auto entries = context.array(node, "input_actions");
             if(!entries)
                 return Result<InputActions>::failure(entries.error());
             std::vector<InputActions::Action> actions;
             for(const auto entry : entries.value()) {
                 const auto location = "input_actions[" + std::to_string(actions.size()) + "]";
-                if(auto valid =
-                        context.validate_keys(entry, {"name", "type", "bindings"}, location);
+                if(auto valid = context.validate_keys(
+                       entry, {"name", "type", "bindings", "context"}, location);
                     !valid)
                     return Result<InputActions>::failure(valid.error());
                 auto name = context.read_field<std::string>(entry, "name", "a string", location);
@@ -27,6 +61,14 @@ namespace Comet {
                     return Result<InputActions>::failure(type.error());
                 InputActions::Action action;
                 action.name = std::move(name).value();
+                Json::Node group;
+                if(!entry["context"].get(group)) {
+                    auto value =
+                        context.read_scalar<std::string>(group, location + ".context", "a string");
+                    if(!value)
+                        return Result<InputActions>::failure(value.error());
+                    action.context = std::move(value).value();
+                }
                 if(type.value() == "button")
                     action.type = InputActions::Type::Button;
                 else if(type.value() == "axis")
@@ -84,7 +126,7 @@ namespace Comet {
                     return Result<InputActions>::failure(
                         context.error(location, "too many actions"));
             }
-            auto result = InputActions::create(std::move(actions));
+            auto result = InputActions::create(std::move(actions), std::move(contexts));
             if(!result)
                 return Result<InputActions>::failure(
                     context.error("input_actions", result.error()));
@@ -92,11 +134,24 @@ namespace Comet {
         }
 
         Result<void> write_input_actions(const InputActions& actions, Json::Writer& writer) {
+            if(!actions.contexts().empty()) {
+                writer.key("input_contexts");
+                writer.begin_array();
+                for(const auto& context : actions.contexts()) {
+                    writer.begin_object();
+                    writer.field("name", context.name);
+                    writer.field("enabled", context.enabled);
+                    writer.end_object();
+                }
+                writer.end_array();
+            }
             writer.key("input_actions");
             writer.begin_array();
             for(const auto& action : actions.actions()) {
                 writer.begin_object();
                 writer.field("name", action.name);
+                if(!action.context.empty())
+                    writer.field("context", action.context);
                 switch(action.type) {
                     case InputActions::Type::Button:
                         writer.field("type", "button");
@@ -158,8 +213,8 @@ namespace Comet {
         if(!parsed)
             return Result<Project>::failure(parsed.error());
         const auto data = parsed.value();
-        if(auto valid =
-                context.validate_keys(data, {"version", "name", "startup_scene", "input_actions"});
+        if(auto valid = context.validate_keys(
+               data, {"version", "name", "startup_scene", "input_actions", "input_contexts"});
             !valid)
             return Result<Project>::failure(valid.error());
         const auto version =
@@ -195,11 +250,19 @@ namespace Comet {
         if(!resolved)
             return Result<Project>::failure(context.error("startup_scene", resolved.error()));
         project.m_startup_scene = relative.lexically_normal();
+        auto contexts = read_input_contexts(data, context);
+        if(!contexts)
+            return Result<Project>::failure(contexts.error());
         Json::Node input;
         if(!data["input_actions"].get(input)) {
-            auto actions = read_input_actions(input, context);
+            auto actions = read_input_actions(input, context, std::move(contexts).value());
             if(!actions)
                 return Result<Project>::failure(actions.error());
+            project.m_input_actions = std::move(actions).value();
+        } else {
+            auto actions = InputActions::create({}, std::move(contexts).value());
+            if(!actions)
+                return Result<Project>::failure(context.error("input_contexts", actions.error()));
             project.m_input_actions = std::move(actions).value();
         }
         project.m_source_contents = std::move(contents).value();

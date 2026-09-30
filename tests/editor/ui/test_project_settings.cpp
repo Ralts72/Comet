@@ -24,8 +24,10 @@ namespace CometEditor::Tests {
 
         void SetUp() override {
             auto actions = Comet::InputActions::create(
-                {{"jump", Comet::InputActions::Type::Button, {{Comet::Input::Key::Space}}},
-                    {"interact", Comet::InputActions::Type::Button, {{Comet::Input::Key::S}}}});
+                {{"jump", Comet::InputActions::Type::Button, {{Comet::Input::Key::Space}},
+                     "gameplay"},
+                    {"interact", Comet::InputActions::Type::Button, {{Comet::Input::Key::S}}}},
+                {{"gameplay"}, {"menu", false}});
             ASSERT_TRUE(actions);
             original = std::move(actions).value();
             panel.request(original);
@@ -44,13 +46,14 @@ namespace CometEditor::Tests {
 
         ImGuiWindow* window() { return ImGui::FindWindowByName("Project Settings - Input"); }
 
-        ImGuiWindow* details() {
+        ImGuiWindow* child(const char* name) {
             for(auto* child : ImGui::GetCurrentContext()->Windows)
-                if(child->ParentWindow == window()
-                    && child->ChildId == window()->GetID("ActionDetails"))
+                if(child->ParentWindow == window() && child->ChildId == window()->GetID(name))
                     return child;
             return nullptr;
         }
+
+        ImGuiWindow* details() { return child("ActionDetails"); }
 
         ImGuiID binding_id(const char* label) {
             const int first = 0;
@@ -79,23 +82,96 @@ namespace CometEditor::Tests {
             ASSERT_EQ(ImGui::GetActiveID(), window()->GetID("KeyCapture"));
         }
 
-        void edit_control(const char* text) {
-            ImGui::FocusWindow(details());
-            const auto id = binding_id("##Control");
+        void edit_text(ImGuiWindow* owner, const ImGuiID id, const char* text) {
+            ImGui::FocusWindow(owner);
             ImGui::ActivateItemByID(id);
             frame();
             ASSERT_EQ(ImGui::GetActiveID(), id);
             auto& io = ImGui::GetIO();
-            io.AddKeyEvent(ImGuiMod_Ctrl, true);
+            const auto modifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+            io.AddKeyEvent(modifier, true);
             press(ImGuiKey_A);
-            io.AddKeyEvent(ImGuiMod_Ctrl, false);
+            io.AddKeyEvent(modifier, false);
             frame();
-            io.AddInputCharactersUTF8(text);
+            if(*text == '\0')
+                press(ImGuiKey_Backspace);
+            else
+                io.AddInputCharactersUTF8(text);
             frame();
+            ASSERT_EQ(ImGui::GetActiveID(), id);
+            ASSERT_STREQ(ImGui::GetInputTextState(id)->TextA.Data, text);
             press(ImGuiKey_Enter);
             frame();
         }
+
+        void edit_control(const char* text) { edit_text(details(), binding_id("##Control"), text); }
     };
+
+    TEST_F(ProjectInputUiTest, ContextDraftsPreserveMembershipAndDefaultStateAcrossRenameAndSave) {
+        button("Save");
+        const auto unchanged = panel.take_request();
+        ASSERT_TRUE(unchanged);
+        EXPECT_EQ(*unchanged, original);
+        button("Input Contexts");
+        auto* contexts = child("ContextList");
+        ASSERT_NE(contexts, nullptr);
+        const int first = 0;
+        const auto group_id = ImHashData(&first, sizeof(first), contexts->ID);
+        edit_text(contexts, ImHashStr("##ContextName", 0, group_id), "");
+        button("Save");
+        EXPECT_FALSE(panel.take_request());
+        edit_text(contexts, ImHashStr("##ContextName", 0, group_id), "player_controls");
+        ImGui::ActivateItemByID(ImHashStr("Initially Enabled", 0, group_id));
+        frame();
+        button("Save");
+        auto renamed = panel.take_request();
+        ASSERT_TRUE(renamed);
+        ASSERT_EQ(renamed->contexts().size(), 2u);
+        EXPECT_EQ(renamed->contexts()[0].name, "player_controls");
+        EXPECT_FALSE(renamed->contexts()[0].enabled);
+        EXPECT_FALSE(renamed->contexts()[1].enabled);
+        EXPECT_EQ(renamed->actions()[0].context, "player_controls");
+        EXPECT_TRUE(renamed->actions()[1].context.empty());
+        ImGui::ActivateItemByID(ImHashStr("Remove Context", 0, group_id));
+        frame();
+        button("Save");
+        EXPECT_EQ(panel.take_request(), renamed);
+        ImGui::ActivateItemByID(contexts->GetID("Add Context"));
+        frame();
+        button("Save");
+        auto added = panel.take_request();
+        ASSERT_TRUE(added);
+        ASSERT_EQ(added->contexts().size(), 3u);
+        EXPECT_EQ(added->contexts().back().name, "context_1");
+        EXPECT_TRUE(added->contexts().back().enabled);
+        EXPECT_EQ(added->actions(), renamed->actions());
+    }
+
+    TEST_F(ProjectInputUiTest, ContextSelectionAndRemovalKeepRemainingActionReferences) {
+        const int first = 0;
+        const auto action_id = ImHashData(&first, sizeof(first), details()->ID);
+        ImGui::FocusWindow(details());
+        ImGui::ActivateItemByID(ImHashStr("Context", 0, action_id));
+        frame();
+        auto* combo = ImGui::FindWindowByName("##Combo_00");
+        ASSERT_NE(combo, nullptr);
+        ImGui::ActivateItemByID(combo->GetID("menu"));
+        frame();
+        button("Input Contexts");
+        auto* contexts = child("ContextList");
+        ASSERT_NE(contexts, nullptr);
+        const auto group_id = ImHashData(&first, sizeof(first), contexts->ID);
+        ImGui::ActivateItemByID(ImHashStr("Remove Context", 0, group_id));
+        frame();
+        button("Save");
+        auto saved = panel.take_request();
+        ASSERT_TRUE(saved);
+        ASSERT_EQ(saved->contexts().size(), 1u);
+        EXPECT_EQ(saved->contexts()[0].name, "menu");
+        EXPECT_FALSE(saved->contexts()[0].enabled);
+        EXPECT_EQ(saved->actions()[0].context, "menu");
+        EXPECT_TRUE(saved->actions()[1].context.empty());
+    }
 
     TEST_F(ProjectInputUiTest, RecordingConsumesShortcutsAndAllowsSharedBindings) {
         record();

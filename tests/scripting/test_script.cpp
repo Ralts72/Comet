@@ -2,6 +2,7 @@
 #include "scene/entity.h"
 #include "scene/scene.h"
 #include "scene/scene_runtime.h"
+#include "input/input_actions.h"
 #include "input/input_state.h"
 #include <gtest/gtest.h>
 #include <limits>
@@ -52,6 +53,57 @@ namespace Comet::Tests {
         EXPECT_FALSE(instance.value()->invoke(
             Script::Phase::Update, actor, {}, {.scene = &scene, .input = &input}));
         EXPECT_FALSE(scene.take_restart_request());
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(ScriptInvocationTest, InputContextsValidateCallsAndFailUnknownGroupsAtTheRuntimeBoundary) {
+        const auto script = Script::create(R"(return {
+            on_start = function() comet.set_input_context('gameplay', false) end,
+            on_stop = function() comet.set_input_context('gameplay', true) end,
+            update = function()
+                comet.set_input_context('missing', true)
+                comet.session_set('before.failure', true)
+            end
+        })");
+        ASSERT_TRUE(script) << script.error().message;
+        auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance);
+        auto actions = InputActions::create(
+            {{"move", InputActions::Type::Axis, {{Input::Key::L}}, "gameplay"}},
+            {{"gameplay", true}});
+        ASSERT_TRUE(actions);
+        Scene scene;
+        const auto actor = scene.create_entity();
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_input_actions(std::move(actions).value()));
+        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Start, actor, {}, {.scene = &scene}));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, actor, {}, {.scene = &scene}));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Stop, {}, {}));
+
+        for(const char* arguments : {"42, true", "'', true", "'bad name', true",
+                "string.rep('a', 65), true", "'gameplay', 1", "'gameplay', nil", "'gameplay'"}) {
+            SCOPED_TRACE(arguments);
+            const auto invalid =
+                Script::create(std::string("return {update = function() ")
+                               + "comet.set_input_context(" + arguments + ") end}");
+            ASSERT_TRUE(invalid);
+            auto invalid_instance = invalid.value()->instantiate();
+            ASSERT_TRUE(invalid_instance);
+            EXPECT_FALSE(invalid_instance.value()->invoke(
+                Script::Phase::Update, actor, {}, {.scene = &scene}));
+        }
+        ASSERT_TRUE(runtime.advance(0));
+        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene}));
+        EXPECT_TRUE(scene.get_session_value("before.failure"));
+        const auto failed = runtime.advance(0);
+        ASSERT_FALSE(failed);
+        EXPECT_NE(failed.error().message.find("missing"), std::string::npos);
+        EXPECT_FALSE(runtime.is_active());
+        EXPECT_FALSE(scene.get_session_value("before.failure"));
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_TRUE(runtime.advance(0));
         ASSERT_TRUE(runtime.stop());
     }
 

@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -72,6 +73,8 @@ namespace Comet {
         // 只提交意图；宿主在下一次更新边界从本局基线重建，不在 System 内换场景。
         [[nodiscard]] bool request_restart();
         [[nodiscard]] bool take_restart_request();
+        // 同名请求合并；下一次 Runtime 输入准备时生效，不改变当前阶段快照。
+        [[nodiscard]] bool request_input_context(std::string_view name, bool enabled);
 
         // 仅当前 Runtime 有效，不序列化。
         [[nodiscard]] std::optional<ParameterValue> get_session_value(std::string_view key) const;
@@ -151,6 +154,7 @@ namespace Comet {
         static constexpr std::size_t MAX_ENTITY_REQUESTS = 1024;
         static constexpr std::size_t MAX_AUDIO_PLAY_REQUESTS = 128;
         static constexpr std::size_t MAX_EVENTS = 1024;
+        using InputContextRequests = std::map<std::string, bool, std::less<>>;
 
         struct EntityRequest {
             enum class Type { Create, Destroy } type;
@@ -168,6 +172,7 @@ namespace Comet {
         [[nodiscard]] bool commit_entity_requests();
         [[nodiscard]] std::vector<AudioPlayRequest> take_audio_play_requests();
         [[nodiscard]] std::vector<Event> take_events();
+        [[nodiscard]] InputContextRequests take_input_context_requests();
         void end_runtime() noexcept;
         [[nodiscard]] bool append_contact_event(ContactEvent event);
         void clear_contact_events() noexcept;
@@ -190,6 +195,7 @@ namespace Comet {
         std::vector<AudioPlayRequest> m_audio_play_requests;
         std::vector<ContactEvent> m_contact_events;
         std::vector<Event> m_events;
+        InputContextRequests m_input_context_requests;
         ParameterMap m_session_values;
         bool m_runtime_active = false;
         bool m_restart_requested = false;

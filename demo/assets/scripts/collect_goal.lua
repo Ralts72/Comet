@@ -14,6 +14,7 @@ function script:on_trigger_enter(other)
     local score = (comet.session_get("demo.score") or 0) + 1
     comet.session_set("demo.score", score)
     comet.emit("demo.score_changed", score)
+    comet.set_input_context("gameplay", false)
     comet.play_one_shot()
     local x, y, z = comet.position()
     comet.create_entity("Collected_Goal_" .. score, {

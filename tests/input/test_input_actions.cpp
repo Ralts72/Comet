@@ -112,4 +112,37 @@ namespace Comet::Tests {
         }
         EXPECT_FALSE(InputActions::format_binding({Input::Key::Keypad1}));
     }
+
+    TEST(InputActionsTest, ContextDefaultsFilterOnlyTheirOwnActions) {
+        using Type = InputActions::Type;
+        auto actions =
+            InputActions::create({{"common", Type::Button, {{Input::Key::Space}}},
+                                     {"player", Type::Button, {{Input::Key::Space}}, "gameplay"},
+                                     {"camera", Type::Axis, {{Input::Key::Space}}, "camera"}},
+                {{"gameplay", false}, {"camera"}});
+        ASSERT_TRUE(actions);
+        EXPECT_EQ(actions.value().contexts().size(), 2);
+        EXPECT_FALSE(actions.value().contexts().front().enabled);
+        Input input;
+        InputState state;
+        input.focus_event(true);
+        input.key_event(Input::Key::Space, true);
+        actions.value().evaluate(input.publish_frame(), state);
+        EXPECT_TRUE(state.action("common")->pressed);
+        EXPECT_FALSE(state.action("player")->down);
+        EXPECT_FALSE(state.action("player")->pressed);
+        EXPECT_FLOAT_EQ(state.action("camera")->value, 1);
+
+        EXPECT_FALSE(InputActions::create({}, {{""}}));
+        EXPECT_FALSE(InputActions::create({}, {{"bad name"}}));
+        EXPECT_FALSE(InputActions::create({}, {{"gameplay"}, {"gameplay"}}));
+        EXPECT_FALSE(InputActions::create({{"player", Type::Button, {}, "unknown"}}));
+        EXPECT_FALSE(InputActions::create({}, {{std::string(65, 'a')}}));
+        std::vector<InputActions::Context> contexts;
+        for(size_t i = 0; i < InputActions::MAX_CONTEXTS; ++i)
+            contexts.push_back({"group" + std::to_string(i)});
+        EXPECT_TRUE(InputActions::create({}, contexts));
+        contexts.push_back({"overflow"});
+        EXPECT_FALSE(InputActions::create({}, contexts));
+    }
 }

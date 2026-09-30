@@ -120,6 +120,13 @@ namespace Comet {
         }
     }
 
+    bool InputActions::valid_name(std::string_view name) {
+        return !name.empty() && name.size() <= 64
+               && name.find_first_not_of(
+                      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.")
+                      == std::string_view::npos;
+    }
+
     Result<InputActions::Binding> InputActions::parse_binding(
         std::string_view source, std::string_view control, float scale, float deadzone) {
         Binding binding{Input::Key::Unknown, scale, deadzone};
@@ -173,25 +180,33 @@ namespace Comet {
             binding.control);
     }
 
-    Result<InputActions> InputActions::create(std::vector<Action> actions) {
+    Result<InputActions> InputActions::create(
+        std::vector<Action> actions, std::vector<Context> contexts) {
         if(actions.size() > MAX_ACTIONS)
             return Result<InputActions>::failure(
                 "At most " + std::to_string(MAX_ACTIONS) + " input actions are supported");
+        if(contexts.size() > MAX_CONTEXTS)
+            return Result<InputActions>::failure(
+                "At most " + std::to_string(MAX_CONTEXTS) + " input contexts are supported");
+        std::set<std::string> context_names;
+        for(const auto& context : contexts)
+            if(!valid_name(context.name) || !context_names.insert(context.name).second)
+                return Result<InputActions>::failure(
+                    "Invalid or duplicate input context: " + context.name);
         std::set<std::string> names;
         for(const auto& action : actions) {
-            if(action.name.empty() || action.name.size() > 64
-                || action.name.find_first_not_of(
-                       "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.")
-                       != std::string::npos
-                || !names.insert(action.name).second)
+            if(!valid_name(action.name) || !names.insert(action.name).second)
                 return Result<InputActions>::failure(
                     "Invalid or duplicate input action: " + action.name);
+            if(!action.context.empty() && !context_names.contains(action.context))
+                return Result<InputActions>::failure(
+                    "Unknown input context for action " + action.name + ": " + action.context);
             if(action.type != Type::Button && action.type != Type::Axis
                 && action.type != Type::Delta)
                 return Result<InputActions>::failure("Invalid input action type: " + action.name);
             if(action.bindings.size() > MAX_BINDINGS)
                 return Result<InputActions>::failure("At most " + std::to_string(MAX_BINDINGS)
-                     + " bindings per action are supported");
+                                                     + " bindings per action are supported");
             for(const auto& binding : action.bindings) {
                 const bool valid_control = std::visit(
                     [](auto control) {
@@ -218,10 +233,16 @@ namespace Comet {
         }
         InputActions result;
         result.m_actions = std::move(actions);
+        result.m_contexts = std::move(contexts);
         return Result<InputActions>::success(std::move(result));
     }
 
     void InputActions::evaluate(const Input::Frame& input, InputState& previous) const {
+        evaluate(input, previous, m_contexts);
+    }
+
+    void InputActions::evaluate(
+        const Input::Frame& input, InputState& previous, std::span<const Context> contexts) const {
         previous.m_physical = input;
         const Input::GamepadState* pad = nullptr;
         if(input.focused)
@@ -234,6 +255,13 @@ namespace Comet {
             auto& value = previous.m_actions[action.name];
             const bool was_down = value.down;
             value = {.type = action.type};
+            if(!action.context.empty()) {
+                const auto context = std::ranges::find(contexts, action.context, &Context::name);
+                if(!context->enabled) {
+                    value.released = was_down;
+                    continue;
+                }
+            }
             bool pressed = false;
             bool released = false;
             double total = 0;

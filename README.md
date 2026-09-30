@@ -376,6 +376,27 @@ Lua 在 `update`／`fixed_update` 中调用 `comet.action_value(name)` 或按钮
 固定步保留零步帧的短按，多次补步只触发一次边沿；普通更新有独立快照，不与固定步抢输入。
 demo 的空格／手柄 South 切换方块旋转；运行状态保存在 Lua `self`，Stop 不回写场景参数。
 
+动作可以归入项目的具名上下文（动作组），统一启停；没有 `context` 的动作属于始终启用的公共组：
+
+```json
+"input_contexts": [
+  {"name": "gameplay", "enabled": true}
+],
+"input_actions": [
+  {"name": "jump", "context": "gameplay", "type": "button", "bindings": [
+    {"source": "key", "control": "Space"}
+  ]}
+]
+```
+
+最多 32 个组，名称沿用动作名规则；省略 `enabled` 时默认启用。项目输入面板可编辑组及默认状态，
+并为动作选择所属组。Lua 在启动／更新阶段调用 `comet.set_input_context("gameplay", false)` 提出启停请求；
+下一次 Runtime 更新开始时生效，同组多次请求以最后一次为准，不会中途改变当前帧的输入快照。
+禁用后动作仍可查询，但值为零且不再按住；已按住按钮释放一次，新启用时只接管当前电平，不伪造按下或重放旧位移。
+固定步仍保留启用之后的新短按，公共动作不受其他组切换影响。未知组会报告运行错误，Stop／重开恢复项目默认状态。
+demo 得分后禁用 `gameplay` 组，方向键移动与空格切换停止响应，`camera` 组和公共的 R 重开仍有效。
+这是动作分组，不是物理模拟暂停；不屏蔽原始 `key_down`，也不提供优先级或按键消费栈。
+
 ### Lua 实体与会话
 
 Lua 在运行阶段可用 `comet.self_entity()` 获取当前实体引用，或用

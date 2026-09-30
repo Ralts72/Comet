@@ -149,8 +149,8 @@ namespace Comet::Tests {
         auto project = std::move(loaded).value();
         auto right = InputActions::parse_binding("key", "Right");
         ASSERT_TRUE(right) << right.error();
-        auto actions = InputActions::create(
-            {{"move", InputActions::Type::Axis, {std::move(right).value()}}});
+        auto actions =
+            InputActions::create({{"move", InputActions::Type::Axis, {std::move(right).value()}}});
         ASSERT_TRUE(actions) << actions.error();
         ASSERT_TRUE(project.save_input_actions(actions.value()));
         EXPECT_EQ(project.input_actions(), actions.value());
@@ -168,6 +168,60 @@ namespace Comet::Tests {
         write(R"({"version":1,"name":"Changed","startup_scene":"levels/main.scene"})");
         EXPECT_FALSE(project.save_input_actions(InputActions{}));
         EXPECT_EQ(project.input_actions(), actions.value());
+    }
+
+    TEST_F(ProjectTest, InputContextsAndActionMembershipSurviveAllProjectSettingsSaves) {
+        write(R"({"version":1,"name":"Game","startup_scene":"scenes/main.scene",
+            "input_contexts":[{"name":"gameplay"},{"name":"camera","enabled":false}],
+            "input_actions":[
+                {"name":"jump","type":"button","bindings":[],"context":"gameplay"},
+                {"name":"pause","type":"button","bindings":[]}]})");
+        auto loaded = Project::load(root);
+        ASSERT_TRUE(loaded) << loaded.error();
+        auto project = std::move(loaded).value();
+        const auto original = project.input_actions();
+        ASSERT_EQ(original.contexts().size(), 2u);
+        EXPECT_TRUE(original.contexts()[0].enabled);
+        EXPECT_FALSE(original.contexts()[1].enabled);
+        EXPECT_EQ(original.actions()[0].context, "gameplay");
+        EXPECT_TRUE(original.actions()[1].context.empty());
+        ASSERT_TRUE(project.save_name("Renamed"));
+        ASSERT_TRUE(project.save_startup_scene("scenes/other.scene"));
+        auto reopened = Project::load(root);
+        ASSERT_TRUE(reopened) << reopened.error();
+        EXPECT_EQ(reopened.value().input_actions(), original);
+
+        auto changed =
+            InputActions::create(original.actions(), {{"gameplay", false}, {"camera", true}});
+        ASSERT_TRUE(changed) << changed.error();
+        ASSERT_TRUE(project.save_input_actions(changed.value()));
+        reopened = Project::load(root);
+        ASSERT_TRUE(reopened) << reopened.error();
+        EXPECT_EQ(reopened.value().input_actions(), changed.value());
+    }
+
+    TEST_F(ProjectTest, ContextsCanExistWithoutActionsAndInvalidDeclarationsAreRejected) {
+        write(R"({"version":1,"name":"Game","startup_scene":"scenes/main.scene",
+            "input_contexts":[{"name":"gameplay"}]})");
+        const auto project = Project::load(root);
+        ASSERT_TRUE(project) << project.error();
+        EXPECT_TRUE(project.value().input_actions().actions().empty());
+        ASSERT_EQ(project.value().input_actions().contexts().size(), 1u);
+        EXPECT_TRUE(project.value().input_actions().contexts()[0].enabled);
+
+        for(const char* contexts : {"null", "{}", "[{}]", R"([{"name":42}])", R"([{"name":""}])",
+                R"([{"name":"gameplay","enabled":1}])", R"([{"name":"gameplay","enabled":null}])",
+                R"([{"name":"gameplay","unknown":true}])",
+                R"([{"name":"gameplay"},{"name":"gameplay"}])"}) {
+            SCOPED_TRACE(contexts);
+            write(
+                std::string(
+                    R"({"version":1,"name":"Game","startup_scene":"scenes/main.scene","input_contexts":)")
+                + contexts + "}");
+            const auto loaded = Project::load(root);
+            ASSERT_FALSE(loaded);
+            EXPECT_NE(loaded.error().find("input_contexts"), std::string::npos);
+        }
     }
 
     TEST_F(ProjectTest, SampleInputBindingsSurviveProjectSave) {
@@ -206,13 +260,15 @@ namespace Comet::Tests {
             R"([{"name":"move","type":"axis","bindings":[{"source":"key","control":"W","scale":null}]}])",
             R"([{"name":"move","type":"axis","bindings":[{"source":"gamepad_axis","control":"LeftX","deadzone":1}]}])",
             R"([{"name":"look","type":"delta","bindings":[{"source":"key","control":"W"}]}])",
+            R"([{"name":"jump","type":"button","bindings":[],"context":1}])",
+            R"([{"name":"jump","type":"button","bindings":[],"context":"missing"}])",
             R"([{"name":"jump","type":"button","bindings":[],"extra":1}])",
             R"([{"name":"jump","type":"button","bindings":[]},{"name":"jump","type":"button","bindings":[]}])"};
         for(const auto& value : invalid) {
             SCOPED_TRACE(value);
             write("{\"version\":1,\"name\":\"Game\","
                   "\"startup_scene\":\"scenes/main.scene\",\"input_actions\":"
-                + value + "}");
+                  + value + "}");
             const auto loaded = Project::load(root);
             ASSERT_FALSE(loaded);
             EXPECT_NE(loaded.error().find("input_actions"), std::string::npos);

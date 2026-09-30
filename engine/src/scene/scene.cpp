@@ -1,5 +1,6 @@
 #include "scene/scene.h"
 #include "scene/material_parameters.h"
+#include "input/input_actions.h"
 
 #include "diagnostics/logger.h"
 
@@ -114,6 +115,7 @@ namespace Comet {
         m_audio_play_requests.clear();
         m_contact_events.clear();
         m_events.clear();
+        m_input_context_requests.clear();
         m_session_values.clear();
         m_material_overrides.clear();
         m_restart_requested = false;
@@ -228,6 +230,7 @@ namespace Comet {
         m_audio_play_requests.clear();
         m_contact_events.clear();
         m_events.clear();
+        m_input_context_requests.clear();
         m_session_values.clear();
         m_material_overrides.clear();
     }
@@ -273,6 +276,20 @@ namespace Comet {
 
     std::vector<Scene::Event> Scene::take_events() {
         return std::exchange(m_events, {});
+    }
+
+    bool Scene::request_input_context(const std::string_view name, const bool enabled) {
+        if(!m_runtime_active || !InputActions::valid_name(name))
+            return false;
+        if(m_input_context_requests.size() >= InputActions::MAX_CONTEXTS
+            && !m_input_context_requests.contains(name))
+            return false;
+        m_input_context_requests.insert_or_assign(std::string(name), enabled);
+        return true;
+    }
+
+    Scene::InputContextRequests Scene::take_input_context_requests() {
+        return std::exchange(m_input_context_requests, {});
     }
 
     void Scene::clear_material_overrides(entt::registry&, const entt::entity entity) {
