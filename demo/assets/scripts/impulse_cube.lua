@@ -1,7 +1,7 @@
 local script = {}
 
 script.properties = {
-    impulse = 150,
+    impulse = 3.5,
 }
 
 function script:fixed_update()

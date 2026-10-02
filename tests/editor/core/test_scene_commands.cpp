@@ -52,7 +52,7 @@ namespace CometEditor::Tests {
             loaded.get_component<Comet::CameraControllerComponent>().look_sensitivity, 0.2f);
     }
 
-    TEST_F(SceneCommandsTest, KinematicMotionUsesExistingPropertyHistoryAndSerialization) {
+    TEST_F(SceneCommandsTest, RigidBodySettingsUsePropertyHistoryComponentRestoreAndSerialization) {
         ASSERT_TRUE(add("rigid_body"));
         const PropertyEditTransaction::Target target{entity.get_uuid(), "rigid_body", "motion"};
         ASSERT_TRUE(edit.apply(target, std::string("kinematic")));
@@ -62,17 +62,37 @@ namespace CometEditor::Tests {
         EXPECT_EQ(
             entity.get_component<Comet::RigidBodyComponent>().motion, Comet::BodyMotion::Dynamic);
         ASSERT_TRUE(history.redo());
+        const PropertyEditTransaction::Target mass{entity.get_uuid(), "rigid_body", "mass"};
+        const auto before_mass = history.undo_size();
+        EXPECT_FALSE(edit.apply(mass, 0.0f));
+        EXPECT_EQ(history.undo_size(), before_mass);
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::RigidBodyComponent>().mass, 1.0f);
+        ASSERT_TRUE(edit.apply(mass, 4.0f));
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::RigidBodyComponent>().mass, 4.0f);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::RigidBodyComponent>().mass, 1.0f);
+        ASSERT_TRUE(history.redo());
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::RigidBodyComponent>().mass, 4.0f);
+        ASSERT_TRUE(remove("rigid_body"));
+        EXPECT_FALSE(entity.has_component<Comet::RigidBodyComponent>());
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::RigidBodyComponent>().mass, 4.0f);
+        EXPECT_EQ(
+            entity.get_component<Comet::RigidBodyComponent>().motion, Comet::BodyMotion::Kinematic);
+        ASSERT_TRUE(history.redo());
+        EXPECT_FALSE(entity.has_component<Comet::RigidBodyComponent>());
+        ASSERT_TRUE(history.undo());
         const Comet::SceneSerializer serializer(registry);
         auto serialized = serializer.serialize(scene);
         ASSERT_TRUE(serialized) << serialized.error();
         EXPECT_NE(serialized.value().find("\"kinematic\""), std::string::npos);
         auto restored = serializer.deserialize(serialized.value());
         ASSERT_TRUE(restored) << restored.error();
-        EXPECT_EQ(restored.value()
-                      ->find_entity(entity.get_uuid())
-                      .get_component<Comet::RigidBodyComponent>()
-                      .motion,
-            Comet::BodyMotion::Kinematic);
+        const auto& loaded = restored.value()
+                                 ->find_entity(entity.get_uuid())
+                                 .get_component<Comet::RigidBodyComponent>();
+        EXPECT_EQ(loaded.motion, Comet::BodyMotion::Kinematic);
+        EXPECT_FLOAT_EQ(loaded.mass, 4.0f);
     }
 
     TEST_F(SceneCommandsTest, MeshPlacementIsOneUndoableSerializableEntity) {

@@ -119,7 +119,10 @@ namespace Comet {
     enum class BodyMotion { Static, Dynamic, Kinematic };
 
     struct COMET_API RigidBodyComponent {
+        static constexpr float MIN_MASS = 0.001f;
         BodyMotion motion = BodyMotion::Dynamic;
+        // kg；仅动态刚体参与质量响应，缩放只改变碰撞形状与惯性。
+        float mass = 1.0f;
     };
 
     enum class ColliderShape { Box, Sphere };

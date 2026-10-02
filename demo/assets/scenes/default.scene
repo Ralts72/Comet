@@ -270,7 +270,8 @@
           "material": 1749083215601001004
         },
         "rigid_body": {
-          "motion": "dynamic"
+          "motion": "dynamic",
+          "mass": 1
         },
         "collider": {
           "shape": "box",

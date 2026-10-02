@@ -43,13 +43,15 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(scene_renderer.is_offscreen());
         ASSERT_TRUE(scene_renderer.get_offscreen_color_view(0));
         const Comet::AssetHandle handle(72);
-        auto material = std::make_shared<Comet::Material>("cached", "pbr");
-        std::weak_ptr<Comet::Material> source = material;
-        ASSERT_TRUE(engine.get_asset_registry().register_asset(handle, material));
-        auto update = renderer.prepare_material_update(handle, material);
-        ASSERT_TRUE(update) << update.error();
-        std::move(update).value().publish();
-        material.reset();
+        std::weak_ptr<Comet::Material> source;
+        {
+            auto material = std::make_shared<Comet::Material>("cached", "pbr");
+            source = material;
+            ASSERT_TRUE(engine.get_asset_registry().register_asset(handle, material));
+            auto update = renderer.prepare_material_update(handle, material);
+            ASSERT_TRUE(update) << update.error();
+            std::move(update).value().publish();
+        }
         engine.set_scene(std::make_unique<Comet::Scene>());
         auto calls = std::make_shared<Comet::Tests::RuntimeCalls>();
         ASSERT_TRUE(engine.add_system(std::make_unique<Comet::Tests::SceneMotionSystem>(calls)));

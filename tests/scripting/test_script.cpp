@@ -109,7 +109,7 @@ namespace Comet::Tests {
 
     TEST(ScriptInvocationTest, ImpulsesRequireFiniteArgumentsAndALiveDynamicBody) {
         const auto script = Script::create(R"(
-            local function impulse() comet.apply_impulse(0, 1000, 0) end
+            local function impulse() comet.apply_impulse(0, 1, 0) end
             return {on_start = impulse, on_stop = impulse, update = impulse,
                 fixed_update = impulse, on_trigger_enter = impulse,
                 on_trigger_exit = impulse, on_collision_enter = impulse,

@@ -265,6 +265,11 @@ PhysicsSystem 排在脚本之后：动态刚体的外部 Transform 写入作为�
 Collider 的尺寸乘以本地正缩放，球体暂要求均匀缩放，
 刚体暂不允许父级，避免把局部 TRS 误当世界姿态。Scene 只保存 RigidBody／Collider 参数，
 Play／app 启动时创建 Jolt 世界和 body，Stop／启动失败时清理；Edit Scene 不模拟。
+RigidBody 保存显式 `mass`（kg，默认 1、最低 0.001），PropertyDescriptor 共用于编辑、撤销和序列化；
+字段缺省取组件默认值，非法值不能通过文件或 Restore 绕过校验。Static／Kinematic 保留配置，质量响应仅作用于 Dynamic。
+创建动态刚体时使用指定质量，惯性仍由已缩放的 Collider 计算，不再由形状体积隐式改变质量。
+仅质量变化时在下一固定步原地更新质量与惯性、保留线／角速度并唤醒，不销毁 body 或重置接触身份；
+同步先于待处理冲量，冲量使用更新后的质量。暂停不执行该同步，单步执行一次；当前未开放 Lua 改质量接口。
 `comet.apply_impulse → Scene::request_apply_impulse → PhysicsSystem::fixed_update` 提交本实体的质心冲量，
 方向为世界空间；Scene 只排队实体 ID 和有限 Vec3，不保存 BodyID／速度，不把命令写入刚体配置。
 最多 128 条待处理请求；提交时要求当前运行场景中的动态刚体、Transform 与 Collider。

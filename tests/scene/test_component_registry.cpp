@@ -92,6 +92,38 @@ namespace {
         EXPECT_FLOAT_EQ(entity.get_component<Comet::AudioSourceComponent>().volume, 1.0f);
     }
 
+    TEST(ComponentRegistryTest, RigidBodyMassBoundsApplyToEditingAndRestore) {
+        const auto registry = Comet::create_scene_component_registry();
+        const auto& descriptor = *registry.find_component("rigid_body");
+        const auto& mass = require_property(descriptor, "mass");
+        EXPECT_EQ(mass.type, Comet::PropertyType::Float);
+        EXPECT_EQ(mass.display_name, "Mass (kg)");
+        EXPECT_FALSE(mass.required);
+        EXPECT_TRUE(mass.numeric.enforce_bounds);
+        EXPECT_EQ(mass.numeric.minimum, Comet::RigidBodyComponent::MIN_MASS);
+        EXPECT_FLOAT_EQ(mass.numeric.speed, 0.1f);
+        Comet::Scene scene;
+        auto entity = scene.create_entity();
+        auto& body = entity.add_component<Comet::RigidBodyComponent>();
+        EXPECT_FLOAT_EQ(body.mass, 1.0f);
+        for(const auto mode : {Comet::PropertyDescriptor::WriteMode::Edit,
+                Comet::PropertyDescriptor::WriteMode::Restore}) {
+            for(const auto invalid : {0.0f, -1.0f, Comet::RigidBodyComponent::MIN_MASS * 0.5f,
+                    std::numeric_limits<float>::infinity(),
+                    std::numeric_limits<float>::quiet_NaN()}) {
+                SCOPED_TRACE(invalid);
+                EXPECT_FALSE(descriptor.assign_property(entity, "mass", invalid, mode));
+                EXPECT_FLOAT_EQ(body.mass, 1.0f);
+            }
+        }
+        ASSERT_TRUE(
+            descriptor.assign_property(entity, "mass", Comet::RigidBodyComponent::MIN_MASS));
+        EXPECT_FLOAT_EQ(body.mass, Comet::RigidBodyComponent::MIN_MASS);
+        ASSERT_TRUE(descriptor.assign_property(
+            entity, "mass", 2.5f, Comet::PropertyDescriptor::WriteMode::Restore));
+        EXPECT_FLOAT_EQ(body.mass, 2.5f);
+    }
+
     TEST(ComponentRegistryTest, RejectsInvalidEnforcedNumericBounds) {
         Comet::ComponentRegistry registry;
         auto descriptor = Comet::make_component_descriptor<Comet::AudioSourceComponent>(

@@ -205,10 +205,15 @@ namespace Comet {
 
         register_component(make_component_descriptor<RigidBodyComponent>("rigid_body", "Rigid Body",
             {make_enum_property_descriptor<RigidBodyComponent, BodyMotion>("motion", "Motion",
-                &RigidBodyComponent::motion,
-                {{BodyMotion::Static, {"static", "Static"}},
-                    {BodyMotion::Dynamic, {"dynamic", "Dynamic"}},
-                    {BodyMotion::Kinematic, {"kinematic", "Kinematic"}}})}));
+                 &RigidBodyComponent::motion,
+                 {{BodyMotion::Static, {"static", "Static"}},
+                     {BodyMotion::Dynamic, {"dynamic", "Dynamic"}},
+                     {BodyMotion::Kinematic, {"kinematic", "Kinematic"}}}),
+                make_property_descriptor("mass", "Mass (kg)", &RigidBodyComponent::mass,
+                    {.required = false,
+                        .numeric = {.speed = 0.1f,
+                            .minimum = RigidBodyComponent::MIN_MASS,
+                            .enforce_bounds = true}})}));
 
         register_component(make_component_descriptor<ColliderComponent>("collider", "Collider",
             {make_enum_property_descriptor<ColliderComponent, ColliderShape>("shape", "Shape",

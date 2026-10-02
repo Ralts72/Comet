@@ -87,6 +87,34 @@ namespace Comet {
                    && a.radius == b.radius && a.is_trigger == b.is_trigger;
         }
 
+        bool valid_inverse(const float value) {
+            return std::isfinite(value) && value > 0 && std::isfinite(1.0f / value)
+                   && 1.0f / value > 0;
+        }
+
+        Result<JPH::MassProperties, Error> calculate_mass_properties(
+            const JPH::Shape& shape, const float mass) {
+            auto properties = shape.GetMassProperties();
+            if(!valid_inverse(properties.mMass) || !std::isfinite(mass / properties.mMass)
+                || mass / properties.mMass <= 0)
+                return Result<JPH::MassProperties, Error>::failure(
+                    {"Shape mass cannot be scaled to the configured mass"});
+            properties.ScaleToMass(mass);
+            if(!valid_inverse(properties.mMass))
+                return Result<JPH::MassProperties, Error>::failure({"Invalid rigid body mass"});
+            for(unsigned column = 0; column < 4; ++column)
+                for(unsigned row = 0; row < 4; ++row)
+                    if(!std::isfinite(properties.mInertia(row, column)))
+                        return Result<JPH::MassProperties, Error>::failure(
+                            {"Invalid rigid body inertia"});
+            // 当前 Box／Sphere 的惯性张量是对角矩阵；逆值也须可表示。
+            for(unsigned axis = 0; axis < 3; ++axis)
+                if(!valid_inverse(properties.mInertia(axis, axis)))
+                    return Result<JPH::MassProperties, Error>::failure(
+                        {"Invalid rigid body inverse inertia"});
+            return Result<JPH::MassProperties, Error>::success(properties);
+        }
+
         Result<void, Error> validate_body(Scene& scene, Entity entity) {
             if(!entity.has_component<TransformComponent>()
                 || !entity.has_component<ColliderComponent>())
@@ -97,11 +125,15 @@ namespace Comet {
                     {"Parented rigid body is unsupported: " + entity.get_uuid().to_string()});
             const auto& transform = entity.get_component<TransformComponent>();
             const auto& collider = entity.get_component<ColliderComponent>();
-            const auto motion = entity.get_component<RigidBodyComponent>().motion;
+            const auto& rigid = entity.get_component<RigidBodyComponent>();
+            const auto motion = rigid.motion;
             if(motion != BodyMotion::Static && motion != BodyMotion::Dynamic
                 && motion != BodyMotion::Kinematic)
                 return Result<void, Error>::failure(
                     {"Unknown rigid body motion: " + entity.get_uuid().to_string()});
+            if(!std::isfinite(rigid.mass) || rigid.mass < RigidBodyComponent::MIN_MASS)
+                return Result<void, Error>::failure(
+                    {"Invalid rigid body mass: " + entity.get_uuid().to_string()});
             const auto valid_scale = Math::is_finite(transform.scale)
                                      && glm::all(glm::greaterThan(transform.scale, Math::Vec3(0)));
             if(!Math::is_finite(transform.translation) || !Math::is_finite(transform.rotation)
@@ -161,6 +193,7 @@ namespace Comet {
             Entity entity;
             JPH::BodyID id;
             BodyMotion motion;
+            float mass;
             ColliderComponent collider;
             TransformComponent last_transform;
             bool active_before_step = false;
@@ -197,7 +230,8 @@ namespace Comet {
                 return checked;
             const auto& transform = entity.get_component<TransformComponent>();
             const auto& collider = entity.get_component<ColliderComponent>();
-            const auto motion = entity.get_component<RigidBodyComponent>().motion;
+            const auto& rigid = entity.get_component<RigidBodyComponent>();
+            const auto motion = rigid.motion;
             JPH::ShapeRefC shape;
             if(collider.shape == ColliderShape::Box) {
                 const auto size = collider.half_extents * transform.scale;
@@ -209,13 +243,23 @@ namespace Comet {
                 to_rotation(transform.rotation), to_motion_type(motion),
                 motion == BodyMotion::Static ? STATIC_LAYER : MOVING_LAYER);
             settings.mIsSensor = collider.is_trigger;
+            if(motion == BodyMotion::Dynamic) {
+                auto properties = calculate_mass_properties(*shape, rigid.mass);
+                if(!properties)
+                    return Result<void, Error>::failure(
+                        {properties.error().message + ": " + entity.get_uuid().to_string()});
+                settings.mOverrideMassProperties =
+                    JPH::EOverrideMassProperties::MassAndInertiaProvided;
+                settings.mMassPropertiesOverride = properties.value();
+            }
             auto activation = JPH::EActivation::Activate;
             if(motion == BodyMotion::Static)
                 activation = JPH::EActivation::DontActivate;
             const auto id = world.GetBodyInterface().CreateAndAddBody(settings, activation);
             if(id.IsInvalid())
                 return Result<void, Error>::failure({"Physics body capacity exceeded"});
-            bodies.emplace(entity.get_uuid(), Body{entity, id, motion, collider, transform});
+            bodies.emplace(
+                entity.get_uuid(), Body{entity, id, motion, rigid.mass, collider, transform});
             if(motion == BodyMotion::Static)
                 wake_nearby_bodies(id);
             return Result<void, Error>::success();
@@ -243,6 +287,26 @@ namespace Comet {
             bodies.erase(it);
         }
 
+        Result<void, Error> update_mass(Body& body, const float mass) {
+            if(body.motion == BodyMotion::Dynamic) {
+                {
+                    const JPH::BodyLockWrite lock(world.GetBodyLockInterface(), body.id);
+                    if(!lock.Succeeded())
+                        return Result<void, Error>::failure({"Cannot access mass update target"});
+                    auto& target = lock.GetBody();
+                    auto properties = calculate_mass_properties(*target.GetShape(), mass);
+                    if(!properties)
+                        return Result<void, Error>::failure({properties.error().message + ": "
+                                                             + body.entity.get_uuid().to_string()});
+                    auto* motion = target.GetMotionProperties();
+                    motion->SetMassProperties(motion->GetAllowedDOFs(), properties.value());
+                }
+                world.GetBodyInterface().ActivateBody(body.id);
+            }
+            body.mass = mass;
+            return Result<void, Error>::success();
+        }
+
         Result<void, Error> synchronize_body(
             Scene& scene, Entity entity, const RigidBodyComponent& rigid, const float delta_time) {
             auto it = bodies.find(entity.get_uuid());
@@ -257,6 +321,9 @@ namespace Comet {
                     remove_body(it);
                     return add_body(scene, entity);
                 }
+                if(it->second.mass != rigid.mass)
+                    if(auto updated = update_mass(it->second, rigid.mass); !updated)
+                        return updated;
                 if(rigid.motion == BodyMotion::Kinematic && delta_time > 0) {
                     // 目标未变也要更新速度，避免沿用上一固定步的运动。
                     world.GetBodyInterface().MoveKinematic(it->second.id,

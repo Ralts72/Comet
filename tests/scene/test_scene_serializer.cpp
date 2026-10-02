@@ -125,6 +125,58 @@ namespace Comet::Tests {
         EXPECT_FALSE(serializer.serialize(scene));
     }
 
+    TEST(SceneSerializerTest, RigidBodyMassPersistsClonesAndDefaultsWhenOmitted) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        auto defaults = serializer.deserialize(R"({"version":2,"entities":[{
+            "uuid":"00000000-0000-4000-8000-000000000001",
+            "components":{"name":"Body","rigid_body":{"motion":"dynamic"}}}]})");
+        ASSERT_TRUE(defaults) << defaults.error();
+        auto body = defaults.value()->get_entities().front();
+        EXPECT_FLOAT_EQ(body.get_component<RigidBodyComponent>().mass, 1.0f);
+        body.get_component<RigidBodyComponent>().mass = 3.5f;
+        TemporaryDirectory directory;
+        const auto path = (directory.path() / "mass.scene").string();
+        ASSERT_TRUE(serializer.save(*defaults.value(), path));
+        auto loaded = serializer.load(path);
+        ASSERT_TRUE(loaded) << loaded.error();
+        const auto loaded_body = loaded.value()->find_entity(body.get_uuid());
+        EXPECT_FLOAT_EQ(loaded_body.get_component<RigidBodyComponent>().mass, 3.5f);
+        auto clone = serializer.clone(*loaded.value());
+        ASSERT_TRUE(clone) << clone.error();
+        auto& cloned_body =
+            clone.value()->find_entity(body.get_uuid()).get_component<RigidBodyComponent>();
+        EXPECT_FLOAT_EQ(cloned_body.mass, 3.5f);
+        cloned_body.mass = RigidBodyComponent::MIN_MASS;
+        EXPECT_TRUE(serializer.serialize(*clone.value()));
+        EXPECT_FLOAT_EQ(loaded_body.get_component<RigidBodyComponent>().mass, 3.5f);
+    }
+
+    TEST(SceneSerializerTest, RejectsInvalidRigidBodyMassOnLoadAndSave) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        for(const std::string value : {"0", "-1", "0.0005", "null", "1e100", "\"2\""}) {
+            SCOPED_TRACE(value);
+            const auto json = R"({"version":2,"entities":[{
+                "uuid":"00000000-0000-4000-8000-000000000001",
+                "components":{"name":"Body","rigid_body":{"motion":"dynamic","mass":)"
+                              + value + "}}}]}";
+            const auto loaded = serializer.deserialize(json);
+            ASSERT_FALSE(loaded);
+            EXPECT_NE(loaded.error().find("mass"), std::string::npos);
+        }
+        Scene scene;
+        auto& body = scene.create_entity().add_component<RigidBodyComponent>();
+        for(const auto invalid : {0.0f, -1.0f, RigidBodyComponent::MIN_MASS * 0.5f,
+                std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()}) {
+            SCOPED_TRACE(invalid);
+            body.mass = invalid;
+            const auto serialized = serializer.serialize(scene);
+            ASSERT_FALSE(serialized);
+            EXPECT_NE(serialized.error().find("mass"), std::string::npos);
+        }
+    }
+
     TEST(ScenePostProcessTest, PersistsClonesAndTravelsThroughBothCameraPaths) {
         Scene scene;
         const PostProcessSettings settings{.exposure = 0.75f,

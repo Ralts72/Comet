@@ -135,6 +135,7 @@
 "Look Sensitivity": "转向灵敏度"
 "Rigid Body": "刚体"
 "Motion": "运动类型"
+"Mass (kg)": "质量 (kg)"
 "Static": "静态"
 "Dynamic": "动态"
 "Kinematic": "运动学"

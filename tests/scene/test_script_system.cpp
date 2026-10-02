@@ -335,11 +335,11 @@ namespace Comet::Tests {
         source(R"(return {
             properties = {reference = false},
             on_start = function(self)
-                if self.parameters.reference then comet.apply_impulse(0, 1000, 0) end
+                if self.parameters.reference then comet.apply_impulse(0, 1, 0) end
             end,
             fixed_update = function(self)
                 if not self.parameters.reference and comet.action_pressed('jump') then
-                    comet.apply_impulse(0, 1000, 0)
+                    comet.apply_impulse(0, 1, 0)
                 end
             end
         })");
@@ -375,11 +375,11 @@ namespace Comet::Tests {
         source(R"(return {
             properties = {from_update = false},
             on_start = function(self)
-                if not self.parameters.from_update then comet.apply_impulse(1000, 0, 0) end
+                if not self.parameters.from_update then comet.apply_impulse(1, 0, 0) end
             end,
             update = function(self)
                 if self.parameters.from_update and not self.requested then
-                    comet.apply_impulse(1000, 0, 0)
+                    comet.apply_impulse(1, 0, 0)
                     self.requested = true
                 end
             end
@@ -1155,6 +1155,10 @@ namespace Comet::Tests {
         auto edit_center = edit_scene.value()->find_entity(*center_uuid);
         ASSERT_TRUE(edit_center);
         edit_center.get_component<ScriptComponent>().parameters["score_color"] = score_color;
+        auto edit_impulse = edit_scene.value()->find_entity(*impulse_uuid);
+        ASSERT_TRUE(edit_impulse);
+        EXPECT_FLOAT_EQ(edit_impulse.get_component<RigidBodyComponent>().mass, 1);
+        edit_impulse.get_component<RigidBodyComponent>().mass = 2;
         auto playing = serializer.clone(*edit_scene.value());
         ASSERT_TRUE(playing) << playing.error();
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
@@ -1164,8 +1168,9 @@ namespace Comet::Tests {
 
         Input input;
         input.focus_event(true);
-        const auto impulse_cube = playing.value()->find_entity(*impulse_uuid);
+        auto impulse_cube = playing.value()->find_entity(*impulse_uuid);
         ASSERT_TRUE(impulse_cube);
+        EXPECT_FLOAT_EQ(impulse_cube.get_component<RigidBodyComponent>().mass, 2);
         const auto initial_height = impulse_cube.get_component<TransformComponent>().translation.y;
         input.key_event(Input::Key::J, true);
         ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
@@ -1254,6 +1259,8 @@ namespace Comet::Tests {
         EXPECT_EQ(material->get_revision(), material_revision);
         EXPECT_EQ(material->get_vector_property("base_color"),
             authored.value().vector_properties.at("base_color"));
+        impulse_cube.get_component<RigidBodyComponent>().mass = 4;
+        EXPECT_FLOAT_EQ(edit_impulse.get_component<RigidBodyComponent>().mass, 2);
         input.key_event(Input::Key::Right, false);
         input.key_event(Input::Key::R, true);
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
@@ -1266,6 +1273,10 @@ namespace Comet::Tests {
         EXPECT_TRUE(edit_scene.value()->find_entity(*goal_uuid));
         auto restarted = serializer.clone(*edit_scene.value());
         ASSERT_TRUE(restarted) << restarted.error();
+        const auto restarted_impulse = restarted.value()->find_entity(*impulse_uuid);
+        ASSERT_TRUE(restarted_impulse);
+        EXPECT_FLOAT_EQ(restarted_impulse.get_component<RigidBodyComponent>().mass, 2);
+        EXPECT_FLOAT_EQ(impulse_cube.get_component<RigidBodyComponent>().mass, 4);
         EXPECT_FALSE(restarted.value()->find_entity(marker.get_uuid()));
         ASSERT_TRUE(runtime.start(
             *restarted.value(), SceneRuntime::State::Running, SceneRuntime::InputStart::Rebase));
