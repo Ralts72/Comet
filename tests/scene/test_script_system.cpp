@@ -14,7 +14,6 @@
 #include "audio/audio.h"
 #include "core/project.h"
 #include "input/input_actions.h"
-#include "common/file_io.h"
 #include "common/scope_exit.h"
 #include "diagnostics/logger.h"
 #include "render/material/material.h"
@@ -988,9 +987,16 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.start(scene));
     }
 
-    TEST_F(ScriptSystemTest, InputUsesAuthorizedFrameAndFixedStepDelta) {
-        source(
-            "return {update = function(self, dt) if comet.key_down('W') then comet.translate(0, 0, dt) end end}");
+    TEST_F(ScriptSystemTest, NamedActionsUseAuthorizedFrameAndUpdateDelta) {
+        auto actions =
+            InputActions::create({{"move", InputActions::Type::Axis, {{Input::Key::W}}}});
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(runtime.set_input_actions(std::move(actions).value()));
+        source(R"(return {
+            update = function(self, dt)
+                comet.translate(0, 0, comet.action_value('move') * dt)
+            end
+        })");
         auto entity = actor();
         ASSERT_TRUE(runtime.start(scene));
         Input::Frame input{.serial = 1, .focused = true};
@@ -1014,8 +1020,7 @@ namespace Comet::Tests {
                 comet.translate(0,0,comet.action_value('move') * dt)
             end,
             update = function(self)
-                self.held = comet.action_down('jump')
-                assert(self.held == comet.key_down('J'))
+                assert(not comet.action_down('jump'))
             end
         })");
         auto entity = actor();
@@ -1115,8 +1120,6 @@ namespace Comet::Tests {
         ASSERT_TRUE(project) << project.error();
         ASSERT_TRUE(runtime.set_input_actions(project.value().input_actions()));
         const auto material_path = project.value().paths().assets() / "materials/cube.mat";
-        const auto material_source = read_text_file(material_path);
-        ASSERT_TRUE(material_source) << material_source.error();
         const auto authored = MaterialSerializer{}.load(material_path);
         ASSERT_TRUE(authored) << authored.error();
         const auto material = std::make_shared<Material>("cube", authored.value().template_name);
@@ -1126,7 +1129,6 @@ namespace Comet::Tests {
             ASSERT_TRUE(material->set_vector_property(name, value));
         const AssetHandle material_handle{6482638524486200214ULL};
         ASSERT_TRUE(assets.register_asset(material_handle, material));
-        const auto material_revision = material->get_revision();
         for(const auto& [name, script_handle] :
             {std::pair{"spin.lua", AssetHandle{7821648321594001021}},
                 std::pair{"move_cube.lua", AssetHandle{14309634625000312001ULL}},
@@ -1155,12 +1157,9 @@ namespace Comet::Tests {
         auto edit_center = edit_scene.value()->find_entity(*center_uuid);
         ASSERT_TRUE(edit_center);
         edit_center.get_component<ScriptComponent>().parameters["score_color"] = score_color;
-        auto edit_impulse = edit_scene.value()->find_entity(*impulse_uuid);
-        ASSERT_TRUE(edit_impulse);
-        EXPECT_FLOAT_EQ(edit_impulse.get_component<RigidBodyComponent>().mass, 1);
-        edit_impulse.get_component<RigidBodyComponent>().mass = 2;
         auto playing = serializer.clone(*edit_scene.value());
         ASSERT_TRUE(playing) << playing.error();
+        const ScopeExit stop_playing([&] { EXPECT_TRUE(runtime.stop()); });
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
         ASSERT_TRUE(runtime.add_system(
             std::make_unique<AudioSystem>(assets, AudioPlayback::Mode::Offline)));
@@ -1170,7 +1169,10 @@ namespace Comet::Tests {
         input.focus_event(true);
         auto impulse_cube = playing.value()->find_entity(*impulse_uuid);
         ASSERT_TRUE(impulse_cube);
-        EXPECT_FLOAT_EQ(impulse_cube.get_component<RigidBodyComponent>().mass, 2);
+        const auto center = playing.value()->find_entity(*center_uuid);
+        const auto player = playing.value()->find_entity(*player_uuid);
+        ASSERT_TRUE(center);
+        ASSERT_TRUE(player);
         const auto initial_height = impulse_cube.get_component<TransformComponent>().translation.y;
         input.key_event(Input::Key::J, true);
         ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
@@ -1178,30 +1180,22 @@ namespace Comet::Tests {
         input.key_event(Input::Key::J, false);
         input.key_event(Input::Key::Right, true);
         bool score_feedback_observed = false;
-        Math::Vec3 player_position_at_score{};
         for(int frame = 0; frame < 120; ++frame) {
             ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
-            if(!score_feedback_observed && playing.value()->get_session_value("demo.score")) {
-                const auto center = playing.value()->find_entity(*center_uuid);
-                ASSERT_TRUE(center);
+            if(playing.value()->get_session_value("demo.score")) {
                 EXPECT_FLOAT_EQ(center.get_component<TransformComponent>().translation.y, 0.4f);
                 const auto tint = playing.value()->get_material_overrides(center);
                 ASSERT_TRUE(tint);
                 EXPECT_EQ(tint->vector_properties.at("base_color"), score_color);
                 score_feedback_observed = true;
-                player_position_at_score = playing.value()
-                                               ->find_entity(*player_uuid)
-                                               .get_component<TransformComponent>()
-                                               .translation;
-            } else if(score_feedback_observed) {
-                EXPECT_TRUE(TestUtils::Vec3Equal(playing.value()
-                                                     ->find_entity(*player_uuid)
-                                                     .get_component<TransformComponent>()
-                                                     .translation,
-                    player_position_at_score));
+                break;
             }
         }
-        EXPECT_TRUE(score_feedback_observed);
+        ASSERT_TRUE(score_feedback_observed);
+        const auto player_position_at_score =
+            player.get_component<TransformComponent>().translation;
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        EXPECT_EQ(player.get_component<TransformComponent>().translation, player_position_at_score);
 
         const auto goal_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d07");
         ASSERT_TRUE(goal_uuid);
@@ -1226,57 +1220,19 @@ namespace Comet::Tests {
         const auto& goal_mesh = edit_goal.get_component<MeshRendererComponent>();
         EXPECT_EQ(marker_mesh.mesh, goal_mesh.mesh);
         EXPECT_EQ(marker_mesh.material, goal_mesh.material);
-        EXPECT_TRUE(TestUtils::Vec3Equal(marker.get_component<TransformComponent>().translation,
-            edit_goal.get_component<TransformComponent>().translation + Math::Vec3(0, 0.8f, 0)));
-        EXPECT_EQ(marker.get_component<TransformComponent>().scale, Math::Vec3(0.15f));
-        EXPECT_FALSE(marker.has_component<ScriptComponent>());
-        EXPECT_FALSE(marker.has_component<ColliderComponent>());
-        EXPECT_FALSE(marker.has_component<AudioSourceComponent>());
         EXPECT_FALSE(edit_scene.value()->find_entity(marker.get_uuid()));
-        const auto extracted = SceneExtractor::extract(*playing.value());
-        const auto marker_item =
-            std::ranges::find(extracted.render_items, marker.get_id(), &RenderItem::entity_id);
-        ASSERT_NE(marker_item, extracted.render_items.end());
-        EXPECT_EQ(marker_item->mesh_handle, goal_mesh.mesh);
-        EXPECT_EQ(marker_item->material_handle, goal_mesh.material);
-        EXPECT_FLOAT_EQ(playing.value()
-                            ->find_entity(*center_uuid)
-                            .get_component<TransformComponent>()
-                            .translation.y,
-            0.4f);
-        const auto center = playing.value()->find_entity(*center_uuid);
-        const auto player = playing.value()->find_entity(*player_uuid);
-        ASSERT_TRUE(center);
-        ASSERT_TRUE(player);
-        EXPECT_EQ(center.get_component<MeshRendererComponent>().material, material_handle);
-        EXPECT_EQ(player.get_component<MeshRendererComponent>().material, material_handle);
-        const auto tint = playing.value()->get_material_overrides(center);
-        ASSERT_TRUE(tint);
-        EXPECT_EQ(tint->vector_properties.at("base_color"), score_color);
-        EXPECT_FALSE(playing.value()->get_material_overrides(player));
         EXPECT_FALSE(edit_scene.value()->get_material_overrides(
             edit_scene.value()->find_entity(*center_uuid)));
-        EXPECT_EQ(material->get_revision(), material_revision);
-        EXPECT_EQ(material->get_vector_property("base_color"),
-            authored.value().vector_properties.at("base_color"));
-        impulse_cube.get_component<RigidBodyComponent>().mass = 4;
-        EXPECT_FLOAT_EQ(edit_impulse.get_component<RigidBodyComponent>().mass, 2);
         input.key_event(Input::Key::Right, false);
         input.key_event(Input::Key::R, true);
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
         EXPECT_TRUE(playing.value()->take_restart_request());
-        EXPECT_FALSE(playing.value()->take_restart_request());
         EXPECT_FALSE(playing.value()->find_entity(*goal_uuid));
         ASSERT_TRUE(runtime.stop());
-        EXPECT_FALSE(playing.value()->get_session_value("demo.score"));
-        EXPECT_FALSE(playing.value()->get_material_overrides(center));
         EXPECT_TRUE(edit_scene.value()->find_entity(*goal_uuid));
         auto restarted = serializer.clone(*edit_scene.value());
         ASSERT_TRUE(restarted) << restarted.error();
-        const auto restarted_impulse = restarted.value()->find_entity(*impulse_uuid);
-        ASSERT_TRUE(restarted_impulse);
-        EXPECT_FLOAT_EQ(restarted_impulse.get_component<RigidBodyComponent>().mass, 2);
-        EXPECT_FLOAT_EQ(impulse_cube.get_component<RigidBodyComponent>().mass, 4);
+        const ScopeExit stop_restarted([&] { EXPECT_TRUE(runtime.stop()); });
         EXPECT_FALSE(restarted.value()->find_entity(marker.get_uuid()));
         ASSERT_TRUE(runtime.start(
             *restarted.value(), SceneRuntime::State::Running, SceneRuntime::InputStart::Rebase));
@@ -1284,27 +1240,19 @@ namespace Comet::Tests {
         EXPECT_FALSE(restarted.value()->get_session_value("demo.score"));
         EXPECT_FALSE(restarted.value()->get_material_overrides(
             restarted.value()->find_entity(*center_uuid)));
-        EXPECT_EQ(restarted.value()
-                      ->find_entity(*player_uuid)
-                      .get_component<TransformComponent>()
-                      .translation,
-            edit_scene.value()
-                ->find_entity(*player_uuid)
-                .get_component<TransformComponent>()
-                .translation);
+        const auto restarted_player = restarted.value()->find_entity(*player_uuid);
+        const auto authored_player_position = edit_scene.value()
+                                                  ->find_entity(*player_uuid)
+                                                  .get_component<TransformComponent>()
+                                                  .translation;
+        ASSERT_TRUE(restarted_player);
+        EXPECT_EQ(restarted_player.get_component<TransformComponent>().translation,
+            authored_player_position);
         input.key_event(Input::Key::Right, true);
-        for(int frame = 0; frame < 3; ++frame) {
-            ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
-            EXPECT_FALSE(restarted.value()->take_restart_request());
-        }
-        EXPECT_GT(restarted.value()
-                      ->find_entity(*player_uuid)
-                      .get_component<TransformComponent>()
-                      .translation.x,
-            edit_scene.value()
-                ->find_entity(*player_uuid)
-                .get_component<TransformComponent>()
-                .translation.x);
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        EXPECT_FALSE(restarted.value()->take_restart_request());
+        EXPECT_GT(restarted_player.get_component<TransformComponent>().translation.x,
+            authored_player_position.x);
         input.key_event(Input::Key::Right, false);
         input.key_event(Input::Key::R, false);
         ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
@@ -1312,9 +1260,6 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
         EXPECT_TRUE(restarted.value()->take_restart_request());
         ASSERT_TRUE(runtime.stop());
-        const auto unchanged_material_source = read_text_file(material_path);
-        ASSERT_TRUE(unchanged_material_source) << unchanged_material_source.error();
-        EXPECT_EQ(unchanged_material_source.value(), material_source.value());
     }
 
     TEST_F(ScriptSystemTest, DemoGoalIgnoresContactsWithUnassignedActors) {

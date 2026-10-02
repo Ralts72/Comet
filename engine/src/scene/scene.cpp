@@ -111,15 +111,7 @@ namespace Comet {
     bool Scene::begin_runtime() {
         if(m_runtime_active)
             return false;
-        m_entity_requests.clear();
-        m_audio_play_requests.clear();
-        m_impulse_requests.clear();
-        m_contact_events.clear();
-        m_events.clear();
-        m_input_context_requests.clear();
-        m_session_values.clear();
-        m_material_overrides.clear();
-        m_restart_requested = false;
+        clear_runtime_state();
         m_runtime_active = true;
         return true;
     }
@@ -242,6 +234,10 @@ namespace Comet {
 
     void Scene::end_runtime() noexcept {
         m_runtime_active = false;
+        clear_runtime_state();
+    }
+
+    void Scene::clear_runtime_state() noexcept {
         m_restart_requested = false;
         m_entity_requests.clear();
         m_audio_play_requests.clear();

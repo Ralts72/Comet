@@ -82,6 +82,20 @@ namespace Comet {
         std::erase_if(m_project_pipelines, [&](const auto& entry) {
             return !assets.resolve<ShaderProgramArtifact>(entry.first.first);
         });
+        for(auto& [program, active] : m_project_pipelines) {
+            bool invalidates_failure = false;
+            std::erase_if(active.materials, [&](const auto& entry) {
+                if(assets.resolve<Material>(entry.first.material_handle))
+                    return false;
+                if(active.failure_cause == ProjectPipeline::FailureCause::Materials
+                    || (active.failure_cause == ProjectPipeline::FailureCause::Overrides
+                        && entry.second.overrides))
+                    invalidates_failure = true;
+                return true;
+            });
+            if(invalidates_failure)
+                active.failed_source.reset();
+        }
     }
 
     Result<std::unique_ptr<MaterialRenderer>, GraphicsError> MaterialRenderer::create(
@@ -357,6 +371,7 @@ namespace Comet {
             program.materials.insert_or_assign(MaterialInstanceKey{m_handle},
                 MaterialInput{m_source, m_source->get_revision(), {}});
         }
+        m_source.reset();
     }
 
     Result<void, GraphicsError> MaterialRenderer::prepare_programs(

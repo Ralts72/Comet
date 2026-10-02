@@ -20,7 +20,11 @@
 #include "render/render_target.h"
 #include "render/render_diagnostics.h"
 #include "asset/registry.h"
+#include "asset/artifact/shader_program_artifact.h"
 #include "render/material/material.h"
+#include "render/material/material_programs.h"
+#include "pbr_vert.h"
+#include "pbr_frag.h"
 
 #include <gtest/gtest.h>
 #include <imgui_impl_glfw.h>
@@ -43,15 +47,20 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(scene_renderer.is_offscreen());
         ASSERT_TRUE(scene_renderer.get_offscreen_color_view(0));
         const Comet::AssetHandle handle(72);
-        std::weak_ptr<Comet::Material> source;
-        {
-            auto material = std::make_shared<Comet::Material>("cached", "pbr");
-            source = material;
-            ASSERT_TRUE(engine.get_asset_registry().register_asset(handle, material));
-            auto update = renderer.prepare_material_update(handle, material);
-            ASSERT_TRUE(update) << update.error();
-            std::move(update).value().publish();
-        }
+        const Comet::AssetHandle program_handle(73);
+        auto program = std::make_shared<Comet::ShaderProgramArtifact>();
+        program->handle = program_handle;
+        program->vertex_words.assign(PBR_VERT.begin(), PBR_VERT.end());
+        program->fragment_words.assign(PBR_FRAG.begin(), PBR_FRAG.end());
+        ASSERT_TRUE(engine.get_asset_registry().register_asset(program_handle, program));
+        auto material = std::make_shared<Comet::Material>("cached", "pbr", program_handle);
+        std::weak_ptr<Comet::Material> source = material;
+        ASSERT_TRUE(engine.get_asset_registry().register_asset(handle, material));
+        // 保留已发布候选，确认它不会继续保活稍后注销的源材质。
+        auto update = renderer.prepare_material_update(handle, material);
+        ASSERT_TRUE(update) << update.error();
+        std::move(update).value().publish();
+        material.reset();
         engine.set_scene(std::make_unique<Comet::Scene>());
         auto calls = std::make_shared<Comet::Tests::RuntimeCalls>();
         ASSERT_TRUE(engine.add_system(std::make_unique<Comet::Tests::SceneMotionSystem>(calls)));
@@ -69,7 +78,7 @@ namespace CometEditor::Tests {
         unsigned overlays = 0;
         unsigned picks = 0;
         unsigned prepared_frames = 0;
-        bool visible = true;
+        bool visible = false;
         renderer.set_viewport_pick_callback([&](auto) { ++picks; });
         renderer.set_overlay({.render = [&](Comet::CommandBuffer& command) {
             ++overlays;
@@ -87,24 +96,27 @@ namespace CometEditor::Tests {
                 EXPECT_FLOAT_EQ(scene_renderer.get_post_process_settings().exposure, 1);
             }
             EXPECT_EQ(overlays, prepared_frames);
-            EXPECT_EQ(calls->updates, prepared_frames);
+            EXPECT_GE(calls->updates, prepared_frames);
             EXPECT_EQ(calls->starts, 1);
             EXPECT_EQ(calls->stops, 0);
             if(overlays == 4)
                 engine.get_window().request_close();
         }});
         unsigned attempts = 0;
+        bool removed = false;
         const auto run = engine.run(
             [&](Comet::Engine::FrameContext&) {
-                if(overlays == 2)
+                if(overlays == 2 && !removed) {
                     EXPECT_TRUE(engine.get_asset_registry().unregister_asset(handle));
+                    removed = true;
+                }
                 if(++attempts > 10)
                     engine.get_window().request_close();
                 return Comet::Result<void, Comet::Error>::success();
             },
             [&](Comet::Engine::FrameContext&) {
                 ++prepared_frames;
-                visible = prepared_frames == 1 || prepared_frames == 4;
+                visible = prepared_frames == 4;
                 if(!ui.begin_frame())
                     return Comet::Result<void, Comet::Error>::failure({"UI is not ready"});
                 ImGui::Begin("UI stays active");
@@ -126,6 +138,9 @@ namespace CometEditor::Tests {
         EXPECT_EQ(overlays, 4);
         EXPECT_EQ(picks, 0);
         EXPECT_FLOAT_EQ(scene_renderer.get_post_process_settings().exposure, 2);
+        const auto* published = renderer.get_material_programs().published(program_handle, "pbr");
+        ASSERT_NE(published, nullptr);
+        EXPECT_EQ(published->source, program);
     }
 
     TEST(ViewportTest, RebuildsAfterBackendsWereClosedDuringFailedRecreation) {

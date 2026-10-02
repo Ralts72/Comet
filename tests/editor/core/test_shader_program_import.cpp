@@ -143,6 +143,34 @@ namespace CometEditor::Tests {
         EXPECT_EQ(std::filesystem::last_write_time(artifact_path()), stamps[0]);
     }
 
+    TEST_F(ShaderProgramImportTest, PreparationSkipsDisabledEnvironmentWithoutDroppingItsHandle) {
+        ASSERT_TRUE(Comet::write_text_file_atomic(paths.assets() / "broken.hdr", "invalid HDR"));
+        ASSERT_TRUE(database.scan().succeeded());
+        const auto* record = database.find("broken.hdr");
+        ASSERT_NE(record, nullptr);
+        Comet::Scene scene;
+        ASSERT_TRUE(scene.set_environment(
+            {.asset = record->handle, .background = false, .lighting = false}));
+        const auto components = Comet::create_scene_component_registry();
+        const Comet::SceneSerializer serializer(components);
+        const auto scene_path = (paths.assets() / "main.scene").string();
+        ASSERT_TRUE(serializer.save(scene, scene_path));
+        ASSERT_TRUE(Comet::write_text_file_atomic(paths.root() / "project.json",
+            R"({"version":1,"name":"Prepared","startup_scene":"main.scene"})"));
+        const auto project = Comet::Project::load(paths.root());
+        ASSERT_TRUE(project);
+        EXPECT_TRUE(Comet::prepare_project(project.value()));
+        EXPECT_FALSE(std::filesystem::exists(
+            Comet::ImportService(paths).environment_artifact_path(record->handle)));
+        auto restored = serializer.load(scene_path);
+        ASSERT_TRUE(restored);
+        EXPECT_EQ(restored.value()->get_environment().asset, record->handle);
+        ASSERT_TRUE(scene.set_environment(
+            {.asset = record->handle, .background = true, .lighting = false}));
+        ASSERT_TRUE(serializer.save(scene, scene_path));
+        EXPECT_FALSE(Comet::prepare_project(project.value()));
+    }
+
     TEST_F(ShaderProgramImportTest, RejectsPreparationForAnotherProject) {
         Comet::ProjectPaths other_paths{directory.path() / "other-project"};
         std::filesystem::create_directories(other_paths.assets());

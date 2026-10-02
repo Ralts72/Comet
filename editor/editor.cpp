@@ -301,7 +301,7 @@ namespace {
             if(m_viewport)
                 m_viewport->panel().cancel_interaction();
             if(m_inspector_panel)
-                static_cast<void>(m_inspector_panel->finish_edit(true));
+                m_inspector_panel->reset_for_scene_change();
             else
                 static_cast<void>(m_property_edit.cancel());
             m_command_history.bind_scene(nullptr);
@@ -540,7 +540,7 @@ namespace {
             std::unique_ptr<Comet::Scene> scene, CometEditor::EditorMode mode) {
             // 旧场景仍存活时结束交互；返回 owner 后才允许调用者销毁或保留它。
             if(m_inspector_panel)
-                static_cast<void>(m_inspector_panel->finish_edit(true));
+                m_inspector_panel->reset_for_scene_change();
             else
                 static_cast<void>(m_property_edit.cancel());
             if(m_viewport)

@@ -44,6 +44,7 @@ set(UNIT_TEST_SOURCES
         editor/core/test_project_session.cpp
         editor/core/test_project_creation.cpp
         editor/core/test_project_asset_operations.cpp
+        editor/core/test_property_editor_registry.cpp
         editor/core/test_scene_commands.cpp
         editor/core/test_scene_activation.cpp
         editor/core/test_scene_document.cpp
@@ -79,22 +80,22 @@ set(UNIT_TEST_SOURCES
         scripting/test_script.cpp
         scene/test_scene_serializer.cpp
         shader/test_compiler.cpp)
-set(INTEGRATION_SOURCES
-        core/test_window.cpp
-        editor/integration/test_material_editing.cpp
+set(EDITOR_UI_SOURCES
         editor/ui/test_asset_editing.cpp
         editor/ui/test_console_panel.cpp
         editor/ui/test_editing_ui.cpp
         editor/ui/test_language.cpp
         editor/ui/test_project_panel.cpp
         editor/ui/test_project_settings.cpp
-        editor/ui/test_property_editor_registry.cpp
         editor/ui/test_path_dialog.cpp
         editor/ui/test_shortcuts.cpp
         editor/ui/test_unsaved_scene_dialog.cpp
-        editor/ui/test_viewport.cpp
         editor/ui/test_viewport_gizmo_ui.cpp
-        editor/ui/test_viewport_play_ui.cpp
+        editor/ui/test_viewport_play_ui.cpp)
+set(INTEGRATION_SOURCES
+        core/test_window.cpp
+        editor/integration/test_material_editing.cpp
+        editor/integration/test_viewport.cpp
         graphics/test_allocator.cpp
         graphics/test_barrier.cpp
         graphics/test_creation.cpp
@@ -127,7 +128,7 @@ set(ISOLATED_TEST_SOURCES
 file(GLOB_RECURSE DISCOVERED_TEST_SOURCES CONFIGURE_DEPENDS
         RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 set(ASSIGNED_TEST_SOURCES test.cpp ${UNIT_TEST_SOURCES}
-        ${INTEGRATION_SOURCES} ${ISOLATED_TEST_SOURCES})
+        ${EDITOR_UI_SOURCES} ${INTEGRATION_SOURCES} ${ISOLATED_TEST_SOURCES})
 list(LENGTH ASSIGNED_TEST_SOURCES ASSIGNED_COUNT)
 list(REMOVE_DUPLICATES ASSIGNED_TEST_SOURCES)
 list(LENGTH ASSIGNED_TEST_SOURCES UNIQUE_COUNT)
@@ -140,6 +141,11 @@ if(DISCOVERED_TEST_SOURCES)
 endif()
 add_executable(unit_testing test.cpp ${UNIT_TEST_SOURCES})
 add_executable(integration_testing test.cpp ${INTEGRATION_SOURCES})
+set(TEST_TARGETS unit_testing integration_testing)
+if(COMET_BUILD_EDITOR)
+    add_executable(editor_ui_testing test.cpp ${EDITOR_UI_SOURCES})
+    list(APPEND TEST_TARGETS editor_ui_testing)
+endif()
 include("${CMAKE_SOURCE_DIR}/engine/cmake/compile_shader.cmake")
 compile_shaders(
         TARGET test_shader_compile
@@ -154,7 +160,7 @@ compile_shaders(
         "${CMAKE_CURRENT_SOURCE_DIR}/graphics/shaders/specialization.vert"
         "${CMAKE_CURRENT_SOURCE_DIR}/graphics/shaders/specialization.frag"
 )
-foreach(target unit_testing integration_testing)
+foreach(target IN LISTS TEST_TARGETS)
     add_dependencies(${target} shader_compile test_shader_compile)
     target_include_directories(${target} PRIVATE
             "${CMAKE_BINARY_DIR}/engine/generated/shaders/include"
@@ -166,8 +172,10 @@ foreach(target unit_testing integration_testing)
 endforeach()
 
 if (COMET_BUILD_EDITOR)
-    target_link_libraries(integration_testing PRIVATE editor_ui)
-    target_compile_definitions(integration_testing PRIVATE COMET_TEST_EDITOR_UI)
+    foreach(target editor_ui_testing integration_testing)
+        target_link_libraries(${target} PRIVATE editor_ui)
+        target_compile_definitions(${target} PRIVATE COMET_TEST_EDITOR_UI)
+    endforeach()
 endif ()
 
 # AppKit 窗口动画可能占用 Metal 编译所需的调度线程，因此仅在测试进程中关闭动画。
@@ -177,11 +185,15 @@ if (APPLE)
 endif ()
 add_test(NAME unit_testing COMMAND unit_testing
         --gtest_filter=-*/ProjectAssetIntegrationTest.* ${TEST_PLATFORM_ARGS})
-set_tests_properties(unit_testing PROPERTIES LABELS "unit")
+set_tests_properties(unit_testing PROPERTIES LABELS "unit;cpu")
+if(COMET_BUILD_EDITOR)
+    add_test(NAME editor_ui_testing COMMAND editor_ui_testing)
+    set_tests_properties(editor_ui_testing PROPERTIES LABELS "integration;ui")
+endif()
 set(SYNC_VALIDATION_FILTER "RenderGraphGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.*")
 add_test(NAME integration_testing COMMAND integration_testing
         "--gtest_filter=-${SYNC_VALIDATION_FILTER}" ${TEST_PLATFORM_ARGS})
-set_tests_properties(integration_testing PROPERTIES LABELS "integration" RESOURCE_LOCK comet_gpu)
+set_tests_properties(integration_testing PROPERTIES LABELS "integration;gpu" RESOURCE_LOCK comet_gpu)
 option(COMET_TEST_DOWNLOADED_ASSETS "Enable tests of optional downloaded demo assets" OFF)
 if(COMET_TEST_DOWNLOADED_ASSETS)
     add_test(NAME downloaded_assets COMMAND unit_testing
@@ -198,6 +210,7 @@ add_test(NAME shader_build_contract COMMAND "${CMAKE_COMMAND}"
 add_test(NAME module_boundaries COMMAND "${CMAKE_COMMAND}"
         "-DCOMET_SOURCE_ROOT=${CMAKE_SOURCE_DIR}"
         -P "${CMAKE_SOURCE_DIR}/cmake/check_module_boundaries.cmake")
+set_tests_properties(shader_build_contract module_boundaries PROPERTIES LABELS "cpu")
 
 add_executable(pipeline_cache_probe graphics/pipeline_cache_probe.cpp)
 target_link_libraries(pipeline_cache_probe PRIVATE engine)
@@ -225,12 +238,12 @@ comet_copy_runtime_dependencies(swapchain_recovery)
 add_test(NAME swapchain_recovery COMMAND swapchain_recovery ${TEST_PLATFORM_ARGS})
 set_tests_properties(swapchain_recovery PROPERTIES TIMEOUT 90)
 set_tests_properties(pipeline_cache_process swapchain_recovery
-        PROPERTIES RESOURCE_LOCK comet_gpu LABELS "integration")
+        PROPERTIES RESOURCE_LOCK comet_gpu LABELS "integration;gpu")
 add_test(NAME render_graph_sync_validation COMMAND integration_testing
         "--gtest_filter=${SYNC_VALIDATION_FILTER}" ${TEST_PLATFORM_ARGS})
 set_tests_properties(render_graph_sync_validation PROPERTIES
         ENVIRONMENT "VK_LAYER_ENABLES=VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT"
-        RESOURCE_LOCK comet_gpu TIMEOUT 90 LABELS "integration")
+        RESOURCE_LOCK comet_gpu TIMEOUT 90 LABELS "integration;gpu")
 
 add_executable(post_process_recovery test.cpp render/test_post_process_recovery.cpp
         "${CMAKE_SOURCE_DIR}/engine/src/render/renderer.cpp"
@@ -241,7 +254,7 @@ target_compile_definitions(post_process_recovery PRIVATE COMET_EXPORTS)
 comet_copy_runtime_dependencies(post_process_recovery)
 add_test(NAME post_process_recovery COMMAND post_process_recovery ${TEST_PLATFORM_ARGS})
 set_tests_properties(post_process_recovery PROPERTIES
-        RESOURCE_LOCK comet_gpu TIMEOUT 90 LABELS "integration")
+        RESOURCE_LOCK comet_gpu TIMEOUT 90 LABELS "integration;gpu")
 
 if (TARGET render_benchmark)
     add_test(NAME render_benchmark_smoke COMMAND "${CMAKE_COMMAND}"
@@ -249,5 +262,5 @@ if (TARGET render_benchmark)
             "-DOUTPUT_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/render-benchmark"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/render/test_benchmark.cmake")
     set_tests_properties(render_benchmark_smoke PROPERTIES
-            RESOURCE_LOCK comet_gpu TIMEOUT 90 LABELS "integration")
+            RESOURCE_LOCK comet_gpu TIMEOUT 90 LABELS "integration;gpu")
 endif ()

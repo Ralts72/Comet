@@ -79,12 +79,15 @@ namespace Comet {
     // 组件类型与属性元信息；组件实例由 Scene 持有。
     class COMET_API ComponentRegistry {
     public:
+        enum class ReferenceScope { All, Runtime };
+
         [[nodiscard]] bool register_component(ComponentDescriptor descriptor);
 
         [[nodiscard]] const ComponentDescriptor* find_component(
             std::string_view component_id) const;
         [[nodiscard]] bool covers_entity(const Entity& entity) const;
-        [[nodiscard]] std::vector<AssetReference> collect_asset_references(Scene& scene) const;
+        [[nodiscard]] std::vector<AssetReference> collect_asset_references(
+            Scene& scene, ReferenceScope scope = ReferenceScope::All) const;
 
         [[nodiscard]] const std::vector<ComponentDescriptor>& components() const {
             return m_components;

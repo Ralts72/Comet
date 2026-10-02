@@ -164,6 +164,27 @@ namespace {
         EXPECT_TRUE(registry.collect_asset_references(scene).empty());
     }
 
+    TEST(ComponentRegistryTest, RuntimeReferencesSkipOnlyDisabledEnvironment) {
+        const auto registry = Comet::create_scene_component_registry();
+        Comet::Scene scene;
+        const Comet::AssetHandle environment(41);
+        scene.create_entity().add_component<Comet::MeshRendererComponent>(
+            Comet::AssetHandle(42), Comet::AssetHandle(43));
+        ASSERT_TRUE(
+            scene.set_environment({.asset = environment, .background = false, .lighting = false}));
+        const auto saved = registry.collect_asset_references(scene);
+        ASSERT_EQ(saved.size(), 3);
+        using Scope = Comet::ComponentRegistry::ReferenceScope;
+        EXPECT_EQ(registry.collect_asset_references(scene, Scope::Runtime),
+            (std::vector<Comet::AssetReference>{{Comet::AssetHandle(42), Comet::AssetType::Mesh},
+                {Comet::AssetHandle(43), Comet::AssetType::Material}}));
+        for(const bool background : {false, true}) {
+            ASSERT_TRUE(scene.set_environment(
+                {.asset = environment, .background = background, .lighting = !background}));
+            EXPECT_EQ(registry.collect_asset_references(scene, Scope::Runtime), saved);
+        }
+    }
+
     TEST(ComponentRegistryTest, AccessesAndNormalizesEntityComponentProperties) {
         Comet::Scene scene;
         Comet::Entity entity = scene.create_entity("Camera");

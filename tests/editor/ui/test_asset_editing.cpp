@@ -5,6 +5,7 @@
 #include "assets/project_panel.h"
 #include "inspector/property_editor_registry.h"
 #include "scene/selection.h"
+#include "scene/scene_serializer.h"
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
 #include "render/material/material.h"
@@ -131,7 +132,7 @@ namespace CometEditor::Tests {
             }
         }
 
-        std::optional<InspectorPanel::AssetAssignment> click(ImVec2 point) {
+        void click_item(ImVec2 point) {
             auto& io = ImGui::GetIO();
             io.AddMousePosEvent(point.x, point.y);
             frame();
@@ -139,19 +140,30 @@ namespace CometEditor::Tests {
             frame();
             io.AddMouseButtonEvent(0, false);
             frame();
+        }
+
+        std::optional<InspectorPanel::AssetAssignment> click(ImVec2 point) {
+            click_item(point);
             return inspector->take_asset_assignment();
         }
 
-        std::optional<InspectorPanel::AssetAssignment> choose(int property, int row) {
+        bool queue_choice(int property, int row) {
             EXPECT_FALSE(click(property_point(property)));
             frame();
             const auto* popup = ImGui::FindWindowByName("##Combo_00");
             EXPECT_NE(popup, nullptr);
             if(!popup || !popup->Active)
-                return std::nullopt;
-            auto result = click({popup->DC.CursorStartPos.x + 20,
+                return false;
+            click_item({popup->DC.CursorStartPos.x + 20,
                 popup->DC.CursorStartPos.y + row * ImGui::GetTextLineHeightWithSpacing()
                     + ImGui::GetTextLineHeight() * 0.5f});
+            return true;
+        }
+
+        std::optional<InspectorPanel::AssetAssignment> choose(int property, int row) {
+            if(!queue_choice(property, row))
+                return std::nullopt;
+            auto result = inspector->take_asset_assignment();
             frame();
             return result;
         }
@@ -823,6 +835,42 @@ namespace CometEditor::Tests {
         payload = drag_asset(material, Comet::AssetType::Material);
         EXPECT_FALSE(drop(property_point(1)));
         EXPECT_EQ(history.undo_size(), 0);
+    }
+
+    TEST_F(AssetEditingUiTest, SceneChangeDiscardsPlayAssignmentWithoutClearingEditHistory) {
+        ASSERT_TRUE(edit.apply({entity.get_uuid(), "mesh_renderer", "mesh"}, mesh));
+        const auto generation = history.generation();
+        const auto history_state = history.state_id();
+        auto cloned = Comet::SceneSerializer(registry).clone(scene);
+        ASSERT_TRUE(cloned);
+        auto runtime_scene = std::move(cloned).value();
+        auto runtime_entity = runtime_scene->find_entity(entity.get_uuid());
+        ASSERT_TRUE(runtime_entity);
+        selection.set_scene(*runtime_scene);
+        selection.select_entity(runtime_entity.get_id());
+        state.mode = EditorMode::Play;
+        frame();
+
+        const auto request = choose(1, 1);
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->asset.handle, material);
+        EXPECT_EQ(request->asset.generation, generation);
+        EXPECT_EQ(request->target.entity, entity.get_uuid());
+        ASSERT_TRUE(queue_choice(1, 1));
+
+        // 模拟 UI 结束后 Play 失败回退，在下一次 render 前就会消费请求。
+        inspector->reset_for_scene_change();
+        selection.set_scene(scene);
+        state.mode = EditorMode::Edit;
+        runtime_scene.reset();
+        EXPECT_FALSE(inspector->take_asset_assignment());
+        EXPECT_FALSE(entity.get_component<Comet::MeshRendererComponent>().material);
+        EXPECT_EQ(history.generation(), generation);
+        EXPECT_EQ(history.state_id(), history_state);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(entity.get_component<Comet::MeshRendererComponent>().mesh);
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(entity.get_component<Comet::MeshRendererComponent>().mesh, mesh);
     }
 
     TEST_F(AssetEditingUiTest, TypedDropQueuesIdentityAndUsesSharedPropertyHistory) {

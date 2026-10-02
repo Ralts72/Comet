@@ -39,6 +39,7 @@ namespace CometEditor {
 
         void render() override;
         [[nodiscard]] bool finish_edit(bool cancel = false);
+        void reset_for_scene_change();
         [[nodiscard]] AssetInspector& asset_inspector() { return m_asset_inspector; }
         [[nodiscard]] std::optional<AssetAssignment> take_asset_assignment();
 

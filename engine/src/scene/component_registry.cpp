@@ -105,10 +105,13 @@ namespace Comet {
         return true;
     }
 
-    std::vector<AssetReference> ComponentRegistry::collect_asset_references(Scene& scene) const {
+    std::vector<AssetReference> ComponentRegistry::collect_asset_references(
+        Scene& scene, const ReferenceScope scope) const {
         std::vector<AssetReference> references;
-        if(const auto environment = scene.get_environment().asset)
-            references.push_back({environment, AssetType::Environment, false});
+        const auto& environment = scene.get_environment();
+        if(environment.asset
+            && (scope == ReferenceScope::All || environment.background || environment.lighting))
+            references.push_back({environment.asset, AssetType::Environment, false});
         for(const auto entity : scene.get_entities()) {
             for(const auto& component : m_components) {
                 const auto* data = component.get_component(entity);

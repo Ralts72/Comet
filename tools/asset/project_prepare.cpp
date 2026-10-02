@@ -81,7 +81,8 @@ namespace Comet {
         if(!scan.snapshot_updated)
             return Result<void>::failure("Cannot scan project assets");
 
-        auto pending = components.collect_asset_references(*scene.value());
+        auto pending = components.collect_asset_references(
+            *scene.value(), ComponentRegistry::ReferenceScope::Runtime);
         std::unordered_set<AssetHandle> prepared;
         while(!pending.empty()) {
             const auto reference = pending.back();

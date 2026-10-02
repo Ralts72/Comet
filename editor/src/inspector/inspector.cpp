@@ -235,6 +235,13 @@ namespace CometEditor {
         return m_property_edit.commit();
     }
 
+    void InspectorPanel::reset_for_scene_change() {
+        m_asset_assignment.reset();
+        m_script_edit_version.reset();
+        if(!finish_edit(true))
+            LOG_ERROR("Cannot cancel Inspector edit before changing scene");
+    }
+
     void InspectorPanel::render_property(Comet::Entity entity,
         const Comet::ComponentDescriptor& component, const Comet::PropertyDescriptor& property) {
         if(!property.editable || property.read_only)

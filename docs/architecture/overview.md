@@ -204,7 +204,8 @@ SceneDocument 只接收激活结果并更新文档路径／保存点；EditorSce
 文档操作错误通过 Result 返回，弹窗持有展示状态，不再在 SceneDocument 保存一份最近错误。
 ProjectSession 的合法场景路径立即更新内存，偏好落盘失败只警告；后续记录同一路径仍可重试，不回滚成功的资产移动。
 项目启动场景保存失败仍补偿源文件移动，不能将项目内容和本地会话偏好视为同一事务。
-安装阶段由 `Editor::commit_scene` 结束旧交互，再经 Engine 停止旧 Runtime、交换 Scene owner；
+安装阶段由 `Editor::commit_scene` 结束旧交互、丢弃 Inspector 尚未执行的引用赋值并清除脚本编辑快照，
+再经 Engine 停止旧 Runtime、交换 Scene owner；请求失效不能借用 Undo generation，因为 Play／Stop 保留 Edit 历史。
 `SceneEditor::bind_scene` 统一重绑选择与资产引用，新 Edit 场景才重置历史。进入 Play 时历史仍指向保留的 Edit 场景，
 Stop 返回该场景时也不重置历史。Hierarchy 的 UI 状态清理由宿主保留；首次启动尚无 SceneEditor 时先绑定文档历史，
 服务装配完成后再绑定选择和引用追踪。
@@ -240,6 +241,7 @@ Engine 启动 Runtime 使用 InputStart::Rebase，在首张已授权输入上丢
 CameraControllerSystem 只约定 `camera.*` 动作语义，具体设备、按键、反向和死区属于项目配置。
 
 InputActions 保存 `Context{name, enabled}` 默认配置及 Action 的组引用，创建时统一校验；
+最多 32 个组，名称沿用动作名规则，省略 enabled 时默认启用。
 无组动作始终启用，多个组可同时启用，不隐含互斥关系、优先级或控制消费。
 RuntimeInput 保存本局的活动组状态，reset 恢复默认；InputState 仍是只读的阶段结果，System／Lua 不持有映射配置。
 `comet.set_input_context → Scene::request_input_context → SceneRuntime::advance → RuntimeInput::set_context_enabled`：
@@ -372,7 +374,11 @@ Hierarchy 在完成非拖放点击时才切换选择，起拖期间不改变 Ins
 VM 将 UUID 绑定成已有的受保护实体引用，不把 Scene 指针写进 Lua 配置；
 引用同时校验场景世代和 EntityId，有效引用按实体实例比较，未分配或缺失引用可安全调用 `is_valid()`。
 绑定后目标被删除、即使同 UUID 重建，已捕获的引用也不自动转向新实体；参数表重建或重新 Play 才重新解析配置。
-会话值仍只接收 bool／float／Vec3／string，不因共享 ParameterValue 类型而开放实体或 Vec4 存储。
+`session_set/session_get` 立即读写当前运行场景的会话值，nil 表示删除；最多 128 个键，键长最多 128 字节。
+值只接收 bool／有限 float／Vec3／最多 4096 字节的 string，不因共享 ParameterValue 类型而开放实体或 Vec4 存储。
+暂停保留、单步照常读写，不进入 .scene 或 Edit 场景；on_stop 不访问会话状态。
+Scene 的 begin_runtime／end_runtime 共用一份清理清单，清除会话、请求队列、材质覆盖和重开意图，
+不把固定步冲量、阶段末结构变更和 Update 通知合并成同一种消费协议。
 
 `script.events = { ["demo.score_changed"] = "on_score_changed" }` 声明场景内通知的接收方法，
 Script 创建时校验名称、方法存在且可调用，每个脚本最多 128 项；活动实例使用其所保活版本的声明。
@@ -419,7 +425,8 @@ Editor 回到原 Edit，app 沿现有错误返回退出。暂停重开在 on_sta
 默认参数解析与生命周期分发都在 lua_pcall 内；错误可能通过 longjmp 返回，不能依赖回调内 C++ 局部对象的析构。
 解析结果和绑定返回字符串由保护调用外层持有，回调只借用，正常或失败返回后统一释放；不承诺宿主内存耗尽后的恢复。
 参数表与会话值复用单个名称／值校验；会话值额外限制类型，不为单次赋值构造临时参数表。
-Lua 只借用当前阶段的 InputState；原始按键和动作查询来自同一快照，不依赖 InputActions 或 RuntimeInput。
+Lua 只借用当前阶段的 InputState，通过具名动作查询输入，统一遵守重绑定与动作组开关；不提供原始按键入口。
+绑定层不依赖 InputActions 或 RuntimeInput。
 Script::Invocation 与 LuaBindings::Context 各只传一个 input，结束调用后解除借用，不自行采集或消耗输入。
 材质写入也只借用当前调用的 MaterialParameterValidator；Engine 将 MaterialPrograms 接入 ScriptSystem，
 Lua／Scene 不包含 render 或 graphics 头。Result 的错误先存入外层 Context，再调用 luaL_error，
@@ -562,7 +569,10 @@ LUT 在线程安全静态初始化中只积分一次，随后随每个缓存保�
 ### 环境资产准备
 
 `场景引用 → AssetManager::request_load → AssetTaskQueue → ImportService → EnvironmentArtifact → owner 发布 Environment`。
-app/editor 共用引用准备：场景环境是可选引用，缺失时保留 Handle 并诊断；app 拒绝必需引用失败，编辑器允许修复。DeviceLost 始终向上传递。
+ComponentRegistry::collect_asset_references 区分 All 与 Runtime：All 保留文档中全部引用，
+Runtime 跳过背景和照明均关闭的环境，App 与独立准备工具共用这一选择；不删除或改写保存的 Handle。
+Editor 使用 All 预加载，方便编辑时随时启用。场景环境是可选引用，缺失时保留 Handle 并诊断；
+app 拒绝必需引用失败，编辑器允许修复。DeviceLost 始终向上传递。
 `request_load` 成功表示接受需求；`references_ready` 才判断完整环境已驻留。app 在等待期间保留候选 Scene，
 继续正常窗口事件与帧循环，就绪后再安装并启动 Runtime；背景／照明都关闭时不请求环境，失败的可选环境可回退。
 AssetManager 的私有 environment_state 从 Registry、当前 revision 的排队／预约及失败记录推导状态，不缓存第二份状态。
@@ -616,7 +626,8 @@ CPU 准备失败与 GPU 创建失败共用回退判断，只保留同 Handle／�
 包括匹配它的 PipelineState；缓存限定于当前 RenderState，因此不跨不兼容 RenderPass 回退。无旧版、不支持模板则跳过。
 清除引用、移除物体或切换到其他 Handle 不回退到无关材质；回退项仍标记使用。
 绘制周期结束时清理未使用缓存；无相机的绘制周期也执行这一步。隐藏视口保留有效缓存，避免恢复时全部重建。
-Renderer 每次 prepare_frame 在 acquire 前检查 Registry，移除已注销材质的 CPU／GPU 缓存，隐藏／延期同样执行。
+Renderer 每次 prepare_frame 在 acquire 前检查 Registry，移除已注销材质的 CPU／GPU 缓存以及项目程序的材质依赖引用，隐藏／延期同样执行。
+依赖变化只解除相应材质／覆盖导致的失败，不让纯 Shader 失败因无关材质删除而重复尝试。
 同 Handle 的新版本不触发这类淘汰，仍允许准备失败时回退旧兼容版本；在途帧保活不受缓存淘汰影响。
 队列按模板名、材质 Handle 与运行实例身份排序。
 
@@ -624,6 +635,7 @@ Renderer 每次 prepare_frame 在 acquire 前检查 Registry，移除已注销�
 AssetManager::prepare_material_update 保留源 revision、序列化内容及只读运行时候选，不改原材质文件或该材质的 Registry 条目。
 Renderer 在无活动帧时接收候选，MaterialRenderer 在局部缓存打包参数并创建完整 GPU 绑定；失败丢弃候选。
 editor/assets/material_editing 的 apply_material_edit 统一串联以上步骤：提交文件和 Registry，成功才发布 GPU 候选；
+MaterialUpdate 发布结束后释放候选自身的源引用；调用右值限定的 publish 并不意味着 C++ 对象已经析构。
 保存失败时两类候选均释放，Inspector 恢复旧模板和参数。Editor 只分发请求；EditorAssets 保留底层 prepare/commit，
 纹理使用明确的 apply_texture_edit，不再有绕过 GPU 准备的通用材质提交分支。
 这两个编辑入口同时涉及源数据和运行时发布，不能仅按所在目录拆开提交步骤；它们不代表

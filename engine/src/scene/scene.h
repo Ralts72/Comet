@@ -182,6 +182,7 @@ namespace Comet {
         [[nodiscard]] std::vector<Event> take_events();
         [[nodiscard]] InputContextRequests take_input_context_requests();
         void end_runtime() noexcept;
+        void clear_runtime_state() noexcept;
         [[nodiscard]] bool append_contact_event(ContactEvent event);
         void clear_contact_events() noexcept;
         void clear_material_overrides(entt::registry& registry, entt::entity entity);

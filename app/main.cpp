@@ -9,7 +9,6 @@
 #include "scene/scene_serializer.h"
 
 #include <cmath>
-#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
@@ -49,12 +48,8 @@ namespace {
                     "Asset scan issue at '{}': {}", issue.path.generic_string(), issue.message);
 
             // 开发期 app 在启动阶段补齐 Artifact，不把源模型导入放进运行帧。
-            auto references = components.collect_asset_references(*scene);
-            const auto& environment = scene->get_environment();
-            if(!environment.background && !environment.lighting)
-                std::erase_if(references, [](const auto& reference) {
-                    return reference.type == Comet::AssetType::Environment;
-                });
+            auto references = components.collect_asset_references(
+                *scene, Comet::ComponentRegistry::ReferenceScope::Runtime);
             for(const auto& reference : references) {
                 if(reference.type == Comet::AssetType::Mesh) {
                     if(auto imported = m_asset_manager->import_mesh(reference.handle); !imported)

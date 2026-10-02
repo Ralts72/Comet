@@ -405,17 +405,6 @@ namespace Comet::LuaBindings {
         int reference_translate(lua_State* state) {
             return translate_entity(state, require_entity(state), 2);
         }
-        int key_down(lua_State* state) {
-            const auto* input = current(state).input;
-            const char* name = luaL_checkstring(state, 1);
-            Input::Key key = Input::Key::Unknown;
-            if(name[0] >= 'A' && name[0] <= 'Z' && name[1] == '\0')
-                key = static_cast<Input::Key>(static_cast<int>(Input::Key::A) + name[0] - 'A');
-            else
-                return luaL_error(state, "key_down currently accepts A-Z");
-            lua_pushboolean(state, input && input->focused() && input->physical().key(key).down);
-            return 1;
-        }
         const InputState::Action& action(lua_State* state, bool button) {
             const auto* input = current(state).input;
             const char* name = luaL_checkstring(state, 1);
@@ -479,7 +468,7 @@ namespace Comet::LuaBindings {
             {"apply_impulse", apply_impulse}, {"set_material_scalar", set_material_scalar},
             {"set_material_vector", set_material_vector}, {"session_get", session_get},
             {"session_set", session_set}, {"emit", emit}, {"set_input_context", set_input_context},
-            {"key_down", key_down}, {"action_value", action_value}, {"action_down", action_down},
+            {"action_value", action_value}, {"action_down", action_down},
             {"action_pressed", action_pressed}, {"action_released", action_released},
             {nullptr, nullptr}};
         luaL_setfuncs(state, api, 1);

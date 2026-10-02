@@ -76,7 +76,8 @@ cmake --build build --target comet_prepare_project --parallel
 ./build/tools/asset/comet_prepare_project ./demo
 ```
 
-工具读取当前构建 Profile 的导入额度，为启动场景引用的 Mesh、Environment 和 ShaderProgram 准备产物；
+工具读取当前构建 Profile 的导入额度，与 app 共用启动场景运行需求，为 Mesh、Environment 和 ShaderProgram 准备产物；
+背景和照明都关闭时不准备环境，场景中的 Handle 仍保留；编辑器仍预加载全部引用，方便随时启用。
 有效缓存不重写，失败保留上一次有效产物。它是开发期资产准备工具，不是发布打包器，也不执行 GPU 管线预热。
 未下载时 demo 保留环境资产引用并提示缺失，背景回退为纯色；下载后重新打开项目即可。
 构建和启动不会自动联网。普通测试使用小型本地数据，不自动导入下载的 HDR。
@@ -104,9 +105,17 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 源码目录按功能聚合，编译目标按依赖划分；例如 `scene/scene_document` 属于 core，`scene/hierarchy` 属于 ui。
 仅启用 tests 时仍构建 editor_core，不构建 UI；新增编辑器源码只需维护所属库的清单。
 `tests/support/` 提供测试专用的 ImGui Context、临时目录与 Worker 同步辅助，不进入引擎。
-测试分为 `unit_testing`（CPU 逻辑）和 `integration_testing`（图形／UI／运行时）；
-按实际设备依赖分组，纯 CPU 的图编译／光照计算／拾取数学仍属 unit；同一 GPU 用例只在普通集成或同步验证入口执行一次。
-`ctest --preset dev-debug -L unit` 可快速检查逻辑，完整 `ctest --preset dev-debug` 仍包含 GPU 生命周期、同步和 WSI 回归。
+测试按执行条件分组，源码只编译到所属入口，不重复运行：
+
+| 入口／目录 | 依赖 | CTest 标签 |
+| --- | --- | --- |
+| `unit_testing`，含 `tests/editor/core/` | CPU 逻辑 | `cpu`、`unit` |
+| `editor_ui_testing`，`tests/editor/ui/` | 内存中的 ImGui，不创建窗口／GPU | `ui`、`integration` |
+| `integration_testing`，含 `tests/editor/integration/` | 真实窗口／GPU | `gpu`、`integration` |
+
+`ctest --preset dev-debug -L '^(cpu|ui)$'` 可验证逻辑、无窗口 UI 和构建边界；
+`ctest --preset dev-debug -L gpu` 运行 GPU 测试及隔离恢复入口。同一 GPU 用例只在普通集成或同步验证入口执行一次。
+完整 `ctest --preset dev-debug` 保持全部回归；仅启用 tests、不构建 editor 时没有 UI 入口。
 `COMET_NATIVE_OPTIMIZATION` 只适合本机构建。配置与诊断采用“编译期能力 + Profile 运行时策略”。
 
 ### 可复现渲染测量
@@ -395,33 +404,25 @@ demo 的空格／手柄 South 切换方块旋转；运行状态保存在 Lua `se
 ]
 ```
 
-最多 32 个组，名称沿用动作名规则；省略 `enabled` 时默认启用。项目输入面板可编辑组及默认状态，
-并为动作选择所属组。Lua 在启动／更新阶段调用 `comet.set_input_context("gameplay", false)` 提出启停请求；
-下一次 Runtime 更新开始时生效，同组多次请求以最后一次为准，不会中途改变当前帧的输入快照。
-禁用后动作仍可查询，但值为零且不再按住；已按住按钮释放一次，新启用时只接管当前电平，不伪造按下或重放旧位移。
-固定步仍保留启用之后的新短按，公共动作不受其他组切换影响。未知组会报告运行错误，Stop／重开恢复项目默认状态。
+项目输入面板可编辑组及默认状态，并为动作选择所属组。Lua 调用
+`comet.set_input_context("gameplay", false)`，在下一次 Runtime 更新开始时生效；Stop／重开恢复项目默认状态。
 demo 得分后禁用 `gameplay` 组，方向键移动、空格切换与 J 冲量停止响应，`camera` 组和公共的 R 重开仍有效。
-这是动作分组，不是物理模拟暂停；不屏蔽原始 `key_down`，也不提供优先级或按键消费栈。
+Lua 统一使用具名动作，不再提供原始字母键查询；动作组不暂停物理，也不提供优先级或按键消费栈。
+容量、切换基线和固定步消费规则见[运行链路](docs/architecture/overview.md#一帧经过哪里)。
 
 ### Lua 实体与会话
 
 Lua 在运行阶段可用 `comet.self_entity()` 获取当前实体引用，或用
 `comet.find_entity(uuid)` 按场景内 UUID 查找；格式不合法会报错，实体不存在返回 `nil`。
 引用提供 `:is_valid()`、`:position()`、`:translate(x,y,z)` 和 `:rotate(x,y,z)`；位置与旋转沿用本地 Transform 和角度单位。
-引用只在当前运行场景的生命周期内有效，实体删除、同 UUID 重建或切换场景后旧引用失效；失效引用的读取／修改会报告脚本错误。
 动态刚体可调用 `comet.apply_impulse(x, y, z)`，向本实体质心施加一次世界空间冲量；
-需要 Transform、Collider 和 Dynamic Rigid Body，三个参数必须为有限数值。
-它改变物理速度，不是 `translate` 的位置传送，也不是持续力，不乘 `dt`；速度增量等于冲量除以刚体配置的质量。
-`RigidBody.mass` 默认 1 kg，最低 0.001 kg，必须有限；省略字段时使用默认值，不再按体积推算质量。
-碰撞形状和缩放仍决定惯性。Static／Kinematic 保留质量配置，但不按该质量响应冲量或重力。
-请求在下一次物理固定步模拟前消费，固定更新中的请求可在同一步生效；普通更新／接触回调中的请求留到后续固定步。
-没有固定步或暂停时保留，单步只消费一次；Stop／失败清除。该 API 不提供落地检测或角色跳跃规则。
+需要 Transform、Collider 和 Dynamic Rigid Body。速度增量等于冲量除以配置的质量；不乘 `dt`，不是位置传送或角色跳跃。
+可用 demo 的 J 键对比不同质量下的弹起效果，具体限制见[运行链路](docs/architecture/overview.md#一帧经过哪里)。
 跨实体配置可在 Lua 中声明 `player = {type = "entity"}`，再在 Inspector 按实体名称／层级路径选择，
 或在 Edit 中从 Hierarchy 拖入该参数框；场景保存 UUID，重命名不破坏引用。未分配或目标缺失时
 `self.parameters.player:is_valid()` 返回 false；有效引用可用 `==` 与碰撞回调的 `other` 比较。
-脚本在启动／更新阶段（含碰撞和触发回调）可调用 `comet.create_entity(name)` 请求创建，返回新实体 UUID；
-也可调用 `comet.destroy_entity(reference)` 请求删除实体及其子树。结构变更在该阶段的所有 System 执行完后提交：
-本阶段内新 UUID 尚不能查到，待删除引用仍有效；下一阶段才能看到结果。暂停时不产生新请求，Stop 或运行失败会丢弃未提交请求。
+脚本可调用 `comet.create_entity(name)` 请求创建，返回新实体 UUID；
+`comet.destroy_entity(reference)` 请求删除实体及其子树。结构变更在当前阶段末提交，不在脚本遍历中立即生效。
 `comet.create_entity(name, options)` 可指定初始 `translation`／`rotation`／`scale` 三分量数组，以及 `mesh_source` 实体引用：
 
 ```lua
@@ -435,11 +436,8 @@ local id = comet.create_entity("Marker", {
 新实体为根，默认零位置／零旋转／单位缩放；变换也可直接使用导出的 Vec3 参数。
 `mesh_source` 只复制有效源实体的网格和材质引用，不复制其他组件、层级或运行时覆盖，不是 Prefab。
 创建与删除只作用于运行场景，不写回 Edit；详细快照与阶段协议见[Lua 架构](docs/architecture/overview.md#lua-脚本与参数)。
-不同实体的脚本可用 `comet.session_set(key, value)`／`comet.session_get(key)` 共享当前运行场景的分数、进度等临时值；
-`session_set(key, nil)` 删除。支持布尔、有限数值、最多 4096 字节的字符串和三个有限数值组成的向量；
-最多 128 个键，键长最多 128 字节；向量可直接传入导出的 Vec3 参数，不接受数字字符串或额外字段。
-写入立即对后续脚本调用可见；暂停保留，单步照常更新，Stop、运行失败或再次启动会清空。
-这些值不进入 `.scene`，也不会从编辑器 Play 写回 Edit 场景；`on_stop` 不访问会话状态。
+不同实体的脚本可用 `comet.session_set(key, value)`／`comet.session_get(key)` 共享本局分数等临时值，
+`session_set(key, nil)` 删除；支持布尔、有限数值、字符串和 Vec3，不进入 `.scene` 或 Edit 场景。
 需要通知其他脚本时，用 `comet.emit("demo.score_changed", score)` 发布场景内通知，
 接收脚本声明事件名到方法名的映射，不必每帧轮询会话值：
 
@@ -454,14 +452,10 @@ end
 return script
 ```
 
-载荷支持与会话值相同的类型，也可省略；向量在接收端只读。通知在普通更新和接触回调结束后，
-按入队顺序交给当前声明了该事件的脚本实例；处理函数再发出的通知留到下次有效更新。
-暂停保留、单步交付一批，Stop／运行失败／重开清空；不跨场景、不持久化，也不自动重放给后来订阅的实例。
+载荷支持与会话值相同的类型，也可省略。通知在更新末交付，处理函数发出的新通知留到下一次更新。
 通知不是状态存储：demo 仍用会话值保存分数，用通知驱动立方体上升和变色。
-脚本在更新阶段（含固定更新、碰撞和触发回调）可调用 `comet.restart_scene()` 请求重开本局；
-请求在下一次宿主更新处理，不中断当前脚本；`on_start`／`on_stop` 禁止重开。
-app 恢复启动基线，Editor 恢复保留的 Edit 场景，不重读磁盘；暂停状态保留，长按重开键不连续触发。
-这不是跨场景切换或存档；候选失败与启动失败的不同处理见架构文档。
+`comet.restart_scene()` 请求重开本局；demo 默认绑定 R。app 恢复启动基线，Editor 从保留的 Edit 场景重新克隆，不重读磁盘。
+引用失效、容量限制、暂停／Stop、通知顺序和失败处理统一见[Lua 架构](docs/architecture/overview.md#lua-脚本与参数)。
 刚体与碰撞体接触时，相关实体的脚本可实现 `on_collision_enter(self, other)`／`on_collision_exit(self, other)`；
 把碰撞体的 Trigger 打开后改为 `on_trigger_enter`／`on_trigger_exit`，不产生物理碰撞响应。
 `other` 是当前场景的受保护实体引用；通知在同帧普通 `update` 后交付，已失效参与者不会收到通知。
@@ -513,7 +507,7 @@ Inspector 切换／清空 Script 引用会同时清空覆盖，一次 Undo 恢�
 “恢复默认参数”清空覆盖，可撤销，不重新加载源码。Play 面板跟随活动实例的定义，不混用更新后的资产参数。
 修改源码后重新 Play 使用新版；字段改名或类型变化会报告覆盖不匹配，可恢复默认参数后重新配置。
 `self.parameters` 是只读配置；累计时间等内部状态放在 self 的其他字段，不显示或保存到场景。
-目前每实体一个脚本，提供本实体变换和已授权动作查询（仍保留 A-Z 的 `key_down` 底层查询）。
+目前每实体一个脚本，提供本实体变换和已授权的具名动作查询。
 脚本可修改本实体 MeshRenderer 的已登记材质参数，例如 PBR 材质：
 
 ```lua

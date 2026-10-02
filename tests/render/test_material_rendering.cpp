@@ -349,6 +349,8 @@ namespace Comet::Tests {
         auto image = texture({255, 255, 255, 255});
         ASSERT_TRUE(image) << image.error();
         compatible->set_texture_property("base_color_texture", image.value());
+        ASSERT_TRUE(assets.register_asset(first_handle, compatible));
+        ASSERT_TRUE(assets.register_asset(second_handle, missing_texture));
         ASSERT_NO_FATAL_FAILURE(publish_material(first_handle, compatible));
         ASSERT_NO_FATAL_FAILURE(publish_material(second_handle, missing_texture));
         RenderSubmission submission;
@@ -366,6 +368,14 @@ namespace Comet::Tests {
             ASSERT_TRUE(materials->prepare_programs(submission));
         EXPECT_EQ(messages.str(), failure);
 
+        ASSERT_TRUE(assets.unregister_asset(second_handle));
+        materials->collect_removed_assets(assets);
+        EXPECT_EQ(materials->get_statistics().cached_material_versions, 1u);
+        EXPECT_EQ(published(), optional);
+        auto recovered = materials->prepare_material_update(first_handle, compatible);
+        ASSERT_TRUE(recovered) << recovered.error();
+        EXPECT_EQ(published(), required);
+        std::move(recovered).value().publish();
         submission.render_items.pop_back();
         ASSERT_TRUE(materials->prepare_programs(submission));
         EXPECT_EQ(published(), required);
@@ -386,6 +396,12 @@ namespace Comet::Tests {
                     .scalar_properties = {{"roughness", 0.2f + 0.1f * revision}}});
             ASSERT_TRUE(materials->prepare_programs(submission));
         }
+        EXPECT_EQ(published(), required);
+        EXPECT_EQ(messages.str(), shader_failure);
+        ASSERT_TRUE(assets.unregister_asset(first_handle));
+        materials->collect_removed_assets(assets);
+        auto retained = materials->prepare_material_update(first_handle, compatible);
+        ASSERT_TRUE(retained) << retained.error();
         EXPECT_EQ(published(), required);
         EXPECT_EQ(messages.str(), shader_failure);
     }
