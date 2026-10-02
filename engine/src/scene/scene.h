@@ -69,6 +69,8 @@ namespace Comet {
         [[nodiscard]] bool request_destroy_entity(Entity entity);
         // 短音效请求保存源配置的快照；目标在本帧删除后仍可播完。
         [[nodiscard]] bool request_play_one_shot(Entity entity);
+        // 世界空间质心冲量，在下一物理固定步消费，不直接改写 Transform。
+        [[nodiscard]] bool request_apply_impulse(Entity entity, Math::Vec3 impulse);
 
         // 只提交意图；宿主在下一次更新边界从本局基线重建，不在 System 内换场景。
         [[nodiscard]] bool request_restart();
@@ -153,6 +155,7 @@ namespace Comet {
 
         static constexpr std::size_t MAX_ENTITY_REQUESTS = 1024;
         static constexpr std::size_t MAX_AUDIO_PLAY_REQUESTS = 128;
+        static constexpr std::size_t MAX_IMPULSE_REQUESTS = 128;
         static constexpr std::size_t MAX_EVENTS = 1024;
         using InputContextRequests = std::map<std::string, bool, std::less<>>;
 
@@ -167,10 +170,15 @@ namespace Comet {
             AssetHandle clip;
             float volume;
         };
+        struct ImpulseRequest {
+            EntityId entity_id;
+            Math::Vec3 impulse;
+        };
 
         [[nodiscard]] bool begin_runtime();
         [[nodiscard]] bool commit_entity_requests();
         [[nodiscard]] std::vector<AudioPlayRequest> take_audio_play_requests();
+        [[nodiscard]] std::vector<ImpulseRequest> take_impulse_requests();
         [[nodiscard]] std::vector<Event> take_events();
         [[nodiscard]] InputContextRequests take_input_context_requests();
         void end_runtime() noexcept;
@@ -193,6 +201,7 @@ namespace Comet {
         EntityId m_next_entity_id = 1;
         std::vector<EntityRequest> m_entity_requests;
         std::vector<AudioPlayRequest> m_audio_play_requests;
+        std::vector<ImpulseRequest> m_impulse_requests;
         std::vector<ContactEvent> m_contact_events;
         std::vector<Event> m_events;
         InputContextRequests m_input_context_requests;

@@ -425,14 +425,173 @@ namespace Comet::Tests {
         EXPECT_TRUE(copied.get_component<ColliderComponent>().is_trigger);
     }
 
+    TEST(PhysicsSystemTest, ImpulseRequestsValidateTargetsAndBoundThePendingQueue) {
+        Scene scene;
+        const auto dynamic = add_body(scene, "Dynamic", BodyMotion::Dynamic, {0, 10, 0});
+        const auto stationary = add_body(scene, "Static", BodyMotion::Static, {10, 0, 0});
+        const auto kinematic = add_body(scene, "Kinematic", BodyMotion::Kinematic, {20, 0, 0});
+        const auto no_body = scene.create_entity("NoBody");
+        Scene other_scene;
+        const auto foreign = add_body(other_scene, "Foreign", BodyMotion::Dynamic, {0, 10, 0});
+        EXPECT_FALSE(scene.request_apply_impulse(dynamic, {1, 0, 0}));
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_FALSE(scene.request_apply_impulse({}, {1, 0, 0}));
+        EXPECT_FALSE(scene.request_apply_impulse(foreign, {1, 0, 0}));
+        EXPECT_FALSE(scene.request_apply_impulse(stationary, {1, 0, 0}));
+        EXPECT_FALSE(scene.request_apply_impulse(kinematic, {1, 0, 0}));
+        EXPECT_FALSE(scene.request_apply_impulse(no_body, {1, 0, 0}));
+        EXPECT_FALSE(
+            scene.request_apply_impulse(dynamic, {std::numeric_limits<float>::infinity(), 0, 0}));
+        EXPECT_FALSE(
+            scene.request_apply_impulse(dynamic, {0, std::numeric_limits<float>::quiet_NaN(), 0}));
+        for(int i = 0; i < 128; ++i)
+            ASSERT_TRUE(scene.request_apply_impulse(dynamic, {0, 0, 0}));
+        EXPECT_FALSE(scene.request_apply_impulse(dynamic, {1, 0, 0}));
+        ASSERT_TRUE(runtime.advance(1.0 / 60.0));
+        EXPECT_TRUE(scene.request_apply_impulse(dynamic, {1, 0, 0}));
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(scene.request_apply_impulse(dynamic, {1, 0, 0}));
+    }
+
+    TEST(PhysicsSystemTest, ImpulseRunsOnceAtFixedBoundaryAndStopDiscardsPendingRequests) {
+        Scene scene;
+        auto body = add_body(scene, "Body", BodyMotion::Dynamic, {0, 10, 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(scene.request_apply_impulse(body, {10000, 0, 0}));
+        ASSERT_TRUE(runtime.advance(0.005));
+        EXPECT_FLOAT_EQ(body.get_component<TransformComponent>().translation.x, 0);
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        ASSERT_TRUE(runtime.advance(0.1));
+        EXPECT_FLOAT_EQ(body.get_component<TransformComponent>().translation.x, 0);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_NEAR(body.get_component<TransformComponent>().translation.x, 0.1f, 0.002f);
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Running));
+        ASSERT_TRUE(runtime.advance(0.03));
+        EXPECT_NEAR(body.get_component<TransformComponent>().translation.x, 0.4f, 0.005f);
+
+        ASSERT_TRUE(scene.request_apply_impulse(body, {10000, 0, 0}));
+        ASSERT_TRUE(runtime.stop());
+        body.edit_transform(
+            [](TransformComponent& transform) { transform.translation = {0, 10, 0}; });
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.03));
+        EXPECT_FLOAT_EQ(body.get_component<TransformComponent>().translation.x, 0);
+        EXPECT_LT(body.get_component<TransformComponent>().translation.y, 10);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(PhysicsSystemTest, ImpulsesKeepSubmissionOrderWithinOneFixedStep) {
+        Scene scene;
+        const auto first = add_body(scene, "First", BodyMotion::Dynamic, {0, 10, -10});
+        const auto second = add_body(scene, "Second", BodyMotion::Dynamic, {0, 10, 10});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(scene.request_apply_impulse(first, {1000000, 0, 0}));
+        ASSERT_TRUE(scene.request_apply_impulse(first, {-1000000, 0, 0}));
+        ASSERT_TRUE(scene.request_apply_impulse(second, {-1000000, 0, 0}));
+        ASSERT_TRUE(scene.request_apply_impulse(second, {1000000, 0, 0}));
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_LT(first.get_component<TransformComponent>().translation.x, -1);
+        EXPECT_GT(second.get_component<TransformComponent>().translation.x, 1);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(PhysicsSystemTest, ImpulseCannotReachRecreatedOrNoLongerDynamicTargets) {
+        Scene scene;
+        const auto original = add_body(scene, "Original", BodyMotion::Dynamic, {0, 10, 0});
+        const auto uuid = original.get_uuid();
+        const auto original_id = original.get_id();
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(scene.request_apply_impulse(original, {10000, 0, 0}));
+        scene.destroy_entity(original);
+        auto replacement = scene.create_entity_with_uuid(uuid, "Replacement");
+        ASSERT_TRUE(replacement);
+        ASSERT_NE(replacement.get_id(), original_id);
+        replacement.edit_transform(
+            [](TransformComponent& transform) { transform.translation = {0, 10, 0}; });
+        replacement.add_component<RigidBodyComponent>();
+        replacement.add_component<ColliderComponent>();
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_FLOAT_EQ(replacement.get_component<TransformComponent>().translation.x, 0);
+        for(const auto motion : {BodyMotion::Static, BodyMotion::Kinematic}) {
+            replacement.get_component<RigidBodyComponent>().motion = BodyMotion::Dynamic;
+            ASSERT_TRUE(scene.request_apply_impulse(replacement, {10000, 0, 0}));
+            replacement.get_component<RigidBodyComponent>().motion = motion;
+            ASSERT_TRUE(runtime.advance(0.01));
+            EXPECT_FLOAT_EQ(replacement.get_component<TransformComponent>().translation.x, 0);
+        }
+        replacement.get_component<RigidBodyComponent>().motion = BodyMotion::Dynamic;
+        ASSERT_TRUE(scene.request_apply_impulse(replacement, {10000, 0, 0}));
+        replacement.remove_component<RigidBodyComponent>();
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_FLOAT_EQ(replacement.get_component<TransformComponent>().translation.x, 0);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(PhysicsSystemTest, ImpulseWakesRestingBodyAndRechecksItsContact) {
+        Scene scene;
+        add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
+        const auto resting = add_body(scene, "Resting", BodyMotion::Dynamic, {0, 2, 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        auto probe = std::make_unique<ContactProbe>();
+        auto* observed = probe.get();
+        ASSERT_TRUE(runtime.add_system(std::move(probe)));
+        ASSERT_TRUE(runtime.start(scene));
+        for(int i = 0; i < 250; ++i)
+            ASSERT_TRUE(runtime.advance(0.01));
+        ASSERT_NEAR(resting.get_component<TransformComponent>().translation.y, 0.5f, 0.03f);
+        ASSERT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1);
+        ASSERT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionExit), 0);
+        ASSERT_TRUE(scene.request_apply_impulse(resting, {0, 10000, 0}));
+        for(int i = 0; i < 5; ++i)
+            ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_GT(resting.get_component<TransformComponent>().translation.y, 0.9f);
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionExit), 1);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(PhysicsSystemTest, ExcessiveFiniteImpulseFailsBeforeWritingInvalidVelocity) {
+        Scene scene;
+        const auto body = add_body(scene, "Body", BodyMotion::Dynamic, {0, 10, 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(scene.request_apply_impulse(body, {std::numeric_limits<float>::max(), 0, 0}));
+        const auto result = runtime.advance(0.01);
+        ASSERT_FALSE(result);
+        EXPECT_NE(result.error().message.find("velocity range"), std::string::npos);
+        EXPECT_FALSE(runtime.is_active());
+        EXPECT_TRUE(Math::is_finite(body.get_component<TransformComponent>().translation));
+        EXPECT_FALSE(scene.request_apply_impulse(body, {1, 0, 0}));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_FLOAT_EQ(body.get_component<TransformComponent>().translation.x, 0);
+        EXPECT_LT(body.get_component<TransformComponent>().translation.y, 10);
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST(PhysicsSystemTest, DemoSceneLoadsAndStartsItsPhysicsBodies) {
         const auto registry = create_scene_component_registry();
         const SceneSerializer serializer(registry);
         auto loaded = serializer.load(
             std::string(COMET_SAMPLE_PROJECT_DIRECTORY) + "/assets/scenes/default.scene");
         ASSERT_TRUE(loaded) << loaded.error();
-        EXPECT_EQ(loaded.value()->component_count<RigidBodyComponent>(), 4u);
-        EXPECT_EQ(loaded.value()->component_count<ColliderComponent>(), 4u);
+        EXPECT_EQ(loaded.value()->component_count<RigidBodyComponent>(), 5u);
+        EXPECT_EQ(loaded.value()->component_count<ColliderComponent>(), 5u);
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
         ASSERT_TRUE(runtime.start(*loaded.value()));

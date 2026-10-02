@@ -303,6 +303,35 @@ namespace Comet {
             return result;
         }
 
+        Result<void, Error> apply_impulses(Scene& scene) {
+            for(const auto& request : scene.take_impulse_requests()) {
+                const auto entity = scene.find_entity(request.entity_id);
+                if(!entity)
+                    continue;
+                const auto found = bodies.find(entity.get_uuid());
+                if(found == bodies.end() || found->second.entity != entity
+                    || found->second.motion != BodyMotion::Dynamic)
+                    continue;
+                const auto id = found->second.id;
+                const JPH::Vec3 impulse(request.impulse.x, request.impulse.y, request.impulse.z);
+                {
+                    const JPH::BodyLockRead lock(world.GetBodyLockInterface(), id);
+                    if(!lock.Succeeded())
+                        return Result<void, Error>::failure({"Cannot access impulse target"});
+                    const auto& body = lock.GetBody();
+                    const auto velocity = body.GetLinearVelocity()
+                                          + impulse * body.GetMotionProperties()->GetInverseMass();
+                    // Jolt 在限速前求 float 长度平方，有限冲量也可能先溢出。
+                    if(!std::isfinite(velocity.LengthSq()))
+                        return Result<void, Error>::failure(
+                            {"Impulse exceeds supported physics velocity range: "
+                                + entity.get_uuid().to_string()});
+                }
+                world.GetBodyInterface().AddImpulse(id, impulse);
+            }
+            return Result<void, Error>::success();
+        }
+
         Result<void, Error> publish_contacts(Scene& scene) {
             auto active = collector.take();
             std::sort(active.begin(), active.end());
@@ -399,6 +428,8 @@ namespace Comet {
         const auto delta_time = static_cast<float>(context.delta_time);
         if(auto synced = m_impl->synchronize(scene, delta_time); !synced)
             return synced;
+        if(auto applied = m_impl->apply_impulses(scene); !applied)
+            return applied;
         for(auto& [uuid, body] : m_impl->bodies)
             body.active_before_step = m_impl->world.GetBodyInterface().IsActive(body.id);
         if(m_impl->world.Update(delta_time, 1, &m_impl->allocator, &m_impl->jobs)

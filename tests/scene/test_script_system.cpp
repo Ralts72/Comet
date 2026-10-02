@@ -327,6 +327,94 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
+    TEST_F(ScriptSystemTest, ImpulseButtonAppliesOnceAcrossMultipleFixedStepsAndHeldFrames) {
+        auto actions =
+            InputActions::create({{"jump", InputActions::Type::Button, {{Input::Key::J}}}});
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(runtime.set_input_actions(std::move(actions).value()));
+        source(R"(return {
+            properties = {reference = false},
+            on_start = function(self)
+                if self.parameters.reference then comet.apply_impulse(0, 1000, 0) end
+            end,
+            fixed_update = function(self)
+                if not self.parameters.reference and comet.action_pressed('jump') then
+                    comet.apply_impulse(0, 1000, 0)
+                end
+            end
+        })");
+        auto controlled = actor();
+        auto reference = actor();
+        reference.get_component<ScriptComponent>().parameters["reference"] = true;
+        reference.edit_transform([](auto& transform) { transform.translation.x = 3; });
+        for(auto entity : {controlled, reference}) {
+            entity.add_component<RigidBodyComponent>();
+            entity.add_component<ColliderComponent>();
+        }
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        Input input;
+        input.focus_event(true);
+        input.key_event(Input::Key::J, true);
+        float first_height = 0;
+        for(int frame = 0; frame < 2; ++frame) {
+            ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+            EXPECT_EQ(runtime.get_timing().fixed_steps, 3u);
+            const auto height = controlled.get_component<TransformComponent>().translation.y;
+            EXPECT_GT(height, 0);
+            EXPECT_NEAR(height, reference.get_component<TransformComponent>().translation.y, 1e-5f);
+            if(frame == 0)
+                first_height = height;
+            else
+                EXPECT_LT(height, 2 * first_height);
+        }
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(ScriptSystemTest, UpdateImpulseWaitsThroughZeroFixedFramesAndIsConsumedOnlyOnce) {
+        source(R"(return {
+            properties = {from_update = false},
+            on_start = function(self)
+                if not self.parameters.from_update then comet.apply_impulse(1000, 0, 0) end
+            end,
+            update = function(self)
+                if self.parameters.from_update and not self.requested then
+                    comet.apply_impulse(1000, 0, 0)
+                    self.requested = true
+                end
+            end
+        })");
+        auto controlled = actor();
+        controlled.get_component<ScriptComponent>().parameters["from_update"] = true;
+        auto reference = actor();
+        reference.edit_transform([](auto& transform) { transform.translation.z = 3; });
+        for(auto entity : {controlled, reference}) {
+            entity.add_component<RigidBodyComponent>();
+            entity.add_component<ColliderComponent>();
+        }
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        for(int frame = 0; frame < 2; ++frame) {
+            ASSERT_TRUE(runtime.advance(0));
+            EXPECT_EQ(runtime.get_timing().fixed_steps, 0u);
+            EXPECT_FLOAT_EQ(controlled.get_component<TransformComponent>().translation.x, 0);
+            EXPECT_FLOAT_EQ(reference.get_component<TransformComponent>().translation.x, 0);
+        }
+        float first_displacement = 0;
+        for(int frame = 0; frame < 2; ++frame) {
+            ASSERT_TRUE(runtime.advance(0.03));
+            const auto displacement = controlled.get_component<TransformComponent>().translation.x;
+            EXPECT_GT(displacement, 0);
+            EXPECT_NEAR(
+                displacement, reference.get_component<TransformComponent>().translation.x, 1e-5f);
+            if(frame == 0)
+                first_displacement = displacement;
+            else
+                EXPECT_LE(displacement, 2 * first_displacement + 1e-5f);
+        }
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST_F(ScriptSystemTest, EntityReferenceReadsAndWritesOnlyLiveSceneEntities) {
         auto target = scene.create_entity("Target");
         const auto target_uuid = target.get_uuid();
@@ -1042,7 +1130,8 @@ namespace Comet::Tests {
         for(const auto& [name, script_handle] :
             {std::pair{"spin.lua", AssetHandle{7821648321594001021}},
                 std::pair{"move_cube.lua", AssetHandle{14309634625000312001ULL}},
-                std::pair{"collect_goal.lua", AssetHandle{14309634625000312002ULL}}}) {
+                std::pair{"collect_goal.lua", AssetHandle{14309634625000312002ULL}},
+                std::pair{"impulse_cube.lua", AssetHandle{14309634625000312003ULL}}}) {
             auto script = Script::load(project.value().paths().assets() / "scripts" / name);
             ASSERT_TRUE(script) << script.error().message;
             ASSERT_TRUE(assets.register_asset(script_handle, std::move(script).value()));
@@ -1058,8 +1147,10 @@ namespace Comet::Tests {
         ASSERT_TRUE(edit_scene) << edit_scene.error();
         const auto center_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d02");
         const auto player_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d05");
+        const auto impulse_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d08");
         ASSERT_TRUE(center_uuid);
         ASSERT_TRUE(player_uuid);
+        ASSERT_TRUE(impulse_uuid);
         const Math::Vec4 score_color(1, 0.15f, 0.5f, 1);
         auto edit_center = edit_scene.value()->find_entity(*center_uuid);
         ASSERT_TRUE(edit_center);
@@ -1073,6 +1164,13 @@ namespace Comet::Tests {
 
         Input input;
         input.focus_event(true);
+        const auto impulse_cube = playing.value()->find_entity(*impulse_uuid);
+        ASSERT_TRUE(impulse_cube);
+        const auto initial_height = impulse_cube.get_component<TransformComponent>().translation.y;
+        input.key_event(Input::Key::J, true);
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        EXPECT_GT(impulse_cube.get_component<TransformComponent>().translation.y, initial_height);
+        input.key_event(Input::Key::J, false);
         input.key_event(Input::Key::Right, true);
         bool score_feedback_observed = false;
         Math::Vec3 player_position_at_score{};

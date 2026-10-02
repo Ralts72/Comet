@@ -107,6 +107,61 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
+    TEST(ScriptInvocationTest, ImpulsesRequireFiniteArgumentsAndALiveDynamicBody) {
+        const auto script = Script::create(R"(
+            local function impulse() comet.apply_impulse(0, 1000, 0) end
+            return {on_start = impulse, on_stop = impulse, update = impulse,
+                fixed_update = impulse, on_trigger_enter = impulse,
+                on_trigger_exit = impulse, on_collision_enter = impulse,
+                on_collision_exit = impulse}
+        )");
+        ASSERT_TRUE(script) << script.error().message;
+        const auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance);
+        Scene scene;
+        auto actor = scene.create_entity();
+        actor.add_component<RigidBodyComponent>();
+        actor.add_component<ColliderComponent>();
+        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Start, actor, {}, {.scene = &scene}));
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.start(scene));
+        for(const auto phase : {Script::Phase::Start, Script::Phase::FixedUpdate,
+                Script::Phase::Update, Script::Phase::CollisionEnter, Script::Phase::CollisionExit,
+                Script::Phase::TriggerEnter, Script::Phase::TriggerExit}) {
+            const auto called = instance.value()->invoke(
+                phase, actor, {}, {.scene = &scene, .contact_other = actor});
+            ASSERT_TRUE(called) << called.error().message;
+        }
+        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Stop, {}, {}));
+        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, {}, {}, {.scene = &scene}));
+        for(const auto motion : {BodyMotion::Static, BodyMotion::Kinematic}) {
+            actor.get_component<RigidBodyComponent>().motion = motion;
+            EXPECT_FALSE(
+                instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene}));
+        }
+        actor.get_component<RigidBodyComponent>().motion = BodyMotion::Dynamic;
+        actor.remove_component<ColliderComponent>();
+        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene}));
+        actor.add_component<ColliderComponent>();
+        actor.remove_component<RigidBodyComponent>();
+        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene}));
+        actor.add_component<RigidBodyComponent>();
+        for(const char* arguments : {"", "0, 1", "0, 1, 0, 1", "'0', 1, 0", "0, true, 0",
+                "0, nil, 0", "0, {}, 0", "0, math.huge, 0", "0, 0/0, 0", "0, 1e40, 0"}) {
+            SCOPED_TRACE(arguments);
+            const auto invalid = Script::create(std::string("return {update = function() ")
+                                                + "comet.apply_impulse(" + arguments + ") end}");
+            ASSERT_TRUE(invalid);
+            auto invalid_instance = invalid.value()->instantiate();
+            ASSERT_TRUE(invalid_instance);
+            EXPECT_FALSE(invalid_instance.value()->invoke(
+                Script::Phase::Update, actor, {}, {.scene = &scene}));
+        }
+        scene.destroy_entity(actor);
+        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene}));
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST(ScriptSourceTest, EntityPropertiesRequireAnExplicitTypeAndSceneOwnedTarget) {
         auto script = Script::create("return {properties = {target = {type = 'entity'}}}");
         ASSERT_TRUE(script) << script.error().message;

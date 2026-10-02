@@ -145,6 +145,17 @@
       ]
     },
     {
+      "name": "demo.impulse",
+      "context": "gameplay",
+      "type": "button",
+      "bindings": [
+        {
+          "source": "key",
+          "control": "J"
+        }
+      ]
+    },
+    {
       "name": "demo.restart",
       "type": "button",
       "bindings": [

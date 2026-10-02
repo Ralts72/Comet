@@ -214,6 +214,18 @@ namespace Comet::LuaBindings {
                 return luaL_error(state, "Current entity needs a valid Audio Source");
             return 0;
         }
+        int apply_impulse(lua_State* state) {
+            if(lua_gettop(state) != 3)
+                return luaL_error(state, "apply_impulse requires three finite numbers");
+            for(int argument = 1; argument <= 3; ++argument)
+                luaL_checktype(state, argument, LUA_TNUMBER);
+            const Math::Vec3 impulse{number(state, 1), number(state, 2), number(state, 3)};
+            const auto& context = current(state);
+            if(!context.scene || !context.scene->request_apply_impulse(context.entity, impulse))
+                return luaL_error(state,
+                    "Cannot queue impulse: active dynamic body with Collider required, or queue full");
+            return 0;
+        }
         int set_material_scalar(lua_State* state) {
             auto& context = current(state);
             if(!context.scene || !context.materials)
@@ -464,7 +476,7 @@ namespace Comet::LuaBindings {
             {"self_entity", self_entity}, {"find_entity", find_entity},
             {"create_entity", create_entity}, {"destroy_entity", destroy_entity},
             {"restart_scene", restart_scene}, {"play_one_shot", play_one_shot},
-            {"set_material_scalar", set_material_scalar},
+            {"apply_impulse", apply_impulse}, {"set_material_scalar", set_material_scalar},
             {"set_material_vector", set_material_vector}, {"session_get", session_get},
             {"session_set", session_set}, {"emit", emit}, {"set_input_context", set_input_context},
             {"key_down", key_down}, {"action_value", action_value}, {"action_down", action_down},

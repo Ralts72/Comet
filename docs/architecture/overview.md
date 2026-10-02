@@ -265,6 +265,14 @@ PhysicsSystem 排在脚本之后：动态刚体的外部 Transform 写入作为�
 Collider 的尺寸乘以本地正缩放，球体暂要求均匀缩放，
 刚体暂不允许父级，避免把局部 TRS 误当世界姿态。Scene 只保存 RigidBody／Collider 参数，
 Play／app 启动时创建 Jolt 世界和 body，Stop／启动失败时清理；Edit Scene 不模拟。
+`comet.apply_impulse → Scene::request_apply_impulse → PhysicsSystem::fixed_update` 提交本实体的质心冲量，
+方向为世界空间；Scene 只排队实体 ID 和有限 Vec3，不保存 BodyID／速度，不把命令写入刚体配置。
+最多 128 条待处理请求；提交时要求当前运行场景中的动态刚体、Transform 与 Collider。
+PhysicsSystem 在同步组件后、模拟前按提交顺序取出并执行一次，普通 Update／接触回调的请求留到后续固定步。
+零固定步和暂停不消费，单步消费一次；Stop／失败清空。消费前已销毁、移除刚体或不再动态的目标丢弃，
+单调实体 ID 防止同 UUID 重建接收旧请求；非法刚体配置仍由既有同步校验报错。
+冲量由 Jolt 按质量改变速度并唤醒休眠体；执行前检查候选速度的有限性，防止巨大有限输入在质量换算或限速中溢出。
+这不是全局事件通知，也不新增 PhysicsManager 或脚本对 System 的直连回调。
 接触通知表示逻辑进入／离开，不把 Jolt 休眠后停止报告接触当作离开。仅延续两端整步未活动、BodyID 仍有效的既有接触；
 静态体新增／移动或刚体移除／重建时，按受影响包围盒局部唤醒邻居，再由 Jolt 检测实际接触。
 ScriptSystem 用事件参与实体的 UUID、组件寿命和脚本 Handle 直接查询实例，不为每条通知遍历全部脚本。

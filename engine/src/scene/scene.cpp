@@ -113,6 +113,7 @@ namespace Comet {
             return false;
         m_entity_requests.clear();
         m_audio_play_requests.clear();
+        m_impulse_requests.clear();
         m_contact_events.clear();
         m_events.clear();
         m_input_context_requests.clear();
@@ -182,6 +183,22 @@ namespace Comet {
         return requests;
     }
 
+    bool Scene::request_apply_impulse(const Entity entity, const Math::Vec3 impulse) {
+        if(!m_runtime_active || !is_valid(entity) || !Math::is_finite(impulse)
+            || !entity.has_component<TransformComponent>()
+            || !entity.has_component<ColliderComponent>()
+            || !entity.has_component<RigidBodyComponent>()
+            || entity.get_component<RigidBodyComponent>().motion != BodyMotion::Dynamic
+            || m_impulse_requests.size() >= MAX_IMPULSE_REQUESTS)
+            return false;
+        m_impulse_requests.push_back({entity.get_id(), impulse});
+        return true;
+    }
+
+    std::vector<Scene::ImpulseRequest> Scene::take_impulse_requests() {
+        return std::exchange(m_impulse_requests, {});
+    }
+
     bool Scene::request_restart() {
         if(!m_runtime_active)
             return false;
@@ -228,6 +245,7 @@ namespace Comet {
         m_restart_requested = false;
         m_entity_requests.clear();
         m_audio_play_requests.clear();
+        m_impulse_requests.clear();
         m_contact_events.clear();
         m_events.clear();
         m_input_context_requests.clear();
