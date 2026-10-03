@@ -27,6 +27,7 @@ function script:on_trigger_enter(other)
         translation = {x, y + 0.8, z},
         scale = {0.15, 0.15, 0.15},
     })
+    comet.log("Goal collected; score=" .. score)
 end
 
 function script:update(dt)

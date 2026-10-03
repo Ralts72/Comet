@@ -760,6 +760,7 @@ namespace Comet {
         }
         m_impl->bindings = {entity, invocation.scene, invocation.input, m_impl->scene_generation,
             std::nullopt, invocation.materials, phase != Phase::Start && phase != Phase::Stop};
+        m_impl->bindings.can_log = true;
         if(phase == Phase::Stop)
             m_impl->bindings.disabled_input_contexts = invocation.disabled_input_contexts;
         m_impl->parameters = &parameters;

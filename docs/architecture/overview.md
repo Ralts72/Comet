@@ -504,10 +504,15 @@ Editor 回到原 Edit，app 沿现有错误返回退出。暂停重开在 on_sta
 非字符串错误使用固定说明，不执行项目的 tostring；不开放 debug 库。Lua 内存耗尽会跳过消息处理器，
 生成诊断本身失败也可能只能返回 Lua 的错误处理失败提示，不额外分配救援 VM 或保证完整调用栈。
 诊断仍沿既有 Error／Result、ScriptSystem 实体上下文及 Log 传递，不增加平行错误对象或 UI。
+正常诊断使用 `comet.log(string)`，LuaBindings 直接转交既有 Logger；文件／行号由 Lua 调用栈提供，
+不暴露 debug 库，也不把项目字符串当格式串。只在 Instance::invoke 期间开放，包括 Stop；
+Script 准备／模块顶层执行不产生日志副作用。每次调用的输出计数随 Context 重置，
+单条超过 4096 字节或超过 16 条时省略消息并至多记录一次 Warning，不将输出饱和视为脚本失败。
+这不是跨实例／跨帧的全局限流；项目仍应避免逐帧输出。参数数量／类型或阶段用错仍沿原错误边界诊断。
 解析结果和绑定返回字符串由保护调用外层持有，回调只借用，正常或失败返回后统一释放；不承诺宿主内存耗尽后的恢复。
 参数表与会话值复用单个名称／值校验；会话值额外限制类型，不为单次赋值构造临时参数表。
 Lua 只借用当前阶段的 InputState，通过具名动作查询输入，统一遵守重绑定与动作组开关；不提供原始按键入口。
-绑定层不依赖 InputActions 或 RuntimeInput。
+绑定层只复用 InputActions 的组名校验与容量约束，不采样或持有 RuntimeInput。
 Script::Invocation 与 LuaBindings::Context 各只传一个 input，结束调用后解除借用，不自行采集或消耗输入。
 材质写入也只借用当前调用的 MaterialParameterValidator；Engine 将 MaterialPrograms 接入 ScriptSystem，
 Lua／Scene 不包含 render 或 graphics 头。Result 的错误先存入外层 Context，再调用 luaL_error，

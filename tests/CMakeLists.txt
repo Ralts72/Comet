@@ -79,6 +79,7 @@ set(UNIT_TEST_SOURCES
         scene/test_scene_runtime.cpp
         scene/test_script_system.cpp
         scripting/test_script.cpp
+        scripting/test_script_logging.cpp
         scene/test_scene_serializer.cpp
         shader/test_compiler.cpp)
 set(EDITOR_UI_SOURCES

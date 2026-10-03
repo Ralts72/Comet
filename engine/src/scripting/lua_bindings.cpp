@@ -2,6 +2,7 @@
 #include "scene/scene.h"
 #include "input/input_state.h"
 #include "input/input_actions.h"
+#include "diagnostics/logger.h"
 
 extern "C" {
 #include <lua.h>
@@ -31,6 +32,34 @@ namespace Comet::LuaBindings {
 
         Context& current(lua_State* state) {
             return *static_cast<Context*>(lua_touserdata(state, lua_upvalueindex(1)));
+        }
+        int log_message(lua_State* state) {
+            if(lua_gettop(state) != 1 || lua_type(state, 1) != LUA_TSTRING)
+                return luaL_error(state, "comet.log expects exactly one string");
+            auto& context = current(state);
+            if(!context.can_log)
+                return luaL_error(state, "Logging is only available in script callbacks");
+            size_t length = 0;
+            const char* message = lua_tolstring(state, 1, &length);
+            lua_Debug location{};
+            const char* source = "<script>";
+            int line = 0;
+            if(lua_getstack(state, 1, &location) && lua_getinfo(state, "Sl", &location)) {
+                source = location.short_src;
+                line = location.currentline;
+            }
+            if(length > 4096 || context.log_messages >= 16) {
+                if(!context.log_overflow_reported) {
+                    context.log_overflow_reported = true;
+                    LOG_WARN("[Lua] {}:{}: Log output exceeds 4096 bytes per message or 16 "
+                             "messages per callback; excess output is omitted",
+                        source, line);
+                }
+                return 0;
+            }
+            ++context.log_messages;
+            LOG_INFO("[Lua] {}:{}: {}", source, line, std::string_view(message, length));
+            return 0;
         }
         const TransformComponent& transform(lua_State* state, const Entity entity) {
             if(!entity || !entity.has_component<TransformComponent>())
@@ -494,8 +523,8 @@ namespace Comet::LuaBindings {
 
         lua_newtable(state);
         lua_pushlightuserdata(state, &context);
-        const luaL_Reg api[]{{"rotate", rotate}, {"translate", translate}, {"position", position},
-            {"self_entity", self_entity}, {"find_entity", find_entity},
+        const luaL_Reg api[]{{"log", log_message}, {"rotate", rotate}, {"translate", translate},
+            {"position", position}, {"self_entity", self_entity}, {"find_entity", find_entity},
             {"create_entity", create_entity}, {"destroy_entity", destroy_entity},
             {"has_rigid_body", has_rigid_body}, {"remove_rigid_body", remove_rigid_body},
             {"restart_scene", restart_scene}, {"play_one_shot", play_one_shot},

@@ -25,6 +25,9 @@ namespace Comet {
             const MaterialParameterValidator* materials = nullptr;
             bool can_request_restart = false;
             std::vector<std::string>* disabled_input_contexts = nullptr;
+            bool can_log = false;
+            unsigned log_messages = 0;
+            bool log_overflow_reported = false;
         };
 
         void install(lua_State* state, Context& context);

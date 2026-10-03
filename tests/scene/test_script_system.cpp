@@ -1588,6 +1588,28 @@ namespace Comet::Tests {
         });
 
     TEST_F(ScriptSystemTest, DemoGoalAndRestartRestoreAnIsolatedRunFromTheAuthoredScene) {
+        const bool owns_logger = !Logger::get_console_logger();
+        Config::Log log_config;
+        log_config.enable_file_logging = false;
+        Logger::init(log_config);
+        const auto logger = Logger::get_console_logger();
+        const auto previous_level = logger->level();
+        logger->set_level(spdlog::level::info);
+        unsigned score_messages = 0;
+        const auto sink = std::make_shared<spdlog::sinks::callback_sink_mt>(
+            [&](const spdlog::details::log_msg& message) {
+                const std::string_view text(message.payload.data(), message.payload.size());
+                if(text.starts_with("[Lua] scripts/collect_goal.lua:")
+                    && text.ends_with(": Goal collected; score=1"))
+                    ++score_messages;
+            });
+        Logger::add_custom_sink(sink);
+        const ScopeExit restore_log([&] {
+            std::erase(logger->sinks(), sink);
+            logger->set_level(previous_level);
+            if(owns_logger)
+                Logger::shutdown();
+        });
         const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
         ASSERT_TRUE(project) << project.error();
         ASSERT_TRUE(runtime.set_input_actions(project.value().input_actions()));
@@ -1664,6 +1686,7 @@ namespace Comet::Tests {
             }
         }
         ASSERT_TRUE(score_feedback_observed);
+        EXPECT_EQ(score_messages, 1u);
         const auto player_position_at_score =
             player.get_component<TransformComponent>().translation;
         ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
@@ -1724,6 +1747,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(playing.value()->find_entity(*goal_uuid));
         EXPECT_TRUE(playing.value()->is_valid(marker));
         EXPECT_EQ(playing.value()->get_session_value("demo.score"), score);
+        EXPECT_EQ(score_messages, 1u);
         EXPECT_EQ(player.get_component<TransformComponent>().translation, player_position_at_score);
 
         input.key_event(Input::Key::Right, false);
