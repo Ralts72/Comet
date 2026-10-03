@@ -20,19 +20,32 @@ namespace Comet {
                 return Result::failure(entries.error());
             for(const auto entry : entries.value()) {
                 const auto location = "input_contexts[" + std::to_string(contexts.size()) + "]";
-                if(auto valid = context.validate_keys(entry, {"name", "enabled"}, location); !valid)
+                if(auto valid = context.validate_keys(
+                       entry, {"name", "enabled", "priority", "consume"}, location);
+                    !valid)
                     return Result::failure(valid.error());
                 auto name = context.read_field<std::string>(entry, "name", "a string", location);
                 if(!name)
                     return Result::failure(name.error());
                 InputActions::Context group{std::move(name).value()};
-                Json::Node enabled;
-                if(!entry["enabled"].get(enabled)) {
-                    auto value =
-                        context.read_scalar<bool>(enabled, location + ".enabled", "a boolean");
+                for(const auto [key, target] :
+                    {std::pair{"enabled", &group.enabled}, std::pair{"consume", &group.consume}}) {
+                    Json::Node node;
+                    if(!entry[key].get(node)) {
+                        auto value =
+                            context.read_scalar<bool>(node, location + "." + key, "a boolean");
+                        if(!value)
+                            return Result::failure(value.error());
+                        *target = value.value();
+                    }
+                }
+                Json::Node priority;
+                if(!entry["priority"].get(priority)) {
+                    auto value = context.read_scalar<int>(
+                        priority, location + ".priority", "a signed integer in range");
                     if(!value)
                         return Result::failure(value.error());
-                    group.enabled = value.value();
+                    group.priority = value.value();
                 }
                 contexts.push_back(std::move(group));
                 if(contexts.size() > InputActions::MAX_CONTEXTS)
@@ -141,6 +154,8 @@ namespace Comet {
                     writer.begin_object();
                     writer.field("name", context.name);
                     writer.field("enabled", context.enabled);
+                    writer.field("priority", static_cast<std::int64_t>(context.priority));
+                    writer.field("consume", context.consume);
                     writer.end_object();
                 }
                 writer.end_array();

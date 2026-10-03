@@ -1256,6 +1256,123 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(rotation.y, 4);
     }
 
+    TEST_F(ScriptSystemTest, DemoPaletteConsumesSharedControlsAndPreservesGameplayState) {
+        const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
+        ASSERT_TRUE(project) << project.error();
+        ASSERT_TRUE(runtime.set_input_actions(project.value().input_actions()));
+        const std::array<std::filesystem::path, 3> roots{
+            "scripts/spin.lua", "scripts/move_cube.lua", "scripts/impulse_cube.lua"};
+        auto scripts = Script::load_group(project.value().paths().assets(), roots);
+        ASSERT_TRUE(scripts) << scripts.error().message;
+        const AssetHandle move_handle{43}, impulse_handle{44}, material_handle{77};
+        ASSERT_TRUE(assets.register_asset(handle, scripts.value()[0]));
+        ASSERT_TRUE(assets.register_asset(move_handle, scripts.value()[1]));
+        ASSERT_TRUE(assets.register_asset(impulse_handle, scripts.value()[2]));
+        const auto material = std::make_shared<Material>("cube", "pbr");
+        ASSERT_TRUE(assets.register_asset(material_handle, material));
+        const auto material_revision = material->get_revision();
+        auto center = actor();
+        center.add_component<MeshRendererComponent>(AssetHandle{11}, material_handle);
+        auto player = scene.create_entity("Player");
+        player.add_component<ScriptComponent>().asset = move_handle;
+        auto impulse = scene.create_entity("Impulse");
+        impulse.add_component<ScriptComponent>().asset = impulse_handle;
+        impulse.add_component<RigidBodyComponent>();
+        impulse.add_component<ColliderComponent>();
+        impulse.edit_transform([](auto& transform) { transform.translation.y = 2; });
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        const auto& rotation = center.get_component<TransformComponent>().rotation;
+        const auto& position = player.get_component<TransformComponent>().translation;
+        ASSERT_TRUE(runtime.start(scene));
+        Input input;
+        input.focus_event(true);
+        input.key_event(Input::Key::Tab, true);
+        const auto opened = runtime.advance(0, &input.publish_frame());
+        ASSERT_TRUE(opened) << opened.error().message;
+        input.key_event(Input::Key::Tab, false);
+        ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
+        ASSERT_TRUE(scene.get_material_overrides(center));
+        EXPECT_EQ(scene.get_material_overrides(center)->vector_properties.at("base_color"),
+            Math::Vec4(0.2f, 0.55f, 1, 1));
+
+        input.key_event(Input::Key::Right, true);
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        EXPECT_EQ(position, Math::Vec3(0));
+        EXPECT_EQ(scene.get_material_overrides(center)->vector_properties.at("base_color"),
+            Math::Vec4(1, 0.5f, 0.1f, 1));
+        input.key_event(Input::Key::J, true);
+        const auto height_before_reset = impulse.get_component<TransformComponent>().translation.y;
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        EXPECT_LT(impulse.get_component<TransformComponent>().translation.y, height_before_reset);
+        EXPECT_EQ(scene.get_material_overrides(center)->vector_properties.at("base_color"),
+            Math::Vec4(0.2f, 0.55f, 1, 1));
+        input.key_event(Input::Key::J, false);
+        input.key_event(Input::Key::Space, true);
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        EXPECT_EQ(position, Math::Vec3(0));
+        const auto rotation_at_confirm = rotation.y;
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        EXPECT_NEAR(rotation.y, rotation_at_confirm + 3, 1e-5f);
+        EXPECT_GT(position.x, 0);
+
+        input.key_event(Input::Key::Space, false);
+        input.key_event(Input::Key::Right, false);
+        ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
+        input.key_event(Input::Key::Space, true);
+        const auto rotation_before_toggle = rotation.y;
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        EXPECT_FLOAT_EQ(rotation.y, rotation_before_toggle);
+        input.key_event(Input::Key::Space, false);
+
+        input.key_event(Input::Key::J, true);
+        const auto height_before_impulse =
+            impulse.get_component<TransformComponent>().translation.y;
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        EXPECT_GT(impulse.get_component<TransformComponent>().translation.y, height_before_impulse);
+        input.key_event(Input::Key::J, false);
+        input.key_event(Input::Key::Tab, true);
+        ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
+        input.key_event(Input::Key::Tab, false);
+        ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
+        auto reloaded = Script::load_group(project.value().paths().assets(), roots);
+        ASSERT_TRUE(reloaded) << reloaded.error().message;
+        ASSERT_TRUE(assets.replace_asset(handle, reloaded.value()[0]));
+        input.key_event(Input::Key::Space, true);
+        ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
+        const auto rotation_after_reload = rotation.y;
+        input.key_event(Input::Key::Right, true);
+        const auto position_after_reload = position;
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        EXPECT_GT(rotation.y, rotation_after_reload);
+        EXPECT_GT(position.x, position_after_reload.x);
+        input.key_event(Input::Key::Space, false);
+        input.key_event(Input::Key::Right, false);
+
+        // 收集逻辑关闭 gameplay 后，调色模式退出不得擅自重新启用它。
+        ASSERT_TRUE(scene.request_input_context("gameplay", false));
+        input.key_event(Input::Key::Tab, true);
+        ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
+        input.key_event(Input::Key::Tab, false);
+        ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
+        input.key_event(Input::Key::Space, true);
+        ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
+        input.key_event(Input::Key::Space, false);
+        input.key_event(Input::Key::Right, true);
+        const auto stopped_position = position;
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        EXPECT_EQ(position, stopped_position);
+        input.key_event(Input::Key::Tab, true);
+        ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
+        input.key_event(Input::Key::Tab, false);
+        ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
+        input.key_event(Input::Key::R, true);
+        ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
+        EXPECT_TRUE(scene.take_restart_request());
+        EXPECT_EQ(material->get_revision(), material_revision);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(scene.get_material_overrides(center));
+    }
+
     TEST_F(ScriptSystemTest, DemoGoalAndRestartRestoreAnIsolatedRunFromTheAuthoredScene) {
         const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
         ASSERT_TRUE(project) << project.error();

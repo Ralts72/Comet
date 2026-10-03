@@ -5,6 +5,7 @@
 #include <charconv>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <set>
 #include <type_traits>
 
@@ -80,44 +81,6 @@ namespace Comet {
             return false;
         }
 
-        struct Sample {
-            float value = 0;
-            Input::ButtonState button;
-        };
-
-        Sample sample(const InputActions::Binding& binding, const Input::Frame& input,
-            const Input::GamepadState* pad) {
-            return std::visit(
-                [&](auto control) -> Sample {
-                    using T = decltype(control);
-                    if constexpr(std::is_same_v<T, Input::Key>) {
-                        const auto state = input.key(control);
-                        return {float(state.down && input.focused), state};
-                    } else if constexpr(std::is_same_v<T, Input::MouseButton>) {
-                        const auto state = input.mouse(control);
-                        return {float(state.down && input.focused), state};
-                    } else if constexpr(std::is_same_v<T, Input::GamepadButton>) {
-                        if(pad)
-                            return {float(pad->button(control).down), pad->button(control)};
-                    } else if constexpr(std::is_same_v<T, Input::GamepadAxis>) {
-                        if(pad)
-                            return {pad->axis(control), {}};
-                    } else if(input.focused) {
-                        switch(control) {
-                            case InputActions::Motion::CursorX:
-                                return {input.cursor_delta.x, {}};
-                            case InputActions::Motion::CursorY:
-                                return {input.cursor_delta.y, {}};
-                            case InputActions::Motion::ScrollX:
-                                return {input.scroll.x, {}};
-                            case InputActions::Motion::ScrollY:
-                                return {input.scroll.y, {}};
-                        }
-                    }
-                    return {};
-                },
-                binding.control);
-        }
     }
 
     bool InputActions::valid_name(std::string_view name) {
@@ -238,41 +201,137 @@ namespace Comet {
     }
 
     void InputActions::evaluate(const Input::Frame& input, InputState& previous) const {
-        evaluate(input, previous, m_contexts);
+        Samples samples;
+        sample(input, resolve_routes(m_contexts), samples);
+        evaluate_samples(input, samples, previous);
     }
 
-    void InputActions::evaluate(
-        const Input::Frame& input, InputState& previous, std::span<const Context> contexts) const {
-        previous.m_physical = input;
-        const Input::GamepadState* pad = nullptr;
-        if(input.focused)
-            for(const auto& candidate : input.gamepads)
-                if(candidate.connected) {
-                    pad = &candidate;
-                    break;
-                }
+    InputActions::Routing InputActions::resolve_routes(std::span<const Context> contexts) const {
+        std::vector<const Context*> groups;
+        groups.reserve(m_actions.size());
+        std::map<decltype(Binding::control), int> consumers;
         for(const auto& action : m_actions) {
+            const auto found = std::ranges::find(contexts, action.context, &Context::name);
+            const auto* group = found == contexts.end() ? nullptr : &*found;
+            groups.push_back(group);
+            if(!group || !group->enabled || !group->consume)
+                continue;
+            for(const auto& binding : action.bindings) {
+                const auto [entry, inserted] =
+                    consumers.try_emplace(binding.control, group->priority);
+                if(!inserted)
+                    entry->second = std::max(entry->second, group->priority);
+            }
+        }
+        Routing routes(m_actions.size());
+        for(std::size_t index = 0; index < m_actions.size(); ++index) {
+            const auto* group = groups[index];
+            if(group && !group->enabled)
+                continue;
+            const auto& bindings = m_actions[index].bindings;
+            for(std::size_t binding = 0; binding < bindings.size(); ++binding) {
+                const auto consumer = consumers.find(bindings[binding].control);
+                routes[index].set(binding,
+                    !group || consumer == consumers.end() || consumer->second <= group->priority);
+            }
+        }
+        return routes;
+    }
+
+    InputActions::Sample InputActions::sample_binding(
+        const Binding& binding, const Input::Frame& input, const std::size_t gamepad) {
+        if(!input.focused)
+            return {};
+        return std::visit(
+            [&](auto control) -> Sample {
+                using T = decltype(control);
+                if constexpr(std::is_same_v<T, Input::Key>) {
+                    const auto state = input.key(control);
+                    return {double(state.down), state, true};
+                } else if constexpr(std::is_same_v<T, Input::MouseButton>) {
+                    const auto state = input.mouse(control);
+                    return {double(state.down), state, true};
+                } else if constexpr(std::is_same_v<T, Input::GamepadButton>) {
+                    if(gamepad < input.gamepads.size()) {
+                        const auto state = input.gamepads[gamepad].button(control);
+                        return {double(state.down), state, true, gamepad};
+                    }
+                } else if constexpr(std::is_same_v<T, Input::GamepadAxis>) {
+                    if(gamepad < input.gamepads.size())
+                        return {input.gamepads[gamepad].axis(control), {}, true, gamepad};
+                } else {
+                    switch(control) {
+                        case Motion::CursorX:
+                            return {input.cursor_delta.x, {}, true};
+                        case Motion::CursorY:
+                            return {input.cursor_delta.y, {}, true};
+                        case Motion::ScrollX:
+                            return {input.scroll.x, {}, true};
+                        case Motion::ScrollY:
+                            return {input.scroll.y, {}, true};
+                    }
+                }
+                return {};
+            },
+            binding.control);
+    }
+
+    void InputActions::sample(
+        const Input::Frame& input, const Routing& routes, Samples& samples) const {
+        std::size_t gamepad = Input::MAX_GAMEPADS;
+        for(std::size_t index = 0; index < input.gamepads.size(); ++index)
+            if(input.gamepads[index].connected) {
+                gamepad = index;
+                break;
+            }
+        samples.resize(m_actions.size());
+        for(std::size_t index = 0; index < m_actions.size(); ++index) {
+            const auto& bindings = m_actions[index].bindings;
+            samples[index].resize(bindings.size());
+            for(std::size_t binding = 0; binding < bindings.size(); ++binding) {
+                auto& source = samples[index][binding];
+                source = {};
+                if(routes[index].test(binding))
+                    source = sample_binding(bindings[binding], input, gamepad);
+                if(!std::isfinite(source.value))
+                    source.value = 0;
+            }
+        }
+    }
+
+    void InputActions::clear_transients(Samples& samples) const {
+        for(std::size_t index = 0; index < samples.size(); ++index)
+            for(auto& source : samples[index]) {
+                source.button.pressed = source.button.released = false;
+                if(m_actions[index].type == Type::Delta)
+                    source.value = 0;
+            }
+    }
+
+    void InputActions::evaluate_samples(
+        const Input::Frame& input, const Samples& samples, InputState& previous) const {
+        previous.m_physical = input;
+        for(std::size_t index = 0; index < m_actions.size(); ++index) {
+            const auto& action = m_actions[index];
             auto& value = previous.m_actions[action.name];
             const bool was_down = value.down;
             value = {.type = action.type};
-            if(!action.context.empty()) {
-                const auto context = std::ranges::find(contexts, action.context, &Context::name);
-                if(!context->enabled) {
-                    value.released = was_down;
-                    continue;
-                }
-            }
             bool pressed = false;
             bool released = false;
             double total = 0;
-            for(const auto& binding : action.bindings) {
-                const auto source = sample(binding, input, pad);
-                value.down |= source.button.down && input.focused;
-                pressed |= source.button.pressed && input.focused;
+            for(std::size_t binding_index = 0; binding_index < action.bindings.size();
+                ++binding_index) {
+                const auto& binding = action.bindings[binding_index];
+                const auto& source = samples[index][binding_index];
+                if(!source.available)
+                    continue;
+                value.down |= source.button.down;
+                pressed |= source.button.pressed;
                 released |= source.button.released;
                 if(std::isfinite(source.value)) {
-                    float magnitude = std::max(0.0f, std::abs(source.value) - binding.deadzone)
-                                      / (1 - binding.deadzone);
+                    const double magnitude =
+                        std::max(0.0, std::abs(source.value) - binding.deadzone)
+                        / (1 - binding.deadzone);
                     total += std::copysign(magnitude, source.value) * binding.scale;
                 }
             }

@@ -240,18 +240,25 @@ Engine 启动 Runtime 使用 InputStart::Rebase，在首张已授权输入上丢
 多个绑定合为一个按钮电平，释放其中一个仍按住的动作不会产生释放；轴与位移不伪装成按钮。
 CameraControllerSystem 只约定 `camera.*` 动作语义，具体设备、按键、反向和死区属于项目配置。
 
-InputActions 保存 `Context{name, enabled}` 默认配置及 Action 的组引用，创建时统一校验；
-最多 32 个组，名称沿用动作名规则，省略 enabled 时默认启用。
-无组动作始终启用，多个组可同时启用，不隐含互斥关系、优先级或控制消费。
+InputActions 保存 `Context{name, enabled, priority, consume}` 默认配置及 Action 的组引用，创建时统一校验；
+最多 32 个组，名称沿用动作名规则，省略 enabled／priority／consume 时分别为 true／0／false。
+enabled 的 consuming 组按物理 control 身份屏蔽严格低 priority 组的相同绑定；倍率和死区不改变 control 身份。
+相同优先级共享输入，与配置顺序无关；无组公共动作既不被屏蔽也不参与消费。不同组不隐含互斥，
+消费按绑定而非整个 action 或设备，不会让一个被阻挡的键连带禁用该动作的其他来源。
 RuntimeInput 保存本局的活动组状态，reset 恢复默认；InputState 仍是只读的阶段结果，System／Lua 不持有映射配置。
 `comet.set_input_context → Scene::request_input_context → SceneRuntime::advance → RuntimeInput::set_context_enabled`：
 Scene 只存非持久的、按组名合并的有界请求，不拥有输入状态。Runtime 在下一次 advance 的输入准备前消费，
 因此同帧多次 Fixed Update、普通 Update 和通知 handler 使用同一套组状态；未知组走运行失败清理，不静默忽略。
 请求允许在 on_start 发出，on_stop 无活动 Scene；Stop／失败清空，暂停时可应用已排队请求但不推进模拟。
 
-组禁用后动作保留类型、输出零值与一次必要的释放；新启用组采样电平，不合成 pressed，也不接收切换前的 delta。
-转换只影响该组，不能全局 rebase 抹掉公共动作。RuntimeInput 同时保留已按活动组过滤的固定步瞬时积累，
-避免零固定步时把旧输入交给新启用组，也避免丢失启用后的新短按；设备断连／失焦仍遵循物理输入授权规则。
+组切换依据绑定实际是否获得路由处理，也包括其他组被间接屏蔽／恢复的情况。
+丢失绑定清掉该来源的固定步积累，动作最后一个已按住来源丢失时产生一次必要释放；
+新获绑定只建立当前电平，不合成 pressed、不接收切换前或切换当帧的 delta；未受影响绑定保留自己的积累。
+RuntimeInput 的逐绑定 pending 是固定步唯一动作历史，InputActions 共用采样／合成逻辑，
+不会从原始物理 pending 再映射一次而重放已被消费的点击。组切换不触发全局 rebase，公共动作的积累不因此丢失。
+路由只在组状态改变后重算，采样工作缓冲复用容量并逐槽覆盖；它不保存另一份跨帧业务状态。
+手柄换槽不能继承旧槽的 pending，失焦／断连清理仍遵循输入授权规则。
+底层物理快照保留原始授权输入供既有消费者查看，消费不修改窗口事件或 ImGui 快捷键；Lua 只读取具名动作。
 这不是 Gameplay 广播通知：启停请求有唯一消费方 RuntimeInput，不经过 script.events，也没有新增回调链或 EventBus。
 
 项目输入设置的链路是 `InputSettingsPanel 草稿 → ProjectSettings 校验／保存 → 宿主应用到停止态 RuntimeInput`。

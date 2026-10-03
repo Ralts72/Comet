@@ -145,9 +145,9 @@ namespace CometEditor {
     void InputSettingsPanel::render_contexts() {
         if(!ImGui::CollapsingHeader(Ui::label("Input Contexts").c_str()))
             return;
-        ImGui::BeginChild("ContextList", ImVec2(0, 135), true);
-        ImGui::TextWrapped(
-            "%s", Ui::text("Contexts switch independently; common actions stay enabled."));
+        ImGui::BeginChild("ContextList", ImVec2(0, 200), true);
+        ImGui::TextWrapped("%s", Ui::text("Higher priorities consume matching controls; equal "
+                                          "priorities share. Common actions bypass consumption."));
         for(std::size_t index = 0; index < m_contexts.size();) {
             auto& context = m_contexts[index];
             ImGui::PushID(static_cast<int>(index));
@@ -161,6 +161,11 @@ namespace CometEditor {
             ImGui::BeginDisabled(used);
             const bool remove = ImGui::Button(Ui::label("Remove Context").c_str());
             ImGui::EndDisabled();
+            ImGui::SetNextItemWidth(90.0f);
+            ImGui::InputInt(Ui::label("Priority").c_str(), &context.priority, 0, 0);
+            ImGui::SameLine();
+            ImGui::Checkbox(Ui::label("Consume Input").c_str(), &context.consume);
+            ImGui::Separator();
             ImGui::PopID();
             if(remove) {
                 m_contexts.erase(m_contexts.begin() + index);

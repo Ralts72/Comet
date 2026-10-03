@@ -210,6 +210,375 @@ namespace Comet::Tests {
         EXPECT_TRUE(runtime.consume_fixed().action("jump")->pressed);
     }
 
+    TEST(RuntimeInputTest, ConsumingContextHandoffsReleaseAndRebaseIndirectlyAffectedActions) {
+        using Type = InputActions::Type;
+        const auto actions =
+            InputActions::create({{"game", Type::Button, {{Input::Key::Space}}, "gameplay"},
+                                     {"menu", Type::Button, {{Input::Key::Space}}, "menu"},
+                                     {"common", Type::Button, {{Input::Key::R}}}},
+                {{.name = "gameplay"},
+                    {.name = "menu", .enabled = false, .priority = 10, .consume = true}});
+        ASSERT_TRUE(actions);
+        RuntimeInput runtime;
+        runtime.configure(actions.value());
+        Input input;
+        input.focus_event(true);
+        input.key_event(Input::Key::Space, true);
+        runtime.prepare(&input.publish_frame());
+        ASSERT_TRUE(runtime.consume_fixed().action("game")->pressed);
+
+        ASSERT_TRUE(runtime.set_context_enabled("menu", true));
+        input.key_event(Input::Key::R, true);
+        runtime.prepare(&input.publish_frame());
+        for(const auto* state : {&runtime.update(), &runtime.consume_fixed()}) {
+            EXPECT_FALSE(state->action("game")->down);
+            EXPECT_TRUE(state->action("game")->released);
+            EXPECT_TRUE(state->action("menu")->down);
+            EXPECT_FALSE(state->action("menu")->pressed);
+            EXPECT_FALSE(state->action("menu")->released);
+            EXPECT_TRUE(state->action("common")->pressed);
+        }
+        EXPECT_FALSE(runtime.consume_fixed().action("game")->released);
+        ASSERT_TRUE(runtime.set_context_enabled("menu", false));
+        runtime.prepare(&input.publish_frame());
+        for(const auto* state : {&runtime.update(), &runtime.consume_fixed()}) {
+            EXPECT_TRUE(state->action("game")->down);
+            EXPECT_FALSE(state->action("game")->pressed);
+            EXPECT_FALSE(state->action("game")->released);
+            EXPECT_FALSE(state->action("menu")->down);
+            EXPECT_TRUE(state->action("menu")->released);
+        }
+        EXPECT_FALSE(runtime.consume_fixed().action("menu")->released);
+        input.key_event(Input::Key::Space, false);
+        runtime.prepare(&input.publish_frame());
+        EXPECT_TRUE(runtime.update().action("game")->released);
+        EXPECT_TRUE(runtime.consume_fixed().action("game")->released);
+        EXPECT_FALSE(runtime.consume_fixed().action("game")->released);
+        input.key_event(Input::Key::Space, true);
+        runtime.prepare(&input.publish_frame());
+        EXPECT_TRUE(runtime.consume_fixed().action("game")->pressed);
+    }
+
+    TEST(RuntimeInputTest, GainedBindingsKeepRetainedShortPressAndDeltaAcrossZeroFixedSteps) {
+        using Type = InputActions::Type;
+        using Motion = InputActions::Motion;
+        const auto actions = InputActions::create(
+            {{"game", Type::Button, {{Input::Key::Space}, {Input::MouseButton::Left}}, "gameplay"},
+                {"fresh", Type::Button, {{Input::Key::Space}, {Input::MouseButton::Right}},
+                    "gameplay"},
+                {"look", Type::Delta, {{Motion::ScrollX}, {Motion::ScrollY}}, "gameplay"},
+                {"menu", Type::Button, {{Input::Key::Space}}, "menu"},
+                {"menu_scroll", Type::Delta, {{Motion::ScrollY}}, "menu"}},
+            {{.name = "gameplay"}, {.name = "menu", .priority = 10, .consume = true}});
+        ASSERT_TRUE(actions);
+        RuntimeInput runtime;
+        runtime.configure(actions.value());
+        Input input;
+        input.focus_event(true);
+        input.mouse_button_event(Input::MouseButton::Left, true);
+        input.mouse_button_event(Input::MouseButton::Left, false);
+        input.key_event(Input::Key::Space, true);
+        input.key_event(Input::Key::Space, false);
+        input.scroll_event({2, 20});
+        runtime.prepare(&input.publish_frame());
+        ASSERT_TRUE(runtime.update().action("game")->pressed);
+
+        ASSERT_TRUE(runtime.set_context_enabled("menu", false));
+        input.key_event(Input::Key::Space, true);
+        input.mouse_button_event(Input::MouseButton::Right, true);
+        input.mouse_button_event(Input::MouseButton::Right, false);
+        input.scroll_event({3, 30});
+        runtime.prepare(&input.publish_frame());
+        EXPECT_TRUE(runtime.update().action("game")->down);
+        EXPECT_FALSE(runtime.update().action("game")->pressed);
+        EXPECT_TRUE(runtime.update().action("fresh")->pressed);
+        EXPECT_FLOAT_EQ(runtime.update().action("look")->value, 3);
+        const auto first = runtime.consume_fixed();
+        EXPECT_TRUE(first.action("game")->down);
+        EXPECT_TRUE(first.action("game")->pressed);
+        EXPECT_TRUE(first.action("fresh")->pressed);
+        EXPECT_FLOAT_EQ(first.action("look")->value, 5);
+        EXPECT_FALSE(first.action("menu")->pressed);
+        EXPECT_FLOAT_EQ(first.action("menu_scroll")->value, 0);
+        const auto& second = runtime.consume_fixed();
+        EXPECT_FALSE(second.action("game")->pressed);
+        EXPECT_FLOAT_EQ(second.action("look")->value, 0);
+
+        input.key_event(Input::Key::Space, false);
+        input.scroll_event({4, 5});
+        runtime.prepare(&input.publish_frame());
+        EXPECT_TRUE(runtime.consume_fixed().action("game")->released);
+        EXPECT_FLOAT_EQ(runtime.update().action("look")->value, 9);
+        input.key_event(Input::Key::Space, true);
+        runtime.prepare(&input.publish_frame());
+        EXPECT_TRUE(runtime.consume_fixed().action("game")->pressed);
+    }
+
+    TEST(RuntimeInputTest, LostBindingsDiscardOnlyTheirOwnPendingEdgesAndDelta) {
+        using Type = InputActions::Type;
+        using Motion = InputActions::Motion;
+        const auto actions = InputActions::create(
+            {{"mixed", Type::Button, {{Input::Key::Space}, {Input::MouseButton::Left}}, "gameplay"},
+                {"blocked", Type::Button, {{Input::Key::Space}}, "gameplay"},
+                {"look", Type::Delta, {{Motion::ScrollX}, {Motion::ScrollY}}, "gameplay"},
+                {"menu", Type::Button, {{Input::Key::Space}}, "menu"},
+                {"menu_scroll", Type::Delta, {{Motion::ScrollY}}, "menu"}},
+            {{.name = "gameplay"},
+                {.name = "menu", .enabled = false, .priority = 10, .consume = true}});
+        ASSERT_TRUE(actions);
+        RuntimeInput runtime;
+        runtime.configure(actions.value());
+        Input input;
+        input.focus_event(true);
+        input.key_event(Input::Key::Space, true);
+        input.key_event(Input::Key::Space, false);
+        input.mouse_button_event(Input::MouseButton::Left, true);
+        input.scroll_event({2, 20});
+        runtime.prepare(&input.publish_frame());
+        ASSERT_TRUE(runtime.set_context_enabled("menu", true));
+        input.scroll_event({3, 30});
+        runtime.prepare(&input.publish_frame());
+        const auto first = runtime.consume_fixed();
+        EXPECT_TRUE(first.action("mixed")->pressed);
+        EXPECT_TRUE(first.action("mixed")->down);
+        EXPECT_FALSE(first.action("mixed")->released);
+        EXPECT_FALSE(first.action("blocked")->pressed);
+        EXPECT_FALSE(first.action("menu")->pressed);
+        EXPECT_FLOAT_EQ(first.action("look")->value, 5);
+        EXPECT_FLOAT_EQ(first.action("menu_scroll")->value, 0);
+
+        input.key_event(Input::Key::Space, true);
+        input.key_event(Input::Key::Space, false);
+        input.mouse_button_event(Input::MouseButton::Left, false);
+        input.scroll_event({0, 4});
+        runtime.prepare(&input.publish_frame());
+        const auto next = runtime.consume_fixed();
+        EXPECT_FALSE(next.action("mixed")->pressed);
+        EXPECT_TRUE(next.action("mixed")->released);
+        EXPECT_FALSE(next.action("blocked")->pressed);
+        EXPECT_TRUE(next.action("menu")->pressed);
+        EXPECT_TRUE(next.action("menu")->released);
+        EXPECT_FLOAT_EQ(next.action("menu_scroll")->value, 4);
+        const auto& repeated = runtime.consume_fixed();
+        EXPECT_FALSE(repeated.action("menu")->pressed);
+        EXPECT_FALSE(repeated.action("menu")->released);
+        EXPECT_FLOAT_EQ(repeated.action("menu_scroll")->value, 0);
+    }
+
+    TEST(RuntimeInputTest, PausedConsumptionChangesAndResumeEstablishBothStageBaselines) {
+        using Type = InputActions::Type;
+        const auto actions = InputActions::create(
+            {{"game", Type::Button, {{Input::Key::Space}}, "gameplay"},
+                {"look", Type::Delta, {{InputActions::Motion::ScrollY}}, "gameplay"},
+                {"menu", Type::Button, {{Input::Key::Space}}, "menu"},
+                {"menu_scroll", Type::Delta, {{InputActions::Motion::ScrollY}}, "menu"}},
+            {{.name = "gameplay"},
+                {.name = "menu", .enabled = false, .priority = 10, .consume = true}});
+        ASSERT_TRUE(actions);
+        RuntimeInput runtime;
+        runtime.configure(actions.value());
+        Input input;
+        input.focus_event(true);
+        input.key_event(Input::Key::Space, true);
+        input.scroll_event({0, 2});
+        runtime.prepare(&input.publish_frame());
+        ASSERT_TRUE(runtime.set_context_enabled("menu", true));
+        input.scroll_event({0, 3});
+        runtime.prepare(&input.publish_frame(), true);
+        for(const auto* state : {&runtime.update(), &runtime.consume_fixed()}) {
+            EXPECT_FALSE(state->action("game")->down);
+            EXPECT_FALSE(state->action("game")->pressed);
+            EXPECT_FALSE(state->action("game")->released);
+            EXPECT_TRUE(state->action("menu")->down);
+            EXPECT_FALSE(state->action("menu")->pressed);
+            EXPECT_FLOAT_EQ(state->action("look")->value, 0);
+            EXPECT_FLOAT_EQ(state->action("menu_scroll")->value, 0);
+        }
+        ASSERT_TRUE(runtime.set_context_enabled("menu", false));
+        runtime.prepare(&input.publish_frame(), true);
+        EXPECT_TRUE(runtime.consume_fixed().action("game")->down);
+        EXPECT_FALSE(runtime.update().action("game")->pressed);
+        runtime.rebase();
+        runtime.prepare(nullptr);
+        input.scroll_event({0, 6});
+        runtime.prepare(&input.publish_frame());
+        for(const auto* state : {&runtime.update(), &runtime.consume_fixed()}) {
+            EXPECT_TRUE(state->action("game")->down);
+            EXPECT_FALSE(state->action("game")->pressed);
+            EXPECT_FALSE(state->action("game")->released);
+            EXPECT_FLOAT_EQ(state->action("look")->value, 0);
+        }
+        input.key_event(Input::Key::Space, false);
+        runtime.prepare(&input.publish_frame());
+        EXPECT_TRUE(runtime.consume_fixed().action("game")->released);
+        input.key_event(Input::Key::Space, true);
+        runtime.prepare(&input.publish_frame());
+        EXPECT_TRUE(runtime.consume_fixed().action("game")->pressed);
+    }
+
+    TEST(RuntimeInputTest, DeviceReplacementAndFocusLossCannotKeepOldRoutedPendingInput) {
+        using Type = InputActions::Type;
+        const auto actions = InputActions::create(
+            {{"pad", Type::Button, {{Input::GamepadButton::South}}, "gameplay"},
+                {"mixed", Type::Button, {{Input::Key::Space}, {Input::GamepadButton::South}},
+                    "gameplay"},
+                {"look", Type::Delta, {{InputActions::Motion::ScrollY}}, "gameplay"},
+                {"menu", Type::Button, {{Input::GamepadButton::South}}, "menu"}},
+            {{.name = "gameplay"}, {.name = "menu", .priority = 10, .consume = true}});
+        ASSERT_TRUE(actions);
+        RuntimeInput runtime;
+        runtime.configure(actions.value());
+        Input input;
+        input.focus_event(true);
+        Input::GamepadSample pad;
+        input.gamepad_sample(0, pad);
+        input.gamepad_sample(1, pad);
+        runtime.prepare(&input.publish_frame());
+        ASSERT_TRUE(runtime.set_context_enabled("menu", false));
+        runtime.prepare(&input.publish_frame());
+        static_cast<void>(runtime.consume_fixed());
+        pad.buttons[size_t(Input::GamepadButton::South)] = true;
+        input.gamepad_sample(0, pad);
+        pad.buttons[size_t(Input::GamepadButton::South)] = false;
+        input.gamepad_sample(0, pad);
+        input.key_event(Input::Key::Space, true);
+        input.key_event(Input::Key::Space, false);
+        runtime.prepare(&input.publish_frame());
+        ASSERT_TRUE(runtime.update().action("pad")->pressed);
+        input.gamepad_sample(0, std::nullopt);
+        runtime.prepare(&input.publish_frame());
+        const auto replacement = runtime.consume_fixed();
+        EXPECT_FALSE(replacement.action("pad")->pressed);
+        EXPECT_FALSE(replacement.action("pad")->down);
+        EXPECT_TRUE(replacement.action("mixed")->pressed);
+
+        pad.buttons[size_t(Input::GamepadButton::South)] = true;
+        input.gamepad_sample(1, pad);
+        runtime.prepare(&input.publish_frame());
+        const auto held = runtime.consume_fixed();
+        EXPECT_TRUE(held.action("pad")->pressed);
+        EXPECT_TRUE(held.action("pad")->down);
+        input.gamepad_sample(1, std::nullopt);
+        runtime.prepare(&input.publish_frame());
+        EXPECT_TRUE(runtime.consume_fixed().action("pad")->released);
+        EXPECT_FALSE(runtime.consume_fixed().action("pad")->released);
+
+        input.key_event(Input::Key::Space, true);
+        input.scroll_event({0, 2});
+        runtime.prepare(&input.publish_frame());
+        input.focus_event(false);
+        runtime.prepare(&input.publish_frame());
+        const auto unfocused = runtime.consume_fixed();
+        EXPECT_FALSE(unfocused.action("mixed")->pressed);
+        EXPECT_FALSE(unfocused.action("mixed")->down);
+        EXPECT_FLOAT_EQ(unfocused.action("look")->value, 0);
+    }
+
+    TEST(RuntimeInputTest, SerialRollbackDropsPendingBindingsAndDuplicateFramesDoNotReplayThem) {
+        using Type = InputActions::Type;
+        const auto actions = InputActions::create(
+            {{"game", Type::Button, {{Input::Key::Space}}, "gameplay"},
+                {"look", Type::Delta, {{InputActions::Motion::ScrollY}}, "gameplay"},
+                {"menu", Type::Button, {{Input::Key::Enter}}, "menu"}},
+            {{.name = "gameplay"}, {.name = "menu", .priority = 10, .consume = true}});
+        ASSERT_TRUE(actions);
+        RuntimeInput runtime;
+        runtime.configure(actions.value());
+        Input::Frame old{.serial = 10, .focused = true};
+        old.keys[size_t(Input::Key::Space)] = {.pressed = true, .released = true};
+        old.scroll.y = 2;
+        runtime.prepare(&old);
+        Input::Frame restarted{.serial = 1, .focused = true};
+        runtime.prepare(&restarted);
+        const auto reset = runtime.consume_fixed();
+        EXPECT_FALSE(reset.action("game")->pressed);
+        EXPECT_FALSE(reset.action("game")->released);
+        EXPECT_FLOAT_EQ(reset.action("look")->value, 0);
+        restarted.serial = 2;
+        restarted.keys[size_t(Input::Key::Space)] = {.down = true, .pressed = true};
+        restarted.scroll.y = 3;
+        runtime.prepare(&restarted);
+        const auto first = runtime.consume_fixed();
+        EXPECT_TRUE(first.action("game")->pressed);
+        EXPECT_FLOAT_EQ(first.action("look")->value, 3);
+        runtime.prepare(&restarted);
+        const auto duplicate = runtime.consume_fixed();
+        EXPECT_TRUE(duplicate.action("game")->down);
+        EXPECT_FALSE(duplicate.action("game")->pressed);
+        EXPECT_FLOAT_EQ(duplicate.action("look")->value, 0);
+    }
+
+    TEST(RuntimeInputTest, ContextRoutingCommitsAtPrepareAndRoundTripsKeepPendingInput) {
+        using Type = InputActions::Type;
+        const auto actions = InputActions::create(
+            {{"game", Type::Button, {{Input::Key::Space}}, "gameplay"},
+                {"look", Type::Delta, {{InputActions::Motion::ScrollY}}, "gameplay"},
+                {"menu", Type::Button, {{Input::Key::Space}}, "menu"},
+                {"menu_scroll", Type::Delta, {{InputActions::Motion::ScrollY}}, "menu"}},
+            {{.name = "gameplay"},
+                {.name = "menu", .enabled = false, .priority = 10, .consume = true}});
+        ASSERT_TRUE(actions);
+        RuntimeInput runtime;
+        runtime.configure(actions.value());
+        Input input;
+        input.focus_event(true);
+        input.key_event(Input::Key::Space, true);
+        input.scroll_event({0, 2});
+        runtime.prepare(&input.publish_frame());
+        ASSERT_TRUE(runtime.set_context_enabled("menu", true));
+        EXPECT_TRUE(runtime.update().action("game")->pressed);
+        const auto before_enable = runtime.consume_fixed();
+        EXPECT_TRUE(before_enable.action("game")->pressed);
+        EXPECT_TRUE(before_enable.action("game")->down);
+        EXPECT_FLOAT_EQ(before_enable.action("look")->value, 2);
+        EXPECT_FALSE(before_enable.action("menu")->down);
+
+        input.scroll_event({0, 3});
+        runtime.prepare(&input.publish_frame());
+        const auto enabled = runtime.consume_fixed();
+        EXPECT_FALSE(enabled.action("game")->down);
+        EXPECT_TRUE(enabled.action("game")->released);
+        EXPECT_FLOAT_EQ(enabled.action("look")->value, 0);
+        EXPECT_TRUE(enabled.action("menu")->down);
+        EXPECT_FALSE(enabled.action("menu")->pressed);
+        EXPECT_FLOAT_EQ(enabled.action("menu_scroll")->value, 0);
+
+        ASSERT_TRUE(runtime.set_context_enabled("menu", false));
+        ASSERT_TRUE(runtime.set_context_enabled("menu", false));
+        const auto before_disable = runtime.consume_fixed();
+        EXPECT_TRUE(before_disable.action("menu")->down);
+        EXPECT_FALSE(before_disable.action("game")->down);
+        runtime.prepare(&input.publish_frame());
+        const auto disabled = runtime.consume_fixed();
+        EXPECT_TRUE(disabled.action("game")->down);
+        EXPECT_FALSE(disabled.action("game")->pressed);
+        EXPECT_FALSE(disabled.action("menu")->down);
+        EXPECT_TRUE(disabled.action("menu")->released);
+
+        input.key_event(Input::Key::Space, false);
+        runtime.prepare(&input.publish_frame());
+        EXPECT_TRUE(runtime.consume_fixed().action("game")->released);
+        input.key_event(Input::Key::Space, true);
+        input.key_event(Input::Key::Space, false);
+        input.scroll_event({0, 4});
+        runtime.prepare(&input.publish_frame());
+        ASSERT_TRUE(runtime.set_context_enabled("menu", true));
+        ASSERT_TRUE(runtime.set_context_enabled("menu", false));
+        input.scroll_event({0, 5});
+        runtime.prepare(&input.publish_frame());
+        const auto round_trip = runtime.consume_fixed();
+        EXPECT_TRUE(round_trip.action("game")->pressed);
+        EXPECT_TRUE(round_trip.action("game")->released);
+        EXPECT_FALSE(round_trip.action("game")->down);
+        EXPECT_FLOAT_EQ(round_trip.action("look")->value, 9);
+        EXPECT_FALSE(round_trip.action("menu")->pressed);
+        EXPECT_FLOAT_EQ(round_trip.action("menu_scroll")->value, 0);
+        const auto& repeated = runtime.consume_fixed();
+        EXPECT_FALSE(repeated.action("game")->pressed);
+        EXPECT_FALSE(repeated.action("game")->released);
+        EXPECT_FLOAT_EQ(repeated.action("look")->value, 0);
+    }
+
     TEST(RuntimeInputTest, DiscardAndDeviceDisconnectCannotReplayPendingActionTransients) {
         auto actions = InputActions::create(
             {{"jump", InputActions::Type::Button, {{Input::GamepadButton::South}}},

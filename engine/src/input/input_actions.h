@@ -3,6 +3,7 @@
 #include "input/input_state.h"
 #include "common/result.h"
 
+#include <bitset>
 #include <cstddef>
 #include <span>
 #include <string>
@@ -36,6 +37,8 @@ namespace Comet {
         struct Context {
             std::string name;
             bool enabled = true;
+            int priority = 0;
+            bool consume = false;
             bool operator==(const Context&) const = default;
         };
         struct ControlName {
@@ -56,8 +59,24 @@ namespace Comet {
 
     private:
         friend class RuntimeInput;
-        void evaluate(const Input::Frame& input, InputState& previous,
-            std::span<const Context> contexts) const;
+        using BindingMask = std::bitset<MAX_BINDINGS>;
+        using Routing = std::vector<BindingMask>;
+        struct Sample {
+            double value = 0;
+            Input::ButtonState button;
+            bool available = false;
+            // Gamepad 绑定读取首个已连接槽位；换槽时不能沿用旧设备的待消费边沿。
+            std::size_t gamepad = Input::MAX_GAMEPADS;
+        };
+        using Samples = std::vector<std::vector<Sample>>;
+
+        [[nodiscard]] Routing resolve_routes(std::span<const Context> contexts) const;
+        void sample(const Input::Frame& input, const Routing& routes, Samples& samples) const;
+        [[nodiscard]] static Sample sample_binding(
+            const Binding& binding, const Input::Frame& input, std::size_t gamepad);
+        void evaluate_samples(
+            const Input::Frame& input, const Samples& samples, InputState& previous) const;
+        void clear_transients(Samples& samples) const;
 
         std::vector<Action> m_actions;
         std::vector<Context> m_contexts;

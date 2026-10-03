@@ -62,6 +62,11 @@ namespace Comet::Json {
                 std::uint64_t value;
                 if(!node.get_uint64().get(value) && value <= std::numeric_limits<T>::max())
                     return Result<T>::success(static_cast<T>(value));
+            } else if constexpr(std::is_integral_v<T>) {
+                std::int64_t value;
+                if(!node.get_int64().get(value) && value >= std::numeric_limits<T>::min()
+                    && value <= std::numeric_limits<T>::max())
+                    return Result<T>::success(static_cast<T>(value));
             } else if constexpr(std::is_floating_point_v<T>) {
                 double value;
                 if(!node.get_double().get(value) && std::isfinite(value)
@@ -106,6 +111,7 @@ namespace Comet::Json {
         void value(const char* value) { this->value(std::string_view(value)); }
         void value(bool value);
         void value(std::uint64_t value);
+        void value(std::int64_t value);
         void value(float value);
 
         template<typename T> void field(std::string_view name, const T& data) {

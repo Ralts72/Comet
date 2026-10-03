@@ -3,7 +3,6 @@
 #include "input/input_actions.h"
 
 #include <optional>
-#include <set>
 
 namespace Comet {
     // 一个运行域的输入消费状态；调度者只提供授权帧和阶段，不操作内部按钮／动作缓存。
@@ -20,15 +19,20 @@ namespace Comet {
 
     private:
         Input::Frame consume(const Input::Frame* input);
-        void accumulate_actions(const Input::Frame& frame);
+        void accumulate_samples(
+            InputActions::Samples& samples, const InputActions::Routing& routes);
 
         InputActions m_actions;
         std::vector<InputActions::Context> m_contexts;
-        std::set<std::string, std::less<>> m_changed_contexts;
+        InputActions::Routing m_routes;
+        // prepare 工作缓冲；每次采样覆盖全部槽位，不保存消费历史。
+        InputActions::Samples m_samples;
+        InputActions::Samples m_pending_samples;
+        Input::Frame m_pending_physical;
         InputState m_update;
         InputState m_fixed;
-        InputState m_pending_fixed;
         std::optional<uint64_t> m_serial;
+        bool m_routes_dirty = false;
         bool m_rebase = false;
     };
 }

@@ -165,6 +165,12 @@ namespace Comet::Json {
         m_output += std::to_string(data);
     }
 
+    void Writer::value(std::int64_t data) {
+        if(!before_value())
+            return;
+        m_output += std::to_string(data);
+    }
+
     void Writer::value(float data) {
         if(!m_error.empty())
             return;

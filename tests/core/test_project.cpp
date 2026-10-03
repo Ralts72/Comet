@@ -3,6 +3,7 @@
 #include "common/file_io.h"
 
 #include <gtest/gtest.h>
+#include <limits>
 #include <utility>
 
 namespace Comet::Tests {
@@ -172,7 +173,8 @@ namespace Comet::Tests {
 
     TEST_F(ProjectTest, InputContextsAndActionMembershipSurviveAllProjectSettingsSaves) {
         write(R"({"version":1,"name":"Game","startup_scene":"scenes/main.scene",
-            "input_contexts":[{"name":"gameplay"},{"name":"camera","enabled":false}],
+            "input_contexts":[{"name":"gameplay"},
+                {"name":"camera","enabled":false,"priority":100,"consume":true}],
             "input_actions":[
                 {"name":"jump","type":"button","bindings":[],"context":"gameplay"},
                 {"name":"pause","type":"button","bindings":[]}]})");
@@ -182,7 +184,11 @@ namespace Comet::Tests {
         const auto original = project.input_actions();
         ASSERT_EQ(original.contexts().size(), 2u);
         EXPECT_TRUE(original.contexts()[0].enabled);
+        EXPECT_EQ(original.contexts()[0].priority, 0);
+        EXPECT_FALSE(original.contexts()[0].consume);
         EXPECT_FALSE(original.contexts()[1].enabled);
+        EXPECT_EQ(original.contexts()[1].priority, 100);
+        EXPECT_TRUE(original.contexts()[1].consume);
         EXPECT_EQ(original.actions()[0].context, "gameplay");
         EXPECT_TRUE(original.actions()[1].context.empty());
         ASSERT_TRUE(project.save_name("Renamed"));
@@ -191,8 +197,9 @@ namespace Comet::Tests {
         ASSERT_TRUE(reopened) << reopened.error();
         EXPECT_EQ(reopened.value().input_actions(), original);
 
-        auto changed =
-            InputActions::create(original.actions(), {{"gameplay", false}, {"camera", true}});
+        auto changed = InputActions::create(
+            original.actions(), {{"gameplay", false, std::numeric_limits<int>::min(), true},
+                                    {"camera", true, std::numeric_limits<int>::max(), false}});
         ASSERT_TRUE(changed) << changed.error();
         ASSERT_TRUE(project.save_input_actions(changed.value()));
         reopened = Project::load(root);
@@ -211,6 +218,12 @@ namespace Comet::Tests {
 
         for(const char* contexts : {"null", "{}", "[{}]", R"([{"name":42}])", R"([{"name":""}])",
                 R"([{"name":"gameplay","enabled":1}])", R"([{"name":"gameplay","enabled":null}])",
+                R"([{"name":"gameplay","priority":"high"}])",
+                R"([{"name":"gameplay","priority":1.5}])",
+                R"([{"name":"gameplay","priority":null}])",
+                R"([{"name":"gameplay","priority":2147483648}])",
+                R"([{"name":"gameplay","priority":-2147483649}])",
+                R"([{"name":"gameplay","consume":1}])", R"([{"name":"gameplay","consume":null}])",
                 R"([{"name":"gameplay","unknown":true}])",
                 R"([{"name":"gameplay"},{"name":"gameplay"}])"}) {
             SCOPED_TRACE(contexts);
@@ -236,8 +249,7 @@ namespace Comet::Tests {
         auto reopened = Project::load(root);
         ASSERT_TRUE(reopened) << reopened.error();
         EXPECT_EQ(reopened.value().startup_scene(), "scenes/another.scene");
-        EXPECT_EQ(reopened.value().input_actions().actions().size(),
-            project.input_actions().actions().size());
+        EXPECT_EQ(reopened.value().input_actions(), project.input_actions());
     }
 
     TEST_F(ProjectTest, LoadsProjectActionsAndRejectsBadInputWithoutFallback) {

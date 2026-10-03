@@ -27,7 +27,7 @@ namespace CometEditor::Tests {
                 {{"jump", Comet::InputActions::Type::Button, {{Comet::Input::Key::Space}},
                      "gameplay"},
                     {"interact", Comet::InputActions::Type::Button, {{Comet::Input::Key::S}}}},
-                {{"gameplay"}, {"menu", false}});
+                {{"gameplay"}, {"menu", false, 100, true}});
             ASSERT_TRUE(actions);
             original = std::move(actions).value();
             panel.request(original);
@@ -123,13 +123,20 @@ namespace CometEditor::Tests {
         edit_text(contexts, ImHashStr("##ContextName", 0, group_id), "player_controls");
         ImGui::ActivateItemByID(ImHashStr("Initially Enabled", 0, group_id));
         frame();
+        edit_text(contexts, ImHashStr("Priority", 0, group_id), "-2");
+        ImGui::ActivateItemByID(ImHashStr("Consume Input", 0, group_id));
+        frame();
         button("Save");
         auto renamed = panel.take_request();
         ASSERT_TRUE(renamed);
         ASSERT_EQ(renamed->contexts().size(), 2u);
         EXPECT_EQ(renamed->contexts()[0].name, "player_controls");
         EXPECT_FALSE(renamed->contexts()[0].enabled);
+        EXPECT_EQ(renamed->contexts()[0].priority, -2);
+        EXPECT_TRUE(renamed->contexts()[0].consume);
         EXPECT_FALSE(renamed->contexts()[1].enabled);
+        EXPECT_EQ(renamed->contexts()[1].priority, 100);
+        EXPECT_TRUE(renamed->contexts()[1].consume);
         EXPECT_EQ(renamed->actions()[0].context, "player_controls");
         EXPECT_TRUE(renamed->actions()[1].context.empty());
         ImGui::ActivateItemByID(ImHashStr("Remove Context", 0, group_id));
@@ -144,6 +151,8 @@ namespace CometEditor::Tests {
         ASSERT_EQ(added->contexts().size(), 3u);
         EXPECT_EQ(added->contexts().back().name, "context_1");
         EXPECT_TRUE(added->contexts().back().enabled);
+        EXPECT_EQ(added->contexts().back().priority, 0);
+        EXPECT_FALSE(added->contexts().back().consume);
         EXPECT_EQ(added->actions(), renamed->actions());
     }
 

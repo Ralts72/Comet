@@ -32,10 +32,13 @@ namespace Comet {
 
     void RuntimeInput::reset() {
         m_contexts = m_actions.contexts();
-        m_changed_contexts.clear();
+        m_routes = m_actions.resolve_routes(m_contexts);
+        m_routes_dirty = false;
+        m_actions.sample({}, m_routes, m_samples);
+        m_actions.sample({}, m_routes, m_pending_samples);
+        m_pending_physical = {};
         m_update = {};
         m_fixed = {};
-        m_pending_fixed = {};
         m_serial.reset();
         m_rebase = false;
     }
@@ -46,22 +49,20 @@ namespace Comet {
             return Result<void>::failure("Unknown input context: " + std::string(name));
         if(found->enabled != enabled) {
             found->enabled = enabled;
-            m_changed_contexts.insert(found->name);
+            m_routes_dirty = true;
         }
         return Result<void>::success();
     }
 
     void RuntimeInput::rebase() {
         m_rebase = true;
-        m_pending_fixed.clear_transients();
+        m_pending_physical.clear_transients();
+        m_actions.clear_transients(m_pending_samples);
     }
 
     void RuntimeInput::discard() {
         static_cast<void>(consume(nullptr));
-        for(auto& [name, action] : m_pending_fixed.m_actions) {
-            const bool released = action.released || action.down;
-            action = {.type = action.type, .released = released};
-        }
+        m_actions.sample({}, m_routes, m_pending_samples);
     }
 
     Input::Frame RuntimeInput::consume(const Input::Frame* input) {
@@ -69,14 +70,15 @@ namespace Comet {
         if(input) {
             frame = *input;
             if(m_serial && input->serial < *m_serial) {
-                m_pending_fixed = {};
+                m_pending_physical = {};
+                m_actions.sample({}, m_routes, m_pending_samples);
                 m_serial.reset();
             }
             if(m_serial && input->serial == *m_serial)
                 frame.clear_transients();
             m_serial = input->serial;
         }
-        const auto& previous = m_pending_fixed.m_physical;
+        const auto& previous = m_pending_physical;
         if(!frame.focused) {
             block_buttons(frame.keys, previous.keys);
             block_buttons(frame.mouse_buttons, previous.mouse_buttons);
@@ -100,81 +102,79 @@ namespace Comet {
             accumulate(pending.cursor_delta, previous.cursor_delta);
             accumulate(pending.scroll, previous.scroll);
         }
-        m_pending_fixed.m_physical = pending;
+        m_pending_physical = pending;
         return frame;
     }
 
-    void RuntimeInput::accumulate_actions(const Input::Frame& frame) {
-        // Fixed 尚未消费的按下不能被 Update 自己的上一帧电平抑制。
-        InputState sampled;
-        m_actions.evaluate(frame, sampled, m_contexts);
-        for(const auto& action : m_actions.actions()) {
-            auto& current = m_update.m_actions.at(action.name);
-            auto& pending = m_pending_fixed.m_actions[action.name];
-            auto accumulated = sampled.m_actions.at(action.name);
-            if(m_changed_contexts.contains(action.context)) {
-                const auto context =
-                    std::ranges::find(m_contexts, action.context, &InputActions::Context::name);
-                if(context->enabled) {
-                    // 新组只接管当前电平，不能接收启用前的点击或位移。
-                    current.pressed = current.released = false;
-                    if(current.type == InputActions::Type::Delta)
-                        current.value = 0;
+    void RuntimeInput::accumulate_samples(
+        InputActions::Samples& samples, const InputActions::Routing& routes) {
+        for(std::size_t index = 0; index < samples.size(); ++index) {
+            const auto type = m_actions.actions()[index].type;
+            for(std::size_t binding = 0; binding < samples[index].size(); ++binding) {
+                auto& source = samples[index][binding];
+                auto& pending = m_pending_samples[index][binding];
+                if(!source.available) {
+                    pending = {};
+                    continue;
                 }
-                if(context->enabled)
-                    accumulated = current;
+                if(!m_routes[index].test(binding) && routes[index].test(binding)) {
+                    // 新获路由只建立当前电平，不重放取得路由前的点击或位移。
+                    source.button.pressed = source.button.released = false;
+                    if(type == InputActions::Type::Delta)
+                        source.value = 0;
+                    pending = source;
+                    continue;
+                }
+                auto accumulated = source;
+                if(pending.available && pending.gamepad == source.gamepad) {
+                    accumulated.button.pressed |= pending.button.pressed;
+                    accumulated.button.released |= pending.button.released;
+                    if(type == InputActions::Type::Delta) {
+                        const double total = source.value + pending.value;
+                        if(std::isfinite(total))
+                            accumulated.value = total;
+                    }
+                }
                 pending = accumulated;
-                if(!context->enabled && accumulated.type == InputActions::Type::Button) {
-                    const auto* previous = m_fixed.action(action.name);
-                    pending.released |= previous && previous->down;
-                }
-                continue;
             }
-            if(accumulated.type == InputActions::Type::Button) {
-                if(m_update.focused())
-                    accumulated.pressed |= pending.pressed;
-                accumulated.released |= pending.released;
-                const auto* previous = m_fixed.action(action.name);
-                accumulated.released |= previous && previous->down && !accumulated.down;
-            } else if(accumulated.type == InputActions::Type::Delta && m_update.focused()) {
-                const auto total = accumulated.value + pending.value;
-                if(std::isfinite(total))
-                    accumulated.value = total;
-            }
-            pending = accumulated;
         }
-        m_changed_contexts.clear();
     }
 
     void RuntimeInput::prepare(const Input::Frame* input, bool paused) {
         auto frame = consume(input);
+        InputActions::Routing changed_routes;
+        if(m_routes_dirty)
+            changed_routes = m_actions.resolve_routes(m_contexts);
+        const auto& routes = m_routes_dirty ? changed_routes : m_routes;
+        m_actions.sample(frame, routes, m_samples);
         if(paused || m_rebase) {
             if(frame.focused)
                 m_rebase = false;
             // 暂停／恢复／单步只采样电平，不回放边沿与位移。
             frame.clear_transients();
-            m_actions.evaluate(frame, m_update, m_contexts);
+            m_actions.clear_transients(m_samples);
+            m_actions.evaluate_samples(frame, m_samples, m_update);
             m_update.clear_transients();
-            m_fixed = m_pending_fixed = m_update;
-            m_changed_contexts.clear();
+            m_fixed = m_update;
+            m_pending_samples.swap(m_samples);
+            m_pending_physical = frame;
         } else {
-            m_actions.evaluate(frame, m_update, m_contexts);
-            accumulate_actions(frame);
+            accumulate_samples(m_samples, routes);
+            m_actions.evaluate_samples(frame, m_samples, m_update);
+        }
+        if(m_routes_dirty) {
+            m_routes = std::move(changed_routes);
+            m_routes_dirty = false;
         }
     }
 
     const InputState& RuntimeInput::consume_fixed() {
-        m_actions.evaluate(m_pending_fixed.m_physical, m_fixed, m_contexts);
-        for(const auto& [name, pending] : m_pending_fixed.m_actions) {
-            auto& action = m_fixed.m_actions.at(name);
-            if(action.type == InputActions::Type::Button) {
-                action.pressed &= pending.pressed;
-                action.released &= pending.released;
-            } else if(action.type == InputActions::Type::Delta) {
-                action.value = pending.value;
-            }
-        }
-        m_pending_fixed.clear_transients();
+        // 动作只消费获路由的逐绑定历史，不能从原始物理积累重演已被屏蔽的输入。
+        m_actions.evaluate_samples(m_pending_physical, m_pending_samples, m_fixed);
+        if(m_rebase)
+            m_fixed.clear_transients();
+        m_pending_physical.clear_transients();
+        m_actions.clear_transients(m_pending_samples);
         return m_fixed;
     }
 }

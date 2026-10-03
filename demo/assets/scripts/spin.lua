@@ -1,5 +1,10 @@
 local demo_score = require("scripts.demo_score")
 local script = {}
+local palette = {
+    {0.2, 0.55, 1, 1},
+    {1, 0.5, 0.1, 1},
+    {0.75, 0.2, 1, 1},
+}
 
 script.properties = {
     speed = 100,
@@ -13,6 +18,22 @@ script.events = {
 
 function script:on_start()
     self.last_score = demo_score.get()
+    self.palette_active = false
+    self.palette_index = 1
+    comet.set_input_context("palette", false)
+end
+
+local function apply_palette(self)
+    local color = palette[self.palette_index]
+    comet.set_material_vector("base_color", color[1], color[2], color[3], color[4])
+end
+
+local function set_palette_active(self, active)
+    self.palette_active = active
+    comet.set_input_context("palette", active)
+    if active then
+        apply_palette(self)
+    end
 end
 
 function script:fixed_update(dt)
@@ -27,6 +48,26 @@ end
 function script:update()
     if comet.action_pressed("demo.restart") then
         comet.restart_scene()
+        return
+    end
+    if comet.action_pressed("palette.toggle") then
+        set_palette_active(self, not self.palette_active)
+        return
+    end
+    if not self.palette_active then
+        return
+    end
+    if comet.action_pressed("palette.confirm") then
+        set_palette_active(self, false)
+    elseif comet.action_pressed("palette.reset") then
+        self.palette_index = 1
+        apply_palette(self)
+    elseif comet.action_pressed("palette.next") then
+        self.palette_index = self.palette_index % #palette + 1
+        apply_palette(self)
+    elseif comet.action_pressed("palette.previous") then
+        self.palette_index = (self.palette_index - 2) % #palette + 1
+        apply_palette(self)
     end
 end
 

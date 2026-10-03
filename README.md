@@ -396,7 +396,8 @@ demo 的空格／手柄 South 切换方块旋转；运行状态保存在 Lua `se
 
 ```json
 "input_contexts": [
-  {"name": "gameplay", "enabled": true}
+  {"name": "gameplay", "enabled": true},
+  {"name": "menu", "enabled": false, "priority": 100, "consume": true}
 ],
 "input_actions": [
   {"name": "jump", "context": "gameplay", "type": "button", "bindings": [
@@ -405,10 +406,15 @@ demo 的空格／手柄 South 切换方块旋转；运行状态保存在 Lua `se
 ]
 ```
 
-项目输入面板可编辑组及默认状态，并为动作选择所属组。Lua 调用
+项目输入面板可编辑组、默认状态、优先级和消费开关，并为动作选择所属组。Lua 调用
 `comet.set_input_context("gameplay", false)`，在下一次 Runtime 更新开始时生效；Stop／重开恢复项目默认状态。
 demo 得分后禁用 `gameplay` 组，方向键移动、空格切换与 J 冲量停止响应，`camera` 组和公共的 R 重开仍有效。
-Lua 统一使用具名动作，不再提供原始字母键查询；动作组不暂停物理，也不提供优先级或按键消费栈。
+组的 `priority` 默认为 0、`consume` 默认为 false。启用消费的组会屏蔽较低优先级组中相同的按键／轴；
+同级共享，公共动作不参与屏蔽，其他绑定仍可用。消费只作用于配置中绑定的控制，不会暂停物理或吞掉整个设备。
+demo 按 Tab 开关调色模式：左右方向键切换旋转方块颜色，J 恢复第一种颜色，空格／手柄 South 确认退出。
+调色时这些控制不再移动玩家、切换旋转或施加冲量，WASD 相机和公共 R 重开仍可用；模式退出不会重新启用已因得分关闭的 gameplay。
+成功重载旋转脚本会退出调色模式，但保留已写入 Scene 的颜色；不保留任意 Lua self 状态。
+Lua 统一使用具名动作，不再提供原始字母键查询；这里是动作组路由，不是完整游戏内菜单或输入栈框架。
 容量、切换基线和固定步消费规则见[运行链路](docs/architecture/overview.md#一帧经过哪里)。
 
 ### Lua 实体与会话
