@@ -1126,6 +1126,12 @@ namespace Comet::Tests {
     }
 
     TEST_F(ScriptSystemTest, CleanupRunsOnceInReverseActualStartOrderEvenAfterFailure) {
+        auto actions = InputActions::create(
+            {{"first", InputActions::Type::Axis, {{Input::Key::K}}, "first"},
+                {"second", InputActions::Type::Axis, {{Input::Key::L}}, "second"}},
+            {{"first", true}, {"second", true}});
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(runtime.set_input_actions(std::move(actions).value()));
         Config::Log config;
         config.enable_file_logging = false;
         Logger::init(config);
@@ -1143,8 +1149,13 @@ namespace Comet::Tests {
             });
         logger->sinks().push_back(sink);
         const ScopeExit remove_sink([&] { std::erase(logger->sinks(), sink); });
-        source(
-            "return {properties = {label = 'first'}, on_stop = function(self) error(self.parameters.label) end}");
+        source(R"(return {
+            properties = {label = 'first'},
+            on_stop = function(self)
+                comet.set_input_context(self.parameters.label, false)
+                error(self.parameters.label)
+            end
+        })");
         auto first = actor();
         ASSERT_TRUE(runtime.start(scene));
         auto second = actor();
@@ -1153,20 +1164,75 @@ namespace Comet::Tests {
         source(R"(return {
             properties = {label = 'first'},
             on_start = function() comet.session_set('reload.started', true) end,
-            on_stop = function(self) error(self.parameters.label) end
+            update = function()
+                comet.translate(comet.action_value('first'), comet.action_value('second'), 0)
+            end,
+            on_stop = function(self)
+                comet.set_input_context(self.parameters.label, false)
+                error(self.parameters.label)
+            end
         })");
+        Input input;
+        input.focus_event(true);
+        input.key_event(Input::Key::K, true);
+        input.key_event(Input::Key::L, true);
         retiring_old_instances = true;
-        ASSERT_TRUE(runtime.advance(0));
+        ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
         retiring_old_instances = false;
         ASSERT_EQ(messages.size(), 2u);
         EXPECT_NE(messages[0].find("second"), std::string::npos);
         EXPECT_NE(messages[1].find("first"), std::string::npos);
         EXPECT_TRUE(scene.get_session_value("reload.started"));
+        EXPECT_EQ(first.get_component<TransformComponent>().translation, Math::Vec3(1, 1, 0));
+        EXPECT_EQ(second.get_component<TransformComponent>().translation, Math::Vec3(1, 1, 0));
+        ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
+        EXPECT_EQ(first.get_component<TransformComponent>().translation, Math::Vec3(1, 1, 0));
+        EXPECT_EQ(second.get_component<TransformComponent>().translation, Math::Vec3(1, 1, 0));
         ASSERT_TRUE(runtime.stop());
         ASSERT_TRUE(runtime.stop());
         EXPECT_EQ(messages.size(), 4u);
         EXPECT_FALSE(first.get_component<ScriptComponent>().running_script());
         EXPECT_FALSE(second.get_component<ScriptComponent>().running_script());
+
+        source(R"(return {
+            properties = {label = 'first'},
+            update = function()
+                comet.translate(comet.action_value('first'), comet.action_value('second'), 0)
+            end
+        })");
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
+        EXPECT_EQ(first.get_component<TransformComponent>().translation, Math::Vec3(2, 2, 0));
+        EXPECT_EQ(second.get_component<TransformComponent>().translation, Math::Vec3(2, 2, 0));
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(ScriptSystemTest, ReloadStartOverridesThePreviousInstancesInputCleanup) {
+        auto actions = InputActions::create(
+            {{"move", InputActions::Type::Axis, {{Input::Key::L}}, "gameplay"}},
+            {{"gameplay", false}});
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(runtime.set_input_actions(std::move(actions).value()));
+        source(R"(return {
+            on_start = function() comet.set_input_context('gameplay', true) end,
+            on_stop = function() comet.set_input_context('gameplay', false) end
+        })");
+        const auto entity = actor();
+        ASSERT_TRUE(runtime.start(scene));
+        Input input;
+        input.focus_event(true);
+        input.key_event(Input::Key::L, true);
+        ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
+        source(R"(return {
+            on_start = function() comet.set_input_context('gameplay', true) end,
+            update = function() comet.translate(comet.action_value('move'), 0, 0) end
+        })");
+        const auto& position = entity.get_component<TransformComponent>().translation;
+        ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
+        EXPECT_FLOAT_EQ(position.x, 1);
+        ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
+        EXPECT_FLOAT_EQ(position.x, 2);
+        ASSERT_TRUE(runtime.stop());
     }
 
     TEST_F(ScriptSystemTest, RuntimeFailureStopsAndAllowsExplicitRestart) {
@@ -1442,6 +1508,84 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
         EXPECT_FALSE(scene.get_material_overrides(center));
     }
+
+    class DemoPaletteLifecycleTest: public ScriptSystemTest,
+                                    public testing::WithParamInterface<bool> {
+    protected:
+        const AssetHandle move_handle{43};
+        Entity center;
+        Entity player;
+        Input input;
+
+        void SetUp() override {
+            ASSERT_NO_FATAL_FAILURE(ScriptSystemTest::SetUp());
+            const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
+            ASSERT_TRUE(project) << project.error();
+            ASSERT_TRUE(runtime.set_input_actions(project.value().input_actions()));
+            const std::array<std::filesystem::path, 2> roots{
+                "scripts/spin.lua", "scripts/move_cube.lua"};
+            auto scripts = Script::load_group(project.value().paths().assets(), roots);
+            ASSERT_TRUE(scripts) << scripts.error().message;
+            ASSERT_TRUE(assets.register_asset(handle, scripts.value()[0]));
+            ASSERT_TRUE(assets.register_asset(move_handle, scripts.value()[1]));
+            const AssetHandle material_handle{77};
+            ASSERT_TRUE(
+                assets.register_asset(material_handle, std::make_shared<Material>("cube", "pbr")));
+            center = actor();
+            center.add_component<MeshRendererComponent>(AssetHandle{11}, material_handle);
+            player = scene.create_entity("Player");
+            player.add_component<ScriptComponent>().asset = move_handle;
+            ASSERT_TRUE(runtime.start(scene));
+            input.focus_event(true);
+            input.key_event(Input::Key::Tab, true);
+            const auto opened = runtime.advance(0, &input.publish_frame());
+            ASSERT_TRUE(opened) << opened.error().message;
+            input.key_event(Input::Key::Tab, false);
+            ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
+            ASSERT_TRUE(scene.get_material_overrides(center));
+        }
+
+        void change_palette_binding() {
+            ScriptComponent replacement;
+            if(!GetParam())
+                replacement.asset = move_handle;
+            center.get_component<ScriptComponent>() = std::move(replacement);
+        }
+    };
+
+    TEST_P(DemoPaletteLifecycleTest, ReleasesConsumptionAtTheNextPrepareAfterBindingChange) {
+        change_palette_binding();
+        input.key_event(Input::Key::Right, true);
+        const auto& position = player.get_component<TransformComponent>().translation;
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        EXPECT_EQ(runtime.get_timing().fixed_steps, 3u);
+        EXPECT_EQ(position, Math::Vec3(0));
+
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        EXPECT_GT(position.x, 0);
+    }
+
+    TEST_P(DemoPaletteLifecycleTest, ReleasingConsumptionDoesNotResetDisabledGameplay) {
+        ASSERT_TRUE(scene.request_input_context("gameplay", false));
+        change_palette_binding();
+        input.key_event(Input::Key::Right, true);
+        const auto& position = player.get_component<TransformComponent>().translation;
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        EXPECT_EQ(position, Math::Vec3(0));
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        EXPECT_EQ(position, Math::Vec3(0));
+
+        ASSERT_TRUE(scene.request_input_context("gameplay", true));
+        ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
+        EXPECT_GT(position.x, 0);
+    }
+
+    INSTANTIATE_TEST_SUITE_P(BindingChange, DemoPaletteLifecycleTest, testing::Bool(),
+        [](const testing::TestParamInfo<bool>& parameter) {
+            if(parameter.param)
+                return "Clear";
+            return "Rebind";
+        });
 
     TEST_F(ScriptSystemTest, DemoGoalAndRestartRestoreAnIsolatedRunFromTheAuthoredScene) {
         const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);

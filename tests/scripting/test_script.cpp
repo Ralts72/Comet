@@ -514,7 +514,10 @@ return group
         ASSERT_TRUE(runtime.set_input_actions(std::move(actions).value()));
         EXPECT_FALSE(instance.value()->invoke(Script::Phase::Start, actor, {}, {.scene = &scene}));
         ASSERT_TRUE(runtime.start(scene));
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, actor, {}, {.scene = &scene}));
+        std::vector<std::string> disabled_contexts;
+        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, actor, {},
+            {.scene = &scene, .disabled_input_contexts = &disabled_contexts}));
+        EXPECT_TRUE(disabled_contexts.empty());
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_FALSE(instance.value()->invoke(Script::Phase::Stop, {}, {}));
 
@@ -531,7 +534,9 @@ return group
                 Script::Phase::Update, actor, {}, {.scene = &scene}));
         }
         ASSERT_TRUE(runtime.advance(0));
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene}));
+        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Update, actor, {},
+            {.scene = &scene, .disabled_input_contexts = &disabled_contexts}));
+        EXPECT_TRUE(disabled_contexts.empty());
         EXPECT_TRUE(scene.get_session_value("before.failure"));
         const auto failed = runtime.advance(0);
         ASSERT_FALSE(failed);
@@ -539,6 +544,113 @@ return group
         EXPECT_FALSE(runtime.is_active());
         EXPECT_FALSE(scene.get_session_value("before.failure"));
         ASSERT_TRUE(runtime.start(scene));
+        EXPECT_TRUE(runtime.advance(0));
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(ScriptInvocationTest, StopInputContextCleanupDeduplicatesAndBoundsNames) {
+        const auto script = Script::create(R"(return {on_stop = function(self)
+            if self.parameters.name then
+                comet.set_input_context(self.parameters.name, false)
+                comet.set_input_context(self.parameters.name, false)
+                return
+            end
+            for i = 1, self.parameters.count do
+                comet.set_input_context('context.' .. i, false)
+                comet.set_input_context('context.' .. i, false)
+            end
+        end})");
+        ASSERT_TRUE(script) << script.error().message;
+        const auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance);
+        std::vector<std::string> disabled_contexts;
+        const Script::Invocation cleanup{.disabled_input_contexts = &disabled_contexts};
+        const auto boundary = std::string(64, 'a');
+        ASSERT_TRUE(
+            instance.value()->invoke(Script::Phase::Stop, {}, {{"name", boundary}}, cleanup));
+        EXPECT_EQ(disabled_contexts, std::vector<std::string>{boundary});
+        for(const auto& name : {std::string{}, std::string("bad name"), std::string(65, 'a'),
+                std::string("palette\0hidden", 14)}) {
+            SCOPED_TRACE(name);
+            disabled_contexts.clear();
+            EXPECT_FALSE(
+                instance.value()->invoke(Script::Phase::Stop, {}, {{"name", name}}, cleanup));
+            EXPECT_TRUE(disabled_contexts.empty());
+        }
+
+        std::vector<std::string> expected;
+        for(std::size_t i = 1; i <= InputActions::MAX_CONTEXTS; ++i)
+            expected.push_back("context." + std::to_string(i));
+        for(const std::size_t count :
+            {InputActions::MAX_CONTEXTS, InputActions::MAX_CONTEXTS + 1}) {
+            SCOPED_TRACE(count);
+            disabled_contexts.clear();
+            const auto stopped = instance.value()->invoke(
+                Script::Phase::Stop, {}, {{"count", static_cast<float>(count)}}, cleanup);
+            EXPECT_EQ(static_cast<bool>(stopped), count == InputActions::MAX_CONTEXTS);
+            EXPECT_EQ(disabled_contexts, expected);
+        }
+    }
+
+    TEST(ScriptInvocationTest, StopInputContextCleanupRejectsEnableAndKeepsAcceptedOutput) {
+        const auto script = Script::create(R"(return {on_stop = function(self)
+            comet.set_input_context('palette', false)
+            comet.set_input_context('palette', self.parameters.enable)
+            error('cleanup failed after disable')
+        end})");
+        ASSERT_TRUE(script) << script.error().message;
+        const auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance);
+        for(const bool enable : {true, false}) {
+            SCOPED_TRACE(enable);
+            std::vector<std::string> disabled_contexts;
+            const auto stopped = instance.value()->invoke(Script::Phase::Stop, {},
+                {{"enable", enable}}, {.disabled_input_contexts = &disabled_contexts});
+            ASSERT_FALSE(stopped);
+            EXPECT_EQ(disabled_contexts, std::vector<std::string>{"palette"});
+            if(enable)
+                EXPECT_NE(stopped.error().message.find("only disable"), std::string::npos);
+            else
+                EXPECT_NE(stopped.error().message.find("cleanup failed after disable"),
+                    std::string::npos);
+        }
+    }
+
+    TEST(ScriptInvocationTest, StopInvocationCannotBorrowSceneOrInputCapabilities) {
+        Scene scene;
+        const auto actor = scene.create_entity();
+        const auto actions =
+            InputActions::create({{"test", InputActions::Type::Button, {{Input::Key::Space}}}});
+        ASSERT_TRUE(actions);
+        InputState input;
+        actions.value().evaluate({}, input);
+        ASSERT_NE(input.action("test"), nullptr);
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.start(scene));
+        for(const char* operation : {"comet.translate(1, 0, 0)", "self.target:translate(1, 0, 0)",
+                "comet.session_set('leaked', true)", "comet.emit('leaked')",
+                "comet.restart_scene()", "comet.action_down('test')"}) {
+            SCOPED_TRACE(operation);
+            const auto script = Script::create(
+                std::string(
+                    "return {on_start = function(self) self.target = comet.self_entity() end,")
+                + "on_stop = function(self) comet.set_input_context('palette', false); " + operation
+                + " end}");
+            ASSERT_TRUE(script) << script.error().message;
+            const auto instance = script.value()->instantiate();
+            ASSERT_TRUE(instance);
+            ASSERT_TRUE(
+                instance.value()->invoke(Script::Phase::Start, actor, {}, {.scene = &scene}));
+            std::vector<std::string> disabled_contexts;
+            const auto stopped = instance.value()->invoke(Script::Phase::Stop, actor, {},
+                {.scene = &scene, .input = &input, .disabled_input_contexts = &disabled_contexts});
+            ASSERT_FALSE(stopped);
+            EXPECT_EQ(disabled_contexts, std::vector<std::string>{"palette"});
+            EXPECT_EQ(actor.get_component<TransformComponent>().translation, Math::Vec3(0));
+            EXPECT_FALSE(scene.get_session_value("leaked"));
+            EXPECT_FALSE(scene.take_restart_request());
+        }
+        // 输出只属于调用方；未配置 palette 的 Runtime 不应收到这批关闭请求。
         EXPECT_TRUE(runtime.advance(0));
         ASSERT_TRUE(runtime.stop());
     }

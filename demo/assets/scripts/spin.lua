@@ -23,6 +23,10 @@ function script:on_start()
     comet.set_input_context("palette", false)
 end
 
+function script:on_stop()
+    comet.set_input_context("palette", false)
+end
+
 function script:apply_palette()
     local color = palette[self.palette_index]
     comet.set_material_vector("base_color", color[1], color[2], color[3], color[4])

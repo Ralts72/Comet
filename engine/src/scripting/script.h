@@ -65,6 +65,8 @@ namespace Comet {
             const MaterialParameterValidator* materials = nullptr;
             std::string_view event_handler;
             const ParameterValue* event_value = nullptr;
+            // Stop 只记录关闭请求；宿主在回调结束后决定是否交给运行中的场景。
+            std::vector<std::string>* disabled_input_contexts = nullptr;
         };
         class COMET_API Instance final {
         public:

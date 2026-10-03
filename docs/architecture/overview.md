@@ -253,7 +253,10 @@ RuntimeInput 保存本局的活动组状态，reset 恢复默认；InputState �
 `comet.set_input_context → Scene::request_input_context → SceneRuntime::advance → RuntimeInput::set_context_enabled`：
 Scene 只存非持久的、按组名合并的有界请求，不拥有输入状态。Runtime 在下一次 advance 的输入准备前消费，
 因此同帧多次 Fixed Update、普通 Update 和通知 handler 使用同一套组状态；未知组走运行失败清理，不静默忽略。
-请求允许在 on_start 发出，on_stop 无活动 Scene；Stop／失败清空，暂停时可应用已排队请求但不推进模拟。
+请求允许在 on_start 发出；on_stop 无活动 Scene，只可向宿主的短期输出记录关闭组名，不能开启组。
+ScriptSystem 在运行中的换绑、移除及成功换版后将清理输出交给同一 Scene 队列；完整 Stop／析构收集后丢弃。
+旧 on_stop 先于新 on_start，同组仍按请求顺序最后写入生效。清理后续报错不撤销已经记录的关闭请求；
+组名存在性仍在 RuntimeInput 验证，不另存输入配置。Stop／失败清空，暂停时可应用已排队请求但不推进模拟。
 
 组切换依据绑定实际是否获得路由处理，也包括其他组被间接屏蔽／恢复的情况。
 丢失绑定清掉该来源的固定步积累，动作最后一个已按住来源丢失时产生一次必要释放；
@@ -352,7 +355,8 @@ render_frame 返回 `Result<void, GraphicsError>`。部分录制失败的命令�
 | ScriptComponent | 持久化 Handle 与稀疏覆盖；非持久化寿命与活动定义弱引用 |
 
 复制组件不携带运行绑定。每实体独立 VM；阶段边界只查询脚本组件，新增批次按 UUID 启动，
-按实际启动逆序停止，包含部分启动失败。on_stop 不访问实体；参数编辑不重启实例。
+按实际启动逆序停止，包含部分启动失败。on_stop 不访问实体／Scene，只能记录受限输入组关闭输出；
+宿主持有容器，回调不能直接改变路由，且完整退出不向世界追加请求。参数编辑不重启实例。
 
 每个 VM 中，脚本返回的定义表与实例 `self` 分离；宿主创建仅含 `__index` 的私有元表，使缺失字段回退到本 VM 的定义表，
 因此 `function script:helper()` 可由 `self:helper()` 调用，不要求作者手动安装元表。

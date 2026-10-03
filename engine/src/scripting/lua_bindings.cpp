@@ -1,6 +1,7 @@
 #include "scripting/lua_bindings.h"
 #include "scene/scene.h"
 #include "input/input_state.h"
+#include "input/input_actions.h"
 
 extern "C" {
 #include <lua.h>
@@ -8,6 +9,7 @@ extern "C" {
 }
 
 #include <cmath>
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -385,15 +387,34 @@ namespace Comet::LuaBindings {
                     state, "Cannot queue event: runtime inactive or event limit reached");
             return 0;
         }
+        bool record_input_context_cleanup(
+            std::vector<std::string>& contexts, const std::string_view name) {
+            if(!InputActions::valid_name(name))
+                return false;
+            if(std::ranges::find(contexts, name) != contexts.end())
+                return true;
+            if(contexts.size() >= InputActions::MAX_CONTEXTS)
+                return false;
+            contexts.emplace_back(name);
+            return true;
+        }
         int set_input_context(lua_State* state) {
             luaL_checktype(state, 1, LUA_TSTRING);
             luaL_checktype(state, 2, LUA_TBOOLEAN);
             size_t length = 0;
             const char* name = lua_tolstring(state, 1, &length);
-            auto* scene = current(state).scene;
-            if(!scene
-                || !scene->request_input_context(
-                    std::string_view(name, length), lua_toboolean(state, 2)))
+            auto& context = current(state);
+            const bool enabled = lua_toboolean(state, 2);
+            if(context.disabled_input_contexts) {
+                if(enabled)
+                    return luaL_error(state, "Script cleanup can only disable input contexts");
+                if(!record_input_context_cleanup(
+                       *context.disabled_input_contexts, std::string_view(name, length)))
+                    return luaL_error(state, "Cannot record input context cleanup");
+                return 0;
+            }
+            auto* scene = context.scene;
+            if(!scene || !scene->request_input_context(std::string_view(name, length), enabled))
                 return luaL_error(state, "Cannot request input context change");
             return 0;
         }

@@ -61,7 +61,8 @@ namespace Comet {
             std::string_view event_handler = {}, const ParameterValue* event_value = nullptr);
         Result<void, Error> dispatch_contacts(Scene& scene, const Context& context);
         Result<void, Error> dispatch_events(Scene& scene, const Context& context);
-        void stop_entry(const Key& key, Entry& entry) noexcept;
+        enum class StopReason { LiveChange, Shutdown };
+        void stop_entry(const Key& key, Entry& entry, StopReason reason) noexcept;
         void stop_all() noexcept;
 
         const AssetRegistry& m_assets;

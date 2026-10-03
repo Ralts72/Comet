@@ -18,10 +18,17 @@ namespace Comet {
                && component.asset == key.asset;
     }
 
-    void ScriptSystem::stop_entry(const Key& key, Entry& entry) noexcept {
-        if(auto stopped = entry.instance->invoke(Script::Phase::Stop, {}, entry.parameters);
+    void ScriptSystem::stop_entry(const Key& key, Entry& entry, const StopReason reason) noexcept {
+        std::vector<std::string> disabled_contexts;
+        if(auto stopped = entry.instance->invoke(Script::Phase::Stop, {}, entry.parameters,
+               {.disabled_input_contexts = &disabled_contexts});
             !stopped)
             LOG_ERROR("Script cleanup failed: {}", stopped.error().message);
+        if(reason == StopReason::LiveChange && m_scene) {
+            for(const auto& name : disabled_contexts)
+                if(!m_scene->request_input_context(name, false))
+                    LOG_ERROR("Cannot release input context '{}' during script cleanup", name);
+        }
         if(entry.entity && entry.entity.has_component<ScriptComponent>()
             && entry.entity.get_component<ScriptComponent>().lifetime() == key.lifetime)
             entry.entity.get_component<ScriptComponent>().m_running_script.reset();
@@ -30,7 +37,7 @@ namespace Comet {
     void ScriptSystem::stop_all() noexcept {
         for(auto it = m_start_order.rbegin(); it != m_start_order.rend(); ++it) {
             const auto found = m_entries.find(*it);
-            stop_entry(found->first, found->second);
+            stop_entry(found->first, found->second, StopReason::Shutdown);
             m_entries.erase(found);
         }
         m_start_order.clear();
@@ -223,7 +230,7 @@ namespace Comet {
             if(!prepared.contains(*it))
                 continue;
             auto previous = m_entries.find(*it);
-            stop_entry(previous->first, previous->second);
+            stop_entry(previous->first, previous->second, StopReason::LiveChange);
             m_entries.erase(previous);
         }
         std::erase_if(m_start_order, [&](const Key& key) { return prepared.contains(key); });
@@ -243,7 +250,7 @@ namespace Comet {
         for(auto it = m_start_order.rbegin(); it != m_start_order.rend(); ++it) {
             auto found = m_entries.find(*it);
             if(!is_live(found->first, found->second)) {
-                stop_entry(found->first, found->second);
+                stop_entry(found->first, found->second, StopReason::LiveChange);
                 m_entries.erase(found);
             }
         }

@@ -5,6 +5,8 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <vector>
 
 struct lua_State;
 
@@ -22,6 +24,7 @@ namespace Comet {
             std::optional<ParameterValue> return_value;
             const MaterialParameterValidator* materials = nullptr;
             bool can_request_restart = false;
+            std::vector<std::string>* disabled_input_contexts = nullptr;
         };
 
         void install(lua_State* state, Context& context);

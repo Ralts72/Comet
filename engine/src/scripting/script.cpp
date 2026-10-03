@@ -735,6 +735,12 @@ namespace Comet {
         Phase phase, Entity entity, const ParameterMap& parameters, Invocation invocation) {
         if(static_cast<std::size_t>(phase) > static_cast<std::size_t>(Phase::Event))
             return Result<void, Error>::failure({"Invalid script phase"});
+        if(phase == Phase::Stop) {
+            entity = {};
+            invocation.scene = nullptr;
+            invocation.input = nullptr;
+            invocation.materials = nullptr;
+        }
         if(phase == Phase::Event) {
             if(!valid_parameter_name(invocation.event_handler))
                 return Result<void, Error>::failure({"Invalid script event handler"});
@@ -754,6 +760,8 @@ namespace Comet {
         }
         m_impl->bindings = {entity, invocation.scene, invocation.input, m_impl->scene_generation,
             std::nullopt, invocation.materials, phase != Phase::Start && phase != Phase::Stop};
+        if(phase == Phase::Stop)
+            m_impl->bindings.disabled_input_contexts = invocation.disabled_input_contexts;
         m_impl->parameters = &parameters;
         m_impl->delta_time = invocation.delta_time;
         m_impl->phase = phase;
