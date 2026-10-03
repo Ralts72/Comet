@@ -518,20 +518,31 @@ namespace Comet {
             return 0;
         }
 
+        static int traceback(lua_State* state) {
+            const char* message = "Lua raised a non-string error";
+            if(lua_type(state, 1) == LUA_TSTRING)
+                message = lua_tostring(state, 1);
+            luaL_traceback(state, state, message, 1);
+            return 1;
+        }
+
         Result<void, Error> call(lua_CFunction function, void* argument = nullptr) {
+            const int initial_top = lua_gettop(state);
             budget = 200;
             lua_sethook(state, limit, LUA_MASKCOUNT, 1000);
+            lua_pushcfunction(state, traceback);
             lua_pushcfunction(state, function);
             lua_pushlightuserdata(state, argument);
-            const int status = lua_pcall(state, 1, 0, 0);
+            const int status = lua_pcall(state, 1, 0, initial_top + 1);
             lua_sethook(state, nullptr, 0, 0);
             if(status != LUA_OK) {
                 std::string message = "Lua raised a non-string error";
                 if(lua_type(state, -1) == LUA_TSTRING)
                     message = lua_tostring(state, -1);
-                lua_settop(state, 0);
+                lua_settop(state, initial_top);
                 return Result<void, Error>::failure({name + ": " + message});
             }
+            lua_settop(state, initial_top);
             return Result<void, Error>::success();
         }
 

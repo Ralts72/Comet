@@ -37,10 +37,20 @@ namespace CometEditor::Tests {
         const Comet::AssetHandle handle{42};
         entity.add_component<Comet::ScriptComponent>().asset = handle;
         Comet::AssetRegistry assets;
-        auto script = Comet::Script::create(R"(return {update = function(self)
-            comet.translate(3, 0, 0)
-            error('project failure')
-        end})");
+        auto script = Comet::Script::create(R"(
+            local script = {}
+            function script:helper()
+                comet.translate(3, 0, 0)
+                comet.create_entity('Discarded')
+                comet.session_set('discarded', true)
+                comet.emit('discarded')
+                comet.restart_scene()
+                error('project failure')
+            end
+            function script:update() self:helper() end
+            return script
+        )",
+            "play_failure.lua");
         ASSERT_TRUE(script);
         ASSERT_TRUE(assets.register_asset(handle, script.value()));
         Comet::SceneRuntime runtime;
@@ -68,7 +78,14 @@ namespace CometEditor::Tests {
         auto failed = runtime.advance(0.01);
         ASSERT_FALSE(failed);
         EXPECT_NE(failed.error().message.find("project failure"), std::string::npos);
+        EXPECT_NE(failed.error().message.find(entity.get_uuid().to_string()), std::string::npos);
+        EXPECT_NE(failed.error().message.find("play_failure.lua:"), std::string::npos);
+        EXPECT_NE(failed.error().message.find("stack traceback:"), std::string::npos);
+        EXPECT_NE(failed.error().message.find("helper"), std::string::npos);
         EXPECT_FALSE(runtime.is_active());
+        EXPECT_EQ(active_scene->entity_count(), 1u);
+        EXPECT_FALSE(active_scene->get_session_value("discarded"));
+        EXPECT_FALSE(active_scene->take_restart_request());
         session.request_mode(EditorMode::Edit);
         ASSERT_TRUE(session.apply_mode_request());
         EXPECT_EQ(active_scene.get(), original);

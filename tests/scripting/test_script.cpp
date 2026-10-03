@@ -164,6 +164,64 @@ namespace Comet::Tests {
             Script::Phase::Update, {}, {{"expected", 6.0f}}, {.delta_time = 1}));
     }
 
+    TEST_F(ScriptModulesTest, InvocationErrorsTraceEntryHelperAndModuleWithoutAccumulatingStack) {
+        write("scripts/fault.module.lua", R"(local module = {}
+function module.fail()
+    error('module exploded')
+end
+return module
+)");
+        write("actor.lua", R"(local fault = require('scripts.fault')
+local group = {}
+function group:helper()
+    fault.fail()
+end
+function group:update()
+    self:helper()
+end
+function group:on_stop()
+    assert(debug == nil and getmetatable == nil and pcall == nil)
+end
+return group
+)");
+        const auto group = load();
+        ASSERT_TRUE(group) << group.error().message;
+        const auto instance = group.value().front()->instantiate();
+        ASSERT_TRUE(instance) << instance.error().message;
+        const auto failed = instance.value()->invoke(Script::Phase::Update, {}, {});
+        ASSERT_FALSE(failed);
+        const auto& message = failed.error().message;
+        EXPECT_TRUE(message.starts_with("@actor.lua: "));
+        EXPECT_NE(message.find("module exploded"), std::string::npos);
+        EXPECT_NE(message.find("stack traceback:"), std::string::npos);
+        EXPECT_NE(message.find("scripts/fault.module.lua:3:"), std::string::npos);
+        EXPECT_NE(message.find("actor.lua:4:"), std::string::npos);
+        EXPECT_NE(message.find("actor.lua:7:"), std::string::npos);
+        for(int repeat = 0; repeat < 256; ++repeat) {
+            ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, {}, {}));
+            ASSERT_FALSE(instance.value()->invoke(Script::Phase::Update, {}, {}));
+        }
+        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Stop, {}, {}));
+    }
+
+    TEST_F(ScriptModulesTest, InitializationErrorsTraceNestedRequireSources) {
+        write("actor.lua", "local wrapper = require('scripts.wrapper')\nreturn {}\n");
+        write(
+            "scripts/wrapper.module.lua", "local fault = require('scripts.fault')\nreturn fault\n");
+        for(const auto* source : {"error('initialization failed')\nreturn {}\n", "return {"}) {
+            SCOPED_TRACE(source);
+            write("scripts/fault.module.lua", source);
+            const auto failed = load();
+            ASSERT_FALSE(failed);
+            const auto& message = failed.error().message;
+            EXPECT_TRUE(message.starts_with("@actor.lua: "));
+            EXPECT_NE(message.find("stack traceback:"), std::string::npos);
+            EXPECT_NE(message.find("scripts/fault.module.lua:1:"), std::string::npos);
+            EXPECT_NE(message.find("scripts/wrapper.module.lua:1:"), std::string::npos);
+            EXPECT_NE(message.find("actor.lua:1:"), std::string::npos);
+        }
+    }
+
     TEST_F(ScriptModulesTest, GroupFreshnessIncludesOtherRootsButSourceEqualityDoesNot) {
         write("scripts/value.module.lua", "return {base = 7}");
         write("first.lua",
@@ -1103,7 +1161,10 @@ namespace Comet::Tests {
                 Script::create(std::string("local group = {}; function group:run() ") + body + R"(
                 end
                 function group:update() self:run() end
-                function group:cleanup() self.stopped = true end
+                function group:cleanup()
+                    assert(debug == nil and getmetatable == nil and pcall == nil)
+                    self.stopped = true
+                end
                 function group:on_stop() self:cleanup(); assert(self.stopped) end
                 return group
             )",
@@ -1115,6 +1176,30 @@ namespace Comet::Tests {
             ASSERT_FALSE(result);
             EXPECT_NE(result.error().message.find("helper_error.lua"), std::string::npos);
             EXPECT_NE(result.error().message.find(message), std::string::npos);
+            ASSERT_TRUE(instance.value()->invoke(Script::Phase::Stop, {}, {}));
+        }
+    }
+
+    TEST(ScriptInvocationTest, NonStringErrorsUseReadableFallbackWithoutCallingUserTostring) {
+        for(const auto* value : {"{}", "42", "false", "nil"}) {
+            SCOPED_TRACE(value);
+            const auto script = Script::create(
+                std::string("tostring = function() error('user tostring called') end; ")
+                    + "return {update = function() error(" + value + R"() end,
+                    on_stop = function()
+                        assert(debug == nil and getmetatable == nil and pcall == nil)
+                    end}
+                )",
+                "nonstring.lua");
+            ASSERT_TRUE(script) << script.error().message;
+            const auto instance = script.value()->instantiate();
+            ASSERT_TRUE(instance) << instance.error().message;
+            const auto failed = instance.value()->invoke(Script::Phase::Update, {}, {});
+            ASSERT_FALSE(failed);
+            const auto& message = failed.error().message;
+            EXPECT_TRUE(message.starts_with("@nonstring.lua: Lua raised a non-string error"));
+            EXPECT_NE(message.find("stack traceback:"), std::string::npos);
+            EXPECT_EQ(message.find("user tostring called"), std::string::npos);
             ASSERT_TRUE(instance.value()->invoke(Script::Phase::Stop, {}, {}));
         }
     }

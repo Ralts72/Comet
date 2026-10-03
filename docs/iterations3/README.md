@@ -51,8 +51,8 @@
 | [003 受控刚体移除](003-rigid-body-removal.md) | 已验收 | `5d3a315d`；Debug／Release app 构建通过；120 项定向、930 CPU／156 UI 通过，1 项平台条件跳过；构建契约／模块边界通过；收集后退出模拟、播放消失动画，完整音画待人工验收 |
 | [004 输入组优先级与消费](004-input-context-consumption.md) | 已验收 | `15b0b8f5`；Debug／Release app 构建通过；106 项定向、940 CPU／156 UI 通过，1 项平台条件跳过；项目配置、UI 与 demo 调色模式使用同一路由；真实交互待人工验收 |
 | [005 Lua 模块编辑工作流](005-lua-module-authoring.md) | 已验收 | `11219667`；Debug／Release app 构建通过；150 项定向 CPU、25 项定向 UI；949 CPU／159 UI 通过，1 项平台条件跳过；3 项真实 GPU 生命周期冒烟及构建契约／模块边界通过；完成 001–005 职责回顾，真实完整交互仍待人工验收 |
-| [006 Lua 实例辅助方法](006-lua-instance-methods.md) | 已验收 | Debug／Release app 构建通过；103 项定向、955 CPU／159 UI 通过，1 项平台条件跳过；构建契约／模块边界通过；demo 用 `self:helper()` 调用，实例／参数隔离与受控重载不变 |
-| 007 Lua 错误调用链 | 调研中 | 复用现有错误返回与 Log，完善辅助方法／模块报错路径，不建立诊断 Manager 或新面板 |
+| [006 Lua 实例辅助方法](006-lua-instance-methods.md) | 已验收 | `74579b41`；Debug／Release app 构建通过；103 项定向、955 CPU／159 UI 通过，1 项平台条件跳过；构建契约／模块边界通过；demo 用 `self:helper()` 调用，实例／参数隔离与受控重载不变 |
+| [007 Lua 错误调用链](007-lua-error-traces.md) | 已验收 | Debug／Release app 构建通过；102 项定向、959 CPU／159 UI 通过，1 项平台条件跳过；构建契约／模块边界通过；复用原 Result 与 Log，不开放 debug 或新增诊断 Manager；首次测试越界访问已修正 |
 
-最新额度：006 验收后、提交前主 `codex` 已用 20%，2026-10-03 20:04:34 +08:00。重置时间未变，尚未触发停止条件。
+最新额度：007 验收后、提交前主 `codex` 已用 23%，2026-10-03 20:19:05 +08:00。重置时间未变，尚未触发停止条件。
 提交对应关系也可用 `git log --oneline -- docs/iterations3` 核实；此记录不代表远端或 CI 状态。

@@ -20,17 +20,21 @@
 #include "scene/systems/script_system.h"
 #include "scripting/script.h"
 #include "common/file_io.h"
+#include "common/scope_exit.h"
+#include "diagnostics/logger.h"
 #include "asset/serialization/material_serializer.h"
 #include "support/temporary_directory.h"
 #include "support/render_resource_factory.h"
 #include "support/hdr_image.h"
 
 #include <gtest/gtest.h>
+#include <spdlog/sinks/callback_sink.h>
 #include <algorithm>
 #include <chrono>
 #include <array>
 #include <fstream>
 #include <optional>
+#include <string_view>
 #include <thread>
 #include <utility>
 
@@ -630,6 +634,74 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(player.advance(0));
         EXPECT_EQ(entity.get_component<Comet::ScriptComponent>().running_script(), repaired);
         EXPECT_FLOAT_EQ(entity.get_component<Comet::TransformComponent>().translation.x, -7);
+        ASSERT_TRUE(player.stop());
+    }
+
+    TEST_F(EditorAssetsTest, ModuleReloadLogsTheCompleteTraceAndKeepsLastGoodVersion) {
+        const auto paths = Comet::ProjectPaths(root);
+        const auto module_path = paths.assets() / "tuning.module.lua";
+        ASSERT_TRUE(Comet::write_text_file_atomic(module_path, "return {step = 1}"));
+        ASSERT_TRUE(Comet::write_text_file_atomic(paths.assets() / "actor.lua", R"(
+            local tuning = require('tuning')
+            return {update = function() comet.translate(tuning.step, 0, 0) end}
+        )"));
+        ASSERT_TRUE(assets->refresh().succeeded());
+        const auto* record = assets->database().find("actor.lua");
+        ASSERT_NE(record, nullptr);
+        const auto handle = record->handle;
+        ASSERT_TRUE(assets->load_reference(
+            handle, Comet::AssetType::Script, assets->database().get_revision(handle)));
+        const auto original = runtime.resolve<Comet::Script>(handle);
+        ASSERT_TRUE(original);
+        Comet::Scene scene;
+        auto entity = scene.create_entity();
+        entity.add_component<Comet::ScriptComponent>().asset = handle;
+        Comet::SceneRuntime player;
+        ASSERT_TRUE(player.add_system(std::make_unique<Comet::ScriptSystem>(runtime)));
+        ASSERT_TRUE(player.start(scene));
+        ASSERT_TRUE(player.advance(0));
+
+        ASSERT_TRUE(Comet::write_text_file_atomic(module_path, R"(
+            local function initialize_tuning()
+                error('tuning initialization failed')
+            end
+            initialize_tuning()
+            return {step = 2}
+        )"));
+        const std::array<std::filesystem::path, 1> roots{"actor.lua"};
+        const auto rejected = Comet::Script::load_group(paths.assets(), roots);
+        ASSERT_FALSE(rejected);
+        EXPECT_NE(rejected.error().message.find("tuning initialization failed"), std::string::npos);
+        EXPECT_NE(rejected.error().message.find("tuning.module.lua:"), std::string::npos);
+        EXPECT_NE(rejected.error().message.find("actor.lua:"), std::string::npos);
+        EXPECT_NE(rejected.error().message.find("stack traceback:"), std::string::npos);
+
+        Comet::Config::Log config;
+        config.enable_file_logging = false;
+        Comet::Logger::init(config);
+        const auto logger = Comet::Logger::get_console_logger();
+        std::vector<std::string> warnings;
+        const auto sink = std::make_shared<spdlog::sinks::callback_sink_mt>(
+            [&](const spdlog::details::log_msg& message) {
+                const std::string_view text(message.payload.data(), message.payload.size());
+                if(text.starts_with("Cannot refresh script group containing "))
+                    warnings.emplace_back(text);
+            });
+        logger->sinks().push_back(sink);
+        const Comet::ScopeExit remove_sink([&] { std::erase(logger->sinks(), sink); });
+        ASSERT_TRUE(assets->refresh().succeeded());
+        ASSERT_EQ(warnings.size(), 1u);
+        EXPECT_TRUE(warnings.front().ends_with(rejected.error().message)) << warnings.front();
+        EXPECT_EQ(runtime.resolve<Comet::Script>(handle), original);
+        ASSERT_TRUE(player.advance(0));
+        EXPECT_EQ(entity.get_component<Comet::ScriptComponent>().running_script(), original);
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::TransformComponent>().translation.x, 2);
+
+        ASSERT_TRUE(Comet::write_text_file_atomic(module_path, "return {step = 2}"));
+        ASSERT_TRUE(assets->refresh().succeeded());
+        EXPECT_NE(runtime.resolve<Comet::Script>(handle), original);
+        ASSERT_TRUE(player.advance(0));
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::TransformComponent>().translation.x, 4);
         ASSERT_TRUE(player.stop());
     }
 

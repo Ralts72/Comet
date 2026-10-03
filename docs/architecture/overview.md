@@ -474,8 +474,12 @@ Editor 回到原 Edit，app 沿现有错误返回退出。暂停重开在 on_sta
 这不是跨场景加载或资产版本快照：场景基线不重读磁盘，资产仍由 Registry 提供当前有效版本。
 
 源码最多 1 MiB、每 VM 的 Lua 堆最多 8 MiB、每次保护调用最多约 20 万条指令；
-不等于墙钟超时或安全沙箱。不开放文件、原生库、require、动态代码、元表和 rawset。
+不等于墙钟超时或安全沙箱。不开放文件、原生库、动态代码、元表和 rawset；require 仅限上述受控项目模块。
 默认参数解析与生命周期分发都在 lua_pcall 内；错误可能通过 longjmp 返回，不能依赖回调内 C++ 局部对象的析构。
+保护调用使用私有消息处理器在 Lua 栈展开前生成 traceback，成功和失败均恢复调用前的栈高度并移除指令 hook。
+非字符串错误使用固定说明，不执行项目的 tostring；不开放 debug 库。Lua 内存耗尽会跳过消息处理器，
+生成诊断本身失败也可能只能返回 Lua 的错误处理失败提示，不额外分配救援 VM 或保证完整调用栈。
+诊断仍沿既有 Error／Result、ScriptSystem 实体上下文及 Log 传递，不增加平行错误对象或 UI。
 解析结果和绑定返回字符串由保护调用外层持有，回调只借用，正常或失败返回后统一释放；不承诺宿主内存耗尽后的恢复。
 参数表与会话值复用单个名称／值校验；会话值额外限制类型，不为单次赋值构造临时参数表。
 Lua 只借用当前阶段的 InputState，通过具名动作查询输入，统一遵守重绑定与动作组开关；不提供原始按键入口。
@@ -483,7 +487,7 @@ Lua 只借用当前阶段的 InputState，通过具名动作查询输入，统�
 Script::Invocation 与 LuaBindings::Context 各只传一个 input，结束调用后解除借用，不自行采集或消耗输入。
 材质写入也只借用当前调用的 MaterialParameterValidator；Engine 将 MaterialPrograms 接入 ScriptSystem，
 Lua／Scene 不包含 render 或 graphics 头。Result 的错误先存入外层 Context，再调用 luaL_error，
-不让 Result／字符串局部对象跨越 longjmp。更多组件操作、模块依赖与源码热替换按路线图扩展。
+不让 Result／字符串局部对象跨越 longjmp。更多组件操作与完整脚本调试按路线图扩展。
 
 ### 脚本材质覆盖
 
