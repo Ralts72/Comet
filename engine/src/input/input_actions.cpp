@@ -81,6 +81,10 @@ namespace Comet {
             return false;
         }
 
+        bool consumes_context(
+            const InputActions::Context* consumer, const InputActions::Context* target) {
+            return consumer && target && consumer->consume && consumer->priority > target->priority;
+        }
     }
 
     bool InputActions::valid_name(std::string_view name) {
@@ -141,6 +145,17 @@ namespace Comet {
                 return Name::failure("Input control cannot be serialized");
             },
             binding.control);
+    }
+
+    InputActions::BindingRelation InputActions::compare_bindings(const Binding& binding,
+        const Context* context, const Binding& other, const Context* other_context) {
+        if(binding.control != other.control)
+            return BindingRelation::Unrelated;
+        if(consumes_context(context, other_context))
+            return BindingRelation::Consumes;
+        if(consumes_context(other_context, context))
+            return BindingRelation::ConsumedBy;
+        return BindingRelation::Shared;
     }
 
     Result<InputActions> InputActions::create(
@@ -209,7 +224,7 @@ namespace Comet {
     InputActions::Routing InputActions::resolve_routes(std::span<const Context> contexts) const {
         std::vector<const Context*> groups;
         groups.reserve(m_actions.size());
-        std::map<decltype(Binding::control), int> consumers;
+        std::map<decltype(Binding::control), const Context*> consumers;
         for(const auto& action : m_actions) {
             const auto found = std::ranges::find(contexts, action.context, &Context::name);
             const auto* group = found == contexts.end() ? nullptr : &*found;
@@ -217,10 +232,9 @@ namespace Comet {
             if(!group || !group->enabled || !group->consume)
                 continue;
             for(const auto& binding : action.bindings) {
-                const auto [entry, inserted] =
-                    consumers.try_emplace(binding.control, group->priority);
-                if(!inserted)
-                    entry->second = std::max(entry->second, group->priority);
+                const auto [entry, inserted] = consumers.try_emplace(binding.control, group);
+                if(!inserted && group->priority > entry->second->priority)
+                    entry->second = group;
             }
         }
         Routing routes(m_actions.size());
@@ -232,7 +246,7 @@ namespace Comet {
             for(std::size_t binding = 0; binding < bindings.size(); ++binding) {
                 const auto consumer = consumers.find(bindings[binding].control);
                 routes[index].set(binding,
-                    !group || consumer == consumers.end() || consumer->second <= group->priority);
+                    consumer == consumers.end() || !consumes_context(consumer->second, group));
             }
         }
         return routes;

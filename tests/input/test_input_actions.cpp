@@ -114,6 +114,68 @@ namespace Comet::Tests {
         EXPECT_FALSE(InputActions::format_binding({Input::Key::Keypad1}));
     }
 
+    TEST(InputActionsTest, BindingRelationsDescribePairwiseConsumptionAcrossControls) {
+        using Binding = InputActions::Binding;
+        using Context = InputActions::Context;
+        using Relation = InputActions::BindingRelation;
+        const Context low{.name = "low", .priority = -10, .consume = true};
+        const Context high{.name = "high", .priority = 20, .consume = true};
+        const Context peer{.name = "peer", .priority = 20, .consume = true};
+        const Context observer{.name = "observer", .priority = 50};
+        const Context disabled{
+            .name = "disabled", .enabled = false, .priority = 100, .consume = true};
+        const Context disabled_low{.name = "disabled_low", .enabled = false, .priority = -10};
+        struct Case {
+            const Context* context;
+            const Context* other;
+            Relation expected;
+        };
+        const std::array cases{Case{&low, &high, Relation::ConsumedBy},
+            Case{&high, &low, Relation::Consumes}, Case{&high, &peer, Relation::Shared},
+            Case{&high, &high, Relation::Shared}, Case{&observer, &high, Relation::Shared},
+            Case{&high, &observer, Relation::Shared}, Case{&disabled, &low, Relation::Consumes},
+            Case{&low, &disabled, Relation::ConsumedBy},
+            Case{&disabled, &disabled_low, Relation::Consumes},
+            Case{nullptr, &high, Relation::Shared}, Case{&high, nullptr, Relation::Shared},
+            Case{nullptr, nullptr, Relation::Shared}};
+        const std::array bindings{Binding{Input::Key::Space}, Binding{Input::MouseButton::Left},
+            Binding{Input::GamepadButton::South}, Binding{Input::GamepadAxis::LeftX},
+            Binding{InputActions::Motion::ScrollY}};
+        for(std::size_t control = 0; control < bindings.size(); ++control) {
+            SCOPED_TRACE(control);
+            const auto& binding = bindings[control];
+            auto transformed = binding;
+            transformed.scale = -3;
+            if(std::holds_alternative<Input::GamepadAxis>(transformed.control))
+                transformed.deadzone = 0.75f;
+            for(std::size_t index = 0; index < cases.size(); ++index) {
+                SCOPED_TRACE(index);
+                const auto& item = cases[index];
+                EXPECT_EQ(
+                    InputActions::compare_bindings(binding, item.context, transformed, item.other),
+                    item.expected);
+            }
+            const auto& different_control = bindings[(control + 1) % bindings.size()];
+            EXPECT_EQ(InputActions::compare_bindings(binding, &high, different_control, &low),
+                Relation::Unrelated);
+        }
+    }
+
+    TEST(InputActionsTest, BindingRelationsCompareParsedControlIdentity) {
+        const auto canonical = InputActions::parse_binding("key", "F1");
+        const auto alternate = InputActions::parse_binding("key", "F01");
+        const auto different = InputActions::parse_binding("key", "F2");
+        ASSERT_TRUE(canonical);
+        ASSERT_TRUE(alternate);
+        ASSERT_TRUE(different);
+        EXPECT_EQ(
+            InputActions::compare_bindings(canonical.value(), nullptr, alternate.value(), nullptr),
+            InputActions::BindingRelation::Shared);
+        EXPECT_EQ(
+            InputActions::compare_bindings(canonical.value(), nullptr, different.value(), nullptr),
+            InputActions::BindingRelation::Unrelated);
+    }
+
     TEST(InputActionsTest, ConsumingPrioritiesAreIndependentOfDeclarationOrderAndKeepCommonInput) {
         using Type = InputActions::Type;
         std::vector<InputActions::Action> definitions{

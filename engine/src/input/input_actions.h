@@ -41,6 +41,7 @@ namespace Comet {
             bool consume = false;
             bool operator==(const Context&) const = default;
         };
+        enum class BindingRelation { Unrelated, Shared, Consumes, ConsumedBy };
         struct ControlName {
             std::string_view source;
             std::string control;
@@ -51,6 +52,9 @@ namespace Comet {
         [[nodiscard]] static Result<Binding> parse_binding(
             std::string_view source, std::string_view control, float scale = 1, float deadzone = 0);
         [[nodiscard]] static Result<ControlName> format_binding(const Binding& binding);
+        // 两组同时启用时的两两关系；空组是 Common，忽略 enabled，不代表最终路由。
+        [[nodiscard]] static BindingRelation compare_bindings(const Binding& binding,
+            const Context* context, const Binding& other, const Context* other_context);
         [[nodiscard]] const std::vector<Action>& actions() const { return m_actions; }
         [[nodiscard]] const std::vector<Context>& contexts() const { return m_contexts; }
         bool operator==(const InputActions&) const = default;

@@ -36,6 +36,7 @@ namespace CometEditor {
         void render_contexts();
         void render_action(std::size_t index);
         void render_binding(std::size_t action_index, std::size_t binding_index);
+        void render_binding_relationships(std::size_t action_index);
         void capture_key();
 
         std::vector<ActionDraft> m_actions;

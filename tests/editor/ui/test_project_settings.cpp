@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <string>
 
 namespace CometEditor::Tests {
     class ProjectInputUiTest: public ::testing::Test {
@@ -21,6 +22,7 @@ namespace CometEditor::Tests {
         InputSettingsPanel panel;
         Comet::InputActions original;
         bool shortcut_triggered = false;
+        std::string rendered_text;
 
         void SetUp() override {
             auto actions = Comet::InputActions::create(
@@ -37,10 +39,13 @@ namespace CometEditor::Tests {
 
         void frame() {
             ImGui::NewFrame();
+            ImGui::LogToBuffer(0);
             shortcut_triggered = ImGui::Shortcut(ImGuiKey_S, ImGuiInputFlags_RouteGlobal);
             ImGui::SetNextWindowPos({10, 20});
             panel.render();
             shortcut_triggered |= ImGui::Shortcut(ImGuiKey_S, ImGuiInputFlags_RouteGlobal);
+            rendered_text = ImGui::GetCurrentContext()->LogBuffer.c_str();
+            ImGui::LogFinish();
             ImGui::Render();
         }
 
@@ -72,6 +77,18 @@ namespace CometEditor::Tests {
         void button(const char* label) {
             ImGui::ActivateItemByID(window()->GetID(label));
             frame();
+        }
+
+        void reopen(const Comet::InputActions& actions) {
+            button("Close");
+            panel.request(actions);
+            frame();
+            frame();
+        }
+
+        ImGuiID context_id(const int index, const char* label) {
+            const auto group = ImHashData(&index, sizeof(index), child("ContextList")->ID);
+            return ImHashStr(label, 0, group);
         }
 
         void record() {
@@ -118,6 +135,9 @@ namespace CometEditor::Tests {
         const int first = 0;
         const auto group_id = ImHashData(&first, sizeof(first), contexts->ID);
         edit_text(contexts, ImHashStr("##ContextName", 0, group_id), "");
+        EXPECT_NE(rendered_text.find("Invalid draft; binding relationships are unavailable."),
+            std::string::npos);
+        EXPECT_EQ(rendered_text.find("No overlapping bindings."), std::string::npos);
         button("Save");
         EXPECT_FALSE(panel.take_request());
         edit_text(contexts, ImHashStr("##ContextName", 0, group_id), "player_controls");
@@ -225,12 +245,24 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(ProjectInputUiTest, InvalidDraftAndFailedSaveRemainEditableWhileCloseDiscardsDraft) {
+        edit_control("S");
+        EXPECT_NE(rendered_text.find("key/S: interact ["), std::string::npos);
+        EXPECT_NE(
+            rendered_text.find("Shared (common action bypasses consumption)"), std::string::npos);
         edit_control("unknown_control_longer_than_the_initial_string_capacity");
+        EXPECT_NE(rendered_text.find("Invalid draft; binding relationships are unavailable."),
+            std::string::npos);
+        EXPECT_EQ(rendered_text.find("key/S: interact ["), std::string::npos);
+        EXPECT_EQ(
+            rendered_text.find("Shared (common action bypasses consumption)"), std::string::npos);
         button("Save");
         EXPECT_FALSE(panel.take_request());
         EXPECT_TRUE(panel.is_open());
 
         edit_control("RightControl");
+        EXPECT_EQ(rendered_text.find("Invalid draft; binding relationships are unavailable."),
+            std::string::npos);
+        EXPECT_NE(rendered_text.find("No overlapping bindings."), std::string::npos);
         button("Save");
         auto saved = panel.take_request();
         ASSERT_TRUE(saved);
@@ -253,6 +285,101 @@ namespace CometEditor::Tests {
         auto reopened = panel.take_request();
         ASSERT_TRUE(reopened);
         EXPECT_EQ(*reopened, original);
+    }
+
+    TEST_F(ProjectInputUiTest, BindingRelationshipsFollowContextDraftWithoutSaving) {
+        const auto actions = Comet::InputActions::create(
+            {{"jump", Comet::InputActions::Type::Button, {{Comet::Input::Key::Space}}, "gameplay"},
+                {"confirm", Comet::InputActions::Type::Button, {{Comet::Input::Key::Space}},
+                    "menu"}},
+            {{"gameplay"}, {"menu", false, 100, true}});
+        ASSERT_TRUE(actions);
+        reopen(actions.value());
+        EXPECT_NE(rendered_text.find("Binding Relationships"), std::string::npos);
+        EXPECT_NE(rendered_text.find(
+                      "Pairwise rules when both contexts are enabled; not current Play state."),
+            std::string::npos);
+        EXPECT_NE(
+            rendered_text.find("Other consuming contexts can still block non-common actions."),
+            std::string::npos);
+        EXPECT_NE(rendered_text.find("key/Space: confirm [menu]"), std::string::npos);
+        EXPECT_NE(
+            rendered_text.find("This control is consumed by the other action"), std::string::npos);
+        EXPECT_NE(rendered_text.find("Initially disabled: menu"), std::string::npos);
+        EXPECT_FALSE(panel.take_request());
+
+        button("Input Contexts");
+        auto* contexts = child("ContextList");
+        ASSERT_NE(contexts, nullptr);
+        ImGui::ActivateItemByID(context_id(1, "Initially Enabled"));
+        frame();
+        EXPECT_EQ(rendered_text.find("Initially disabled: menu"), std::string::npos);
+        EXPECT_NE(
+            rendered_text.find("This control is consumed by the other action"), std::string::npos);
+        ImGui::ActivateItemByID(context_id(1, "Consume Input"));
+        frame();
+        EXPECT_NE(rendered_text.find("Shared"), std::string::npos);
+        EXPECT_EQ(
+            rendered_text.find("This control is consumed by the other action"), std::string::npos);
+        EXPECT_FALSE(panel.take_request());
+
+        ImGui::ActivateItemByID(context_id(1, "Consume Input"));
+        frame();
+        edit_text(contexts, context_id(1, "Priority"), "0");
+        EXPECT_NE(rendered_text.find("Shared"), std::string::npos);
+        EXPECT_EQ(
+            rendered_text.find("This control is consumed by the other action"), std::string::npos);
+        edit_text(contexts, context_id(0, "Priority"), "200");
+        ImGui::ActivateItemByID(context_id(0, "Consume Input"));
+        frame();
+        EXPECT_NE(
+            rendered_text.find("Consumes this control from the other action"), std::string::npos);
+        EXPECT_EQ(
+            rendered_text.find("This control is consumed by the other action"), std::string::npos);
+        EXPECT_FALSE(panel.take_request());
+        EXPECT_EQ(actions.value().contexts()[0].priority, 0);
+        EXPECT_FALSE(actions.value().contexts()[1].enabled);
+    }
+
+    TEST_F(ProjectInputUiTest, BindingRelationshipsNormalizeControlsAndPreserveLegalSharing) {
+        const auto actions = Comet::InputActions::create(
+            {{"jump", Comet::InputActions::Type::Button,
+                 {{Comet::Input::Key::F1}, {Comet::Input::Key::Right}}, "gameplay"},
+                {"confirm", Comet::InputActions::Type::Button, {{Comet::Input::Key::F1}}, "menu"},
+                {"mouse", Comet::InputActions::Type::Button, {{Comet::Input::MouseButton::Right}}}},
+            {{"gameplay", true, 0, true}, {"menu", true, 0, true}});
+        ASSERT_TRUE(actions);
+        reopen(actions.value());
+        edit_control("F01");
+        EXPECT_NE(rendered_text.find("key/F1: confirm [menu]"), std::string::npos);
+        EXPECT_NE(rendered_text.find("Shared"), std::string::npos);
+        EXPECT_EQ(
+            rendered_text.find("Consumes this control from the other action"), std::string::npos);
+        EXPECT_EQ(
+            rendered_text.find("This control is consumed by the other action"), std::string::npos);
+        EXPECT_EQ(rendered_text.find(": mouse ["), std::string::npos);
+        button("Save");
+        const auto shared = panel.take_request();
+        ASSERT_TRUE(shared);
+        EXPECT_EQ(*shared, actions.value());
+
+        const int first = 0;
+        const auto action_id = ImHashData(&first, sizeof(first), details()->ID);
+        ImGui::FocusWindow(details());
+        ImGui::ActivateItemByID(ImHashStr("Context", 0, action_id));
+        frame();
+        auto* combo = ImGui::FindWindowByName("##Combo_00");
+        ASSERT_NE(combo, nullptr);
+        ImGui::ActivateItemByID(combo->GetID("Common (Always Enabled)"));
+        frame();
+        EXPECT_NE(
+            rendered_text.find("Shared (common action bypasses consumption)"), std::string::npos);
+        EXPECT_FALSE(panel.take_request());
+        button("Save");
+        const auto common = panel.take_request();
+        ASSERT_TRUE(common);
+        EXPECT_TRUE(common->actions()[0].context.empty());
+        EXPECT_EQ(common->actions()[0].bindings, shared->actions()[0].bindings);
     }
 
     TEST(ProjectSettingsUiTest, InputSettingsOpensAsNonModalPanel) {
