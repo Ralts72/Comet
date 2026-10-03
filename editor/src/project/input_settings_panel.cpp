@@ -9,6 +9,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <string_view>
+#include <utility>
 
 namespace CometEditor {
     namespace {
@@ -79,61 +80,65 @@ namespace CometEditor {
             return type == Type::Axis || source != "gamepad_axis";
         }
 
-        std::optional<std::string> key_name(const ImGuiKey key) {
-            if(key >= ImGuiKey_A && key <= ImGuiKey_Z)
-                return std::string(1, char('A' + key - ImGuiKey_A));
-            if(key >= ImGuiKey_0 && key <= ImGuiKey_9)
-                return std::string(1, char('0' + key - ImGuiKey_0));
-            if(key >= ImGuiKey_F1 && key <= ImGuiKey_F24)
-                return "F" + std::to_string(key - ImGuiKey_F1 + 1);
-            switch(key) {
-                case ImGuiKey_Space:
-                    return "Space";
-                case ImGuiKey_Enter:
-                    return "Enter";
-                case ImGuiKey_Tab:
-                    return "Tab";
-                case ImGuiKey_Backspace:
-                    return "Backspace";
-                case ImGuiKey_Delete:
-                    return "Delete";
-                case ImGuiKey_Insert:
-                    return "Insert";
-                case ImGuiKey_Home:
-                    return "Home";
-                case ImGuiKey_End:
-                    return "End";
-                case ImGuiKey_PageUp:
-                    return "PageUp";
-                case ImGuiKey_PageDown:
-                    return "PageDown";
-                case ImGuiKey_UpArrow:
-                    return "Up";
-                case ImGuiKey_DownArrow:
-                    return "Down";
-                case ImGuiKey_LeftArrow:
-                    return "Left";
-                case ImGuiKey_RightArrow:
-                    return "Right";
-                case ImGuiKey_LeftShift:
-                    return "LeftShift";
-                case ImGuiKey_RightShift:
-                    return "RightShift";
-                case ImGuiKey_LeftCtrl:
-                    return "LeftControl";
-                case ImGuiKey_RightCtrl:
-                    return "RightControl";
-                case ImGuiKey_LeftAlt:
-                    return "LeftAlt";
-                case ImGuiKey_RightAlt:
-                    return "RightAlt";
-                case ImGuiKey_LeftSuper:
-                    return "LeftSuper";
-                case ImGuiKey_RightSuper:
-                    return "RightSuper";
-                default:
-                    return std::nullopt;
+        Comet::Input::Key physical_key(ImGuiKey key) {
+            using Key = Comet::Input::Key;
+            // ImGui 为 macOS 快捷键交换 Ctrl/Super；项目绑定仍保存真实物理键。
+            if(ImGui::GetIO().ConfigMacOSXBehaviors) {
+                switch(key) {
+                    case ImGuiKey_LeftCtrl:
+                        key = ImGuiKey_LeftSuper;
+                        break;
+                    case ImGuiKey_RightCtrl:
+                        key = ImGuiKey_RightSuper;
+                        break;
+                    case ImGuiKey_LeftSuper:
+                        key = ImGuiKey_LeftCtrl;
+                        break;
+                    case ImGuiKey_RightSuper:
+                        key = ImGuiKey_RightCtrl;
+                        break;
+                    default:
+                        break;
+                }
             }
+            if(key >= ImGuiKey_A && key <= ImGuiKey_Z)
+                return static_cast<Key>(int(Key::A) + key - ImGuiKey_A);
+            if(key >= ImGuiKey_0 && key <= ImGuiKey_9)
+                return static_cast<Key>(int(Key::Digit0) + key - ImGuiKey_0);
+            if(key >= ImGuiKey_F1 && key <= ImGuiKey_F24)
+                return static_cast<Key>(int(Key::F1) + key - ImGuiKey_F1);
+            if(key >= ImGuiKey_Keypad0 && key <= ImGuiKey_Keypad9)
+                return static_cast<Key>(int(Key::Keypad0) + key - ImGuiKey_Keypad0);
+            constexpr std::pair<ImGuiKey, Key> keys[]{{ImGuiKey_Space, Key::Space},
+                {ImGuiKey_Enter, Key::Enter}, {ImGuiKey_Tab, Key::Tab},
+                {ImGuiKey_Backspace, Key::Backspace}, {ImGuiKey_Delete, Key::Delete},
+                {ImGuiKey_Insert, Key::Insert}, {ImGuiKey_Home, Key::Home},
+                {ImGuiKey_End, Key::End}, {ImGuiKey_PageUp, Key::PageUp},
+                {ImGuiKey_PageDown, Key::PageDown}, {ImGuiKey_UpArrow, Key::Up},
+                {ImGuiKey_DownArrow, Key::Down}, {ImGuiKey_LeftArrow, Key::Left},
+                {ImGuiKey_RightArrow, Key::Right}, {ImGuiKey_LeftShift, Key::LeftShift},
+                {ImGuiKey_RightShift, Key::RightShift}, {ImGuiKey_LeftCtrl, Key::LeftControl},
+                {ImGuiKey_RightCtrl, Key::RightControl}, {ImGuiKey_LeftAlt, Key::LeftAlt},
+                {ImGuiKey_RightAlt, Key::RightAlt}, {ImGuiKey_LeftSuper, Key::LeftSuper},
+                {ImGuiKey_RightSuper, Key::RightSuper}, {ImGuiKey_Apostrophe, Key::Apostrophe},
+                {ImGuiKey_Comma, Key::Comma}, {ImGuiKey_Minus, Key::Minus},
+                {ImGuiKey_Period, Key::Period}, {ImGuiKey_Slash, Key::Slash},
+                {ImGuiKey_Semicolon, Key::Semicolon}, {ImGuiKey_Equal, Key::Equal},
+                {ImGuiKey_LeftBracket, Key::LeftBracket}, {ImGuiKey_Backslash, Key::Backslash},
+                {ImGuiKey_RightBracket, Key::RightBracket},
+                {ImGuiKey_GraveAccent, Key::GraveAccent}, {ImGuiKey_CapsLock, Key::CapsLock},
+                {ImGuiKey_ScrollLock, Key::ScrollLock}, {ImGuiKey_NumLock, Key::NumLock},
+                {ImGuiKey_PrintScreen, Key::PrintScreen}, {ImGuiKey_Pause, Key::Pause},
+                {ImGuiKey_KeypadDecimal, Key::KeypadDecimal},
+                {ImGuiKey_KeypadDivide, Key::KeypadDivide},
+                {ImGuiKey_KeypadMultiply, Key::KeypadMultiply},
+                {ImGuiKey_KeypadSubtract, Key::KeypadSubtract},
+                {ImGuiKey_KeypadAdd, Key::KeypadAdd}, {ImGuiKey_KeypadEnter, Key::KeypadEnter},
+                {ImGuiKey_KeypadEqual, Key::KeypadEqual}, {ImGuiKey_Menu, Key::Menu}};
+            for(const auto& [native, translated] : keys)
+                if(key == native)
+                    return translated;
+            return Key::Unknown;
         }
     }
 
@@ -154,10 +159,9 @@ namespace CometEditor {
                 draft.context = std::distance(m_contexts.begin(), group);
             }
             for(const auto& binding : action.bindings) {
-                const auto control = Comet::InputActions::format_binding(binding);
-                if(control)
-                    draft.bindings.push_back({std::string(control.value().source),
-                        control.value().control, binding.scale, binding.deadzone});
+                const auto control = Comet::InputActions::format_binding(binding).value();
+                draft.bindings.push_back({std::string(control.source), control.control,
+                    binding.scale, binding.deadzone});
             }
             m_actions.push_back(std::move(draft));
         }
@@ -432,10 +436,11 @@ namespace CometEditor {
             const auto key = static_cast<ImGuiKey>(value);
             if(!ImGui::IsKeyPressed(key, false))
                 continue;
-            if(const auto name = key_name(key)) {
+            if(const auto control = physical_key(key); control != Comet::Input::Key::Unknown) {
+                const auto name = Comet::InputActions::format_binding({control}).value();
                 const auto [action, binding] = *m_capturing;
                 if(action < m_actions.size() && binding < m_actions[action].bindings.size())
-                    m_actions[action].bindings[binding].control = *name;
+                    m_actions[action].bindings[binding].control = name.control;
                 m_capturing.reset();
                 ImGui::SetKeyOwner(key, owner, ImGuiInputFlags_LockUntilRelease);
                 ImGui::ClearActiveID();

@@ -171,6 +171,28 @@ namespace Comet::Tests {
         EXPECT_EQ(project.input_actions(), actions.value());
     }
 
+    TEST_F(ProjectTest, PersistsExtendedKeyboardBindingsWithoutChangingTheirIdentity) {
+        write(R"({"version":1,"name":"Game","startup_scene":"scenes/main.scene"})");
+        auto loaded = Project::load(root);
+        ASSERT_TRUE(loaded) << loaded.error();
+        const auto actions = InputActions::create({{"adjust", InputActions::Type::Axis,
+            {{Input::Key::Keypad1, -1}, {Input::Key::Comma}, {Input::Key::KeypadEnter},
+                {Input::Key::World1}, {Input::Key::World2}, {Input::Key::F25}}}});
+        ASSERT_TRUE(actions) << actions.error();
+        const auto saved = loaded.value().save_input_actions(actions.value());
+        ASSERT_TRUE(saved) << saved.error();
+        const auto reopened = Project::load(root);
+        ASSERT_TRUE(reopened) << reopened.error();
+        EXPECT_EQ(reopened.value().input_actions(), actions.value());
+        Input input;
+        input.focus_event(true);
+        input.key_event(Input::Key::Keypad1, true);
+        InputState state;
+        reopened.value().input_actions().evaluate(input.publish_frame(), state);
+        ASSERT_NE(state.action("adjust"), nullptr);
+        EXPECT_FLOAT_EQ(state.action("adjust")->value, -1);
+    }
+
     TEST_F(ProjectTest, InputContextsAndActionMembershipSurviveAllProjectSettingsSaves) {
         write(R"({"version":1,"name":"Game","startup_scene":"scenes/main.scene",
             "input_contexts":[{"name":"gameplay"},

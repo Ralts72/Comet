@@ -111,7 +111,26 @@ namespace Comet::Tests {
             EXPECT_EQ(formatted.value().source, source);
             EXPECT_EQ(formatted.value().control, control);
         }
-        EXPECT_FALSE(InputActions::format_binding({Input::Key::Keypad1}));
+        EXPECT_FALSE(InputActions::format_binding({Input::Key::Unknown}));
+        EXPECT_FALSE(InputActions::format_binding({Input::Key::Count}));
+    }
+
+    TEST(InputActionsTest, EveryRuntimeKeyHasAnUnambiguousPersistentName) {
+        for(int value = int(Input::Key::Unknown) + 1; value < int(Input::Key::Count); ++value) {
+            SCOPED_TRACE(value);
+            const InputActions::Binding binding{static_cast<Input::Key>(value), -1};
+            ASSERT_TRUE(InputActions::create({{"move", InputActions::Type::Axis, {binding}}}));
+            const auto name = InputActions::format_binding(binding);
+            ASSERT_TRUE(name) << name.error();
+            EXPECT_EQ(name.value().source, "key");
+            const auto parsed = InputActions::parse_binding(
+                name.value().source, name.value().control, binding.scale, binding.deadzone);
+            ASSERT_TRUE(parsed) << parsed.error();
+            EXPECT_EQ(parsed.value(), binding);
+        }
+        EXPECT_FALSE(InputActions::parse_binding("key", "Keypad10"));
+        EXPECT_FALSE(InputActions::parse_binding("key", "Keypad"));
+        EXPECT_FALSE(InputActions::parse_binding("key", "World3"));
     }
 
     TEST(InputActionsTest, BindingRelationsDescribePairwiseConsumptionAcrossControls) {

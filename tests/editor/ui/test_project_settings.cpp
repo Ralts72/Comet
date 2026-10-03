@@ -252,6 +252,57 @@ namespace CometEditor::Tests {
         EXPECT_EQ(*cancelled, *saved);
     }
 
+    TEST_F(ProjectInputUiTest, OpeningAndSavingRetainsExtendedKeyboardBindings) {
+        using Key = Comet::Input::Key;
+        const auto actions =
+            Comet::InputActions::create({{"adjust", Comet::InputActions::Type::Axis,
+                {{Key::Keypad1, -1}, {Key::Comma}, {Key::KeypadEnter}, {Key::F25}, {Key::World1},
+                    {Key::World2}}}});
+        ASSERT_TRUE(actions) << actions.error();
+        reopen(actions.value());
+        button("Save");
+        const auto saved = panel.take_request();
+        ASSERT_TRUE(saved);
+        EXPECT_EQ(*saved, actions.value());
+    }
+
+    TEST_F(ProjectInputUiTest, RecordsExtendedKeysWithEngineNamesAndKeepsKeypadDistinct) {
+        using Key = Comet::Input::Key;
+        const std::pair<ImGuiKey, Key> cases[]{{ImGuiKey_Comma, Key::Comma},
+            {ImGuiKey_GraveAccent, Key::GraveAccent}, {ImGuiKey_Keypad1, Key::Keypad1},
+            {ImGuiKey_1, Key::Digit1}, {ImGuiKey_KeypadEnter, Key::KeypadEnter},
+            {ImGuiKey_Enter, Key::Enter}, {ImGuiKey_NumLock, Key::NumLock},
+            {ImGuiKey_Menu, Key::Menu}, {ImGuiKey_LeftCtrl, Key::LeftControl},
+            {ImGuiKey_RightCtrl, Key::RightControl}, {ImGuiKey_LeftSuper, Key::LeftSuper},
+            {ImGuiKey_RightSuper, Key::RightSuper}, {ImGuiKey_UpArrow, Key::Up},
+            {ImGuiKey_F24, Key::F24}};
+        for(const bool mac_shortcuts : {false, true}) {
+            SCOPED_TRACE(mac_shortcuts);
+            ImGui::GetIO().ConfigMacOSXBehaviors = mac_shortcuts;
+            for(const auto& [key, expected] : cases) {
+                SCOPED_TRACE(int(key));
+                record();
+                press(key);
+                frame();
+                button("Save");
+                const auto saved = panel.take_request();
+                ASSERT_TRUE(saved);
+                ASSERT_EQ(saved->actions()[0].bindings.size(), 1u);
+                EXPECT_EQ(std::get<Key>(saved->actions()[0].bindings[0].control), expected);
+            }
+        }
+        record();
+        press(ImGuiKey_Oem102);
+        frame();
+        EXPECT_EQ(ImGui::GetActiveID(), window()->GetID("KeyCapture"));
+        press(ImGuiKey_Escape);
+        frame();
+        button("Save");
+        const auto unchanged = panel.take_request();
+        ASSERT_TRUE(unchanged);
+        EXPECT_EQ(std::get<Key>(unchanged->actions()[0].bindings[0].control), Key::F24);
+    }
+
     TEST_F(ProjectInputUiTest, LosingFocusOrClosingCancelsRecording) {
         record();
         ImGui::FocusWindow(nullptr);

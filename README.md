@@ -382,8 +382,10 @@ App 与 Play 启动时读取同一配置；外部手改文件后需重启宿主�
 `delta` 只接受 `motion`（CursorX／CursorY／ScrollX／ScrollY），保留位移单位，不乘 delta time。
 `scale` 默认为 1，可用于轴反向；`deadzone` 默认为 0，仅用于手柄轴。手柄取第一个连接的标准设备。
 面板切换到 Button 时会将倍率归为 1，保留绑定和组；不兼容的新类型／输入来源仍需显式修改，不自动删除绑定。
-键名支持 A–Z、0–9、F1–F25、Space、Escape、Enter、Tab、Backspace、Delete、Insert、Home、End、
-PageUp／PageDown、方向键及 Left／Right 的 Shift、Control、Alt、Super；不识别的名字会报错，不静默忽略。
+键名覆盖现有物理键枚举：A–Z、0–9、F1–F25、方向／编辑键、左右修饰键、标点键（如 `Comma`、`Minus`）、
+小键盘（`Keypad0`–`Keypad9`、`KeypadEnter` 等）、锁定键及 `Menu`；不识别的名字会报错，不静默忽略。
+小键盘与主键区分开绑定，macOS 录制保留真实 Ctrl／Cmd 身份。Esc 用于取消录制；`Escape`、`F25`、
+`World1`／`World2` 可手动填写，后两者无法从 ImGui 的合并键事件中准确区分，不猜测录入。
 最多 128 个动作、每动作 16 个绑定；`bindings: []` 显式禁用动作。完整相机配置见 `demo/project.json`：
 `camera.move_x/y/z` 为局部右／世界上／局部后方向轴，`camera.look/boost` 为按钮，
 `camera.look_x/y` 和 `camera.zoom` 为位移。相机缺失动作视为未绑定，类型错误会报告运行失败。
