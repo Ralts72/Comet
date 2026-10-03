@@ -4,10 +4,294 @@
 #include "scene/scene_runtime.h"
 #include "input/input_actions.h"
 #include "input/input_state.h"
+#include "common/file_io.h"
+#include "support/temporary_directory.h"
 #include <gtest/gtest.h>
+#include <array>
 #include <limits>
 
 namespace Comet::Tests {
+    class ScriptModulesTest: public ::testing::Test {
+    protected:
+        TemporaryDirectory directory;
+
+        void write(const std::filesystem::path& path, const std::string_view source) {
+            const auto written = write_text_file_atomic(directory.path() / path, source);
+            ASSERT_TRUE(written) << written.error();
+        }
+
+        auto load(const std::filesystem::path& path = "actor.lua") {
+            const std::array paths{path};
+            return Script::load_group(directory.path(), paths);
+        }
+    };
+
+    TEST_F(ScriptModulesTest, NestedModulesAreCachedPerInstanceAndKeepTheirSourceSnapshot) {
+        write("scripts/value.module.lua", "return {base = 7}");
+        write("scripts/counter.module.lua", R"(
+            local value = require('scripts.value')
+            module_loads = (module_loads or 0) + 1
+            assert(module_loads == 1)
+            local count = 0
+            return {base = value.base, next = function() count = count + 1; return count end}
+        )");
+        write("actor.lua", R"(
+            local counter = require('scripts.counter')
+            assert(counter == require('scripts.counter'))
+            assert(counter.base == require('scripts.value').base)
+            assert(counter.next() == 1)
+            return {properties = {base = counter.base}, update = function(self)
+                self.count = (self.count or 1) + 1
+                assert(counter.next() == self.count)
+                assert(counter == require('scripts.counter'))
+            end}
+        )");
+        auto group = load();
+        ASSERT_TRUE(group) << group.error().message;
+        ASSERT_EQ(group.value().size(), 1u);
+        auto script = group.value().front();
+        EXPECT_EQ(script->source_path(), "actor.lua");
+        EXPECT_EQ(
+            script->dependencies(), (std::vector<std::filesystem::path>{
+                                        "scripts/counter.module.lua", "scripts/value.module.lua"}));
+        EXPECT_EQ(std::get<float>(script->properties().at("base").default_value), 7.0f);
+        EXPECT_TRUE(script->inputs_are_current());
+        write("scripts/value.module.lua", "return {base = 9}");
+        EXPECT_FALSE(script->inputs_are_current());
+        auto first = script->instantiate();
+        auto second = script->instantiate();
+        ASSERT_TRUE(first) << first.error().message;
+        ASSERT_TRUE(second) << second.error().message;
+        group.value().clear();
+        script.reset();
+        for(int step = 0; step < 3; ++step) {
+            EXPECT_TRUE(first.value()->invoke(Script::Phase::Update, {}, {}));
+            EXPECT_TRUE(second.value()->invoke(Script::Phase::Update, {}, {}));
+        }
+    }
+
+    TEST_F(ScriptModulesTest, GroupFreshnessIncludesOtherRootsButSourceEqualityDoesNot) {
+        write("scripts/value.module.lua", "return {base = 7}");
+        write("first.lua",
+            "local value = require('scripts.value'); return {properties = {base = value.base}}");
+        write("second.lua", "return {properties = {value = 1}}");
+        const std::array<std::filesystem::path, 2> paths{"second.lua", "first.lua"};
+        const auto group = Script::load_group(directory.path(), paths);
+        ASSERT_TRUE(group) << group.error().message;
+        EXPECT_EQ(group.value()[0]->source_path(), "second.lua");
+        EXPECT_EQ(group.value()[1]->source_path(), "first.lua");
+        const auto same = load("first.lua");
+        ASSERT_TRUE(same);
+        EXPECT_TRUE(group.value()[1]->has_same_sources(*same.value()[0]));
+        write("second.lua", "return {properties = {value = 2}}");
+        EXPECT_FALSE(group.value()[0]->inputs_are_current());
+        EXPECT_FALSE(group.value()[1]->inputs_are_current());
+        EXPECT_TRUE(same.value()[0]->inputs_are_current());
+        const auto changed_group = Script::load_group(directory.path(), paths);
+        ASSERT_TRUE(changed_group);
+        EXPECT_FALSE(group.value()[0]->has_same_sources(*changed_group.value()[0]));
+        EXPECT_TRUE(group.value()[1]->has_same_sources(*changed_group.value()[1]));
+        write("scripts/value.module.lua", "return {base = 8}");
+        const auto changed_module = load("first.lua");
+        ASSERT_TRUE(changed_module);
+        EXPECT_FALSE(group.value()[1]->has_same_sources(*changed_module.value()[0]));
+        const auto memory = Script::create("return {}", "memory.lua");
+        const auto memory_copy = Script::create("return {}", "memory.lua");
+        const auto renamed = Script::create("return {}", "other.lua");
+        ASSERT_TRUE(memory);
+        ASSERT_TRUE(memory_copy);
+        ASSERT_TRUE(renamed);
+        EXPECT_TRUE(memory.value()->has_same_sources(*memory_copy.value()));
+        EXPECT_FALSE(memory.value()->has_same_sources(*renamed.value()));
+    }
+
+    TEST_F(ScriptModulesTest, MissingDependenciesRemainObservableUntilTheirSourcesRecover) {
+        write("actor.lua", "require('scripts.wrapper'); return {}");
+        write("scripts/wrapper.module.lua", "return require('scripts.missing')");
+        const auto missing = load();
+        ASSERT_FALSE(missing);
+        EXPECT_EQ(missing.error().dependencies.at("actor.lua"),
+            (std::vector<std::filesystem::path>{
+                "scripts/missing.module.lua", "scripts/wrapper.module.lua"}));
+        EXPECT_TRUE(missing.error().inputs_are_current());
+        write("scripts/missing.module.lua", "return {");
+        EXPECT_FALSE(missing.error().inputs_are_current());
+        const auto invalid = load();
+        ASSERT_FALSE(invalid);
+        EXPECT_TRUE(invalid.error().inputs_are_current());
+        write("scripts/missing.module.lua", "return {}");
+        EXPECT_FALSE(invalid.error().inputs_are_current());
+        EXPECT_TRUE(load());
+    }
+
+    TEST_F(ScriptModulesTest, CollectsAttemptedDependenciesForEveryRootInAFailedGroup) {
+        write("first.lua", "require('missing.first'); return {}");
+        write("second.lua", "require('missing.second'); return {}");
+        const std::array<std::filesystem::path, 2> paths{"first.lua", "second.lua"};
+        const auto failed = Script::load_group(directory.path(), paths);
+        ASSERT_FALSE(failed);
+        EXPECT_EQ(failed.error().dependencies.at("first.lua"),
+            std::vector<std::filesystem::path>{"missing/first.module.lua"});
+        EXPECT_EQ(failed.error().dependencies.at("second.lua"),
+            std::vector<std::filesystem::path>{"missing/second.module.lua"});
+    }
+
+    TEST_F(ScriptModulesTest, ReportsCyclesAndRejectsNonTableModuleExports) {
+        write("actor.lua", "require('scripts.first'); return {}");
+        write("scripts/first.module.lua", "return require('scripts.second')");
+        write("scripts/second.module.lua", "return require('scripts.first')");
+        const auto cycle = load();
+        ASSERT_FALSE(cycle);
+        EXPECT_NE(cycle.error().message.find("cycle"), std::string::npos);
+        EXPECT_NE(cycle.error().message.find("scripts/first.module.lua"), std::string::npos);
+        EXPECT_NE(cycle.error().message.find("scripts/second.module.lua"), std::string::npos);
+        EXPECT_TRUE(cycle.error().inputs_are_current());
+        for(const char* result : {"nil", "false", "42", "'text'", "function() end"}) {
+            SCOPED_TRACE(result);
+            write("scripts/second.module.lua", std::string("return ") + result);
+            const auto failed = load();
+            ASSERT_FALSE(failed);
+            EXPECT_NE(failed.error().message.find("must return a table"), std::string::npos);
+        }
+        write("scripts/second.module.lua", "return {}");
+        EXPECT_FALSE(cycle.error().inputs_are_current());
+        EXPECT_TRUE(load());
+    }
+
+    TEST_F(ScriptModulesTest, RejectsUnsafeModuleNamesPathsAndModuleComponentRoots) {
+        for(const char* name : {"''", "'../outside'", "'/tmp/outside'", "'scripts/value'",
+                "'scripts..value'", "'.value'", "'scripts.'", "'1value'", "'C:value'",
+                R"('scripts\\value')", R"('scripts.value\0hidden')", "string.rep('a', 257)", "42",
+                "nil", "'scripts.value', 'extra'"}) {
+            SCOPED_TRACE(name);
+            write("actor.lua", std::string("require(") + name + "); return {}");
+            const auto failed = load();
+            ASSERT_FALSE(failed);
+            EXPECT_TRUE(failed.error().dependencies.at("actor.lua").empty());
+        }
+        write("value.module.lua", "return {}");
+        EXPECT_FALSE(Script::load(directory.path() / "value.module.lua"));
+        EXPECT_FALSE(load("value.module.lua"));
+        EXPECT_FALSE(load("../outside.lua"));
+        EXPECT_FALSE(load(directory.path() / "value.module.lua"));
+        write("actor.lua",
+            "assert(package == nil and io == nil and os == nil and load == nil); return {}");
+        EXPECT_TRUE(Script::load(directory.path() / "actor.lua"));
+        EXPECT_TRUE(load());
+    }
+
+    TEST_F(ScriptModulesTest, SymlinkAliasesAreRejectedAndSnapshotRetargetingIsDetected) {
+        TemporaryDirectory outside;
+        ASSERT_TRUE(write_text_file_atomic(outside.path() / "value.module.lua", "return {}"));
+        std::error_code error;
+        std::filesystem::create_symlink(
+            outside.path() / "value.module.lua", directory.path() / "escape.module.lua", error);
+        if(error)
+            GTEST_SKIP() << "Symbolic links are unavailable: " << error.message();
+        write("actor.lua", "require('escape'); return {}");
+        const auto escaped = load();
+        ASSERT_FALSE(escaped);
+        EXPECT_NE(escaped.error().message.find("outside project assets"), std::string::npos);
+        EXPECT_TRUE(escaped.error().dependencies.at("actor.lua").empty());
+        write("value.module.lua", "return {}");
+        std::filesystem::create_symlink(
+            directory.path() / "value.module.lua", directory.path() / "alias.module.lua", error);
+        ASSERT_FALSE(error);
+        write("actor.lua", "require('alias'); return {}");
+        const auto alias = load();
+        ASSERT_FALSE(alias);
+        EXPECT_NE(alias.error().message.find("symlink aliases"), std::string::npos);
+        EXPECT_TRUE(alias.error().dependencies.at("actor.lua").empty());
+        write("actor.lua", "require('value'); return {}");
+        const auto captured = load();
+        ASSERT_TRUE(captured);
+        EXPECT_TRUE(captured.value()[0]->inputs_are_current());
+        ASSERT_TRUE(std::filesystem::remove(directory.path() / "value.module.lua"));
+        std::filesystem::create_symlink(
+            outside.path() / "value.module.lua", directory.path() / "value.module.lua", error);
+        ASSERT_FALSE(error);
+        EXPECT_FALSE(captured.value()[0]->inputs_are_current());
+        EXPECT_TRUE(captured.value()[0]->instantiate());
+    }
+
+    TEST_F(ScriptModulesTest, RuntimeCannotDiscoverModulesEvenFromAnotherPreparedRoot) {
+        write("value.module.lua", "return {}");
+        write("first.lua", "require('value'); return {}");
+        write("second.lua", "return {update = function() require('value') end}");
+        const std::array<std::filesystem::path, 2> paths{"first.lua", "second.lua"};
+        const auto group = Script::load_group(directory.path(), paths);
+        ASSERT_TRUE(group);
+        EXPECT_TRUE(group.value()[1]->dependencies().empty());
+        const auto instance = group.value()[1]->instantiate();
+        ASSERT_TRUE(instance);
+        const auto result = instance.value()->invoke(Script::Phase::Update, {}, {});
+        ASSERT_FALSE(result);
+        EXPECT_NE(result.error().message.find("not loaded during script initialization"),
+            std::string::npos);
+    }
+
+    TEST_F(ScriptModulesTest, ModuleInitializationSharesInstructionAndMemoryBudgets) {
+        write("actor.lua", "require('value'); return {}");
+        for(const char* source :
+            {"while true do end", "return {value = string.rep('x', 32*1024*1024)}"}) {
+            SCOPED_TRACE(source);
+            write("value.module.lua", source);
+            const auto failed = load();
+            ASSERT_FALSE(failed);
+            EXPECT_TRUE(failed.error().inputs_are_current());
+        }
+    }
+
+    TEST_F(ScriptModulesTest, ModuleCountAndDependencyDepthHaveExplicitBoundaries) {
+        for(int count = 1; count <= 65; ++count)
+            write("modules/m" + std::to_string(count) + ".module.lua", "return {}");
+        for(const int count : {64, 65}) {
+            write("actor.lua", "for i = 1, " + std::to_string(count)
+                                   + " do require('modules.m' .. i) end; return {}");
+            const auto group = load();
+            EXPECT_EQ(static_cast<bool>(group), count == 64);
+        }
+        write("actor.lua", "require('chain.m1'); return {}");
+        for(int count = 1; count < 16; ++count)
+            write("chain/m" + std::to_string(count) + ".module.lua",
+                "return require('chain.m" + std::to_string(count + 1) + "')");
+        write("chain/m16.module.lua", "return {}");
+        EXPECT_TRUE(load());
+        write("chain/m16.module.lua", "return require('chain.m17')");
+        write("chain/m17.module.lua", "return {}");
+        const auto deep = load();
+        ASSERT_FALSE(deep);
+        EXPECT_NE(deep.error().message.find("depth exceeds 16"), std::string::npos);
+    }
+
+    TEST_F(ScriptModulesTest, SourceFileGroupByteAndRootBudgetsAreBounded) {
+        std::string source = "return {} --";
+        source.resize(1024 * 1024, ' ');
+        write("actor.lua", source);
+        EXPECT_TRUE(load());
+        write("actor.lua", source + " ");
+        const auto large = load();
+        ASSERT_FALSE(large);
+        EXPECT_NE(large.error().message.find("1 MiB"), std::string::npos);
+        EXPECT_TRUE(large.error().inputs_are_current());
+        write("actor.lua", "return {}");
+        EXPECT_FALSE(large.error().inputs_are_current());
+        std::vector<std::filesystem::path> paths;
+        for(int count = 0; count < 9; ++count) {
+            paths.emplace_back("large" + std::to_string(count) + ".lua");
+            write(paths.back(), source);
+        }
+        EXPECT_TRUE(Script::load_group(directory.path(), std::span(paths).first(8)));
+        const auto total = Script::load_group(directory.path(), paths);
+        ASSERT_FALSE(total);
+        EXPECT_NE(total.error().message.find("8 MiB"), std::string::npos);
+        EXPECT_TRUE(total.error().inputs_are_current());
+        write(paths.back(), "return {}");
+        EXPECT_FALSE(total.error().inputs_are_current());
+        paths.resize(129, "actor.lua");
+        EXPECT_FALSE(Script::load_group(directory.path(), paths));
+    }
+
     TEST(ScriptInvocationTest, RestartRequiresAnActiveRuntimeUpdateAndValidEntity) {
         const auto script = Script::create(R"(
             local function restart()

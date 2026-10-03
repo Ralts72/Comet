@@ -16,6 +16,7 @@ set(UNIT_TEST_SOURCES
         asset/test_metadata.cpp
         asset/test_project_assets.cpp
         asset/test_registry.cpp
+        asset/test_script_assets.cpp
         asset/test_texture_importer.cpp
         common/test_file_io.cpp
         common/test_result.cpp

@@ -334,8 +334,8 @@ render_frame 返回 `Result<void, GraphicsError>`。部分录制失败的命令�
 
 | 所属位置 | 持有与职责 |
 | --- | --- |
-| Script | 不可变源码、字段定义（默认值与编辑语义）与事件声明；创建独立 Instance |
-| Script::Instance | VM、保护调用与 Lua 配置表；初始化期间借用源码，不长期复制源码 |
+| Script | 不可变入口／模块源码快照、字段定义（默认值与编辑语义）与事件声明；创建独立 Instance |
+| Script::Instance | VM、保护调用、Lua 配置表与实例内模块缓存；共享只读源码，不共享 Lua table |
 | 私有 lua_bindings | 当前实体／授权输入的 API 适配，不访问 Editor 或渲染资源 |
 | ScriptSystem | 独占实例、保活所用 Script、同步组件寿命与阶段调用、交付场景通知 |
 | ScriptComponent | 持久化 Handle 与稀疏覆盖；非持久化寿命与活动定义弱引用 |
@@ -347,16 +347,33 @@ Inspector Edit 使用当前资产定义，Play 使用活动实例定义；Edit �
 Play 实例换代后只清除旧脚本参数控件的活动状态，不打断其他属性／面板的输入，也不回写 Edit 历史。
 更换脚本是 SceneEditor 的完整命令：先加载候选，再一次替换引用并清空覆盖，Edit 的 Undo 同时恢复二者。
 清空引用同样清空覆盖；选同一引用不重置参数；失败不改变原绑定。Play 直接改运行副本，不写 Edit 历史。
-源码变化由现有资产监听通知 AssetManager，Script 刷新先加载验证候选，再替换 Registry；失败保留旧版本。
+源码变化由现有资产监听通知 AssetManager，Script 刷新先加载验证关联候选，再替换 Registry；失败保留旧版本。
 同 Handle 的 Script 发布新版后，ScriptSystem 在实际 Fixed Update／Update 开始的 synchronize 中识别对象身份变化。
-按资产分组，先为全部旧版本实例创建候选 VM，并按名称与 ParameterValue 类型保留兼容覆盖；移除／改型字段使用新版默认值。
+运行旧定义和候选定义的模块依赖共同决定关联组；候选删掉依赖也不能漏掉仍使用旧模块的实例。
+先为需要换版的实例与同组新挂载组件创建候选 VM；旧实例按名称与 ParameterValue 类型保留兼容覆盖，
+移除／改型字段使用新版默认值；新组件仍严格验证其覆盖，不借重载静默丢弃错误配置。
 候选全部准备成功后，按实际启动逆序停止该组旧实例，再安装候选、更新组件活动定义和运行态覆盖，按 UUID 执行新版 on_start。
-准备失败保留该组全部旧实例，按候选身份只诊断一次；失败标记是弱引用，不延长源码寿命。
+准备失败保留该组旧实例并延后新实例；失败快照记录实例身份、候选弱引用和参数，只有完整输入相同才跳过重试。
+因此修复参数、删除阻塞组件或恢复缺失资产后仍可重试；失败记录不保活候选源码，Stop 清除。
 语法／声明失败由原有资产加载入口拒绝，不发布到 Registry；ScriptSystem 不自己读文件、监听或另建资产版本缓存。
 暂停中不运行 synchronize，继续或单步时切换；普通参数编辑不重建 VM，代码、定义和事件声明则随实例一起替换。
 新 on_start 可能已修改 Scene，因此执行失败沿 Runtime 的整体停止／Editor 恢复 Edit 路径处理，不承诺回滚世界副作用。
 仅 Lua 实例的 self 状态重置，Scene 会话值、实体、物理和待交付通知保留；pending 通知交给换代后的事件声明，不重放已消费通知。
 不迁移任意 Lua 状态、不自动回写 Edit 参数；独立 app 可消费已发布新版，但没有新增源文件监听。
+
+项目内 require 从 assets 根将点分名称解析为 `.module.lua`，模块是 source-only，不占 AssetRegistry／Handle／`.meta`。
+Script::load_group 逐入口执行初始化以收集传递闭包，同批共用读取字节，随后冻结；Instance 只能加载自身已准备的闭包。
+模块返回 table，每 VM 独立缓存并诊断循环；运行回调只可返回已缓存模块，不在 Runtime 中找文件或执行新依赖。
+不开放 package／io／os／原生加载，模块路径不允许符号链接别名，避免逻辑路径与依赖身份不一致。
+源码限单文件 1 MiB／单批 8 MiB、256 文件、128 入口；每入口最多 64 模块、深度 16，VM 继续使用原有内存与指令预算。
+
+AssetManager 的脚本加载与刷新集中在 `asset_manager_scripts.cpp`，仍是同一资源 owner，不新增 ScriptManager。
+首次加载与刷新都按旧依赖及候选新依赖扩组，整批准备后更新既有 import dependency 路径索引，
+再复核读取的真实字节、资产 revision 和 Registry 身份；owner 线程无外部回调地连续发布关联指针。
+失败时保留旧依赖和已尝试路径的并集，缺失模块恢复可再次通知消费者；成功后只保留实际新依赖。
+仅已证实过期的读取快照进入既有刷新重试队列；语法／声明错误等待新的文件变化，不每帧重读。
+新消费者加入时，字节和自身闭包均未变化的旧 Script 保持指针身份，不因此重启旧实例。
+模块不是跨实体共享可变状态的工具；项目需要共享玩法状态时仍显式使用 Scene 会话值或组件。
 
 参数检查与合并分开：Inspector 调用 validate_overrides，不生成无用的完整参数表；
 ScriptSystem 仅在覆盖变化时 resolve_parameters，Instance 在有效值或运行场景变化时重建 Lua 配置表。

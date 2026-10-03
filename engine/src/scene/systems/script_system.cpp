@@ -34,6 +34,7 @@ namespace Comet {
             m_entries.erase(found);
         }
         m_start_order.clear();
+        m_failed_reloads.clear();
         m_scene = nullptr;
     }
 
@@ -75,29 +76,126 @@ namespace Comet {
         if(!instance)
             return Result<Entry, Error>::failure(instance.error());
         return Result<Entry, Error>::success({entity, std::move(script),
-            std::move(instance).value(), std::move(parameters).value(), std::move(overrides), {}});
+            std::move(instance).value(), std::move(parameters).value(), std::move(overrides)});
     }
 
-    Result<void, Error> ScriptSystem::reload_changed_scripts() {
-        std::map<AssetHandle, std::shared_ptr<const Script>> changed;
+    std::vector<ScriptSystem::ReloadGroup> ScriptSystem::reload_groups(
+        const std::map<Key, Entity>& pending) const {
+        struct Version {
+            std::shared_ptr<const Script> current;
+            std::set<std::filesystem::path> dependencies;
+            bool changed = false;
+        };
+        std::map<AssetHandle, Version> versions;
         for(const auto& [key, entry] : m_entries) {
-            auto script = m_assets.resolve<Script>(key.asset);
-            if(script && script != entry.script && script != entry.failed_reload.lock())
-                changed.try_emplace(key.asset, std::move(script));
+            auto& version = versions[key.asset];
+            version.dependencies.insert(
+                entry.script->dependencies().begin(), entry.script->dependencies().end());
+            version.current = m_assets.resolve<Script>(key.asset);
+            if(version.current != entry.script) {
+                version.changed = true;
+            }
         }
-        for(const auto& [handle, script] : changed) {
+        for(const auto& [key, entity] : pending)
+            versions[key.asset].current = m_assets.resolve<Script>(key.asset);
+        for(auto& [handle, version] : versions) {
+            if(version.current)
+                version.dependencies.insert(
+                    version.current->dependencies().begin(), version.current->dependencies().end());
+        }
+
+        std::set<AssetHandle> visited;
+        std::vector<ReloadGroup> groups;
+        for(const auto& [seed, version] : versions) {
+            if(!version.changed || visited.contains(seed))
+                continue;
+            ReloadGroup group;
+            group.scripts.emplace(seed, version.current);
+            std::set<std::filesystem::path> dependencies;
+            bool expanded = true;
+            while(expanded) {
+                expanded = false;
+                for(const auto& [handle, script] : group.scripts) {
+                    const auto& member = versions.at(handle);
+                    dependencies.insert(member.dependencies.begin(), member.dependencies.end());
+                }
+                for(const auto& [handle, member] : versions) {
+                    if(!group.scripts.contains(handle)
+                        && std::ranges::any_of(member.dependencies,
+                            [&](const auto& path) { return dependencies.contains(path); })) {
+                        group.scripts.emplace(handle, member.current);
+                        expanded = true;
+                    }
+                }
+            }
+            for(const auto& [handle, script] : group.scripts)
+                visited.insert(handle);
+            for(const auto& [key, entry] : m_entries)
+                if(group.scripts.contains(key.asset))
+                    group.instances.emplace(key, entry.entity);
+            for(const auto& [key, entity] : pending)
+                if(group.scripts.contains(key.asset))
+                    group.instances.emplace(key, entity);
+            groups.push_back(std::move(group));
+        }
+        return groups;
+    }
+
+    bool ScriptSystem::matches_failed_reload(
+        const ReloadGroup& group, const FailedReload& failed) const {
+        if(group.instances.size() != failed.size())
+            return false;
+        for(const auto& [key, entity] : group.instances) {
+            const auto found = failed.find(key);
+            if(found == failed.end() || found->second.script.lock() != group.scripts.at(key.asset)
+                || found->second.overrides != entity.get_component<ScriptComponent>().parameters)
+                return false;
+        }
+        return true;
+    }
+
+    Result<std::set<AssetHandle>, Error> ScriptSystem::reload_changed_scripts(
+        const std::map<Key, Entity>& pending) {
+        std::set<AssetHandle> blocked;
+        const bool changed = std::ranges::any_of(m_entries, [&](const auto& value) {
+            const auto script = m_assets.resolve<Script>(value.first.asset);
+            return script != value.second.script;
+        });
+        if(!changed) {
+            m_failed_reloads.clear();
+            return Result<std::set<AssetHandle>, Error>::success({});
+        }
+        std::vector<FailedReload> rejected;
+        for(const auto& group : reload_groups(pending)) {
+            const auto previous_failure = std::ranges::find_if(m_failed_reloads,
+                [&](const FailedReload& failed) { return matches_failed_reload(group, failed); });
+            if(previous_failure != m_failed_reloads.end()) {
+                for(const auto& [handle, script] : group.scripts)
+                    blocked.insert(handle);
+                rejected.push_back(std::move(*previous_failure));
+                continue;
+            }
             std::map<Key, Entry> prepared;
             std::optional<Error> failure;
-            for(const auto& [key, entry] : m_entries) {
-                if(key.asset != handle || entry.script == script)
+            for(const auto& [key, entity] : group.instances) {
+                const auto& script = group.scripts.at(key.asset);
+                if(!script) {
+                    failure = Error{"Related script asset is unavailable: "
+                                    + std::to_string(key.asset.value())};
+                    break;
+                }
+                const auto existing = m_entries.find(key);
+                if(existing != m_entries.end() && existing->second.script == script)
                     continue;
-                auto overrides = entry.entity.get_component<ScriptComponent>().parameters;
-                std::erase_if(overrides, [&](const auto& value) {
-                    const auto property = script->properties().find(value.first);
-                    return property == script->properties().end()
-                           || property->second.default_value.index() != value.second.index();
-                });
-                auto candidate = prepare_entry(entry.entity, script, std::move(overrides));
+                auto overrides = entity.get_component<ScriptComponent>().parameters;
+                if(existing != m_entries.end()) {
+                    std::erase_if(overrides, [&](const auto& value) {
+                        const auto property = script->properties().find(value.first);
+                        return property == script->properties().end()
+                               || property->second.default_value.index() != value.second.index();
+                    });
+                }
+                auto candidate = prepare_entry(entity, script, std::move(overrides));
                 if(!candidate) {
                     failure = candidate.error();
                     break;
@@ -105,32 +203,43 @@ namespace Comet {
                 prepared.emplace(key, std::move(candidate).value());
             }
             if(failure) {
-                for(auto& [key, entry] : m_entries)
-                    if(key.asset == handle)
-                        entry.failed_reload = script;
-                LOG_WARN("Cannot reload script asset {}: {}", handle.value(), failure->message);
+                FailedReload failed;
+                for(const auto& [key, entity] : group.instances)
+                    failed.emplace(key, FailedInstance{group.scripts.at(key.asset),
+                                            entity.get_component<ScriptComponent>().parameters});
+                rejected.push_back(std::move(failed));
+                for(const auto& [handle, script] : group.scripts)
+                    blocked.insert(handle);
+                LOG_WARN("Cannot reload script group: {}", failure->message);
                 continue;
             }
+            if(auto installed = install_reload(prepared); !installed)
+                return Result<std::set<AssetHandle>, Error>::failure(installed.error());
+            LOG_INFO("Reloaded script group ({} assets, {} instances)", group.scripts.size(),
+                prepared.size());
+        }
+        m_failed_reloads = std::move(rejected);
+        return Result<std::set<AssetHandle>, Error>::success(std::move(blocked));
+    }
 
-            // 同资产的候选全部可用后才结束旧实例；on_start 的场景副作用不承诺回滚。
-            for(auto it = m_start_order.rbegin(); it != m_start_order.rend(); ++it) {
-                if(!prepared.contains(*it))
-                    continue;
-                auto previous = m_entries.find(*it);
-                stop_entry(previous->first, previous->second);
-                m_entries.erase(previous);
-            }
-            std::erase_if(m_start_order, [&](const Key& key) { return prepared.contains(key); });
-            for(auto& [key, candidate] : prepared) {
-                auto& entry = m_entries.emplace(key, std::move(candidate)).first->second;
-                auto& component = entry.entity.get_component<ScriptComponent>();
-                component.parameters = *entry.overrides;
-                component.m_running_script = script;
-                m_start_order.push_back(key);
-                if(auto started = invoke(key, entry, Script::Phase::Start); !started)
-                    return started;
-            }
-            LOG_INFO("Reloaded script asset {} ({} instances)", handle.value(), prepared.size());
+    Result<void, Error> ScriptSystem::install_reload(std::map<Key, Entry>& prepared) {
+        // 关联组全部准备成功才结束旧实例；on_start 的场景副作用不承诺回滚。
+        for(auto it = m_start_order.rbegin(); it != m_start_order.rend(); ++it) {
+            if(!prepared.contains(*it))
+                continue;
+            auto previous = m_entries.find(*it);
+            stop_entry(previous->first, previous->second);
+            m_entries.erase(previous);
+        }
+        std::erase_if(m_start_order, [&](const Key& key) { return prepared.contains(key); });
+        for(auto& [key, candidate] : prepared) {
+            auto& entry = m_entries.emplace(key, std::move(candidate)).first->second;
+            auto& component = entry.entity.get_component<ScriptComponent>();
+            component.parameters = *entry.overrides;
+            component.m_running_script = entry.script;
+            m_start_order.push_back(key);
+            if(auto started = invoke(key, entry, Script::Phase::Start); !started)
+                return started;
         }
         return Result<void, Error>::success();
     }
@@ -144,8 +253,6 @@ namespace Comet {
             }
         }
         std::erase_if(m_start_order, [this](const Key& key) { return !m_entries.contains(key); });
-        if(auto reloaded = reload_changed_scripts(); !reloaded)
-            return reloaded;
         std::map<Key, Entity> pending;
         scene.each<const ScriptComponent>([&](Entity entity, const ScriptComponent& component) {
             if(!component.asset)
@@ -154,7 +261,12 @@ namespace Comet {
             if(!m_entries.contains(key))
                 pending.emplace(key, entity);
         });
+        const auto reloaded = reload_changed_scripts(pending);
+        if(!reloaded)
+            return Result<void, Error>::failure(reloaded.error());
         for(const auto& [key, entity] : pending) {
+            if(reloaded.value().contains(key.asset) || m_entries.contains(key))
+                continue;
             auto script = m_assets.resolve<Script>(key.asset);
             if(!script)
                 return Result<void, Error>::failure(

@@ -631,16 +631,6 @@ namespace Comet {
             });
     }
 
-    Result<std::shared_ptr<Script>, Error> AssetManager::load_script(const AssetHandle handle) {
-        return load_runtime_asset<Script>(m_database, m_registry, handle, AssetType::Script,
-            [this](const AssetRecord& record) -> Result<std::shared_ptr<Script>, Error> {
-                auto path = m_database.paths().resolve_asset_path(record.path);
-                if(!path)
-                    return Result<std::shared_ptr<Script>, Error>::failure({path.error()});
-                return Script::load(path.value());
-            });
-    }
-
     Result<std::shared_ptr<AudioClip>, Error> AssetManager::load_audio(const AssetHandle handle) {
         return load_runtime_asset<AudioClip>(m_database, m_registry, handle, AssetType::Audio,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<AudioClip>, Error> {

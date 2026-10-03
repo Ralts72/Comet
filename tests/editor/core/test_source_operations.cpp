@@ -4,6 +4,45 @@
 namespace Comet::Tests {
     namespace SourceOperations = CometEditor::AssetSourceOperations;
 
+    TEST(AssetSourceOperationsTest, NewScriptRejectsSourceOnlyModuleNamesWithoutWritingFiles) {
+        const TemporaryProject project;
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+
+        for(const auto* name : {"shared.module.lua", "other.MODULE.LUA"}) {
+            const auto report = SourceOperations::create_script(database, name);
+
+            EXPECT_FALSE(report.succeeded());
+            EXPECT_FALSE(report.snapshot_updated);
+            EXPECT_TRUE(has_issue_containing(report, "source-only Lua module"));
+            EXPECT_EQ(database.size(), 0u);
+            EXPECT_FALSE(std::filesystem::exists(project.paths().assets() / name));
+            EXPECT_FALSE(std::filesystem::exists(metadata_path(project.paths().assets() / name)));
+        }
+        EXPECT_TRUE(SourceOperations::create_script(database, "actor.lua").succeeded());
+        ASSERT_NE(database.find("actor.lua"), nullptr);
+        EXPECT_EQ(database.find("actor.lua")->type, AssetType::Script);
+    }
+
+    TEST(AssetSourceOperationsTest, ScriptMoveRejectsSourceOnlyModuleDestination) {
+        const TemporaryProject project;
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(SourceOperations::create_script(database, "actor.lua").succeeded());
+        ASSERT_NE(database.find("actor.lua"), nullptr);
+        const auto handle = database.find("actor.lua")->handle;
+
+        const auto report = SourceOperations::move(database, handle, "actor.module.lua");
+
+        EXPECT_FALSE(report.succeeded());
+        EXPECT_FALSE(report.snapshot_updated);
+        EXPECT_TRUE(has_issue_containing(report, "source-only Lua modules"));
+        EXPECT_EQ(database.find(handle)->path, "actor.lua");
+        EXPECT_TRUE(std::filesystem::is_regular_file(project.paths().assets() / "actor.lua"));
+        EXPECT_TRUE(std::filesystem::is_regular_file(project.paths().assets() / "actor.lua.meta"));
+        EXPECT_FALSE(std::filesystem::exists(project.paths().assets() / "actor.module.lua"));
+        EXPECT_FALSE(std::filesystem::exists(project.paths().assets() / "actor.module.lua.meta"));
+    }
+
     TEST(AssetSourceOperationsTest, RejectsMoveWhenDestinationAlreadyExists) {
         const TemporaryProject project;
         constexpr AssetHandle handle(42);

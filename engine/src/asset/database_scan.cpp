@@ -71,6 +71,11 @@ namespace Comet {
             return extension;
         }
 
+        bool is_lua_module_source(const std::filesystem::path& path) {
+            return lowercase_extension(path) == ".lua"
+                   && lowercase_extension(path.stem()) == ".module";
+        }
+
         std::optional<AssetType> asset_type_from_path(const std::filesystem::path& path) {
             const std::string extension = lowercase_extension(path);
             if(extension == ".hdr")
@@ -90,7 +95,7 @@ namespace Comet {
             }
             if(extension == ".shader")
                 return AssetType::ShaderProgram;
-            if(extension == ".lua")
+            if(extension == ".lua" && !is_lua_module_source(path))
                 return AssetType::Script;
             if(extension == ".wav")
                 return AssetType::Audio;
@@ -101,7 +106,7 @@ namespace Comet {
 
         bool is_import_source_only_path(const std::filesystem::path& path) {
             const auto extension = lowercase_extension(path);
-            return extension == ".bin" || extension == ".glsl";
+            return extension == ".bin" || extension == ".glsl" || is_lua_module_source(path);
         }
 
         std::string path_text(const std::filesystem::path& path) {

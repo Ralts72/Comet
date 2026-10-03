@@ -97,6 +97,58 @@ namespace Comet::Tests {
         EXPECT_NE(database.find("new.png"), nullptr);
     }
 
+    TEST(AssetDatabaseTest, LuaModulesRemainSourceOnlyWithoutMetadata) {
+        const TemporaryProject project;
+        const auto component = project.add_file("scripts/actor.lua", "return {}");
+        const auto module = project.add_file("scripts/shared.module.lua", "return {}");
+        const auto uppercase_module = project.add_file("scripts/other.MODULE.LUA", "return {}");
+        AssetDatabase database(project.paths());
+
+        const auto report = database.scan();
+
+        ASSERT_TRUE(report.succeeded());
+        EXPECT_EQ(report.indexed_assets, 1u);
+        EXPECT_EQ(report.generated_metadata, 1u);
+        ASSERT_NE(database.find("scripts/actor.lua"), nullptr);
+        EXPECT_EQ(database.find("scripts/actor.lua")->type, AssetType::Script);
+        EXPECT_EQ(database.find("scripts/shared.module.lua"), nullptr);
+        EXPECT_EQ(database.find("scripts/other.MODULE.LUA"), nullptr);
+        EXPECT_TRUE(std::filesystem::exists(metadata_path(component)));
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(module)));
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(uppercase_module)));
+        const auto unchanged = database.scan();
+        EXPECT_TRUE(unchanged.succeeded());
+        EXPECT_EQ(unchanged.generated_metadata, 0u);
+        EXPECT_TRUE(unchanged.modified_assets.empty());
+    }
+
+    TEST(AssetDatabaseTest, LuaModuleChangesInvalidateOnlyDeclaredScriptDependents) {
+        const TemporaryProject project;
+        project.add_file("scripts/actor.lua", "return {}");
+        project.add_file("scripts/unrelated.lua", "return {}");
+        const auto module = project.add_file("scripts/shared.module.lua", "return {value = 1}");
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        const auto actor = database.find("scripts/actor.lua")->handle;
+        const auto unrelated = database.find("scripts/unrelated.lua")->handle;
+        ASSERT_TRUE(database.update_import_dependencies(actor, {"scripts/shared.module.lua"}));
+        const auto previous = database.get_revision(actor);
+        const auto unrelated_revision = database.get_revision(unrelated);
+
+        project.add_file("scripts/shared.module.lua", "return {value = 100}");
+        const std::array changed{std::filesystem::path("scripts/shared.module.lua")};
+        const auto report = database.scan_changed_sources(changed);
+
+        ASSERT_TRUE(report);
+        EXPECT_TRUE(report->succeeded());
+        EXPECT_EQ(report->modified_assets, std::vector{actor});
+        EXPECT_GT(database.get_revision(actor), previous);
+        EXPECT_EQ(database.get_revision(unrelated), unrelated_revision);
+        EXPECT_EQ(database.find("scripts/shared.module.lua"), nullptr);
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(module)));
+        EXPECT_TRUE(database.scan().modified_assets.empty());
+    }
+
     TEST(AssetDatabaseTest, RejectsPreparedScanWhenInputOrDatabaseChanges) {
         const TemporaryProject project;
         const auto source = project.add_file("first.png", "first");

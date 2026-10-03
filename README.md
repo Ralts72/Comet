@@ -525,8 +525,36 @@ comet.set_material_vector("base_color", 0.2, 1, 0.25, 1)
 这只创建运行时覆盖，不修改共享 Material、`.mat`、Edit 场景或 Undo 历史；暂停保留，单步按脚本更新，Stop 清除。
 名称、类型、有限值及标量声明范围须符合布局，否则按脚本错误处理；Vec4 不统一限制在 0..1。
 参数变化不重新编译 Shader；布局校验、快照复用及 GPU 发布边界见架构文档。
-暂不支持脚本纹理切换、全局 Shader 参数、require 或保留任意 Lua 状态的热迁移。
+暂不支持脚本纹理切换、全局 Shader 参数或保留任意 Lua 状态的热迁移。
 Lua 有内存与指令预算，但不是面向不可信代码的安全沙箱。调用、寿命和失败边界见[架构说明](docs/architecture/overview.md#lua-脚本与参数)。
+
+### Lua 模块复用
+
+项目组件脚本可以在顶层通过 `require("scripts.demo_score")` 引用
+`assets/scripts/demo_score.module.lua`，点分名称从项目 assets 根解析，不要求文件都放在 scripts 目录。
+模块返回 table，同一实例重复 require 返回同一张表；不同实体不共享这张表或其中的运行状态。
+demo 的 `collect_goal.lua` 和 `spin.lua` 共用计分模块；刻意共享的分数仍由 `comet.session_get/set` 保存。
+
+```lua
+local demo_score = require("scripts.demo_score")
+local script = {}
+
+function script:on_start()
+    self.last_score = demo_score.get()
+end
+
+return script
+```
+
+`.module.lua` 是源码依赖，不生成 `.meta`，不能挂到实体的 Script 槽位。
+当前在 Project 中显示为普通文件，模块的创建、改名和删除由外部源码编辑器完成；New Script 仍创建组件脚本。
+Finder 导入只支持独立组件脚本，暂不处理 Lua 多文件依赖包；需要模块的脚本直接在项目 assets 内编写。
+路径限点分标识符，不支持绝对路径、`..`、原生库、符号链接别名或运行回调中首次发现新模块。
+生命周期回调内可再次 require 已在顶层加载过的模块，不读取磁盘。
+
+编辑器保存共享模块后，现有依赖索引会刷新关联脚本；整组候选失败保留旧版，成功则在下一次运行更新切换。
+暂停中仍等单步或继续；实例的模块状态随换版重建，不改 Edit 场景和历史，也不重置 Scene 会话值。
+首次缺失模块或中途删掉模块会报告错误，补齐文件后可由既有资产监听恢复；app 加载同一项目模块，但不自动监视源码。
 
 ## 编辑器使用
 

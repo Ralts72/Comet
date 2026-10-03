@@ -125,9 +125,12 @@ namespace Comet {
     private:
         [[nodiscard]] Result<void> update_import_dependencies(
             AssetHandle handle, std::vector<std::filesystem::path> dependencies);
-        enum class RefreshResult { Scheduled, Deferred, Published, Invalidated, Rejected };
+        enum class RefreshResult { Scheduled, Deferred, Invalidated, Rejected };
         [[nodiscard]] RefreshResult schedule_refresh(const AssetRecord& record);
-        void retry_refresh_requests();
+        Result<void, Error> publish_script_group(
+            AssetHandle seed, std::unordered_set<AssetHandle>& processed);
+        std::vector<AssetHandle> refresh_scripts(std::span<const AssetHandle> handles);
+        void retry_refresh_requests(std::vector<AssetHandle>& published);
         Result<void, Error> reload_loaded_material_dependents(AssetHandle texture_handle);
         Result<void, Error> publish_material(AssetHandle handle, const MaterialData& data,
             const std::shared_ptr<Material>& material, bool replace_existing);

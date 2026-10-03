@@ -13,7 +13,6 @@
 #include "render/resource/texture.h"
 #include "render/resource/environment.h"
 #include "render/resource/resource_factory.h"
-#include "scripting/script.h"
 
 #include <string>
 #include <system_error>
@@ -54,6 +53,7 @@ namespace Comet {
         for(const AssetHandle handle : report.removed_assets)
             m_mesh_imports_needing_recheck.erase(handle);
 
+        std::vector<AssetHandle> scripts;
         for(const AssetHandle handle : report.modified_assets) {
             const bool preparing_environment = m_environment_previews.contains(handle);
             if(invalidated.contains(handle)
@@ -74,11 +74,16 @@ namespace Comet {
             // 编辑器提供编译任务，AssetManager 仅在候选完成后发布。
             if(record->type == AssetType::ShaderProgram)
                 continue;
+            if(record->type == AssetType::Script) {
+                scripts.push_back(handle);
+                continue;
+            }
             if(schedule_refresh(*record) == RefreshResult::Deferred)
                 m_refresh_requests[handle] = m_database.get_revision(handle);
             else
                 m_refresh_requests.erase(handle);
         }
+        refresh_scripts(scripts);
     }
 
     AssetManager::RefreshResult AssetManager::schedule_refresh(const AssetRecord& record) {
@@ -88,29 +93,6 @@ namespace Comet {
                 // 活动实例保留旧资源；下次准备场景时加载新版，不在运行中替换实例。
                 static_cast<void>(m_registry.unregister_asset(record.handle));
                 return RefreshResult::Invalidated;
-            case AssetType::Script: {
-                const auto handle = record.handle;
-                const auto revision = m_database.get_revision(handle);
-                const auto path = m_database.paths().resolve_asset_path(record.path);
-                if(!path) {
-                    LOG_WARN("Cannot refresh script asset {}: {}", handle.value(), path.error());
-                    return RefreshResult::Rejected;
-                }
-                auto candidate = Script::load(path.value());
-                if(!candidate) {
-                    LOG_WARN("Cannot refresh script asset {}: {}", handle.value(),
-                        candidate.error().message);
-                    return RefreshResult::Rejected;
-                }
-                if(!m_database.is_current(handle, revision)) {
-                    LOG_DEBUG("Discarded stale script candidate for asset handle {} (revision {})",
-                        handle.value(), revision);
-                    return RefreshResult::Rejected;
-                }
-                if(!m_registry.replace_asset(handle, std::move(candidate).value()))
-                    return RefreshResult::Rejected;
-                return RefreshResult::Published;
-            }
             case AssetType::Mesh:
                 accepted = schedule_mesh_task(record, MeshImportMode::Force);
                 break;
@@ -146,12 +128,19 @@ namespace Comet {
         return accepted ? RefreshResult::Scheduled : RefreshResult::Deferred;
     }
 
-    void AssetManager::retry_refresh_requests() {
+    void AssetManager::retry_refresh_requests(std::vector<AssetHandle>& published) {
+        std::vector<AssetHandle> scripts;
         for(auto request = m_refresh_requests.begin(); request != m_refresh_requests.end();) {
             const auto [handle, revision] = *request;
             const auto* record = m_database.find(handle);
             if(!record || !m_database.is_current(handle, revision)
-                || (!m_registry.contains(handle) && record->type != AssetType::Environment)) {
+                || (!m_registry.contains(handle) && record->type != AssetType::Environment
+                    && record->type != AssetType::Script)) {
+                request = m_refresh_requests.erase(request);
+                continue;
+            }
+            if(record->type == AssetType::Script) {
+                scripts.push_back(handle);
                 request = m_refresh_requests.erase(request);
                 continue;
             }
@@ -159,6 +148,8 @@ namespace Comet {
                 break;
             request = m_refresh_requests.erase(request);
         }
+        const auto completed_scripts = refresh_scripts(scripts);
+        published.insert(published.end(), completed_scripts.begin(), completed_scripts.end());
     }
 
     Result<std::vector<AssetHandle>, Error> AssetManager::process_completions() {
@@ -185,7 +176,7 @@ namespace Comet {
         });
         if(!completion)
             return Result<std::vector<AssetHandle>, Error>::failure(completion.error());
-        retry_refresh_requests();
+        retry_refresh_requests(published);
         auto remaining = budget;
         remaining.max_results -= completion.value();
         remaining.max_time -= std::chrono::steady_clock::now() - start;

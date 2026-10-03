@@ -105,6 +105,10 @@ namespace CometEditor::AssetSourceOperations {
             return extension;
         }
 
+        bool is_lua_module_source(const std::filesystem::path& path) {
+            return extension_of(path) == ".lua" && extension_of(path.stem()) == ".module";
+        }
+
         std::optional<AssetType> external_import_type(const std::filesystem::path& path) {
             const auto extension = extension_of(path);
             if(extension == ".gltf" || extension == ".glb")
@@ -113,7 +117,7 @@ namespace CometEditor::AssetSourceOperations {
                 return AssetType::Texture;
             if(extension == ".hdr")
                 return AssetType::Environment;
-            if(extension == ".lua")
+            if(extension == ".lua" && !is_lua_module_source(path))
                 return AssetType::Script;
             if(extension == ".wav")
                 return AssetType::Audio;
@@ -318,6 +322,10 @@ namespace CometEditor::AssetSourceOperations {
             std::error_code error;
             // key 是目标相对路径，value 是外部源；相同依赖只复制一次。
             for(const auto& source : sources) {
+                if(is_lua_module_source(source))
+                    return Result<void>::failure(
+                        "Lua module sources (.module.lua) are source-only dependencies, not Script assets; "
+                        "create them inside project assets with a source editor");
                 const auto type = external_import_type(source);
                 if(!type)
                     continue;
@@ -443,7 +451,9 @@ namespace CometEditor::AssetSourceOperations {
                         break;
                     case AssetType::Script:
                         if(auto script = Script::load(staging / relative); !script)
-                            return Result<void>::failure(script.error().message);
+                            return Result<void>::failure(
+                                "Cannot validate standalone Lua import: " + script.error().message
+                                + "; scripts requiring project modules must be created inside project assets");
                         break;
                     case AssetType::Audio:
                         if(auto clip = AudioClip::load(staging / relative); !clip)
@@ -723,6 +733,10 @@ namespace CometEditor::AssetSourceOperations {
 
     AssetScanReport create_script(
         AssetDatabase& database, const std::filesystem::path& destination) {
+        if(is_lua_module_source(destination))
+            return operation_error(destination,
+                "New Script cannot create a source-only Lua module (.module.lua); "
+                "create modules inside project assets with a source editor");
         constexpr std::string_view source = R"(local script = {}
 
 function script:update(dt)
@@ -902,6 +916,9 @@ return script
                 destination, "asset handle " + std::to_string(handle.value()) + " is not indexed");
         }
         const AssetRecord record = *indexed_record;
+        if(record.type == AssetType::Script && is_lua_module_source(destination))
+            return operation_error(destination,
+                "Script assets cannot be renamed to source-only Lua modules (.module.lua)");
         const std::filesystem::path source_relative = record.path.lexically_normal();
         const std::filesystem::path destination_relative = destination.lexically_normal();
         if(source_relative == destination_relative) {

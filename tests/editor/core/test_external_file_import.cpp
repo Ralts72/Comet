@@ -103,6 +103,44 @@ namespace Comet::Tests {
         EXPECT_FALSE(std::filesystem::exists(paths.assets() / "folder/invalid.lua"));
     }
 
+    TEST_F(ExternalFileImportTest, RejectsLuaModulesAloneOrInBatchesWithoutPublishingMetadata) {
+        const auto script = external / "actor.lua";
+        std::ofstream(script) << "return {}";
+        for(const auto* name : {"shared.module.lua", "other.MODULE.LUA"}) {
+            const auto module = external / name;
+            std::ofstream(module) << "return {}";
+            for(const auto& report : {import({module}), import({script, module})}) {
+                EXPECT_FALSE(report.succeeded());
+                EXPECT_FALSE(report.snapshot_updated);
+                ASSERT_FALSE(report.issues.empty());
+                EXPECT_NE(report.issues.back().message.find("source-only"), std::string::npos);
+                EXPECT_EQ(report.generated_metadata, 0u);
+                expect_empty();
+            }
+            EXPECT_TRUE(std::filesystem::is_regular_file(module));
+            EXPECT_FALSE(std::filesystem::exists(metadata_path(paths.assets() / "folder" / name)));
+        }
+    }
+
+    TEST_F(ExternalFileImportTest, RejectsModuleDependentLuaImportWithProjectAuthoringDiagnostic) {
+        const auto script = external / "actor.lua";
+        std::ofstream(script) << "local shared = require('scripts.shared')\nreturn {}";
+        std::filesystem::create_directories(paths.assets() / "scripts");
+        std::ofstream(paths.assets() / "scripts/shared.module.lua") << "return {}";
+
+        const auto report = import({script});
+
+        EXPECT_FALSE(report.succeeded());
+        EXPECT_FALSE(report.snapshot_updated);
+        ASSERT_FALSE(report.issues.empty());
+        EXPECT_NE(report.issues.back().message.find("Cannot validate standalone Lua import"),
+            std::string::npos);
+        EXPECT_NE(
+            report.issues.back().message.find("created inside project assets"), std::string::npos);
+        expect_empty();
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "scripts/shared.module.lua.meta"));
+    }
+
     TEST_F(ExternalFileImportTest, ImportsWavAsAnAssetAndRejectsInvalidAudio) {
         const auto source = external / "cue.wav";
         std::filesystem::copy_file(

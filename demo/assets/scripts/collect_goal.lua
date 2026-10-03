@@ -1,3 +1,4 @@
+local demo_score = require("scripts.demo_score")
 local script = {}
 
 script.properties = {
@@ -11,9 +12,7 @@ function script:on_trigger_enter(other)
     end
 
     self.collected = true
-    local score = (comet.session_get("demo.score") or 0) + 1
-    comet.session_set("demo.score", score)
-    comet.emit("demo.score_changed", score)
+    local score = demo_score.add(1)
     comet.set_input_context("gameplay", false)
     comet.play_one_shot()
     local x, y, z = comet.position()

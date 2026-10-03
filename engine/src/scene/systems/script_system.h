@@ -5,6 +5,7 @@
 #include "scripting/script.h"
 #include <map>
 #include <optional>
+#include <set>
 #include <string_view>
 #include <vector>
 
@@ -35,12 +36,24 @@ namespace Comet {
             std::unique_ptr<Script::Instance> instance;
             ParameterMap parameters;
             std::optional<ParameterMap> overrides;
-            std::weak_ptr<const Script> failed_reload;
         };
         bool is_live(const Key& key, const Entry& entry) const;
         Result<Entry, Error> prepare_entry(
             Entity entity, std::shared_ptr<const Script> script, ParameterMap overrides) const;
-        Result<void, Error> reload_changed_scripts();
+        struct ReloadGroup {
+            std::map<AssetHandle, std::shared_ptr<const Script>> scripts;
+            std::map<Key, Entity> instances;
+        };
+        struct FailedInstance {
+            std::weak_ptr<const Script> script;
+            ParameterMap overrides;
+        };
+        using FailedReload = std::map<Key, FailedInstance>;
+        bool matches_failed_reload(const ReloadGroup& group, const FailedReload& failed) const;
+        std::vector<ReloadGroup> reload_groups(const std::map<Key, Entity>& pending) const;
+        Result<std::set<AssetHandle>, Error> reload_changed_scripts(
+            const std::map<Key, Entity>& pending);
+        Result<void, Error> install_reload(std::map<Key, Entry>& prepared);
         Result<void, Error> synchronize(Scene& scene);
         Result<void, Error> dispatch(Scene& scene, const Context& context, Script::Phase phase);
         Result<void, Error> invoke(const Key& key, Entry& entry, Script::Phase phase,
@@ -55,6 +68,7 @@ namespace Comet {
         const MaterialParameterValidator* m_materials;
         std::map<Key, Entry> m_entries;
         std::vector<Key> m_start_order;
+        std::vector<FailedReload> m_failed_reloads;
         Scene* m_scene = nullptr;
     };
 }

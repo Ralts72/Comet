@@ -26,6 +26,7 @@
 
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <string_view>
 
@@ -1230,9 +1231,10 @@ namespace Comet::Tests {
             std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() / "demo");
         ASSERT_TRUE(project) << project.error();
         ASSERT_TRUE(runtime.set_input_actions(project.value().input_actions()));
-        auto script = Script::load(project.value().paths().assets() / "scripts/spin.lua");
-        ASSERT_TRUE(script) << script.error().message;
-        ASSERT_TRUE(assets.register_asset(handle, std::move(script).value()));
+        const std::array<std::filesystem::path, 1> roots{"scripts/spin.lua"};
+        auto scripts = Script::load_group(project.value().paths().assets(), roots);
+        ASSERT_TRUE(scripts) << scripts.error().message;
+        ASSERT_TRUE(assets.register_asset(handle, scripts.value().front()));
         auto entity = actor();
         const auto& rotation = entity.get_component<TransformComponent>().rotation;
         ASSERT_TRUE(runtime.start(scene));
@@ -1268,15 +1270,15 @@ namespace Comet::Tests {
             ASSERT_TRUE(material->set_vector_property(name, value));
         const AssetHandle material_handle{6482638524486200214ULL};
         ASSERT_TRUE(assets.register_asset(material_handle, material));
-        for(const auto& [name, script_handle] :
-            {std::pair{"spin.lua", AssetHandle{7821648321594001021}},
-                std::pair{"move_cube.lua", AssetHandle{14309634625000312001ULL}},
-                std::pair{"collect_goal.lua", AssetHandle{14309634625000312002ULL}},
-                std::pair{"impulse_cube.lua", AssetHandle{14309634625000312003ULL}}}) {
-            auto script = Script::load(project.value().paths().assets() / "scripts" / name);
-            ASSERT_TRUE(script) << script.error().message;
-            ASSERT_TRUE(assets.register_asset(script_handle, std::move(script).value()));
-        }
+        const std::array<std::filesystem::path, 4> roots{"scripts/spin.lua",
+            "scripts/move_cube.lua", "scripts/collect_goal.lua", "scripts/impulse_cube.lua"};
+        const std::array handles{AssetHandle{7821648321594001021},
+            AssetHandle{14309634625000312001ULL}, AssetHandle{14309634625000312002ULL},
+            AssetHandle{14309634625000312003ULL}};
+        auto scripts = Script::load_group(project.value().paths().assets(), roots);
+        ASSERT_TRUE(scripts) << scripts.error().message;
+        for(size_t index = 0; index < handles.size(); ++index)
+            ASSERT_TRUE(assets.register_asset(handles[index], scripts.value()[index]));
         auto cue = AudioClip::load(project.value().paths().assets() / "audio/play_chime.wav");
         ASSERT_TRUE(cue) << cue.error().message;
         ASSERT_TRUE(
@@ -1404,9 +1406,10 @@ namespace Comet::Tests {
     TEST_F(ScriptSystemTest, DemoGoalIgnoresContactsWithUnassignedActors) {
         const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
         ASSERT_TRUE(project);
-        auto script = Script::load(project.value().paths().assets() / "scripts/collect_goal.lua");
-        ASSERT_TRUE(script) << script.error().message;
-        auto instance = script.value()->instantiate();
+        const std::array<std::filesystem::path, 1> roots{"scripts/collect_goal.lua"};
+        auto scripts = Script::load_group(project.value().paths().assets(), roots);
+        ASSERT_TRUE(scripts) << scripts.error().message;
+        auto instance = scripts.value().front()->instantiate();
         ASSERT_TRUE(instance);
         const auto goal = scene.create_entity("Goal");
         const auto player = scene.create_entity("Player");

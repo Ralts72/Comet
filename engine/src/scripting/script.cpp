@@ -1,5 +1,4 @@
 #include "scripting/script.h"
-#include "common/file_io.h"
 #include "scripting/lua_bindings.h"
 #include "scene/scene.h"
 
@@ -11,12 +10,203 @@ extern "C" {
 
 #include <cmath>
 #include <array>
+#include <algorithm>
 #include <cstdlib>
+#include <fstream>
 #include <limits>
 #include <optional>
 #include <string_view>
 
 namespace Comet {
+    namespace {
+        constexpr std::size_t MAX_SOURCE_BYTES = 1024 * 1024;
+        constexpr std::size_t MAX_GROUP_BYTES = 8 * MAX_SOURCE_BYTES;
+        constexpr std::size_t MAX_GROUP_FILES = 256;
+        constexpr std::size_t MAX_GROUP_ROOTS = 128;
+        constexpr std::size_t MAX_MODULES = 64;
+        constexpr std::size_t MAX_MODULE_DEPTH = 16;
+        constexpr std::size_t MAX_MODULE_NAME = 256;
+
+        bool is_module_path(const std::filesystem::path& path) {
+            auto name = path.filename().string();
+            std::ranges::transform(name, name.begin(), [](const unsigned char value) {
+                return value >= 'A' && value <= 'Z' ? static_cast<char>(value + 'a' - 'A')
+                                                    : static_cast<char>(value);
+            });
+            return name.ends_with(".module.lua");
+        }
+
+        bool safe_source_path(const std::filesystem::path& path) {
+            if(path.empty() || path.is_absolute() || path.has_root_name())
+                return false;
+            const auto text = path.generic_string();
+            if(text.find('\0') != std::string::npos || text.find('\\') != std::string::npos)
+                return false;
+            for(const auto& part : path)
+                if(part == "..")
+                    return false;
+            return path.lexically_normal() != ".";
+        }
+
+        Result<std::filesystem::path> resolve_source(
+            const std::filesystem::path& root, const std::filesystem::path& relative) {
+            if(!safe_source_path(relative))
+                return Result<std::filesystem::path>::failure("Invalid project script path");
+            std::error_code error;
+            auto resolved = std::filesystem::weakly_canonical(root / relative, error);
+            if(error)
+                return Result<std::filesystem::path>::failure(
+                    "Cannot resolve project script: " + relative.generic_string());
+            const auto inside = resolved.lexically_relative(root);
+            if(!safe_source_path(inside))
+                return Result<std::filesystem::path>::failure(
+                    "Script source is outside project assets: " + relative.generic_string());
+            if(resolved != (root / relative).lexically_normal())
+                return Result<std::filesystem::path>::failure(
+                    "Script source symlink aliases are not supported: "
+                    + relative.generic_string());
+            return Result<std::filesystem::path>::success(std::move(resolved));
+        }
+
+        Result<std::string> read_source(const std::filesystem::path& path) {
+            std::error_code error;
+            if(!std::filesystem::is_regular_file(path, error) || error)
+                return Result<std::string>::failure("Cannot read script: " + path.string());
+            std::ifstream input(path, std::ios::binary);
+            if(!input)
+                return Result<std::string>::failure("Cannot read script: " + path.string());
+            std::string source;
+            std::array<char, 8192> buffer;
+            while(input) {
+                input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+                const auto count = static_cast<std::size_t>(input.gcount());
+                if(count > MAX_SOURCE_BYTES - source.size())
+                    return Result<std::string>::failure(
+                        "Script exceeds 1 MiB limit: " + path.string());
+                source.append(buffer.data(), count);
+            }
+            if(!input.eof())
+                return Result<std::string>::failure("Cannot read script: " + path.string());
+            return Result<std::string>::success(std::move(source));
+        }
+
+        bool valid_module_name(const std::string_view name) {
+            if(name.empty() || name.size() > MAX_MODULE_NAME)
+                return false;
+            bool first = true;
+            for(const unsigned char value : name) {
+                if(value == '.') {
+                    if(first)
+                        return false;
+                    first = true;
+                    continue;
+                }
+                const bool letter = (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z')
+                                    || value == '_';
+                if(!letter && (first || value < '0' || value > '9'))
+                    return false;
+                first = false;
+            }
+            return !first;
+        }
+    }
+
+    struct Script::SourceSet {
+        struct File {
+            std::filesystem::path resolved;
+            std::string source;
+            std::string name;
+        };
+        struct Unreadable {
+            std::filesystem::path resolved;
+            std::filesystem::file_type type;
+            std::optional<std::filesystem::file_time_type> write_time;
+            std::optional<std::uintmax_t> size;
+            bool read_failed = true;
+
+            bool operator==(const Unreadable&) const = default;
+        };
+        std::filesystem::path root;
+        std::map<std::filesystem::path, File> files;
+        std::map<std::filesystem::path, Unreadable> unreadable;
+        std::size_t bytes = 0;
+
+        static Unreadable inspect_unreadable(const std::filesystem::path& path) {
+            std::error_code error;
+            Unreadable result{path, std::filesystem::status(path, error).type(), {}, {}};
+            error.clear();
+            const auto time = std::filesystem::last_write_time(path, error);
+            if(!error)
+                result.write_time = time;
+            error.clear();
+            const auto size = std::filesystem::file_size(path, error);
+            if(!error)
+                result.size = size;
+            return result;
+        }
+
+        Result<const File*> capture(const std::filesystem::path& path,
+            std::vector<std::filesystem::path>* dependencies = nullptr) {
+            const auto existing = files.find(path);
+            if(existing != files.end()) {
+                if(dependencies && std::ranges::find(*dependencies, path) == dependencies->end())
+                    dependencies->push_back(path);
+                return Result<const File*>::success(&existing->second);
+            }
+            auto resolved = resolve_source(root, path);
+            if(!resolved)
+                return Result<const File*>::failure(resolved.error());
+            if(dependencies && std::ranges::find(*dependencies, path) == dependencies->end())
+                dependencies->push_back(path);
+            if(files.size() >= MAX_GROUP_FILES)
+                return Result<const File*>::failure("Script group exceeds 256 source files");
+            const auto observation = inspect_unreadable(resolved.value());
+            auto source = read_source(resolved.value());
+            if(!source) {
+                unreadable.try_emplace(path, observation);
+                return Result<const File*>::failure(source.error());
+            }
+            if(source.value().size() > MAX_GROUP_BYTES - bytes) {
+                auto rejected = observation;
+                rejected.read_failed = false;
+                unreadable.try_emplace(path, std::move(rejected));
+                return Result<const File*>::failure("Script group exceeds 8 MiB source limit");
+            }
+            bytes += source.value().size();
+            const auto inserted =
+                files.emplace(path, File{std::move(resolved).value(), std::move(source).value(),
+                                        "@" + path.generic_string()});
+            return Result<const File*>::success(&inserted.first->second);
+        }
+
+        bool inputs_are_current() const {
+            for(const auto& [path, file] : files) {
+                const auto resolved = resolve_source(root, path);
+                if(!resolved || resolved.value() != file.resolved)
+                    return false;
+                const auto source = read_source(resolved.value());
+                if(!source || source.value() != file.source)
+                    return false;
+            }
+            for(const auto& [path, observation] : unreadable) {
+                const auto resolved = resolve_source(root, path);
+                if(!resolved)
+                    return false;
+                auto current = inspect_unreadable(resolved.value());
+                current.read_failed = observation.read_failed;
+                if(current != observation)
+                    return false;
+                // 同样状态的不可读文件若已可读，也必须重试原候选。
+                if(observation.read_failed && observation.size
+                    && *observation.size <= MAX_SOURCE_BYTES
+                    && observation.type == std::filesystem::file_type::regular
+                    && read_source(resolved.value()))
+                    return false;
+            }
+            return true;
+        }
+    };
+
     struct Script::Instance::Impl {
         static constexpr size_t MEMORY_LIMIT = 8 * 1024 * 1024;
         static constexpr std::array PHASE_NAMES{"on_start", "fixed_update", "update", "on_stop",
@@ -27,6 +217,18 @@ namespace Comet {
         int budget = 0;
         std::string_view source;
         std::string name;
+        struct Module {
+            const SourceSet::File* source;
+            int reference = LUA_NOREF;
+        };
+        std::shared_ptr<const SourceSet> sources;
+        SourceSet* collecting = nullptr;
+        std::vector<std::filesystem::path>* collected_dependencies = nullptr;
+        std::vector<std::filesystem::path> allowed_dependencies;
+        std::map<std::filesystem::path, Module> modules;
+        std::vector<std::filesystem::path> module_stack;
+        std::string module_error;
+        bool initializing = true;
         int definition = LUA_NOREF;
         int self = LUA_NOREF;
         LuaBindings::Context bindings;
@@ -72,6 +274,92 @@ namespace Comet {
                 luaL_error(state, "Script instruction budget exceeded");
         }
 
+        Module* prepare_module(const std::string_view name) {
+            // 此 helper 不调用 Lua；所有 C++ 临时值均在回调抛 Lua 错误前析构。
+            if(!valid_module_name(name)) {
+                module_error = "require expects a bounded dotted module name";
+                return nullptr;
+            }
+            std::string relative(name);
+            std::ranges::replace(relative, '.', '/');
+            const std::filesystem::path path(relative + ".module.lua");
+            const auto existing = modules.find(path);
+            if(existing != modules.end()) {
+                if(existing->second.reference != LUA_NOREF)
+                    return &existing->second;
+                module_error = "Module dependency cycle: ";
+                for(const auto& parent : module_stack)
+                    module_error += parent.generic_string() + " -> ";
+                module_error += path.generic_string();
+                return nullptr;
+            }
+            if(!initializing) {
+                module_error =
+                    "Module was not loaded during script initialization: " + path.generic_string();
+                return nullptr;
+            }
+            if(module_stack.size() >= MAX_MODULE_DEPTH) {
+                module_error = "Module dependency depth exceeds 16";
+                return nullptr;
+            }
+            if(modules.size() >= MAX_MODULES) {
+                module_error = "Script exceeds 64 modules";
+                return nullptr;
+            }
+            const SourceSet::File* file = nullptr;
+            if(collecting) {
+                auto captured = collecting->capture(path, collected_dependencies);
+                if(!captured) {
+                    module_error = captured.error();
+                    return nullptr;
+                }
+                file = captured.value();
+            } else {
+                if(std::ranges::find(allowed_dependencies, path) == allowed_dependencies.end()) {
+                    module_error = "Module is outside the prepared script dependencies: "
+                                   + path.generic_string();
+                    return nullptr;
+                }
+                const auto found = sources->files.find(path);
+                if(found == sources->files.end()) {
+                    module_error = "Module source is missing from the script snapshot: "
+                                   + path.generic_string();
+                    return nullptr;
+                }
+                file = &found->second;
+            }
+            const auto inserted = modules.emplace(path, Module{file});
+            module_stack.push_back(path);
+            return &inserted.first->second;
+        }
+
+        static int require_module(lua_State* state) {
+            auto& vm = current(state);
+            if(lua_gettop(state) != 1 || lua_type(state, 1) != LUA_TSTRING)
+                return luaL_error(state, "require expects exactly one module name");
+            size_t size = 0;
+            const char* name = lua_tolstring(state, 1, &size);
+            Module* module = vm.prepare_module(std::string_view(name, size));
+            if(!module)
+                return luaL_error(state, "%s", vm.module_error.c_str());
+            if(module->reference != LUA_NOREF) {
+                lua_rawgeti(state, LUA_REGISTRYINDEX, module->reference);
+                return 1;
+            }
+            if(luaL_loadbufferx(state, module->source->source.data(), module->source->source.size(),
+                   module->source->name.c_str(), "t")
+                != LUA_OK)
+                return lua_error(state);
+            // 这里只有平凡局部；递归模块执行或 Lua 分配失败不会跨越 C++ 所有者。
+            lua_call(state, 0, 1);
+            if(!lua_istable(state, -1))
+                return luaL_error(state, "Module '%s' must return a table", name);
+            lua_pushvalue(state, -1);
+            module->reference = luaL_ref(state, LUA_REGISTRYINDEX);
+            vm.module_stack.pop_back();
+            return 1;
+        }
+
         static int initialize(lua_State* state) {
             auto& vm = current(state);
             luaL_requiref(state, "_G", luaopen_base, 1);
@@ -89,6 +377,10 @@ namespace Comet {
                 lua_setglobal(state, name);
             }
             LuaBindings::install(state, vm.bindings);
+            if(vm.sources) {
+                lua_pushcfunction(state, require_module);
+                lua_setglobal(state, "require");
+            }
             if(luaL_loadbufferx(state, vm.source.data(), vm.source.size(), vm.name.c_str(), "t")
                 != LUA_OK)
                 return lua_error(state);
@@ -472,8 +764,17 @@ namespace Comet {
     }
 
     Result<std::unique_ptr<Script::Instance>, Error> Script::instantiate() const {
+        return instantiate(nullptr, nullptr);
+    }
+
+    Result<std::unique_ptr<Script::Instance>, Error> Script::instantiate(
+        SourceSet* collecting, std::vector<std::filesystem::path>* dependencies) const {
         auto impl = std::make_unique<Instance::Impl>();
-        impl->source = m_source;
+        impl->sources = m_sources;
+        impl->collecting = collecting;
+        impl->collected_dependencies = dependencies;
+        impl->allowed_dependencies = m_dependencies;
+        impl->source = m_sources ? m_sources->files.at(m_source_path).source : m_source;
         impl->name = "@" + m_name;
         impl->state = lua_newstate(Instance::Impl::allocate, impl.get());
         if(!impl->state)
@@ -482,39 +783,134 @@ namespace Comet {
         if(auto initialized = impl->call(Instance::Impl::initialize); !initialized)
             return Result<std::unique_ptr<Instance>, Error>::failure(initialized.error());
         impl->source = {};
+        impl->collecting = nullptr;
+        impl->collected_dependencies = nullptr;
+        impl->initializing = false;
         return Result<std::unique_ptr<Instance>, Error>::success(
             std::unique_ptr<Instance>(new Instance(std::move(impl))));
     }
 
     Result<std::shared_ptr<Script>, Error> Script::create(std::string source, std::string name) {
-        if(source.size() > 1024 * 1024)
+        if(source.size() > MAX_SOURCE_BYTES)
             return Result<std::shared_ptr<Script>, Error>::failure({"Script exceeds 1 MiB limit"});
         auto script = std::make_shared<Script>();
         script->m_source = std::move(source);
         script->m_name = std::move(name);
-        auto instance = script->instantiate();
+        if(auto prepared = script->prepare_definition(); !prepared)
+            return Result<std::shared_ptr<Script>, Error>::failure(prepared.error());
+        return Result<std::shared_ptr<Script>, Error>::success(std::move(script));
+    }
+
+    Result<void, Error> Script::prepare_definition(
+        SourceSet* collecting, std::vector<std::filesystem::path>* dependencies) {
+        auto instance = instantiate(collecting, dependencies);
         if(!instance)
-            return Result<std::shared_ptr<Script>, Error>::failure(instance.error());
+            return Result<void, Error>::failure(instance.error());
         auto properties = instance.value()->m_impl->read_properties();
         if(!properties)
-            return Result<std::shared_ptr<Script>, Error>::failure(properties.error());
-        script->m_properties = std::move(properties).value();
+            return Result<void, Error>::failure(properties.error());
+        m_properties = std::move(properties).value();
         auto events = instance.value()->m_impl->read_event_handlers();
         if(!events)
-            return Result<std::shared_ptr<Script>, Error>::failure(events.error());
-        script->m_event_handlers = std::move(events).value();
-        return Result<std::shared_ptr<Script>, Error>::success(std::move(script));
+            return Result<void, Error>::failure(events.error());
+        m_event_handlers = std::move(events).value();
+        return Result<void, Error>::success();
     }
 
     Result<std::shared_ptr<Script>, Error> Script::load(const std::filesystem::path& path) {
         std::error_code error;
-        if(std::filesystem::file_size(path, error) > 1024 * 1024 || error)
+        const auto resolved = std::filesystem::weakly_canonical(path, error);
+        if(is_module_path(path) || (!error && is_module_path(resolved)))
             return Result<std::shared_ptr<Script>, Error>::failure(
-                {"Cannot read script or size exceeds 1 MiB: " + path.string()});
-        auto source = read_text_file(path);
+                {"Module sources cannot be attached as scripts: " + path.string()});
+        auto source = read_source(path);
         if(!source)
             return Result<std::shared_ptr<Script>, Error>::failure({source.error()});
         return create(std::move(source).value(), path.string());
+    }
+
+    Result<std::vector<std::shared_ptr<Script>>, Script::LoadFailure> Script::load_group(
+        const std::filesystem::path& assets_root,
+        const std::span<const std::filesystem::path> relative_paths) {
+        using Loaded = Result<std::vector<std::shared_ptr<Script>>, LoadFailure>;
+        LoadFailure failure;
+        if(relative_paths.empty() || relative_paths.size() > MAX_GROUP_ROOTS)
+            return Loaded::failure({"Script group needs between 1 and 128 roots", {}});
+        std::error_code error;
+        auto sources = std::make_shared<SourceSet>();
+        sources->root = std::filesystem::canonical(assets_root, error);
+        if(error || !std::filesystem::is_directory(sources->root, error) || error)
+            return Loaded::failure({"Cannot resolve project assets directory", {}});
+        failure.m_sources = sources;
+        std::vector<std::shared_ptr<Script>> scripts;
+        const auto fail = [&](std::string message) {
+            if(failure.message.empty())
+                failure.message = std::move(message);
+        };
+        for(const auto& input : relative_paths) {
+            if(!safe_source_path(input) || is_module_path(input)) {
+                fail("Invalid component script path: " + input.generic_string());
+                continue;
+            }
+            const auto path = input.lexically_normal();
+            if(failure.dependencies.contains(path)) {
+                fail("Duplicate script root: " + path.generic_string());
+                continue;
+            }
+            auto& dependencies = failure.dependencies[path];
+            const auto captured = sources->capture(path);
+            if(!captured) {
+                fail(captured.error());
+                continue;
+            }
+            if(is_module_path(captured.value()->resolved)) {
+                fail("Module sources cannot be attached as scripts: " + path.generic_string());
+                continue;
+            }
+            auto script = std::make_shared<Script>();
+            script->m_sources = sources;
+            script->m_source_path = path;
+            script->m_name = path.generic_string();
+            const auto prepared = script->prepare_definition(sources.get(), &dependencies);
+            std::ranges::sort(dependencies);
+            if(!prepared) {
+                fail(prepared.error().message);
+                continue;
+            }
+            script->m_dependencies = dependencies;
+            scripts.push_back(std::move(script));
+        }
+        if(!failure.message.empty())
+            return Loaded::failure(std::move(failure));
+        if(!sources->inputs_are_current()) {
+            failure.message = "Script sources changed during preparation";
+            return Loaded::failure(std::move(failure));
+        }
+        return Loaded::success(std::move(scripts));
+    }
+
+    bool Script::inputs_are_current() const {
+        return !m_sources || m_sources->inputs_are_current();
+    }
+
+    bool Script::has_same_sources(const Script& other) const {
+        if(m_name != other.m_name || m_source_path != other.m_source_path
+            || m_dependencies != other.m_dependencies
+            || static_cast<bool>(m_sources) != static_cast<bool>(other.m_sources))
+            return false;
+        if(!m_sources)
+            return m_source == other.m_source;
+        if(m_sources->files.at(m_source_path).source
+            != other.m_sources->files.at(other.m_source_path).source)
+            return false;
+        for(const auto& path : m_dependencies)
+            if(m_sources->files.at(path).source != other.m_sources->files.at(path).source)
+                return false;
+        return true;
+    }
+
+    bool Script::LoadFailure::inputs_are_current() const {
+        return !m_sources || m_sources->inputs_are_current();
     }
 
     Result<void, Error> Script::validate_overrides(const ParameterMap& overrides) const {

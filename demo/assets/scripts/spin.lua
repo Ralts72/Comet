@@ -1,3 +1,4 @@
+local demo_score = require("scripts.demo_score")
 local script = {}
 
 script.properties = {
@@ -7,11 +8,11 @@ script.properties = {
 }
 
 script.events = {
-    ["demo.score_changed"] = "on_score_changed",
+    [demo_score.changed_event] = "on_score_changed",
 }
 
 function script:on_start()
-    self.last_score = comet.session_get("demo.score") or 0
+    self.last_score = demo_score.get()
 end
 
 function script:fixed_update(dt)
