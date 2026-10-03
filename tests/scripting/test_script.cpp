@@ -120,6 +120,50 @@ namespace Comet::Tests {
         }
     }
 
+    TEST_F(ScriptModulesTest, MethodsKeepDefinitionAndModuleTablesIsolatedPerInstance) {
+        write("counter.module.lua", R"(
+            local counter = {value = 0}
+            function counter:add(amount)
+                self.value = self.value + amount
+                return self.value
+            end
+            return counter
+        )");
+        write("actor.lua", R"(
+            local group = {
+                properties = {expected = 0},
+                history = {total = 0}, counter = require('counter'),
+            }
+            function group:advance(amount)
+                self.history.total = self.history.total + amount
+                return self.counter:add(amount), self.history.total
+            end
+            function group:update(dt)
+                assert(rawget(self, 'history') == nil)
+                assert(self.counter == require('counter'))
+                local module_total, own_total = self:advance(dt)
+                assert(module_total == self.parameters.expected)
+                assert(own_total == self.parameters.expected)
+            end
+            return group
+        )");
+        const auto group = load();
+        ASSERT_TRUE(group) << group.error().message;
+        const auto first = group.value().front()->instantiate();
+        const auto second = group.value().front()->instantiate();
+        ASSERT_TRUE(first) << first.error().message;
+        ASSERT_TRUE(second) << second.error().message;
+
+        ASSERT_TRUE(first.value()->invoke(
+            Script::Phase::Update, {}, {{"expected", 2.0f}}, {.delta_time = 2}));
+        ASSERT_TRUE(first.value()->invoke(
+            Script::Phase::Update, {}, {{"expected", 5.0f}}, {.delta_time = 3}));
+        ASSERT_TRUE(second.value()->invoke(
+            Script::Phase::Update, {}, {{"expected", 7.0f}}, {.delta_time = 7}));
+        ASSERT_TRUE(first.value()->invoke(
+            Script::Phase::Update, {}, {{"expected", 6.0f}}, {.delta_time = 1}));
+    }
+
     TEST_F(ScriptModulesTest, GroupFreshnessIncludesOtherRootsButSourceEqualityDoesNot) {
         write("scripts/value.module.lua", "return {base = 7}");
         write("first.lua",
@@ -934,6 +978,144 @@ namespace Comet::Tests {
             EXPECT_FALSE(
                 instance.value()->invoke(Script::Phase::Update, {}, {}, {.scene = &scene}));
             EXPECT_EQ(std::get<Math::Vec3>(*scene.get_session_value("value")), Math::Vec3(4, 5, 6));
+        }
+    }
+
+    TEST(ScriptInvocationTest, MethodsUseInstanceStateWithoutReplacingDefinitionCallbacks) {
+        const auto script = Script::create(R"(
+            local group = {base = 4, events = {['test.step'] = 'on_step'}}
+            function group:add(amount)
+                self.total = (self.total or self.base) + amount
+                return self.total
+            end
+            function group:twice(amount)
+                local first = self:add(amount)
+                return first, self:add(amount)
+            end
+            function group:on_start()
+                assert(self ~= group)
+                local first, last = self:twice(3)
+                assert(first == 7 and last == 10)
+                self.update = function() error('instance update shadow called') end
+                self.on_step = function() error('instance event shadow called') end
+                self.base = 8
+                assert(group.base == 4)
+                self.base = nil
+                assert(self.base == 4)
+            end
+            function group:update(dt) assert(self:add(dt) == 12) end
+            function group:on_step(value) assert(self:add(value) == 17) end
+            function group:on_stop() assert(self.total == 17) end
+            return group
+        )");
+        ASSERT_TRUE(script) << script.error().message;
+        const auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance) << instance.error().message;
+        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, {}, {}));
+        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Update, {}, {}, {.delta_time = 2}));
+        const ParameterValue event_value = 5.0f;
+        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Event, {}, {},
+            {.event_handler = "on_step", .event_value = &event_value}));
+        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Stop, {}, {}));
+    }
+
+    TEST(ScriptInvocationTest, MethodsKeepPropertiesSeparateFromReadOnlyParameterSnapshots) {
+        const auto script = Script::create(R"(
+            local group = {
+                properties = {speed = 1, direction = {1, 2, 3}},
+                parameters = {speed = 999},
+            }
+            function group:read_speed() return self.parameters.speed end
+            function group:on_start()
+                self.properties.speed = 99
+                self.config = self.parameters
+                assert(self:read_speed() == 4)
+            end
+            function group:update(expected)
+                assert(self:read_speed() == expected)
+                assert(self.properties.speed == 99)
+                assert((self.parameters == self.config) == (expected == 4))
+            end
+            function group:write_parameter() self.parameters.direction[1] = 0 end
+            function group:on_stop() self:write_parameter() end
+            return group
+        )");
+        ASSERT_TRUE(script) << script.error().message;
+        const auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance) << instance.error().message;
+        const auto first = script.value()->resolve_parameters({{"speed", 4.0f}});
+        const auto changed = script.value()->resolve_parameters({{"speed", 7.0f}});
+        ASSERT_TRUE(first);
+        ASSERT_TRUE(changed);
+        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, {}, first.value()));
+        for(int repeat = 0; repeat < 2; ++repeat)
+            ASSERT_TRUE(instance.value()->invoke(
+                Script::Phase::Update, {}, first.value(), {.delta_time = 4}));
+        ASSERT_TRUE(instance.value()->invoke(
+            Script::Phase::Update, {}, changed.value(), {.delta_time = 7}));
+        const auto stopped = instance.value()->invoke(Script::Phase::Stop, {}, changed.value());
+        ASSERT_FALSE(stopped);
+        EXPECT_NE(stopped.error().message.find("read-only"), std::string::npos);
+        EXPECT_EQ(std::get<float>(script.value()->properties().at("speed").default_value), 1);
+        EXPECT_EQ(std::get<Math::Vec3>(script.value()->properties().at("direction").default_value),
+            Math::Vec3(1, 2, 3));
+    }
+
+    TEST(ScriptInvocationTest, DefinitionMetamethodFieldsDoNotBecomeInstanceMetamethods) {
+        const auto script = Script::create(R"(
+            local function unexpected() error('definition metamethod was activated') end
+            local group = {
+                __index = unexpected, __newindex = unexpected, __pairs = unexpected,
+                __len = unexpected, __gc = unexpected, __call = unexpected,
+            }
+            function group:check()
+                assert(getmetatable == nil and setmetatable == nil and rawset == nil)
+                assert(self.__gc == group.__gc)
+                assert(self.missing == nil)
+                self.value = 3
+                assert(#self == 0)
+                local count = 0
+                for key in pairs(self) do
+                    assert(key == 'parameters' or key == 'value')
+                    count = count + 1
+                end
+                assert(count == 2)
+            end
+            function group:update() self:check() end
+            return group
+        )");
+        ASSERT_TRUE(script) << script.error().message;
+        const auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance) << instance.error().message;
+        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Update, {}, {}));
+    }
+
+    TEST(ScriptInvocationTest, MethodErrorsAndResourceLimitsStayInsideProtectedInvocation) {
+        for(const auto& [body, message] : {
+                std::pair{"error('helper failed')", "helper failed"},
+                std::pair{"self:missing()", "missing"},
+                std::pair{"while true do end", "instruction budget"},
+                std::pair{"return self:run()", "instruction budget"},
+                std::pair{"return string.rep('x', 16 * 1024 * 1024)", "memory"},
+            }) {
+            SCOPED_TRACE(body);
+            const auto script =
+                Script::create(std::string("local group = {}; function group:run() ") + body + R"(
+                end
+                function group:update() self:run() end
+                function group:cleanup() self.stopped = true end
+                function group:on_stop() self:cleanup(); assert(self.stopped) end
+                return group
+            )",
+                    "helper_error.lua");
+            ASSERT_TRUE(script) << script.error().message;
+            const auto instance = script.value()->instantiate();
+            ASSERT_TRUE(instance) << instance.error().message;
+            const auto result = instance.value()->invoke(Script::Phase::Update, {}, {});
+            ASSERT_FALSE(result);
+            EXPECT_NE(result.error().message.find("helper_error.lua"), std::string::npos);
+            EXPECT_NE(result.error().message.find(message), std::string::npos);
+            ASSERT_TRUE(instance.value()->invoke(Script::Phase::Stop, {}, {}));
         }
     }
 

@@ -395,6 +395,11 @@ namespace Comet {
             }
             vm.definition = luaL_ref(state, LUA_REGISTRYINDEX);
             lua_newtable(state);
+            // 只继承本 VM 的定义字段，不把用户字段安装成实例元方法。
+            lua_newtable(state);
+            lua_rawgeti(state, LUA_REGISTRYINDEX, vm.definition);
+            lua_setfield(state, -2, "__index");
+            lua_setmetatable(state, -2);
             vm.self = luaL_ref(state, LUA_REGISTRYINDEX);
             return 0;
         }

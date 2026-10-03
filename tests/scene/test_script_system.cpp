@@ -921,11 +921,13 @@ namespace Comet::Tests {
     }
 
     TEST_F(ScriptSystemTest, SourceReloadMigratesSharedInstancesAtTheUpdateBoundary) {
-        source(R"(return {
-            properties = {retained = 1, removed = 2, changed = 3},
-            on_start = function(self) self.private_value = 99 end,
-            update = function() comet.translate(1, 0, 0) end
-        })");
+        source(R"(
+            local script = {properties = {retained = 1, removed = 2, changed = 3}}
+            function script:on_start() self.private_value = 99 end
+            function script:helper() comet.translate(1, 0, 0) end
+            function script:update() self:helper() end
+            return script
+        )");
         auto first = actor();
         auto second = actor();
         for(auto entity : {first, second})
@@ -936,24 +938,31 @@ namespace Comet::Tests {
         const auto old_script = first.get_component<ScriptComponent>().running_script();
         const auto lifetime = first.get_component<ScriptComponent>().lifetime();
         ASSERT_TRUE(runtime.advance(0));
-        source(R"(return {
-            properties = {retained = 100, changed = false, added = 'new'},
-            on_start = function(self)
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        source(R"(
+            local script = {properties = {retained = 100, changed = false, added = 'new'}}
+            function script:on_start()
                 assert(self.private_value == nil)
                 self.private_value = 0
                 assert(self.parameters.removed == nil)
                 assert(self.parameters.changed == false and self.parameters.added == 'new')
                 comet.translate(0, 1, 0)
-            end,
-            update = function(self)
+            end
+            function script:helper()
                 self.private_value = self.private_value + 1
                 comet.translate(self.parameters.retained, 0, self.private_value)
             end
-        })");
+            function script:update() self:helper() end
+            return script
+        )");
         const auto replacement = assets.resolve<Script>(handle);
         ASSERT_NE(replacement, old_script);
+        ASSERT_TRUE(runtime.advance(1));
         EXPECT_EQ(first.get_component<ScriptComponent>().running_script(), old_script);
         EXPECT_EQ(second.get_component<ScriptComponent>().running_script(), old_script);
+        EXPECT_EQ(first.get_component<TransformComponent>().translation, Math::Vec3(1, 0, 0));
+        EXPECT_EQ(second.get_component<TransformComponent>().translation, Math::Vec3(1, 0, 0));
+        ASSERT_TRUE(runtime.request_step());
         ASSERT_TRUE(runtime.advance(0));
         for(const auto entity : {first, second}) {
             const auto& component = entity.get_component<ScriptComponent>();
@@ -964,9 +973,70 @@ namespace Comet::Tests {
         EXPECT_EQ(first.get_component<ScriptComponent>().lifetime(), lifetime);
         EXPECT_EQ(first.get_component<TransformComponent>().translation, Math::Vec3(4, 1, 1));
         EXPECT_EQ(second.get_component<TransformComponent>().translation, Math::Vec3(7, 1, 1));
+        ASSERT_TRUE(runtime.advance(1));
+        EXPECT_EQ(first.get_component<TransformComponent>().translation, Math::Vec3(4, 1, 1));
+        EXPECT_EQ(second.get_component<TransformComponent>().translation, Math::Vec3(7, 1, 1));
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Running));
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_EQ(first.get_component<TransformComponent>().translation, Math::Vec3(7, 1, 3));
         EXPECT_EQ(second.get_component<TransformComponent>().translation, Math::Vec3(13, 1, 3));
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(first.get_component<ScriptComponent>().running_script());
+        EXPECT_FALSE(second.get_component<ScriptComponent>().running_script());
+        first.set_transform({});
+        second.set_transform({});
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(first.get_component<TransformComponent>().translation, Math::Vec3(3, 1, 1));
+        EXPECT_EQ(second.get_component<TransformComponent>().translation, Math::Vec3(6, 1, 1));
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(
+        ScriptSystemTest, RejectedReloadGroupKeepsOldHelpersAndStateUntilAllInstancesCanPrepare) {
+        source(R"(
+            local script = {properties = {speed = 1}}
+            function script:helper()
+                self.calls = (self.calls or 0) + 1
+                comet.translate(self.calls * self.parameters.speed, 0, 0)
+            end
+            function script:update() self:helper() end
+            return script
+        )");
+        auto first = actor();
+        auto second = actor();
+        second.get_component<ScriptComponent>().parameters["speed"] = 2.0f;
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0));
+        const auto previous = first.get_component<ScriptComponent>().running_script();
+        source(R"(
+            local script = {properties = {speed = 100}}
+            function script:helper()
+                assert(self.calls == nil)
+                comet.translate(0, self.parameters.speed, 0)
+            end
+            function script:update() self:helper() end
+            return script
+        )");
+        auto pending = actor();
+        pending.get_component<ScriptComponent>().parameters["speed"] = true;
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_TRUE(runtime.is_active());
+        EXPECT_EQ(first.get_component<ScriptComponent>().running_script(), previous);
+        EXPECT_EQ(second.get_component<ScriptComponent>().running_script(), previous);
+        EXPECT_FALSE(pending.get_component<ScriptComponent>().running_script());
+        EXPECT_EQ(first.get_component<TransformComponent>().translation, Math::Vec3(3, 0, 0));
+        EXPECT_EQ(second.get_component<TransformComponent>().translation, Math::Vec3(6, 0, 0));
+        EXPECT_EQ(pending.get_component<TransformComponent>().translation, Math::Vec3(0));
+
+        pending.get_component<ScriptComponent>().parameters["speed"] = 4.0f;
+        ASSERT_TRUE(runtime.advance(0));
+        for(const auto entity : {first, second, pending})
+            EXPECT_EQ(entity.get_component<ScriptComponent>().running_script(),
+                assets.resolve<Script>(handle));
+        EXPECT_EQ(first.get_component<TransformComponent>().translation, Math::Vec3(3, 100, 0));
+        EXPECT_EQ(second.get_component<TransformComponent>().translation, Math::Vec3(6, 2, 0));
+        EXPECT_EQ(pending.get_component<TransformComponent>().translation, Math::Vec3(0, 4, 0));
         ASSERT_TRUE(runtime.stop());
     }
 

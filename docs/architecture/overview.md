@@ -350,6 +350,14 @@ render_frame 返回 `Result<void, GraphicsError>`。部分录制失败的命令�
 复制组件不携带运行绑定。每实体独立 VM；阶段边界只查询脚本组件，新增批次按 UUID 启动，
 按实际启动逆序停止，包含部分启动失败。on_stop 不访问实体；参数编辑不重启实例。
 
+每个 VM 中，脚本返回的定义表与实例 `self` 分离；宿主创建仅含 `__index` 的私有元表，使缺失字段回退到本 VM 的定义表，
+因此 `function script:helper()` 可由 `self:helper()` 调用，不要求作者手动安装元表。
+实例自有字段优先，写入仍落在 `self`；定义中的普通值和 table 也可读，但不会跨实体共享。
+`pairs(self)` 只列出实例自有字段。`self.parameters` 仍由每次调度安装只读配置；读取或修改 Lua 的
+`properties/events` 表不等于修改已解析的 C++ 字段／事件声明，也不新增 Inspector 字段。
+宿主始终从定义表取生命周期与已声明事件入口；给 `self.update` 赋值不重绑定宿主入口。
+辅助方法共享本次保护调用与执行预算，不开新的保护边界；换版仍重建定义、self 和模块，不迁移 Lua 状态。
+
 Inspector Edit 使用当前资产定义，Play 使用活动实例定义；Edit 定义切换会取消旧参数手势。
 Play 实例换代后只清除旧脚本参数控件的活动状态，不打断其他属性／面板的输入，也不回写 Edit 历史。
 更换脚本是 SceneEditor 的完整命令：先加载候选，再一次替换引用并清空覆盖，Edit 的 Undo 同时恢复二者。

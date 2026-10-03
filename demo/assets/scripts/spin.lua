@@ -23,16 +23,16 @@ function script:on_start()
     comet.set_input_context("palette", false)
 end
 
-local function apply_palette(self)
+function script:apply_palette()
     local color = palette[self.palette_index]
     comet.set_material_vector("base_color", color[1], color[2], color[3], color[4])
 end
 
-local function set_palette_active(self, active)
+function script:set_palette_active(active)
     self.palette_active = active
     comet.set_input_context("palette", active)
     if active then
-        apply_palette(self)
+        self:apply_palette()
     end
 end
 
@@ -51,23 +51,23 @@ function script:update()
         return
     end
     if comet.action_pressed("palette.toggle") then
-        set_palette_active(self, not self.palette_active)
+        self:set_palette_active(not self.palette_active)
         return
     end
     if not self.palette_active then
         return
     end
     if comet.action_pressed("palette.confirm") then
-        set_palette_active(self, false)
+        self:set_palette_active(false)
     elseif comet.action_pressed("palette.reset") then
         self.palette_index = 1
-        apply_palette(self)
+        self:apply_palette()
     elseif comet.action_pressed("palette.next") then
         self.palette_index = self.palette_index % #palette + 1
-        apply_palette(self)
+        self:apply_palette()
     elseif comet.action_pressed("palette.previous") then
         self.palette_index = (self.palette_index - 2) % #palette + 1
-        apply_palette(self)
+        self:apply_palette()
     end
 end
 

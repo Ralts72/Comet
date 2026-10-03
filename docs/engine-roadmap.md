@@ -649,6 +649,7 @@ validation、同步测试和生命周期回归通过。
 - CameraControllerComponent 已在 App／Play 共用，支持移动、转向及父级变换；
   后续碰撞控制和光标锁定按实际玩法接入，不把当前自由相机称为角色控制器。
 - Lua 生命周期、稀疏参数覆盖、Play 定义隔离及运行错误恢复已接通，当前契约见架构文档的“Lua 脚本与参数”。
+  组件实例通过本 VM 定义查找辅助方法，支持 `self:helper()`；只显式反射 `properties`，不暴露全部运行状态。
   项目内 `.module.lua` 复用、传递源码依赖和关联重载已接通；demo 计分模块由目标和旋转方块实际消费。
   源码受控重载按旧／新依赖关联组预备，在更新边界重建并保留兼容覆盖，详细失败／暂停协议见[Lua 架构](architecture/overview.md#lua-脚本与参数)。
   Project 已提供模块创建及 require 引用；后续接调试与更多受控组件 API，

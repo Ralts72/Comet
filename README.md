@@ -538,6 +538,27 @@ comet.set_material_vector("base_color", 0.2, 1, 0.25, 1)
 暂不支持脚本纹理切换、全局 Shader 参数或保留任意 Lua 状态的热迁移。
 Lua 有内存与指令预算，但不是面向不可信代码的安全沙箱。调用、寿命和失败边界见[架构说明](docs/architecture/overview.md#lua-脚本与参数)。
 
+脚本可使用普通辅助方法，不必把每段逻辑写进生命周期函数：
+
+```lua
+local script = {}
+script.properties = {speed = 1}
+
+function script:move(dt)
+    comet.translate(self.parameters.speed * dt, 0, 0)
+end
+
+function script:update(dt)
+    self:move(dt)
+end
+
+return script
+```
+
+`self` 缺少的字段回退到该实例的脚本定义，运行状态仍写在 `self`；不同实体不共享这些 Lua table。
+只有显式 `properties` 进入 Inspector，辅助方法和运行变量不会自动反射；配置通过只读 `self.parameters` 获取。
+辅助方法与入口共用错误处理及执行预算，成功热重载后也随新实例一起重建。
+
 ### Lua 模块复用
 
 项目组件脚本可以在顶层通过 `require("scripts.demo_score")` 引用
