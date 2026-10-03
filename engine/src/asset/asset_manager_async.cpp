@@ -13,6 +13,7 @@
 #include "render/resource/texture.h"
 #include "render/resource/environment.h"
 #include "render/resource/resource_factory.h"
+#include "scripting/script.h"
 
 #include <string>
 #include <system_error>
@@ -84,10 +85,32 @@ namespace Comet {
         bool accepted = false;
         switch(record.type) {
             case AssetType::Audio:
-            case AssetType::Script:
                 // 活动实例保留旧资源；下次准备场景时加载新版，不在运行中替换实例。
                 static_cast<void>(m_registry.unregister_asset(record.handle));
                 return RefreshResult::Invalidated;
+            case AssetType::Script: {
+                const auto handle = record.handle;
+                const auto revision = m_database.get_revision(handle);
+                const auto path = m_database.paths().resolve_asset_path(record.path);
+                if(!path) {
+                    LOG_WARN("Cannot refresh script asset {}: {}", handle.value(), path.error());
+                    return RefreshResult::Rejected;
+                }
+                auto candidate = Script::load(path.value());
+                if(!candidate) {
+                    LOG_WARN("Cannot refresh script asset {}: {}", handle.value(),
+                        candidate.error().message);
+                    return RefreshResult::Rejected;
+                }
+                if(!m_database.is_current(handle, revision)) {
+                    LOG_DEBUG("Discarded stale script candidate for asset handle {} (revision {})",
+                        handle.value(), revision);
+                    return RefreshResult::Rejected;
+                }
+                if(!m_registry.replace_asset(handle, std::move(candidate).value()))
+                    return RefreshResult::Rejected;
+                return RefreshResult::Published;
+            }
             case AssetType::Mesh:
                 accepted = schedule_mesh_task(record, MeshImportMode::Force);
                 break;

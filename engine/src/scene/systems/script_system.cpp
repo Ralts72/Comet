@@ -66,6 +66,75 @@ namespace Comet {
         return result;
     }
 
+    Result<ScriptSystem::Entry, Error> ScriptSystem::prepare_entry(
+        const Entity entity, std::shared_ptr<const Script> script, ParameterMap overrides) const {
+        auto parameters = script->resolve_parameters(overrides);
+        if(!parameters)
+            return Result<Entry, Error>::failure(parameters.error());
+        auto instance = script->instantiate();
+        if(!instance)
+            return Result<Entry, Error>::failure(instance.error());
+        return Result<Entry, Error>::success({entity, std::move(script),
+            std::move(instance).value(), std::move(parameters).value(), std::move(overrides), {}});
+    }
+
+    Result<void, Error> ScriptSystem::reload_changed_scripts() {
+        std::map<AssetHandle, std::shared_ptr<const Script>> changed;
+        for(const auto& [key, entry] : m_entries) {
+            auto script = m_assets.resolve<Script>(key.asset);
+            if(script && script != entry.script && script != entry.failed_reload.lock())
+                changed.try_emplace(key.asset, std::move(script));
+        }
+        for(const auto& [handle, script] : changed) {
+            std::map<Key, Entry> prepared;
+            std::optional<Error> failure;
+            for(const auto& [key, entry] : m_entries) {
+                if(key.asset != handle || entry.script == script)
+                    continue;
+                auto overrides = entry.entity.get_component<ScriptComponent>().parameters;
+                std::erase_if(overrides, [&](const auto& value) {
+                    const auto property = script->properties().find(value.first);
+                    return property == script->properties().end()
+                           || property->second.default_value.index() != value.second.index();
+                });
+                auto candidate = prepare_entry(entry.entity, script, std::move(overrides));
+                if(!candidate) {
+                    failure = candidate.error();
+                    break;
+                }
+                prepared.emplace(key, std::move(candidate).value());
+            }
+            if(failure) {
+                for(auto& [key, entry] : m_entries)
+                    if(key.asset == handle)
+                        entry.failed_reload = script;
+                LOG_WARN("Cannot reload script asset {}: {}", handle.value(), failure->message);
+                continue;
+            }
+
+            // 同资产的候选全部可用后才结束旧实例；on_start 的场景副作用不承诺回滚。
+            for(auto it = m_start_order.rbegin(); it != m_start_order.rend(); ++it) {
+                if(!prepared.contains(*it))
+                    continue;
+                auto previous = m_entries.find(*it);
+                stop_entry(previous->first, previous->second);
+                m_entries.erase(previous);
+            }
+            std::erase_if(m_start_order, [&](const Key& key) { return prepared.contains(key); });
+            for(auto& [key, candidate] : prepared) {
+                auto& entry = m_entries.emplace(key, std::move(candidate)).first->second;
+                auto& component = entry.entity.get_component<ScriptComponent>();
+                component.parameters = *entry.overrides;
+                component.m_running_script = script;
+                m_start_order.push_back(key);
+                if(auto started = invoke(key, entry, Script::Phase::Start); !started)
+                    return started;
+            }
+            LOG_INFO("Reloaded script asset {} ({} instances)", handle.value(), prepared.size());
+        }
+        return Result<void, Error>::success();
+    }
+
     Result<void, Error> ScriptSystem::synchronize(Scene& scene) {
         for(auto it = m_start_order.rbegin(); it != m_start_order.rend(); ++it) {
             auto found = m_entries.find(*it);
@@ -75,6 +144,8 @@ namespace Comet {
             }
         }
         std::erase_if(m_start_order, [this](const Key& key) { return !m_entries.contains(key); });
+        if(auto reloaded = reload_changed_scripts(); !reloaded)
+            return reloaded;
         std::map<Key, Entity> pending;
         scene.each<const ScriptComponent>([&](Entity entity, const ScriptComponent& component) {
             if(!component.asset)
@@ -88,13 +159,12 @@ namespace Comet {
             if(!script)
                 return Result<void, Error>::failure(
                     {"Script asset is unavailable: " + std::to_string(key.asset.value())});
-            auto instance = script->instantiate();
-            if(!instance)
-                return Result<void, Error>::failure(instance.error());
-            auto& entry = m_entries
-                              .emplace(key, Entry{entity, std::move(script),
-                                                std::move(instance).value(), {}, {}})
-                              .first->second;
+            auto prepared = prepare_entry(
+                entity, std::move(script), entity.get_component<ScriptComponent>().parameters);
+            if(!prepared)
+                return Result<void, Error>::failure(
+                    {key.entity.to_string() + ": " + prepared.error().message});
+            auto& entry = m_entries.emplace(key, std::move(prepared).value()).first->second;
             m_start_order.push_back(key);
             entry.entity.get_component<ScriptComponent>().m_running_script = entry.script;
             if(auto started = invoke(key, entry, Script::Phase::Start); !started)

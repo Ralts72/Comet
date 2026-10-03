@@ -230,6 +230,7 @@ namespace CometEditor {
         if(m_active_item && ImGui::GetCurrentContext() && ImGui::GetActiveID() == m_active_item)
             ImGui::ClearActiveID();
         m_active_item = 0;
+        m_script_active_item = 0;
         if(cancel)
             return m_property_edit.cancel();
         return m_property_edit.commit();
@@ -273,12 +274,16 @@ namespace CometEditor {
         else
             script = m_runtime_assets.resolve<Comet::Script>(binding.asset);
         const PropertyEditTransaction::Target target{entity.get_uuid(), component.id, property.id};
-        if(m_property_edit.targets(target) && m_script_edit_version != script) {
-            if(!m_property_edit.cancel()) {
+        if(m_script_edit_version != script) {
+            if(m_property_edit.targets(target) && !m_property_edit.cancel()) {
                 LOG_ERROR("Cannot cancel parameter edit after script definition changed");
                 return;
             }
-            ImGui::ClearActiveID();
+            if(m_script_active_item && ImGui::GetActiveID() == m_script_active_item)
+                ImGui::ClearActiveID();
+            if(m_active_item == m_script_active_item)
+                m_active_item = 0;
+            m_script_active_item = 0;
         }
         m_script_edit_version = script;
         if(!binding.asset)
@@ -303,6 +308,7 @@ namespace CometEditor {
         const auto result = m_property_editor_registry.edit_parameters(
             script->properties(), overrides, m_selection.get_scene(), drop_generation);
         apply_property_edit(entity, component, property, overrides, result);
+        m_script_active_item = result.active ? m_active_item : 0;
     }
 
     void InspectorPanel::apply_property_edit(Comet::Entity entity,

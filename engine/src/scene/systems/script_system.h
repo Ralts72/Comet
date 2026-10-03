@@ -35,8 +35,12 @@ namespace Comet {
             std::unique_ptr<Script::Instance> instance;
             ParameterMap parameters;
             std::optional<ParameterMap> overrides;
+            std::weak_ptr<const Script> failed_reload;
         };
         bool is_live(const Key& key, const Entry& entry) const;
+        Result<Entry, Error> prepare_entry(
+            Entity entity, std::shared_ptr<const Script> script, ParameterMap overrides) const;
+        Result<void, Error> reload_changed_scripts();
         Result<void, Error> synchronize(Scene& scene);
         Result<void, Error> dispatch(Scene& scene, const Context& context, Script::Phase phase);
         Result<void, Error> invoke(const Key& key, Entry& entry, Script::Phase phase,

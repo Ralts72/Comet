@@ -344,9 +344,19 @@ render_frame 返回 `Result<void, GraphicsError>`。部分录制失败的命令�
 按实际启动逆序停止，包含部分启动失败。on_stop 不访问实体；参数编辑不重启实例。
 
 Inspector Edit 使用当前资产定义，Play 使用活动实例定义；Edit 定义切换会取消旧参数手势。
+Play 实例换代后只清除旧脚本参数控件的活动状态，不打断其他属性／面板的输入，也不回写 Edit 历史。
 更换脚本是 SceneEditor 的完整命令：先加载候选，再一次替换引用并清空覆盖，Edit 的 Undo 同时恢复二者。
 清空引用同样清空覆盖；选同一引用不重置参数；失败不改变原绑定。Play 直接改运行副本，不写 Edit 历史。
-同一资产的源码更新不会替换活动实例，重开本局或再次 Play 才使用 Registry 中的新版；不是保留实例的热重载。
+源码变化由现有资产监听通知 AssetManager，Script 刷新先加载验证候选，再替换 Registry；失败保留旧版本。
+同 Handle 的 Script 发布新版后，ScriptSystem 在实际 Fixed Update／Update 开始的 synchronize 中识别对象身份变化。
+按资产分组，先为全部旧版本实例创建候选 VM，并按名称与 ParameterValue 类型保留兼容覆盖；移除／改型字段使用新版默认值。
+候选全部准备成功后，按实际启动逆序停止该组旧实例，再安装候选、更新组件活动定义和运行态覆盖，按 UUID 执行新版 on_start。
+准备失败保留该组全部旧实例，按候选身份只诊断一次；失败标记是弱引用，不延长源码寿命。
+语法／声明失败由原有资产加载入口拒绝，不发布到 Registry；ScriptSystem 不自己读文件、监听或另建资产版本缓存。
+暂停中不运行 synchronize，继续或单步时切换；普通参数编辑不重建 VM，代码、定义和事件声明则随实例一起替换。
+新 on_start 可能已修改 Scene，因此执行失败沿 Runtime 的整体停止／Editor 恢复 Edit 路径处理，不承诺回滚世界副作用。
+仅 Lua 实例的 self 状态重置，Scene 会话值、实体、物理和待交付通知保留；pending 通知交给换代后的事件声明，不重放已消费通知。
+不迁移任意 Lua 状态、不自动回写 Edit 参数；独立 app 可消费已发布新版，但没有新增源文件监听。
 
 参数检查与合并分开：Inspector 调用 validate_overrides，不生成无用的完整参数表；
 ScriptSystem 仅在覆盖变化时 resolve_parameters，Instance 在有效值或运行场景变化时重建 Lua 配置表。

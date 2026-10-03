@@ -125,7 +125,7 @@ namespace Comet {
     private:
         [[nodiscard]] Result<void> update_import_dependencies(
             AssetHandle handle, std::vector<std::filesystem::path> dependencies);
-        enum class RefreshResult { Scheduled, Deferred, Invalidated, Rejected };
+        enum class RefreshResult { Scheduled, Deferred, Published, Invalidated, Rejected };
         [[nodiscard]] RefreshResult schedule_refresh(const AssetRecord& record);
         void retry_refresh_requests();
         Result<void, Error> reload_loaded_material_dependents(AssetHandle texture_handle);

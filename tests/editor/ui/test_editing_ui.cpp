@@ -630,36 +630,117 @@ namespace CometEditor::Tests {
         state.mode = EditorMode::Edit;
     }
 
-    TEST_F(EditingUiTest, PlayParameterEditorUsesActiveVersionNotReloadedAsset) {
+    TEST_F(EditingUiTest, PlayParameterReloadCancelsOldGestureWithoutChangingEditOrOtherPanels) {
         const Comet::AssetHandle handle{1234};
         auto original = Comet::Script::create("return {properties = {speed = 100}}");
         ASSERT_TRUE(original);
         ASSERT_TRUE(runtime_assets.register_asset(handle, original.value()));
-        auto& binding = entity.add_component<Comet::ScriptComponent>();
-        binding.asset = handle;
+        auto& edit_binding = entity.add_component<Comet::ScriptComponent>();
+        edit_binding.asset = handle;
+        edit_binding.parameters.emplace("speed", 12.0f);
+        ASSERT_TRUE(edit.apply({entity.get_uuid(), "name", "name"}, std::string("Authored")));
+        const auto before = history.state_id();
+        auto cloned = Comet::SceneSerializer(components).clone(scene);
+        ASSERT_TRUE(cloned);
+        auto runtime_entity = cloned.value()->find_entity(entity.get_uuid());
+        auto& binding = runtime_entity.get_component<Comet::ScriptComponent>();
+        Comet::SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Comet::ScriptSystem>(runtime_assets)));
+        ASSERT_TRUE(runtime.start(*cloned.value()));
+        state.mode = EditorMode::Play;
+        selection.set_scene(*cloned.value());
+        selection.select_entity(runtime_entity.get_id());
+        ImVec2 parameter_point;
+        ASSERT_TRUE(widgets.register_editor(Comet::PropertyType::Float,
+            [&, builtin = create_property_editor_registry(assets)](
+                const Comet::PropertyDescriptor& property, void* value) {
+                const auto result = builtin.edit_property(property, value);
+                const auto start = ImGui::GetItemRectMin();
+                parameter_point = {start.x + 20, start.y + 8};
+                return result;
+            }));
+        std::string displayed_string;
+        ASSERT_TRUE(widgets.register_editor(Comet::PropertyType::String,
+            [&, builtin = create_property_editor_registry(assets)](
+                const Comet::PropertyDescriptor& property, void* value) {
+                displayed_string = *static_cast<std::string*>(value);
+                return builtin.edit_property(property, value);
+            }));
+        frame();
+        drag_at(parameter_point);
+        ASSERT_NE(ImGui::GetActiveID(), 0u);
+        ASSERT_GT(std::get<float>(binding.parameters.at("speed")), 12.0f);
+        EXPECT_FALSE(edit.active());
+
+        auto changed = Comet::Script::create("return {properties = {speed = 'new type'}}");
+        ASSERT_TRUE(changed);
+        ASSERT_TRUE(runtime_assets.replace_asset(handle, changed.value()));
+        frame();
+        EXPECT_EQ(binding.running_script(), original.value());
+        EXPECT_TRUE(displayed_string.empty());
+        EXPECT_NE(ImGui::GetActiveID(), 0u);
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(binding.running_script(), changed.value());
+        frame();
+        EXPECT_EQ(displayed_string, "new type");
+        EXPECT_EQ(ImGui::GetActiveID(), 0u);
+        EXPECT_FALSE(binding.parameters.contains("speed"));
+        auto& io = ImGui::GetIO();
+        io.AddMousePosEvent(parameter_point.x + 90, parameter_point.y);
+        frame();
+        io.AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_FALSE(binding.parameters.contains("speed"));
+
+        focus_text_input();
+        const auto other_active_item = ImGui::GetActiveID();
+        ASSERT_NE(other_active_item, 0u);
+        ASSERT_TRUE(runtime_assets.replace_asset(handle, original.value()));
+        ASSERT_TRUE(runtime.advance(0));
+        frame();
+        EXPECT_EQ(ImGui::GetActiveID(), other_active_item);
+        EXPECT_FLOAT_EQ(std::get<float>(edit_binding.parameters.at("speed")), 12.0f);
+        EXPECT_EQ(history.state_id(), before);
+        EXPECT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_NE(entity.get_component<Comet::NameComponent>().name, "Authored");
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(binding.running_script());
+        selection.set_scene(scene);
+        state.mode = EditorMode::Edit;
+    }
+
+    TEST_F(EditingUiTest, PlayScriptReloadPreservesUnrelatedInspectorGesture) {
+        const Comet::AssetHandle handle{1234};
+        auto original = Comet::Script::create("return {properties = {speed = 100}}");
+        ASSERT_TRUE(original);
+        ASSERT_TRUE(runtime_assets.register_asset(handle, original.value()));
+        entity.add_component<Comet::ScriptComponent>().asset = handle;
         Comet::SceneRuntime runtime;
         ASSERT_TRUE(runtime.add_system(std::make_unique<Comet::ScriptSystem>(runtime_assets)));
         ASSERT_TRUE(runtime.start(scene));
         state.mode = EditorMode::Play;
+        frame();
+        drag();
+        const auto transform_item = ImGui::GetActiveID();
+        ASSERT_NE(transform_item, 0u);
+        const float before = x();
+
         auto changed = Comet::Script::create("return {properties = {speed = 'new type'}}");
         ASSERT_TRUE(changed);
         ASSERT_TRUE(runtime_assets.replace_asset(handle, changed.value()));
-        bool rendered = false;
-        ASSERT_TRUE(widgets.register_editor(
-            Comet::PropertyType::Float, [&](const Comet::PropertyDescriptor&, void* value) {
-                rendered = true;
-                EXPECT_EQ(*static_cast<float*>(value), 100);
-                *static_cast<float*>(value) = 25;
-                return PropertyEditResult{.changed = true, .finished = true};
-            }));
-        const auto before = history.state_id();
-        frame();
-        EXPECT_TRUE(rendered);
-        EXPECT_EQ(history.state_id(), before);
         ASSERT_TRUE(runtime.advance(0));
-        EXPECT_EQ(binding.running_script(), original.value());
+        frame();
+        EXPECT_EQ(ImGui::GetActiveID(), transform_item);
+        auto& io = ImGui::GetIO();
+        io.AddMousePosEvent(drag_point.x + 90, drag_point.y);
+        frame();
+        EXPECT_GT(x(), before);
+        io.AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_FALSE(history.can_undo());
+        EXPECT_FALSE(edit.active());
         ASSERT_TRUE(runtime.stop());
-        EXPECT_FALSE(binding.running_script());
     }
 
     TEST_F(EditingUiTest, CameraInputsStayCompactAndLeaveRoomForLabels) {

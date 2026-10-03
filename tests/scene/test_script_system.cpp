@@ -27,6 +27,7 @@
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <limits>
+#include <string_view>
 
 namespace Comet::Tests {
     class ScriptSystemTest: public testing::Test {
@@ -918,17 +919,139 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
-    TEST_F(ScriptSystemTest, SourceReplacementOnlyAffectsNewInstances) {
-        source("return {update = function(self) comet.translate(1,0,0) end}");
-        auto entity = actor();
+    TEST_F(ScriptSystemTest, SourceReloadMigratesSharedInstancesAtTheUpdateBoundary) {
+        source(R"(return {
+            properties = {retained = 1, removed = 2, changed = 3},
+            on_start = function(self) self.private_value = 99 end,
+            update = function() comet.translate(1, 0, 0) end
+        })");
+        auto first = actor();
+        auto second = actor();
+        for(auto entity : {first, second})
+            entity.get_component<ScriptComponent>().parameters = {
+                {"retained", 3.0f}, {"removed", 7.0f}, {"changed", 8.0f}};
+        second.get_component<ScriptComponent>().parameters["retained"] = 6.0f;
         ASSERT_TRUE(runtime.start(scene));
-        source("return {update = function(self) comet.translate(10,0,0) end}");
+        const auto old_script = first.get_component<ScriptComponent>().running_script();
+        const auto lifetime = first.get_component<ScriptComponent>().lifetime();
         ASSERT_TRUE(runtime.advance(0));
-        EXPECT_FLOAT_EQ(entity.get_component<TransformComponent>().translation.x, 1);
+        source(R"(return {
+            properties = {retained = 100, changed = false, added = 'new'},
+            on_start = function(self)
+                assert(self.private_value == nil)
+                self.private_value = 0
+                assert(self.parameters.removed == nil)
+                assert(self.parameters.changed == false and self.parameters.added == 'new')
+                comet.translate(0, 1, 0)
+            end,
+            update = function(self)
+                self.private_value = self.private_value + 1
+                comet.translate(self.parameters.retained, 0, self.private_value)
+            end
+        })");
+        const auto replacement = assets.resolve<Script>(handle);
+        ASSERT_NE(replacement, old_script);
+        EXPECT_EQ(first.get_component<ScriptComponent>().running_script(), old_script);
+        EXPECT_EQ(second.get_component<ScriptComponent>().running_script(), old_script);
+        ASSERT_TRUE(runtime.advance(0));
+        for(const auto entity : {first, second}) {
+            const auto& component = entity.get_component<ScriptComponent>();
+            EXPECT_EQ(component.running_script(), replacement);
+            ASSERT_EQ(component.parameters.size(), 1u);
+            EXPECT_TRUE(component.parameters.contains("retained"));
+        }
+        EXPECT_EQ(first.get_component<ScriptComponent>().lifetime(), lifetime);
+        EXPECT_EQ(first.get_component<TransformComponent>().translation, Math::Vec3(4, 1, 1));
+        EXPECT_EQ(second.get_component<TransformComponent>().translation, Math::Vec3(7, 1, 1));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(first.get_component<TransformComponent>().translation, Math::Vec3(7, 1, 3));
+        EXPECT_EQ(second.get_component<TransformComponent>().translation, Math::Vec3(13, 1, 3));
         ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(ScriptSystemTest, SourceReloadWaitsWhilePausedAndStartsOnceAcrossFixedSteps) {
+        source("return {}");
+        const auto entity = actor();
+        ASSERT_TRUE(runtime.start(scene));
+        const auto old_script = entity.get_component<ScriptComponent>().running_script();
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        source(R"(return {
+            on_start = function() comet.translate(1, 0, 0) end,
+            fixed_update = function() comet.translate(0, 1, 0) end,
+            update = function() comet.translate(0, 0, 1) end
+        })");
+        ASSERT_TRUE(runtime.advance(1));
+        EXPECT_EQ(entity.get_component<ScriptComponent>().running_script(), old_script);
+        EXPECT_EQ(entity.get_component<TransformComponent>().translation, Math::Vec3(0));
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(entity.get_component<ScriptComponent>().running_script(),
+            assets.resolve<Script>(handle));
+        EXPECT_EQ(entity.get_component<TransformComponent>().translation, Math::Vec3(1, 1, 1));
+        ASSERT_TRUE(runtime.advance(1));
+        EXPECT_EQ(entity.get_component<TransformComponent>().translation, Math::Vec3(1, 1, 1));
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Running));
+        ASSERT_TRUE(runtime.advance(0.03));
+        EXPECT_EQ(entity.get_component<TransformComponent>().translation, Math::Vec3(1, 4, 2));
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(ScriptSystemTest, SourceReloadUsesNewEventDeclarationsForPendingNotifications) {
+        source(R"(return {
+            events = {['test.before'] = 'before'},
+            before = function() comet.translate(1, 0, 0) end
+        })");
+        const auto entity = actor();
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(scene.emit_event("test.before"));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(entity.get_component<TransformComponent>().translation, Math::Vec3(1, 0, 0));
+        ASSERT_TRUE(scene.emit_event("test.before"));
+        ASSERT_TRUE(scene.emit_event("test.after", 5.0f));
+        source(R"(return {
+            events = {['test.after'] = 'after'},
+            after = function(self, value) comet.translate(0, value, 0) end
+        })");
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(entity.get_component<TransformComponent>().translation, Math::Vec3(1, 5, 0));
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(ScriptSystemTest, FailedReloadStartStopsRuntimeAndClearsPendingWork) {
+        source("return {}");
+        const auto first = actor();
+        const auto second = actor();
+        ASSERT_TRUE(runtime.start(scene));
+        source(R"(return {
+            on_start = function()
+                local started = comet.session_get('reload.started') or 0
+                comet.session_set('reload.started', started + 1)
+                comet.create_entity('Discarded')
+                comet.session_set('reload.pending', true)
+                comet.emit('reload.pending')
+                if started == 1 then error('reload start failed') end
+            end
+        })");
+        const auto reloaded = runtime.advance(0);
+        ASSERT_FALSE(reloaded);
+        EXPECT_NE(reloaded.error().message.find("reload start failed"), std::string::npos);
+        EXPECT_FALSE(runtime.is_active());
+        EXPECT_FALSE(first.get_component<ScriptComponent>().running_script());
+        EXPECT_FALSE(second.get_component<ScriptComponent>().running_script());
+        EXPECT_EQ(scene.entity_count(), 2u);
+        EXPECT_FALSE(scene.get_session_value("reload.pending"));
+        source(R"(return {
+            on_start = function()
+                assert(comet.session_get('reload.started') == nil)
+                assert(comet.session_get('reload.pending') == nil)
+            end,
+            events = {['reload.pending'] = 'stale'},
+            stale = function() error('old reload notification survived') end
+        })");
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(0));
-        EXPECT_FLOAT_EQ(entity.get_component<TransformComponent>().translation.x, 11);
+        EXPECT_EQ(scene.entity_count(), 2u);
+        ASSERT_TRUE(runtime.stop());
     }
 
     TEST_F(ScriptSystemTest, CleanupRunsOnceInReverseActualStartOrderEvenAfterFailure) {
@@ -937,9 +1060,15 @@ namespace Comet::Tests {
         Logger::init(config);
         const auto logger = Logger::get_console_logger();
         std::vector<std::string> messages;
+        bool retiring_old_instances = false;
         const auto sink = std::make_shared<spdlog::sinks::callback_sink_mt>(
             [&](const spdlog::details::log_msg& message) {
-                messages.emplace_back(message.payload.data(), message.payload.size());
+                const std::string_view text(message.payload.data(), message.payload.size());
+                if(!text.starts_with("Script cleanup failed:"))
+                    return;
+                if(retiring_old_instances)
+                    EXPECT_FALSE(scene.get_session_value("reload.started"));
+                messages.emplace_back(text);
             });
         logger->sinks().push_back(sink);
         const ScopeExit remove_sink([&] { std::erase(logger->sinks(), sink); });
@@ -950,11 +1079,21 @@ namespace Comet::Tests {
         auto second = actor();
         second.get_component<ScriptComponent>().parameters["label"] = std::string("second");
         ASSERT_TRUE(runtime.advance(0));
-        ASSERT_TRUE(runtime.stop());
-        ASSERT_TRUE(runtime.stop());
+        source(R"(return {
+            properties = {label = 'first'},
+            on_start = function() comet.session_set('reload.started', true) end,
+            on_stop = function(self) error(self.parameters.label) end
+        })");
+        retiring_old_instances = true;
+        ASSERT_TRUE(runtime.advance(0));
+        retiring_old_instances = false;
         ASSERT_EQ(messages.size(), 2u);
         EXPECT_NE(messages[0].find("second"), std::string::npos);
         EXPECT_NE(messages[1].find("first"), std::string::npos);
+        EXPECT_TRUE(scene.get_session_value("reload.started"));
+        ASSERT_TRUE(runtime.stop());
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_EQ(messages.size(), 4u);
         EXPECT_FALSE(first.get_component<ScriptComponent>().running_script());
         EXPECT_FALSE(second.get_component<ScriptComponent>().running_script());
     }

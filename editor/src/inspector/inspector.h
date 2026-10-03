@@ -75,6 +75,7 @@ namespace CometEditor {
         AssetInspector m_asset_inspector;
         std::optional<AssetAssignment> m_asset_assignment;
         uint32_t m_active_item = 0;
+        uint32_t m_script_active_item = 0;
     };
 
 }

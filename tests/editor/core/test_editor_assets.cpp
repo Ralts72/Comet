@@ -483,6 +483,52 @@ namespace CometEditor::Tests {
         ASSERT_NE(reopened.find(record->handle), nullptr);
     }
 
+    TEST_F(EditorAssetsTest, ScriptSourceRefreshKeepsLastGoodVersionAndReloadsAfterRepair) {
+        const auto path = Comet::ProjectPaths(root).assets() / "reload.lua";
+        ASSERT_TRUE(Comet::write_text_file_atomic(
+            path, "return {update = function() comet.translate(1, 0, 0) end}"));
+        ASSERT_TRUE(assets->refresh().succeeded());
+        const auto* record = assets->database().find("reload.lua");
+        ASSERT_NE(record, nullptr);
+        const auto handle = record->handle;
+        ASSERT_TRUE(assets->load_reference(
+            handle, Comet::AssetType::Script, assets->database().get_revision(handle)));
+        const auto original = runtime.resolve<Comet::Script>(handle);
+        ASSERT_TRUE(original);
+        Comet::Scene scene;
+        auto entity = scene.create_entity();
+        entity.add_component<Comet::ScriptComponent>().asset = handle;
+        Comet::SceneRuntime player;
+        ASSERT_TRUE(player.add_system(std::make_unique<Comet::ScriptSystem>(runtime)));
+        ASSERT_TRUE(player.start(scene));
+        ASSERT_TRUE(player.advance(0));
+
+        for(const auto* invalid :
+            {"return {", "return {properties = {unsupported = function() end}}"}) {
+            ASSERT_TRUE(Comet::write_text_file_atomic(path, invalid));
+            const auto report = assets->refresh();
+            ASSERT_TRUE(report.succeeded());
+            ASSERT_NE(
+                std::ranges::find(report.modified_assets, handle), report.modified_assets.end());
+            EXPECT_EQ(runtime.resolve<Comet::Script>(handle), original);
+            ASSERT_TRUE(player.advance(0));
+            EXPECT_EQ(entity.get_component<Comet::ScriptComponent>().running_script(), original);
+        }
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::TransformComponent>().translation.x, 3);
+
+        ASSERT_TRUE(Comet::write_text_file_atomic(
+            path, "return {update = function() comet.translate(-10, 0, 0) end}"));
+        ASSERT_TRUE(assets->refresh().succeeded());
+        const auto repaired = runtime.resolve<Comet::Script>(handle);
+        ASSERT_TRUE(repaired);
+        ASSERT_NE(repaired, original);
+        EXPECT_EQ(entity.get_component<Comet::ScriptComponent>().running_script(), original);
+        ASSERT_TRUE(player.advance(0));
+        EXPECT_EQ(entity.get_component<Comet::ScriptComponent>().running_script(), repaired);
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::TransformComponent>().translation.x, -7);
+        ASSERT_TRUE(player.stop());
+    }
+
     TEST_F(EditorAssetsTest, ScriptCreationRejectsConflictsAndRollsBackOnIndexFailure) {
         const auto paths = Comet::ProjectPaths(root);
         ASSERT_TRUE(assets->create_script("new.lua").succeeded());
