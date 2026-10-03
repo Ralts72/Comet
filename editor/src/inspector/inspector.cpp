@@ -299,6 +299,14 @@ namespace CometEditor {
         }
         if(auto checked = script->validate_overrides(binding.parameters); !checked) {
             ImGui::TextWrapped("%s", checked.error().message.c_str());
+            auto compatible = binding.parameters;
+            script->retain_compatible_overrides(compatible);
+            if(compatible.size() != binding.parameters.size()
+                && script->validate_overrides(compatible)
+                && ImGui::Button(Ui::label("Remove incompatible overrides").c_str())) {
+                apply_property_edit(
+                    entity, component, property, compatible, {.changed = true, .finished = true});
+            }
             return;
         }
         auto overrides = binding.parameters;

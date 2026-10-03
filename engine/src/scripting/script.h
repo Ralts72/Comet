@@ -95,6 +95,8 @@ namespace Comet {
             const std::filesystem::path& relative_path);
         [[nodiscard]] Result<std::unique_ptr<Instance>, Error> instantiate() const;
         [[nodiscard]] Result<void, Error> validate_overrides(const ParameterMap& overrides) const;
+        // 只移除缺失声明或存储类型不匹配的覆盖；值合法性仍由严格校验负责。
+        void retain_compatible_overrides(ParameterMap& overrides) const;
         [[nodiscard]] Result<ParameterMap, Error> resolve_parameters(
             const ParameterMap& overrides) const;
         [[nodiscard]] const PropertyMap& properties() const { return m_properties; }

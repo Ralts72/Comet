@@ -400,6 +400,10 @@ AssetManager 的脚本加载与刷新集中在 `asset_manager_scripts.cpp`，仍
 参数检查与合并分开：Inspector 调用 validate_overrides，不生成无用的完整参数表；
 ScriptSystem 仅在覆盖变化时 resolve_parameters，Instance 在有效值或运行场景变化时重建 Lua 配置表。
 两层快照分别检测覆盖和 Lua 输入，不引入跨层 revision 协议。
+Script 的 retain_compatible_overrides 按声明名称和存储类型筛除失配覆盖，供 Runtime 换版和 Inspector 显式修复共用；
+不把非法数值或过长字符串当作声明变更自动丢弃，过滤后仍须严格校验。
+Edit 不自动迁移：Inspector 仅在存在失配项且剩余值合法时提供修复按钮，经原 Parameters 属性事务一次提交，
+Undo 恢复原覆盖，包括原本的失配项；没有变化不产生历史。Play 始终按活动实例定义处理，不使用尚未运行的新资产定义。
 明确编辑成默认值仍保存覆盖；“恢复默认参数”清空覆盖，可撤销但不重载源码。
 self.parameters 及 Vec3／Vec4 配置只读，支持 pairs／索引／长度；运行状态写到 self 的其他字段，不持久化。
 实体创建、会话值和事件载荷的 Vec3 共用读取规则，普通数组与只读参数代理均可输入；

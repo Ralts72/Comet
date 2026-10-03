@@ -860,6 +860,75 @@ return group
         EXPECT_FALSE(script.value()->resolve_parameters({{"speed", false}}));
     }
 
+    TEST(ScriptSourceTest, CompatibleFilteringRemovesOnlyMissingNamesAndChangedStorageTypes) {
+        const auto script = Script::create(R"(return {properties = {
+            speed = 1, enabled = true, direction = {1, 2, 3}, changed = false, added = 9
+        }})");
+        ASSERT_TRUE(script) << script.error().message;
+        const ParameterMap compatible{
+            {"speed", 6.0f}, {"enabled", false}, {"direction", Math::Vec3(4, 5, 6)}};
+        auto overrides = compatible;
+        overrides.emplace("removed", std::string("old value"));
+        overrides.emplace("changed", 3.0f);
+        EXPECT_FALSE(script.value()->validate_overrides(overrides));
+
+        script.value()->retain_compatible_overrides(overrides);
+
+        EXPECT_EQ(overrides, compatible);
+        EXPECT_TRUE(script.value()->validate_overrides(overrides));
+        const auto resolved = script.value()->resolve_parameters(overrides);
+        ASSERT_TRUE(resolved) << resolved.error().message;
+        EXPECT_FALSE(std::get<bool>(resolved.value().at("changed")));
+        EXPECT_FLOAT_EQ(std::get<float>(resolved.value().at("added")), 9);
+        EXPECT_FLOAT_EQ(std::get<float>(script.value()->properties().at("speed").default_value), 1);
+    }
+
+    TEST(ScriptSourceTest, CompatibleFilteringPreservesColorVectorAndEntityOverridesIdempotently) {
+        const auto previous = Script::create(R"(return {properties = {
+            tint = {type = 'color', default = {1, 1, 1, 1}},
+            vector = {0, 0, 0, 0}, target = {type = 'entity'}
+        }})");
+        const auto current = Script::create(R"(return {properties = {
+            tint = {0, 0, 0, 0},
+            vector = {type = 'color', default = {1, 1, 1, 1}}, target = {type = 'entity'}
+        }})");
+        ASSERT_TRUE(previous) << previous.error().message;
+        ASSERT_TRUE(current) << current.error().message;
+        const ParameterMap compatible{{"tint", Math::Vec4(2, -1, 0.5f, 0.25f)},
+            {"vector", Math::Vec4(3, 4, 5, 6)}, {"target", EntityUuid::generate()}};
+        ASSERT_TRUE(previous.value()->validate_overrides(compatible));
+        auto overrides = compatible;
+
+        current.value()->retain_compatible_overrides(overrides);
+        EXPECT_EQ(overrides, compatible);
+        EXPECT_TRUE(current.value()->validate_overrides(overrides));
+        current.value()->retain_compatible_overrides(overrides);
+        EXPECT_EQ(overrides, compatible);
+    }
+
+    TEST(ScriptSourceTest, CompatibleFilteringDoesNotSilentlyDiscardInvalidValues) {
+        const auto script = Script::create(R"(return {properties = {
+            speed = 1, direction = {0, 0, 0},
+            tint = {type = 'color', default = {1, 1, 1, 1}}, label = ''
+        }})");
+        ASSERT_TRUE(script) << script.error().message;
+        const auto infinity = std::numeric_limits<float>::infinity();
+        for(const ParameterMap& invalid : {ParameterMap{{"speed", infinity}},
+                ParameterMap{{"direction", Math::Vec3(0, infinity, 0)}},
+                ParameterMap{{"tint", Math::Vec4(0, 0, infinity, 1)}},
+                ParameterMap{{"label", std::string(4097, 'x')}}}) {
+            SCOPED_TRACE(invalid.begin()->first);
+            auto overrides = invalid;
+            overrides.emplace("removed", true);
+
+            script.value()->retain_compatible_overrides(overrides);
+
+            EXPECT_EQ(overrides, invalid);
+            EXPECT_FALSE(script.value()->validate_overrides(overrides));
+            EXPECT_FALSE(script.value()->resolve_parameters(overrides));
+        }
+    }
+
     TEST(ScriptSourceTest, ColorsRequireAnExplicitSemanticWhileVectorSizesStayDistinct) {
         const auto script = Script::create(R"(return {properties = {
             direction = {1, 2, 3},

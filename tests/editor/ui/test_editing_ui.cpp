@@ -191,6 +191,13 @@ namespace CometEditor::Tests {
             frame();
         }
 
+        void remove_incompatible_parameters() {
+            auto* window = ImGui::FindWindowByName("Inspector");
+            auto id = ImHashStr("parameters", 0, window->GetID("script"));
+            ImGui::ActivateItemByID(ImHashStr("Remove incompatible overrides", 0, id));
+            frame();
+        }
+
         void choose_entity(int row) {
             click(entity_parameter_point());
             frame();
@@ -425,6 +432,64 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(std::get<bool>(effective.value().at("enabled")));
     }
 
+    TEST_F(
+        EditingUiTest, RemovingIncompatibleScriptOverridesPreservesCompatibleValuesAndIsUndoable) {
+        auto original = Comet::Script::create(R"(return {properties = {
+            speed = 100, removed = true, changed = false,
+            player = {type = 'entity'},
+            score_color = {type = 'color', default = {1, 1, 1, 1}}
+        }})");
+        ASSERT_TRUE(original);
+        const Comet::AssetHandle handle{1234};
+        ASSERT_TRUE(runtime_assets.register_asset(handle, original.value()));
+        const auto player = scene.create_entity("Player").get_uuid();
+        auto& binding = entity.add_component<Comet::ScriptComponent>();
+        binding.asset = handle;
+        const Comet::ParameterMap authored{{"speed", 250.0f}, {"removed", false}, {"changed", true},
+            {"player", player}, {"score_color", Comet::Math::Vec4(2, 0.25f, -0.5f, 0.75f)}};
+        ASSERT_TRUE(edit.apply({entity.get_uuid(), "script", "parameters"}, authored));
+        frame();
+        const auto before = history.state_id();
+        const auto undo_count = history.undo_size();
+
+        auto changed = Comet::Script::create(R"(return {properties = {
+            speed = 200, changed = 'new type', player = {type = 'entity'},
+            score_color = {0, 0, 0, 1}
+        }})");
+        ASSERT_TRUE(changed);
+        ASSERT_TRUE(runtime_assets.replace_asset(handle, changed.value()));
+        frame();
+        EXPECT_EQ(binding.parameters, authored);
+        EXPECT_EQ(history.state_id(), before);
+        EXPECT_FALSE(changed.value()->validate_overrides(binding.parameters));
+
+        remove_incompatible_parameters();
+        auto retained = authored;
+        retained.erase("removed");
+        retained.erase("changed");
+        ASSERT_EQ(binding.parameters, retained);
+        EXPECT_TRUE(changed.value()->validate_overrides(binding.parameters));
+        EXPECT_EQ(history.undo_size(), undo_count + 1);
+        EXPECT_FALSE(edit.active());
+        const auto effective = changed.value()->resolve_parameters(binding.parameters);
+        ASSERT_TRUE(effective);
+        EXPECT_EQ(std::get<std::string>(effective.value().at("changed")), "new type");
+        const auto repaired = history.state_id();
+        remove_incompatible_parameters();
+        frame();
+        EXPECT_EQ(binding.parameters, retained);
+        EXPECT_EQ(history.state_id(), repaired);
+
+        ASSERT_TRUE(history.undo());
+        frame();
+        EXPECT_EQ(binding.parameters, authored);
+        EXPECT_EQ(history.state_id(), before);
+        ASSERT_TRUE(history.redo());
+        frame();
+        EXPECT_EQ(binding.parameters, retained);
+        EXPECT_EQ(history.undo_size(), undo_count + 1);
+    }
+
     TEST_F(EditingUiTest, ScriptDefinitionChangeCancelsPendingParameterGesture) {
         const Comet::AssetHandle handle{1234};
         auto original = Comet::Script::create("return {properties = {speed = 100}}");
@@ -446,6 +511,9 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(runtime_assets.replace_asset(handle, changed.value()));
         frame();
         EXPECT_FALSE(edit.active());
+        EXPECT_TRUE(binding.parameters.empty());
+        EXPECT_EQ(history.state_id(), before);
+        remove_incompatible_parameters();
         EXPECT_TRUE(binding.parameters.empty());
         EXPECT_EQ(history.state_id(), before);
     }
@@ -675,7 +743,9 @@ namespace CometEditor::Tests {
         auto changed = Comet::Script::create("return {properties = {speed = 'new type'}}");
         ASSERT_TRUE(changed);
         ASSERT_TRUE(runtime_assets.replace_asset(handle, changed.value()));
-        frame();
+        const auto old_parameters = binding.parameters;
+        remove_incompatible_parameters();
+        EXPECT_EQ(binding.parameters, old_parameters);
         EXPECT_EQ(binding.running_script(), original.value());
         EXPECT_TRUE(displayed_string.empty());
         EXPECT_NE(ImGui::GetActiveID(), 0u);

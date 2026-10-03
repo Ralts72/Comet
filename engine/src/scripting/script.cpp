@@ -964,6 +964,14 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
+    void Script::retain_compatible_overrides(ParameterMap& overrides) const {
+        std::erase_if(overrides, [&](const auto& value) {
+            const auto property = m_properties.find(value.first);
+            return property == m_properties.end()
+                   || property->second.default_value.index() != value.second.index();
+        });
+    }
+
     Result<ParameterMap, Error> Script::resolve_parameters(const ParameterMap& overrides) const {
         if(auto checked = validate_overrides(overrides); !checked)
             return Result<ParameterMap, Error>::failure(checked.error());

@@ -188,13 +188,8 @@ namespace Comet {
                 if(existing != m_entries.end() && existing->second.script == script)
                     continue;
                 auto overrides = entity.get_component<ScriptComponent>().parameters;
-                if(existing != m_entries.end()) {
-                    std::erase_if(overrides, [&](const auto& value) {
-                        const auto property = script->properties().find(value.first);
-                        return property == script->properties().end()
-                               || property->second.default_value.index() != value.second.index();
-                    });
-                }
+                if(existing != m_entries.end())
+                    script->retain_compatible_overrides(overrides);
                 auto candidate = prepare_entry(entity, script, std::move(overrides));
                 if(!candidate) {
                     failure = candidate.error();
