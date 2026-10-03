@@ -249,6 +249,8 @@ namespace Comet {
                     const auto state = input.key(control);
                     return {double(state.down), state, true};
                 } else if constexpr(std::is_same_v<T, Input::MouseButton>) {
+                    if(!input.pointer_enabled)
+                        return {};
                     const auto state = input.mouse(control);
                     return {double(state.down), state, true};
                 } else if constexpr(std::is_same_v<T, Input::GamepadButton>) {
@@ -260,6 +262,8 @@ namespace Comet {
                     if(gamepad < input.gamepads.size())
                         return {input.gamepads[gamepad].axis(control), {}, true, gamepad};
                 } else {
+                    if(!input.pointer_enabled)
+                        return {};
                     switch(control) {
                         case Motion::CursorX:
                             return {input.cursor_delta.x, {}, true};

@@ -474,6 +474,121 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(unfocused.action("look")->value, 0);
     }
 
+    TEST(RuntimeInputTest, PointerRevocationDropsPendingMouseInputWithoutClearingOtherDevices) {
+        using Type = InputActions::Type;
+        const auto actions =
+            InputActions::create({{"mouse", Type::Button, {{Input::MouseButton::Left}}},
+                {"cursor", Type::Delta, {{InputActions::Motion::CursorX}}},
+                {"scroll", Type::Delta, {{InputActions::Motion::ScrollY}}},
+                {"keyboard", Type::Button, {{Input::Key::Space}}},
+                {"pad", Type::Button, {{Input::GamepadButton::South}}},
+                {"mixed", Type::Button, {{Input::MouseButton::Left}, {Input::Key::Space}}}});
+        ASSERT_TRUE(actions);
+        RuntimeInput runtime;
+        runtime.configure(actions.value());
+        Input input;
+        Input::Gate gate;
+        Input::GamepadSample pad;
+        input.focus_event(true);
+        input.gamepad_sample(0, pad);
+        input.cursor_event({0, 0});
+        runtime.prepare(&gate.read(input.publish_frame(), true, true));
+        static_cast<void>(runtime.consume_fixed());
+
+        input.mouse_button_event(Input::MouseButton::Left, true);
+        input.mouse_button_event(Input::MouseButton::Left, false);
+        input.cursor_event({5, 0});
+        input.scroll_event({0, 2});
+        input.key_event(Input::Key::Space, true);
+        pad.buttons[size_t(Input::GamepadButton::South)] = true;
+        input.gamepad_sample(0, pad);
+        runtime.prepare(&gate.read(input.publish_frame(), true, true));
+        ASSERT_TRUE(runtime.update().action("mouse")->pressed);
+        ASSERT_FLOAT_EQ(runtime.update().action("cursor")->value, 5);
+        ASSERT_FLOAT_EQ(runtime.update().action("scroll")->value, 2);
+
+        // 鼠标离开画面时还没有固定步，不能把旧鼠标输入交给下一固定步。
+        runtime.prepare(&gate.read(input.publish_frame(), true, false));
+        const auto first = runtime.consume_fixed();
+        EXPECT_TRUE(first.focused());
+        EXPECT_FALSE(first.physical().mouse(Input::MouseButton::Left).pressed);
+        EXPECT_EQ(first.physical().cursor_delta, Math::Vec2(0));
+        EXPECT_EQ(first.physical().scroll, Math::Vec2(0));
+        EXPECT_FALSE(first.action("mouse")->pressed);
+        EXPECT_FALSE(first.action("mouse")->down);
+        EXPECT_FLOAT_EQ(first.action("cursor")->value, 0);
+        EXPECT_FLOAT_EQ(first.action("scroll")->value, 0);
+        EXPECT_TRUE(first.physical().key(Input::Key::Space).pressed);
+        EXPECT_TRUE(first.physical().gamepads[0].button(Input::GamepadButton::South).pressed);
+        for(const auto name : {"keyboard", "pad", "mixed"}) {
+            EXPECT_TRUE(first.action(name)->pressed) << name;
+            EXPECT_TRUE(first.action(name)->down) << name;
+        }
+
+        const auto& second = runtime.consume_fixed();
+        for(const auto name : {"mouse", "keyboard", "pad", "mixed"})
+            EXPECT_FALSE(second.action(name)->pressed) << name;
+        EXPECT_FLOAT_EQ(second.action("cursor")->value, 0);
+        EXPECT_FLOAT_EQ(second.action("scroll")->value, 0);
+    }
+
+    TEST(RuntimeInputTest, PointerReacquisitionRequiresFreshPressAfterReleasingHeldAction) {
+        using Type = InputActions::Type;
+        const auto actions =
+            InputActions::create({{"mouse", Type::Button, {{Input::MouseButton::Left}}},
+                {"cursor", Type::Delta, {{InputActions::Motion::CursorX}}},
+                {"scroll", Type::Delta, {{InputActions::Motion::ScrollY}}}});
+        ASSERT_TRUE(actions);
+        RuntimeInput runtime;
+        runtime.configure(actions.value());
+        Input input;
+        Input::Gate gate;
+        input.focus_event(true);
+        input.cursor_event({0, 0});
+        runtime.prepare(&gate.read(input.publish_frame(), true, true));
+        static_cast<void>(runtime.consume_fixed());
+        input.mouse_button_event(Input::MouseButton::Left, true);
+        runtime.prepare(&gate.read(input.publish_frame(), true, true));
+        ASSERT_TRUE(runtime.consume_fixed().action("mouse")->down);
+
+        input.cursor_event({5, 0});
+        input.scroll_event({0, 2});
+        runtime.prepare(&gate.read(input.publish_frame(), true, false));
+        for(const auto* state : {&runtime.update(), &runtime.consume_fixed()}) {
+            EXPECT_TRUE(state->physical().mouse(Input::MouseButton::Left).released);
+            EXPECT_TRUE(state->action("mouse")->released);
+            EXPECT_FALSE(state->action("mouse")->down);
+            EXPECT_FALSE(state->action("mouse")->pressed);
+            EXPECT_FLOAT_EQ(state->action("cursor")->value, 0);
+            EXPECT_FLOAT_EQ(state->action("scroll")->value, 0);
+        }
+        EXPECT_FALSE(runtime.consume_fixed().action("mouse")->released);
+
+        input.cursor_event({10, 0});
+        input.scroll_event({0, 3});
+        runtime.prepare(&gate.read(input.publish_frame(), true, true));
+        for(const auto* state : {&runtime.update(), &runtime.consume_fixed()}) {
+            EXPECT_FALSE(state->action("mouse")->down);
+            EXPECT_FALSE(state->action("mouse")->pressed);
+            EXPECT_FALSE(state->action("mouse")->released);
+            EXPECT_EQ(state->physical().cursor_delta, Math::Vec2(0));
+            EXPECT_EQ(state->physical().scroll, Math::Vec2(0));
+            EXPECT_FLOAT_EQ(state->action("cursor")->value, 0);
+            EXPECT_FLOAT_EQ(state->action("scroll")->value, 0);
+        }
+        input.mouse_button_event(Input::MouseButton::Left, false);
+        runtime.prepare(&gate.read(input.publish_frame(), true, true));
+        input.mouse_button_event(Input::MouseButton::Left, true);
+        input.cursor_event({15, 0});
+        input.scroll_event({0, 4});
+        runtime.prepare(&gate.read(input.publish_frame(), true, true));
+        const auto& fresh = runtime.consume_fixed();
+        EXPECT_TRUE(fresh.action("mouse")->down);
+        EXPECT_TRUE(fresh.action("mouse")->pressed);
+        EXPECT_FLOAT_EQ(fresh.action("cursor")->value, 5);
+        EXPECT_FLOAT_EQ(fresh.action("scroll")->value, 4);
+    }
+
     TEST(RuntimeInputTest, SerialRollbackDropsPendingBindingsAndDuplicateFramesDoNotReplayThem) {
         using Type = InputActions::Type;
         const auto actions = InputActions::create(

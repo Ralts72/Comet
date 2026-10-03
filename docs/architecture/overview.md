@@ -235,6 +235,10 @@ Project 持有 InputActions 配置；宿主启动时交给 SceneRuntime 内的 R
 SceneRuntime 只调用 prepare／consume_fixed／update 及生命周期接口，不处理按钮合并或分别安装物理／动作参数。
 InputState 同时拥有该阶段的物理与动作值，只读公开，可复制保留；引用在输入 owner 下一次修改前有效。
 零固定步不丢短按，多步不重复边沿，暂停／单步同时重建两类状态的基线。
+Frame 的 `focused` 与 `pointer_enabled` 分别传递整体及鼠标授权；鼠标必须同时满足二者，
+Gate 不能重新开放上游已经撤销的授权。Viewport 仅失去鼠标悬停时，RuntimeInput 丢弃未消费的鼠标点击和位移，
+InputActions 将鼠标绑定标记为不可用，复用逐绑定清理；键盘／手柄及混合动作的其他来源仍保留。
+已交付的鼠标按住状态产生一次释放，重新进入画面后仍需先松开再按下，不回放旧 delta。
 Engine 启动 Runtime 使用 InputStart::Rebase，在首张已授权输入上丢弃旧边沿／位移并建立电平基线；
 未授权帧不提前清除此意图。不把 Window 的物理 serial 当作 Gate 授权流的 serial，重开后长按键不会变成新按下。
 多个绑定合为一个按钮电平，释放其中一个仍按住的动作不会产生释放；轴与位移不伪装成按钮。

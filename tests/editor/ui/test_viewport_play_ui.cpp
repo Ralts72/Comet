@@ -126,6 +126,7 @@ namespace CometEditor::Tests {
         frame();
         EXPECT_NEAR(transform.translation.z, -0.3f, 0.00001f);
         const auto& routed = viewport.route_runtime_input(runtime_input.get_frame());
+        EXPECT_FALSE(routed.pointer_enabled);
         EXPECT_TRUE(routed.key(Comet::Input::Key::W).down);
         EXPECT_FALSE(routed.mouse(Comet::Input::MouseButton::Right).down);
         EXPECT_EQ(routed.scroll, Comet::Math::Vec2(0));

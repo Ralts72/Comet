@@ -107,7 +107,7 @@ namespace Comet {
         if(source.interruption != m_frame.interruption)
             m_interrupted_serial = source.serial;
         const bool accepting = enabled && source.focused && m_interrupted_serial != source.serial;
-        const bool pointer_accepting = accepting && pointer_enabled;
+        const bool pointer_accepting = accepting && source.pointer_enabled && pointer_enabled;
         const bool fresh = !m_source_serial || source.serial != *m_source_serial;
         if(!fresh && accepting == m_accepting && pointer_accepting == m_pointer_accepting)
             return m_frame;
@@ -116,6 +116,7 @@ namespace Comet {
         Frame next = source;
         next.serial = m_frame.serial + 1;
         next.focused = accepting;
+        next.pointer_enabled = pointer_accepting;
         size_t index = 0;
         const auto route = [&](auto& target, const auto& previous, bool active, bool acquired) {
             for(size_t i = 0; i < target.size(); ++i, ++index) {

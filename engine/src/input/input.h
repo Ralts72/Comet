@@ -195,6 +195,8 @@ namespace Comet {
             // 消费者可能跳过恢复首帧，用版本变化识别采样中断。
             uint64_t interruption = 0;
             bool focused = false;
+            // 原始帧默认开放鼠标；Gate 发布独立授权，仍须同时 focused。
+            bool pointer_enabled = true;
             std::array<ButtonState, static_cast<size_t>(Key::Count)> keys{};
             std::array<ButtonState, static_cast<size_t>(MouseButton::Count)> mouse_buttons{};
             Math::Vec2 cursor_position{};

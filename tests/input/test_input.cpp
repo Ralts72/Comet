@@ -209,6 +209,7 @@ namespace Comet::Tests {
 
     TEST_F(InputTest, PointerGateKeepsKeyboardAndGamepadAndRequiresFreshMousePress) {
         Input::Gate gate;
+        Input::Gate downstream;
         Input::GamepadSample pad;
         input.gamepad_sample(0, pad);
         gate.read(input.publish_frame(), true, false);
@@ -221,22 +222,33 @@ namespace Comet::Tests {
         pad.axes[0] = 0.8f;
         input.gamepad_sample(0, pad);
         const auto raw = input.publish_frame();
+        EXPECT_TRUE(raw.pointer_enabled);
         auto routed = gate.read(raw, true, false);
         EXPECT_TRUE(routed.focused);
+        EXPECT_FALSE(routed.pointer_enabled);
         EXPECT_TRUE(routed.key(Input::Key::W).pressed);
         EXPECT_TRUE(routed.gamepads[0].buttons[0].pressed);
         EXPECT_EQ(routed.gamepads[0].axes[0], 0.8f);
         EXPECT_FALSE(routed.mouse(Input::MouseButton::Right).down);
         EXPECT_EQ(routed.cursor_delta, Math::Vec2(0));
         EXPECT_EQ(routed.scroll, Math::Vec2(0));
+        const auto forwarded = downstream.read(routed, true, true);
+        EXPECT_TRUE(forwarded.focused);
+        EXPECT_FALSE(forwarded.pointer_enabled);
+        EXPECT_EQ(downstream.read(routed, true, true).serial, forwarded.serial);
 
         routed = gate.read(raw, true, true);
+        EXPECT_TRUE(routed.pointer_enabled);
         EXPECT_TRUE(routed.key(Input::Key::W).down);
         EXPECT_FALSE(routed.key(Input::Key::W).pressed);
         EXPECT_FALSE(routed.mouse(Input::MouseButton::Right).down);
         EXPECT_EQ(routed.cursor_delta, Math::Vec2(0));
         EXPECT_EQ(routed.scroll, Math::Vec2(0));
         EXPECT_EQ(gate.read(raw, true, true).serial, routed.serial);
+        const auto restored = downstream.read(routed, true, true);
+        EXPECT_TRUE(restored.pointer_enabled);
+        EXPECT_FALSE(restored.mouse(Input::MouseButton::Right).down);
+        EXPECT_EQ(restored.cursor_delta, Math::Vec2(0));
         input.mouse_button_event(Input::MouseButton::Right, false);
         gate.read(input.publish_frame(), true, true);
         input.mouse_button_event(Input::MouseButton::Right, true);
@@ -248,6 +260,8 @@ namespace Comet::Tests {
         EXPECT_EQ(routed.cursor_delta, Math::Vec2(5, 5));
         EXPECT_EQ(routed.scroll, Math::Vec2(0, 2));
         routed = gate.read(inside, true, false);
+        EXPECT_FALSE(routed.pointer_enabled);
+        EXPECT_FALSE(downstream.read(routed, true, true).pointer_enabled);
         EXPECT_TRUE(routed.mouse(Input::MouseButton::Right).released);
         EXPECT_FALSE(routed.mouse(Input::MouseButton::Right).down);
         EXPECT_TRUE(routed.key(Input::Key::W).down);

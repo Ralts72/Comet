@@ -79,8 +79,10 @@ namespace Comet {
             m_serial = input->serial;
         }
         const auto& previous = m_pending_physical;
-        if(!frame.focused) {
+        if(!frame.focused)
             block_buttons(frame.keys, previous.keys);
+        const bool pointer_enabled = frame.focused && frame.pointer_enabled;
+        if(!pointer_enabled) {
             block_buttons(frame.mouse_buttons, previous.mouse_buttons);
             frame.cursor_delta = {};
             frame.scroll = {};
@@ -94,11 +96,11 @@ namespace Comet {
         }
         auto pending = frame;
         merge_buttons(pending.keys, previous.keys, frame.focused);
-        merge_buttons(pending.mouse_buttons, previous.mouse_buttons, frame.focused);
+        merge_buttons(pending.mouse_buttons, previous.mouse_buttons, pointer_enabled);
         for(size_t i = 0; i < pending.gamepads.size(); ++i)
             merge_buttons(pending.gamepads[i].buttons, previous.gamepads[i].buttons,
                 frame.focused && pending.gamepads[i].connected);
-        if(frame.focused) {
+        if(pointer_enabled) {
             accumulate(pending.cursor_delta, previous.cursor_delta);
             accumulate(pending.scroll, previous.scroll);
         }

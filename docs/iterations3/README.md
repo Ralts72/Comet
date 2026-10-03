@@ -52,7 +52,9 @@
 | [004 输入组优先级与消费](004-input-context-consumption.md) | 已验收 | `15b0b8f5`；Debug／Release app 构建通过；106 项定向、940 CPU／156 UI 通过，1 项平台条件跳过；项目配置、UI 与 demo 调色模式使用同一路由；真实交互待人工验收 |
 | [005 Lua 模块编辑工作流](005-lua-module-authoring.md) | 已验收 | `11219667`；Debug／Release app 构建通过；150 项定向 CPU、25 项定向 UI；949 CPU／159 UI 通过，1 项平台条件跳过；3 项真实 GPU 生命周期冒烟及构建契约／模块边界通过；完成 001–005 职责回顾，真实完整交互仍待人工验收 |
 | [006 Lua 实例辅助方法](006-lua-instance-methods.md) | 已验收 | `74579b41`；Debug／Release app 构建通过；103 项定向、955 CPU／159 UI 通过，1 项平台条件跳过；构建契约／模块边界通过；demo 用 `self:helper()` 调用，实例／参数隔离与受控重载不变 |
-| [007 Lua 错误调用链](007-lua-error-traces.md) | 已验收 | Debug／Release app 构建通过；102 项定向、959 CPU／159 UI 通过，1 项平台条件跳过；构建契约／模块边界通过；复用原 Result 与 Log，不开放 debug 或新增诊断 Manager；首次测试越界访问已修正 |
+| [007 Lua 错误调用链](007-lua-error-traces.md) | 已验收 | `1304cd04`；Debug／Release app 构建通过；102 项定向、959 CPU／159 UI 通过，1 项平台条件跳过；构建契约／模块边界通过；复用原 Result 与 Log，不开放 debug 或新增诊断 Manager；首次测试越界访问已修正 |
+| [008 鼠标授权撤销](008-pointer-input-authorization.md) | 已验收 | Debug／Release app 构建通过；70 项定向 CPU／6 项 Viewport UI 通过；当前工作区（含待单独提交的 009）962 CPU／159 UI、3 GPU 冒烟及构建契约／模块边界通过，1 项平台条件跳过；未消费鼠标输入不再越过授权边界 |
 
-最新额度：007 验收后、提交前主 `codex` 已用 23%，2026-10-03 20:19:05 +08:00。重置时间未变，尚未触发停止条件。
+最新额度：008 验收后、提交前主 `codex` 已用 26%（剩余 74%），2026-10-04 00:46:51 +08:00。
+重置时间未变；墙钟已满 5 小时，正在完成 008／009 的独立提交与本轮收尾，不再开始新功能项。
 提交对应关系也可用 `git log --oneline -- docs/iterations3` 核实；此记录不代表远端或 CI 状态。
