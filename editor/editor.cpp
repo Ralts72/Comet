@@ -701,7 +701,7 @@ namespace {
                 accept_asset_report(std::move(report));
             }
             if(const auto create = m_project_panel->take_create_script_request()) {
-                auto report = m_assets->create_script(create->destination);
+                auto report = m_assets->create_script(create->destination, create->kind);
                 m_project_panel->complete_create_script(*create, report);
                 accept_asset_report(std::move(report));
             }

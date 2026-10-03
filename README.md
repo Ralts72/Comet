@@ -557,7 +557,9 @@ return script
 ```
 
 `.module.lua` 是源码依赖，不生成 `.meta`，不能挂到实体的 Script 槽位。
-当前在 Project 中显示为普通文件，模块的创建、改名和删除由外部源码编辑器完成；New Script 仍创建组件脚本。
+Project 右键 New Lua Module 可创建空模块，显示可复制的 `require` 引用；New Script 仍创建组件脚本。
+模块在 Project 中显示为普通文件，不改变当前资产选择；源码内容、改名和删除暂由外部编辑器处理。
+名称及父目录须为 ASCII 标识符（字母或下划线开头，后续可用数字），点分引用不超过 256 字节。
 Finder 导入只支持独立组件脚本，暂不处理 Lua 多文件依赖包；需要模块的脚本直接在项目 assets 内编写。
 路径限点分标识符，不支持绝对路径、`..`、原生库、符号链接别名或运行回调中首次发现新模块。
 生命周期回调内可再次 require 已在顶层加载过的模块，不读取磁盘。
@@ -636,8 +638,10 @@ Finder 导入只支持独立组件脚本，暂不处理 Lua 多文件依赖包�
   Inspector 的材质／纹理设置按变化提交，日志统一进入 Log；资产文件修改暂不纳入场景撤销。
 - Project 目录或空白处右键 New Material，填写名称并选择 `pbr`／`unlit_color`，创建后自动选中。
   `.mat` 与稳定身份 `.meta` 成对创建，不覆盖同名文件；普通失败回滚本次创建，不保证进程崩溃时的双文件原子性。
-- Project 目录或空白处右键 New Script，填写名称后创建模块式 `.lua` 和稳定身份 `.meta`，并自动选中。
+- Project 目录或空白处右键 New Script，填写名称后创建组件 `.lua` 和稳定身份 `.meta`，并自动选中。
   默认脚本只包含 `update` 方法，可按需增加 `properties`、`on_start`、`fixed_update`、`on_stop`；脚本分配给实体后在 Play／app 中执行。
+- New Lua Module 创建返回空 table 的 `.module.lua`，不生成 `.meta`，供组件脚本 `require`。
+  两种创建共用不覆盖／失败回滚流程；模块创建成功会更新依赖扫描，缺失该模块的组件可重新加载。
 - Finder／系统文件管理器可将 PNG/JPEG、HDR 环境图、glTF/GLB 拖入 Project，复制到落点目录。
   glTF 连同相对 buffer／图片复制，新建身份、不移动源文件、不沿用外部 .meta、不覆盖同名目标。
   暂不接收整目录、独立 .bin、网络或含 `..` 的依赖；整批失败回滚。复制和校验在后台准备，

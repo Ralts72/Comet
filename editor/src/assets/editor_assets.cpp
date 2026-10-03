@@ -340,11 +340,13 @@ namespace CometEditor {
         return report;
     }
 
-    Comet::AssetScanReport EditorAssets::create_script(const std::filesystem::path& destination) {
-        auto report = AssetSourceOperations::create_script(m_database, destination);
+    Comet::AssetScanReport EditorAssets::create_script(
+        const std::filesystem::path& destination, const AssetSourceOperations::ScriptKind kind) {
+        auto report = AssetSourceOperations::create_script(m_database, destination, kind);
         if(report.snapshot_updated) {
             acknowledge(destination);
-            acknowledge(Comet::metadata_path(destination));
+            if(kind == AssetSourceOperations::ScriptKind::Component)
+                acknowledge(Comet::metadata_path(destination));
         }
         accept_scan(report);
         return report;

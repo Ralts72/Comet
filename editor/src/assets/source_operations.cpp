@@ -593,7 +593,7 @@ namespace CometEditor::AssetSourceOperations {
             ProjectPaths paths;
             const std::filesystem::path& destination;
             std::string_view contents;
-            AssetType type;
+            std::optional<AssetType> type;
             std::string_view extension;
             std::string_view name;
             std::filesystem::path target;
@@ -630,22 +630,24 @@ namespace CometEditor::AssetSourceOperations {
             Result<void> publish() {
                 std::error_code error;
                 const auto staged_source = staging / ("asset" + std::string(extension));
-                const auto staged_metadata = metadata_path(staged_source);
                 if(auto saved = write_text_file_atomic(staged_source, contents); !saved)
                     return saved;
-                if(auto saved = MetadataSerializer{}.save(
-                       {.handle = handle,
-                           .type = type,
-                           .import_settings = make_default_import_settings(type)},
-                       staged_metadata);
-                    !saved)
-                    return saved;
                 // 只发布本次创建的文件，不覆盖并发创建的目标。
-                std::filesystem::create_hard_link(staged_metadata, meta, error);
-                if(error)
-                    return Result<void>::failure(
-                        "Cannot publish " + staging_name + " metadata: " + error.message());
-                metadata_published = true;
+                if(type) {
+                    const auto staged_metadata = metadata_path(staged_source);
+                    if(auto saved = MetadataSerializer{}.save(
+                           {.handle = handle,
+                               .type = *type,
+                               .import_settings = make_default_import_settings(*type)},
+                           staged_metadata);
+                        !saved)
+                        return saved;
+                    std::filesystem::create_hard_link(staged_metadata, meta, error);
+                    if(error)
+                        return Result<void>::failure(
+                            "Cannot publish " + staging_name + " metadata: " + error.message());
+                    metadata_published = true;
+                }
                 std::filesystem::create_hard_link(staged_source, target, error);
                 if(error)
                     return Result<void>::failure(
@@ -653,11 +655,20 @@ namespace CometEditor::AssetSourceOperations {
                 source_published = true;
                 AssetDatabase candidate = database;
                 report = candidate.scan();
-                const auto* record = candidate.find(handle);
-                if(!report.snapshot_updated || !report.succeeded() || !record
-                    || record->path != destination.lexically_normal() || record->type != type)
+                if(!report.snapshot_updated || !report.succeeded())
                     return Result<void>::failure(
-                        std::string(name) + " could not be indexed; creation rolled back");
+                        std::string(name) + " scan failed; creation rolled back");
+                if(type) {
+                    const auto* record = candidate.find(handle);
+                    if(!record || record->path != destination.lexically_normal()
+                        || record->type != *type)
+                        return Result<void>::failure(
+                            std::string(name) + " could not be indexed; creation rolled back");
+                } else if(candidate.find(destination)) {
+                    return Result<void>::failure(
+                        std::string(name)
+                        + " source was unexpectedly indexed; creation rolled back");
+                }
                 database = std::move(candidate);
                 committed = true;
                 return Result<void>::success();
@@ -679,6 +690,15 @@ namespace CometEditor::AssetSourceOperations {
                 meta = metadata_path(target);
                 if(auto valid = validate_inside(root, target); !valid)
                     return operation_error(destination, valid.error());
+                if(!type) {
+                    const auto resolved = std::filesystem::weakly_canonical(target, error);
+                    if(error)
+                        return operation_error(
+                            destination, "Cannot resolve module destination: " + error.message());
+                    if(resolved != target.lexically_normal())
+                        return operation_error(
+                            destination, "Lua module destinations cannot use symlink aliases");
+                }
                 if(!std::filesystem::is_directory(target.parent_path(), error))
                     return operation_error(
                         destination, std::string(name) + " directory does not exist");
@@ -686,7 +706,9 @@ namespace CometEditor::AssetSourceOperations {
                     if(auto valid = validate_available(path); !valid)
                         return operation_error(destination, valid.error());
 
-                handle = AssetHandle::generate();
+                const auto reservation = AssetHandle::generate();
+                if(type)
+                    handle = reservation;
                 staging_name = name;
                 std::ranges::transform(
                     staging_name, staging_name.begin(), [](unsigned char character) {
@@ -697,7 +719,7 @@ namespace CometEditor::AssetSourceOperations {
                 if(error)
                     return operation_error(
                         destination, "Cannot create staging directory: " + error.message());
-                staging = staging_parent / std::to_string(handle.value());
+                staging = staging_parent / std::to_string(reservation.value());
                 if(!std::filesystem::create_directory(staging, error))
                     return operation_error(
                         destination, "Cannot reserve " + staging_name + " staging directory");
@@ -715,7 +737,8 @@ namespace CometEditor::AssetSourceOperations {
 
         AssetScanReport create_text_asset(AssetDatabase& database,
             const std::filesystem::path& destination, const std::string_view contents,
-            const AssetType type, const std::string_view extension, const std::string_view name) {
+            const std::optional<AssetType> type, const std::string_view extension,
+            const std::string_view name) {
             return TextAssetTransaction{
                 database, database.paths(), destination, contents, type, extension, name}
                 .run();
@@ -732,11 +755,17 @@ namespace CometEditor::AssetSourceOperations {
     }
 
     AssetScanReport create_script(
-        AssetDatabase& database, const std::filesystem::path& destination) {
+        AssetDatabase& database, const std::filesystem::path& destination, const ScriptKind kind) {
+        if(kind == ScriptKind::Module) {
+            if(auto valid = Script::module_name(destination); !valid)
+                return operation_error(destination, valid.error());
+            constexpr std::string_view source = "local module = {}\n\nreturn module\n";
+            return create_text_asset(database, destination, source, std::nullopt, ".lua", "Module");
+        }
         if(is_lua_module_source(destination))
             return operation_error(destination,
                 "New Script cannot create a source-only Lua module (.module.lua); "
-                "create modules inside project assets with a source editor");
+                "use New Lua Module instead");
         constexpr std::string_view source = R"(local script = {}
 
 function script:update(dt)

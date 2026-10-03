@@ -24,6 +24,169 @@ namespace Comet::Tests {
         EXPECT_EQ(database.find("actor.lua")->type, AssetType::Script);
     }
 
+    TEST(AssetSourceOperationsTest, CreatesLuaModuleAsSourceOnlyWithoutMetadataOrAssetIdentity) {
+        const TemporaryProject project;
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        std::filesystem::create_directories(project.paths().assets() / "scripts/tools");
+
+        const auto report = SourceOperations::create_script(
+            database, "scripts/tools/math.module.lua", SourceOperations::ScriptKind::Module);
+
+        ASSERT_TRUE(report.succeeded());
+        EXPECT_TRUE(report.snapshot_updated);
+        EXPECT_EQ(report.generated_metadata, 0u);
+        EXPECT_TRUE(report.added_assets.empty());
+        EXPECT_EQ(database.size(), 0u);
+        EXPECT_EQ(database.find("scripts/tools/math.module.lua"), nullptr);
+        const auto path = project.paths().assets() / "scripts/tools/math.module.lua";
+        const auto source = read_text_file(path);
+        ASSERT_TRUE(source);
+        EXPECT_EQ(source.value(), "local module = {}\n\nreturn module\n");
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(path)));
+        EXPECT_FALSE(Script::load(path));
+
+        AssetDatabase reopened(project.paths());
+        ASSERT_TRUE(reopened.scan().succeeded());
+        EXPECT_EQ(reopened.size(), 0u);
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(path)));
+    }
+
+    TEST(AssetSourceOperationsTest, LuaModuleCreationRejectsUnrequireablePathsBeforeWriting) {
+        const TemporaryProject project;
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        std::filesystem::create_directory(project.paths().assets() / "scripts");
+        std::filesystem::create_directory(project.paths().assets() / "bad directory");
+        std::vector<std::filesystem::path> invalid{"", "plain.lua", "upper.MODULE.LUA",
+            "a.b.module.lua", "9number.module.lua", "bad-name.module.lua",
+            "bad directory/shared.module.lua", "../escape.module.lua",
+            "scripts/../escape.module.lua", "scripts\\shared.module.lua",
+            "missing/shared.module.lua", std::string(257, 'a') + ".module.lua",
+            project.paths().assets() / "absolute.module.lua"};
+        invalid.emplace_back(std::string("nul\0name.module.lua", 19));
+        for(const auto& path : invalid) {
+            const auto report = SourceOperations::create_script(
+                database, path, SourceOperations::ScriptKind::Module);
+
+            EXPECT_FALSE(report.succeeded()) << path;
+            EXPECT_FALSE(report.snapshot_updated) << path;
+            EXPECT_EQ(database.size(), 0u);
+        }
+        for(const auto& entry :
+            std::filesystem::recursive_directory_iterator(project.paths().assets()))
+            EXPECT_TRUE(entry.is_directory()) << entry.path();
+        EXPECT_FALSE(std::filesystem::exists(project.paths().root() / "escape.module.lua"));
+    }
+
+    TEST(AssetSourceOperationsTest,
+        LuaModuleCreationRejectsSourceMetadataAndDanglingSymlinkConflicts) {
+        const TemporaryProject project;
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        const auto source = project.paths().assets() / "occupied.module.lua";
+        const auto meta = project.paths().assets() / "reserved.module.lua.meta";
+        ASSERT_TRUE(write_text_file_atomic(source, "return {keep = true}"));
+        ASSERT_TRUE(write_text_file_atomic(meta, "reserved metadata"));
+        for(const auto* path : {"occupied.module.lua", "reserved.module.lua"}) {
+            const auto report = SourceOperations::create_script(
+                database, path, SourceOperations::ScriptKind::Module);
+            EXPECT_FALSE(report.succeeded());
+            EXPECT_FALSE(report.snapshot_updated);
+            EXPECT_TRUE(has_issue_containing(report, "not overwritten"));
+        }
+        EXPECT_EQ(read_text_file(source).value(), "return {keep = true}");
+        EXPECT_EQ(read_text_file(meta).value(), "reserved metadata");
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(source)));
+        EXPECT_FALSE(std::filesystem::exists(project.paths().assets() / "reserved.module.lua"));
+
+        const auto missing = project.paths().assets() / "missing.module.lua";
+        const auto link = project.paths().assets() / "link.module.lua";
+        std::error_code error;
+        std::filesystem::create_symlink(missing, link, error);
+        if(error)
+            GTEST_SKIP() << "Symlinks unavailable: " << error.message();
+        EXPECT_FALSE(SourceOperations::create_script(
+            database, "link.module.lua", SourceOperations::ScriptKind::Module)
+                .succeeded());
+        EXPECT_TRUE(std::filesystem::is_symlink(link));
+        EXPECT_FALSE(std::filesystem::exists(missing));
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(link)));
+    }
+
+    TEST(AssetSourceOperationsTest, LuaModuleCreationRejectsInternalAndExternalDirectoryAliases) {
+        const TemporaryProject project;
+        const TemporaryDirectory outside;
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        const auto real = project.paths().assets() / "real";
+        std::filesystem::create_directory(real);
+        std::error_code error;
+        std::filesystem::create_directory_symlink(real, project.paths().assets() / "alias", error);
+        if(error)
+            GTEST_SKIP() << "Symlinks unavailable: " << error.message();
+        std::filesystem::create_directory_symlink(
+            outside.path(), project.paths().assets() / "external", error);
+        ASSERT_FALSE(error) << error.message();
+
+        const auto internal = SourceOperations::create_script(
+            database, "alias/shared.module.lua", SourceOperations::ScriptKind::Module);
+        EXPECT_FALSE(internal.succeeded());
+        EXPECT_TRUE(has_issue_containing(internal, "symlink aliases"));
+        EXPECT_FALSE(SourceOperations::create_script(
+            database, "external/shared.module.lua", SourceOperations::ScriptKind::Module)
+                .succeeded());
+        EXPECT_TRUE(std::filesystem::is_empty(real));
+        EXPECT_TRUE(std::filesystem::is_empty(outside.path()));
+        EXPECT_EQ(database.size(), 0u);
+    }
+
+    TEST(AssetSourceOperationsTest, TextCreationRollsBackAllKindsWhenCandidateScanFails) {
+        const TemporaryProject project;
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(SourceOperations::create_script(database, "keep.lua").succeeded());
+        const auto handle = database.find("keep.lua")->handle;
+        const auto revision = database.get_revision(handle);
+        const auto generation = database.generation();
+        const auto broken = project.paths().assets() / "broken.mat";
+        ASSERT_TRUE(write_text_file_atomic(broken, "{}"));
+        ASSERT_TRUE(write_text_file_atomic(metadata_path(broken), "invalid metadata"));
+
+        const MaterialData material{.template_name = "unlit_color", .texture_properties = {}};
+        const std::array reports{SourceOperations::create_script(database, "component.lua"),
+            SourceOperations::create_script(
+                database, "shared.module.lua", SourceOperations::ScriptKind::Module),
+            SourceOperations::create_material(database, "material.mat", material)};
+        for(const auto& report : reports) {
+            EXPECT_FALSE(report.succeeded());
+            EXPECT_FALSE(report.snapshot_updated);
+            EXPECT_TRUE(has_issue_containing(report, "creation rolled back"));
+        }
+        for(const auto* name : {"component.lua", "shared.module.lua", "material.mat"}) {
+            EXPECT_FALSE(std::filesystem::exists(project.paths().assets() / name));
+            EXPECT_FALSE(std::filesystem::exists(metadata_path(project.paths().assets() / name)));
+            EXPECT_EQ(database.find(name), nullptr);
+        }
+        EXPECT_EQ(database.generation(), generation);
+        EXPECT_EQ(database.size(), 1u);
+        EXPECT_TRUE(database.is_current(handle, revision));
+        EXPECT_TRUE(std::filesystem::is_empty(project.paths().cache() / "script-create"));
+        EXPECT_TRUE(std::filesystem::is_empty(project.paths().cache() / "module-create"));
+        EXPECT_TRUE(std::filesystem::is_empty(project.paths().cache() / "material-create"));
+
+        ASSERT_TRUE(std::filesystem::remove(broken));
+        ASSERT_TRUE(std::filesystem::remove(metadata_path(broken)));
+        EXPECT_TRUE(SourceOperations::create_script(database, "component.lua").succeeded());
+        EXPECT_TRUE(SourceOperations::create_script(
+            database, "shared.module.lua", SourceOperations::ScriptKind::Module)
+                .succeeded());
+        EXPECT_TRUE(
+            SourceOperations::create_material(database, "material.mat", material).succeeded());
+        EXPECT_EQ(database.size(), 3u);
+        EXPECT_TRUE(database.is_current(handle, revision));
+        EXPECT_FALSE(std::filesystem::exists(project.paths().assets() / "shared.module.lua.meta"));
+    }
+
     TEST(AssetSourceOperationsTest, ScriptMoveRejectsSourceOnlyModuleDestination) {
         const TemporaryProject project;
         AssetDatabase database(project.paths());

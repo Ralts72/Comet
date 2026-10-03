@@ -276,13 +276,12 @@ namespace Comet {
 
         Module* prepare_module(const std::string_view name) {
             // 此 helper 不调用 Lua；所有 C++ 临时值均在回调抛 Lua 错误前析构。
-            if(!valid_module_name(name)) {
-                module_error = "require expects a bounded dotted module name";
+            const auto relative = Script::module_path(name);
+            if(!relative) {
+                module_error = relative.error();
                 return nullptr;
             }
-            std::string relative(name);
-            std::ranges::replace(relative, '.', '/');
-            const std::filesystem::path path(relative + ".module.lua");
+            const auto& path = relative.value();
             const auto existing = modules.find(path);
             if(existing != modules.end()) {
                 if(existing->second.reference != LUA_NOREF)
@@ -788,6 +787,30 @@ namespace Comet {
         impl->initializing = false;
         return Result<std::unique_ptr<Instance>, Error>::success(
             std::unique_ptr<Instance>(new Instance(std::move(impl))));
+    }
+
+    Result<std::filesystem::path> Script::module_path(const std::string_view name) {
+        if(!valid_module_name(name))
+            return Result<std::filesystem::path>::failure(
+                "require expects a bounded dotted module name");
+        std::string relative(name);
+        std::ranges::replace(relative, '.', '/');
+        return Result<std::filesystem::path>::success(relative + ".module.lua");
+    }
+
+    Result<std::string> Script::module_name(const std::filesystem::path& relative_path) {
+        constexpr std::string_view suffix = ".module.lua";
+        const auto path = relative_path.generic_string();
+        if(!safe_source_path(relative_path) || !path.ends_with(suffix))
+            return Result<std::string>::failure(
+                "Module source must be a project-relative .module.lua file");
+        auto name = path.substr(0, path.size() - suffix.size());
+        std::ranges::replace(name, '/', '.');
+        const auto resolved = module_path(name);
+        if(!resolved || resolved.value() != relative_path)
+            return Result<std::string>::failure(
+                "Module path must use ASCII identifier segments with at most 256 name bytes");
+        return Result<std::string>::success(std::move(name));
     }
 
     Result<std::shared_ptr<Script>, Error> Script::create(std::string source, std::string name) {

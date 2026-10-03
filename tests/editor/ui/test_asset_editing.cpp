@@ -3,6 +3,7 @@
 #include "render/material/material_layout.h"
 #include "render/material/material_programs.h"
 #include "assets/project_panel.h"
+#include "assets/source_operations.h"
 #include "inspector/property_editor_registry.h"
 #include "scene/selection.h"
 #include "scene/scene_serializer.h"
@@ -667,6 +668,7 @@ namespace CometEditor::Tests {
         const auto request = project->take_create_script_request();
         ASSERT_TRUE(request);
         EXPECT_EQ(request->destination, "generated.lua");
+        EXPECT_EQ(request->kind, AssetSourceOperations::ScriptKind::Component);
         EXPECT_FALSE(project->take_create_script_request());
         Comet::AssetScanReport failed;
         failed.issues.push_back({request->destination, "Write denied"});
@@ -682,6 +684,79 @@ namespace CometEditor::Tests {
         EXPECT_EQ(selection.get_selected_asset(), created->handle);
         frame();
         EXPECT_FALSE(ImGui::IsPopupOpen("New Script", ImGuiPopupFlags_AnyPopupId));
+    }
+
+    TEST_F(AssetEditingUiTest, ProjectCreatesModuleAfterCorrectableErrorsWithoutChangingSelection) {
+        selection.select_asset(material);
+        project = std::make_unique<ProjectPanel>(
+            database, paths.assets(), Comet::AssetScanReport{}, selection, history);
+        frame();
+        frame();
+        auto* window = ImGui::FindWindowByName("Project");
+        ASSERT_NE(window, nullptr);
+        auto& io = ImGui::GetIO();
+        io.AddMousePosEvent(window->WorkRect.Min.x + 20, window->WorkRect.Max.y - 20);
+        frame();
+        io.AddMouseButtonEvent(1, true);
+        frame();
+        io.AddMouseButtonEvent(1, false);
+        frame();
+        frame();
+        ASSERT_FALSE(GImGui->OpenPopupStack.empty());
+        const auto* popup = GImGui->OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        click(widget_point(popup->Name, "New Lua Module..."));
+        frame();
+        click(widget_point("New Lua Module", "Name"));
+        io.AddInputCharactersUTF8("bad.name");
+        frame();
+        click(widget_point("New Lua Module", "Create"));
+        EXPECT_FALSE(project->take_create_script_request());
+        EXPECT_TRUE(ImGui::IsPopupOpen("New Lua Module", ImGuiPopupFlags_AnyPopupId));
+        EXPECT_EQ(selection.get_selected_asset(), material);
+
+        click(widget_point("New Lua Module", "Name"));
+        const auto primary = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+        io.AddKeyEvent(primary, true);
+        io.AddKeyEvent(ImGuiKey_A, true);
+        frame();
+        io.AddKeyEvent(ImGuiKey_A, false);
+        io.AddKeyEvent(primary, false);
+        frame();
+        io.AddInputCharactersUTF8("shared_score");
+        frame();
+        click(widget_point("New Lua Module", "Create"));
+        const auto request = project->take_create_script_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->destination, "shared_score.module.lua");
+        EXPECT_EQ(request->kind, AssetSourceOperations::ScriptKind::Module);
+        EXPECT_FALSE(project->take_create_script_request());
+        Comet::AssetScanReport failed;
+        failed.issues.push_back({request->destination, "Write denied"});
+        project->complete_create_script(*request, failed);
+        frame();
+        EXPECT_TRUE(ImGui::IsPopupOpen("New Lua Module", ImGuiPopupFlags_AnyPopupId));
+        EXPECT_EQ(selection.get_selected_asset(), material);
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / request->destination));
+
+        click(widget_point("New Lua Module", "Create"));
+        const auto retry = project->take_create_script_request();
+        ASSERT_TRUE(retry);
+        EXPECT_EQ(retry->destination, request->destination);
+        EXPECT_EQ(retry->kind, AssetSourceOperations::ScriptKind::Module);
+        auto report =
+            AssetSourceOperations::create_script(database, retry->destination, retry->kind);
+        ASSERT_TRUE(report.succeeded());
+        EXPECT_TRUE(report.snapshot_updated);
+        project->complete_create_script(*retry, report);
+        project->update_scan_report(std::move(report));
+        frame();
+        EXPECT_FALSE(ImGui::IsPopupOpen("New Lua Module", ImGuiPopupFlags_AnyPopupId));
+        EXPECT_EQ(selection.get_selected_asset(), material);
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / retry->destination));
+        EXPECT_FALSE(
+            std::filesystem::exists(Comet::metadata_path(paths.assets() / retry->destination)));
+        EXPECT_EQ(database.find(retry->destination), nullptr);
     }
 
     TEST_F(AssetEditingUiTest, ProjectScriptNameInputDoesNotTruncateLongText) {

@@ -3,6 +3,7 @@
 #include "assets/asset_reference.h"
 #include "scene/command_history.h"
 #include "ui/widgets.h"
+#include "scripting/script.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -221,6 +222,8 @@ namespace CometEditor {
                 request_create_material({});
             if(ImGui::MenuItem(Ui::label("New Script...").c_str()))
                 request_create_script({});
+            if(ImGui::MenuItem(Ui::label("New Lua Module...").c_str()))
+                request_create_script({}, AssetSourceOperations::ScriptKind::Module);
             if(ImGui::MenuItem(Ui::label("Refresh").c_str()))
                 m_refresh_requested = true;
             ImGui::EndPopup();
@@ -250,6 +253,8 @@ namespace CometEditor {
                 request_create_material(directory);
             if(ImGui::MenuItem(Ui::label("New Script...").c_str()))
                 request_create_script(directory);
+            if(ImGui::MenuItem(Ui::label("New Lua Module...").c_str()))
+                request_create_script(directory, AssetSourceOperations::ScriptKind::Module);
             ImGui::EndPopup();
         }
     }
@@ -265,9 +270,11 @@ namespace CometEditor {
         m_create_requested = true;
     }
 
-    void ProjectPanel::request_create_script(const std::filesystem::path& directory) {
+    void ProjectPanel::request_create_script(
+        const std::filesystem::path& directory, const AssetSourceOperations::ScriptKind kind) {
         m_create_directory = directory;
         m_create_name.clear();
+        m_create_script_kind = kind;
         m_operation_error.clear();
         m_close_create_script = false;
         m_create_script_requested = true;
@@ -338,7 +345,9 @@ namespace CometEditor {
     }
 
     void ProjectPanel::render_create_script_dialog() {
-        constexpr const char* title = "New Script";
+        const bool module = m_create_script_kind == AssetSourceOperations::ScriptKind::Module;
+        const char* title = module ? "New Lua Module" : "New Script";
+        const std::string_view suffix = module ? ".module.lua" : ".lua";
         const bool opening = std::exchange(m_create_script_requested, false);
         if(opening)
             ImGui::OpenPopup(title);
@@ -356,15 +365,29 @@ namespace CometEditor {
         ImGui::SetNextItemWidth(320.0f);
         const bool submitted = input_asset_name(m_create_name);
         ImGui::SameLine();
-        ImGui::TextUnformatted(".lua");
+        ImGui::TextUnformatted(suffix.data());
+        auto name = m_create_name;
+        if(!name.ends_with(suffix))
+            name += suffix;
+        const auto destination = m_create_directory / name;
+        const auto module_name = Comet::Script::module_name(destination);
+        if(module) {
+            ImGui::TextWrapped(
+                "%s", Ui::text("Lua modules are source files, not attachable components."));
+            if(module_name) {
+                auto reference = "require(\"" + module_name.value() + "\")";
+                ImGui::SetNextItemWidth(320.0f);
+                Ui::input_text(
+                    Ui::label("Module reference").c_str(), reference, ImGuiInputTextFlags_ReadOnly);
+            }
+        }
         if(ImGui::Button(Ui::label("Create").c_str()) || submitted) {
             if(!valid_asset_name(m_create_name))
                 m_operation_error = "Enter a file name, not a path";
+            else if(module && !module_name)
+                m_operation_error = module_name.error();
             else {
-                auto name = m_create_name;
-                if(!name.ends_with(".lua"))
-                    name += ".lua";
-                m_pending_script_create = CreateScriptRequest{m_create_directory / name};
+                m_pending_script_create = CreateScriptRequest{destination, m_create_script_kind};
                 m_operation_error.clear();
             }
         }

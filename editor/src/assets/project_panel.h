@@ -3,6 +3,7 @@
 #include "ui/editor_panel.h"
 #include "core/math_utils.h"
 #include "assets/material_editing.h"
+#include "assets/source_operations.h"
 
 #include <array>
 #include <map>
@@ -32,6 +33,7 @@ namespace CometEditor {
         };
         struct CreateScriptRequest {
             std::filesystem::path destination;
+            AssetSourceOperations::ScriptKind kind = AssetSourceOperations::ScriptKind::Component;
         };
 
         ProjectPanel(const Comet::AssetDatabase& database, std::filesystem::path asset_root,
@@ -81,7 +83,8 @@ namespace CometEditor {
         void render_delete_dialog();
         void render_directory_menu(const std::filesystem::path& directory);
         void request_create_material(const std::filesystem::path& directory);
-        void request_create_script(const std::filesystem::path& directory);
+        void request_create_script(const std::filesystem::path& directory,
+            AssetSourceOperations::ScriptKind kind = AssetSourceOperations::ScriptKind::Component);
         void render_create_material_dialog();
         void render_create_script_dialog();
         void complete_create_asset(const std::filesystem::path& destination,
@@ -117,6 +120,8 @@ namespace CometEditor {
         std::optional<CreateMaterialRequest> m_pending_create;
         bool m_create_script_requested = false;
         bool m_close_create_script = false;
+        AssetSourceOperations::ScriptKind m_create_script_kind =
+            AssetSourceOperations::ScriptKind::Component;
         std::optional<CreateScriptRequest> m_pending_script_create;
     };
 }

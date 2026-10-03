@@ -9,8 +9,58 @@
 #include <gtest/gtest.h>
 #include <array>
 #include <limits>
+#include <utility>
 
 namespace Comet::Tests {
+    TEST(ScriptModulePathTest, NamesAndProjectRelativePathsUseOneExactAsciiMapping) {
+        for(const auto& [name, path] : {std::pair{"score", "score.module.lua"},
+                std::pair{"scripts.demo_score", "scripts/demo_score.module.lua"},
+                std::pair{"Scripts.Score_2", "Scripts/Score_2.module.lua"},
+                std::pair{"_shared.rules.v2", "_shared/rules/v2.module.lua"}}) {
+            SCOPED_TRACE(name);
+            const auto mapped = Script::module_path(name);
+            ASSERT_TRUE(mapped) << mapped.error();
+            EXPECT_EQ(mapped.value(), path);
+            const auto reversed = Script::module_name(mapped.value());
+            ASSERT_TRUE(reversed) << reversed.error();
+            EXPECT_EQ(reversed.value(), name);
+        }
+        const auto boundary = std::string(63, 'a') + "." + std::string(63, 'b') + "."
+                              + std::string(63, 'c') + "." + std::string(64, 'd');
+        ASSERT_EQ(boundary.size(), 256u);
+        const auto mapped = Script::module_path(boundary);
+        ASSERT_TRUE(mapped) << mapped.error();
+        const auto reversed = Script::module_name(mapped.value());
+        ASSERT_TRUE(reversed) << reversed.error();
+        EXPECT_EQ(reversed.value(), boundary);
+        EXPECT_FALSE(Script::module_path(boundary + "x"));
+        EXPECT_FALSE(Script::module_name(std::string(257, 'a') + ".module.lua"));
+    }
+
+    TEST(ScriptModulePathTest, RejectsUnsafeNamesAndPathsThatWouldAliasAnotherModule) {
+        for(const auto& name :
+            {std::string{}, std::string("."), std::string(".one"), std::string("one."),
+                std::string("one..two"), std::string("../outside"), std::string("one/two"),
+                std::string("one\\two"), std::string("1wrong"), std::string("one.2wrong"),
+                std::string("-bad"), std::string("one.two-module"), std::string("one:two"),
+                std::string(" one"), std::string("脚本.score"), std::string("one\0two", 7)}) {
+            SCOPED_TRACE(name);
+            EXPECT_FALSE(Script::module_path(name));
+        }
+        for(const auto& path :
+            {std::string{}, std::string("/score.module.lua"), std::string("../score.module.lua"),
+                std::string("scripts/../score.module.lua"), std::string("./score.module.lua"),
+                std::string("score.lua"), std::string("score.Module.lua"),
+                std::string("score.module.LUA"), std::string("foo.bar.module.lua"),
+                std::string("a.b/score.module.lua"), std::string("scripts\\score.module.lua"),
+                std::string("1bad.module.lua"), std::string("scripts/2bad.module.lua"),
+                std::string("score.module.lua/"), std::string("脚本/score.module.lua"),
+                std::string("C:/score.module.lua"), std::string("score") + '\0' + ".module.lua"}) {
+            SCOPED_TRACE(path);
+            EXPECT_FALSE(Script::module_name(path));
+        }
+    }
+
     class ScriptModulesTest: public ::testing::Test {
     protected:
         TemporaryDirectory directory;

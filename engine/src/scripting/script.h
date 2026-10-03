@@ -90,6 +90,9 @@ namespace Comet {
         [[nodiscard]] static Result<std::vector<std::shared_ptr<Script>>, LoadFailure> load_group(
             const std::filesystem::path& assets_root,
             std::span<const std::filesystem::path> relative_paths);
+        [[nodiscard]] static Result<std::filesystem::path> module_path(std::string_view name);
+        [[nodiscard]] static Result<std::string> module_name(
+            const std::filesystem::path& relative_path);
         [[nodiscard]] Result<std::unique_ptr<Instance>, Error> instantiate() const;
         [[nodiscard]] Result<void, Error> validate_overrides(const ParameterMap& overrides) const;
         [[nodiscard]] Result<ParameterMap, Error> resolve_parameters(

@@ -449,7 +449,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(Comet::MaterialSerializer{}.load(paths.assets() / "renamed.mat").value(), unlit);
     }
 
-    TEST_F(EditorAssetsTest, CreatesModuleScriptWithStableIdentityAndLoadsIt) {
+    TEST_F(EditorAssetsTest, CreatesComponentScriptWithStableIdentityAndLoadsIt) {
         const auto paths = Comet::ProjectPaths(root);
         std::filesystem::create_directory(paths.assets() / "scripts");
         const auto report = assets->create_script("scripts/new_script.lua");
@@ -481,6 +481,110 @@ namespace CometEditor::Tests {
         Comet::AssetDatabase reopened(paths);
         ASSERT_TRUE(reopened.scan().succeeded());
         ASSERT_NE(reopened.find(record->handle), nullptr);
+    }
+
+    TEST_F(EditorAssetsTest, CreatesLuaModuleWithoutAddingAssetIdentityOrRuntimeEntry) {
+        const auto paths = Comet::ProjectPaths(root);
+        std::filesystem::create_directory(paths.assets() / "scripts");
+        const auto indexed = assets->database().size();
+        const auto registered = runtime.size();
+
+        const auto report = assets->create_script(
+            "scripts/shared.module.lua", AssetSourceOperations::ScriptKind::Module);
+
+        ASSERT_TRUE(report.succeeded());
+        EXPECT_TRUE(report.snapshot_updated);
+        EXPECT_TRUE(report.added_assets.empty());
+        EXPECT_EQ(report.generated_metadata, 0u);
+        EXPECT_EQ(assets->database().size(), indexed);
+        EXPECT_EQ(assets->database().find("scripts/shared.module.lua"), nullptr);
+        EXPECT_EQ(runtime.size(), registered);
+        const auto path = paths.assets() / "scripts/shared.module.lua";
+        EXPECT_TRUE(std::filesystem::is_regular_file(path));
+        EXPECT_FALSE(std::filesystem::exists(Comet::metadata_path(path)));
+        const auto source = Comet::read_text_file(path);
+        ASSERT_TRUE(source);
+        EXPECT_EQ(source.value(), "local module = {}\n\nreturn module\n");
+
+        const auto duplicate = assets->create_script(
+            "scripts/shared.module.lua", AssetSourceOperations::ScriptKind::Module);
+        EXPECT_FALSE(duplicate.succeeded());
+        EXPECT_FALSE(duplicate.snapshot_updated);
+        EXPECT_EQ(Comet::read_text_file(path).value(), source.value());
+        EXPECT_EQ(assets->database().size(), indexed);
+        EXPECT_EQ(runtime.size(), registered);
+    }
+
+    TEST_F(EditorAssetsTest, CreatingMissingLuaModuleRestoresBothTrackedScriptConsumers) {
+        const auto paths = Comet::ProjectPaths(root);
+        std::filesystem::create_directory(paths.assets() / "scripts");
+        ASSERT_TRUE(Comet::write_text_file_atomic(paths.assets() / "scripts/first.lua", R"(
+            local shared = require('scripts.shared')
+            return {update = function()
+                shared.visits = (shared.visits or 0) + 1
+                comet.translate(shared.visits, 0, 0)
+            end}
+        )"));
+        ASSERT_TRUE(Comet::write_text_file_atomic(paths.assets() / "scripts/second.lua", R"(
+            local shared = require('scripts.shared')
+            return {update = function()
+                shared.visits = (shared.visits or 0) + 10
+                comet.translate(0, shared.visits, 0)
+            end}
+        )"));
+        ASSERT_TRUE(assets->refresh().succeeded());
+        const auto* first_record = assets->database().find("scripts/first.lua");
+        const auto* second_record = assets->database().find("scripts/second.lua");
+        ASSERT_NE(first_record, nullptr);
+        ASSERT_NE(second_record, nullptr);
+        const auto first = first_record->handle;
+        const auto second = second_record->handle;
+        const auto indexed = assets->database().size();
+        const auto registered = runtime.size();
+        Comet::Scene scene;
+        auto left = scene.create_entity();
+        auto right = scene.create_entity();
+        left.add_component<Comet::ScriptComponent>().asset = first;
+        right.add_component<Comet::ScriptComponent>().asset = second;
+        const auto components = Comet::create_scene_component_registry();
+        assets->track_scene(scene, components);
+        ASSERT_TRUE(
+            assets->restore_references({.max_results = 8, .max_time = std::chrono::seconds(1)}));
+        EXPECT_FALSE(runtime.contains(first));
+        EXPECT_FALSE(runtime.contains(second));
+        const auto dependents =
+            assets->database().get_import_dependents("scripts/shared.module.lua");
+        ASSERT_EQ(dependents.size(), 2u);
+        EXPECT_NE(std::ranges::find(dependents, first), dependents.end());
+        EXPECT_NE(std::ranges::find(dependents, second), dependents.end());
+
+        const auto report = assets->create_script(
+            "scripts/shared.module.lua", AssetSourceOperations::ScriptKind::Module);
+
+        ASSERT_TRUE(report.succeeded());
+        ASSERT_TRUE(report.snapshot_updated);
+        EXPECT_TRUE(report.added_assets.empty());
+        EXPECT_EQ(report.modified_assets.size(), 2u);
+        EXPECT_NE(std::ranges::find(report.modified_assets, first), report.modified_assets.end());
+        EXPECT_NE(std::ranges::find(report.modified_assets, second), report.modified_assets.end());
+        EXPECT_EQ(assets->database().size(), indexed);
+        EXPECT_EQ(assets->database().find("scripts/shared.module.lua"), nullptr);
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "scripts/shared.module.lua.meta"));
+        ASSERT_TRUE(
+            assets->restore_references({.max_results = 8, .max_time = std::chrono::seconds(1)}));
+        ASSERT_TRUE(runtime.resolve<Comet::Script>(first));
+        ASSERT_TRUE(runtime.resolve<Comet::Script>(second));
+        EXPECT_EQ(runtime.size(), registered + 2);
+        Comet::SceneRuntime player;
+        ASSERT_TRUE(player.add_system(std::make_unique<Comet::ScriptSystem>(runtime)));
+        ASSERT_TRUE(player.start(scene));
+        ASSERT_TRUE(player.advance(0));
+        EXPECT_FLOAT_EQ(left.get_component<Comet::TransformComponent>().translation.x, 1);
+        EXPECT_FLOAT_EQ(right.get_component<Comet::TransformComponent>().translation.y, 10);
+        ASSERT_TRUE(player.advance(0));
+        EXPECT_FLOAT_EQ(left.get_component<Comet::TransformComponent>().translation.x, 3);
+        EXPECT_FLOAT_EQ(right.get_component<Comet::TransformComponent>().translation.y, 30);
+        ASSERT_TRUE(player.stop());
     }
 
     TEST_F(EditorAssetsTest, ScriptSourceRefreshKeepsLastGoodVersionAndReloadsAfterRepair) {

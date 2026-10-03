@@ -369,6 +369,9 @@ Play 实例换代后只清除旧脚本参数控件的活动状态，不打断其
 不迁移任意 Lua 状态、不自动回写 Edit 参数；独立 app 可消费已发布新版，但没有新增源文件监听。
 
 项目内 require 从 assets 根将点分名称解析为 `.module.lua`，模块是 source-only，不占 AssetRegistry／Handle／`.meta`。
+`Script::module_path/module_name` 定义同一组名称与相对路径映射；编辑器创建入口复用该规则，不另写一套解析策略。
+Project 的组件／模块请求沿 `EditorAssets → AssetSourceOperations` 共用文本文件创建事务，
+模块不发布 metadata，只发布源码并提交候选扫描；成功仍沿既有依赖更新路径恢复消费者，不直接操作 Lua VM。
 Script::load_group 逐入口执行初始化以收集传递闭包，同批共用读取字节，随后冻结；Instance 只能加载自身已准备的闭包。
 模块返回 table，每 VM 独立缓存并诊断循环；运行回调只可返回已缓存模块，不在 Runtime 中找文件或执行新依赖。
 不开放 package／io／os／原生加载，模块路径不允许符号链接别名，避免逻辑路径与依赖身份不一致。

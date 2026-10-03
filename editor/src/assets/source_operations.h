@@ -15,6 +15,8 @@
 namespace CometEditor::AssetSourceOperations {
     using TrashMover = std::function<Comet::Result<void>(const std::filesystem::path&)>;
 
+    enum class ScriptKind { Component, Module };
+
     class PreparedFileImport final {
     public:
         PreparedFileImport(PreparedFileImport&&) noexcept;
@@ -38,8 +40,8 @@ namespace CometEditor::AssetSourceOperations {
     [[nodiscard]] Comet::AssetScanReport create_material(Comet::AssetDatabase& database,
         const std::filesystem::path& destination, const Comet::MaterialData& data);
 
-    [[nodiscard]] Comet::AssetScanReport create_script(
-        Comet::AssetDatabase& database, const std::filesystem::path& destination);
+    [[nodiscard]] Comet::AssetScanReport create_script(Comet::AssetDatabase& database,
+        const std::filesystem::path& destination, ScriptKind kind = ScriptKind::Component);
 
     [[nodiscard]] Comet::AssetScanReport move(Comet::AssetDatabase& database,
         Comet::AssetHandle handle, const std::filesystem::path& destination);

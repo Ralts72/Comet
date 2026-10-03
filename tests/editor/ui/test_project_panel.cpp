@@ -252,6 +252,60 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(project->file_drop_directory({point.x, point.y}));
     }
 
+    TEST_F(ProjectPanelTest, DirectoryMenuCreatesModuleWithoutDuplicatingExplicitSuffix) {
+        click(row_point(1), 1);
+        ASSERT_FALSE(GImGui->OpenPopupStack.empty());
+        auto* popup = GImGui->OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID("New Lua Module..."));
+        frame();
+        frame();
+        auto* dialog = ImGui::FindWindowByName("New Lua Module");
+        ASSERT_NE(dialog, nullptr);
+        ASSERT_TRUE(dialog->Active);
+        ImGui::ActivateItemByID(dialog->GetID("Name"));
+        frame();
+        ImGui::GetIO().AddInputCharactersUTF8("shared.module.lua");
+        frame();
+        ImGui::ActivateItemByID(dialog->GetID("Create"));
+        frame();
+        const auto request = project->take_create_script_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->destination, "folder/shared.module.lua");
+        EXPECT_EQ(request->kind, AssetSourceOperations::ScriptKind::Module);
+    }
+
+    TEST_F(ProjectPanelTest, ModuleSourceIsSearchableWithoutSelectionOrAssetDragPayload) {
+        auto report = AssetSourceOperations::create_script(
+            database, "folder/shared.module.lua", AssetSourceOperations::ScriptKind::Module);
+        ASSERT_TRUE(report.succeeded());
+        project->update_scan_report(std::move(report));
+        ASSERT_EQ(database.find("folder/shared.module.lua"), nullptr);
+        const auto selected = database.find("a.png")->handle;
+        selection.select_asset(selected);
+        search("shared.module.lua");
+        const auto point = row_point(2);
+        EXPECT_EQ(
+            project->file_drop_directory({point.x, point.y}), std::filesystem::path("folder"));
+        click(point);
+        EXPECT_EQ(selection.get_selected_asset(), selected);
+        auto& io = ImGui::GetIO();
+        io.AddMousePosEvent(point.x, point.y);
+        frame();
+        io.AddMouseButtonEvent(0, true);
+        frame();
+        io.AddMousePosEvent(point.x + 25, point.y);
+        frame();
+        frame();
+        EXPECT_FALSE(GImGui->DragDropActive);
+        EXPECT_EQ(ImGui::GetDragDropPayload(), nullptr);
+        io.AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_EQ(selection.get_selected_asset(), selected);
+        EXPECT_EQ(move_count, 0);
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / "folder/shared.module.lua"));
+    }
+
     TEST_F(ProjectPanelTest, DeleteRequiresConfirmationAndClearsRemovedSelection) {
         const auto* record = database.find("a.png");
         ASSERT_NE(record, nullptr);
