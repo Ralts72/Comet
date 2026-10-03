@@ -119,6 +119,7 @@ set(INTEGRATION_SOURCES
         render/test_render_graph_gpu.cpp
         render/test_render_pipeline_gpu.cpp
         render/test_scene_resolver.cpp
+        render/test_script_material.cpp
         runtime/test_engine.cpp
         runtime/test_entry.cpp)
 set(ISOLATED_TEST_SOURCES
