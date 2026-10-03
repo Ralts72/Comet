@@ -31,7 +31,7 @@ namespace CometEditor::Tests {
         SelectionService selection{scene};
         std::unique_ptr<ProjectPanel> project;
         int move_count = 0;
-        int module_rename_count = 0;
+        int module_move_count = 0;
         int refresh_count = 0;
         bool consume_requests = true;
         bool reject_trash = false;
@@ -87,11 +87,11 @@ namespace CometEditor::Tests {
                     project->complete_move(*request, report);
                     project->update_scan_report(std::move(report));
                 }
-                if(const auto request = project->take_rename_module_request()) {
-                    ++module_rename_count;
-                    auto report = AssetSourceOperations::rename_module(
+                if(const auto request = project->take_move_module_request()) {
+                    ++module_move_count;
+                    auto report = AssetSourceOperations::move_module(
                         database, request->source, request->destination);
-                    project->complete_rename_module(*request, report);
+                    project->complete_move_module(*request, report);
                     project->update_scan_report(std::move(report));
                 }
                 if(const auto request = project->take_delete_module_request()) {
@@ -336,13 +336,80 @@ namespace CometEditor::Tests {
         io.AddMousePosEvent(point.x + 25, point.y);
         frame();
         frame();
-        EXPECT_FALSE(GImGui->DragDropActive);
-        EXPECT_EQ(ImGui::GetDragDropPayload(), nullptr);
+        EXPECT_TRUE(GImGui->DragDropActive);
+        const auto* payload = ImGui::GetDragDropPayload();
+        ASSERT_NE(payload, nullptr);
+        EXPECT_FALSE(read_asset_drag_payload(payload));
         io.AddMouseButtonEvent(0, false);
         frame();
         EXPECT_EQ(selection.get_selected_asset(), selected);
         EXPECT_EQ(move_count, 0);
         EXPECT_TRUE(std::filesystem::exists(paths.assets() / "folder/shared.module.lua"));
+    }
+
+    TEST_F(ProjectPanelTest, ModuleDragMovesToClosedFolderAndBackWithoutAssetIdentity) {
+        auto report = AssetSourceOperations::create_script(
+            database, "shared.module.lua", AssetSourceOperations::ScriptKind::Module);
+        ASSERT_TRUE(report.succeeded());
+        project->update_scan_report(std::move(report));
+        const auto selected = database.find("a.png")->handle;
+        selection.select_asset(selected);
+        const auto generation = history.generation();
+        click(row_point(1));
+
+        ASSERT_NO_FATAL_FAILURE(begin_drag(4));
+        ASSERT_NE(ImGui::GetDragDropPayload(), nullptr);
+        EXPECT_FALSE(read_asset_drag_payload(ImGui::GetDragDropPayload()));
+        drop(1);
+        EXPECT_EQ(module_move_count, 1);
+        EXPECT_EQ(move_count, 0);
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "shared.module.lua"));
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / "folder/shared.module.lua"));
+        EXPECT_EQ(selection.get_selected_asset(), selected);
+
+        click(row_point(1));
+        ASSERT_NO_FATAL_FAILURE(begin_drag(3));
+        drop(0);
+        EXPECT_EQ(module_move_count, 2);
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / "shared.module.lua"));
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "folder/shared.module.lua"));
+        ASSERT_NO_FATAL_FAILURE(begin_drag(5));
+        drop(0);
+        EXPECT_EQ(module_move_count, 2);
+        EXPECT_EQ(selection.get_selected_asset(), selected);
+        EXPECT_EQ(history.generation(), generation);
+        EXPECT_FALSE(history.can_undo());
+        EXPECT_EQ(database.size(), 3u);
+        EXPECT_EQ(database.find("shared.module.lua"), nullptr);
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "shared.module.lua.meta"));
+    }
+
+    TEST_F(ProjectPanelTest, ModuleDropQueuesAPathRequestAndPreservesConflictingFiles) {
+        consume_requests = false;
+        for(const char* name : {"shared.module.lua", "folder/shared.module.lua"}) {
+            const auto report = AssetSourceOperations::create_script(
+                database, name, AssetSourceOperations::ScriptKind::Module);
+            ASSERT_TRUE(report.succeeded());
+            project->update_scan_report(report);
+        }
+        frame();
+        ASSERT_NO_FATAL_FAILURE(begin_drag(6));
+        drop(1);
+        const auto request = project->take_move_module_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->source, "shared.module.lua");
+        EXPECT_EQ(request->destination, "folder/shared.module.lua");
+        EXPECT_FALSE(project->take_move_request());
+        EXPECT_FALSE(project->take_move_module_request());
+        const auto report =
+            AssetSourceOperations::move_module(database, request->source, request->destination);
+        EXPECT_FALSE(report.succeeded());
+        EXPECT_FALSE(report.snapshot_updated);
+        project->complete_move_module(*request, report);
+        project->update_scan_report(report);
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / request->source));
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / request->destination));
+        EXPECT_EQ(database.size(), 3u);
     }
 
     TEST_F(ProjectPanelTest, ModuleSourceCanOpenRenameWithoutChangingAssetSelection) {
@@ -364,19 +431,19 @@ namespace CometEditor::Tests {
         EXPECT_EQ(move_count, 0);
 
         rename("renamed.module.lua");
-        const auto request = project->take_rename_module_request();
+        const auto request = project->take_move_module_request();
         ASSERT_TRUE(request);
         EXPECT_EQ(request->source, "folder/shared.module.lua");
         EXPECT_EQ(request->destination, "folder/renamed.module.lua");
-        EXPECT_FALSE(project->take_rename_module_request());
+        EXPECT_FALSE(project->take_move_module_request());
         EXPECT_FALSE(project->take_move_request());
         EXPECT_TRUE(std::filesystem::exists(paths.assets() / request->source));
         EXPECT_FALSE(std::filesystem::exists(paths.assets() / request->destination));
         EXPECT_TRUE(ImGui::FindWindowByName("Rename Asset")->Active);
         report =
-            AssetSourceOperations::rename_module(database, request->source, request->destination);
+            AssetSourceOperations::move_module(database, request->source, request->destination);
         ASSERT_TRUE(report.succeeded());
-        project->complete_rename_module(*request, report);
+        project->complete_move_module(*request, report);
         project->update_scan_report(std::move(report));
         frame();
         frame();
@@ -403,18 +470,18 @@ namespace CometEditor::Tests {
         open_rename(2);
         rename("../escape");
         rename("bad.name");
-        EXPECT_EQ(module_rename_count, 0);
+        EXPECT_EQ(module_move_count, 0);
         EXPECT_TRUE(ImGui::FindWindowByName("Rename Asset")->Active);
 
         rename("occupied");
-        EXPECT_EQ(module_rename_count, 1);
+        EXPECT_EQ(module_move_count, 1);
         EXPECT_TRUE(ImGui::FindWindowByName("Rename Asset")->Active);
         EXPECT_TRUE(std::filesystem::exists(paths.assets() / "folder/shared.module.lua"));
         EXPECT_TRUE(std::filesystem::exists(paths.assets() / "folder/occupied.module.lua"));
 
         rename("recovered");
         frame();
-        EXPECT_EQ(module_rename_count, 2);
+        EXPECT_EQ(module_move_count, 2);
         EXPECT_FALSE(ImGui::FindWindowByName("Rename Asset")->Active);
         EXPECT_FALSE(std::filesystem::exists(paths.assets() / "folder/shared.module.lua"));
         EXPECT_TRUE(std::filesystem::exists(paths.assets() / "folder/recovered.module.lua"));
@@ -433,7 +500,7 @@ namespace CometEditor::Tests {
         open_rename(2);
         rename("shared.module.lua");
         EXPECT_FALSE(ImGui::FindWindowByName("Rename Asset")->Active);
-        EXPECT_EQ(module_rename_count, 0);
+        EXPECT_EQ(module_move_count, 0);
 
         open_rename(2);
         auto* dialog = ImGui::FindWindowByName("Rename Asset");
@@ -441,8 +508,8 @@ namespace CometEditor::Tests {
         frame();
         frame();
         EXPECT_FALSE(dialog->Active);
-        EXPECT_EQ(module_rename_count, 0);
-        EXPECT_FALSE(project->take_rename_module_request());
+        EXPECT_EQ(module_move_count, 0);
+        EXPECT_FALSE(project->take_move_module_request());
 
         const auto asset = database.find("a.png")->handle;
         search("a.png");
@@ -452,7 +519,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(moved_handle, asset);
         EXPECT_EQ(database.find(asset)->path, "renamed_asset.png");
         EXPECT_TRUE(std::filesystem::exists(paths.assets() / "renamed_asset.png.meta"));
-        EXPECT_EQ(module_rename_count, 0);
+        EXPECT_EQ(module_move_count, 0);
         EXPECT_TRUE(std::filesystem::exists(paths.assets() / "folder/shared.module.lua"));
     }
 

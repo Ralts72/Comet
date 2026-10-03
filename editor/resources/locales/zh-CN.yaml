@@ -125,7 +125,7 @@
 "New module reference": "新模块引用"
 "Invalid module reference": "无效的模块引用"
 "Source code is not changed; update require references manually.": "源代码不会自动修改，请手工更新 require 引用。"
-"Module could not be renamed": "无法重命名模块"
+"Module could not be moved or renamed": "无法移动或重命名模块"
 "Create": "创建"
 "Cancel": "取消"
 "Open": "打开"

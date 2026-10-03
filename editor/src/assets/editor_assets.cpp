@@ -6,6 +6,7 @@
 #include "asset/serialization/material_serializer.h"
 #include "assets/source_operations.h"
 #include "core/task_scheduler.h"
+#include "scripting/script.h"
 
 #include <algorithm>
 #include <unordered_set>
@@ -360,12 +361,16 @@ namespace CometEditor {
         return report;
     }
 
-    Comet::AssetScanReport EditorAssets::rename_module(
+    Comet::AssetScanReport EditorAssets::move_module(
         const std::filesystem::path& source, const std::filesystem::path& destination) {
-        auto report = AssetSourceOperations::rename_module(m_database, source, destination);
+        auto report = AssetSourceOperations::move_module(m_database, source, destination);
         if(report.snapshot_updated) {
             acknowledge(source);
             acknowledge(destination);
+            LOG_INFO(
+                "Moved Lua module from require(\"{}\") to require(\"{}\"); update Lua require calls manually",
+                Comet::Script::module_name(source).value(),
+                Comet::Script::module_name(destination).value());
         }
         accept_scan(report);
         return report;

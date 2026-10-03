@@ -665,16 +665,25 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(player.stop());
     }
 
-    TEST_F(EditorAssetsTest, ModuleRenameKeepsLastGoodGroupUntilBothConsumersUpdateTheirRequire) {
+    struct ModuleMoveCase {
+        const char* destination;
+        const char* reference;
+    };
+
+    class EditorAssetsModuleMoveTest: public EditorAssetsTest,
+                                      public ::testing::WithParamInterface<ModuleMoveCase> {};
+
+    TEST_P(EditorAssetsModuleMoveTest, KeepsLastGoodGroupUntilBothConsumersUpdateTheirRequire) {
         const auto paths = Comet::ProjectPaths(root);
+        const std::filesystem::path destination = GetParam().destination;
+        std::filesystem::create_directories((paths.assets() / destination).parent_path());
         constexpr auto old_source = R"(
             local shared = require('shared')
             return {update = function() comet.translate(shared.step, 0, 0) end}
         )";
-        constexpr auto new_source = R"(
-            local shared = require('tuning')
-            return {update = function() comet.translate(shared.step, 0, 0) end}
-        )";
+        const auto new_source =
+            "local shared = require('" + std::string(GetParam().reference)
+            + "')\nreturn {update = function() comet.translate(shared.step, 0, 0) end}";
         ASSERT_TRUE(Comet::write_text_file_atomic(
             paths.assets() / "shared.module.lua", "return {step = 1}"));
         for(const auto* name : {"first.lua", "second.lua"})
@@ -706,7 +715,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(player.start(scene));
         ASSERT_TRUE(player.advance(0));
 
-        const auto renamed = assets->rename_module("shared.module.lua", "tuning.module.lua");
+        const auto renamed = assets->move_module("shared.module.lua", destination);
         ASSERT_TRUE(renamed.succeeded());
         ASSERT_TRUE(renamed.snapshot_updated);
         EXPECT_TRUE(renamed.added_assets.empty());
@@ -715,7 +724,7 @@ namespace CometEditor::Tests {
             EXPECT_NE(
                 std::ranges::find(renamed.modified_assets, handle), renamed.modified_assets.end());
         EXPECT_FALSE(std::filesystem::exists(paths.assets() / "shared.module.lua"));
-        EXPECT_TRUE(std::filesystem::exists(paths.assets() / "tuning.module.lua"));
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / destination));
         EXPECT_EQ(runtime.resolve<Comet::Script>(first), original_first);
         EXPECT_EQ(runtime.resolve<Comet::Script>(second), original_second);
         ASSERT_TRUE(player.advance(0));
@@ -731,8 +740,8 @@ namespace CometEditor::Tests {
         EXPECT_FLOAT_EQ(right.get_component<Comet::TransformComponent>().translation.x, 3);
 
         ASSERT_TRUE(Comet::write_text_file_atomic(paths.assets() / "second.lua", new_source));
-        ASSERT_TRUE(Comet::write_text_file_atomic(
-            paths.assets() / "tuning.module.lua", "return {step = 4}"));
+        ASSERT_TRUE(
+            Comet::write_text_file_atomic(paths.assets() / destination, "return {step = 4}"));
         ASSERT_TRUE(assets->refresh().succeeded());
         const auto current_first = runtime.resolve<Comet::Script>(first);
         const auto current_second = runtime.resolve<Comet::Script>(second);
@@ -750,13 +759,17 @@ namespace CometEditor::Tests {
         EXPECT_EQ(assets->database().size(), indexed);
         EXPECT_EQ(runtime.size(), registered);
         EXPECT_TRUE(assets->database().get_import_dependents("shared.module.lua").empty());
-        EXPECT_EQ(assets->database().get_import_dependents("tuning.module.lua").size(), 2u);
-        for(const auto* name : {"shared.module.lua", "tuning.module.lua"}) {
+        EXPECT_EQ(assets->database().get_import_dependents(destination).size(), 2u);
+        for(const auto& name : {std::filesystem::path("shared.module.lua"), destination}) {
             EXPECT_EQ(assets->database().find(name), nullptr);
             EXPECT_FALSE(std::filesystem::exists(Comet::metadata_path(paths.assets() / name)));
         }
         ASSERT_TRUE(player.stop());
     }
+
+    INSTANTIATE_TEST_SUITE_P(SameOrNestedDirectory, EditorAssetsModuleMoveTest,
+        ::testing::Values(ModuleMoveCase{"tuning.module.lua", "tuning"},
+            ModuleMoveCase{"scripts/tuning.module.lua", "scripts.tuning"}));
 
     TEST_F(EditorAssetsTest, ModuleDeletionKeepsRunningScriptsAndRecoversColdConsumersAfterRepair) {
         const auto paths = Comet::ProjectPaths(root);

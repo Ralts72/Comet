@@ -18,6 +18,8 @@
 
 namespace CometEditor {
     namespace {
+        constexpr const char* MODULE_DRAG_TYPE = "COMET_PROJECT_LUA_MODULE";
+
         bool contains_search(const std::string_view text, const std::string_view query) {
             return std::search(text.begin(), text.end(), query.begin(), query.end(),
                        [](const unsigned char left, const unsigned char right) {
@@ -117,7 +119,7 @@ namespace CometEditor {
             const bool open = ImGui::TreeNodeEx(
                 name.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth);
             record_drop_target(directory_path);
-            accept_asset_drop(directory_path);
+            accept_internal_drop(directory_path);
             render_directory_menu(directory_path);
             if(open) {
                 render_asset_tree(directory, directory_path);
@@ -129,10 +131,21 @@ namespace CometEditor {
             if(!indexed_asset) {
                 const auto source = path / name;
                 ImGui::PushID(source.generic_string().c_str());
-                ImGui::TextUnformatted(name.c_str());
+                const bool module = name.ends_with(".module.lua");
+                if(module)
+                    ImGui::Selectable(name.c_str(), false);
+                else
+                    ImGui::TextUnformatted(name.c_str());
                 record_drop_target(path);
-                if(name.ends_with(".module.lua")
-                    && ImGui::BeginPopupContextItem("Module actions")) {
+                if(module && ImGui::BeginDragDropSource()) {
+                    const auto absolute = (m_asset_root / source).generic_string();
+                    ImGui::SetDragDropPayload(
+                        MODULE_DRAG_TYPE, absolute.data(), absolute.size(), ImGuiCond_Once);
+                    ImGui::TextUnformatted(name.c_str());
+                    ImGui::TextUnformatted(Ui::text("require references will not be changed."));
+                    ImGui::EndDragDropSource();
+                }
+                if(module && ImGui::BeginPopupContextItem("Module actions")) {
                     if(ImGui::MenuItem(Ui::label("Rename").c_str()))
                         request_rename(source);
                     if(ImGui::MenuItem(Ui::label("Delete").c_str()))
@@ -215,7 +228,7 @@ namespace CometEditor {
         const bool root_open = ImGui::TreeNodeEx(
             "assets", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth);
         record_drop_target({});
-        accept_asset_drop({});
+        accept_internal_drop({});
         render_directory_menu({});
         if(root_open) {
             if(visible_tree.files.empty() && visible_tree.directories.empty()) {
@@ -468,8 +481,8 @@ namespace CometEditor {
         return request;
     }
 
-    std::optional<ProjectPanel::ModuleRenameRequest> ProjectPanel::take_rename_module_request() {
-        return std::exchange(m_pending_module_rename, std::nullopt);
+    std::optional<ProjectPanel::ModuleMoveRequest> ProjectPanel::take_move_module_request() {
+        return std::exchange(m_pending_module_move, std::nullopt);
     }
 
     std::optional<ProjectPanel::DeleteRequest> ProjectPanel::take_delete_request() {
@@ -512,7 +525,7 @@ namespace CometEditor {
         return std::nullopt;
     }
 
-    void ProjectPanel::accept_asset_drop(const std::filesystem::path& directory) {
+    void ProjectPanel::accept_internal_drop(const std::filesystem::path& directory) {
         if(!ImGui::BeginDragDropTarget())
             return;
         if(const auto payload =
@@ -523,6 +536,15 @@ namespace CometEditor {
                 const auto destination = directory / record->path.filename();
                 if(destination != record->path)
                     m_pending_move = MoveRequest{source.handle, source.revision, destination};
+            }
+        }
+        if(const auto* payload = ImGui::AcceptDragDropPayload(MODULE_DRAG_TYPE)) {
+            const std::string_view path(static_cast<const char*>(payload->Data), payload->DataSize);
+            if(!path.empty() && path.find('\0') == std::string_view::npos) {
+                const auto source = std::filesystem::path(path).lexically_relative(m_asset_root);
+                const auto destination = directory / source.filename();
+                if(source != destination && Comet::Script::module_name(source))
+                    m_pending_module_move = ModuleMoveRequest{source, destination};
             }
         }
         ImGui::EndDragDropTarget();
@@ -542,12 +564,12 @@ namespace CometEditor {
             m_close_rename = true;
     }
 
-    void ProjectPanel::complete_rename_module(
-        const ModuleRenameRequest& request, const Comet::AssetScanReport& report) {
+    void ProjectPanel::complete_move_module(
+        const ModuleMoveRequest& request, const Comet::AssetScanReport& report) {
         m_operation_error.clear();
         const bool committed = report.snapshot_updated && report.succeeded();
         if(!committed) {
-            m_operation_error = Ui::text("Module could not be renamed");
+            m_operation_error = Ui::text("Module could not be moved or renamed");
             if(!report.issues.empty())
                 m_operation_error = report.issues.front().message;
         }
@@ -730,7 +752,7 @@ namespace CometEditor {
                     m_rename_target = std::monostate{};
                     m_operation_error.clear();
                 } else {
-                    m_pending_module_rename = ModuleRenameRequest{source, destination};
+                    m_pending_module_move = ModuleMoveRequest{source, destination};
                     m_operation_error.clear();
                 }
             } else {

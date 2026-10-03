@@ -161,7 +161,7 @@ namespace CometEditor::AssetSourceOperations {
             return Result<void>::success();
         }
 
-        void restore_renamed_module(const std::filesystem::path& target,
+        void restore_moved_module(const std::filesystem::path& target,
             const std::filesystem::path& source, std::error_code& error) {
             const auto status = std::filesystem::symlink_status(source, error);
             if(error == std::errc::no_such_file_or_directory
@@ -798,17 +798,13 @@ return script
             database, destination, source, AssetType::Script, ".lua", "Script");
     }
 
-    AssetScanReport rename_module(AssetDatabase& database, const std::filesystem::path& source,
+    AssetScanReport move_module(AssetDatabase& database, const std::filesystem::path& source,
         const std::filesystem::path& destination) {
         for(const auto& path : {source, destination})
             if(auto valid = Script::module_name(path); !valid)
                 return operation_error(path, valid.error());
         if(source == destination)
             return operation_error(destination, "Lua module source and destination are identical");
-        if(source.parent_path() != destination.parent_path())
-            return operation_error(
-                destination, "Lua modules can only be renamed in the same directory");
-
         std::error_code error;
         const auto root = std::filesystem::canonical(database.paths().assets(), error);
         if(error)
@@ -827,6 +823,10 @@ return script
         const auto status = std::filesystem::symlink_status(original, error);
         if(error || !std::filesystem::is_regular_file(status))
             return operation_error(source, "Lua module source is not a regular file");
+        const auto parent_status = std::filesystem::symlink_status(target.parent_path(), error);
+        if(error || !std::filesystem::is_directory(parent_status))
+            return operation_error(
+                destination, "Lua module destination parent must be an existing directory");
         for(const auto& path : {metadata_path(original), target, metadata_path(target)})
             if(auto valid = validate_available(path); !valid)
                 return operation_error(path, valid.error());
@@ -835,9 +835,9 @@ return script
         std::filesystem::create_hard_link(original, target, error);
         if(error)
             return operation_error(
-                destination, "Cannot publish renamed Lua module: " + error.message());
+                destination, "Cannot publish moved Lua module: " + error.message());
         std::error_code rollback_error;
-        const auto rollback = [&] { restore_renamed_module(target, original, rollback_error); };
+        const auto rollback = [&] { restore_moved_module(target, original, rollback_error); };
         ScopeExit rollback_on_exit(rollback);
         AssetScanReport report;
         if(!std::filesystem::remove(original, error)) {
@@ -849,8 +849,7 @@ return script
             report = candidate.scan();
             if(report.snapshot_updated && report.succeeded()
                 && (candidate.find(source) || candidate.find(destination)))
-                report.issues.push_back(
-                    {destination, "Renamed Lua module was unexpectedly indexed"});
+                report.issues.push_back({destination, "Moved Lua module was unexpectedly indexed"});
         }
         if(report.snapshot_updated && report.succeeded()) {
             database = std::move(candidate);
@@ -867,12 +866,12 @@ return script
         report.removed_assets.clear();
         report.modified_assets.clear();
         if(rollback_error)
-            report.issues.push_back({destination,
-                "Lua module rename failed and rollback was incomplete; files retained: "
-                    + rollback_error.message()});
+            report.issues.push_back(
+                {destination, "Lua module move failed and rollback was incomplete; files retained: "
+                                  + rollback_error.message()});
         else
             report.issues.push_back({destination,
-                "Lua module rename was rolled back because the database snapshot could not be committed"});
+                "Lua module move was rolled back because the database snapshot could not be committed"});
         return report;
     }
 

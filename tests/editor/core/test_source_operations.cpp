@@ -187,20 +187,23 @@ namespace Comet::Tests {
         EXPECT_FALSE(std::filesystem::exists(project.paths().assets() / "shared.module.lua.meta"));
     }
 
-    TEST(AssetSourceOperationsTest, LuaModuleRenamePreservesContentsWithoutCreatingAssetIdentity) {
+    class AssetSourceModuleMoveTest: public ::testing::TestWithParam<const char*> {};
+
+    TEST_P(AssetSourceModuleMoveTest, PreservesContentsWithoutCreatingAssetIdentity) {
         const TemporaryProject project;
         const auto root = project.paths().assets();
-        std::filesystem::create_directory(root / "scripts");
-        const auto source = root / "scripts/shared.module.lua";
-        const auto target = root / "scripts/renamed.module.lua";
+        std::filesystem::create_directory(root / "nested");
+        const auto source = root / "shared.module.lua";
+        const std::filesystem::path destination = GetParam();
+        const auto target = root / destination;
         ASSERT_TRUE(write_text_file_atomic(source, "return {}"));
         AssetDatabase database(project.paths());
         ASSERT_TRUE(database.scan().succeeded());
         constexpr std::string_view contents = "-- changed since scan\nreturn {score = 42}\n";
         ASSERT_TRUE(write_text_file_atomic(source, contents));
 
-        const auto report = SourceOperations::rename_module(
-            database, "scripts/shared.module.lua", "scripts/renamed.module.lua");
+        const auto report =
+            SourceOperations::move_module(database, "shared.module.lua", destination);
 
         ASSERT_TRUE(report.succeeded());
         EXPECT_TRUE(report.snapshot_updated);
@@ -209,8 +212,8 @@ namespace Comet::Tests {
         EXPECT_TRUE(report.removed_assets.empty());
         EXPECT_TRUE(report.modified_assets.empty());
         EXPECT_EQ(database.size(), 0u);
-        EXPECT_EQ(database.find("scripts/shared.module.lua"), nullptr);
-        EXPECT_EQ(database.find("scripts/renamed.module.lua"), nullptr);
+        EXPECT_EQ(database.find("shared.module.lua"), nullptr);
+        EXPECT_EQ(database.find(destination), nullptr);
         EXPECT_FALSE(std::filesystem::exists(source));
         ASSERT_TRUE(std::filesystem::is_regular_file(target));
         EXPECT_EQ(read_text_file(target).value(), contents);
@@ -227,7 +230,6 @@ namespace Comet::Tests {
         const TemporaryProject project;
         const auto root = project.paths().assets();
         std::filesystem::create_directory(root / "scripts");
-        std::filesystem::create_directory(root / "other");
         std::filesystem::create_directory(root / "scripts/folder.module.lua");
         const auto source = root / "scripts/shared.module.lua";
         ASSERT_TRUE(write_text_file_atomic(source, "return {keep = true}"));
@@ -235,9 +237,11 @@ namespace Comet::Tests {
         AssetDatabase database(project.paths());
         ASSERT_TRUE(database.scan().succeeded());
         const auto generation = database.generation();
+        ASSERT_TRUE(write_text_file_atomic(root / "not_directory", "keep parent"));
         using Paths = std::pair<std::filesystem::path, std::filesystem::path>;
         const std::vector<Paths> invalid{{"scripts/shared.module.lua", "scripts/shared.module.lua"},
-            {"scripts/shared.module.lua", "other/renamed.module.lua"},
+            {"scripts/shared.module.lua", "missing/renamed.module.lua"},
+            {"scripts/shared.module.lua", "not_directory/renamed.module.lua"},
             {"scripts/shared.module.lua", "scripts/plain.lua"},
             {"scripts/shared.module.lua", "scripts/upper.MODULE.LUA"},
             {"scripts/shared.module.lua", "scripts/bad.name.module.lua"},
@@ -248,7 +252,7 @@ namespace Comet::Tests {
             {"scripts/folder.module.lua", "scripts/renamed.module.lua"}};
         for(const auto& [from, to] : invalid) {
             SCOPED_TRACE(from.string() + " -> " + to.string());
-            const auto report = SourceOperations::rename_module(database, from, to);
+            const auto report = SourceOperations::move_module(database, from, to);
             EXPECT_FALSE(report.succeeded());
             EXPECT_FALSE(report.snapshot_updated);
             EXPECT_EQ(database.generation(), generation);
@@ -257,16 +261,19 @@ namespace Comet::Tests {
         }
         EXPECT_FALSE(std::filesystem::exists(root / "scripts/renamed.module.lua"));
         EXPECT_FALSE(std::filesystem::exists(metadata_path(source)));
-        EXPECT_TRUE(std::filesystem::is_empty(root / "other"));
+        EXPECT_FALSE(std::filesystem::exists(root / "missing"));
+        EXPECT_EQ(read_text_file(root / "not_directory").value(), "keep parent");
     }
 
-    TEST(AssetSourceOperationsTest, LuaModuleRenameRejectsTargetAndMetadataConflicts) {
+    TEST_P(AssetSourceModuleMoveTest, RejectsTargetAndMetadataConflicts) {
         for(const auto* conflict :
             {"target file", "target directory", "source metadata", "target metadata"}) {
             SCOPED_TRACE(conflict);
             const TemporaryProject project;
+            std::filesystem::create_directory(project.paths().assets() / "nested");
             const auto source = project.paths().assets() / "shared.module.lua";
-            const auto target = project.paths().assets() / "renamed.module.lua";
+            const std::filesystem::path destination = GetParam();
+            const auto target = project.paths().assets() / destination;
             ASSERT_TRUE(write_text_file_atomic(source, "return {keep = true}"));
             AssetDatabase database(project.paths());
             ASSERT_TRUE(database.scan().succeeded());
@@ -282,8 +289,8 @@ namespace Comet::Tests {
             else
                 ASSERT_TRUE(write_text_file_atomic(reserved, "reserved contents"));
 
-            const auto report = SourceOperations::rename_module(
-                database, "shared.module.lua", "renamed.module.lua");
+            const auto report =
+                SourceOperations::move_module(database, "shared.module.lua", destination);
 
             EXPECT_FALSE(report.succeeded());
             EXPECT_FALSE(report.snapshot_updated);
@@ -327,12 +334,14 @@ namespace Comet::Tests {
         for(const auto& [from, to] :
             std::array{Paths{"alias/shared.module.lua", "alias/renamed.module.lua"},
                 Paths{"external/shared.module.lua", "external/renamed.module.lua"},
+                Paths{"shared.module.lua", "alias/renamed.module.lua"},
+                Paths{"shared.module.lua", "external/renamed.module.lua"},
                 Paths{"link.module.lua", "renamed.module.lua"},
                 Paths{"dangling.module.lua", "renamed.module.lua"},
                 Paths{"shared.module.lua", "link.module.lua"},
                 Paths{"shared.module.lua", "dangling.module.lua"}}) {
             SCOPED_TRACE(from.string() + " -> " + to.string());
-            const auto report = SourceOperations::rename_module(database, from, to);
+            const auto report = SourceOperations::move_module(database, from, to);
             EXPECT_FALSE(report.succeeded());
             EXPECT_FALSE(report.snapshot_updated);
             EXPECT_EQ(database.generation(), generation);
@@ -347,12 +356,14 @@ namespace Comet::Tests {
         EXPECT_FALSE(std::filesystem::exists(outside.path() / "renamed.module.lua"));
     }
 
-    TEST(AssetSourceOperationsTest, LuaModuleRenameRollsBackFailedScanWithoutPublishingIndex) {
+    TEST_P(AssetSourceModuleMoveTest, RollsBackFailedScanWithoutPublishingIndex) {
         const TemporaryProject project;
+        std::filesystem::create_directory(project.paths().assets() / "nested");
         AssetDatabase database(project.paths());
         ASSERT_TRUE(SourceOperations::create_script(database, "keep.lua").succeeded());
         const auto source = project.paths().assets() / "shared.module.lua";
-        const auto target = project.paths().assets() / "renamed.module.lua";
+        const std::filesystem::path destination = GetParam();
+        const auto target = project.paths().assets() / destination;
         ASSERT_TRUE(write_text_file_atomic(source, "return {keep = true}"));
         const auto handle = database.find("keep.lua")->handle;
         ASSERT_TRUE(database.update_import_dependencies(handle, {"shared.module.lua"}));
@@ -363,11 +374,11 @@ namespace Comet::Tests {
         ASSERT_TRUE(write_text_file_atomic(metadata_path(broken), "invalid metadata"));
 
         const auto report =
-            SourceOperations::rename_module(database, "shared.module.lua", "renamed.module.lua");
+            SourceOperations::move_module(database, "shared.module.lua", destination);
 
         EXPECT_FALSE(report.succeeded());
         EXPECT_FALSE(report.snapshot_updated);
-        EXPECT_TRUE(has_issue_containing(report, "rename was rolled back"));
+        EXPECT_TRUE(has_issue_containing(report, "move was rolled back"));
         EXPECT_TRUE(report.added_assets.empty());
         EXPECT_TRUE(report.removed_assets.empty());
         EXPECT_TRUE(report.modified_assets.empty());
@@ -385,7 +396,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(std::filesystem::remove(broken));
         ASSERT_TRUE(std::filesystem::remove(metadata_path(broken)));
         const auto retried =
-            SourceOperations::rename_module(database, "shared.module.lua", "renamed.module.lua");
+            SourceOperations::move_module(database, "shared.module.lua", destination);
         ASSERT_TRUE(retried.succeeded());
         EXPECT_TRUE(retried.snapshot_updated);
         EXPECT_TRUE(contains_handle(retried.modified_assets, handle));
@@ -394,6 +405,9 @@ namespace Comet::Tests {
         EXPECT_EQ(read_text_file(target).value(), "return {keep = true}");
         EXPECT_EQ(database.size(), 1u);
     }
+
+    INSTANTIATE_TEST_SUITE_P(SameOrNestedDirectory, AssetSourceModuleMoveTest,
+        ::testing::Values("renamed.module.lua", "nested/renamed.module.lua"));
 
     class AssetSourceModuleRemovalTest: public ::testing::Test {
     protected:
