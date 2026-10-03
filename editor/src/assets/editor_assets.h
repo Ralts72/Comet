@@ -37,6 +37,7 @@ namespace CometEditor {
         [[nodiscard]] Comet::AssetScanReport move(
             Comet::AssetHandle handle, const std::filesystem::path& destination);
         [[nodiscard]] Comet::AssetScanReport remove(Comet::AssetHandle handle);
+        [[nodiscard]] Comet::AssetScanReport remove_module(const std::filesystem::path& source);
         [[nodiscard]] Comet::Result<void> queue_import_files(
             std::span<const std::filesystem::path> sources, const std::filesystem::path& directory);
         [[nodiscard]] Comet::Result<void, Comet::Error> apply_texture_edit(const AssetEdit& edit);

@@ -14,7 +14,11 @@
 #include <fastgltf/core.hpp>
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <cctype>
+#include <chrono>
+#include <cstdint>
 #include <map>
 #include <optional>
 #include <string>
@@ -74,17 +78,15 @@ namespace CometEditor::AssetSourceOperations {
         }
 
         void restore_staged_file(const std::filesystem::path& staged,
-            const std::filesystem::path& original, const bool trash_attempted,
-            std::error_code& error) {
+            const std::filesystem::path& original, std::error_code& error) {
             const auto status = std::filesystem::symlink_status(original, error);
-            if(error == std::errc::no_such_file_or_directory) {
+            if(error == std::errc::no_such_file_or_directory
+                || (!error && !std::filesystem::exists(status))) {
                 error.clear();
-                if(trash_attempted) {
-                    std::filesystem::copy_file(staged, original, error);
-                    if(!error)
-                        std::filesystem::remove(staged, error);
-                } else
-                    std::filesystem::rename(staged, original, error);
+                std::filesystem::copy_file(
+                    staged, original, std::filesystem::copy_options::none, error);
+                if(!error)
+                    std::filesystem::remove(staged, error);
                 return;
             }
             if(error)
@@ -874,6 +876,173 @@ return script
         return report;
     }
 
+    namespace {
+        struct StagedDeletionFile {
+            std::filesystem::path source;
+            std::filesystem::path staged;
+            bool moved = false;
+            bool trashed = false;
+            std::error_code restore_error;
+        };
+
+        Result<void> stage_deletion_files(const std::span<StagedDeletionFile> files) {
+            std::error_code error;
+            for(auto& file : files) {
+                std::filesystem::create_directories(file.staged.parent_path(), error);
+                if(error)
+                    return Result<void>::failure(
+                        "Cannot prepare deletion staging: " + error.message());
+                std::filesystem::rename(file.source, file.staged, error);
+                if(error)
+                    return Result<void>::failure(
+                        "Cannot stage source for deletion: " + error.message());
+                file.moved = true;
+            }
+            return Result<void>::success();
+        }
+
+        Result<void> prepare_deletion_trash(const std::span<const StagedDeletionFile> files) {
+            std::error_code error;
+            for(const auto& file : files) {
+                std::filesystem::create_hard_link(file.staged, file.source, error);
+                if(error)
+                    return Result<void>::failure(
+                        "Cannot prepare source for system trash: " + error.message());
+            }
+            return Result<void>::success();
+        }
+
+        Result<void> move_deletion_to_trash(
+            const std::span<StagedDeletionFile> files, const TrashMover& move_to_trash) {
+            for(auto& file : files) {
+                if(auto trashed = move_to_trash(file.source); !trashed) {
+                    std::error_code error;
+                    const auto status = std::filesystem::symlink_status(file.source, error);
+                    file.trashed =
+                        error == std::errc::no_such_file_or_directory
+                        || (!error && status.type() == std::filesystem::file_type::not_found);
+                    return Result<void>::failure(
+                        "Cannot move source to system trash: " + trashed.error());
+                }
+                file.trashed = true;
+            }
+            return Result<void>::success();
+        }
+
+        Result<void> validate_deleted_sources(const std::span<const StagedDeletionFile> files) {
+            for(const auto& file : files) {
+                std::error_code error;
+                const auto status = std::filesystem::symlink_status(file.source, error);
+                if(error == std::errc::no_such_file_or_directory)
+                    continue;
+                if(error || status.type() != std::filesystem::file_type::not_found)
+                    return Result<void>::failure("System trash left the source in the project");
+            }
+            return Result<void>::success();
+        }
+
+        void rollback_deletion_files(const std::span<StagedDeletionFile> files,
+            const std::filesystem::path& staging_entry, AssetScanReport& report) {
+            bool restored = true;
+            for(auto file = files.rbegin(); file != files.rend(); ++file) {
+                if(file->moved)
+                    restore_staged_file(file->staged, file->source, file->restore_error);
+                restored = restored && !file->restore_error;
+            }
+            if(restored) {
+                std::error_code cleanup_error;
+                std::filesystem::remove_all(staging_entry, cleanup_error);
+                if(cleanup_error)
+                    report.issues.push_back({staging_entry,
+                        "Cannot clean deletion staging entry: " + cleanup_error.message()});
+            }
+        }
+
+        AssetScanReport remove_source_files(AssetDatabase& database,
+            const std::span<const std::filesystem::path> relative_files,
+            const std::optional<AssetHandle> removed_asset, const TrashMover& move_to_trash) {
+            const auto& source_path = relative_files.front();
+            if(!move_to_trash)
+                return operation_error(source_path, "System trash is unavailable");
+            const auto& paths = database.paths();
+            std::error_code error;
+            const auto project_root = std::filesystem::canonical(paths.root(), error);
+            if(error)
+                return operation_error(
+                    source_path, "Cannot resolve project root: " + error.message());
+            const auto staging_root = paths.local_data() / "pending-deletions";
+            if(auto valid = validate_inside(project_root, staging_root); !valid)
+                return operation_error(source_path, valid.error());
+            std::filesystem::create_directories(staging_root, error);
+            if(error)
+                return operation_error(
+                    source_path, "Cannot create deletion staging area: " + error.message());
+            static std::atomic<std::uint64_t> sequence = 0;
+            const auto timestamp = std::chrono::steady_clock::now().time_since_epoch().count();
+            const auto staging_entry = staging_root
+                                       / ("Comet-source-" + std::to_string(timestamp) + "-"
+                                           + std::to_string(sequence.fetch_add(1)));
+            std::vector<StagedDeletionFile> files;
+            for(const auto& relative : relative_files)
+                files.push_back({paths.assets() / relative, staging_entry / relative});
+            AssetDatabase candidate = database;
+            AssetScanReport report;
+            if(!std::filesystem::create_directory(staging_entry, error))
+                return operation_error(source_path, "Cannot reserve deletion staging entry");
+            ScopeExit rollback_on_exit(
+                [&] { rollback_deletion_files(files, staging_entry, report); });
+            auto result = stage_deletion_files(files);
+            if(result) {
+                report = candidate.scan();
+                if(!report.snapshot_updated || !report.succeeded() || candidate.find(source_path))
+                    result = Result<void>::failure("Source removal could not be indexed");
+                else if(removed_asset
+                        && (candidate.find(*removed_asset)
+                            || std::ranges::find(report.removed_assets, *removed_asset)
+                                   == report.removed_assets.end()))
+                    result = Result<void>::failure("Asset removal could not be indexed");
+            }
+            if(result)
+                result = prepare_deletion_trash(files);
+            if(result)
+                result = move_deletion_to_trash(files, move_to_trash);
+            if(result)
+                result = validate_deleted_sources(files);
+            if(result) {
+                database = std::move(candidate);
+                rollback_on_exit.release();
+                std::error_code cleanup_error;
+                std::filesystem::remove_all(staging_entry, cleanup_error);
+                if(cleanup_error)
+                    LOG_WARN("Cannot clean source deletion staging entry '{}': {}",
+                        staging_entry.string(), cleanup_error.message());
+                else if(std::filesystem::is_directory(
+                            std::filesystem::symlink_status(staging_root, cleanup_error)))
+                    std::filesystem::remove(staging_root, cleanup_error);
+                LOG_INFO("Moved source '{}' to system trash", source_path.generic_string());
+                return report;
+            }
+            rollback_deletion_files(files, staging_entry, report);
+            rollback_on_exit.release();
+            report.snapshot_updated = false;
+            report.indexed_assets = database.size();
+            report.generated_metadata = 0;
+            report.added_assets.clear();
+            report.removed_assets.clear();
+            report.modified_assets.clear();
+            report.issues.push_back({source_path, result.error()});
+            if(std::ranges::any_of(files, &StagedDeletionFile::trashed))
+                report.issues.push_back({source_path,
+                    "System trash may contain a copy of the source from a partial operation"});
+            for(const auto& file : files)
+                if(file.restore_error)
+                    report.issues.push_back({file.staged,
+                        "Source rollback was incomplete; inspect the deletion staging entry: "
+                            + file.restore_error.message()});
+            return report;
+        }
+    }
+
     AssetScanReport remove_asset(
         AssetDatabase& database, const AssetHandle handle, const TrashMover& move_to_trash) {
         const ProjectPaths paths = database.paths();
@@ -896,9 +1065,6 @@ return script
                 record.path, "Asset metadata does not match its indexed identity");
 
         std::error_code error;
-        const auto project_root = std::filesystem::canonical(paths.root(), error);
-        if(error)
-            return operation_error(record.path, "Cannot resolve project root: " + error.message());
         const auto assets_root = std::filesystem::canonical(paths.assets(), error);
         if(error)
             return operation_error(
@@ -912,115 +1078,32 @@ return script
                     record.path, "Asset source and metadata must be regular files");
         }
 
-        const auto staging_root = paths.local_data() / "pending-deletions";
-        if(auto valid = validate_inside(project_root, staging_root); !valid)
-            return operation_error(record.path, valid.error());
-        std::filesystem::create_directories(staging_root, error);
-        if(error)
-            return operation_error(
-                record.path, "Cannot create deletion staging area: " + error.message());
-        const auto staging_entry =
-            staging_root / ("Comet-asset-" + std::to_string(AssetHandle::generate().value()));
-        if(!std::filesystem::create_directory(staging_entry, error))
-            return operation_error(record.path, "Cannot reserve deletion staging entry");
-        const auto staged_source = staging_entry / record.path;
-        const auto staged_metadata = metadata_path(staged_source);
+        return remove_source_files(
+            database, std::array{record.path, metadata_path(record.path)}, handle, move_to_trash);
+    }
 
-        AssetScanReport report;
-        bool source_moved = false;
-        bool metadata_moved = false;
-        bool source_trash_attempted = false;
-        bool metadata_trash_attempted = false;
-        bool source_trashed = false;
-        std::error_code source_restore_error;
-        std::error_code metadata_restore_error;
-        const auto rollback = [&] {
-            if(metadata_moved)
-                restore_staged_file(staged_metadata, metadata_file, metadata_trash_attempted,
-                    metadata_restore_error);
-            if(source_moved)
-                restore_staged_file(
-                    staged_source, source, source_trash_attempted, source_restore_error);
-            if(!source_restore_error && !metadata_restore_error) {
-                std::error_code cleanup_error;
-                std::filesystem::remove_all(staging_entry, cleanup_error);
-                if(cleanup_error)
-                    report.issues.push_back({staging_entry,
-                        "Cannot clean deletion staging entry: " + cleanup_error.message()});
-            }
-        };
-        ScopeExit rollback_on_exit(rollback);
-        AssetDatabase candidate = database;
-        const auto remove = [&]() -> Result<void> {
-            std::filesystem::create_directories(staged_source.parent_path(), error);
-            if(error)
-                return Result<void>::failure("Cannot prepare deletion staging: " + error.message());
-            std::filesystem::rename(source, staged_source, error);
-            if(error)
-                return Result<void>::failure("Cannot stage asset for deletion: " + error.message());
-            source_moved = true;
-            std::filesystem::rename(metadata_file, staged_metadata, error);
-            if(error)
-                return Result<void>::failure(
-                    "Cannot stage asset metadata for deletion: " + error.message());
-            metadata_moved = true;
-            report = candidate.scan();
-            if(!report.snapshot_updated || !report.succeeded() || candidate.find(handle)
-                || std::ranges::find(report.removed_assets, handle) == report.removed_assets.end())
-                return Result<void>::failure("Asset removal could not be indexed");
-            std::filesystem::create_hard_link(staged_source, source, error);
-            if(error)
-                return Result<void>::failure(
-                    "Cannot prepare asset for system trash: " + error.message());
-            std::filesystem::create_hard_link(staged_metadata, metadata_file, error);
-            if(error)
-                return Result<void>::failure(
-                    "Cannot prepare asset metadata for system trash: " + error.message());
-            source_trash_attempted = true;
-            if(auto trashed = move_to_trash(source); !trashed)
-                return Result<void>::failure(
-                    "Cannot move asset to system trash: " + trashed.error());
-            source_trashed = true;
-            metadata_trash_attempted = true;
-            if(auto trashed = move_to_trash(metadata_file); !trashed)
-                return Result<void>::failure(
-                    "Cannot move asset metadata to system trash: " + trashed.error());
-            if(std::filesystem::exists(source, error)
-                || std::filesystem::exists(metadata_file, error) || error)
-                return Result<void>::failure("System trash left the asset in the project");
-            return Result<void>::success();
-        };
-        const auto result = remove();
-        if(result) {
-            database = std::move(candidate);
-            rollback_on_exit.release();
-            std::error_code cleanup_error;
-            std::filesystem::remove_all(staging_entry, cleanup_error);
-            if(cleanup_error)
-                LOG_WARN("Cannot clean asset deletion staging entry '{}': {}",
-                    staging_entry.string(), cleanup_error.message());
-            else if(std::filesystem::is_directory(
-                        std::filesystem::symlink_status(staging_root, cleanup_error)))
-                std::filesystem::remove(staging_root, cleanup_error);
-            LOG_INFO(
-                "Moved asset '{}' and its metadata to system trash", record.path.generic_string());
-            return report;
-        }
-        rollback();
-        rollback_on_exit.release();
-        report.snapshot_updated = false;
-        report.indexed_assets = database.size();
-        report.added_assets.clear();
-        report.removed_assets.clear();
-        report.modified_assets.clear();
-        report.issues.push_back({record.path, result.error()});
-        if(source_trashed)
-            report.issues.push_back({record.path,
-                "System trash may contain a copy of the asset from a partial operation"});
-        if(source_restore_error || metadata_restore_error)
-            report.issues.push_back({staging_entry,
-                "Asset rollback was incomplete; inspect the deletion staging entry"});
-        return report;
+    AssetScanReport remove_module(AssetDatabase& database, const std::filesystem::path& source,
+        const TrashMover& move_to_trash) {
+        if(auto valid = Script::module_name(source); !valid)
+            return operation_error(source, valid.error());
+        std::error_code error;
+        const auto root = std::filesystem::canonical(database.paths().assets(), error);
+        if(error)
+            return operation_error(source, "Cannot resolve assets directory: " + error.message());
+        const auto original = root / source;
+        if(auto valid = validate_inside(root, original); !valid)
+            return operation_error(source, valid.error());
+        const auto resolved = std::filesystem::weakly_canonical(original, error);
+        if(error)
+            return operation_error(source, "Cannot resolve Lua module path: " + error.message());
+        if(resolved != original.lexically_normal())
+            return operation_error(source, "Lua module paths cannot use symlink aliases");
+        const auto status = std::filesystem::symlink_status(original, error);
+        if(error || !std::filesystem::is_regular_file(status))
+            return operation_error(source, "Lua module source is not a regular file");
+        if(auto valid = validate_available(metadata_path(original)); !valid)
+            return operation_error(source, valid.error());
+        return remove_source_files(database, std::array{source}, std::nullopt, move_to_trash);
     }
 
     AssetScanReport move(AssetDatabase& database, const AssetHandle handle,

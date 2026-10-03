@@ -711,6 +711,11 @@ namespace {
                 m_project_panel->complete_delete(*remove, report);
                 accept_asset_report(std::move(report));
             }
+            if(const auto remove = m_project_panel->take_delete_module_request()) {
+                auto report = m_assets->remove_module(remove->source);
+                m_project_panel->complete_delete_module(*remove, report);
+                accept_asset_report(std::move(report));
+            }
             if(const auto move = m_project_panel->take_move_request()) {
                 auto report = CometEditor::move_project_asset(*m_assets, m_project,
                     *m_scene_document, *m_project_session, move->handle, move->destination);

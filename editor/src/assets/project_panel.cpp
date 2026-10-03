@@ -135,6 +135,8 @@ namespace CometEditor {
                     && ImGui::BeginPopupContextItem("Module actions")) {
                     if(ImGui::MenuItem(Ui::label("Rename").c_str()))
                         request_rename(source);
+                    if(ImGui::MenuItem(Ui::label("Delete").c_str()))
+                        request_delete(source);
                     ImGui::EndPopup();
                 }
                 if(ImGui::IsItemHovered()) {
@@ -479,6 +481,10 @@ namespace CometEditor {
         return request;
     }
 
+    std::optional<ProjectPanel::ModuleDeleteRequest> ProjectPanel::take_delete_module_request() {
+        return std::exchange(m_pending_module_delete, std::nullopt);
+    }
+
     void ProjectPanel::record_drop_target(const std::filesystem::path& directory) {
         ImRect rect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
         rect.ClipWith(ImGui::GetCurrentWindow()->ClipRect);
@@ -559,12 +565,34 @@ namespace CometEditor {
             if(!report.issues.empty())
                 m_operation_error = report.issues.front().message;
         }
-        if(committed && m_deleting_asset == request.handle)
+        const auto* target = std::get_if<Comet::AssetHandle>(&m_delete_target);
+        if(committed && target && *target == request.handle)
+            m_close_delete = true;
+    }
+
+    void ProjectPanel::complete_delete_module(
+        const ModuleDeleteRequest& request, const Comet::AssetScanReport& report) {
+        m_operation_error.clear();
+        const bool committed = report.snapshot_updated && report.succeeded();
+        if(!committed) {
+            m_operation_error = Ui::text("Module could not be deleted");
+            if(!report.issues.empty())
+                m_operation_error = report.issues.front().message;
+        }
+        const auto* target = std::get_if<std::filesystem::path>(&m_delete_target);
+        if(committed && target && *target == request.source)
             m_close_delete = true;
     }
 
     void ProjectPanel::request_delete(const Comet::AssetRecord& record) {
-        m_deleting_asset = record.handle;
+        m_delete_target = record.handle;
+        m_delete_requested = true;
+        m_close_delete = false;
+        m_operation_error.clear();
+    }
+
+    void ProjectPanel::request_delete(const std::filesystem::path& module) {
+        m_delete_target = module;
         m_delete_requested = true;
         m_close_delete = false;
         m_operation_error.clear();
@@ -576,36 +604,47 @@ namespace CometEditor {
     }
 
     void ProjectPanel::render_delete_dialog() {
-        constexpr const char* title = "Delete Asset";
+        const auto* module = std::get_if<std::filesystem::path>(&m_delete_target);
+        const char* title = module ? "Delete Lua Module" : "Delete Asset";
+        const auto label = std::string(Ui::text(title)) + "###Delete Asset";
         if(std::exchange(m_delete_requested, false))
-            ImGui::OpenPopup(title);
-        if(!ImGui::BeginPopupModal(
-               Ui::label(title).c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            ImGui::OpenPopup("Delete Asset");
+        if(!ImGui::BeginPopupModal(label.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             return;
         if(std::exchange(m_close_delete, false)) {
             ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
-            m_deleting_asset = {};
+            m_delete_target = std::monostate{};
             return;
         }
-        const auto* record = m_database.find(m_deleting_asset);
-        if(record)
+        const auto* asset = std::get_if<Comet::AssetHandle>(&m_delete_target);
+        const auto* record = asset ? m_database.find(*asset) : nullptr;
+        if(module) {
+            ImGui::TextWrapped(
+                Ui::text("Move assets/%s to system trash?"), module->generic_string().c_str());
+            render_module_reference("Module reference", *module, 360.0f);
+            ImGui::TextWrapped("%s", Ui::text("require references will not be changed."));
+        } else if(record)
             ImGui::TextWrapped(Ui::text("Move assets/%s and its metadata to system trash?"),
                 record->path.generic_string().c_str());
         else
             ImGui::TextDisabled("%s", Ui::text("Asset is no longer available"));
-        ImGui::TextDisabled("%s", Ui::text("Scene references will not be cleared."));
-        ImGui::BeginDisabled(!record);
+        if(!module)
+            ImGui::TextDisabled("%s", Ui::text("Scene references will not be cleared."));
+        ImGui::BeginDisabled(!record && !module);
         if(ImGui::Button(Ui::label("Move to Trash").c_str())) {
-            m_pending_delete =
-                DeleteRequest{m_deleting_asset, m_database.get_revision(m_deleting_asset)};
+            if(module)
+                m_pending_module_delete = ModuleDeleteRequest{*module};
+            else if(record)
+                m_pending_delete =
+                    DeleteRequest{record->handle, m_database.get_revision(record->handle)};
             m_operation_error.clear();
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
         if(ImGui::Button(Ui::label("Cancel").c_str())) {
             ImGui::CloseCurrentPopup();
-            m_deleting_asset = {};
+            m_delete_target = std::monostate{};
             m_operation_error.clear();
         }
         if(!m_operation_error.empty())

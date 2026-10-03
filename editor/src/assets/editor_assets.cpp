@@ -318,6 +318,14 @@ namespace CometEditor {
         return report;
     }
 
+    Comet::AssetScanReport EditorAssets::remove_module(const std::filesystem::path& source) {
+        auto report = AssetSourceOperations::remove_module(m_database, source, m_trash_mover);
+        if(report.snapshot_updated)
+            acknowledge(source);
+        accept_scan(report);
+        return report;
+    }
+
     Comet::Result<void> EditorAssets::queue_import_files(
         const std::span<const std::filesystem::path> sources,
         const std::filesystem::path& directory) {

@@ -395,6 +395,241 @@ namespace Comet::Tests {
         EXPECT_EQ(database.size(), 1u);
     }
 
+    class AssetSourceModuleRemovalTest: public ::testing::Test {
+    protected:
+        TemporaryProject project;
+        const ProjectPaths paths = project.paths();
+        AssetDatabase database{paths};
+        const std::filesystem::path relative = "scripts/shared.module.lua";
+        const std::filesystem::path source = paths.assets() / relative;
+        const std::filesystem::path trashed = paths.root() / "fake-system-trash/shared.module.lua";
+        static constexpr std::string_view CONTENTS = "return {score = 42}\n";
+        AssetHandle consumer;
+        AssetRevision revision = 0;
+        std::uint64_t generation = 0;
+        int trash_requests = 0;
+
+        void SetUp() override {
+            std::filesystem::create_directories(source.parent_path());
+            std::filesystem::create_directory(trashed.parent_path());
+            ASSERT_TRUE(write_text_file_atomic(source, CONTENTS));
+            ASSERT_TRUE(SourceOperations::create_script(database, "keep.lua").succeeded());
+            consumer = database.find("keep.lua")->handle;
+            ASSERT_TRUE(database.update_import_dependencies(consumer, {relative}));
+            revision = database.get_revision(consumer);
+            generation = database.generation();
+        }
+
+        AssetScanReport remove(const SourceOperations::TrashMover& mover) {
+            return SourceOperations::remove_module(
+                database, relative, [&](const std::filesystem::path& entry) {
+                    ++trash_requests;
+                    EXPECT_EQ(entry, source);
+                    return mover(entry);
+                });
+        }
+
+        Result<void> move_to_trash(const std::filesystem::path& entry) const {
+            std::error_code error;
+            std::filesystem::rename(entry, trashed, error);
+            if(error)
+                return Result<void>::failure(error.message());
+            return Result<void>::success();
+        }
+
+        void expect_unchanged_index(const AssetScanReport& report) const {
+            EXPECT_FALSE(report.succeeded());
+            EXPECT_FALSE(report.snapshot_updated);
+            EXPECT_EQ(database.generation(), generation);
+            EXPECT_TRUE(database.is_current(consumer, revision));
+            EXPECT_EQ(database.size(), 1u);
+            EXPECT_EQ(database.find(relative), nullptr);
+            EXPECT_TRUE(report.added_assets.empty());
+            EXPECT_TRUE(report.removed_assets.empty());
+            EXPECT_TRUE(report.modified_assets.empty());
+            EXPECT_EQ(report.generated_metadata, 0u);
+            EXPECT_FALSE(std::filesystem::exists(metadata_path(source)));
+        }
+
+        void expect_restored(const AssetScanReport& report) const {
+            expect_unchanged_index(report);
+            ASSERT_TRUE(std::filesystem::is_regular_file(source));
+            EXPECT_EQ(read_text_file(source).value(), CONTENTS);
+            const auto pending = paths.local_data() / "pending-deletions";
+            if(std::filesystem::exists(pending))
+                EXPECT_TRUE(std::filesystem::is_empty(pending));
+        }
+    };
+
+    TEST_F(AssetSourceModuleRemovalTest, MovesOnlySourceToTrashWithoutAssetIdentity) {
+        const auto report = remove([&](const auto& entry) { return move_to_trash(entry); });
+
+        ASSERT_TRUE(report.succeeded());
+        EXPECT_TRUE(report.snapshot_updated);
+        EXPECT_EQ(trash_requests, 1);
+        EXPECT_FALSE(std::filesystem::exists(source));
+        EXPECT_EQ(read_text_file(trashed).value(), CONTENTS);
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(source)));
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(trashed)));
+        EXPECT_FALSE(std::filesystem::exists(paths.local_data() / "pending-deletions"));
+        EXPECT_EQ(database.size(), 1u);
+        EXPECT_EQ(database.find(relative), nullptr);
+        EXPECT_EQ(report.generated_metadata, 0u);
+        EXPECT_TRUE(report.added_assets.empty());
+        EXPECT_TRUE(report.removed_assets.empty());
+        EXPECT_EQ(report.modified_assets, std::vector{consumer});
+    }
+
+    TEST_F(AssetSourceModuleRemovalTest, ScanFailureRestoresBeforeCallingTrash) {
+        const auto broken = paths.assets() / "broken.mat";
+        ASSERT_TRUE(write_text_file_atomic(broken, "{}"));
+        ASSERT_TRUE(write_text_file_atomic(metadata_path(broken), "invalid metadata"));
+
+        const auto report = remove([&](const auto& entry) { return move_to_trash(entry); });
+
+        expect_restored(report);
+        EXPECT_EQ(trash_requests, 0);
+        EXPECT_FALSE(std::filesystem::exists(trashed));
+        EXPECT_EQ(database.find("broken.mat"), nullptr);
+    }
+
+    TEST_F(AssetSourceModuleRemovalTest, TrashFailureAndFalseSuccessRestoreSourceAndIndex) {
+        for(const auto* behavior : {"reject", "leave source", "move then fail"}) {
+            SCOPED_TRACE(behavior);
+            const auto report = remove([&](const auto& entry) {
+                if(std::string_view(behavior) == "leave source")
+                    return Result<void>::success();
+                if(std::string_view(behavior) == "move then fail") {
+                    auto moved = move_to_trash(entry);
+                    if(!moved)
+                        return moved;
+                }
+                return Result<void>::failure("trash operation failed");
+            });
+
+            expect_restored(report);
+            if(std::string_view(behavior) == "leave source")
+                EXPECT_TRUE(has_issue_containing(report, "left the source"));
+            if(std::string_view(behavior) == "reject")
+                EXPECT_FALSE(has_issue_containing(report, "partial operation"));
+            if(std::string_view(behavior) == "move then fail")
+                EXPECT_TRUE(has_issue_containing(report, "partial operation"));
+        }
+        EXPECT_EQ(trash_requests, 3);
+        ASSERT_TRUE(std::filesystem::is_regular_file(trashed));
+        EXPECT_EQ(read_text_file(trashed).value(), CONTENTS);
+        EXPECT_FALSE(std::filesystem::equivalent(source, trashed));
+    }
+
+    TEST_F(
+        AssetSourceModuleRemovalTest, NewSourceDuringTrashKeepsBothReplacementAndStagedContents) {
+        const auto report = remove([&](const auto& entry) {
+            auto moved = move_to_trash(entry);
+            if(!moved)
+                return moved;
+            return write_text_file_atomic(entry, "return {replacement = true}");
+        });
+
+        expect_unchanged_index(report);
+        EXPECT_EQ(trash_requests, 1);
+        EXPECT_TRUE(has_issue_containing(report, "left the source"));
+        EXPECT_TRUE(has_issue_containing(report, "rollback was incomplete"));
+        EXPECT_EQ(read_text_file(source).value(), "return {replacement = true}");
+        EXPECT_EQ(read_text_file(trashed).value(), CONTENTS);
+        int retained = 0;
+        for(const auto& entry : std::filesystem::recursive_directory_iterator(
+                paths.local_data() / "pending-deletions")) {
+            if(entry.is_regular_file()) {
+                ++retained;
+                EXPECT_EQ(read_text_file(entry.path()).value(), CONTENTS);
+            }
+        }
+        EXPECT_EQ(retained, 1);
+    }
+
+    TEST_F(AssetSourceModuleRemovalTest, DanglingSymlinkLeftByTrashIsNotCommittedOrOverwritten) {
+        const auto missing = paths.assets() / "missing.module.lua";
+        const auto probe = paths.assets() / "probe.module.lua";
+        std::error_code error;
+        std::filesystem::create_symlink(missing, probe, error);
+        if(error)
+            GTEST_SKIP() << "Symlinks unavailable: " << error.message();
+        ASSERT_TRUE(std::filesystem::remove(probe));
+        const auto report = remove([&](const auto& entry) {
+            auto moved = move_to_trash(entry);
+            if(!moved)
+                return moved;
+            std::filesystem::create_symlink(missing, entry, error);
+            if(error)
+                return Result<void>::failure(error.message());
+            return Result<void>::success();
+        });
+
+        expect_unchanged_index(report);
+        EXPECT_EQ(trash_requests, 1);
+        EXPECT_TRUE(has_issue_containing(report, "left the source"));
+        EXPECT_TRUE(has_issue_containing(report, "rollback was incomplete"));
+        EXPECT_TRUE(std::filesystem::is_symlink(source));
+        EXPECT_FALSE(std::filesystem::exists(missing));
+        EXPECT_EQ(read_text_file(trashed).value(), CONTENTS);
+        EXPECT_FALSE(std::filesystem::is_empty(paths.local_data() / "pending-deletions"));
+    }
+
+    TEST_F(AssetSourceModuleRemovalTest, InvalidPathsAndMetadataAreRejectedBeforeTrash) {
+        const auto reserved = paths.assets() / "reserved.module.lua";
+        ASSERT_TRUE(write_text_file_atomic(reserved, "return {}"));
+        ASSERT_TRUE(write_text_file_atomic(metadata_path(reserved), "reserved metadata"));
+        std::filesystem::create_directory(paths.assets() / "directory.module.lua");
+        ASSERT_TRUE(write_text_file_atomic(paths.assets() / "bad-name.module.lua", "return {}"));
+        const std::vector<std::filesystem::path> invalid{"", "keep.lua", "UPPER.MODULE.LUA",
+            "bad-name.module.lua", "../escape.module.lua", "scripts/../shared.module.lua",
+            "missing.module.lua", "directory.module.lua", "reserved.module.lua", source};
+        for(const auto& path : invalid) {
+            SCOPED_TRACE(path.string());
+            const auto report =
+                SourceOperations::remove_module(database, path, [&](const auto& entry) {
+                    ++trash_requests;
+                    return move_to_trash(entry);
+                });
+            expect_restored(report);
+        }
+        expect_restored(SourceOperations::remove_module(database, relative, {}));
+        EXPECT_EQ(trash_requests, 0);
+        EXPECT_EQ(read_text_file(reserved).value(), "return {}");
+        EXPECT_EQ(read_text_file(metadata_path(reserved)).value(), "reserved metadata");
+    }
+
+    TEST_F(AssetSourceModuleRemovalTest, FileAndDirectoryAliasesAreRejectedBeforeTrash) {
+        const TemporaryDirectory outside;
+        ASSERT_TRUE(write_text_file_atomic(outside.path() / "shared.module.lua", CONTENTS));
+        std::error_code error;
+        std::filesystem::create_symlink(source, paths.assets() / "alias.module.lua", error);
+        if(error)
+            GTEST_SKIP() << "Symlinks unavailable: " << error.message();
+        std::filesystem::create_directory_symlink(
+            source.parent_path(), paths.assets() / "internal", error);
+        ASSERT_FALSE(error) << error.message();
+        std::filesystem::create_directory_symlink(
+            outside.path(), paths.assets() / "external", error);
+        ASSERT_FALSE(error) << error.message();
+        std::filesystem::create_symlink(
+            paths.assets() / "missing.module.lua", paths.assets() / "dangling.module.lua", error);
+        ASSERT_FALSE(error) << error.message();
+        for(const auto* path : {"alias.module.lua", "internal/shared.module.lua",
+                "external/shared.module.lua", "dangling.module.lua"}) {
+            const auto report =
+                SourceOperations::remove_module(database, path, [&](const auto& entry) {
+                    ++trash_requests;
+                    return move_to_trash(entry);
+                });
+            expect_restored(report);
+        }
+        EXPECT_EQ(trash_requests, 0);
+        EXPECT_EQ(read_text_file(outside.path() / "shared.module.lua").value(), CONTENTS);
+        EXPECT_TRUE(std::filesystem::is_symlink(paths.assets() / "alias.module.lua"));
+        EXPECT_TRUE(std::filesystem::is_symlink(paths.assets() / "dangling.module.lua"));
+    }
+
     TEST(AssetSourceOperationsTest, ScriptMoveRejectsSourceOnlyModuleDestination) {
         const TemporaryProject project;
         AssetDatabase database(project.paths());

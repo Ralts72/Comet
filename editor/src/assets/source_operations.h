@@ -52,6 +52,9 @@ namespace CometEditor::AssetSourceOperations {
     [[nodiscard]] Comet::AssetScanReport remove_asset(
         Comet::AssetDatabase& database, Comet::AssetHandle handle, const TrashMover& move_to_trash);
 
+    [[nodiscard]] Comet::AssetScanReport remove_module(Comet::AssetDatabase& database,
+        const std::filesystem::path& source, const TrashMover& move_to_trash);
+
     [[nodiscard]] Comet::AssetScanReport import_files(Comet::AssetDatabase& database,
         std::span<const std::filesystem::path> sources, const std::filesystem::path& directory,
         Comet::AssetImportLimits limits);

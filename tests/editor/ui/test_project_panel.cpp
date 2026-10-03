@@ -2,6 +2,7 @@
 #include "assets/project_panel.h"
 #include "scene/selection.h"
 #include "scene/command_history.h"
+#include "scene/scene_commands.h"
 #include "assets/asset_reference.h"
 #include "assets/source_operations.h"
 
@@ -15,6 +16,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <string_view>
 
 namespace CometEditor::Tests {
     class ProjectPanelTest: public ::testing::Test {
@@ -32,6 +34,9 @@ namespace CometEditor::Tests {
         int module_rename_count = 0;
         int refresh_count = 0;
         bool consume_requests = true;
+        bool reject_trash = false;
+        int trash_count = 0;
+        std::filesystem::path trashed_source;
         Comet::AssetHandle moved_handle;
         std::filesystem::path destination;
 
@@ -51,7 +56,11 @@ namespace CometEditor::Tests {
 
         void TearDown() override { project.reset(); }
 
-        Comet::Result<void> move_to_fake_trash(const std::filesystem::path& entry) const {
+        Comet::Result<void> move_to_fake_trash(const std::filesystem::path& entry) {
+            ++trash_count;
+            trashed_source = entry;
+            if(reject_trash)
+                return Comet::Result<void>::failure("System trash is unavailable");
             const auto destination = root / "fake-system-trash" / entry.filename();
             std::error_code error;
             std::filesystem::create_directories(destination.parent_path(), error);
@@ -83,6 +92,14 @@ namespace CometEditor::Tests {
                     auto report = AssetSourceOperations::rename_module(
                         database, request->source, request->destination);
                     project->complete_rename_module(*request, report);
+                    project->update_scan_report(std::move(report));
+                }
+                if(const auto request = project->take_delete_module_request()) {
+                    auto report = AssetSourceOperations::remove_module(
+                        database, request->source, [this](const std::filesystem::path& entry) {
+                            return move_to_fake_trash(entry);
+                        });
+                    project->complete_delete_module(*request, report);
                     project->update_scan_report(std::move(report));
                 }
                 if(project->take_refresh_request()) {
@@ -144,6 +161,20 @@ namespace CometEditor::Tests {
             frame();
             frame();
             auto* dialog = ImGui::FindWindowByName("Rename Asset");
+            ASSERT_NE(dialog, nullptr);
+            ASSERT_TRUE(dialog->Active);
+        }
+
+        void open_delete(int row) {
+            click(row_point(row), 1);
+            auto& context = *ImGui::GetCurrentContext();
+            ASSERT_EQ(context.OpenPopupStack.Size, 1);
+            auto* popup = context.OpenPopupStack.back().Window;
+            ASSERT_NE(popup, nullptr);
+            ImGui::ActivateItemByID(popup->GetID("Delete"));
+            frame();
+            frame();
+            auto* dialog = ImGui::FindWindowByName("Delete Asset");
             ASSERT_NE(dialog, nullptr);
             ASSERT_TRUE(dialog->Active);
         }
@@ -432,20 +463,7 @@ namespace CometEditor::Tests {
         click(row_point(3));
         ASSERT_EQ(selection.get_selected_asset(), handle);
 
-        const auto open_delete = [&] {
-            click(row_point(3), 1);
-            auto& context = *ImGui::GetCurrentContext();
-            ASSERT_FALSE(context.OpenPopupStack.empty());
-            auto* popup = context.OpenPopupStack.back().Window;
-            ASSERT_NE(popup, nullptr);
-            ImGui::ActivateItemByID(popup->GetID("Delete"));
-            frame();
-            frame();
-            auto* dialog = ImGui::FindWindowByName("Delete Asset");
-            ASSERT_NE(dialog, nullptr);
-            ASSERT_TRUE(dialog->Active);
-        };
-        open_delete();
+        open_delete(3);
         auto* dialog = ImGui::FindWindowByName("Delete Asset");
         ImGui::ActivateItemByID(dialog->GetID("Cancel"));
         frame();
@@ -474,6 +492,130 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(std::filesystem::exists(root / "fake-system-trash/a.png.meta"));
         EXPECT_EQ(selection.get_selected_asset(), Comet::INVALID_ASSET_HANDLE);
         EXPECT_FALSE(ImGui::IsPopupOpen("Delete Asset", ImGuiPopupFlags_AnyPopupId));
+    }
+
+    TEST_F(ProjectPanelTest, ModuleDeleteRequiresConfirmationAndPreservesSelectionAndHistory) {
+        consume_requests = false;
+        auto report = AssetSourceOperations::create_script(
+            database, "folder/shared.module.lua", AssetSourceOperations::ScriptKind::Module);
+        ASSERT_TRUE(report.succeeded());
+        project->update_scan_report(std::move(report));
+        const auto selected = database.find("a.png")->handle;
+        selection.select_asset(selected);
+        const auto components = Comet::create_scene_component_registry();
+        const auto entity = SceneCommands::create_entity(history, components, "Preserved");
+        ASSERT_TRUE(entity);
+        const auto state = history.state_id();
+        ASSERT_EQ(history.undo_size(), 1u);
+        search("shared.module.lua");
+        open_delete(2);
+        EXPECT_EQ(selection.get_selected_asset(), selected);
+        EXPECT_FALSE(project->take_delete_module_request());
+        auto* dialog = ImGui::FindWindowByName("Delete Asset");
+        ASSERT_NE(dialog, nullptr);
+        EXPECT_TRUE(std::string_view(dialog->Name).starts_with("Delete Lua Module###"));
+        ImGui::ActivateItemByID(dialog->GetID("Cancel"));
+        frame();
+        frame();
+        EXPECT_FALSE(dialog->Active);
+        EXPECT_FALSE(project->take_delete_module_request());
+        EXPECT_FALSE(project->take_delete_request());
+        EXPECT_EQ(trash_count, 0);
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / "folder/shared.module.lua"));
+
+        open_delete(2);
+        ImGui::ActivateItemByID(dialog->GetID("Move to Trash"));
+        frame();
+        const auto request = project->take_delete_module_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->source, "folder/shared.module.lua");
+        EXPECT_FALSE(project->take_delete_module_request());
+        EXPECT_FALSE(project->take_delete_request());
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / request->source));
+        EXPECT_EQ(trash_count, 0);
+        report = AssetSourceOperations::remove_module(database, request->source,
+            [this](const std::filesystem::path& entry) { return move_to_fake_trash(entry); });
+        ASSERT_TRUE(report.succeeded());
+        project->complete_delete_module(*request, report);
+        project->update_scan_report(std::move(report));
+        frame();
+        frame();
+        EXPECT_FALSE(dialog->Active);
+        EXPECT_EQ(trash_count, 1);
+        EXPECT_EQ(trashed_source, paths.assets() / request->source);
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / request->source));
+        EXPECT_TRUE(std::filesystem::exists(root / "fake-system-trash/shared.module.lua"));
+        EXPECT_FALSE(std::filesystem::exists(root / "fake-system-trash/shared.module.lua.meta"));
+        EXPECT_EQ(database.find(request->source), nullptr);
+        EXPECT_EQ(selection.get_selected_asset(), selected);
+        EXPECT_FALSE(ImGui::GetDragDropPayload());
+        EXPECT_EQ(project->file_drop_directory({row_point(2).x, row_point(2).y}),
+            std::filesystem::path{});
+        EXPECT_EQ(history.state_id(), state);
+        EXPECT_EQ(history.undo_size(), 1u);
+        EXPECT_TRUE(scene.find_entity(entity));
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(scene.find_entity(entity));
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / request->source));
+    }
+
+    TEST_F(ProjectPanelTest, ModuleDeleteFailureStaysOpenAndLeavesAssetDeleteIndependent) {
+        auto report = AssetSourceOperations::create_script(
+            database, "folder/shared.module.lua", AssetSourceOperations::ScriptKind::Module);
+        ASSERT_TRUE(report.succeeded());
+        project->update_scan_report(std::move(report));
+        const auto selected = database.find("b.png")->handle;
+        selection.select_asset(selected);
+        search("shared.module.lua");
+        open_delete(2);
+        auto* dialog = ImGui::FindWindowByName("Delete Asset");
+        ASSERT_NE(dialog, nullptr);
+        reject_trash = true;
+        ImGui::ActivateItemByID(dialog->GetID("Move to Trash"));
+        frame();
+        frame();
+        EXPECT_TRUE(dialog->Active);
+        EXPECT_EQ(trash_count, 1);
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / "folder/shared.module.lua"));
+        EXPECT_FALSE(project->take_delete_request());
+        EXPECT_EQ(selection.get_selected_asset(), selected);
+
+        reject_trash = false;
+        ImGui::ActivateItemByID(dialog->GetID("Move to Trash"));
+        frame();
+        frame();
+        frame();
+        EXPECT_FALSE(dialog->Active);
+        EXPECT_EQ(trash_count, 2);
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "folder/shared.module.lua"));
+        EXPECT_TRUE(std::filesystem::exists(root / "fake-system-trash/shared.module.lua"));
+        EXPECT_EQ(selection.get_selected_asset(), selected);
+
+        const auto asset = database.find("a.png")->handle;
+        search("a.png");
+        open_delete(1);
+        EXPECT_EQ(ImGui::FindWindowByName("Delete Asset"), dialog);
+        EXPECT_TRUE(std::string_view(dialog->Name).starts_with("Delete Asset###"));
+        ImGui::ActivateItemByID(dialog->GetID("Move to Trash"));
+        frame();
+        const auto request = project->take_delete_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->handle, asset);
+        EXPECT_EQ(request->revision, database.get_revision(asset));
+        EXPECT_FALSE(project->take_delete_module_request());
+        report = AssetSourceOperations::remove_asset(database, request->handle,
+            [this](const std::filesystem::path& entry) { return move_to_fake_trash(entry); });
+        ASSERT_TRUE(report.succeeded());
+        project->complete_delete(*request, report);
+        project->update_scan_report(std::move(report));
+        frame();
+        frame();
+        EXPECT_FALSE(dialog->Active);
+        EXPECT_EQ(trash_count, 4);
+        EXPECT_EQ(database.find(asset), nullptr);
+        EXPECT_TRUE(std::filesystem::exists(root / "fake-system-trash/a.png"));
+        EXPECT_TRUE(std::filesystem::exists(root / "fake-system-trash/a.png.meta"));
+        EXPECT_EQ(selection.get_selected_asset(), selected);
     }
 
     TEST_F(ProjectPanelTest, MeshDragKeepsOriginalIdentityAcrossDocumentChanges) {

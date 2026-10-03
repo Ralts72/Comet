@@ -32,6 +32,9 @@ namespace CometEditor {
             Comet::AssetHandle handle;
             Comet::AssetRevision revision;
         };
+        struct ModuleDeleteRequest {
+            std::filesystem::path source;
+        };
         struct CreateMaterialRequest {
             std::filesystem::path destination;
             Comet::MaterialData data;
@@ -55,6 +58,9 @@ namespace CometEditor {
             const ModuleRenameRequest& request, const Comet::AssetScanReport& report);
         [[nodiscard]] std::optional<DeleteRequest> take_delete_request();
         void complete_delete(const DeleteRequest& request, const Comet::AssetScanReport& report);
+        [[nodiscard]] std::optional<ModuleDeleteRequest> take_delete_module_request();
+        void complete_delete_module(
+            const ModuleDeleteRequest& request, const Comet::AssetScanReport& report);
         void request_delete_selection();
         void set_material_layouts(
             std::vector<std::shared_ptr<const Comet::MaterialLayout>> layouts);
@@ -89,6 +95,7 @@ namespace CometEditor {
         void request_rename(const std::filesystem::path& module);
         void render_rename_dialog();
         void request_delete(const Comet::AssetRecord& record);
+        void request_delete(const std::filesystem::path& module);
         void render_delete_dialog();
         void render_directory_menu(const std::filesystem::path& directory);
         void request_create_material(const std::filesystem::path& directory);
@@ -117,10 +124,11 @@ namespace CometEditor {
         bool m_refresh_requested = false;
         std::optional<MoveRequest> m_pending_move;
         std::optional<ModuleRenameRequest> m_pending_module_rename;
-        Comet::AssetHandle m_deleting_asset;
+        std::variant<std::monostate, Comet::AssetHandle, std::filesystem::path> m_delete_target;
         bool m_delete_requested = false;
         bool m_close_delete = false;
         std::optional<DeleteRequest> m_pending_delete;
+        std::optional<ModuleDeleteRequest> m_pending_module_delete;
         std::vector<std::shared_ptr<const Comet::MaterialLayout>> m_material_layouts;
         std::filesystem::path m_create_directory;
         std::string m_create_name;
