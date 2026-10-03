@@ -80,6 +80,41 @@ namespace CometEditor {
             return type == Type::Axis || source != "gamepad_axis";
         }
 
+        template<typename Control> void control_options(std::string& current, const int count) {
+            for(int index = 0; index < count; ++index) {
+                const auto name =
+                    Comet::InputActions::format_binding({static_cast<Control>(index)}).value();
+                const bool selected = current == name.control;
+                if(ImGui::Selectable(name.control.c_str(), selected))
+                    current = name.control;
+                if(selected)
+                    ImGui::SetItemDefaultFocus();
+            }
+        }
+
+        void render_control(const std::string_view source, std::string& control) {
+            if(source == "key") {
+                Ui::input_text("##Control", control);
+                return;
+            }
+            const char* preview = control.c_str();
+            if(control.empty())
+                preview = Ui::text("Select a control");
+            if(!ImGui::BeginCombo("##Control", preview))
+                return;
+            using Input = Comet::Input;
+            using Motion = Comet::InputActions::Motion;
+            if(source == "mouse_button")
+                control_options<Input::MouseButton>(control, int(Input::MouseButton::Count));
+            else if(source == "gamepad_button")
+                control_options<Input::GamepadButton>(control, int(Input::GamepadButton::Count));
+            else if(source == "gamepad_axis")
+                control_options<Input::GamepadAxis>(control, int(Input::GamepadAxis::Count));
+            else if(source == "motion")
+                control_options<Motion>(control, int(Motion::ScrollY) + 1);
+            ImGui::EndCombo();
+        }
+
         Comet::Input::Key physical_key(ImGuiKey key) {
             using Key = Comet::Input::Key;
             // ImGui 为 macOS 快捷键交换 Ctrl/Super；项目绑定仍保存真实物理键。
@@ -267,7 +302,7 @@ namespace CometEditor {
         }
         ImGui::TableSetColumnIndex(1);
         ImGui::SetNextItemWidth(-1);
-        Ui::input_text("##Control", binding.control);
+        render_control(binding.source, binding.control);
         ImGui::TableSetColumnIndex(2);
         if(binding.source == "key") {
             const bool capturing =

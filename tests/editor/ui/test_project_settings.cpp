@@ -116,6 +116,18 @@ namespace CometEditor::Tests {
             frame();
         }
 
+        void select_control(const char* control) {
+            ASSERT_NE(details(), nullptr);
+            ImGui::FocusWindow(details());
+            ImGui::ActivateItemByID(binding_id("##Control"));
+            frame();
+            auto* combo = ImGui::FindWindowByName("##Combo_00");
+            ASSERT_NE(combo, nullptr);
+            ASSERT_TRUE(combo->Active);
+            ImGui::ActivateItemByID(combo->GetID(control));
+            frame();
+        }
+
         void record() {
             ASSERT_NE(details(), nullptr);
             ImGui::FocusWindow(details());
@@ -399,6 +411,73 @@ namespace CometEditor::Tests {
         EXPECT_EQ(changed->actions()[0].bindings[0], Actions::Binding{Comet::Input::Key::Right});
         EXPECT_EQ(changed->actions()[0].context, "gameplay");
         EXPECT_EQ(changed->contexts(), original.contexts());
+    }
+
+    TEST_F(ProjectInputUiTest, NonKeyboardChoicesPreserveTuningAndRoundTripThroughProject) {
+        using Actions = Comet::InputActions;
+        using Input = Comet::Input;
+        struct Case {
+            Actions::Type type;
+            Actions::Binding previous;
+            Actions::Binding selected;
+            const char* name;
+        };
+        const Case cases[]{{Actions::Type::Button, {Input::MouseButton::Right},
+                               {Input::MouseButton::Extra5}, "Extra5"},
+            {Actions::Type::Button, {Input::GamepadButton::South}, {Input::GamepadButton::DpadLeft},
+                "DpadLeft"},
+            {Actions::Type::Axis, {Input::GamepadAxis::LeftX, -0.5f, 0.2f},
+                {Input::GamepadAxis::RightTrigger, -0.5f, 0.2f}, "RightTrigger"},
+            {Actions::Type::Delta, {Actions::Motion::CursorX, -2}, {Actions::Motion::ScrollY, -2},
+                "ScrollY"}};
+        Comet::Tests::TemporaryDirectory directory;
+        const auto root = directory.path() / "Project";
+        ASSERT_TRUE(create_project(root));
+        auto project = Comet::Project::load(root);
+        ASSERT_TRUE(project) << project.error();
+        for(const auto& test : cases) {
+            SCOPED_TRACE(test.name);
+            const auto configured = Actions::create(
+                {{"controlled", test.type, {test.previous}, "gameplay"}}, original.contexts());
+            ASSERT_TRUE(configured);
+            reopen(configured.value());
+            ASSERT_NO_FATAL_FAILURE(select_control(test.name));
+            EXPECT_FALSE(panel.take_request());
+            button("Save");
+            const auto saved = panel.take_request();
+            ASSERT_TRUE(saved);
+            EXPECT_EQ(saved->actions()[0].bindings, std::vector<Actions::Binding>{test.selected});
+            EXPECT_EQ(saved->contexts(), original.contexts());
+            EXPECT_EQ(saved->actions()[0].context, "gameplay");
+            ASSERT_TRUE(project.value().save_input_actions(*saved));
+            const auto loaded = Comet::Project::load(root);
+            ASSERT_TRUE(loaded);
+            EXPECT_EQ(loaded.value().input_actions(), *saved);
+            ASSERT_NO_FATAL_FAILURE(select_control(test.name));
+            button("Save");
+            EXPECT_EQ(panel.take_request(), saved);
+        }
+    }
+
+    TEST_F(ProjectInputUiTest, ChangingSourceRequiresAnExplicitChoiceAndCloseDiscardsIt) {
+        ASSERT_NO_FATAL_FAILURE(select_binding_source("gamepad_button"));
+        EXPECT_NE(rendered_text.find("Select a control"), std::string::npos);
+        button("Save");
+        EXPECT_FALSE(panel.take_request());
+        ASSERT_NO_FATAL_FAILURE(select_control("West"));
+        button("Save");
+        const auto saved = panel.take_request();
+        ASSERT_TRUE(saved);
+        EXPECT_EQ(saved->actions()[0].bindings[0],
+            Comet::InputActions::Binding{Comet::Input::GamepadButton::West});
+        ASSERT_NO_FATAL_FAILURE(select_control("North"));
+        button("Close");
+        EXPECT_FALSE(panel.take_request());
+        panel.request(*saved);
+        frame();
+        frame();
+        button("Save");
+        EXPECT_EQ(panel.take_request(), saved);
     }
 
     TEST_F(ProjectInputUiTest, AxisToButtonNormalizesHiddenMultipliersAndPreservesBindings) {
