@@ -275,3 +275,4 @@
 "Script unavailable; see Console": "脚本未加载，请查看日志"
 "Restore default parameters": "恢复默认参数"
 "Remove incompatible overrides": "移除不兼容参数覆盖"
+"Use script default": "使用脚本默认值"

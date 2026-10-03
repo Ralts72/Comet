@@ -129,13 +129,28 @@ namespace CometEditor::Tests {
 
         void drag() { drag_at(drag_point); }
 
-        void click(ImVec2 point) {
+        void click(ImVec2 point, ImGuiMouseButton button = ImGuiMouseButton_Left) {
             auto& io = ImGui::GetIO();
             io.AddMousePosEvent(point.x, point.y);
             frame();
-            io.AddMouseButtonEvent(0, true);
+            io.AddMouseButtonEvent(button, true);
             frame();
-            io.AddMouseButtonEvent(0, false);
+            io.AddMouseButtonEvent(button, false);
+            frame();
+        }
+
+        void parameter_menu(ImVec2 point, const char* name) {
+            click(point, ImGuiMouseButton_Right);
+            auto* window = ImGui::FindWindowByName("Inspector");
+            auto id = window->GetID("script");
+            for(const char* part : {"parameters", name, "Parameter actions"})
+                id = ImHashStr(part, 0, id);
+            ASSERT_FALSE(GImGui->OpenPopupStack.empty());
+            ASSERT_EQ(GImGui->OpenPopupStack.back().PopupId, id);
+            frame();
+            auto* popup = GImGui->OpenPopupStack.back().Window;
+            ASSERT_NE(popup, nullptr);
+            ImGui::ActivateItemByID(popup->GetID("Use script default"));
             frame();
         }
 
@@ -356,6 +371,10 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(std::get<Comet::EntityUuid>(binding.parameters.at("player")));
         ASSERT_TRUE(history.undo());
         EXPECT_EQ(std::get<Comet::EntityUuid>(binding.parameters.at("player")), target_id);
+        ASSERT_NO_FATAL_FAILURE(parameter_menu(entity_parameter_point(), "player"));
+        EXPECT_FALSE(binding.parameters.contains("player"));
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(std::get<Comet::EntityUuid>(binding.parameters.at("player")), target_id);
     }
 
     TEST_F(EditingUiTest, EntityParameterDropsRejectStaleAndMalformedPayloadsAndPlayHistory) {
@@ -490,6 +509,104 @@ namespace CometEditor::Tests {
         EXPECT_EQ(history.undo_size(), undo_count + 1);
     }
 
+    TEST_F(EditingUiTest, OneParameterCanResumeDefaultInheritanceWithoutResettingItsPeers) {
+        const Comet::AssetHandle handle{1234};
+        auto script = Comet::Script::create("return {properties = {speed = 100, enabled = true}}");
+        ASSERT_TRUE(script);
+        ASSERT_TRUE(runtime_assets.register_asset(handle, script.value()));
+        auto& binding = entity.add_component<Comet::ScriptComponent>();
+        binding.asset = handle;
+        binding.parameters = {{"speed", 12.0f}, {"enabled", false}};
+        const auto before = binding.parameters;
+        ImVec2 label_point;
+        ASSERT_TRUE(widgets.register_editor(Comet::PropertyType::Float,
+            [&, builtin = create_property_editor_registry(assets)](
+                const Comet::PropertyDescriptor& property, void* value) {
+                const auto result = builtin.edit_property(property, value);
+                const auto maximum = ImGui::GetItemRectMax();
+                label_point = {maximum.x - 2, maximum.y - ImGui::GetTextLineHeight() * 0.5f};
+                return result;
+            }));
+        frame();
+        ASSERT_NO_FATAL_FAILURE(parameter_menu(label_point, "speed"));
+        EXPECT_EQ(binding.parameters, Comet::ParameterMap({{"enabled", false}}));
+        EXPECT_FALSE(edit.active());
+        EXPECT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(binding.parameters, before);
+        ASSERT_TRUE(history.redo());
+        EXPECT_FALSE(binding.parameters.contains("speed"));
+
+        auto changed = Comet::Script::create("return {properties = {speed = 250, enabled = true}}");
+        ASSERT_TRUE(changed);
+        ASSERT_TRUE(runtime_assets.replace_asset(handle, changed.value()));
+        frame();
+        auto effective = changed.value()->resolve_parameters(binding.parameters);
+        ASSERT_TRUE(effective);
+        EXPECT_FLOAT_EQ(std::get<float>(effective.value().at("speed")), 250);
+        EXPECT_FALSE(std::get<bool>(effective.value().at("enabled")));
+        const auto history_state = history.state_id();
+        ASSERT_NO_FATAL_FAILURE(parameter_menu(label_point, "speed"));
+        EXPECT_EQ(history.state_id(), history_state);
+        EXPECT_FALSE(binding.parameters.contains("speed"));
+    }
+
+    TEST_F(EditingUiTest, PlayParameterDefaultUsesActiveDefinitionWithoutEditingTheDocument) {
+        const Comet::AssetHandle handle{1234};
+        auto script = Comet::Script::create("return {properties = {speed = 100, enabled = true}}");
+        ASSERT_TRUE(script);
+        ASSERT_TRUE(runtime_assets.register_asset(handle, script.value()));
+        auto& authored = entity.add_component<Comet::ScriptComponent>();
+        authored.asset = handle;
+        authored.parameters = {{"speed", 12.0f}, {"enabled", false}};
+        auto cloned = Comet::SceneSerializer(components).clone(scene);
+        ASSERT_TRUE(cloned);
+        auto runtime_entity = cloned.value()->find_entity(entity.get_uuid());
+        auto& binding = runtime_entity.get_component<Comet::ScriptComponent>();
+        Comet::SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Comet::ScriptSystem>(runtime_assets)));
+        ASSERT_TRUE(runtime.start(*cloned.value(), Comet::SceneRuntime::State::Paused));
+        state.mode = EditorMode::Play;
+        selection.set_scene(*cloned.value());
+        selection.select_entity(runtime_entity.get_id());
+        ImVec2 label_point;
+        float displayed = 0;
+        ASSERT_TRUE(widgets.register_editor(Comet::PropertyType::Float,
+            [&, builtin = create_property_editor_registry(assets)](
+                const Comet::PropertyDescriptor& property, void* value) {
+                displayed = *static_cast<float*>(value);
+                const auto result = builtin.edit_property(property, value);
+                const auto maximum = ImGui::GetItemRectMax();
+                label_point = {maximum.x - 2, maximum.y - ImGui::GetTextLineHeight() * 0.5f};
+                return result;
+            }));
+        auto candidate =
+            Comet::Script::create("return {properties = {speed = 250, enabled = true}}");
+        ASSERT_TRUE(candidate);
+        ASSERT_TRUE(runtime_assets.replace_asset(handle, candidate.value()));
+        const auto history_state = history.state_id();
+        frame();
+        ASSERT_NO_FATAL_FAILURE(parameter_menu(label_point, "speed"));
+        frame();
+        EXPECT_FLOAT_EQ(displayed, 100);
+        EXPECT_EQ(binding.parameters, Comet::ParameterMap({{"enabled", false}}));
+        EXPECT_EQ(binding.running_script(), script.value());
+        EXPECT_FLOAT_EQ(std::get<float>(authored.parameters.at("speed")), 12);
+        EXPECT_EQ(history.state_id(), history_state);
+        EXPECT_FALSE(history.can_undo());
+        EXPECT_FALSE(edit.active());
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        frame();
+        EXPECT_FLOAT_EQ(displayed, 250);
+        EXPECT_EQ(binding.running_script(), candidate.value());
+        EXPECT_FALSE(binding.parameters.contains("speed"));
+        ASSERT_TRUE(runtime.stop());
+        selection.set_scene(scene);
+        selection.select_entity(entity.get_id());
+        state.mode = EditorMode::Edit;
+    }
+
     TEST_F(EditingUiTest, ScriptDefinitionChangeCancelsPendingParameterGesture) {
         const Comet::AssetHandle handle{1234};
         auto original = Comet::Script::create("return {properties = {speed = 100}}");
@@ -527,6 +644,13 @@ namespace CometEditor::Tests {
         binding.asset = handle;
         frame();
         EXPECT_TRUE(binding.parameters.empty());
+
+        click(color_item_point(), ImGuiMouseButton_Right);
+        ASSERT_FALSE(GImGui->OpenPopupStack.empty());
+        EXPECT_EQ(GImGui->OpenPopupStack.back().PopupId, color_item_id("context"));
+        ImGui::ClosePopupToLevel(0, true);
+        frame();
+        EXPECT_FALSE(history.can_undo());
 
         click(color_item_point("##ColorButton"));
         ASSERT_FALSE(GImGui->OpenPopupStack.empty());
@@ -588,6 +712,16 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(history.undo());
         EXPECT_EQ(std::get<Comet::Math::Vec4>(binding.parameters.at("score_color")), edited);
         ASSERT_TRUE(history.redo());
+        EXPECT_TRUE(binding.parameters.empty());
+        ASSERT_TRUE(history.undo());
+        auto label_point = color_item_point("##ColorButton");
+        label_point.x += ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x + 3;
+        ASSERT_NO_FATAL_FAILURE(parameter_menu(label_point, "score_color"));
+        EXPECT_FALSE(binding.parameters.contains("score_color"));
+        EXPECT_EQ(history.undo_size(), 2u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(std::get<Comet::Math::Vec4>(binding.parameters.at("score_color")), edited);
+        ASSERT_TRUE(history.undo());
         EXPECT_TRUE(binding.parameters.empty());
     }
 

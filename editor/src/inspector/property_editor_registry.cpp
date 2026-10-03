@@ -163,14 +163,25 @@ namespace CometEditor {
             if(const auto found = overrides.find(name); found != overrides.end())
                 value = found->second;
             ImGui::PushID(name.c_str());
-            const auto item = std::visit(
+            ImGui::BeginGroup();
+            auto item = std::visit(
                 [&](auto& scalar) {
                     return edit_parameter_value(
                         *this, name, property, scalar, scene, drop_generation);
                 },
                 value);
+            ImGui::EndGroup();
             if(item.changed)
                 overrides.insert_or_assign(name, std::move(value));
+            if(ImGui::BeginPopupContextItem("Parameter actions",
+                   ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverExistingPopup)) {
+                if(ImGui::MenuItem(Ui::label("Use script default").c_str(), nullptr, false,
+                       overrides.contains(name))) {
+                    overrides.erase(name);
+                    item = {.changed = true, .finished = true};
+                }
+                ImGui::EndPopup();
+            }
             result.changed |= item.changed;
             result.active |= item.active;
             result.began |= item.began;
