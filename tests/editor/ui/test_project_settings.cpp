@@ -91,6 +91,19 @@ namespace CometEditor::Tests {
             return ImHashStr(label, 0, group);
         }
 
+        void select_action_type(const char* type) {
+            ASSERT_NE(details(), nullptr);
+            const int first = 0;
+            const auto action_id = ImHashData(&first, sizeof(first), details()->ID);
+            ImGui::FocusWindow(details());
+            ImGui::ActivateItemByID(ImHashStr("##Type", 0, action_id));
+            frame();
+            auto* combo = ImGui::FindWindowByName("##Combo_00");
+            ASSERT_NE(combo, nullptr);
+            ImGui::ActivateItemByID(combo->GetID(type));
+            frame();
+        }
+
         void record() {
             ASSERT_NE(details(), nullptr);
             ImGui::FocusWindow(details());
@@ -285,6 +298,50 @@ namespace CometEditor::Tests {
         auto reopened = panel.take_request();
         ASSERT_TRUE(reopened);
         EXPECT_EQ(*reopened, original);
+    }
+
+    TEST_F(ProjectInputUiTest, AxisToButtonNormalizesHiddenMultipliersAndPreservesBindings) {
+        using Actions = Comet::InputActions;
+        const auto configured = Actions::create(
+            {{"move", Actions::Type::Axis, {{Comet::Input::Key::A, -1}, {Comet::Input::Key::D, 2}},
+                 "gameplay"},
+                {"interact", Actions::Type::Button, {{Comet::Input::Key::S}}}},
+            original.contexts());
+        ASSERT_TRUE(configured);
+        const auto snapshot = configured.value();
+        reopen(configured.value());
+
+        select_action_type("Button");
+        EXPECT_FALSE(panel.take_request());
+        button("Save");
+        const auto saved_button = panel.take_request();
+        ASSERT_TRUE(saved_button);
+        auto expected = snapshot.actions();
+        expected[0].type = Actions::Type::Button;
+        for(auto& binding : expected[0].bindings)
+            binding.scale = 1;
+        EXPECT_EQ(saved_button->actions(), expected);
+        EXPECT_EQ(saved_button->contexts(), snapshot.contexts());
+        EXPECT_EQ(configured.value(), snapshot);
+
+        select_action_type("Axis");
+        button("Save");
+        const auto saved_axis = panel.take_request();
+        ASSERT_TRUE(saved_axis);
+        expected[0].type = Actions::Type::Axis;
+        EXPECT_EQ(saved_axis->actions(), expected);
+        EXPECT_EQ(saved_axis->contexts(), snapshot.contexts());
+
+        select_action_type("Delta");
+        button("Save");
+        EXPECT_FALSE(panel.take_request());
+        EXPECT_TRUE(panel.is_open());
+        EXPECT_NE(rendered_text.find("Invalid draft; binding relationships are unavailable."),
+            std::string::npos);
+        select_action_type("Axis");
+        button("Save");
+        EXPECT_EQ(panel.take_request(), saved_axis);
+        EXPECT_EQ(configured.value(), snapshot);
     }
 
     TEST_F(ProjectInputUiTest, BindingRelationshipsFollowContextDraftWithoutSaving) {

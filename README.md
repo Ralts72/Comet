@@ -381,6 +381,7 @@ App 与 Play 启动时读取同一配置；外部手改文件后需重启宿主�
 `button` 合并键／鼠标按钮／手柄按钮的电平与边沿；`axis` 合并数字按键和手柄轴，限制到 [-1,1]；
 `delta` 只接受 `motion`（CursorX／CursorY／ScrollX／ScrollY），保留位移单位，不乘 delta time。
 `scale` 默认为 1，可用于轴反向；`deadzone` 默认为 0，仅用于手柄轴。手柄取第一个连接的标准设备。
+面板切换到 Button 时会将倍率归为 1，保留绑定和组；不兼容的新类型／输入来源仍需显式修改，不自动删除绑定。
 键名支持 A–Z、0–9、F1–F25、Space、Escape、Enter、Tab、Backspace、Delete、Insert、Home、End、
 PageUp／PageDown、方向键及 Left／Right 的 Shift、Control、Alt、Super；不识别的名字会报错，不静默忽略。
 最多 128 个动作、每动作 16 个绑定；`bindings: []` 显式禁用动作。完整相机配置见 `demo/project.json`：

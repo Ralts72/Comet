@@ -299,8 +299,13 @@ namespace CometEditor {
         ImGui::SetNextItemWidth(110.0f);
         if(ImGui::BeginCombo("##Type", Ui::text(type_name(action.type)))) {
             for(const auto type : {Type::Button, Type::Axis, Type::Delta}) {
-                if(ImGui::Selectable(Ui::text(type_name(type)), action.type == type))
+                if(ImGui::Selectable(Ui::text(type_name(type)), action.type == type)
+                    && action.type != type) {
                     action.type = type;
+                    if(type == Type::Button)
+                        for(auto& binding : action.bindings)
+                            binding.scale = 1;
+                }
             }
             ImGui::EndCombo();
         }
