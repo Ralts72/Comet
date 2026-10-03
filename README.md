@@ -312,7 +312,8 @@ app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场
 示例立方体通过 Script 组件引用 `demo/assets/scripts/spin.lua`，`speed` 为每秒角度，`enabled` 控制是否旋转。
 app 和 editor Play 共用该行为，不依赖 UUID 或项目路径；Edit 不执行旋转，Play 修改不保存回 Edit 场景。
 示例场景还有一个脚本交互：进入 Play（或运行 app）后，用左右方向键移动左侧小方块碰触右侧条纹目标。
-目标的触发回调会记录本次运行的分数、播放一次提示音、删除目标并创建 `Collected_Goal_1` 实体；中间的旋转立方体读取同一分数后上升并变色。
+目标的触发回调会记录本次运行的分数、播放一次提示音、退出物理模拟并创建 `Collected_Goal_1` 实体；
+目标本身继续升起和旋转约 0.5 秒后删除，中间的旋转立方体读取同一分数后上升并变色。
 颜色默认绿色；Edit 中选中 `Editor Cube`，在 Script 参数的 `score_color` 色框调整，再 Play 触发得分即可看到效果。
 变色只覆盖这个实体的材质参数；共用 `cube.mat` 的移动方块不变色，Stop 清除覆盖，不修改材质文件。
 新实体在目标上方显示为小型条纹方块，使用目标原有网格和材质，不带碰撞或脚本；Play 层级面板也可选中它。
@@ -423,6 +424,9 @@ Lua 在运行阶段可用 `comet.self_entity()` 获取当前实体引用，或�
 `self.parameters.player:is_valid()` 返回 false；有效引用可用 `==` 与碰撞回调的 `other` 比较。
 脚本可调用 `comet.create_entity(name)` 请求创建，返回新实体 UUID；
 `comet.destroy_entity(reference)` 请求删除实体及其子树。结构变更在当前阶段末提交，不在脚本遍历中立即生效。
+`comet.has_rigid_body(reference)` 查询当前是否有刚体；`comet.remove_rigid_body(reference)` 请求移除刚体，
+保留实体、Collider 配置及其他组件。重复请求幂等，当前阶段内查询仍看到旧组件，提交后下一物理固定步退出模拟。
+demo 用它让目标停止碰撞后继续播放收集动画；暂停冻结动画，单步推进，Stop／重开不会改写 Edit 场景。
 `comet.create_entity(name, options)` 可指定初始 `translation`／`rotation`／`scale` 三分量数组，以及 `mesh_source` 实体引用：
 
 ```lua

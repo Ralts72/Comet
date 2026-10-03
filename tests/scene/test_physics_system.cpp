@@ -406,6 +406,67 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
+    TEST(PhysicsSystemTest, QueuedBodyRemovalExitsTriggerOnceWithoutDestroyingTheEntity) {
+        for(const bool remove_sensor : {false, true}) {
+            SCOPED_TRACE(remove_sensor);
+            Scene scene;
+            auto sensor = add_body(scene, "Sensor", BodyMotion::Static, {0, 0, 0});
+            sensor.get_component<ColliderComponent>().is_trigger = true;
+            const auto falling = add_body(scene, "Falling", BodyMotion::Dynamic, {0, 0.3f, 0});
+            auto removed = remove_sensor ? sensor : falling;
+            removed.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{12});
+            const auto uuid = removed.get_uuid();
+            const auto id = removed.get_id();
+            SceneRuntime runtime;
+            ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+            ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+            auto probe = std::make_unique<ContactProbe>();
+            auto* observed = probe.get();
+            ASSERT_TRUE(runtime.add_system(std::move(probe)));
+            ASSERT_TRUE(runtime.start(scene));
+            ASSERT_TRUE(runtime.advance(0.01));
+            ASSERT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerEnter), 1u);
+            ASSERT_TRUE(scene.request_remove_rigid_body(removed));
+            ASSERT_TRUE(scene.request_remove_rigid_body(removed));
+            EXPECT_TRUE(removed.has_component<RigidBodyComponent>());
+
+            ASSERT_TRUE(runtime.advance(0));
+            ASSERT_TRUE(removed);
+            EXPECT_FALSE(removed.has_component<RigidBodyComponent>());
+            EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerExit), 0u);
+            const auto frozen = removed.get_component<TransformComponent>().translation;
+            ASSERT_TRUE(runtime.advance(0.01));
+            ASSERT_EQ(observed->contacts.size(), 1u);
+            EXPECT_EQ(observed->contacts[0].kind, Scene::ContactEvent::Kind::TriggerExit);
+            EXPECT_TRUE(
+                observed->contacts[0].first == removed || observed->contacts[0].second == removed);
+            ASSERT_TRUE(removed);
+            EXPECT_EQ(removed.get_component<TransformComponent>().translation, frozen);
+            EXPECT_EQ(removed.get_uuid(), uuid);
+            EXPECT_EQ(removed.get_id(), id);
+            EXPECT_EQ(scene.entity_count(), 2u);
+            ASSERT_TRUE(removed.has_component<ColliderComponent>());
+            EXPECT_EQ(removed.get_component<ColliderComponent>().is_trigger, remove_sensor);
+            ASSERT_TRUE(removed.has_component<MeshRendererComponent>());
+            EXPECT_EQ(removed.get_component<MeshRendererComponent>().mesh, AssetHandle{11});
+            EXPECT_EQ(removed.get_component<MeshRendererComponent>().material, AssetHandle{12});
+            EXPECT_EQ(
+                removed.get_component<NameComponent>().name, remove_sensor ? "Sensor" : "Falling");
+
+            ASSERT_TRUE(scene.request_remove_rigid_body(removed));
+            removed.edit_transform(
+                [](TransformComponent& transform) { transform.translation = {20, 5, 0}; });
+            for(int step = 0; step < 5; ++step)
+                ASSERT_TRUE(runtime.advance(0.01));
+            EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerEnter), 1u);
+            EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerExit), 1u);
+            EXPECT_EQ(
+                removed.get_component<TransformComponent>().translation, Math::Vec3(20, 5, 0));
+            EXPECT_FALSE(removed.has_component<RigidBodyComponent>());
+            ASSERT_TRUE(runtime.stop());
+        }
+    }
+
     TEST(PhysicsSystemTest, ComponentsSurviveSceneCloneWithoutRuntimeState) {
         Scene scene;
         auto entity = add_body(scene, "Ball", BodyMotion::Dynamic, {1, 2, 3});

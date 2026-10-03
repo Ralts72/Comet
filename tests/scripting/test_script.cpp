@@ -446,6 +446,167 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
+    TEST(ScriptInvocationTest, RigidBodyRemovalIsDeferredAndPreservesTheTargetEntity) {
+        Scene scene;
+        const auto actor = scene.create_entity("Actor");
+        auto target = scene.create_entity("Target");
+        target.add_component<RigidBodyComponent>();
+        target.add_component<ColliderComponent>().is_trigger = true;
+        target.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{12});
+        const auto uuid = target.get_uuid();
+        const auto id = target.get_id();
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.start(scene));
+        const auto script = Script::create(R"(return {
+            properties = {target = {type = 'entity'}},
+            on_start = function(self)
+                assert(not comet.has_rigid_body(comet.self_entity()))
+                assert(comet.has_rigid_body(self.parameters.target))
+                comet.remove_rigid_body(self.parameters.target)
+                comet.remove_rigid_body(self.parameters.target)
+                assert(comet.has_rigid_body(self.parameters.target))
+            end,
+            update = function(self)
+                assert(self.parameters.target:is_valid())
+                assert(not comet.has_rigid_body(self.parameters.target))
+                comet.remove_rigid_body(self.parameters.target)
+                comet.remove_rigid_body(self.parameters.target)
+                assert(not comet.has_rigid_body(self.parameters.target))
+            end,
+        })");
+        ASSERT_TRUE(script) << script.error().message;
+        auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance);
+        const ParameterMap parameters{{"target", uuid}};
+        const auto requested =
+            instance.value()->invoke(Script::Phase::Start, actor, parameters, {.scene = &scene});
+        ASSERT_TRUE(requested) << requested.error().message;
+        EXPECT_TRUE(target.has_component<RigidBodyComponent>());
+        ASSERT_TRUE(runtime.advance(0));
+        ASSERT_TRUE(target);
+        EXPECT_EQ(target.get_id(), id);
+        EXPECT_EQ(target.get_uuid(), uuid);
+        EXPECT_FALSE(target.has_component<RigidBodyComponent>());
+        ASSERT_TRUE(target.has_component<ColliderComponent>());
+        EXPECT_TRUE(target.get_component<ColliderComponent>().is_trigger);
+        ASSERT_TRUE(target.has_component<MeshRendererComponent>());
+        EXPECT_EQ(target.get_component<MeshRendererComponent>().mesh, AssetHandle{11});
+        EXPECT_EQ(target.get_component<MeshRendererComponent>().material, AssetHandle{12});
+        EXPECT_EQ(target.get_component<NameComponent>().name, "Target");
+        const auto repeated =
+            instance.value()->invoke(Script::Phase::Update, actor, parameters, {.scene = &scene});
+        ASSERT_TRUE(repeated) << repeated.error().message;
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(scene.entity_count(), 2u);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(ScriptInvocationTest, RigidBodyOperationsValidateSceneAccessAndTypedReferences) {
+        for(const char* operation : {"has_rigid_body", "remove_rigid_body"}) {
+            SCOPED_TRACE(operation);
+            const bool read_only = std::string_view(operation) == "has_rigid_body";
+            Scene scene;
+            auto actor = scene.create_entity();
+            actor.add_component<RigidBodyComponent>();
+            const auto script = Script::create(
+                std::string("local function access(self) comet.") + operation + R"((self.target) end
+                    return {
+                        on_start = function(self)
+                            self.target = comet.self_entity()
+                            access(self)
+                        end,
+                        update = access,
+                        on_stop = access,
+                    })");
+            ASSERT_TRUE(script) << script.error().message;
+            auto instance = script.value()->instantiate();
+            ASSERT_TRUE(instance);
+            EXPECT_EQ(static_cast<bool>(instance.value()->invoke(
+                          Script::Phase::Start, actor, {}, {.scene = &scene})),
+                read_only);
+            EXPECT_TRUE(actor.has_component<RigidBodyComponent>());
+            SceneRuntime runtime;
+            ASSERT_TRUE(runtime.start(scene));
+            ASSERT_TRUE(
+                instance.value()->invoke(Script::Phase::Start, actor, {}, {.scene = &scene}));
+            EXPECT_FALSE(instance.value()->invoke(Script::Phase::Stop, {}, {}));
+            for(const char* argument : {"", "nil", "false", "42", "'entity'", "{}"}) {
+                SCOPED_TRACE(argument);
+                const auto invalid =
+                    Script::create(std::string("return {update = function() comet.") + operation
+                                   + "(" + argument + ") end}");
+                ASSERT_TRUE(invalid);
+                auto invalid_instance = invalid.value()->instantiate();
+                ASSERT_TRUE(invalid_instance);
+                EXPECT_FALSE(invalid_instance.value()->invoke(
+                    Script::Phase::Update, actor, {}, {.scene = &scene}));
+            }
+            ASSERT_TRUE(runtime.stop());
+            EXPECT_TRUE(actor.has_component<RigidBodyComponent>());
+            const auto stale =
+                instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene});
+            ASSERT_FALSE(stale);
+            EXPECT_NE(stale.error().message.find("stale"), std::string::npos);
+            EXPECT_EQ(static_cast<bool>(instance.value()->invoke(
+                          Script::Phase::Start, actor, {}, {.scene = &scene})),
+                read_only);
+            ASSERT_TRUE(runtime.start(scene));
+            ASSERT_TRUE(runtime.advance(0));
+            EXPECT_TRUE(actor.has_component<RigidBodyComponent>());
+            ASSERT_TRUE(runtime.stop());
+        }
+    }
+
+    TEST(ScriptInvocationTest, RigidBodyOperationsRejectRecreatedAndForeignEntityReferences) {
+        for(const char* operation : {"has_rigid_body", "remove_rigid_body"}) {
+            SCOPED_TRACE(operation);
+            Scene first;
+            auto original = first.create_entity();
+            original.add_component<RigidBodyComponent>();
+            const auto uuid = original.get_uuid();
+            const auto id = original.get_id();
+            SceneRuntime first_runtime;
+            ASSERT_TRUE(first_runtime.start(first));
+            const auto script = Script::create(
+                std::string(
+                    "return {on_start = function(self) self.target = comet.self_entity() end,")
+                + "update = function(self) comet." + operation + "(self.target) end}");
+            ASSERT_TRUE(script) << script.error().message;
+            auto instance = script.value()->instantiate();
+            ASSERT_TRUE(instance);
+            ASSERT_TRUE(
+                instance.value()->invoke(Script::Phase::Start, original, {}, {.scene = &first}));
+            first.destroy_entity(original);
+            auto replacement = first.create_entity_with_uuid(uuid);
+            replacement.add_component<RigidBodyComponent>();
+            ASSERT_NE(replacement.get_id(), id);
+            auto result =
+                instance.value()->invoke(Script::Phase::Update, replacement, {}, {.scene = &first});
+            ASSERT_FALSE(result);
+            EXPECT_NE(result.error().message.find("stale"), std::string::npos);
+            ASSERT_TRUE(first_runtime.advance(0));
+            EXPECT_TRUE(replacement.has_component<RigidBodyComponent>());
+
+            ASSERT_TRUE(
+                instance.value()->invoke(Script::Phase::Start, replacement, {}, {.scene = &first}));
+            Scene second;
+            auto foreign = second.create_entity_with_uuid(uuid);
+            foreign.add_component<RigidBodyComponent>();
+            SceneRuntime second_runtime;
+            ASSERT_TRUE(second_runtime.start(second));
+            result =
+                instance.value()->invoke(Script::Phase::Update, foreign, {}, {.scene = &second});
+            ASSERT_FALSE(result);
+            EXPECT_NE(result.error().message.find("stale"), std::string::npos);
+            ASSERT_TRUE(second_runtime.advance(0));
+            ASSERT_TRUE(first_runtime.advance(0));
+            EXPECT_TRUE(foreign.has_component<RigidBodyComponent>());
+            EXPECT_TRUE(replacement.has_component<RigidBodyComponent>());
+            ASSERT_TRUE(second_runtime.stop());
+            ASSERT_TRUE(first_runtime.stop());
+        }
+    }
+
     TEST(ScriptSourceTest, EntityPropertiesRequireAnExplicitTypeAndSceneOwnedTarget) {
         auto script = Script::create("return {properties = {target = {type = 'entity'}}}");
         ASSERT_TRUE(script) << script.error().message;

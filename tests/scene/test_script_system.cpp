@@ -1340,7 +1340,12 @@ namespace Comet::Tests {
 
         const auto goal_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d07");
         ASSERT_TRUE(goal_uuid);
-        EXPECT_FALSE(playing.value()->find_entity(*goal_uuid));
+        const auto collected_goal = playing.value()->find_entity(*goal_uuid);
+        ASSERT_TRUE(collected_goal);
+        EXPECT_FALSE(collected_goal.has_component<RigidBodyComponent>());
+        EXPECT_TRUE(collected_goal.has_component<ColliderComponent>());
+        EXPECT_TRUE(collected_goal.has_component<MeshRendererComponent>());
+        EXPECT_TRUE(collected_goal.has_component<ScriptComponent>());
         const auto score = playing.value()->get_session_value("demo.score");
         ASSERT_TRUE(score);
         EXPECT_FLOAT_EQ(std::get<float>(*score), 1);
@@ -1356,6 +1361,9 @@ namespace Comet::Tests {
         EXPECT_EQ(marker_count, 1u);
         const auto edit_goal = edit_scene.value()->find_entity(*goal_uuid);
         ASSERT_TRUE(edit_goal);
+        EXPECT_TRUE(edit_goal.has_component<RigidBodyComponent>());
+        EXPECT_GT(collected_goal.get_component<TransformComponent>().translation.y,
+            edit_goal.get_component<TransformComponent>().translation.y);
         ASSERT_TRUE(marker.has_component<MeshRendererComponent>());
         const auto& marker_mesh = marker.get_component<MeshRendererComponent>();
         const auto& goal_mesh = edit_goal.get_component<MeshRendererComponent>();
@@ -1364,6 +1372,29 @@ namespace Comet::Tests {
         EXPECT_FALSE(edit_scene.value()->find_entity(marker.get_uuid()));
         EXPECT_FALSE(edit_scene.value()->get_material_overrides(
             edit_scene.value()->find_entity(*center_uuid)));
+
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        const auto paused_transform = collected_goal.get_component<TransformComponent>();
+        ASSERT_TRUE(runtime.advance(1, &input.publish_frame()));
+        EXPECT_EQ(collected_goal.get_component<TransformComponent>().translation,
+            paused_transform.translation);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
+        EXPECT_GT(collected_goal.get_component<TransformComponent>().translation.y,
+            paused_transform.translation.y);
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Running));
+
+        const std::array<std::filesystem::path, 1> goal_root{"scripts/collect_goal.lua"};
+        auto reloaded_goal = Script::load_group(project.value().paths().assets(), goal_root);
+        ASSERT_TRUE(reloaded_goal) << reloaded_goal.error().message;
+        ASSERT_TRUE(assets.replace_asset(handles[2], reloaded_goal.value().front()));
+        for(int frame = 0; frame < 60; ++frame)
+            ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
+        EXPECT_FALSE(playing.value()->find_entity(*goal_uuid));
+        EXPECT_TRUE(playing.value()->is_valid(marker));
+        EXPECT_EQ(playing.value()->get_session_value("demo.score"), score);
+        EXPECT_EQ(player.get_component<TransformComponent>().translation, player_position_at_score);
+
         input.key_event(Input::Key::Right, false);
         input.key_event(Input::Key::R, true);
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
@@ -1377,7 +1408,9 @@ namespace Comet::Tests {
         EXPECT_FALSE(restarted.value()->find_entity(marker.get_uuid()));
         ASSERT_TRUE(runtime.start(
             *restarted.value(), SceneRuntime::State::Running, SceneRuntime::InputStart::Rebase));
-        EXPECT_TRUE(restarted.value()->find_entity(*goal_uuid));
+        const auto restarted_goal = restarted.value()->find_entity(*goal_uuid);
+        ASSERT_TRUE(restarted_goal);
+        EXPECT_TRUE(restarted_goal.has_component<RigidBodyComponent>());
         EXPECT_FALSE(restarted.value()->get_session_value("demo.score"));
         EXPECT_FALSE(restarted.value()->get_material_overrides(
             restarted.value()->find_entity(*center_uuid)));

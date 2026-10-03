@@ -158,6 +158,25 @@ namespace Comet {
         return true;
     }
 
+    bool Scene::request_remove_rigid_body(const Entity entity) {
+        if(!m_runtime_active || !is_valid(entity))
+            return false;
+        if(!entity.has_component<RigidBodyComponent>())
+            return true;
+        const auto uuid = entity.get_uuid();
+        const auto id = entity.get_id();
+        if(std::ranges::any_of(m_entity_requests, [uuid, id](const EntityRequest& request) {
+               return request.type == EntityRequest::Type::RemoveRigidBody && request.uuid == uuid
+                      && request.id == id;
+           }))
+            return true;
+        if(m_entity_requests.size() >= MAX_ENTITY_REQUESTS)
+            return false;
+        m_entity_requests.push_back(
+            {.type = EntityRequest::Type::RemoveRigidBody, .uuid = uuid, .id = id});
+        return true;
+    }
+
     bool Scene::request_play_one_shot(const Entity entity) {
         if(!m_runtime_active || !is_valid(entity) || !entity.has_component<AudioSourceComponent>()
             || m_audio_play_requests.size() >= MAX_AUDIO_PLAY_REQUESTS)
@@ -206,28 +225,40 @@ namespace Comet {
         auto requests = std::move(m_entity_requests);
         m_entity_requests.clear();
         for(const auto& request : requests) {
-            if(request.type == EntityRequest::Type::Create) {
-                auto entity = create_entity_with_uuid(request.uuid, request.name);
-                if(!entity)
-                    return false;
-                // 新实体没有子节点；回滚直接移除索引，避免销毁遍历再次分配。
-                const auto id = entity.get_id();
-                ScopeExit rollback([&] {
-                    m_entities_by_id.erase(id);
-                    m_entities_by_uuid.erase(request.uuid);
-                    m_dirty_transforms.erase(entity.m_handle);
-                    m_registry.destroy(entity.m_handle);
-                });
-                if(!entity.try_set_transform(request.creation.transform))
-                    return false;
-                if(request.creation.mesh_renderer)
-                    entity.add_component<MeshRendererComponent>(*request.creation.mesh_renderer);
-                rollback.release();
-                continue;
+            switch(request.type) {
+                case EntityRequest::Type::Create: {
+                    auto entity = create_entity_with_uuid(request.uuid, request.name);
+                    if(!entity)
+                        return false;
+                    // 新实体没有子节点；回滚直接移除索引，避免销毁遍历再次分配。
+                    const auto id = entity.get_id();
+                    ScopeExit rollback([&] {
+                        m_entities_by_id.erase(id);
+                        m_entities_by_uuid.erase(request.uuid);
+                        m_dirty_transforms.erase(entity.m_handle);
+                        m_registry.destroy(entity.m_handle);
+                    });
+                    if(!entity.try_set_transform(request.creation.transform))
+                        return false;
+                    if(request.creation.mesh_renderer)
+                        entity.add_component<MeshRendererComponent>(
+                            *request.creation.mesh_renderer);
+                    rollback.release();
+                    break;
+                }
+                case EntityRequest::Type::Destroy: {
+                    const Entity entity = find_entity(request.uuid);
+                    if(entity && entity.get_id() == request.id)
+                        destroy_entity(entity);
+                    break;
+                }
+                case EntityRequest::Type::RemoveRigidBody: {
+                    const Entity entity = find_entity(request.uuid);
+                    if(entity && entity.get_id() == request.id)
+                        entity.remove_component<RigidBodyComponent>();
+                    break;
+                }
             }
-            const Entity entity = find_entity(request.uuid);
-            if(entity && entity.get_id() == request.id)
-                destroy_entity(entity);
         }
         return true;
     }

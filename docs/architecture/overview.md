@@ -407,6 +407,14 @@ VM 将 UUID 绑定成已有的受保护实体引用，不把 Scene 指针写进 
 Scene 的 begin_runtime／end_runtime 共用一份清理清单，清除会话、请求队列、材质覆盖和重开意图，
 不把固定步冲量、阶段末结构变更和 Update 通知合并成同一种消费协议。
 
+`comet.remove_rigid_body(reference)` 复用同一 EntityRequest 队列和 UUID／EntityId 身份检查，
+只在阶段末移除 RigidBodyComponent，保留 Collider 配置、脚本、渲染和层级。重复请求或已无刚体幂等成功，
+不重复占队列额度；失效／跨场景目标、非活动 Runtime 和首次请求遇队列满会失败。
+`comet.has_rigid_body(reference)` 读取当前组件，不把尚未提交的意图当成已生效状态。
+PhysicsSystem 在提交后的下一固定步复用既有组件同步移除物理 body、处理接触失效，不从 Lua 调 Jolt。
+这不是任意组件增删反射接口；没有新组件字段或序列化格式，也没有第二份组件描述。
+demo 从当前刚体是否存在恢复收集阶段，源码换版后可以重新开始短动画但不重复计分；不迁移任意 Lua self。
+
 `script.events = { ["demo.score_changed"] = "on_score_changed" }` 声明场景内通知的接收方法，
 Script 创建时校验名称、方法存在且可调用，每个脚本最多 128 项；活动实例使用其所保活版本的声明。
 `comet.emit(name, value)` 只向 Scene 入队拥有值快照的 `Event`，不保存发布实体、Lua 表或函数引用。

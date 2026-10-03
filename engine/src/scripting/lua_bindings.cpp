@@ -208,6 +208,18 @@ namespace Comet::LuaBindings {
                 return luaL_error(state, "Cannot queue entity destruction");
             return 0;
         }
+        int has_rigid_body(lua_State* state) {
+            lua_pushboolean(state, require_entity(state).has_component<RigidBodyComponent>());
+            return 1;
+        }
+        int remove_rigid_body(lua_State* state) {
+            auto* scene = current(state).scene;
+            if(!scene)
+                return luaL_error(state, "Rigid body removal requires an active scene");
+            if(!scene->request_remove_rigid_body(require_entity(state)))
+                return luaL_error(state, "Cannot queue rigid body removal");
+            return 0;
+        }
         int play_one_shot(lua_State* state) {
             const auto& context = current(state);
             if(!context.scene || !context.scene->request_play_one_shot(context.entity))
@@ -464,6 +476,7 @@ namespace Comet::LuaBindings {
         const luaL_Reg api[]{{"rotate", rotate}, {"translate", translate}, {"position", position},
             {"self_entity", self_entity}, {"find_entity", find_entity},
             {"create_entity", create_entity}, {"destroy_entity", destroy_entity},
+            {"has_rigid_body", has_rigid_body}, {"remove_rigid_body", remove_rigid_body},
             {"restart_scene", restart_scene}, {"play_one_shot", play_one_shot},
             {"apply_impulse", apply_impulse}, {"set_material_scalar", set_material_scalar},
             {"set_material_vector", set_material_vector}, {"session_get", session_get},

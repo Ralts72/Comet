@@ -408,6 +408,212 @@ namespace Comet::Tests {
         EXPECT_FALSE(scene.take_restart_request());
     }
 
+    TEST_F(SceneRuntimeTest, RigidBodyRemovalCommitsAfterEachPhaseAndPreservesOtherComponents) {
+        auto startup = scene.create_entity("Startup");
+        auto fixed = scene.create_entity("Fixed");
+        auto updated = scene.create_entity("Update");
+        for(auto entity : {startup, fixed, updated})
+            entity.add_component<RigidBodyComponent>();
+        fixed.add_component<ColliderComponent>().is_trigger = true;
+        fixed.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{22});
+        fixed.add_component<AudioSourceComponent>().clip = AssetHandle{33};
+        fixed.set_transform({.translation = {1, 2, 3}});
+        const auto uuid = fixed.get_uuid();
+        const auto id = fixed.get_id();
+        const auto child = scene.create_entity("Child");
+        ASSERT_TRUE(scene.set_parent(child, fixed));
+
+        auto* requester = add("requester");
+        auto* observer = add("observer");
+        requester->start = [&](Scene& current) {
+            EXPECT_TRUE(current.request_remove_rigid_body(startup));
+            return UpdateResult::success();
+        };
+        observer->start = [&](Scene&) {
+            EXPECT_TRUE(startup.has_component<RigidBodyComponent>());
+            return UpdateResult::success();
+        };
+        requester->fixed = [&](Scene& current, const System::Context&) {
+            EXPECT_TRUE(current.request_remove_rigid_body(fixed));
+            return UpdateResult::success();
+        };
+        observer->fixed = [&](Scene&, const System::Context&) {
+            EXPECT_FALSE(startup.has_component<RigidBodyComponent>());
+            EXPECT_TRUE(fixed.has_component<RigidBodyComponent>());
+            return UpdateResult::success();
+        };
+        requester->update_frame = [&](Scene& current, const System::Context&) {
+            EXPECT_TRUE(current.request_remove_rigid_body(updated));
+            return UpdateResult::success();
+        };
+        observer->update_frame = [&](Scene&, const System::Context&) {
+            EXPECT_FALSE(fixed.has_component<RigidBodyComponent>());
+            EXPECT_TRUE(updated.has_component<RigidBodyComponent>());
+            return UpdateResult::success();
+        };
+
+        ASSERT_TRUE(runtime.start(scene, State::Paused));
+        EXPECT_FALSE(startup.has_component<RigidBodyComponent>());
+        advance(1);
+        EXPECT_TRUE(fixed.has_component<RigidBodyComponent>());
+        EXPECT_TRUE(updated.has_component<RigidBodyComponent>());
+        ASSERT_TRUE(runtime.request_step());
+        advance(0);
+        EXPECT_FALSE(fixed.has_component<RigidBodyComponent>());
+        EXPECT_FALSE(updated.has_component<RigidBodyComponent>());
+        EXPECT_EQ(fixed.get_uuid(), uuid);
+        EXPECT_EQ(fixed.get_id(), id);
+        EXPECT_EQ(fixed.get_component<NameComponent>().name, "Fixed");
+        EXPECT_EQ(fixed.get_component<TransformComponent>().translation, Math::Vec3(1, 2, 3));
+        ASSERT_TRUE(fixed.has_component<ColliderComponent>());
+        EXPECT_TRUE(fixed.get_component<ColliderComponent>().is_trigger);
+        ASSERT_TRUE(fixed.has_component<MeshRendererComponent>());
+        EXPECT_EQ(fixed.get_component<MeshRendererComponent>().mesh, AssetHandle{11});
+        EXPECT_EQ(fixed.get_component<MeshRendererComponent>().material, AssetHandle{22});
+        ASSERT_TRUE(fixed.has_component<AudioSourceComponent>());
+        EXPECT_EQ(fixed.get_component<AudioSourceComponent>().clip, AssetHandle{33});
+        EXPECT_EQ(scene.get_parent(child), fixed);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(fixed.has_component<RigidBodyComponent>());
+    }
+
+    TEST_F(SceneRuntimeTest, RigidBodyRemovalValidatesTargetsAndSharesAnIdempotentQueueBudget) {
+        auto queued = scene.create_entity("Queued");
+        auto rejected = scene.create_entity("Rejected");
+        queued.add_component<RigidBodyComponent>();
+        rejected.add_component<RigidBodyComponent>();
+        const auto without_body = scene.create_entity("No body");
+        const auto stale = scene.create_entity("Destroyed");
+        scene.destroy_entity(stale);
+        Scene other;
+        auto foreign = other.create_entity();
+        foreign.add_component<RigidBodyComponent>();
+        EXPECT_FALSE(scene.request_remove_rigid_body(queued));
+        EXPECT_FALSE(scene.request_remove_rigid_body(without_body));
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_FALSE(scene.request_remove_rigid_body({}));
+        EXPECT_FALSE(scene.request_remove_rigid_body(stale));
+        EXPECT_FALSE(scene.request_remove_rigid_body(foreign));
+        for(int index = 0; index < 1024; ++index) {
+            ASSERT_TRUE(scene.request_remove_rigid_body(queued));
+            ASSERT_TRUE(scene.request_remove_rigid_body(without_body));
+        }
+        for(int index = 0; index < 1023; ++index)
+            ASSERT_TRUE(scene.request_create_entity());
+        EXPECT_FALSE(scene.request_create_entity("Full"));
+        EXPECT_FALSE(scene.request_remove_rigid_body(rejected));
+        EXPECT_TRUE(scene.request_remove_rigid_body(queued));
+        EXPECT_TRUE(scene.request_remove_rigid_body(without_body));
+        EXPECT_TRUE(queued.has_component<RigidBodyComponent>());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_FALSE(queued.has_component<RigidBodyComponent>());
+        EXPECT_TRUE(rejected.has_component<RigidBodyComponent>());
+        EXPECT_TRUE(foreign.has_component<RigidBodyComponent>());
+        EXPECT_TRUE(scene.request_remove_rigid_body(queued));
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(scene.request_remove_rigid_body(queued));
+    }
+
+    TEST_F(SceneRuntimeTest, RigidBodyRemovalIgnoresRecreatedTargetsAndAlreadyRemovedComponents) {
+        auto original = scene.create_entity("Original");
+        auto removed = scene.create_entity("Already removed");
+        auto destroy_first = scene.create_entity("Destroy first");
+        auto remove_first = scene.create_entity("Remove first");
+        for(auto entity : {original, removed, destroy_first, remove_first})
+            entity.add_component<RigidBodyComponent>();
+        const auto uuid = original.get_uuid();
+        const auto original_id = original.get_id();
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(scene.request_remove_rigid_body(original));
+        scene.destroy_entity(original);
+        auto replacement = scene.create_entity_with_uuid(uuid, "Replacement");
+        ASSERT_TRUE(replacement);
+        ASSERT_NE(replacement.get_id(), original_id);
+        replacement.add_component<RigidBodyComponent>();
+        EXPECT_FALSE(scene.request_remove_rigid_body(original));
+        ASSERT_TRUE(scene.request_remove_rigid_body(removed));
+        removed.remove_component<RigidBodyComponent>();
+        ASSERT_TRUE(scene.request_destroy_entity(destroy_first));
+        ASSERT_TRUE(scene.request_remove_rigid_body(destroy_first));
+        ASSERT_TRUE(scene.request_remove_rigid_body(remove_first));
+        ASSERT_TRUE(scene.request_destroy_entity(remove_first));
+
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_TRUE(replacement.has_component<RigidBodyComponent>());
+        EXPECT_EQ(scene.find_entity(uuid), replacement);
+        EXPECT_TRUE(scene.is_valid(removed));
+        EXPECT_FALSE(removed.has_component<RigidBodyComponent>());
+        EXPECT_FALSE(scene.is_valid(destroy_first));
+        EXPECT_FALSE(scene.is_valid(remove_first));
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(SceneRuntimeTest, StopDiscardsPendingRigidBodyRemovalAndStopCallbackRequests) {
+        auto pending = scene.create_entity("Pending");
+        auto during_stop = scene.create_entity("During stop");
+        pending.add_component<RigidBodyComponent>();
+        during_stop.add_component<RigidBodyComponent>();
+        auto* requester = add();
+        requester->stop = [&](Scene& current) {
+            EXPECT_TRUE(current.request_remove_rigid_body(during_stop));
+        };
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(scene.request_remove_rigid_body(pending));
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_TRUE(pending.has_component<RigidBodyComponent>());
+        EXPECT_TRUE(during_stop.has_component<RigidBodyComponent>());
+        ASSERT_TRUE(runtime.start(scene));
+        advance(0.1);
+        EXPECT_TRUE(pending.has_component<RigidBodyComponent>());
+        EXPECT_TRUE(during_stop.has_component<RigidBodyComponent>());
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(SceneRuntimeTest, FailedPhasesDiscardPendingRigidBodyRemovalBeforeRestart) {
+        auto target = scene.create_entity("Target");
+        target.add_component<RigidBodyComponent>();
+        auto* requester = add("requester");
+        auto* failing = add("failing");
+        for(int phase = 0; phase < 3; ++phase) {
+            const auto request = [&](Scene& current) {
+                EXPECT_TRUE(current.request_remove_rigid_body(target));
+                return UpdateResult::success();
+            };
+            const auto fail = [&](Scene&) {
+                EXPECT_TRUE(target.has_component<RigidBodyComponent>());
+                return UpdateResult::failure({"phase failed"});
+            };
+            if(phase == 0) {
+                requester->start = request;
+                failing->start = fail;
+                EXPECT_FALSE(runtime.start(scene));
+            } else {
+                auto& request_callback = phase == 1 ? requester->fixed : requester->update_frame;
+                auto& fail_callback = phase == 1 ? failing->fixed : failing->update_frame;
+                request_callback = [&](Scene& current, const System::Context&) {
+                    return request(current);
+                };
+                fail_callback = [&](Scene& current, const System::Context&) {
+                    return fail(current);
+                };
+                ASSERT_TRUE(runtime.start(scene));
+                EXPECT_FALSE(runtime.advance(phase == 1 ? 0.1 : 0));
+            }
+            EXPECT_FALSE(runtime.is_active());
+            EXPECT_TRUE(target.has_component<RigidBodyComponent>());
+            requester->start = {};
+            requester->fixed = {};
+            requester->update_frame = {};
+            failing->start = {};
+            failing->fixed = {};
+            failing->update_frame = {};
+            ASSERT_TRUE(runtime.start(scene));
+            advance(0.1);
+            EXPECT_TRUE(target.has_component<RigidBodyComponent>());
+            ASSERT_TRUE(runtime.stop());
+        }
+    }
+
     TEST_F(SceneRuntimeTest, SessionValuesExistOnlyWhileRuntimeIsActive) {
         EXPECT_FALSE(scene.set_session_value("game.score", 1.0f));
         EXPECT_FALSE(scene.get_session_value("game.score"));

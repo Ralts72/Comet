@@ -718,6 +718,8 @@ validation、同步测试和生命周期回归通过。
 不把具体玩法固化为引擎内置 `GameplayManager` 或每种玩法一个引擎 System。
 
 1. **受控脚本 API**：实体引用、Transform、引用编辑与复制重映射、带初始 Transform／MeshRenderer 的延迟创建及销毁已接通。
+   类型化刚体查询／阶段末移除已供 demo 收集后动画使用，保持实体身份并复用 PhysicsSystem 同步；
+   不把这一项视为任意组件增删接口完成。
    当前协议见[Lua 脚本与参数](architecture/overview.md#lua-脚本与参数)；更多组件组合、Prefab 与资源实例化按消费者分别验收，
    不向脚本暴露 EnTT、GPU 或 Editor 对象，继续沿既有结构提交和 Lua 生命周期边界扩展。
 2. **Gameplay 通知与状态**：接触／Trigger、会话值、声明式场景通知已接通；

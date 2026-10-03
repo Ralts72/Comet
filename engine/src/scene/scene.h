@@ -67,6 +67,8 @@ namespace Comet {
         [[nodiscard]] std::optional<EntityUuid> request_create_entity(
             std::string_view name = "Entity", const EntityCreation& creation = {});
         [[nodiscard]] bool request_destroy_entity(Entity entity);
+        // 仅移除刚体，保留碰撞体配置和其他组件；无刚体或重复请求幂等成功。
+        [[nodiscard]] bool request_remove_rigid_body(Entity entity);
         // 短音效请求保存源配置的快照；目标在本帧删除后仍可播完。
         [[nodiscard]] bool request_play_one_shot(Entity entity);
         // 世界空间质心冲量，在下一物理固定步消费，不直接改写 Transform。
@@ -160,7 +162,7 @@ namespace Comet {
         using InputContextRequests = std::map<std::string, bool, std::less<>>;
 
         struct EntityRequest {
-            enum class Type { Create, Destroy } type;
+            enum class Type { Create, Destroy, RemoveRigidBody } type;
             EntityUuid uuid;
             EntityId id = INVALID_ENTITY_ID;
             std::string name;
