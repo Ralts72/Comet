@@ -352,6 +352,17 @@ namespace CometEditor {
         return report;
     }
 
+    Comet::AssetScanReport EditorAssets::rename_module(
+        const std::filesystem::path& source, const std::filesystem::path& destination) {
+        auto report = AssetSourceOperations::rename_module(m_database, source, destination);
+        if(report.snapshot_updated) {
+            acknowledge(source);
+            acknowledge(destination);
+        }
+        accept_scan(report);
+        return report;
+    }
+
     Comet::Result<Comet::AssetManager::MaterialUpdate, Comet::Error> EditorAssets::
         prepare_material_edit(const AssetEdit& edit) {
         using Preparation = Comet::Result<Comet::AssetManager::MaterialUpdate, Comet::Error>;

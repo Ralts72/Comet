@@ -43,6 +43,9 @@ namespace CometEditor::AssetSourceOperations {
     [[nodiscard]] Comet::AssetScanReport create_script(Comet::AssetDatabase& database,
         const std::filesystem::path& destination, ScriptKind kind = ScriptKind::Component);
 
+    [[nodiscard]] Comet::AssetScanReport rename_module(Comet::AssetDatabase& database,
+        const std::filesystem::path& source, const std::filesystem::path& destination);
+
     [[nodiscard]] Comet::AssetScanReport move(Comet::AssetDatabase& database,
         Comet::AssetHandle handle, const std::filesystem::path& destination);
 

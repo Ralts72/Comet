@@ -36,6 +36,16 @@ namespace CometEditor {
             return Ui::input_text(Ui::label("Name").c_str(), name,
                 ImGuiInputTextFlags_EnterReturnsTrue | extra_flags);
         }
+
+        void render_module_reference(
+            const char* label, const std::filesystem::path& path, const float width) {
+            const auto name = Comet::Script::module_name(path);
+            std::string reference = Ui::text("Invalid module reference");
+            if(name)
+                reference = "require(\"" + name.value() + "\")";
+            ImGui::SetNextItemWidth(width);
+            Ui::input_text(Ui::label(label).c_str(), reference, ImGuiInputTextFlags_ReadOnly);
+        }
     }
 
     ProjectPanel::AssetTreeNode ProjectPanel::build_asset_tree() const {
@@ -117,13 +127,22 @@ namespace CometEditor {
 
         for(const auto& [name, indexed_asset] : node.files) {
             if(!indexed_asset) {
+                const auto source = path / name;
+                ImGui::PushID(source.generic_string().c_str());
                 ImGui::TextUnformatted(name.c_str());
                 record_drop_target(path);
+                if(name.ends_with(".module.lua")
+                    && ImGui::BeginPopupContextItem("Module actions")) {
+                    if(ImGui::MenuItem(Ui::label("Rename").c_str()))
+                        request_rename(source);
+                    ImGui::EndPopup();
+                }
                 if(ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("%s", (path / name).generic_string().c_str());
+                    ImGui::SetTooltip("%s", source.generic_string().c_str());
                 }
                 ImGui::SameLine();
                 ImGui::TextDisabled("(%s)", Ui::text("File"));
+                ImGui::PopID();
                 continue;
             }
             const Comet::AssetRecord& asset = *indexed_asset;
@@ -233,7 +252,7 @@ namespace CometEditor {
         render_delete_dialog();
         render_create_material_dialog();
         render_create_script_dialog();
-        if(!m_renaming_asset && !m_operation_error.empty()) {
+        if(std::holds_alternative<std::monostate>(m_rename_target) && !m_operation_error.empty()) {
             ImGui::TextWrapped("%s", m_operation_error.c_str());
         }
         ImGui::End();
@@ -374,12 +393,8 @@ namespace CometEditor {
         if(module) {
             ImGui::TextWrapped(
                 "%s", Ui::text("Lua modules are source files, not attachable components."));
-            if(module_name) {
-                auto reference = "require(\"" + module_name.value() + "\")";
-                ImGui::SetNextItemWidth(320.0f);
-                Ui::input_text(
-                    Ui::label("Module reference").c_str(), reference, ImGuiInputTextFlags_ReadOnly);
-            }
+            if(module_name)
+                render_module_reference("Module reference", destination, 320.0f);
         }
         if(ImGui::Button(Ui::label("Create").c_str()) || submitted) {
             if(!valid_asset_name(m_create_name))
@@ -451,6 +466,10 @@ namespace CometEditor {
         return request;
     }
 
+    std::optional<ProjectPanel::ModuleRenameRequest> ProjectPanel::take_rename_module_request() {
+        return std::exchange(m_pending_module_rename, std::nullopt);
+    }
+
     std::optional<ProjectPanel::DeleteRequest> ProjectPanel::take_delete_request() {
         auto request = std::exchange(m_pending_delete, std::nullopt);
         if(request && !m_database.is_current(request->handle, request->revision)) {
@@ -512,7 +531,22 @@ namespace CometEditor {
             if(!report.issues.empty())
                 m_operation_error = report.issues.front().message;
         }
-        if(committed && m_renaming_asset == request.handle)
+        const auto* target = std::get_if<Comet::AssetHandle>(&m_rename_target);
+        if(committed && target && *target == request.handle)
+            m_close_rename = true;
+    }
+
+    void ProjectPanel::complete_rename_module(
+        const ModuleRenameRequest& request, const Comet::AssetScanReport& report) {
+        m_operation_error.clear();
+        const bool committed = report.snapshot_updated && report.succeeded();
+        if(!committed) {
+            m_operation_error = Ui::text("Module could not be renamed");
+            if(!report.issues.empty())
+                m_operation_error = report.issues.front().message;
+        }
+        const auto* target = std::get_if<std::filesystem::path>(&m_rename_target);
+        if(committed && target && *target == request.source)
             m_close_rename = true;
     }
 
@@ -580,10 +614,20 @@ namespace CometEditor {
     }
 
     void ProjectPanel::request_rename(const Comet::AssetRecord& record) {
-        m_renaming_asset = record.handle;
+        m_rename_target = record.handle;
         m_close_rename = false;
         m_operation_error.clear();
         m_rename_name = record.path.stem().string();
+        m_rename_requested = true;
+    }
+
+    void ProjectPanel::request_rename(const std::filesystem::path& module) {
+        constexpr std::string_view suffix = ".module.lua";
+        m_rename_target = module;
+        m_close_rename = false;
+        m_operation_error.clear();
+        m_rename_name = module.filename().string();
+        m_rename_name.resize(m_rename_name.size() - suffix.size());
         m_rename_requested = true;
     }
 
@@ -599,33 +643,61 @@ namespace CometEditor {
         if(std::exchange(m_close_rename, false)) {
             ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
-            m_renaming_asset = Comet::INVALID_ASSET_HANDLE;
+            m_rename_target = std::monostate{};
             return;
         }
 
-        const auto* record = m_database.find(m_renaming_asset);
-        if(!record)
+        const auto* asset = std::get_if<Comet::AssetHandle>(&m_rename_target);
+        const auto* module = std::get_if<std::filesystem::path>(&m_rename_target);
+        const auto* record = asset ? m_database.find(*asset) : nullptr;
+        const bool available = record || module;
+        std::filesystem::path source;
+        if(module)
+            source = *module;
+        else if(record)
+            source = record->path;
+        const std::string suffix = module ? ".module.lua" : source.extension().string();
+        if(!available)
             ImGui::TextDisabled("%s", Ui::text("Asset is no longer available"));
-        ImGui::BeginDisabled(!record);
+        ImGui::BeginDisabled(!available);
         if(opening)
             ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(360.0f);
         const bool submitted = input_asset_name(m_rename_name, ImGuiInputTextFlags_AutoSelectAll);
-        if(record) {
+        if(available) {
             ImGui::SameLine();
-            ImGui::TextUnformatted(record->path.extension().string().c_str());
+            ImGui::TextUnformatted(suffix.c_str());
+        }
+        auto filename = m_rename_name;
+        if(!module || !filename.ends_with(suffix))
+            filename += suffix;
+        const auto destination = source.parent_path() / filename;
+        if(module) {
+            render_module_reference("Current module reference", source, 360.0f);
+            render_module_reference("New module reference", destination, 360.0f);
+            ImGui::TextWrapped(
+                "%s", Ui::text("Source code is not changed; update require references manually."));
         }
         if((ImGui::Button(Ui::label("Rename").c_str(), ImVec2(100.0f, 0.0f)) || submitted)
-            && record) {
-            const std::string& name = m_rename_name;
-            if(!valid_asset_name(name)) {
+            && available) {
+            if(!valid_asset_name(m_rename_name)) {
                 m_operation_error = "Enter a file name, not a path";
-            } else {
-                const auto destination =
-                    record->path.parent_path() / (name + record->path.extension().string());
-                if(record->path == destination) {
+            } else if(module) {
+                const auto name = Comet::Script::module_name(destination);
+                if(!name)
+                    m_operation_error = name.error();
+                else if(source == destination) {
                     ImGui::CloseCurrentPopup();
-                    m_renaming_asset = Comet::INVALID_ASSET_HANDLE;
+                    m_rename_target = std::monostate{};
+                    m_operation_error.clear();
+                } else {
+                    m_pending_module_rename = ModuleRenameRequest{source, destination};
+                    m_operation_error.clear();
+                }
+            } else {
+                if(source == destination) {
+                    ImGui::CloseCurrentPopup();
+                    m_rename_target = std::monostate{};
                 } else
                     m_pending_move = MoveRequest{
                         record->handle, m_database.get_revision(record->handle), destination};
@@ -635,7 +707,7 @@ namespace CometEditor {
         ImGui::SameLine();
         if(ImGui::Button(Ui::label("Cancel").c_str(), ImVec2(100.0f, 0.0f))) {
             ImGui::CloseCurrentPopup();
-            m_renaming_asset = Comet::INVALID_ASSET_HANDLE;
+            m_rename_target = std::monostate{};
             m_operation_error.clear();
         }
         if(!m_operation_error.empty())

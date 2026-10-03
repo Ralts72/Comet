@@ -665,6 +665,99 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(player.stop());
     }
 
+    TEST_F(EditorAssetsTest, ModuleRenameKeepsLastGoodGroupUntilBothConsumersUpdateTheirRequire) {
+        const auto paths = Comet::ProjectPaths(root);
+        constexpr auto old_source = R"(
+            local shared = require('shared')
+            return {update = function() comet.translate(shared.step, 0, 0) end}
+        )";
+        constexpr auto new_source = R"(
+            local shared = require('tuning')
+            return {update = function() comet.translate(shared.step, 0, 0) end}
+        )";
+        ASSERT_TRUE(Comet::write_text_file_atomic(
+            paths.assets() / "shared.module.lua", "return {step = 1}"));
+        for(const auto* name : {"first.lua", "second.lua"})
+            ASSERT_TRUE(Comet::write_text_file_atomic(paths.assets() / name, old_source));
+        ASSERT_TRUE(assets->refresh().succeeded());
+        const auto* first_record = assets->database().find("first.lua");
+        const auto* second_record = assets->database().find("second.lua");
+        ASSERT_NE(first_record, nullptr);
+        ASSERT_NE(second_record, nullptr);
+        const auto first = first_record->handle;
+        const auto second = second_record->handle;
+        for(const auto handle : {first, second}) {
+            ASSERT_TRUE(assets->load_reference(
+                handle, Comet::AssetType::Script, assets->database().get_revision(handle)));
+        }
+        const auto original_first = runtime.resolve<Comet::Script>(first);
+        const auto original_second = runtime.resolve<Comet::Script>(second);
+        ASSERT_TRUE(original_first);
+        ASSERT_TRUE(original_second);
+        const auto indexed = assets->database().size();
+        const auto registered = runtime.size();
+        Comet::Scene scene;
+        auto left = scene.create_entity();
+        auto right = scene.create_entity();
+        left.add_component<Comet::ScriptComponent>().asset = first;
+        right.add_component<Comet::ScriptComponent>().asset = second;
+        Comet::SceneRuntime player;
+        ASSERT_TRUE(player.add_system(std::make_unique<Comet::ScriptSystem>(runtime)));
+        ASSERT_TRUE(player.start(scene));
+        ASSERT_TRUE(player.advance(0));
+
+        const auto renamed = assets->rename_module("shared.module.lua", "tuning.module.lua");
+        ASSERT_TRUE(renamed.succeeded());
+        ASSERT_TRUE(renamed.snapshot_updated);
+        EXPECT_TRUE(renamed.added_assets.empty());
+        EXPECT_TRUE(renamed.removed_assets.empty());
+        for(const auto handle : {first, second})
+            EXPECT_NE(
+                std::ranges::find(renamed.modified_assets, handle), renamed.modified_assets.end());
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "shared.module.lua"));
+        EXPECT_TRUE(std::filesystem::exists(paths.assets() / "tuning.module.lua"));
+        EXPECT_EQ(runtime.resolve<Comet::Script>(first), original_first);
+        EXPECT_EQ(runtime.resolve<Comet::Script>(second), original_second);
+        ASSERT_TRUE(player.advance(0));
+        EXPECT_FLOAT_EQ(left.get_component<Comet::TransformComponent>().translation.x, 2);
+        EXPECT_FLOAT_EQ(right.get_component<Comet::TransformComponent>().translation.x, 2);
+
+        ASSERT_TRUE(Comet::write_text_file_atomic(paths.assets() / "first.lua", new_source));
+        ASSERT_TRUE(assets->refresh().succeeded());
+        EXPECT_EQ(runtime.resolve<Comet::Script>(first), original_first);
+        EXPECT_EQ(runtime.resolve<Comet::Script>(second), original_second);
+        ASSERT_TRUE(player.advance(0));
+        EXPECT_FLOAT_EQ(left.get_component<Comet::TransformComponent>().translation.x, 3);
+        EXPECT_FLOAT_EQ(right.get_component<Comet::TransformComponent>().translation.x, 3);
+
+        ASSERT_TRUE(Comet::write_text_file_atomic(paths.assets() / "second.lua", new_source));
+        ASSERT_TRUE(Comet::write_text_file_atomic(
+            paths.assets() / "tuning.module.lua", "return {step = 4}"));
+        ASSERT_TRUE(assets->refresh().succeeded());
+        const auto current_first = runtime.resolve<Comet::Script>(first);
+        const auto current_second = runtime.resolve<Comet::Script>(second);
+        ASSERT_TRUE(current_first);
+        ASSERT_TRUE(current_second);
+        EXPECT_NE(current_first, original_first);
+        EXPECT_NE(current_second, original_second);
+        EXPECT_EQ(left.get_component<Comet::ScriptComponent>().running_script(), original_first);
+        EXPECT_EQ(right.get_component<Comet::ScriptComponent>().running_script(), original_second);
+        ASSERT_TRUE(player.advance(0));
+        EXPECT_EQ(left.get_component<Comet::ScriptComponent>().running_script(), current_first);
+        EXPECT_EQ(right.get_component<Comet::ScriptComponent>().running_script(), current_second);
+        EXPECT_FLOAT_EQ(left.get_component<Comet::TransformComponent>().translation.x, 7);
+        EXPECT_FLOAT_EQ(right.get_component<Comet::TransformComponent>().translation.x, 7);
+        EXPECT_EQ(assets->database().size(), indexed);
+        EXPECT_EQ(runtime.size(), registered);
+        EXPECT_TRUE(assets->database().get_import_dependents("shared.module.lua").empty());
+        EXPECT_EQ(assets->database().get_import_dependents("tuning.module.lua").size(), 2u);
+        for(const auto* name : {"shared.module.lua", "tuning.module.lua"}) {
+            EXPECT_EQ(assets->database().find(name), nullptr);
+            EXPECT_FALSE(std::filesystem::exists(Comet::metadata_path(paths.assets() / name)));
+        }
+        ASSERT_TRUE(player.stop());
+    }
+
     TEST_F(EditorAssetsTest, ScriptSourceRefreshKeepsLastGoodVersionAndReloadsAfterRepair) {
         const auto path = Comet::ProjectPaths(root).assets() / "reload.lua";
         ASSERT_TRUE(Comet::write_text_file_atomic(

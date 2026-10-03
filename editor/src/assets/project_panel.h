@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace CometEditor {
@@ -21,6 +22,10 @@ namespace CometEditor {
         struct MoveRequest {
             Comet::AssetHandle handle;
             Comet::AssetRevision revision;
+            std::filesystem::path destination;
+        };
+        struct ModuleRenameRequest {
+            std::filesystem::path source;
             std::filesystem::path destination;
         };
         struct DeleteRequest {
@@ -45,6 +50,9 @@ namespace CometEditor {
         [[nodiscard]] bool take_refresh_request();
         [[nodiscard]] std::optional<MoveRequest> take_move_request();
         void complete_move(const MoveRequest& request, const Comet::AssetScanReport& report);
+        [[nodiscard]] std::optional<ModuleRenameRequest> take_rename_module_request();
+        void complete_rename_module(
+            const ModuleRenameRequest& request, const Comet::AssetScanReport& report);
         [[nodiscard]] std::optional<DeleteRequest> take_delete_request();
         void complete_delete(const DeleteRequest& request, const Comet::AssetScanReport& report);
         void request_delete_selection();
@@ -78,6 +86,7 @@ namespace CometEditor {
         void render_asset_tree(const AssetTreeNode& node, const std::filesystem::path& path);
         void accept_asset_drop(const std::filesystem::path& directory);
         void request_rename(const Comet::AssetRecord& record);
+        void request_rename(const std::filesystem::path& module);
         void render_rename_dialog();
         void request_delete(const Comet::AssetRecord& record);
         void render_delete_dialog();
@@ -102,11 +111,12 @@ namespace CometEditor {
         std::optional<Comet::AssetHandle> m_reimport_request;
         std::string m_rename_name;
         std::string m_operation_error;
-        Comet::AssetHandle m_renaming_asset;
+        std::variant<std::monostate, Comet::AssetHandle, std::filesystem::path> m_rename_target;
         bool m_rename_requested = false;
         bool m_close_rename = false;
         bool m_refresh_requested = false;
         std::optional<MoveRequest> m_pending_move;
+        std::optional<ModuleRenameRequest> m_pending_module_rename;
         Comet::AssetHandle m_deleting_asset;
         bool m_delete_requested = false;
         bool m_close_delete = false;

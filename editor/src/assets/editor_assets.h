@@ -50,6 +50,8 @@ namespace CometEditor {
             const std::filesystem::path& destination, const Comet::MaterialData& data);
         [[nodiscard]] Comet::AssetScanReport create_script(const std::filesystem::path& destination,
             AssetSourceOperations::ScriptKind kind = AssetSourceOperations::ScriptKind::Component);
+        [[nodiscard]] Comet::AssetScanReport rename_module(
+            const std::filesystem::path& source, const std::filesystem::path& destination);
         [[nodiscard]] Comet::Result<void, Comet::Error> load_reference(
             Comet::AssetHandle handle, Comet::AssetType type, Comet::AssetRevision revision);
         [[nodiscard]] Comet::Result<std::size_t, Comet::Error> prepare_scene(

@@ -717,6 +717,11 @@ namespace {
                 m_project_panel->complete_move(*move, report);
                 accept_asset_report(std::move(report));
             }
+            if(const auto rename = m_project_panel->take_rename_module_request()) {
+                auto report = m_assets->rename_module(rename->source, rename->destination);
+                m_project_panel->complete_rename_module(*rename, report);
+                accept_asset_report(std::move(report));
+            }
             if(m_project_panel->take_refresh_request())
                 accept_asset_report(m_assets->refresh());
             if(const auto edit = m_inspector_panel->asset_inspector().take_asset_edit()) {

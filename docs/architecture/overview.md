@@ -384,6 +384,10 @@ Play 实例换代后只清除旧脚本参数控件的活动状态，不打断其
 `Script::module_path/module_name` 定义同一组名称与相对路径映射；编辑器创建入口复用该规则，不另写一套解析策略。
 Project 的组件／模块请求沿 `EditorAssets → AssetSourceOperations` 共用文本文件创建事务，
 模块不发布 metadata，只发布源码并提交候选扫描；成功仍沿既有依赖更新路径恢复消费者，不直接操作 Lua VM。
+模块同目录改名沿同一请求／完成链路，使用路径请求而非 AssetHandle；Project 复用重命名弹窗，
+EditorAssets 复用文件监听确认及 accept_scan，SourceOperations 执行无覆盖文件发布与候选扫描／失败回滚。
+不自动改写 require；磁盘改名成功不代表所有 Lua 引用已修好，后者继续由脚本关联组加载验证，失败保留 last-good。
+模块仍不参与资产选择、拖放或场景 Undo，普通未知文件没有因此获得通用重命名权限。
 Script::load_group 逐入口执行初始化以收集传递闭包，同批共用读取字节，随后冻结；Instance 只能加载自身已准备的闭包。
 模块返回 table，每 VM 独立缓存并诊断循环；运行回调只可返回已缓存模块，不在 Runtime 中找文件或执行新依赖。
 不开放 package／io／os／原生加载，模块路径不允许符号链接别名，避免逻辑路径与依赖身份不一致。

@@ -187,6 +187,214 @@ namespace Comet::Tests {
         EXPECT_FALSE(std::filesystem::exists(project.paths().assets() / "shared.module.lua.meta"));
     }
 
+    TEST(AssetSourceOperationsTest, LuaModuleRenamePreservesContentsWithoutCreatingAssetIdentity) {
+        const TemporaryProject project;
+        const auto root = project.paths().assets();
+        std::filesystem::create_directory(root / "scripts");
+        const auto source = root / "scripts/shared.module.lua";
+        const auto target = root / "scripts/renamed.module.lua";
+        ASSERT_TRUE(write_text_file_atomic(source, "return {}"));
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        constexpr std::string_view contents = "-- changed since scan\nreturn {score = 42}\n";
+        ASSERT_TRUE(write_text_file_atomic(source, contents));
+
+        const auto report = SourceOperations::rename_module(
+            database, "scripts/shared.module.lua", "scripts/renamed.module.lua");
+
+        ASSERT_TRUE(report.succeeded());
+        EXPECT_TRUE(report.snapshot_updated);
+        EXPECT_EQ(report.generated_metadata, 0u);
+        EXPECT_TRUE(report.added_assets.empty());
+        EXPECT_TRUE(report.removed_assets.empty());
+        EXPECT_TRUE(report.modified_assets.empty());
+        EXPECT_EQ(database.size(), 0u);
+        EXPECT_EQ(database.find("scripts/shared.module.lua"), nullptr);
+        EXPECT_EQ(database.find("scripts/renamed.module.lua"), nullptr);
+        EXPECT_FALSE(std::filesystem::exists(source));
+        ASSERT_TRUE(std::filesystem::is_regular_file(target));
+        EXPECT_EQ(read_text_file(target).value(), contents);
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(source)));
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(target)));
+
+        AssetDatabase reopened(project.paths());
+        ASSERT_TRUE(reopened.scan().succeeded());
+        EXPECT_EQ(reopened.size(), 0u);
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(target)));
+    }
+
+    TEST(AssetSourceOperationsTest, LuaModuleRenameRejectsInvalidPathsAndNonFileSources) {
+        const TemporaryProject project;
+        const auto root = project.paths().assets();
+        std::filesystem::create_directory(root / "scripts");
+        std::filesystem::create_directory(root / "other");
+        std::filesystem::create_directory(root / "scripts/folder.module.lua");
+        const auto source = root / "scripts/shared.module.lua";
+        ASSERT_TRUE(write_text_file_atomic(source, "return {keep = true}"));
+        ASSERT_TRUE(write_text_file_atomic(root / "scripts/bad-name.module.lua", "return {}"));
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        const auto generation = database.generation();
+        using Paths = std::pair<std::filesystem::path, std::filesystem::path>;
+        const std::vector<Paths> invalid{{"scripts/shared.module.lua", "scripts/shared.module.lua"},
+            {"scripts/shared.module.lua", "other/renamed.module.lua"},
+            {"scripts/shared.module.lua", "scripts/plain.lua"},
+            {"scripts/shared.module.lua", "scripts/upper.MODULE.LUA"},
+            {"scripts/shared.module.lua", "scripts/bad.name.module.lua"},
+            {"scripts/shared.module.lua", "scripts/../escape.module.lua"},
+            {"scripts/shared.module.lua", root / "scripts/absolute.module.lua"},
+            {"scripts/bad-name.module.lua", "scripts/renamed.module.lua"},
+            {"scripts/missing.module.lua", "scripts/renamed.module.lua"},
+            {"scripts/folder.module.lua", "scripts/renamed.module.lua"}};
+        for(const auto& [from, to] : invalid) {
+            SCOPED_TRACE(from.string() + " -> " + to.string());
+            const auto report = SourceOperations::rename_module(database, from, to);
+            EXPECT_FALSE(report.succeeded());
+            EXPECT_FALSE(report.snapshot_updated);
+            EXPECT_EQ(database.generation(), generation);
+            EXPECT_EQ(database.size(), 0u);
+            EXPECT_EQ(read_text_file(source).value(), "return {keep = true}");
+        }
+        EXPECT_FALSE(std::filesystem::exists(root / "scripts/renamed.module.lua"));
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(source)));
+        EXPECT_TRUE(std::filesystem::is_empty(root / "other"));
+    }
+
+    TEST(AssetSourceOperationsTest, LuaModuleRenameRejectsTargetAndMetadataConflicts) {
+        for(const auto* conflict :
+            {"target file", "target directory", "source metadata", "target metadata"}) {
+            SCOPED_TRACE(conflict);
+            const TemporaryProject project;
+            const auto source = project.paths().assets() / "shared.module.lua";
+            const auto target = project.paths().assets() / "renamed.module.lua";
+            ASSERT_TRUE(write_text_file_atomic(source, "return {keep = true}"));
+            AssetDatabase database(project.paths());
+            ASSERT_TRUE(database.scan().succeeded());
+            const auto generation = database.generation();
+            std::filesystem::path reserved = target;
+            if(std::string_view(conflict) == "source metadata")
+                reserved = metadata_path(source);
+            if(std::string_view(conflict) == "target metadata")
+                reserved = metadata_path(target);
+            const bool directory = std::string_view(conflict) == "target directory";
+            if(directory)
+                std::filesystem::create_directory(reserved);
+            else
+                ASSERT_TRUE(write_text_file_atomic(reserved, "reserved contents"));
+
+            const auto report = SourceOperations::rename_module(
+                database, "shared.module.lua", "renamed.module.lua");
+
+            EXPECT_FALSE(report.succeeded());
+            EXPECT_FALSE(report.snapshot_updated);
+            EXPECT_TRUE(has_issue_containing(report, "not overwritten"));
+            EXPECT_EQ(database.generation(), generation);
+            EXPECT_EQ(read_text_file(source).value(), "return {keep = true}");
+            if(directory)
+                EXPECT_TRUE(std::filesystem::is_directory(reserved));
+            else
+                EXPECT_EQ(read_text_file(reserved).value(), "reserved contents");
+            if(reserved != target)
+                EXPECT_FALSE(std::filesystem::exists(target));
+        }
+    }
+
+    TEST(AssetSourceOperationsTest, LuaModuleRenameRejectsFileAndDirectorySymlinkAliases) {
+        const TemporaryProject project;
+        const TemporaryDirectory outside;
+        const auto root = project.paths().assets();
+        std::filesystem::create_directory(root / "real");
+        ASSERT_TRUE(write_text_file_atomic(root / "shared.module.lua", "return {keep = true}"));
+        ASSERT_TRUE(write_text_file_atomic(root / "real/shared.module.lua", "return {}"));
+        ASSERT_TRUE(write_text_file_atomic(outside.path() / "shared.module.lua", "return {}"));
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        const auto generation = database.generation();
+        std::error_code error;
+        std::filesystem::create_directory_symlink(root / "real", root / "alias", error);
+        if(error)
+            GTEST_SKIP() << "Symlinks unavailable: " << error.message();
+        std::filesystem::create_directory_symlink(outside.path(), root / "external", error);
+        ASSERT_FALSE(error) << error.message();
+        std::filesystem::create_symlink(
+            root / "shared.module.lua", root / "link.module.lua", error);
+        ASSERT_FALSE(error) << error.message();
+        std::filesystem::create_symlink(
+            root / "missing.module.lua", root / "dangling.module.lua", error);
+        ASSERT_FALSE(error) << error.message();
+
+        using Paths = std::pair<std::filesystem::path, std::filesystem::path>;
+        for(const auto& [from, to] :
+            std::array{Paths{"alias/shared.module.lua", "alias/renamed.module.lua"},
+                Paths{"external/shared.module.lua", "external/renamed.module.lua"},
+                Paths{"link.module.lua", "renamed.module.lua"},
+                Paths{"dangling.module.lua", "renamed.module.lua"},
+                Paths{"shared.module.lua", "link.module.lua"},
+                Paths{"shared.module.lua", "dangling.module.lua"}}) {
+            SCOPED_TRACE(from.string() + " -> " + to.string());
+            const auto report = SourceOperations::rename_module(database, from, to);
+            EXPECT_FALSE(report.succeeded());
+            EXPECT_FALSE(report.snapshot_updated);
+            EXPECT_EQ(database.generation(), generation);
+        }
+        EXPECT_EQ(read_text_file(root / "shared.module.lua").value(), "return {keep = true}");
+        EXPECT_EQ(read_text_file(root / "real/shared.module.lua").value(), "return {}");
+        EXPECT_EQ(read_text_file(outside.path() / "shared.module.lua").value(), "return {}");
+        EXPECT_TRUE(std::filesystem::is_symlink(root / "link.module.lua"));
+        EXPECT_TRUE(std::filesystem::is_symlink(root / "dangling.module.lua"));
+        EXPECT_FALSE(std::filesystem::exists(root / "renamed.module.lua"));
+        EXPECT_FALSE(std::filesystem::exists(root / "real/renamed.module.lua"));
+        EXPECT_FALSE(std::filesystem::exists(outside.path() / "renamed.module.lua"));
+    }
+
+    TEST(AssetSourceOperationsTest, LuaModuleRenameRollsBackFailedScanWithoutPublishingIndex) {
+        const TemporaryProject project;
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(SourceOperations::create_script(database, "keep.lua").succeeded());
+        const auto source = project.paths().assets() / "shared.module.lua";
+        const auto target = project.paths().assets() / "renamed.module.lua";
+        ASSERT_TRUE(write_text_file_atomic(source, "return {keep = true}"));
+        const auto handle = database.find("keep.lua")->handle;
+        ASSERT_TRUE(database.update_import_dependencies(handle, {"shared.module.lua"}));
+        const auto revision = database.get_revision(handle);
+        const auto generation = database.generation();
+        const auto broken = project.paths().assets() / "broken.mat";
+        ASSERT_TRUE(write_text_file_atomic(broken, "{}"));
+        ASSERT_TRUE(write_text_file_atomic(metadata_path(broken), "invalid metadata"));
+
+        const auto report =
+            SourceOperations::rename_module(database, "shared.module.lua", "renamed.module.lua");
+
+        EXPECT_FALSE(report.succeeded());
+        EXPECT_FALSE(report.snapshot_updated);
+        EXPECT_TRUE(has_issue_containing(report, "rename was rolled back"));
+        EXPECT_TRUE(report.added_assets.empty());
+        EXPECT_TRUE(report.removed_assets.empty());
+        EXPECT_TRUE(report.modified_assets.empty());
+        EXPECT_EQ(report.generated_metadata, 0u);
+        EXPECT_EQ(report.indexed_assets, 1u);
+        EXPECT_EQ(database.generation(), generation);
+        EXPECT_EQ(database.size(), 1u);
+        EXPECT_TRUE(database.is_current(handle, revision));
+        EXPECT_EQ(database.find("broken.mat"), nullptr);
+        EXPECT_EQ(read_text_file(source).value(), "return {keep = true}");
+        EXPECT_FALSE(std::filesystem::exists(target));
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(source)));
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(target)));
+
+        ASSERT_TRUE(std::filesystem::remove(broken));
+        ASSERT_TRUE(std::filesystem::remove(metadata_path(broken)));
+        const auto retried =
+            SourceOperations::rename_module(database, "shared.module.lua", "renamed.module.lua");
+        ASSERT_TRUE(retried.succeeded());
+        EXPECT_TRUE(retried.snapshot_updated);
+        EXPECT_TRUE(contains_handle(retried.modified_assets, handle));
+        EXPECT_FALSE(database.is_current(handle, revision));
+        EXPECT_FALSE(std::filesystem::exists(source));
+        EXPECT_EQ(read_text_file(target).value(), "return {keep = true}");
+        EXPECT_EQ(database.size(), 1u);
+    }
+
     TEST(AssetSourceOperationsTest, ScriptMoveRejectsSourceOnlyModuleDestination) {
         const TemporaryProject project;
         AssetDatabase database(project.paths());

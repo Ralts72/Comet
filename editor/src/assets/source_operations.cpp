@@ -159,6 +159,23 @@ namespace CometEditor::AssetSourceOperations {
             return Result<void>::success();
         }
 
+        void restore_renamed_module(const std::filesystem::path& target,
+            const std::filesystem::path& source, std::error_code& error) {
+            const auto status = std::filesystem::symlink_status(source, error);
+            if(error == std::errc::no_such_file_or_directory
+                || (!error && !std::filesystem::exists(status))) {
+                error.clear();
+                std::filesystem::create_hard_link(target, source, error);
+            } else if(!error
+                      && (!std::filesystem::is_regular_file(status)
+                          || !std::filesystem::equivalent(target, source, error))) {
+                if(!error)
+                    error = std::make_error_code(std::errc::file_exists);
+            }
+            if(!error)
+                std::filesystem::remove(target, error);
+        }
+
         Result<std::vector<std::filesystem::path>> gltf_dependencies(
             const std::filesystem::path& source_path) {
             using Dependencies = Result<std::vector<std::filesystem::path>>;
@@ -777,6 +794,84 @@ return script
             return operation_error(destination, valid.error().message);
         return create_text_asset(
             database, destination, source, AssetType::Script, ".lua", "Script");
+    }
+
+    AssetScanReport rename_module(AssetDatabase& database, const std::filesystem::path& source,
+        const std::filesystem::path& destination) {
+        for(const auto& path : {source, destination})
+            if(auto valid = Script::module_name(path); !valid)
+                return operation_error(path, valid.error());
+        if(source == destination)
+            return operation_error(destination, "Lua module source and destination are identical");
+        if(source.parent_path() != destination.parent_path())
+            return operation_error(
+                destination, "Lua modules can only be renamed in the same directory");
+
+        std::error_code error;
+        const auto root = std::filesystem::canonical(database.paths().assets(), error);
+        if(error)
+            return operation_error(source, "Cannot resolve assets directory: " + error.message());
+        const auto original = root / source;
+        const auto target = root / destination;
+        for(const auto& path : {original, target}) {
+            if(auto valid = validate_inside(root, path); !valid)
+                return operation_error(path, valid.error());
+            const auto resolved = std::filesystem::weakly_canonical(path, error);
+            if(error)
+                return operation_error(path, "Cannot resolve Lua module path: " + error.message());
+            if(resolved != path.lexically_normal())
+                return operation_error(path, "Lua module paths cannot use symlink aliases");
+        }
+        const auto status = std::filesystem::symlink_status(original, error);
+        if(error || !std::filesystem::is_regular_file(status))
+            return operation_error(source, "Lua module source is not a regular file");
+        for(const auto& path : {metadata_path(original), target, metadata_path(target)})
+            if(auto valid = validate_available(path); !valid)
+                return operation_error(path, valid.error());
+
+        AssetDatabase candidate = database;
+        std::filesystem::create_hard_link(original, target, error);
+        if(error)
+            return operation_error(
+                destination, "Cannot publish renamed Lua module: " + error.message());
+        std::error_code rollback_error;
+        const auto rollback = [&] { restore_renamed_module(target, original, rollback_error); };
+        ScopeExit rollback_on_exit(rollback);
+        AssetScanReport report;
+        if(!std::filesystem::remove(original, error)) {
+            std::string message = "Cannot remove original Lua module";
+            if(error)
+                message += ": " + error.message();
+            report = operation_error(source, std::move(message));
+        } else {
+            report = candidate.scan();
+            if(report.snapshot_updated && report.succeeded()
+                && (candidate.find(source) || candidate.find(destination)))
+                report.issues.push_back(
+                    {destination, "Renamed Lua module was unexpectedly indexed"});
+        }
+        if(report.snapshot_updated && report.succeeded()) {
+            database = std::move(candidate);
+            rollback_on_exit.release();
+            return report;
+        }
+
+        rollback();
+        rollback_on_exit.release();
+        report.snapshot_updated = false;
+        report.indexed_assets = database.size();
+        report.generated_metadata = 0;
+        report.added_assets.clear();
+        report.removed_assets.clear();
+        report.modified_assets.clear();
+        if(rollback_error)
+            report.issues.push_back({destination,
+                "Lua module rename failed and rollback was incomplete; files retained: "
+                    + rollback_error.message()});
+        else
+            report.issues.push_back({destination,
+                "Lua module rename was rolled back because the database snapshot could not be committed"});
+        return report;
     }
 
     AssetScanReport remove_asset(
