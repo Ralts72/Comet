@@ -251,7 +251,8 @@ namespace CometEditor {
             for(const auto source : sources) {
                 if(!source_allowed(action.type, source))
                     continue;
-                if(ImGui::Selectable(source.data(), binding.source == source)) {
+                if(ImGui::Selectable(source.data(), binding.source == source)
+                    && binding.source != source) {
                     binding.source = source;
                     binding.control = source == "motion" ? "CursorX" : "";
                     binding.scale = 1;

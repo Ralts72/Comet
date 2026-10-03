@@ -104,6 +104,18 @@ namespace CometEditor::Tests {
             frame();
         }
 
+        void select_binding_source(const char* source) {
+            ASSERT_NE(details(), nullptr);
+            ImGui::FocusWindow(details());
+            ImGui::ActivateItemByID(binding_id("##Source"));
+            frame();
+            auto* combo = ImGui::FindWindowByName("##Combo_00");
+            ASSERT_NE(combo, nullptr);
+            ASSERT_TRUE(combo->Active);
+            ImGui::ActivateItemByID(combo->GetID(source));
+            frame();
+        }
+
         void record() {
             ASSERT_NE(details(), nullptr);
             ImGui::FocusWindow(details());
@@ -298,6 +310,44 @@ namespace CometEditor::Tests {
         auto reopened = panel.take_request();
         ASSERT_TRUE(reopened);
         EXPECT_EQ(*reopened, original);
+    }
+
+    TEST_F(ProjectInputUiTest, ReselectingBindingSourcePreservesTheWholeConfiguration) {
+        using Actions = Comet::InputActions;
+        struct Case {
+            const char* source;
+            Actions::Type type;
+            Actions::Binding binding;
+        };
+        const Case cases[]{{"motion", Actions::Type::Delta, {Actions::Motion::ScrollY, -2}},
+            {"key", Actions::Type::Axis, {Comet::Input::Key::Left, -1}},
+            {"gamepad_axis", Actions::Type::Axis,
+                {Comet::Input::GamepadAxis::RightY, -0.5f, 0.2f}}};
+        for(const auto& test : cases) {
+            SCOPED_TRACE(test.source);
+            const auto configured = Actions::create(
+                {{"controlled", test.type, {test.binding}, "gameplay"}}, original.contexts());
+            ASSERT_TRUE(configured);
+            reopen(configured.value());
+            ASSERT_NO_FATAL_FAILURE(select_binding_source(test.source));
+            EXPECT_FALSE(panel.take_request());
+            button("Save");
+            const auto saved = panel.take_request();
+            EXPECT_TRUE(saved);
+            if(saved)
+                EXPECT_EQ(*saved, configured.value());
+        }
+
+        ASSERT_NO_FATAL_FAILURE(select_binding_source("key"));
+        button("Save");
+        EXPECT_FALSE(panel.take_request());
+        edit_control("Right");
+        button("Save");
+        const auto changed = panel.take_request();
+        ASSERT_TRUE(changed);
+        EXPECT_EQ(changed->actions()[0].bindings[0], Actions::Binding{Comet::Input::Key::Right});
+        EXPECT_EQ(changed->actions()[0].context, "gameplay");
+        EXPECT_EQ(changed->contexts(), original.contexts());
     }
 
     TEST_F(ProjectInputUiTest, AxisToButtonNormalizesHiddenMultipliersAndPreservesBindings) {
