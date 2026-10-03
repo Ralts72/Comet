@@ -591,6 +591,80 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(player.stop());
     }
 
+    TEST_F(EditorAssetsTest, SourceMonitorRestoresBothConsumersAfterExternalModuleCreation) {
+        complete_imports();
+        const auto paths = Comet::ProjectPaths(root);
+        for(const auto* path : {"first.lua", "second.lua"}) {
+            ASSERT_TRUE(Comet::write_text_file_atomic(paths.assets() / path, R"(
+                local shared = require('shared')
+                return {update = function() comet.translate(shared.step, 0, 0) end}
+            )"));
+        }
+        const auto discovered = wait_for_source_report();
+        ASSERT_TRUE(discovered);
+        ASSERT_TRUE(discovered->succeeded());
+        const auto* first_record = assets->database().find("first.lua");
+        const auto* second_record = assets->database().find("second.lua");
+        ASSERT_NE(first_record, nullptr);
+        ASSERT_NE(second_record, nullptr);
+        const auto first = first_record->handle;
+        const auto second = second_record->handle;
+        const auto indexed = assets->database().size();
+        Comet::Scene scene;
+        auto left = scene.create_entity();
+        auto right = scene.create_entity();
+        left.add_component<Comet::ScriptComponent>().asset = first;
+        right.add_component<Comet::ScriptComponent>().asset = second;
+        const auto components = Comet::create_scene_component_registry();
+        assets->track_scene(scene, components);
+        ASSERT_TRUE(
+            assets->restore_references({.max_results = 8, .max_time = std::chrono::seconds(1)}));
+        ASSERT_FALSE(runtime.contains(first));
+        ASSERT_FALSE(runtime.contains(second));
+        const auto dependents = assets->database().get_import_dependents("shared.module.lua");
+        ASSERT_EQ(dependents.size(), 2u);
+        EXPECT_NE(std::ranges::find(dependents, first), dependents.end());
+        EXPECT_NE(std::ranges::find(dependents, second), dependents.end());
+
+        ASSERT_TRUE(Comet::write_text_file_atomic(
+            paths.assets() / "shared.module.lua", "return {step = 7}"));
+        bool first_notified = false;
+        bool second_notified = false;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while(std::chrono::steady_clock::now() < deadline) {
+            const auto updated = assets->update();
+            ASSERT_TRUE(updated) << updated.error().message;
+            if(updated.value()) {
+                const auto& report = *updated.value();
+                ASSERT_TRUE(report.succeeded());
+                EXPECT_TRUE(report.added_assets.empty());
+                first_notified |= std::ranges::find(report.modified_assets, first)
+                                  != report.modified_assets.end();
+                second_notified |= std::ranges::find(report.modified_assets, second)
+                                   != report.modified_assets.end();
+            }
+            ASSERT_TRUE(assets->restore_references(
+                {.max_results = 8, .max_time = std::chrono::seconds(1)}));
+            if(runtime.contains(first) && runtime.contains(second))
+                break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        EXPECT_TRUE(first_notified);
+        EXPECT_TRUE(second_notified);
+        ASSERT_TRUE(runtime.resolve<Comet::Script>(first));
+        ASSERT_TRUE(runtime.resolve<Comet::Script>(second));
+        EXPECT_EQ(assets->database().size(), indexed);
+        EXPECT_EQ(assets->database().find("shared.module.lua"), nullptr);
+        EXPECT_FALSE(std::filesystem::exists(paths.assets() / "shared.module.lua.meta"));
+        Comet::SceneRuntime player;
+        ASSERT_TRUE(player.add_system(std::make_unique<Comet::ScriptSystem>(runtime)));
+        ASSERT_TRUE(player.start(scene));
+        ASSERT_TRUE(player.advance(0));
+        EXPECT_FLOAT_EQ(left.get_component<Comet::TransformComponent>().translation.x, 7);
+        EXPECT_FLOAT_EQ(right.get_component<Comet::TransformComponent>().translation.x, 7);
+        ASSERT_TRUE(player.stop());
+    }
+
     TEST_F(EditorAssetsTest, ScriptSourceRefreshKeepsLastGoodVersionAndReloadsAfterRepair) {
         const auto path = Comet::ProjectPaths(root).assets() / "reload.lua";
         ASSERT_TRUE(Comet::write_text_file_atomic(
