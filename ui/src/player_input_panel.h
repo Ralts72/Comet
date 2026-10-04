@@ -42,10 +42,10 @@ namespace CometUi {
         void capture_key(const Comet::Input::Frame& input);
         void render_actions(const Comet::Input::Frame& input, const Text& translations);
         void render_binding(const Action& action, const Binding& binding,
-            const Comet::Input::Frame& input, const Text& translations);
-        void render_controls(const Action& action, const Binding& binding,
-            const Comet::InputOverrides::Binding& patch, const Comet::Input::Frame& input,
+            Comet::InputOverrides::Resolution& resolved, const Comet::Input::Frame& input,
             const Text& translations);
+        void render_controls(const Action& action, const Binding& binding, const Binding& effective,
+            const Comet::Input::Frame& input, const Text& translations);
         void render_feedback(const Text& translations) const;
         void render_diagnostics(
             const Comet::InputOverrides::Resolution& resolved, const Text& translations) const;

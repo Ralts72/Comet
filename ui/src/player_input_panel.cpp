@@ -24,6 +24,49 @@ namespace CometUi {
             return std::string(text(translations, english)) + "###" + english;
         }
 
+        float button_width(const char* caption) {
+            return ImGui::CalcTextSize(caption).x + ImGui::GetStyle().FramePadding.x * 2;
+        }
+
+        float field_width(float width, const char* caption) {
+            return width + ImGui::CalcTextSize(caption).x + ImGui::GetStyle().ItemInnerSpacing.x;
+        }
+
+        void set_field_width(float width, const char* caption) {
+            const auto remaining = ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(caption).x
+                                   - ImGui::GetStyle().ItemInnerSpacing.x;
+            ImGui::SetNextItemWidth(std::max(1.f, std::min(width, remaining)));
+        }
+
+        void same_line_if_fits(float width) {
+            const auto right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+            if(ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width <= right)
+                ImGui::SameLine();
+        }
+
+        float footer_height(const Text& translations) {
+            const auto& style = ImGui::GetStyle();
+            const auto available = std::max(1.f, ImGui::GetContentRegionAvail().x);
+            float used = 0;
+            int rows = 1;
+            for(const auto caption : {"Apply", "Cancel", "Restore All"}) {
+                const auto width = std::min(available, button_width(text(translations, caption)));
+                if(used > 0 && used + style.ItemSpacing.x + width > available) {
+                    ++rows;
+                    used = 0;
+                }
+                used += (used > 0 ? style.ItemSpacing.x : 0) + width;
+            }
+            return rows * ImGui::GetFrameHeight() + (rows - 1) * style.ItemSpacing.y;
+        }
+
+        bool binding_rejected(
+            const Overrides::Resolution& resolved, Comet::Uuid action, Comet::Uuid binding) {
+            return std::ranges::any_of(resolved.issues, [&](const auto& issue) {
+                return issue.action == action && (!issue.binding || issue.binding == binding);
+            });
+        }
+
         const char* type_name(Actions::Type type) {
             switch(type) {
                 case Actions::Type::Button:
@@ -271,10 +314,9 @@ namespace CometUi {
     }
 
     void PlayerInputPanel::render_controls(const Action& action, const Binding& binding,
-        const Overrides::Binding& patch, const Input::Frame& input, const Text& translations) {
-        const auto composed = composed_binding(binding, patch);
-        const auto name = Actions::format_binding(composed).value();
-        ImGui::SetNextItemWidth(145);
+        const Binding& effective, const Input::Frame& input, const Text& translations) {
+        const auto name = Actions::format_binding(effective).value();
+        set_field_width(145, text(translations, "Source"));
         if(ImGui::BeginCombo(
                label(translations, "Source").c_str(), text(translations, name.source.data()))) {
             constexpr std::array sources{
@@ -289,29 +331,29 @@ namespace CometUi {
             }
             ImGui::EndCombo();
         }
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(150);
+        same_line_if_fits(field_width(150, text(translations, "Control")));
+        set_field_width(150, text(translations, "Control"));
         if(ImGui::BeginCombo(
                label(translations, "Control").c_str(), text(translations, name.control.c_str()))) {
-            if(const auto chosen = control_choices(composed.control, name.source, translations)) {
+            if(const auto chosen = control_choices(effective.control, name.source, translations)) {
                 change_control(action, binding, *chosen);
                 m_capture.reset();
             }
             ImGui::EndCombo();
         }
         if(name.source == "key") {
-            ImGui::SameLine();
             const bool capturing =
                 m_capture && m_capture->action == action.id && m_capture->binding == binding.id;
             const auto caption = capturing ? "Press Key" : "Record Key";
+            same_line_if_fits(button_width(text(translations, caption)));
             if(ImGui::Button(label(translations, caption).c_str())) {
                 m_capture = Capture{action.id, binding.id, input.interruption};
                 ImGui::ClearActiveID();
             }
         }
         if(action.type != Actions::Type::Button) {
-            auto scale = composed.scale;
-            ImGui::SetNextItemWidth(120);
+            auto scale = effective.scale;
+            set_field_width(120, text(translations, "Multiplier"));
             if(ImGui::InputFloat(label(translations, "Multiplier").c_str(), &scale, 0, 0, "%.3f")) {
                 auto changed = binding_patch(action.id, binding.id);
                 changed.scale = scale;
@@ -321,9 +363,9 @@ namespace CometUi {
             }
         }
         if(name.source == "gamepad_axis") {
-            ImGui::SameLine();
-            auto deadzone = composed.deadzone;
-            ImGui::SetNextItemWidth(120);
+            same_line_if_fits(field_width(120, text(translations, "Deadzone")));
+            auto deadzone = effective.deadzone;
+            set_field_width(120, text(translations, "Deadzone"));
             if(ImGui::InputFloat(
                    label(translations, "Deadzone").c_str(), &deadzone, 0, 0, "%.3f")) {
                 auto changed = binding_patch(action.id, binding.id);
@@ -336,23 +378,48 @@ namespace CometUi {
     }
 
     void PlayerInputPanel::render_binding(const Action& action, const Binding& binding,
-        const Input::Frame& input, const Text& translations) {
+        Overrides::Resolution& resolved, const Input::Frame& input, const Text& translations) {
         ImGui::PushID(binding.id.to_string().c_str());
         auto patch = binding_patch(action.id, binding.id);
-        bool disabled = patch.disabled;
+        bool changed = false;
+        bool rejected = binding_rejected(resolved, action.id, binding.id);
+        bool disabled = patch.disabled && !rejected;
+        ImGui::BeginDisabled(rejected);
         if(ImGui::Checkbox(label(translations, "Disable Binding").c_str(), &disabled)) {
             if(disabled)
                 store_binding(action, binding, {.id = binding.id, .disabled = true});
             else
                 restore_binding(action.id, binding.id);
             m_capture.reset();
+            changed = true;
         }
-        ImGui::SameLine();
-        if(ImGui::Button(label(translations, "Restore Binding").c_str()))
+        ImGui::EndDisabled();
+        same_line_if_fits(button_width(text(translations, "Restore Binding")));
+        if(ImGui::Button(label(translations, "Restore Binding").c_str())) {
             restore_binding(action.id, binding.id);
+            changed = true;
+        }
+        if(changed) {
+            auto updated = m_draft.resolve(m_defaults);
+            if(updated)
+                resolved = std::move(updated).value();
+        }
         patch = binding_patch(action.id, binding.id);
-        ImGui::BeginDisabled(patch.disabled);
-        render_controls(action, binding, patch, input, translations);
+        const auto* action_override = action_patch(action.id);
+        const bool overridden = patch.disabled || patch.control || patch.scale || patch.deadzone
+                                || (action_override && action_override->disabled);
+        rejected = binding_rejected(resolved, action.id, binding.id);
+        const char* status = "Inherits project default";
+        if(rejected)
+            status = "Override ignored; using project default";
+        else if(overridden)
+            status = "Personal override";
+        ImGui::TextWrapped("%s", text(translations, status));
+        const auto& effective_bindings = resolved.actions.actions()[m_selected_action].bindings;
+        const auto effective = std::ranges::find(effective_bindings, binding.id, &Binding::id);
+        ImGui::BeginDisabled(patch.disabled || rejected);
+        render_controls(action, binding,
+            effective == effective_bindings.end() ? binding : *effective, input, translations);
         ImGui::EndDisabled();
         ImGui::Separator();
         ImGui::PopID();
@@ -364,7 +431,7 @@ namespace CometUi {
             ImGui::TextDisabled("%s", text(translations, "No input actions."));
             return;
         }
-        ImGui::SetNextItemWidth(250);
+        set_field_width(250, text(translations, "Action"));
         if(ImGui::BeginCombo(
                label(translations, "Action").c_str(), actions[m_selected_action].name.c_str())) {
             for(std::size_t index = 0; index < actions.size(); ++index) {
@@ -378,25 +445,31 @@ namespace CometUi {
             ImGui::EndCombo();
         }
         const auto& action = actions[m_selected_action];
-        ImGui::SameLine();
+        same_line_if_fits(ImGui::CalcTextSize(text(translations, type_name(action.type))).x);
         ImGui::TextDisabled("%s", text(translations, type_name(action.type)));
         const auto* patch = action_patch(action.id);
-        const bool incompatible = patch && patch->type != action.type;
-        bool disabled = patch && patch->disabled;
+        bool incompatible = patch && patch->type != action.type;
+        bool disabled = !incompatible && patch && patch->disabled;
         ImGui::BeginDisabled(incompatible);
         if(ImGui::Checkbox(label(translations, "Disable Action").c_str(), &disabled))
             disable_action(action, disabled);
         ImGui::EndDisabled();
-        ImGui::SameLine();
+        same_line_if_fits(button_width(text(translations, "Restore Action")));
         if(ImGui::Button(label(translations, "Restore Action").c_str()))
             restore_action(action.id);
+        patch = action_patch(action.id);
+        incompatible = patch && patch->type != action.type;
+        disabled = !incompatible && patch && patch->disabled;
         if(incompatible)
             ImGui::TextWrapped("%s",
                 text(translations, "Restore this action before editing incompatible overrides."));
+        auto resolved = m_draft.resolve(m_defaults);
+        if(!resolved)
+            return;
         ImGui::BeginDisabled(incompatible || disabled);
         ImGui::BeginChild("Bindings", ImVec2(0, 190), true);
         for(const auto& binding : action.bindings)
-            render_binding(action, binding, input, translations);
+            render_binding(action, binding, resolved.value(), input, translations);
         ImGui::EndChild();
         ImGui::EndDisabled();
     }
@@ -425,8 +498,10 @@ namespace CometUi {
         ImGui::BeginChild("Diagnostics", ImVec2(0, 75), true);
         for(const auto& issue : resolved.issues) {
             ImGui::TextWrapped("%s", text(translations, issue.message.c_str()));
+            ImGui::PushTextWrapPos(0);
             ImGui::TextDisabled(
                 "%s / %s", issue.action.to_string().c_str(), issue.binding.to_string().c_str());
+            ImGui::PopTextWrapPos();
         }
         ImGui::EndChild();
     }
@@ -447,12 +522,34 @@ namespace CometUi {
         if(!m_open && !m_close_requested)
             return false;
         const auto title = label(translations, "Player Input");
+        const bool opening = m_open_requested;
         if(m_open_requested) {
             ImGui::OpenPopup(title.c_str());
             m_open_requested = false;
         }
-        ImGui::SetNextWindowSize(ImVec2(800, 550), ImGuiCond_Appearing);
-        if(!ImGui::BeginPopupModal(title.c_str(), nullptr, ImGuiWindowFlags_NoSavedSettings)) {
+        const auto* viewport = ImGui::GetMainViewport();
+        const ImVec2 maximum(
+            std::max(1.f, viewport->WorkSize.x - 16), std::max(1.f, viewport->WorkSize.y - 16));
+        ImGui::SetNextWindowSizeConstraints(
+            ImVec2(std::min(320.f, maximum.x), std::min(240.f, maximum.y)), maximum);
+        ImGui::SetNextWindowSize(
+            ImVec2(std::min(800.f, maximum.x), std::min(550.f, maximum.y)), ImGuiCond_Appearing);
+        const auto* previous = ImGui::FindWindowByName(title.c_str());
+        if(previous && !opening) {
+            const ImVec2 size(
+                std::min(previous->Size.x, maximum.x), std::min(previous->Size.y, maximum.y));
+            const ImVec2 minimum(viewport->WorkPos.x + 8, viewport->WorkPos.y + 8);
+            ImGui::SetNextWindowPos(
+                ImVec2(std::clamp(previous->Pos.x, minimum.x, minimum.x + maximum.x - size.x),
+                    std::clamp(previous->Pos.y, minimum.y, minimum.y + maximum.y - size.y)));
+        } else {
+            ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
+                                        viewport->WorkPos.y + viewport->WorkSize.y * 0.5f),
+                ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        }
+        if(!ImGui::BeginPopupModal(title.c_str(), nullptr,
+               ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar
+                   | ImGuiWindowFlags_NoScrollWithMouse)) {
             if(m_close_requested)
                 m_close_requested = false;
             return true;
@@ -464,29 +561,34 @@ namespace CometUi {
                 close();
         }
         if(m_open) {
+            const auto body_height =
+                std::max(1.f, ImGui::GetContentRegionAvail().y - footer_height(translations)
+                                  - ImGui::GetStyle().ItemSpacing.y);
+            ImGui::BeginDisabled(m_waiting);
+            ImGui::BeginChild("Content", ImVec2(0, body_height));
             ImGui::TextWrapped("%s",
                 text(translations,
                     "Player overrides only; project defaults are unchanged. Unedited fields inherit defaults."));
-            ImGui::BeginDisabled(m_waiting);
             render_actions(input, translations);
-            render_feedback(translations);
             if(m_capture)
                 ImGui::TextWrapped(
                     "%s", text(translations, "Press a key; Escape cancels recording."));
+            render_feedback(translations);
+            if(!m_error.empty())
+                ImGui::TextWrapped("%s", text(translations, m_error.c_str()));
+            ImGui::EndChild();
             if(ImGui::Button(label(translations, "Apply").c_str()))
                 apply();
-            ImGui::SameLine();
+            same_line_if_fits(button_width(text(translations, "Cancel")));
             if(ImGui::Button(label(translations, "Cancel").c_str()))
                 close();
-            ImGui::SameLine();
+            same_line_if_fits(button_width(text(translations, "Restore All")));
             if(ImGui::Button(label(translations, "Restore All").c_str())) {
                 m_draft = {};
                 m_capture.reset();
                 m_error.clear();
             }
             ImGui::EndDisabled();
-            if(!m_error.empty())
-                ImGui::TextWrapped("%s", text(translations, m_error.c_str()));
         }
         if(m_close_requested) {
             ImGui::CloseCurrentPopup();

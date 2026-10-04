@@ -5,7 +5,10 @@
 #include <gtest/gtest.h>
 #include <imgui_internal.h>
 
+#include <algorithm>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace CometUi::Tests {
@@ -63,12 +66,17 @@ namespace CometUi::Tests {
 
         ImGuiWindow* window() { return ImGui::FindWindowByName("###Player Input"); }
 
-        ImGuiWindow* bindings() {
-            for(auto* child : ImGui::GetCurrentContext()->Windows)
-                if(child->ParentWindow == window() && child->ChildId == window()->GetID("Bindings"))
-                    return child;
+        ImGuiWindow* child(ImGuiWindow* parent, const char* name) {
+            if(!parent)
+                return nullptr;
+            for(auto* candidate : ImGui::GetCurrentContext()->Windows)
+                if(candidate->ParentWindow == parent && candidate->ChildId == parent->GetID(name))
+                    return candidate;
             return nullptr;
         }
+
+        ImGuiWindow* content() { return child(window(), "Content"); }
+        ImGuiWindow* bindings() { return child(content(), "Bindings"); }
 
         ImGuiID binding_item(Comet::Uuid binding, const char* english) {
             const auto scope = ImHashStr(binding.to_string().c_str(), 0, bindings()->ID);
@@ -83,8 +91,12 @@ namespace CometUi::Tests {
         }
 
         void button(const char* english) {
-            ASSERT_NE(window(), nullptr);
-            activate(window(), window()->GetID((std::string("###") + english).c_str()));
+            const std::string_view name = english;
+            auto* owner = content();
+            if(name == "Apply" || name == "Cancel" || name == "Restore All")
+                owner = window();
+            ASSERT_NE(owner, nullptr);
+            activate(owner, owner->GetID((std::string("###") + english).c_str()));
         }
 
         void binding_button(const char* english, Comet::Uuid binding = id(2)) {
@@ -140,6 +152,65 @@ namespace CometUi::Tests {
             frame();
             io.AddKeyEvent(ImGuiKey_Enter, false);
             frame();
+        }
+
+        std::optional<ImVec2> hover_point(ImGuiWindow* owner, ImGuiID item) {
+            if(!owner)
+                return std::nullopt;
+            const auto* viewport = ImGui::GetMainViewport();
+            const float left = std::max(owner->ClipRect.Min.x, viewport->WorkPos.x);
+            const float right =
+                std::min(owner->ClipRect.Max.x, viewport->WorkPos.x + viewport->WorkSize.x);
+            const float top = std::max(owner->ClipRect.Min.y, viewport->WorkPos.y);
+            const float bottom =
+                std::min(owner->ClipRect.Max.y, viewport->WorkPos.y + viewport->WorkSize.y);
+            for(float y = bottom - 3; y > top; y -= 6) {
+                for(float x = left + 3; x < right; x += 6) {
+                    ImGui::GetIO().AddMousePosEvent(x, y);
+                    frame();
+                    if(ImGui::GetCurrentContext()->HoveredId == item)
+                        return ImVec2{x, y};
+                }
+            }
+            return std::nullopt;
+        }
+
+        void mouse_click(ImVec2 point) {
+            auto& io = ImGui::GetIO();
+            io.AddMousePosEvent(point.x, point.y);
+            frame();
+            io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+            physical.mouse_button_event(Input::MouseButton::Left, true);
+            frame();
+            io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+            physical.mouse_button_event(Input::MouseButton::Left, false);
+            frame();
+        }
+
+        void click_footer(const char* english) {
+            ASSERT_NE(window(), nullptr);
+            const auto item = window()->GetID((std::string("###") + english).c_str());
+            const auto point = hover_point(window(), item);
+            ASSERT_TRUE(point) << english;
+            mouse_click(*point);
+        }
+
+        void expect_footer_reachable() {
+            ASSERT_NE(window(), nullptr);
+            ASSERT_NE(content(), nullptr);
+            const auto* viewport = ImGui::GetMainViewport();
+            EXPECT_GE(window()->Pos.x, viewport->WorkPos.x);
+            EXPECT_GE(window()->Pos.y, viewport->WorkPos.y);
+            EXPECT_LE(
+                window()->Pos.x + window()->Size.x, viewport->WorkPos.x + viewport->WorkSize.x);
+            EXPECT_LE(
+                window()->Pos.y + window()->Size.y, viewport->WorkPos.y + viewport->WorkSize.y);
+            EXPECT_EQ(window()->ScrollMax.y, 0);
+            EXPECT_GT(content()->ScrollMax.y, 0);
+            for(const char* english : {"Apply", "Cancel", "Restore All"}) {
+                const auto item = window()->GetID((std::string("###") + english).c_str());
+                EXPECT_TRUE(hover_point(window(), item)) << english;
+            }
         }
     };
 
@@ -525,6 +596,101 @@ namespace CometUi::Tests {
         EXPECT_NE(rendered_text.find("Unknown input binding ID"), std::string::npos);
         EXPECT_NE(rendered_text.find("Input action type changed"), std::string::npos);
         EXPECT_NE(rendered_text.find("Unknown input action ID"), std::string::npos);
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(*request, current.value());
+    }
+
+    TEST_F(
+        PlayerInputPanelTest, SmallViewportKeepsRestoreAndApplyReachableOutsideScrollingContent) {
+        ImGui::GetIO().DisplaySize = {480, 320};
+        const auto current = Overrides::create({{id(1), Type::Button, false,
+            {{.id = id(2), .control = Input::Key::K}, {.id = id(99), .control = Input::Key::J}}}});
+        ASSERT_TRUE(current);
+        show(current.value());
+        expect_footer_reachable();
+        click_footer("Restore All");
+        EXPECT_TRUE(panel.is_open());
+        EXPECT_FALSE(panel.take_request());
+        click_footer("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_TRUE(request->actions().empty());
+        EXPECT_TRUE(blocked);
+    }
+
+    TEST_F(PlayerInputPanelTest, ShrinkingAnOpenModalKeepsCancelVisibleAndBlocksItsClosingFrame) {
+        show();
+        record(Input::Key::K);
+        ImGui::GetIO().DisplaySize = {480, 320};
+        frame();
+        frame();
+        expect_footer_reachable();
+        click_footer("Cancel");
+        EXPECT_FALSE(panel.is_open());
+        EXPECT_TRUE(blocked);
+        EXPECT_FALSE(panel.take_request());
+        frame();
+        EXPECT_FALSE(blocked);
+    }
+
+    TEST_F(PlayerInputPanelTest, MousePressAndReleaseStartsRecordingUntilAPhysicalKeyArrives) {
+        show();
+        ASSERT_NE(bindings(), nullptr);
+        const auto point = hover_point(bindings(), binding_item(id(2), "Record Key"));
+        ASSERT_TRUE(point);
+        mouse_click(*point);
+        frame();
+        EXPECT_TRUE(panel.is_open());
+        EXPECT_TRUE(blocked);
+        ASSERT_NE(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        key(Input::Key::K);
+        EXPECT_EQ(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        const auto expected = Overrides::create(
+            {{id(1), Type::Button, false, {{.id = id(2), .control = Input::Key::K}}}});
+        ASSERT_TRUE(expected);
+        EXPECT_EQ(*request, expected.value());
+    }
+
+    TEST_F(PlayerInputPanelTest, BindingStatusDistinguishesInheritedPersonalAndRestoredValues) {
+        const auto configured = Actions::create(
+            {{"jump", Type::Button, {{Input::Key::Space, 1, 0, id(2)}}, "", id(1)}});
+        ASSERT_TRUE(configured);
+        defaults = configured.value();
+        show();
+        EXPECT_NE(rendered_text.find("Inherits project default"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("Personal override"), std::string::npos);
+        record(Input::Key::K);
+        EXPECT_NE(rendered_text.find("Personal override"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("Inherits project default"), std::string::npos);
+        binding_button("Restore Binding");
+        frame();
+        EXPECT_NE(rendered_text.find("Inherits project default"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("Personal override"), std::string::npos);
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_TRUE(request->actions().empty());
+    }
+
+    TEST_F(PlayerInputPanelTest, RejectedOverrideShowsEffectiveDefaultWithoutDiscardingTheRecord) {
+        const auto configured = Actions::create(
+            {{"jump", Type::Button, {{Input::Key::Space, 1, 0, id(2)}}, "", id(1)}});
+        ASSERT_TRUE(configured);
+        defaults = configured.value();
+        const auto current = Overrides::create(
+            {{id(1), Type::Button, false, {{.id = id(2), .control = Input::Key::K, .scale = 2}}}});
+        ASSERT_TRUE(current);
+        show(current.value());
+        frame({{"Space", "Effective Space"}, {"K", "Rejected K"}});
+        EXPECT_NE(rendered_text.find("Override ignored; using project default"), std::string::npos);
+        EXPECT_NE(rendered_text.find("Effective Space"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("Rejected K"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("Personal override"), std::string::npos);
         button("Apply");
         const auto request = panel.take_request();
         ASSERT_TRUE(request);
