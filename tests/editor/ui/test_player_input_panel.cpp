@@ -576,6 +576,53 @@ namespace CometUi::Tests {
         EXPECT_EQ(resolved.value().actions, newer.value());
     }
 
+    TEST_F(PlayerInputPanelTest, RestoringAnInheritedBindingCancelsRecordingWithoutChangingDraft) {
+        const auto unrelated = Overrides::create(
+            {{id(4), Type::Axis, false, {{.id = id(5), .scale = -0.5f, .deadzone = 0.3f}}}});
+        ASSERT_TRUE(unrelated);
+        for(const auto& current : {Overrides{}, unrelated.value()}) {
+            SCOPED_TRACE(current.actions().size());
+            for(const bool gamepad : {false, true}) {
+                SCOPED_TRACE(gamepad);
+                physical = {};
+                physical.focus_event(true);
+                Input::GamepadSample pad;
+                physical.gamepad_sample(0, pad);
+                show(current);
+                auto binding = id(2);
+                const char* prompt = "Press a key; Escape cancels recording.";
+                if(gamepad) {
+                    binding = id(3);
+                    prompt = "Press a gamepad button; Escape cancels recording.";
+                    binding_button("Record Button", binding);
+                } else {
+                    binding_button("Record Key", binding);
+                }
+                ASSERT_NE(rendered_text.find(prompt), std::string::npos);
+
+                binding_button("Restore Binding", binding);
+                EXPECT_EQ(rendered_text.find(prompt), std::string::npos);
+                EXPECT_TRUE(panel.is_open());
+                EXPECT_TRUE(blocked);
+                EXPECT_FALSE(panel.take_request());
+                if(gamepad) {
+                    pad.buttons[static_cast<std::size_t>(Input::GamepadButton::East)] = true;
+                    physical.gamepad_sample(0, pad);
+                    frame();
+                } else {
+                    key(Input::Key::K);
+                }
+                button("Apply");
+                const auto request = panel.take_request();
+                ASSERT_TRUE(request);
+                EXPECT_EQ(*request, current);
+                panel.complete(Comet::Result<void>::success());
+                frame();
+                frame();
+            }
+        }
+    }
+
     TEST_F(PlayerInputPanelTest, RestoreActionPreservesUnrelatedRecords) {
         const auto current = Overrides::create(
             {{id(1), Type::Button, true, {{.id = id(2), .control = Input::Key::K}}},

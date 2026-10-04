@@ -230,97 +230,84 @@ Viewport 在实际进入 Running 时一次性聚焦（Play／Resume），不在�
 隐藏离屏视图仍执行 UI、Runtime、Scene 提取和上传回收；暂时无呈现帧时只跳过 UI／提取／绘制。
 最小化等待并重置墙钟增量、窗口瞬态及 Runtime 待处理按下；Gate 根据采样中断版本重新获取授权。
 
-Project 持有默认 InputActions；App 启动、Editor 每次进入／重开 Play 时合成玩家覆盖，再交给 SceneRuntime 内的 RuntimeInput。
-整份动作定义仍仅停止状态允许替换，不在运行中监视文件。Edit 的项目输入面板继续编辑默认值，不展示或回写玩家覆盖。
-Project v2 为项目、动作和绑定保存非零 UUID：项目移动／改名、动作改名、绑定调参／排序不改变身份；
-新建项目、动作或绑定才分配新身份。动作名仍是 Lua 的语义查询键，改名不自动改写脚本。
-`common/Uuid` 复用原实体 UUID 实现，`EntityUuid` 保留为场景语义别名；不借用 AssetHandle 或依赖 Scene。
-纯内存 InputActions 可匿名，Project 的读取／保存边界要求完整且有效的身份；旧 project.json 版本只报错，不迁移。
-`InputOverrides` 是按动作／绑定 UUID 定位的稀疏值，control、scale、deadzone 分别可选，未覆盖字段始终继承当前默认。
-disabled 是独立开关，不清空同一记录中的个人字段或子绑定；合成先检查动作身份／类型，再跳过禁用内容。
-重新启用时按当前默认值重新校验保留的字段，不能因此抹掉不兼容记录；恢复默认才删除记录。
-`PlayerInputSettings` 只负责用户配置目录、严格 JSON、加载基线与原子保存；不依赖 Project、Runtime 或 Editor。
-宿主负责组合及一次性报告错误。未知身份／类型漂移只跳过对应记录，其他兼容覆盖继续使用，原记录不改；
-结构错误使宿主回退默认，但加载不获得覆盖坏文件的空配置。保存失败保持原对象，不在启动时修复用户文件。
-`comet_ui/PlayerInputPanel` 是 App／Editor 可共用的玩家覆盖草稿界面，不拥有 Project、文件或 Runtime；
-Editor Play 与 App 共用面板。宿主加载文件、处理请求、先保存再提交重绑定，并把成功／失败交回面板。
-App 在 on_update 提供延期帧输入回退；ready 帧恢复尚未消费的 Gate 快照，再按当帧 UI 授权计算一次最终输入。
-弹窗关闭帧仍阻断键鼠，设置入口仅占用其命中的鼠标；不修改 Runtime 暂停状态。
-面板仅返回候选与输入阻断状态，不增加跨层回调；翻译表由宿主借给当帧使用。关闭当帧也阻断输入，Esc 不穿透成 Stop。
-宿主在 open 时提供保留按键值，面板复制持有，不引用临时数组；App／Editor 当前都传入 Escape。
-保留策略只限制新的个人控制选择与录入，对已有有效绑定给提示，不修改 InputActions 的合法性、序列化或合成结果。
-Play 不因单独 Ctrl／Alt／Super 按住而撤销授权；编辑快捷键原本仅在 Edit 收集。
-实际 ImGui 窗口切换、文本输入、活动控件、弹窗与失焦仍阻断，结束后沿原 Gate 规则等待旧按住键释放。
-加载错误由宿主持有并交共享 UI 绘制，场景／宿主退出清理；保存错误留在草稿面板的固定提示区，重试不丢草稿。
-按键／手柄按钮录入读取原始物理帧，游戏仍读取 Gate 授权帧；录入只接受开始后的 pressed，不把 held 当作新输入。
-Input 在真实失焦时也推进已有 interruption，重复焦点事件不推进；Gate 与录入可跨跳帧识别中断。
-失焦仍保留必要的释放事件，不借用 discard_pending 清掉它们；恢复首帧不重放长按或位移。
-`Input::Frame::first_connected_gamepad()` 供动作采样与录入共用；录入锁定该槽，观测到断开／首槽变化即取消。
-每槽 connection_revision 仅在连接状态实际变化时推进；录入比较该版本，跳过断连帧仍会取消旧手柄录入。
-它不改变全局 interruption，不取消键盘录入，也不是设备的持久身份。
-槽号只是当前采样选择，不是持久设备或玩家身份；摇杆录制和多人分配不在此协议内。
-`SceneRuntime::rebind_input_actions` 只允许非执行中的活动运行域，候选不能改变动作身份、名称、类型、归属或上下文定义。
-RuntimeInput 在下一次 prepare 接收最后一份有效候选，按 UUID 保留未改绑定的固定步历史与路由；
-只给新增／变动绑定建立基线，且等待实际授权和设备可用。动态动作组、普通／固定阶段电平与物理帧序号不重置。
-Stop 取消尚未应用的候选；已经应用的映射保留，下一次 Play 由宿主重新合成文件配置。
-`Window → Input::Frame → Gate → RuntimeInput → InputState → System／Lua`：
-动作不读取平台或 ImGui，不绕过授权。RuntimeInput 拥有映射、活动动作组、普通／固定阶段快照和待消费输入；
-SceneRuntime 只调用 prepare／consume_fixed／update 及生命周期接口，不处理按钮合并或分别安装物理／动作参数。
-InputState 同时拥有该阶段的物理与动作值，只读公开，可复制保留；引用在输入 owner 下一次修改前有效。
-零固定步不丢短按，多步不重复边沿，暂停／单步同时重建两类状态的基线。
-Frame 的 `focused` 与 `pointer_enabled` 分别传递整体及鼠标授权；鼠标必须同时满足二者，
-Gate 不能重新开放上游已经撤销的授权。Viewport 仅失去鼠标悬停时，RuntimeInput 丢弃未消费的鼠标点击和位移，
-InputActions 将鼠标绑定标记为不可用，复用逐绑定清理；键盘／手柄及混合动作的其他来源仍保留。
-已交付的鼠标按住状态产生一次释放，重新进入画面后仍需先松开再按下，不回放旧 delta。
-Engine 启动 Runtime 使用 InputStart::Rebase，在首张已授权输入上丢弃旧边沿／位移并建立电平基线；
-未授权帧不提前清除此意图。不把 Window 的物理 serial 当作 Gate 授权流的 serial，重开后长按键不会变成新按下。
-多个绑定合为一个按钮电平，释放其中一个仍按住的动作不会产生释放；轴与位移不伪装成按钮。
-CameraControllerSystem 只约定 `camera.*` 动作语义，具体设备、按键、反向和死区属于项目配置。
+### 输入主链与配置边界
 
-InputActions 保存 `Context{name, enabled, priority, consume}` 默认配置及 Action 的组引用，创建时统一校验；
-最多 32 个组，名称沿用动作名规则，省略 enabled／priority／consume 时分别为 true／0／false。
-enabled 的 consuming 组按物理 control 身份屏蔽严格低 priority 组的相同绑定；倍率和死区不改变 control 身份。
-相同优先级共享输入，与配置顺序无关；无组公共动作既不被屏蔽也不参与消费。不同组不隐含互斥，
-消费按绑定而非整个 action 或设备，不会让一个被阻挡的键连带禁用该动作的其他来源。
-InputActions 的只读 `compare_bindings` 与实际路由共用消费判定；前者描述双方启用时的两两关系，
-不读取运行态，也不推断其他组参与后的最终路由。项目输入面板只在草稿完整校验后调用它，
-展示规范化 control 的共享／消费关系及默认禁用标记；无效草稿不沿用旧提示，合法重叠不阻止保存。
-两面板共用 `comet_ui/input_widgets` 的关系正文。玩家侧只对 `InputOverrides::Resolution::actions` 展示关系，
-与诊断共用同一合成结果；被拒绝补丁的控件值不冒充有效绑定。共享展示借用词表，不依赖 Editor 或新增翻译回调。
-玩家面板按合成 issue 的身份标记拒绝状态；此时保留原补丁、显示有效默认，恢复绑定后才能编辑控制字段。
-绑定仍可独立禁用／启用；动作类型已漂移时必须先恢复动作。禁用内容不显示默认控制冒充个人值，也不由 UI 另存备份。
-诊断操作直接按 Issue 的动作／绑定 UUID 复用草稿恢复路径，不从错误文案判断类型，也不要求失效项仍在默认列表中。
-它只删除对应记录；取消不保存，Apply 沿原持久化与运行时替换边界处理，不在合成时自动清洗。
-正文与根操作栏分开，弹窗尺寸及位置在 Begin 前按 viewport 约束，缩小后不把取消／应用滚出可用区域。
-RuntimeInput 保存本局的活动组状态，reset 恢复默认；InputState 仍是只读的阶段结果，System／Lua 不持有映射配置。
-`comet.set_input_context → Scene::request_input_context → SceneRuntime::advance → RuntimeInput::set_context_enabled`：
-Scene 只存非持久的、按组名合并的有界请求，不拥有输入状态。Runtime 在下一次 advance 的输入准备前消费，
-因此同帧多次 Fixed Update、普通 Update 和通知 handler 使用同一套组状态；未知组走运行失败清理，不静默忽略。
-请求允许在 on_start 发出；on_stop 无活动 Scene，只可向宿主的短期输出记录关闭组名，不能开启组。
-ScriptSystem 在运行中的换绑、移除及成功换版后将清理输出交给同一 Scene 队列；完整 Stop／析构收集后丢弃。
-旧 on_stop 先于新 on_start，同组仍按请求顺序最后写入生效。清理后续报错不撤销已经记录的关闭请求；
-组名存在性仍在 RuntimeInput 验证，不另存输入配置。Stop／失败清空，暂停时可应用已排队请求但不推进模拟。
+```text
+每帧：Window → Input::Frame → 宿主 Gate → RuntimeInput → InputState → System／Lua
+配置：Project 默认 + PlayerInputSettings 的稀疏覆盖 → resolve → 宿主 → RuntimeInput
+```
 
-组切换依据绑定实际是否获得路由处理，也包括其他组被间接屏蔽／恢复的情况。
-丢失绑定清掉该来源的固定步积累，动作最后一个已按住来源丢失时产生一次必要释放；
-新获绑定只建立当前电平，不合成 pressed、不接收切换前或切换当帧的 delta；未受影响绑定保留自己的积累。
-RuntimeInput 的逐绑定 pending 是固定步唯一动作历史，InputActions 共用采样／合成逻辑，
-不会从原始物理 pending 再映射一次而重放已被消费的点击。组切换不触发全局 rebase，公共动作的积累不因此丢失。
-路由只在组状态改变后重算，采样工作缓冲复用容量并逐槽覆盖；它不保存另一份跨帧业务状态。
-手柄换槽不能继承旧槽的 pending，失焦／断连清理仍遵循输入授权规则。
-底层物理快照保留原始授权输入供既有消费者查看，消费不修改窗口事件或 ImGui 快捷键；Lua 只读取具名动作。
-这不是 Gameplay 广播通知：启停请求有唯一消费方 RuntimeInput，不经过 script.events，也没有新增回调链或 EventBus。
+| 所属处 | 拥有什么／不做什么 |
+| --- | --- |
+| `Input`／`Gate` | 物理快照／宿主授权，不知道动作、UI 或玩家文件 |
+| `InputActions`／`InputOverrides` | 默认定义、映射规则／按 UUID 保存的个人意图；合成不修改原记录 |
+| `PlayerInputSettings` | 用户路径、严格 JSON、加载基线及原子保存；不依赖 Project、Runtime 或 Editor |
+| `RuntimeInput` | 活动映射、动作组、逐绑定积累及阶段快照；SceneRuntime 只调用生命周期和 prepare／consume_fixed／update |
+| `InputState` | 同一阶段的物理和动作只读值；可复制保留，引用在 owner 下一次修改前有效 |
+| 两种设置面板 | 项目默认草稿／玩家覆盖草稿；不写文件、不操作 Runtime，不能合并成同一种保存协议 |
+| App／Editor 宿主 | 装配默认值与覆盖、处理保存结果及运行域提交；不实现动作采样规则 |
 
-项目输入设置的链路是 `InputSettingsPanel 草稿 → ProjectSettings 校验／保存 → 宿主应用到停止态 RuntimeInput`。
-ProjectSettings 返回配置保存结果，不依赖 Engine；面板不写文件、不操作 Runtime。
-保存失败保留草稿，关闭丢弃未保存草稿，无变化保存由 Project 跳过写盘；运行时应用失败不冒充文件保存失败。
-面板草稿保留既有 UUID，新建时生成；移除后新增不复用旧身份，UUID 不作为普通编辑字段展示。
-动作、上下文和绑定数量上限由 InputActions 定义，项目解析和 UI 共用。
-`on_frame_ready → draw_editor_ui → ProjectSettings → InputSettingsPanel` 显式借用本帧物理 Input::Frame，
-录入只读取开始后的 pressed，并检查 serial、interruption 和焦点；不存帧指针，也不再反向转换 ImGui 按键。
-ImGui 活动项和按键所有权仅阻断编辑器快捷键，Esc 取消，失焦／关闭结束录入。
-InputSettingsPanel 是 ProjectSettings 的具体草稿视图，不参与通用面板注册，因此不继承 EditorPanel 或提供空帧 render。
-切换 Play 时 close 丢弃未消费的保存请求；游戏内个人改键仍走独立的 PlayerInputPanel 草稿和保存协议。
+**授权与阶段。** Frame 的 `focused`／`pointer_enabled` 分别表示整体／鼠标授权，Gate 不可重新开放
+上游已撤销的权限。仅鼠标离开 Viewport 时，清理鼠标点击和位移，不中断键盘、手柄及混合动作的其他来源；
+必要时产生一次释放，重新获得授权须等原按住键松开。Ctrl／Alt／Super 本身不代表 UI 占用，
+实际窗口切换、编辑控件、弹窗及失焦仍阻断。物理 serial 与 Gate 发布的授权 serial 不是同一序列。
+
+App 的 on_update 先交付延期帧回退；ready 帧恢复尚未消费的 Gate 快照，再按最终 UI 计算授权。
+面板及其关闭当帧阻断游戏输入，设置入口仅占用命中的鼠标，不隐式暂停模拟。
+Engine 启动 Runtime 使用 InputStart::Rebase，直到首张已授权输入才建立基线，避免重开重放旧点击。
+零固定步保留短按，多次补步只消费一次边沿；暂停／单步重建物理和动作基线。多个按钮绑定合并电平，
+只松开其中一个不释放仍由其他绑定按住的动作。CameraControllerSystem 只约定 `camera.*` 语义。
+
+**项目默认与个人意图。** Project v2 保存项目／动作／绑定的非零 UUID，复用 common/Uuid；
+移动、改名及排序保持身份，新建才分配。动作名仍是 Lua 查询键，改名不会自动改写脚本。
+纯内存 InputActions 可匿名，持久化边界要求完整身份；旧格式明确拒绝，不做隐式迁移。
+InputOverrides 的 control／scale／deadzone 按字段继承，disabled 与保留字段独立：禁用不删除，启用重新校验，
+恢复默认才删除。未知身份或类型漂移只拒绝对应记录；其他有效覆盖继续使用，合成不清洗原文件。
+
+- Edit：`InputSettingsPanel → ProjectSettings 校验／保存 → 宿主安装停止态默认配置`。
+  关闭丢弃草稿及未消费请求，失败保留草稿，无变化不写盘。面板是具体视图，不参与 EditorPanel 注册。
+- App 启动／每次 Play 或重开：加载玩家文件并合成；坏文件回退默认，不能获得可覆盖坏文件的空设置对象。
+  不监视运行中文件变化，也不把玩家配置写回 project.json。
+- 运行中：`PlayerInputPanel 候选 → 宿主 resolve → 保存个人文件 → request_rebind → 下一次 prepare 应用`。
+  只允许绑定变化，不能改动作身份、名称、类型、归属或上下文定义；调用处必须在非执行的活动运行域。
+  最后一份有效候选生效，按 UUID 保留未改绑定的积累／路由；变动绑定等待授权和设备可用后建立基线。
+  活动动作组及阶段电平不整体重置。Stop 丢弃未应用候选，下次 Play 再从文件合成。
+
+加载诊断由宿主持有，保存诊断留在草稿面板；先保存后提交的错误如实区分，不宣称回滚已保存文件。
+面板按 Issue 身份显示回退默认、保留失配记录并逐条恢复；禁用摘要不是有效映射，不另存 UI 备份。
+共享 input_widgets 只提供菜单数据、关系正文及错误展示；词表由宿主借用，未引入跨层回调。
+
+**录入生命周期。** 两种面板都借用本帧原始 Input::Frame，只录开始后的 pressed；游戏只用授权帧。
+项目录入的 ImGui 活动项／按键所有权阻断编辑快捷键；不反向转换按键，不保存帧指针。
+宿主在玩家面板 open 时传入并复制保留键（目前 Escape）：限制新选／录入，提示已有冲突，
+不改变 Engine 的按键合法性。取消、恢复绑定、关闭和切换编辑对象都结束旧录入。
+
+| 快照标记 | 含义与消费者 |
+| --- | --- |
+| `serial` | 去重和拒绝回退帧；录入不消费打开时的旧输入 |
+| `interruption` | 真实失焦／采样中断，即使消费者跳过中断帧仍可识别；重复焦点事件不推进，必要释放仍保留 |
+| 每槽 `connection_revision` | 实际连接状态变化；锁槽录入可识别同槽重连，只取消手柄录入，不中断键盘 |
+
+动作采样和手柄录入共用 `first_connected_gamepad()`；槽号／连接版本不是持久设备或玩家身份。
+摇杆录制、多人分配和完整硬件体验验收仍见路线图。
+
+**动作组与请求。** InputActions 校验 Context 默认值及 Action 归属。启用的 consume 组只屏蔽
+严格低优先级组的相同 control；相同优先级共享，无组公共动作不参与消费，不隐含互斥。
+按绑定而不是整个动作或设备消费，倍率／死区不改变控制身份。`compare_bindings` 复用同一判定，
+但只说明双方启用时的两两关系；UI 使用有效草稿，不能把它冒充实时路由或全局冲突禁令。
+
+`comet.set_input_context → Scene 有界请求 → SceneRuntime::advance → RuntimeInput`。
+Scene 按组名合并非持久请求，不拥有输入；下一次输入准备前应用，因此同帧所有阶段使用同一组状态。
+未知组走运行失败清理。on_start 可请求启停；on_stop 无 Scene 权限，只可记录关闭组输出。
+换绑／移除／成功重载时旧 on_stop 先于新 on_start，清理输出交同一队列；后续清理错误不撤销已记录的关闭。
+Stop／失败清空请求，完整退出不再发布清理输出；暂停可处理组请求但不推进模拟。
+
+失去路由清理该绑定的固定步积累，最后一个按住来源失去时释放；新获路由只建立电平，不接旧 delta／边沿。
+未变绑定保留自己的积累，不作全局 rebase。逐绑定 pending 是固定步唯一动作历史，不从原始 pending 再映射一次；
+路由只在组状态变化时重算，手柄换槽不继承旧槽积累。Lua 只查具名动作，不修改平台事件或 ImGui 输入。
+这里是唯一消费者 RuntimeInput 的请求协议，不走 Gameplay 广播通知，也不需要新增 EventBus。
+
+### 系统更新与场景边界
 
 PhysicsSystem 排在脚本之后：动态刚体的外部 Transform 写入作为传送同步，随后 Jolt 模拟并回写；
 运动学刚体把 Transform 作为该固定步的目标，经 MoveKinematic 计算线／角速度，不回写 Scene。

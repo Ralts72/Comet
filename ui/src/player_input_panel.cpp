@@ -208,6 +208,7 @@ namespace CometUi {
     }
 
     void PlayerInputPanel::restore_binding(const Comet::Uuid action, const Comet::Uuid binding) {
+        m_capture.reset();
         auto actions = m_draft.actions();
         const auto found = std::ranges::find(actions, action, &Overrides::Action::id);
         if(found == actions.end()) {
@@ -218,7 +219,6 @@ namespace CometUi {
         if(!found->disabled && found->bindings.empty())
             actions.erase(found);
         commit(std::move(actions));
-        m_capture.reset();
     }
 
     void PlayerInputPanel::disable_action(const Action& action, const bool disabled) {
