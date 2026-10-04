@@ -613,31 +613,57 @@ namespace CometUi::Tests {
         show();
         record(Input::Key::K);
         binding_button("Disable Binding");
-        frame({{"Space", "Hidden default Space"}, {"K", "Hidden personal K"}});
-        EXPECT_NE(
+        binding_button("Disable Binding", id(3));
+        const PlayerInputPanel::Text captions{
+            {"Disabled binding (not active):", "Inactive binding:"}, {"key", "Stored keyboard"},
+            {"gamepad_button", "Stored gamepad"}, {"Space", "Hidden default Space"},
+            {"K", "Stored personal K"}, {"South", "Stored South"}};
+        frame(captions);
+        EXPECT_EQ(
             rendered_text.find("Disabled; personal overrides are preserved."), std::string::npos);
         EXPECT_EQ(rendered_text.find("Hidden default Space"), std::string::npos);
-        EXPECT_EQ(rendered_text.find("Hidden personal K"), std::string::npos);
+        EXPECT_NE(rendered_text.find("Inactive binding: Stored keyboard / Stored personal K"),
+            std::string::npos);
+        EXPECT_NE(rendered_text.find("Inactive binding: Stored gamepad / Stored South"),
+            std::string::npos);
+        EXPECT_EQ(rendered_text.find("Record Key"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("Record Button"), std::string::npos);
         button("Apply");
         const auto request = panel.take_request();
         ASSERT_TRUE(request);
         const auto expected = Overrides::create({{id(1), Type::Button, false,
-            {{.id = id(2), .control = Input::Key::K, .disabled = true}}}});
+            {{.id = id(2), .control = Input::Key::K, .disabled = true},
+                {.id = id(3), .disabled = true}}}});
         ASSERT_TRUE(expected);
         EXPECT_EQ(*request, expected.value());
         const auto resolved = request->resolve(defaults);
         ASSERT_TRUE(resolved);
-        ASSERT_EQ(resolved.value().actions.actions()[0].bindings.size(), 1u);
-        EXPECT_EQ(resolved.value().actions.actions()[0].bindings[0].id, id(3));
+        EXPECT_TRUE(resolved.value().actions.actions()[0].bindings.empty());
 
         panel.complete(Comet::Result<void>::success());
         frame();
         show(*request);
+        binding_button("Restore Binding", id(3));
+        frame(captions);
+        EXPECT_NE(rendered_text.find("Inactive binding: Stored keyboard / Stored personal K"),
+            std::string::npos);
+        EXPECT_EQ(rendered_text.find("Inactive binding: Stored gamepad / Stored South"),
+            std::string::npos);
+        EXPECT_NE(rendered_text.find("Stored South"), std::string::npos);
+        button("Apply");
+        const auto restored_gamepad = panel.take_request();
+        ASSERT_TRUE(restored_gamepad);
+        auto restored = request->actions();
+        restored[0].bindings.pop_back();
+        EXPECT_EQ(restored_gamepad->actions(), restored);
+
+        panel.complete(Comet::Result<void>::success());
+        frame();
+        show(*restored_gamepad);
         binding_button("Disable Binding");
         button("Apply");
         const auto enabled = panel.take_request();
         ASSERT_TRUE(enabled);
-        auto restored = request->actions();
         restored[0].bindings[0].disabled = false;
         EXPECT_EQ(enabled->actions(), restored);
         const auto effective = enabled->resolve(defaults);
@@ -664,6 +690,14 @@ namespace CometUi::Tests {
                     .disabled = true}}}});
         ASSERT_TRUE(current);
         show(current.value());
+        EXPECT_NE(rendered_text.find("Disabled binding (not active): gamepad_axis / RightX"),
+            std::string::npos);
+        EXPECT_NE(rendered_text.find("Multiplier: 1.500"), std::string::npos);
+        EXPECT_NE(rendered_text.find("Deadzone: 0.350"), std::string::npos);
+        for(const auto* field : {"Multiplier", "Deadzone"}) {
+            binding_button(field, id(3));
+            EXPECT_NE(ImGui::GetActiveID(), binding_item(id(3), field));
+        }
         button("Disable Action");
         EXPECT_NE(
             rendered_text.find("Disabled; personal overrides are preserved."), std::string::npos);
@@ -717,8 +751,18 @@ namespace CometUi::Tests {
         ASSERT_TRUE(current);
         show(current.value());
         select_action("move", id(4));
+        frame({{"Disabled binding (not active):", "Inactive stored binding:"},
+            {"Space", "Stored Space"}, {"Multiplier", "Stored multiplier"},
+            {"Deadzone", "Stored deadzone"}});
         EXPECT_NE(
-            rendered_text.find("Disabled; personal overrides are preserved."), std::string::npos);
+            rendered_text.find("Inactive stored binding: key / Stored Space"), std::string::npos);
+        EXPECT_NE(rendered_text.find("Stored multiplier: -0.500"), std::string::npos);
+        EXPECT_NE(rendered_text.find("Stored deadzone: 0.300"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("Record Key"), std::string::npos);
+        for(const auto* field : {"Multiplier", "Deadzone"}) {
+            binding_button(field, id(5));
+            EXPECT_NE(ImGui::GetActiveID(), binding_item(id(5), field));
+        }
         binding_button("Disable Binding", id(5));
         frame({{"Space", "Effective Space"}});
         EXPECT_NE(rendered_text.find("Override ignored; using project default"), std::string::npos);

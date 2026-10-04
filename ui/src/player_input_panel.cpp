@@ -130,6 +130,18 @@ namespace CometUi {
                 composed.deadzone = *patch.deadzone;
             return composed;
         }
+
+        void render_disabled_binding(const Actions::Action& action, const Actions::Binding& binding,
+            const Overrides::Binding& patch, const Text& translations) {
+            const auto retained = composed_binding(binding, patch);
+            const auto name = Actions::format_binding(retained).value();
+            ImGui::TextWrapped("%s %s / %s", text(translations, "Disabled binding (not active):"),
+                text(translations, name.source.data()), text(translations, name.control.c_str()));
+            if(action.type != Actions::Type::Button || patch.scale)
+                ImGui::TextWrapped("%s: %.3f", text(translations, "Multiplier"), retained.scale);
+            if(name.source == "gamepad_axis" || patch.deadzone)
+                ImGui::TextWrapped("%s: %.3f", text(translations, "Deadzone"), retained.deadzone);
+        }
     }
 
     void PlayerInputPanel::open(const Actions& defaults, const Overrides& current,
@@ -456,8 +468,7 @@ namespace CometUi {
         }
         patch = binding_patch(action.id, binding.id);
         if(patch.disabled && !incompatible) {
-            ImGui::TextWrapped(
-                "%s", text(translations, "Disabled; personal overrides are preserved."));
+            render_disabled_binding(action, binding, patch, translations);
             ImGui::Separator();
             ImGui::PopID();
             return;
