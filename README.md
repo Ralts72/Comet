@@ -279,7 +279,7 @@ app 始终使用项目启动场景，不读取编辑器会话状态。
 项目需要 `project.json` 和 `assets/`；资源及相邻 `.meta` 一起迁移，`.comet/` 是可重建的本地数据。
 编辑器生成的 `.scene`（v2）、`.mat`（v2）、`.meta`（v3）使用 JSON，扩展名不变；
 `.scene` 的 `entities` 只放根实体，子实体通过 `children` 嵌套，不再保存 `parent` 引用；UUID 仍全场景唯一。
-项目描述 `project.json` 同样使用 JSON；引擎运行配置及编辑器用户快捷键覆盖继续使用 YAML。
+项目描述 `project.json`（v2）同样使用 JSON；引擎运行配置及编辑器用户快捷键覆盖继续使用 YAML。
 JSON 解析直接依赖已有 simdjson。
 后台导入采用有界任务队列，同一资产尚未执行的旧请求会被最新 revision 合并替换；
 队列满时底层返回拒绝，编辑器自动导入和已加载资源刷新保留轻量待办，在容量恢复后重试；导入内容错误等待新变更或 Reimport。刷新失败继续保留旧资源。
@@ -292,13 +292,16 @@ JSON 解析直接依赖已有 simdjson。
 
 ```json
 {
-  "version": 1,
+  "version": 2,
+  "id": "817a665a-34e6-422c-8d81-32b8e795087c",
   "name": "My Game",
   "startup_scene": "scenes/main.scene"
 }
 ```
 
 `startup_scene` 相对项目 `assets/`，必须填写非空 `.scene` 路径；项目描述不配置默认材质，场景保存自己的材质引用。
+`id` 是项目的持久 UUID，新建项目自动生成，改名或移动项目目录不改变它；复制目录并保留 ID 代表同一项目身份。
+创建独立项目应使用新项目入口，或显式赋予新的项目 ID。旧版项目描述只报版本错误，不自动转换或写回。
 在编辑器中可通过“项目 → 启动场景”选择项目中的场景；未保存的当前场景不能设为启动场景。
 修改会立即写入 `project.json`，下次启动 editor／app 时生效。
 app 与 editor 共用 Project、SceneSerializer 和场景资产引用，不再分别创建示例物体、相机或灯光。
@@ -364,17 +367,20 @@ App 与 Play 启动时读取同一配置；外部手改文件后需重启宿主�
 外部已修改项目文件时会拒绝覆盖。键盘按键可以录入或填写；鼠标按钮、手柄按钮／轴、鼠标位移／滚轮从下拉框选择，
 选项直接使用引擎支持的控制名称。同一控制被其他动作使用时只提示，不强制禁止。
 取消或没有变化不会重写文件。编辑器中的修改要重新进入 Play 才会生效，独立 app 需要重启。
+动作和绑定各有持久 `id`：面板新增时生成，改名、换控制或排序时保留，删除后重新创建不会复用。
+ID 不在普通面板展示；动作 `name` 仍是 Lua／相机查询使用的语义名称，改名后相应代码引用仍需同步。
+这些身份用于后续玩家覆盖定位，不按数组下标或当前物理键识别绑定。当前尚未开放游戏内改键或玩家文件保存。
 
 ```json
 "input_actions": [
-  {"name": "jump", "type": "button", "bindings": [
-    {"source": "key", "control": "Space"},
-    {"source": "gamepad_button", "control": "South"}
+  {"id": "0dcb0121-c04b-493a-811c-b60bfc73c8df", "name": "jump", "type": "button", "bindings": [
+    {"id": "17e3e5b7-9cba-4bea-ab67-76cddc2a9111", "source": "key", "control": "Space"},
+    {"id": "17e3e5b7-9cba-4bea-ab67-76cddc2a9112", "source": "gamepad_button", "control": "South"}
   ]},
-  {"name": "move", "type": "axis", "bindings": [
-    {"source": "key", "control": "D"},
-    {"source": "key", "control": "A", "scale": -1},
-    {"source": "gamepad_axis", "control": "LeftX", "deadzone": 0.15}
+  {"id": "0dcb0121-c04b-493a-811c-b60bfc73c8e0", "name": "move", "type": "axis", "bindings": [
+    {"id": "17e3e5b7-9cba-4bea-ab67-76cddc2a9113", "source": "key", "control": "D"},
+    {"id": "17e3e5b7-9cba-4bea-ab67-76cddc2a9114", "source": "key", "control": "A", "scale": -1},
+    {"id": "17e3e5b7-9cba-4bea-ab67-76cddc2a9115", "source": "gamepad_axis", "control": "LeftX", "deadzone": 0.15}
   ]}
 ]
 ```
@@ -404,8 +410,8 @@ demo 的空格／手柄 South 切换方块旋转；运行状态保存在 Lua `se
   {"name": "menu", "enabled": false, "priority": 100, "consume": true}
 ],
 "input_actions": [
-  {"name": "jump", "context": "gameplay", "type": "button", "bindings": [
-    {"source": "key", "control": "Space"}
+  {"id": "0dcb0121-c04b-493a-811c-b60bfc73c8df", "name": "jump", "context": "gameplay", "type": "button", "bindings": [
+    {"id": "17e3e5b7-9cba-4bea-ab67-76cddc2a9111", "source": "key", "control": "Space"}
   ]}
 ]
 ```

@@ -121,7 +121,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(Comet::SceneSerializer(components)
                 .save(scene, (paths.assets() / "main.scene").string()));
         ASSERT_TRUE(Comet::write_text_file_atomic(paths.root() / "project.json",
-            R"({"version":1,"name":"Prepared","startup_scene":"main.scene"})"));
+            R"({"version":2,"id":"86c767a0-41a3-4df2-a3fa-d857e809909c","name":"Prepared","startup_scene":"main.scene"})"));
         auto project = Comet::Project::load(paths.root());
         ASSERT_TRUE(project);
         auto first = Comet::prepare_project(project.value());
@@ -156,7 +156,7 @@ namespace CometEditor::Tests {
         const auto scene_path = (paths.assets() / "main.scene").string();
         ASSERT_TRUE(serializer.save(scene, scene_path));
         ASSERT_TRUE(Comet::write_text_file_atomic(paths.root() / "project.json",
-            R"({"version":1,"name":"Prepared","startup_scene":"main.scene"})"));
+            R"({"version":2,"id":"86c767a0-41a3-4df2-a3fa-d857e809909c","name":"Prepared","startup_scene":"main.scene"})"));
         const auto project = Comet::Project::load(paths.root());
         ASSERT_TRUE(project);
         EXPECT_TRUE(Comet::prepare_project(project.value()));

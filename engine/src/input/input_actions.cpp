@@ -191,10 +191,14 @@ namespace Comet {
                 return Result<InputActions>::failure(
                     "Invalid or duplicate input context: " + context.name);
         std::set<std::string> names;
+        std::set<Uuid> action_ids;
         for(const auto& action : actions) {
             if(!valid_name(action.name) || !names.insert(action.name).second)
                 return Result<InputActions>::failure(
                     "Invalid or duplicate input action: " + action.name);
+            if(action.id && !action_ids.insert(action.id).second)
+                return Result<InputActions>::failure(
+                    "Duplicate input action ID: " + action.id.to_string());
             if(!action.context.empty() && !context_names.contains(action.context))
                 return Result<InputActions>::failure(
                     "Unknown input context for action " + action.name + ": " + action.context);
@@ -204,7 +208,12 @@ namespace Comet {
             if(action.bindings.size() > MAX_BINDINGS)
                 return Result<InputActions>::failure("At most " + std::to_string(MAX_BINDINGS)
                                                      + " bindings per action are supported");
+            std::set<Uuid> binding_ids;
             for(const auto& binding : action.bindings) {
+                if(binding.id && !binding_ids.insert(binding.id).second)
+                    return Result<InputActions>::failure("Duplicate binding ID for action "
+                                                         + action.name + ": "
+                                                         + binding.id.to_string());
                 const bool valid_control = std::visit(
                     [](auto control) {
                         using T = decltype(control);
@@ -232,6 +241,17 @@ namespace Comet {
         result.m_actions = std::move(actions);
         result.m_contexts = std::move(contexts);
         return Result<InputActions>::success(std::move(result));
+    }
+
+    Result<void> InputActions::validate_persistent_ids() const {
+        for(const auto& action : m_actions) {
+            if(!action.id)
+                return Result<void>::failure("Missing input action ID: " + action.name);
+            for(const auto& binding : action.bindings)
+                if(!binding.id)
+                    return Result<void>::failure("Missing binding ID for action: " + action.name);
+        }
+        return Result<void>::success();
     }
 
     void InputActions::evaluate(const Input::Frame& input, InputState& previous) const {

@@ -3,11 +3,24 @@
 #include "common/file_io.h"
 #include "common/json.h"
 
+#include <string_view>
 #include <system_error>
 #include <utility>
 
 namespace Comet {
     namespace {
+        Result<Uuid> read_id(
+            Json::Node node, const Json::Context& context, std::string_view location = "<root>") {
+            const auto text =
+                context.read_field<std::string>(node, "id", "a non-zero UUID", location);
+            if(!text)
+                return Result<Uuid>::failure(text.error());
+            const auto id = Uuid::parse(text.value());
+            if(!id || !*id)
+                return Result<Uuid>::failure(context.error(location, "id must be a non-zero UUID"));
+            return Result<Uuid>::success(*id);
+        }
+
         Result<std::vector<InputActions::Context>> read_input_contexts(
             Json::Node root, const Json::Context& context) {
             using Result = Comet::Result<std::vector<InputActions::Context>>;
@@ -63,7 +76,7 @@ namespace Comet {
             for(const auto entry : entries.value()) {
                 const auto location = "input_actions[" + std::to_string(actions.size()) + "]";
                 if(auto valid = context.validate_keys(
-                       entry, {"name", "type", "bindings", "context"}, location);
+                       entry, {"id", "name", "type", "bindings", "context"}, location);
                     !valid)
                     return Result<InputActions>::failure(valid.error());
                 auto name = context.read_field<std::string>(entry, "name", "a string", location);
@@ -73,6 +86,10 @@ namespace Comet {
                 if(!type)
                     return Result<InputActions>::failure(type.error());
                 InputActions::Action action;
+                const auto id = read_id(entry, context, location);
+                if(!id)
+                    return Result<InputActions>::failure(id.error());
+                action.id = id.value();
                 action.name = std::move(name).value();
                 Json::Node group;
                 if(!entry["context"].get(group)) {
@@ -101,7 +118,7 @@ namespace Comet {
                     const auto field =
                         location + ".bindings[" + std::to_string(action.bindings.size()) + "]";
                     if(auto valid = context.validate_keys(
-                           binding, {"source", "control", "scale", "deadzone"}, field);
+                           binding, {"id", "source", "control", "scale", "deadzone"}, field);
                         !valid)
                         return Result<InputActions>::failure(valid.error());
                     auto source =
@@ -129,6 +146,10 @@ namespace Comet {
                         source.value(), control.value(), scale, deadzone);
                     if(!parsed)
                         return Result<InputActions>::failure(context.error(field, parsed.error()));
+                    const auto id = read_id(binding, context, field);
+                    if(!id)
+                        return Result<InputActions>::failure(id.error());
+                    parsed.value().id = id.value();
                     action.bindings.push_back(std::move(parsed).value());
                     if(action.bindings.size() > InputActions::MAX_BINDINGS)
                         return Result<InputActions>::failure(
@@ -164,6 +185,7 @@ namespace Comet {
             writer.begin_array();
             for(const auto& action : actions.actions()) {
                 writer.begin_object();
+                writer.field("id", action.id.to_string());
                 writer.field("name", action.name);
                 if(!action.context.empty())
                     writer.field("context", action.context);
@@ -185,6 +207,7 @@ namespace Comet {
                     if(!control)
                         return Result<void>::failure(control.error());
                     writer.begin_object();
+                    writer.field("id", binding.id.to_string());
                     writer.field("source", control.value().source);
                     writer.field("control", control.value().control);
                     if(binding.scale != 1)
@@ -228,10 +251,6 @@ namespace Comet {
         if(!parsed)
             return Result<Project>::failure(parsed.error());
         const auto data = parsed.value();
-        if(auto valid = context.validate_keys(
-               data, {"version", "name", "startup_scene", "input_actions", "input_contexts"});
-            !valid)
-            return Result<Project>::failure(valid.error());
         const auto version =
             context.read_field<std::uint32_t>(data, "version", "an unsigned integer");
         if(!version)
@@ -240,8 +259,16 @@ namespace Comet {
             return Result<Project>::failure(
                 context.error("version", "unsupported version " + std::to_string(version.value())
                                              + "; expected " + std::to_string(FORMAT_VERSION)));
+        if(auto valid = context.validate_keys(
+               data, {"version", "id", "name", "startup_scene", "input_actions", "input_contexts"});
+            !valid)
+            return Result<Project>::failure(valid.error());
 
         Project project{ProjectPaths(manifest.parent_path())};
+        const auto id = read_id(data, context);
+        if(!id)
+            return Result<Project>::failure(id.error());
+        project.m_id = id.value();
         auto name = context.read_field<std::string>(data, "name", "a non-empty string");
         if(!name)
             return Result<Project>::failure(name.error());
@@ -289,6 +316,7 @@ namespace Comet {
         Json::Writer writer;
         writer.begin_object();
         writer.field("version", std::uint64_t(FORMAT_VERSION));
+        writer.field("id", m_id.to_string());
         writer.field("name", name);
         writer.field("startup_scene", startup_scene.generic_string());
         if(auto written = write_input_actions(input_actions, writer); !written)
@@ -312,6 +340,8 @@ namespace Comet {
     Result<void> Project::save_settings(
         std::string name, const std::filesystem::path& path, InputActions input_actions) {
         using Saved = Result<void>;
+        if(auto valid = input_actions.validate_persistent_ids(); !valid)
+            return valid;
         if(name.find_first_not_of(" \t\r\n") == std::string::npos)
             return Saved::failure("Project name cannot be empty");
         if(path.empty() || path.is_absolute() || path.extension() != ".scene")

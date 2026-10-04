@@ -437,8 +437,13 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(project) << project.error();
         for(const auto& test : cases) {
             SCOPED_TRACE(test.name);
+            auto previous = test.previous;
+            previous.id = Comet::Uuid::generate();
+            auto selected = test.selected;
+            selected.id = previous.id;
             const auto configured = Actions::create(
-                {{"controlled", test.type, {test.previous}, "gameplay"}}, original.contexts());
+                {{"controlled", test.type, {previous}, "gameplay", Comet::Uuid::generate()}},
+                original.contexts());
             ASSERT_TRUE(configured);
             reopen(configured.value());
             ASSERT_NO_FATAL_FAILURE(select_control(test.name));
@@ -446,7 +451,7 @@ namespace CometEditor::Tests {
             button("Save");
             const auto saved = panel.take_request();
             ASSERT_TRUE(saved);
-            EXPECT_EQ(saved->actions()[0].bindings, std::vector<Actions::Binding>{test.selected});
+            EXPECT_EQ(saved->actions()[0].bindings, std::vector<Actions::Binding>{selected});
             EXPECT_EQ(saved->contexts(), original.contexts());
             EXPECT_EQ(saved->actions()[0].context, "gameplay");
             ASSERT_TRUE(project.value().save_input_actions(*saved));
@@ -457,6 +462,69 @@ namespace CometEditor::Tests {
             button("Save");
             EXPECT_EQ(panel.take_request(), saved);
         }
+    }
+
+    TEST_F(ProjectInputUiTest, EditingKeepsIdentityAndNewBindingNeverReusesRemovedSlot) {
+        using Actions = Comet::InputActions;
+        const auto action_uuid = Comet::Uuid::generate();
+        const auto first_uuid = Comet::Uuid::generate();
+        const auto second_uuid = Comet::Uuid::generate();
+        const auto configured = Actions::create({{"jump", Actions::Type::Button,
+            {{Comet::Input::Key::Space, 1, 0, first_uuid},
+                {Comet::Input::Key::J, 1, 0, second_uuid}},
+            {}, action_uuid}});
+        ASSERT_TRUE(configured);
+        reopen(configured.value());
+        record();
+        press(ImGuiKey_K);
+        frame();
+        const int first = 0;
+        const auto action_id = ImHashData(&first, sizeof(first), details()->ID);
+        edit_text(details(), ImHashStr("##Name", 0, action_id), "confirm");
+        button("Save");
+        const auto renamed = panel.take_request();
+        ASSERT_TRUE(renamed);
+        EXPECT_EQ(renamed->actions()[0].id, action_uuid);
+        EXPECT_EQ(renamed->actions()[0].name, "confirm");
+        EXPECT_EQ(renamed->actions()[0].bindings[0].id, first_uuid);
+        EXPECT_EQ(renamed->actions()[0].bindings[1].id, second_uuid);
+        EXPECT_EQ(std::get<Comet::Input::Key>(renamed->actions()[0].bindings[0].control),
+            Comet::Input::Key::K);
+
+        ImGui::ActivateItemByID(binding_id("Remove"));
+        frame();
+        button("Save");
+        const auto removed = panel.take_request();
+        ASSERT_TRUE(removed);
+        ASSERT_EQ(removed->actions()[0].bindings.size(), 1u);
+        EXPECT_EQ(removed->actions()[0].bindings[0].id, second_uuid);
+        ImGui::ActivateItemByID(binding_id("Remove"));
+        frame();
+        ImGui::ActivateItemByID(ImHashStr("Add Binding", 0, action_id));
+        frame();
+        edit_control("Space");
+        button("Save");
+        const auto added = panel.take_request();
+        ASSERT_TRUE(added);
+        ASSERT_TRUE(added->validate_persistent_ids());
+        ASSERT_EQ(added->actions()[0].bindings.size(), 1u);
+        const auto binding_uuid = added->actions()[0].bindings[0].id;
+        EXPECT_NE(binding_uuid, first_uuid);
+        EXPECT_NE(binding_uuid, second_uuid);
+        EXPECT_EQ(added->actions()[0].id, action_uuid);
+
+        Comet::Tests::TemporaryDirectory directory;
+        const auto root = directory.path() / "Project";
+        ASSERT_TRUE(create_project(root));
+        auto project = Comet::Project::load(root);
+        ASSERT_TRUE(project);
+        ASSERT_TRUE(project.value().save_input_actions(*added));
+        const auto loaded = Comet::Project::load(root);
+        ASSERT_TRUE(loaded);
+        EXPECT_EQ(loaded.value().input_actions(), *added);
+        reopen(loaded.value().input_actions());
+        button("Save");
+        EXPECT_EQ(panel.take_request(), added);
     }
 
     TEST_F(ProjectInputUiTest, ChangingSourceRequiresAnExplicitChoiceAndCloseDiscardsIt) {
@@ -672,6 +740,7 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(settings.update().input_changed);
         EXPECT_FALSE(settings.update().input_changed);
         EXPECT_EQ(project.input_actions().actions().size(), 1);
+        EXPECT_TRUE(project.input_actions().actions()[0].id);
         EXPECT_EQ(Comet::Project::load(root).value().input_actions(), project.input_actions());
 
         const auto external = Comet::read_text_file(root / "project.json").value() + "\n";

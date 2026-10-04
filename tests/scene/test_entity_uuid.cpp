@@ -3,12 +3,28 @@
 #include <gtest/gtest.h>
 
 #include <unordered_set>
+#include <type_traits>
 
 namespace Comet::Tests {
     namespace {
+        static_assert(std::is_same_v<EntityUuid, Uuid>);
         constexpr EntityUuid::Bytes SAMPLE_UUID_BYTES{0x55, 0x0e, 0x84, 0x00, 0xe2, 0x9b, 0x41,
             0xd4, 0xa7, 0x16, 0x44, 0x66, 0x55, 0x44, 0x00, 0x00};
         constexpr std::string_view SAMPLE_UUID_TEXT = "550e8400-e29b-41d4-a716-446655440000";
+    }
+
+    TEST(EntityUuidTest, CommonUuidPreservesEntityParsingAndHashIdentity) {
+        const auto uuid = Uuid::parse(SAMPLE_UUID_TEXT);
+        ASSERT_TRUE(uuid);
+        EXPECT_EQ(uuid, EntityUuid::parse(SAMPLE_UUID_TEXT));
+        EXPECT_EQ(uuid->to_string(), SAMPLE_UUID_TEXT);
+        const std::unordered_set<Uuid> values{*uuid};
+        EXPECT_TRUE(values.contains(EntityUuid(SAMPLE_UUID_BYTES)));
+
+        const auto zero = Uuid::parse("00000000-0000-0000-0000-000000000000");
+        ASSERT_TRUE(zero);
+        EXPECT_FALSE(*zero);
+        EXPECT_EQ(*zero, INVALID_ENTITY_UUID);
     }
 
     TEST(EntityUuidTest, DefaultValueIsInvalid) {

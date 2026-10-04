@@ -1,5 +1,6 @@
 {
-  "version": 1,
+  "version": 2,
+  "id": "bf04a980-f080-4d3f-b1ac-1a938379a190",
   "name": "sampler",
   "startup_scene": "scenes/default.scene",
   "input_contexts": [
@@ -9,20 +10,24 @@
   ],
   "input_actions": [
     {
+      "id": "0120f784-0b77-4a50-bba9-000000000001",
       "name": "camera.move_x",
       "context": "camera",
       "type": "axis",
       "bindings": [
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000018",
           "source": "key",
           "control": "D"
         },
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000019",
           "source": "key",
           "control": "A",
           "scale": -1
         },
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000020",
           "source": "gamepad_axis",
           "control": "LeftX",
           "deadzone": 0.15
@@ -30,24 +35,29 @@
       ]
     },
     {
+      "id": "0120f784-0b77-4a50-bba9-000000000002",
       "name": "camera.move_y",
       "context": "camera",
       "type": "axis",
       "bindings": [
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000021",
           "source": "key",
           "control": "E"
         },
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000022",
           "source": "key",
           "control": "Q",
           "scale": -1
         },
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000023",
           "source": "gamepad_axis",
           "control": "RightTrigger"
         },
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000024",
           "source": "gamepad_axis",
           "control": "LeftTrigger",
           "scale": -1
@@ -55,20 +65,24 @@
       ]
     },
     {
+      "id": "0120f784-0b77-4a50-bba9-000000000003",
       "name": "camera.move_z",
       "context": "camera",
       "type": "axis",
       "bindings": [
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000025",
           "source": "key",
           "control": "S"
         },
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000026",
           "source": "key",
           "control": "W",
           "scale": -1
         },
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000027",
           "source": "gamepad_axis",
           "control": "LeftY",
           "deadzone": 0.15
@@ -76,106 +90,126 @@
       ]
     },
     {
+      "id": "0120f784-0b77-4a50-bba9-000000000004",
       "name": "camera.boost",
       "context": "camera",
       "type": "button",
       "bindings": [
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000028",
           "source": "key",
           "control": "LeftShift"
         }
       ]
     },
     {
+      "id": "0120f784-0b77-4a50-bba9-000000000005",
       "name": "camera.look",
       "context": "camera",
       "type": "button",
       "bindings": [
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000029",
           "source": "mouse_button",
           "control": "Right"
         }
       ]
     },
     {
+      "id": "0120f784-0b77-4a50-bba9-000000000006",
       "name": "camera.look_x",
       "context": "camera",
       "type": "delta",
       "bindings": [
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000030",
           "source": "motion",
           "control": "CursorX"
         }
       ]
     },
     {
+      "id": "0120f784-0b77-4a50-bba9-000000000007",
       "name": "camera.look_y",
       "context": "camera",
       "type": "delta",
       "bindings": [
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000031",
           "source": "motion",
           "control": "CursorY"
         }
       ]
     },
     {
+      "id": "0120f784-0b77-4a50-bba9-000000000008",
       "name": "camera.zoom",
       "context": "camera",
       "type": "delta",
       "bindings": [
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000032",
           "source": "motion",
           "control": "ScrollY"
         }
       ]
     },
     {
+      "id": "0120f784-0b77-4a50-bba9-000000000009",
       "name": "spin.toggle",
       "context": "gameplay",
       "type": "button",
       "bindings": [
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000033",
           "source": "key",
           "control": "Space"
         },
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000034",
           "source": "gamepad_button",
           "control": "South"
         }
       ]
     },
     {
+      "id": "0120f784-0b77-4a50-bba9-000000000010",
       "name": "demo.impulse",
       "context": "gameplay",
       "type": "button",
       "bindings": [
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000035",
           "source": "key",
           "control": "J"
         }
       ]
     },
     {
+      "id": "0120f784-0b77-4a50-bba9-000000000011",
       "name": "demo.restart",
       "type": "button",
       "bindings": [
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000036",
           "source": "key",
           "control": "R"
         }
       ]
     },
     {
+      "id": "0120f784-0b77-4a50-bba9-000000000012",
       "name": "demo.move_x",
       "context": "gameplay",
       "type": "axis",
       "bindings": [
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000037",
           "source": "key",
           "control": "Right"
         },
         {
+          "id": "0120f784-0b77-4a50-bba9-000000000038",
           "source": "key",
           "control": "Left",
           "scale": -1
@@ -183,35 +217,40 @@
       ]
     },
     {
+      "id": "0120f784-0b77-4a50-bba9-000000000013",
       "name": "palette.toggle",
       "type": "button",
-      "bindings": [{"source": "key", "control": "Tab"}]
+      "bindings": [{"id": "0120f784-0b77-4a50-bba9-000000000039", "source": "key", "control": "Tab"}]
     },
     {
+      "id": "0120f784-0b77-4a50-bba9-000000000014",
       "name": "palette.previous",
       "context": "palette",
       "type": "button",
-      "bindings": [{"source": "key", "control": "Left"}]
+      "bindings": [{"id": "0120f784-0b77-4a50-bba9-000000000040", "source": "key", "control": "Left"}]
     },
     {
+      "id": "0120f784-0b77-4a50-bba9-000000000015",
       "name": "palette.next",
       "context": "palette",
       "type": "button",
-      "bindings": [{"source": "key", "control": "Right"}]
+      "bindings": [{"id": "0120f784-0b77-4a50-bba9-000000000041", "source": "key", "control": "Right"}]
     },
     {
+      "id": "0120f784-0b77-4a50-bba9-000000000016",
       "name": "palette.reset",
       "context": "palette",
       "type": "button",
-      "bindings": [{"source": "key", "control": "J"}]
+      "bindings": [{"id": "0120f784-0b77-4a50-bba9-000000000042", "source": "key", "control": "J"}]
     },
     {
+      "id": "0120f784-0b77-4a50-bba9-000000000017",
       "name": "palette.confirm",
       "context": "palette",
       "type": "button",
       "bindings": [
-        {"source": "key", "control": "Space"},
-        {"source": "gamepad_button", "control": "South"}
+        {"id": "0120f784-0b77-4a50-bba9-000000000043", "source": "key", "control": "Space"},
+        {"id": "0120f784-0b77-4a50-bba9-000000000044", "source": "gamepad_button", "control": "South"}
       ]
     }
   ]

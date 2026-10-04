@@ -19,16 +19,24 @@ namespace CometEditor::Tests {
 
         const auto loaded = Comet::Project::load(root);
         ASSERT_TRUE(loaded) << loaded.error();
+        EXPECT_TRUE(loaded.value().id());
         EXPECT_EQ(loaded.value().name(), "My Game");
         EXPECT_EQ(loaded.value().startup_scene(), "scenes/main.scene");
         const auto components = Comet::create_scene_component_registry();
-        const auto scene = Comet::SceneSerializer(components).load(
-            (root / "assets/scenes/main.scene").string());
+        const auto scene =
+            Comet::SceneSerializer(components).load((root / "assets/scenes/main.scene").string());
         ASSERT_TRUE(scene) << scene.error();
         EXPECT_EQ(scene.value()->entity_count(), 1U);
         const auto camera = scene.value()->get_root_entities().front();
         EXPECT_EQ(camera.get_component<Comet::NameComponent>().name, "MainCamera");
         EXPECT_TRUE(camera.get_component<Comet::CameraComponent>().primary);
+
+        const auto second_root = directory.path() / "OtherGame";
+        ASSERT_TRUE(create_project(second_root));
+        const auto second = Comet::Project::load(second_root);
+        ASSERT_TRUE(second) << second.error();
+        EXPECT_NE(second.value().id(), loaded.value().id());
+        EXPECT_EQ(Comet::Project::load(root).value().id(), loaded.value().id());
     }
 
     TEST(ProjectCreationTest, ExistingDirectoryIsNeverOverwritten) {

@@ -187,7 +187,7 @@ namespace CometEditor {
         m_actions.clear();
         m_contexts = current.contexts();
         for(const auto& action : current.actions()) {
-            ActionDraft draft{action.name, action.type, {}, {}};
+            ActionDraft draft{action.name, action.type, {}, {}, action.id};
             if(!action.context.empty()) {
                 const auto group = std::ranges::find(
                     m_contexts, action.context, &Comet::InputActions::Context::name);
@@ -196,7 +196,7 @@ namespace CometEditor {
             for(const auto& binding : action.bindings) {
                 const auto control = Comet::InputActions::format_binding(binding).value();
                 draft.bindings.push_back({std::string(control.source), control.control,
-                    binding.scale, binding.deadzone});
+                    binding.scale, binding.deadzone, binding.id});
             }
             m_actions.push_back(std::move(draft));
         }
@@ -212,6 +212,7 @@ namespace CometEditor {
         std::vector<Comet::InputActions::Action> actions;
         for(const auto& draft : m_actions) {
             Comet::InputActions::Action action{draft.name, draft.type, {}};
+            action.id = draft.id;
             if(draft.context)
                 action.context = m_contexts[*draft.context].name;
             for(const auto& binding : draft.bindings) {
@@ -219,6 +220,7 @@ namespace CometEditor {
                     binding.source, binding.control, binding.scale, binding.deadzone);
                 if(!parsed)
                     return Result::failure(draft.name + ": " + parsed.error());
+                parsed.value().id = binding.id;
                 action.bindings.push_back(std::move(parsed).value());
             }
             actions.push_back(std::move(action));
@@ -383,19 +385,21 @@ namespace CometEditor {
             ImGui::TableSetupColumn(Ui::text("Deadzone"), ImGuiTableColumnFlags_WidthFixed, 90);
             ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 80);
             ImGui::TableHeadersRow();
-            for(std::size_t binding = 0; binding < action.bindings.size();) {
+            for(std::size_t binding = 0; binding < action.bindings.size(); ++binding) {
                 const auto old_size = action.bindings.size();
                 render_binding(index, binding);
-                if(action.bindings.size() == old_size)
-                    ++binding;
+                if(action.bindings.size() != old_size)
+                    break;
             }
             ImGui::EndTable();
         }
         ImGui::BeginDisabled(action.bindings.size() >= Comet::InputActions::MAX_BINDINGS);
         if(ImGui::Button(Ui::label("Add Binding").c_str())) {
             BindingDraft binding{"key", ""};
-            if(action.type == Type::Delta)
-                binding = {"motion", "CursorX"};
+            if(action.type == Type::Delta) {
+                binding.source = "motion";
+                binding.control = "CursorX";
+            }
             action.bindings.push_back(std::move(binding));
         }
         ImGui::EndDisabled();

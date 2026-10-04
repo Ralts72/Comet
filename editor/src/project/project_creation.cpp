@@ -2,6 +2,7 @@
 
 #include "common/file_io.h"
 #include "common/json.h"
+#include "common/uuid.h"
 #include "core/project.h"
 #include "scene/component_registry.h"
 #include "scene/scene.h"
@@ -55,6 +56,7 @@ namespace CometEditor {
         Comet::Json::Writer writer;
         writer.begin_object();
         writer.field("version", std::uint64_t(Comet::Project::FORMAT_VERSION));
+        writer.field("id", Comet::Uuid::generate().to_string());
         writer.field("name", root.filename().string());
         writer.field("startup_scene", "scenes/main.scene");
         writer.end_object();

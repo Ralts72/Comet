@@ -5,8 +5,123 @@
 #include <array>
 #include <limits>
 #include <string_view>
+#include <utility>
 
 namespace Comet::Tests {
+    TEST(InputActionsTest, PersistentIdentitiesAreRetainedAndBindingIdsAreScopedToEachAction) {
+        const auto jump_id = Uuid::generate();
+        const auto fire_id = Uuid::generate();
+        const auto binding_id = Uuid::generate();
+        auto actions =
+            InputActions::create({{"jump", InputActions::Type::Button,
+                                      {{Input::Key::Space, 1, 0, binding_id}}, {}, jump_id},
+                {"fire", InputActions::Type::Button, {{Input::MouseButton::Left, 1, 0, binding_id}},
+                    {}, fire_id}});
+        ASSERT_TRUE(actions) << actions.error();
+        EXPECT_TRUE(actions.value().validate_persistent_ids());
+        EXPECT_EQ(actions.value().actions()[0].id, jump_id);
+        EXPECT_EQ(actions.value().actions()[1].id, fire_id);
+        EXPECT_EQ(actions.value().actions()[0].bindings[0].id, binding_id);
+        EXPECT_EQ(actions.value().actions()[1].bindings[0].id, binding_id);
+
+        auto edited = actions.value().actions();
+        edited[0].name = "renamed_jump";
+        edited[0].bindings[0].control = Input::Key::J;
+        auto replacement = InputActions::create(std::move(edited));
+        ASSERT_TRUE(replacement) << replacement.error();
+        EXPECT_TRUE(replacement.value().validate_persistent_ids());
+        EXPECT_EQ(replacement.value().actions()[0].id, jump_id);
+        EXPECT_EQ(replacement.value().actions()[0].bindings[0].id, binding_id);
+    }
+
+    TEST(InputActionsTest, RejectsDuplicateActionIdsAcrossNamesAndContexts) {
+        const auto id = Uuid::generate();
+        const auto actions =
+            InputActions::create({{"jump", InputActions::Type::Button, {}, "gameplay", id},
+                                     {"confirm", InputActions::Type::Button, {}, "menu", id}},
+                {{"gameplay"}, {"menu"}});
+        ASSERT_FALSE(actions);
+        EXPECT_NE(actions.error().find("Duplicate input action ID"), std::string::npos);
+        EXPECT_NE(actions.error().find(id.to_string()), std::string::npos);
+    }
+
+    TEST(InputActionsTest, RejectsDuplicateBindingIdsWithinAnAction) {
+        const auto id = Uuid::generate();
+        const auto actions = InputActions::create({{"jump", InputActions::Type::Button,
+            {{Input::Key::Space, 1, 0, id}, {Input::GamepadButton::South, 1, 0, id}}, {},
+            Uuid::generate()}});
+        ASSERT_FALSE(actions);
+        EXPECT_NE(actions.error().find("Duplicate binding ID for action jump"), std::string::npos);
+        EXPECT_NE(actions.error().find(id.to_string()), std::string::npos);
+    }
+
+    TEST(InputActionsTest, AnonymousIdsRemainValidForRuntimeButCannotBePersisted) {
+        auto actions =
+            InputActions::create({{"jump", InputActions::Type::Button,
+                                      {{Input::Key::Space}, {Input::GamepadButton::South}}},
+                {"fire", InputActions::Type::Button, {{Input::MouseButton::Left}}}});
+        ASSERT_TRUE(actions) << actions.error();
+        EXPECT_FALSE(actions.value().validate_persistent_ids());
+        for(const auto& action : actions.value().actions()) {
+            EXPECT_FALSE(action.id);
+            for(const auto& binding : action.bindings)
+                EXPECT_FALSE(binding.id);
+        }
+
+        Input input;
+        InputState state;
+        input.focus_event(true);
+        input.key_event(Input::Key::Space, true);
+        actions.value().evaluate(input.publish_frame(), state);
+        ASSERT_NE(state.action("jump"), nullptr);
+        EXPECT_TRUE(state.action("jump")->pressed);
+    }
+
+    TEST(InputActionsTest, PersistentValidationRequiresEveryActionAndBindingId) {
+        const auto action_id = Uuid::generate();
+        const auto binding_id = Uuid::generate();
+        auto missing_action = InputActions::create(
+            {{"jump", InputActions::Type::Button, {{Input::Key::Space, 1, 0, binding_id}}}});
+        ASSERT_TRUE(missing_action) << missing_action.error();
+        const auto action_validation = missing_action.value().validate_persistent_ids();
+        ASSERT_FALSE(action_validation);
+        EXPECT_NE(action_validation.error().find("Missing input action ID"), std::string::npos);
+
+        auto missing_binding = InputActions::create({{"jump", InputActions::Type::Button,
+            {{Input::Key::Space, 1, 0, binding_id}, {Input::GamepadButton::South}}, {},
+            action_id}});
+        ASSERT_TRUE(missing_binding) << missing_binding.error();
+        const auto binding_validation = missing_binding.value().validate_persistent_ids();
+        ASSERT_FALSE(binding_validation);
+        EXPECT_NE(binding_validation.error().find("Missing binding ID"), std::string::npos);
+
+        auto unbound =
+            InputActions::create({{"jump", InputActions::Type::Button, {}, {}, action_id}});
+        ASSERT_TRUE(unbound) << unbound.error();
+        EXPECT_TRUE(unbound.value().validate_persistent_ids());
+        EXPECT_TRUE(InputActions{}.validate_persistent_ids());
+    }
+
+    TEST(InputActionsTest, IdentityAffectsConfigurationEqualityButNotControlRelations) {
+        InputActions::Binding binding{Input::Key::Space, 1, 0, Uuid::generate()};
+        auto other_binding = binding;
+        other_binding.id = Uuid::generate();
+        EXPECT_NE(binding, other_binding);
+        EXPECT_EQ(InputActions::compare_bindings(binding, nullptr, other_binding, nullptr),
+            InputActions::BindingRelation::Shared);
+
+        InputActions::Action action{
+            "jump", InputActions::Type::Button, {binding}, {}, Uuid::generate()};
+        auto other_action = action;
+        other_action.id = Uuid::generate();
+        EXPECT_NE(action, other_action);
+        const auto actions = InputActions::create({action});
+        const auto other_actions = InputActions::create({other_action});
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(other_actions);
+        EXPECT_NE(actions.value(), other_actions.value());
+    }
+
     TEST(InputActionsTest, ButtonBindingsShareHeldStateAndKeepShortClicks) {
         auto actions = InputActions::create({{"jump", InputActions::Type::Button,
             {{Input::Key::Space}, {Input::MouseButton::Left}}}});

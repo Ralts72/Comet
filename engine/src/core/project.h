@@ -3,6 +3,7 @@
 #include "core/project_paths.h"
 #include "input/input_actions.h"
 #include "common/result.h"
+#include "common/uuid.h"
 
 #include <cstdint>
 #include <string>
@@ -10,7 +11,7 @@
 namespace Comet {
     class COMET_API Project final {
     public:
-        static constexpr std::uint32_t FORMAT_VERSION = 1;
+        static constexpr std::uint32_t FORMAT_VERSION = 2;
 
         [[nodiscard]] static Result<Project> load(const std::filesystem::path& path);
         [[nodiscard]] Result<void> save_name(std::string name);
@@ -18,20 +19,20 @@ namespace Comet {
         [[nodiscard]] Result<void> save_input_actions(InputActions actions);
 
         [[nodiscard]] const ProjectPaths& paths() const { return m_paths; }
+        [[nodiscard]] Uuid id() const { return m_id; }
         [[nodiscard]] const std::string& name() const { return m_name; }
         [[nodiscard]] const std::filesystem::path& startup_scene() const { return m_startup_scene; }
         [[nodiscard]] const InputActions& input_actions() const { return m_input_actions; }
 
     private:
         explicit Project(ProjectPaths paths);
-        [[nodiscard]] Result<std::string> serialize(
-            const std::string& name, const std::filesystem::path& startup_scene,
-            const InputActions& input_actions) const;
-        [[nodiscard]] Result<void> save_settings(
-            std::string name, const std::filesystem::path& startup_scene,
-            InputActions input_actions);
+        [[nodiscard]] Result<std::string> serialize(const std::string& name,
+            const std::filesystem::path& startup_scene, const InputActions& input_actions) const;
+        [[nodiscard]] Result<void> save_settings(std::string name,
+            const std::filesystem::path& startup_scene, InputActions input_actions);
 
         ProjectPaths m_paths;
+        Uuid m_id;
         std::string m_name;
         std::filesystem::path m_startup_scene;
         InputActions m_input_actions;

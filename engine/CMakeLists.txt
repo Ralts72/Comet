@@ -114,7 +114,7 @@ set(SOURCES
         src/render/material/material_runtime.cpp
         src/render/material/material_renderer.cpp
         src/scene/entity.cpp
-        src/scene/entity_uuid.cpp
+        src/common/uuid.cpp
         src/scene/component_registry.cpp
         src/scene/property.cpp
         src/scene/scene.cpp

@@ -24,12 +24,14 @@ namespace CometEditor {
             std::string control;
             float scale = 1;
             float deadzone = 0;
+            Comet::Uuid id = Comet::Uuid::generate();
         };
         struct ActionDraft {
             std::string name;
             Comet::InputActions::Type type = Comet::InputActions::Type::Button;
             std::vector<BindingDraft> bindings;
             std::optional<std::size_t> context;
+            Comet::Uuid id = Comet::Uuid::generate();
         };
 
         [[nodiscard]] Comet::Result<Comet::InputActions> build() const;

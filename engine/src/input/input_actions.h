@@ -2,6 +2,7 @@
 
 #include "input/input_state.h"
 #include "common/result.h"
+#include "common/uuid.h"
 
 #include <bitset>
 #include <cstddef>
@@ -25,6 +26,7 @@ namespace Comet {
                 control;
             float scale = 1;
             float deadzone = 0;
+            Uuid id{};
             bool operator==(const Binding&) const = default;
         };
         struct Action {
@@ -32,6 +34,7 @@ namespace Comet {
             Type type = Type::Button;
             std::vector<Binding> bindings;
             std::string context{};
+            Uuid id{};
             bool operator==(const Action&) const = default;
         };
         struct Context {
@@ -49,6 +52,8 @@ namespace Comet {
         [[nodiscard]] static bool valid_name(std::string_view name);
         [[nodiscard]] static Result<InputActions> create(
             std::vector<Action> actions, std::vector<Context> contexts = {});
+        // 匿名配置仅用于运行时；持久配置要求动作和绑定都具备非零身份。
+        [[nodiscard]] Result<void> validate_persistent_ids() const;
         [[nodiscard]] static Result<Binding> parse_binding(
             std::string_view source, std::string_view control, float scale = 1, float deadzone = 0);
         [[nodiscard]] static Result<ControlName> format_binding(const Binding& binding);

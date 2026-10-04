@@ -230,6 +230,10 @@ Viewport 在实际进入 Running 时一次性聚焦（Play／Resume），不在�
 最小化等待并重置墙钟增量、窗口瞬态及 Runtime 待处理按下；Gate 根据采样中断版本重新获取授权。
 
 Project 持有 InputActions 配置；宿主启动时交给 SceneRuntime 内的 RuntimeInput，仅停止状态允许替换。
+Project v2 为项目、动作和绑定保存非零 UUID：项目移动／改名、动作改名、绑定调参／排序不改变身份；
+新建项目、动作或绑定才分配新身份。动作名仍是 Lua 的语义查询键，改名不自动改写脚本。
+`common/Uuid` 复用原实体 UUID 实现，`EntityUuid` 保留为场景语义别名；不借用 AssetHandle 或依赖 Scene。
+纯内存 InputActions 可匿名，Project 的读取／保存边界要求完整且有效的身份；旧 project.json 版本只报错，不迁移。
 `Window → Input::Frame → Gate → RuntimeInput → InputState → System／Lua`：
 动作不读取平台或 ImGui，不绕过授权。RuntimeInput 拥有映射、活动动作组、普通／固定阶段快照和待消费输入；
 SceneRuntime 只调用 prepare／consume_fixed／update 及生命周期接口，不处理按钮合并或分别安装物理／动作参数。
@@ -274,6 +278,7 @@ RuntimeInput 的逐绑定 pending 是固定步唯一动作历史，InputActions 
 项目输入设置的链路是 `InputSettingsPanel 草稿 → ProjectSettings 校验／保存 → 宿主应用到停止态 RuntimeInput`。
 ProjectSettings 返回配置保存结果，不依赖 Engine；面板不写文件、不操作 Runtime。
 保存失败保留草稿，关闭丢弃未保存草稿，无变化保存由 Project 跳过写盘；运行时应用失败不冒充文件保存失败。
+面板草稿保留既有 UUID，新建时生成；移除后新增不复用旧身份，UUID 不作为普通编辑字段展示。
 动作、上下文和绑定数量上限由 InputActions 定义，项目解析和 UI 共用；键盘录入占用 ImGui 活动项及按键所有权，
 Esc 取消，失焦／关闭结束录入，不把捕获键同时交给编辑器快捷键。该面板仅在 Edit 可用，不代表游戏内改键已实现。
 

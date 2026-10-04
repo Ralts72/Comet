@@ -1,4 +1,4 @@
-#include "scene/entity_uuid.h"
+#include "common/uuid.h"
 
 #include <algorithm>
 #include <array>
@@ -30,7 +30,7 @@ namespace Comet {
         }
     }
 
-    EntityUuid EntityUuid::generate() {
+    Uuid Uuid::generate() {
         thread_local std::mt19937_64 generator = make_generator();
 
         Bytes bytes{};
@@ -43,10 +43,10 @@ namespace Comet {
 
         bytes[6] = static_cast<std::uint8_t>((bytes[6] & 0x0fU) | 0x40U);
         bytes[8] = static_cast<std::uint8_t>((bytes[8] & 0x3fU) | 0x80U);
-        return EntityUuid(bytes);
+        return Uuid(bytes);
     }
 
-    std::optional<EntityUuid> EntityUuid::parse(const std::string_view value) {
+    std::optional<Uuid> Uuid::parse(const std::string_view value) {
         if(value.size() != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-'
             || value[23] != '-') {
             return std::nullopt;
@@ -67,10 +67,10 @@ namespace Comet {
             bytes[byte_index] = static_cast<std::uint8_t>((high << 4) | low);
             input_index += 2;
         }
-        return EntityUuid(bytes);
+        return Uuid(bytes);
     }
 
-    std::string EntityUuid::to_string() const {
+    std::string Uuid::to_string() const {
         std::string result;
         result.reserve(36);
         for(std::size_t index = 0; index < m_bytes.size(); ++index) {
