@@ -154,6 +154,24 @@ namespace Comet::Tests {
         EXPECT_TRUE(input.publish_frame().gamepads[2].button(Input::GamepadButton::South).pressed);
     }
 
+    TEST_F(InputTest, FirstConnectedGamepadUsesLowestSlotAndKeepsPublishedSnapshotsStable) {
+        EXPECT_FALSE(input.publish_frame().first_connected_gamepad());
+        Input::GamepadSample sample;
+        input.gamepad_sample(7, sample);
+        input.gamepad_sample(4, sample);
+        const auto first = input.publish_frame();
+        EXPECT_EQ(first.first_connected_gamepad(), 4u);
+        input.gamepad_sample(2, sample);
+        EXPECT_EQ(input.publish_frame().first_connected_gamepad(), 2u);
+        input.gamepad_sample(2, std::nullopt);
+        EXPECT_EQ(input.publish_frame().first_connected_gamepad(), 4u);
+        input.gamepad_sample(4, std::nullopt);
+        EXPECT_EQ(input.publish_frame().first_connected_gamepad(), 7u);
+        input.gamepad_sample(7, std::nullopt);
+        EXPECT_FALSE(input.publish_frame().first_connected_gamepad());
+        EXPECT_EQ(first.first_connected_gamepad(), 4u);
+    }
+
     TEST_F(InputTest, GateReleasesControlsAndRequiresFreshPressAfterAcquisition) {
         Input::Gate gate;
         input.key_event(Input::Key::W, true);

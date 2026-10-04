@@ -335,12 +335,7 @@ namespace Comet {
 
     void InputActions::sample(
         const Input::Frame& input, const Routing& routes, Samples& samples) const {
-        std::size_t gamepad = Input::MAX_GAMEPADS;
-        for(std::size_t index = 0; index < input.gamepads.size(); ++index)
-            if(input.gamepads[index].connected) {
-                gamepad = index;
-                break;
-            }
+        const auto gamepad = input.first_connected_gamepad().value_or(Input::MAX_GAMEPADS);
         samples.resize(m_actions.size());
         for(std::size_t index = 0; index < m_actions.size(); ++index) {
             const auto& bindings = m_actions[index].bindings;

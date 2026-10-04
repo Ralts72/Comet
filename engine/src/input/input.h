@@ -205,6 +205,7 @@ namespace Comet {
             std::array<GamepadState, MAX_GAMEPADS> gamepads{};
 
             void clear_transients();
+            [[nodiscard]] std::optional<size_t> first_connected_gamepad() const;
 
             [[nodiscard]] const ButtonState& key(Key value) const {
                 return keys.at(static_cast<size_t>(value));

@@ -280,14 +280,37 @@ namespace CometUi {
         store_binding(action, binding, std::move(patch));
     }
 
-    void PlayerInputPanel::capture_key(const Input::Frame& input) {
+    void PlayerInputPanel::start_capture(const Action& action, const Binding& binding,
+        const Input::Frame& input, const bool gamepad_button) {
+        m_capture.reset();
+        if(!input.focused)
+            return;
+        Capture capture{action.id, binding.id, input.interruption, input.serial, {}};
+        if(gamepad_button) {
+            capture.gamepad = input.first_connected_gamepad();
+            if(!capture.gamepad) {
+                m_error = "No gamepad connected.";
+                return;
+            }
+        }
+        m_capture = capture;
+        m_error.clear();
+        ImGui::ClearActiveID();
+    }
+
+    void PlayerInputPanel::capture_input(const Input::Frame& input) {
         if(!m_capture)
             return;
         if(!input.focused || input.interruption != m_capture->interruption
+            || input.serial < m_capture->serial
+            || (m_capture->gamepad && input.first_connected_gamepad() != m_capture->gamepad)
             || !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
             m_capture.reset();
             return;
         }
+        if(input.serial == m_capture->serial)
+            return;
+        m_capture->serial = input.serial;
         if(input.key(Input::Key::Escape).pressed) {
             m_capture.reset();
             return;
@@ -301,6 +324,17 @@ namespace CometUi {
         const auto binding = std::ranges::find(action->bindings, m_capture->binding, &Binding::id);
         if(binding == action->bindings.end()) {
             m_capture.reset();
+            return;
+        }
+        if(m_capture->gamepad) {
+            const auto& buttons = input.gamepads[*m_capture->gamepad].buttons;
+            for(std::size_t index = 0; index < buttons.size(); ++index) {
+                if(buttons[index].pressed) {
+                    change_control(*action, *binding, static_cast<Input::GamepadButton>(index));
+                    m_capture.reset();
+                    return;
+                }
+            }
             return;
         }
         for(int index = int(Input::Key::Unknown) + 1; index < int(Input::Key::Count); ++index) {
@@ -341,15 +375,21 @@ namespace CometUi {
             }
             ImGui::EndCombo();
         }
-        if(name.source == "key") {
+        if(name.source == "key" || name.source == "gamepad_button") {
             const bool capturing =
                 m_capture && m_capture->action == action.id && m_capture->binding == binding.id;
-            const auto caption = capturing ? "Press Key" : "Record Key";
-            same_line_if_fits(button_width(text(translations, caption)));
-            if(ImGui::Button(label(translations, caption).c_str())) {
-                m_capture = Capture{action.id, binding.id, input.interruption};
-                ImGui::ClearActiveID();
+            const char* caption = "Record Key";
+            if(name.source == "gamepad_button")
+                caption = "Record Button";
+            if(capturing) {
+                if(name.source == "gamepad_button")
+                    caption = "Press Button";
+                else
+                    caption = "Press Key";
             }
+            same_line_if_fits(button_width(text(translations, caption)));
+            if(ImGui::Button(label(translations, caption).c_str()))
+                start_capture(action, binding, input, name.source == "gamepad_button");
         }
         if(action.type != Actions::Type::Button) {
             auto scale = effective.scale;
@@ -556,7 +596,7 @@ namespace CometUi {
         }
         if(m_open && !m_waiting) {
             const bool capturing = m_capture.has_value();
-            capture_key(input);
+            capture_input(input);
             if(!capturing && input.focused && input.key(Input::Key::Escape).pressed)
                 close();
         }
@@ -570,9 +610,12 @@ namespace CometUi {
                 text(translations,
                     "Player overrides only; project defaults are unchanged. Unedited fields inherit defaults."));
             render_actions(input, translations);
-            if(m_capture)
-                ImGui::TextWrapped(
-                    "%s", text(translations, "Press a key; Escape cancels recording."));
+            if(m_capture) {
+                const char* prompt = "Press a key; Escape cancels recording.";
+                if(m_capture->gamepad)
+                    prompt = "Press a gamepad button; Escape cancels recording.";
+                ImGui::TextWrapped("%s", text(translations, prompt));
+            }
             render_feedback(translations);
             if(!m_error.empty())
                 ImGui::TextWrapped("%s", text(translations, m_error.c_str()));

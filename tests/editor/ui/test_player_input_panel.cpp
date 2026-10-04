@@ -656,6 +656,206 @@ namespace CometUi::Tests {
         EXPECT_EQ(*request, expected.value());
     }
 
+    TEST_F(
+        PlayerInputPanelTest, RecordedGamepadButtonPreservesSparseFieldsAndCannotLeakThroughGate) {
+        auto actions = defaults.actions();
+        actions.push_back({"confirm", Type::Button, {{Input::GamepadButton::East, 1, 0, id(11)}},
+            "menu", id(10)});
+        const auto configured =
+            Actions::create(std::move(actions), {{"gameplay"}, {"menu", true, 10, true}});
+        ASSERT_TRUE(configured);
+        defaults = configured.value();
+        Input::GamepadSample pad;
+        physical.gamepad_sample(2, pad);
+        frame();
+        Input::Gate gate;
+        gate.read(physical.get_frame(), !blocked);
+        const auto current = Overrides::create({{id(1), Type::Button, false,
+            {{.id = id(3), .scale = 1, .deadzone = 0}, {.id = id(99), .control = Input::Key::J}}}});
+        ASSERT_TRUE(current);
+        show(current.value());
+        EXPECT_FALSE(gate.read(physical.get_frame(), !blocked).focused);
+        binding_button("Record Button", id(3));
+        ASSERT_NE(rendered_text.find("Press a gamepad button; Escape cancels recording."),
+            std::string::npos);
+
+        pad.buttons[static_cast<std::size_t>(Input::GamepadButton::East)] = true;
+        physical.gamepad_sample(2, pad);
+        frame();
+        EXPECT_EQ(rendered_text.find("Press a gamepad button; Escape cancels recording."),
+            std::string::npos);
+        EXPECT_NE(rendered_text.find("gamepad_button/East: confirm [menu]"), std::string::npos);
+        EXPECT_NE(
+            rendered_text.find("This control is consumed by the other action"), std::string::npos);
+        const auto captured = gate.read(physical.get_frame(), !blocked);
+        EXPECT_FALSE(captured.gamepads[2].button(Input::GamepadButton::East).down);
+        EXPECT_FALSE(captured.gamepads[2].button(Input::GamepadButton::East).pressed);
+
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        auto expected = current.value().actions();
+        expected[0].bindings[0].control = Input::GamepadButton::East;
+        EXPECT_EQ(request->actions(), expected);
+        panel.complete(Comet::Result<void>::success());
+        frame();
+        EXPECT_TRUE(blocked);
+        EXPECT_FALSE(gate.read(physical.get_frame(), !blocked)
+                .gamepads[2]
+                .button(Input::GamepadButton::East)
+                .pressed);
+        frame();
+        EXPECT_FALSE(blocked);
+        EXPECT_FALSE(gate.read(physical.get_frame(), !blocked)
+                .gamepads[2]
+                .button(Input::GamepadButton::East)
+                .down);
+        pad.buttons[static_cast<std::size_t>(Input::GamepadButton::East)] = false;
+        physical.gamepad_sample(2, pad);
+        frame();
+        EXPECT_FALSE(gate.read(physical.get_frame(), !blocked)
+                .gamepads[2]
+                .button(Input::GamepadButton::East)
+                .released);
+        pad.buttons[static_cast<std::size_t>(Input::GamepadButton::East)] = true;
+        physical.gamepad_sample(2, pad);
+        frame();
+        EXPECT_TRUE(gate.read(physical.get_frame(), !blocked)
+                .gamepads[2]
+                .button(Input::GamepadButton::East)
+                .pressed);
+    }
+
+    TEST_F(PlayerInputPanelTest, GamepadRecordingIgnoresHeldOpeningFrameAndOtherDevices) {
+        Input::GamepadSample first;
+        first.buttons[static_cast<std::size_t>(Input::GamepadButton::North)] = true;
+        Input::GamepadSample other;
+        physical.gamepad_sample(4, first);
+        physical.gamepad_sample(7, other);
+        show();
+        first.buttons[static_cast<std::size_t>(Input::GamepadButton::East)] = true;
+        physical.gamepad_sample(4, first);
+        binding_button("Record Button", id(3));
+        frame();
+        key(Input::Key::K);
+        other.buttons[static_cast<std::size_t>(Input::GamepadButton::West)] = true;
+        physical.gamepad_sample(7, other);
+        frame();
+        EXPECT_NE(rendered_text.find("Press a gamepad button; Escape cancels recording."),
+            std::string::npos);
+
+        first.buttons.fill(false);
+        physical.gamepad_sample(4, first);
+        frame();
+        first.buttons[static_cast<std::size_t>(Input::GamepadButton::North)] = true;
+        physical.gamepad_sample(4, first);
+        frame();
+        EXPECT_EQ(rendered_text.find("Press a gamepad button; Escape cancels recording."),
+            std::string::npos);
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        const auto expected = Overrides::create({{id(1), Type::Button, false,
+            {{.id = id(3), .control = Input::GamepadButton::North}}}});
+        ASSERT_TRUE(expected);
+        EXPECT_EQ(*request, expected.value());
+    }
+
+    TEST_F(PlayerInputPanelTest, MissingGamepadDoesNotArmAndEscapeCancelsWithoutClosingThePanel) {
+        show();
+        binding_button("Record Button", id(3));
+        EXPECT_NE(rendered_text.find("No gamepad connected."), std::string::npos);
+        EXPECT_EQ(rendered_text.find("Press a gamepad button; Escape cancels recording."),
+            std::string::npos);
+        Input::GamepadSample pad;
+        pad.buttons[static_cast<std::size_t>(Input::GamepadButton::North)] = true;
+        physical.gamepad_sample(0, pad);
+        frame();
+        EXPECT_EQ(rendered_text.find("Press a gamepad button; Escape cancels recording."),
+            std::string::npos);
+        binding_button("Record Button", id(3));
+        frame();
+        ASSERT_NE(rendered_text.find("Press a gamepad button; Escape cancels recording."),
+            std::string::npos);
+        key(Input::Key::Escape);
+        EXPECT_TRUE(panel.is_open());
+        EXPECT_TRUE(blocked);
+        EXPECT_EQ(rendered_text.find("Press a gamepad button; Escape cancels recording."),
+            std::string::npos);
+        pad.buttons[static_cast<std::size_t>(Input::GamepadButton::East)] = true;
+        physical.gamepad_sample(0, pad);
+        frame();
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_TRUE(request->actions().empty());
+    }
+
+    TEST_F(PlayerInputPanelTest, GamepadDisconnectAndEarlierSlotConnectionCancelRecording) {
+        Input::GamepadSample pad;
+        physical.gamepad_sample(4, pad);
+        show();
+        binding_button("Record Button", id(3));
+        physical.gamepad_sample(4, std::nullopt);
+        frame();
+        EXPECT_TRUE(panel.is_open());
+        EXPECT_EQ(rendered_text.find("Press a gamepad button; Escape cancels recording."),
+            std::string::npos);
+
+        physical.gamepad_sample(6, pad);
+        frame();
+        binding_button("Record Button", id(3));
+        ASSERT_NE(rendered_text.find("Press a gamepad button; Escape cancels recording."),
+            std::string::npos);
+        physical.gamepad_sample(2, pad);
+        frame();
+        EXPECT_TRUE(panel.is_open());
+        EXPECT_EQ(rendered_text.find("Press a gamepad button; Escape cancels recording."),
+            std::string::npos);
+        pad.buttons[static_cast<std::size_t>(Input::GamepadButton::East)] = true;
+        physical.gamepad_sample(6, pad);
+        physical.gamepad_sample(2, pad);
+        frame();
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_TRUE(request->actions().empty());
+    }
+
+    TEST_F(PlayerInputPanelTest, FocusLossAndSamplingInterruptionCancelGamepadRecording) {
+        Input::GamepadSample pad;
+        physical.gamepad_sample(0, pad);
+        show();
+        binding_button("Record Button", id(3));
+        physical.focus_event(false);
+        frame();
+        EXPECT_TRUE(panel.is_open());
+        EXPECT_EQ(rendered_text.find("Press a gamepad button; Escape cancels recording."),
+            std::string::npos);
+
+        physical.focus_event(true);
+        physical.gamepad_sample(0, pad);
+        frame();
+        binding_button("Record Button", id(3));
+        ASSERT_NE(rendered_text.find("Press a gamepad button; Escape cancels recording."),
+            std::string::npos);
+        physical.discard_pending();
+        pad.buttons[static_cast<std::size_t>(Input::GamepadButton::East)] = true;
+        physical.gamepad_sample(0, pad);
+        frame();
+        EXPECT_TRUE(panel.is_open());
+        EXPECT_TRUE(physical.get_frame().focused);
+        EXPECT_EQ(rendered_text.find("Press a gamepad button; Escape cancels recording."),
+            std::string::npos);
+        pad.buttons[static_cast<std::size_t>(Input::GamepadButton::North)] = true;
+        physical.gamepad_sample(0, pad);
+        frame();
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_TRUE(request->actions().empty());
+    }
+
     TEST_F(PlayerInputPanelTest, BindingStatusDistinguishesInheritedPersonalAndRestoredValues) {
         const auto configured = Actions::create(
             {{"jump", Type::Button, {{Input::Key::Space, 1, 0, id(2)}}, "", id(1)}});

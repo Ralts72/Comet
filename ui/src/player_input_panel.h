@@ -26,6 +26,8 @@ namespace CometUi {
             Comet::Uuid action;
             Comet::Uuid binding;
             std::uint64_t interruption;
+            std::uint64_t serial;
+            std::optional<std::size_t> gamepad;
         };
 
         [[nodiscard]] const Comet::InputOverrides::Action* action_patch(Comet::Uuid id) const;
@@ -39,7 +41,9 @@ namespace CometUi {
             const Action& action, const Binding& binding, Comet::InputOverrides::Binding patch);
         void change_control(
             const Action& action, const Binding& binding, Comet::InputActions::Control control);
-        void capture_key(const Comet::Input::Frame& input);
+        void start_capture(const Action& action, const Binding& binding,
+            const Comet::Input::Frame& input, bool gamepad_button);
+        void capture_input(const Comet::Input::Frame& input);
         void render_actions(const Comet::Input::Frame& input, const Text& translations);
         void render_binding(const Action& action, const Binding& binding,
             Comet::InputOverrides::Resolution& resolved, const Comet::Input::Frame& input,

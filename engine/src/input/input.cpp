@@ -154,6 +154,13 @@ namespace Comet {
         return m_frame;
     }
 
+    std::optional<size_t> Input::Frame::first_connected_gamepad() const {
+        for(size_t index = 0; index < gamepads.size(); ++index)
+            if(gamepads[index].connected)
+                return index;
+        return std::nullopt;
+    }
+
     void Input::Frame::clear_transients() {
         clear_edges(keys);
         clear_edges(mouse_buttons);
