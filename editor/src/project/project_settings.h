@@ -22,7 +22,7 @@ namespace CometEditor {
 
         void request_rename();
         void request_input();
-        void render(bool editing);
+        void render(bool editing, const Comet::Input::Frame& input);
         [[nodiscard]] Update update();
         [[nodiscard]] Comet::Result<void> set_startup_scene(const std::filesystem::path& path,
             const std::filesystem::path& saved_scene, const Comet::AssetDatabase& assets,

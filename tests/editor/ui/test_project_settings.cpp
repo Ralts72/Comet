@@ -21,6 +21,7 @@ namespace CometEditor::Tests {
         Comet::Tests::ImGuiTestContext imgui{{1200, 800}};
         InputSettingsPanel panel;
         Comet::InputActions original;
+        Comet::Input physical;
         bool shortcut_triggered = false;
         std::string rendered_text;
 
@@ -32,17 +33,20 @@ namespace CometEditor::Tests {
                 {{"gameplay"}, {"menu", false, 100, true}});
             ASSERT_TRUE(actions);
             original = std::move(actions).value();
+            physical.focus_event(true);
             panel.request(original);
             frame();
             frame();
         }
 
-        void frame() {
+        void frame() { frame(physical.publish_frame()); }
+
+        void frame(const Comet::Input::Frame& input) {
             ImGui::NewFrame();
             ImGui::LogToBuffer(0);
             shortcut_triggered = ImGui::Shortcut(ImGuiKey_S, ImGuiInputFlags_RouteGlobal);
             ImGui::SetNextWindowPos({10, 20});
-            panel.render();
+            panel.render(input);
             shortcut_triggered |= ImGui::Shortcut(ImGuiKey_S, ImGuiInputFlags_RouteGlobal);
             rendered_text = ImGui::GetCurrentContext()->LogBuffer.c_str();
             ImGui::LogFinish();
@@ -72,6 +76,16 @@ namespace CometEditor::Tests {
             ImGui::GetIO().AddKeyEvent(key, true);
             frame();
             ImGui::GetIO().AddKeyEvent(key, false);
+        }
+
+        void press_physical(const Comet::Input::Key key, const ImGuiKey imgui_key = ImGuiKey_None) {
+            physical.key_event(key, true);
+            if(imgui_key != ImGuiKey_None)
+                ImGui::GetIO().AddKeyEvent(imgui_key, true);
+            frame();
+            physical.key_event(key, false);
+            if(imgui_key != ImGuiKey_None)
+                ImGui::GetIO().AddKeyEvent(imgui_key, false);
         }
 
         void button(const char* label) {
@@ -244,10 +258,10 @@ namespace CometEditor::Tests {
             rendered_text.find("Escape is reserved by Comet App (quit) and Editor Play (stop)."),
             std::string::npos);
         record();
-        press(ImGuiKey_S);
+        press_physical(Comet::Input::Key::S, ImGuiKey_S);
         EXPECT_FALSE(shortcut_triggered);
         frame();
-        press(ImGuiKey_S);
+        press_physical(Comet::Input::Key::S, ImGuiKey_S);
         EXPECT_TRUE(shortcut_triggered);
         frame();
         button("Save");
@@ -259,7 +273,7 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(panel.take_request());
 
         record();
-        press(ImGuiKey_Escape);
+        press_physical(Comet::Input::Key::Escape, ImGuiKey_Escape);
         frame();
         button("Save");
         auto cancelled = panel.take_request();
@@ -304,7 +318,7 @@ namespace CometEditor::Tests {
             for(const auto& [key, expected] : cases) {
                 SCOPED_TRACE(int(key));
                 record();
-                press(key);
+                press_physical(expected, key);
                 frame();
                 button("Save");
                 const auto saved = panel.take_request();
@@ -317,19 +331,31 @@ namespace CometEditor::Tests {
         press(ImGuiKey_Oem102);
         frame();
         EXPECT_EQ(ImGui::GetActiveID(), window()->GetID("KeyCapture"));
-        press(ImGuiKey_Escape);
+        press_physical(Key::Escape, ImGuiKey_Escape);
         frame();
         button("Save");
         const auto unchanged = panel.take_request();
         ASSERT_TRUE(unchanged);
         EXPECT_EQ(std::get<Key>(unchanged->actions()[0].bindings[0].control), Key::F24);
+
+        for(const auto key : {Key::F25, Key::World1, Key::World2}) {
+            SCOPED_TRACE(int(key));
+            record();
+            press_physical(key);
+            frame();
+            EXPECT_NE(ImGui::GetActiveID(), window()->GetID("KeyCapture"));
+            button("Save");
+            const auto saved = panel.take_request();
+            ASSERT_TRUE(saved);
+            EXPECT_EQ(std::get<Key>(saved->actions()[0].bindings[0].control), key);
+        }
     }
 
     TEST_F(ProjectInputUiTest, LosingFocusOrClosingCancelsRecording) {
         record();
         ImGui::FocusWindow(nullptr);
         frame();
-        press(ImGuiKey_K);
+        press_physical(Comet::Input::Key::K, ImGuiKey_K);
         frame();
         button("Save");
         auto saved = panel.take_request();
@@ -340,6 +366,57 @@ namespace CometEditor::Tests {
         button("Close");
         EXPECT_FALSE(panel.is_open());
         EXPECT_NE(ImGui::GetActiveID(), window()->GetID("KeyCapture"));
+    }
+
+    TEST_F(ProjectInputUiTest, MissedFocusLossAndRecoveryCancelRecordingWithoutChangingDraft) {
+        record();
+        physical.focus_event(false);
+        (void)physical.publish_frame();
+        (void)physical.publish_frame();
+        physical.focus_event(true);
+        (void)physical.publish_frame();
+        (void)physical.publish_frame();
+
+        press_physical(Comet::Input::Key::K, ImGuiKey_K);
+        EXPECT_TRUE(physical.get_frame().key(Comet::Input::Key::K).pressed);
+        EXPECT_NE(ImGui::GetActiveID(), window()->GetID("KeyCapture"));
+        EXPECT_TRUE(panel.is_open());
+        frame();
+        button("Save");
+        const auto saved = panel.take_request();
+        ASSERT_TRUE(saved);
+        EXPECT_EQ(*saved, original);
+    }
+
+    TEST_F(ProjectInputUiTest, RecordingIgnoresOpeningFrameAndRepeatedPhysicalSerial) {
+        physical.key_event(Comet::Input::Key::K, true);
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_K, true);
+        const auto opening = physical.publish_frame();
+        ASSERT_TRUE(opening.key(Comet::Input::Key::K).pressed);
+        ImGui::FocusWindow(details());
+        ImGui::ActivateItemByID(binding_id("Record Key"));
+        frame(opening);
+        EXPECT_EQ(ImGui::GetActiveID(), window()->GetID("KeyCapture"));
+        frame(opening);
+        EXPECT_EQ(ImGui::GetActiveID(), window()->GetID("KeyCapture"));
+        button("Save");
+        const auto unchanged = panel.take_request();
+        ASSERT_TRUE(unchanged);
+        EXPECT_EQ(*unchanged, original);
+
+        physical.key_event(Comet::Input::Key::K, false);
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_K, false);
+        frame();
+        record();
+        press_physical(Comet::Input::Key::K, ImGuiKey_K);
+        frame();
+        button("Save");
+        const auto saved = panel.take_request();
+        ASSERT_TRUE(saved);
+        auto expected = original.actions();
+        expected[0].bindings[0].control = Comet::Input::Key::K;
+        EXPECT_EQ(saved->actions(), expected);
+        EXPECT_EQ(saved->contexts(), original.contexts());
     }
 
     TEST_F(ProjectInputUiTest, InvalidDraftAndFailedSaveRemainEditableWhileCloseDiscardsDraft) {
@@ -486,7 +563,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(configured);
         reopen(configured.value());
         record();
-        press(ImGuiKey_K);
+        press_physical(Comet::Input::Key::K, ImGuiKey_K);
         frame();
         const int first = 0;
         const auto action_id = ImHashData(&first, sizeof(first), details()->ID);
@@ -700,11 +777,13 @@ namespace CometEditor::Tests {
     TEST(ProjectSettingsUiTest, InputSettingsOpensAsNonModalPanel) {
         Comet::Tests::ImGuiTestContext imgui;
         InputSettingsPanel panel;
+        Comet::Input physical;
+        physical.focus_event(true);
         EXPECT_FALSE(panel.is_open());
 
         panel.request(Comet::InputActions{});
         ImGui::NewFrame();
-        panel.render();
+        panel.render(physical.publish_frame());
         ImGui::Render();
 
         EXPECT_TRUE(panel.is_open());
@@ -723,11 +802,15 @@ namespace CometEditor::Tests {
         auto loaded = Comet::Project::load(root);
         ASSERT_TRUE(loaded);
         auto project = std::move(loaded).value();
+        const auto original_input = project.input_actions();
+        const auto original_file = Comet::read_text_file(root / "project.json").value();
         ProjectSettings settings(project);
+        Comet::Input physical;
+        physical.focus_event(true);
         settings.request_input();
-        const auto frame = [&] {
+        const auto frame = [&](const bool editing = true) {
             ImGui::NewFrame();
-            settings.render(true);
+            settings.render(editing, physical.publish_frame());
             ImGui::Render();
         };
         frame();
@@ -743,6 +826,17 @@ namespace CometEditor::Tests {
             if(child->ParentWindow == window && child->ChildId == window->GetID("ActionList"))
                 actions = child;
         ASSERT_NE(actions, nullptr);
+        ImGui::ActivateItemByID(actions->GetID("Add Action"));
+        frame();
+        ImGui::ActivateItemByID(window->GetID("Save"));
+        frame();
+        frame(false);
+        EXPECT_FALSE(settings.update().input_changed);
+        EXPECT_EQ(project.input_actions(), original_input);
+        EXPECT_EQ(Comet::read_text_file(root / "project.json").value(), original_file);
+        settings.request_input();
+        frame();
+        frame();
         ImGui::ActivateItemByID(actions->GetID("Add Action"));
         frame();
         ImGui::ActivateItemByID(window->GetID("Save"));

@@ -311,8 +311,12 @@ RuntimeInput 的逐绑定 pending 是固定步唯一动作历史，InputActions 
 ProjectSettings 返回配置保存结果，不依赖 Engine；面板不写文件、不操作 Runtime。
 保存失败保留草稿，关闭丢弃未保存草稿，无变化保存由 Project 跳过写盘；运行时应用失败不冒充文件保存失败。
 面板草稿保留既有 UUID，新建时生成；移除后新增不复用旧身份，UUID 不作为普通编辑字段展示。
-动作、上下文和绑定数量上限由 InputActions 定义，项目解析和 UI 共用；键盘录入占用 ImGui 活动项及按键所有权，
-Esc 取消，失焦／关闭结束录入，不把捕获键同时交给编辑器快捷键。该面板仅在 Edit 可用，不代表游戏内改键已实现。
+动作、上下文和绑定数量上限由 InputActions 定义，项目解析和 UI 共用。
+`on_frame_ready → draw_editor_ui → ProjectSettings → InputSettingsPanel` 显式借用本帧物理 Input::Frame，
+录入只读取开始后的 pressed，并检查 serial、interruption 和焦点；不存帧指针，也不再反向转换 ImGui 按键。
+ImGui 活动项和按键所有权仅阻断编辑器快捷键，Esc 取消，失焦／关闭结束录入。
+InputSettingsPanel 是 ProjectSettings 的具体草稿视图，不参与通用面板注册，因此不继承 EditorPanel 或提供空帧 render。
+切换 Play 时 close 丢弃未消费的保存请求；游戏内个人改键仍走独立的 PlayerInputPanel 草稿和保存协议。
 
 PhysicsSystem 排在脚本之后：动态刚体的外部 Transform 写入作为传送同步，随后 Jolt 模拟并回写；
 运动学刚体把 Transform 作为该固定步的目标，经 MoveKinematic 计算线／角速度，不回写 Scene。

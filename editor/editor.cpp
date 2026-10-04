@@ -278,7 +278,7 @@ namespace {
             }
             {
                 const Comet::ScopeExit end_ui([this] { m_imgui_context->end_frame(); });
-                draw_editor_ui();
+                draw_editor_ui(frame.physical_input);
                 const bool input_blocked = render_player_input(frame.physical_input);
                 frame.runtime_input =
                     m_viewport->panel().route_runtime_input(frame.physical_input, input_blocked);
@@ -710,7 +710,7 @@ namespace {
             return Comet::Result<void, Comet::Error>::success();
         }
 
-        void draw_editor_ui() {
+        void draw_editor_ui(const Comet::Input::Frame& input) {
             const CometEditor::Ui::LanguageScope language(m_ui_language, &m_translations);
             constexpr ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
             ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), dockspace_flags);
@@ -728,7 +728,7 @@ namespace {
             m_console_panel->render();
             m_render_stats->render();
             m_path_dialog.render();
-            m_project_settings.render(m_editor_state.mode == CometEditor::EditorMode::Edit);
+            m_project_settings.render(m_editor_state.mode == CometEditor::EditorMode::Edit, input);
             m_shortcut_settings_dialog.render();
             draw_unsaved_dialog();
             if(!m_scene_document->has_pending_request())

@@ -2,19 +2,19 @@
 
 #include "common/result.h"
 #include "input/input_actions.h"
-#include "ui/editor_panel.h"
 
+#include <cstdint>
 #include <optional>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace CometEditor {
-    class InputSettingsPanel final: public EditorPanel {
+    class InputSettingsPanel final {
     public:
-        InputSettingsPanel();
         void request(const Comet::InputActions& current);
-        void render() override;
+        [[nodiscard]] bool is_open() const { return m_open; }
+        void close();
+        void render(const Comet::Input::Frame& input);
         [[nodiscard]] std::optional<Comet::InputActions> take_request();
         void complete(const Comet::Result<void>& result);
 
@@ -33,19 +33,29 @@ namespace CometEditor {
             std::optional<std::size_t> context;
             Comet::Uuid id = Comet::Uuid::generate();
         };
+        struct Capture {
+            Comet::Uuid action;
+            Comet::Uuid binding;
+            std::uint64_t serial;
+            std::uint64_t interruption;
+            std::uint32_t owner;
+        };
 
         [[nodiscard]] Comet::Result<Comet::InputActions> build() const;
         void render_contexts();
-        void render_action(std::size_t index);
-        void render_binding(std::size_t action_index, std::size_t binding_index);
+        void render_action(std::size_t index, const Comet::Input::Frame& input);
+        void render_binding(
+            std::size_t action_index, std::size_t binding_index, const Comet::Input::Frame& input);
         void render_binding_relationships(std::size_t action_index);
-        void capture_key();
+        void capture_key(const Comet::Input::Frame& input);
+        void cancel_capture();
 
         std::vector<ActionDraft> m_actions;
         std::vector<Comet::InputActions::Context> m_contexts;
         std::optional<std::size_t> m_selected_action;
-        std::optional<std::pair<std::size_t, std::size_t>> m_capturing;
+        std::optional<Capture> m_capturing;
         std::optional<Comet::InputActions> m_request;
         std::string m_error;
+        bool m_open = false;
     };
 }

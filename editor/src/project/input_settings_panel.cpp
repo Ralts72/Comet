@@ -35,71 +35,6 @@ namespace CometEditor {
             }
             ImGui::EndCombo();
         }
-
-        Comet::Input::Key physical_key(ImGuiKey key) {
-            using Key = Comet::Input::Key;
-            // ImGui 为 macOS 快捷键交换 Ctrl/Super；项目绑定仍保存真实物理键。
-            if(ImGui::GetIO().ConfigMacOSXBehaviors) {
-                switch(key) {
-                    case ImGuiKey_LeftCtrl:
-                        key = ImGuiKey_LeftSuper;
-                        break;
-                    case ImGuiKey_RightCtrl:
-                        key = ImGuiKey_RightSuper;
-                        break;
-                    case ImGuiKey_LeftSuper:
-                        key = ImGuiKey_LeftCtrl;
-                        break;
-                    case ImGuiKey_RightSuper:
-                        key = ImGuiKey_RightCtrl;
-                        break;
-                    default:
-                        break;
-                }
-            }
-            if(key >= ImGuiKey_A && key <= ImGuiKey_Z)
-                return static_cast<Key>(int(Key::A) + key - ImGuiKey_A);
-            if(key >= ImGuiKey_0 && key <= ImGuiKey_9)
-                return static_cast<Key>(int(Key::Digit0) + key - ImGuiKey_0);
-            if(key >= ImGuiKey_F1 && key <= ImGuiKey_F24)
-                return static_cast<Key>(int(Key::F1) + key - ImGuiKey_F1);
-            if(key >= ImGuiKey_Keypad0 && key <= ImGuiKey_Keypad9)
-                return static_cast<Key>(int(Key::Keypad0) + key - ImGuiKey_Keypad0);
-            constexpr std::pair<ImGuiKey, Key> keys[]{{ImGuiKey_Space, Key::Space},
-                {ImGuiKey_Enter, Key::Enter}, {ImGuiKey_Tab, Key::Tab},
-                {ImGuiKey_Backspace, Key::Backspace}, {ImGuiKey_Delete, Key::Delete},
-                {ImGuiKey_Insert, Key::Insert}, {ImGuiKey_Home, Key::Home},
-                {ImGuiKey_End, Key::End}, {ImGuiKey_PageUp, Key::PageUp},
-                {ImGuiKey_PageDown, Key::PageDown}, {ImGuiKey_UpArrow, Key::Up},
-                {ImGuiKey_DownArrow, Key::Down}, {ImGuiKey_LeftArrow, Key::Left},
-                {ImGuiKey_RightArrow, Key::Right}, {ImGuiKey_LeftShift, Key::LeftShift},
-                {ImGuiKey_RightShift, Key::RightShift}, {ImGuiKey_LeftCtrl, Key::LeftControl},
-                {ImGuiKey_RightCtrl, Key::RightControl}, {ImGuiKey_LeftAlt, Key::LeftAlt},
-                {ImGuiKey_RightAlt, Key::RightAlt}, {ImGuiKey_LeftSuper, Key::LeftSuper},
-                {ImGuiKey_RightSuper, Key::RightSuper}, {ImGuiKey_Apostrophe, Key::Apostrophe},
-                {ImGuiKey_Comma, Key::Comma}, {ImGuiKey_Minus, Key::Minus},
-                {ImGuiKey_Period, Key::Period}, {ImGuiKey_Slash, Key::Slash},
-                {ImGuiKey_Semicolon, Key::Semicolon}, {ImGuiKey_Equal, Key::Equal},
-                {ImGuiKey_LeftBracket, Key::LeftBracket}, {ImGuiKey_Backslash, Key::Backslash},
-                {ImGuiKey_RightBracket, Key::RightBracket},
-                {ImGuiKey_GraveAccent, Key::GraveAccent}, {ImGuiKey_CapsLock, Key::CapsLock},
-                {ImGuiKey_ScrollLock, Key::ScrollLock}, {ImGuiKey_NumLock, Key::NumLock},
-                {ImGuiKey_PrintScreen, Key::PrintScreen}, {ImGuiKey_Pause, Key::Pause},
-                {ImGuiKey_KeypadDecimal, Key::KeypadDecimal},
-                {ImGuiKey_KeypadDivide, Key::KeypadDivide},
-                {ImGuiKey_KeypadMultiply, Key::KeypadMultiply},
-                {ImGuiKey_KeypadSubtract, Key::KeypadSubtract},
-                {ImGuiKey_KeypadAdd, Key::KeypadAdd}, {ImGuiKey_KeypadEnter, Key::KeypadEnter},
-                {ImGuiKey_KeypadEqual, Key::KeypadEqual}, {ImGuiKey_Menu, Key::Menu}};
-            for(const auto& [native, translated] : keys)
-                if(key == native)
-                    return translated;
-            return Key::Unknown;
-        }
-    }
-
-    InputSettingsPanel::InputSettingsPanel() : EditorPanel("Project Settings - Input") {
-        set_visible(false);
     }
 
     void InputSettingsPanel::request(const Comet::InputActions& current) {
@@ -125,7 +60,14 @@ namespace CometEditor {
         m_capturing.reset();
         m_request.reset();
         m_error.clear();
-        set_visible(true);
+        m_open = true;
+    }
+
+    void InputSettingsPanel::close() {
+        m_open = false;
+        cancel_capture();
+        m_request.reset();
+        m_error.clear();
     }
 
     Comet::Result<Comet::InputActions> InputSettingsPanel::build() const {
@@ -199,8 +141,8 @@ namespace CometEditor {
         ImGui::EndChild();
     }
 
-    void InputSettingsPanel::render_binding(
-        const std::size_t action_index, const std::size_t binding_index) {
+    void InputSettingsPanel::render_binding(const std::size_t action_index,
+        const std::size_t binding_index, const Comet::Input::Frame& input) {
         auto& action = m_actions[action_index];
         auto& binding = action.bindings[binding_index];
         ImGui::PushID(static_cast<int>(binding_index));
@@ -215,6 +157,7 @@ namespace CometEditor {
                     binding.control = source == "motion" ? "CursorX" : "";
                     binding.scale = 1;
                     binding.deadzone = 0;
+                    cancel_capture();
                 }
             }
             ImGui::EndCombo();
@@ -224,10 +167,13 @@ namespace CometEditor {
         render_control(binding.source, binding.control);
         ImGui::TableSetColumnIndex(2);
         if(binding.source == "key") {
-            const bool capturing =
-                m_capturing && *m_capturing == std::pair{action_index, binding_index};
+            const bool capturing = m_capturing && m_capturing->action == action.id
+                                   && m_capturing->binding == binding.id;
             if(ImGui::Button(Ui::label(capturing ? "Press Key" : "Record Key").c_str())) {
-                m_capturing = std::pair{action_index, binding_index};
+                cancel_capture();
+                if(input.focused)
+                    m_capturing = Capture{action.id, binding.id, input.serial, input.interruption,
+                        ImGui::GetCurrentWindow()->RootWindow->GetID("KeyCapture")};
                 ImGui::ClearActiveID();
             }
         }
@@ -244,12 +190,13 @@ namespace CometEditor {
         ImGui::TableSetColumnIndex(5);
         if(ImGui::Button(Ui::label("Remove").c_str())) {
             action.bindings.erase(action.bindings.begin() + binding_index);
-            m_capturing.reset();
+            cancel_capture();
         }
         ImGui::PopID();
     }
 
-    void InputSettingsPanel::render_action(const std::size_t index) {
+    void InputSettingsPanel::render_action(
+        const std::size_t index, const Comet::Input::Frame& input) {
         auto& action = m_actions[index];
         ImGui::PushID(static_cast<int>(index));
         ImGui::SetNextItemWidth(165.0f);
@@ -261,6 +208,7 @@ namespace CometEditor {
                 if(ImGui::Selectable(Ui::text(CometUi::input_type_name(type)), action.type == type)
                     && action.type != type) {
                     action.type = type;
+                    cancel_capture();
                     if(type == Type::Button)
                         for(auto& binding : action.bindings)
                             binding.scale = 1;
@@ -275,7 +223,7 @@ namespace CometEditor {
                 m_selected_action.reset();
             else
                 m_selected_action = std::min(index, m_actions.size() - 1);
-            m_capturing.reset();
+            cancel_capture();
             ImGui::PopID();
             return;
         }
@@ -304,7 +252,7 @@ namespace CometEditor {
             ImGui::TableHeadersRow();
             for(std::size_t binding = 0; binding < action.bindings.size(); ++binding) {
                 const auto old_size = action.bindings.size();
-                render_binding(index, binding);
+                render_binding(index, binding, input);
                 if(action.bindings.size() != old_size)
                     break;
             }
@@ -339,52 +287,73 @@ namespace CometEditor {
         CometUi::render_binding_relationships(configured.value(), action_index, Ui::translations());
     }
 
-    void InputSettingsPanel::capture_key() {
-        const auto owner = ImGui::GetID("KeyCapture");
-        if(!m_capturing || !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
-            || (ImGui::GetActiveID() != 0 && ImGui::GetActiveID() != owner)) {
-            m_capturing.reset();
-            if(ImGui::GetActiveID() == owner)
-                ImGui::ClearActiveID();
+    void InputSettingsPanel::cancel_capture() {
+        if(!m_capturing)
+            return;
+        const auto owner = m_capturing->owner;
+        m_capturing.reset();
+        if(!ImGui::GetCurrentContext())
+            return;
+        // ImGui 只阻断结束帧的快捷键，不参与物理按键身份转换。
+        for(int value = ImGuiKey_NamedKey_BEGIN; value < ImGuiKey_NamedKey_END; ++value) {
+            const auto key = static_cast<ImGuiKey>(value);
+            if(ImGui::GetKeyData(key)->DownDuration == 0.0f)
+                ImGui::SetKeyOwner(key, owner, ImGuiInputFlags_LockUntilRelease);
+        }
+        if(ImGui::GetActiveID() == owner)
+            ImGui::ClearActiveID();
+    }
+
+    void InputSettingsPanel::capture_key(const Comet::Input::Frame& input) {
+        if(!m_capturing)
+            return;
+        const auto owner = m_capturing->owner;
+        if(!input.focused || input.interruption != m_capturing->interruption
+            || input.serial < m_capturing->serial
+            || !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+            || (ImGui::GetActiveID() != 0 && ImGui::GetActiveID() != owner) || !m_selected_action
+            || *m_selected_action >= m_actions.size()
+            || m_actions[*m_selected_action].id != m_capturing->action) {
+            cancel_capture();
+            return;
+        }
+        auto& action = m_actions[*m_selected_action];
+        const auto binding =
+            std::ranges::find(action.bindings, m_capturing->binding, &BindingDraft::id);
+        if(binding == action.bindings.end() || binding->source != "key") {
+            cancel_capture();
             return;
         }
         ImGui::SetActiveID(owner, ImGui::GetCurrentWindow());
         ImGui::SetActiveIdUsingAllKeyboardKeys();
-        if(ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-            m_capturing.reset();
-            ImGui::SetKeyOwner(ImGuiKey_Escape, owner, ImGuiInputFlags_LockUntilRelease);
-            ImGui::ClearActiveID();
+        if(input.serial == m_capturing->serial)
+            return;
+        m_capturing->serial = input.serial;
+        using Key = Comet::Input::Key;
+        if(input.key(Key::Escape).pressed) {
+            cancel_capture();
             return;
         }
-        for(int value = ImGuiKey_NamedKey_BEGIN; value < ImGuiKey_NamedKey_END; ++value) {
-            const auto key = static_cast<ImGuiKey>(value);
-            if(!ImGui::IsKeyPressed(key, false))
+        for(int value = int(Key::Unknown) + 1; value < int(Key::Count); ++value) {
+            const auto key = static_cast<Key>(value);
+            if(!input.key(key).pressed)
                 continue;
-            if(const auto control = physical_key(key); control != Comet::Input::Key::Unknown) {
-                const auto name = Comet::InputActions::format_binding({control}).value();
-                const auto [action, binding] = *m_capturing;
-                if(action < m_actions.size() && binding < m_actions[action].bindings.size())
-                    m_actions[action].bindings[binding].control = name.control;
-                m_capturing.reset();
-                ImGui::SetKeyOwner(key, owner, ImGuiInputFlags_LockUntilRelease);
-                ImGui::ClearActiveID();
-                return;
-            }
+            binding->control = Comet::InputActions::format_binding({key}).value().control;
+            cancel_capture();
+            return;
         }
     }
 
-    void InputSettingsPanel::render() {
-        if(!is_open()) {
-            m_capturing.reset();
+    void InputSettingsPanel::render(const Comet::Input::Frame& input) {
+        if(!is_open())
             return;
-        }
         bool open = true;
         ImGui::SetNextWindowSize(ImVec2(900, 540), ImGuiCond_Appearing);
-        if(!ImGui::Begin(window_label().c_str(), &open)) {
-            m_capturing.reset();
-            capture_key();
+        if(!ImGui::Begin(Ui::label("Project Settings - Input").c_str(), &open)) {
+            cancel_capture();
             ImGui::End();
-            set_visible(open);
+            if(!open)
+                close();
             return;
         }
         ImGui::TextUnformatted(Ui::text("Project defaults; restart App or Play to apply."));
@@ -400,7 +369,7 @@ namespace CometEditor {
             if(ImGui::Selectable(name.empty() ? Ui::text("Unnamed Action") : name.c_str(),
                    m_selected_action == index)) {
                 m_selected_action = index;
-                m_capturing.reset();
+                cancel_capture();
             }
             ImGui::PopID();
         }
@@ -412,6 +381,7 @@ namespace CometEditor {
                        m_actions, [&](const auto& action) { return action.name == name; })) {
                     m_actions.push_back({name, Type::Button, {}});
                     m_selected_action = m_actions.size() - 1;
+                    cancel_capture();
                     break;
                 }
             }
@@ -421,7 +391,7 @@ namespace CometEditor {
         ImGui::SameLine();
         ImGui::BeginChild("ActionDetails", ImVec2(0, -70), true);
         if(m_selected_action && *m_selected_action < m_actions.size())
-            render_action(*m_selected_action);
+            render_action(*m_selected_action, input);
         else
             ImGui::TextDisabled("%s", Ui::text("Select an action"));
         ImGui::EndChild();
@@ -435,19 +405,14 @@ namespace CometEditor {
             }
         }
         ImGui::SameLine();
-        if(ImGui::Button(Ui::label("Close").c_str())) {
+        if(ImGui::Button(Ui::label("Close").c_str()))
             open = false;
-            m_request.reset();
-            m_capturing.reset();
-            m_error.clear();
-        }
         if(!m_error.empty())
             ImGui::TextWrapped("%s", m_error.c_str());
         if(!open)
-            m_capturing.reset();
-        capture_key();
+            close();
+        capture_key(input);
         ImGui::End();
-        set_visible(open);
     }
 
     std::optional<Comet::InputActions> InputSettingsPanel::take_request() {

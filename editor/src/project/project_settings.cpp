@@ -17,12 +17,12 @@ namespace CometEditor {
         m_input_panel.request(m_project.input_actions());
     }
 
-    void ProjectSettings::render(const bool editing) {
+    void ProjectSettings::render(const bool editing, const Comet::Input::Frame& input) {
         m_name_dialog.render();
         if(editing)
-            m_input_panel.render();
+            m_input_panel.render(input);
         else
-            m_input_panel.set_visible(false);
+            m_input_panel.close();
     }
 
     ProjectSettings::Update ProjectSettings::update() {
