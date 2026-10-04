@@ -148,6 +148,7 @@
 | [039 手柄录入连接版本](039-gamepad-recording-connection.md) | 已验收 | 对应本项文档的提交；UI 红测转绿，41 定向 UI、1060 CPU／229 UI、Debug／Release App 与契约／边界通过；跨跳帧同槽重连取消旧录入，键盘继续可用 |
 | [040 输入工作流与文档回顾](040-input-workflow-review.md) | 已验收 | 对应本项文档的提交；恢复默认录入红测转绿，42 定向 UI、1060 CPU／230 UI、Debug／Release App 与契约／边界通过；本组完整 10 个 CTest 入口通过，完成 036–040 回顾，文档主链与待办去重 |
 | [041 录入与数值编辑归属](041-input-recording-edit-ownership.md) | 已验收 | 对应本项文档的提交；两种事件顺序红测转绿，47 定向 UI、1060 CPU／232 UI、Debug／Release App 与契约／边界通过；数字不再同时改倍率和按键，Enter及重录按钮正常 |
+| [042 输入弹窗布局去重](042-input-modal-layout.md) | 已验收 | 对应本项文档的提交；47 定向 UI、1060 CPU／232 UI、Debug／Release App 与契约／边界通过；两个弹窗共用无状态尺寸／位置计算，保留打开、关闭与阻断协议 |
 
 ## 首轮收尾记录（001–009，历史）
 

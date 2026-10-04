@@ -160,25 +160,19 @@ namespace CometUi {
             ImGui::TextDisabled("%s", text(translations, "No overlapping bindings."));
     }
 
-    bool render_player_input_error(
-        std::string& error, const bool close_requested, const Translations& translations) {
-        const auto title =
-            std::string(text(translations, "Input Settings Error")) + "###Input Settings Error";
-        const bool already_open = ImGui::IsPopupOpen(title.c_str());
-        if(error.empty() && !already_open)
-            return false;
-        if(!error.empty() && !already_open)
-            ImGui::OpenPopup(title.c_str());
-
+    void set_next_input_modal_bounds(const char* title, const bool opening,
+        const ImVec2 initial_size, const ImVec2 minimum_size) {
         const auto* viewport = ImGui::GetMainViewport();
         const ImVec2 maximum(
             std::max(1.f, viewport->WorkSize.x - 16), std::max(1.f, viewport->WorkSize.y - 16));
         ImGui::SetNextWindowSizeConstraints(
-            ImVec2(std::min(320.f, maximum.x), std::min(160.f, maximum.y)), maximum);
+            ImVec2(std::min(minimum_size.x, maximum.x), std::min(minimum_size.y, maximum.y)),
+            maximum);
         ImGui::SetNextWindowSize(
-            ImVec2(std::min(470.f, maximum.x), std::min(220.f, maximum.y)), ImGuiCond_Appearing);
-        const auto* previous = ImGui::FindWindowByName(title.c_str());
-        if(previous && already_open) {
+            ImVec2(std::min(initial_size.x, maximum.x), std::min(initial_size.y, maximum.y)),
+            ImGuiCond_Appearing);
+        const auto* previous = ImGui::FindWindowByName(title);
+        if(previous && !opening) {
             const ImVec2 size(
                 std::min(previous->Size.x, maximum.x), std::min(previous->Size.y, maximum.y));
             const ImVec2 minimum(viewport->WorkPos.x + 8, viewport->WorkPos.y + 8);
@@ -190,6 +184,20 @@ namespace CometUi {
                                         viewport->WorkPos.y + viewport->WorkSize.y * 0.5f),
                 ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
         }
+    }
+
+    bool render_player_input_error(
+        std::string& error, const bool close_requested, const Translations& translations) {
+        const auto title =
+            std::string(text(translations, "Input Settings Error")) + "###Input Settings Error";
+        const bool already_open = ImGui::IsPopupOpen(title.c_str());
+        if(error.empty() && !already_open)
+            return false;
+        if(!error.empty() && !already_open)
+            ImGui::OpenPopup(title.c_str());
+
+        set_next_input_modal_bounds(
+            title.c_str(), !already_open, ImVec2(470, 220), ImVec2(320, 160));
         if(!ImGui::BeginPopupModal(title.c_str(), nullptr,
                ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar
                    | ImGuiWindowFlags_NoScrollWithMouse))

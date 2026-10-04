@@ -617,26 +617,7 @@ namespace CometUi {
             ImGui::OpenPopup(title.c_str());
             m_open_requested = false;
         }
-        const auto* viewport = ImGui::GetMainViewport();
-        const ImVec2 maximum(
-            std::max(1.f, viewport->WorkSize.x - 16), std::max(1.f, viewport->WorkSize.y - 16));
-        ImGui::SetNextWindowSizeConstraints(
-            ImVec2(std::min(320.f, maximum.x), std::min(240.f, maximum.y)), maximum);
-        ImGui::SetNextWindowSize(
-            ImVec2(std::min(800.f, maximum.x), std::min(550.f, maximum.y)), ImGuiCond_Appearing);
-        const auto* previous = ImGui::FindWindowByName(title.c_str());
-        if(previous && !opening) {
-            const ImVec2 size(
-                std::min(previous->Size.x, maximum.x), std::min(previous->Size.y, maximum.y));
-            const ImVec2 minimum(viewport->WorkPos.x + 8, viewport->WorkPos.y + 8);
-            ImGui::SetNextWindowPos(
-                ImVec2(std::clamp(previous->Pos.x, minimum.x, minimum.x + maximum.x - size.x),
-                    std::clamp(previous->Pos.y, minimum.y, minimum.y + maximum.y - size.y)));
-        } else {
-            ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
-                                        viewport->WorkPos.y + viewport->WorkSize.y * 0.5f),
-                ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        }
+        set_next_input_modal_bounds(title.c_str(), opening, ImVec2(800, 550), ImVec2(320, 240));
         if(!ImGui::BeginPopupModal(title.c_str(), nullptr,
                ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar
                    | ImGuiWindowFlags_NoScrollWithMouse)) {
