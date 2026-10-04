@@ -1234,6 +1234,23 @@ namespace CometUi::Tests {
         EXPECT_TRUE(panel.is_open());
         EXPECT_TRUE(blocked);
         ASSERT_NE(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        const auto waiting = binding_item(id(2), "Press Key");
+        const auto again = hover_point(bindings(), waiting);
+        ASSERT_TRUE(again);
+        auto& io = ImGui::GetIO();
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+        physical.mouse_button_event(Input::MouseButton::Left, true);
+        for(int held = 0; held < 2; ++held) {
+            frame();
+            EXPECT_EQ(ImGui::GetActiveID(), waiting);
+            EXPECT_NE(
+                rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        }
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+        physical.mouse_button_event(Input::MouseButton::Left, false);
+        frame();
+        EXPECT_EQ(ImGui::GetActiveID(), 0u);
+        ASSERT_NE(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
         key(Input::Key::K);
         EXPECT_EQ(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
         button("Apply");
@@ -1243,6 +1260,107 @@ namespace CometUi::Tests {
             {{id(1), Type::Button, false, {{.id = id(2), .control = Input::Key::K}}}});
         ASSERT_TRUE(expected);
         EXPECT_EQ(*request, expected.value());
+    }
+
+    TEST_F(PlayerInputPanelTest, NumericEditingTakesOverRecordingWithoutChangingTheControl) {
+        auto actions = defaults.actions();
+        actions[1].bindings[0].control = Input::Key::Space;
+        actions[1].bindings[0].deadzone = 0;
+        const auto configured = Actions::create(std::move(actions), defaults.contexts());
+        ASSERT_TRUE(configured);
+        defaults = configured.value();
+        const auto current = Overrides::create(
+            {{id(1), Type::Button, false, {{.id = id(2), .control = Input::Key::K}}},
+                {id(4), Type::Axis, false, {{.id = id(5), .scale = 0.5f, .deadzone = 0}}}});
+        ASSERT_TRUE(current);
+        for(const bool same_batch : {false, true}) {
+            SCOPED_TRACE(same_batch);
+            show(current.value());
+            select_action("move", id(4));
+            binding_button("Record Key", id(5));
+            ASSERT_NE(
+                rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+            const auto multiplier = binding_item(id(5), "Multiplier");
+            const auto point = hover_point(bindings(), multiplier);
+            ASSERT_TRUE(point);
+            auto& io = ImGui::GetIO();
+            if(same_batch) {
+                io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+                physical.mouse_button_event(Input::MouseButton::Left, true);
+            } else {
+                mouse_click(*point);
+                ASSERT_EQ(ImGui::GetActiveID(), multiplier);
+            }
+            physical.key_event(Input::Key::Digit2, true);
+            io.AddKeyEvent(ImGuiKey_2, true);
+            io.AddInputCharactersUTF8("2");
+            frame();
+            EXPECT_TRUE(physical.get_frame().key(Input::Key::Digit2).pressed);
+            EXPECT_EQ(ImGui::GetActiveID(), multiplier);
+            EXPECT_EQ(
+                rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+            if(same_batch) {
+                io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+                physical.mouse_button_event(Input::MouseButton::Left, false);
+            }
+            physical.key_event(Input::Key::Digit2, false);
+            io.AddKeyEvent(ImGuiKey_2, false);
+            // 保留 ImGui 的事件分帧处理，等同批字符进入真实数值控件。
+            frame();
+            frame();
+            ASSERT_EQ(ImGui::GetActiveID(), multiplier);
+            physical.key_event(Input::Key::Enter, true);
+            io.AddKeyEvent(ImGuiKey_Enter, true);
+            frame();
+            EXPECT_TRUE(physical.get_frame().key(Input::Key::Enter).pressed);
+            EXPECT_EQ(ImGui::GetActiveID(), 0u);
+            physical.key_event(Input::Key::Enter, false);
+            io.AddKeyEvent(ImGuiKey_Enter, false);
+            frame();
+            EXPECT_TRUE(panel.is_open());
+            EXPECT_TRUE(blocked);
+            button("Apply");
+            const auto request = panel.take_request();
+            ASSERT_TRUE(request);
+            auto expected = current.value().actions();
+            expected[1].bindings[0].scale = 2;
+            EXPECT_EQ(request->actions(), expected);
+            const auto resolved = request->resolve(defaults);
+            ASSERT_TRUE(resolved);
+            EXPECT_EQ(resolved.value().actions.actions()[1].bindings[0].control,
+                Actions::Control(Input::Key::Space));
+            panel.complete(Comet::Result<void>::success());
+            frame();
+            frame();
+        }
+    }
+
+    TEST_F(PlayerInputPanelTest, RecordingCanStartDirectlyFromAnActiveNumericEditor) {
+        const auto configured =
+            Actions::create({{"move", Type::Axis, {{Input::Key::Space, 1, 0, id(2)}}, "", id(1)}});
+        ASSERT_TRUE(configured);
+        defaults = configured.value();
+        const auto current = Overrides::create(
+            {{id(1), Type::Axis, false, {{.id = id(2), .scale = 0.5f, .deadzone = 0}}}});
+        ASSERT_TRUE(current);
+        show(current.value());
+        binding_button("Multiplier");
+        frame();
+        ASSERT_EQ(ImGui::GetActiveID(), binding_item(id(2), "Multiplier"));
+        ASSERT_TRUE(ImGui::GetIO().WantTextInput);
+
+        binding_button("Record Key");
+        EXPECT_TRUE(ImGui::GetIO().WantTextInput);
+        EXPECT_EQ(ImGui::GetActiveID(), 0u);
+        ASSERT_NE(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        key(Input::Key::K);
+        EXPECT_EQ(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        auto expected = current.value().actions();
+        expected[0].bindings[0].control = Input::Key::K;
+        EXPECT_EQ(request->actions(), expected);
     }
 
     TEST_F(

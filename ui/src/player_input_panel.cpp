@@ -321,7 +321,7 @@ namespace CometUi {
         if(!m_capture)
             return;
         if(!input.focused || input.interruption != m_capture->interruption
-            || input.serial < m_capture->serial
+            || input.serial < m_capture->serial || ImGui::GetInputTextState(ImGui::GetActiveID())
             || !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
             m_capture.reset();
             return;
@@ -646,7 +646,9 @@ namespace CometUi {
         }
         if(m_open && !m_waiting) {
             const bool capturing = m_capture.has_value();
-            capture_input(input);
+            // Enter 可能在绘制数值框时结束编辑，先保留其本帧输入归属。
+            if(ImGui::GetInputTextState(ImGui::GetActiveID()))
+                m_capture.reset();
             if(!capturing && input.focused && input.key(Input::Key::Escape).pressed)
                 close();
         }
@@ -670,6 +672,8 @@ namespace CometUi {
                 text(translations,
                     "Player overrides only; project defaults are unchanged. Unedited fields inherit defaults."));
             render_actions(input, translations);
+            if(!m_waiting)
+                capture_input(input);
             if(m_capture) {
                 const char* prompt = "Press a key; Escape cancels recording.";
                 if(m_capture->gamepad)
