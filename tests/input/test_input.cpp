@@ -219,6 +219,55 @@ namespace Comet::Tests {
         EXPECT_TRUE(input.publish_frame().gamepads[2].button(Input::GamepadButton::South).pressed);
     }
 
+    TEST_F(InputTest, GamepadConnectionRevisionTracksOnlyPerSlotConnectionChanges) {
+        const auto initial = input.publish_frame();
+        input.gamepad_sample(2, std::nullopt);
+        const auto absent = input.publish_frame();
+        EXPECT_EQ(absent.gamepads[2].connection_revision, 0u);
+
+        Input::GamepadSample sample;
+        input.gamepad_sample(2, sample);
+        const auto connected = input.publish_frame();
+        EXPECT_EQ(connected.gamepads[2].connection_revision, 1u);
+        sample.buttons[0] = true;
+        sample.axes[0] = 0.5f;
+        input.gamepad_sample(2, sample);
+        input.gamepad_sample(2, sample);
+        input.gamepad_sample(7, sample);
+        const auto unchanged = input.publish_frame();
+        EXPECT_EQ(unchanged.gamepads[2].connection_revision, 1u);
+        EXPECT_EQ(unchanged.gamepads[7].connection_revision, 1u);
+
+        input.gamepad_sample(2, std::nullopt);
+        input.gamepad_sample(2, std::nullopt);
+        const auto disconnected = input.publish_frame();
+        EXPECT_EQ(disconnected.gamepads[2].connection_revision, 2u);
+        EXPECT_EQ(disconnected.gamepads[7].connection_revision, 1u);
+        input.gamepad_sample(2, sample);
+        input.gamepad_sample(2, sample);
+        input.gamepad_sample(7, std::nullopt);
+        const auto reconnected = input.publish_frame();
+        EXPECT_TRUE(reconnected.gamepads[2].connected);
+        EXPECT_FALSE(reconnected.gamepads[7].connected);
+        EXPECT_EQ(reconnected.gamepads[2].connection_revision, 3u);
+        EXPECT_EQ(reconnected.gamepads[7].connection_revision, 2u);
+        const auto stable = input.publish_frame();
+        EXPECT_EQ(stable.gamepads[2].connection_revision, 3u);
+        EXPECT_EQ(stable.gamepads[7].connection_revision, 2u);
+
+        EXPECT_FALSE(initial.gamepads[2].connected);
+        EXPECT_EQ(initial.gamepads[2].connection_revision, 0u);
+        EXPECT_TRUE(connected.gamepads[2].connected);
+        EXPECT_EQ(connected.gamepads[2].connection_revision, 1u);
+        EXPECT_FALSE(disconnected.gamepads[2].connected);
+        EXPECT_EQ(disconnected.gamepads[2].connection_revision, 2u);
+        for(const auto* frame :
+            {&absent, &connected, &unchanged, &disconnected, &reconnected, &stable}) {
+            EXPECT_EQ(frame->gamepads[0].connection_revision, 0u);
+            EXPECT_EQ(frame->interruption, initial.interruption);
+        }
+    }
+
     TEST_F(InputTest, FirstConnectedGamepadUsesLowestSlotAndKeepsPublishedSnapshotsStable) {
         EXPECT_FALSE(input.publish_frame().first_connected_gamepad());
         Input::GamepadSample sample;

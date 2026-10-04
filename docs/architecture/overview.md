@@ -256,6 +256,8 @@ Play 不因单独 Ctrl／Alt／Super 按住而撤销授权；编辑快捷键原�
 Input 在真实失焦时也推进已有 interruption，重复焦点事件不推进；Gate 与录入可跨跳帧识别中断。
 失焦仍保留必要的释放事件，不借用 discard_pending 清掉它们；恢复首帧不重放长按或位移。
 `Input::Frame::first_connected_gamepad()` 供动作采样与录入共用；录入锁定该槽，观测到断开／首槽变化即取消。
+每槽 connection_revision 仅在连接状态实际变化时推进；录入比较该版本，跳过断连帧仍会取消旧手柄录入。
+它不改变全局 interruption，不取消键盘录入，也不是设备的持久身份。
 槽号只是当前采样选择，不是持久设备或玩家身份；摇杆录制和多人分配不在此协议内。
 `SceneRuntime::rebind_input_actions` 只允许非执行中的活动运行域，候选不能改变动作身份、名称、类型、归属或上下文定义。
 RuntimeInput 在下一次 prepare 接收最后一份有效候选，按 UUID 保留未改绑定的固定步历史与路由；

@@ -31,6 +31,7 @@ namespace CometUi {
             std::uint64_t interruption;
             std::uint64_t serial;
             std::optional<std::size_t> gamepad;
+            std::uint64_t gamepad_connection_revision = 0;
         };
 
         [[nodiscard]] const Comet::InputOverrides::Action* action_patch(Comet::Uuid id) const;

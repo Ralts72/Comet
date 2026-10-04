@@ -309,6 +309,8 @@ namespace CometUi {
                 m_error = "No gamepad connected.";
                 return;
             }
+            capture.gamepad_connection_revision =
+                input.gamepads[*capture.gamepad].connection_revision;
         }
         m_capture = capture;
         m_error.clear();
@@ -320,8 +322,14 @@ namespace CometUi {
             return;
         if(!input.focused || input.interruption != m_capture->interruption
             || input.serial < m_capture->serial
-            || (m_capture->gamepad && input.first_connected_gamepad() != m_capture->gamepad)
             || !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+            m_capture.reset();
+            return;
+        }
+        if(m_capture->gamepad
+            && (input.first_connected_gamepad() != m_capture->gamepad
+                || input.gamepads[*m_capture->gamepad].connection_revision
+                       != m_capture->gamepad_connection_revision)) {
             m_capture.reset();
             return;
         }

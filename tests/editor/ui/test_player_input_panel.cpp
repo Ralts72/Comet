@@ -1365,6 +1365,66 @@ namespace CometUi::Tests {
         EXPECT_TRUE(request->actions().empty());
     }
 
+    TEST_F(PlayerInputPanelTest, MissedGamepadReconnectCancelsOnlyGamepadRecording) {
+        const auto current = Overrides::create({{id(1), Type::Button, false,
+                                                    {{.id = id(2), .control = Input::Key::J},
+                                                        {.id = id(3),
+                                                            .control = Input::GamepadButton::West,
+                                                            .scale = 1,
+                                                            .deadzone = 0}}},
+            {id(4), Type::Axis, false, {{.id = id(5), .scale = -0.5f}}}});
+        ASSERT_TRUE(current);
+        for(const bool gamepad : {true, false}) {
+            SCOPED_TRACE(gamepad);
+            physical = {};
+            physical.focus_event(true);
+            Input::GamepadSample pad;
+            physical.gamepad_sample(0, pad);
+            show(current.value());
+            const char* prompt = "Press a key; Escape cancels recording.";
+            if(gamepad) {
+                binding_button("Record Button", id(3));
+                prompt = "Press a gamepad button; Escape cancels recording.";
+            } else {
+                binding_button("Record Key");
+            }
+            ASSERT_NE(rendered_text.find(prompt), std::string::npos);
+            const auto interruption = physical.get_frame().interruption;
+
+            // 延期帧持续发布物理输入，UI 错过同槽断连、重连和首帧基线。
+            physical.gamepad_sample(0, std::nullopt);
+            EXPECT_FALSE(physical.publish_frame().gamepads[0].connected);
+            physical.gamepad_sample(0, pad);
+            EXPECT_TRUE(physical.publish_frame().gamepads[0].connected);
+            physical.gamepad_sample(0, pad);
+            (void)physical.publish_frame();
+            pad.buttons[static_cast<std::size_t>(Input::GamepadButton::East)] = true;
+            physical.gamepad_sample(0, pad);
+            frame();
+            EXPECT_TRUE(
+                physical.get_frame().gamepads[0].button(Input::GamepadButton::East).pressed);
+            EXPECT_EQ(physical.get_frame().interruption, interruption);
+            EXPECT_TRUE(panel.is_open());
+            EXPECT_TRUE(blocked);
+            auto expected = current.value().actions();
+            if(gamepad) {
+                EXPECT_EQ(rendered_text.find(prompt), std::string::npos);
+            } else {
+                EXPECT_NE(rendered_text.find(prompt), std::string::npos);
+                key(Input::Key::K);
+                EXPECT_EQ(rendered_text.find(prompt), std::string::npos);
+                expected[0].bindings[0].control = Input::Key::K;
+            }
+            button("Apply");
+            const auto request = panel.take_request();
+            ASSERT_TRUE(request);
+            EXPECT_EQ(request->actions(), expected);
+            panel.complete(Comet::Result<void>::success());
+            frame();
+            frame();
+        }
+    }
+
     TEST_F(PlayerInputPanelTest, FocusLossAndSamplingInterruptionCancelGamepadRecording) {
         Input::GamepadSample pad;
         physical.gamepad_sample(0, pad);

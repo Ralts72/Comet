@@ -82,6 +82,8 @@ namespace Comet {
             return;
         auto& gamepad = m_pending.gamepads[index];
         const bool baseline = m_gamepad_baseline[index] || !gamepad.connected;
+        if(gamepad.connected != sample.has_value())
+            ++gamepad.connection_revision;
         gamepad.connected = sample.has_value();
         const bool active = sample && m_pending.focused;
         for(size_t button = 0; button < gamepad.buttons.size(); ++button) {

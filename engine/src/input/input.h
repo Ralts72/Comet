@@ -180,6 +180,8 @@ namespace Comet {
             std::array<float, static_cast<size_t>(GamepadAxis::Count)> axes{};
         };
         struct GamepadState {
+            // 标记连续连接，不是设备的持久身份。
+            uint64_t connection_revision = 0;
             bool connected = false;
             std::array<ButtonState, static_cast<size_t>(GamepadButton::Count)> buttons{};
             std::array<float, static_cast<size_t>(GamepadAxis::Count)> axes{};
