@@ -59,7 +59,7 @@
 "Multiplier": "倍率"
 "Deadzone": "死区"
 "Binding Relationships": "绑定关系"
-"Pairwise rules when both contexts are enabled; not current Play state.": "以下说明双方组都启用时的两两关系，不代表当前 Play 状态。"
+"Pairwise rules when both contexts are enabled; not current runtime state.": "以下说明双方组都启用时的两两关系，不代表当前运行状态。"
 "Other consuming contexts can still block non-common actions.": "非公共动作仍可能被其他消费组屏蔽；两两共享不代表最终一定可用。"
 "Shared": "双方共享"
 "Shared (common action bypasses consumption)": "双方共享（公共动作不参与消费）"

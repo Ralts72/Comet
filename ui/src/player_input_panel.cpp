@@ -1,4 +1,5 @@
 #include "player_input_panel.h"
+#include "input_widgets.h"
 
 #include <algorithm>
 #include <array>
@@ -400,18 +401,29 @@ namespace CometUi {
         ImGui::EndDisabled();
     }
 
-    void PlayerInputPanel::render_diagnostics(const Text& translations) const {
+    void PlayerInputPanel::render_feedback(const Text& translations) const {
         const auto resolved = m_draft.resolve(m_defaults);
         if(!resolved) {
             ImGui::TextWrapped("%s", text(translations, resolved.error().c_str()));
             return;
         }
-        if(resolved.value().issues.empty())
+        if(ImGui::CollapsingHeader(label(translations, "Binding Relationships").c_str(),
+               ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::BeginChild("Relationships", ImVec2(0, 120), true);
+            render_binding_relationships(resolved.value().actions, m_selected_action, translations);
+            ImGui::EndChild();
+        }
+        render_diagnostics(resolved.value(), translations);
+    }
+
+    void PlayerInputPanel::render_diagnostics(
+        const Overrides::Resolution& resolved, const Text& translations) const {
+        if(resolved.issues.empty())
             return;
         ImGui::TextWrapped(
             "%s", text(translations, "Incompatible overrides are preserved until restored."));
         ImGui::BeginChild("Diagnostics", ImVec2(0, 75), true);
-        for(const auto& issue : resolved.value().issues) {
+        for(const auto& issue : resolved.issues) {
             ImGui::TextWrapped("%s", text(translations, issue.message.c_str()));
             ImGui::TextDisabled(
                 "%s / %s", issue.action.to_string().c_str(), issue.binding.to_string().c_str());
@@ -457,7 +469,7 @@ namespace CometUi {
                     "Player overrides only; project defaults are unchanged. Unedited fields inherit defaults."));
             ImGui::BeginDisabled(m_waiting);
             render_actions(input, translations);
-            render_diagnostics(translations);
+            render_feedback(translations);
             if(m_capture)
                 ImGui::TextWrapped(
                     "%s", text(translations, "Press a key; Escape cancels recording."));

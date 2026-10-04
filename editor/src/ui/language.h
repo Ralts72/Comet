@@ -20,6 +20,8 @@ namespace CometEditor::Ui {
         const std::filesystem::path& path, Language language);
 
     [[nodiscard]] Language language();
+    // 借用当前绘制作用域的有效词表；英文或未设置词表时返回空表。
+    [[nodiscard]] const Translations& translations();
     [[nodiscard]] const char* text(const char* english);
     [[nodiscard]] std::string label(const char* english);
 

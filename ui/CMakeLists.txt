@@ -7,7 +7,7 @@ compile_shaders(
         SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/imgui_hdr.frag"
 )
 
-add_library(comet_ui STATIC src/player_input_panel.cpp src/imgui_context.cpp)
+add_library(comet_ui STATIC src/player_input_panel.cpp src/imgui_context.cpp src/input_widgets.cpp)
 add_dependencies(comet_ui comet_ui_shaders)
 target_include_directories(comet_ui
         PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src"

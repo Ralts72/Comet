@@ -271,6 +271,8 @@ enabled 的 consuming 组按物理 control 身份屏蔽严格低 priority 组的
 InputActions 的只读 `compare_bindings` 与实际路由共用消费判定；前者描述双方启用时的两两关系，
 不读取运行态，也不推断其他组参与后的最终路由。项目输入面板只在草稿完整校验后调用它，
 展示规范化 control 的共享／消费关系及默认禁用标记；无效草稿不沿用旧提示，合法重叠不阻止保存。
+两面板共用 `comet_ui/input_widgets` 的关系正文。玩家侧只对 `InputOverrides::Resolution::actions` 展示关系，
+与诊断共用同一合成结果；被拒绝补丁的控件值不冒充有效绑定。共享展示借用词表，不依赖 Editor 或新增翻译回调。
 RuntimeInput 保存本局的活动组状态，reset 恢复默认；InputState 仍是只读的阶段结果，System／Lua 不持有映射配置。
 `comet.set_input_context → Scene::request_input_context → SceneRuntime::advance → RuntimeInput::set_context_enabled`：
 Scene 只存非持久的、按组名合并的有界请求，不拥有输入状态。Runtime 在下一次 advance 的输入准备前消费，

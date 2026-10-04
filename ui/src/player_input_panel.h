@@ -46,7 +46,9 @@ namespace CometUi {
         void render_controls(const Action& action, const Binding& binding,
             const Comet::InputOverrides::Binding& patch, const Comet::Input::Frame& input,
             const Text& translations);
-        void render_diagnostics(const Text& translations) const;
+        void render_feedback(const Text& translations) const;
+        void render_diagnostics(
+            const Comet::InputOverrides::Resolution& resolved, const Text& translations) const;
         void apply();
 
         Comet::InputActions m_defaults;

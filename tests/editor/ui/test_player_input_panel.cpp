@@ -404,6 +404,133 @@ namespace CometUi::Tests {
         EXPECT_TRUE(request->actions().empty());
     }
 
+    TEST_F(PlayerInputPanelTest, RecordedBindingImmediatelyUpdatesRelationshipsAndStillApplies) {
+        auto actions = defaults.actions();
+        actions.push_back(
+            {"confirm", Type::Button, {{Input::Key::K, 1, 0, id(11)}}, "menu", id(10)});
+        const auto configured =
+            Actions::create(std::move(actions), {{"gameplay"}, {"menu", true, 10, true}});
+        ASSERT_TRUE(configured);
+        defaults = configured.value();
+        show();
+        EXPECT_NE(rendered_text.find("No overlapping bindings."), std::string::npos);
+
+        binding_button("Record Key");
+        physical.key_event(Input::Key::K, true);
+        frame();
+        EXPECT_NE(rendered_text.find("key/K: confirm [menu]"), std::string::npos);
+        EXPECT_NE(
+            rendered_text.find("This control is consumed by the other action"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("No overlapping bindings."), std::string::npos);
+        physical.key_event(Input::Key::K, false);
+        frame();
+
+        select_action("confirm", id(10));
+        EXPECT_NE(rendered_text.find("key/K: jump [gameplay]"), std::string::npos);
+        EXPECT_NE(
+            rendered_text.find("Consumes this control from the other action"), std::string::npos);
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        const auto expected = Overrides::create(
+            {{id(1), Type::Button, false, {{.id = id(2), .control = Input::Key::K}}}});
+        ASSERT_TRUE(expected);
+        EXPECT_EQ(*request, expected.value());
+    }
+
+    TEST_F(PlayerInputPanelTest, DisabledAndRestoredOverridesRecomputeInheritedRelationships) {
+        auto actions = defaults.actions();
+        actions.push_back(
+            {"interact", Type::Button, {{Input::Key::Space, 1, 0, id(11)}}, "gameplay", id(10)});
+        const auto configured = Actions::create(std::move(actions), defaults.contexts());
+        ASSERT_TRUE(configured);
+        defaults = configured.value();
+        const auto current = Overrides::create(
+            {{id(1), Type::Button, false, {{.id = id(2), .control = Input::Key::K}}}});
+        ASSERT_TRUE(current);
+        show(current.value());
+        EXPECT_NE(rendered_text.find("No overlapping bindings."), std::string::npos);
+
+        binding_button("Restore Binding");
+        EXPECT_NE(rendered_text.find("key/Space: interact [gameplay]"), std::string::npos);
+        binding_button("Disable Binding");
+        EXPECT_NE(rendered_text.find("No overlapping bindings."), std::string::npos);
+        EXPECT_EQ(rendered_text.find("key/Space: interact [gameplay]"), std::string::npos);
+        binding_button("Restore Binding");
+        EXPECT_NE(rendered_text.find("key/Space: interact [gameplay]"), std::string::npos);
+        button("Disable Action");
+        EXPECT_NE(rendered_text.find("No overlapping bindings."), std::string::npos);
+        EXPECT_EQ(rendered_text.find("key/Space: interact [gameplay]"), std::string::npos);
+        button("Restore Action");
+        EXPECT_NE(rendered_text.find("key/Space: interact [gameplay]"), std::string::npos);
+
+        record(Input::Key::K);
+        EXPECT_NE(rendered_text.find("No overlapping bindings."), std::string::npos);
+        button("Restore All");
+        frame();
+        EXPECT_NE(rendered_text.find("key/Space: interact [gameplay]"), std::string::npos);
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_TRUE(request->actions().empty());
+    }
+
+    TEST_F(
+        PlayerInputPanelTest, RelationshipsExplainSharedPriorityCommonAndInitiallyDisabledGroups) {
+        const auto configured = Actions::create(
+            {{"jump", Type::Button, {{Input::Key::Space, 1, 0, id(2)}}, "gameplay", id(1)},
+                {"interact", Type::Button, {{Input::Key::Space, 1, 0, id(11)}}, "walk", id(10)},
+                {"help", Type::Button, {{Input::Key::Space, 1, 0, id(21)}}, "", id(20)}},
+            {{"gameplay", true, 10, true}, {"walk", false, 10, true}});
+        ASSERT_TRUE(configured);
+        defaults = configured.value();
+        show();
+        const PlayerInputPanel::Text translations{{"Shared", "Shared at equal priority"},
+            {"Common (Always Enabled)", "Common group"}, {"Initially disabled:", "Starts off:"}};
+        frame(translations);
+        EXPECT_NE(rendered_text.find("Binding Relationships"), std::string::npos);
+        EXPECT_NE(rendered_text.find(
+                      "Pairwise rules when both contexts are enabled; not current runtime state."),
+            std::string::npos);
+        EXPECT_NE(rendered_text.find("key/Space: interact [walk]"), std::string::npos);
+        EXPECT_NE(rendered_text.find("Shared at equal priority"), std::string::npos);
+        EXPECT_NE(rendered_text.find("Starts off: walk"), std::string::npos);
+        EXPECT_NE(rendered_text.find("key/Space: help [Common group]"), std::string::npos);
+        EXPECT_NE(
+            rendered_text.find("Shared (common action bypasses consumption)"), std::string::npos);
+        EXPECT_EQ(
+            rendered_text.find("Consumes this control from the other action"), std::string::npos);
+        EXPECT_EQ(
+            rendered_text.find("This control is consumed by the other action"), std::string::npos);
+        EXPECT_FALSE(panel.take_request());
+    }
+
+    TEST_F(PlayerInputPanelTest, RelationshipsUseValidFallbackAndPreserveIncompatibleRecords) {
+        auto actions = defaults.actions();
+        actions.push_back(
+            {"confirm", Type::Button, {{Input::Key::Space, 1, 0, id(11)}}, "gameplay", id(10)});
+        const auto configured = Actions::create(std::move(actions), defaults.contexts());
+        ASSERT_TRUE(configured);
+        defaults = configured.value();
+        const auto current =
+            Overrides::create({{id(1), Type::Button, false,
+                                   {{.id = id(2), .control = Input::Key::J, .scale = 2},
+                                       {.id = id(99), .control = Input::Key::P}}},
+                {id(10), Type::Axis, true, {}}, {id(90), Type::Button, true, {}}});
+        ASSERT_TRUE(current);
+        show(current.value());
+        EXPECT_NE(rendered_text.find("key/Space: confirm [gameplay]"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("key/J: confirm [gameplay]"), std::string::npos);
+        EXPECT_NE(rendered_text.find("keeping the default binding"), std::string::npos);
+        EXPECT_NE(rendered_text.find("Unknown input binding ID"), std::string::npos);
+        EXPECT_NE(rendered_text.find("Input action type changed"), std::string::npos);
+        EXPECT_NE(rendered_text.find("Unknown input action ID"), std::string::npos);
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(*request, current.value());
+    }
+
     TEST_F(PlayerInputPanelTest, TranslationsAreBorrowedPerFrameAndKeepWidgetIdentity) {
         show();
         const auto* original_window = window();

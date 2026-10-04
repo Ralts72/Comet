@@ -1,5 +1,6 @@
 #include "project/input_settings_panel.h"
 
+#include "input_widgets.h"
 #include "ui/language.h"
 #include "ui/widgets.h"
 
@@ -14,51 +15,6 @@
 namespace CometEditor {
     namespace {
         using Type = Comet::InputActions::Type;
-        using BindingRelation = Comet::InputActions::BindingRelation;
-
-        const Comet::InputActions::Context* action_context(
-            const Comet::InputActions& actions, const Comet::InputActions::Action& action) {
-            const auto& contexts = actions.contexts();
-            const auto found =
-                std::ranges::find(contexts, action.context, &Comet::InputActions::Context::name);
-            return found == contexts.end() ? nullptr : &*found;
-        }
-
-        const char* relation_name(const BindingRelation relation, const bool common) {
-            switch(relation) {
-                case BindingRelation::Shared:
-                    if(common)
-                        return "Shared (common action bypasses consumption)";
-                    return "Shared";
-                case BindingRelation::Consumes:
-                    return "Consumes this control from the other action";
-                case BindingRelation::ConsumedBy:
-                    return "This control is consumed by the other action";
-                case BindingRelation::Unrelated:
-                    return "No overlapping bindings.";
-            }
-            return "Unknown";
-        }
-
-        void render_relationship(const Comet::InputActions::Binding& binding,
-            const Comet::InputActions::Action& other, const Comet::InputActions::Context* context,
-            const Comet::InputActions::Context* other_context, const BindingRelation relation) {
-            const auto control = Comet::InputActions::format_binding(binding);
-            if(!control)
-                return;
-            const char* group = Ui::text("Common (Always Enabled)");
-            if(other_context)
-                group = other_context->name.c_str();
-            ImGui::Separator();
-            ImGui::TextWrapped("%s/%s: %s [%s]", control.value().source.data(),
-                control.value().control.c_str(), other.name.c_str(), group);
-            ImGui::TextWrapped("%s", Ui::text(relation_name(relation, !context || !other_context)));
-            if(context && !context->enabled)
-                ImGui::TextWrapped("%s %s", Ui::text("Initially disabled:"), context->name.c_str());
-            if(other_context && other_context != context && !other_context->enabled)
-                ImGui::TextWrapped(
-                    "%s %s", Ui::text("Initially disabled:"), other_context->name.c_str());
-        }
 
         const char* type_name(const Type type) {
             switch(type) {
@@ -419,39 +375,7 @@ namespace CometEditor {
             ImGui::TextWrapped("%s", configured.error().c_str());
             return;
         }
-        ImGui::TextWrapped("%s",
-            Ui::text("Pairwise rules when both contexts are enabled; not current Play state."));
-        const auto& actions = configured.value();
-        const auto& selected = actions.actions()[action_index];
-        const auto* context = action_context(actions, selected);
-        bool found = false;
-        for(auto binding = selected.bindings.begin(); binding != selected.bindings.end();
-            ++binding) {
-            if(std::any_of(selected.bindings.begin(), binding,
-                   [&](const auto& previous) { return previous.control == binding->control; }))
-                continue;
-            for(std::size_t other_index = 0; other_index < actions.actions().size();
-                ++other_index) {
-                if(other_index == action_index)
-                    continue;
-                const auto& other = actions.actions()[other_index];
-                const auto* other_context = action_context(actions, other);
-                for(const auto& other_binding : other.bindings) {
-                    const auto relation = Comet::InputActions::compare_bindings(
-                        *binding, context, other_binding, other_context);
-                    if(relation == BindingRelation::Unrelated)
-                        continue;
-                    render_relationship(*binding, other, context, other_context, relation);
-                    found = true;
-                    break;
-                }
-            }
-        }
-        if(found)
-            ImGui::TextWrapped(
-                "%s", Ui::text("Other consuming contexts can still block non-common actions."));
-        else
-            ImGui::TextDisabled("%s", Ui::text("No overlapping bindings."));
+        CometUi::render_binding_relationships(configured.value(), action_index, Ui::translations());
     }
 
     void InputSettingsPanel::capture_key() {

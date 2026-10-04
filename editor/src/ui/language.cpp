@@ -170,12 +170,15 @@ namespace CometEditor::Ui {
         return current;
     }
 
+    const Translations& translations() {
+        static const Translations empty;
+        return current == Language::Chinese && current_translations ? *current_translations : empty;
+    }
+
     const char* text(const char* english) {
-        if(current == Language::Chinese && current_translations)
-            if(const auto found = current_translations->find(english);
-                found != current_translations->end())
-                return found->second.c_str();
-        return english;
+        const auto& active_translations = translations();
+        const auto found = active_translations.find(english);
+        return found == active_translations.end() ? english : found->second.c_str();
     }
 
     std::string label(const char* english) {

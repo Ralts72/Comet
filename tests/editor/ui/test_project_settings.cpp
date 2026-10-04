@@ -602,7 +602,7 @@ namespace CometEditor::Tests {
         reopen(actions.value());
         EXPECT_NE(rendered_text.find("Binding Relationships"), std::string::npos);
         EXPECT_NE(rendered_text.find(
-                      "Pairwise rules when both contexts are enabled; not current Play state."),
+                      "Pairwise rules when both contexts are enabled; not current runtime state."),
             std::string::npos);
         EXPECT_NE(
             rendered_text.find("Other consuming contexts can still block non-common actions."),
