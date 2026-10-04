@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <optional>
 #include <string>
 
 namespace CometEditor::Tests {
@@ -145,7 +146,7 @@ namespace CometEditor::Tests {
         void record() {
             ASSERT_NE(details(), nullptr);
             ImGui::FocusWindow(details());
-            ImGui::ActivateItemByID(binding_id("Record Key"));
+            ImGui::ActivateItemByID(binding_id("###Record Key"));
             frame();
             ASSERT_EQ(ImGui::GetActiveID(), window()->GetID("KeyCapture"));
         }
@@ -173,6 +174,30 @@ namespace CometEditor::Tests {
         }
 
         void edit_control(const char* text) { edit_text(details(), binding_id("##Control"), text); }
+
+        std::optional<ImVec2> hover_point(ImGuiWindow* owner, const ImGuiID id) {
+            for(float y = owner->InnerClipRect.Min.y + 3; y < owner->InnerClipRect.Max.y; y += 6)
+                for(float x = owner->InnerClipRect.Min.x + 3; x < owner->InnerClipRect.Max.x;
+                    x += 6) {
+                    ImGui::GetIO().AddMousePosEvent(x, y);
+                    frame();
+                    if(ImGui::GetCurrentContext()->HoveredId == id)
+                        return ImVec2(x, y);
+                }
+            return std::nullopt;
+        }
+
+        void mouse_click(const ImVec2 point) {
+            auto& io = ImGui::GetIO();
+            io.AddMousePosEvent(point.x, point.y);
+            frame();
+            io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+            physical.mouse_button_event(Comet::Input::MouseButton::Left, true);
+            frame();
+            io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+            physical.mouse_button_event(Comet::Input::MouseButton::Left, false);
+            frame();
+        }
     };
 
     TEST_F(ProjectInputUiTest, ContextDraftsPreserveMembershipAndDefaultStateAcrossRenameAndSave) {
@@ -362,10 +387,91 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(saved);
         EXPECT_EQ(*saved, original);
 
+        const auto close = hover_point(window(), window()->GetID("Close"));
+        ASSERT_TRUE(close);
         record();
-        button("Close");
+        mouse_click(*close);
         EXPECT_FALSE(panel.is_open());
         EXPECT_NE(ImGui::GetActiveID(), window()->GetID("KeyCapture"));
+    }
+
+    TEST_F(ProjectInputUiTest, MouseEditingTakesKeyboardOwnershipFromRecording) {
+        using Input = Comet::Input;
+        auto actions = original.actions();
+        actions[0].type = Comet::InputActions::Type::Axis;
+        actions[0].bindings[0].scale = 0.5f;
+        const auto configured = Comet::InputActions::create(actions, original.contexts());
+        ASSERT_TRUE(configured);
+        for(const bool same_batch : {false, true}) {
+            SCOPED_TRACE(same_batch);
+            reopen(configured.value());
+            const auto multiplier = binding_id("##Scale");
+            const auto field = hover_point(details(), multiplier);
+            ASSERT_TRUE(field);
+            const auto record_button = hover_point(details(), binding_id("###Record Key"));
+            ASSERT_TRUE(record_button);
+            mouse_click(*record_button);
+            ASSERT_EQ(ImGui::GetActiveID(), window()->GetID("KeyCapture"));
+            auto& io = ImGui::GetIO();
+            io.AddMousePosEvent(field->x, field->y);
+            frame();
+            if(same_batch) {
+                io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+                physical.mouse_button_event(Input::MouseButton::Left, true);
+            } else {
+                mouse_click(*field);
+            }
+            physical.key_event(Input::Key::Digit2, true);
+            io.AddKeyEvent(ImGuiKey_2, true);
+            io.AddInputCharactersUTF8("2");
+            frame();
+            EXPECT_EQ(ImGui::GetActiveID(), multiplier);
+            if(same_batch) {
+                EXPECT_EQ(ImGui::GetKeyOwner(ImGuiKey_MouseLeft), multiplier);
+                io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+                physical.mouse_button_event(Input::MouseButton::Left, false);
+            }
+            physical.key_event(Input::Key::Digit2, false);
+            io.AddKeyEvent(ImGuiKey_2, false);
+            frame();
+            frame();
+            press_physical(Input::Key::Enter, ImGuiKey_Enter);
+            frame();
+            button("Save");
+            const auto saved = panel.take_request();
+            ASSERT_TRUE(saved);
+            auto expected = actions;
+            expected[0].bindings[0].scale = 2;
+            EXPECT_EQ(saved->actions(), expected);
+            EXPECT_EQ(saved->contexts(), original.contexts());
+        }
+    }
+
+    TEST_F(ProjectInputUiTest, RecordingButtonCanRestartCaptureAfterBeingHeld) {
+        record();
+        const auto point = hover_point(details(), binding_id("###Record Key"));
+        ASSERT_TRUE(point);
+        auto& io = ImGui::GetIO();
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+        frame();
+        const auto button_id = ImGui::GetActiveID();
+        ASSERT_NE(button_id, 0u);
+        ASSERT_NE(button_id, window()->GetID("KeyCapture"));
+        frame();
+        frame();
+        EXPECT_EQ(ImGui::GetActiveID(), button_id);
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+        frame();
+        EXPECT_EQ(ImGui::GetActiveID(), window()->GetID("KeyCapture"));
+        press_physical(Comet::Input::Key::K, ImGuiKey_K);
+        frame();
+        button("Save");
+        const auto saved = panel.take_request();
+        ASSERT_TRUE(saved);
+        auto expected = original.actions();
+        expected[0].bindings[0].control = Comet::Input::Key::K;
+        EXPECT_EQ(saved->actions(), expected);
+        EXPECT_EQ(saved->contexts(), original.contexts());
     }
 
     TEST_F(ProjectInputUiTest, MissedFocusLossAndRecoveryCancelRecordingWithoutChangingDraft) {
@@ -394,7 +500,7 @@ namespace CometEditor::Tests {
         const auto opening = physical.publish_frame();
         ASSERT_TRUE(opening.key(Comet::Input::Key::K).pressed);
         ImGui::FocusWindow(details());
-        ImGui::ActivateItemByID(binding_id("Record Key"));
+        ImGui::ActivateItemByID(binding_id("###Record Key"));
         frame(opening);
         EXPECT_EQ(ImGui::GetActiveID(), window()->GetID("KeyCapture"));
         frame(opening);

@@ -169,7 +169,9 @@ namespace CometEditor {
         if(binding.source == "key") {
             const bool capturing = m_capturing && m_capturing->action == action.id
                                    && m_capturing->binding == binding.id;
-            if(ImGui::Button(Ui::label(capturing ? "Press Key" : "Record Key").c_str())) {
+            const auto caption =
+                std::string(Ui::text(capturing ? "Press Key" : "Record Key")) + "###Record Key";
+            if(ImGui::Button(caption.c_str())) {
                 cancel_capture();
                 if(input.focused)
                     m_capturing = Capture{action.id, binding.id, input.serial, input.interruption,
@@ -297,7 +299,7 @@ namespace CometEditor {
         // ImGui 只阻断结束帧的快捷键，不参与物理按键身份转换。
         for(int value = ImGuiKey_NamedKey_BEGIN; value < ImGuiKey_NamedKey_END; ++value) {
             const auto key = static_cast<ImGuiKey>(value);
-            if(ImGui::GetKeyData(key)->DownDuration == 0.0f)
+            if(!ImGui::IsMouseKey(key) && ImGui::GetKeyData(key)->DownDuration == 0.0f)
                 ImGui::SetKeyOwner(key, owner, ImGuiInputFlags_LockUntilRelease);
         }
         if(ImGui::GetActiveID() == owner)
@@ -325,6 +327,8 @@ namespace CometEditor {
             return;
         }
         ImGui::SetActiveID(owner, ImGui::GetCurrentWindow());
+        // 录入占用键盘，但鼠标仍可切换到其他控件或关闭面板。
+        ImGui::GetCurrentContext()->ActiveIdAllowOverlap = true;
         ImGui::SetActiveIdUsingAllKeyboardKeys();
         if(input.serial == m_capturing->serial)
             return;
