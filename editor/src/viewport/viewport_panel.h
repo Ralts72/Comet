@@ -51,7 +51,7 @@ namespace CometEditor {
 
         // 所有面板绘制后复核焦点／弹窗，避免当帧输入穿透到运行场景。
         [[nodiscard]] const Comet::Input::Frame& route_runtime_input(
-            const Comet::Input::Frame& input);
+            const Comet::Input::Frame& input, bool ui_input_blocked = false);
 
         [[nodiscard]] std::optional<EditorCameraInput> take_camera_input();
 

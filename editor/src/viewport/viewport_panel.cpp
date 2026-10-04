@@ -160,6 +160,9 @@ namespace CometEditor {
         if(ImGui::Button("|>##Step", button_size))
             m_play_command = PlayCommand::Step;
         ImGui::EndDisabled();
+        ImGui::SameLine();
+        if(ImGui::Button(Ui::label("Input").c_str(), button_size))
+            m_play_command = PlayCommand::InputSettings;
         ImGui::EndDisabled();
     }
 
@@ -519,8 +522,9 @@ namespace CometEditor {
     }
 
     const Comet::Input::Frame& ViewportPanel::route_runtime_input(
-        const Comet::Input::Frame& input) {
-        if(m_state.mode == EditorMode::Play && input.focused
+        const Comet::Input::Frame& input, const bool ui_input_blocked) {
+        const bool blocked = ui_input_blocked || ui_blocks_runtime_input();
+        if(!blocked && m_state.mode == EditorMode::Play && input.focused
             && input.key(Comet::Input::Key::Escape).pressed)
             m_play_command = PlayCommand::Stop;
         const auto* focused = GImGui->NavWindow;
@@ -528,8 +532,7 @@ namespace CometEditor {
         const bool accepting = m_state.mode == EditorMode::Play && m_runtime.is_active()
                                && m_actually_visible && m_texture_id != ImTextureID_Invalid
                                && image_size.x > 0 && image_size.y > 0 && !m_play_command && focused
-                               && focused->RootWindow->ID == m_window_id
-                               && !ui_blocks_runtime_input();
+                               && focused->RootWindow->ID == m_window_id && !blocked;
         return m_runtime_input.read(input, accepting, m_play_image_hovered);
     }
 

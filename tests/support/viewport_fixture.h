@@ -34,6 +34,7 @@ namespace CometEditor::Tests {
         bool focus_text_after_viewport = false;
         Comet::Input runtime_input;
         bool runtime_accepting = false;
+        bool runtime_ui_blocked = false;
         AssetDragPayload mesh_payload{.handle = Comet::AssetHandle(42),
             .revision = 1,
             .generation = 0,
@@ -92,7 +93,8 @@ namespace CometEditor::Tests {
                 ImGui::InputText("Name", text, sizeof(text));
                 ImGui::End();
             }
-            const auto& routed = viewport.route_runtime_input(runtime_input.publish_frame());
+            const auto& routed =
+                viewport.route_runtime_input(runtime_input.publish_frame(), runtime_ui_blocked);
             runtime_accepting = routed.focused;
             if(state.mode == EditorMode::Play) {
                 EXPECT_TRUE(runtime.advance(0.1, &routed));

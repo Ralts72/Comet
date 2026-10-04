@@ -97,6 +97,126 @@ namespace Comet::Tests {
         }
     };
 
+    TEST_F(SceneRuntimeTest, ActiveRebindingKeepsWorldTimingAndRejectsEveryRuntimeCallback) {
+        const auto action_id = Uuid::generate();
+        const auto binding_id = Uuid::generate();
+        const auto actions = InputActions::create({{"jump", InputActions::Type::Button,
+            {{Input::Key::Space, 1, 0, binding_id}}, {}, action_id}});
+        const auto replacement = InputActions::create({{"jump", InputActions::Type::Button,
+            {{Input::Key::J, 1, 0, binding_id}}, {}, action_id}});
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(replacement);
+        ASSERT_TRUE(runtime.set_input_actions(actions.value()));
+        EXPECT_FALSE(runtime.rebind_input_actions(replacement.value()));
+        auto entity = scene.create_entity("Kept world");
+        const auto entity_id = entity.get_uuid();
+        int starts = 0;
+        int stops = 0;
+        int pauses = 0;
+        std::vector<InputState::Action> fixed;
+        std::vector<InputState::Action> updates;
+        auto* system = add();
+        system->start = [&](Scene&) {
+            ++starts;
+            EXPECT_FALSE(runtime.rebind_input_actions(replacement.value()));
+            return UpdateResult::success();
+        };
+        system->fixed = [&](Scene&, const System::Context& context) {
+            EXPECT_FALSE(runtime.rebind_input_actions(actions.value()));
+            fixed.push_back(*context.input.action("jump"));
+            return UpdateResult::success();
+        };
+        system->update_frame = [&](Scene&, const System::Context& context) {
+            EXPECT_FALSE(runtime.rebind_input_actions(actions.value()));
+            updates.push_back(*context.input.action("jump"));
+            return UpdateResult::success();
+        };
+        system->pause = [&](bool) {
+            ++pauses;
+            EXPECT_FALSE(runtime.rebind_input_actions(actions.value()));
+        };
+        system->stop = [&](Scene&) {
+            ++stops;
+            EXPECT_FALSE(runtime.rebind_input_actions(replacement.value()));
+        };
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_FALSE(runtime.set_input_actions(replacement.value()));
+        input.key_event(Input::Key::Space, true);
+        advance(0.05);
+        ASSERT_TRUE(fixed.empty());
+        ASSERT_EQ(updates.size(), 1u);
+        EXPECT_TRUE(updates.back().pressed);
+        const auto before = runtime.get_timing();
+        ASSERT_TRUE(runtime.rebind_input_actions(replacement.value()));
+        EXPECT_EQ(runtime.get_timing().frame_index, before.frame_index);
+        EXPECT_EQ(runtime.get_timing().fixed_index, before.fixed_index);
+        EXPECT_DOUBLE_EQ(runtime.get_timing().total_time, before.total_time);
+        EXPECT_DOUBLE_EQ(runtime.get_timing().interpolation, before.interpolation);
+        input.key_event(Input::Key::J, true);
+        advance(0.05);
+        ASSERT_EQ(fixed.size(), 1u);
+        EXPECT_EQ(runtime.get_timing().fixed_index, 1u);
+        EXPECT_TRUE(fixed.back().down);
+        EXPECT_FALSE(fixed.back().pressed);
+        EXPECT_FALSE(updates.back().pressed);
+        EXPECT_EQ(starts, 1);
+        EXPECT_EQ(stops, 0);
+        EXPECT_EQ(scene.find_entity(entity_id), entity);
+        EXPECT_EQ(scene.entity_count(), 1u);
+
+        ASSERT_TRUE(runtime.set_state(State::Paused));
+        ASSERT_TRUE(runtime.rebind_input_actions(actions.value()));
+        advance(0.2);
+        EXPECT_EQ(fixed.size(), 1u);
+        EXPECT_EQ(updates.size(), 2u);
+        ASSERT_TRUE(runtime.request_step());
+        advance(0.2);
+        ASSERT_EQ(fixed.size(), 2u);
+        EXPECT_TRUE(fixed.back().down);
+        EXPECT_FALSE(fixed.back().pressed);
+        ASSERT_TRUE(runtime.set_state(State::Running));
+        EXPECT_EQ(starts, 1);
+        EXPECT_EQ(pauses, 3);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_EQ(stops, 1);
+        EXPECT_FALSE(runtime.rebind_input_actions(replacement.value()));
+    }
+
+    TEST_F(SceneRuntimeTest, StopCancelsUnpreparedRebindingButRetainsAppliedMapping) {
+        const auto action_id = Uuid::generate();
+        const auto binding_id = Uuid::generate();
+        const auto actions = InputActions::create({{"jump", InputActions::Type::Button,
+            {{Input::Key::Space, 1, 0, binding_id}}, {}, action_id}});
+        const auto replacement = InputActions::create({{"jump", InputActions::Type::Button,
+            {{Input::Key::J, 1, 0, binding_id}}, {}, action_id}});
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(replacement);
+        ASSERT_TRUE(runtime.set_input_actions(actions.value()));
+        std::vector<InputState::Action> updates;
+        auto* system = add();
+        system->update_frame = [&](Scene&, const System::Context& context) {
+            updates.push_back(*context.input.action("jump"));
+            return UpdateResult::success();
+        };
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.rebind_input_actions(replacement.value()));
+        ASSERT_TRUE(runtime.stop());
+        ASSERT_TRUE(runtime.start(scene));
+        input.key_event(Input::Key::Space, true);
+        advance(0);
+        ASSERT_EQ(updates.size(), 1u);
+        EXPECT_TRUE(updates.back().pressed);
+        ASSERT_TRUE(runtime.rebind_input_actions(replacement.value()));
+        advance(0);
+        EXPECT_TRUE(updates.back().released);
+        ASSERT_TRUE(runtime.stop());
+        ASSERT_TRUE(runtime.start(scene));
+        input.key_event(Input::Key::J, true);
+        advance(0);
+        EXPECT_TRUE(updates.back().pressed);
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST_F(SceneRuntimeTest, OrdersPhasesAndStopsInReverseBeforeRestartingCleanly) {
         add("A");
         add("B");

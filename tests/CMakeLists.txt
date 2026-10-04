@@ -91,6 +91,7 @@ set(EDITOR_UI_SOURCES
         editor/ui/test_language.cpp
         editor/ui/test_project_panel.cpp
         editor/ui/test_project_settings.cpp
+        editor/ui/test_player_input_panel.cpp
         editor/ui/test_path_dialog.cpp
         editor/ui/test_shortcuts.cpp
         editor/ui/test_unsaved_scene_dialog.cpp

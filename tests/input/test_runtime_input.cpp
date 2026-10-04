@@ -2,7 +2,485 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <utility>
+
 namespace Comet::Tests {
+    namespace {
+        Result<InputActions> persistent_actions(std::vector<InputActions::Action> actions,
+            std::vector<InputActions::Context> contexts = {}) {
+            for(auto& action : actions) {
+                action.id = Uuid::generate();
+                for(auto& binding : action.bindings)
+                    binding.id = Uuid::generate();
+            }
+            return InputActions::create(std::move(actions), std::move(contexts));
+        }
+    }
+
+    TEST(RuntimeInputTest, RebindingPreservesPendingByIdentityAcrossActionAndBindingReorder) {
+        using Type = InputActions::Type;
+        const auto actions =
+            persistent_actions({{"jump", Type::Button, {{Input::Key::Space}, {Input::Key::R}}},
+                {"look", Type::Delta,
+                    {{InputActions::Motion::ScrollY}, {InputActions::Motion::ScrollX}}}});
+        ASSERT_TRUE(actions);
+        RuntimeInput runtime;
+        runtime.configure(actions.value());
+        Input input;
+        input.focus_event(true);
+        input.key_event(Input::Key::Space, true);
+        input.key_event(Input::Key::Space, false);
+        input.key_event(Input::Key::R, true);
+        input.scroll_event({2, 3});
+        runtime.prepare(&input.publish_frame());
+        auto reordered = actions.value().actions();
+        std::ranges::reverse(reordered);
+        for(auto& action : reordered)
+            std::ranges::reverse(action.bindings);
+        const auto replacement = InputActions::create(std::move(reordered));
+        ASSERT_TRUE(replacement);
+        ASSERT_TRUE(runtime.request_rebind(replacement.value()));
+        EXPECT_TRUE(runtime.update().action("jump")->pressed);
+        EXPECT_FLOAT_EQ(runtime.update().action("look")->value, 5);
+        runtime.prepare(&input.publish_frame());
+        const auto first = runtime.consume_fixed();
+        EXPECT_TRUE(first.action("jump")->down);
+        EXPECT_TRUE(first.action("jump")->pressed);
+        EXPECT_FLOAT_EQ(first.action("look")->value, 5);
+        EXPECT_FALSE(runtime.consume_fixed().action("jump")->pressed);
+        EXPECT_FLOAT_EQ(runtime.consume_fixed().action("look")->value, 0);
+        EXPECT_TRUE(runtime.update().action("jump")->down);
+        EXPECT_FALSE(runtime.update().action("jump")->pressed);
+        input.key_event(Input::Key::R, false);
+        runtime.prepare(&input.publish_frame());
+        EXPECT_TRUE(runtime.update().action("jump")->released);
+        EXPECT_TRUE(runtime.consume_fixed().action("jump")->released);
+    }
+
+    TEST(RuntimeInputTest, RebindingChangesOnlyAffectedBindingHistoryAndBaselinesNewBindings) {
+        using Type = InputActions::Type;
+        const auto actions =
+            persistent_actions({{"jump", Type::Button, {{Input::Key::Space}, {Input::Key::R}}},
+                {"look", Type::Delta,
+                    {{InputActions::Motion::ScrollY}, {InputActions::Motion::ScrollX}}}});
+        ASSERT_TRUE(actions);
+        RuntimeInput runtime;
+        runtime.configure(actions.value());
+        Input input;
+        input.focus_event(true);
+        for(const auto key : {Input::Key::Space, Input::Key::R}) {
+            input.key_event(key, true);
+            input.key_event(key, false);
+        }
+        input.scroll_event({2, 3});
+        runtime.prepare(&input.publish_frame());
+        auto edited = actions.value().actions();
+        edited[0].bindings[0].control = Input::Key::J;
+        edited[0].bindings.push_back({Input::MouseButton::Left, 1, 0, Uuid::generate()});
+        edited[1].bindings[0].scale = 2;
+        const auto replacement = InputActions::create(std::move(edited));
+        ASSERT_TRUE(replacement);
+        ASSERT_TRUE(runtime.request_rebind(replacement.value()));
+        input.key_event(Input::Key::J, true);
+        input.mouse_button_event(Input::MouseButton::Left, true);
+        input.scroll_event({4, 5});
+        runtime.prepare(&input.publish_frame());
+        EXPECT_TRUE(runtime.update().action("jump")->down);
+        EXPECT_FALSE(runtime.update().action("jump")->pressed);
+        EXPECT_FLOAT_EQ(runtime.update().action("look")->value, 4);
+        const auto first = runtime.consume_fixed();
+        EXPECT_TRUE(first.action("jump")->pressed);
+        EXPECT_FLOAT_EQ(first.action("look")->value, 6);
+        EXPECT_FALSE(runtime.consume_fixed().action("jump")->pressed);
+        input.key_event(Input::Key::J, false);
+        input.mouse_button_event(Input::MouseButton::Left, false);
+        runtime.prepare(&input.publish_frame());
+        EXPECT_TRUE(runtime.update().action("jump")->released);
+        EXPECT_TRUE(runtime.consume_fixed().action("jump")->released);
+        input.key_event(Input::Key::J, true);
+        input.scroll_event({0, 3});
+        runtime.prepare(&input.publish_frame());
+        EXPECT_TRUE(runtime.update().action("jump")->pressed);
+        EXPECT_FLOAT_EQ(runtime.consume_fixed().action("look")->value, 6);
+    }
+
+    TEST(RuntimeInputTest, RebindingReleasesOnlyStagesThatObservedTheRemovedHeldSource) {
+        for(const bool fixed_observed : {false, true}) {
+            for(const bool unbind : {false, true}) {
+                SCOPED_TRACE(fixed_observed);
+                SCOPED_TRACE(unbind);
+                const auto actions = persistent_actions(
+                    {{"jump", InputActions::Type::Button, {{Input::Key::Space}}}});
+                ASSERT_TRUE(actions);
+                RuntimeInput runtime;
+                runtime.configure(actions.value());
+                Input input;
+                input.focus_event(true);
+                input.key_event(Input::Key::Space, true);
+                runtime.prepare(&input.publish_frame());
+                if(fixed_observed)
+                    EXPECT_TRUE(runtime.consume_fixed().action("jump")->down);
+                auto edited = actions.value().actions();
+                if(unbind)
+                    edited[0].bindings.clear();
+                else
+                    edited[0].bindings[0].control = Input::Key::J;
+                const auto replacement = InputActions::create(std::move(edited));
+                ASSERT_TRUE(replacement);
+                ASSERT_TRUE(runtime.request_rebind(replacement.value()));
+                EXPECT_TRUE(runtime.update().action("jump")->down);
+                runtime.prepare(&input.publish_frame());
+                EXPECT_TRUE(runtime.update().action("jump")->released);
+                const auto fixed = runtime.consume_fixed();
+                EXPECT_FALSE(fixed.action("jump")->down);
+                EXPECT_FALSE(fixed.action("jump")->pressed);
+                EXPECT_EQ(fixed.action("jump")->released, fixed_observed);
+                EXPECT_FALSE(runtime.consume_fixed().action("jump")->released);
+            }
+        }
+    }
+
+    TEST(RuntimeInputTest, RebindingRequestsAreLastWinsAndRoundTripsDoNotDisturbPendingInput) {
+        const auto actions = persistent_actions(
+            {{"jump", InputActions::Type::Button, {{Input::Key::Space}}, "player"},
+                {"look", InputActions::Type::Delta, {{InputActions::Motion::ScrollY}}}},
+            {{"player"}});
+        ASSERT_TRUE(actions);
+        auto edited = actions.value().actions();
+        edited[0].bindings[0].control = Input::Key::J;
+        const auto first = InputActions::create(edited, actions.value().contexts());
+        edited[0].bindings[0].control = Input::Key::K;
+        const auto last = InputActions::create(edited, actions.value().contexts());
+        ASSERT_TRUE(first);
+        ASSERT_TRUE(last);
+        RuntimeInput runtime;
+        runtime.configure(actions.value());
+        Input input;
+        input.focus_event(true);
+        input.key_event(Input::Key::Space, true);
+        input.key_event(Input::Key::Space, false);
+        input.scroll_event({0, 3});
+        runtime.prepare(&input.publish_frame());
+        ASSERT_TRUE(runtime.request_rebind(first.value()));
+        ASSERT_TRUE(runtime.request_rebind(last.value()));
+        ASSERT_TRUE(runtime.request_rebind(actions.value()));
+        input.scroll_event({0, 2});
+        runtime.prepare(&input.publish_frame());
+        const auto round_trip = runtime.consume_fixed();
+        EXPECT_TRUE(round_trip.action("jump")->pressed);
+        EXPECT_TRUE(round_trip.action("jump")->released);
+        EXPECT_FLOAT_EQ(round_trip.action("look")->value, 5);
+
+        ASSERT_TRUE(runtime.request_rebind(first.value()));
+        ASSERT_TRUE(runtime.request_rebind(last.value()));
+        for(int change = 0; change < 8; ++change) {
+            SCOPED_TRACE(change);
+            auto invalid = actions.value().actions();
+            auto contexts = actions.value().contexts();
+            switch(change) {
+                case 0:
+                    invalid[0].id = Uuid::generate();
+                    break;
+                case 1:
+                    invalid[0].name = "renamed";
+                    break;
+                case 2:
+                    invalid[0].type = InputActions::Type::Axis;
+                    break;
+                case 3:
+                    invalid[0].context.clear();
+                    break;
+                case 4:
+                    contexts[0].priority = 10;
+                    break;
+                case 5:
+                    invalid.pop_back();
+                    break;
+                case 6:
+                    invalid[0].id = {};
+                    break;
+                case 7:
+                    invalid[0].bindings[0].id = {};
+                    break;
+            }
+            const auto candidate = InputActions::create(std::move(invalid), std::move(contexts));
+            ASSERT_TRUE(candidate);
+            EXPECT_FALSE(runtime.request_rebind(candidate.value()));
+        }
+        input.key_event(Input::Key::K, true);
+        runtime.prepare(&input.publish_frame());
+        EXPECT_TRUE(runtime.update().action("jump")->down);
+        EXPECT_FALSE(runtime.update().action("jump")->pressed);
+        input.key_event(Input::Key::K, false);
+        runtime.prepare(&input.publish_frame());
+        input.key_event(Input::Key::J, true);
+        runtime.prepare(&input.publish_frame());
+        EXPECT_FALSE(runtime.update().action("jump")->down);
+        input.key_event(Input::Key::K, true);
+        runtime.prepare(&input.publish_frame());
+        EXPECT_TRUE(runtime.update().action("jump")->pressed);
+
+        const auto anonymous = InputActions::create(
+            {{"jump", InputActions::Type::Button, {{Input::Key::Space}}, "player"},
+                {"look", InputActions::Type::Delta, {{InputActions::Motion::ScrollY}}}},
+            {{"player"}});
+        ASSERT_TRUE(anonymous);
+        runtime.configure(anonymous.value());
+        EXPECT_FALSE(runtime.request_rebind(actions.value()));
+    }
+
+    TEST(RuntimeInputTest, RebindingBaselinesWaitForAvailableDevicesEvenWhenPausedOrReordered) {
+        using Type = InputActions::Type;
+        const auto actions = persistent_actions({{"key", Type::Button, {{Input::Key::B}}},
+            {"mouse", Type::Button, {{Input::MouseButton::Right}}},
+            {"pad", Type::Button, {{Input::GamepadButton::East}}},
+            {"look", Type::Delta, {{InputActions::Motion::ScrollX}}}});
+        ASSERT_TRUE(actions);
+        auto edited = actions.value().actions();
+        edited[0].bindings[0].control = Input::Key::J;
+        edited[1].bindings[0].control = Input::MouseButton::Left;
+        edited[2].bindings[0].control = Input::GamepadButton::South;
+        edited[3].bindings[0].control = InputActions::Motion::ScrollY;
+        const auto replacement = InputActions::create(edited);
+        std::ranges::reverse(edited);
+        const auto reordered = InputActions::create(std::move(edited));
+        ASSERT_TRUE(replacement);
+        ASSERT_TRUE(reordered);
+        for(const bool paused : {false, true}) {
+            SCOPED_TRACE(paused);
+            RuntimeInput runtime;
+            runtime.configure(actions.value());
+            ASSERT_TRUE(runtime.request_rebind(replacement.value()));
+            runtime.prepare(nullptr, paused);
+            ASSERT_TRUE(runtime.request_rebind(reordered.value()));
+            Input::Frame frame{.serial = 1};
+            frame.keys[size_t(Input::Key::J)] = {.down = true, .pressed = true};
+            frame.mouse_buttons[size_t(Input::MouseButton::Left)] = {.down = true, .pressed = true};
+            frame.gamepads[0].buttons[size_t(Input::GamepadButton::South)] = {
+                .down = true, .pressed = true};
+            frame.scroll.y = 5;
+            runtime.prepare(&frame, paused);
+            frame.serial++;
+            frame.focused = true;
+            frame.pointer_enabled = false;
+            runtime.prepare(&frame, paused);
+            EXPECT_TRUE(runtime.update().action("key")->down);
+            EXPECT_FALSE(runtime.update().action("key")->pressed);
+            EXPECT_FALSE(runtime.update().action("mouse")->down);
+            EXPECT_FALSE(runtime.update().action("pad")->down);
+            EXPECT_FALSE(runtime.consume_fixed().action("key")->pressed);
+            frame.serial++;
+            frame.pointer_enabled = true;
+            frame.keys[size_t(Input::Key::J)].pressed = false;
+            runtime.prepare(&frame, paused);
+            EXPECT_TRUE(runtime.update().action("mouse")->down);
+            EXPECT_FALSE(runtime.update().action("mouse")->pressed);
+            EXPECT_FLOAT_EQ(runtime.update().action("look")->value, 0);
+            EXPECT_FALSE(runtime.consume_fixed().action("mouse")->pressed);
+            frame.serial++;
+            frame.gamepads[0].connected = true;
+            frame.mouse_buttons[size_t(Input::MouseButton::Left)].pressed = false;
+            frame.scroll.y = 2;
+            runtime.prepare(&frame, paused);
+            EXPECT_TRUE(runtime.update().action("pad")->down);
+            EXPECT_FALSE(runtime.update().action("pad")->pressed);
+            EXPECT_FLOAT_EQ(runtime.update().action("look")->value, paused ? 0 : 2);
+            EXPECT_FALSE(runtime.consume_fixed().action("pad")->pressed);
+
+            frame.serial++;
+            frame.keys[size_t(Input::Key::J)] = {.released = true};
+            frame.mouse_buttons[size_t(Input::MouseButton::Left)] = {.released = true};
+            frame.gamepads[0].buttons[size_t(Input::GamepadButton::South)] = {.released = true};
+            frame.scroll = {};
+            runtime.prepare(&frame);
+            static_cast<void>(runtime.consume_fixed());
+            frame.serial++;
+            frame.keys[size_t(Input::Key::J)] = {.down = true, .pressed = true};
+            frame.mouse_buttons[size_t(Input::MouseButton::Left)] = {.down = true, .pressed = true};
+            frame.gamepads[0].buttons[size_t(Input::GamepadButton::South)] = {
+                .down = true, .pressed = true};
+            runtime.prepare(&frame);
+            const auto fixed = runtime.consume_fixed();
+            for(const auto name : {"key", "mouse", "pad"}) {
+                EXPECT_TRUE(runtime.update().action(name)->pressed);
+                EXPECT_TRUE(fixed.action(name)->pressed);
+            }
+        }
+    }
+
+    TEST(RuntimeInputTest, RebindingConsumerRoutesAffectsOtherActionsButPreservesDynamicContexts) {
+        using Type = InputActions::Type;
+        const auto actions = persistent_actions(
+            {{"game", Type::Button, {{Input::Key::Space}}, "gameplay"},
+                {"look", Type::Delta, {{InputActions::Motion::ScrollY}}, "gameplay"},
+                {"menu", Type::Button, {{Input::Key::Enter}}, "menu"},
+                {"menu_scroll", Type::Delta, {{InputActions::Motion::ScrollX}}, "menu"},
+                {"common", Type::Button, {{Input::Key::Space}}},
+                {"common_scroll", Type::Delta, {{InputActions::Motion::ScrollY}}},
+                {"sleeping", Type::Button, {{Input::Key::R}}, "sleeping"}},
+            {{"gameplay"}, {"menu", true, 10, true}, {"sleeping"}});
+        ASSERT_TRUE(actions);
+        RuntimeInput runtime;
+        runtime.configure(actions.value());
+        ASSERT_TRUE(runtime.set_context_enabled("sleeping", false));
+        Input input;
+        input.focus_event(true);
+        input.key_event(Input::Key::Space, true);
+        runtime.prepare(&input.publish_frame());
+        EXPECT_TRUE(runtime.consume_fixed().action("game")->down);
+        input.scroll_event({0, 4});
+        runtime.prepare(&input.publish_frame());
+        auto edited = actions.value().actions();
+        edited[2].bindings[0].control = Input::Key::Space;
+        edited[3].bindings[0].control = InputActions::Motion::ScrollY;
+        const auto replacement =
+            InputActions::create(std::move(edited), actions.value().contexts());
+        ASSERT_TRUE(replacement);
+        ASSERT_TRUE(runtime.request_rebind(replacement.value()));
+        input.key_event(Input::Key::R, true);
+        input.scroll_event({0, 3});
+        runtime.prepare(&input.publish_frame());
+        const auto consumed = runtime.consume_fixed();
+        for(const auto* state : {&runtime.update(), &consumed}) {
+            EXPECT_TRUE(state->action("game")->released);
+            EXPECT_FLOAT_EQ(state->action("look")->value, 0);
+            EXPECT_TRUE(state->action("menu")->down);
+            EXPECT_FALSE(state->action("menu")->pressed);
+            EXPECT_FLOAT_EQ(state->action("menu_scroll")->value, 0);
+            EXPECT_TRUE(state->action("common")->down);
+            EXPECT_FALSE(state->action("common")->released);
+            EXPECT_FALSE(state->action("sleeping")->down);
+        }
+        EXPECT_FLOAT_EQ(consumed.action("common_scroll")->value, 7);
+        ASSERT_TRUE(runtime.request_rebind(actions.value()));
+        input.scroll_event({0, 5});
+        runtime.prepare(&input.publish_frame());
+        const auto regained = runtime.consume_fixed();
+        EXPECT_TRUE(regained.action("game")->down);
+        EXPECT_FALSE(regained.action("game")->pressed);
+        EXPECT_FLOAT_EQ(regained.action("look")->value, 0);
+        EXPECT_TRUE(regained.action("menu")->released);
+        EXPECT_FLOAT_EQ(regained.action("common_scroll")->value, 5);
+        EXPECT_FALSE(regained.action("sleeping")->down);
+        runtime.reset();
+        runtime.prepare(&input.publish_frame());
+        EXPECT_TRUE(runtime.update().action("sleeping")->down);
+    }
+
+    TEST(RuntimeInputTest, IndirectRouteGainsFromRebindingWaitForAuthorizedInput) {
+        using Type = InputActions::Type;
+        const auto actions = persistent_actions(
+            {{"look", Type::Delta, {{InputActions::Motion::ScrollY}}, "gameplay"},
+                {"menu", Type::Delta, {{InputActions::Motion::ScrollY}}, "menu"}},
+            {{"gameplay"}, {"menu", true, 10, true}});
+        ASSERT_TRUE(actions);
+        RuntimeInput runtime;
+        runtime.configure(actions.value());
+        auto edited = actions.value().actions();
+        edited[1].bindings[0].control = InputActions::Motion::ScrollX;
+        const auto replacement =
+            InputActions::create(std::move(edited), actions.value().contexts());
+        ASSERT_TRUE(replacement);
+        ASSERT_TRUE(runtime.request_rebind(replacement.value()));
+        runtime.prepare(nullptr);
+        Input::Frame frame{.serial = 1, .focused = true, .pointer_enabled = false};
+        frame.scroll.y = 5;
+        runtime.prepare(&frame);
+        frame.serial++;
+        frame.pointer_enabled = true;
+        frame.scroll.y = 7;
+        runtime.prepare(&frame);
+        EXPECT_FLOAT_EQ(runtime.update().action("look")->value, 0);
+        EXPECT_FLOAT_EQ(runtime.consume_fixed().action("look")->value, 0);
+        frame.serial++;
+        frame.scroll.y = 8;
+        runtime.prepare(&frame);
+        EXPECT_FLOAT_EQ(runtime.update().action("look")->value, 8);
+        EXPECT_FLOAT_EQ(runtime.consume_fixed().action("look")->value, 8);
+    }
+
+    TEST(RuntimeInputTest, RebindingCannotReviveRolledBackDiscardedOrDuplicateFrameHistory) {
+        const auto actions =
+            persistent_actions({{"jump", InputActions::Type::Button, {{Input::Key::Space}}},
+                {"look", InputActions::Type::Delta, {{InputActions::Motion::ScrollY}}}});
+        ASSERT_TRUE(actions);
+        RuntimeInput runtime;
+        runtime.configure(actions.value());
+        Input::Frame frame{.serial = 10, .focused = true};
+        frame.keys[size_t(Input::Key::Space)] = {.pressed = true, .released = true};
+        frame.scroll.y = 3;
+        runtime.prepare(&frame);
+        auto edited = actions.value().actions();
+        edited[0].bindings[0].control = Input::Key::J;
+        const auto replacement = InputActions::create(edited);
+        ASSERT_TRUE(replacement);
+        ASSERT_TRUE(runtime.request_rebind(replacement.value()));
+        frame = {.serial = 1, .focused = true};
+        frame.keys[size_t(Input::Key::J)] = {.down = true, .pressed = true};
+        frame.scroll.y = 5;
+        runtime.prepare(&frame);
+        const auto restarted = runtime.consume_fixed();
+        EXPECT_FALSE(restarted.action("jump")->pressed);
+        EXPECT_FLOAT_EQ(restarted.action("look")->value, 5);
+        runtime.prepare(&frame);
+        EXPECT_FLOAT_EQ(runtime.consume_fixed().action("look")->value, 0);
+        edited[0].bindings[0].control = Input::MouseButton::Left;
+        const auto mouse = InputActions::create(std::move(edited));
+        ASSERT_TRUE(mouse);
+        ASSERT_TRUE(runtime.request_rebind(mouse.value()));
+        runtime.discard();
+        runtime.prepare(nullptr);
+        frame = {.serial = 2, .focused = true};
+        frame.mouse_buttons[size_t(Input::MouseButton::Left)] = {.down = true, .pressed = true};
+        frame.scroll.y = 2;
+        runtime.prepare(&frame);
+        const auto after_discard = runtime.consume_fixed();
+        EXPECT_TRUE(after_discard.action("jump")->down);
+        EXPECT_FALSE(after_discard.action("jump")->pressed);
+        EXPECT_FLOAT_EQ(after_discard.action("look")->value, 2);
+    }
+
+    TEST(RuntimeInputTest, ResetCancelsPendingRebindingRetainsAppliedBindingsAndConfigureWins) {
+        const auto actions =
+            persistent_actions({{"jump", InputActions::Type::Button, {{Input::Key::Space}}}});
+        ASSERT_TRUE(actions);
+        auto edited = actions.value().actions();
+        edited[0].bindings[0].control = Input::Key::J;
+        const auto replacement = InputActions::create(std::move(edited));
+        ASSERT_TRUE(replacement);
+        RuntimeInput runtime;
+        runtime.configure(actions.value());
+        ASSERT_TRUE(runtime.request_rebind(replacement.value()));
+        runtime.reset();
+        Input::Frame frame{.serial = 1, .focused = true};
+        frame.keys[size_t(Input::Key::Space)] = {.down = true, .pressed = true};
+        runtime.prepare(&frame);
+        EXPECT_TRUE(runtime.update().action("jump")->pressed);
+        ASSERT_TRUE(runtime.request_rebind(replacement.value()));
+        const auto before_prepare = runtime.consume_fixed();
+        EXPECT_TRUE(before_prepare.action("jump")->pressed);
+        EXPECT_TRUE(before_prepare.action("jump")->down);
+        frame = {.serial = 2, .focused = true};
+        frame.keys[size_t(Input::Key::J)] = {.down = true, .pressed = true};
+        runtime.prepare(&frame);
+        EXPECT_FALSE(runtime.update().action("jump")->pressed);
+        runtime.reset();
+        runtime.prepare(&frame);
+        EXPECT_TRUE(runtime.update().action("jump")->pressed);
+        ASSERT_TRUE(runtime.request_rebind(actions.value()));
+        const auto unrelated =
+            persistent_actions({{"other", InputActions::Type::Button, {{Input::Key::K}}}});
+        ASSERT_TRUE(unrelated);
+        runtime.configure(unrelated.value());
+        frame = {.serial = 3, .focused = true};
+        frame.keys[size_t(Input::Key::K)] = {.down = true, .pressed = true};
+        runtime.prepare(&frame);
+        EXPECT_EQ(runtime.update().action("jump"), nullptr);
+        ASSERT_NE(runtime.update().action("other"), nullptr);
+        EXPECT_TRUE(runtime.update().action("other")->pressed);
+    }
+
     TEST(RuntimeInputTest, PublishesCoherentStageSnapshotsWithoutConsumingOtherReaders) {
         auto actions =
             InputActions::create({{"jump", InputActions::Type::Button, {{Input::Key::Space}}},

@@ -37,6 +37,8 @@ namespace Comet {
 
         Result<void, Error> set_settings(Settings settings);
         Result<void, Error> set_input_actions(InputActions actions);
+        // 活动运行域的绑定替换在下一次输入准备时生效，不重启系统或修改动作定义。
+        Result<void, Error> rebind_input_actions(InputActions actions);
         Result<void, Error> add_system(std::unique_ptr<System> system);
         Result<void, Error> clear_systems();
         // Rebase 在首张授权输入上建立基线，不把开局前的按下／位移重放到新局。

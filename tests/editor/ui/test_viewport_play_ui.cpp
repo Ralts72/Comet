@@ -4,6 +4,55 @@
 namespace CometEditor::Tests {
     using ViewportPlayUiTest = ViewportUiTest;
 
+    TEST_F(ViewportPlayUiTest, PlayerInputButtonOnlyRequestsSettingsInActivePlay) {
+        auto* window = ImGui::FindWindowByName("Viewport");
+        ASSERT_NE(window, nullptr);
+        const auto input_button = window->GetID(Ui::label("Input").c_str());
+        ImGui::ActivateItemByID(input_button);
+        frame();
+        EXPECT_FALSE(viewport.take_play_command());
+        activate_play_camera();
+        ImGui::ActivateItemByID(input_button);
+        frame();
+        EXPECT_EQ(viewport.take_play_command(), PlayCommand::InputSettings);
+        EXPECT_FALSE(viewport.take_play_command());
+        EXPECT_EQ(runtime.get_state(), Comet::SceneRuntime::State::Running);
+        EXPECT_FALSE(runtime_accepting);
+        ASSERT_TRUE(runtime.set_state(Comet::SceneRuntime::State::Paused));
+        frame();
+        ImGui::ActivateItemByID(input_button);
+        frame();
+        EXPECT_EQ(viewport.take_play_command(), PlayCommand::InputSettings);
+        EXPECT_EQ(runtime.get_state(), Comet::SceneRuntime::State::Paused);
+    }
+
+    TEST_F(ViewportPlayUiTest, RuntimeUiBlocksEscapeAndClosingFrameWithoutReplayingHeldKeys) {
+        activate_play_camera();
+        runtime_ui_blocked = true;
+        runtime_input.key_event(Comet::Input::Key::W, true);
+        runtime_input.key_event(Comet::Input::Key::Escape, true);
+        frame();
+        EXPECT_FALSE(runtime_accepting);
+        EXPECT_FALSE(viewport.take_play_command());
+        const auto position = entity.get_component<Comet::TransformComponent>().translation;
+        frame();
+        EXPECT_EQ(entity.get_component<Comet::TransformComponent>().translation, position);
+        runtime_ui_blocked = false;
+        frame();
+        EXPECT_TRUE(runtime_accepting);
+        EXPECT_FALSE(viewport.take_play_command());
+        EXPECT_EQ(entity.get_component<Comet::TransformComponent>().translation, position);
+        runtime_input.key_event(Comet::Input::Key::W, false);
+        runtime_input.key_event(Comet::Input::Key::Escape, false);
+        frame();
+        runtime_input.key_event(Comet::Input::Key::W, true);
+        frame();
+        EXPECT_NE(entity.get_component<Comet::TransformComponent>().translation, position);
+        runtime_input.key_event(Comet::Input::Key::Escape, true);
+        frame();
+        EXPECT_EQ(viewport.take_play_command(), PlayCommand::Stop);
+    }
+
     TEST_F(ViewportPlayUiTest, PlayControlsReadRuntimeStateAndOnlyEmitOneCommand) {
         using Command = PlayCommand;
         using State = Comet::SceneRuntime::State;

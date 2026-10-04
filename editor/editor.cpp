@@ -28,6 +28,7 @@
 #include "core/engine.h"
 #include "core/project.h"
 #include "input/player_input_settings.h"
+#include "player_input_panel.h"
 #include "common/scope_exit.h"
 #include "render/renderer.h"
 #include "core/window.h"
@@ -273,7 +274,9 @@ namespace {
             {
                 const Comet::ScopeExit end_ui([this] { m_imgui_context->end_frame(); });
                 draw_editor_ui();
-                frame.runtime_input = m_viewport->panel().route_runtime_input(frame.physical_input);
+                const bool input_blocked = render_player_input(frame.physical_input);
+                frame.runtime_input =
+                    m_viewport->panel().route_runtime_input(frame.physical_input, input_blocked);
                 if(auto viewport = m_viewport->update(get_engine().get_scene()); !viewport)
                     return viewport;
             }
@@ -544,6 +547,8 @@ namespace {
                 static_cast<void>(m_property_edit.cancel());
             if(m_viewport)
                 m_viewport->panel().cancel_interaction();
+            m_player_input_panel.close();
+            m_player_input_settings.reset();
             auto previous = get_engine().replace_scene(std::move(scene));
             auto* active = get_engine().get_scene();
             if(m_scene_editor)
@@ -589,6 +594,53 @@ namespace {
                 LOG_ERROR("Cannot change editor mode: {}", result.error().message);
             }
             return Comet::Result<void, Comet::Error>::success();
+        }
+
+        Comet::Result<void> open_player_input() {
+            if(m_player_input_panel.is_open())
+                return Comet::Result<void>::success();
+            auto settings = Comet::PlayerInputSettings::load(m_project.id());
+            if(!settings)
+                return Comet::Result<void>::failure(settings.error());
+            m_player_input_settings = std::move(settings).value();
+            m_player_input_panel.open(
+                m_project.input_actions(), m_player_input_settings->overrides());
+            return Comet::Result<void>::success();
+        }
+
+        Comet::Result<void> apply_player_input(Comet::InputOverrides overrides) {
+            if(!m_player_input_settings || m_editor_state.mode != CometEditor::EditorMode::Play
+                || !get_engine().get_scene_runtime().is_active())
+                return Comet::Result<void>::failure(
+                    "Player input settings require an active Play session");
+            auto resolved = overrides.resolve(m_project.input_actions());
+            if(!resolved)
+                return Comet::Result<void>::failure(resolved.error());
+            if(auto saved = m_player_input_settings->save(std::move(overrides)); !saved)
+                return saved;
+            if(auto applied =
+                    get_engine().rebind_input_actions(std::move(resolved).value().actions);
+                !applied)
+                return Comet::Result<void>::failure(
+                    "Player settings saved but not applied: " + applied.error().message);
+            return Comet::Result<void>::success();
+        }
+
+        bool render_player_input(const Comet::Input::Frame& input) {
+            bool blocked;
+            if(m_ui_language == CometEditor::Ui::Language::Chinese)
+                blocked = m_player_input_panel.render(input, m_translations);
+            else
+                blocked = m_player_input_panel.render(input);
+            if(auto requested = m_player_input_panel.take_request()) {
+                const auto result = apply_player_input(std::move(*requested));
+                m_player_input_panel.complete(result);
+                if(!result)
+                    LOG_WARN("Cannot apply player input: {}", result.error());
+            }
+            if(!m_player_input_panel.is_open())
+                m_player_input_settings.reset();
+            return blocked;
         }
 
         void setup_log_redirect() const {
@@ -823,6 +875,12 @@ namespace {
             }
             if(m_editor_state.mode != CometEditor::EditorMode::Play)
                 return Result::success();
+            if(command == Command::InputSettings) {
+                const auto opened = open_player_input();
+                if(!opened)
+                    return Result::failure({opened.error()});
+                return Result::success();
+            }
             if(command == Command::Pause)
                 return get_engine().set_runtime_state(State::Paused);
             if(command == Command::Resume)
@@ -968,6 +1026,8 @@ namespace {
         std::uint64_t m_reference_history_state = 0;
         Comet::Project m_project;
         CometEditor::ProjectSettings m_project_settings{m_project};
+        CometUi::PlayerInputPanel m_player_input_panel;
+        std::optional<Comet::PlayerInputSettings> m_player_input_settings;
         std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::EditorAssets> m_assets;
         std::unique_ptr<CometEditor::MaterialShaderReload> m_material_shader_reload;

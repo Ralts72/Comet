@@ -123,6 +123,12 @@ namespace Comet {
         return m_scene_runtime.stop();
     }
 
+    Result<void, Error> Engine::rebind_input_actions(InputActions actions) {
+        if(m_shutdown_prepared)
+            return Result<void, Error>::failure({"Engine is shutting down"});
+        return m_scene_runtime.rebind_input_actions(std::move(actions));
+    }
+
     Result<void, Error> Engine::set_runtime_state(SceneRuntime::State state) {
         if(m_shutdown_prepared)
             return Result<void, Error>::failure({"Engine is shutting down"});

@@ -230,7 +230,7 @@ Viewport 在实际进入 Running 时一次性聚焦（Play／Resume），不在�
 最小化等待并重置墙钟增量、窗口瞬态及 Runtime 待处理按下；Gate 根据采样中断版本重新获取授权。
 
 Project 持有默认 InputActions；App 启动、Editor 每次进入／重开 Play 时合成玩家覆盖，再交给 SceneRuntime 内的 RuntimeInput。
-整份映射仍仅停止状态允许替换，不在运行中读取文件。Edit 的项目输入面板继续编辑默认值，不展示或回写玩家覆盖。
+整份动作定义仍仅停止状态允许替换，不在运行中监视文件。Edit 的项目输入面板继续编辑默认值，不展示或回写玩家覆盖。
 Project v2 为项目、动作和绑定保存非零 UUID：项目移动／改名、动作改名、绑定调参／排序不改变身份；
 新建项目、动作或绑定才分配新身份。动作名仍是 Lua 的语义查询键，改名不自动改写脚本。
 `common/Uuid` 复用原实体 UUID 实现，`EntityUuid` 保留为场景语义别名；不借用 AssetHandle 或依赖 Scene。
@@ -239,6 +239,13 @@ Project v2 为项目、动作和绑定保存非零 UUID：项目移动／改名�
 `PlayerInputSettings` 只负责用户配置目录、严格 JSON、加载基线与原子保存；不依赖 Project、Runtime 或 Editor。
 宿主负责组合及一次性报告错误。未知身份／类型漂移只跳过对应记录，其他兼容覆盖继续使用，原记录不改；
 结构错误使宿主回退默认，但加载不获得覆盖坏文件的空配置。保存失败保持原对象，不在启动时修复用户文件。
+`comet_ui/PlayerInputPanel` 是 App／Editor 可共用的玩家覆盖草稿界面，不拥有 Project、文件或 Runtime；
+当前由 Editor Play 接入，App UI 尚待接通。宿主加载文件、处理请求、先保存再提交重绑定，并把成功／失败交回面板。
+面板仅返回候选与输入阻断状态，不增加跨层回调；翻译表由宿主借给当帧使用。关闭当帧也阻断输入，Esc 不穿透成 Stop。
+`SceneRuntime::rebind_input_actions` 只允许非执行中的活动运行域，候选不能改变动作身份、名称、类型、归属或上下文定义。
+RuntimeInput 在下一次 prepare 接收最后一份有效候选，按 UUID 保留未改绑定的固定步历史与路由；
+只给新增／变动绑定建立基线，且等待实际授权和设备可用。动态动作组、普通／固定阶段电平与物理帧序号不重置。
+Stop 取消尚未应用的候选；已经应用的映射保留，下一次 Play 由宿主重新合成文件配置。
 `Window → Input::Frame → Gate → RuntimeInput → InputState → System／Lua`：
 动作不读取平台或 ImGui，不绕过授权。RuntimeInput 拥有映射、活动动作组、普通／固定阶段快照和待消费输入；
 SceneRuntime 只调用 prepare／consume_fixed／update 及生命周期接口，不处理按钮合并或分别安装物理／动作参数。

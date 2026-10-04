@@ -4,7 +4,7 @@
 
 namespace CometEditor {
     enum class EditorMode { Edit, Play };
-    enum class PlayCommand { Play, Stop, Pause, Resume, Step };
+    enum class PlayCommand { Play, Stop, Pause, Resume, Step, InputSettings };
 
     struct EditorState {
         EditorMode mode = EditorMode::Edit;

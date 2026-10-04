@@ -31,8 +31,10 @@ namespace Comet {
     }
 
     void RuntimeInput::reset() {
+        m_pending_actions.reset();
         m_contexts = m_actions.contexts();
         m_routes = m_actions.resolve_routes(m_contexts);
+        m_binding_baselines = InputActions::Routing(m_actions.actions().size());
         m_routes_dirty = false;
         m_actions.sample({}, m_routes, m_samples);
         m_actions.sample({}, m_routes, m_pending_samples);
@@ -41,6 +43,65 @@ namespace Comet {
         m_fixed = {};
         m_serial.reset();
         m_rebase = false;
+    }
+
+    Result<void> RuntimeInput::request_rebind(InputActions actions) {
+        if(auto valid = m_actions.validate_persistent_ids(); !valid)
+            return valid;
+        if(auto valid = actions.validate_persistent_ids(); !valid)
+            return valid;
+        const auto& current = m_actions.actions();
+        if(actions.contexts() != m_actions.contexts() || actions.actions().size() != current.size())
+            return Result<void>::failure("Input rebinding cannot change actions or contexts");
+        for(const auto& action : actions.actions()) {
+            const auto found = std::ranges::find(current, action.id, &InputActions::Action::id);
+            if(found == current.end() || action.name != found->name || action.type != found->type
+                || action.context != found->context)
+                return Result<void>::failure(
+                    "Input rebinding cannot change action identity or schema");
+        }
+        if(actions == m_actions)
+            m_pending_actions.reset();
+        else
+            m_pending_actions = std::move(actions);
+        return Result<void>::success();
+    }
+
+    void RuntimeInput::apply_rebind() {
+        if(!m_pending_actions)
+            return;
+        const auto& current = m_actions.actions();
+        const auto& replacement = m_pending_actions->actions();
+        InputActions::Samples pending(replacement.size());
+        InputActions::Routing routes(replacement.size());
+        InputActions::Routing baselines(replacement.size());
+        for(std::size_t index = 0; index < replacement.size(); ++index) {
+            const auto& action = replacement[index];
+            const auto previous = std::ranges::find(current, action.id, &InputActions::Action::id);
+            const auto previous_index = static_cast<std::size_t>(previous - current.begin());
+            pending[index].resize(action.bindings.size());
+            for(std::size_t binding = 0; binding < action.bindings.size(); ++binding) {
+                const auto& value = action.bindings[binding];
+                const auto old =
+                    std::ranges::find(previous->bindings, value.id, &InputActions::Binding::id);
+                if(old != previous->bindings.end() && *old == value) {
+                    const auto old_index =
+                        static_cast<std::size_t>(old - previous->bindings.begin());
+                    pending[index][binding] = m_pending_samples[previous_index][old_index];
+                    routes[index].set(binding, m_routes[previous_index].test(old_index));
+                    baselines[index].set(
+                        binding, m_binding_baselines[previous_index].test(old_index));
+                } else {
+                    baselines[index].set(binding);
+                }
+            }
+        }
+        m_actions = std::move(*m_pending_actions);
+        m_pending_actions.reset();
+        m_pending_samples = std::move(pending);
+        m_routes = std::move(routes);
+        m_binding_baselines = std::move(baselines);
+        m_routes_dirty = true;
     }
 
     Result<void> RuntimeInput::set_context_enabled(std::string_view name, bool enabled) {
@@ -112,6 +173,7 @@ namespace Comet {
         InputActions::Samples& samples, const InputActions::Routing& routes) {
         for(std::size_t index = 0; index < samples.size(); ++index) {
             const auto type = m_actions.actions()[index].type;
+            m_binding_baselines[index] |= routes[index] & ~m_routes[index];
             for(std::size_t binding = 0; binding < samples[index].size(); ++binding) {
                 auto& source = samples[index][binding];
                 auto& pending = m_pending_samples[index][binding];
@@ -119,12 +181,13 @@ namespace Comet {
                     pending = {};
                     continue;
                 }
-                if(!m_routes[index].test(binding) && routes[index].test(binding)) {
-                    // 新获路由只建立当前电平，不重放取得路由前的点击或位移。
+                if(m_binding_baselines[index].test(binding)) {
+                    // 新绑定／新获路由只建立电平；无授权或设备不可用时继续等待。
                     source.button.pressed = source.button.released = false;
                     if(type == InputActions::Type::Delta)
                         source.value = 0;
                     pending = source;
+                    m_binding_baselines[index].reset(binding);
                     continue;
                 }
                 auto accumulated = source;
@@ -144,11 +207,13 @@ namespace Comet {
 
     void RuntimeInput::prepare(const Input::Frame* input, bool paused) {
         auto frame = consume(input);
+        apply_rebind();
         InputActions::Routing changed_routes;
         if(m_routes_dirty)
             changed_routes = m_actions.resolve_routes(m_contexts);
         const auto& routes = m_routes_dirty ? changed_routes : m_routes;
         m_actions.sample(frame, routes, m_samples);
+        accumulate_samples(m_samples, routes);
         if(paused || m_rebase) {
             if(frame.focused)
                 m_rebase = false;
@@ -161,7 +226,6 @@ namespace Comet {
             m_pending_samples.swap(m_samples);
             m_pending_physical = frame;
         } else {
-            accumulate_samples(m_samples, routes);
             m_actions.evaluate_samples(frame, m_samples, m_update);
         }
         if(m_routes_dirty) {

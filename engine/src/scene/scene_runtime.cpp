@@ -39,6 +39,14 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
+    Result<void, Error> SceneRuntime::rebind_input_actions(InputActions actions) {
+        if(m_executing || !is_active())
+            return Result<void, Error>::failure({"Input rebinding requires an idle active scene"});
+        if(auto requested = m_input.request_rebind(std::move(actions)); !requested)
+            return Result<void, Error>::failure({requested.error()});
+        return Result<void, Error>::success();
+    }
+
     Result<void, Error> SceneRuntime::clear_systems() {
         if(m_executing || is_active())
             return Result<void, Error>::failure({"Stop the scene runtime before clearing systems"});
