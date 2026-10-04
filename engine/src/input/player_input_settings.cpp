@@ -12,7 +12,7 @@
 
 namespace Comet {
     namespace {
-        constexpr std::uint32_t FORMAT_VERSION = 1;
+        constexpr std::uint32_t FORMAT_VERSION = 2;
 
         Result<std::optional<std::string>> read_optional_file(const std::filesystem::path& path) {
             using Read = Result<std::optional<std::string>>;
@@ -201,29 +201,27 @@ namespace Comet {
                         writer.field("type", "delta");
                         break;
                 }
-                if(action.disabled) {
+                if(action.disabled)
                     writer.field("disabled", true);
-                } else {
+                if(!action.bindings.empty()) {
                     writer.key("bindings");
                     writer.begin_array();
                     for(const auto& binding : action.bindings) {
                         writer.begin_object();
                         writer.field("id", binding.id.to_string());
-                        if(binding.disabled) {
+                        if(binding.disabled)
                             writer.field("disabled", true);
-                        } else {
-                            if(binding.control) {
-                                const auto name = InputActions::format_binding({*binding.control});
-                                if(!name)
-                                    return Result<std::string>::failure(name.error());
-                                writer.field("source", name.value().source);
-                                writer.field("control", name.value().control);
-                            }
-                            if(binding.scale)
-                                writer.field("scale", *binding.scale);
-                            if(binding.deadzone)
-                                writer.field("deadzone", *binding.deadzone);
+                        if(binding.control) {
+                            const auto name = InputActions::format_binding({*binding.control});
+                            if(!name)
+                                return Result<std::string>::failure(name.error());
+                            writer.field("source", name.value().source);
+                            writer.field("control", name.value().control);
                         }
+                        if(binding.scale)
+                            writer.field("scale", *binding.scale);
+                        if(binding.deadzone)
+                            writer.field("deadzone", *binding.deadzone);
                         writer.end_object();
                     }
                     writer.end_array();

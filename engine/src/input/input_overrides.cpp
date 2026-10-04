@@ -16,9 +16,9 @@ namespace Comet {
                 return Created::failure("Invalid or duplicate input override action ID");
             if(auto valid = InputActions::create({{"override", action.type, {}}}); !valid)
                 return Created::failure(valid.error());
-            if(action.disabled ? !action.bindings.empty() : action.bindings.empty())
+            if(!action.disabled && action.bindings.empty())
                 return Created::failure(
-                    "Input action override requires either disabled or binding overrides");
+                    "Input action override requires disabled or binding overrides");
             if(action.bindings.size() > InputActions::MAX_BINDINGS)
                 return Created::failure("Too many input binding overrides");
             std::set<Uuid> binding_ids;
@@ -26,9 +26,9 @@ namespace Comet {
                 if(!binding.id || !binding_ids.insert(binding.id).second)
                     return Created::failure("Invalid or duplicate input override binding ID");
                 const bool has_fields = binding.control || binding.scale || binding.deadzone;
-                if(binding.disabled ? has_fields : !has_fields)
+                if(!binding.disabled && !has_fields)
                     return Created::failure(
-                        "Input binding override requires either disabled or changed fields");
+                        "Input binding override requires disabled or changed fields");
                 if((binding.scale && !std::isfinite(*binding.scale))
                     || (binding.deadzone && !std::isfinite(*binding.deadzone)))
                     return Created::failure("Input override values must be finite");

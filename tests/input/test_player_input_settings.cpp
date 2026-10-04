@@ -54,7 +54,7 @@ namespace Comet::Tests {
         }
 
         std::string document(std::string_view actions = "[]") const {
-            return R"({"version":1,"project_id":")" + project_id.to_string() + R"(","actions":)"
+            return R"({"version":2,"project_id":")" + project_id.to_string() + R"(","actions":)"
                    + std::string(actions) + "}";
         }
 
@@ -131,6 +131,47 @@ namespace Comet::Tests {
         ASSERT_TRUE(loaded.value().save(loaded.value().overrides()));
         EXPECT_EQ(read_text_file(file).value(), original);
         EXPECT_EQ(std::filesystem::last_write_time(file), timestamp);
+    }
+
+    TEST_F(PlayerInputSettingsTest, DisabledFlagsRoundTripAllRetainedFieldsAndBindings) {
+        const auto axis_binding_id = Uuid::generate();
+        const auto enabled = InputOverrides::create({{action_id, InputActions::Type::Axis, false,
+            {{.id = binding_id, .control = Input::Key::K, .scale = -2, .deadzone = 0},
+                {.id = axis_binding_id,
+                    .control = Input::GamepadAxis::RightX,
+                    .scale = 0.5f,
+                    .deadzone = 0.3f}}}});
+        ASSERT_TRUE(enabled);
+        for(const bool action_disabled : {false, true}) {
+            for(const bool binding_disabled : {false, true}) {
+                SCOPED_TRACE(testing::Message()
+                             << "action=" << action_disabled << ", binding=" << binding_disabled);
+                auto records = enabled.value().actions();
+                records[0].disabled = action_disabled;
+                for(auto& binding : records[0].bindings)
+                    binding.disabled = binding_disabled;
+                const auto candidate = InputOverrides::create(std::move(records));
+                ASSERT_TRUE(candidate);
+                auto loaded = PlayerInputSettings::load(project_id, file);
+                ASSERT_TRUE(loaded) << loaded.error();
+                ASSERT_TRUE(loaded.value().save(candidate.value()));
+                auto reopened = PlayerInputSettings::load(project_id, file);
+                ASSERT_TRUE(reopened) << reopened.error();
+                EXPECT_EQ(reopened.value().overrides(), candidate.value());
+
+                auto restored = reopened.value().overrides().actions();
+                restored[0].disabled = false;
+                for(auto& binding : restored[0].bindings)
+                    binding.disabled = false;
+                const auto reenabled = InputOverrides::create(std::move(restored));
+                ASSERT_TRUE(reenabled);
+                EXPECT_EQ(reenabled.value(), enabled.value());
+                ASSERT_TRUE(reopened.value().save(reenabled.value()));
+                const auto active = PlayerInputSettings::load(project_id, file);
+                ASSERT_TRUE(active);
+                EXPECT_EQ(active.value().overrides(), enabled.value());
+            }
+        }
     }
 
     TEST_F(PlayerInputSettingsTest, KeepsIncompatibleFiniteValuesForDefaultDependentResolution) {
@@ -220,14 +261,14 @@ namespace Comet::Tests {
     TEST_F(PlayerInputSettingsTest, RejectsInvalidTopLevelAndWrongProjectWithoutRewriting) {
         const auto correct = document();
         const std::vector<std::string> invalid{"", "{", "[]", "null",
-            R"({"version":2,"project_id":")" + project_id.to_string() + R"(","actions":[]})",
-            R"({"version":1,"actions":[]})", R"({"version":1,"project_id":null,"actions":[]})",
-            R"({"version":1,"project_id":"bad","actions":[]})",
-            R"({"version":1,"project_id":"00000000-0000-0000-0000-000000000000","actions":[]})",
-            R"({"version":1,"project_id":")" + Uuid::generate().to_string() + R"(","actions":[]})",
+            R"({"version":3,"project_id":")" + project_id.to_string() + R"(","actions":[]})",
+            R"({"version":2,"actions":[]})", R"({"version":2,"project_id":null,"actions":[]})",
+            R"({"version":2,"project_id":"bad","actions":[]})",
+            R"({"version":2,"project_id":"00000000-0000-0000-0000-000000000000","actions":[]})",
+            R"({"version":2,"project_id":")" + Uuid::generate().to_string() + R"(","actions":[]})",
             R"({"project_id":")" + project_id.to_string() + R"(","actions":[]})",
             correct.substr(0, correct.size() - 1) + R"(,"extra":1})",
-            correct.substr(0, correct.size() - 1) + R"(,"version":1})", document("null"),
+            correct.substr(0, correct.size() - 1) + R"(,"version":2})", document("null"),
             document("{}")};
         for(const auto& contents : invalid) {
             SCOPED_TRACE(contents);
@@ -235,6 +276,21 @@ namespace Comet::Tests {
             EXPECT_FALSE(PlayerInputSettings::load(project_id, file));
             EXPECT_EQ(read_text_file(file).value(), contents);
         }
+    }
+
+    TEST_F(PlayerInputSettingsTest, RejectsVersionOneWithoutRewritingOrMigrating) {
+        const auto original = R"({ "version":1,"project_id":")" + project_id.to_string()
+                              + R"(","actions":[)" + action(R"("disabled":true)") + "] }\n";
+        write(original);
+        const auto timestamp = std::filesystem::last_write_time(file);
+        const auto loaded = PlayerInputSettings::load(project_id, file);
+        ASSERT_FALSE(loaded);
+        EXPECT_NE(loaded.error().find("unsupported version"), std::string::npos);
+        EXPECT_EQ(read_text_file(file).value(), original);
+        EXPECT_EQ(std::filesystem::last_write_time(file), timestamp);
+        EXPECT_EQ(std::distance(std::filesystem::directory_iterator(file.parent_path()),
+                      std::filesystem::directory_iterator{}),
+            1);
     }
 
     TEST_F(PlayerInputSettingsTest, RejectsInvalidOverrideSchemaWithoutPartialLoad) {
@@ -247,17 +303,22 @@ namespace Comet::Tests {
             "[" + action(R"("disabled":true,"extra":1)") + "]",
             "[" + action(R"("disabled":true,"disabled":true)") + "]",
             "[" + action(R"("disabled":true)") + "," + action(R"("disabled":true)") + "]",
-            "[" + action("\"disabled\":true,\"bindings\":[" + binding(R"("scale":1)") + "]") + "]",
+            "[" + action("\"disabled\":true,\"bindings\":[" + binding(R"("source":"key")") + "]")
+                + "]",
             binding_array(R"("disabled":false)"), binding_array(R"("source":"key")"),
             binding_array(R"("control":"J")"), binding_array(R"("source":1,"control":"J")"),
             binding_array(R"("source":"key","control":null)"),
             binding_array(R"("source":"key","control":"UnknownKey")"),
             binding_array(R"("source":"unknown","control":"J")"), binding_array(R"("scale":null)"),
             binding_array(R"("scale":1e100)"), binding_array(R"("deadzone":"0.1")"),
-            binding_array(R"("disabled":true,"scale":1)"), binding_array(R"("scale":1,"extra":1)"),
-            binding_array(R"("scale":1,"scale":2)")};
+            binding_array(R"("disabled":true,"scale":1e100)"),
+            binding_array(R"("disabled":true,"source":"key","control":"UnknownKey")"),
+            binding_array(R"("scale":1,"extra":1)"), binding_array(R"("scale":1,"scale":2)")};
         const auto duplicate = binding(R"("scale":1)");
         invalid.push_back("[" + action("\"bindings\":[" + duplicate + "," + duplicate + "]") + "]");
+        invalid.push_back(
+            "[" + action("\"disabled\":true,\"bindings\":[" + duplicate + "," + duplicate + "]")
+            + "]");
         invalid.push_back("[" + action(R"("bindings":[{"scale":1}])") + "]");
         for(const std::string id : {"", "bad", "00000000-0000-0000-0000-000000000000"}) {
             invalid.push_back(R"([{"id":")" + id + R"(","type":"button","disabled":true}])");

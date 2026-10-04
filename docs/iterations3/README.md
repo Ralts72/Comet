@@ -34,6 +34,8 @@
   Debug 全目标／Release App 与契约／边界通过，完成 026–030 架构回顾；真实宿主保存闭环仍待验收。
 - 031 已验收：项目／玩家面板共用无状态控制菜单数据，保留各自录入与写回协议；48 定向 UI、
   完整 1053 CPU／214 UI、Debug App／Editor 与契约／边界通过。
+- 032 已验收：禁用保留个人字段，启用重新校验，恢复默认才删除；玩家文件 v2 严格检测；33 定向 CPU／36 UI、
+  完整 1057 CPU／216 UI、Debug App／Editor／Release App 与契约／边界通过。
 
 ## 第二轮续跑（历史，范围确认后结束受阻状态）
 
@@ -153,6 +155,7 @@
 | [029 玩家手柄按钮录入](029-player-gamepad-recording.md) | 已验收 | 对应本项文档的提交；28 定向 CPU／31 UI、1053 CPU／211 UI、Debug App／Editor 与契约／边界通过；锁槽、新按下、设备变化取消及真实 Gate 隔离 |
 | [030 玩家设置失败反馈](030-player-input-failure-feedback.md) | 已验收 | 对应本项文档的提交；34 定向 UI、1053 CPU／214 UI、Debug 全目标／Release App 与契约／边界通过；关闭帧、坏文件保留、小窗可见错误与重试，完成 026–030 回顾 |
 | [031 输入菜单数据收敛](031-shared-input-menu-data.md) | 已验收 | 对应本项文档的提交；48 定向 UI、1053 CPU／214 UI、Debug App／Editor 与契约／边界通过；保留项目文本编辑、玩家录入和控件身份，无新增类或回调 |
+| [032 禁用保留个人配置](032-preserve-disabled-player-bindings.md) | 已验收 | 对应本项文档的提交；33 定向 CPU／36 UI、1057 CPU／216 UI、Debug／Release 与契约／边界通过；启停、保存重开、默认漂移及严格版本检测 |
 
 ## 首轮收尾记录（001–009，历史）
 

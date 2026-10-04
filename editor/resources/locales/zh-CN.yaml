@@ -19,6 +19,7 @@
 "Disable Binding": "禁用绑定"
 "Inherits project default": "继承项目默认"
 "Personal override": "个人覆盖"
+"Disabled; personal overrides are preserved.": "已禁用；个人配置仍保留，重新启用后恢复。"
 "Override ignored; using project default": "覆盖未生效；使用项目默认"
 "No input actions.": "项目没有配置输入动作。"
 "Press a key; Escape cancels recording.": "请按下新按键；Esc 取消录入。"

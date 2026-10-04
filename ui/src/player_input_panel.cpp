@@ -179,36 +179,34 @@ namespace CometUi {
     }
 
     void PlayerInputPanel::disable_action(const Action& action, const bool disabled) {
-        if(!disabled) {
-            restore_action(action.id);
-            return;
-        }
         auto actions = m_draft.actions();
         auto found = std::ranges::find(actions, action.id, &Overrides::Action::id);
-        Overrides::Action patch{action.id, action.type, true, {}};
-        if(found == actions.end())
-            actions.push_back(std::move(patch));
-        else
-            *found = std::move(patch);
+        if(found == actions.end()) {
+            if(disabled)
+                actions.push_back({action.id, action.type, true, {}});
+        } else {
+            found->disabled = disabled;
+            if(!disabled && found->bindings.empty())
+                actions.erase(found);
+        }
         commit(std::move(actions));
         m_capture.reset();
     }
 
-    void PlayerInputPanel::store_binding(
+    void PlayerInputPanel::disable_binding(
+        const Action& action, const Binding& binding, const bool disabled) {
+        auto patch = binding_patch(action.id, binding.id);
+        patch.disabled = disabled;
+        // 启停保留失配字段，由 resolve 给出默认回退，不当作一次字段编辑。
+        commit_binding(action, binding, std::move(patch));
+        m_capture.reset();
+    }
+
+    void PlayerInputPanel::commit_binding(
         const Action& action, const Binding& binding, Overrides::Binding patch) {
         if(!patch.disabled && !patch.control && !patch.scale && !patch.deadzone) {
             restore_binding(action.id, binding.id);
             return;
-        }
-        if(!patch.disabled) {
-            const auto valid =
-                Actions::create({{action.name, action.type, {composed_binding(binding, patch)},
-                                    action.context, action.id}},
-                    m_defaults.contexts());
-            if(!valid) {
-                m_error = valid.error();
-                return;
-            }
         }
         auto actions = m_draft.actions();
         auto found = std::ranges::find(actions, action.id, &Overrides::Action::id);
@@ -222,6 +220,19 @@ namespace CometUi {
                 *record = std::move(patch);
         }
         commit(std::move(actions));
+    }
+
+    void PlayerInputPanel::store_binding(
+        const Action& action, const Binding& binding, Overrides::Binding patch) {
+        const auto valid =
+            Actions::create({{action.name, action.type, {composed_binding(binding, patch)},
+                                action.context, action.id}},
+                m_defaults.contexts());
+        if(!valid) {
+            m_error = valid.error();
+            return;
+        }
+        commit_binding(action, binding, std::move(patch));
     }
 
     void PlayerInputPanel::change_control(
@@ -378,19 +389,14 @@ namespace CometUi {
         Overrides::Resolution& resolved, const Input::Frame& input, const Text& translations) {
         ImGui::PushID(binding.id.to_string().c_str());
         auto patch = binding_patch(action.id, binding.id);
+        const auto* action_override = action_patch(action.id);
+        const bool incompatible = action_override && action_override->type != action.type;
         bool changed = false;
-        bool rejected = binding_rejected(resolved, action.id, binding.id);
-        bool disabled = patch.disabled && !rejected;
-        ImGui::BeginDisabled(rejected);
+        bool disabled = patch.disabled && !incompatible;
         if(ImGui::Checkbox(label(translations, "Disable Binding").c_str(), &disabled)) {
-            if(disabled)
-                store_binding(action, binding, {.id = binding.id, .disabled = true});
-            else
-                restore_binding(action.id, binding.id);
-            m_capture.reset();
+            disable_binding(action, binding, disabled);
             changed = true;
         }
-        ImGui::EndDisabled();
         same_line_if_fits(button_width(text(translations, "Restore Binding")));
         if(ImGui::Button(label(translations, "Restore Binding").c_str())) {
             restore_binding(action.id, binding.id);
@@ -402,10 +408,15 @@ namespace CometUi {
                 resolved = std::move(updated).value();
         }
         patch = binding_patch(action.id, binding.id);
-        const auto* action_override = action_patch(action.id);
-        const bool overridden = patch.disabled || patch.control || patch.scale || patch.deadzone
-                                || (action_override && action_override->disabled);
-        rejected = binding_rejected(resolved, action.id, binding.id);
+        if(patch.disabled && !incompatible) {
+            ImGui::TextWrapped(
+                "%s", text(translations, "Disabled; personal overrides are preserved."));
+            ImGui::Separator();
+            ImGui::PopID();
+            return;
+        }
+        const bool overridden = patch.control || patch.scale || patch.deadzone;
+        const bool rejected = binding_rejected(resolved, action.id, binding.id);
         const char* status = "Inherits project default";
         if(rejected)
             status = "Override ignored; using project default";
@@ -414,7 +425,7 @@ namespace CometUi {
         ImGui::TextWrapped("%s", text(translations, status));
         const auto& effective_bindings = resolved.actions.actions()[m_selected_action].bindings;
         const auto effective = std::ranges::find(effective_bindings, binding.id, &Binding::id);
-        ImGui::BeginDisabled(patch.disabled || rejected);
+        ImGui::BeginDisabled(rejected);
         render_controls(action, binding,
             effective == effective_bindings.end() ? binding : *effective, input, translations);
         ImGui::EndDisabled();
@@ -460,10 +471,15 @@ namespace CometUi {
         if(incompatible)
             ImGui::TextWrapped("%s",
                 text(translations, "Restore this action before editing incompatible overrides."));
+        if(disabled) {
+            ImGui::TextWrapped(
+                "%s", text(translations, "Disabled; personal overrides are preserved."));
+            return;
+        }
         auto resolved = m_draft.resolve(m_defaults);
         if(!resolved)
             return;
-        ImGui::BeginDisabled(incompatible || disabled);
+        ImGui::BeginDisabled(incompatible);
         ImGui::BeginChild("Bindings", ImVec2(0, 190), true);
         for(const auto& binding : action.bindings)
             render_binding(action, binding, resolved.value(), input, translations);

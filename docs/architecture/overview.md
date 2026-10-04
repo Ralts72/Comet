@@ -237,6 +237,8 @@ Project v2 为项目、动作和绑定保存非零 UUID：项目移动／改名�
 `common/Uuid` 复用原实体 UUID 实现，`EntityUuid` 保留为场景语义别名；不借用 AssetHandle 或依赖 Scene。
 纯内存 InputActions 可匿名，Project 的读取／保存边界要求完整且有效的身份；旧 project.json 版本只报错，不迁移。
 `InputOverrides` 是按动作／绑定 UUID 定位的稀疏值，control、scale、deadzone 分别可选，未覆盖字段始终继承当前默认。
+disabled 是独立开关，不清空同一记录中的个人字段或子绑定；合成先检查动作身份／类型，再跳过禁用内容。
+重新启用时按当前默认值重新校验保留的字段，不能因此抹掉不兼容记录；恢复默认才删除记录。
 `PlayerInputSettings` 只负责用户配置目录、严格 JSON、加载基线与原子保存；不依赖 Project、Runtime 或 Editor。
 宿主负责组合及一次性报告错误。未知身份／类型漂移只跳过对应记录，其他兼容覆盖继续使用，原记录不改；
 结构错误使宿主回退默认，但加载不获得覆盖坏文件的空配置。保存失败保持原对象，不在启动时修复用户文件。
@@ -277,7 +279,8 @@ InputActions 的只读 `compare_bindings` 与实际路由共用消费判定；�
 展示规范化 control 的共享／消费关系及默认禁用标记；无效草稿不沿用旧提示，合法重叠不阻止保存。
 两面板共用 `comet_ui/input_widgets` 的关系正文。玩家侧只对 `InputOverrides::Resolution::actions` 展示关系，
 与诊断共用同一合成结果；被拒绝补丁的控件值不冒充有效绑定。共享展示借用词表，不依赖 Editor 或新增翻译回调。
-玩家面板按合成 issue 的身份标记拒绝状态；此时保留原补丁、显示有效默认并禁用绑定编辑，只允许显式恢复。
+玩家面板按合成 issue 的身份标记拒绝状态；此时保留原补丁、显示有效默认，恢复绑定后才能编辑控制字段。
+绑定仍可独立禁用／启用；动作类型已漂移时必须先恢复动作。禁用内容不显示默认控制冒充个人值，也不由 UI 另存备份。
 正文与根操作栏分开，弹窗尺寸及位置在 Begin 前按 viewport 约束，缩小后不把取消／应用滚出可用区域。
 RuntimeInput 保存本局的活动组状态，reset 恢复默认；InputState 仍是只读的阶段结果，System／Lua 不持有映射配置。
 `comet.set_input_context → Scene::request_input_context → SceneRuntime::advance → RuntimeInput::set_context_enabled`：

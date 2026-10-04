@@ -164,6 +164,91 @@ namespace Comet::Tests {
         EXPECT_EQ(overrides.value(), original);
     }
 
+    TEST(InputOverridesTest, DisabledFlagsPreserveFieldsAndBindingsUntilEnabled) {
+        const auto defaults = InputActions::create({{"move", Type::Axis,
+            {{Input::Key::D, 1, 0, id(2)}, {Input::GamepadAxis::LeftX, 1, 0.1f, id(3)}}, {},
+            id(1)}});
+        ASSERT_TRUE(defaults);
+        const auto enabled = InputOverrides::create({{id(1), Type::Axis, false,
+            {{.id = id(2), .control = Input::Key::K, .scale = -2, .deadzone = 0},
+                {.id = id(3), .control = Input::GamepadAxis::RightX, .deadzone = 0.3f}}}});
+        ASSERT_TRUE(enabled);
+        const auto expected = enabled.value().resolve(defaults.value());
+        ASSERT_TRUE(expected);
+        EXPECT_TRUE(expected.value().issues.empty());
+
+        for(const bool action_disabled : {false, true}) {
+            for(const bool binding_disabled : {false, true}) {
+                SCOPED_TRACE(testing::Message()
+                             << "action=" << action_disabled << ", binding=" << binding_disabled);
+                auto records = enabled.value().actions();
+                records[0].disabled = action_disabled;
+                records[0].bindings[0].disabled = binding_disabled;
+                const auto disabled = InputOverrides::create(records);
+                ASSERT_TRUE(disabled) << disabled.error();
+                const auto result = disabled.value().resolve(defaults.value());
+                ASSERT_TRUE(result);
+                EXPECT_TRUE(result.value().issues.empty());
+                const auto& bindings = result.value().actions.actions()[0].bindings;
+                if(action_disabled) {
+                    EXPECT_TRUE(bindings.empty());
+                } else if(binding_disabled) {
+                    ASSERT_EQ(bindings.size(), 1u);
+                    EXPECT_EQ(bindings[0], expected.value().actions.actions()[0].bindings[1]);
+                } else {
+                    EXPECT_EQ(result.value().actions, expected.value().actions);
+                }
+                EXPECT_EQ(disabled.value().actions(), records);
+
+                auto restored = disabled.value().actions();
+                restored[0].disabled = false;
+                restored[0].bindings[0].disabled = false;
+                const auto reenabled = InputOverrides::create(std::move(restored));
+                ASSERT_TRUE(reenabled);
+                EXPECT_EQ(reenabled.value(), enabled.value());
+                const auto active = reenabled.value().resolve(defaults.value());
+                ASSERT_TRUE(active);
+                EXPECT_EQ(active.value().actions, expected.value().actions);
+            }
+        }
+    }
+
+    TEST(InputOverridesTest, EnablingRetainedFieldsAfterDefaultDriftReportsWithoutDeletingThem) {
+        const auto defaults = InputActions::create(
+            {{"move", Type::Axis, {{Input::GamepadAxis::LeftX, 1, 0.1f, id(2)}}, {}, id(1)}});
+        const auto changed =
+            InputActions::create({{"move", Type::Axis, {{Input::Key::D, 1, 0, id(2)}}, {}, id(1)}});
+        ASSERT_TRUE(defaults);
+        ASSERT_TRUE(changed);
+        for(const bool action_disabled : {false, true}) {
+            SCOPED_TRACE(action_disabled);
+            const auto disabled = InputOverrides::create({{id(1), Type::Axis, action_disabled,
+                {{.id = id(2), .deadzone = 0.3f, .disabled = !action_disabled}}}});
+            ASSERT_TRUE(disabled);
+            const auto inactive = disabled.value().resolve(changed.value());
+            ASSERT_TRUE(inactive);
+            EXPECT_TRUE(inactive.value().issues.empty());
+            EXPECT_TRUE(inactive.value().actions.actions()[0].bindings.empty());
+
+            auto records = disabled.value().actions();
+            records[0].disabled = false;
+            records[0].bindings[0].disabled = false;
+            const auto enabled = InputOverrides::create(records);
+            ASSERT_TRUE(enabled);
+            const auto incompatible = enabled.value().resolve(changed.value());
+            ASSERT_TRUE(incompatible);
+            EXPECT_EQ(incompatible.value().actions, changed.value());
+            ASSERT_EQ(incompatible.value().issues.size(), 1u);
+            EXPECT_EQ(incompatible.value().issues[0].action, id(1));
+            EXPECT_EQ(incompatible.value().issues[0].binding, id(2));
+            EXPECT_EQ(enabled.value().actions(), records);
+            const auto compatible = enabled.value().resolve(defaults.value());
+            ASSERT_TRUE(compatible);
+            EXPECT_TRUE(compatible.value().issues.empty());
+            EXPECT_FLOAT_EQ(compatible.value().actions.actions()[0].bindings[0].deadzone, 0.3f);
+        }
+    }
+
     TEST(InputOverridesTest, IncompatibleRecordsCanApplyAgainWhenDefaultsBecomeCompatible) {
         const auto overrides = InputOverrides::create(
             {{id(1), Type::Button, false, {{.id = id(2), .control = Input::Key::J}}}});
@@ -239,24 +324,22 @@ namespace Comet::Tests {
         EXPECT_FALSE(InputOverrides::create({{{}, Type::Button, true, {}}}));
         EXPECT_FALSE(InputOverrides::create(
             {{id(1), Type::Button, true, {}}, {id(1), Type::Axis, true, {}}}));
-        EXPECT_FALSE(
-            InputOverrides::create({{id(1), Type::Button, false, {{.control = Input::Key::J}}}}));
         const Binding binding{.id = id(2), .disabled = true};
-        EXPECT_FALSE(InputOverrides::create({{id(1), Type::Button, false, {binding, binding}}}));
+        for(const bool disabled : {false, true}) {
+            EXPECT_FALSE(InputOverrides::create(
+                {{id(1), Type::Button, disabled, {{.control = Input::Key::K, .disabled = true}}}}));
+            EXPECT_FALSE(
+                InputOverrides::create({{id(1), Type::Button, disabled, {binding, binding}}}));
+        }
         EXPECT_TRUE(InputOverrides::create(
             {{id(1), Type::Button, false, {binding}}, {id(3), Type::Button, false, {binding}}}));
     }
 
-    TEST(InputOverridesTest, RejectsEmptyAndContradictoryRecords) {
+    TEST(InputOverridesTest, RejectsEmptyEnabledRecordsEvenWithinDisabledActions) {
         EXPECT_FALSE(InputOverrides::create({{id(1), Type::Button, false, {}}}));
-        EXPECT_FALSE(InputOverrides::create(
-            {{id(1), Type::Button, true, {{.id = id(2), .disabled = true}}}}));
-        const std::array bindings{Binding{.id = id(2)},
-            Binding{.id = id(2), .control = Input::Key::J, .disabled = true},
-            Binding{.id = id(2), .scale = 1, .disabled = true},
-            Binding{.id = id(2), .deadzone = 0, .disabled = true}};
-        for(const auto& binding : bindings)
-            EXPECT_FALSE(InputOverrides::create({{id(1), Type::Button, false, {binding}}}));
+        for(const bool disabled : {false, true})
+            EXPECT_FALSE(
+                InputOverrides::create({{id(1), Type::Button, disabled, {{.id = id(2)}}}}));
     }
 
     TEST(InputOverridesTest, RejectsInvalidTypesControlsAndNonfiniteFields) {
@@ -264,15 +347,22 @@ namespace Comet::Tests {
         const std::array<InputActions::Control, 7> controls{Input::Key::Unknown, Input::Key::Count,
             Input::MouseButton::Count, Input::GamepadButton::Count, Input::GamepadAxis::Count,
             static_cast<InputActions::Motion>(-1), static_cast<InputActions::Motion>(4)};
-        for(const auto& control : controls)
-            EXPECT_FALSE(InputOverrides::create(
-                {{id(1), Type::Button, false, {{.id = id(2), .control = control}}}}));
-        for(const float value : {std::numeric_limits<float>::infinity(),
-                -std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()}) {
-            EXPECT_FALSE(InputOverrides::create(
-                {{id(1), Type::Axis, false, {{.id = id(2), .scale = value}}}}));
-            EXPECT_FALSE(InputOverrides::create(
-                {{id(1), Type::Axis, false, {{.id = id(2), .deadzone = value}}}}));
+        for(const bool action_disabled : {false, true}) {
+            for(const bool binding_disabled : {false, true}) {
+                SCOPED_TRACE(testing::Message()
+                             << "action=" << action_disabled << ", binding=" << binding_disabled);
+                for(const auto& control : controls)
+                    EXPECT_FALSE(InputOverrides::create({{id(1), Type::Button, action_disabled,
+                        {{.id = id(2), .control = control, .disabled = binding_disabled}}}}));
+                for(const float value : {std::numeric_limits<float>::infinity(),
+                        -std::numeric_limits<float>::infinity(),
+                        std::numeric_limits<float>::quiet_NaN()}) {
+                    EXPECT_FALSE(InputOverrides::create({{id(1), Type::Axis, action_disabled,
+                        {{.id = id(2), .scale = value, .disabled = binding_disabled}}}}));
+                    EXPECT_FALSE(InputOverrides::create({{id(1), Type::Axis, action_disabled,
+                        {{.id = id(2), .deadzone = value, .disabled = binding_disabled}}}}));
+                }
+            }
         }
     }
 
@@ -287,8 +377,14 @@ namespace Comet::Tests {
         Action action{.id = id(1)};
         for(unsigned index = 0; index < InputActions::MAX_BINDINGS; ++index)
             action.bindings.push_back({.id = id(index + 1), .disabled = true});
-        EXPECT_TRUE(InputOverrides::create({action}));
+        for(const bool disabled : {false, true}) {
+            action.disabled = disabled;
+            EXPECT_TRUE(InputOverrides::create({action}));
+        }
         action.bindings.push_back({.id = id(InputActions::MAX_BINDINGS + 1), .disabled = true});
-        EXPECT_FALSE(InputOverrides::create({std::move(action)}));
+        for(const bool disabled : {false, true}) {
+            action.disabled = disabled;
+            EXPECT_FALSE(InputOverrides::create({action}));
+        }
     }
 }

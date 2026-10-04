@@ -37,6 +37,9 @@ namespace CometUi {
         void restore_action(Comet::Uuid id);
         void restore_binding(Comet::Uuid action, Comet::Uuid binding);
         void disable_action(const Action& action, bool disabled);
+        void disable_binding(const Action& action, const Binding& binding, bool disabled);
+        void commit_binding(
+            const Action& action, const Binding& binding, Comet::InputOverrides::Binding patch);
         void store_binding(
             const Action& action, const Binding& binding, Comet::InputOverrides::Binding patch);
         void change_control(

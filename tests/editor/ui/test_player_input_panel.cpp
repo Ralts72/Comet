@@ -280,8 +280,8 @@ namespace CometUi::Tests {
     }
 
     TEST_F(PlayerInputPanelTest, RestoreBindingDeletesEmptyActionAndInheritsFutureDefaults) {
-        const auto current = Overrides::create(
-            {{id(1), Type::Button, false, {{.id = id(2), .control = Input::Key::K}}}});
+        const auto current = Overrides::create({{id(1), Type::Button, false,
+            {{.id = id(2), .control = Input::Key::K, .disabled = true}}}});
         ASSERT_TRUE(current);
         show(current.value());
         binding_button("Restore Binding");
@@ -299,9 +299,10 @@ namespace CometUi::Tests {
     }
 
     TEST_F(PlayerInputPanelTest, RestoreActionPreservesUnrelatedRecords) {
-        const auto current = Overrides::create({{id(1), Type::Button, true, {}},
-            {id(4), Type::Axis, false, {{.id = id(5), .scale = -1}}},
-            {id(99), Type::Button, true, {}}});
+        const auto current = Overrides::create(
+            {{id(1), Type::Button, true, {{.id = id(2), .control = Input::Key::K}}},
+                {id(4), Type::Axis, false, {{.id = id(5), .scale = -1}}},
+                {id(99), Type::Button, true, {}}});
         ASSERT_TRUE(current);
         show(current.value());
         button("Restore Action");
@@ -314,12 +315,15 @@ namespace CometUi::Tests {
     }
 
     TEST_F(PlayerInputPanelTest, RestoreAllAlsoRemovesIncompatibleRecords) {
-        const auto current =
-            Overrides::create({{id(1), Type::Axis, true, {}}, {id(99), Type::Button, true, {}}});
+        const auto current = Overrides::create(
+            {{id(1), Type::Axis, true, {{.id = id(2), .control = Input::Key::K, .disabled = true}}},
+                {id(99), Type::Button, true, {}}});
         ASSERT_TRUE(current);
         show(current.value());
         EXPECT_NE(rendered_text.find("Restore this action before editing incompatible overrides."),
             std::string::npos);
+        EXPECT_EQ(
+            rendered_text.find("Disabled; personal overrides are preserved."), std::string::npos);
         button("Restore All");
         button("Apply");
         const auto request = panel.take_request();
@@ -327,31 +331,140 @@ namespace CometUi::Tests {
         EXPECT_TRUE(request->actions().empty());
     }
 
-    TEST_F(PlayerInputPanelTest, DisablesBindingWithoutChangingOtherBindings) {
+    TEST_F(PlayerInputPanelTest, DisablingAndReenablingBindingPreservesRecordedControl) {
         show();
+        record(Input::Key::K);
         binding_button("Disable Binding");
+        frame({{"Space", "Hidden default Space"}, {"K", "Hidden personal K"}});
+        EXPECT_NE(
+            rendered_text.find("Disabled; personal overrides are preserved."), std::string::npos);
+        EXPECT_EQ(rendered_text.find("Hidden default Space"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("Hidden personal K"), std::string::npos);
         button("Apply");
         const auto request = panel.take_request();
         ASSERT_TRUE(request);
-        const auto expected =
-            Overrides::create({{id(1), Type::Button, false, {{.id = id(2), .disabled = true}}}});
+        const auto expected = Overrides::create({{id(1), Type::Button, false,
+            {{.id = id(2), .control = Input::Key::K, .disabled = true}}}});
         ASSERT_TRUE(expected);
         EXPECT_EQ(*request, expected.value());
         const auto resolved = request->resolve(defaults);
         ASSERT_TRUE(resolved);
         ASSERT_EQ(resolved.value().actions.actions()[0].bindings.size(), 1u);
         EXPECT_EQ(resolved.value().actions.actions()[0].bindings[0].id, id(3));
+
+        panel.complete(Comet::Result<void>::success());
+        frame();
+        show(*request);
+        binding_button("Disable Binding");
+        button("Apply");
+        const auto enabled = panel.take_request();
+        ASSERT_TRUE(enabled);
+        auto restored = request->actions();
+        restored[0].bindings[0].disabled = false;
+        EXPECT_EQ(enabled->actions(), restored);
+        const auto effective = enabled->resolve(defaults);
+        ASSERT_TRUE(effective);
+        EXPECT_TRUE(effective.value().issues.empty());
+        EXPECT_EQ(effective.value().actions.actions()[0].bindings[0].control,
+            Actions::Control(Input::Key::K));
+        EXPECT_EQ(
+            effective.value().actions.actions()[0].bindings[1], defaults.actions()[0].bindings[1]);
     }
 
-    TEST_F(PlayerInputPanelTest, DisablesActionWithAnExplicitMarker) {
-        show();
+    TEST_F(PlayerInputPanelTest, ActionDisablePreservesKeyboardAxisTuningAndBindingDisabledFlags) {
+        const auto configured = Actions::create({{"move", Type::Axis,
+            {{Input::Key::A, -1, 0, id(2)}, {Input::GamepadAxis::LeftX, 1, 0.2f, id(3)}}, "",
+            id(1)}});
+        ASSERT_TRUE(configured);
+        defaults = configured.value();
+        const auto current = Overrides::create({{id(1), Type::Axis, false,
+            {{.id = id(2), .control = Input::Key::K, .scale = -0.5f},
+                {.id = id(3),
+                    .control = Input::GamepadAxis::RightX,
+                    .scale = 1.5f,
+                    .deadzone = 0.35f,
+                    .disabled = true}}}});
+        ASSERT_TRUE(current);
+        show(current.value());
         button("Disable Action");
+        EXPECT_NE(
+            rendered_text.find("Disabled; personal overrides are preserved."), std::string::npos);
+        EXPECT_EQ(rendered_text.find("Multiplier"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("Record Key"), std::string::npos);
         button("Apply");
         const auto request = panel.take_request();
         ASSERT_TRUE(request);
-        const auto expected = Overrides::create({{id(1), Type::Button, true, {}}});
-        ASSERT_TRUE(expected);
-        EXPECT_EQ(*request, expected.value());
+        auto disabled = current.value().actions();
+        disabled[0].disabled = true;
+        EXPECT_EQ(request->actions(), disabled);
+        const auto resolved = request->resolve(defaults);
+        ASSERT_TRUE(resolved);
+        EXPECT_TRUE(resolved.value().actions.actions()[0].bindings.empty());
+
+        panel.complete(Comet::Result<void>::success());
+        frame();
+        show(*request);
+        button("Disable Action");
+        button("Apply");
+        const auto enabled = panel.take_request();
+        ASSERT_TRUE(enabled);
+        EXPECT_EQ(*enabled, current.value());
+    }
+
+    TEST_F(PlayerInputPanelTest, EnablingPureDisabledRecordsReturnsToInheritedDefaults) {
+        const auto current = Overrides::create({{id(1), Type::Button, true, {}},
+            {id(4), Type::Axis, false, {{.id = id(5), .disabled = true}}}});
+        ASSERT_TRUE(current);
+        show(current.value());
+        button("Disable Action");
+        EXPECT_NE(rendered_text.find("Inherits project default"), std::string::npos);
+        select_action("move", id(4));
+        binding_button("Disable Binding", id(5));
+        EXPECT_NE(rendered_text.find("Inherits project default"), std::string::npos);
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_TRUE(request->actions().empty());
+    }
+
+    TEST_F(PlayerInputPanelTest, ReenablingAfterDefaultSourceChangesPreservesRejectedFields) {
+        auto newer = defaults.actions();
+        newer[1].bindings[0].control = Input::Key::Space;
+        newer[1].bindings[0].deadzone = 0;
+        const auto configured = Actions::create(std::move(newer), defaults.contexts());
+        ASSERT_TRUE(configured);
+        defaults = configured.value();
+        const auto current = Overrides::create({{id(4), Type::Axis, false,
+            {{.id = id(5), .scale = -0.5f, .deadzone = 0.3f, .disabled = true}}}});
+        ASSERT_TRUE(current);
+        show(current.value());
+        select_action("move", id(4));
+        EXPECT_NE(
+            rendered_text.find("Disabled; personal overrides are preserved."), std::string::npos);
+        binding_button("Disable Binding", id(5));
+        frame({{"Space", "Effective Space"}});
+        EXPECT_NE(rendered_text.find("Override ignored; using project default"), std::string::npos);
+        EXPECT_NE(rendered_text.find("Effective Space"), std::string::npos);
+        button("Apply");
+        const auto enabled = panel.take_request();
+        ASSERT_TRUE(enabled);
+        auto expected = current.value().actions();
+        expected[0].bindings[0].disabled = false;
+        EXPECT_EQ(enabled->actions(), expected);
+        const auto fallback = enabled->resolve(defaults);
+        ASSERT_TRUE(fallback);
+        ASSERT_EQ(fallback.value().issues.size(), 1u);
+        EXPECT_EQ(fallback.value().actions, defaults);
+
+        panel.complete(Comet::Result<void>::success());
+        frame();
+        show(*enabled);
+        select_action("move", id(4));
+        binding_button("Disable Binding", id(5));
+        button("Apply");
+        const auto disabled = panel.take_request();
+        ASSERT_TRUE(disabled);
+        EXPECT_EQ(*disabled, current.value());
     }
 
     TEST_F(PlayerInputPanelTest, CancelDiscardsDraftAndBlocksTheClosingFrame) {
