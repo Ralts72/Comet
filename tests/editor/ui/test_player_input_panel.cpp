@@ -12,9 +12,11 @@
 #include <algorithm>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace CometUi::Tests {
     namespace {
@@ -108,8 +110,8 @@ namespace CometUi::Tests {
             ImGui::Render();
         }
 
-        void show(const Overrides& current = {}) {
-            panel.open(defaults, current);
+        void show(const Overrides& current = {}, std::span<const Input::Key> reserved_keys = {}) {
+            panel.open(defaults, current, reserved_keys);
             frame();
             frame();
             ASSERT_TRUE(panel.is_open());
@@ -419,6 +421,140 @@ namespace CometUi::Tests {
         EXPECT_EQ(
             resolved.value().actions.actions()[0].bindings[1], defaults.actions()[0].bindings[1]);
         EXPECT_EQ(resolved.value().actions.contexts(), defaults.contexts());
+    }
+
+    TEST_F(PlayerInputPanelTest, ReservedKeyPolicyIsOwnedAndReopeningWithoutItAllowsTheKey) {
+        {
+            std::vector<Input::Key> reserved{Input::Key::J};
+            show({}, reserved);
+            reserved[0] = Input::Key::K;
+            record(Input::Key::J);
+            EXPECT_NE(
+                rendered_text.find("This key is reserved. Use another key."), std::string::npos);
+            EXPECT_NE(
+                rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        }
+        key(Input::Key::K);
+        EXPECT_EQ(rendered_text.find("This key is reserved. Use another key."), std::string::npos);
+        button("Apply");
+        const auto first = panel.take_request();
+        ASSERT_TRUE(first);
+        const auto expected = Overrides::create(
+            {{id(1), Type::Button, false, {{.id = id(2), .control = Input::Key::K}}}});
+        ASSERT_TRUE(expected);
+        EXPECT_EQ(*first, expected.value());
+        panel.complete(Comet::Result<void>::success());
+        frame();
+
+        show();
+        EXPECT_EQ(rendered_text.find("Reserved keys:"), std::string::npos);
+        record(Input::Key::J);
+        button("Apply");
+        const auto reopened = panel.take_request();
+        ASSERT_TRUE(reopened);
+        auto allowed = expected.value().actions();
+        allowed[0].bindings[0].control = Input::Key::J;
+        EXPECT_EQ(reopened->actions(), allowed);
+    }
+
+    TEST_F(PlayerInputPanelTest, ReservedDropdownChoiceIsDisabledAndRecordingCanContinue) {
+        const Input::Key reserved[]{Input::Key::J, Input::Key::Escape};
+        show({}, reserved);
+        EXPECT_NE(rendered_text.find("Reserved keys:"), std::string::npos);
+        binding_button("Control");
+        auto* combo = ImGui::FindWindowByName("##Combo_00");
+        ASSERT_NE(combo, nullptr);
+        ASSERT_TRUE(combo->Active);
+        ImGui::SetScrollY(combo, ImGui::GetTextLineHeightWithSpacing() * 8);
+        frame();
+        activate(combo, combo->GetID("###J"));
+        frame();
+        EXPECT_TRUE(combo->Active);
+        activate(combo, combo->GetID("###K"));
+        frame();
+        EXPECT_FALSE(combo->Active);
+        button("Apply");
+        const auto selected = panel.take_request();
+        ASSERT_TRUE(selected);
+        const auto expected = Overrides::create(
+            {{id(1), Type::Button, false, {{.id = id(2), .control = Input::Key::K}}}});
+        ASSERT_TRUE(expected);
+        EXPECT_EQ(*selected, expected.value());
+        panel.complete(Comet::Result<void>::success());
+        frame();
+
+        show({}, reserved);
+        record(Input::Key::J);
+        EXPECT_NE(rendered_text.find("This key is reserved. Use another key."), std::string::npos);
+        EXPECT_NE(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        key(Input::Key::Space);
+        EXPECT_EQ(rendered_text.find("This key is reserved. Use another key."), std::string::npos);
+        EXPECT_EQ(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        binding_button("Record Key");
+        key(Input::Key::Escape);
+        EXPECT_TRUE(panel.is_open());
+        EXPECT_EQ(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        EXPECT_EQ(rendered_text.find("This key is reserved. Use another key."), std::string::npos);
+        button("Apply");
+        const auto recorded = panel.take_request();
+        ASSERT_TRUE(recorded);
+        EXPECT_TRUE(recorded->actions().empty());
+    }
+
+    TEST_F(PlayerInputPanelTest, ExistingReservedDefaultsAndOverridesRemainRestorableAndSavable) {
+        const Input::Key reserved[]{Input::Key::Space, Input::Key::J};
+        const auto current = Overrides::create({{id(1), Type::Button, false,
+            {{.id = id(3), .control = Input::Key::J, .scale = 1, .deadzone = 0}}}});
+        ASSERT_TRUE(current);
+        const std::string warning = "This binding uses a reserved key and will not reach the game.";
+        show(current.value(), reserved);
+        const auto first_warning = rendered_text.find(warning);
+        ASSERT_NE(first_warning, std::string::npos);
+        EXPECT_NE(rendered_text.find(warning, first_warning + warning.size()), std::string::npos);
+        button("Apply");
+        const auto unchanged = panel.take_request();
+        ASSERT_TRUE(unchanged);
+        EXPECT_EQ(*unchanged, current.value());
+        panel.complete(Comet::Result<void>::success());
+        frame();
+
+        show(*unchanged, reserved);
+        binding_button("Disable Binding", id(3));
+        button("Apply");
+        const auto disabled = panel.take_request();
+        ASSERT_TRUE(disabled);
+        auto expected = current.value().actions();
+        expected[0].bindings[0].disabled = true;
+        EXPECT_EQ(disabled->actions(), expected);
+        panel.complete(Comet::Result<void>::success());
+        frame();
+
+        show(*disabled, reserved);
+        binding_button("Restore Binding", id(3));
+        frame();
+        const auto remaining_warning = rendered_text.find(warning);
+        ASSERT_NE(remaining_warning, std::string::npos);
+        EXPECT_EQ(
+            rendered_text.find(warning, remaining_warning + warning.size()), std::string::npos);
+        button("Apply");
+        const auto restored = panel.take_request();
+        ASSERT_TRUE(restored);
+        EXPECT_TRUE(restored->actions().empty());
+        const auto effective = restored->resolve(defaults);
+        ASSERT_TRUE(effective);
+        EXPECT_EQ(effective.value().actions, defaults);
+        panel.complete(Comet::Result<void>::success());
+        frame();
+
+        show({}, reserved);
+        select_binding_choice("Source", "key", id(3));
+        button("Apply");
+        const auto changed_source = panel.take_request();
+        ASSERT_TRUE(changed_source);
+        const auto available_key = Overrides::create(
+            {{id(1), Type::Button, false, {{.id = id(3), .control = Input::Key::A}}}});
+        ASSERT_TRUE(available_key);
+        EXPECT_EQ(*changed_source, available_key.value());
     }
 
     TEST_F(PlayerInputPanelTest, RestoreBindingDeletesEmptyActionAndInheritsFutureDefaults) {

@@ -66,28 +66,55 @@ namespace CometUi {
             });
         }
 
-        Actions::Control first_control(std::string_view source) {
-            if(source == "mouse_button")
-                return Input::MouseButton::Left;
-            if(source == "gamepad_button")
-                return Input::GamepadButton::South;
-            if(source == "gamepad_axis")
-                return Input::GamepadAxis::LeftX;
-            if(source == "motion")
-                return Actions::Motion::CursorX;
-            return Input::Key::Space;
+        bool is_reserved(
+            const Actions::Control& control, std::span<const Input::Key> reserved_keys) {
+            const auto* key = std::get_if<Input::Key>(&control);
+            return key && std::ranges::find(reserved_keys, *key) != reserved_keys.end();
         }
 
-        std::optional<Actions::Control> control_choices(
-            const Actions::Control& current, std::string_view source, const Text& translations) {
+        std::optional<Actions::Control> first_control(
+            std::string_view source, std::span<const Input::Key> reserved_keys) {
+            const auto controls = input_controls(source);
+            if(controls.empty())
+                return std::nullopt;
+            auto preferred = controls.front();
+            if(source == "key")
+                preferred = Input::Key::Space;
+            if(!is_reserved(preferred, reserved_keys))
+                return preferred;
+            for(const auto& control : controls)
+                if(!is_reserved(control, reserved_keys))
+                    return control;
+            return std::nullopt;
+        }
+
+        void render_reserved_keys(
+            std::span<const Input::Key> reserved_keys, const Text& translations) {
+            if(reserved_keys.empty())
+                return;
+            std::string names;
+            for(const auto key : reserved_keys) {
+                if(!names.empty())
+                    names += ", ";
+                const auto name = Actions::format_binding({key}).value();
+                names += text(translations, name.control.c_str());
+            }
+            ImGui::TextWrapped("%s %s", text(translations, "Reserved keys:"), names.c_str());
+        }
+
+        std::optional<Actions::Control> control_choices(const Actions::Control& current,
+            std::string_view source, std::span<const Input::Key> reserved_keys,
+            const Text& translations) {
             std::optional<Actions::Control> chosen;
             for(const auto& value : input_controls(source)) {
                 const auto name = Actions::format_binding({value}).value();
                 const bool selected = current == value;
+                ImGui::BeginDisabled(is_reserved(value, reserved_keys));
                 if(ImGui::Selectable(label(translations, name.control.c_str()).c_str(), selected))
                     chosen = value;
                 if(selected)
                     ImGui::SetItemDefaultFocus();
+                ImGui::EndDisabled();
             }
             return chosen;
         }
@@ -105,11 +132,13 @@ namespace CometUi {
         }
     }
 
-    void PlayerInputPanel::open(const Actions& defaults, const Overrides& current) {
+    void PlayerInputPanel::open(const Actions& defaults, const Overrides& current,
+        std::span<const Input::Key> reserved_keys) {
         if(m_open)
             return;
         m_defaults = defaults;
         m_draft = current;
+        m_reserved_keys.assign(reserved_keys.begin(), reserved_keys.end());
         m_selected_action = 0;
         m_request.reset();
         m_capture.reset();
@@ -169,8 +198,10 @@ namespace CometUi {
     void PlayerInputPanel::restore_binding(const Comet::Uuid action, const Comet::Uuid binding) {
         auto actions = m_draft.actions();
         const auto found = std::ranges::find(actions, action, &Overrides::Action::id);
-        if(found == actions.end())
+        if(found == actions.end()) {
+            m_error.clear();
             return;
+        }
         std::erase_if(found->bindings, [&](const auto& patch) { return patch.id == binding; });
         if(!found->disabled && found->bindings.empty())
             actions.erase(found);
@@ -237,6 +268,10 @@ namespace CometUi {
 
     void PlayerInputPanel::change_control(
         const Action& action, const Binding& binding, Actions::Control control) {
+        if(is_reserved(control, m_reserved_keys)) {
+            m_error = "This key is reserved. Use another key.";
+            return;
+        }
         auto patch = binding_patch(action.id, binding.id);
         patch.control = control;
         if(control == binding.control)
@@ -310,6 +345,10 @@ namespace CometUi {
         for(int index = int(Input::Key::Unknown) + 1; index < int(Input::Key::Count); ++index) {
             const auto key = static_cast<Input::Key>(index);
             if(input.key(key).pressed) {
+                if(is_reserved(key, m_reserved_keys)) {
+                    m_error = "This key is reserved. Use another key.";
+                    return;
+                }
                 change_control(*action, *binding, key);
                 m_capture.reset();
                 return;
@@ -320,6 +359,10 @@ namespace CometUi {
     void PlayerInputPanel::render_controls(const Action& action, const Binding& binding,
         const Binding& effective, const Input::Frame& input, const Text& translations) {
         const auto name = Actions::format_binding(effective).value();
+        if(is_reserved(effective.control, m_reserved_keys))
+            ImGui::TextWrapped(
+                "%s", text(translations,
+                          "This binding uses a reserved key and will not reach the game."));
         set_field_width(145, text(translations, "Source"));
         if(ImGui::BeginCombo(
                label(translations, "Source").c_str(), text(translations, name.source.data()))) {
@@ -327,7 +370,10 @@ namespace CometUi {
                 if(ImGui::Selectable(
                        label(translations, source.data()).c_str(), name.source == source)
                     && name.source != source) {
-                    change_control(action, binding, first_control(source));
+                    if(const auto control = first_control(source, m_reserved_keys))
+                        change_control(action, binding, *control);
+                    else
+                        m_error = "No available controls for this source.";
                     m_capture.reset();
                 }
             }
@@ -337,7 +383,8 @@ namespace CometUi {
         set_field_width(150, text(translations, "Control"));
         if(ImGui::BeginCombo(
                label(translations, "Control").c_str(), text(translations, name.control.c_str()))) {
-            if(const auto chosen = control_choices(effective.control, name.source, translations)) {
+            if(const auto chosen = control_choices(
+                   effective.control, name.source, m_reserved_keys, translations)) {
                 change_control(action, binding, *chosen);
                 m_capture.reset();
             }
@@ -585,6 +632,7 @@ namespace CometUi {
                 close();
         }
         if(m_open) {
+            render_reserved_keys(m_reserved_keys, translations);
             if(!m_error.empty()) {
                 const auto available = ImGui::GetContentRegionAvail().y
                                        - footer_height(translations)

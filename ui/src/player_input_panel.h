@@ -4,14 +4,17 @@
 
 #include <map>
 #include <optional>
+#include <span>
 #include <string>
+#include <vector>
 
 namespace CometUi {
     class PlayerInputPanel final {
     public:
         using Text = std::map<std::string, std::string, std::less<>>;
 
-        void open(const Comet::InputActions& defaults, const Comet::InputOverrides& current);
+        void open(const Comet::InputActions& defaults, const Comet::InputOverrides& current,
+            std::span<const Comet::Input::Key> reserved_keys = {});
         [[nodiscard]] bool is_open() const { return m_open; }
         void close();
         // 关闭当帧也阻断游戏输入，宿主仍使用原有 Gate。
@@ -60,6 +63,7 @@ namespace CometUi {
 
         Comet::InputActions m_defaults;
         Comet::InputOverrides m_draft;
+        std::vector<Comet::Input::Key> m_reserved_keys;
         std::optional<Comet::InputOverrides> m_request;
         std::optional<Capture> m_capture;
         std::size_t m_selected_action = 0;

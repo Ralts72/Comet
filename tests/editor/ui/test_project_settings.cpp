@@ -240,6 +240,9 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(ProjectInputUiTest, RecordingConsumesShortcutsAndAllowsSharedBindings) {
+        EXPECT_NE(
+            rendered_text.find("Escape is reserved by Comet App (quit) and Editor Play (stop)."),
+            std::string::npos);
         record();
         press(ImGuiKey_S);
         EXPECT_FALSE(shortcut_triggered);
@@ -262,6 +265,13 @@ namespace CometEditor::Tests {
         auto cancelled = panel.take_request();
         ASSERT_TRUE(cancelled);
         EXPECT_EQ(*cancelled, *saved);
+
+        edit_control("Escape");
+        button("Save");
+        const auto reserved = panel.take_request();
+        ASSERT_TRUE(reserved);
+        EXPECT_EQ(reserved->actions()[0].bindings[0].control,
+            Comet::InputActions::Control(Comet::Input::Key::Escape));
     }
 
     TEST_F(ProjectInputUiTest, OpeningAndSavingRetainsExtendedKeyboardBindings) {

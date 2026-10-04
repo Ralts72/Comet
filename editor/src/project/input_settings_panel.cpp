@@ -388,6 +388,8 @@ namespace CometEditor {
             return;
         }
         ImGui::TextUnformatted(Ui::text("Project defaults; restart App or Play to apply."));
+        ImGui::TextWrapped(
+            "%s", Ui::text("Escape is reserved by Comet App (quit) and Editor Play (stop)."));
         render_contexts();
         ImGui::BeginChild("ActionList", ImVec2(205, -70), true);
         ImGui::TextUnformatted(Ui::text("Actions"));

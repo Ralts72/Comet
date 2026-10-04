@@ -615,8 +615,9 @@ namespace {
             }
             m_player_input_error.clear();
             m_player_input_settings = std::move(settings).value();
+            constexpr Comet::Input::Key reserved_keys[]{Comet::Input::Key::Escape};
             m_player_input_panel.open(
-                m_project.input_actions(), m_player_input_settings->overrides());
+                m_project.input_actions(), m_player_input_settings->overrides(), reserved_keys);
             return Comet::Result<void>::success();
         }
 
