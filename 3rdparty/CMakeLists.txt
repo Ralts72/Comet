@@ -129,7 +129,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 endif()
 
 # imgui
-if (COMET_BUILD_EDITOR)
+if (COMET_BUILD_APP OR COMET_BUILD_EDITOR)
     add_subdirectory(imgui EXCLUDE_FROM_ALL)
 endif ()
 

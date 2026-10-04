@@ -162,7 +162,12 @@ namespace Comet {
                     })
                 || (subpass.sample_count > SampleCount::Count1
                     && subpass.resolve_final_layout == ImageLayout::PresentSrcKHR);
-            if(!presents)
+            const bool loads_color =
+                std::ranges::any_of(subpass.color_attachments, [&](const auto& reference) {
+                    return actual_attachments[reference.index].description.load_op
+                           == AttachmentLoadOp::Load;
+                });
+            if(!presents && !loads_color)
                 continue;
             // 自动 layout transition 必须处于 acquire 的 ColorAttachmentOutput 等待之后。
             vk::SubpassDependency dependency{};
@@ -170,6 +175,9 @@ namespace Comet {
             dependency.dstSubpass = index;
             dependency.srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
             dependency.dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+            // Load 与混合读取上一个 pass 的颜色，不能只有 acquire 的执行顺序。
+            if(loads_color)
+                dependency.srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
             dependency.dstAccessMask = vk::AccessFlagBits::eColorAttachmentRead
                                        | vk::AccessFlagBits::eColorAttachmentWrite;
             dependencies.push_back(dependency);

@@ -116,6 +116,7 @@ set(INTEGRATION_SOURCES
         render/test_debug_renderer.cpp
         render/test_frame_edit_order.cpp
         render/test_frame_scheduler.cpp
+        render/test_imgui_overlay.cpp
         render/test_material_rendering.cpp
         render/test_material_runtime.cpp
         render/test_offscreen_resize.cpp
@@ -184,6 +185,13 @@ if (COMET_BUILD_EDITOR)
     endforeach()
 endif ()
 
+if(TARGET comet_ui)
+    target_link_libraries(integration_testing PRIVATE comet_ui)
+    target_compile_definitions(integration_testing PRIVATE COMET_TEST_SHARED_UI)
+    target_include_directories(integration_testing PRIVATE
+        "${CMAKE_BINARY_DIR}/ui/generated/shaders/include")
+endif()
+
 # AppKit 窗口动画可能占用 Metal 编译所需的调度线程，因此仅在测试进程中关闭动画。
 set(TEST_PLATFORM_ARGS)
 if (APPLE)
@@ -196,7 +204,7 @@ if(COMET_BUILD_EDITOR)
     add_test(NAME editor_ui_testing COMMAND editor_ui_testing)
     set_tests_properties(editor_ui_testing PROPERTIES LABELS "integration;ui")
 endif()
-set(SYNC_VALIDATION_FILTER "RenderGraphGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.*")
+set(SYNC_VALIDATION_FILTER "RenderGraphGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.*:ImGuiOverlayGpuTest.*")
 add_test(NAME integration_testing COMMAND integration_testing
         "--gtest_filter=-${SYNC_VALIDATION_FILTER}" ${TEST_PLATFORM_ARGS})
 set_tests_properties(integration_testing PROPERTIES LABELS "integration;gpu" RESOURCE_LOCK comet_gpu)

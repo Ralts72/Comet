@@ -1,4 +1,4 @@
-#include "ui/imgui_context.h"
+#include "imgui_context.h"
 #include "graphics/context.h"
 #include "graphics/device.h"
 #include "graphics/render_pass.h"
@@ -14,6 +14,7 @@
 #include "render/render_target.h"
 #include "diagnostics/logger.h"
 #include "core/window.h"
+#include "imgui_hdr_frag.h"
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
@@ -25,7 +26,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace CometEditor {
+namespace CometUi {
     namespace {
         template<typename Handle> ImTextureID handle_to_texture_id(const Handle handle) {
             if constexpr(std::is_pointer_v<Handle>) {
@@ -99,17 +100,16 @@ namespace CometEditor {
             ImGui::SetCurrentContext(previous);
     }
 
-    ImGuiContext::ImGuiContext(const Comet::Window& window, Comet::RenderContext& render_context,
-        std::filesystem::path ini_path)
-        : m_window(window), m_render_context(render_context),
-          m_ini_path(std::move(ini_path).string()) {}
+    ImGuiContext::ImGuiContext(
+        const Comet::Window& window, Comet::RenderContext& render_context, Options options)
+        : m_window(window), m_render_context(render_context), m_options(std::move(options)),
+          m_ini_path(m_options.ini_path.string()) {}
 
     Comet::Result<std::unique_ptr<ImGuiContext>, Comet::GraphicsError> ImGuiContext::create(
-        const Comet::Window& window, Comet::RenderContext& render_context,
-        std::filesystem::path ini_path) {
+        const Comet::Window& window, Comet::RenderContext& render_context, Options options) {
         using CreationResult = Comet::Result<std::unique_ptr<ImGuiContext>, Comet::GraphicsError>;
         std::unique_ptr<ImGuiContext> context(
-            new ImGuiContext(window, render_context, std::move(ini_path)));
+            new ImGuiContext(window, render_context, std::move(options)));
         auto initialized = context->initialize();
         if(!initialized)
             return CreationResult::failure(initialized.error());
@@ -123,7 +123,8 @@ namespace CometEditor {
         m_context.reset(ImGui::CreateContext());
         ImGui::SetCurrentContext(m_context.get());
         ImGuiIO& io = ImGui::GetIO();
-        io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+        if(m_options.docking)
+            io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
         const std::filesystem::path ini_directory = std::filesystem::path(m_ini_path).parent_path();
         if(!ini_directory.empty()) {
@@ -134,20 +135,25 @@ namespace CometEditor {
                     error.message());
             }
         }
-        io.IniFilename = m_ini_path.c_str();
+        io.IniFilename = m_ini_path.empty() ? nullptr : m_ini_path.c_str();
 
-        const auto font_directory =
-            std::filesystem::path(COMET_EDITOR_RESOURCE_DIRECTORY) / "fonts";
-        if(!io.Fonts->AddFontFromFileTTF(
-               (font_directory / "Roboto-Bold.ttf").string().c_str(), 16.0f))
-            return Comet::Result<void, Comet::GraphicsError>::failure(
-                {"Cannot load editor Latin font"});
-        ImFontConfig chinese_font;
-        chinese_font.MergeMode = true;
-        if(!io.Fonts->AddFontFromFileTTF(
-               (font_directory / "NotoSansSC-Bold.otf").string().c_str(), 16.0f, &chinese_font))
-            return Comet::Result<void, Comet::GraphicsError>::failure(
-                {"Cannot load editor Chinese font"});
+        if(m_options.font_directory.empty()) {
+            ImFontConfig font;
+            font.SizePixels = 16.0f;
+            io.Fonts->AddFontDefault(&font);
+        } else {
+            const auto& font_directory = m_options.font_directory;
+            if(!io.Fonts->AddFontFromFileTTF(
+                   (font_directory / "Roboto-Bold.ttf").string().c_str(), 16.0f))
+                return Comet::Result<void, Comet::GraphicsError>::failure(
+                    {"Cannot load ImGui Latin font"});
+            ImFontConfig chinese_font;
+            chinese_font.MergeMode = true;
+            if(!io.Fonts->AddFontFromFileTTF(
+                   (font_directory / "NotoSansSC-Bold.otf").string().c_str(), 16.0f, &chinese_font))
+                return Comet::Result<void, Comet::GraphicsError>::failure(
+                    {"Cannot load ImGui Chinese font"});
+        }
 
         ImGui::StyleColorsDark();
 
@@ -186,6 +192,10 @@ namespace CometEditor {
             Comet::Attachment::get_color_attachment(color_format, Comet::SampleCount::Count1);
         color_attachment.description.load_op = Comet::AttachmentLoadOp::Clear;
         color_attachment.description.initial_layout = Comet::ImageLayout::Undefined;
+        if(m_options.composition == Composition::Preserve) {
+            color_attachment.description.load_op = Comet::AttachmentLoadOp::Load;
+            color_attachment.description.initial_layout = Comet::ImageLayout::PresentSrcKHR;
+        }
         color_attachment.description.final_layout = Comet::ImageLayout::PresentSrcKHR;
         color_attachment.description.store_op = Comet::AttachmentStoreOp::Store;
         attachments.emplace_back(color_attachment);
@@ -236,6 +246,16 @@ namespace CometEditor {
         init_info.ImageCount = m_backend_image_count;
         init_info.PipelineInfoMain.RenderPass = m_render_pass->get();
         init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+        const auto surface_format = swapchain.get_active_generation()->get_config().surface_format;
+        if(surface_format.colorSpace == vk::ColorSpaceKHR::eExtendedSrgbLinearEXT) {
+            if(surface_format.format != vk::Format::eR16G16B16A16Sfloat)
+                return Comet::Result<void, Comet::GraphicsError>::failure(
+                    {"ImGui HDR output requires RGBA16F extended linear sRGB"});
+            auto& shader = init_info.CustomShaderFragCreateInfo;
+            shader.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+            shader.codeSize = IMGUI_HDR_FRAG.size() * sizeof(std::uint32_t);
+            shader.pCode = IMGUI_HDR_FRAG.data();
+        }
 
         if(!ImGui_ImplVulkan_Init(&init_info))
             return Comet::Result<void, Comet::GraphicsError>::failure(
@@ -314,10 +334,13 @@ namespace CometEditor {
             return;
         }
 
-        m_render_target->begin_render_target(command_buffer);
-
         ImDrawData* draw_data = ImGui::GetDrawData();
-        if(m_draw_data_ready && draw_data && draw_data->CmdListsCount > 0) {
+        const bool has_draw_data = m_draw_data_ready && draw_data && draw_data->CmdListsCount > 0;
+        if(m_options.composition == Composition::Preserve && !has_draw_data)
+            return;
+
+        m_render_target->begin_render_target(command_buffer);
+        if(has_draw_data) {
             ImGui_ImplVulkan_RenderDrawData(draw_data, command_buffer.get());
         }
 

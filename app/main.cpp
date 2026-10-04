@@ -5,12 +5,17 @@
 #include "core/project.h"
 #include "core/window.h"
 #include "input/player_input_settings.h"
+#include "common/scope_exit.h"
+#include "imgui_context.h"
+#include "player_input_panel.h"
+#include "render/renderer.h"
 #include "scene/scene.h"
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
 
 #include <cmath>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -70,11 +75,24 @@ namespace {
                 return configured;
             if(auto added = engine.add_default_scene_systems(); !added)
                 return added;
+            auto ui = CometUi::ImGuiContext::create(
+                engine.get_window(), engine.get_renderer().get_render_context(), {});
+            if(!ui)
+                return Init::failure(ui.error().as_error());
+            m_ui = std::move(ui).value();
+            engine.get_renderer().set_overlay(
+                {.render = [this](Comet::CommandBuffer& command) { m_ui->render(command); },
+                    .release = [this] { m_ui->release_swapchain_resources(); },
+                    .rebuild =
+                        [this](const Comet::SwapchainCompatibility& compatibility) {
+                            return m_ui->rebuild_swapchain_resources(compatibility);
+                        }});
             return Init::success();
         }
 
         Comet::Result<void, Comet::Error> on_update(Comet::Engine::FrameContext& frame) override {
-            if(frame.physical_input.key(Comet::Input::Key::Escape).pressed) {
+            if(!m_player_input_panel.is_open() && !m_ui_blocked
+                && frame.physical_input.key(Comet::Input::Key::Escape).pressed) {
                 get_engine().get_window().request_close();
                 return Comet::Result<void, Comet::Error>::success();
             }
@@ -102,18 +120,123 @@ namespace {
                         return started;
                 }
             }
-            frame.runtime_input = m_input_gate.read(frame.physical_input, !m_pending_scene);
+            // 延期帧没有 UI 回调，仍保持菜单对游戏输入的阻断。
+            m_input_before_ui = m_input_gate;
+            frame.runtime_input = m_input_gate.read(frame.physical_input,
+                !m_pending_scene && !m_player_input_panel.is_open() && !m_ui_blocked,
+                !m_ui_pointer_blocked);
+            return Comet::Result<void, Comet::Error>::success();
+        }
+
+        Comet::Result<void, Comet::Error> on_frame_ready(
+            Comet::Engine::FrameContext& frame) override {
+            // Runtime 尚未消费 fallback；按最终 UI 授权重算，不消费同一物理帧两次。
+            m_input_gate = m_input_before_ui;
+            if(!m_ui->begin_frame()) {
+                frame.runtime_input = m_input_gate.read(frame.physical_input, false);
+                return Comet::Result<void, Comet::Error>::success();
+            }
+            const Comet::ScopeExit end_ui([this] { m_ui->end_frame(); });
+            render_input_entry();
+            m_ui_blocked = m_player_input_panel.render(frame.physical_input);
+            if(auto requested = m_player_input_panel.take_request()) {
+                const auto applied = apply_player_input(std::move(*requested));
+                m_player_input_panel.complete(applied);
+                if(!applied)
+                    LOG_WARN("Cannot apply player input: {}", applied.error());
+            }
+            if(!m_player_input_panel.is_open())
+                m_player_input_settings.reset();
+            m_ui_blocked |= render_input_error(frame.physical_input);
+            m_ui_pointer_blocked = ImGui::GetIO().WantCaptureMouse;
+            frame.runtime_input = m_input_gate.read(
+                frame.physical_input, !m_pending_scene && !m_ui_blocked, !m_ui_pointer_blocked);
             return Comet::Result<void, Comet::Error>::success();
         }
 
         void on_shutdown() override {
             LOG_INFO("app shutdown");
+            get_engine().get_renderer().set_overlay({});
+            m_player_input_panel.close();
+            m_player_input_settings.reset();
+            m_ui.reset();
             m_asset_manager.reset();
             m_pending_scene.reset();
             m_initial_scene.reset();
         }
 
     private:
+        void render_input_entry() {
+            const auto* viewport = ImGui::GetMainViewport();
+            ImGui::SetNextWindowPos(
+                {viewport->WorkPos.x + viewport->WorkSize.x - 12, viewport->WorkPos.y + 12},
+                ImGuiCond_Always, {1, 0});
+            constexpr auto flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings
+                                   | ImGuiWindowFlags_AlwaysAutoResize
+                                   | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+            ImGui::Begin("##Runtime Input", nullptr, flags);
+            ImGui::BeginDisabled(!get_engine().get_scene_runtime().is_active());
+            if(ImGui::Button("Input")) {
+                if(auto opened = open_player_input(); !opened) {
+                    m_input_error = opened.error();
+                }
+            }
+            ImGui::EndDisabled();
+            ImGui::End();
+        }
+
+        bool render_input_error(const Comet::Input::Frame& input) {
+            if(m_input_error.empty() && !ImGui::IsPopupOpen("Input Settings Error"))
+                return false;
+            // 弹窗从根 ID 域打开，避免依赖入口窗口的 ID 栈。
+            if(!m_input_error.empty())
+                ImGui::OpenPopup("Input Settings Error");
+            ImGui::SetNextWindowSize({470, 0}, ImGuiCond_Appearing);
+            if(ImGui::BeginPopupModal("Input Settings Error", nullptr,
+                   ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+                if(m_input_error.empty()) {
+                    ImGui::CloseCurrentPopup();
+                } else {
+                    ImGui::TextWrapped("%s", m_input_error.c_str());
+                    if(ImGui::Button("Close")
+                        || (input.focused && input.key(Comet::Input::Key::Escape).pressed)) {
+                        m_input_error.clear();
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+                ImGui::EndPopup();
+            }
+            return true;
+        }
+
+        Comet::Result<void> open_player_input() {
+            if(m_player_input_panel.is_open())
+                return Comet::Result<void>::success();
+            auto settings = Comet::PlayerInputSettings::load(m_project.id());
+            if(!settings)
+                return Comet::Result<void>::failure(settings.error());
+            m_player_input_settings = std::move(settings).value();
+            m_player_input_panel.open(
+                m_project.input_actions(), m_player_input_settings->overrides());
+            return Comet::Result<void>::success();
+        }
+
+        Comet::Result<void> apply_player_input(Comet::InputOverrides overrides) {
+            if(!m_player_input_settings || !get_engine().get_scene_runtime().is_active())
+                return Comet::Result<void>::failure("Player input settings require an active game");
+            auto resolved = overrides.resolve(m_project.input_actions());
+            if(!resolved)
+                return Comet::Result<void>::failure(resolved.error());
+            if(auto saved = m_player_input_settings->save(std::move(overrides)); !saved)
+                return saved;
+            if(auto applied =
+                    get_engine().rebind_input_actions(std::move(resolved).value().actions);
+                !applied)
+                return Comet::Result<void>::failure(
+                    "Player settings saved but not applied: " + applied.error().message);
+            return Comet::Result<void>::success();
+        }
+
         Comet::Result<void, Comet::Error> configure_player_input() {
             auto settings = Comet::PlayerInputSettings::load(m_project.id());
             if(!settings) {
@@ -138,11 +261,23 @@ namespace {
                 return Comet::Result<void, Comet::Error>::success();
             }
             get_engine().set_scene(std::move(candidate).value());
+            m_player_input_panel.close();
+            m_player_input_settings.reset();
+            m_input_error.clear();
+            if(auto configured = configure_player_input(); !configured)
+                return configured;
             return get_engine().start_scene_runtime();
         }
 
         Comet::Project m_project;
         Comet::Input::Gate m_input_gate;
+        Comet::Input::Gate m_input_before_ui;
+        std::unique_ptr<CometUi::ImGuiContext> m_ui;
+        CometUi::PlayerInputPanel m_player_input_panel;
+        std::optional<Comet::PlayerInputSettings> m_player_input_settings;
+        std::string m_input_error;
+        bool m_ui_blocked = false;
+        bool m_ui_pointer_blocked = false;
         std::unique_ptr<Comet::AssetManager> m_asset_manager;
         std::unique_ptr<Comet::Scene> m_pending_scene;
         std::unique_ptr<Comet::Scene> m_initial_scene;

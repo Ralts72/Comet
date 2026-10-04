@@ -14,16 +14,18 @@ namespace Comet {
     class Sampler;
 }
 
-namespace CometEditor {
+namespace CometUi {
     class ImGuiContext;
+}
 
+namespace CometEditor {
     class Viewport final {
     public:
         Viewport(EditorState& state, const Comet::SceneRuntime& runtime,
             SelectionService& selection, CommandHistory& history,
             const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
             const EditorShortcuts& shortcuts, Comet::Renderer& renderer,
-            Comet::AssetRegistry& assets, ImGuiContext& ui,
+            Comet::AssetRegistry& assets, CometUi::ImGuiContext& ui,
             std::shared_ptr<Comet::Sampler> sampler);
 
         Viewport(const Viewport&) = delete;
@@ -45,7 +47,7 @@ namespace CometEditor {
         SelectionService& m_selection;
         Comet::Renderer& m_renderer;
         Comet::AssetRegistry& m_assets;
-        ImGuiContext& m_ui;
+        CometUi::ImGuiContext& m_ui;
         std::shared_ptr<Comet::Sampler> m_sampler;
         TransformGizmo m_gizmo;
         ViewportPanel m_panel;

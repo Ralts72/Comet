@@ -268,6 +268,42 @@ namespace Comet::Tests {
         EXPECT_EQ(routed.scroll, Math::Vec2(0));
     }
 
+    TEST_F(InputTest, GateSnapshotRevisesUnconsumedFallbackWithoutLosingOtherChannels) {
+        Input::Gate gate;
+        Input::GamepadSample pad;
+        input.gamepad_sample(0, pad);
+        gate.read(input.publish_frame(), true);
+        input.key_event(Input::Key::K, true);
+        input.mouse_button_event(Input::MouseButton::Right, true);
+        pad.buttons[0] = true;
+        input.gamepad_sample(0, pad);
+        const auto raw = input.publish_frame();
+        const auto before_ui = gate;
+        const auto fallback = gate.read(raw, true);
+        EXPECT_TRUE(fallback.mouse(Input::MouseButton::Right).pressed);
+
+        gate = before_ui;
+        const auto final = gate.read(raw, true, false);
+        EXPECT_EQ(final.serial, fallback.serial);
+        EXPECT_TRUE(final.key(Input::Key::K).pressed);
+        EXPECT_TRUE(final.gamepads[0].buttons[0].pressed);
+        EXPECT_FALSE(final.mouse(Input::MouseButton::Right).down);
+        const auto deferred = gate.read(input.publish_frame(), true, false);
+        EXPECT_FALSE(deferred.key(Input::Key::K).pressed);
+        EXPECT_TRUE(deferred.key(Input::Key::K).down);
+
+        const auto next_raw = input.publish_frame();
+        const auto before_modal = gate;
+        gate.read(next_raw, true);
+        gate = before_modal;
+        const auto modal = gate.read(next_raw, false);
+        EXPECT_TRUE(modal.key(Input::Key::K).released);
+        EXPECT_FALSE(modal.gamepads[0].buttons[0].down);
+        const auto reacquired = gate.read(input.publish_frame(), true);
+        EXPECT_FALSE(reacquired.key(Input::Key::K).down);
+        EXPECT_FALSE(reacquired.mouse(Input::MouseButton::Right).down);
+    }
+
     TEST_F(InputTest, IgnoresInvalidControlsAndNonFinitePointerData) {
         input.key_event(Input::Key::Unknown, true);
         input.key_event(static_cast<Input::Key>(-1), true);

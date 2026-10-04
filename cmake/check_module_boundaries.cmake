@@ -21,7 +21,7 @@ endfunction()
 set(ENGINE_SOURCE "${COMET_SOURCE_ROOT}/engine/src")
 file(GLOB_RECURSE ENGINE_FILES RELATIVE "${ENGINE_SOURCE}"
     "${ENGINE_SOURCE}/*.h" "${ENGINE_SOURCE}/*.cpp")
-check_includes("${ENGINE_SOURCE}" "${ENGINE_FILES}" "editor/|imgui"
+check_includes("${ENGINE_SOURCE}" "${ENGINE_FILES}" "editor/|imgui|player_input_panel\\.h"
     "Engine must not include Editor or ImGui")
 
 set(LOW_LEVEL_FILES)
@@ -47,7 +47,12 @@ check_includes("${ENGINE_SOURCE}" "asset/data/texture_data.h"
 set(EDITOR_SOURCE "${COMET_SOURCE_ROOT}/editor/src")
 file(GLOB_RECURSE EDITOR_FILES RELATIVE "${EDITOR_SOURCE}"
     "${EDITOR_SOURCE}/*.h" "${EDITOR_SOURCE}/*.cpp")
-list(REMOVE_ITEM EDITOR_FILES ui/imgui_context.h ui/imgui_context.cpp)
 check_includes("${EDITOR_SOURCE}" "${EDITOR_FILES}"
     "render/(scene/scene_renderer|render_context|frame_scheduler|presentation)\\.h|[Vv]ulkan|GLFW/"
     "Editor features must use Renderer workflows, not rendering internals")
+
+set(UI_SOURCE "${COMET_SOURCE_ROOT}/ui/src")
+file(GLOB_RECURSE UI_FILES RELATIVE "${UI_SOURCE}"
+    "${UI_SOURCE}/*.h" "${UI_SOURCE}/*.cpp")
+check_includes("${UI_SOURCE}" "${UI_FILES}" "editor/|project/editor_|ui/language\\.h|editor_state\\.h"
+    "Shared UI must not depend on Editor state or resources")

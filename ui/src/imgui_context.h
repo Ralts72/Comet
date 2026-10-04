@@ -22,12 +22,21 @@ namespace Comet {
     struct SwapchainCompatibility;
 }
 
-namespace CometEditor {
+namespace CometUi {
     class ImGuiContext {
     public:
+        // Preserve 要求当前交换链图像已由场景 pass 写入并处于 PresentSrcKHR。
+        enum class Composition { Clear, Preserve };
+        struct Options {
+            // 空路径不保存布局；空字体目录使用 16px 内建字体。
+            std::filesystem::path ini_path;
+            std::filesystem::path font_directory;
+            bool docking = false;
+            Composition composition = Composition::Preserve;
+        };
+
         static Comet::Result<std::unique_ptr<ImGuiContext>, Comet::GraphicsError> create(
-            const Comet::Window& window, Comet::RenderContext& render_context,
-            std::filesystem::path ini_path);
+            const Comet::Window& window, Comet::RenderContext& render_context, Options options);
         ~ImGuiContext();
 
         ImGuiContext(const ImGuiContext&) = delete;
@@ -52,8 +61,8 @@ namespace CometEditor {
             void operator()(::ImGuiContext* context) const noexcept;
         };
 
-        ImGuiContext(const Comet::Window& window, Comet::RenderContext& render_context,
-            std::filesystem::path ini_path);
+        ImGuiContext(
+            const Comet::Window& window, Comet::RenderContext& render_context, Options options);
         Comet::Result<void, Comet::GraphicsError> initialize();
         Comet::Result<void, Comet::GraphicsError> init_vulkan();
         Comet::Result<void, Comet::GraphicsError> create_render_pass();
@@ -63,6 +72,7 @@ namespace CometEditor {
 
         const Comet::Window& m_window;
         Comet::RenderContext& m_render_context;
+        Options m_options;
         std::string m_ini_path;
         std::unique_ptr<Comet::RenderPass> m_render_pass;
         std::unique_ptr<Comet::RenderTarget> m_render_target;

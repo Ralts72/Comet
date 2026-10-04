@@ -13,13 +13,14 @@
 | `tools/asset/` | Engine CPU 资产与共用 Shader 编译库 | 编辑器与 CLI 共用源编译；无窗口准备启动场景依赖，engine/app 不链接该工具库 |
 | `render/` | Scene 提取结果、资产缓存、Graphics | Renderer 编排帧与离屏输出；SceneRenderer 拥有目标，不知道 ImGui |
 | `graphics/` | Vulkan、平台窗口及通用能力 | 图形后端不依赖 Editor；`core/engine.cpp` 是宿主组合点，可使用 Graphics/Render |
-| `editor/`、`app/` | Engine 组合入口、明确的工作流接口 | ImGui/Vulkan 对接集中在 `editor/editor.cpp` 和 `editor/src/ui/imgui_context.cpp`；业务视口经 Renderer 离屏帧快照取图，不穿透 SceneRenderer |
+| `ui/` | Engine 输入值／图形后端、ImGui | App／Editor 共用的设置界面和呈现后端，不依赖 Editor、Project 或编辑工作流 |
+| `editor/`、`app/` | Engine 组合入口、明确的工作流接口、`comet_ui` | 宿主装配 UI；业务视口经 Renderer 离屏帧快照取图，不穿透 SceneRenderer |
 
 `module_boundaries` CTest 检查直接 include：整个 engine 不得引入 Editor/ImGui；
 `common/`、`input/`、`scene/`、`scripting/`、`audio/` 不得引入 Render、Graphics、Vulkan/GLFW 后端。
 资产层也执行该限制，明确排除 AssetManager 的两个实现文件，并仅允许 TextureData 引用后端无关枚举。
 `editor/src/` 功能代码不得直接包含 SceneRenderer、RenderContext、FrameScheduler、Presentation 或 Vulkan/GLFW 头；
-ImGuiContext 是 UI 后端例外，`editor/editor.cpp` 是扫描范围外的宿主集成点。
+ImGuiContext 位于共享 `ui/`，不再为 Editor 功能目录保留后端例外；`editor/editor.cpp` 是扫描范围外的宿主集成点。
 这些是防止依赖倒退的轻量检查，不检查传递包含，也不等同于独立编译目标；当前 `engine` 仍是一个库。
 
 ## 先看哪个类
@@ -49,7 +50,7 @@ ImGuiContext 是 UI 后端例外，`editor/editor.cpp` 是扫描范围外的宿�
 | `render/resource/render_resources.h` | 设备资源工厂、上传及 Sampler 共享资源 |
 | `graphics/` | Vulkan 对象与显式同步后端 |
 | `editor/src/viewport/viewport.h` | 组合 ViewportPanel/Gizmo，连接编辑器相机、选择反馈与 Renderer |
-| `editor/src/ui/imgui_context.h` | 编辑器 UI 最终呈现和私有纹理绑定，不属于 engine |
+| `ui/src/imgui_context.h` | App／Editor 共用 UI 呈现、纹理绑定和交换链重建，不属于 engine |
 
 engine 入口路径相对 `engine/src/`。Graphics 的 command/resource/pipeline/synchronization 按职责分目录；
 Context、Device、Queue、Swapchain、RenderPass、FrameBuffer 保留在根层，因为它们跨越多个职责组。
@@ -240,7 +241,9 @@ Project v2 为项目、动作和绑定保存非零 UUID：项目移动／改名�
 宿主负责组合及一次性报告错误。未知身份／类型漂移只跳过对应记录，其他兼容覆盖继续使用，原记录不改；
 结构错误使宿主回退默认，但加载不获得覆盖坏文件的空配置。保存失败保持原对象，不在启动时修复用户文件。
 `comet_ui/PlayerInputPanel` 是 App／Editor 可共用的玩家覆盖草稿界面，不拥有 Project、文件或 Runtime；
-当前由 Editor Play 接入，App UI 尚待接通。宿主加载文件、处理请求、先保存再提交重绑定，并把成功／失败交回面板。
+Editor Play 与 App 共用面板。宿主加载文件、处理请求、先保存再提交重绑定，并把成功／失败交回面板。
+App 在 on_update 提供延期帧输入回退；ready 帧恢复尚未消费的 Gate 快照，再按当帧 UI 授权计算一次最终输入。
+弹窗关闭帧仍阻断键鼠，设置入口仅占用其命中的鼠标；不修改 Runtime 暂停状态。
 面板仅返回候选与输入阻断状态，不增加跨层回调；翻译表由宿主借给当帧使用。关闭当帧也阻断输入，Esc 不穿透成 Stop。
 `SceneRuntime::rebind_input_actions` 只允许非执行中的活动运行域，候选不能改变动作身份、名称、类型、归属或上下文定义。
 RuntimeInput 在下一次 prepare 接收最后一份有效候选，按 UUID 保留未改绑定的固定步历史与路由；
@@ -813,6 +816,10 @@ resize 失败保持实际 Target 尺寸，纹理、viewport 与拾取始终使�
 完整切换位于活动帧外，纯尺寸变化仅更换 MultiTarget，可在场景 pass 前安装，不重建材质管线。
 ImGui 重建失败先关闭已初始化后端；WSI 有界重试与 Application 关闭准备不能被 fatal 包装替代。
 当前 Vulkan 后端 Shutdown 也清除平台数据，因此格式／image count 重建同时重建 GLFW 后端，保留 Context/UI 状态。
+共享 ImGuiContext 以明确 Options 区分 Editor 的 Clear 与 App 的 Preserve；后者要求场景已写入 Present 图像，
+非空 UI 以 Load 合成，空 UI 不录制 pass。颜色 Load 具有前一颜色写入到读写的依赖，不能只依赖 acquire 等待。
+App 的线性 HDR surface 使用 UI 专用片元阶段解码字体／纯色的 sRGB 值，保留 alpha 和背景 HDR 范围；
+这不代表任意外部纹理的色彩空间处理、Editor HDR 或 HDR10/PQ 已完成。字体、布局路径和 docking 由宿主显式选择。
 
 PipelineKey 包含字节码、入口、布局、规范化配置、RenderPass 身份和附件格式／采样数，
 hash 不替代完整相等比较。动态状态无关值会规范化，同一副本用于实际创建。

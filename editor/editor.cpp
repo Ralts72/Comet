@@ -20,7 +20,7 @@
 #include "scene/scene_editor.h"
 #include "scene/editor_scene_session.h"
 #include "editor_state.h"
-#include "ui/imgui_context.h"
+#include "imgui_context.h"
 #include "inspector/property_editor_registry.h"
 #include "scene/scene_document.h"
 #include "ui/shortcuts.h"
@@ -86,8 +86,12 @@ namespace {
                 return Comet::Result<void, Comet::Error>::failure({state_directory.error()});
             m_shortcut_settings_path = state_directory.value() / "shortcuts.yaml";
             m_language_settings_path = state_directory.value() / "language.json";
-            auto ui = CometEditor::ImGuiContext::create(
-                engine.get_window(), render_context, state_directory.value() / "imgui.ini");
+            auto ui = CometUi::ImGuiContext::create(engine.get_window(), render_context,
+                {.ini_path = state_directory.value() / "imgui.ini",
+                    .font_directory =
+                        std::filesystem::path(COMET_EDITOR_RESOURCE_DIRECTORY) / "fonts",
+                    .docking = true,
+                    .composition = CometUi::ImGuiContext::Composition::Clear});
             if(!ui)
                 return Comet::Result<void, Comet::Error>::failure(ui.error().as_error());
             m_imgui_context = std::move(ui).value();
@@ -1028,7 +1032,7 @@ namespace {
         CometEditor::ProjectSettings m_project_settings{m_project};
         CometUi::PlayerInputPanel m_player_input_panel;
         std::optional<Comet::PlayerInputSettings> m_player_input_settings;
-        std::unique_ptr<CometEditor::ImGuiContext> m_imgui_context;
+        std::unique_ptr<CometUi::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::EditorAssets> m_assets;
         std::unique_ptr<CometEditor::MaterialShaderReload> m_material_shader_reload;
         std::optional<CometEditor::SelectionService> m_selection;
