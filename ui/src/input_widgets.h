@@ -1,15 +1,21 @@
 #pragma once
 
+#include "input/input_actions.h"
+
 #include <cstddef>
 #include <map>
+#include <span>
 #include <string>
-
-namespace Comet {
-    class InputActions;
-}
+#include <string_view>
 
 namespace CometUi {
     using Translations = std::map<std::string, std::string, std::less<>>;
+
+    // 菜单只共享静态数据；标签翻译、控件身份和选中后的写回由面板负责。
+    [[nodiscard]] const char* input_type_name(Comet::InputActions::Type type);
+    [[nodiscard]] std::span<const std::string_view> input_sources(Comet::InputActions::Type type);
+    [[nodiscard]] std::span<const Comet::InputActions::Control> input_controls(
+        std::string_view source);
 
     // 只绘制有效配置的两两关系正文；调用方拥有标题、滚动区域和草稿错误。
     void render_binding_relationships(const Comet::InputActions& actions,

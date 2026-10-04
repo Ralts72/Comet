@@ -5,7 +5,6 @@
 #include "ui/widgets.h"
 
 #include <algorithm>
-#include <array>
 #include <iterator>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -15,38 +14,6 @@
 namespace CometEditor {
     namespace {
         using Type = Comet::InputActions::Type;
-
-        const char* type_name(const Type type) {
-            switch(type) {
-                case Type::Button:
-                    return "Button";
-                case Type::Axis:
-                    return "Axis";
-                case Type::Delta:
-                    return "Delta";
-            }
-            return "Unknown";
-        }
-
-        bool source_allowed(const Type type, const std::string_view source) {
-            if(type == Type::Delta)
-                return source == "motion";
-            if(source == "motion")
-                return false;
-            return type == Type::Axis || source != "gamepad_axis";
-        }
-
-        template<typename Control> void control_options(std::string& current, const int count) {
-            for(int index = 0; index < count; ++index) {
-                const auto name =
-                    Comet::InputActions::format_binding({static_cast<Control>(index)}).value();
-                const bool selected = current == name.control;
-                if(ImGui::Selectable(name.control.c_str(), selected))
-                    current = name.control;
-                if(selected)
-                    ImGui::SetItemDefaultFocus();
-            }
-        }
 
         void render_control(const std::string_view source, std::string& control) {
             if(source == "key") {
@@ -58,16 +25,14 @@ namespace CometEditor {
                 preview = Ui::text("Select a control");
             if(!ImGui::BeginCombo("##Control", preview))
                 return;
-            using Input = Comet::Input;
-            using Motion = Comet::InputActions::Motion;
-            if(source == "mouse_button")
-                control_options<Input::MouseButton>(control, int(Input::MouseButton::Count));
-            else if(source == "gamepad_button")
-                control_options<Input::GamepadButton>(control, int(Input::GamepadButton::Count));
-            else if(source == "gamepad_axis")
-                control_options<Input::GamepadAxis>(control, int(Input::GamepadAxis::Count));
-            else if(source == "motion")
-                control_options<Motion>(control, int(Motion::ScrollY) + 1);
+            for(const auto& option : CometUi::input_controls(source)) {
+                const auto name = Comet::InputActions::format_binding({option}).value();
+                const bool selected = control == name.control;
+                if(ImGui::Selectable(name.control.c_str(), selected))
+                    control = name.control;
+                if(selected)
+                    ImGui::SetItemDefaultFocus();
+            }
             ImGui::EndCombo();
         }
 
@@ -239,15 +204,11 @@ namespace CometEditor {
         auto& action = m_actions[action_index];
         auto& binding = action.bindings[binding_index];
         ImGui::PushID(static_cast<int>(binding_index));
-        constexpr std::array<std::string_view, 5> sources{
-            "key", "mouse_button", "gamepad_button", "gamepad_axis", "motion"};
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
         ImGui::SetNextItemWidth(-1);
         if(ImGui::BeginCombo("##Source", binding.source.c_str())) {
-            for(const auto source : sources) {
-                if(!source_allowed(action.type, source))
-                    continue;
+            for(const auto source : CometUi::input_sources(action.type)) {
                 if(ImGui::Selectable(source.data(), binding.source == source)
                     && binding.source != source) {
                     binding.source = source;
@@ -295,9 +256,9 @@ namespace CometEditor {
         Ui::input_text("##Name", action.name);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(110.0f);
-        if(ImGui::BeginCombo("##Type", Ui::text(type_name(action.type)))) {
+        if(ImGui::BeginCombo("##Type", Ui::text(CometUi::input_type_name(action.type)))) {
             for(const auto type : {Type::Button, Type::Axis, Type::Delta}) {
-                if(ImGui::Selectable(Ui::text(type_name(type)), action.type == type)
+                if(ImGui::Selectable(Ui::text(CometUi::input_type_name(type)), action.type == type)
                     && action.type != type) {
                     action.type = type;
                     if(type == Type::Button)

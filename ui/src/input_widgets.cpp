@@ -1,7 +1,7 @@
 #include "input_widgets.h"
-#include "input/input_actions.h"
 
 #include <algorithm>
+#include <array>
 #include <imgui.h>
 #include <imgui_internal.h>
 
@@ -9,6 +9,13 @@ namespace CometUi {
     namespace {
         using Actions = Comet::InputActions;
         using BindingRelation = Actions::BindingRelation;
+
+        template<typename Control, int First, int Last> constexpr auto make_controls() {
+            std::array<Actions::Control, Last - First> controls{};
+            for(int index = First; index < Last; ++index)
+                controls[index - First] = static_cast<Control>(index);
+            return controls;
+        }
 
         const char* text(const Translations& translations, const char* english) {
             const auto found = translations.find(english);
@@ -59,6 +66,58 @@ namespace CometUi {
                 ImGui::TextWrapped("%s %s", text(translations, "Initially disabled:"),
                     other_context->name.c_str());
         }
+    }
+
+    const char* input_type_name(const Actions::Type type) {
+        switch(type) {
+            case Actions::Type::Button:
+                return "Button";
+            case Actions::Type::Axis:
+                return "Axis";
+            case Actions::Type::Delta:
+                return "Delta";
+        }
+        return "Unknown";
+    }
+
+    std::span<const std::string_view> input_sources(const Actions::Type type) {
+        static constexpr std::array<std::string_view, 5> sources{
+            "key", "mouse_button", "gamepad_button", "gamepad_axis", "motion"};
+        const std::span<const std::string_view> all = sources;
+        switch(type) {
+            case Actions::Type::Button:
+                return all.first(3);
+            case Actions::Type::Axis:
+                return all.first(4);
+            case Actions::Type::Delta:
+                return all.last(1);
+        }
+        return {};
+    }
+
+    std::span<const Actions::Control> input_controls(const std::string_view source) {
+        using Input = Comet::Input;
+        static constexpr auto keys =
+            make_controls<Input::Key, int(Input::Key::Unknown) + 1, int(Input::Key::Count)>();
+        static constexpr auto mouse_buttons =
+            make_controls<Input::MouseButton, 0, int(Input::MouseButton::Count)>();
+        static constexpr auto gamepad_buttons =
+            make_controls<Input::GamepadButton, 0, int(Input::GamepadButton::Count)>();
+        static constexpr auto gamepad_axes =
+            make_controls<Input::GamepadAxis, 0, int(Input::GamepadAxis::Count)>();
+        static constexpr auto motions =
+            make_controls<Actions::Motion, 0, int(Actions::Motion::ScrollY) + 1>();
+        if(source == "key")
+            return keys;
+        if(source == "mouse_button")
+            return mouse_buttons;
+        if(source == "gamepad_button")
+            return gamepad_buttons;
+        if(source == "gamepad_axis")
+            return gamepad_axes;
+        if(source == "motion")
+            return motions;
+        return {};
     }
 
     void render_binding_relationships(const Actions& actions, const std::size_t selected_action,

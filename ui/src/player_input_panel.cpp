@@ -2,7 +2,6 @@
 #include "input_widgets.h"
 
 #include <algorithm>
-#include <array>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <string_view>
@@ -67,26 +66,6 @@ namespace CometUi {
             });
         }
 
-        const char* type_name(Actions::Type type) {
-            switch(type) {
-                case Actions::Type::Button:
-                    return "Button";
-                case Actions::Type::Axis:
-                    return "Axis";
-                case Actions::Type::Delta:
-                    return "Delta";
-            }
-            return "Unknown";
-        }
-
-        bool source_allowed(Actions::Type type, std::string_view source) {
-            if(type == Actions::Type::Delta)
-                return source == "motion";
-            if(source == "motion")
-                return false;
-            return type == Actions::Type::Axis || source != "gamepad_axis";
-        }
-
         Actions::Control first_control(std::string_view source) {
             if(source == "mouse_button")
                 return Input::MouseButton::Left;
@@ -99,12 +78,10 @@ namespace CometUi {
             return Input::Key::Space;
         }
 
-        template<typename Control>
-        std::optional<Actions::Control> control_options(
-            const Actions::Control& current, int begin, int end, const Text& translations) {
+        std::optional<Actions::Control> control_choices(
+            const Actions::Control& current, std::string_view source, const Text& translations) {
             std::optional<Actions::Control> chosen;
-            for(int index = begin; index < end; ++index) {
-                const Actions::Control value = static_cast<Control>(index);
+            for(const auto& value : input_controls(source)) {
                 const auto name = Actions::format_binding({value}).value();
                 const bool selected = current == value;
                 if(ImGui::Selectable(label(translations, name.control.c_str()).c_str(), selected))
@@ -113,24 +90,6 @@ namespace CometUi {
                     ImGui::SetItemDefaultFocus();
             }
             return chosen;
-        }
-
-        std::optional<Actions::Control> control_choices(
-            const Actions::Control& current, std::string_view source, const Text& translations) {
-            if(source == "key")
-                return control_options<Input::Key>(
-                    current, int(Input::Key::Unknown) + 1, int(Input::Key::Count), translations);
-            if(source == "mouse_button")
-                return control_options<Input::MouseButton>(
-                    current, 0, int(Input::MouseButton::Count), translations);
-            if(source == "gamepad_button")
-                return control_options<Input::GamepadButton>(
-                    current, 0, int(Input::GamepadButton::Count), translations);
-            if(source == "gamepad_axis")
-                return control_options<Input::GamepadAxis>(
-                    current, 0, int(Input::GamepadAxis::Count), translations);
-            return control_options<Actions::Motion>(
-                current, 0, int(Actions::Motion::ScrollY) + 1, translations);
         }
 
         Actions::Binding composed_binding(
@@ -353,11 +312,9 @@ namespace CometUi {
         set_field_width(145, text(translations, "Source"));
         if(ImGui::BeginCombo(
                label(translations, "Source").c_str(), text(translations, name.source.data()))) {
-            constexpr std::array sources{
-                "key", "mouse_button", "gamepad_button", "gamepad_axis", "motion"};
-            for(const auto source : sources) {
-                if(source_allowed(action.type, source)
-                    && ImGui::Selectable(label(translations, source).c_str(), name.source == source)
+            for(const auto source : input_sources(action.type)) {
+                if(ImGui::Selectable(
+                       label(translations, source.data()).c_str(), name.source == source)
                     && name.source != source) {
                     change_control(action, binding, first_control(source));
                     m_capture.reset();
@@ -485,8 +442,8 @@ namespace CometUi {
             ImGui::EndCombo();
         }
         const auto& action = actions[m_selected_action];
-        same_line_if_fits(ImGui::CalcTextSize(text(translations, type_name(action.type))).x);
-        ImGui::TextDisabled("%s", text(translations, type_name(action.type)));
+        same_line_if_fits(ImGui::CalcTextSize(text(translations, input_type_name(action.type))).x);
+        ImGui::TextDisabled("%s", text(translations, input_type_name(action.type)));
         const auto* patch = action_patch(action.id);
         bool incompatible = patch && patch->type != action.type;
         bool disabled = !incompatible && patch && patch->disabled;
