@@ -32,6 +32,7 @@ set(SOURCES
         src/common/json.cpp
         src/common/file_io.cpp
         src/common/retry_backoff.cpp
+        src/common/uuid.cpp
         src/render/presentation.cpp
         src/render/render_graph.cpp
         src/render/render_diagnostics.cpp
@@ -49,6 +50,8 @@ set(SOURCES
         src/core/window.cpp
         src/input/input.cpp
         src/input/input_actions.cpp
+        src/input/input_overrides.cpp
+        src/input/player_input_settings.cpp
         src/input/input_state.cpp
         src/input/runtime_input.cpp
         src/core/frame_timer.cpp
@@ -114,7 +117,6 @@ set(SOURCES
         src/render/material/material_runtime.cpp
         src/render/material/material_renderer.cpp
         src/scene/entity.cpp
-        src/common/uuid.cpp
         src/scene/component_registry.cpp
         src/scene/property.cpp
         src/scene/scene.cpp

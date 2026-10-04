@@ -229,11 +229,16 @@ Viewport 在实际进入 Running 时一次性聚焦（Play／Resume），不在�
 隐藏离屏视图仍执行 UI、Runtime、Scene 提取和上传回收；暂时无呈现帧时只跳过 UI／提取／绘制。
 最小化等待并重置墙钟增量、窗口瞬态及 Runtime 待处理按下；Gate 根据采样中断版本重新获取授权。
 
-Project 持有 InputActions 配置；宿主启动时交给 SceneRuntime 内的 RuntimeInput，仅停止状态允许替换。
+Project 持有默认 InputActions；App 启动、Editor 每次进入／重开 Play 时合成玩家覆盖，再交给 SceneRuntime 内的 RuntimeInput。
+整份映射仍仅停止状态允许替换，不在运行中读取文件。Edit 的项目输入面板继续编辑默认值，不展示或回写玩家覆盖。
 Project v2 为项目、动作和绑定保存非零 UUID：项目移动／改名、动作改名、绑定调参／排序不改变身份；
 新建项目、动作或绑定才分配新身份。动作名仍是 Lua 的语义查询键，改名不自动改写脚本。
 `common/Uuid` 复用原实体 UUID 实现，`EntityUuid` 保留为场景语义别名；不借用 AssetHandle 或依赖 Scene。
 纯内存 InputActions 可匿名，Project 的读取／保存边界要求完整且有效的身份；旧 project.json 版本只报错，不迁移。
+`InputOverrides` 是按动作／绑定 UUID 定位的稀疏值，control、scale、deadzone 分别可选，未覆盖字段始终继承当前默认。
+`PlayerInputSettings` 只负责用户配置目录、严格 JSON、加载基线与原子保存；不依赖 Project、Runtime 或 Editor。
+宿主负责组合及一次性报告错误。未知身份／类型漂移只跳过对应记录，其他兼容覆盖继续使用，原记录不改；
+结构错误使宿主回退默认，但加载不获得覆盖坏文件的空配置。保存失败保持原对象，不在启动时修复用户文件。
 `Window → Input::Frame → Gate → RuntimeInput → InputState → System／Lua`：
 动作不读取平台或 ImGui，不绕过授权。RuntimeInput 拥有映射、活动动作组、普通／固定阶段快照和待消费输入；
 SceneRuntime 只调用 prepare／consume_fixed／update 及生命周期接口，不处理按钮合并或分别安装物理／动作参数。

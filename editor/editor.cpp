@@ -27,6 +27,7 @@
 #include "ui/shortcut_settings_dialog.h"
 #include "core/engine.h"
 #include "core/project.h"
+#include "input/player_input_settings.h"
 #include "common/scope_exit.h"
 #include "render/renderer.h"
 #include "core/window.h"
@@ -168,9 +169,7 @@ namespace {
                 [this](std::unique_ptr<Comet::Scene> scene) {
                     return commit_scene(std::move(scene), CometEditor::EditorMode::Edit);
                 },
-                [engine_ptr](Comet::SceneRuntime::State state) {
-                    return engine_ptr->start_scene_runtime(state);
-                });
+                [this](Comet::SceneRuntime::State state) { return start_play_runtime(state); });
             auto& scene = *engine.get_scene();
             if(auto configured = engine.set_input_actions(m_project.input_actions()); !configured)
                 return configured;
@@ -555,6 +554,26 @@ namespace {
                 m_hierarchy_panel->reset_for_scene_change();
             m_reference_history_state = m_command_history.state_id();
             return previous;
+        }
+
+        Comet::Result<void, Comet::Error> start_play_runtime(Comet::SceneRuntime::State state) {
+            auto actions = m_project.input_actions();
+            auto settings = Comet::PlayerInputSettings::load(m_project.id());
+            if(settings) {
+                auto resolved = settings.value().overrides().resolve(actions);
+                if(!resolved)
+                    return Comet::Result<void, Comet::Error>::failure({resolved.error()});
+                for(const auto& issue : resolved.value().issues)
+                    LOG_WARN("Player input override ignored for action '{}', binding '{}': {}",
+                        issue.action.to_string(), issue.binding.to_string(), issue.message);
+                actions = std::move(resolved).value().actions;
+            } else {
+                LOG_WARN("Player input settings unavailable; using project defaults: {}",
+                    settings.error());
+            }
+            if(auto configured = get_engine().set_input_actions(std::move(actions)); !configured)
+                return configured;
+            return get_engine().start_scene_runtime(state);
         }
 
         Comet::Result<void, Comet::Error> apply_editor_mode_request() {

@@ -3,6 +3,8 @@
 #include "scene/scene.h"
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
+#include "input/player_input_settings.h"
+#include "support/temporary_directory.h"
 
 #include <gtest/gtest.h>
 
@@ -1102,6 +1104,60 @@ namespace Comet::Tests {
         advance(10);
         EXPECT_NEAR(camera.get_component<TransformComponent>().translation.z, -1.10f, 1e-6f);
         EXPECT_DOUBLE_EQ(runtime.get_timing().total_time, 0.35);
+    }
+
+    TEST_F(SceneRuntimeTest, StoredPlayerBindingsComposeWithNewDefaultsBeforeRuntimeStarts) {
+        TemporaryDirectory directory;
+        const auto project_id = Uuid::generate();
+        const auto action_id = Uuid::generate();
+        const auto binding_id = Uuid::generate();
+        const auto original = InputActions::create({{"jump", InputActions::Type::Button,
+            {{Input::Key::Space, 1, 0, binding_id}}, {}, action_id}});
+        ASSERT_TRUE(original);
+        auto settings = PlayerInputSettings::load(project_id, directory.path() / "input.json");
+        ASSERT_TRUE(settings);
+        const auto overrides = InputOverrides::create({{action_id, InputActions::Type::Button,
+            false, {{.id = binding_id, .control = Input::Key::K}}}});
+        ASSERT_TRUE(overrides);
+        ASSERT_TRUE(settings.value().save(overrides.value()));
+        auto upgraded_actions = original.value().actions();
+        upgraded_actions.front().bindings.push_back({Input::Key::J, 1, 0, Uuid::generate()});
+        const auto defaults = InputActions::create(std::move(upgraded_actions));
+        ASSERT_TRUE(defaults);
+        const auto reopened = PlayerInputSettings::load(project_id, settings.value().path());
+        ASSERT_TRUE(reopened);
+        auto resolved = reopened.value().overrides().resolve(defaults.value());
+        ASSERT_TRUE(resolved);
+        EXPECT_TRUE(resolved.value().issues.empty());
+        ASSERT_TRUE(runtime.set_input_actions(std::move(resolved).value().actions));
+        std::vector<InputState::Action> received;
+        add()->update_frame = [&](Scene&, const System::Context& context) {
+            received.push_back(*context.input.action("jump"));
+            return UpdateResult::success();
+        };
+        ASSERT_TRUE(runtime.start(scene));
+        input.key_event(Input::Key::Space, true);
+        advance(0.1);
+        ASSERT_EQ(received.size(), 1u);
+        EXPECT_FALSE(received.back().down);
+        input.key_event(Input::Key::K, true);
+        advance(0.1);
+        EXPECT_TRUE(received.back().pressed);
+        input.key_event(Input::Key::K, false);
+        advance(0.1);
+        EXPECT_TRUE(received.back().released);
+        input.key_event(Input::Key::J, true);
+        advance(0.1);
+        EXPECT_TRUE(received.back().pressed);
+        EXPECT_FALSE(runtime.set_input_actions(defaults.value()));
+        ASSERT_TRUE(runtime.stop());
+        ASSERT_TRUE(settings.value().save(InputOverrides{}));
+        const auto restored = PlayerInputSettings::load(project_id, settings.value().path());
+        ASSERT_TRUE(restored);
+        auto inherited = restored.value().overrides().resolve(defaults.value());
+        ASSERT_TRUE(inherited);
+        EXPECT_EQ(inherited.value().actions, defaults.value());
+        ASSERT_TRUE(runtime.set_input_actions(std::move(inherited).value().actions));
     }
 
     TEST_F(SceneRuntimeTest, ActionsFollowFixedConsumptionPauseAndRebindingBoundaries) {

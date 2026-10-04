@@ -369,7 +369,7 @@ App 与 Play 启动时读取同一配置；外部手改文件后需重启宿主�
 取消或没有变化不会重写文件。编辑器中的修改要重新进入 Play 才会生效，独立 app 需要重启。
 动作和绑定各有持久 `id`：面板新增时生成，改名、换控制或排序时保留，删除后重新创建不会复用。
 ID 不在普通面板展示；动作 `name` 仍是 Lua／相机查询使用的语义名称，改名后相应代码引用仍需同步。
-这些身份用于后续玩家覆盖定位，不按数组下标或当前物理键识别绑定。当前尚未开放游戏内改键或玩家文件保存。
+玩家覆盖用这些身份定位，不按数组下标或当前物理键识别绑定；项目默认值与玩家个人设置分开保存。
 
 ```json
 "input_actions": [
@@ -401,6 +401,37 @@ Lua 在 `update`／`fixed_update` 中调用 `comet.action_value(name)` 或按钮
 `comet.action_down/pressed/released(name)`；未知名称或错误类型会报告脚本错误。
 固定步保留零步帧的短按，多次补步只触发一次边沿；普通更新有独立快照，不与固定步抢输入。
 demo 的空格／手柄 South 切换方块旋转；运行状态保存在 Lua `self`，Stop 不回写场景参数。
+
+玩家文件目前在 App 启动、编辑器每次进入或重开 Play 时读取，运行中不监视或热替换；游戏内改键 UI 仍待接入。
+文件位于用户配置目录下的 `players/<project.json 的 id>/default/input.json`，不是项目 `.comet`：
+
+- macOS：`~/Library/Application Support/Comet/players/...`
+- Windows：`%APPDATA%/Comet/players/...`
+- Linux：`$XDG_CONFIG_HOME/comet/players/...`，未设置时使用 `~/.config/comet/players/...`
+
+当前只提供一个本地玩家 `default`，它不是“第一个手柄”的身份。文件不存在时使用项目默认值，不自动创建文件。
+例如 demo 中把旋转开关从 Space 改为 K，文件内容为：
+
+```json
+{
+  "version": 1,
+  "project_id": "bf04a980-f080-4d3f-b1ac-1a938379a190",
+  "actions": [{
+    "id": "0120f784-0b77-4a50-bba9-000000000009",
+    "type": "button",
+    "bindings": [{
+      "id": "0120f784-0b77-4a50-bba9-000000000033",
+      "source": "key",
+      "control": "K"
+    }]
+  }]
+}
+```
+
+未写入的控制、倍率、死区继续继承项目默认值，手柄 South 及后来新增的绑定也保留。
+动作或绑定可用 `"disabled": true` 显式禁用，禁用记录不同时包含绑定／调参字段；恢复默认是删除对应覆盖记录，
+不是复制当前默认值。删除最后一条绑定覆盖时也删除空的动作记录；全部恢复可保留 `"actions": []`。
+未知身份或类型变化只跳过对应记录并报告；非法 JSON／格式／项目 ID 则整文件回退默认。启动不会清洗或覆盖原文件。
 
 动作可以归入项目的具名上下文（动作组），统一启停；没有 `context` 的动作属于始终启用的公共组：
 

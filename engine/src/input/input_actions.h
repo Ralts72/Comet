@@ -20,10 +20,10 @@ namespace Comet {
         static constexpr std::size_t MAX_CONTEXTS = 32;
         using Type = InputState::Action::Type;
         enum class Motion { CursorX, CursorY, ScrollX, ScrollY };
+        using Control = std::variant<Input::Key, Input::MouseButton, Input::GamepadButton,
+            Input::GamepadAxis, Motion>;
         struct Binding {
-            std::variant<Input::Key, Input::MouseButton, Input::GamepadButton, Input::GamepadAxis,
-                Motion>
-                control;
+            Control control;
             float scale = 1;
             float deadzone = 0;
             Uuid id{};

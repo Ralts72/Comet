@@ -4,6 +4,7 @@
 #include "asset/asset_manager.h"
 #include "core/project.h"
 #include "core/window.h"
+#include "input/player_input_settings.h"
 #include "scene/scene.h"
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
@@ -65,7 +66,7 @@ namespace {
             m_pending_scene = std::move(scene);
             m_pending_references = references;
             engine.get_window().set_title(m_project.name() + " | Loading assets");
-            if(auto configured = engine.set_input_actions(m_project.input_actions()); !configured)
+            if(auto configured = configure_player_input(); !configured)
                 return configured;
             if(auto added = engine.add_default_scene_systems(); !added)
                 return added;
@@ -113,6 +114,22 @@ namespace {
         }
 
     private:
+        Comet::Result<void, Comet::Error> configure_player_input() {
+            auto settings = Comet::PlayerInputSettings::load(m_project.id());
+            if(!settings) {
+                LOG_WARN("Player input settings unavailable; using project defaults: {}",
+                    settings.error());
+                return get_engine().set_input_actions(m_project.input_actions());
+            }
+            auto resolved = settings.value().overrides().resolve(m_project.input_actions());
+            if(!resolved)
+                return Comet::Result<void, Comet::Error>::failure({resolved.error()});
+            for(const auto& issue : resolved.value().issues)
+                LOG_WARN("Player input override ignored for action '{}', binding '{}': {}",
+                    issue.action.to_string(), issue.binding.to_string(), issue.message);
+            return get_engine().set_input_actions(std::move(resolved).value().actions);
+        }
+
         Comet::Result<void, Comet::Error> restart_scene() {
             const auto components = Comet::create_scene_component_registry();
             auto candidate = Comet::SceneSerializer(components).clone(*m_initial_scene);
