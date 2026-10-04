@@ -126,6 +126,71 @@ namespace Comet::Tests {
         EXPECT_FALSE(regained.gamepads[0].button(Input::GamepadButton::South).pressed);
     }
 
+    TEST_F(InputTest, FocusLossVersionSurvivesSkippedFramesAndOnlyChangesOnLoss) {
+        const auto initial = input.publish_frame();
+        EXPECT_EQ(initial.interruption, 0u);
+        input.focus_event(true);
+        EXPECT_EQ(input.publish_frame().interruption, initial.interruption);
+
+        input.focus_event(false);
+        const auto lost = input.publish_frame();
+        EXPECT_EQ(lost.interruption, initial.interruption + 1);
+        input.focus_event(false);
+        EXPECT_EQ(input.publish_frame().interruption, lost.interruption);
+        input.focus_event(true);
+        input.focus_event(true);
+        input.publish_frame();
+        const auto resumed = input.publish_frame();
+        EXPECT_TRUE(resumed.focused);
+        EXPECT_EQ(resumed.interruption, initial.interruption + 1);
+
+        input.focus_event(false);
+        input.focus_event(true);
+        const auto coalesced = input.publish_frame();
+        EXPECT_TRUE(coalesced.focused);
+        EXPECT_EQ(coalesced.interruption, initial.interruption + 2);
+        EXPECT_EQ(initial.interruption, 0u);
+    }
+
+    TEST_F(InputTest, GateDetectsSkippedFocusLossAndRequiresFreshPressAfterRegain) {
+        Input::Gate gate;
+        gate.read(input.publish_frame(), true);
+        input.key_event(Input::Key::W, true);
+        ASSERT_TRUE(gate.read(input.publish_frame(), true).key(Input::Key::W).down);
+
+        input.focus_event(false);
+        input.publish_frame();
+        input.focus_event(true);
+        input.key_event(Input::Key::W, true);
+        input.cursor_event({100, 200});
+        input.cursor_event({110, 220});
+        input.scroll_event({0, 1});
+        const auto resumed = input.publish_frame();
+        ASSERT_TRUE(resumed.focused);
+        ASSERT_TRUE(resumed.key(Input::Key::W).pressed);
+        const auto interrupted = gate.read(resumed, true);
+        EXPECT_FALSE(interrupted.focused);
+        EXPECT_TRUE(interrupted.key(Input::Key::W).released);
+        EXPECT_FALSE(interrupted.key(Input::Key::W).down);
+        EXPECT_FALSE(interrupted.key(Input::Key::W).pressed);
+        EXPECT_EQ(interrupted.cursor_delta, Math::Vec2(0));
+        EXPECT_EQ(interrupted.scroll, Math::Vec2(0));
+        EXPECT_EQ(gate.read(resumed, true).serial, interrupted.serial);
+        EXPECT_FALSE(gate.read(resumed, true).focused);
+
+        const auto acquired = gate.read(input.publish_frame(), true);
+        EXPECT_TRUE(acquired.focused);
+        EXPECT_FALSE(acquired.key(Input::Key::W).down);
+        EXPECT_FALSE(acquired.key(Input::Key::W).pressed);
+        EXPECT_FALSE(gate.read(input.publish_frame(), true).key(Input::Key::W).down);
+        input.key_event(Input::Key::W, false);
+        EXPECT_FALSE(gate.read(input.publish_frame(), true).key(Input::Key::W).released);
+        input.key_event(Input::Key::W, true);
+        const auto pressed = gate.read(input.publish_frame(), true);
+        EXPECT_TRUE(pressed.key(Input::Key::W).down);
+        EXPECT_TRUE(pressed.key(Input::Key::W).pressed);
+    }
+
     TEST_F(InputTest, GamepadSamplesNormalizeInvalidAxesAndReleaseOnDisconnect) {
         input.gamepad_sample(2, std::nullopt);
         Input::GamepadSample sample;

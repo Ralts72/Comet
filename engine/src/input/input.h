@@ -192,7 +192,7 @@ namespace Comet {
         };
         struct COMET_API Frame {
             uint64_t serial = 0;
-            // 消费者可能跳过恢复首帧，用版本变化识别采样中断。
+            // 消费者可能跳过失焦或恢复首帧，用版本变化识别失焦与采样中断。
             uint64_t interruption = 0;
             bool focused = false;
             // 原始帧默认开放鼠标；Gate 发布独立授权，仍须同时 focused。

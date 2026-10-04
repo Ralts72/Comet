@@ -697,6 +697,63 @@ namespace CometUi::Tests {
         EXPECT_TRUE(request->actions().empty());
     }
 
+    TEST_F(PlayerInputPanelTest, PublishedFocusLossCancelsCaptureWhenUiMissesTheUnfocusedFrames) {
+        const auto current =
+            Overrides::create({{id(1), Type::Button, false,
+                                   {{.id = id(2), .control = Input::Key::J},
+                                       {.id = id(3), .control = Input::GamepadButton::West}}},
+                {id(4), Type::Axis, false, {{.id = id(5), .scale = -1}}}});
+        ASSERT_TRUE(current);
+        for(const bool gamepad : {false, true}) {
+            SCOPED_TRACE(gamepad);
+            physical = {};
+            physical.focus_event(true);
+            Input::GamepadSample pad;
+            physical.gamepad_sample(0, pad);
+            show(current.value());
+            const char* prompt = "Press a key; Escape cancels recording.";
+            if(gamepad) {
+                binding_button("Record Button", id(3));
+                prompt = "Press a gamepad button; Escape cancels recording.";
+            } else {
+                binding_button("Record Key");
+            }
+            ASSERT_NE(rendered_text.find(prompt), std::string::npos);
+
+            // 物理快照持续发布，但 UI 跳过失焦与恢复首帧。
+            physical.focus_event(false);
+            EXPECT_FALSE(physical.publish_frame().focused);
+            physical.focus_event(true);
+            physical.gamepad_sample(0, pad);
+            EXPECT_TRUE(physical.publish_frame().focused);
+            if(gamepad) {
+                pad.buttons[static_cast<std::size_t>(Input::GamepadButton::East)] = true;
+                physical.gamepad_sample(0, pad);
+            } else {
+                physical.key_event(Input::Key::K, true);
+            }
+            frame();
+            if(gamepad)
+                EXPECT_TRUE(
+                    physical.get_frame().gamepads[0].button(Input::GamepadButton::East).pressed);
+            else
+                EXPECT_TRUE(physical.get_frame().key(Input::Key::K).pressed);
+            EXPECT_TRUE(panel.is_open());
+            EXPECT_TRUE(blocked);
+            EXPECT_EQ(rendered_text.find(prompt), std::string::npos);
+            EXPECT_FALSE(panel.take_request());
+            button("Apply");
+            const auto request = panel.take_request();
+            ASSERT_TRUE(request);
+            EXPECT_EQ(*request, current.value());
+            panel.complete(Comet::Result<void>::success());
+            frame();
+            frame();
+            EXPECT_FALSE(panel.is_open());
+            EXPECT_FALSE(blocked);
+        }
+    }
+
     TEST_F(PlayerInputPanelTest, SamplingInterruptionCancelsRecordingWithoutAnUnfocusedUiFrame) {
         show();
         binding_button("Record Key");

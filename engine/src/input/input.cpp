@@ -68,6 +68,7 @@ namespace Comet {
             m_gamepad_baseline.fill(true);
             return;
         }
+        ++m_pending.interruption;
         release_buttons(m_pending.keys);
         release_buttons(m_pending.mouse_buttons);
         for(auto& gamepad : m_pending.gamepads) {

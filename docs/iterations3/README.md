@@ -38,6 +38,8 @@
   完整 1057 CPU／216 UI、Debug App／Editor／Release App 与契约／边界通过。
 - 033 已验收：诊断按身份逐条移除失效覆盖，保留其他改键；39 定向 UI、完整 1057 CPU／219 UI、
   Debug App／Editor 与契约／边界通过，覆盖取消、真实保存重开与小窗鼠标操作。
+- 034 已验收：真实失焦推进已有输入中断版本，修复跳过 UI 帧后误录和 Gate 穿透；3 项红测转绿，
+  38 定向 CPU／40 UI、完整 1059 CPU／220 UI、Debug／Release 与契约／边界通过。
 
 ## 第二轮续跑（历史，范围确认后结束受阻状态）
 
@@ -159,6 +161,7 @@
 | [031 输入菜单数据收敛](031-shared-input-menu-data.md) | 已验收 | 对应本项文档的提交；48 定向 UI、1053 CPU／214 UI、Debug App／Editor 与契约／边界通过；保留项目文本编辑、玩家录入和控件身份，无新增类或回调 |
 | [032 禁用保留个人配置](032-preserve-disabled-player-bindings.md) | 已验收 | 对应本项文档的提交；33 定向 CPU／36 UI、1057 CPU／216 UI、Debug／Release 与契约／边界通过；启停、保存重开、默认漂移及严格版本检测 |
 | [033 逐条移除失效覆盖](033-remove-incompatible-player-overrides.md) | 已验收 | 对应本项文档的提交；39 定向 UI、1057 CPU／219 UI、Debug App／Editor 与契约／边界通过；按身份删除、取消、保存重开及小窗操作，不自动清洗 |
+| [034 跨跳帧失焦中断](034-focus-loss-input-interruption.md) | 已验收 | 对应本项文档的提交；2 CPU／1 UI 红测转绿，38 定向 CPU／40 UI、1059 CPU／220 UI、Debug／Release 与契约／边界通过；沿用原中断版本，无新增回调 |
 
 ## 首轮收尾记录（001–009，历史）
 
