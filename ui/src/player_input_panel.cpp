@@ -487,7 +487,7 @@ namespace CometUi {
         ImGui::EndDisabled();
     }
 
-    void PlayerInputPanel::render_feedback(const Text& translations) const {
+    void PlayerInputPanel::render_feedback(const Text& translations) {
         const auto resolved = m_draft.resolve(m_defaults);
         if(!resolved) {
             ImGui::TextWrapped("%s", text(translations, resolved.error().c_str()));
@@ -503,18 +503,29 @@ namespace CometUi {
     }
 
     void PlayerInputPanel::render_diagnostics(
-        const Overrides::Resolution& resolved, const Text& translations) const {
+        const Overrides::Resolution& resolved, const Text& translations) {
         if(resolved.issues.empty())
             return;
         ImGui::TextWrapped(
             "%s", text(translations, "Incompatible overrides are preserved until restored."));
         ImGui::BeginChild("Diagnostics", ImVec2(0, 75), true);
         for(const auto& issue : resolved.issues) {
+            ImGui::PushID(issue.action.to_string().c_str());
+            ImGui::PushID(issue.binding.to_string().c_str());
             ImGui::TextWrapped("%s", text(translations, issue.message.c_str()));
+            if(ImGui::Button(label(translations, "Remove Override").c_str())) {
+                if(issue.binding)
+                    restore_binding(issue.action, issue.binding);
+                else
+                    restore_action(issue.action);
+            }
             ImGui::PushTextWrapPos(0);
             ImGui::TextDisabled(
                 "%s / %s", issue.action.to_string().c_str(), issue.binding.to_string().c_str());
             ImGui::PopTextWrapPos();
+            ImGui::Separator();
+            ImGui::PopID();
+            ImGui::PopID();
         }
         ImGui::EndChild();
     }

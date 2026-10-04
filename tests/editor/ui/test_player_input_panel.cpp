@@ -124,10 +124,17 @@ namespace CometUi::Tests {
 
         ImGuiWindow* content() { return child(window(), "Content"); }
         ImGuiWindow* bindings() { return child(content(), "Bindings"); }
+        ImGuiWindow* diagnostics() { return child(content(), "Diagnostics"); }
 
         ImGuiID binding_item(Comet::Uuid binding, const char* english) {
             const auto scope = ImHashStr(binding.to_string().c_str(), 0, bindings()->ID);
             return ImHashStr((std::string("###") + english).c_str(), 0, scope);
+        }
+
+        ImGuiID diagnostic_item(Comet::Uuid action, Comet::Uuid binding = {}) {
+            const auto action_scope = ImHashStr(action.to_string().c_str(), 0, diagnostics()->ID);
+            const auto binding_scope = ImHashStr(binding.to_string().c_str(), 0, action_scope);
+            return ImHashStr("###Remove Override", 0, binding_scope);
         }
 
         void activate(ImGuiWindow* owner, ImGuiID item) {
@@ -149,6 +156,15 @@ namespace CometUi::Tests {
         void binding_button(const char* english, Comet::Uuid binding = id(2)) {
             ASSERT_NE(bindings(), nullptr);
             activate(bindings(), binding_item(binding, english));
+        }
+
+        void remove_override(Comet::Uuid action, Comet::Uuid binding = {}) {
+            ASSERT_NE(diagnostics(), nullptr);
+            ImGui::SetScrollY(content(), content()->ScrollMax.y);
+            ImGui::SetScrollY(diagnostics(), 0);
+            frame();
+            activate(diagnostics(), diagnostic_item(action, binding));
+            frame();
         }
 
         void key(Input::Key value) {
@@ -201,20 +217,21 @@ namespace CometUi::Tests {
             frame();
         }
 
-        std::optional<ImVec2> hover_point(ImGuiWindow* owner, ImGuiID item) {
-            return find_hover_point(owner, item, [this] { frame(); });
+        std::optional<ImVec2> hover_point(
+            ImGuiWindow* owner, ImGuiID item, const PlayerInputPanel::Text& translations = {}) {
+            return find_hover_point(owner, item, [this, &translations] { frame(translations); });
         }
 
-        void mouse_click(ImVec2 point) {
+        void mouse_click(ImVec2 point, const PlayerInputPanel::Text& translations = {}) {
             auto& io = ImGui::GetIO();
             io.AddMousePosEvent(point.x, point.y);
-            frame();
+            frame(translations);
             io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
             physical.mouse_button_event(Input::MouseButton::Left, true);
-            frame();
+            frame(translations);
             io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
             physical.mouse_button_event(Input::MouseButton::Left, false);
-            frame();
+            frame(translations);
         }
 
         void click_footer(const char* english) {
@@ -258,6 +275,131 @@ namespace CometUi::Tests {
         EXPECT_EQ(*request, current.value());
         EXPECT_FALSE(panel.take_request());
         EXPECT_TRUE(panel.is_open());
+    }
+
+    TEST_F(PlayerInputPanelTest, RemovingUnknownActionPreservesOtherRecordsThroughCancelAndReopen) {
+        const auto current = Overrides::create({{id(90), Type::Button, true, {}},
+            {id(1), Type::Button, false, {{.id = id(2), .control = Input::Key::K}}},
+            {id(4), Type::Axis, false, {{.id = id(5), .scale = -1}}},
+            {id(91), Type::Button, true, {}}});
+        ASSERT_TRUE(current);
+        Comet::Tests::TemporaryDirectory directory;
+        const auto file = directory.path() / "input.json";
+        auto settings = Comet::PlayerInputSettings::load(id(20), file);
+        ASSERT_TRUE(settings);
+        ASSERT_TRUE(settings.value().save(current.value()));
+        const auto original = Comet::read_text_file(file);
+        ASSERT_TRUE(original);
+        const auto timestamp = std::filesystem::last_write_time(file);
+
+        show(settings.value().overrides());
+        remove_override(id(90));
+        EXPECT_EQ(rendered_text.find(id(90).to_string()), std::string::npos);
+        EXPECT_NE(rendered_text.find(id(91).to_string()), std::string::npos);
+        EXPECT_FALSE(panel.take_request());
+        button("Cancel");
+        EXPECT_FALSE(panel.is_open());
+        EXPECT_TRUE(blocked);
+        EXPECT_FALSE(panel.take_request());
+        EXPECT_EQ(Comet::read_text_file(file).value(), original.value());
+        EXPECT_EQ(std::filesystem::last_write_time(file), timestamp);
+        frame();
+
+        show(settings.value().overrides());
+        EXPECT_NE(rendered_text.find(id(90).to_string()), std::string::npos);
+        remove_override(id(90));
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        auto expected = current.value().actions();
+        expected.erase(expected.begin());
+        EXPECT_EQ(request->actions(), expected);
+        const auto saved = settings.value().save(*request);
+        ASSERT_TRUE(saved) << saved.error();
+        panel.complete(saved);
+        frame();
+        const auto reopened = Comet::PlayerInputSettings::load(id(20), file);
+        ASSERT_TRUE(reopened);
+        EXPECT_EQ(reopened.value().overrides().actions(), expected);
+        show(reopened.value().overrides());
+        EXPECT_EQ(rendered_text.find(id(90).to_string()), std::string::npos);
+        EXPECT_NE(rendered_text.find(id(91).to_string()), std::string::npos);
+    }
+
+    TEST_F(PlayerInputPanelTest, RemovingUnknownBindingsScopesIdsAndPrunesOnlyTheEmptyAction) {
+        auto actions = defaults.actions();
+        actions.push_back({"fire", Type::Button, {{Input::Key::F, 1, 0, id(11)}}, "", id(10)});
+        const auto configured = Actions::create(std::move(actions), defaults.contexts());
+        ASSERT_TRUE(configured);
+        defaults = configured.value();
+        const auto current = Overrides::create({{id(1), Type::Button, false,
+                                                    {{.id = id(2), .control = Input::Key::K},
+                                                        {.id = id(99), .control = Input::Key::P}}},
+            {id(4), Type::Axis, false, {{.id = id(99), .scale = -1}}},
+            {id(10), Type::Button, false,
+                {{.id = id(11), .control = Input::Key::R, .disabled = true}}}});
+        ASSERT_TRUE(current);
+        show(current.value());
+        remove_override(id(1), id(99));
+        button("Apply");
+        const auto first = panel.take_request();
+        ASSERT_TRUE(first);
+        auto expected = current.value().actions();
+        expected[0].bindings.pop_back();
+        EXPECT_EQ(first->actions(), expected);
+        panel.complete(Comet::Result<void>::success());
+        frame();
+
+        show(*first);
+        remove_override(id(4), id(99));
+        button("Apply");
+        const auto second = panel.take_request();
+        ASSERT_TRUE(second);
+        expected.erase(expected.begin() + 1);
+        EXPECT_EQ(second->actions(), expected);
+        const auto resolved = second->resolve(defaults);
+        ASSERT_TRUE(resolved);
+        EXPECT_TRUE(resolved.value().issues.empty());
+        EXPECT_EQ(resolved.value().actions.actions()[0].bindings[0].control,
+            Actions::Control(Input::Key::K));
+        EXPECT_EQ(resolved.value().actions.actions()[1], defaults.actions()[1]);
+        EXPECT_TRUE(resolved.value().actions.actions()[2].bindings.empty());
+    }
+
+    TEST_F(PlayerInputPanelTest, EmptyDefaultsKeepTranslatedDiagnosticRemovalMouseReachable) {
+        defaults = {};
+        ImGui::GetIO().DisplaySize = {480, 320};
+        const auto current = Overrides::create(
+            {{id(1), Type::Button, false, {{.id = id(2), .control = Input::Key::K}}},
+                {id(4), Type::Axis, true, {}}});
+        ASSERT_TRUE(current);
+        show(current.value());
+        EXPECT_NE(rendered_text.find("No input actions."), std::string::npos);
+        ASSERT_NE(diagnostics(), nullptr);
+        const auto item = diagnostic_item(id(1));
+        const PlayerInputPanel::Text translations{{"Remove Override", "Remove this record"}};
+        ImGui::SetScrollY(content(), content()->ScrollMax.y);
+        frame(translations);
+        frame(translations);
+        EXPECT_GT(content()->Scroll.y, 0);
+        EXPECT_GT(diagnostics()->ScrollMax.y, 0);
+        EXPECT_EQ(diagnostic_item(id(1)), item);
+        EXPECT_NE(rendered_text.find("Remove this record"), std::string::npos);
+        const auto point = hover_point(diagnostics(), item, translations);
+        ASSERT_TRUE(point);
+        mouse_click(*point, translations);
+        frame(translations);
+        EXPECT_EQ(rendered_text.find(id(1).to_string()), std::string::npos);
+        EXPECT_NE(rendered_text.find(id(4).to_string()), std::string::npos);
+        EXPECT_TRUE(panel.is_open());
+        EXPECT_TRUE(blocked);
+        EXPECT_FALSE(panel.take_request());
+        remove_override(id(4));
+        EXPECT_EQ(rendered_text.find("Unknown input action ID"), std::string::npos);
+        click_footer("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_TRUE(request->actions().empty());
     }
 
     TEST_F(PlayerInputPanelTest, RecordingChangesOnlyControlAndKeepsExistingSparseFields) {

@@ -281,6 +281,8 @@ InputActions 的只读 `compare_bindings` 与实际路由共用消费判定；�
 与诊断共用同一合成结果；被拒绝补丁的控件值不冒充有效绑定。共享展示借用词表，不依赖 Editor 或新增翻译回调。
 玩家面板按合成 issue 的身份标记拒绝状态；此时保留原补丁、显示有效默认，恢复绑定后才能编辑控制字段。
 绑定仍可独立禁用／启用；动作类型已漂移时必须先恢复动作。禁用内容不显示默认控制冒充个人值，也不由 UI 另存备份。
+诊断操作直接按 Issue 的动作／绑定 UUID 复用草稿恢复路径，不从错误文案判断类型，也不要求失效项仍在默认列表中。
+它只删除对应记录；取消不保存，Apply 沿原持久化与运行时替换边界处理，不在合成时自动清洗。
 正文与根操作栏分开，弹窗尺寸及位置在 Begin 前按 viewport 约束，缩小后不把取消／应用滚出可用区域。
 RuntimeInput 保存本局的活动组状态，reset 恢复默认；InputState 仍是只读的阶段结果，System／Lua 不持有映射配置。
 `comet.set_input_context → Scene::request_input_context → SceneRuntime::advance → RuntimeInput::set_context_enabled`：
