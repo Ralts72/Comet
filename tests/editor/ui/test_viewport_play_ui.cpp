@@ -1,5 +1,13 @@
 #ifdef COMET_TEST_EDITOR_UI
 #include "support/viewport_fixture.h"
+#include "asset/registry.h"
+#include "common/scope_exit.h"
+#include "core/project.h"
+#include "scene/script_component.h"
+#include "scene/systems/script_system.h"
+
+#include <algorithm>
+#include <array>
 
 namespace CometEditor::Tests {
     using ViewportPlayUiTest = ViewportUiTest;
@@ -136,6 +144,197 @@ namespace CometEditor::Tests {
         frame();
         EXPECT_FALSE(runtime_accepting);
         EXPECT_NEAR(transform.translation.z, before.z - 0.3f, 0.00001f);
+    }
+
+    TEST_F(ViewportPlayUiTest, ModifiersReachPlayWithoutInterruptingHeldMovement) {
+        using Key = Comet::Input::Key;
+        struct Modifier {
+            Key physical;
+            ImGuiKey key;
+            ImGuiKey aggregate;
+        };
+        const Modifier modifiers[]{{Key::LeftControl, ImGuiKey_LeftCtrl, ImGuiMod_Ctrl},
+            {Key::RightControl, ImGuiKey_RightCtrl, ImGuiMod_Ctrl},
+            {Key::LeftAlt, ImGuiKey_LeftAlt, ImGuiMod_Alt},
+            {Key::RightAlt, ImGuiKey_RightAlt, ImGuiMod_Alt},
+            {Key::LeftSuper, ImGuiKey_LeftSuper, ImGuiMod_Super},
+            {Key::RightSuper, ImGuiKey_RightSuper, ImGuiMod_Super}};
+        activate_play_camera();
+        const auto& position = entity.get_component<Comet::TransformComponent>().translation;
+        runtime_input.key_event(Key::W, true);
+        frame();
+        auto& io = ImGui::GetIO();
+        for(const bool mac : {false, true}) {
+            SCOPED_TRACE(mac);
+            io.ConfigMacOSXBehaviors = mac;
+            for(const auto& modifier : modifiers) {
+                SCOPED_TRACE(int(modifier.physical));
+                const auto before = position.z;
+                runtime_input.key_event(modifier.physical, true);
+                io.AddKeyEvent(modifier.aggregate, true);
+                io.AddKeyEvent(modifier.key, true);
+                frame();
+                EXPECT_TRUE(io.KeyCtrl || io.KeySuper || io.KeyAlt);
+                EXPECT_TRUE(runtime_accepting);
+                const auto& pressed = viewport.route_runtime_input(runtime_input.get_frame());
+                EXPECT_TRUE(pressed.key(modifier.physical).down);
+                EXPECT_TRUE(pressed.key(modifier.physical).pressed);
+                EXPECT_TRUE(pressed.key(Key::W).down);
+                EXPECT_FALSE(pressed.key(Key::W).pressed);
+                EXPECT_FALSE(pressed.key(Key::W).released);
+                EXPECT_LT(position.z, before);
+
+                const auto after_press = position.z;
+                frame();
+                const auto& held = viewport.route_runtime_input(runtime_input.get_frame());
+                EXPECT_TRUE(held.key(modifier.physical).down);
+                EXPECT_FALSE(held.key(modifier.physical).pressed);
+                EXPECT_TRUE(held.key(Key::W).down);
+                EXPECT_FALSE(held.key(Key::W).released);
+                EXPECT_LT(position.z, after_press);
+
+                const auto after_hold = position.z;
+                runtime_input.key_event(modifier.physical, false);
+                io.AddKeyEvent(modifier.aggregate, false);
+                io.AddKeyEvent(modifier.key, false);
+                frame();
+                EXPECT_TRUE(runtime_accepting);
+                const auto& released = viewport.route_runtime_input(runtime_input.get_frame());
+                EXPECT_TRUE(released.key(modifier.physical).released);
+                EXPECT_FALSE(released.key(modifier.physical).down);
+                EXPECT_TRUE(released.key(Key::W).down);
+                EXPECT_FALSE(released.key(Key::W).pressed);
+                EXPECT_FALSE(released.key(Key::W).released);
+                EXPECT_LT(position.z, after_hold);
+            }
+        }
+    }
+
+    TEST_F(ViewportPlayUiTest, ReboundModifierControlsRealDemoLuaWithoutRestartingItsState) {
+        using Key = Comet::Input::Key;
+        const auto project = Comet::Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
+        ASSERT_TRUE(project) << project.error();
+        ASSERT_TRUE(runtime.set_input_actions(project.value().input_actions()));
+        const std::array<std::filesystem::path, 1> roots{"scripts/spin.lua"};
+        const auto scripts = Comet::Script::load_group(project.value().paths().assets(), roots);
+        ASSERT_TRUE(scripts) << scripts.error().message;
+        Comet::AssetRegistry assets;
+        const Comet::ScopeExit stop_runtime([&] { static_cast<void>(runtime.stop()); });
+        const Comet::AssetHandle script_handle{42};
+        ASSERT_TRUE(assets.register_asset(script_handle, scripts.value().front()));
+        entity.add_component<Comet::ScriptComponent>().asset = script_handle;
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Comet::ScriptSystem>(assets)));
+        activate_play_camera();
+        const auto& rotation = entity.get_component<Comet::TransformComponent>().rotation;
+        EXPECT_GT(rotation.y, 0);
+        runtime_input.key_event(Key::Space, true);
+        frame();
+        runtime_input.key_event(Key::Space, false);
+        frame();
+        const auto paused_rotation = rotation.y;
+
+        auto actions = project.value().input_actions().actions();
+        const auto spin =
+            std::ranges::find(actions, "spin.toggle", &Comet::InputActions::Action::name);
+        ASSERT_NE(spin, actions.end());
+        ASSERT_FALSE(spin->bindings.empty());
+        ASSERT_TRUE(spin->id);
+        ASSERT_TRUE(spin->bindings.front().id);
+        spin->bindings.front().control = Key::LeftControl;
+        auto rebound = Comet::InputActions::create(
+            std::move(actions), project.value().input_actions().contexts());
+        ASSERT_TRUE(rebound);
+        const auto fixed_index = runtime.get_timing().fixed_index;
+        ASSERT_TRUE(runtime.rebind_input_actions(std::move(rebound).value()));
+        runtime_ui_blocked = true;
+        frame();
+        runtime_ui_blocked = false;
+        frame();
+        EXPECT_GT(runtime.get_timing().fixed_index, fixed_index);
+        EXPECT_FLOAT_EQ(rotation.y, paused_rotation);
+        runtime_input.key_event(Key::Space, true);
+        frame();
+        runtime_input.key_event(Key::Space, false);
+        frame();
+        EXPECT_FLOAT_EQ(rotation.y, paused_rotation);
+
+        auto& io = ImGui::GetIO();
+        runtime_input.key_event(Key::LeftControl, true);
+        io.AddKeyEvent(ImGuiMod_Ctrl, true);
+        io.AddKeyEvent(ImGuiKey_LeftCtrl, true);
+        frame();
+        EXPECT_TRUE(runtime_accepting);
+        EXPECT_GT(rotation.y, paused_rotation);
+        const auto resumed_rotation = rotation.y;
+        frame();
+        EXPECT_GT(rotation.y, resumed_rotation);
+        runtime_input.key_event(Key::LeftControl, false);
+        io.AddKeyEvent(ImGuiMod_Ctrl, false);
+        io.AddKeyEvent(ImGuiKey_LeftCtrl, false);
+        frame();
+        const auto before_second_press = rotation.y;
+        runtime_input.key_event(Key::LeftControl, true);
+        io.AddKeyEvent(ImGuiMod_Ctrl, true);
+        io.AddKeyEvent(ImGuiKey_LeftCtrl, true);
+        frame();
+        EXPECT_FLOAT_EQ(rotation.y, before_second_press);
+        frame();
+        EXPECT_FLOAT_EQ(rotation.y, before_second_press);
+        EXPECT_TRUE(runtime.is_active());
+    }
+
+    TEST_F(ViewportPlayUiTest, WindowSwitchingBlocksPlayAndDoesNotReplayHeldMovement) {
+        using Key = Comet::Input::Key;
+        auto& io = ImGui::GetIO();
+        io.ConfigMacOSXBehaviors = false;
+        GImGui->ConfigNavWindowingKeyNext = ImGuiMod_Ctrl | ImGuiKey_Tab;
+        GImGui->ConfigNavWindowingKeyPrev = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Tab;
+        io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
+        show_other_panel = true;
+        activate_play_camera();
+        const auto& position = entity.get_component<Comet::TransformComponent>().translation;
+        runtime_input.key_event(Key::W, true);
+        runtime_input.key_event(Key::LeftControl, true);
+        io.AddKeyEvent(ImGuiMod_Ctrl, true);
+        io.AddKeyEvent(ImGuiKey_LeftCtrl, true);
+        frame();
+        EXPECT_TRUE(runtime_accepting);
+        EXPECT_LT(position.z, 0);
+        ASSERT_EQ(GImGui->NavWindowingTarget, nullptr);
+        const auto before_switch = position;
+
+        runtime_input.key_event(Key::Tab, true);
+        io.AddKeyEvent(ImGuiKey_Tab, true);
+        frame();
+        ASSERT_NE(GImGui->NavWindowingTarget, nullptr);
+        EXPECT_FALSE(runtime_accepting);
+        EXPECT_EQ(position, before_switch);
+        const auto& blocked = viewport.route_runtime_input(runtime_input.get_frame());
+        EXPECT_TRUE(blocked.key(Key::W).released);
+        EXPECT_FALSE(blocked.key(Key::Tab).pressed);
+        runtime_input.key_event(Key::Tab, false);
+        io.AddKeyEvent(ImGuiKey_Tab, false);
+        frame();
+        EXPECT_FALSE(runtime_accepting);
+        EXPECT_EQ(position, before_switch);
+
+        runtime_input.key_event(Key::LeftControl, false);
+        io.AddKeyEvent(ImGuiMod_Ctrl, false);
+        io.AddKeyEvent(ImGuiKey_LeftCtrl, false);
+        frame();
+        ASSERT_EQ(GImGui->NavWindowingTarget, nullptr);
+        const auto& rect = viewport.get_layout().image_visible_rect;
+        move_pointer((rect.min + rect.max) * 0.5f);
+        EXPECT_TRUE(runtime_accepting);
+        EXPECT_EQ(position, before_switch);
+        const auto& reacquired = viewport.route_runtime_input(runtime_input.get_frame());
+        EXPECT_FALSE(reacquired.key(Key::W).down);
+        EXPECT_FALSE(reacquired.key(Key::W).pressed);
+        runtime_input.key_event(Key::W, false);
+        frame();
+        runtime_input.key_event(Key::W, true);
+        frame();
+        EXPECT_LT(position.z, before_switch.z);
     }
 
     TEST_F(ViewportPlayUiTest, PlayAndResumeFocusViewportWithoutMovingPointerOffToolbar) {

@@ -17,7 +17,8 @@ namespace CometEditor {
 
         bool ui_blocks_runtime_input() {
             const auto& io = ImGui::GetIO();
-            return io.AppFocusLost || io.WantTextInput || io.KeyCtrl || io.KeySuper || io.KeyAlt
+            // 关闭方向键导航后，Ctrl+Tab 仍可进入 ImGui 窗口切换。
+            return io.AppFocusLost || io.WantTextInput || GImGui->NavWindowingTarget
                    || ImGui::IsAnyItemActive() || ImGui::IsDragDropActive()
                    || ImGui::IsPopupOpen(
                        nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
