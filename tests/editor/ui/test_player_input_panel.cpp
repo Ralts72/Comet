@@ -1,11 +1,16 @@
 #ifdef COMET_TEST_EDITOR_UI
+#include "common/file_io.h"
+#include "input/player_input_settings.h"
+#include "input_widgets.h"
 #include "player_input_panel.h"
 #include "support/imgui_context.h"
+#include "support/temporary_directory.h"
 
 #include <gtest/gtest.h>
 #include <imgui_internal.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -22,6 +27,53 @@ namespace CometUi::Tests {
             Comet::Uuid::Bytes bytes{};
             bytes.back() = static_cast<std::uint8_t>(value);
             return Comet::Uuid(bytes);
+        }
+
+        ImGuiWindow* find_child(ImGuiWindow* parent, const char* name) {
+            if(!parent)
+                return nullptr;
+            for(auto* candidate : ImGui::GetCurrentContext()->Windows)
+                if(candidate->ParentWindow == parent && candidate->ChildId == parent->GetID(name))
+                    return candidate;
+            return nullptr;
+        }
+
+        bool has_visible_text(const ImGuiWindow& window) {
+            const auto color = ImGui::GetColorU32(ImGuiCol_Text);
+            const auto& draw = *window.DrawList;
+            for(const auto& command : draw.CmdBuffer) {
+                const ImRect clip(command.ClipRect);
+                for(unsigned index = command.IdxOffset;
+                    index < command.IdxOffset + command.ElemCount; ++index) {
+                    const auto& vertex = draw.VtxBuffer[command.VtxOffset + draw.IdxBuffer[index]];
+                    if(vertex.col == color && clip.Contains(vertex.pos)
+                        && window.InnerClipRect.Contains(vertex.pos))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        template<typename Frame>
+        std::optional<ImVec2> find_hover_point(ImGuiWindow* owner, ImGuiID item, Frame frame) {
+            if(!owner)
+                return std::nullopt;
+            const auto* viewport = ImGui::GetMainViewport();
+            const float left = std::max(owner->InnerClipRect.Min.x, viewport->WorkPos.x);
+            const float right =
+                std::min(owner->InnerClipRect.Max.x, viewport->WorkPos.x + viewport->WorkSize.x);
+            const float top = std::max(owner->InnerClipRect.Min.y, viewport->WorkPos.y);
+            const float bottom =
+                std::min(owner->InnerClipRect.Max.y, viewport->WorkPos.y + viewport->WorkSize.y);
+            for(float y = bottom - 3; y > top; y -= 6) {
+                for(float x = left + 3; x < right; x += 6) {
+                    ImGui::GetIO().AddMousePosEvent(x, y);
+                    frame();
+                    if(ImGui::GetCurrentContext()->HoveredId == item)
+                        return ImVec2{x, y};
+                }
+            }
+            return std::nullopt;
         }
     }
 
@@ -67,12 +119,7 @@ namespace CometUi::Tests {
         ImGuiWindow* window() { return ImGui::FindWindowByName("###Player Input"); }
 
         ImGuiWindow* child(ImGuiWindow* parent, const char* name) {
-            if(!parent)
-                return nullptr;
-            for(auto* candidate : ImGui::GetCurrentContext()->Windows)
-                if(candidate->ParentWindow == parent && candidate->ChildId == parent->GetID(name))
-                    return candidate;
-            return nullptr;
+            return find_child(parent, name);
         }
 
         ImGuiWindow* content() { return child(window(), "Content"); }
@@ -155,24 +202,7 @@ namespace CometUi::Tests {
         }
 
         std::optional<ImVec2> hover_point(ImGuiWindow* owner, ImGuiID item) {
-            if(!owner)
-                return std::nullopt;
-            const auto* viewport = ImGui::GetMainViewport();
-            const float left = std::max(owner->ClipRect.Min.x, viewport->WorkPos.x);
-            const float right =
-                std::min(owner->ClipRect.Max.x, viewport->WorkPos.x + viewport->WorkSize.x);
-            const float top = std::max(owner->ClipRect.Min.y, viewport->WorkPos.y);
-            const float bottom =
-                std::min(owner->ClipRect.Max.y, viewport->WorkPos.y + viewport->WorkSize.y);
-            for(float y = bottom - 3; y > top; y -= 6) {
-                for(float x = left + 3; x < right; x += 6) {
-                    ImGui::GetIO().AddMousePosEvent(x, y);
-                    frame();
-                    if(ImGui::GetCurrentContext()->HoveredId == item)
-                        return ImVec2{x, y};
-                }
-            }
-            return std::nullopt;
+            return find_hover_point(owner, item, [this] { frame(); });
         }
 
         void mouse_click(ImVec2 point) {
@@ -343,14 +373,34 @@ namespace CometUi::Tests {
     TEST_F(PlayerInputPanelTest, FailedApplyKeepsDraftAndSuccessClosesAtTheNextUiBoundary) {
         show();
         record(Input::Key::K);
-        button("Apply");
+        ImGui::GetIO().DisplaySize = {480, 320};
+        frame();
+        frame();
+        click_footer("Apply");
         const auto first = panel.take_request();
         ASSERT_TRUE(first);
-        panel.complete(Comet::Result<void>::failure("Settings changed externally"));
+        std::string error = "Settings changed externally\n";
+        for(int line = 0; line < 20; ++line)
+            error += "The player settings file was changed by another application.\n";
+        panel.complete(Comet::Result<void>::failure(error));
+        frame();
         frame();
         EXPECT_TRUE(panel.is_open());
         EXPECT_NE(rendered_text.find("Settings changed externally"), std::string::npos);
-        button("Apply");
+        auto* errors = child(window(), "Error");
+        ASSERT_NE(errors, nullptr);
+        EXPECT_TRUE(errors->Active);
+        EXPECT_GT(errors->ScrollMax.y, 0);
+        EXPECT_LE(errors->Size.y, 96);
+        EXPECT_GT(errors->InnerClipRect.GetHeight(), ImGui::GetFontSize());
+        EXPECT_LE(errors->Pos.y + errors->Size.y, content()->Pos.y);
+        EXPECT_TRUE(has_visible_text(*errors));
+        ImGui::SetScrollY(content(), content()->ScrollMax.y);
+        frame();
+        EXPECT_GT(content()->Scroll.y, 0);
+        EXPECT_TRUE(has_visible_text(*errors));
+        expect_footer_reachable();
+        click_footer("Apply");
         const auto retried = panel.take_request();
         ASSERT_TRUE(retried);
         EXPECT_EQ(*retried, *first);
@@ -764,6 +814,7 @@ namespace CometUi::Tests {
     TEST_F(PlayerInputPanelTest, MissingGamepadDoesNotArmAndEscapeCancelsWithoutClosingThePanel) {
         show();
         binding_button("Record Button", id(3));
+        frame();
         EXPECT_NE(rendered_text.find("No gamepad connected."), std::string::npos);
         EXPECT_EQ(rendered_text.find("Press a gamepad button; Escape cancels recording."),
             std::string::npos);
@@ -910,6 +961,134 @@ namespace CometUi::Tests {
         button("Apply");
         EXPECT_EQ(window(), original_window);
         EXPECT_TRUE(panel.take_request());
+    }
+
+    class PlayerInputErrorTest: public testing::Test {
+    protected:
+        Comet::Tests::ImGuiTestContext imgui{{800, 600}};
+        std::string error;
+        std::string rendered_text;
+        bool blocked = false;
+
+        ImGuiWindow* window() { return ImGui::FindWindowByName("###Input Settings Error"); }
+
+        void frame(bool close_requested = false, const Translations& translations = {}) {
+            ImGui::NewFrame();
+            ImGui::LogToBuffer(0);
+            blocked = render_player_input_error(error, close_requested, translations);
+            rendered_text = ImGui::GetCurrentContext()->LogBuffer.c_str();
+            ImGui::LogFinish();
+            ImGui::Render();
+        }
+
+        std::optional<ImVec2> close_point() {
+            auto* modal = window();
+            if(!modal)
+                return std::nullopt;
+            return find_hover_point(modal, modal->GetID("###Close"), [this] { frame(); });
+        }
+
+        void expect_visible() {
+            ASSERT_NE(window(), nullptr);
+            EXPECT_TRUE(blocked);
+            const auto* viewport = ImGui::GetMainViewport();
+            EXPECT_GE(window()->Pos.x, viewport->WorkPos.x);
+            EXPECT_GE(window()->Pos.y, viewport->WorkPos.y);
+            EXPECT_LE(
+                window()->Pos.x + window()->Size.x, viewport->WorkPos.x + viewport->WorkSize.x);
+            EXPECT_LE(
+                window()->Pos.y + window()->Size.y, viewport->WorkPos.y + viewport->WorkSize.y);
+            EXPECT_EQ(window()->ScrollMax.y, 0);
+            auto* content = find_child(window(), "Content");
+            ASSERT_NE(content, nullptr);
+            EXPECT_GT(content->InnerClipRect.GetHeight(), ImGui::GetFontSize());
+            EXPECT_TRUE(has_visible_text(*content));
+            const auto point = close_point();
+            ASSERT_TRUE(point);
+            EXPECT_GE(point->y, content->Pos.y + content->Size.y);
+        }
+
+        void click_close() {
+            const auto point = close_point();
+            ASSERT_TRUE(point);
+            auto& io = ImGui::GetIO();
+            io.AddMousePosEvent(point->x, point->y);
+            frame();
+            ASSERT_EQ(ImGui::GetCurrentContext()->HoveredId, window()->GetID("###Close"));
+            io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+            frame();
+            io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+            frame();
+        }
+    };
+
+    TEST_F(PlayerInputErrorTest, LongErrorKeepsTextAndMouseCloseVisibleAfterViewportShrinks) {
+        for(int line = 0; line < 30; ++line)
+            error += "Cannot read the player settings file in this project configuration.\n";
+        frame();
+        frame();
+        ImGui::GetIO().DisplaySize = {480, 320};
+        frame();
+        frame();
+        expect_visible();
+        EXPECT_GT(find_child(window(), "Content")->ScrollMax.y, 0);
+        click_close();
+        EXPECT_TRUE(error.empty());
+        EXPECT_TRUE(blocked);
+        EXPECT_FALSE(ImGui::IsPopupOpen("###Input Settings Error", ImGuiPopupFlags_AnyPopupId));
+        frame();
+        EXPECT_FALSE(blocked);
+    }
+
+    TEST_F(PlayerInputErrorTest, TranslationsKeepIdentityAndExternalClearClosesThePopup) {
+        frame();
+        EXPECT_FALSE(blocked);
+        error = "Original file diagnostic";
+        frame();
+        frame();
+        const auto* original_window = window();
+        {
+            const Translations translations{{"Input Settings Error", "Personal settings error"},
+                {"Close", "Dismiss"}, {error, "This replacement must not appear"}};
+            frame(false, translations);
+            EXPECT_EQ(window(), original_window);
+            EXPECT_NE(rendered_text.find("Dismiss"), std::string::npos);
+            EXPECT_NE(rendered_text.find(error), std::string::npos);
+            EXPECT_EQ(rendered_text.find("This replacement must not appear"), std::string::npos);
+            expect_visible();
+        }
+        error.clear();
+        frame();
+        EXPECT_TRUE(blocked);
+        EXPECT_FALSE(ImGui::IsPopupOpen("###Input Settings Error", ImGuiPopupFlags_AnyPopupId));
+        frame();
+        EXPECT_FALSE(blocked);
+    }
+
+    TEST_F(PlayerInputErrorTest, CorruptPlayerFileStaysUntouchedThroughErrorAndCloseRequest) {
+        Comet::Tests::TemporaryDirectory directory;
+        const auto file = directory.path() / "input.json";
+        const std::string contents = "{ broken player input";
+        const auto written = Comet::write_text_file_atomic(file, contents);
+        ASSERT_TRUE(written) << written.error();
+        const auto timestamp = std::filesystem::last_write_time(file);
+        const auto loaded = Comet::PlayerInputSettings::load(id(20), file);
+        ASSERT_FALSE(loaded);
+        error = loaded.error();
+        frame();
+        frame();
+        expect_visible();
+        EXPECT_NE(rendered_text.find(file.string()), std::string::npos);
+        frame(true);
+        EXPECT_TRUE(blocked);
+        EXPECT_TRUE(error.empty());
+        EXPECT_FALSE(ImGui::IsPopupOpen("###Input Settings Error", ImGuiPopupFlags_AnyPopupId));
+        frame();
+        EXPECT_FALSE(blocked);
+        const auto preserved = Comet::read_text_file(file);
+        ASSERT_TRUE(preserved) << preserved.error();
+        EXPECT_EQ(preserved.value(), contents);
+        EXPECT_EQ(std::filesystem::last_write_time(file), timestamp);
     }
 }
 #endif

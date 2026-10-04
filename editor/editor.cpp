@@ -28,6 +28,7 @@
 #include "core/engine.h"
 #include "core/project.h"
 #include "input/player_input_settings.h"
+#include "input_widgets.h"
 #include "player_input_panel.h"
 #include "common/scope_exit.h"
 #include "render/renderer.h"
@@ -311,6 +312,9 @@ namespace {
             else
                 static_cast<void>(m_property_edit.cancel());
             m_command_history.bind_scene(nullptr);
+            m_player_input_panel.close();
+            m_player_input_settings.reset();
+            m_player_input_error.clear();
             m_menu_bar.reset();
             m_render_stats.reset();
             m_project_panel.reset();
@@ -553,6 +557,7 @@ namespace {
                 m_viewport->panel().cancel_interaction();
             m_player_input_panel.close();
             m_player_input_settings.reset();
+            m_player_input_error.clear();
             auto previous = get_engine().replace_scene(std::move(scene));
             auto* active = get_engine().get_scene();
             if(m_scene_editor)
@@ -604,8 +609,11 @@ namespace {
             if(m_player_input_panel.is_open())
                 return Comet::Result<void>::success();
             auto settings = Comet::PlayerInputSettings::load(m_project.id());
-            if(!settings)
+            if(!settings) {
+                m_player_input_error = settings.error();
                 return Comet::Result<void>::failure(settings.error());
+            }
+            m_player_input_error.clear();
             m_player_input_settings = std::move(settings).value();
             m_player_input_panel.open(
                 m_project.input_actions(), m_player_input_settings->overrides());
@@ -644,6 +652,12 @@ namespace {
             }
             if(!m_player_input_panel.is_open())
                 m_player_input_settings.reset();
+            const bool close_error = input.focused && input.key(Comet::Input::Key::Escape).pressed;
+            if(m_ui_language == CometEditor::Ui::Language::Chinese)
+                blocked |= CometUi::render_player_input_error(
+                    m_player_input_error, close_error, m_translations);
+            else
+                blocked |= CometUi::render_player_input_error(m_player_input_error, close_error);
             return blocked;
         }
 
@@ -1032,6 +1046,7 @@ namespace {
         CometEditor::ProjectSettings m_project_settings{m_project};
         CometUi::PlayerInputPanel m_player_input_panel;
         std::optional<Comet::PlayerInputSettings> m_player_input_settings;
+        std::string m_player_input_error;
         std::unique_ptr<CometUi::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::EditorAssets> m_assets;
         std::unique_ptr<CometEditor::MaterialShaderReload> m_material_shader_reload;

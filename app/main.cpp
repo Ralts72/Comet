@@ -7,6 +7,7 @@
 #include "input/player_input_settings.h"
 #include "common/scope_exit.h"
 #include "imgui_context.h"
+#include "input_widgets.h"
 #include "player_input_panel.h"
 #include "render/renderer.h"
 #include "scene/scene.h"
@@ -147,7 +148,9 @@ namespace {
             }
             if(!m_player_input_panel.is_open())
                 m_player_input_settings.reset();
-            m_ui_blocked |= render_input_error(frame.physical_input);
+            const bool close_error = frame.physical_input.focused
+                                     && frame.physical_input.key(Comet::Input::Key::Escape).pressed;
+            m_ui_blocked |= CometUi::render_player_input_error(m_input_error, close_error);
             m_ui_pointer_blocked = ImGui::GetIO().WantCaptureMouse;
             frame.runtime_input = m_input_gate.read(
                 frame.physical_input, !m_pending_scene && !m_ui_blocked, !m_ui_pointer_blocked);
@@ -183,30 +186,6 @@ namespace {
             }
             ImGui::EndDisabled();
             ImGui::End();
-        }
-
-        bool render_input_error(const Comet::Input::Frame& input) {
-            if(m_input_error.empty() && !ImGui::IsPopupOpen("Input Settings Error"))
-                return false;
-            // 弹窗从根 ID 域打开，避免依赖入口窗口的 ID 栈。
-            if(!m_input_error.empty())
-                ImGui::OpenPopup("Input Settings Error");
-            ImGui::SetNextWindowSize({470, 0}, ImGuiCond_Appearing);
-            if(ImGui::BeginPopupModal("Input Settings Error", nullptr,
-                   ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
-                if(m_input_error.empty()) {
-                    ImGui::CloseCurrentPopup();
-                } else {
-                    ImGui::TextWrapped("%s", m_input_error.c_str());
-                    if(ImGui::Button("Close")
-                        || (input.focused && input.key(Comet::Input::Key::Escape).pressed)) {
-                        m_input_error.clear();
-                        ImGui::CloseCurrentPopup();
-                    }
-                }
-                ImGui::EndPopup();
-            }
-            return true;
         }
 
         Comet::Result<void> open_player_input() {

@@ -601,6 +601,15 @@ namespace CometUi {
                 close();
         }
         if(m_open) {
+            if(!m_error.empty()) {
+                const auto available = ImGui::GetContentRegionAvail().y
+                                       - footer_height(translations)
+                                       - ImGui::GetStyle().ItemSpacing.y * 2;
+                const auto error_height = std::min(96.f, std::max(1.f, available * 0.35f));
+                ImGui::BeginChild("Error", ImVec2(0, error_height), true);
+                ImGui::TextWrapped("%s", text(translations, m_error.c_str()));
+                ImGui::EndChild();
+            }
             const auto body_height =
                 std::max(1.f, ImGui::GetContentRegionAvail().y - footer_height(translations)
                                   - ImGui::GetStyle().ItemSpacing.y);
@@ -617,8 +626,6 @@ namespace CometUi {
                 ImGui::TextWrapped("%s", text(translations, prompt));
             }
             render_feedback(translations);
-            if(!m_error.empty())
-                ImGui::TextWrapped("%s", text(translations, m_error.c_str()));
             ImGui::EndChild();
             if(ImGui::Button(label(translations, "Apply").c_str()))
                 apply();

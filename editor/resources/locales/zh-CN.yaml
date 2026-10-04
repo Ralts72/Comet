@@ -8,6 +8,7 @@
 "Settings": "设置"
 "Input": "输入"
 "Player Input": "玩家输入设置"
+"Input Settings Error": "输入设置错误"
 "Player overrides only; project defaults are unchanged. Unedited fields inherit defaults.": "仅修改玩家个人配置，不改变项目默认值；未修改的字段继续使用默认值。"
 "Action": "动作"
 "Apply": "应用"

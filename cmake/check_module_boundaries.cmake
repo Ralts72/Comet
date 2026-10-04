@@ -21,8 +21,9 @@ endfunction()
 set(ENGINE_SOURCE "${COMET_SOURCE_ROOT}/engine/src")
 file(GLOB_RECURSE ENGINE_FILES RELATIVE "${ENGINE_SOURCE}"
     "${ENGINE_SOURCE}/*.h" "${ENGINE_SOURCE}/*.cpp")
-check_includes("${ENGINE_SOURCE}" "${ENGINE_FILES}" "editor/|imgui|player_input_panel\\.h"
-    "Engine must not include Editor or ImGui")
+check_includes("${ENGINE_SOURCE}" "${ENGINE_FILES}"
+    "editor/|imgui|player_input_panel\\.h|input_widgets\\.h"
+    "Engine must not include Editor or shared UI")
 
 set(LOW_LEVEL_FILES)
 foreach(directory common input scene scripting audio)
