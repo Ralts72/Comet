@@ -1064,6 +1064,40 @@ namespace CometUi::Tests {
         EXPECT_TRUE(request->actions().empty());
     }
 
+    TEST_F(PlayerInputPanelTest, SourceRoundTripRestoresAxisDeadzoneInheritance) {
+        show();
+        select_action("move", id(4));
+        select_binding_choice("Source", "key", id(5));
+        select_binding_choice("Source", "gamepad_axis", id(5));
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_TRUE(request->actions().empty());
+
+        auto changed = defaults.actions();
+        changed[1].bindings[0].deadzone = 0.3f;
+        const auto updated = Actions::create(std::move(changed), defaults.contexts());
+        ASSERT_TRUE(updated);
+        const auto resolved = request->resolve(updated.value());
+        ASSERT_TRUE(resolved);
+        EXPECT_FLOAT_EQ(resolved.value().actions.actions()[1].bindings[0].deadzone, 0.3f);
+    }
+
+    TEST_F(PlayerInputPanelTest, AxisControlChangesPreserveExplicitZeroDeadzone) {
+        const auto current = Overrides::create(
+            {{id(4), Type::Axis, false, {{.id = id(5), .scale = -0.5f, .deadzone = 0}}}});
+        ASSERT_TRUE(current);
+        show(current.value());
+        select_action("move", id(4));
+        select_binding_choice("Source", "gamepad_axis", id(5));
+        select_binding_choice("Control", "RightX", id(5));
+        select_binding_choice("Control", "LeftX", id(5));
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(*request, current.value());
+    }
+
     TEST_F(PlayerInputPanelTest, RecordedBindingImmediatelyUpdatesRelationshipsAndStillApplies) {
         auto actions = defaults.actions();
         actions.push_back(

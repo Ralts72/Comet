@@ -180,6 +180,7 @@ App／Play 的完整操作验收仍是有效待办。尝试在既有隔离项目
 | [044 运行相机光标捕获](044-runtime-cursor-capture.md) | 自动验收通过，设备体验待验 | 对应本项文档的提交；1066 CPU／236 UI、9 项原生窗口／UI／Engine 回归、Debug／Release 与契约／边界通过；NoMouse 焦点红测转绿，捕获跟随动作与授权，不扩展 Edit 相机 |
 | [045 解锁首帧与边界回顾](045-cursor-release-and-input-review.md) | 已验收 | 静止解锁首击红测转绿；236 UI、实际窗口回归、Debug／Release 通过；移除夹具中的生产策略副本，完成 041–045 职责与生命周期回顾 |
 | [046 相机持续转向](046-camera-look-rate.md) | 自动验收通过，设备体验待验 | demo 右摇杆转向；鼠标位移与持续轴分别换算，55 定向 CPU、1071 CPU／236 UI、Debug／Release 与契约／边界通过；沿用组件事务和玩家稀疏覆盖 |
+| [047 来源往返死区继承](047-player-axis-source-round-trip.md) | 已验收 | 来源往返残留零死区红测转绿；46 定向 UI、1071 CPU／238 UI、Debug／Release 与契约／边界通过；保留同轴显式零值，不改保存／合成规则 |
 
 ## 首轮收尾记录（001–009，历史）
 

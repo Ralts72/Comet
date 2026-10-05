@@ -285,15 +285,18 @@ namespace CometUi {
             return;
         }
         auto patch = binding_patch(action.id, binding.id);
-        patch.control = control;
-        if(control == binding.control)
-            patch.control.reset();
-        if(!std::holds_alternative<Input::GamepadAxis>(control)
-            && patch.deadzone.value_or(binding.deadzone) != 0) {
+        if(std::holds_alternative<Input::GamepadAxis>(control)) {
+            // 跨来源回到轴时恢复默认死区，不保留离开轴时生成的兼容零值。
+            if(!std::holds_alternative<Input::GamepadAxis>(patch.control.value_or(binding.control)))
+                patch.deadzone.reset();
+        } else if(patch.deadzone.value_or(binding.deadzone) != 0) {
             patch.deadzone = 0;
             if(binding.deadzone == 0)
                 patch.deadzone.reset();
         }
+        patch.control = control;
+        if(control == binding.control)
+            patch.control.reset();
         store_binding(action, binding, std::move(patch));
     }
 
