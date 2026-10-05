@@ -182,6 +182,7 @@ App／Play 的完整操作验收仍是有效待办。尝试在既有隔离项目
 | [046 相机持续转向](046-camera-look-rate.md) | 自动验收通过，设备体验待验 | demo 右摇杆转向；鼠标位移与持续轴分别换算，55 定向 CPU、1071 CPU／236 UI、Debug／Release 与契约／边界通过；沿用组件事务和玩家稀疏覆盖 |
 | [047 来源往返死区继承](047-player-axis-source-round-trip.md) | 已验收 | 来源往返残留零死区红测转绿；46 定向 UI、1071 CPU／238 UI、Debug／Release 与契约／边界通过；保留同轴显式零值，不改保存／合成规则 |
 | [048 demo 手柄玩法](048-demo-gamepad-controls.md) | 自动验收通过，设备体验待验 | 仅扩展项目默认绑定；6 项键盘／手柄真实脚本场景回归，1074 CPU／240 UI、Debug／Release 与契约／边界通过；不新增设备专用 Lua 或 System |
+| [049 来源默认控制](049-player-source-default-control.md) | 已验收 | 返回原来源优先项目默认控制，仍避开宿主保留键；48 定向 UI、1074 CPU／240 UI、Debug／Release 与契约／边界通过，不缓存个人来源历史 |
 
 ## 首轮收尾记录（001–009，历史）
 

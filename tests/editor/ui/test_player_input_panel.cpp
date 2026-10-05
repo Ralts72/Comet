@@ -1065,6 +1065,11 @@ namespace CometUi::Tests {
     }
 
     TEST_F(PlayerInputPanelTest, SourceRoundTripRestoresAxisDeadzoneInheritance) {
+        auto actions = defaults.actions();
+        actions[1].bindings[0].control = Input::GamepadAxis::RightY;
+        const auto configured = Actions::create(std::move(actions), defaults.contexts());
+        ASSERT_TRUE(configured);
+        defaults = configured.value();
         show();
         select_action("move", id(4));
         select_binding_choice("Source", "key", id(5));
@@ -1080,7 +1085,59 @@ namespace CometUi::Tests {
         ASSERT_TRUE(updated);
         const auto resolved = request->resolve(updated.value());
         ASSERT_TRUE(resolved);
+        EXPECT_EQ(resolved.value().actions.actions()[1].bindings[0].control,
+            Actions::Control(Input::GamepadAxis::RightY));
         EXPECT_FLOAT_EQ(resolved.value().actions.actions()[1].bindings[0].deadzone, 0.3f);
+    }
+
+    TEST_F(
+        PlayerInputPanelTest, SourceRoundTripRestoresProjectKeyInsteadOfPreviousPersonalControl) {
+        auto actions = defaults.actions();
+        actions[0].bindings[0].control = Input::Key::K;
+        const auto configured = Actions::create(std::move(actions), defaults.contexts());
+        ASSERT_TRUE(configured);
+        defaults = configured.value();
+        const auto current = Overrides::create(
+            {{id(1), Type::Button, false, {{.id = id(2), .control = Input::Key::J}}}});
+        ASSERT_TRUE(current);
+        show(current.value());
+        select_binding_choice("Source", "gamepad_button", id(2));
+        select_binding_choice("Source", "key", id(2));
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_TRUE(request->actions().empty());
+        const auto resolved = request->resolve(defaults);
+        ASSERT_TRUE(resolved);
+        EXPECT_EQ(resolved.value().actions.actions()[0].bindings[0].control,
+            Actions::Control(Input::Key::K));
+    }
+
+    TEST_F(PlayerInputPanelTest, SourceChangeSkipsReservedProjectKeyAndUsesStandardFallback) {
+        auto actions = defaults.actions();
+        actions[0].bindings[0].control = Input::Key::K;
+        const auto configured = Actions::create(std::move(actions), defaults.contexts());
+        ASSERT_TRUE(configured);
+        defaults = configured.value();
+        for(const bool reserve_space : {false, true}) {
+            SCOPED_TRACE(reserve_space);
+            std::vector<Input::Key> reserved{Input::Key::K};
+            if(reserve_space)
+                reserved.push_back(Input::Key::Space);
+            show({}, reserved);
+            select_binding_choice("Source", "gamepad_button", id(2));
+            select_binding_choice("Source", "key", id(2));
+            button("Apply");
+            const auto request = panel.take_request();
+            ASSERT_TRUE(request);
+            const auto control = reserve_space ? Input::Key::A : Input::Key::Space;
+            const auto expected = Overrides::create(
+                {{id(1), Type::Button, false, {{.id = id(2), .control = control}}}});
+            ASSERT_TRUE(expected);
+            EXPECT_EQ(*request, expected.value());
+            panel.complete(Comet::Result<void>::success());
+            frame();
+        }
     }
 
     TEST_F(PlayerInputPanelTest, AxisControlChangesPreserveExplicitZeroDeadzone) {

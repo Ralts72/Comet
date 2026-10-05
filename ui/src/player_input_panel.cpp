@@ -72,11 +72,14 @@ namespace CometUi {
             return key && std::ranges::find(reserved_keys, *key) != reserved_keys.end();
         }
 
-        std::optional<Actions::Control> first_control(
-            std::string_view source, std::span<const Input::Key> reserved_keys) {
+        std::optional<Actions::Control> first_control(std::string_view source,
+            const Actions::Control& default_control, std::span<const Input::Key> reserved_keys) {
             const auto controls = input_controls(source);
             if(controls.empty())
                 return std::nullopt;
+            if(std::ranges::find(controls, default_control) != controls.end()
+                && !is_reserved(default_control, reserved_keys))
+                return default_control;
             auto preferred = controls.front();
             if(source == "key")
                 preferred = Input::Key::Space;
@@ -393,7 +396,7 @@ namespace CometUi {
                 if(ImGui::Selectable(
                        label(translations, source.data()).c_str(), name.source == source)
                     && name.source != source) {
-                    if(const auto control = first_control(source, m_reserved_keys))
+                    if(const auto control = first_control(source, binding.control, m_reserved_keys))
                         change_control(action, binding, *control);
                     else
                         m_error = "No available controls for this source.";
