@@ -210,6 +210,11 @@
           "id": "0120f784-0b77-4a50-bba9-000000000035",
           "source": "key",
           "control": "J"
+        },
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000049",
+          "source": "gamepad_button",
+          "control": "West"
         }
       ]
     },
@@ -222,6 +227,11 @@
           "id": "0120f784-0b77-4a50-bba9-000000000036",
           "source": "key",
           "control": "R"
+        },
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000050",
+          "source": "gamepad_button",
+          "control": "Start"
         }
       ]
     },
@@ -241,6 +251,17 @@
           "source": "key",
           "control": "Left",
           "scale": -1
+        },
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000051",
+          "source": "gamepad_button",
+          "control": "DpadRight"
+        },
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000052",
+          "source": "gamepad_button",
+          "control": "DpadLeft",
+          "scale": -1
         }
       ]
     },
@@ -248,28 +269,40 @@
       "id": "0120f784-0b77-4a50-bba9-000000000013",
       "name": "palette.toggle",
       "type": "button",
-      "bindings": [{"id": "0120f784-0b77-4a50-bba9-000000000039", "source": "key", "control": "Tab"}]
+      "bindings": [
+        {"id": "0120f784-0b77-4a50-bba9-000000000039", "source": "key", "control": "Tab"},
+        {"id": "0120f784-0b77-4a50-bba9-000000000053", "source": "gamepad_button", "control": "North"}
+      ]
     },
     {
       "id": "0120f784-0b77-4a50-bba9-000000000014",
       "name": "palette.previous",
       "context": "palette",
       "type": "button",
-      "bindings": [{"id": "0120f784-0b77-4a50-bba9-000000000040", "source": "key", "control": "Left"}]
+      "bindings": [
+        {"id": "0120f784-0b77-4a50-bba9-000000000040", "source": "key", "control": "Left"},
+        {"id": "0120f784-0b77-4a50-bba9-000000000054", "source": "gamepad_button", "control": "DpadLeft"}
+      ]
     },
     {
       "id": "0120f784-0b77-4a50-bba9-000000000015",
       "name": "palette.next",
       "context": "palette",
       "type": "button",
-      "bindings": [{"id": "0120f784-0b77-4a50-bba9-000000000041", "source": "key", "control": "Right"}]
+      "bindings": [
+        {"id": "0120f784-0b77-4a50-bba9-000000000041", "source": "key", "control": "Right"},
+        {"id": "0120f784-0b77-4a50-bba9-000000000055", "source": "gamepad_button", "control": "DpadRight"}
+      ]
     },
     {
       "id": "0120f784-0b77-4a50-bba9-000000000016",
       "name": "palette.reset",
       "context": "palette",
       "type": "button",
-      "bindings": [{"id": "0120f784-0b77-4a50-bba9-000000000042", "source": "key", "control": "J"}]
+      "bindings": [
+        {"id": "0120f784-0b77-4a50-bba9-000000000042", "source": "key", "control": "J"},
+        {"id": "0120f784-0b77-4a50-bba9-000000000056", "source": "gamepad_button", "control": "West"}
+      ]
     },
     {
       "id": "0120f784-0b77-4a50-bba9-000000000017",

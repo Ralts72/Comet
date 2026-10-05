@@ -5,6 +5,7 @@
 #include "scene/systems/script_system.h"
 #include "scene/systems/physics_system.h"
 #include "scene/systems/audio_system.h"
+#include "scene/systems/camera_controller.h"
 #include "scene/scene_runtime.h"
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
@@ -1362,7 +1363,30 @@ namespace Comet::Tests {
         EXPECT_EQ(entity.get_component<TransformComponent>().translation, Math::Vec3(4, 2, 1));
     }
 
-    TEST_F(ScriptSystemTest, DemoProjectAndLuaSourceUseTheSameToggleContract) {
+    class DemoControlsTest: public ScriptSystemTest, public testing::WithParamInterface<bool> {
+    protected:
+        Input input;
+        Input::GamepadSample pad;
+
+        void SetUp() override {
+            ASSERT_NO_FATAL_FAILURE(ScriptSystemTest::SetUp());
+            input.focus_event(true);
+            if(GetParam())
+                input.gamepad_sample(0, pad);
+            input.publish_frame();
+        }
+
+        void control(Input::Key key, Input::GamepadButton button, bool down) {
+            if(GetParam()) {
+                pad.buttons[static_cast<size_t>(button)] = down;
+                input.gamepad_sample(0, pad);
+            } else {
+                input.key_event(key, down);
+            }
+        }
+    };
+
+    TEST_P(DemoControlsTest, DemoProjectAndLuaSourceUseTheSameToggleContract) {
         const auto project = Project::load(
             std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() / "demo");
         ASSERT_TRUE(project) << project.error();
@@ -1376,14 +1400,12 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_FLOAT_EQ(rotation.y, 1);
-        Input input;
-        input.focus_event(true);
-        input.key_event(Input::Key::Space, true);
+        control(Input::Key::Space, Input::GamepadButton::South, true);
         ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
         EXPECT_FLOAT_EQ(rotation.y, 1);
-        input.key_event(Input::Key::Space, false);
+        control(Input::Key::Space, Input::GamepadButton::South, false);
         ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
-        input.key_event(Input::Key::Space, true);
+        control(Input::Key::Space, Input::GamepadButton::South, true);
         ASSERT_TRUE(runtime.advance(0.02, &input.publish_frame()));
         EXPECT_FLOAT_EQ(rotation.y, 3);
         ASSERT_TRUE(runtime.stop());
@@ -1392,7 +1414,7 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(rotation.y, 4);
     }
 
-    TEST_F(ScriptSystemTest, DemoPaletteConsumesSharedControlsAndPreservesGameplayState) {
+    TEST_P(DemoControlsTest, DemoPaletteConsumesSharedControlsAndPreservesGameplayState) {
         const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
         ASSERT_TRUE(project) << project.error();
         ASSERT_TRUE(runtime.set_input_actions(project.value().input_actions()));
@@ -1420,30 +1442,40 @@ namespace Comet::Tests {
         const auto& rotation = center.get_component<TransformComponent>().rotation;
         const auto& position = player.get_component<TransformComponent>().translation;
         ASSERT_TRUE(runtime.start(scene));
-        Input input;
-        input.focus_event(true);
-        input.key_event(Input::Key::Tab, true);
+        control(Input::Key::Tab, Input::GamepadButton::North, true);
         const auto opened = runtime.advance(0, &input.publish_frame());
         ASSERT_TRUE(opened) << opened.error().message;
-        input.key_event(Input::Key::Tab, false);
+        control(Input::Key::Tab, Input::GamepadButton::North, false);
         ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
         ASSERT_TRUE(scene.get_material_overrides(center));
         EXPECT_EQ(scene.get_material_overrides(center)->vector_properties.at("base_color"),
             Math::Vec4(0.2f, 0.55f, 1, 1));
 
-        input.key_event(Input::Key::Right, true);
+        control(Input::Key::Right, Input::GamepadButton::DpadRight, true);
         ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
         EXPECT_EQ(position, Math::Vec3(0));
         EXPECT_EQ(scene.get_material_overrides(center)->vector_properties.at("base_color"),
             Math::Vec4(1, 0.5f, 0.1f, 1));
-        input.key_event(Input::Key::J, true);
+        control(Input::Key::Right, Input::GamepadButton::DpadRight, false);
+        control(Input::Key::Left, Input::GamepadButton::DpadLeft, true);
+        ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
+        EXPECT_EQ(position, Math::Vec3(0));
+        EXPECT_EQ(scene.get_material_overrides(center)->vector_properties.at("base_color"),
+            Math::Vec4(0.2f, 0.55f, 1, 1));
+        control(Input::Key::Left, Input::GamepadButton::DpadLeft, false);
+        control(Input::Key::Right, Input::GamepadButton::DpadRight, true);
+        ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
+        EXPECT_EQ(position, Math::Vec3(0));
+        EXPECT_EQ(scene.get_material_overrides(center)->vector_properties.at("base_color"),
+            Math::Vec4(1, 0.5f, 0.1f, 1));
+        control(Input::Key::J, Input::GamepadButton::West, true);
         const auto height_before_reset = impulse.get_component<TransformComponent>().translation.y;
         ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
         EXPECT_LT(impulse.get_component<TransformComponent>().translation.y, height_before_reset);
         EXPECT_EQ(scene.get_material_overrides(center)->vector_properties.at("base_color"),
             Math::Vec4(0.2f, 0.55f, 1, 1));
-        input.key_event(Input::Key::J, false);
-        input.key_event(Input::Key::Space, true);
+        control(Input::Key::J, Input::GamepadButton::West, false);
+        control(Input::Key::Space, Input::GamepadButton::South, true);
         ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
         EXPECT_EQ(position, Math::Vec3(0));
         const auto rotation_at_confirm = rotation.y;
@@ -1451,57 +1483,62 @@ namespace Comet::Tests {
         EXPECT_NEAR(rotation.y, rotation_at_confirm + 3, 1e-5f);
         EXPECT_GT(position.x, 0);
 
-        input.key_event(Input::Key::Space, false);
-        input.key_event(Input::Key::Right, false);
+        control(Input::Key::Space, Input::GamepadButton::South, false);
+        control(Input::Key::Right, Input::GamepadButton::DpadRight, false);
         ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
-        input.key_event(Input::Key::Space, true);
+        const auto position_before_left = position;
+        control(Input::Key::Left, Input::GamepadButton::DpadLeft, true);
+        ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
+        EXPECT_LT(position.x, position_before_left.x);
+        control(Input::Key::Left, Input::GamepadButton::DpadLeft, false);
+        control(Input::Key::Space, Input::GamepadButton::South, true);
         const auto rotation_before_toggle = rotation.y;
         ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
         EXPECT_FLOAT_EQ(rotation.y, rotation_before_toggle);
-        input.key_event(Input::Key::Space, false);
+        control(Input::Key::Space, Input::GamepadButton::South, false);
 
-        input.key_event(Input::Key::J, true);
+        control(Input::Key::J, Input::GamepadButton::West, true);
         const auto height_before_impulse =
             impulse.get_component<TransformComponent>().translation.y;
         ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
         EXPECT_GT(impulse.get_component<TransformComponent>().translation.y, height_before_impulse);
-        input.key_event(Input::Key::J, false);
-        input.key_event(Input::Key::Tab, true);
+        control(Input::Key::J, Input::GamepadButton::West, false);
+        control(Input::Key::Tab, Input::GamepadButton::North, true);
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
-        input.key_event(Input::Key::Tab, false);
+        control(Input::Key::Tab, Input::GamepadButton::North, false);
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
         auto reloaded = Script::load_group(project.value().paths().assets(), roots);
         ASSERT_TRUE(reloaded) << reloaded.error().message;
         ASSERT_TRUE(assets.replace_asset(handle, reloaded.value()[0]));
-        input.key_event(Input::Key::Space, true);
+        control(Input::Key::Space, Input::GamepadButton::South, true);
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
         const auto rotation_after_reload = rotation.y;
-        input.key_event(Input::Key::Right, true);
+        control(Input::Key::Right, Input::GamepadButton::DpadRight, true);
         const auto position_after_reload = position;
         ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
         EXPECT_GT(rotation.y, rotation_after_reload);
         EXPECT_GT(position.x, position_after_reload.x);
-        input.key_event(Input::Key::Space, false);
-        input.key_event(Input::Key::Right, false);
+        control(Input::Key::Space, Input::GamepadButton::South, false);
+        control(Input::Key::Right, Input::GamepadButton::DpadRight, false);
 
         // 收集逻辑关闭 gameplay 后，调色模式退出不得擅自重新启用它。
         ASSERT_TRUE(scene.request_input_context("gameplay", false));
-        input.key_event(Input::Key::Tab, true);
+        control(Input::Key::Tab, Input::GamepadButton::North, true);
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
-        input.key_event(Input::Key::Tab, false);
+        control(Input::Key::Tab, Input::GamepadButton::North, false);
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
-        input.key_event(Input::Key::Space, true);
+        control(Input::Key::Space, Input::GamepadButton::South, true);
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
-        input.key_event(Input::Key::Space, false);
-        input.key_event(Input::Key::Right, true);
+        control(Input::Key::Space, Input::GamepadButton::South, false);
+        control(Input::Key::Right, Input::GamepadButton::DpadRight, true);
         const auto stopped_position = position;
         ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
         EXPECT_EQ(position, stopped_position);
-        input.key_event(Input::Key::Tab, true);
+        control(Input::Key::Tab, Input::GamepadButton::North, true);
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
-        input.key_event(Input::Key::Tab, false);
+        control(Input::Key::Tab, Input::GamepadButton::North, false);
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
-        input.key_event(Input::Key::R, true);
+        control(Input::Key::R, Input::GamepadButton::Start, true);
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
         EXPECT_TRUE(scene.take_restart_request());
         EXPECT_EQ(material->get_revision(), material_revision);
@@ -1587,7 +1624,7 @@ namespace Comet::Tests {
             return "Rebind";
         });
 
-    TEST_F(ScriptSystemTest, DemoGoalAndRestartRestoreAnIsolatedRunFromTheAuthoredScene) {
+    TEST_P(DemoControlsTest, DemoGoalAndRestartRestoreAnIsolatedRunFromTheAuthoredScene) {
         const bool owns_logger = !Logger::get_console_logger();
         Config::Log log_config;
         log_config.enable_file_logging = false;
@@ -1654,13 +1691,12 @@ namespace Comet::Tests {
         auto playing = serializer.clone(*edit_scene.value());
         ASSERT_TRUE(playing) << playing.error();
         const ScopeExit stop_playing([&] { EXPECT_TRUE(runtime.stop()); });
+        ASSERT_TRUE(runtime.add_system(std::make_unique<CameraControllerSystem>()));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
         ASSERT_TRUE(runtime.add_system(
             std::make_unique<AudioSystem>(assets, AudioPlayback::Mode::Offline)));
         ASSERT_TRUE(runtime.start(*playing.value()));
 
-        Input input;
-        input.focus_event(true);
         auto impulse_cube = playing.value()->find_entity(*impulse_uuid);
         ASSERT_TRUE(impulse_cube);
         const auto center = playing.value()->find_entity(*center_uuid);
@@ -1668,11 +1704,11 @@ namespace Comet::Tests {
         ASSERT_TRUE(center);
         ASSERT_TRUE(player);
         const auto initial_height = impulse_cube.get_component<TransformComponent>().translation.y;
-        input.key_event(Input::Key::J, true);
+        control(Input::Key::J, Input::GamepadButton::West, true);
         ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
         EXPECT_GT(impulse_cube.get_component<TransformComponent>().translation.y, initial_height);
-        input.key_event(Input::Key::J, false);
-        input.key_event(Input::Key::Right, true);
+        control(Input::Key::J, Input::GamepadButton::West, false);
+        control(Input::Key::Right, Input::GamepadButton::DpadRight, true);
         bool score_feedback_observed = false;
         for(int frame = 0; frame < 120; ++frame) {
             ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
@@ -1691,6 +1727,23 @@ namespace Comet::Tests {
             player.get_component<TransformComponent>().translation;
         ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
         EXPECT_EQ(player.get_component<TransformComponent>().translation, player_position_at_score);
+
+        if(GetParam()) {
+            const auto camera_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d01");
+            ASSERT_TRUE(camera_uuid);
+            const auto camera = playing.value()->find_entity(*camera_uuid);
+            ASSERT_TRUE(camera);
+            const float yaw = camera.get_component<TransformComponent>().rotation.y;
+            pad.axes[static_cast<size_t>(Input::GamepadAxis::RightX)] = 1;
+            input.gamepad_sample(0, pad);
+            ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
+            EXPECT_NEAR(camera.get_component<TransformComponent>().rotation.y, yaw - 1.2f, 1e-5f);
+            EXPECT_FALSE(runtime.wants_cursor_capture());
+            EXPECT_EQ(
+                player.get_component<TransformComponent>().translation, player_position_at_score);
+            pad.axes[static_cast<size_t>(Input::GamepadAxis::RightX)] = 0;
+            input.gamepad_sample(0, pad);
+        }
 
         const auto goal_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d07");
         ASSERT_TRUE(goal_uuid);
@@ -1750,8 +1803,8 @@ namespace Comet::Tests {
         EXPECT_EQ(score_messages, 1u);
         EXPECT_EQ(player.get_component<TransformComponent>().translation, player_position_at_score);
 
-        input.key_event(Input::Key::Right, false);
-        input.key_event(Input::Key::R, true);
+        control(Input::Key::Right, Input::GamepadButton::DpadRight, false);
+        control(Input::Key::R, Input::GamepadButton::Start, true);
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
         EXPECT_TRUE(playing.value()->take_restart_request());
         EXPECT_FALSE(playing.value()->find_entity(*goal_uuid));
@@ -1777,19 +1830,26 @@ namespace Comet::Tests {
         ASSERT_TRUE(restarted_player);
         EXPECT_EQ(restarted_player.get_component<TransformComponent>().translation,
             authored_player_position);
-        input.key_event(Input::Key::Right, true);
+        control(Input::Key::Right, Input::GamepadButton::DpadRight, true);
         ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
         EXPECT_FALSE(restarted.value()->take_restart_request());
         EXPECT_GT(restarted_player.get_component<TransformComponent>().translation.x,
             authored_player_position.x);
-        input.key_event(Input::Key::Right, false);
-        input.key_event(Input::Key::R, false);
+        control(Input::Key::Right, Input::GamepadButton::DpadRight, false);
+        control(Input::Key::R, Input::GamepadButton::Start, false);
         ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
-        input.key_event(Input::Key::R, true);
+        control(Input::Key::R, Input::GamepadButton::Start, true);
         ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
         EXPECT_TRUE(restarted.value()->take_restart_request());
         ASSERT_TRUE(runtime.stop());
     }
+
+    INSTANTIATE_TEST_SUITE_P(InputDevice, DemoControlsTest, testing::Bool(),
+        [](const testing::TestParamInfo<bool>& parameter) {
+            if(parameter.param)
+                return "Gamepad";
+            return "Keyboard";
+        });
 
     TEST_F(ScriptSystemTest, DemoGoalIgnoresContactsWithUnassignedActors) {
         const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
