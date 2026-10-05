@@ -34,6 +34,13 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(history.undo());
         EXPECT_EQ(entity.get_component<Comet::CameraControllerComponent>().move_speed, 3);
         ASSERT_TRUE(history.redo());
+        const PropertyEditTransaction::Target look_speed{
+            entity.get_uuid(), "camera_controller", "look_speed"};
+        ASSERT_TRUE(edit.apply(look_speed, 240.0f));
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::CameraControllerComponent>().look_speed, 240);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::CameraControllerComponent>().look_speed, 120);
+        ASSERT_TRUE(history.redo());
         ASSERT_TRUE(edit.apply({entity.get_uuid(), "camera_controller", "enabled"}, false));
         ASSERT_TRUE(remove("camera_controller"));
         ASSERT_TRUE(history.undo());
@@ -50,6 +57,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(loaded.get_component<Comet::CameraControllerComponent>().move_speed, 8);
         EXPECT_FLOAT_EQ(
             loaded.get_component<Comet::CameraControllerComponent>().look_sensitivity, 0.2f);
+        EXPECT_FLOAT_EQ(loaded.get_component<Comet::CameraControllerComponent>().look_speed, 240);
     }
 
     TEST_F(SceneCommandsTest, RigidBodySettingsUsePropertyHistoryComponentRestoreAndSerialization) {

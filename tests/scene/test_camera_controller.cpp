@@ -39,6 +39,12 @@ namespace Comet::Tests {
             EXPECT_NEAR(camera.translation.y, expected.y, 0.00001f);
             EXPECT_NEAR(camera.translation.z, expected.z, 0.00001f);
         }
+
+        void expect_rotation(Math::Vec3 expected) const {
+            EXPECT_NEAR(camera.rotation.x, expected.x, 0.00001f);
+            EXPECT_NEAR(camera.rotation.y, expected.y, 0.00001f);
+            EXPECT_NEAR(camera.rotation.z, expected.z, 0.00001f);
+        }
     };
 
     TEST_F(CameraControllerTest, TurnsOnlyDuringRightDragAndSkipsThePressFrame) {
@@ -57,6 +63,106 @@ namespace Comet::Tests {
         update();
         EXPECT_EQ(camera.rotation, Math::Vec3(4, -10, 0));
         expect_position(Math::Vec3(0));
+    }
+
+    TEST_F(CameraControllerTest, GamepadLookUsesRuntimeTimeWithoutMouseCapture) {
+        Input::GamepadSample pad;
+        pad.axes[static_cast<size_t>(Input::GamepadAxis::RightX)] = 1;
+        input.gamepad_sample(0, pad);
+        update(0.2f);
+        const auto single_frame = camera.rotation;
+        expect_rotation({0, -24, 0});
+        EXPECT_FALSE(CameraControllerSystem{}.wants_cursor_capture(scene, input_state));
+        ASSERT_TRUE(entity.try_edit_transform([](auto& value) { value.rotation = {}; }));
+        update(0.1f);
+        update(0.1f);
+        expect_rotation(single_frame);
+
+        auto& controller = entity.get_component<CameraControllerComponent>();
+        controller.look_speed = 60;
+        update(0.1f);
+        expect_rotation({0, -30, 0});
+        for(const float invalid : {-1.0f, std::numeric_limits<float>::infinity(),
+                std::numeric_limits<float>::quiet_NaN()}) {
+            controller.look_speed = invalid;
+            update();
+            expect_rotation({0, -30, 0});
+        }
+    }
+
+    TEST_F(CameraControllerTest, MouseAndGamepadLookConvertBeforeClamping) {
+        Input::GamepadSample pad;
+        pad.axes[static_cast<size_t>(Input::GamepadAxis::RightX)] = 1;
+        pad.axes[static_cast<size_t>(Input::GamepadAxis::RightY)] = 1;
+        input.gamepad_sample(0, pad);
+        input.mouse_button_event(Input::MouseButton::Right, true);
+        input.cursor_event({40, -60});
+        update();
+        // 开始拖动只跳过鼠标位移，不跳过这一帧的手柄角速度。
+        expect_rotation({-12, -12, 0});
+        ASSERT_TRUE(entity.try_edit_transform([](auto& value) { value.rotation = {80, 175, 0}; }));
+        input.cursor_event({-60, -160});
+        update();
+        EXPECT_EQ(camera.rotation, Math::Vec3(88, -177, 0));
+
+        ASSERT_TRUE(entity.try_edit_transform([](auto& value) { value.rotation = {}; }));
+        input.cursor_event({-10, -140});
+        update(0);
+        EXPECT_EQ(camera.rotation, Math::Vec3(-4, -10, 0));
+    }
+
+    TEST_F(CameraControllerTest, GamepadLookHonorsDeadzoneInversionAndDisconnect) {
+        const auto configured =
+            InputActions::create({{"camera.look_rate_x", InputActions::Type::Axis,
+                                      {{Input::GamepadAxis::RightX, -1, 0.25f}}},
+                {"camera.look_rate_y", InputActions::Type::Axis,
+                    {{Input::GamepadAxis::RightY, 1, 0.25f}}}});
+        ASSERT_TRUE(configured);
+        actions = configured.value();
+        Input::GamepadSample pad;
+        pad.axes[static_cast<size_t>(Input::GamepadAxis::RightX)] = 0.2f;
+        pad.axes[static_cast<size_t>(Input::GamepadAxis::RightY)] = -0.25f;
+        input.gamepad_sample(0, pad);
+        update();
+        EXPECT_EQ(camera.rotation, Math::Vec3(0));
+        pad.axes[static_cast<size_t>(Input::GamepadAxis::RightX)] = 0.625f;
+        pad.axes[static_cast<size_t>(Input::GamepadAxis::RightY)] = -0.625f;
+        input.gamepad_sample(0, pad);
+        update();
+        EXPECT_EQ(camera.rotation, Math::Vec3(6, 6, 0));
+        input.gamepad_sample(0, std::nullopt);
+        update();
+        EXPECT_EQ(camera.rotation, Math::Vec3(6, 6, 0));
+        input.gamepad_sample(0, pad);
+        update();
+        EXPECT_EQ(camera.rotation, Math::Vec3(12, 12, 0));
+        input.focus_event(false);
+        update();
+        EXPECT_EQ(camera.rotation, Math::Vec3(12, 12, 0));
+    }
+
+    TEST_F(CameraControllerTest, PointerAuthorizationDoesNotBlockGamepadLook) {
+        Input::Gate gate;
+        CameraControllerSystem system;
+        const auto advance = [&](bool enabled, bool pointer_enabled) {
+            actions.evaluate(
+                gate.read(input.publish_frame(), enabled, pointer_enabled), input_state);
+            EXPECT_TRUE(system.update(scene, {0.1, 0, 0, input_state}));
+        };
+        advance(true, true);
+        Input::GamepadSample pad;
+        pad.axes[static_cast<size_t>(Input::GamepadAxis::RightX)] = 1;
+        input.gamepad_sample(0, pad);
+        input.mouse_button_event(Input::MouseButton::Right, true);
+        advance(true, true);
+        expect_rotation({0, -12, 0});
+        EXPECT_TRUE(system.wants_cursor_capture(scene, input_state));
+        input.cursor_event({100, 100});
+        advance(true, false);
+        expect_rotation({0, -24, 0});
+        EXPECT_FALSE(system.wants_cursor_capture(scene, input_state));
+        advance(false, false);
+        expect_rotation({0, -24, 0});
     }
 
     TEST_F(CameraControllerTest, CaptureFollowsTheAuthorizedLookActionIncludingItsPressFrame) {

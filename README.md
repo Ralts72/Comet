@@ -346,13 +346,14 @@ Window 采集事件，Engine 在 Update 前发布一次；`down / pressed / rele
 光标为窗口逻辑坐标，滚轮保留双轴偏移；手柄摇杆为 [-1,1]、Y 向下，扳机为 [0,1]，死区由消费者决定。
 
 App 与 Editor Play 共用可选的 `CameraControllerComponent`：在 Edit 中选中主相机，
-通过 Inspector → Add Component → Camera Controller 添加，并配置启用、移动速度和转向灵敏度；保存进 `.scene`。
+通过 Inspector → Add Component → Camera Controller 添加，并配置启用、移动速度、鼠标灵敏度和持续转向速度；保存进 `.scene`。
 只控制实际渲染的主相机；未添加／未启用组件时不移动，多个 primary 时与渲染一致选择最小 EntityId。
 仓库 demo 已默认添加；外部项目需要同时启用组件并配置下述 `camera.*` 动作，不依赖项目路径或硬编码相机 UUID。
 右键拖动转向（本地俯仰限制 ±89°），WASD 沿相机朝向移动，Q/E 沿世界上下移动，左 Shift 加速，滚轮沿视线移动。
 转向期间锁定／隐藏光标，鼠标移动不受屏幕边缘限制；松开转向动作恢复光标，支持玩家改键。
-平台支持时自动使用原始鼠标位移；macOS 使用 GLFW 的相对位移。第一个标准手柄支持左摇杆移动和左右扳机升降，
-目前没有相机碰撞或手柄转向。
+平台支持时自动使用原始鼠标位移；macOS 使用 GLFW 的相对位移。第一个标准手柄支持左摇杆移动、左右扳机升降和右摇杆转向。
+右摇杆无需按住转向按钮或锁定鼠标，满量程默认每秒转动 120°；可在绑定中调整死区和反向，组件中调整角速度。
+鼠标位移不乘时间，摇杆转向按运行时间推进；暂停不转向，单步只推进该步的时间。目前没有相机碰撞。
 Play 成功启动或从暂停继续时自动聚焦 Viewport，鼠标停在工具栏也能直接按键操作。
 键盘／手柄跟随 Viewport 焦点，鼠标进入画面可自动取得焦点；转向从画面内开始，捕获期间无需保持画面悬停。
 未捕获时鼠标按钮／位移／滚轮只在画面内接收；捕获时 UI 暂停鼠标命中，松开转向即可操作面板。
@@ -407,7 +408,8 @@ Esc 取消录入，合法的 `Escape` 仍可手动填写。失焦、输入中断
 录入时仍可用鼠标转到参数输入框或关闭面板；点击参数框后，键盘输入归该字段，不再同时录成绑定。
 最多 128 个动作、每动作 16 个绑定；`bindings: []` 显式禁用动作。完整相机配置见 `demo/project.json`：
 `camera.move_x/y/z` 为局部右／世界上／局部后方向轴，`camera.look/boost` 为按钮，
-`camera.look_x/y` 和 `camera.zoom` 为位移。相机缺失动作视为未绑定，类型错误会报告运行失败。
+`camera.look_x/y` 和 `camera.zoom` 为位移，`camera.look_rate_x/y` 为持续转向轴。
+相机缺失动作视为未绑定，类型错误会报告运行失败。持续转向也可绑定数字按键，不把手柄类型判断写进控制器。
 
 Lua 在 `update`／`fixed_update` 中调用 `comet.action_value(name)` 或按钮专用的
 `comet.action_down/pressed/released(name)`；未知名称或错误类型会报告脚本错误。

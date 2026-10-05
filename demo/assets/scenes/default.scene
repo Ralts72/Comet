@@ -50,7 +50,8 @@
         "camera_controller": {
           "enabled": true,
           "move_speed": 3,
-          "look_sensitivity": 0.2
+          "look_sensitivity": 0.2,
+          "look_speed": 120
         }
       }
     },

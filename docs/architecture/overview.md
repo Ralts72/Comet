@@ -258,6 +258,8 @@ App 的 on_update 先交付延期帧回退；ready 帧恢复尚未消费的 Gate
 Engine 启动 Runtime 使用 InputStart::Rebase，直到首张已授权输入才建立基线，避免重开重放旧点击。
 零固定步保留短按，多次补步只消费一次边沿；暂停／单步重建物理和动作基线。多个按钮绑定合并电平，
 只松开其中一个不释放仍由其他绑定按住的动作。CameraControllerSystem 只约定 `camera.*` 语义。
+相机将 `look_x/y` 位移乘鼠标灵敏度，`look_rate_x/y` 轴乘角速度和本次 Runtime 时间，
+换算成转角后再统一限制俯仰与环绕偏航；持续转向不依赖鼠标授权或光标捕获。
 
 **光标捕获。** `System::wants_cursor_capture` 是输入消费者的只读意图，不保存平台句柄；当前由主相机控制器
 根据有效组件与已授权 `camera.look` 提供。SceneRuntime 只在 Running 且当前输入边界已准备时汇总，

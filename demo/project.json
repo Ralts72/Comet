@@ -155,6 +155,34 @@
       ]
     },
     {
+      "id": "0120f784-0b77-4a50-bba9-000000000045",
+      "name": "camera.look_rate_x",
+      "context": "camera",
+      "type": "axis",
+      "bindings": [
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000046",
+          "source": "gamepad_axis",
+          "control": "RightX",
+          "deadzone": 0.15
+        }
+      ]
+    },
+    {
+      "id": "0120f784-0b77-4a50-bba9-000000000047",
+      "name": "camera.look_rate_y",
+      "context": "camera",
+      "type": "axis",
+      "bindings": [
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000048",
+          "source": "gamepad_axis",
+          "control": "RightY",
+          "deadzone": 0.15
+        }
+      ]
+    },
+    {
       "id": "0120f784-0b77-4a50-bba9-000000000009",
       "name": "spin.toggle",
       "context": "gameplay",

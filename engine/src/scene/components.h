@@ -97,6 +97,8 @@ namespace Comet {
         float move_speed = 3.0f;
         // 每个窗口逻辑像素对应的转角，单位为度。
         float look_sensitivity = 0.2f;
+        // 转向轴满量程时的角速度，单位为度／秒。
+        float look_speed = 120.0f;
     };
 
     struct COMET_API AudioSourceComponent {

@@ -26,7 +26,8 @@ namespace Comet {
             const auto& controller = camera.get_component<CameraControllerComponent>();
             if(!controller.enabled || !std::isfinite(controller.move_speed)
                 || controller.move_speed < 0 || !std::isfinite(controller.look_sensitivity)
-                || controller.look_sensitivity < 0)
+                || controller.look_sensitivity < 0 || !std::isfinite(controller.look_speed)
+                || controller.look_speed < 0)
                 return std::nullopt;
             ControlledCamera result{camera};
             if(auto parent = scene.get_parent(camera)) {
@@ -64,7 +65,8 @@ namespace Comet {
         const std::pair<std::string_view, Type> expected[]{{"camera.move_x", Type::Axis},
             {"camera.move_y", Type::Axis}, {"camera.move_z", Type::Axis},
             {"camera.look", Type::Button}, {"camera.look_x", Type::Delta},
-            {"camera.look_y", Type::Delta}, {"camera.zoom", Type::Delta},
+            {"camera.look_y", Type::Delta}, {"camera.look_rate_x", Type::Axis},
+            {"camera.look_rate_y", Type::Axis}, {"camera.zoom", Type::Delta},
             {"camera.boost", Type::Button}};
         for(const auto& [name, type] : expected)
             if(const auto* value = input.action(name); value && value->type != type)
@@ -76,14 +78,17 @@ namespace Comet {
             return 0.0f;
         };
         const auto* look = input.action("camera.look");
+        auto turn = Math::Vec2(value("camera.look_rate_x"), value("camera.look_rate_y"))
+                    * controller.look_speed * delta_time;
         // 本帧位移可能包含按下前的移动；开始拖动时跳过，下一帧再转向。
-        if(look && look->down && !look->pressed) {
+        const bool mouse_look = look && look->down && !look->pressed;
+        if(mouse_look)
+            turn += Math::Vec2(value("camera.look_x"), value("camera.look_y"))
+                    * controller.look_sensitivity;
+        if(mouse_look || turn.x != 0 || turn.y != 0) {
             transform.rotation.x =
-                std::clamp(Math::wrap_degrees(transform.rotation.x)
-                               - value("camera.look_y") * controller.look_sensitivity,
-                    -89.0f, 89.0f);
-            transform.rotation.y = Math::wrap_degrees(
-                transform.rotation.y - value("camera.look_x") * controller.look_sensitivity);
+                std::clamp(Math::wrap_degrees(transform.rotation.x) - turn.y, -89.0f, 89.0f);
+            transform.rotation.y = Math::wrap_degrees(transform.rotation.y - turn.x);
         }
 
         const Math::Vec3 movement{

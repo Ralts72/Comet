@@ -1323,6 +1323,63 @@ namespace Comet::Tests {
         EXPECT_DOUBLE_EQ(runtime.get_timing().total_time, 0.35);
     }
 
+    TEST_F(SceneRuntimeTest, CameraLookRateFollowsPauseStepAndLiveRebinding) {
+        const auto action_id = Uuid::generate();
+        const auto binding_id = Uuid::generate();
+        const auto actions = InputActions::create(
+            {{"camera.look_rate_x", InputActions::Type::Axis,
+                {{Input::GamepadAxis::RightX, 1, 0, binding_id}}, "camera", action_id}},
+            {{"camera", true}});
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(runtime.set_input_actions(actions.value()));
+        auto camera = scene.create_entity("Camera");
+        camera.add_component<CameraComponent>().primary = true;
+        camera.add_component<CameraControllerComponent>();
+        const auto& transform = camera.get_component<TransformComponent>();
+        ASSERT_TRUE(runtime.add_system(std::make_unique<CameraControllerSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        Input::GamepadSample pad;
+        pad.axes[static_cast<size_t>(Input::GamepadAxis::RightX)] = 1;
+        pad.axes[static_cast<size_t>(Input::GamepadAxis::LeftX)] = -1;
+        input.gamepad_sample(0, pad);
+        advance(0.2);
+        EXPECT_EQ(runtime.get_timing().fixed_steps, 2u);
+        EXPECT_EQ(transform.rotation, Math::Vec3(0, -24, 0));
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+
+        ASSERT_TRUE(runtime.set_state(State::Paused));
+        advance(2);
+        EXPECT_EQ(transform.rotation, Math::Vec3(0, -24, 0));
+        ASSERT_TRUE(runtime.request_step());
+        advance(2);
+        EXPECT_EQ(transform.rotation, Math::Vec3(0, -36, 0));
+        EXPECT_EQ(runtime.get_timing().fixed_steps, 1u);
+        ASSERT_TRUE(scene.request_input_context("camera", false));
+        advance(0);
+        auto bindings = actions.value().actions();
+        bindings.front().bindings.front().control = Input::GamepadAxis::LeftX;
+        const auto rebound = InputActions::create(std::move(bindings), actions.value().contexts());
+        ASSERT_TRUE(rebound);
+        ASSERT_TRUE(runtime.rebind_input_actions(rebound.value()));
+        advance(0);
+        ASSERT_TRUE(runtime.request_step());
+        advance(1);
+        EXPECT_EQ(transform.rotation, Math::Vec3(0, -36, 0));
+        ASSERT_TRUE(scene.request_input_context("camera", true));
+        ASSERT_TRUE(runtime.request_step());
+        advance(0);
+        EXPECT_EQ(transform.rotation, Math::Vec3(0, -24, 0));
+        EXPECT_EQ(runtime.get_state(), State::Paused);
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+
+        ASSERT_TRUE(runtime.set_state(State::Running));
+        advance(0.1);
+        EXPECT_EQ(transform.rotation, Math::Vec3(0, -12, 0));
+        ASSERT_TRUE(runtime.advance(0.1));
+        EXPECT_EQ(transform.rotation, Math::Vec3(0, -12, 0));
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST_F(SceneRuntimeTest, StoredPlayerBindingsComposeWithNewDefaultsBeforeRuntimeStarts) {
         TemporaryDirectory directory;
         const auto project_id = Uuid::generate();

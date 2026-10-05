@@ -189,9 +189,13 @@ namespace Comet {
                 make_property_descriptor("move_speed", "Move Speed",
                     &CameraControllerComponent::move_speed,
                     {.numeric = {.speed = 0.1f, .minimum = 0.0f, .maximum = 1000.0f}}),
-                make_property_descriptor("look_sensitivity", "Look Sensitivity",
+                make_property_descriptor("look_sensitivity", "Mouse Look Sensitivity",
                     &CameraControllerComponent::look_sensitivity,
-                    {.numeric = {.speed = 0.01f, .minimum = 0.0f, .maximum = 10.0f}})}));
+                    {.numeric = {.speed = 0.01f, .minimum = 0.0f, .maximum = 10.0f}}),
+                make_property_descriptor("look_speed", "Look Speed (deg/s)",
+                    &CameraControllerComponent::look_speed,
+                    {.required = false,
+                        .numeric = {.speed = 1.0f, .minimum = 0.0f, .maximum = 720.0f}})}));
 
         register_component(
             make_component_descriptor<AudioSourceComponent>("audio_source", "Audio Source",
