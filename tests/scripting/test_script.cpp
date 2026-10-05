@@ -12,6 +12,32 @@
 #include <utility>
 
 namespace Comet::Tests {
+    TEST(ScriptTextTest, Utf8BomWorksForMemoryAndStandaloneSourcesWithoutRewritingTheFile) {
+        const std::string source =
+            "\xef\xbb\xbf"
+            "local script = {}\r\n"
+            "script.properties = {speed = 7}\r\n"
+            "function script:update() assert(self.parameters.speed == 7) end\r\n"
+            "return script\r\n";
+        const auto memory = Script::create(source, "memory.lua");
+        ASSERT_TRUE(memory) << memory.error().message;
+        TemporaryDirectory directory;
+        const auto path = directory.path() / "actor.lua";
+        ASSERT_TRUE(write_text_file_atomic(path, source));
+        const auto file = Script::load(path);
+        ASSERT_TRUE(file) << file.error().message;
+        for(const auto& script : {memory.value(), file.value()}) {
+            const auto instance = script->instantiate();
+            ASSERT_TRUE(instance) << instance.error().message;
+            const auto parameters = script->resolve_parameters({});
+            ASSERT_TRUE(parameters);
+            EXPECT_TRUE(instance.value()->invoke(Script::Phase::Update, {}, parameters.value()));
+        }
+        EXPECT_EQ(read_text_file(path).value(), source);
+        for(const auto* prefix : {"\xef", "\xef\xbb", "\xff\xfe", "\xef\xbb\xbf\xef\xbb\xbf"})
+            EXPECT_FALSE(Script::create(std::string(prefix) + "return {}"));
+    }
+
     TEST(ScriptModulePathTest, NamesAndProjectRelativePathsUseOneExactAsciiMapping) {
         for(const auto& [name, path] : {std::pair{"score", "score.module.lua"},
                 std::pair{"scripts.demo_score", "scripts/demo_score.module.lua"},
@@ -75,6 +101,37 @@ namespace Comet::Tests {
             return Script::load_group(directory.path(), paths);
         }
     };
+
+    TEST_F(ScriptModulesTest, ModuleBomPreservesLineNumbersAndExactSourceFreshness) {
+        const std::string module = "local module = {}\r\n"
+                                   "function module.fail()\r\n"
+                                   "    error('bom line')\r\n"
+                                   "end\r\nreturn module\r\n";
+        write("value.module.lua", "\xef\xbb\xbf" + module);
+        write("actor.lua", "local value = require('value')\r\n"
+                           "return {update = function() value.fail() end}\r\n");
+        const auto group = load();
+        ASSERT_TRUE(group) << group.error().message;
+        const auto script = group.value().front();
+        EXPECT_TRUE(script->inputs_are_current());
+        const auto instance = script->instantiate();
+        ASSERT_TRUE(instance);
+        const auto failed = instance.value()->invoke(Script::Phase::Update, {}, {});
+        ASSERT_FALSE(failed);
+        EXPECT_NE(failed.error().message.find("value.module.lua:3:"), std::string::npos);
+        EXPECT_NE(failed.error().message.find("actor.lua:2:"), std::string::npos);
+
+        write("value.module.lua", module);
+        EXPECT_FALSE(script->inputs_are_current());
+        const auto changed = load();
+        ASSERT_TRUE(changed);
+        EXPECT_FALSE(script->has_same_sources(*changed.value().front()));
+        const auto retained = script->instantiate();
+        ASSERT_TRUE(retained);
+        const auto old_failure = retained.value()->invoke(Script::Phase::Update, {}, {});
+        ASSERT_FALSE(old_failure);
+        EXPECT_NE(old_failure.error().message.find("value.module.lua:3:"), std::string::npos);
+    }
 
     TEST_F(ScriptModulesTest, NestedModulesAreCachedPerInstanceAndKeepTheirSourceSnapshot) {
         write("scripts/value.module.lua", "return {base = 7}");

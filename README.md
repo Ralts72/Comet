@@ -610,6 +610,7 @@ Inspector 切换／清空 Script 引用会同时清空覆盖，一次 Undo 恢�
 Project 中右键组件脚本或 `.module.lua` 选择“打开源码”，可交给外部文本编辑器修改；
 macOS 使用系统默认文本编辑器，Windows 使用系统记事本，Linux 使用 `text/plain` 默认程序。
 此操作不运行脚本、不改资产身份，也不自动保存场景；没有编辑程序或源文件已移走时会显示错误。
+脚本和模块使用 UTF-8 文本，允许文件开头的 UTF-8 BOM；LF／CRLF 均可，暂不转换 UTF-16 等其他编码。
 可把 `demo/assets/scripts/spin.lua` 中的 `comet.rotate` 方向改为负数，保存后观察旋转反向，无需 Stop／Play。
 暂停时等待继续或单步；同名同类型的参数覆盖保留，删除／改类型的覆盖丢弃并采用新默认值，不改 Edit 场景。
 新实例重新执行 `on_start`，不保留任意 `self` 状态，也不重置整个场景的物理或会话值。

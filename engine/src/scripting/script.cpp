@@ -333,6 +333,13 @@ namespace Comet {
             return &inserted.first->second;
         }
 
+        static int load_text(lua_State* state, std::string_view source, const char* name) {
+            // 只调整解析视图，原始快照仍参与大小限制与重载一致性校验。
+            if(source.starts_with("\xef\xbb\xbf"))
+                source.remove_prefix(3);
+            return luaL_loadbufferx(state, source.data(), source.size(), name, "t");
+        }
+
         static int require_module(lua_State* state) {
             auto& vm = current(state);
             if(lua_gettop(state) != 1 || lua_type(state, 1) != LUA_TSTRING)
@@ -346,9 +353,7 @@ namespace Comet {
                 lua_rawgeti(state, LUA_REGISTRYINDEX, module->reference);
                 return 1;
             }
-            if(luaL_loadbufferx(state, module->source->source.data(), module->source->source.size(),
-                   module->source->name.c_str(), "t")
-                != LUA_OK)
+            if(load_text(state, module->source->source, module->source->name.c_str()) != LUA_OK)
                 return lua_error(state);
             // 这里只有平凡局部；递归模块执行或 Lua 分配失败不会跨越 C++ 所有者。
             lua_call(state, 0, 1);
@@ -381,8 +386,7 @@ namespace Comet {
                 lua_pushcfunction(state, require_module);
                 lua_setglobal(state, "require");
             }
-            if(luaL_loadbufferx(state, vm.source.data(), vm.source.size(), vm.name.c_str(), "t")
-                != LUA_OK)
+            if(load_text(state, vm.source, vm.name.c_str()) != LUA_OK)
                 return lua_error(state);
             lua_call(state, 0, 1);
             if(!lua_istable(state, -1))

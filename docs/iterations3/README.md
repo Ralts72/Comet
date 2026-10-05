@@ -186,6 +186,7 @@ App／Play 的完整操作验收仍是有效待办。尝试在既有隔离项目
 | [050 输入与玩法阶段回顾](050-input-gameplay-review.md) | 已验收 | 046–050 目录／职责／依赖／冗余／生命周期审查，无新增 owner；清理跨行条件表达式，1074 CPU／240 UI、Debug／Release 与契约／边界通过；真实宿主验收仍待办 |
 | [051 调色中改键完整链路](051-player-rebinding-gameplay-flow.md) | 自动验收通过，真实操作待验 | 真实 Lua＋面板录入＋个人文件＋运行重绑定＋重开连通；与 052 共同工作区 1076 CPU／242 UI、Debug／Release 和契约／边界通过；不新增生产 API，不冒充真实鼠标验收 |
 | [052 Project 打开 Lua 源码](052-open-script-source.md) | 自动验收通过，外部程序待验 | 复用文件工作流与平台文本编辑器，坏 Lua 可修复；1076 CPU／242 UI、Debug／Release 和契约／边界通过；不改身份／历史／监听，不新增 Runtime 能力 |
+| [053 Lua UTF-8 BOM](053-lua-utf8-bom.md) | 已验收 | 两项红测转绿，16 定向测试、1078 CPU／242 UI、Debug／Release 和契约／边界通过；组件与模块共用解析入口，保留原始快照与行号 |
 
 ## 首轮收尾记录（001–009，历史）
 
