@@ -264,6 +264,7 @@ Engine 启动 Runtime 使用 InputStart::Rebase，直到首张已授权输入才
 Engine 在更新后交给 Window 执行，暂停／停止／最小化／退出及时释放。Viewport 不重新解析物理绑定。
 Window 使用 GLFW disabled cursor，支持时开启 raw motion；真实模式切换仅重置鼠标位置基线，
 不清键沿或递增整体输入中断版本。共享 ImGui 在捕获期间禁用鼠标命中，仍接收键盘；未改变原生回调串接。
+解锁时先恢复 UI 位置基线再处理排队点击，避免静止解锁首击丢失；不把恢复位置追加为晚于点击的移动事件。
 Runtime 的输入准备标志只用于阻止 Resume／discard 后查询旧意图，不替代 RuntimeInput 的电平与释放历史。
 
 **项目默认与个人意图。** Project v2 保存项目／动作／绑定的非零 UUID，复用 common/Uuid；

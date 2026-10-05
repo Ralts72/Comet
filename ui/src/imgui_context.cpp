@@ -41,9 +41,9 @@ namespace CometUi {
                         events.erase(events.begin() + index);
             } else if(io.ConfigFlags & ImGuiConfigFlags_NoMouse) {
                 io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
-                // 静止解锁未必产生位置回调，不能等下一次移动才恢复 UI 命中。
+                // 恢复基线须先于已排队的点击，不能把位置事件追加到点击之后。
                 const auto position = window.get_cursor_position();
-                io.AddMousePosEvent(position.x, position.y);
+                io.MousePos = {position.x, position.y};
             }
         }
 

@@ -238,11 +238,13 @@ namespace Comet::Tests {
         window.set_cursor_locked(false);
         // 模拟静止恢复时没有额外的位置回调。
         ImGui::GetIO().ClearEventsQueue();
+        ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Left, true);
         ASSERT_TRUE(ui->begin_frame());
         EXPECT_FALSE(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NoMouse);
         EXPECT_EQ(ImGui::GetIO().MousePos.x, window.get_cursor_position().x);
         EXPECT_EQ(ImGui::GetIO().MousePos.y, window.get_cursor_position().y);
         EXPECT_TRUE(ImGui::GetIO().WantCaptureMouse);
+        EXPECT_TRUE(ImGui::IsMouseClicked(ImGuiMouseButton_Left));
         draw_window();
         ui->end_frame();
     }

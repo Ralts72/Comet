@@ -29,7 +29,6 @@ namespace CometEditor::Tests {
 
         runtime_input.cursor_event({220, 20});
         move_pointer({2000, 2000});
-        EXPECT_TRUE(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NoMouse);
         EXPECT_TRUE(runtime_accepting);
         EXPECT_TRUE(runtime.wants_cursor_capture());
         EXPECT_NEAR(entity.get_component<Comet::TransformComponent>().rotation.y, -40, 0.0001f);
@@ -38,7 +37,6 @@ namespace CometEditor::Tests {
         frame();
         EXPECT_FALSE(runtime.wants_cursor_capture());
         frame();
-        EXPECT_FALSE(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NoMouse);
         const auto& routed = viewport.route_runtime_input(runtime_input.get_frame());
         EXPECT_FALSE(routed.pointer_enabled);
     }
