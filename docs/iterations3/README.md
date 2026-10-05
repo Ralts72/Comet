@@ -184,6 +184,7 @@ App／Play 的完整操作验收仍是有效待办。尝试在既有隔离项目
 | [048 demo 手柄玩法](048-demo-gamepad-controls.md) | 自动验收通过，设备体验待验 | 仅扩展项目默认绑定；6 项键盘／手柄真实脚本场景回归，1074 CPU／240 UI、Debug／Release 与契约／边界通过；不新增设备专用 Lua 或 System |
 | [049 来源默认控制](049-player-source-default-control.md) | 已验收 | 返回原来源优先项目默认控制，仍避开宿主保留键；48 定向 UI、1074 CPU／240 UI、Debug／Release 与契约／边界通过，不缓存个人来源历史 |
 | [050 输入与玩法阶段回顾](050-input-gameplay-review.md) | 已验收 | 046–050 目录／职责／依赖／冗余／生命周期审查，无新增 owner；清理跨行条件表达式，1074 CPU／240 UI、Debug／Release 与契约／边界通过；真实宿主验收仍待办 |
+| [051 调色中改键完整链路](051-player-rebinding-gameplay-flow.md) | 自动验收通过，真实操作待验 | 真实 Lua＋面板录入＋个人文件＋运行重绑定＋重开连通；与 052 共同工作区 1076 CPU／242 UI、Debug／Release 和契约／边界通过；不新增生产 API，不冒充真实鼠标验收 |
 
 ## 首轮收尾记录（001–009，历史）
 

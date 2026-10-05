@@ -1,8 +1,20 @@
 #ifdef COMET_TEST_EDITOR_UI
+#include "asset/registry.h"
 #include "common/file_io.h"
+#include "common/scope_exit.h"
+#include "core/project.h"
 #include "input/player_input_settings.h"
 #include "input_widgets.h"
 #include "player_input_panel.h"
+#include "render/material/material.h"
+#include "render/material/material_programs.h"
+#include "scene/component_registry.h"
+#include "scene/scene.h"
+#include "scene/scene_runtime.h"
+#include "scene/scene_serializer.h"
+#include "scene/script_component.h"
+#include "scene/systems/script_system.h"
+#include "scripting/script.h"
 #include "support/imgui_context.h"
 #include "support/temporary_directory.h"
 
@@ -10,7 +22,9 @@
 #include <imgui_internal.h>
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -1452,6 +1466,159 @@ namespace CometUi::Tests {
         auto expected = current.value().actions();
         expected[0].bindings[0].control = Input::Key::K;
         EXPECT_EQ(request->actions(), expected);
+    }
+
+    TEST_F(PlayerInputPanelTest, DemoPaletteRecordingSurvivesApplyAndRestartWithoutResettingLua) {
+        using namespace Comet;
+        using Key = Input::Key;
+        const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
+        ASSERT_TRUE(project) << project.error();
+        defaults = project.value().input_actions();
+        const auto confirm =
+            std::ranges::find(defaults.actions(), "palette.confirm", &Actions::Action::name);
+        ASSERT_NE(confirm, defaults.actions().end());
+        ASSERT_FALSE(confirm->bindings.empty());
+        ASSERT_EQ(confirm->bindings.front().control, Actions::Control(Key::Space));
+        const auto confirm_binding = confirm->bindings.front().id;
+        const std::array<std::filesystem::path, 2> roots{
+            "scripts/spin.lua", "scripts/move_cube.lua"};
+        const auto scripts = Script::load_group(project.value().paths().assets(), roots);
+        ASSERT_TRUE(scripts) << scripts.error().message;
+        AssetRegistry assets;
+        MaterialPrograms materials(assets);
+        const AssetHandle spin_handle{42}, move_handle{43}, material_handle{77};
+        ASSERT_TRUE(assets.register_asset(spin_handle, scripts.value()[0]));
+        ASSERT_TRUE(assets.register_asset(move_handle, scripts.value()[1]));
+        const auto material = std::make_shared<Material>("cube", "pbr");
+        ASSERT_TRUE(assets.register_asset(material_handle, material));
+        const auto material_revision = material->get_revision();
+        Scene edit;
+        auto authored_center = edit.create_entity("Center");
+        authored_center.add_component<ScriptComponent>().asset = spin_handle;
+        authored_center.add_component<MeshRendererComponent>(AssetHandle{11}, material_handle);
+        auto authored_player = edit.create_entity("Player");
+        authored_player.add_component<ScriptComponent>().asset = move_handle;
+        const auto components = create_scene_component_registry();
+        const SceneSerializer serializer(components);
+        const auto original = serializer.serialize(edit);
+        ASSERT_TRUE(original);
+        auto cloned = serializer.clone(edit);
+        ASSERT_TRUE(cloned);
+        auto playing = std::move(cloned).value();
+        SceneRuntime runtime;
+        const ScopeExit stop_runtime([&] { EXPECT_TRUE(runtime.stop()); });
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.set_input_actions(defaults));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets, &materials)));
+        ASSERT_TRUE(runtime.start(*playing));
+        Comet::Tests::TemporaryDirectory directory;
+        const auto file = directory.path() / "input.json";
+        auto settings = PlayerInputSettings::load(project.value().id(), file);
+        ASSERT_TRUE(settings);
+        Input::Gate gate;
+        const auto tick = [&] {
+            frame();
+            return runtime.advance(0.01, &gate.read(physical.get_frame(), !blocked));
+        };
+        const auto press = [&](Key value) {
+            physical.key_event(value, true);
+            auto result = tick();
+            if(!result)
+                return result;
+            physical.key_event(value, false);
+            return tick();
+        };
+        const auto center = playing->find_entity(authored_center.get_uuid());
+        const auto player = playing->find_entity(authored_player.get_uuid());
+        ASSERT_TRUE(center && player);
+        ASSERT_TRUE(tick());
+        ASSERT_TRUE(press(Key::Space));
+        const auto paused_rotation = center.get_component<TransformComponent>().rotation;
+        ASSERT_TRUE(press(Key::Tab));
+        ASSERT_TRUE(press(Key::Right));
+        const auto orange = playing->get_material_overrides(center);
+        ASSERT_TRUE(orange);
+        EXPECT_EQ(orange->vector_properties.at("base_color"), Math::Vec4(1, 0.5f, 0.1f, 1));
+        EXPECT_EQ(player.get_component<TransformComponent>().translation, Math::Vec3(0));
+
+        // 真正录入并保存；运行域保持原实例，不重开 Lua 或重置动态输入组。
+        const auto frame_before_apply = runtime.get_timing().frame_index;
+        show(settings.value().overrides());
+        button("Action");
+        auto* combo = ImGui::FindWindowByName("##Combo_00");
+        ASSERT_NE(combo, nullptr);
+        ImGui::SetScrollY(combo, combo->ScrollMax.y);
+        frame();
+        const auto scope = ImHashStr(confirm->id.to_string().c_str(), 0, combo->ID);
+        activate(combo, ImHashStr("palette.confirm", 0, scope));
+        binding_button("Record Key", confirm_binding);
+        ASSERT_NE(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        ASSERT_TRUE(press(Key::K));
+        EXPECT_TRUE(blocked);
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        const auto expected = Overrides::create(
+            {{confirm->id, Type::Button, false, {{.id = confirm_binding, .control = Key::K}}}});
+        ASSERT_TRUE(expected);
+        EXPECT_EQ(*request, expected.value());
+        auto resolved = request->resolve(defaults);
+        ASSERT_TRUE(resolved);
+        ASSERT_TRUE(resolved.value().issues.empty());
+        ASSERT_TRUE(settings.value().save(*request));
+        ASSERT_TRUE(runtime.rebind_input_actions(std::move(resolved).value().actions));
+        panel.complete(Result<void>::success());
+        ASSERT_TRUE(runtime.advance(0.01, &gate.read(physical.get_frame(), !blocked)));
+        ASSERT_TRUE(tick());
+        EXPECT_TRUE(blocked);
+        ASSERT_TRUE(tick());
+        EXPECT_FALSE(blocked);
+        EXPECT_GT(runtime.get_timing().frame_index, frame_before_apply);
+        EXPECT_EQ(center.get_component<TransformComponent>().rotation, paused_rotation);
+        EXPECT_EQ(playing->get_material_overrides(center), orange);
+        ASSERT_TRUE(press(Key::Right));
+        EXPECT_EQ(playing->get_material_overrides(center)->vector_properties.at("base_color"),
+            Math::Vec4(0.75f, 0.2f, 1, 1));
+        EXPECT_EQ(player.get_component<TransformComponent>().translation, Math::Vec3(0));
+        ASSERT_TRUE(press(Key::K));
+        ASSERT_TRUE(press(Key::Right));
+        EXPECT_GT(player.get_component<TransformComponent>().translation.x, 0);
+        EXPECT_EQ(center.get_component<TransformComponent>().rotation, paused_rotation);
+
+        // 真实 demo 的公共重开请求后，重新读取文件并克隆 Edit；旧 Space 不再确认。
+        ASSERT_TRUE(press(Key::R));
+        EXPECT_TRUE(playing->take_restart_request());
+        ASSERT_TRUE(runtime.stop());
+        cloned = serializer.clone(edit);
+        ASSERT_TRUE(cloned);
+        playing = std::move(cloned).value();
+        const auto loaded = PlayerInputSettings::load(project.value().id(), file);
+        ASSERT_TRUE(loaded);
+        EXPECT_EQ(loaded.value().overrides(), expected.value());
+        auto reopened = loaded.value().overrides().resolve(defaults);
+        ASSERT_TRUE(reopened);
+        ASSERT_TRUE(runtime.set_input_actions(std::move(reopened).value().actions));
+        ASSERT_TRUE(runtime.start(
+            *playing, SceneRuntime::State::Running, SceneRuntime::InputStart::Rebase));
+        ASSERT_TRUE(tick());
+        ASSERT_TRUE(press(Key::Tab));
+        ASSERT_TRUE(press(Key::Space));
+        ASSERT_TRUE(press(Key::Right));
+        const auto restarted_center = playing->find_entity(authored_center.get_uuid());
+        const auto restarted_player = playing->find_entity(authored_player.get_uuid());
+        ASSERT_TRUE(restarted_center && restarted_player);
+        EXPECT_EQ(restarted_player.get_component<TransformComponent>().translation, Math::Vec3(0));
+        ASSERT_TRUE(playing->get_material_overrides(restarted_center));
+        EXPECT_EQ(
+            playing->get_material_overrides(restarted_center)->vector_properties.at("base_color"),
+            Math::Vec4(1, 0.5f, 0.1f, 1));
+        ASSERT_TRUE(press(Key::K));
+        ASSERT_TRUE(press(Key::Right));
+        EXPECT_GT(restarted_player.get_component<TransformComponent>().translation.x, 0);
+        EXPECT_EQ(serializer.serialize(edit).value(), original.value());
+        EXPECT_FALSE(edit.get_material_overrides(authored_center));
+        EXPECT_EQ(material->get_revision(), material_revision);
+        EXPECT_EQ(project.value().input_actions(), defaults);
     }
 
     TEST_F(
