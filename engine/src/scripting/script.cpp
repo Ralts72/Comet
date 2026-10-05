@@ -30,8 +30,9 @@ namespace Comet {
         bool is_module_path(const std::filesystem::path& path) {
             auto name = path.filename().string();
             std::ranges::transform(name, name.begin(), [](const unsigned char value) {
-                return value >= 'A' && value <= 'Z' ? static_cast<char>(value + 'a' - 'A')
-                                                    : static_cast<char>(value);
+                if(value >= 'A' && value <= 'Z')
+                    return static_cast<char>(value + 'a' - 'A');
+                return static_cast<char>(value);
             });
             return name.ends_with(".module.lua");
         }
