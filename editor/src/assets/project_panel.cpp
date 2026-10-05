@@ -2,7 +2,7 @@
 #include "scene/selection.h"
 #include "assets/asset_reference.h"
 #include "scene/command_history.h"
-#include "ui/widgets.h"
+#include "widgets.h"
 #include "scripting/script.h"
 
 #include <imgui.h>
@@ -35,7 +35,7 @@ namespace CometEditor {
 
         bool input_asset_name(
             std::string& name, const ImGuiInputTextFlags extra_flags = ImGuiInputTextFlags_None) {
-            return Ui::input_text(Ui::label("Name").c_str(), name,
+            return CometUi::input_text(Ui::label("Name").c_str(), name,
                 ImGuiInputTextFlags_EnterReturnsTrue | extra_flags);
         }
 
@@ -46,7 +46,7 @@ namespace CometEditor {
             if(name)
                 reference = "require(\"" + name.value() + "\")";
             ImGui::SetNextItemWidth(width);
-            Ui::input_text(Ui::label(label).c_str(), reference, ImGuiInputTextFlags_ReadOnly);
+            CometUi::input_text(Ui::label(label).c_str(), reference, ImGuiInputTextFlags_ReadOnly);
         }
     }
 

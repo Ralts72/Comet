@@ -62,7 +62,6 @@ add_library(editor_ui STATIC
         src/ui/path_dialog.cpp
         src/render/render_stats.cpp
         src/ui/dialogs.cpp
-        src/ui/widgets.cpp
         src/ui/console.cpp
         src/ui/menu_bar.cpp
         src/ui/language.cpp

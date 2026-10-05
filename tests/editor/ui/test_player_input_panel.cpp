@@ -215,7 +215,15 @@ namespace CometUi::Tests {
 
         void edit_number(const char* field, const char* value, Comet::Uuid binding) {
             binding_button(field, binding);
-            const auto item = binding_item(binding, field);
+            replace_text(binding_item(binding, field), value);
+        }
+
+        void filter_actions(const char* value) {
+            button("Filter Actions");
+            replace_text(content()->GetID("###Filter Actions"), value);
+        }
+
+        void replace_text(ImGuiID item, const char* value) {
             ASSERT_EQ(ImGui::GetActiveID(), item);
             auto& io = ImGui::GetIO();
             const auto modifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
@@ -276,6 +284,92 @@ namespace CometUi::Tests {
             }
         }
     };
+
+    TEST_F(PlayerInputPanelTest, ActionFilterPreservesIdentityDraftAndClearsWhenReopened) {
+        const auto current = Overrides::create(
+            {{id(1), Type::Button, false, {{.id = id(2), .control = Input::Key::K}}},
+                {id(4), Type::Axis, false, {{.id = id(5), .scale = -0.5f}}}});
+        ASSERT_TRUE(current);
+        show(current.value());
+        filter_actions("MoV");
+        button("Action");
+        auto* combo = ImGui::FindWindowByName("##Combo_00");
+        ASSERT_NE(combo, nullptr);
+        ASSERT_TRUE(combo->Active);
+        const auto hidden_scope = ImHashStr(id(1).to_string().c_str(), 0, combo->ID);
+        activate(combo, ImHashStr("jump", 0, hidden_scope));
+        EXPECT_TRUE(combo->Active);
+        const auto visible_scope = ImHashStr(id(4).to_string().c_str(), 0, combo->ID);
+        activate(combo, ImHashStr("move", 0, visible_scope));
+        frame();
+        EXPECT_FALSE(combo->Active);
+        button("Disable Action");
+
+        const std::string long_filter(180, 'x');
+        filter_actions(long_filter.c_str());
+        EXPECT_NE(rendered_text.find(long_filter), std::string::npos);
+        button("Action");
+        EXPECT_NE(rendered_text.find("No matching actions."), std::string::npos);
+        auto& io = ImGui::GetIO();
+        io.AddKeyEvent(ImGuiKey_Escape, true);
+        frame();
+        io.AddKeyEvent(ImGuiKey_Escape, false);
+        frame();
+        button("Clear Filter");
+        select_action("jump", id(1));
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        auto expected = current.value().actions();
+        expected[1].disabled = true;
+        EXPECT_EQ(request->actions(), expected);
+        panel.complete(Comet::Result<void>::success());
+        frame();
+
+        show();
+        filter_actions("missing");
+        button("Cancel");
+        frame();
+        show();
+        button("Action");
+        EXPECT_NE(rendered_text.find("move"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("No matching actions."), std::string::npos);
+    }
+
+    TEST_F(PlayerInputPanelTest, FilterTextTakesOverRecordingWithoutChangingBindings) {
+        show();
+        binding_button("Record Key");
+        const PlayerInputPanel::Text translations{{"Filter Actions", "筛选动作"}};
+        const auto item = content()->GetID("###Filter Actions");
+        const auto point = hover_point(content(), item, translations);
+        ASSERT_TRUE(point);
+        EXPECT_NE(rendered_text.find("筛选动作"), std::string::npos);
+        auto& io = ImGui::GetIO();
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+        physical.mouse_button_event(Input::MouseButton::Left, true);
+        physical.key_event(Input::Key::M, true);
+        io.AddKeyEvent(ImGuiKey_M, true);
+        io.AddInputCharactersUTF8("m");
+        frame(translations);
+        EXPECT_EQ(ImGui::GetActiveID(), item);
+        EXPECT_EQ(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+        physical.mouse_button_event(Input::MouseButton::Left, false);
+        physical.key_event(Input::Key::M, false);
+        io.AddKeyEvent(ImGuiKey_M, false);
+        frame(translations);
+        frame(translations);
+        physical.key_event(Input::Key::Enter, true);
+        io.AddKeyEvent(ImGuiKey_Enter, true);
+        frame(translations);
+        physical.key_event(Input::Key::Enter, false);
+        io.AddKeyEvent(ImGuiKey_Enter, false);
+        frame(translations);
+        button("Apply");
+        const auto request = panel.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_TRUE(request->actions().empty());
+    }
 
     TEST_F(PlayerInputPanelTest, UnchangedApplyPreservesUnknownAndTypeChangedRecords) {
         const auto current = Overrides::create({{id(90), Type::Button, true, {}},

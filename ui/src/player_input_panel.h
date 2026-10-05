@@ -51,6 +51,7 @@ namespace CometUi {
         void start_capture(const Action& action, const Binding& binding,
             const Comet::Input::Frame& input, bool gamepad_button);
         void capture_input(const Comet::Input::Frame& input);
+        void render_action_selector(const Text& translations);
         void render_actions(const Comet::Input::Frame& input, const Text& translations);
         void render_binding(const Action& action, const Binding& binding,
             Comet::InputOverrides::Resolution& resolved, const Comet::Input::Frame& input,
@@ -68,6 +69,7 @@ namespace CometUi {
         std::optional<Comet::InputOverrides> m_request;
         std::optional<Capture> m_capture;
         std::size_t m_selected_action = 0;
+        std::string m_action_filter;
         std::string m_error;
         bool m_open = false;
         bool m_open_requested = false;

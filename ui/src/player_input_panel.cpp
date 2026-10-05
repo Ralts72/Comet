@@ -1,5 +1,6 @@
 #include "player_input_panel.h"
 #include "input_widgets.h"
+#include "widgets.h"
 
 #include <algorithm>
 #include <imgui.h>
@@ -155,6 +156,7 @@ namespace CometUi {
         m_draft = current;
         m_reserved_keys.assign(reserved_keys.begin(), reserved_keys.end());
         m_selected_action = 0;
+        m_action_filter.clear();
         m_request.reset();
         m_capture.reset();
         m_error.clear();
@@ -173,6 +175,7 @@ namespace CometUi {
         m_capture.reset();
         m_waiting = false;
         m_error.clear();
+        m_action_filter.clear();
         m_draft = {};
     }
 
@@ -505,16 +508,25 @@ namespace CometUi {
         ImGui::PopID();
     }
 
-    void PlayerInputPanel::render_actions(const Input::Frame& input, const Text& translations) {
+    void PlayerInputPanel::render_action_selector(const Text& translations) {
         const auto& actions = m_defaults.actions();
-        if(actions.empty()) {
-            ImGui::TextDisabled("%s", text(translations, "No input actions."));
-            return;
+        set_field_width(250, text(translations, "Filter Actions"));
+        input_text(label(translations, "Filter Actions").c_str(), m_action_filter);
+        if(!m_action_filter.empty()) {
+            same_line_if_fits(button_width(text(translations, "Clear Filter")));
+            if(ImGui::Button(label(translations, "Clear Filter").c_str()))
+                m_action_filter.clear();
         }
         set_field_width(250, text(translations, "Action"));
         if(ImGui::BeginCombo(
                label(translations, "Action").c_str(), actions[m_selected_action].name.c_str())) {
+            bool found = false;
             for(std::size_t index = 0; index < actions.size(); ++index) {
+                if(!m_action_filter.empty()
+                    && !ImStristr(
+                        actions[index].name.c_str(), nullptr, m_action_filter.c_str(), nullptr))
+                    continue;
+                found = true;
                 ImGui::PushID(actions[index].id.to_string().c_str());
                 if(ImGui::Selectable(actions[index].name.c_str(), m_selected_action == index)) {
                     m_selected_action = index;
@@ -522,8 +534,19 @@ namespace CometUi {
                 }
                 ImGui::PopID();
             }
+            if(!found)
+                ImGui::TextDisabled("%s", text(translations, "No matching actions."));
             ImGui::EndCombo();
         }
+    }
+
+    void PlayerInputPanel::render_actions(const Input::Frame& input, const Text& translations) {
+        const auto& actions = m_defaults.actions();
+        if(actions.empty()) {
+            ImGui::TextDisabled("%s", text(translations, "No input actions."));
+            return;
+        }
+        render_action_selector(translations);
         const auto& action = actions[m_selected_action];
         same_line_if_fits(ImGui::CalcTextSize(text(translations, input_type_name(action.type))).x);
         ImGui::TextDisabled("%s", text(translations, input_type_name(action.type)));

@@ -1,7 +1,7 @@
 #include "ui/shortcut_settings_dialog.h"
 
 #include "ui/language.h"
-#include "ui/widgets.h"
+#include "widgets.h"
 
 #include <array>
 #include <cctype>
@@ -95,7 +95,7 @@ namespace CometEditor {
             ImGui::TextUnformatted(Ui::text(ACTION_LABELS[index]));
             ImGui::SameLine(200.0f);
             ImGui::SetNextItemWidth(330.0f);
-            Ui::input_text("##Shortcut", m_draft[index]);
+            CometUi::input_text("##Shortcut", m_draft[index]);
             ImGui::PopID();
         }
         if(ImGui::Button(Ui::label("Restore Defaults").c_str())) {

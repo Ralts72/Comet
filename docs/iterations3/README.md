@@ -210,6 +210,7 @@ App／Play 的完整操作验收仍是有效待办。尝试在既有隔离项目
 | [053 Lua UTF-8 BOM](053-lua-utf8-bom.md) | 已验收 | 两项红测转绿，16 定向测试、1078 CPU／242 UI、Debug／Release 和契约／边界通过；组件与模块共用解析入口，保留原始快照与行号 |
 | [054 收尾审查与桌面证据](054-input-script-workflow-review.md) | 已完成局部验收与审查，完整交互待验 | 10 个本地 CTest 入口通过；macOS 源码交付、外部保存触发 Editor 刷新及 App 调色／重开可见，未冒充完整 Play／真机手柄验收；无新生产接口 |
 | [055 重命名错误生命周期](055-rename-error-lifetime.md) | 已验收 | 连续操作红测复现、修复后 28 项 Project UI 与 Debug 构建通过；同名确认结束旧错误，不移动文件或改变身份 |
+| [056 玩家动作筛选](056-player-action-filter.md) | 自动验收通过 | 动作名过滤保留 UUID／选择／个人配置，复用动态字符串控件；1078 CPU／245 UI、Debug／Release 与构建契约／边界通过，未替代真机验收 |
 
 ## 首轮收尾记录（001–009，历史）
 

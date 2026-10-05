@@ -1,6 +1,6 @@
 #include "ui/path_dialog.h"
 #include "ui/language.h"
-#include "ui/widgets.h"
+#include "widgets.h"
 #include <utility>
 #include <imgui.h>
 namespace CometEditor {
@@ -54,8 +54,8 @@ namespace CometEditor {
         }
 
         ImGui::SetNextItemWidth(560.0f);
-        const bool submitted =
-            Ui::input_text(Ui::label("Path").c_str(), m_path, ImGuiInputTextFlags_EnterReturnsTrue);
+        const bool submitted = CometUi::input_text(
+            Ui::label("Path").c_str(), m_path, ImGuiInputTextFlags_EnterReturnsTrue);
 
         const char* action = is_open ? "Open" : "Save";
         if(m_action == Action::CreateProject)

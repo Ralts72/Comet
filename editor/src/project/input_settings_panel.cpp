@@ -2,7 +2,7 @@
 
 #include "input_widgets.h"
 #include "ui/language.h"
-#include "ui/widgets.h"
+#include "widgets.h"
 
 #include <algorithm>
 #include <iterator>
@@ -17,7 +17,7 @@ namespace CometEditor {
 
         void render_control(const std::string_view source, std::string& control) {
             if(source == "key") {
-                Ui::input_text("##Control", control);
+                CometUi::input_text("##Control", control);
                 return;
             }
             const char* preview = control.c_str();
@@ -102,7 +102,7 @@ namespace CometEditor {
             auto& context = m_contexts[index];
             ImGui::PushID(static_cast<int>(index));
             ImGui::SetNextItemWidth(180.0f);
-            Ui::input_text("##ContextName", context.name);
+            CometUi::input_text("##ContextName", context.name);
             ImGui::SameLine();
             ImGui::Checkbox(Ui::label("Initially Enabled").c_str(), &context.enabled);
             const bool used = std::ranges::any_of(
@@ -202,7 +202,7 @@ namespace CometEditor {
         auto& action = m_actions[index];
         ImGui::PushID(static_cast<int>(index));
         ImGui::SetNextItemWidth(165.0f);
-        Ui::input_text("##Name", action.name);
+        CometUi::input_text("##Name", action.name);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(110.0f);
         if(ImGui::BeginCombo("##Type", Ui::text(CometUi::input_type_name(action.type)))) {

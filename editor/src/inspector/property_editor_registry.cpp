@@ -1,6 +1,6 @@
 #include "inspector/property_editor_registry.h"
 #include "ui/language.h"
-#include "ui/widgets.h"
+#include "widgets.h"
 #include "assets/asset_reference.h"
 #include "scene/entity_reference.h"
 
@@ -147,7 +147,7 @@ namespace CometEditor {
             [](const Comet::PropertyDescriptor& property, void* value) {
                 auto& text = *static_cast<std::string*>(value);
                 return PropertyEditResult::from_item(
-                    Ui::input_text(Ui::label(property.display_name.c_str()).c_str(), text));
+                    CometUi::input_text(Ui::label(property.display_name.c_str()).c_str(), text));
             });
 
         register_editor(Comet::PropertyType::Enum, edit_enum_property);

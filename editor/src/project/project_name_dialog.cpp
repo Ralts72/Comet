@@ -1,7 +1,7 @@
 #include "project/project_name_dialog.h"
 
 #include "ui/language.h"
-#include "ui/widgets.h"
+#include "widgets.h"
 
 #include <imgui.h>
 
@@ -35,8 +35,8 @@ namespace CometEditor {
         }
 
         ImGui::SetNextItemWidth(360.0f);
-        const bool submitted =
-            Ui::input_text(Ui::label("Name").c_str(), m_name, ImGuiInputTextFlags_EnterReturnsTrue);
+        const bool submitted = CometUi::input_text(
+            Ui::label("Name").c_str(), m_name, ImGuiInputTextFlags_EnterReturnsTrue);
         if(ImGui::Button(Ui::label("Rename").c_str(), ImVec2(100.0f, 0.0f)) || submitted)
             m_request = m_name;
         ImGui::SameLine();

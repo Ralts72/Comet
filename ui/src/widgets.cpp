@@ -1,6 +1,6 @@
-#include "ui/widgets.h"
+#include "widgets.h"
 
-namespace CometEditor::Ui {
+namespace CometUi {
     namespace {
         int resize_text(ImGuiInputTextCallbackData* data) {
             auto& text = *static_cast<std::string*>(data->UserData);
