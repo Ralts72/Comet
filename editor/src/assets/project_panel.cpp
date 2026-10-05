@@ -774,6 +774,7 @@ namespace CometEditor {
                 if(source == destination) {
                     ImGui::CloseCurrentPopup();
                     m_rename_target = std::monostate{};
+                    m_operation_error.clear();
                 } else
                     m_pending_move = MoveRequest{
                         record->handle, m_database.get_revision(record->handle), destination};

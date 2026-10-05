@@ -5,6 +5,7 @@
 #include "scene/scene_commands.h"
 #include "assets/asset_reference.h"
 #include "assets/source_operations.h"
+#include "common/file_io.h"
 
 #include "support/imgui_context.h"
 
@@ -826,6 +827,40 @@ namespace CometEditor::Tests {
         ImGui::ActivateItemByID(dialog->GetID("Cancel"));
         frame();
         EXPECT_EQ(move_count, 0);
+    }
+
+    TEST_F(ProjectPanelTest, ScriptRenameSameNameAfterValidationFailureClearsError) {
+        auto report = AssetSourceOperations::create_script(database, "actor.lua");
+        ASSERT_TRUE(report.succeeded());
+        project->update_scan_report(std::move(report));
+        const auto source = database.find("actor.lua")->handle;
+        const auto selected = database.find("b.png")->handle;
+        selection.select_asset(selected);
+        const auto source_path = paths.assets() / "actor.lua";
+        const auto metadata_path = Comet::metadata_path(source_path);
+        const auto source_bytes = Comet::read_text_file(source_path);
+        const auto metadata_bytes = Comet::read_text_file(metadata_path);
+        ASSERT_TRUE(source_bytes);
+        ASSERT_TRUE(metadata_bytes);
+
+        search("actor.lua");
+        open_rename(1);
+        rename("../escape");
+        ASSERT_TRUE(ImGui::FindWindowByName("Rename Asset")->Active);
+        ASSERT_NE(rendered_text.find("Enter a file name, not a path"), std::string::npos);
+        EXPECT_EQ(move_count, 0);
+        EXPECT_FALSE(project->take_move_request());
+
+        rename("actor");
+        EXPECT_FALSE(ImGui::FindWindowByName("Rename Asset")->Active);
+        EXPECT_EQ(rendered_text.find("Enter a file name, not a path"), std::string::npos);
+        EXPECT_EQ(move_count, 0);
+        EXPECT_FALSE(project->take_move_request());
+        EXPECT_EQ(database.find(source)->path, "actor.lua");
+        EXPECT_EQ(selection.get_selected_asset(), selected);
+        EXPECT_FALSE(history.can_undo());
+        EXPECT_EQ(Comet::read_text_file(source_path).value(), source_bytes.value());
+        EXPECT_EQ(Comet::read_text_file(metadata_path).value(), metadata_bytes.value());
     }
 
     TEST_F(ProjectPanelTest, DragMovesToFolderAndBackToRootAfterTraversal) {
