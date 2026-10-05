@@ -37,6 +37,11 @@ namespace Comet {
         [[nodiscard]] bool take_close_request();
         [[nodiscard]] bool is_minimized() const;
 
+        // 仅前台非最小化窗口可锁定；失焦后不自动恢复。
+        void set_cursor_locked(bool locked);
+        [[nodiscard]] bool is_cursor_locked() const;
+        [[nodiscard]] Math::Vec2 get_cursor_position() const;
+
         [[nodiscard]] Math::Vec2u get_framebuffer_size() const;
 
         void poll_events();

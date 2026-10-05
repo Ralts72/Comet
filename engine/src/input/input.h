@@ -238,6 +238,8 @@ namespace Comet {
         void key_event(Key key, bool down);
         void mouse_button_event(MouseButton button, bool down);
         void cursor_event(Math::Vec2 position);
+        // 切换光标模式时丢弃位移基线，保留按钮边沿、滚轮及已发布帧。
+        void reset_cursor_baseline();
         void scroll_event(Math::Vec2 offset);
         void focus_event(bool focused);
         void gamepad_sample(size_t index, const std::optional<GamepadSample>& sample);

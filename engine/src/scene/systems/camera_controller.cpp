@@ -3,38 +3,63 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 
 namespace Comet {
+    namespace {
+        struct ControlledCamera {
+            Entity entity;
+            Math::Mat4 parent_pose{1};
+            Math::Mat4 world_to_parent{1};
+        };
+
+        std::optional<ControlledCamera> controlled_camera(Scene& scene) {
+            Entity camera;
+            // 与 SceneResolver 一致：多个主相机时使用最小 EntityId，不回退到其他控制器。
+            scene.each<const CameraComponent, const TransformComponent>(
+                [&](Entity entity, const CameraComponent& candidate, const TransformComponent&) {
+                    if(candidate.primary && (!camera || entity.get_id() < camera.get_id()))
+                        camera = entity;
+                });
+            if(!camera || !camera.has_component<CameraControllerComponent>())
+                return std::nullopt;
+            const auto& controller = camera.get_component<CameraControllerComponent>();
+            if(!controller.enabled || !std::isfinite(controller.move_speed)
+                || controller.move_speed < 0 || !std::isfinite(controller.look_sensitivity)
+                || controller.look_sensitivity < 0)
+                return std::nullopt;
+            ControlledCamera result{camera};
+            if(auto parent = scene.get_parent(camera)) {
+                result.world_to_parent = Math::inverse(scene.get_world_matrix(parent));
+                result.parent_pose =
+                    parent.get_component<WorldTransformComponent>().pose_world_matrix;
+                for(int column = 0; column < 4; ++column)
+                    if(!Math::is_finite(result.world_to_parent[column])
+                        || !Math::is_finite(result.parent_pose[column]))
+                        return std::nullopt;
+            }
+            return result;
+        }
+    }
+
+    bool CameraControllerSystem::wants_cursor_capture(Scene& scene, const InputState& input) const {
+        const auto* look = input.action("camera.look");
+        return input.focused() && input.physical().pointer_enabled && look
+               && look->type == InputState::Action::Type::Button && look->down
+               && controlled_camera(scene).has_value();
+    }
+
     Result<void, Error> CameraControllerSystem::update(Scene& scene, const Context& context) {
         const auto& input = context.input;
         const auto delta_time = static_cast<float>(context.delta_time);
         if(!input.focused() || !std::isfinite(delta_time) || delta_time < 0)
             return Result<void, Error>::success();
-        Entity camera;
-        // 与 SceneResolver 一致：多个主相机时使用最小 EntityId，不回退到其他控制器。
-        scene.each<const CameraComponent, const TransformComponent>(
-            [&](Entity entity, const CameraComponent& candidate, const TransformComponent&) {
-                if(candidate.primary && (!camera || entity.get_id() < camera.get_id()))
-                    camera = entity;
-            });
-        if(!camera || !camera.has_component<CameraControllerComponent>())
+        const auto target = controlled_camera(scene);
+        if(!target)
             return Result<void, Error>::success();
+        const auto camera = target->entity;
         const auto& controller = camera.get_component<CameraControllerComponent>();
-        if(!controller.enabled || !std::isfinite(controller.move_speed) || controller.move_speed < 0
-            || !std::isfinite(controller.look_sensitivity) || controller.look_sensitivity < 0)
-            return Result<void, Error>::success();
-
         auto transform = camera.get_component<TransformComponent>();
-        Math::Mat4 parent_pose(1);
-        Math::Mat4 world_to_parent(1);
-        if(auto parent = scene.get_parent(camera)) {
-            world_to_parent = Math::inverse(scene.get_world_matrix(parent));
-            parent_pose = parent.get_component<WorldTransformComponent>().pose_world_matrix;
-            for(int column = 0; column < 4; ++column)
-                if(!Math::is_finite(world_to_parent[column])
-                    || !Math::is_finite(parent_pose[column]))
-                    return Result<void, Error>::success();
-        }
         using Type = InputState::Action::Type;
         const std::pair<std::string_view, Type> expected[]{{"camera.move_x", Type::Axis},
             {"camera.move_y", Type::Axis}, {"camera.move_z", Type::Axis},
@@ -64,8 +89,8 @@ namespace Comet {
         const Math::Vec3 movement{
             value("camera.move_x"), value("camera.move_y"), value("camera.move_z")};
 
-        const auto rotation =
-            parent_pose * Math::compose_trs(Math::Vec3(0), transform.rotation, Math::Vec3(1));
+        const auto rotation = target->parent_pose
+                              * Math::compose_trs(Math::Vec3(0), transform.rotation, Math::Vec3(1));
         const auto right = Math::Vec3(rotation[0]);
         const auto forward = -Math::Vec3(rotation[2]);
         auto direction = right * movement.x - forward * movement.z + Math::Vec3(0, movement.y, 0);
@@ -76,7 +101,7 @@ namespace Comet {
             speed *= 2;
         const auto world_delta = direction * speed * delta_time
                                  + forward * value("camera.zoom") * controller.move_speed / 15.0f;
-        transform.translation += Math::Vec3(world_to_parent * Math::Vec4(world_delta, 0));
+        transform.translation += Math::Vec3(target->world_to_parent * Math::Vec4(world_delta, 0));
         if(Math::is_finite(transform.translation) && Math::is_finite(transform.rotation)
             && !camera.try_set_transform(transform))
             return Result<void, Error>::failure({"Cannot update camera transform"});

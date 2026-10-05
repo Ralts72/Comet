@@ -52,6 +52,11 @@ namespace Comet {
         m_has_cursor_position = m_pending.focused;
     }
 
+    void Input::reset_cursor_baseline() {
+        m_has_cursor_position = false;
+        m_pending.cursor_delta = {};
+    }
+
     void Input::scroll_event(const Math::Vec2 offset) {
         if(m_pending.focused)
             accumulate(m_pending.scroll, offset);

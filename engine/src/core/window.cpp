@@ -113,6 +113,7 @@ namespace Comet {
         install_input_callbacks();
         glfwSetWindowCloseCallback(m_window.get(), [](GLFWwindow* window) {
             auto& owner = *static_cast<Window*>(glfwGetWindowUserPointer(window));
+            owner.set_cursor_locked(false);
             if(owner.m_confirm_close) {
                 glfwSetWindowShouldClose(window, GLFW_FALSE);
                 owner.m_close_requested = true;
@@ -164,6 +165,7 @@ namespace Comet {
     }
 
     void Window::request_close() {
+        set_cursor_locked(false);
         glfwSetWindowShouldClose(m_window.get(), GLFW_TRUE);
     }
 
@@ -173,6 +175,31 @@ namespace Comet {
 
     bool Window::is_minimized() const {
         return glfwGetWindowAttrib(m_window.get(), GLFW_ICONIFIED) == GLFW_TRUE;
+    }
+
+    void Window::set_cursor_locked(bool locked) {
+        if(locked
+            && (is_minimized() || glfwGetWindowAttrib(m_window.get(), GLFW_FOCUSED) != GLFW_TRUE))
+            locked = false;
+        if(is_cursor_locked() == locked)
+            return;
+        glfwSetInputMode(
+            m_window.get(), GLFW_CURSOR, locked ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+        if(glfwRawMouseMotionSupported() == GLFW_TRUE)
+            glfwSetInputMode(
+                m_window.get(), GLFW_RAW_MOUSE_MOTION, locked ? GLFW_TRUE : GLFW_FALSE);
+        m_input.reset_cursor_baseline();
+    }
+
+    bool Window::is_cursor_locked() const {
+        return glfwGetInputMode(m_window.get(), GLFW_CURSOR) == GLFW_CURSOR_DISABLED;
+    }
+
+    Math::Vec2 Window::get_cursor_position() const {
+        double x = 0;
+        double y = 0;
+        glfwGetCursorPos(m_window.get(), &x, &y);
+        return {static_cast<float>(x), static_cast<float>(y)};
     }
 
     Math::Vec2u Window::get_framebuffer_size() const {
@@ -211,8 +238,10 @@ namespace Comet {
             input.scroll_event({static_cast<float>(x), static_cast<float>(y)});
         });
         glfwSetWindowFocusCallback(m_window.get(), [](GLFWwindow* window, int focused) {
-            auto& input = static_cast<Window*>(glfwGetWindowUserPointer(window))->m_input;
-            input.focus_event(focused == GLFW_TRUE);
+            auto& owner = *static_cast<Window*>(glfwGetWindowUserPointer(window));
+            owner.m_input.focus_event(focused == GLFW_TRUE);
+            if(focused != GLFW_TRUE)
+                owner.set_cursor_locked(false);
         });
     }
 

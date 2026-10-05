@@ -11,6 +11,7 @@
 #include <GLFW/glfw3.h>
 #include <glm/gtc/packing.hpp>
 #include <imgui_impl_vulkan.h>
+#include <imgui_internal.h>
 
 #include <array>
 #include <cmath>
@@ -179,6 +180,71 @@ namespace Comet::Tests {
         const auto before_unloaded_frame = rendered;
         ASSERT_TRUE(presentation_frame(false));
         EXPECT_EQ(rendered, before_unloaded_frame);
+    }
+
+    TEST_F(ImGuiOverlayGpuTest, CursorLockDisablesUiMouseWithoutDisablingKeyboard) {
+        create_ui();
+        ASSERT_TRUE(ui);
+        auto& window = engine->get_window();
+        window.poll_events();
+        if(glfwGetWindowAttrib(window.get(), GLFW_FOCUSED) != GLFW_TRUE)
+            GTEST_SKIP() << "Cursor locking requires a focused native window";
+        const ScopeExit release_cursor([&] { window.set_cursor_locked(false); });
+        glfwSetCursorPos(window.get(), 50, 50);
+        const auto enter = glfwSetCursorEnterCallback(window.get(), nullptr);
+        glfwSetCursorEnterCallback(window.get(), enter);
+        ASSERT_NE(enter, nullptr);
+        enter(window.get(), GLFW_TRUE);
+        const auto draw_window = [] {
+            ImGui::SetNextWindowPos({0, 0});
+            ImGui::SetNextWindowSize({100, 100});
+            ImGui::Begin("Input target");
+            ImGui::TextUnformatted("Test");
+            ImGui::End();
+        };
+        ASSERT_TRUE(ui->begin_frame());
+        draw_window();
+        ui->end_frame();
+        const auto* focused = ImGui::GetCurrentContext()->NavWindow;
+        ASSERT_NE(focused, nullptr);
+        // 左键绑定转向时，初始按下仍经过正常 UI 帧的窗口移动处理。
+        ImGui::GetIO().AddMousePosEvent(50, 70);
+        ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+        ASSERT_TRUE(ui->begin_frame());
+        EXPECT_TRUE(ImGui::IsMouseClicked(ImGuiMouseButton_Left));
+        draw_window();
+        ui->end_frame();
+        EXPECT_EQ(ImGui::GetCurrentContext()->ActiveId, focused->MoveId);
+        const auto window_position = focused->Pos;
+        window.set_cursor_locked(true);
+        ASSERT_TRUE(window.is_cursor_locked());
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Space, true);
+        ImGui::GetIO().AddMousePosEvent(50, 50);
+        ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+        for(int frame = 0; frame < 3; ++frame) {
+            ASSERT_TRUE(ui->begin_frame());
+            EXPECT_TRUE(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NoMouse);
+            EXPECT_TRUE(ImGui::IsKeyDown(ImGuiKey_Space));
+            EXPECT_FALSE(ImGui::IsMouseDown(ImGuiMouseButton_Left));
+            EXPECT_FALSE(ImGui::GetIO().WantCaptureMouse);
+            EXPECT_TRUE(window.is_cursor_locked());
+            draw_window();
+            ui->end_frame();
+            EXPECT_EQ(ImGui::GetCurrentContext()->NavWindow, focused);
+            EXPECT_EQ(focused->Pos.x, window_position.x);
+            EXPECT_EQ(focused->Pos.y, window_position.y);
+            EXPECT_EQ(ImGui::GetCurrentContext()->ActiveId, 0u);
+        }
+        window.set_cursor_locked(false);
+        // 模拟静止恢复时没有额外的位置回调。
+        ImGui::GetIO().ClearEventsQueue();
+        ASSERT_TRUE(ui->begin_frame());
+        EXPECT_FALSE(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NoMouse);
+        EXPECT_EQ(ImGui::GetIO().MousePos.x, window.get_cursor_position().x);
+        EXPECT_EQ(ImGui::GetIO().MousePos.y, window.get_cursor_position().y);
+        EXPECT_TRUE(ImGui::GetIO().WantCaptureMouse);
+        draw_window();
+        ui->end_frame();
     }
 
     TEST_F(ImGuiOverlayGpuTest, CompatibleOffscreenBackendKeepsEmptyUiAndPixelsOutsideWindow) {

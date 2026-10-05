@@ -5,6 +5,7 @@
 #include "render/renderer.h"
 #include "support/engine_fixture.h"
 #include "support/scene_motion_system.h"
+#include "scene/systems/camera_controller.h"
 
 #include <gtest/gtest.h>
 #include <GLFW/glfw3.h>
@@ -15,6 +16,51 @@ namespace Comet::Tests {
         std::is_same_v<decltype(std::declval<Engine&>().get_scene_runtime()), const SceneRuntime&>);
 
     using EngineSceneActivationTest = EngineTest;
+
+    TEST_F(EngineSceneActivationTest, CameraIntentLocksWindowAndUiRejectionReleasesIt) {
+        auto& window = engine->get_window();
+        window.poll_events();
+        if(glfwGetWindowAttrib(window.get(), GLFW_FOCUSED) != GLFW_TRUE)
+            GTEST_SKIP() << "Cursor locking requires a focused native window";
+        auto actions = InputActions::create(
+            {{"camera.look", InputActions::Type::Button, {{Input::Key::Space}}}});
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(engine->set_input_actions(std::move(actions).value()));
+        auto scene = std::make_unique<Scene>();
+        auto camera = scene->create_entity();
+        camera.add_component<CameraComponent>().primary = true;
+        camera.add_component<CameraControllerComponent>();
+        engine->set_scene(std::move(scene));
+        ASSERT_TRUE(engine->add_system(std::make_unique<CameraControllerSystem>()));
+        ASSERT_TRUE(engine->start_scene_runtime());
+        Input input;
+        input.focus_event(true);
+        int ready_calls = 0;
+        int updates = 0;
+        engine->get_renderer().set_overlay({.render = [&](CommandBuffer&) {
+            EXPECT_EQ(window.is_cursor_locked(), ready_calls == 2);
+            if(ready_calls == 3)
+                window.request_close();
+        }});
+        const auto result = engine->run(
+            [&](Engine::FrameContext&) {
+                if(++updates > 20)
+                    window.request_close();
+                return Result<void, Error>::success();
+            },
+            [&](Engine::FrameContext& frame) {
+                if(++ready_calls == 2)
+                    input.key_event(Input::Key::Space, true);
+                frame.runtime_input = input.publish_frame();
+                if(ready_calls == 3)
+                    frame.runtime_input->pointer_enabled = false;
+                return Result<void, Error>::success();
+            });
+        engine->get_renderer().set_overlay({});
+        ASSERT_TRUE(result) << result.error().message;
+        EXPECT_EQ(ready_calls, 3);
+        EXPECT_FALSE(window.is_cursor_locked());
+    }
 
     TEST_F(EngineSceneActivationTest, LoadingFramesDoNotHideActiveSceneCameraErrors) {
         ASSERT_EQ(engine->get_scene(), nullptr);

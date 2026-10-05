@@ -16,6 +16,7 @@
 #include "core/window.h"
 #include "imgui_hdr_frag.h"
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
 
@@ -28,6 +29,24 @@
 
 namespace CometUi {
     namespace {
+        void prepare_mouse_input(const Comet::Window& window) {
+            auto& io = ImGui::GetIO();
+            if(window.is_cursor_locked()) {
+                io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
+                io.ClearInputMouse();
+                // NoMouse 仅禁用悬停；残留点击仍会改变焦点或触发 WantCaptureMouse。
+                auto& events = ImGui::GetCurrentContext()->InputEventsQueue;
+                for(int index = events.Size - 1; index >= 0; --index)
+                    if(events[index].Source == ImGuiInputSource_Mouse)
+                        events.erase(events.begin() + index);
+            } else if(io.ConfigFlags & ImGuiConfigFlags_NoMouse) {
+                io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
+                // 静止解锁未必产生位置回调，不能等下一次移动才恢复 UI 命中。
+                const auto position = window.get_cursor_position();
+                io.AddMousePosEvent(position.x, position.y);
+            }
+        }
+
         template<typename Handle> ImTextureID handle_to_texture_id(const Handle handle) {
             if constexpr(std::is_pointer_v<Handle>) {
                 return static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(handle));
@@ -312,13 +331,10 @@ namespace CometUi {
         }
 
         ImGui_ImplVulkan_NewFrame();
-
-        if(m_window.is_minimized()) {
-            ImGui::NewFrame();
-        } else {
+        if(!m_window.is_minimized())
             ImGui_ImplGlfw_NewFrame();
-            ImGui::NewFrame();
-        }
+        prepare_mouse_input(m_window);
+        ImGui::NewFrame();
 
         return true;
     }

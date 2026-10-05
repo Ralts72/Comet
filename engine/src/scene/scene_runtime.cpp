@@ -66,6 +66,7 @@ namespace Comet {
         m_scene = &scene;
         m_state = state;
         m_step_pending = false;
+        m_input_prepared = false;
         m_timing = {};
         m_accumulator = 0;
         m_input.reset();
@@ -95,6 +96,7 @@ namespace Comet {
         m_scene = nullptr;
         m_state = State::Running;
         m_step_pending = false;
+        m_input_prepared = false;
         m_accumulator = 0;
         m_input.reset();
         m_executing = false;
@@ -116,6 +118,7 @@ namespace Comet {
             return Result<void, Error>::success();
         m_state = state;
         m_step_pending = false;
+        m_input_prepared = false;
         m_accumulator = 0;
         m_input.rebase();
         m_timing.fixed_steps = 0;
@@ -131,6 +134,7 @@ namespace Comet {
     Result<void, Error> SceneRuntime::discard_input() {
         if(m_executing)
             return Result<void, Error>::failure({"Cannot discard input during runtime callbacks"});
+        m_input_prepared = false;
         if(is_active())
             m_input.discard();
         return Result<void, Error>::success();
@@ -141,6 +145,18 @@ namespace Comet {
             return Result<void, Error>::failure({"Single step requires an idle paused scene"});
         m_step_pending = true;
         return Result<void, Error>::success();
+    }
+
+    bool SceneRuntime::wants_cursor_capture() const {
+        if(m_executing || !is_active() || m_state != State::Running || !m_input_prepared)
+            return false;
+        const auto& input = m_input.update();
+        if(!input.focused() || !input.physical().pointer_enabled)
+            return false;
+        for(size_t index = 0; index < m_started; ++index)
+            if(m_systems[index]->wants_cursor_capture(*m_scene, input))
+                return true;
+        return false;
     }
 
     Result<void, Error> SceneRuntime::advance(double delta_time, const Input::Frame* input) {
@@ -158,6 +174,7 @@ namespace Comet {
             }
         }
         m_input.prepare(input, m_state == State::Paused);
+        m_input_prepared = true;
         const bool stepping = std::exchange(m_step_pending, false);
         m_timing.fixed_steps = 0;
         m_timing.dropped_time = 0;

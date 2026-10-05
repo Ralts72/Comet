@@ -88,6 +88,68 @@ namespace Comet::Tests {
         EXPECT_EQ(next.scroll, Math::Vec2(0));
     }
 
+    TEST_F(InputTest, CursorBaselineResetPreservesOtherInputAndPublishedFrame) {
+        Input::GamepadSample sample;
+        input.gamepad_sample(0, sample);
+        input.cursor_event({10, 20});
+        input.cursor_event({13, 24});
+        const auto published = input.publish_frame();
+
+        input.key_event(Input::Key::Space, true);
+        input.key_event(Input::Key::Space, false);
+        input.mouse_button_event(Input::MouseButton::Right, true);
+        input.scroll_event({0.5f, 2});
+        sample.buttons[0] = true;
+        sample.axes[0] = 0.8f;
+        input.gamepad_sample(0, sample);
+        input.cursor_event({30, 40});
+        input.reset_cursor_baseline();
+        EXPECT_EQ(input.get_frame().serial, published.serial);
+        EXPECT_EQ(input.get_frame().cursor_delta, Math::Vec2(3, 4));
+        EXPECT_FALSE(input.get_frame().key(Input::Key::Space).pressed);
+
+        input.cursor_event({1000, 2000});
+        const auto reset = input.publish_frame();
+        EXPECT_EQ(reset.cursor_position, Math::Vec2(1000, 2000));
+        EXPECT_EQ(reset.cursor_delta, Math::Vec2(0));
+        EXPECT_EQ(reset.interruption, published.interruption);
+        EXPECT_TRUE(reset.key(Input::Key::Space).pressed);
+        EXPECT_TRUE(reset.key(Input::Key::Space).released);
+        EXPECT_TRUE(reset.mouse(Input::MouseButton::Right).pressed);
+        EXPECT_TRUE(reset.mouse(Input::MouseButton::Right).down);
+        EXPECT_EQ(reset.scroll, Math::Vec2(0.5f, 2));
+        EXPECT_EQ(reset.gamepads[0].connection_revision, published.gamepads[0].connection_revision);
+        EXPECT_TRUE(reset.gamepads[0].button(Input::GamepadButton::South).pressed);
+        EXPECT_EQ(reset.gamepads[0].axis(Input::GamepadAxis::LeftX), 0.8f);
+
+        input.cursor_event({1003, 2004});
+        const auto moved = input.publish_frame();
+        EXPECT_EQ(moved.cursor_delta, Math::Vec2(3, 4));
+        EXPECT_TRUE(moved.mouse(Input::MouseButton::Right).down);
+        EXPECT_FALSE(moved.mouse(Input::MouseButton::Right).pressed);
+    }
+
+    TEST_F(InputTest, CursorBaselineResetDoesNotInterruptAuthorizedHeldLook) {
+        Input::Gate gate;
+        gate.read(input.publish_frame(), true);
+        input.key_event(Input::Key::W, true);
+        input.mouse_button_event(Input::MouseButton::Right, true);
+        ASSERT_TRUE(gate.read(input.publish_frame(), true).mouse(Input::MouseButton::Right).down);
+
+        input.reset_cursor_baseline();
+        input.cursor_event({1000, 2000});
+        const auto reset = gate.read(input.publish_frame(), true);
+        EXPECT_TRUE(reset.focused);
+        EXPECT_TRUE(reset.key(Input::Key::W).down);
+        EXPECT_FALSE(reset.key(Input::Key::W).released);
+        EXPECT_TRUE(reset.mouse(Input::MouseButton::Right).down);
+        EXPECT_FALSE(reset.mouse(Input::MouseButton::Right).released);
+        EXPECT_EQ(reset.cursor_delta, Math::Vec2(0));
+
+        input.cursor_event({1003, 2004});
+        EXPECT_EQ(gate.read(input.publish_frame(), true).cursor_delta, Math::Vec2(3, 4));
+    }
+
     TEST_F(InputTest, FocusLossReleasesAllControlsAndRegainDoesNotInventEdgesOrMotion) {
         input.gamepad_sample(0, std::nullopt);
         Input::GamepadSample sample;

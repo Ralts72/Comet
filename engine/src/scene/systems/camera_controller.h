@@ -7,5 +7,7 @@ namespace Comet {
     class COMET_API CameraControllerSystem final: public System {
     public:
         Result<void, Error> update(Scene& scene, const Context& context) override;
+        [[nodiscard]] bool wants_cursor_capture(
+            Scene& scene, const InputState& input) const override;
     };
 }

@@ -56,6 +56,11 @@ namespace CometEditor::Tests {
         }
 
         void frame() {
+            auto& io = ImGui::GetIO();
+            if(runtime.wants_cursor_capture())
+                io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
+            else
+                io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
             ImGui::NewFrame();
             if(show_other_panel) {
                 ImGui::SetNextWindowPos(ImVec2(0, 0));

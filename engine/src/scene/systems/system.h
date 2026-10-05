@@ -25,6 +25,10 @@ namespace Comet {
         virtual Result<void, Error> update(Scene&, const Context&) {
             return Result<void, Error>::success();
         }
+        // 只表达当前场景与授权动作的意图；窗口捕获仍由宿主决定。
+        [[nodiscard]] virtual bool wants_cursor_capture(Scene&, const InputState&) const {
+            return false;
+        }
         // 每次先于 on_start 通知初始状态，之后仅通知状态切换；单步不恢复异步子系统。
         virtual void on_pause_changed(bool) noexcept {}
         // 包含部分启动失败的清理；不得重入 Runtime 或替换 Scene。

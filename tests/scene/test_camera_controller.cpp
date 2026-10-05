@@ -59,6 +59,75 @@ namespace Comet::Tests {
         expect_position(Math::Vec3(0));
     }
 
+    TEST_F(CameraControllerTest, CaptureFollowsTheAuthorizedLookActionIncludingItsPressFrame) {
+        CameraControllerSystem system;
+        update();
+        EXPECT_FALSE(system.wants_cursor_capture(scene, input_state));
+        input.mouse_button_event(Input::MouseButton::Right, true);
+        update();
+        ASSERT_TRUE(input_state.action("camera.look")->pressed);
+        EXPECT_TRUE(system.wants_cursor_capture(scene, input_state));
+        EXPECT_EQ(camera.rotation, Math::Vec3(0));
+        input.mouse_button_event(Input::MouseButton::Right, false);
+        update();
+        EXPECT_FALSE(system.wants_cursor_capture(scene, input_state));
+
+        const auto rebound =
+            InputActions::create({{"camera.look", InputActions::Type::Button, {{Input::Key::K}}}});
+        ASSERT_TRUE(rebound);
+        actions = rebound.value();
+        input_state = {};
+        input.key_event(Input::Key::K, true);
+        update();
+        EXPECT_TRUE(system.wants_cursor_capture(scene, input_state));
+        auto frame = input.publish_frame();
+        frame.pointer_enabled = false;
+        actions.evaluate(frame, input_state);
+        ASSERT_TRUE(input_state.action("camera.look")->down);
+        EXPECT_FALSE(system.wants_cursor_capture(scene, input_state));
+        input.focus_event(false);
+        update();
+        EXPECT_FALSE(system.wants_cursor_capture(scene, input_state));
+
+        input.focus_event(true);
+        input.key_event(Input::Key::K, true);
+        const auto wrong_type =
+            InputActions::create({{"camera.look", InputActions::Type::Axis, {{Input::Key::K}}}});
+        ASSERT_TRUE(wrong_type);
+        input_state = {};
+        wrong_type.value().evaluate(input.publish_frame(), input_state);
+        EXPECT_FALSE(system.wants_cursor_capture(scene, input_state));
+    }
+
+    TEST_F(CameraControllerTest, CaptureUsesCurrentPrimaryControllerAndParentValidity) {
+        CameraControllerSystem system;
+        auto other = scene.create_entity("Other camera");
+        other.add_component<CameraComponent>().primary = true;
+        other.add_component<CameraControllerComponent>();
+        input.mouse_button_event(Input::MouseButton::Right, true);
+        update();
+        EXPECT_TRUE(system.wants_cursor_capture(scene, input_state));
+        auto& controller = entity.get_component<CameraControllerComponent>();
+        controller.enabled = false;
+        EXPECT_FALSE(system.wants_cursor_capture(scene, input_state));
+        controller.enabled = true;
+        controller.look_sensitivity = std::numeric_limits<float>::infinity();
+        EXPECT_FALSE(system.wants_cursor_capture(scene, input_state));
+        controller.look_sensitivity = 0.2f;
+        auto parent = scene.create_entity("Rig");
+        ASSERT_TRUE(scene.set_parent(entity, parent));
+        parent.edit_transform([](auto& transform) { transform.scale = {}; });
+        EXPECT_FALSE(system.wants_cursor_capture(scene, input_state));
+        parent.edit_transform([](auto& transform) { transform.scale = Math::Vec3(1); });
+        EXPECT_TRUE(system.wants_cursor_capture(scene, input_state));
+        entity.remove_component<CameraControllerComponent>();
+        EXPECT_FALSE(system.wants_cursor_capture(scene, input_state));
+        entity.get_component<CameraComponent>().primary = false;
+        EXPECT_TRUE(system.wants_cursor_capture(scene, input_state));
+        scene.destroy_entity(other);
+        EXPECT_FALSE(system.wants_cursor_capture(scene, input_state));
+    }
+
     TEST_F(CameraControllerTest, ClampsPitchWrapsYawAndRebaselinesAfterFocusLoss) {
         input.mouse_button_event(Input::MouseButton::Right, true);
         update();

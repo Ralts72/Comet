@@ -53,6 +53,8 @@ namespace Comet {
         [[nodiscard]] bool is_active() const { return m_scene != nullptr; }
         [[nodiscard]] State get_state() const { return m_state; }
         [[nodiscard]] const Timing& get_timing() const { return m_timing; }
+        // 当前场景和最近授权输入的意图；不是窗口已经捕获的状态。
+        [[nodiscard]] bool wants_cursor_capture() const;
 
     private:
         void stop_systems() noexcept;
@@ -65,6 +67,8 @@ namespace Comet {
         bool m_executing = false;
         State m_state = State::Running;
         bool m_step_pending = false;
+        // 状态切换或中断后，旧阶段电平不能恢复窗口捕获。
+        bool m_input_prepared = false;
         double m_accumulator = 0;
         RuntimeInput m_input;
     };

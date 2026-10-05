@@ -534,7 +534,8 @@ namespace CometEditor {
                                && m_actually_visible && m_texture_id != ImTextureID_Invalid
                                && image_size.x > 0 && image_size.y > 0 && !m_play_command && focused
                                && focused->RootWindow->ID == m_window_id && !blocked;
-        return m_runtime_input.read(input, accepting, m_play_image_hovered);
+        const bool pointer_enabled = m_play_image_hovered || m_runtime.wants_cursor_capture();
+        return m_runtime_input.read(input, accepting, pointer_enabled);
     }
 
     void ViewportPanel::draw_gizmo() {

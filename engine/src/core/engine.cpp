@@ -120,7 +120,10 @@ namespace Comet {
     }
 
     Result<void, Error> Engine::stop_scene_runtime() {
-        return m_scene_runtime.stop();
+        auto stopped = m_scene_runtime.stop();
+        if(stopped)
+            m_window->set_cursor_locked(false);
+        return stopped;
     }
 
     Result<void, Error> Engine::rebind_input_actions(InputActions actions) {
@@ -132,7 +135,10 @@ namespace Comet {
     Result<void, Error> Engine::set_runtime_state(SceneRuntime::State state) {
         if(m_shutdown_prepared)
             return Result<void, Error>::failure({"Engine is shutting down"});
-        return m_scene_runtime.set_state(state);
+        auto changed = m_scene_runtime.set_state(state);
+        if(changed && state == SceneRuntime::State::Paused)
+            m_window->set_cursor_locked(false);
+        return changed;
     }
 
     Result<void, Error> Engine::request_runtime_step() {
@@ -157,7 +163,10 @@ namespace Comet {
         if(m_running)
             return Result<void, Error>::failure({"Engine update loop is already running"});
         m_running = true;
-        const ScopeExit reset_running([&] { m_running = false; });
+        const ScopeExit reset_running([&] {
+            m_window->set_cursor_locked(false);
+            m_running = false;
+        });
         LOG_INFO("running engine...");
 
         while(!m_window->should_close()) {
@@ -183,6 +192,7 @@ namespace Comet {
 
         const auto framebuffer_size = m_window->get_framebuffer_size();
         if(framebuffer_size.x == 0 || framebuffer_size.y == 0) {
+            m_window->set_cursor_locked(false);
             if(auto discarded = m_scene_runtime.discard_input(); !discarded)
                 return discarded;
             m_window->wait_events();
@@ -225,6 +235,7 @@ namespace Comet {
         if(auto advanced = m_scene_runtime.advance(
                frame.update.delta_time, frame.runtime_input ? &*frame.runtime_input : nullptr);
             !advanced) {
+            m_window->set_cursor_locked(false);
             if(!runtime_failed || is_device_lost(advanced.error())) {
                 prepare_shutdown();
                 return advanced;
@@ -242,6 +253,7 @@ namespace Comet {
             }
             return Result<void, Error>::success();
         }
+        m_window->set_cursor_locked(m_scene_runtime.wants_cursor_capture());
         m_frame_diagnostics.mark_runtime_update();
         if(!frame_ready_to_render) {
             m_window->wait_events(0.016);

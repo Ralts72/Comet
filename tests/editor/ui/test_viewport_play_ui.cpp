@@ -12,6 +12,72 @@
 namespace CometEditor::Tests {
     using ViewportPlayUiTest = ViewportUiTest;
 
+    TEST_F(ViewportPlayUiTest, CameraCaptureKeepsRelativeMotionOutsideImageUntilRelease) {
+        using Actions = Comet::InputActions;
+        auto actions = Actions::create(
+            {{"camera.look", Actions::Type::Button, {{Comet::Input::MouseButton::Right}}},
+                {"camera.look_x", Actions::Type::Delta, {{Actions::Motion::CursorX}}}});
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(runtime.set_input_actions(std::move(actions).value()));
+        activate_play_camera();
+        runtime_input.cursor_event({20, 20});
+        frame();
+        runtime_input.mouse_button_event(Comet::Input::MouseButton::Right, true);
+        frame();
+        ASSERT_TRUE(runtime.wants_cursor_capture());
+        EXPECT_EQ(entity.get_component<Comet::TransformComponent>().rotation, Comet::Math::Vec3(0));
+
+        runtime_input.cursor_event({220, 20});
+        move_pointer({2000, 2000});
+        EXPECT_TRUE(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NoMouse);
+        EXPECT_TRUE(runtime_accepting);
+        EXPECT_TRUE(runtime.wants_cursor_capture());
+        EXPECT_NEAR(entity.get_component<Comet::TransformComponent>().rotation.y, -40, 0.0001f);
+
+        runtime_input.mouse_button_event(Comet::Input::MouseButton::Right, false);
+        frame();
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+        frame();
+        EXPECT_FALSE(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NoMouse);
+        const auto& routed = viewport.route_runtime_input(runtime_input.get_frame());
+        EXPECT_FALSE(routed.pointer_enabled);
+    }
+
+    TEST_F(ViewportPlayUiTest, CameraCaptureFollowsReboundActionAndModalAuthorization) {
+        auto actions = Comet::InputActions::create(
+            {{"camera.look", Comet::InputActions::Type::Button, {{Comet::Input::Key::Space}}}});
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(runtime.set_input_actions(std::move(actions).value()));
+        activate_play_camera();
+        runtime_input.key_event(Comet::Input::Key::Space, true);
+        frame();
+        ASSERT_TRUE(runtime.wants_cursor_capture());
+        runtime_ui_blocked = true;
+        frame();
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+        runtime_ui_blocked = false;
+        frame();
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+        runtime_input.key_event(Comet::Input::Key::Space, false);
+        frame();
+        runtime_input.key_event(Comet::Input::Key::Space, true);
+        frame();
+        ASSERT_TRUE(runtime.wants_cursor_capture());
+
+        ASSERT_TRUE(runtime.set_state(Comet::SceneRuntime::State::Paused));
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+        frame();
+        ASSERT_TRUE(runtime.request_step());
+        frame();
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+        ASSERT_TRUE(runtime.set_state(Comet::SceneRuntime::State::Running));
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+        frame();
+        EXPECT_TRUE(runtime.wants_cursor_capture());
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+    }
+
     TEST_F(ViewportPlayUiTest, PlayerInputButtonOnlyRequestsSettingsInActivePlay) {
         auto* window = ImGui::FindWindowByName("Viewport");
         ASSERT_NE(window, nullptr);

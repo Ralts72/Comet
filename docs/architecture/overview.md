@@ -225,8 +225,9 @@ Runtime 每次先于各 System::on_start 通知 on_pause_changed(初始暂停值
 Runtime 统一保证 System 启停顺序和部分启动失败清理；具体 System 不重复保存仅用于检查调用顺序的 Scene owner。
 两个宿主都收到同一个当帧 `Engine::FrameContext`：App 在 on_update 交付窗口 Gate 结果，Editor 在 on_frame_ready 交付 UI Gate 结果；上下文退出时丢弃授权，未授权释放按钮但不暂停模拟。
 Viewport 在实际进入 Running 时一次性聚焦（Play／Resume），不在按钮发出请求时提前授权。
-键盘／手柄跟随窗口焦点，鼠标另受画面悬停限制；Gate 分别维护整体与鼠标授权，避免工具栏点击／滚轮穿透，
-且鼠标离开画面不再中断键盘输入。其他面板取得焦点、文本编辑、弹窗和失焦仍撤销整个授权。
+键盘／手柄跟随窗口焦点，鼠标起始授权受画面悬停限制；已捕获期间沿用 Viewport 授权，虚拟坐标越界不打断转向。
+Gate 分别维护整体与鼠标授权，避免工具栏点击／滚轮穿透，鼠标离开画面不再中断键盘输入。
+其他面板取得焦点、文本编辑、弹窗和失焦仍撤销整个授权。
 隐藏离屏视图仍执行 UI、Runtime、Scene 提取和上传回收；暂时无呈现帧时只跳过 UI／提取／绘制。
 最小化等待并重置墙钟增量、窗口瞬态及 Runtime 待处理按下；Gate 根据采样中断版本重新获取授权。
 
@@ -248,7 +249,7 @@ Viewport 在实际进入 Running 时一次性聚焦（Play／Resume），不在�
 | App／Editor 宿主 | 装配默认值与覆盖、处理保存结果及运行域提交；不实现动作采样规则 |
 
 **授权与阶段。** Frame 的 `focused`／`pointer_enabled` 分别表示整体／鼠标授权，Gate 不可重新开放
-上游已撤销的权限。仅鼠标离开 Viewport 时，清理鼠标点击和位移，不中断键盘、手柄及混合动作的其他来源；
+上游已撤销的权限。未捕获的鼠标离开 Viewport 时，清理鼠标点击和位移，不中断键盘、手柄及混合动作的其他来源；
 必要时产生一次释放，重新获得授权须等原按住键松开。Ctrl／Alt／Super 本身不代表 UI 占用，
 实际窗口切换、编辑控件、弹窗及失焦仍阻断。物理 serial 与 Gate 发布的授权 serial 不是同一序列。
 
@@ -257,6 +258,13 @@ App 的 on_update 先交付延期帧回退；ready 帧恢复尚未消费的 Gate
 Engine 启动 Runtime 使用 InputStart::Rebase，直到首张已授权输入才建立基线，避免重开重放旧点击。
 零固定步保留短按，多次补步只消费一次边沿；暂停／单步重建物理和动作基线。多个按钮绑定合并电平，
 只松开其中一个不释放仍由其他绑定按住的动作。CameraControllerSystem 只约定 `camera.*` 语义。
+
+**光标捕获。** `System::wants_cursor_capture` 是输入消费者的只读意图，不保存平台句柄；当前由主相机控制器
+根据有效组件与已授权 `camera.look` 提供。SceneRuntime 只在 Running 且当前输入边界已准备时汇总，
+Engine 在更新后交给 Window 执行，暂停／停止／最小化／退出及时释放。Viewport 不重新解析物理绑定。
+Window 使用 GLFW disabled cursor，支持时开启 raw motion；真实模式切换仅重置鼠标位置基线，
+不清键沿或递增整体输入中断版本。共享 ImGui 在捕获期间禁用鼠标命中，仍接收键盘；未改变原生回调串接。
+Runtime 的输入准备标志只用于阻止 Resume／discard 后查询旧意图，不替代 RuntimeInput 的电平与释放历史。
 
 **项目默认与个人意图。** Project v2 保存项目／动作／绑定的非零 UUID，复用 common/Uuid；
 移动、改名及排序保持身份，新建才分配。动作名仍是 Lua 查询键，改名不会自动改写脚本。

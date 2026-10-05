@@ -61,11 +61,15 @@ namespace Comet::Tests {
                 if(stop)
                     stop(scene);
             }
+            bool wants_cursor_capture(Scene& scene, const InputState& input) const override {
+                return capture && capture(scene, input);
+            }
             std::function<UpdateResult(Scene&)> start;
             std::function<UpdateResult(Scene&, const Context&)> fixed;
             std::function<UpdateResult(Scene&, const Context&)> update_frame;
             std::function<void(bool)> pause;
             std::function<void(Scene&)> stop;
+            std::function<bool(Scene&, const InputState&)> capture;
 
         private:
             Calls& calls;
@@ -96,6 +100,99 @@ namespace Comet::Tests {
             ASSERT_TRUE(runtime.advance(delta, &frame));
         }
     };
+
+    TEST_F(SceneRuntimeTest, CursorCaptureRequiresFreshAuthorizationAcrossRuntimeBoundaries) {
+        add("No capture");
+        auto* system = add("Capture");
+        system->capture = [](Scene&, const InputState&) { return true; };
+        system->start = [&](Scene&) {
+            EXPECT_FALSE(runtime.wants_cursor_capture());
+            return UpdateResult::success();
+        };
+        system->fixed = system->update_frame = [&](Scene&, const System::Context&) {
+            EXPECT_FALSE(runtime.wants_cursor_capture());
+            return UpdateResult::success();
+        };
+        system->stop = [&](Scene&) { EXPECT_FALSE(runtime.wants_cursor_capture()); };
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+        advance(0.1);
+        EXPECT_TRUE(runtime.wants_cursor_capture());
+
+        auto pointer_blocked = input.publish_frame();
+        pointer_blocked.pointer_enabled = false;
+        ASSERT_TRUE(runtime.advance(0, &pointer_blocked));
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+        advance(0);
+        EXPECT_TRUE(runtime.wants_cursor_capture());
+        input.focus_event(false);
+        advance(0);
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+        input.focus_event(true);
+        advance(0);
+        EXPECT_TRUE(runtime.wants_cursor_capture());
+
+        ASSERT_TRUE(runtime.set_state(State::Paused));
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+        advance(1);
+        ASSERT_TRUE(runtime.request_step());
+        advance(0);
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+        ASSERT_TRUE(runtime.set_state(State::Running));
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+        advance(0);
+        EXPECT_TRUE(runtime.wants_cursor_capture());
+        ASSERT_TRUE(runtime.discard_input());
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+        advance(0);
+        EXPECT_TRUE(runtime.wants_cursor_capture());
+
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+        advance(0);
+        EXPECT_TRUE(runtime.wants_cursor_capture());
+        system->update_frame = [](Scene&, const System::Context&) {
+            return UpdateResult::failure({"Capture consumer failed"});
+        };
+        EXPECT_FALSE(runtime.advance(0, &input.publish_frame()));
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+    }
+
+    TEST_F(SceneRuntimeTest, CameraCaptureUsesRoutedActionsAndTheCommittedScene) {
+        auto actions = InputActions::create(
+            {{"camera.look", InputActions::Type::Button, {{Input::Key::K}}, "camera"},
+                {"menu.look", InputActions::Type::Button, {{Input::Key::K}}, "menu"}},
+            {{"camera", true}, {"menu", false, 10, true}});
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(runtime.set_input_actions(actions.value()));
+        auto camera = scene.create_entity("Camera");
+        camera.add_component<CameraComponent>().primary = true;
+        camera.add_component<CameraControllerComponent>();
+        ASSERT_TRUE(runtime.add_system(std::make_unique<CameraControllerSystem>()));
+        auto* destroyer = add();
+        ASSERT_TRUE(runtime.start(scene));
+        input.key_event(Input::Key::K, true);
+        advance(0);
+        EXPECT_TRUE(runtime.wants_cursor_capture());
+        ASSERT_TRUE(scene.request_input_context("menu", true));
+        advance(0);
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+        ASSERT_TRUE(scene.request_input_context("menu", false));
+        advance(0);
+        EXPECT_TRUE(runtime.wants_cursor_capture());
+        destroyer->update_frame = [&](Scene& current, const System::Context&) {
+            EXPECT_TRUE(current.request_destroy_entity(camera));
+            return UpdateResult::success();
+        };
+        advance(0);
+        EXPECT_FALSE(camera);
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+    }
 
     TEST_F(SceneRuntimeTest, ActiveRebindingKeepsWorldTimingAndRejectsEveryRuntimeCallback) {
         const auto action_id = Uuid::generate();

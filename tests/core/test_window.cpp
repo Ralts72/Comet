@@ -30,6 +30,22 @@ namespace Comet::Tests {
             focus(window.get(), GLFW_FALSE);
             focus(window.get(), GLFW_TRUE);
         }
+
+        bool wait_for_attribute(const int attribute, const int expected) {
+            window.poll_events();
+            for(int attempt = 0; attempt < 50; ++attempt) {
+                if(glfwGetWindowAttrib(window.get(), attribute) == expected)
+                    return true;
+                window.wait_events(0.01);
+            }
+            return glfwGetWindowAttrib(window.get(), attribute) == expected;
+        }
+
+        bool focus_native_window() {
+            glfwShowWindow(window.get());
+            glfwFocusWindow(window.get());
+            return wait_for_attribute(GLFW_FOCUSED, GLFW_TRUE);
+        }
     };
 
     TEST_F(WindowInputTest, TranslatesNativeControlsOnlyWhenExplicitlyPublished) {
@@ -95,7 +111,145 @@ namespace Comet::Tests {
         EXPECT_FALSE(window.publish_input_frame().focused);
     }
 
+    TEST_F(WindowInputTest, CursorLockUsesNativeModesAndOnlyTransitionsResetMotion) {
+        if(!focus_native_window())
+            GTEST_SKIP() << "The window system did not grant keyboard focus.";
+        const auto cursor = glfwSetCursorPosCallback(window.get(), nullptr);
+        glfwSetCursorPosCallback(window.get(), cursor);
+        const auto mouse = glfwSetMouseButtonCallback(window.get(), nullptr);
+        glfwSetMouseButtonCallback(window.get(), mouse);
+        const auto scroll = glfwSetScrollCallback(window.get(), nullptr);
+        glfwSetScrollCallback(window.get(), scroll);
+        ASSERT_TRUE(cursor && mouse && scroll);
+        cursor(window.get(), 10, 20);
+        cursor(window.get(), 13, 24);
+        const auto published = window.publish_input_frame();
+        key(window.get(), GLFW_KEY_W, 0, GLFW_PRESS, 0);
+        mouse(window.get(), GLFW_MOUSE_BUTTON_RIGHT, GLFW_PRESS, 0);
+        scroll(window.get(), 0, 1);
+        cursor(window.get(), 30, 40);
+
+        EXPECT_FALSE(window.is_cursor_locked());
+        glfwGetError(nullptr);
+        window.set_cursor_locked(true);
+        ASSERT_TRUE(window.is_cursor_locked());
+        EXPECT_EQ(glfwGetInputMode(window.get(), GLFW_CURSOR), GLFW_CURSOR_DISABLED);
+        EXPECT_EQ(
+            glfwGetInputMode(window.get(), GLFW_RAW_MOUSE_MOTION), glfwRawMouseMotionSupported());
+        EXPECT_EQ(glfwGetError(nullptr), GLFW_NO_ERROR);
+        EXPECT_EQ(window.get_input_frame().serial, published.serial);
+        EXPECT_EQ(window.get_input_frame().cursor_delta, published.cursor_delta);
+        cursor(window.get(), 1000, 2000);
+        const auto locked = window.publish_input_frame();
+        EXPECT_EQ(locked.cursor_delta, Math::Vec2(0));
+        EXPECT_EQ(locked.interruption, published.interruption);
+        EXPECT_TRUE(locked.key(Input::Key::W).pressed);
+        EXPECT_TRUE(locked.mouse(Input::MouseButton::Right).pressed);
+        EXPECT_EQ(locked.scroll, Math::Vec2(0, 1));
+
+        cursor(window.get(), 1004, 2006);
+        window.set_cursor_locked(true);
+        const auto held = window.publish_input_frame();
+        EXPECT_EQ(held.cursor_delta, Math::Vec2(4, 6));
+        EXPECT_TRUE(held.key(Input::Key::W).down);
+        EXPECT_TRUE(held.mouse(Input::MouseButton::Right).down);
+        EXPECT_EQ(held.interruption, published.interruption);
+
+        cursor(window.get(), 1010, 2020);
+        window.set_cursor_locked(false);
+        EXPECT_FALSE(window.is_cursor_locked());
+        EXPECT_EQ(glfwGetInputMode(window.get(), GLFW_CURSOR), GLFW_CURSOR_NORMAL);
+        EXPECT_EQ(glfwGetInputMode(window.get(), GLFW_RAW_MOUSE_MOTION), GLFW_FALSE);
+        EXPECT_EQ(glfwGetError(nullptr), GLFW_NO_ERROR);
+        cursor(window.get(), 10, 20);
+        EXPECT_EQ(window.publish_input_frame().cursor_delta, Math::Vec2(0));
+        cursor(window.get(), 12, 23);
+        window.set_cursor_locked(false);
+        EXPECT_EQ(window.publish_input_frame().cursor_delta, Math::Vec2(2, 3));
+    }
+
+    TEST_F(WindowInputTest, FocusLossReleasesCursorAndDoesNotRelockOnRegain) {
+        if(!focus_native_window())
+            GTEST_SKIP() << "The window system did not grant keyboard focus.";
+        window.set_cursor_locked(true);
+        ASSERT_TRUE(window.is_cursor_locked());
+        key(window.get(), GLFW_KEY_W, 0, GLFW_PRESS, 0);
+        const auto before = window.publish_input_frame();
+        ASSERT_TRUE(before.key(Input::Key::W).down);
+
+        glfwHideWindow(window.get());
+        ASSERT_TRUE(wait_for_attribute(GLFW_FOCUSED, GLFW_FALSE));
+        EXPECT_FALSE(window.is_cursor_locked());
+        EXPECT_EQ(glfwGetInputMode(window.get(), GLFW_RAW_MOUSE_MOTION), GLFW_FALSE);
+        const auto lost = window.publish_input_frame();
+        EXPECT_FALSE(lost.focused);
+        EXPECT_TRUE(lost.key(Input::Key::W).released);
+        EXPECT_EQ(lost.interruption, before.interruption + 1);
+        window.set_cursor_locked(true);
+        EXPECT_FALSE(window.is_cursor_locked());
+
+        ASSERT_TRUE(focus_native_window());
+        EXPECT_FALSE(window.is_cursor_locked());
+        window.set_cursor_locked(true);
+        ASSERT_TRUE(window.is_cursor_locked());
+        const auto close = glfwSetWindowCloseCallback(window.get(), nullptr);
+        glfwSetWindowCloseCallback(window.get(), close);
+        ASSERT_TRUE(close);
+        window.confirm_close_requests(true);
+        glfwSetWindowShouldClose(window.get(), GLFW_TRUE);
+        close(window.get());
+        EXPECT_FALSE(window.is_cursor_locked());
+        EXPECT_FALSE(window.should_close());
+        EXPECT_TRUE(window.take_close_request());
+
+        window.set_cursor_locked(true);
+        ASSERT_TRUE(window.is_cursor_locked());
+        window.request_close();
+        EXPECT_FALSE(window.is_cursor_locked());
+        EXPECT_EQ(glfwGetInputMode(window.get(), GLFW_RAW_MOUSE_MOTION), GLFW_FALSE);
+        EXPECT_TRUE(window.should_close());
+    }
+
+    TEST_F(WindowInputTest, MinimizedWindowRejectsCursorLock) {
+        if(!focus_native_window())
+            GTEST_SKIP() << "The window system did not grant keyboard focus.";
+        glfwIconifyWindow(window.get());
+        if(!wait_for_attribute(GLFW_ICONIFIED, GLFW_TRUE))
+            GTEST_SKIP() << "The window system does not support iconifying this window.";
+        ASSERT_TRUE(window.is_minimized());
+        window.set_cursor_locked(true);
+        EXPECT_FALSE(window.is_cursor_locked());
+        EXPECT_EQ(glfwGetInputMode(window.get(), GLFW_CURSOR), GLFW_CURSOR_NORMAL);
+        EXPECT_EQ(glfwGetInputMode(window.get(), GLFW_RAW_MOUSE_MOTION), GLFW_FALSE);
+    }
+
 #ifdef COMET_TEST_EDITOR_UI
+    TEST_F(WindowInputTest, ImGuiPreservesCursorLockAndChainsFocusRelease) {
+        if(!focus_native_window())
+            GTEST_SKIP() << "The window system did not grant keyboard focus.";
+        ImGuiTestContext context;
+        const bool initialized = ImGui_ImplGlfw_InitForVulkan(window.get(), true);
+        const ScopeExit shutdown([&] {
+            if(initialized)
+                ImGui_ImplGlfw_Shutdown();
+        });
+        ASSERT_TRUE(initialized);
+        window.set_cursor_locked(true);
+        ASSERT_TRUE(window.is_cursor_locked());
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+        EXPECT_TRUE(window.is_cursor_locked());
+        ImGui::EndFrame();
+
+        const auto chained_focus = glfwSetWindowFocusCallback(window.get(), nullptr);
+        glfwSetWindowFocusCallback(window.get(), chained_focus);
+        ASSERT_TRUE(chained_focus);
+        EXPECT_NE(chained_focus, focus);
+        chained_focus(window.get(), GLFW_FALSE);
+        EXPECT_FALSE(window.is_cursor_locked());
+        EXPECT_FALSE(window.publish_input_frame().focused);
+    }
+
     TEST_F(WindowInputTest, ImGuiChainsAndRestoresNativeInputCallbacks) {
         ImGuiTestContext context;
         bool initialized = ImGui_ImplGlfw_InitForVulkan(window.get(), true);
