@@ -798,6 +798,28 @@ return script
             database, destination, source, AssetType::Script, ".lua", "Script");
     }
 
+    Result<std::filesystem::path> resolve_script_source(
+        const AssetDatabase& database, const std::filesystem::path& source) {
+        using Resolved = Result<std::filesystem::path>;
+        if(auto valid = validate_relative(source); !valid)
+            return Resolved::failure(valid.error());
+        if(extension_of(source) != ".lua")
+            return Resolved::failure("Only Lua source files can be opened in the text editor");
+        if(!is_lua_module_source(source)) {
+            const auto* record = database.find(source);
+            if(!record || record->type != AssetType::Script)
+                return Resolved::failure(
+                    "Script source is no longer present in the asset database");
+        }
+        auto resolved = database.paths().resolve_asset_path(source);
+        if(!resolved)
+            return resolved;
+        std::error_code error;
+        if(!std::filesystem::is_regular_file(resolved.value(), error) || error)
+            return Resolved::failure("Script source is not a regular file: " + source.string());
+        return resolved;
+    }
+
     AssetScanReport move_module(AssetDatabase& database, const std::filesystem::path& source,
         const std::filesystem::path& destination) {
         for(const auto& path : {source, destination})

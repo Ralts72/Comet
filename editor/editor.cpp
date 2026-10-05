@@ -2,6 +2,7 @@
 #include "render/resource/render_resources.h"
 #include "graphics/resource/sampler.h"
 #include "assets/editor_assets.h"
+#include "assets/system_text_editor.h"
 #include "assets/material_editing.h"
 #include "render/material_shader_reload.h"
 #include "render/render_stats.h"
@@ -782,6 +783,19 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> process_asset_requests() {
+            if(const auto source = m_project_panel->take_open_source_request()) {
+                const auto resolved = CometEditor::AssetSourceOperations::resolve_script_source(
+                    m_assets->database(), *source);
+                auto opened = Comet::Result<void>::success();
+                if(resolved)
+                    opened = CometEditor::SystemTextEditor::open(resolved.value());
+                else
+                    opened = Comet::Result<void>::failure(resolved.error());
+                m_project_panel->complete_open_source(opened);
+                if(!opened)
+                    LOG_WARN(
+                        "Cannot open script source '{}': {}", source->string(), opened.error());
+            }
             if(const auto request = m_inspector_panel->asset_inspector().take_asset_read())
                 m_inspector_panel->asset_inspector().complete_asset_read(
                     *request, m_assets->read_material(*request));

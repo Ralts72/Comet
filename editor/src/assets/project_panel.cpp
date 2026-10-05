@@ -146,6 +146,8 @@ namespace CometEditor {
                     ImGui::EndDragDropSource();
                 }
                 if(module && ImGui::BeginPopupContextItem("Module actions")) {
+                    if(ImGui::MenuItem(Ui::label("Open Source").c_str()))
+                        m_pending_open_source = source;
                     if(ImGui::MenuItem(Ui::label("Rename").c_str()))
                         request_rename(source);
                     if(ImGui::MenuItem(Ui::label("Delete").c_str()))
@@ -174,6 +176,9 @@ namespace CometEditor {
                 ImGui::EndDragDropSource();
             }
             if(ImGui::BeginPopupContextItem()) {
+                if(asset.type == Comet::AssetType::Script
+                    && ImGui::MenuItem(Ui::label("Open Source").c_str()))
+                    m_pending_open_source = asset.path;
                 if(asset.type == Comet::AssetType::Mesh
                     && ImGui::MenuItem(Ui::label("Reimport").c_str()))
                     m_reimport_request = asset.handle;
@@ -433,6 +438,16 @@ namespace CometEditor {
 
     std::optional<ProjectPanel::CreateScriptRequest> ProjectPanel::take_create_script_request() {
         return std::exchange(m_pending_script_create, std::nullopt);
+    }
+
+    std::optional<std::filesystem::path> ProjectPanel::take_open_source_request() {
+        return std::exchange(m_pending_open_source, std::nullopt);
+    }
+
+    void ProjectPanel::complete_open_source(const Comet::Result<void>& result) {
+        m_operation_error.clear();
+        if(!result)
+            m_operation_error = result.error();
     }
 
     void ProjectPanel::complete_create_material(

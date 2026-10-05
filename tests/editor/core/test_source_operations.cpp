@@ -4,6 +4,56 @@
 namespace Comet::Tests {
     namespace SourceOperations = CometEditor::AssetSourceOperations;
 
+    TEST(AssetSourceOperationsTest, ResolvesScriptAndModuleForEditingWithoutCompilingOrScanning) {
+        const TemporaryProject project;
+        AssetDatabase database(project.paths());
+        const auto assets = project.paths().assets();
+        std::filesystem::create_directories(assets / "script files");
+        const std::filesystem::path component = "script files/角色.lua";
+        const std::filesystem::path module = "shared.module.lua";
+        ASSERT_TRUE(write_text_file_atomic(assets / component, "return {}"));
+        ASSERT_TRUE(write_text_file_atomic(assets / module, "return {}"));
+        ASSERT_TRUE(database.scan().succeeded());
+        ASSERT_NE(database.find(component), nullptr);
+        const auto handle = database.find(component)->handle;
+        const auto revision = database.get_revision(handle);
+        const auto size = database.size();
+
+        for(const auto& path : {component, module}) {
+            ASSERT_TRUE(write_text_file_atomic(assets / path, "invalid Lua, edit me"));
+            const auto resolved = SourceOperations::resolve_script_source(database, path);
+            ASSERT_TRUE(resolved) << resolved.error();
+            EXPECT_EQ(resolved.value(), std::filesystem::canonical(assets / path));
+        }
+        EXPECT_EQ(database.size(), size);
+        EXPECT_EQ(database.get_revision(handle), revision);
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(assets / module)));
+    }
+
+    TEST(AssetSourceOperationsTest, SourceEditorRejectsStaleNonScriptAndOutsideFiles) {
+        const TemporaryProject project;
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        ASSERT_TRUE(SourceOperations::create_script(database, "actor.lua").succeeded());
+        const auto assets = project.paths().assets();
+        ASSERT_TRUE(std::filesystem::remove(assets / "actor.lua"));
+        ASSERT_TRUE(write_text_file_atomic(assets / "image.png", "not a script"));
+        std::filesystem::create_directory(assets / "folder.module.lua");
+        for(const auto* path : {"actor.lua", "missing.module.lua", "image.png", "folder.module.lua",
+                "../outside.module.lua"})
+            EXPECT_FALSE(SourceOperations::resolve_script_source(database, path)) << path;
+        EXPECT_FALSE(SourceOperations::resolve_script_source(database, assets / "actor.lua"));
+
+        const auto outside = project.paths().root() / "outside.module.lua";
+        ASSERT_TRUE(write_text_file_atomic(outside, "return {}"));
+        std::error_code error;
+        std::filesystem::create_symlink(outside, assets / "alias.module.lua", error);
+        if(!error)
+            EXPECT_FALSE(SourceOperations::resolve_script_source(database, "alias.module.lua"));
+        EXPECT_EQ(read_text_file(outside).value(), "return {}");
+        EXPECT_NE(database.find("actor.lua"), nullptr);
+    }
+
     TEST(AssetSourceOperationsTest, NewScriptRejectsSourceOnlyModuleNamesWithoutWritingFiles) {
         const TemporaryProject project;
         AssetDatabase database(project.paths());

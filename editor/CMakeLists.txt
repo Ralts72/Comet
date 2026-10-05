@@ -1,7 +1,9 @@
 if(APPLE)
     set(COMET_SYSTEM_TRASH_SOURCE src/assets/system_trash_mac.mm)
+    set(COMET_SYSTEM_TEXT_EDITOR_SOURCE src/assets/system_text_editor_mac.mm)
 else()
     set(COMET_SYSTEM_TRASH_SOURCE src/assets/system_trash.cpp)
+    set(COMET_SYSTEM_TEXT_EDITOR_SOURCE src/assets/system_text_editor.cpp)
 endif()
 
 add_library(editor_core STATIC
@@ -16,6 +18,7 @@ add_library(editor_core STATIC
         src/assets/scene_asset_references.cpp
         src/assets/source_operations.cpp
         ${COMET_SYSTEM_TRASH_SOURCE}
+        ${COMET_SYSTEM_TEXT_EDITOR_SOURCE}
         src/assets/source_monitor.cpp
         src/assets/material_editing.cpp
         src/render/shader_reload.cpp

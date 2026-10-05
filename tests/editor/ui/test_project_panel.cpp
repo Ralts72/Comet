@@ -39,6 +39,7 @@ namespace CometEditor::Tests {
         std::filesystem::path trashed_source;
         Comet::AssetHandle moved_handle;
         std::filesystem::path destination;
+        std::string rendered_text;
 
         void SetUp() override {
             std::filesystem::create_directories(paths.assets() / "folder");
@@ -75,7 +76,10 @@ namespace CometEditor::Tests {
             ImGui::NewFrame();
             ImGui::SetNextWindowPos(ImVec2(0, 0));
             ImGui::SetNextWindowSize(ImVec2(420, 400));
+            ImGui::LogToBuffer(0);
             project->render();
+            rendered_text = ImGui::GetCurrentContext()->LogBuffer.c_str();
+            ImGui::LogFinish();
             ImGui::Render();
             if(consume_requests) {
                 if(const auto request = project->take_move_request()) {
@@ -891,6 +895,47 @@ namespace CometEditor::Tests {
         ImGui::ActivateItemByID(popup->GetID("Reimport"));
         frame();
         EXPECT_FALSE(project->take_mesh_reimport_request());
+    }
+
+    TEST_F(ProjectPanelTest, ScriptAndModuleMenusRequestTextEditingWithoutChangingSelection) {
+        ASSERT_TRUE(AssetSourceOperations::create_script(database, "actor.lua").succeeded());
+        ASSERT_TRUE(AssetSourceOperations::create_script(
+            database, "shared.module.lua", AssetSourceOperations::ScriptKind::Module)
+                .succeeded());
+        project->update_scan_report(database.scan());
+        const auto texture = database.find("a.png")->handle;
+        selection.select_asset(texture);
+
+        for(const auto* source : {"actor.lua", "shared.module.lua"}) {
+            search(source);
+            click(row_point(1), 1);
+            auto& context = *ImGui::GetCurrentContext();
+            ASSERT_EQ(context.OpenPopupStack.Size, 1);
+            auto* popup = context.OpenPopupStack.back().Window;
+            ASSERT_NE(popup, nullptr);
+            ImGui::ActivateItemByID(popup->GetID("Open Source"));
+            frame();
+            const auto request = project->take_open_source_request();
+            ASSERT_TRUE(request);
+            EXPECT_EQ(*request, source);
+            EXPECT_FALSE(project->take_open_source_request());
+            EXPECT_EQ(selection.get_selected_asset(), texture);
+            EXPECT_FALSE(history.can_undo());
+            project->complete_open_source(Comet::Result<void>::failure("No text editor available"));
+            frame();
+            EXPECT_NE(rendered_text.find("No text editor available"), std::string::npos);
+            project->complete_open_source(Comet::Result<void>::success());
+            frame();
+            EXPECT_EQ(rendered_text.find("No text editor available"), std::string::npos);
+        }
+
+        search("a.png");
+        click(row_point(1), 1);
+        auto* popup = ImGui::GetCurrentContext()->OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID("Open Source"));
+        frame();
+        EXPECT_FALSE(project->take_open_source_request());
     }
 
     TEST_F(ProjectPanelTest, DragRejectsAssetChangedDuringGesture) {
