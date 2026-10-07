@@ -299,7 +299,7 @@ namespace Comet::Tests {
         EXPECT_NE(frame(), stopped);
     }
 
-    TEST_F(RenderDiagnosticsGpuTest, StatsPanelRendersChineseWithEditorFont) {
+    TEST_F(RenderDiagnosticsGpuTest, StatsPanelRendersChineseWithSharedDefaultFont) {
         const auto translations = CometEditor::Ui::load_translations();
         ASSERT_TRUE(translations) << translations.error();
         const CometEditor::Ui::LanguageScope chinese(
@@ -309,8 +309,6 @@ namespace Comet::Tests {
         auto created =
             CometUi::ImGuiContext::create(engine->get_window(), renderer.get_render_context(),
                 {.ini_path = directory.path() / "imgui.ini",
-                    .font_directory =
-                        std::filesystem::path(PROJECT_ROOT_DIR) / "editor/resources/fonts",
                     .docking = true,
                     .composition = CometUi::ImGuiContext::Composition::Clear});
         ASSERT_TRUE(created) << created.error();

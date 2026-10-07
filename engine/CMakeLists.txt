@@ -52,6 +52,7 @@ set(SOURCES
         src/input/input_actions.cpp
         src/input/input_overrides.cpp
         src/input/player_input_settings.cpp
+        src/input/player_input_edit.cpp
         src/input/input_state.cpp
         src/input/runtime_input.cpp
         src/core/frame_timer.cpp

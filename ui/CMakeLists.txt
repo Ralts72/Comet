@@ -17,4 +17,6 @@ target_include_directories(comet_ui
         PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src"
         PRIVATE "${COMET_UI_SHADER_DIRECTORY}/include")
 target_link_libraries(comet_ui PUBLIC engine imgui)
+target_compile_definitions(comet_ui PRIVATE
+        COMET_UI_FONT_DIRECTORY="${CMAKE_SOURCE_DIR}/engine/resources/fonts")
 target_compile_options(comet_ui PUBLIC "$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")

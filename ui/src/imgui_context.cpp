@@ -156,23 +156,18 @@ namespace CometUi {
         }
         io.IniFilename = m_ini_path.empty() ? nullptr : m_ini_path.c_str();
 
-        if(m_options.font_directory.empty()) {
-            ImFontConfig font;
-            font.SizePixels = 16.0f;
-            io.Fonts->AddFontDefault(&font);
-        } else {
-            const auto& font_directory = m_options.font_directory;
-            if(!io.Fonts->AddFontFromFileTTF(
-                   (font_directory / "Roboto-Bold.ttf").string().c_str(), 16.0f))
-                return Comet::Result<void, Comet::GraphicsError>::failure(
-                    {"Cannot load ImGui Latin font"});
-            ImFontConfig chinese_font;
-            chinese_font.MergeMode = true;
-            if(!io.Fonts->AddFontFromFileTTF(
-                   (font_directory / "NotoSansSC-Bold.otf").string().c_str(), 16.0f, &chinese_font))
-                return Comet::Result<void, Comet::GraphicsError>::failure(
-                    {"Cannot load ImGui Chinese font"});
-        }
+        const auto font_directory = m_options.font_directory.empty()
+            ? std::filesystem::path(COMET_UI_FONT_DIRECTORY) : m_options.font_directory;
+        if(!io.Fonts->AddFontFromFileTTF(
+               (font_directory / "Roboto-Bold.ttf").string().c_str(), 16.0f))
+            return Comet::Result<void, Comet::GraphicsError>::failure(
+                {"Cannot load ImGui Latin font"});
+        ImFontConfig chinese_font;
+        chinese_font.MergeMode = true;
+        if(!io.Fonts->AddFontFromFileTTF(
+               (font_directory / "NotoSansSC-Bold.otf").string().c_str(), 16.0f, &chinese_font))
+            return Comet::Result<void, Comet::GraphicsError>::failure(
+                {"Cannot load ImGui Chinese font"});
 
         ImGui::StyleColorsDark();
 

@@ -212,6 +212,17 @@ namespace Comet {
                 parameters && !valid_parameters(*parameters))
                 return Result<PropertyValue>::failure(
                     context.error(location, "Invalid parameters"));
+            if(const auto* text = std::get_if<std::string>(&*value);
+                text && !simdjson::validate_utf8(*text))
+                return Result<PropertyValue>::failure(context.error(location, "invalid UTF-8"));
+            if(const auto* parameters = std::get_if<ParameterMap>(&*value)) {
+                for(const auto& [name, parameter] : *parameters) {
+                    const auto* text = std::get_if<std::string>(&parameter);
+                    if(!simdjson::validate_utf8(name) || (text && !simdjson::validate_utf8(*text)))
+                        return Result<PropertyValue>::failure(
+                            context.error(location, "invalid UTF-8"));
+                }
+            }
             if(!property.accepts_value(*value))
                 return Result<PropertyValue>::failure(
                     context.error(location, "value violates property constraints"));
@@ -385,32 +396,40 @@ namespace Comet {
         }
 
         enum class RecordVisitState { Visiting, Complete };
+        struct RecordVisit {
+            RecordVisitState state = RecordVisitState::Visiting;
+            std::size_t hierarchy_depth = 0;
+        };
 
         Result<void> visit_parent_chain(std::size_t index, std::size_t depth,
             const std::vector<EntityRecord>& records,
             const std::unordered_map<EntityUuid, std::size_t>& indices,
-            std::unordered_map<EntityUuid, RecordVisitState>& states,
-            const Json::Context& context) {
+            std::unordered_map<EntityUuid, RecordVisit>& states, const Json::Context& context) {
             if(depth > SceneSerializer::MAX_HIERARCHY_DEPTH)
                 return Result<void>::failure(
                     context.error(entity_location(index), "maximum hierarchy depth exceeded"));
             const EntityUuid uuid = records[index].uuid;
             if(const auto state = states.find(uuid); state != states.end()) {
-                if(state->second == RecordVisitState::Visiting) {
+                if(state->second.state == RecordVisitState::Visiting) {
                     return Result<void>::failure(context.error(
                         entity_location(index) + ".parent", "parent relationship forms a cycle"));
                 }
                 return Result<void>::success();
             }
 
-            states.emplace(uuid, RecordVisitState::Visiting);
+            states.emplace(uuid, RecordVisit{});
             if(records[index].parent) {
                 if(auto result = visit_parent_chain(indices.at(*records[index].parent), depth + 1,
                        records, indices, states, context);
                     !result)
                     return result;
             }
-            states[uuid] = RecordVisitState::Complete;
+            const std::size_t hierarchy_depth =
+                records[index].parent ? states.at(*records[index].parent).hierarchy_depth + 1 : 1;
+            if(hierarchy_depth > SceneSerializer::MAX_HIERARCHY_DEPTH)
+                return Result<void>::failure(
+                    context.error(entity_location(index), "maximum hierarchy depth exceeded"));
+            states[uuid] = {RecordVisitState::Complete, hierarchy_depth};
             return Result<void>::success();
         }
 
@@ -432,7 +451,7 @@ namespace Comet {
                 }
             }
 
-            std::unordered_map<EntityUuid, RecordVisitState> states;
+            std::unordered_map<EntityUuid, RecordVisit> states;
             states.reserve(records.size());
             for(std::size_t index = 0; index < records.size(); ++index) {
                 if(auto result = visit_parent_chain(index, 1, records, indices, states, context);
@@ -483,12 +502,21 @@ namespace Comet {
         }
     }
 
+    struct SceneSerializer::ContentSnapshot {
+        SceneEnvironment environment;
+        PostProcessSettings post_process;
+        std::vector<EntityRecord> entities;
+    };
+
     SceneSerializer::SceneSerializer(const ComponentRegistry& component_registry)
         : m_component_registry(component_registry) {}
 
-    Result<std::string> SceneSerializer::serialize(const Scene& scene) const {
+    Result<SceneSerializer::ContentSnapshot> SceneSerializer::capture_content(
+        const Scene& scene) const {
         const Json::Context context("scene", "<memory>");
-        std::vector<EntityRecord> records;
+        ContentSnapshot content{
+            .environment = scene.get_environment(), .post_process = scene.get_post_process()};
+        auto& records = content.entities;
         records.reserve(scene.entity_count());
 
         std::unordered_map<EntityId, EntityUuid> uuids_by_id;
@@ -501,19 +529,22 @@ namespace Comet {
             const auto* name = scene.m_registry.try_get<NameComponent>(handle);
             const EntityId id = entities.get<IdComponent>(handle).id;
             if(!uuid || !uuid->uuid) {
-                return Result<std::string>::failure(
+                return Result<ContentSnapshot>::failure(
                     context.error("entities", "entity has no valid UUID"));
             }
             if(!name) {
-                return Result<std::string>::failure(
+                return Result<ContentSnapshot>::failure(
                     context.error(uuid->uuid.to_string(), "entity has no NameComponent"));
             }
+            if(!simdjson::validate_utf8(name->name))
+                return Result<ContentSnapshot>::failure(
+                    context.error(uuid->uuid.to_string() + ".name", "invalid UTF-8"));
             if(!uuids_by_id.emplace(id, uuid->uuid).second) {
-                return Result<std::string>::failure(context.error(
+                return Result<ContentSnapshot>::failure(context.error(
                     uuid->uuid.to_string(), "duplicate runtime EntityId " + std::to_string(id)));
             }
             if(!handles_by_uuid.emplace(uuid->uuid, handle).second) {
-                return Result<std::string>::failure(
+                return Result<ContentSnapshot>::failure(
                     context.error(uuid->uuid.to_string(), "duplicate UUID"));
             }
 
@@ -526,11 +557,15 @@ namespace Comet {
                     continue;
                 }
 
+                if(component_descriptor.id == "name"
+                    || !simdjson::validate_utf8(component_descriptor.id))
+                    return Result<ContentSnapshot>::failure(
+                        context.error(uuid->uuid.to_string(), "invalid component identifier"));
                 const void* component = component_descriptor.get_component(entity);
                 const std::string component_location =
                     uuid->uuid.to_string() + ".components." + component_descriptor.id;
                 if(component == nullptr) {
-                    return Result<std::string>::failure(
+                    return Result<ContentSnapshot>::failure(
                         context.error(component_location, "component accessor returned null"));
                 }
 
@@ -540,10 +575,13 @@ namespace Comet {
                     if(!property.serializable || property.transient) {
                         continue;
                     }
+                    if(!simdjson::validate_utf8(property.id))
+                        return Result<ContentSnapshot>::failure(
+                            context.error(component_location, "invalid property identifier"));
                     auto value = copy_property_value(
                         property, component, context, component_location + "." + property.id);
                     if(!value)
-                        return Result<std::string>::failure(value.error());
+                        return Result<ContentSnapshot>::failure(value.error());
                     component_record.properties.push_back(
                         {.descriptor = &property, .value = std::move(value).value()});
                 }
@@ -560,16 +598,26 @@ namespace Comet {
             }
             const auto parent = uuids_by_id.find(relationship->parent);
             if(parent == uuids_by_id.end()) {
-                return Result<std::string>::failure(context.error(records[index].uuid.to_string(),
-                    "relationship references missing runtime parent "
-                        + std::to_string(relationship->parent)));
+                return Result<ContentSnapshot>::failure(
+                    context.error(records[index].uuid.to_string(),
+                        "relationship references missing runtime parent "
+                            + std::to_string(relationship->parent)));
             }
             records[index].parent = parent->second;
         }
 
         std::ranges::sort(records, {}, &EntityRecord::uuid);
         if(auto valid = validate_records(records, context); !valid)
-            return Result<std::string>::failure(valid.error());
+            return Result<ContentSnapshot>::failure(valid.error());
+        return Result<ContentSnapshot>::success(std::move(content));
+    }
+
+    Result<std::string> SceneSerializer::serialize(const Scene& scene) const {
+        auto captured = capture_content(scene);
+        if(!captured)
+            return Result<std::string>::failure(captured.error());
+        const auto& content = captured.value();
+        const auto& records = content.entities;
         ChildrenIndex children;
         for(std::size_t index = 0; index < records.size(); ++index)
             children[records[index].parent.value_or(INVALID_ENTITY_UUID)].push_back(index);
@@ -577,7 +625,7 @@ namespace Comet {
         Json::Writer writer;
         writer.begin_object();
         writer.field("version", std::uint64_t(FORMAT_VERSION));
-        const auto& environment = scene.get_environment();
+        const auto& environment = content.environment;
         writer.key("environment");
         writer.begin_object();
         writer.field("asset", environment.asset.value());
@@ -589,7 +637,7 @@ namespace Comet {
         writer.key("background_color");
         write_vector(writer, environment.background_color);
         writer.end_object();
-        const auto& post_process = scene.get_post_process();
+        const auto& post_process = content.post_process;
         writer.key("post_process");
         writer.begin_object();
         writer.field("exposure", post_process.exposure);
@@ -639,7 +687,8 @@ namespace Comet {
         const auto entities = context.array(entities_node.value(), "entities");
         if(!entities)
             return LoadResult::failure(entities.error());
-        std::vector<EntityRecord> records;
+        ContentSnapshot content;
+        auto& records = content.entities;
         records.reserve(entities.value().size());
         std::unordered_set<EntityUuid> uuids;
         std::size_t index = 0;
@@ -650,7 +699,6 @@ namespace Comet {
                 return LoadResult::failure(result.error());
         }
 
-        auto scene = std::make_unique<Scene>();
         Json::Node environment_node;
         if(const auto error = root["environment"].get(environment_node);
             error != simdjson::NO_SUCH_FIELD) {
@@ -708,7 +756,7 @@ namespace Comet {
             }
             if(auto valid = environment.validate(); !valid)
                 return LoadResult::failure(context.error("environment", valid.error()));
-            static_cast<void>(scene->set_environment(environment));
+            content.environment = environment;
         }
         Json::Node post_process_node;
         if(const auto error = root["post_process"].get(post_process_node);
@@ -740,11 +788,43 @@ namespace Comet {
                 exposure.value(), enabled.value(), strength.value(), threshold.value()};
             if(auto valid = settings.validate(); !valid)
                 return LoadResult::failure(context.error("post_process", valid.error()));
-            scene->m_post_process = settings;
+            content.post_process = settings;
         }
+        return restore_content(content, source);
+    }
+
+    Result<std::unique_ptr<Scene>> SceneSerializer::restore_content(
+        const ContentSnapshot& content, const std::string_view source) const {
+        using LoadResult = Result<std::unique_ptr<Scene>>;
+        const Json::Context context("scene", source);
+        if(auto valid = content.environment.validate(); !valid)
+            return LoadResult::failure(context.error("environment", valid.error()));
+        if(auto valid = content.post_process.validate(); !valid)
+            return LoadResult::failure(context.error("post_process", valid.error()));
+        auto scene = std::make_unique<Scene>();
+        static_cast<void>(scene->set_environment(content.environment));
+        scene->m_post_process = content.post_process;
+        const auto& records = content.entities;
+        ChildrenIndex children;
+        for(std::size_t index = 0; index < records.size(); ++index)
+            children[records[index].parent.value_or(INVALID_ENTITY_UUID)].push_back(index);
+        std::vector<std::size_t> pending;
+        const auto& roots = children[INVALID_ENTITY_UUID];
+        pending.assign(roots.rbegin(), roots.rend());
+        std::vector<std::size_t> order;
+        order.reserve(records.size());
+        while(!pending.empty()) {
+            const auto index = pending.back();
+            pending.pop_back();
+            order.push_back(index);
+            if(const auto found = children.find(records[index].uuid); found != children.end())
+                pending.insert(pending.end(), found->second.rbegin(), found->second.rend());
+        }
+
         std::unordered_map<EntityUuid, Entity> loaded_entities;
         loaded_entities.reserve(records.size());
-        for(const EntityRecord& record : records) {
+        for(const auto index : order) {
+            const EntityRecord& record = records[index];
             Entity entity = scene->create_entity_with_uuid(record.uuid, record.name);
             if(!entity) {
                 return LoadResult::failure(
@@ -778,6 +858,14 @@ namespace Comet {
                         context.error(component_location, "failed to create component"));
                 }
                 for(const PropertyRecord& property : component_record->properties) {
+                    if(property.descriptor->type == PropertyType::Enum
+                        && std::ranges::none_of(
+                            property.descriptor->enum_options, [&](const auto& option) {
+                                return option.id == std::get<std::string>(property.value);
+                            }))
+                        return LoadResult::failure(
+                            context.error(component_location + "." + property.descriptor->id,
+                                "unknown enum name: " + std::get<std::string>(property.value)));
                     if(!component_descriptor.assign_property(entity, property.descriptor->id,
                            property.value, PropertyDescriptor::WriteMode::Restore))
                         return LoadResult::failure(
@@ -803,10 +891,10 @@ namespace Comet {
     }
 
     Result<std::unique_ptr<Scene>> SceneSerializer::clone(const Scene& scene) const {
-        auto contents = serialize(scene);
-        if(!contents)
-            return Result<std::unique_ptr<Scene>>::failure(contents.error());
-        return deserialize(contents.value(), "<scene-clone>");
+        auto content = capture_content(scene);
+        if(!content)
+            return Result<std::unique_ptr<Scene>>::failure(content.error());
+        return restore_content(content.value(), "<scene-clone>");
     }
 
     Result<void> SceneSerializer::save(const Scene& scene, const std::string& path) const {

@@ -34,11 +34,16 @@ namespace Comet::Tests {
         bool wait_for_attribute(const int attribute, const int expected) {
             window.poll_events();
             for(int attempt = 0; attempt < 50; ++attempt) {
-                if(glfwGetWindowAttrib(window.get(), attribute) == expected)
+                const bool reached = glfwGetWindowAttrib(window.get(), attribute) == expected;
+                // X11 的同步属性查询可能刚收到焦点事件；先派发，再检查回调效果。
+                window.poll_events();
+                if(reached)
                     return true;
                 window.wait_events(0.01);
             }
-            return glfwGetWindowAttrib(window.get(), attribute) == expected;
+            const bool reached = glfwGetWindowAttrib(window.get(), attribute) == expected;
+            window.poll_events();
+            return reached;
         }
 
         bool focus_native_window() {
@@ -185,10 +190,20 @@ namespace Comet::Tests {
         EXPECT_FALSE(lost.focused);
         EXPECT_TRUE(lost.key(Input::Key::W).released);
         EXPECT_EQ(lost.interruption, before.interruption + 1);
+        ASSERT_TRUE(wait_for_attribute(GLFW_FOCUSED, GLFW_FALSE));
+        const auto still_lost = window.publish_input_frame();
+        EXPECT_FALSE(still_lost.focused);
+        EXPECT_FALSE(still_lost.key(Input::Key::W).released);
+        EXPECT_EQ(still_lost.interruption, lost.interruption);
         window.set_cursor_locked(true);
         EXPECT_FALSE(window.is_cursor_locked());
 
         ASSERT_TRUE(focus_native_window());
+        const auto regained = window.publish_input_frame();
+        EXPECT_TRUE(regained.focused);
+        EXPECT_FALSE(regained.key(Input::Key::W).down);
+        EXPECT_FALSE(regained.key(Input::Key::W).pressed);
+        EXPECT_EQ(regained.interruption, lost.interruption);
         EXPECT_FALSE(window.is_cursor_locked());
         window.set_cursor_locked(true);
         ASSERT_TRUE(window.is_cursor_locked());

@@ -35,8 +35,6 @@ namespace CometEditor::Tests {
     namespace {
         CometUi::ImGuiContext::Options editor_ui_options(const std::filesystem::path& ini_path) {
             return {.ini_path = ini_path,
-                .font_directory =
-                    std::filesystem::path(PROJECT_ROOT_DIR) / "editor/resources/fonts",
                 .docking = true,
                 .composition = CometUi::ImGuiContext::Composition::Clear};
         }

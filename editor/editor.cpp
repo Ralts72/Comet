@@ -90,8 +90,6 @@ namespace {
             m_language_settings_path = state_directory.value() / "language.json";
             auto ui = CometUi::ImGuiContext::create(engine.get_window(), render_context,
                 {.ini_path = state_directory.value() / "imgui.ini",
-                    .font_directory =
-                        std::filesystem::path(COMET_EDITOR_RESOURCE_DIRECTORY) / "fonts",
                     .docking = true,
                     .composition = CometUi::ImGuiContext::Composition::Clear});
             if(!ui)

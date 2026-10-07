@@ -4,6 +4,7 @@
 #include "scene/components.h"
 #include "scene/scene.h"
 #include "scene/scene_serializer.h"
+#include "scene/scene_runtime.h"
 #include "scene/script_component.h"
 #include "support/math_assertions.h"
 #include "render/scene/scene_extractor.h"
@@ -546,6 +547,11 @@ namespace Comet::Tests {
         EXPECT_FALSE(loaded_entity.has_component<MeshRendererComponent>());
         EXPECT_FALSE(loaded_entity.has_component<CameraComponent>());
         EXPECT_EQ(contents.find(R"("transform":)"), std::string::npos);
+        auto cloned = serializer.clone(scene);
+        ASSERT_TRUE(cloned) << cloned.error();
+        const auto cloned_entity = cloned.value()->find_entity(entity_uuid);
+        ASSERT_TRUE(cloned_entity);
+        EXPECT_FALSE(cloned_entity.has_component<TransformComponent>());
     }
 
     TEST(SceneSerializerTest, ClonesIndependentRuntimeScene) {
@@ -581,6 +587,79 @@ namespace Comet::Tests {
 
         EXPECT_EQ(edit_parent.get_component<NameComponent>().name, "Edit Parent");
         EXPECT_FLOAT_EQ(edit_child.get_component<TransformComponent>().translation.x, 1.0f);
+    }
+
+    TEST(SceneSerializerTest, CloningActiveWorldCopiesContentWithoutRuntimeStateOrQueuedRequests) {
+        Scene scene;
+        const auto actor = scene.create_entity("Actor");
+        SceneRuntime source_runtime;
+        ASSERT_TRUE(source_runtime.start(scene));
+        ASSERT_TRUE(scene.set_session_value("score", 7.0f));
+        ASSERT_TRUE(scene.request_restart());
+        const auto queued = scene.request_create_entity("Pending", {});
+        ASSERT_TRUE(queued);
+
+        const auto serializer = make_scene_serializer();
+        auto cloned = serializer.clone(scene);
+        ASSERT_TRUE(cloned) << cloned.error();
+        EXPECT_EQ(cloned.value()->entity_count(), 1u);
+        EXPECT_TRUE(cloned.value()->find_entity(actor.get_uuid()));
+        EXPECT_FALSE(cloned.value()->find_entity(*queued));
+        EXPECT_FALSE(cloned.value()->take_restart_request());
+        EXPECT_FALSE(cloned.value()->set_session_value("score", 8.0f));
+
+        SceneRuntime clone_runtime;
+        ASSERT_TRUE(clone_runtime.start(*cloned.value()));
+        EXPECT_FALSE(cloned.value()->get_session_value("score"));
+        ASSERT_TRUE(clone_runtime.advance(1.0 / 60.0));
+        EXPECT_EQ(cloned.value()->entity_count(), 1u);
+        EXPECT_EQ(scene.get_session_value("score"), ParameterValue(7.0f));
+        EXPECT_TRUE(scene.take_restart_request());
+        ASSERT_TRUE(source_runtime.advance(1.0 / 60.0));
+        EXPECT_TRUE(scene.find_entity(*queued));
+    }
+
+    TEST(SceneSerializerTest, CloneRestoresReadOnlyPropertiesWithoutEditNotifications) {
+        auto registry = create_scene_component_registry();
+        auto property = make_property_descriptor("value", "Value",
+            &DescriptorTestComponent::persisted, {.editable = false, .read_only = true});
+        property.on_changed = [](void*) { throw std::runtime_error("unexpected edit callback"); };
+        ASSERT_TRUE(registry.register_component(make_component_descriptor<DescriptorTestComponent>(
+            "custom", "Custom", {std::move(property)})));
+        Scene scene;
+        auto actor = scene.create_entity("Actor");
+        actor.add_component<DescriptorTestComponent>().persisted = 42.0f;
+        const SceneSerializer serializer(registry);
+        auto cloned = serializer.clone(scene);
+        ASSERT_TRUE(cloned) << cloned.error();
+        EXPECT_FLOAT_EQ(cloned.value()
+                            ->find_entity(actor.get_uuid())
+                            .get_component<DescriptorTestComponent>()
+                            .persisted,
+            42.0f);
+    }
+
+    TEST(SceneSerializerTest, CloneRejectsInvalidContentWithoutTextRoundTrip) {
+        Scene scene;
+        auto actor = scene.create_entity("Actor");
+        auto& camera = actor.add_component<CameraComponent>();
+        const auto serializer = make_scene_serializer();
+        camera.fov = std::numeric_limits<float>::infinity();
+        EXPECT_FALSE(serializer.clone(scene));
+        camera.fov = 60.0f;
+        camera.projection = static_cast<CameraComponent::Projection>(99);
+        EXPECT_FALSE(serializer.clone(scene));
+        camera.projection = CameraComponent::Projection::Perspective;
+        actor.get_component<NameComponent>().name = std::string(1, static_cast<char>(0xff));
+        const auto invalid_name = serializer.clone(scene);
+        ASSERT_FALSE(invalid_name);
+        EXPECT_NE(invalid_name.error().find("UTF-8"), std::string::npos);
+        actor.get_component<NameComponent>().name = "Actor";
+        auto& script = actor.add_component<ScriptComponent>();
+        script.parameters["text"] = std::string(1, static_cast<char>(0xff));
+        EXPECT_FALSE(serializer.clone(scene));
+        script.parameters["text"] = "valid";
+        EXPECT_TRUE(serializer.clone(scene));
     }
 
     TEST(SceneSerializerTest, OrdersEntitiesByUuid) {
@@ -723,6 +802,18 @@ namespace Comet::Tests {
         EXPECT_EQ(text.find(R"("parent":)"), std::string::npos);
         const auto decoded = serializer.deserialize(text);
         ASSERT_TRUE(decoded) << decoded.error();
+        const auto cloned = serializer.clone(*scene);
+        ASSERT_TRUE(cloned) << cloned.error();
+        for(const auto entity : decoded.value()->get_entities()) {
+            const auto cloned_entity = cloned.value()->find_entity(entity.get_uuid());
+            ASSERT_TRUE(cloned_entity);
+            EXPECT_EQ(cloned_entity.get_id(), entity.get_id());
+        }
+        EXPECT_EQ(cloned.value()->get_parent(cloned.value()->find_entity(grandchild.get_uuid())),
+            cloned.value()->find_entity(child.get_uuid()));
+        const auto cloned_text = serializer.serialize(*cloned.value());
+        ASSERT_TRUE(cloned_text) << cloned_text.error();
+        EXPECT_EQ(cloned_text.value(), text);
         const auto serialized_again = serializer.serialize(*decoded.value());
         ASSERT_TRUE(serialized_again) << serialized_again.error();
         EXPECT_EQ(serialized_again.value(), text);
@@ -750,11 +841,15 @@ namespace Comet::Tests {
         const auto serializer = make_scene_serializer();
         const TemporarySceneFile file;
         ASSERT_TRUE(serializer.save(scene, file.path()));
+        ASSERT_TRUE(serializer.clone(scene));
         const auto loaded = serializer.load(file.path());
         ASSERT_TRUE(loaded) << loaded.error();
         EXPECT_EQ(loaded.value()->entity_count(), scene.entity_count());
         ASSERT_TRUE(scene.set_parent(scene.create_entity("Too deep"), parent));
         EXPECT_FALSE(serializer.save(scene, file.path()));
+        const auto rejected_clone = serializer.clone(scene);
+        ASSERT_FALSE(rejected_clone);
+        EXPECT_NE(rejected_clone.error().find("maximum hierarchy depth"), std::string::npos);
         const auto preserved = serializer.load(file.path());
         ASSERT_TRUE(preserved) << preserved.error();
         EXPECT_EQ(preserved.value()->entity_count(), SceneSerializer::MAX_HIERARCHY_DEPTH);
@@ -875,7 +970,8 @@ namespace Comet::Tests {
                  "persisted_value", "Persisted Value", &DescriptorTestComponent::persisted),
                 make_property_descriptor("text", "Text", &DescriptorTestComponent::text),
                 make_property_descriptor("runtime_value", "Runtime Value",
-                    &DescriptorTestComponent::runtime_only, {.serializable = false})})));
+                    &DescriptorTestComponent::runtime_only,
+                    {.serializable = false, .transient = true})})));
         ASSERT_TRUE(registry.register_component(make_component_descriptor<RuntimeOnlyTestComponent>(
             "runtime_component", "Runtime Component",
             {make_property_descriptor("enabled", "Enabled", &RuntimeOnlyTestComponent::enabled)},
@@ -910,6 +1006,18 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(loaded_component.runtime_only, 17.0f);
         EXPECT_EQ(loaded_component.text, component.text);
         EXPECT_FALSE(loaded_entity.has_component<RuntimeOnlyTestComponent>());
+
+        auto cloned = serializer.clone(scene);
+        ASSERT_TRUE(cloned) << cloned.error();
+        auto cloned_entity = cloned.value()->find_entity(entity_uuid);
+        ASSERT_TRUE(cloned_entity.has_component<DescriptorTestComponent>());
+        auto& cloned_component = cloned_entity.get_component<DescriptorTestComponent>();
+        EXPECT_FLOAT_EQ(cloned_component.persisted, component.persisted);
+        EXPECT_FLOAT_EQ(cloned_component.runtime_only, 17.0f);
+        EXPECT_EQ(cloned_component.text, component.text);
+        EXPECT_FALSE(cloned_entity.has_component<RuntimeOnlyTestComponent>());
+        cloned_component.text.clear();
+        EXPECT_FALSE(component.text.empty());
 
         expect_scene_error(serializer, R"({
   "version": 2,

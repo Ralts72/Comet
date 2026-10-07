@@ -117,8 +117,17 @@ namespace Comet::Tests {
                 if(ui) {
                     if(!ui->begin_frame())
                         return Result<void, GraphicsError>::failure({"UI frame unavailable"});
-                    if(draw_window)
+                    if(draw_window) {
+                        EXPECT_STREQ(ImGui::GetFont()->GetDebugName(), "Roboto-Bold.ttf");
+                        EXPECT_FLOAT_EQ(ImGui::GetStyle().FontSizeBase, 16.0f);
+                        EXPECT_GT(ImGui::GetFontBaked()->GetCharAdvance('W'),
+                            ImGui::GetFontBaked()->GetCharAdvance('i'));
+                        for(const auto glyph : U"玩家改键")
+                            if(glyph != 0)
+                                EXPECT_TRUE(
+                                    ImGui::GetFont()->IsGlyphInFont(static_cast<ImWchar>(glyph)));
                         transparent_window();
+                    }
                     ui->end_frame();
                 }
                 RenderScene scene;

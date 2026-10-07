@@ -98,7 +98,6 @@ endif ()
 target_link_libraries(editor PRIVATE editor_ui)
 comet_copy_runtime_dependencies(editor)
 target_compile_definitions(editor PRIVATE
-        COMET_EDITOR_RESOURCE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources"
         COMET_BUILTIN_SHADER_DIRECTORY="${CMAKE_SOURCE_DIR}/engine/shaders"
         COMET_CONFIG_DIRECTORY="${CMAKE_SOURCE_DIR}/config"
         COMET_CONFIG_PROFILE="${COMET_CONFIG_PROFILE}"

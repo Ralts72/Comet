@@ -152,18 +152,12 @@ namespace CometUi {
         std::span<const Input::Key> reserved_keys) {
         if(m_open)
             return;
-        m_defaults = defaults;
-        m_draft = current;
-        m_reserved_keys.assign(reserved_keys.begin(), reserved_keys.end());
+        m_edit.reset(defaults, current, reserved_keys);
         m_selected_action = 0;
         m_action_filter.clear();
-        m_request.reset();
-        m_capture.reset();
-        m_error.clear();
         m_open = true;
         m_open_requested = true;
         m_close_requested = false;
-        m_waiting = false;
     }
 
     void PlayerInputPanel::close() {
@@ -171,224 +165,14 @@ namespace CometUi {
             m_close_requested = true;
         m_open = false;
         m_open_requested = false;
-        m_request.reset();
-        m_capture.reset();
-        m_waiting = false;
-        m_error.clear();
         m_action_filter.clear();
-        m_draft = {};
-    }
-
-    const Overrides::Action* PlayerInputPanel::action_patch(const Comet::Uuid id) const {
-        const auto& actions = m_draft.actions();
-        const auto found = std::ranges::find(actions, id, &Overrides::Action::id);
-        return found == actions.end() ? nullptr : &*found;
-    }
-
-    Overrides::Binding PlayerInputPanel::binding_patch(
-        const Comet::Uuid action, const Comet::Uuid binding) const {
-        const auto* patch = action_patch(action);
-        if(patch) {
-            const auto found = std::ranges::find(patch->bindings, binding, &Overrides::Binding::id);
-            if(found != patch->bindings.end())
-                return *found;
-        }
-        return {.id = binding};
-    }
-
-    void PlayerInputPanel::commit(std::vector<Overrides::Action> actions) {
-        auto candidate = Overrides::create(std::move(actions));
-        if(!candidate) {
-            m_error = candidate.error();
-            return;
-        }
-        m_draft = std::move(candidate).value();
-        m_error.clear();
-    }
-
-    void PlayerInputPanel::restore_action(const Comet::Uuid id) {
-        auto actions = m_draft.actions();
-        std::erase_if(actions, [&](const auto& action) { return action.id == id; });
-        commit(std::move(actions));
-        m_capture.reset();
-    }
-
-    void PlayerInputPanel::restore_binding(const Comet::Uuid action, const Comet::Uuid binding) {
-        m_capture.reset();
-        auto actions = m_draft.actions();
-        const auto found = std::ranges::find(actions, action, &Overrides::Action::id);
-        if(found == actions.end()) {
-            m_error.clear();
-            return;
-        }
-        std::erase_if(found->bindings, [&](const auto& patch) { return patch.id == binding; });
-        if(!found->disabled && found->bindings.empty())
-            actions.erase(found);
-        commit(std::move(actions));
-    }
-
-    void PlayerInputPanel::disable_action(const Action& action, const bool disabled) {
-        auto actions = m_draft.actions();
-        auto found = std::ranges::find(actions, action.id, &Overrides::Action::id);
-        if(found == actions.end()) {
-            if(disabled)
-                actions.push_back({action.id, action.type, true, {}});
-        } else {
-            found->disabled = disabled;
-            if(!disabled && found->bindings.empty())
-                actions.erase(found);
-        }
-        commit(std::move(actions));
-        m_capture.reset();
-    }
-
-    void PlayerInputPanel::disable_binding(
-        const Action& action, const Binding& binding, const bool disabled) {
-        auto patch = binding_patch(action.id, binding.id);
-        patch.disabled = disabled;
-        // 启停保留失配字段，由 resolve 给出默认回退，不当作一次字段编辑。
-        commit_binding(action, binding, std::move(patch));
-        m_capture.reset();
-    }
-
-    void PlayerInputPanel::commit_binding(
-        const Action& action, const Binding& binding, Overrides::Binding patch) {
-        if(!patch.disabled && !patch.control && !patch.scale && !patch.deadzone) {
-            restore_binding(action.id, binding.id);
-            return;
-        }
-        auto actions = m_draft.actions();
-        auto found = std::ranges::find(actions, action.id, &Overrides::Action::id);
-        if(found == actions.end()) {
-            actions.push_back({action.id, action.type, false, {std::move(patch)}});
-        } else {
-            auto record = std::ranges::find(found->bindings, binding.id, &Overrides::Binding::id);
-            if(record == found->bindings.end())
-                found->bindings.push_back(std::move(patch));
-            else
-                *record = std::move(patch);
-        }
-        commit(std::move(actions));
-    }
-
-    void PlayerInputPanel::store_binding(
-        const Action& action, const Binding& binding, Overrides::Binding patch) {
-        const auto valid =
-            Actions::create({{action.name, action.type, {composed_binding(binding, patch)},
-                                action.context, action.id}},
-                m_defaults.contexts());
-        if(!valid) {
-            m_error = valid.error();
-            return;
-        }
-        commit_binding(action, binding, std::move(patch));
-    }
-
-    void PlayerInputPanel::change_control(
-        const Action& action, const Binding& binding, Actions::Control control) {
-        if(is_reserved(control, m_reserved_keys)) {
-            m_error = "This key is reserved. Use another key.";
-            return;
-        }
-        auto patch = binding_patch(action.id, binding.id);
-        if(std::holds_alternative<Input::GamepadAxis>(control)) {
-            // 跨来源回到轴时恢复默认死区，不保留离开轴时生成的兼容零值。
-            if(!std::holds_alternative<Input::GamepadAxis>(patch.control.value_or(binding.control)))
-                patch.deadzone.reset();
-        } else if(patch.deadzone.value_or(binding.deadzone) != 0) {
-            patch.deadzone = 0;
-            if(binding.deadzone == 0)
-                patch.deadzone.reset();
-        }
-        patch.control = control;
-        if(control == binding.control)
-            patch.control.reset();
-        store_binding(action, binding, std::move(patch));
-    }
-
-    void PlayerInputPanel::start_capture(const Action& action, const Binding& binding,
-        const Input::Frame& input, const bool gamepad_button) {
-        m_capture.reset();
-        if(!input.focused)
-            return;
-        Capture capture{action.id, binding.id, input.interruption, input.serial, {}};
-        if(gamepad_button) {
-            capture.gamepad = input.first_connected_gamepad();
-            if(!capture.gamepad) {
-                m_error = "No gamepad connected.";
-                return;
-            }
-            capture.gamepad_connection_revision =
-                input.gamepads[*capture.gamepad].connection_revision;
-        }
-        m_capture = capture;
-        m_error.clear();
-        ImGui::ClearActiveID();
-    }
-
-    void PlayerInputPanel::capture_input(const Input::Frame& input) {
-        if(!m_capture)
-            return;
-        if(!input.focused || input.interruption != m_capture->interruption
-            || input.serial < m_capture->serial || ImGui::GetInputTextState(ImGui::GetActiveID())
-            || !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
-            m_capture.reset();
-            return;
-        }
-        if(m_capture->gamepad
-            && (input.first_connected_gamepad() != m_capture->gamepad
-                || input.gamepads[*m_capture->gamepad].connection_revision
-                       != m_capture->gamepad_connection_revision)) {
-            m_capture.reset();
-            return;
-        }
-        if(input.serial == m_capture->serial)
-            return;
-        m_capture->serial = input.serial;
-        if(input.key(Input::Key::Escape).pressed) {
-            m_capture.reset();
-            return;
-        }
-        const auto& actions = m_defaults.actions();
-        const auto action = std::ranges::find(actions, m_capture->action, &Action::id);
-        if(action == actions.end()) {
-            m_capture.reset();
-            return;
-        }
-        const auto binding = std::ranges::find(action->bindings, m_capture->binding, &Binding::id);
-        if(binding == action->bindings.end()) {
-            m_capture.reset();
-            return;
-        }
-        if(m_capture->gamepad) {
-            const auto& buttons = input.gamepads[*m_capture->gamepad].buttons;
-            for(std::size_t index = 0; index < buttons.size(); ++index) {
-                if(buttons[index].pressed) {
-                    change_control(*action, *binding, static_cast<Input::GamepadButton>(index));
-                    m_capture.reset();
-                    return;
-                }
-            }
-            return;
-        }
-        for(int index = int(Input::Key::Unknown) + 1; index < int(Input::Key::Count); ++index) {
-            const auto key = static_cast<Input::Key>(index);
-            if(input.key(key).pressed) {
-                if(is_reserved(key, m_reserved_keys)) {
-                    m_error = "This key is reserved. Use another key.";
-                    return;
-                }
-                change_control(*action, *binding, key);
-                m_capture.reset();
-                return;
-            }
-        }
+        m_edit.clear();
     }
 
     void PlayerInputPanel::render_controls(const Action& action, const Binding& binding,
         const Binding& effective, const Input::Frame& input, const Text& translations) {
         const auto name = Actions::format_binding(effective).value();
-        if(is_reserved(effective.control, m_reserved_keys))
+        if(m_edit.is_reserved(effective.control))
             ImGui::TextWrapped(
                 "%s", text(translations,
                           "This binding uses a reserved key and will not reach the game."));
@@ -399,11 +183,12 @@ namespace CometUi {
                 if(ImGui::Selectable(
                        label(translations, source.data()).c_str(), name.source == source)
                     && name.source != source) {
-                    if(const auto control = first_control(source, binding.control, m_reserved_keys))
-                        change_control(action, binding, *control);
+                    if(const auto control =
+                            first_control(source, binding.control, m_edit.reserved_keys()))
+                        m_edit.change_control(action.id, binding.id, *control);
                     else
-                        m_error = "No available controls for this source.";
-                    m_capture.reset();
+                        m_edit.report_error("No available controls for this source.");
+                    m_edit.cancel_capture();
                 }
             }
             ImGui::EndCombo();
@@ -413,15 +198,15 @@ namespace CometUi {
         if(ImGui::BeginCombo(
                label(translations, "Control").c_str(), text(translations, name.control.c_str()))) {
             if(const auto chosen = control_choices(
-                   effective.control, name.source, m_reserved_keys, translations)) {
-                change_control(action, binding, *chosen);
-                m_capture.reset();
+                   effective.control, name.source, m_edit.reserved_keys(), translations)) {
+                m_edit.change_control(action.id, binding.id, *chosen);
+                m_edit.cancel_capture();
             }
             ImGui::EndCombo();
         }
         if(name.source == "key" || name.source == "gamepad_button") {
-            const bool capturing =
-                m_capture && m_capture->action == action.id && m_capture->binding == binding.id;
+            const bool capturing = m_edit.capture() && m_edit.capture()->action == action.id
+                                   && m_edit.capture()->binding == binding.id;
             const char* caption = "Record Key";
             if(name.source == "gamepad_button")
                 caption = "Record Button";
@@ -432,18 +217,20 @@ namespace CometUi {
                     caption = "Press Key";
             }
             same_line_if_fits(button_width(text(translations, caption)));
-            if(ImGui::Button(label(translations, caption).c_str()))
-                start_capture(action, binding, input, name.source == "gamepad_button");
+            if(ImGui::Button(label(translations, caption).c_str())) {
+                const auto kind = name.source == "gamepad_button"
+                                      ? Comet::PlayerInputEdit::CaptureKind::GamepadButton
+                                      : Comet::PlayerInputEdit::CaptureKind::Keyboard;
+                m_edit.start_capture(action.id, binding.id, input, kind);
+                if(m_edit.capture())
+                    ImGui::ClearActiveID();
+            }
         }
         if(action.type != Actions::Type::Button) {
             auto scale = effective.scale;
             set_field_width(120, text(translations, "Multiplier"));
             if(ImGui::InputFloat(label(translations, "Multiplier").c_str(), &scale, 0, 0, "%.3f")) {
-                auto changed = binding_patch(action.id, binding.id);
-                changed.scale = scale;
-                if(scale == binding.scale)
-                    changed.scale.reset();
-                store_binding(action, binding, std::move(changed));
+                m_edit.change_scale(action.id, binding.id, scale);
             }
         }
         if(name.source == "gamepad_axis") {
@@ -452,11 +239,7 @@ namespace CometUi {
             set_field_width(120, text(translations, "Deadzone"));
             if(ImGui::InputFloat(
                    label(translations, "Deadzone").c_str(), &deadzone, 0, 0, "%.3f")) {
-                auto changed = binding_patch(action.id, binding.id);
-                changed.deadzone = deadzone;
-                if(deadzone == binding.deadzone)
-                    changed.deadzone.reset();
-                store_binding(action, binding, std::move(changed));
+                m_edit.change_deadzone(action.id, binding.id, deadzone);
             }
         }
     }
@@ -464,26 +247,26 @@ namespace CometUi {
     void PlayerInputPanel::render_binding(const Action& action, const Binding& binding,
         Overrides::Resolution& resolved, const Input::Frame& input, const Text& translations) {
         ImGui::PushID(binding.id.to_string().c_str());
-        auto patch = binding_patch(action.id, binding.id);
-        const auto* action_override = action_patch(action.id);
+        auto patch = m_edit.binding_patch(action.id, binding.id);
+        const auto* action_override = m_edit.action_patch(action.id);
         const bool incompatible = action_override && action_override->type != action.type;
         bool changed = false;
         bool disabled = patch.disabled && !incompatible;
         if(ImGui::Checkbox(label(translations, "Disable Binding").c_str(), &disabled)) {
-            disable_binding(action, binding, disabled);
+            m_edit.disable_binding(action.id, binding.id, disabled);
             changed = true;
         }
         same_line_if_fits(button_width(text(translations, "Restore Binding")));
         if(ImGui::Button(label(translations, "Restore Binding").c_str())) {
-            restore_binding(action.id, binding.id);
+            m_edit.restore_binding(action.id, binding.id);
             changed = true;
         }
         if(changed) {
-            auto updated = m_draft.resolve(m_defaults);
+            auto updated = m_edit.resolution();
             if(updated)
                 resolved = std::move(updated).value();
         }
-        patch = binding_patch(action.id, binding.id);
+        patch = m_edit.binding_patch(action.id, binding.id);
         if(patch.disabled && !incompatible) {
             render_disabled_binding(action, binding, patch, translations);
             ImGui::Separator();
@@ -509,7 +292,7 @@ namespace CometUi {
     }
 
     void PlayerInputPanel::render_action_selector(const Text& translations) {
-        const auto& actions = m_defaults.actions();
+        const auto& actions = m_edit.defaults().actions();
         set_field_width(250, text(translations, "Filter Actions"));
         input_text(label(translations, "Filter Actions").c_str(), m_action_filter);
         if(!m_action_filter.empty()) {
@@ -530,7 +313,7 @@ namespace CometUi {
                 ImGui::PushID(actions[index].id.to_string().c_str());
                 if(ImGui::Selectable(actions[index].name.c_str(), m_selected_action == index)) {
                     m_selected_action = index;
-                    m_capture.reset();
+                    m_edit.cancel_capture();
                 }
                 ImGui::PopID();
             }
@@ -541,7 +324,7 @@ namespace CometUi {
     }
 
     void PlayerInputPanel::render_actions(const Input::Frame& input, const Text& translations) {
-        const auto& actions = m_defaults.actions();
+        const auto& actions = m_edit.defaults().actions();
         if(actions.empty()) {
             ImGui::TextDisabled("%s", text(translations, "No input actions."));
             return;
@@ -550,17 +333,17 @@ namespace CometUi {
         const auto& action = actions[m_selected_action];
         same_line_if_fits(ImGui::CalcTextSize(text(translations, input_type_name(action.type))).x);
         ImGui::TextDisabled("%s", text(translations, input_type_name(action.type)));
-        const auto* patch = action_patch(action.id);
+        const auto* patch = m_edit.action_patch(action.id);
         bool incompatible = patch && patch->type != action.type;
         bool disabled = !incompatible && patch && patch->disabled;
         ImGui::BeginDisabled(incompatible);
         if(ImGui::Checkbox(label(translations, "Disable Action").c_str(), &disabled))
-            disable_action(action, disabled);
+            m_edit.disable_action(action.id, disabled);
         ImGui::EndDisabled();
         same_line_if_fits(button_width(text(translations, "Restore Action")));
         if(ImGui::Button(label(translations, "Restore Action").c_str()))
-            restore_action(action.id);
-        patch = action_patch(action.id);
+            m_edit.restore_action(action.id);
+        patch = m_edit.action_patch(action.id);
         incompatible = patch && patch->type != action.type;
         disabled = !incompatible && patch && patch->disabled;
         if(incompatible)
@@ -571,7 +354,7 @@ namespace CometUi {
                 "%s", text(translations, "Disabled; personal overrides are preserved."));
             return;
         }
-        auto resolved = m_draft.resolve(m_defaults);
+        auto resolved = m_edit.resolution();
         if(!resolved)
             return;
         ImGui::BeginDisabled(incompatible);
@@ -583,7 +366,7 @@ namespace CometUi {
     }
 
     void PlayerInputPanel::render_feedback(const Text& translations) {
-        const auto resolved = m_draft.resolve(m_defaults);
+        const auto resolved = m_edit.resolution();
         if(!resolved) {
             ImGui::TextWrapped("%s", text(translations, resolved.error().c_str()));
             return;
@@ -610,9 +393,9 @@ namespace CometUi {
             ImGui::TextWrapped("%s", text(translations, issue.message.c_str()));
             if(ImGui::Button(label(translations, "Remove Override").c_str())) {
                 if(issue.binding)
-                    restore_binding(issue.action, issue.binding);
+                    m_edit.restore_binding(issue.action, issue.binding);
                 else
-                    restore_action(issue.action);
+                    m_edit.restore_action(issue.action);
             }
             ImGui::PushTextWrapPos(0);
             ImGui::TextDisabled(
@@ -623,18 +406,6 @@ namespace CometUi {
             ImGui::PopID();
         }
         ImGui::EndChild();
-    }
-
-    void PlayerInputPanel::apply() {
-        const auto resolved = m_draft.resolve(m_defaults);
-        if(!resolved) {
-            m_error = resolved.error();
-            return;
-        }
-        m_request = m_draft;
-        m_waiting = true;
-        m_capture.reset();
-        m_error.clear();
     }
 
     bool PlayerInputPanel::render(const Input::Frame& input, const Text& translations) {
@@ -654,54 +425,54 @@ namespace CometUi {
                 m_close_requested = false;
             return true;
         }
-        if(m_open && !m_waiting) {
-            const bool capturing = m_capture.has_value();
+        if(m_open && !m_edit.waiting()) {
+            const bool capturing = m_edit.capture().has_value();
             // Enter 可能在绘制数值框时结束编辑，先保留其本帧输入归属。
             if(ImGui::GetInputTextState(ImGui::GetActiveID()))
-                m_capture.reset();
+                m_edit.cancel_capture();
             if(!capturing && input.focused && input.key(Input::Key::Escape).pressed)
                 close();
         }
         if(m_open) {
-            render_reserved_keys(m_reserved_keys, translations);
-            if(!m_error.empty()) {
+            render_reserved_keys(m_edit.reserved_keys(), translations);
+            if(!m_edit.error().empty()) {
                 const auto available = ImGui::GetContentRegionAvail().y
                                        - footer_height(translations)
                                        - ImGui::GetStyle().ItemSpacing.y * 2;
                 const auto error_height = std::min(96.f, std::max(1.f, available * 0.35f));
                 ImGui::BeginChild("Error", ImVec2(0, error_height), true);
-                ImGui::TextWrapped("%s", text(translations, m_error.c_str()));
+                ImGui::TextWrapped("%s", text(translations, m_edit.error().c_str()));
                 ImGui::EndChild();
             }
             const auto body_height =
                 std::max(1.f, ImGui::GetContentRegionAvail().y - footer_height(translations)
                                   - ImGui::GetStyle().ItemSpacing.y);
-            ImGui::BeginDisabled(m_waiting);
+            ImGui::BeginDisabled(m_edit.waiting());
             ImGui::BeginChild("Content", ImVec2(0, body_height));
             ImGui::TextWrapped("%s",
                 text(translations,
                     "Player overrides only; project defaults are unchanged. Unedited fields inherit defaults."));
             render_actions(input, translations);
-            if(!m_waiting)
-                capture_input(input);
-            if(m_capture) {
+            if(!m_edit.waiting())
+                m_edit.capture_input(
+                    input, !ImGui::GetInputTextState(ImGui::GetActiveID())
+                               && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows));
+            if(m_edit.capture()) {
                 const char* prompt = "Press a key; Escape cancels recording.";
-                if(m_capture->gamepad)
+                if(m_edit.capture()->gamepad)
                     prompt = "Press a gamepad button; Escape cancels recording.";
                 ImGui::TextWrapped("%s", text(translations, prompt));
             }
             render_feedback(translations);
             ImGui::EndChild();
             if(ImGui::Button(label(translations, "Apply").c_str()))
-                apply();
+                m_edit.apply();
             same_line_if_fits(button_width(text(translations, "Cancel")));
             if(ImGui::Button(label(translations, "Cancel").c_str()))
                 close();
             same_line_if_fits(button_width(text(translations, "Restore All")));
             if(ImGui::Button(label(translations, "Restore All").c_str())) {
-                m_draft = {};
-                m_capture.reset();
-                m_error.clear();
+                m_edit.restore_all();
             }
             ImGui::EndDisabled();
         }
@@ -714,16 +485,11 @@ namespace CometUi {
     }
 
     std::optional<Overrides> PlayerInputPanel::take_request() {
-        return std::exchange(m_request, std::nullopt);
+        return m_edit.take_request();
     }
 
     void PlayerInputPanel::complete(const Comet::Result<void>& result) {
-        if(!m_waiting)
-            return;
-        m_waiting = false;
-        if(result)
+        if(m_edit.complete(result))
             close();
-        else
-            m_error = result.error();
     }
 }

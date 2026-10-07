@@ -16,6 +16,19 @@
 | `ui/` | Engine 输入值／图形后端、ImGui | App／Editor 共用的设置界面和呈现后端，不依赖 Editor、Project 或编辑工作流 |
 | `editor/`、`app/` | Engine 组合入口、明确的工作流接口、`comet_ui` | 宿主装配 UI；业务视口经 Renderer 离屏帧快照取图，不穿透 SceneRenderer |
 
+共享 UI 默认加载 `engine/resources/fonts/` 中的字体，App 与 Editor 的玩家改键界面使用相同的 16px 字体配置。
+字体资源由 Engine 目录保存，ImGui 加载与中英文字体合并仍属于 `ui/`，不向 Engine 引入 ImGui 依赖。
+
+玩家改键的 `input/player_input_edit` 拥有默认动作、稀疏草稿、候选校验、保留键、录入和提交状态。
+公开编辑命令通过 Action／Binding UUID 定位；失败保留已接受草稿，待提交时冻结编辑，宿主交付保存／应用结果。
+合成结果随草稿变化更新，视图读取快照。录入只消费物理 Input::Frame 和呈现层提供的输入归属许可；
+ImGui 焦点、文本输入、布局、翻译和 modal 生命周期属于 `ui/player_input_panel`。
+App 与 Editor 复用该视图，但 App 不链接编辑器模块；个人文件保存和 Runtime 应用仍由各自宿主执行。
+
+`SceneSerializer` 的 serialize／clone 共用 Descriptor 内容采集，deserialize／clone 共用实体和层级恢复。
+clone 直接使用内存内容快照，保留 UUID、实体引用及树遍历创建顺序；不复制 transient 字段、运行会话或排队请求。
+内容校验与 Restore 写入仍生效，磁盘格式继续使用 JSON。
+
 `module_boundaries` CTest 检查直接 include：整个 engine 不得引入 Editor/ImGui；
 `common/`、`input/`、`scene/`、`scripting/`、`audio/` 不得引入 Render、Graphics、Vulkan/GLFW 后端。
 资产层也执行该限制，明确排除 AssetManager 的两个实现文件，并仅允许 TextureData 引用后端无关枚举。

@@ -8,11 +8,12 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | --- | --- |
 | `engine/src/` | 引擎库：runtime、core、input、scene、asset、audio、render、graphics、config、diagnostics |
 | `engine/shaders/` | 生产 Shader，按 material、lighting、shadow、environment、debug、post、common 分目录；仅编译 CMake 显式列表 |
+| `engine/resources/fonts/` | App／Editor 共用的 Roboto Bold 与 Noto Sans SC Bold 字体，由共享 UI 加载 |
 | `tools/shader/` | 共用 CPU Shader 编译库与构建 CLI，不链接 engine 运行时 |
 | `tools/asset/` | 编辑器与独立工具共用的项目 Shader 导入，以及无窗口的启动场景资产准备入口 |
 | `tools/render_benchmark/` | 固定场景渲染性能基准及一键运行脚本，链接 engine，不依赖测试框架或编辑器 |
 | `tools/asset_scan_benchmark/` | 可选的资产扫描 CPU 基准及一键运行脚本，分别测量候选准备与索引发布 |
-| `editor/` | 编辑器入口，`src/` 按 scene、viewport、assets、inspector、project、render、ui 组织，`resources/` 保存私有字体等资源 |
+| `editor/` | 编辑器入口，`src/` 按 scene、viewport、assets、inspector、project、render、ui 组织，`resources/` 保存私有图标和语言词表 |
 | `app/` | Runtime 示例入口及 `resources/` 私有图标 |
 | `demo/` | 随仓库提供的完整示例项目，与引擎／编辑器源码分开 |
 | `demo/assets/` | 示例场景、源资产及相邻 `.meta`；可选大资源由脚本下载，不进入版本控制 |
@@ -207,7 +208,8 @@ CPU/GPU 分别统计，不保证来自同一帧。不支持 GPU 时间戳时仍�
 目录无法写入时向标准错误提示并保留这些输出，不回退写到其他目录；项目／配置加载前的失败仍输出到终端。
 旧仓库根 `logs/` 不自动搬迁或删除。
 
-编辑器使用 16px Roboto Bold，并合并 Noto Sans SC Bold 覆盖中文。
+App 与编辑器共用 `engine/resources/fonts/` 中的 16px Roboto Bold，并合并 Noto Sans SC Bold 覆盖中文；
+App 改键界面与 Editor Play 使用相同的字体加载方式。
 顶栏「语言 / Language」可切换简体中文和 English，首次默认中文；选择保存在用户状态目录的 `language.json`，跨项目生效。
 切换只影响编辑器内置显示文本，保留控件身份及布局；资产名、路径、Shader 标识和原始日志不翻译。
 中文词表位于 `editor/resources/locales/zh-CN.yaml`，启动时加载一次；修改文案后重启即可，无需重新编译。
@@ -469,7 +471,7 @@ Esc 先取消录入，再按关闭面板；面板及关闭当帧不向游戏交�
 
 取消不保存；保存失败保留草稿与原运行配置，并在面板顶部显示原因，可修正问题后重试。
 加载失败显示错误弹窗，不把坏文件当作空配置覆盖。小窗口可滚动正文和长错误，底部应用／取消／全部恢复始终可达。
-App 使用内建英文字体，不依赖 Editor 的字体、翻译或布局文件。
+App 与 Editor 共用 Engine 目录内的字体；App 不依赖 Editor 的翻译或布局文件。
 
 文件位于用户配置目录下的 `players/<project.json 的 id>/default/input.json`，不是项目 `.comet`：
 
@@ -872,6 +874,7 @@ binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 �
   这些 void 接口用于保证有效的内部调用；可失败输入使用返回 bool 的 `try_set_transform`／`try_edit_transform`。
   相同值不标脏。世界矩阵只同步受影响的节点及后代；即时查询同步祖先链，渲染提取先同步再只读缓存。
   编辑器在帧准备前执行文件与资产请求，UI/Gizmo 与 System 修改后再提取当帧场景。
+  Play／重开的内容副本通过 Descriptor 在内存中恢复，只复制持久字段，不经过 JSON 编码／解析，也不复制运行会话。
 - **渲染**：`Scene → SceneExtractor → SceneResolver → SceneRenderer`。
   Renderer 组合帧调度与呈现，SceneRenderer 编排 ShadowPass → RGBA16F 场景 → OutputPass；
   RenderGraph 负责 pass 间同步，FrameSlot 保留在途资源，Presentation 处理交换链恢复。
@@ -891,6 +894,8 @@ binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 �
   Inspector 的材质读取交给 EditorAssets，默认值／模板迁移／草稿校验集中在 material_editing。
   简单确认弹窗集中在 `editor/src/ui/dialogs`，只返回选择；场景与项目共用 `PathDialog` 收集路径请求。
   动态字符串输入共用 `ui/src/widgets`，供 Editor 和玩家设置面板使用；名称／属性校验仍归各自业务入口。
+- **玩家改键**：`input/player_input_edit` 管草稿、校验、录入和提交状态，不依赖 UI 后端。
+  `ui/src/player_input_panel` 是 App／Editor 共用的 ImGui 视图；宿主负责个人文件保存和 Runtime 绑定应用。
 - **Shader**：编译工具独立于 engine。开发编辑器支持内置材质程序和项目 `.shader` 的后台编译与候选发布，
   失败保留旧画面；项目材质属性由描述与反射共同确定。辅助线、阴影、天空盒与输出 Shader 修改仍需重新构建，更复杂的项目接口尚未接入。
 - **坐标**：世界 +Y 向上，Vulkan Viewport 负高度转换画面坐标；`flip_y` 仅影响纹理导入。

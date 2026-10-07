@@ -196,6 +196,7 @@ namespace Comet {
             float mass;
             ColliderComponent collider;
             TransformComponent last_transform;
+            JPH::Quat last_physics_rotation;
             bool active_before_step = false;
         };
 
@@ -259,7 +260,8 @@ namespace Comet {
             if(id.IsInvalid())
                 return Result<void, Error>::failure({"Physics body capacity exceeded"});
             bodies.emplace(
-                entity.get_uuid(), Body{entity, id, motion, rigid.mass, collider, transform});
+                entity.get_uuid(), Body{entity, id, motion, rigid.mass, collider, transform,
+                                       world.GetBodyInterface().GetRotation(id)});
             if(motion == BodyMotion::Static)
                 wake_nearby_bodies(id);
             return Result<void, Error>::success();
@@ -339,6 +341,8 @@ namespace Comet {
                     world.GetBodyInterface().SetPositionAndRotationWhenChanged(it->second.id,
                         to_position(transform.translation), to_rotation(transform.rotation),
                         activation);
+                    it->second.last_physics_rotation =
+                        world.GetBodyInterface().GetRotation(it->second.id);
                     if(rigid.motion == BodyMotion::Static)
                         wake_nearby_bodies(it->second.id);
                     it->second.last_transform = transform;
@@ -505,15 +509,22 @@ namespace Comet {
         for(auto& [uuid, body] : m_impl->bodies) {
             if(body.motion != BodyMotion::Dynamic)
                 continue;
+            // 本步入睡仍须回写最终姿态，本步被唤醒的刚体也不能跳过。
+            if(!body.active_before_step && !m_impl->world.GetBodyInterface().IsActive(body.id))
+                continue;
             JPH::RVec3 position;
             JPH::Quat rotation;
             m_impl->world.GetBodyInterface().GetPositionAndRotation(body.id, position, rotation);
             auto transform = body.entity.get_component<TransformComponent>();
             transform.translation = Math::Vec3(position.GetX(), position.GetY(), position.GetZ());
-            transform.rotation = from_rotation(rotation);
-            if(!body.entity.try_set_transform(transform))
+            // 旋转未变时保留原 Euler 表示，避免无意义的转换及舍入扰动。
+            if(rotation != body.last_physics_rotation && rotation != -body.last_physics_rotation)
+                transform.rotation = from_rotation(rotation);
+            if(!same_pose(body.last_transform, transform)
+                && !body.entity.try_set_transform(transform))
                 return Result<void, Error>::failure({"Cannot write physics transform"});
             body.last_transform = transform;
+            body.last_physics_rotation = rotation;
         }
         return m_impl->publish_contacts(scene);
     }

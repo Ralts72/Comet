@@ -32,6 +32,11 @@ namespace Comet {
         [[nodiscard]] Result<std::unique_ptr<Scene>> load(const std::string& path) const;
 
     private:
+        struct ContentSnapshot;
+        [[nodiscard]] Result<ContentSnapshot> capture_content(const Scene& scene) const;
+        [[nodiscard]] Result<std::unique_ptr<Scene>> restore_content(
+            const ContentSnapshot& content, std::string_view source) const;
+
         const ComponentRegistry& m_component_registry;
     };
 }

@@ -28,7 +28,7 @@ namespace CometUi {
         // Preserve 要求当前交换链图像已由场景 pass 写入并处于 PresentSrcKHR。
         enum class Composition { Clear, Preserve };
         struct Options {
-            // 空路径不保存布局；空字体目录使用 16px 内建字体。
+            // 空路径不保存布局；空字体目录使用 engine 中的 16px 共用字体。
             std::filesystem::path ini_path;
             std::filesystem::path font_directory;
             bool docking = false;

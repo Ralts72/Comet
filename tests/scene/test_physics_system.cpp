@@ -138,6 +138,74 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
+    TEST(PhysicsSystemTest, StableSleepingBodiesKeepTransformsCleanAndStepPublishesWakeUp) {
+        Scene scene;
+        add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
+        const auto resting = add_body(scene, "Resting", BodyMotion::Dynamic, {0, 2, 0});
+        const auto child = scene.create_entity("Visual child");
+        ASSERT_TRUE(scene.set_parent(child, resting));
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        for(int step = 0; step < 300; ++step)
+            ASSERT_TRUE(runtime.advance(0.01));
+        const auto sleeping_pose = resting.get_component<TransformComponent>();
+        scene.update_world_transforms();
+        for(int step = 0; step < 30; ++step) {
+            ASSERT_TRUE(runtime.advance(0.01));
+            EXPECT_EQ(scene.update_world_transforms(), 0u);
+            EXPECT_EQ(
+                resting.get_component<TransformComponent>().translation, sleeping_pose.translation);
+            EXPECT_EQ(resting.get_component<TransformComponent>().rotation, sleeping_pose.rotation);
+        }
+
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        ASSERT_TRUE(scene.request_apply_impulse(resting, {0, 10, 0}));
+        ASSERT_TRUE(runtime.advance(0.1));
+        EXPECT_EQ(scene.update_world_transforms(), 0u);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_GT(
+            resting.get_component<TransformComponent>().translation.y, sleeping_pose.translation.y);
+        EXPECT_EQ(scene.update_world_transforms(), 2u);
+        EXPECT_EQ(scene.update_world_transforms(), 0u);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(PhysicsSystemTest, PreservesAuthoredEulerUntilPhysicsRotationChanges) {
+        Scene scene;
+        const auto falling = add_body(scene, "Falling", BodyMotion::Dynamic, {0, 10, 0});
+        const Math::Vec3 authored_rotation(0, 0, 385);
+        falling.edit_transform(
+            [&](TransformComponent& transform) { transform.rotation = authored_rotation; });
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_LT(falling.get_component<TransformComponent>().translation.y, 10);
+        EXPECT_EQ(falling.get_component<TransformComponent>().rotation, authored_rotation);
+
+        const Math::Vec3 teleported_rotation(0, 0, 745);
+        falling.edit_transform([&](TransformComponent& transform) {
+            transform.translation.y = 3;
+            transform.rotation = teleported_rotation;
+        });
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_LT(falling.get_component<TransformComponent>().translation.y, 3);
+        EXPECT_EQ(falling.get_component<TransformComponent>().rotation, teleported_rotation);
+
+        add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
+        for(int step = 0; step < 300; ++step)
+            ASSERT_TRUE(runtime.advance(0.01));
+        const auto rotation = falling.get_component<TransformComponent>().rotation;
+        EXPECT_GT(
+            glm::length(Math::wrap_degrees(rotation) - Math::wrap_degrees(teleported_rotation)),
+            1.0f);
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST(PhysicsSystemTest, MovingStaticSupportWakesRestingBodyAndEndsContact) {
         Scene scene;
         auto floor = add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0});

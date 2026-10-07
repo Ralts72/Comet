@@ -63,6 +63,7 @@ set(UNIT_TEST_SOURCES
         input/test_input.cpp
         input/test_input_actions.cpp
         input/test_input_overrides.cpp
+        input/test_player_input_edit.cpp
         input/test_player_input_settings.cpp
         input/test_runtime_input.cpp
         render/test_lighting.cpp
