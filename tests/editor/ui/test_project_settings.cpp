@@ -106,41 +106,33 @@ namespace CometEditor::Tests {
             return ImHashStr(label, 0, group);
         }
 
+        void select_combo(const ImGuiID item, const char* option) {
+            ASSERT_NE(details(), nullptr);
+            ImGui::FocusWindow(details());
+            ImGui::ActivateItemByID(item);
+            frame();
+            auto* combo = ImGui::FindWindowByName("##Combo_00");
+            ASSERT_NE(combo, nullptr);
+            ASSERT_TRUE(combo->Active);
+            ImGui::ActivateItemByID(combo->GetID(option));
+            frame();
+        }
+
         void select_action_type(const char* type) {
             ASSERT_NE(details(), nullptr);
             const int first = 0;
             const auto action_id = ImHashData(&first, sizeof(first), details()->ID);
-            ImGui::FocusWindow(details());
-            ImGui::ActivateItemByID(ImHashStr("##Type", 0, action_id));
-            frame();
-            auto* combo = ImGui::FindWindowByName("##Combo_00");
-            ASSERT_NE(combo, nullptr);
-            ImGui::ActivateItemByID(combo->GetID(type));
-            frame();
+            select_combo(ImHashStr("##Type", 0, action_id), type);
         }
 
         void select_binding_source(const char* source) {
             ASSERT_NE(details(), nullptr);
-            ImGui::FocusWindow(details());
-            ImGui::ActivateItemByID(binding_id("##Source"));
-            frame();
-            auto* combo = ImGui::FindWindowByName("##Combo_00");
-            ASSERT_NE(combo, nullptr);
-            ASSERT_TRUE(combo->Active);
-            ImGui::ActivateItemByID(combo->GetID(source));
-            frame();
+            select_combo(binding_id("##Source"), source);
         }
 
         void select_control(const char* control) {
             ASSERT_NE(details(), nullptr);
-            ImGui::FocusWindow(details());
-            ImGui::ActivateItemByID(binding_id("##Control"));
-            frame();
-            auto* combo = ImGui::FindWindowByName("##Combo_00");
-            ASSERT_NE(combo, nullptr);
-            ASSERT_TRUE(combo->Active);
-            ImGui::ActivateItemByID(combo->GetID(control));
-            frame();
+            select_combo(binding_id("##Control"), control);
         }
 
         void record() {

@@ -23,29 +23,13 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | `demo/.comet/` | 示例项目本机缓存、日志与编辑器状态，不进入版本控制 |
 | `tests/`、`3rdparty/` | GoogleTest 测试与第三方依赖 |
 
-`runtime/` 管应用入口与宿主生命周期；`scene/` 管 ECS 数据、组件元信息与调度，System 接口及具体行为集中在 `scene/systems/`。
-`input/` 集中物理采集、门控、动作映射和阶段消费；从 `runtime_input.h` 看编排，从 `input_state.h` 看只读消费接口。
-`asset/data/` 保存 Mesh、Texture、Material 和 Shader 程序的 CPU 数据。项目 `.shader` 文件以源资产 Handle 组合 vertex／fragment
-阶段及入口，旁边的 `.meta` 保持程序身份；编辑器后台编译后把可重建的 CPU 字节码缓存到项目 `.comet/cache/shaders/`。
-材质的 Inspector 可用 `Shader Program` 选择项目 `.shader`，保存为可选的稳定 Handle；未选择时沿用内置程序。
-项目 `.shader` 可声明材质纹理、标量与四维向量的名称、默认值和编辑信息；反射核对实际 binding、类型与偏移。渲染域保存 GPU 已接受的程序版本，Inspector 优先显示该版本的属性；新候选失败时画面和 Inspector 均保留旧版。`Render Template` 约束帧资源、顶点输入等非材质接口。
-开发期 app 读取已准备且输入仍有效的产物，不编译 Shader 源码；`release.sh` 启动前自动准备启动场景依赖，无需先打开编辑器。
-发布包脱离开发机缓存的程序交付和更复杂的 Shader 接口仍待实现。
-`render/material/` 聚合材质定义、准备缓存与绘制，`render/debug/` 聚合辅助线，`render/passes/` 保存具体渲染步骤。
-`RenderResources` 组织 Mesh/Texture 创建、上传和 Sampler 复用；资产身份缓存仍只由 `AssetRegistry` 管理。
-编辑器的 `ProjectPanel` 位于 `assets/project_panel.*`，`ViewportPanel` 位于 `viewport/viewport_panel.*`，
-InspectorPanel 分发选择并编辑场景属性，AssetInspector 独立持有材质／纹理草稿；面板不直接保存文件或发布 GPU 资源。
-项目源文件的创建、移动、删除和外部导入由编辑器的 `assets/source_operations.*` 执行；
-Engine 的资产模块保留索引、导入器和运行时加载，不承接编辑器文件事务。
+类入口、依赖方向和资源所有权见[架构文档](docs/architecture/overview.md)。
 
 ## 构建与运行
 
 需要 CMake 3.31+、C++20 编译器、Vulkan SDK、Git LFS 和 Submodule。
-SPIRV-Reflect 以固定版本 submodule 接入，仅作为 engine 的私有静态反射依赖；不构建其工具与测试。
-glslang 以正式版本 `16.6.0` 的固定提交作为 submodule，由构建生成 `comet_shader_compiler`；不再要求额外安装 `glslangValidator`。
-Jolt Physics 以 `v5.6.0` 的固定提交作为 submodule，只构建 CPU 刚体库；Scene 只保存刚体／碰撞体组件，物理世界在 Play／app 的 System 中创建。
-miniaudio 以固定版本 submodule 接入；目前仅解码项目中的 WAV 短音效，播放设备在自动播放或短音效请求首次需要输出时创建。
-首次构建会增加源编译器的编译耗时，但 engine／app 不链接该编译库，发布运行不需要源编译器。
+SPIRV-Reflect、glslang、Jolt Physics、miniaudio 和 Lua 由固定版本 submodule 提供。
+构建会生成 `comet_shader_compiler`，无需安装 `glslangValidator`；engine／app 不链接源编译器。
 
 ```bash
 git lfs install
@@ -65,9 +49,8 @@ ctest --preset dev-debug
 脚本按 1K、2K、4K、8K 顺序下载 Small Hangar 01 的四个版本，总计约 130.7 MiB，默认场景引用 4K。
 每个版本有独立的 `.meta`，可在 Environment 的 HDR map 中切换；4K 转成单面 1024 的 cubemap，
 8K 转成单面 2048，包含 mip 的纹理约占 256 MiB，解码时还需要额外 CPU 内存。16K 超出导入尺寸限制，不下载。
-首次环境导入时，编辑器可先显示最高 128²/面的临时背景，完整 IBL 完成后整组替换；重导入已有环境保留旧版。
-app 等待启用的环境准备完成后再启动场景，期间仍处理窗口事件并清屏，不把尚未激活场景诊断为缺少主相机；
-正式场景缺少主相机仍会警告。可选环境缺失或失败会诊断并回退纯色。
+首次导入期间编辑器可显示低分辨率临时背景；app 等待启用的环境准备完成后启动场景。
+可选环境缺失或失败时诊断并回退纯色，重导入失败保留旧版。
 脚本可从任意工作目录运行，逐文件校验 SHA-256，跳过已校验文件；下载失败不会覆盖现有资源。
 
 直接运行 app 前，也可单独增量准备项目（不打开窗口，不创建 GPU 资源）：
@@ -77,16 +60,14 @@ cmake --build build --target comet_prepare_project --parallel
 ./build/tools/asset/comet_prepare_project ./demo
 ```
 
-工具读取当前构建 Profile 的导入额度，与 app 共用启动场景运行需求，为 Mesh、Environment 和 ShaderProgram 准备产物；
-背景和照明都关闭时不准备环境，场景中的 Handle 仍保留；编辑器仍预加载全部引用，方便随时启用。
-有效缓存不重写，失败保留上一次有效产物。它是开发期资产准备工具，不是发布打包器，也不执行 GPU 管线预热。
+工具按当前 Profile 额度准备启动场景的 Mesh、Environment 和 ShaderProgram；有效缓存不重写，失败保留旧产物。
+它不创建 GPU 对象或发布包。`release.sh` 会在启动 app 前自动执行，无需先打开编辑器。
 未下载时 demo 保留环境资产引用并提示缺失，背景回退为纯色；下载后重新打开项目即可。
 构建和启动不会自动联网。普通测试使用小型本地数据，不自动导入下载的 HDR。
 真实 HDR 验证需显式启用：`cmake --preset dev-debug -DCOMET_TEST_DOWNLOADED_ASSETS=ON`，
 再运行 `ctest --preset dev-debug -L assets`；缺文件时跳过。设为 `OFF` 可恢复默认测试范围。
-环境首次使用和重载都在后台准备；未驻留时使用纯色背景，不视为加载失败，重载期间保留旧有效资源。
-真正的缺失或导入失败由资产加载层诊断，渲染解析只报告已发布对象的类型错误。
-缓存位于项目 `.comet/cache/imported/environment/`，可删除重建；输入内容或导入算法版本变化后自动失效。
+环境缓存位于项目 `.comet/cache/imported/environment/`，可删除重建；输入内容或算法版本变化后自动失效。
+后台准备、失败回退和 GPU 发布协议见[环境资产准备](docs/architecture/overview.md#环境资产准备)。
 资源来自 [Poly Haven 的 Small Hangar 01](https://polyhaven.com/a/small_hangar_01)，作者 Sergej Majboroda，
 采用 [CC0 许可](https://polyhaven.com/license)；脚本下载未修改的原始 HDR，可使用、修改和再分发。
 新增可下载资源时，同步维护脚本内的路径／URL／SHA-256、对应的 `.gitignore` 规则和本节来源说明。
@@ -102,10 +83,8 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 | `app-release` | Release：app | `./release.sh` |
 
 构建 app/editor 需指定 `COMET_CONFIG_PROFILE`，并按需组合 `COMET_BUILD_APP/EDITOR/TESTS/BENCHMARKS`。
-编辑器源码由 `editor_core`（不依赖 ImGui）和 `editor_ui` 两个内部库管理，入口与测试共同链接。
-源码目录按功能聚合，编译目标按依赖划分；例如 `scene/scene_document` 属于 core，`scene/hierarchy` 属于 ui。
-仅启用 tests 时仍构建 editor_core，不构建 UI；新增编辑器源码只需维护所属库的清单。
-`tests/support/` 提供测试专用的 ImGui Context、临时目录与 Worker 同步辅助，不进入引擎。
+编辑器分为无 ImGui 的 `editor_core` 与 `editor_ui`；新增源码需维护所属库清单。
+仅启用 tests 时仍构建 core；测试辅助代码位于 `tests/support/`。
 测试按执行条件分组，源码只编译到所属入口，不重复运行：
 
 | 入口／目录 | 依赖 | CTest 标签 |
@@ -208,12 +187,10 @@ CPU/GPU 分别统计，不保证来自同一帧。不支持 GPU 时间戳时仍�
 目录无法写入时向标准错误提示并保留这些输出，不回退写到其他目录；项目／配置加载前的失败仍输出到终端。
 旧仓库根 `logs/` 不自动搬迁或删除。
 
-App 与编辑器共用 `engine/resources/fonts/` 中的 16px Roboto Bold，并合并 Noto Sans SC Bold 覆盖中文；
-App 改键界面与 Editor Play 使用相同的字体加载方式。
-顶栏「语言 / Language」可切换简体中文和 English，首次默认中文；选择保存在用户状态目录的 `language.json`，跨项目生效。
-切换只影响编辑器内置显示文本，保留控件身份及布局；资产名、路径、Shader 标识和原始日志不翻译。
-中文词表位于 `editor/resources/locales/zh-CN.yaml`，启动时加载一次；修改文案后重启即可，无需重新编译。
-缺词回退英文原文，文件无效时记录日志并使用英文；键和值必须是字符串，格式占位符须与英文原文完全一致。
+App／Editor 共用 `engine/resources/fonts/` 中的 Roboto Bold 和 Noto Sans SC Bold，改键界面使用相同字体配置。
+顶栏「语言 / Language」切换简体中文／English，首次默认中文；选择存于用户状态目录 `language.json`，跨项目生效。
+仅翻译编辑器显示文本，不翻译资产名、路径、Shader 标识或原始日志。
+词表为 `editor/resources/locales/zh-CN.yaml`，修改后重启生效；键和值须为字符串，格式占位符与英文原文一致，缺词或无效文件回退英文。
 
 启动时的显示输出在 `config/common.yaml` 的 `render` 下设置，也可由当前 Profile 覆盖：
 
@@ -236,13 +213,9 @@ Bloom（泛光）和曝光属于场景内容，不在引擎 YAML 中配置。点
 Edit、Play 和独立 app 共用这份数据。Play 中该面板只读，运行时代码可修改 Runtime Scene，不回写 Edit 文档。
 新场景默认关闭泛光；demo 场景显式开启强度 0.15、阈值 1。关闭开关保留调好的参数，强度为 0 也不执行泛光。
 
-Bloom 在半分辨率提取高亮，横／纵模糊后在线性 HDR 中合成，再做曝光和 SDR/HDR 显示映射；不影响 ImGui。
-开启时若 GPU 资源不足，保留上次可用效果并有限重试，错误写入日志；场景中的开关意图不回滚。
-重试耗尽后可关闭再开启；设备丢失仍会退出，不属于可恢复的效果准备失败。
-阈值在曝光前应用，只让超阈值亮区向邻域扩散，不提供环境照明，也不要求显示器支持 HDR。
-代码通过 `Scene::set_post_process(PostProcessSettings)` 修改内容；渲染器消费场景快照，不另设全局覆盖入口。
-纯参数变化不重建图或材质管线，是否执行泛光发生变化时才重编排。首次启用才创建资源，关闭后保留最近纹理供复用。
-目前没有自动曝光、相机级覆盖或局部后处理区域。
+Bloom 在线性 HDR 中处理高亮后再做曝光和显示映射，不影响 ImGui，也不替代环境照明。
+资源准备失败保留上次效果并有限重试；可关闭再开启重试，设备丢失仍退出。
+暂不支持自动曝光、相机级覆盖或局部后处理区域；算法与资源协议见[架构文档](docs/architecture/overview.md#bloom)。
 
 macOS 和 Windows 下 app/editor 分别使用橙色、蓝色彗星静态图标，资源位于各自的 `resources/icons/`，不参与项目资产扫描。
 macOS 在构建目录内生成 `app/Comet.app` 和 `editor/CometEditor.app`，内含静态 ICNS 图标；启动脚本自动使用 bundle 内的新入口。
@@ -283,12 +256,10 @@ app 始终使用项目启动场景，不读取编辑器会话状态。
 `.scene` 的 `entities` 只放根实体，子实体通过 `children` 嵌套，不再保存 `parent` 引用；UUID 仍全场景唯一。
 项目描述 `project.json`（v2）同样使用 JSON；引擎运行配置及编辑器用户快捷键覆盖继续使用 YAML。
 JSON 解析直接依赖已有 simdjson。
-后台导入采用有界任务队列，同一资产尚未执行的旧请求会被最新 revision 合并替换；
-队列满时底层返回拒绝，编辑器自动导入和已加载资源刷新保留轻量待办，在容量恢复后重试；导入内容错误等待新变更或 Reimport。刷新失败继续保留旧资源。
-纹理、Mesh 与 HDR 环境图准备会预估 CPU 工作集。`config/common.yaml` 的 `assets` 配置控制 Mesh／纹理源文件与单次工作集、后台队列总额度、Mesh 主线程检查阈值，以及外部文件拖入的批量额度和待办数量；缺省值分别沿用当前示例配置。较大的 Mesh 描述文件保守预约单次额度，避免主线程解析；后台候选在发布前一直占用队列字节额度。估算不等于精确内存峰值，格式和索引的安全约束也不会因调高配置而解除。
-后台结果默认每次最多处理 2 项、采用 2 ms 非抢占软预算；未发布结果继续占据在途额度，同步扫描／加载不受此预算约束。
-示例项目根目录是仓库的 `demo/`，不是仓库根；可完整复制该目录作为外部项目。
-旧仓库根 `.comet/` 不自动迁移；项目缓存缺失时会重新生成，旧数据保留。
+后台导入使用有界队列，合并同一资产的旧请求；队列满时暂存重试，内容错误等待新变更或 Reimport，失败保留旧资源。
+`config/common.yaml` 的 `assets` 控制源文件、预估工作集、队列与外部导入额度。发布默认每次最多 2 项、2 ms 非抢占软预算，均不代表整帧或进程内存上限。
+任务与发布边界见[Owner 结构](docs/architecture/overview.md#owner-结构)。示例项目根目录是 `demo/`，可完整复制作为外部项目。
+旧仓库根 `.comet/` 不自动迁移；项目缓存缺失会重建。
 
 当前尚未发布，项目及资产描述只接受当前 `FORMAT_VERSION`；缺失、非法或不匹配的版本直接报错。
 
@@ -508,21 +479,19 @@ App 与 Editor 共用 Engine 目录内的字体；App 不依赖 Editor 的翻译
 
 ### Lua 实体与会话
 
-Lua 在运行阶段可用 `comet.self_entity()` 获取当前实体引用，或用
-`comet.find_entity(uuid)` 按场景内 UUID 查找；格式不合法会报错，实体不存在返回 `nil`。
-引用提供 `:is_valid()`、`:position()`、`:translate(x,y,z)` 和 `:rotate(x,y,z)`；位置与旋转沿用本地 Transform 和角度单位。
-动态刚体可调用 `comet.apply_impulse(x, y, z)`，向本实体质心施加一次世界空间冲量；
-需要 Transform、Collider 和 Dynamic Rigid Body。速度增量等于冲量除以配置的质量；不乘 `dt`，不是位置传送或角色跳跃。
-可用 demo 的 J 键对比不同质量下的弹起效果，具体限制见[运行链路](docs/architecture/overview.md#一帧经过哪里)。
-跨实体配置可在 Lua 中声明 `player = {type = "entity"}`，再在 Inspector 按实体名称／层级路径选择，
-或在 Edit 中从 Hierarchy 拖入该参数框；场景保存 UUID，重命名不破坏引用。未分配或目标缺失时
-`self.parameters.player:is_valid()` 返回 false；有效引用可用 `==` 与碰撞回调的 `other` 比较。
-脚本可调用 `comet.create_entity(name)` 请求创建，返回新实体 UUID；
-`comet.destroy_entity(reference)` 请求删除实体及其子树。结构变更在当前阶段末提交，不在脚本遍历中立即生效。
-`comet.has_rigid_body(reference)` 查询当前是否有刚体；`comet.remove_rigid_body(reference)` 请求移除刚体，
-保留实体、Collider 配置及其他组件。重复请求幂等，当前阶段内查询仍看到旧组件，提交后下一物理固定步退出模拟。
-demo 用它让目标停止碰撞后继续播放收集动画；暂停冻结动画，单步推进，Stop／重开不会改写 Edit 场景。
-`comet.create_entity(name, options)` 可指定初始 `translation`／`rotation`／`scale` 三分量数组，以及 `mesh_source` 实体引用：
+脚本使用受保护的实体引用，不访问 EnTT 或渲染对象。常用接口：
+
+| 接口 | 用法 |
+| --- | --- |
+| `comet.self_entity()`／`comet.find_entity(uuid)` | 当前实体／按 UUID 查找；引用提供 `:is_valid()`、`:position()`、`:translate()`、`:rotate()` |
+| `{type = "entity"}` 参数 | Inspector 选择或从 Hierarchy 拖入；场景保存 UUID，可与接触回调的 `other` 比较 |
+| `comet.create_entity()`／`comet.destroy_entity()` | 请求创建／删除子树，在阶段末提交，只修改运行场景 |
+| `comet.has_rigid_body()`／`comet.remove_rigid_body()` | 查询／请求移除刚体，保留实体与其他组件；提交前查询仍见旧组件 |
+| `comet.apply_impulse(x,y,z)` | 向本实体质心施加世界空间冲量，要求 Transform、Collider 和 Dynamic Rigid Body |
+| `comet.session_set/get()` | 共享本局临时值；支持 bool、有限数值、string、Vec3，设置 nil 删除 |
+| `comet.restart_scene()` | 恢复启动内容基线，不重读磁盘；demo 绑定 R |
+
+创建时可设置本地 Transform 与网格／材质来源；不复制其他组件或运行覆盖，不等于 Prefab：
 
 ```lua
 local id = comet.create_entity("Marker", {
@@ -532,13 +501,7 @@ local id = comet.create_entity("Marker", {
 })
 ```
 
-新实体为根，默认零位置／零旋转／单位缩放；变换也可直接使用导出的 Vec3 参数。
-`mesh_source` 只复制有效源实体的网格和材质引用，不复制其他组件、层级或运行时覆盖，不是 Prefab。
-创建与删除只作用于运行场景，不写回 Edit；详细快照与阶段协议见[Lua 架构](docs/architecture/overview.md#lua-脚本与参数)。
-不同实体的脚本可用 `comet.session_set(key, value)`／`comet.session_get(key)` 共享本局分数等临时值，
-`session_set(key, nil)` 删除；支持布尔、有限数值、字符串和 Vec3，不进入 `.scene` 或 Edit 场景。
-需要通知其他脚本时，用 `comet.emit("demo.score_changed", score)` 发布场景内通知，
-接收脚本声明事件名到方法名的映射，不必每帧轮询会话值：
+`comet.emit("demo.score_changed", score)` 发送场景通知，接收脚本声明事件与方法的映射：
 
 ```lua
 local script = {}
@@ -551,14 +514,8 @@ end
 return script
 ```
 
-载荷支持与会话值相同的类型，也可省略。通知在更新末交付，处理函数发出的新通知留到下一次更新。
-通知不是状态存储：demo 仍用会话值保存分数，用通知驱动立方体上升和变色。
-`comet.restart_scene()` 请求重开本局；demo 默认绑定 R。app 恢复启动基线，Editor 从保留的 Edit 场景重新克隆，不重读磁盘。
-引用失效、容量限制、暂停／Stop、通知顺序和失败处理统一见[Lua 架构](docs/architecture/overview.md#lua-脚本与参数)。
-刚体与碰撞体接触时，相关实体的脚本可实现 `on_collision_enter(self, other)`／`on_collision_exit(self, other)`；
-把碰撞体的 Trigger 打开后改为 `on_trigger_enter`／`on_trigger_exit`，不产生物理碰撞响应。
-`other` 是当前场景的受保护实体引用；通知在同帧普通 `update` 后交付，已失效参与者不会收到通知。
-静态 Trigger 可检测动态／运动学刚体；物体休眠不等于离开触发区。
+通知载荷与会话值类型相同，也可省略；会话保存状态，通知表达变化。接触回调为 `on_collision_enter/exit(self, other)`，
+Trigger 对应 `on_trigger_enter/exit`，不产生物理碰撞响应。结构提交、引用失效、容量、暂停和交付顺序见[Lua 架构](docs/architecture/overview.md#lua-脚本与参数)。
 
 ### 场景运行时
 
@@ -653,21 +610,16 @@ end
 return script
 ```
 
-`self` 缺少的字段回退到该实例的脚本定义，运行状态仍写在 `self`；不同实体不共享这些 Lua table。
-只有显式 `properties` 进入 Inspector，辅助方法和运行变量不会自动反射；配置通过只读 `self.parameters` 获取。
-辅助方法与入口共用错误处理及执行预算，成功热重载后也随新实例一起重建。
-普通执行错误会在 Log 中显示脚本／模块文件、行号及调用栈，可沿调用链定位到入口和辅助方法。
-模块语法错误保留其源位置和 require 调用链；内存耗尽等错误不保证能生成完整调用栈。这不是断点调试器。
+辅助方法与生命周期共用错误处理及执行预算，运行状态保存在各实体自己的 `self`；只有显式 `properties` 进入 Inspector。
+普通错误在 Log 显示源码位置和调用栈；内存耗尽不保证完整调用栈，这不是断点调试器。
 需要观察正常执行时，可在生命周期／事件方法及其辅助方法中调用：
 
 ```lua
 comet.log("Goal collected; score=" .. score)
 ```
 
-消息以 Info 级别进入现有 Log 面板和 app 日志，带脚本／模块文件和行号，不打断 Play。
-只接受一个字符串，不提供 Lua `print` 的隐式转换；脚本／模块顶层准备阶段不允许输出。
-每次回调最多输出 16 条、每条最多 4096 字节，超限消息省略并最多提示一次 Warning，仍继续执行。
-demo 收集成功会记录一次分数；不默认逐帧打印。日志过滤和文件保存仍沿用宿主配置。
+消息以 Info 进入 Log 与 app 日志，带源码位置；仅接受一个字符串，顶层准备阶段不可调用。
+每回调最多 16 条、每条 4096 字节，超限省略并最多提示一次 Warning；详细预算见[Lua 架构](docs/architecture/overview.md#lua-脚本与参数)。
 
 ### Lua 模块复用
 
@@ -740,13 +692,10 @@ Finder 导入只支持独立组件脚本，暂不处理 Lua 多文件依赖包�
   强度范围 0..64，旋转绕世界 Y 轴、复用 Transform 的角度循环规则；拖动实时预览，松手提交一次撤销，Esc 取消。
   双击可输入数值，回车或失焦提交；保存、撤销和进入 Play 前统一结束当前环境编辑。
   配置支持撤销、保存重开及 Play 克隆；Edit 中可下拉选择或从 Project 拖入环境资产，Play 中只读。
-  新增照明字段缺省关闭，保持旧场景外观；缺失引用保留并诊断，背景回退到 clear color、IBL 无贡献，不替换成另一张环境图。
-  支持 2:1 Radiance `.hdr`（宽度 4..8192，最大 256 MiB），线性解码到 RGBA16F cubemap 与背景 mip 链，单面最高 2048²。
-  后台导入同时生成漫反射 cubemap（最高 16²）、GGX 镜面预滤波（最高 128²，各 mip 对应粗糙度）与 128² BRDF LUT；
-  它们和背景统一缓存于 `.comet/cache/imported/environment/`，算法版本变更后自动重建，不提交 Git。
-  拒绝损坏文件和超出 float16 范围的像素；首次准备与重载均在后台读取缓存／预计算，主线程整组发布 GPU 资源，失败保留旧资源。
-  环境 CPU 准备按预估工作集共享后台队列预算（默认 2 GiB）；这不是进程总内存上限。外部文件复制、普通纹理首次加载与 GPU 创建仍同步。
-  此阶段未提供 EXR、六面图片导入、局部反射探针、环境遮蔽或动态 GI；全局 IBL 不读取方向光阴影图。
+  缺失环境引用保留并诊断，背景回退纯色、IBL 无贡献；旧场景缺少照明字段时默认关闭。
+  支持 2:1 Radiance `.hdr`（宽度 4..8192，最大 256 MiB）；损坏或超出 float16 范围的像素会被拒绝。
+  首次使用与重载在后台准备，失败保留旧版；缓存可删除重建。尺寸、工作集预算、预计算与 GPU 发布见[环境资产准备](docs/architecture/overview.md#环境资产准备)。
+  暂无 EXR、六面图片、局部反射探针、环境遮蔽或动态 GI。
 - Hierarchy 空白处／Scene 右键创建根实体，实体右键重命名、创建子实体、删除或 Duplicate 整棵子树；
   名称在右键弹窗中修改，确认后记录一次撤销；Inspector 不再显示名称输入框。
   选中实体后按 Ctrl+C／macOS Cmd+C 保存子树快照；切换场景后按 Ctrl+V／Cmd+V 粘贴为根实体，
@@ -762,9 +711,8 @@ Finder 导入只支持独立组件脚本，暂不处理 Lua 多文件依赖包�
 - Project 自动监视资产变化；右键 Refresh 重扫，Reimport 强制重建 Mesh 缓存。
   文件树同时显示已索引资产和未索引普通文件，后者只供浏览，不参与资产选择、拖放和改名删除；`.meta` 等辅助文件隐藏。
   顶部搜索框按文件名或目录名筛选树，清空后恢复全部显示；筛选不改变当前选中项或资产索引。
-  macOS 以目录通知触发检查，已知文件内容变化按路径复核；新增、删除、移动和结构变化仍全量扫描。
-  结构变化的目录快照和资产索引候选在后台准备，主线程复核后发布；右键 Refresh 仍立即同步重扫。
-  空闲时不周期扫描；其他平台暂用 500 ms 轮询兜底。
+  资产变化在后台复核，主线程发布；Refresh 仍同步重扫。macOS 使用目录通知，其他平台暂用 500 ms 轮询；
+  监视及过期候选规则见[Owner 结构](docs/architecture/overview.md#owner-结构)。
   拖动资产到目录可移动，右键 Rename 改名；右键 Delete 或选中资产后按 Cmd/Ctrl+Backspace，均经确认后把资产及 `.meta` 成对送入系统回收站；
   在编辑器内移动场景会同步保存路径、项目启动场景和 Session；配置保存失败会补偿回滚，不改变场景内容或 Undo。
   当前打开的场景与启动场景不能直接删除，需先切换；外部 Finder 移动不自动改写项目配置。
@@ -850,62 +798,17 @@ Project 中右键项目的 `.vert`、`.frag`、`.comp`、`.geom` 阶段源码、
 仅打开文件不会触发编译，语法错误也不妨碍打开修复。
 编辑器热重载已登记的材质程序及其公共 include；调试线、阴影、天空盒与显示输出修改需重新构建。
 macOS 的内置 Shader 热重载由目录通知唤醒，其他平台暂用 500 ms 输入复核；真正编译前仍校验输入快照。
-`MaterialShaders` 按程序名持有顶点/片元字节码，允许提交任意完整程序对；
-缺失单个阶段会拒绝整个候选批次，未提交的程序保留原版本，目标重建仍沿用成功发布的版本。
-程序定义、默认字节码、固定契约校验和覆盖合并位于 `engine/src/render/material/material_shader.h/.cpp`。
-编辑器和 MaterialRenderer 共用这份程序定义；未知程序名或显式空程序同样被拒绝。
-Frame 位于 set 0，材质位于 set 1，Object 使用 push constant；修改布局须同步 C++ 和契约测试。
-Frame binding 0 保存 160 字节相机数据，PBR 区分透视的位置差与正交的统一观察方向；
-binding 1 保存 LightingData（含光源矩阵与阴影参数），binding 2 是按帧槽位绑定的阴影图。
-光照 UBO 的 C++／GLSL 使用对应的具名字段；修改字段时须保持 std140 偏移、数组步长与反射契约一致。
-`forward.glsl` 使用 nearest sampler 手工 3×3 PCF；正高度阴影视口与投影 UV 一致。
+固定接口采用 Frame set 0、Material set 1 和 Object push constant；新增或修改布局需同步 C++／GLSL 与契约测试。
+程序定义、阶段完整性、反射与发布边界见[材质、Shader 与 Pipeline](docs/architecture/overview.md#材质shader-与-pipeline)。
 
 运行 `cmake --build --preset dev-debug --parallel` 和 `ctest --preset dev-debug` 验证。
-旧学习头文件与示例已移除，需要参考时可查 Git 历史。
 
 ## 架构入口
 
-- **运行时**：`runtime/application` 管初始化与关闭；Engine 管主循环，组合 Scene、SceneRuntime、任务和渲染服务。
-  `scene/scene_runtime` 按顺序执行 `scene/systems/system.h` 的固定／普通更新，拥有启动与逆序停止边界；Engine 负责与活动 Scene 绑定。
-  `Engine::FrameContext` 只在当帧存在：宿主在 update 或帧就绪回调中授权输入，SceneRuntime 随后消费，不跨帧保存授权。
-  `FrameDiagnostics` 记录主循环阶段耗时；渲染图和 GPU 诊断由 `RenderDiagnostics` 负责。
-  生命周期用 Result 传递预期失败，入口报告错误并设置退出码。
-- **场景**：Scene 保存组件、UUID 与 AssetHandle；Transform 通过 `set_transform`／`edit_transform` 显式写入，
-  这些 void 接口用于保证有效的内部调用；可失败输入使用返回 bool 的 `try_set_transform`／`try_edit_transform`。
-  相同值不标脏。世界矩阵只同步受影响的节点及后代；即时查询同步祖先链，渲染提取先同步再只读缓存。
-  编辑器在帧准备前执行文件与资产请求，UI/Gizmo 与 System 修改后再提取当帧场景。
-  Play／重开的内容副本通过 Descriptor 在内存中恢复，只复制持久字段，不经过 JSON 编码／解析，也不复制运行会话。
-- **渲染**：`Scene → SceneExtractor → SceneResolver → SceneRenderer`。
-  Renderer 组合帧调度与呈现，SceneRenderer 编排 ShadowPass → RGBA16F 场景 → OutputPass；
-  RenderGraph 负责 pass 间同步，FrameSlot 保留在途资源，Presentation 处理交换链恢复。
-  SceneRenderer 通过可失败的 `create` 返回已就绪对象；专项测试独立装配，Renderer 集成测试走正常帧接口。
-  MaterialShader 模块定义程序、字节码与固定接口契约，MaterialRenderer 管理 GPU 候选、材质版本发布和绘制。
-  Material 保存实例参数，MaterialLayout 独立描述布局；属性描述位于 `scene/property`，不依赖 ECS 注册器。
-- **资产**：AssetDatabase 管身份与依赖，ImportService 管导入，AssetManager 管加载与发布。
-  前两者及 CPU 数据不依赖渲染后端；AssetManager 的实现是资产与 Runtime 渲染资源的桥接点。
-  编辑器由 EditorAssets 持有 AssetDatabase 并编排源文件操作；SceneAssetReferences 管活动场景引用的恢复，
-  AssetManager 借用同一索引处理运行时失效与重载。开发态 app 仍可由 AssetManager 自行持有索引。
-  AssetRegistry 是唯一 Handle 缓存，RenderResources 只创建设备资源；Worker 不操作 Scene 或 GPU。
-  Mesh 加载已发布 Artifact，Texture 暂时直接解码源文件。
-- **编辑器**：Editor 装配服务，SceneDocument 管文档与保存点，CommandHistory 管撤销。
-  新场景由 Editor 先准备资产再激活；Play 失败或停止时恢复保留的 Edit 场景，不重复准备。
-  场景安装后的历史、选择和引用追踪由 SceneEditor 统一重绑；Play 不改绑 Edit 历史。
-  面板产生请求，由统一更新阶段交给 SceneEditor 校验和执行；Viewport 管相机、拾取和 Gizmo，不持有 Engine。
-  Inspector 的材质读取交给 EditorAssets，默认值／模板迁移／草稿校验集中在 material_editing。
-  简单确认弹窗集中在 `editor/src/ui/dialogs`，只返回选择；场景与项目共用 `PathDialog` 收集路径请求。
-  动态字符串输入共用 `ui/src/widgets`，供 Editor 和玩家设置面板使用；名称／属性校验仍归各自业务入口。
-- **玩家改键**：`input/player_input_edit` 管草稿、校验、录入和提交状态，不依赖 UI 后端。
-  `ui/src/player_input_panel` 是 App／Editor 共用的 ImGui 视图；宿主负责个人文件保存和 Runtime 绑定应用。
-- **Shader**：编译工具独立于 engine。开发编辑器支持内置材质程序和项目 `.shader` 的后台编译与候选发布，
-  失败保留旧画面；项目材质属性由描述与反射共同确定。辅助线、阴影、天空盒与输出 Shader 修改仍需重新构建，更复杂的项目接口尚未接入。
-- **坐标**：世界 +Y 向上，Vulkan Viewport 负高度转换画面坐标；`flip_y` 仅影响纹理导入。
-
-实现契约与扩展计划分别维护，避免在 README 重复细节：
-
 | 文档 | 内容 |
 | --- | --- |
-| [架构与所有权](docs/architecture/overview.md) | 运行时与 Lua 边界、帧时序、GPU 生命周期和 Shader 发布 |
-| [路线图](docs/engine-roadmap.md) | 阶段、剩余工作与验收条件 |
+| [架构与所有权](docs/architecture/overview.md) | 模块依赖、类入口、运行时与 Lua、帧时序、GPU 生命周期和 Shader 发布 |
+| [路线图](docs/engine-roadmap.md) | 优化计划、阶段与验收条件 |
 
 C++ 遵循根目录 `.clang-format`（100 列），只格式化相关代码，不处理 Shader 和第三方源码。
 测试按所属模块放在 `tests/`，公共辅助工具放在 `tests/support/`。

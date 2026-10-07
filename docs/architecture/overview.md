@@ -19,12 +19,6 @@
 共享 UI 默认加载 `engine/resources/fonts/` 中的字体，App 与 Editor 的玩家改键界面使用相同的 16px 字体配置。
 字体资源由 Engine 目录保存，ImGui 加载与中英文字体合并仍属于 `ui/`，不向 Engine 引入 ImGui 依赖。
 
-玩家改键的 `input/player_input_edit` 拥有默认动作、稀疏草稿、候选校验、保留键、录入和提交状态。
-公开编辑命令通过 Action／Binding UUID 定位；失败保留已接受草稿，待提交时冻结编辑，宿主交付保存／应用结果。
-合成结果随草稿变化更新，视图读取快照。录入只消费物理 Input::Frame 和呈现层提供的输入归属许可；
-ImGui 焦点、文本输入、布局、翻译和 modal 生命周期属于 `ui/player_input_panel`。
-App 与 Editor 复用该视图，但 App 不链接编辑器模块；个人文件保存和 Runtime 应用仍由各自宿主执行。
-
 `SceneSerializer` 的 serialize／clone 共用 Descriptor 内容采集，deserialize／clone 共用实体和层级恢复。
 clone 直接使用内存内容快照，保留 UUID、实体引用及树遍历创建顺序；不复制 transient 字段、运行会话或排队请求。
 内容校验与 Restore 写入仍生效，磁盘格式继续使用 JSON。
@@ -35,6 +29,8 @@ clone 直接使用内存内容快照，保留 UUID、实体引用及树遍历创
 `editor/src/` 功能代码不得直接包含 SceneRenderer、RenderContext、FrameScheduler、Presentation 或 Vulkan/GLFW 头；
 ImGuiContext 位于共享 `ui/`，不再为 Editor 功能目录保留后端例外；`editor/editor.cpp` 是扫描范围外的宿主集成点。
 这些是防止依赖倒退的轻量检查，不检查传递包含，也不等同于独立编译目标；当前 `engine` 仍是一个库。
+编辑器按链接依赖分为 `editor_core`（无 ImGui）和 `editor_ui`，入口及对应测试复用这些库；
+共享 `comet_ui` 链接 engine／ImGui，app 不链接 editor_core／editor_ui。
 
 ## 先看哪个类
 
@@ -256,9 +252,10 @@ Gate 分别维护整体与鼠标授权，避免工具栏点击／滚轮穿透，
 | `Input`／`Gate` | 物理快照／宿主授权，不知道动作、UI 或玩家文件 |
 | `InputActions`／`InputOverrides` | 默认定义、映射规则／按 UUID 保存的个人意图；合成不修改原记录 |
 | `PlayerInputSettings` | 用户路径、严格 JSON、加载基线及原子保存；不依赖 Project、Runtime 或 Editor |
+| `PlayerInputEdit` | 默认动作、稀疏草稿、候选校验、保留键、录入和提交状态；不依赖 ImGui／窗口 |
 | `RuntimeInput` | 活动映射、动作组、逐绑定积累及阶段快照；SceneRuntime 只调用生命周期和 prepare／consume_fixed／update |
 | `InputState` | 同一阶段的物理和动作只读值；可复制保留，引用在 owner 下一次修改前有效 |
-| 两种设置面板 | 项目默认草稿／玩家覆盖草稿；不写文件、不操作 Runtime，不能合并成同一种保存协议 |
+| 两种设置面板 | 项目默认编辑／玩家改键视图；不写文件、不操作 Runtime，二者保存协议不同 |
 | App／Editor 宿主 | 装配默认值与覆盖、处理保存结果及运行域提交；不实现动作采样规则 |
 
 **授权与阶段。** Frame 的 `focused`／`pointer_enabled` 分别表示整体／鼠标授权，Gate 不可重新开放
@@ -300,6 +297,10 @@ InputOverrides 的 control／scale／deadzone 按字段继承，disabled 与保�
 加载诊断由宿主持有，保存诊断留在草稿面板；先保存后提交的错误如实区分，不宣称回滚已保存文件。
 面板按 Issue 身份显示回退默认、保留失配记录并逐条恢复；禁用摘要不是有效映射，不另存 UI 备份。
 共享 input_widgets 只提供菜单数据、关系正文、弹窗布局及错误展示；词表由宿主借用，未引入跨层回调。
+
+`PlayerInputEdit` 的命令按 Action／Binding UUID 定位；合成结果随草稿变化更新，待提交时冻结编辑，失败保留草稿。
+模型只接收物理帧和呈现层的录入许可；ImGui 焦点、文本输入、布局、翻译及 modal 生命周期归 PlayerInputPanel。
+宿主交付保存／应用结果，成功后视图关闭；关闭当帧仍由宿主阻断 Gameplay 输入。
 
 **录入生命周期。** 两种面板都借用本帧原始 Input::Frame，只录开始后的 pressed；游戏只用授权帧。
 项目录入的 ImGui 活动项／按键所有权阻断编辑快捷键，但允许鼠标将活动项交给参数框或按钮；

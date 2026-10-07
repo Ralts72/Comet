@@ -190,6 +190,14 @@ namespace CometUi::Tests {
             frame();
         }
 
+        void press_imgui_key(ImGuiKey value) {
+            auto& io = ImGui::GetIO();
+            io.AddKeyEvent(value, true);
+            frame();
+            io.AddKeyEvent(value, false);
+            frame();
+        }
+
         void record(Input::Key value) {
             binding_button("Record Key");
             ASSERT_NE(
@@ -235,10 +243,7 @@ namespace CometUi::Tests {
             frame();
             io.AddInputCharactersUTF8(value);
             frame();
-            io.AddKeyEvent(ImGuiKey_Enter, true);
-            frame();
-            io.AddKeyEvent(ImGuiKey_Enter, false);
-            frame();
+            press_imgui_key(ImGuiKey_Enter);
         }
 
         std::optional<ImVec2> hover_point(
@@ -310,11 +315,7 @@ namespace CometUi::Tests {
         EXPECT_NE(rendered_text.find(long_filter), std::string::npos);
         button("Action");
         EXPECT_NE(rendered_text.find("No matching actions."), std::string::npos);
-        auto& io = ImGui::GetIO();
-        io.AddKeyEvent(ImGuiKey_Escape, true);
-        frame();
-        io.AddKeyEvent(ImGuiKey_Escape, false);
-        frame();
+        press_imgui_key(ImGuiKey_Escape);
         button("Clear Filter");
         select_action("jump", id(1));
         button("Apply");

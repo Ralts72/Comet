@@ -310,12 +310,15 @@ namespace CometEditor {
         if(!m_capturing)
             return;
         const auto owner = m_capturing->owner;
-        if(!input.focused || input.interruption != m_capturing->interruption
-            || input.serial < m_capturing->serial
-            || !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
-            || (ImGui::GetActiveID() != 0 && ImGui::GetActiveID() != owner) || !m_selected_action
-            || *m_selected_action >= m_actions.size()
-            || m_actions[*m_selected_action].id != m_capturing->action) {
+        const bool input_interrupted = !input.focused
+                                       || input.interruption != m_capturing->interruption
+                                       || input.serial < m_capturing->serial;
+        const auto active_id = ImGui::GetActiveID();
+        const bool another_control_active = active_id != 0 && active_id != owner;
+        const bool selection_changed = !m_selected_action || *m_selected_action >= m_actions.size()
+                                       || m_actions[*m_selected_action].id != m_capturing->action;
+        if(input_interrupted || !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+            || another_control_active || selection_changed) {
             cancel_capture();
             return;
         }
@@ -424,6 +427,8 @@ namespace CometEditor {
     }
 
     void InputSettingsPanel::complete(const Comet::Result<void>& result) {
-        m_error = result ? std::string{} : result.error();
+        m_error.clear();
+        if(!result)
+            m_error = result.error();
     }
 }

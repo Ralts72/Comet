@@ -34,9 +34,18 @@ namespace Comet {
             physical.publish_frame();
         }
 
-        const Input::Frame& key(const Input::Key key) {
+        const Input::Frame& press_key(const Input::Key key) {
             physical.key_event(key, true);
             return physical.publish_frame();
+        }
+
+        void start_key_capture(const Input::Frame& opening) {
+            edit.start_capture(id(1), id(2), opening, PlayerInputEdit::CaptureKind::Keyboard);
+        }
+
+        void start_gamepad_capture() {
+            edit.start_capture(
+                id(1), id(3), physical.get_frame(), PlayerInputEdit::CaptureKind::GamepadButton);
         }
     };
 
@@ -153,16 +162,16 @@ namespace Comet {
         std::vector<Input::Key> reserved{Input::Key::J};
         edit.reset(defaults, {}, reserved);
         reserved[0] = Input::Key::K;
-        const auto& opening = key(Input::Key::Enter);
-        edit.start_capture(id(1), id(2), opening, PlayerInputEdit::CaptureKind::Keyboard);
+        const auto& opening = press_key(Input::Key::Enter);
+        start_key_capture(opening);
         edit.capture_input(opening, true);
         EXPECT_TRUE(edit.capture());
         EXPECT_TRUE(edit.draft().actions().empty());
-        edit.capture_input(key(Input::Key::J), true);
+        edit.capture_input(press_key(Input::Key::J), true);
         EXPECT_TRUE(edit.capture());
         EXPECT_FALSE(edit.error().empty());
         EXPECT_TRUE(edit.draft().actions().empty());
-        edit.capture_input(key(Input::Key::LeftControl), true);
+        edit.capture_input(press_key(Input::Key::LeftControl), true);
         EXPECT_FALSE(edit.capture());
         EXPECT_TRUE(edit.error().empty());
         EXPECT_EQ(edit.binding_patch(id(1), id(2)).control,
@@ -170,26 +179,23 @@ namespace Comet {
     }
 
     TEST_F(PlayerInputEditTest, CaptureCancelsWhenConsumerLosesOwnershipOrMissesInterruption) {
-        edit.start_capture(
-            id(1), id(2), physical.get_frame(), PlayerInputEdit::CaptureKind::Keyboard);
-        edit.capture_input(key(Input::Key::K), false);
+        start_key_capture(physical.get_frame());
+        edit.capture_input(press_key(Input::Key::K), false);
         EXPECT_FALSE(edit.capture());
         EXPECT_TRUE(edit.draft().actions().empty());
-        edit.start_capture(
-            id(1), id(2), physical.get_frame(), PlayerInputEdit::CaptureKind::Keyboard);
+        start_key_capture(physical.get_frame());
         physical.focus_event(false);
         physical.publish_frame();
         physical.focus_event(true);
         physical.publish_frame();
-        edit.capture_input(key(Input::Key::J), true);
+        edit.capture_input(press_key(Input::Key::J), true);
         EXPECT_FALSE(edit.capture());
         EXPECT_TRUE(edit.draft().actions().empty());
     }
 
     TEST_F(PlayerInputEditTest, EscapeCancelsCaptureAndClearDiscardsUnsubmittedDraft) {
-        edit.start_capture(
-            id(1), id(2), physical.get_frame(), PlayerInputEdit::CaptureKind::Keyboard);
-        edit.capture_input(key(Input::Key::Escape), true);
+        start_key_capture(physical.get_frame());
+        edit.capture_input(press_key(Input::Key::Escape), true);
         EXPECT_FALSE(edit.capture());
         EXPECT_TRUE(edit.draft().actions().empty());
         edit.change_control(id(1), id(2), Input::Key::K);
@@ -205,8 +211,7 @@ namespace Comet {
         physical.gamepad_sample(0, pad);
         physical.gamepad_sample(1, pad);
         physical.publish_frame();
-        edit.start_capture(
-            id(1), id(3), physical.get_frame(), PlayerInputEdit::CaptureKind::GamepadButton);
+        start_gamepad_capture();
         ASSERT_TRUE(edit.capture());
         pad.buttons[static_cast<std::size_t>(Input::GamepadButton::East)] = true;
         physical.gamepad_sample(1, pad);
@@ -221,8 +226,7 @@ namespace Comet {
         edit.capture_input(physical.publish_frame(), true);
         EXPECT_FALSE(edit.capture());
         EXPECT_TRUE(edit.draft().actions().empty());
-        edit.start_capture(
-            id(1), id(3), physical.get_frame(), PlayerInputEdit::CaptureKind::GamepadButton);
+        start_gamepad_capture();
         physical.gamepad_sample(0, Input::GamepadSample{});
         physical.publish_frame();
         physical.gamepad_sample(0, pad);

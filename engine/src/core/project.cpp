@@ -41,16 +41,15 @@ namespace Comet {
                 if(!name)
                     return Result::failure(name.error());
                 InputActions::Context group{std::move(name).value()};
-                for(const auto [key, target] :
+                for(const auto& [key, target] :
                     {std::pair{"enabled", &group.enabled}, std::pair{"consume", &group.consume}}) {
                     Json::Node node;
-                    if(!entry[key].get(node)) {
-                        auto value =
-                            context.read_scalar<bool>(node, location + "." + key, "a boolean");
-                        if(!value)
-                            return Result::failure(value.error());
-                        *target = value.value();
-                    }
+                    if(entry[key].get(node))
+                        continue;
+                    auto value = context.read_scalar<bool>(node, location + "." + key, "a boolean");
+                    if(!value)
+                        return Result::failure(value.error());
+                    *target = value.value();
                 }
                 Json::Node priority;
                 if(!entry["priority"].get(priority)) {
@@ -134,13 +133,13 @@ namespace Comet {
                     for(const auto& [key, target] :
                         {std::pair{"scale", &scale}, std::pair{"deadzone", &deadzone}}) {
                         Json::Node value;
-                        if(!binding[key].get(value)) {
-                            auto parsed = context.read_scalar<float>(
-                                value, field + "." + key, "a finite number");
-                            if(!parsed)
-                                return Result<InputActions>::failure(parsed.error());
-                            *target = parsed.value();
-                        }
+                        if(binding[key].get(value))
+                            continue;
+                        auto parsed =
+                            context.read_scalar<float>(value, field + "." + key, "a finite number");
+                        if(!parsed)
+                            return Result<InputActions>::failure(parsed.error());
+                        *target = parsed.value();
                     }
                     auto parsed = InputActions::parse_binding(
                         source.value(), control.value(), scale, deadzone);
@@ -276,9 +275,11 @@ namespace Comet {
         if(project.m_name.find_first_not_of(" \t\r\n") == std::string::npos)
             return Result<Project>::failure(context.error("name", "name cannot be empty"));
         const bool has_assets = std::filesystem::is_directory(project.paths().assets(), error);
-        if(error || !has_assets)
-            return Result<Project>::failure(context.error(
-                "<root>", error ? error.message() : "assets directory does not exist"));
+        if(error)
+            return Result<Project>::failure(context.error("<root>", error.message()));
+        if(!has_assets)
+            return Result<Project>::failure(
+                context.error("<root>", "assets directory does not exist"));
 
         const auto scene_path = context.read_field<std::string>(
             data, "startup_scene", "an assets-relative .scene path");

@@ -204,28 +204,11 @@ namespace CometUi {
             }
             ImGui::EndCombo();
         }
-        if(name.source == "key" || name.source == "gamepad_button") {
-            const bool capturing = m_edit.capture() && m_edit.capture()->action == action.id
-                                   && m_edit.capture()->binding == binding.id;
-            const char* caption = "Record Key";
-            if(name.source == "gamepad_button")
-                caption = "Record Button";
-            if(capturing) {
-                if(name.source == "gamepad_button")
-                    caption = "Press Button";
-                else
-                    caption = "Press Key";
-            }
-            same_line_if_fits(button_width(text(translations, caption)));
-            if(ImGui::Button(label(translations, caption).c_str())) {
-                const auto kind = name.source == "gamepad_button"
-                                      ? Comet::PlayerInputEdit::CaptureKind::GamepadButton
-                                      : Comet::PlayerInputEdit::CaptureKind::Keyboard;
-                m_edit.start_capture(action.id, binding.id, input, kind);
-                if(m_edit.capture())
-                    ImGui::ClearActiveID();
-            }
-        }
+        using CaptureKind = Comet::PlayerInputEdit::CaptureKind;
+        if(name.source == "key")
+            render_capture_button(action, binding, CaptureKind::Keyboard, input, translations);
+        else if(name.source == "gamepad_button")
+            render_capture_button(action, binding, CaptureKind::GamepadButton, input, translations);
         if(action.type != Actions::Type::Button) {
             auto scale = effective.scale;
             set_field_width(120, text(translations, "Multiplier"));
@@ -242,6 +225,23 @@ namespace CometUi {
                 m_edit.change_deadzone(action.id, binding.id, deadzone);
             }
         }
+    }
+
+    void PlayerInputPanel::render_capture_button(const Action& action, const Binding& binding,
+        const Comet::PlayerInputEdit::CaptureKind kind, const Input::Frame& input,
+        const Text& translations) {
+        const auto& capture = m_edit.capture();
+        const bool capturing =
+            capture && capture->action == action.id && capture->binding == binding.id;
+        const char* caption = capturing ? "Press Key" : "Record Key";
+        if(kind == Comet::PlayerInputEdit::CaptureKind::GamepadButton)
+            caption = capturing ? "Press Button" : "Record Button";
+        same_line_if_fits(button_width(text(translations, caption)));
+        if(!ImGui::Button(label(translations, caption).c_str()))
+            return;
+        m_edit.start_capture(action.id, binding.id, input, kind);
+        if(m_edit.capture())
+            ImGui::ClearActiveID();
     }
 
     void PlayerInputPanel::render_binding(const Action& action, const Binding& binding,
@@ -284,8 +284,9 @@ namespace CometUi {
         const auto& effective_bindings = resolved.actions.actions()[m_selected_action].bindings;
         const auto effective = std::ranges::find(effective_bindings, binding.id, &Binding::id);
         ImGui::BeginDisabled(rejected);
-        render_controls(action, binding,
-            effective == effective_bindings.end() ? binding : *effective, input, translations);
+        const auto& effective_binding =
+            effective == effective_bindings.end() ? binding : *effective;
+        render_controls(action, binding, effective_binding, input, translations);
         ImGui::EndDisabled();
         ImGui::Separator();
         ImGui::PopID();
@@ -408,6 +409,53 @@ namespace CometUi {
         ImGui::EndChild();
     }
 
+    void PlayerInputPanel::render_error(const Text& translations) {
+        if(m_edit.error().empty())
+            return;
+        const auto available = ImGui::GetContentRegionAvail().y - footer_height(translations)
+                               - ImGui::GetStyle().ItemSpacing.y * 2;
+        const auto error_height = std::min(96.f, std::max(1.f, available * 0.35f));
+        ImGui::BeginChild("Error", ImVec2(0, error_height), true);
+        ImGui::TextWrapped("%s", text(translations, m_edit.error().c_str()));
+        ImGui::EndChild();
+    }
+
+    void PlayerInputPanel::render_content(const Input::Frame& input, const Text& translations) {
+        const auto body_height =
+            std::max(1.f, ImGui::GetContentRegionAvail().y - footer_height(translations)
+                              - ImGui::GetStyle().ItemSpacing.y);
+        ImGui::BeginChild("Content", ImVec2(0, body_height));
+        ImGui::TextWrapped("%s",
+            text(translations,
+                "Player overrides only; project defaults are unchanged. Unedited fields inherit defaults."));
+        render_actions(input, translations);
+        if(!m_edit.waiting()) {
+            const bool editing_text = ImGui::GetInputTextState(ImGui::GetActiveID());
+            const bool panel_focused =
+                ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+            m_edit.capture_input(input, !editing_text && panel_focused);
+        }
+        if(m_edit.capture()) {
+            const char* prompt = "Press a key; Escape cancels recording.";
+            if(m_edit.capture()->gamepad)
+                prompt = "Press a gamepad button; Escape cancels recording.";
+            ImGui::TextWrapped("%s", text(translations, prompt));
+        }
+        render_feedback(translations);
+        ImGui::EndChild();
+    }
+
+    void PlayerInputPanel::render_footer(const Text& translations) {
+        if(ImGui::Button(label(translations, "Apply").c_str()))
+            m_edit.apply();
+        same_line_if_fits(button_width(text(translations, "Cancel")));
+        if(ImGui::Button(label(translations, "Cancel").c_str()))
+            close();
+        same_line_if_fits(button_width(text(translations, "Restore All")));
+        if(ImGui::Button(label(translations, "Restore All").c_str()))
+            m_edit.restore_all();
+    }
+
     bool PlayerInputPanel::render(const Input::Frame& input, const Text& translations) {
         if(!m_open && !m_close_requested)
             return false;
@@ -421,8 +469,7 @@ namespace CometUi {
         if(!ImGui::BeginPopupModal(title.c_str(), nullptr,
                ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar
                    | ImGuiWindowFlags_NoScrollWithMouse)) {
-            if(m_close_requested)
-                m_close_requested = false;
+            m_close_requested = false;
             return true;
         }
         if(m_open && !m_edit.waiting()) {
@@ -435,45 +482,10 @@ namespace CometUi {
         }
         if(m_open) {
             render_reserved_keys(m_edit.reserved_keys(), translations);
-            if(!m_edit.error().empty()) {
-                const auto available = ImGui::GetContentRegionAvail().y
-                                       - footer_height(translations)
-                                       - ImGui::GetStyle().ItemSpacing.y * 2;
-                const auto error_height = std::min(96.f, std::max(1.f, available * 0.35f));
-                ImGui::BeginChild("Error", ImVec2(0, error_height), true);
-                ImGui::TextWrapped("%s", text(translations, m_edit.error().c_str()));
-                ImGui::EndChild();
-            }
-            const auto body_height =
-                std::max(1.f, ImGui::GetContentRegionAvail().y - footer_height(translations)
-                                  - ImGui::GetStyle().ItemSpacing.y);
+            render_error(translations);
             ImGui::BeginDisabled(m_edit.waiting());
-            ImGui::BeginChild("Content", ImVec2(0, body_height));
-            ImGui::TextWrapped("%s",
-                text(translations,
-                    "Player overrides only; project defaults are unchanged. Unedited fields inherit defaults."));
-            render_actions(input, translations);
-            if(!m_edit.waiting())
-                m_edit.capture_input(
-                    input, !ImGui::GetInputTextState(ImGui::GetActiveID())
-                               && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows));
-            if(m_edit.capture()) {
-                const char* prompt = "Press a key; Escape cancels recording.";
-                if(m_edit.capture()->gamepad)
-                    prompt = "Press a gamepad button; Escape cancels recording.";
-                ImGui::TextWrapped("%s", text(translations, prompt));
-            }
-            render_feedback(translations);
-            ImGui::EndChild();
-            if(ImGui::Button(label(translations, "Apply").c_str()))
-                m_edit.apply();
-            same_line_if_fits(button_width(text(translations, "Cancel")));
-            if(ImGui::Button(label(translations, "Cancel").c_str()))
-                close();
-            same_line_if_fits(button_width(text(translations, "Restore All")));
-            if(ImGui::Button(label(translations, "Restore All").c_str())) {
-                m_edit.restore_all();
-            }
+            render_content(input, translations);
+            render_footer(translations);
             ImGui::EndDisabled();
         }
         if(m_close_requested) {

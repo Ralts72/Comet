@@ -33,9 +33,12 @@ namespace Comet {
             for(const auto& scalar : material.scalars) {
                 if(auto result = validate_name(scalar.name); !result)
                     return result;
-                if(!std::isfinite(scalar.default_value) || !std::isfinite(scalar.min_value)
-                    || !std::isfinite(scalar.max_value) || !std::isfinite(scalar.step)
-                    || scalar.min_value > scalar.max_value || scalar.step <= 0)
+                const bool finite_values =
+                    std::isfinite(scalar.default_value) && std::isfinite(scalar.min_value)
+                    && std::isfinite(scalar.max_value) && std::isfinite(scalar.step);
+                const bool valid_editing_range =
+                    scalar.min_value <= scalar.max_value && scalar.step > 0;
+                if(!finite_values || !valid_editing_range)
                     return Result<void>::failure(
                         context.error("material", "invalid scalar editing range or default"));
             }
@@ -163,7 +166,7 @@ namespace Comet {
                     read_display(item, scalar.display_name, std::string(location), context);
                 !display)
                 return Result<ShaderMaterialScalar>::failure(display.error());
-            for(const auto [field, target] :
+            for(const auto& [field, target] :
                 {std::pair<std::string_view, float*>{"min", &scalar.min_value},
                     {"max", &scalar.max_value}, {"step", &scalar.step}})
                 if(auto valid = read_optional_float(item, field, *target, location, context);

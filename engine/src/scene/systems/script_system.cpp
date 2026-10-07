@@ -127,12 +127,14 @@ namespace Comet {
                     dependencies.insert(member.dependencies.begin(), member.dependencies.end());
                 }
                 for(const auto& [handle, member] : versions) {
-                    if(!group.scripts.contains(handle)
-                        && std::ranges::any_of(member.dependencies,
-                            [&](const auto& path) { return dependencies.contains(path); })) {
-                        group.scripts.emplace(handle, member.current);
-                        expanded = true;
-                    }
+                    if(group.scripts.contains(handle))
+                        continue;
+                    const bool shares_dependency = std::ranges::any_of(member.dependencies,
+                        [&](const auto& path) { return dependencies.contains(path); });
+                    if(!shares_dependency)
+                        continue;
+                    group.scripts.emplace(handle, member.current);
+                    expanded = true;
                 }
             }
             for(const auto& [handle, script] : group.scripts)
@@ -154,8 +156,12 @@ namespace Comet {
             return false;
         for(const auto& [key, entity] : group.instances) {
             const auto found = failed.find(key);
-            if(found == failed.end() || found->second.script.lock() != group.scripts.at(key.asset)
-                || found->second.overrides != entity.get_component<ScriptComponent>().parameters)
+            if(found == failed.end())
+                return false;
+            const auto& previous = found->second;
+            if(previous.script.lock() != group.scripts.at(key.asset))
+                return false;
+            if(previous.overrides != entity.get_component<ScriptComponent>().parameters)
                 return false;
         }
         return true;
@@ -249,10 +255,10 @@ namespace Comet {
     Result<void, Error> ScriptSystem::synchronize(Scene& scene) {
         for(auto it = m_start_order.rbegin(); it != m_start_order.rend(); ++it) {
             auto found = m_entries.find(*it);
-            if(!is_live(found->first, found->second)) {
-                stop_entry(found->first, found->second, StopReason::LiveChange);
-                m_entries.erase(found);
-            }
+            if(is_live(found->first, found->second))
+                continue;
+            stop_entry(found->first, found->second, StopReason::LiveChange);
+            m_entries.erase(found);
         }
         std::erase_if(m_start_order, [this](const Key& key) { return !m_entries.contains(key); });
         std::map<Key, Entity> pending;
@@ -322,6 +328,8 @@ namespace Comet {
                 case Scene::ContactEvent::Kind::TriggerExit:
                     phase = Script::Phase::TriggerExit;
                     break;
+                default:
+                    return Result<void, Error>::failure({"Unknown contact event kind"});
             }
             for(const auto& [self, other] :
                 {std::pair{event.first, event.second}, std::pair{event.second, event.first}}) {

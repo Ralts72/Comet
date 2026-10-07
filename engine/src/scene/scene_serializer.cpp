@@ -41,9 +41,10 @@ namespace Comet {
             const auto elements = context.array(node, location);
             if(!elements)
                 return Result<Vector>::failure(elements.error());
-            if(elements.value().size() != Vector::length()) {
+            constexpr auto component_count = static_cast<std::size_t>(Vector::length());
+            if(elements.value().size() != component_count) {
                 return Result<Vector>::failure(context.error(
-                    location, "expected exactly " + std::to_string(Vector::length()) + " numbers"));
+                    location, "expected exactly " + std::to_string(component_count) + " numbers"));
             }
 
             Vector value;
@@ -408,7 +409,8 @@ namespace Comet {
             if(depth > SceneSerializer::MAX_HIERARCHY_DEPTH)
                 return Result<void>::failure(
                     context.error(entity_location(index), "maximum hierarchy depth exceeded"));
-            const EntityUuid uuid = records[index].uuid;
+            const auto& record = records[index];
+            const EntityUuid uuid = record.uuid;
             if(const auto state = states.find(uuid); state != states.end()) {
                 if(state->second.state == RecordVisitState::Visiting) {
                     return Result<void>::failure(context.error(
@@ -418,14 +420,15 @@ namespace Comet {
             }
 
             states.emplace(uuid, RecordVisit{});
-            if(records[index].parent) {
-                if(auto result = visit_parent_chain(indices.at(*records[index].parent), depth + 1,
-                       records, indices, states, context);
+            std::size_t hierarchy_depth = 1;
+            if(record.parent) {
+                const EntityUuid parent = *record.parent;
+                if(auto result = visit_parent_chain(
+                       indices.at(parent), depth + 1, records, indices, states, context);
                     !result)
                     return result;
+                hierarchy_depth = states.at(parent).hierarchy_depth + 1;
             }
-            const std::size_t hierarchy_depth =
-                records[index].parent ? states.at(*records[index].parent).hierarchy_depth + 1 : 1;
             if(hierarchy_depth > SceneSerializer::MAX_HIERARCHY_DEPTH)
                 return Result<void>::failure(
                     context.error(entity_location(index), "maximum hierarchy depth exceeded"));

@@ -322,17 +322,35 @@ namespace CometEditor::AssetSourceOperations {
             if(!inserted && it->second != canonical)
                 return Result<void>::failure(
                     "Dropped files have conflicting names: " + relative.string());
-            if(inserted) {
-                const auto size = std::filesystem::file_size(canonical, error);
-                if(error)
-                    return Result<void>::failure(
-                        "Cannot measure import file '" + source.string() + "': " + error.message());
-                if(size > limits.external_file_bytes - source_bytes)
-                    return Result<void>::failure("Import source batch exceeds byte budget of "
-                                                 + std::to_string(limits.external_file_bytes)
-                                                 + " bytes");
-                source_bytes += size;
-                file_sizes.emplace(relative, size);
+            if(!inserted)
+                return Result<void>::success();
+            const auto size = std::filesystem::file_size(canonical, error);
+            if(error)
+                return Result<void>::failure(
+                    "Cannot measure import file '" + source.string() + "': " + error.message());
+            if(size > limits.external_file_bytes - source_bytes)
+                return Result<void>::failure("Import source batch exceeds byte budget of "
+                                             + std::to_string(limits.external_file_bytes)
+                                             + " bytes");
+            source_bytes += size;
+            file_sizes.emplace(relative, size);
+            return Result<void>::success();
+        }
+
+        Result<void> add_model_dependencies(const std::filesystem::path& source) {
+            std::error_code error;
+            const auto parent = std::filesystem::canonical(source.parent_path(), error);
+            if(error)
+                return Result<void>::failure("Cannot resolve model directory: " + error.message());
+            const auto dependencies = gltf_dependencies(source);
+            if(!dependencies)
+                return Result<void>::failure(dependencies.error());
+            for(const auto& dependency : dependencies.value()) {
+                const auto path = source.parent_path() / dependency;
+                if(auto result = validate_inside(parent, path); !result)
+                    return result;
+                if(auto result = add_file(path, dependency); !result)
+                    return result;
             }
             return Result<void>::success();
         }
@@ -355,23 +373,10 @@ namespace CometEditor::AssetSourceOperations {
                     return result;
                 if(std::ranges::find(roots, relative) == roots.end())
                     roots.push_back(relative);
-                if(*type == AssetType::Mesh) {
-                    const auto parent = std::filesystem::canonical(source.parent_path(), error);
-                    if(error)
-                        return Result<void>::failure(
-                            "Cannot resolve model directory: " + error.message());
-                    auto dependencies = gltf_dependencies(source);
-                    if(!dependencies)
-                        return Result<void>::failure(dependencies.error());
-                    for(const auto& dependency : dependencies.value()) {
-                        if(auto result = validate_inside(parent, source.parent_path() / dependency);
-                            !result)
-                            return result;
-                        if(auto result = add_file(source.parent_path() / dependency, dependency);
-                            !result)
-                            return result;
-                    }
-                }
+                if(*type != AssetType::Mesh)
+                    continue;
+                if(auto result = add_model_dependencies(source); !result)
+                    return result;
             }
             if(roots.empty())
                 return Result<void>::failure(
@@ -400,6 +405,52 @@ namespace CometEditor::AssetSourceOperations {
                     return result;
                 if(auto result = validate_available(metadata_path(destination / relative)); !result)
                     return result;
+            }
+            return Result<void>::success();
+        }
+
+        Result<void> validate_staged_source(const std::filesystem::path& relative) const {
+            const auto type = external_import_type(relative);
+            if(!type)
+                return Result<void>::failure("Unsupported import source: " + relative.string());
+            const auto source = staging / relative;
+            switch(*type) {
+                case AssetType::Mesh: {
+                    // 再检查暂存副本，拒绝复制期间改变了依赖列表的源文件。
+                    const auto dependencies = gltf_dependencies(source);
+                    if(!dependencies)
+                        return Result<void>::failure(dependencies.error());
+                    for(const auto& dependency : dependencies.value()) {
+                        if(!files.contains(dependency))
+                            return Result<void>::failure(
+                                "glTF dependencies changed during copy; retry import");
+                    }
+                    if(auto result =
+                            MeshImporter{}.import(source, limits.mesh_working_bytes, limits);
+                        !result)
+                        return Result<void>::failure(result.error());
+                    break;
+                }
+                case AssetType::Texture:
+                    if(auto result = TextureImporter{}.import(
+                           source, {}, limits.texture_working_bytes, limits);
+                        !result)
+                        return Result<void>::failure(result.error());
+                    break;
+                case AssetType::Environment:
+                    return EnvironmentImporter{}.validate_source(source);
+                case AssetType::Script:
+                    if(auto script = Script::load(source); !script)
+                        return Result<void>::failure(
+                            "Cannot validate standalone Lua import: " + script.error().message
+                            + "; scripts requiring project modules must be created inside project assets");
+                    break;
+                case AssetType::Audio:
+                    if(auto clip = AudioClip::load(source); !clip)
+                        return Result<void>::failure(clip.error().message);
+                    break;
+                default:
+                    return Result<void>::failure("Unsupported import source: " + relative.string());
             }
             return Result<void>::success();
         }
@@ -436,53 +487,9 @@ namespace CometEditor::AssetSourceOperations {
                     return Result<void>::failure(
                         "Import source size changed during copy: " + source.string());
             }
-            for(const auto& relative : roots) {
-                const auto type = external_import_type(relative);
-                if(!type)
-                    return Result<void>::failure("Unsupported import source: " + relative.string());
-                switch(*type) {
-                    case AssetType::Mesh: {
-                        // 再检查暂存副本，拒绝复制期间改变了依赖列表的源文件。
-                        auto dependencies = gltf_dependencies(staging / relative);
-                        if(!dependencies)
-                            return Result<void>::failure(dependencies.error());
-                        for(const auto& dependency : dependencies.value()) {
-                            if(!files.contains(dependency))
-                                return Result<void>::failure(
-                                    "glTF dependencies changed during copy; retry import");
-                        }
-                        if(auto result = MeshImporter{}.import(
-                               staging / relative, limits.mesh_working_bytes, limits);
-                            !result)
-                            return Result<void>::failure(result.error());
-                        break;
-                    }
-                    case AssetType::Texture:
-                        if(auto result = TextureImporter{}.import(
-                               staging / relative, {}, limits.texture_working_bytes, limits);
-                            !result)
-                            return Result<void>::failure(result.error());
-                        break;
-                    case AssetType::Environment:
-                        if(auto result = EnvironmentImporter{}.validate_source(staging / relative);
-                            !result)
-                            return Result<void>::failure(result.error());
-                        break;
-                    case AssetType::Script:
-                        if(auto script = Script::load(staging / relative); !script)
-                            return Result<void>::failure(
-                                "Cannot validate standalone Lua import: " + script.error().message
-                                + "; scripts requiring project modules must be created inside project assets");
-                        break;
-                    case AssetType::Audio:
-                        if(auto clip = AudioClip::load(staging / relative); !clip)
-                            return Result<void>::failure(clip.error().message);
-                        break;
-                    default:
-                        return Result<void>::failure(
-                            "Unsupported import source: " + relative.string());
-                }
-            }
+            for(const auto& relative : roots)
+                if(auto result = validate_staged_source(relative); !result)
+                    return result;
             return Result<void>::success();
         }
 

@@ -114,16 +114,16 @@ namespace Comet {
                     return Read::failure(context.error(location, parsed.error()));
                 binding.control = parsed.value().control;
             }
-            for(const auto [key, target] :
+            for(const auto& [key, target] :
                 {std::pair{"scale", &binding.scale}, std::pair{"deadzone", &binding.deadzone}}) {
                 Json::Node field;
-                if(!node[key].get(field)) {
-                    const auto value =
-                        context.read_scalar<float>(field, location + "." + key, "a finite number");
-                    if(!value)
-                        return Read::failure(value.error());
-                    *target = value.value();
-                }
+                if(node[key].get(field))
+                    continue;
+                const auto value =
+                    context.read_scalar<float>(field, location + "." + key, "a finite number");
+                if(!value)
+                    return Read::failure(value.error());
+                *target = value.value();
             }
             return Read::success(std::move(binding));
         }

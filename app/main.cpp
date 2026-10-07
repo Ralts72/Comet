@@ -109,18 +109,8 @@ namespace {
                 if(auto restarted = restart_scene(); !restarted)
                     return restarted;
             }
-            if(m_pending_scene) {
-                auto ready = m_asset_manager->references_ready(
-                    m_pending_references, Comet::AssetManager::MissingAssetPolicy::FailRequired);
-                if(!ready)
-                    return Comet::Result<void, Comet::Error>::failure(ready.error());
-                if(ready.value()) {
-                    get_engine().set_scene(std::move(m_pending_scene));
-                    m_pending_references.clear();
-                    if(auto started = get_engine().start_scene_runtime(); !started)
-                        return started;
-                }
-            }
+            if(auto activated = activate_pending_scene(); !activated)
+                return activated;
             // 延期帧没有 UI 回调，仍保持菜单对游戏输入的阻断。
             m_input_before_ui = m_input_gate;
             frame.runtime_input = m_input_gate.read(frame.physical_input,
@@ -140,12 +130,7 @@ namespace {
             const Comet::ScopeExit end_ui([this] { m_ui->end_frame(); });
             render_input_entry();
             m_ui_blocked = m_player_input_panel.render(frame.physical_input);
-            if(auto requested = m_player_input_panel.take_request()) {
-                const auto applied = apply_player_input(std::move(*requested));
-                m_player_input_panel.complete(applied);
-                if(!applied)
-                    LOG_WARN("Cannot apply player input: {}", applied.error());
-            }
+            apply_requested_player_input();
             if(!m_player_input_panel.is_open())
                 m_player_input_settings.reset();
             const bool close_error = frame.physical_input.focused
@@ -169,6 +154,31 @@ namespace {
         }
 
     private:
+        Comet::Result<void, Comet::Error> activate_pending_scene() {
+            using Activation = Comet::Result<void, Comet::Error>;
+            if(!m_pending_scene)
+                return Activation::success();
+            const auto ready = m_asset_manager->references_ready(
+                m_pending_references, Comet::AssetManager::MissingAssetPolicy::FailRequired);
+            if(!ready)
+                return Activation::failure(ready.error());
+            if(!ready.value())
+                return Activation::success();
+            get_engine().set_scene(std::move(m_pending_scene));
+            m_pending_references.clear();
+            return get_engine().start_scene_runtime();
+        }
+
+        void apply_requested_player_input() {
+            auto requested = m_player_input_panel.take_request();
+            if(!requested)
+                return;
+            const auto applied = apply_player_input(std::move(*requested));
+            m_player_input_panel.complete(applied);
+            if(!applied)
+                LOG_WARN("Cannot apply player input: {}", applied.error());
+        }
+
         void render_input_entry() {
             const auto* viewport = ImGui::GetMainViewport();
             ImGui::SetNextWindowPos(
