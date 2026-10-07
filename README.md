@@ -609,7 +609,8 @@ Inspector 切换／清空 Script 引用会同时清空覆盖，一次 Undo 恢�
 
 编辑器 Play 中保存当前使用的 Lua 文件，既有资产监听会验证并发布新版；下一次实际运行更新时重建该脚本的活动实例。
 Project 中右键组件脚本或 `.module.lua` 选择“打开源码”，可交给外部文本编辑器修改；
-macOS 使用系统默认文本编辑器，Windows 使用系统记事本，Linux 使用 `text/plain` 默认程序。
+macOS 优先使用已安装的 VS Code，无需配置 `code` 命令；未安装时使用系统默认文本编辑器。
+Windows 使用系统记事本，Linux 使用 `text/plain` 默认程序。
 此操作不运行脚本、不改资产身份，也不自动保存场景；没有编辑程序或源文件已移走时会显示错误。
 脚本和模块使用 UTF-8 文本，允许文件开头的 UTF-8 BOM；LF／CRLF 均可，暂不转换 UTF-16 等其他编码。
 可把 `demo/assets/scripts/spin.lua` 中的 `comet.rotate` 方向改为负数，保存后观察旋转反向，无需 Stop／Play。
@@ -841,6 +842,10 @@ Finder 导入只支持独立组件脚本，暂不处理 Lua 多文件依赖包�
 完整程序以同目录、同名 `.vert/.frag` 表示；新增程序需加入 `engine/shaders/CMakeLists.txt` 显式配对列表。
 当前生成文件使用阶段文件名，须保持全局唯一。
 公共 `.glsl` 通过相对路径包含，构建依赖与编辑器热重载均跟踪实际 include。
+Project 中右键项目的 `.vert`、`.frag`、`.comp`、`.geom` 阶段源码、`.glsl` 公共文件或
+`.shader` 程序描述文件，选择“打开源码”即可用外部编辑器修改；macOS 同样优先使用 VS Code。
+正在使用的项目材质程序及其依赖保存后沿用既有的 Shader 热重载流程；
+仅打开文件不会触发编译，语法错误也不妨碍打开修复。
 编辑器热重载已登记的材质程序及其公共 include；调试线、阴影、天空盒与显示输出修改需重新构建。
 macOS 的内置 Shader 热重载由目录通知唤醒，其他平台暂用 500 ms 输入复核；真正编译前仍校验输入快照。
 `MaterialShaders` 按程序名持有顶点/片元字节码，允许提交任意完整程序对；

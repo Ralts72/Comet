@@ -43,7 +43,10 @@ namespace CometEditor::AssetSourceOperations {
     [[nodiscard]] Comet::AssetScanReport create_script(Comet::AssetDatabase& database,
         const std::filesystem::path& destination, ScriptKind kind = ScriptKind::Component);
 
-    [[nodiscard]] Comet::Result<std::filesystem::path> resolve_script_source(
+    [[nodiscard]] bool can_open_source(
+        const Comet::AssetDatabase& database, const std::filesystem::path& source);
+
+    [[nodiscard]] Comet::Result<std::filesystem::path> resolve_source_file(
         const Comet::AssetDatabase& database, const std::filesystem::path& source);
 
     [[nodiscard]] Comet::AssetScanReport move_module(Comet::AssetDatabase& database,

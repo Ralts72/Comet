@@ -132,7 +132,8 @@ namespace CometEditor {
                 const auto source = path / name;
                 ImGui::PushID(source.generic_string().c_str());
                 const bool module = name.ends_with(".module.lua");
-                if(module)
+                const bool editable = AssetSourceOperations::can_open_source(m_database, source);
+                if(module || editable)
                     ImGui::Selectable(name.c_str(), false);
                 else
                     ImGui::TextUnformatted(name.c_str());
@@ -145,12 +146,13 @@ namespace CometEditor {
                     ImGui::TextUnformatted(Ui::text("require references will not be changed."));
                     ImGui::EndDragDropSource();
                 }
-                if(module && ImGui::BeginPopupContextItem("Module actions")) {
+                if((module || editable)
+                    && ImGui::BeginPopupContextItem(module ? "Module actions" : "Source actions")) {
                     if(ImGui::MenuItem(Ui::label("Open Source").c_str()))
                         m_pending_open_source = source;
-                    if(ImGui::MenuItem(Ui::label("Rename").c_str()))
+                    if(module && ImGui::MenuItem(Ui::label("Rename").c_str()))
                         request_rename(source);
-                    if(ImGui::MenuItem(Ui::label("Delete").c_str()))
+                    if(module && ImGui::MenuItem(Ui::label("Delete").c_str()))
                         request_delete(source);
                     ImGui::EndPopup();
                 }
@@ -176,7 +178,7 @@ namespace CometEditor {
                 ImGui::EndDragDropSource();
             }
             if(ImGui::BeginPopupContextItem()) {
-                if(asset.type == Comet::AssetType::Script
+                if(AssetSourceOperations::can_open_source(m_database, asset.path)
                     && ImGui::MenuItem(Ui::label("Open Source").c_str()))
                     m_pending_open_source = asset.path;
                 if(asset.type == Comet::AssetType::Mesh

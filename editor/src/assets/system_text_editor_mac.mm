@@ -1,5 +1,6 @@
 #include "assets/system_text_editor.h"
 
+#import <AppKit/NSWorkspace.h>
 #import <Foundation/Foundation.h>
 
 #include <string>
@@ -11,9 +12,12 @@ namespace CometEditor::SystemTextEditor {
             if(!name)
                 return Comet::Result<void>::failure("Text editor source path is not valid UTF-8");
 
+            NSURL* vscode = [[NSWorkspace sharedWorkspace]
+                URLForApplicationWithBundleIdentifier:@"com.microsoft.VSCode"];
+            NSArray<NSString*>* arguments = vscode ? @[@"-a", vscode.path, name] : @[@"-t", name];
             NSError* launch_error = nil;
             NSTask* task = [NSTask launchedTaskWithExecutableURL:[NSURL fileURLWithPath:@"/usr/bin/open"]
-                                                       arguments:@[@"-t", name]
+                                                       arguments:arguments
                                                            error:&launch_error
                                               terminationHandler:nil];
             if(!task) {

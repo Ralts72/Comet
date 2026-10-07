@@ -5,6 +5,7 @@
 #include "scene/scene_commands.h"
 #include "assets/asset_reference.h"
 #include "assets/source_operations.h"
+#include "asset/serialization/shader_program_serializer.h"
 #include "common/file_io.h"
 
 #include "support/imgui_context.h"
@@ -932,16 +933,25 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(project->take_mesh_reimport_request());
     }
 
-    TEST_F(ProjectPanelTest, ScriptAndModuleMenusRequestTextEditingWithoutChangingSelection) {
+    TEST_F(ProjectPanelTest, SourceMenusRequestTextEditingWithoutChangingSelection) {
         ASSERT_TRUE(AssetSourceOperations::create_script(database, "actor.lua").succeeded());
         ASSERT_TRUE(AssetSourceOperations::create_script(
             database, "shared.module.lua", AssetSourceOperations::ScriptKind::Module)
                 .succeeded());
+        for(const auto* source : {"test.vert", "test.frag", "shared.glsl"})
+            ASSERT_TRUE(Comet::write_text_file_atomic(paths.assets() / source, "void main() {}"));
+        ASSERT_TRUE(database.scan().succeeded());
+        ASSERT_NE(database.find("test.vert"), nullptr);
+        ASSERT_NE(database.find("test.frag"), nullptr);
+        const Comet::ShaderProgramData data{
+            {database.find("test.vert")->handle}, {database.find("test.frag")->handle}};
+        ASSERT_TRUE(Comet::ShaderProgramSerializer{}.save(data, paths.assets() / "test.shader"));
         project->update_scan_report(database.scan());
         const auto texture = database.find("a.png")->handle;
         selection.select_asset(texture);
 
-        for(const auto* source : {"actor.lua", "shared.module.lua"}) {
+        for(const auto* source : {"actor.lua", "shared.module.lua", "test.vert", "test.frag",
+                "shared.glsl", "test.shader"}) {
             search(source);
             click(row_point(1), 1);
             auto& context = *ImGui::GetCurrentContext();

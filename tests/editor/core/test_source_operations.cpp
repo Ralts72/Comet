@@ -1,5 +1,8 @@
 #include "assets/source_operations.h"
+#include "asset/serialization/shader_program_serializer.h"
 #include "support/asset_manager_fixture.h"
+
+#include <array>
 
 namespace Comet::Tests {
     namespace SourceOperations = CometEditor::AssetSourceOperations;
@@ -21,7 +24,7 @@ namespace Comet::Tests {
 
         for(const auto& path : {component, module}) {
             ASSERT_TRUE(write_text_file_atomic(assets / path, "invalid Lua, edit me"));
-            const auto resolved = SourceOperations::resolve_script_source(database, path);
+            const auto resolved = SourceOperations::resolve_source_file(database, path);
             ASSERT_TRUE(resolved) << resolved.error();
             EXPECT_EQ(resolved.value(), std::filesystem::canonical(assets / path));
         }
@@ -30,7 +33,44 @@ namespace Comet::Tests {
         EXPECT_FALSE(std::filesystem::exists(metadata_path(assets / module)));
     }
 
-    TEST(AssetSourceOperationsTest, SourceEditorRejectsStaleNonScriptAndOutsideFiles) {
+    TEST(AssetSourceOperationsTest, ResolvesShaderSourcesForEditingWithoutCompilingOrScanning) {
+        const TemporaryProject project;
+        AssetDatabase database(project.paths());
+        const auto assets = project.paths().assets();
+        std::filesystem::create_directories(assets / "shader files");
+        const std::array<std::filesystem::path, 5> sources{
+            "shader files/角色.vert", "test.frag", "test.comp", "test.geom", "shared.glsl"};
+        for(const auto& source : sources)
+            ASSERT_TRUE(write_text_file_atomic(assets / source, "void main() {}"));
+        ASSERT_TRUE(database.scan().succeeded());
+        ASSERT_NE(database.find(sources[0]), nullptr);
+        ASSERT_NE(database.find(sources[1]), nullptr);
+        const ShaderProgramData data{
+            {database.find(sources[0])->handle}, {database.find(sources[1])->handle}};
+        ASSERT_TRUE(ShaderProgramSerializer{}.save(data, assets / "test.shader"));
+        ASSERT_TRUE(database.scan().succeeded());
+        ASSERT_NE(database.find("test.shader"), nullptr);
+        const auto program = database.find("test.shader")->handle;
+        const auto revision = database.get_revision(program);
+        const auto size = database.size();
+
+        const auto check_source = [&](const std::filesystem::path& source) {
+            ASSERT_TRUE(write_text_file_atomic(assets / source, "invalid shader, edit me"));
+            EXPECT_TRUE(SourceOperations::can_open_source(database, source));
+            const auto resolved = SourceOperations::resolve_source_file(database, source);
+            ASSERT_TRUE(resolved) << resolved.error();
+            EXPECT_EQ(resolved.value(), std::filesystem::canonical(assets / source));
+        };
+        for(const auto& source : sources)
+            check_source(source);
+        check_source("test.shader");
+        EXPECT_EQ(database.size(), size);
+        EXPECT_EQ(database.get_revision(program), revision);
+        EXPECT_EQ(database.find("shared.glsl"), nullptr);
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(assets / "shared.glsl")));
+    }
+
+    TEST(AssetSourceOperationsTest, SourceEditorRejectsStaleUnsupportedAndOutsideFiles) {
         const TemporaryProject project;
         AssetDatabase database(project.paths());
         ASSERT_TRUE(database.scan().succeeded());
@@ -39,17 +79,21 @@ namespace Comet::Tests {
         ASSERT_TRUE(std::filesystem::remove(assets / "actor.lua"));
         ASSERT_TRUE(write_text_file_atomic(assets / "image.png", "not a script"));
         std::filesystem::create_directory(assets / "folder.module.lua");
+        std::filesystem::create_directory(assets / "folder.glsl");
         for(const auto* path : {"actor.lua", "missing.module.lua", "image.png", "folder.module.lua",
-                "../outside.module.lua"})
-            EXPECT_FALSE(SourceOperations::resolve_script_source(database, path)) << path;
-        EXPECT_FALSE(SourceOperations::resolve_script_source(database, assets / "actor.lua"));
+                "../outside.module.lua", "missing.vert", "missing.shader", "missing.glsl",
+                "folder.glsl", "../outside.glsl"})
+            EXPECT_FALSE(SourceOperations::resolve_source_file(database, path)) << path;
+        EXPECT_FALSE(SourceOperations::resolve_source_file(database, assets / "actor.lua"));
 
         const auto outside = project.paths().root() / "outside.module.lua";
         ASSERT_TRUE(write_text_file_atomic(outside, "return {}"));
         std::error_code error;
-        std::filesystem::create_symlink(outside, assets / "alias.module.lua", error);
-        if(!error)
-            EXPECT_FALSE(SourceOperations::resolve_script_source(database, "alias.module.lua"));
+        for(const auto* alias : {"alias.module.lua", "alias.glsl"}) {
+            std::filesystem::create_symlink(outside, assets / alias, error);
+            if(!error)
+                EXPECT_FALSE(SourceOperations::resolve_source_file(database, alias));
+        }
         EXPECT_EQ(read_text_file(outside).value(), "return {}");
         EXPECT_NE(database.find("actor.lua"), nullptr);
     }

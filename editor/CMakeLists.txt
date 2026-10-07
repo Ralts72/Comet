@@ -34,7 +34,8 @@ add_library(editor_core STATIC
 )
 target_link_libraries(editor_core PUBLIC engine comet_asset_tools comet_shader_tools PRIVATE yaml-cpp fastgltf::fastgltf simdjson)
 if(APPLE)
-    target_link_libraries(editor_core PRIVATE "-framework CoreServices" "-framework Foundation")
+    target_link_libraries(editor_core PRIVATE
+        "-framework CoreServices" "-framework Foundation" "-framework AppKit")
 elseif(WIN32)
     target_link_libraries(editor_core PRIVATE ole32 shell32)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
