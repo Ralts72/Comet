@@ -13,11 +13,14 @@
 | `tools/asset/` | Engine CPU 资产与共用 Shader 编译库 | 编辑器与 CLI 共用源编译；无窗口准备启动场景依赖，engine/app 不链接该工具库 |
 | `render/` | Scene 提取结果、资产缓存、Graphics | Renderer 编排帧与离屏输出；SceneRenderer 拥有目标，不知道 ImGui |
 | `graphics/` | Vulkan、平台窗口及通用能力 | 图形后端不依赖 Editor；`core/engine.cpp` 是宿主组合点，可使用 Graphics/Render |
-| `ui/` | Engine 输入值／图形后端、ImGui | App／Editor 共用的设置界面和呈现后端，不依赖 Editor、Project 或编辑工作流 |
-| `editor/`、`app/` | Engine 组合入口、明确的工作流接口、`comet_ui` | 宿主装配 UI；业务视口经 Renderer 离屏帧快照取图，不穿透 SceneRenderer |
+| `ui/` | Engine 输入值／图形后端、ImGui | 编辑器的设置界面和呈现后端，不依赖 Editor 状态或编辑工作流 |
+| `engine/src/ui/` | Engine 输入值／图形资源、RmlUi Core／FreeType | 可选 `comet_game_ui` 库；拥有通用上下文、字体、页面加载、输入与 GPU 适配，不依赖游戏菜单 |
+| `editor/`、`app/` | Engine 组合入口、明确的工作流接口；分别装配 `comet_ui`／`comet_game_ui` | 业务视口经 Renderer 离屏帧快照取图，不穿透 SceneRenderer |
 
-共享 UI 默认加载 `engine/resources/fonts/` 中的字体，App 与 Editor 的玩家改键界面使用相同的 16px 字体配置。
-字体资源由 Engine 目录保存，ImGui 加载与中英文字体合并仍属于 `ui/`，不向 Engine 引入 ImGui 依赖。
+App／Editor 使用 `engine/resources/fonts/` 中的同一字体。ImGui 合并与 RmlUi 字体回退由各 UI 后端负责，
+Engine 核心库不链接 UI 框架；`engine/src/ui` 通过 `COMET_BUILD_GAME_UI` 作为可选库接入 RmlUi，可独立于示例 app 构建。
+示例 RML／RCSS 属于 `demo/assets/ui`，HUD、改键数据绑定与快捷键属于 `app/src/player_input_menu`。
+页面资源和字体按各自来源复制进示例 app bundle，不由引擎模块携带示例页面。
 
 `SceneSerializer` 的 serialize／clone 共用 Descriptor 内容采集，deserialize／clone 共用实体和层级恢复。
 clone 直接使用内存内容快照，保留 UUID、实体引用及树遍历创建顺序；不复制 transient 字段、运行会话或排队请求。
@@ -28,9 +31,23 @@ clone 直接使用内存内容快照，保留 UUID、实体引用及树遍历创
 资产层也执行该限制，明确排除 AssetManager 的两个实现文件，并仅允许 TextureData 引用后端无关枚举。
 `editor/src/` 功能代码不得直接包含 SceneRenderer、RenderContext、FrameScheduler、Presentation 或 Vulkan/GLFW 头；
 ImGuiContext 位于共享 `ui/`，不再为 Editor 功能目录保留后端例外；`editor/editor.cpp` 是扫描范围外的宿主集成点。
-这些是防止依赖倒退的轻量检查，不检查传递包含，也不等同于独立编译目标；当前 `engine` 仍是一个库。
+这些是防止依赖倒退的轻量检查，不检查传递包含；Engine 核心库与可选 `comet_game_ui` 分开编译。
 编辑器按链接依赖分为 `editor_core`（无 ImGui）和 `editor_ui`，入口及对应测试复用这些库；
-共享 `comet_ui` 链接 engine／ImGui，app 不链接 editor_core／editor_ui。
+`comet_ui` 链接 engine／ImGui；app 通过示例视图库 `comet_demo_ui` 链接 `comet_game_ui`，不链接 ImGui、editor_core／editor_ui。
+
+`Ui::RmlContext` 提供通用 RmlUi 会话、可配置字体、候选文档替换、输入处理和 Overlay 绘制。
+它要求调用方提供资源根目录，能加载没有改键控件的任意页面；不认识 demo 路径、动作名或个人设置。
+后端扩展接口只在这个可选模块中暴露 RmlUi，Scene／Input／Renderer 核心公共接口不包含第三方 UI 类型。
+首轮每个进程只允许一个 `RmlContext` 拥有 RmlUi Core；多窗口／多上下文共享会话尚待扩展。
+候选文档先解析、由调用方校验结构，再生成资源并验证绘制；失败恢复旧文档，成功才关闭旧文档。
+业务回调通过加载状态及当前文档身份忽略候选页事件，避免无效候选页修改应用状态。
+
+`app/src/player_input_menu` 负责 HUD、菜单控件 ID、数据模型与快捷键，改键交易由 `PlayerInputEdit` 管理；
+个人文件保存和 Runtime 应用继续由 app 宿主编排。Window 发布与物理帧同序号的有界、有序 UI 事件。
+输入适配处理 DPI、已提交 Unicode、焦点、指针及模拟手柄导航；关闭和失焦取消尚未派发的 UI 输入，关闭当帧仍阻断 Gameplay。
+录入期间保留控件焦点并暂停 UI 按键／指针派发。完整原生 IME、UI 资产发布和 Editor 预览尚未接通。
+资产扫描将 `.rml`／`.rcss` 识别为源文件，不生成元数据或稳定资产句柄；当前 UI 直接读取文件，资产发布链路仍待接入。
+FreeType 的字体解析、度量与栅格化可供其他文字模块复用；图集缓存、GPU 资源及其在途生命周期属于各呈现后端。
 
 ## 先看哪个类
 
@@ -855,10 +872,14 @@ resize 失败保持实际 Target 尺寸，纹理、viewport 与拾取始终使�
 完整切换位于活动帧外，纯尺寸变化仅更换 MultiTarget，可在场景 pass 前安装，不重建材质管线。
 ImGui 重建失败先关闭已初始化后端；WSI 有界重试与 Application 关闭准备不能被 fatal 包装替代。
 当前 Vulkan 后端 Shutdown 也清除平台数据，因此格式／image count 重建同时重建 GLFW 后端，保留 Context/UI 状态。
-共享 ImGuiContext 以明确 Options 区分 Editor 的 Clear 与 App 的 Preserve；后者要求场景已写入 Present 图像，
-非空 UI 以 Load 合成，空 UI 不录制 pass。颜色 Load 具有前一颜色写入到读写的依赖，不能只依赖 acquire 等待。
-App 的线性 HDR surface 使用 UI 专用片元阶段解码字体／纯色的 sRGB 值，保留 alpha 和背景 HDR 范围；
-这不代表任意外部纹理的色彩空间处理、Editor HDR 或 HDR10/PQ 已完成。字体、布局路径和 docking 由宿主显式选择。
+ImGuiContext 保留 Clear／Preserve 选项；Editor 使用 Clear，游戏 UI 通过 RmlRenderer 的 Preserve pass 合成。
+颜色 Load 具有前一颜色写入到读写的依赖，不能只依赖 acquire 等待。
+Overlay 回调通过临时 `OverlayRecordContext` 借用当前命令缓冲、登记上传等待及在途资源；回调失败停止提交并结束 Renderer 生命周期。
+RmlRenderer 不拥有设备、交换链或 FrameScheduler，沿现有 Overlay 的释放／重建钩子响应呈现变化。
+编译几何、纹理、描述符、管线及 Target 由当前 slot 保活；文档释放不等待整机 GPU，slot 完成后回收。
+RmlUi 的预乘 sRGB atlas 先解预乘、线性化、再预乘存入 RGBA16F，避免线性过滤字体边缘出现色晕。
+线性 HDR 与 sRGB 附件在线性空间混合；UNORM 直显附件使用显示编码值混合，严格线性合成仍需独立 UI 中间层。
+首轮支持几何、纹理、矩形裁切与变换；高级 clip mask、layer、filter、shader 明确报错。不代表完整 HDR10/PQ 或 UI 框架验收。
 
 PipelineKey 包含字节码、入口、布局、规范化配置、RenderPass 身份和附件格式／采样数，
 hash 不替代完整相等比较。动态状态无关值会规范化，同一副本用于实际创建。

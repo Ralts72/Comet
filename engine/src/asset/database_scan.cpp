@@ -104,9 +104,10 @@ namespace Comet {
             return std::nullopt;
         }
 
-        bool is_import_source_only_path(const std::filesystem::path& path) {
+        bool is_source_only_path(const std::filesystem::path& path) {
             const auto extension = lowercase_extension(path);
-            return extension == ".bin" || extension == ".glsl" || is_lua_module_source(path);
+            return extension == ".bin" || extension == ".glsl" || extension == ".rml"
+                   || extension == ".rcss" || is_lua_module_source(path);
         }
 
         std::string path_text(const std::filesystem::path& path) {
@@ -285,7 +286,7 @@ namespace Comet {
                 source.lexically_relative(assets_root).lexically_normal();
             const auto expected_type = asset_type_from_path(source);
             if(!expected_type) {
-                if(is_import_source_only_path(source)) {
+                if(is_source_only_path(source)) {
                     continue;
                 }
                 add_issue(report, relative,

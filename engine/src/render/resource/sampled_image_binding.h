@@ -1,10 +1,11 @@
 #pragma once
 
+#include "common/export.h"
 #include "graphics/pipeline/descriptor_set.h"
 
 namespace Comet {
     // 采样图像绑定编号连续；发布后不再修改描述符，由使用它的在途帧保活。
-    struct SampledImageBinding {
+    struct COMET_API SampledImageBinding {
         static Result<std::shared_ptr<SampledImageBinding>, GraphicsError> create(Device& device,
             std::vector<std::shared_ptr<ImageView>> images,
             std::shared_ptr<DescriptorSetLayout> layout, std::shared_ptr<Sampler> sampler);

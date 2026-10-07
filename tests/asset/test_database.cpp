@@ -122,6 +122,35 @@ namespace Comet::Tests {
         EXPECT_TRUE(unchanged.modified_assets.empty());
     }
 
+    TEST(AssetDatabaseTest, UiDocumentsAndStylesRemainSourceOnlyWithoutMetadata) {
+        const TemporaryProject project;
+        project.add_file("textures/button.png");
+        const std::array ui_paths{std::filesystem::path("ui/page.rml"),
+            std::filesystem::path("ui/theme.rcss"), std::filesystem::path("ui/other.RML"),
+            std::filesystem::path("ui/other.RCSS")};
+        for(const auto& path : ui_paths)
+            project.add_file(path);
+        AssetDatabase database(project.paths());
+
+        const auto report = database.scan();
+
+        ASSERT_TRUE(report.succeeded());
+        EXPECT_EQ(report.indexed_assets, 1u);
+        EXPECT_EQ(report.generated_metadata, 1u);
+        ASSERT_NE(database.find("textures/button.png"), nullptr);
+        for(const auto& path : ui_paths) {
+            EXPECT_EQ(database.find(path), nullptr);
+            EXPECT_FALSE(std::filesystem::exists(metadata_path(project.paths().assets() / path)));
+        }
+
+        project.add_file("ui/page.rml", "<rml><body>Updated UI</body></rml>");
+        const auto updated = database.scan();
+        EXPECT_TRUE(updated.succeeded());
+        EXPECT_EQ(updated.generated_metadata, 0u);
+        EXPECT_TRUE(updated.modified_assets.empty());
+        EXPECT_EQ(database.size(), 1u);
+    }
+
     TEST(AssetDatabaseTest, LuaModuleChangesInvalidateOnlyDeclaredScriptDependents) {
         const TemporaryProject project;
         project.add_file("scripts/actor.lua", "return {}");

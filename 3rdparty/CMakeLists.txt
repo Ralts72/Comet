@@ -129,9 +129,32 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 endif()
 
 # imgui
-if (COMET_BUILD_APP OR COMET_BUILD_EDITOR)
+if (COMET_BUILD_EDITOR)
     add_subdirectory(imgui EXCLUDE_FROM_ALL)
 endif ()
+
+# 游戏 UI 仅使用 Core 和固定版本的 FreeType，不发现系统字体库或启用上游窗口后端。
+if(COMET_BUILD_GAME_UI)
+    block(SCOPE_FOR VARIABLES)
+        set(BUILD_SHARED_LIBS OFF)
+        set(FT_DISABLE_ZLIB ON)
+        set(FT_DISABLE_BZIP2 ON)
+        set(FT_DISABLE_PNG ON)
+        set(FT_DISABLE_HARFBUZZ ON)
+        set(FT_DISABLE_BROTLI ON)
+        set(SKIP_INSTALL_ALL ON)
+        add_subdirectory(freetype EXCLUDE_FROM_ALL)
+        add_library(Freetype::Freetype ALIAS freetype)
+        set(CMAKE_DISABLE_FIND_PACKAGE_Freetype TRUE)
+        set(RMLUI_SAMPLES OFF)
+        set(RMLUI_LUA_BINDINGS OFF)
+        set(RMLUI_SVG_PLUGIN OFF)
+        set(RMLUI_LOTTIE_PLUGIN OFF)
+        set(RMLUI_FONT_ENGINE freetype)
+        set(RMLUI_PRECOMPILED_HEADERS OFF)
+        add_subdirectory(RmlUi EXCLUDE_FROM_ALL)
+    endblock()
+endif()
 
 # googletest
 if (COMET_BUILD_TESTS)

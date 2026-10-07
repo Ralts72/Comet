@@ -316,7 +316,11 @@ namespace Comet::Tests {
         CometEditor::RenderStatsPanel panel(
             engine->frame_diagnostics(), renderer.get_diagnostics());
         panel.set_visible(true);
-        renderer.set_overlay({.render = [&](CommandBuffer& command) { ui.render(command); }});
+        renderer.set_overlay({.render = [&](Comet::OverlayRecordContext& overlay) {
+            auto& command = overlay.command_buffer();
+            ui.render(command);
+            return Comet::Result<void, Comet::GraphicsError>::success();
+        }});
         const ScopeExit finish([&] {
             renderer.set_overlay({});
             renderer.wait_idle();

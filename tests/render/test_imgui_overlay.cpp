@@ -151,9 +151,12 @@ namespace Comet::Tests {
         unsigned released = 0;
         unsigned rebuilt = 0;
         renderer.set_overlay({.render =
-                                  [&](CommandBuffer& command) {
+                                  [&](Comet::OverlayRecordContext& overlay) {
+                                      auto& command = overlay.command_buffer();
                                       ++rendered;
                                       ui->render(command);
+
+                                      return Comet::Result<void, Comet::GraphicsError>::success();
                                   },
             .release =
                 [&] {

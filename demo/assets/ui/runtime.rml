@@ -1,0 +1,34 @@
+<rml>
+<head>
+    <title>Comet Runtime</title>
+    <link type="text/rcss" href="runtime.rcss" />
+</head>
+<body data-model="runtime">
+    <div id="hud">
+        <span id="fps">{{ fps_text }}</span>
+        <button id="settings" data-event-click="command('open')" data-attrif-disabled="!menu_available">设置 / F1</button>
+        <div id="notice">{{ error_text }}</div>
+    </div>
+    <div id="menu" style="display: none;">
+        <div id="panel">
+            <div class="eyebrow">COMET · 控制设置</div>
+            <h1>让操作适合你</h1>
+            <p class="muted">选择动作，录入新的按键或手柄按钮。取消不会保存草稿。</p>
+            <div id="action-selector">
+                <button id="previous" data-event-click="command('previous')" data-attrif-disabled="waiting || !has_actions">上一个</button>
+                <span id="action-name">{{ action_name }}</span>
+                <button id="next" data-event-click="command('next')" data-attrif-disabled="waiting || !has_actions">下一个</button>
+            </div>
+            <div id="bindings"></div>
+            <p id="status">{{ status_text }}</p>
+            <p id="error">{{ error_text }}</p>
+            <div id="footer">
+                <button id="restore" data-event-click="command('restore')" data-attrif-disabled="waiting">恢复全部默认</button>
+                <button id="cancel" data-event-click="command('cancel')" data-attrif-disabled="waiting">取消</button>
+                <button id="apply" class="primary" data-event-click="command('apply')" data-attrif-disabled="waiting || !has_actions">应用并返回</button>
+            </div>
+            <p class="hint">键鼠：Tab / 方向键选择，Enter 确认，Esc 返回 · 手柄：方向键选择，A 确认，B 返回</p>
+        </div>
+    </div>
+</body>
+</rml>

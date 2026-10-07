@@ -1,4 +1,5 @@
 #pragma once
+#include "common/export.h"
 #include "enums.h"
 #include <vulkan/vulkan.hpp>
 
@@ -16,7 +17,7 @@ namespace Comet::Graphics {
 
     vk::Format format_to_vk(Format format);
 
-    Format vk_to_format(vk::Format format);
+    COMET_API Format vk_to_format(vk::Format format);
 
     vk::ImageViewType image_view_type_to_vk(ImageViewType type);
 
@@ -81,7 +82,7 @@ namespace Comet::Graphics {
 
     vk::ColorSpaceKHR image_color_space_to_vk(ImageColorSpace space);
 
-    ImageColorSpace vk_to_image_color_space(vk::ColorSpaceKHR space);
+    COMET_API ImageColorSpace vk_to_image_color_space(vk::ColorSpaceKHR space);
 
     vk::VertexInputRate vertex_input_rate_to_vk(VertexInputRate rate);
 

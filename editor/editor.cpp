@@ -191,15 +191,19 @@ namespace {
             m_inspector_panel->asset_inspector().set_material_layouts(material_layouts);
             m_project_panel->set_material_layouts(std::move(material_layouts));
 
-            renderer.set_overlay({.render =
-                                      [this](Comet::CommandBuffer& command_buffer) {
-                                          m_imgui_context->render(command_buffer);
-                                      },
-                .release = [this] { m_imgui_context->release_swapchain_resources(); },
-                .rebuild =
-                    [this](const Comet::SwapchainCompatibility& compatibility) {
-                        return m_imgui_context->rebuild_swapchain_resources(compatibility);
-                    }});
+            renderer.set_overlay(
+                {.render =
+                        [this](Comet::OverlayRecordContext& overlay) {
+                            auto& command_buffer = overlay.command_buffer();
+                            m_imgui_context->render(command_buffer);
+
+                            return Comet::Result<void, Comet::GraphicsError>::success();
+                        },
+                    .release = [this] { m_imgui_context->release_swapchain_resources(); },
+                    .rebuild =
+                        [this](const Comet::SwapchainCompatibility& compatibility) {
+                            return m_imgui_context->rebuild_swapchain_resources(compatibility);
+                        }});
 
             renderer.set_viewport_pick_callback(
                 [this](const std::optional<Comet::ScenePickHit> hit) {

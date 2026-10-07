@@ -127,9 +127,10 @@ namespace Comet {
             discard_frame_requests();
             m_scene_renderer->skip_frame();
             m_diagnostics->skip_frame();
-            if(m_render_overlay)
-                m_render_overlay(m_frames->get_current_command_buffer());
-            auto submitted = m_presentation->end_frame({});
+            std::vector<QueueSemaphoreSubmit> waits;
+            if(auto recorded = record_overlay(waits); !recorded)
+                return recorded;
+            auto submitted = m_presentation->end_frame(waits);
             if(submitted)
                 failed.release();
             return submitted;
@@ -154,7 +155,7 @@ namespace Comet {
         if(!frame_view.visible) {
             m_line_draw_list.clear();
         }
-        const auto resource_waits =
+        auto resource_waits =
             m_scene_renderer->render(*m_frames, submission, m_line_draw_list, m_diagnostics.get());
         m_line_draw_list.clear();
 
@@ -162,9 +163,8 @@ namespace Comet {
             return Result<void, GraphicsError>::failure(resource_waits.error());
         }
 
-        if(m_render_overlay) {
-            m_render_overlay(m_frames->get_current_command_buffer());
-        }
+        if(auto recorded = record_overlay(resource_waits.value()); !recorded)
+            return recorded;
 
         auto submitted = m_presentation->end_frame(resource_waits.value());
         if(submitted)
@@ -219,6 +219,13 @@ namespace Comet {
     void Renderer::set_overlay(Overlay overlay) {
         m_render_overlay = std::move(overlay.render);
         m_presentation->set_overlay({std::move(overlay.release), std::move(overlay.rebuild)});
+    }
+
+    Result<void, GraphicsError> Renderer::record_overlay(std::vector<QueueSemaphoreSubmit>& waits) {
+        if(!m_render_overlay)
+            return Result<void, GraphicsError>::success();
+        OverlayRecordContext context(*m_frames, waits);
+        return m_render_overlay(context);
     }
 
     Result<void, GraphicsError> Renderer::set_render_view(RenderView view) {

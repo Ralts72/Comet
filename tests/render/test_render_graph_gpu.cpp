@@ -302,7 +302,8 @@ namespace Comet::Tests {
                 RenderContext& context;
                 ~Wait() { context.wait_idle(); }
             } wait{context};
-            renderer.set_overlay({.render = [&](CommandBuffer& commands) {
+            renderer.set_overlay({.render = [&](Comet::OverlayRecordContext& overlay) {
+                auto& commands = overlay.command_buffer();
                 auto view = scene_renderer.get_offscreen_color_view(
                     renderer.get_frame_scheduler().get_current_frame_slot_index());
                 // 作为外部消费者声明已导出的 layout，让 validation 核对实际状态。
@@ -319,6 +320,8 @@ namespace Comet::Tests {
                     vk::DependencyInfo{}.setImageMemoryBarriers(barrier));
                 target->begin_render_target(commands);
                 target->end_render_target(commands);
+
+                return Comet::Result<void, Comet::GraphicsError>::success();
             }});
             RenderScene scene;
             scene.cameras.push_back(RenderCamera{.primary = true});

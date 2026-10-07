@@ -1,6 +1,6 @@
 # Comet 引擎
 
-Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui 编辑器，目前重点是场景编辑、资产导入和单视口交互。Play 与示例 app 还支持固定步刚体模拟和基础音频播放。
+Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui 编辑器，目前重点是场景编辑、资产导入和单视口交互。Play 与示例 app 还支持固定步刚体模拟和基础音频播放；app 正在试接 RmlUi 游戏界面。
 
 ## 项目结构
 
@@ -8,13 +8,16 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | --- | --- |
 | `engine/src/` | 引擎库：runtime、core、input、scene、asset、audio、render、graphics、config、diagnostics |
 | `engine/shaders/` | 生产 Shader，按 material、lighting、shadow、environment、debug、post、common 分目录；仅编译 CMake 显式列表 |
-| `engine/resources/fonts/` | App／Editor 共用的 Roboto Bold 与 Noto Sans SC Bold 字体，由共享 UI 加载 |
+| `engine/resources/fonts/` | App／Editor 共用的 Roboto Bold 与 Noto Sans SC Bold 字体 |
+| `engine/src/ui/` | 可选游戏 UI 模块 `comet_game_ui`：RmlUi 上下文、字体、输入适配和 Vulkan 绘制；不包含游戏页面或改键业务 |
+| `ui/` | 编辑器使用的 ImGui 后端及玩家改键面板 |
 | `tools/shader/` | 共用 CPU Shader 编译库与构建 CLI，不链接 engine 运行时 |
 | `tools/asset/` | 编辑器与独立工具共用的项目 Shader 导入，以及无窗口的启动场景资产准备入口 |
 | `tools/render_benchmark/` | 固定场景渲染性能基准及一键运行脚本，链接 engine，不依赖测试框架或编辑器 |
 | `tools/asset_scan_benchmark/` | 可选的资产扫描 CPU 基准及一键运行脚本，分别测量候选准备与索引发布 |
 | `editor/` | 编辑器入口，`src/` 按 scene、viewport、assets、inspector、project、render、ui 组织，`resources/` 保存私有图标和语言词表 |
-| `app/` | Runtime 示例入口及 `resources/` 私有图标 |
+| `app/` | Runtime 示例入口、`src/player_input_menu` 的 HUD／改键示例与 `resources/` 私有图标 |
+| `demo/assets/ui/` | 示例项目的 RML 页面与 RCSS 样式，业务绑定由 app 提供 |
 | `demo/` | 随仓库提供的完整示例项目，与引擎／编辑器源码分开 |
 | `demo/assets/` | 示例场景、源资产及相邻 `.meta`；可选大资源由脚本下载，不进入版本控制 |
 | `demo/assets/scripts/` | Lua 项目行为；默认字段由脚本声明，实体仅保存覆盖值 |
@@ -28,7 +31,9 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 ## 构建与运行
 
 需要 CMake 3.31+、C++20 编译器、Vulkan SDK、Git LFS 和 Submodule。
-SPIRV-Reflect、glslang、Jolt Physics、miniaudio 和 Lua 由固定版本 submodule 提供。
+SPIRV-Reflect、glslang、Jolt Physics、miniaudio、Lua、RmlUi 6.3 和 FreeType 2.14.3 由固定提交 submodule 提供。
+RmlUi 只链接 Core，FreeType 随源码静态构建，无需安装系统字体库。
+`COMET_BUILD_GAME_UI` 可独立构建引擎游戏 UI 库；构建示例 app 或测试时默认开启并要求启用，纯 editor 构建默认关闭。
 构建会生成 `comet_shader_compiler`，无需安装 `glslangValidator`；engine／app 不链接源编译器。
 
 ```bash
@@ -187,7 +192,9 @@ CPU/GPU 分别统计，不保证来自同一帧。不支持 GPU 时间戳时仍�
 目录无法写入时向标准错误提示并保留这些输出，不回退写到其他目录；项目／配置加载前的失败仍输出到终端。
 旧仓库根 `logs/` 不自动搬迁或删除。
 
-App／Editor 共用 `engine/resources/fonts/` 中的 Roboto Bold 和 Noto Sans SC Bold，改键界面使用相同字体配置。
+App／Editor 共用 `engine/resources/fonts/` 中的 Roboto Bold 和 Noto Sans SC Bold；各自 UI 后端负责加载与 DPI 缩放。
+RmlUi 使用 FreeType 解析字体、读取字形度量并栅格化文字，Comet 的 Vulkan 后端上传和绘制图集。
+引擎 UI 可配置字体文件、族名与回退；FreeType 可用于其他文字模块，当前 ImGui 仍使用自己的字体后端。
 顶栏「语言 / Language」切换简体中文／English，首次默认中文；选择存于用户状态目录 `language.json`，跨项目生效。
 仅翻译编辑器显示文本，不翻译资产名、路径、Shader 标识或原始日志。
 词表为 `editor/resources/locales/zh-CN.yaml`，修改后重启生效；键和值须为字符串，格式占位符与英文原文一致，缺词或无效文件回退英文。
@@ -313,7 +320,8 @@ demo 的首个标准手柄也可操作这些玩法，绑定仍来自 `project.js
 | 重新开始 | R | Start |
 
 调色组按绑定消费对应手柄按钮，得分后游戏组同样停用；相机和公共重开不受影响。
-这不包含手柄操作宿主设置菜单，也不代表真实硬件体验已验收。
+app 的 Start 优先打开控制设置，重开使用键盘 R；Editor Play 的 Start 仍按项目绑定重开。
+菜单导航有模拟手柄回归，真实硬件体验仍需验收。
 项目 `.lua` 位于 assets，由 `.meta` 提供身份，也可从 Finder 导入；新增脚本无需改 CMake 或重编译宿主。
 引擎私有链接 Lua 5.4.8；参数编辑与运行限制见下方“场景运行时”。
 两种入口遇到项目描述错误或缺少 assets 都会启动失败，不回退仓库项目；仅 editor 在启动场景缺失／损坏时
@@ -417,7 +425,24 @@ demo 得分后禁用 `gameplay` 组，方向键移动、空格切换与 J 冲量
 
 ### 玩家改键与保存
 
-App 通过画面右上角的 `Input`，Editor Play 通过工具栏“输入”打开同一玩家面板，暂停时也可编辑。
+App 通过画面右上角“设置”、F1 或手柄 Start 打开 RmlUi 控制菜单，提供 FPS HUD、动作切换、
+按钮录入、禁用、恢复默认、应用和取消。Tab／方向键或手柄方向键导航，Enter／South 确认，Esc／East 返回。
+Editor Play 通过工具栏“输入”打开 ImGui 玩家面板，暂停时也可编辑；两种界面复用同一改键模型和个人文件。
+app 首轮不提供来源、倍率和死区编辑，已有这些字段及未显示的覆盖记录仍保留。
+
+示例页面和样式位于 `demo/assets/ui/runtime.rml` 与 `runtime.rcss`，随示例 app 复制到构建资源目录或 bundle。
+外部项目的 `assets/ui/runtime.rml` 可覆盖示例页面，需保留这个 app 改键菜单的控件 ID 和数据绑定；
+图片与样式路径相对页面，引擎文件接口允许读取该项目资产根目录内的资源。
+`engine/src/ui` 只提供通用上下文、候选页面替换、输入与绘制，加载其他页面无需这些菜单控件。
+示例菜单与 F1／F6 属于 `app/src/player_input_menu`，保存及 Runtime 应用由 app 宿主编排；引擎不会自动装配这份示例菜单。
+当前是宿主实现菜单行为的接入试点，尚未支持项目 UI 控制器；后续归属与迁移见路线图的[项目 UI 入口与控制器](docs/engine-roadmap.md#项目-ui-入口与控制器待实现)。
+共用字体独立位于 `engine/resources/fonts/`，同时复制到 app 资源目录。
+修改后在 app 按 F6 手动重载，解析、必需控件或资源准备失败时保留旧文档并显示错误。
+资产扫描接受 `.rml`／`.rcss` 源文件，不生成 `.meta` 或资产句柄；UI 当前直接读取文件。
+尚未接入项目 UI 资产索引／发布包、自动监视、完整 macOS 中文预编辑或滤镜／图层效果。
+已提交 Unicode 文本与中文字体支持不能替代完整 IME 验收。
+
+以下高级控件说明适用于 Editor 玩家面板：
 可按动作名筛选下拉列表（英文字母不区分大小写）；清除筛选恢复全部候选，不改变当前动作或个人配置。
 它只修改已有绑定的控制、倍率／死区和禁用状态；新增动作／绑定仍在项目默认设置中完成。
 应用先保存个人文件，再于下一次输入更新边界替换绑定，不重启场景／System，也不重置当前动作组。
@@ -431,7 +456,8 @@ Esc 先取消录入，再按关闭面板；面板及关闭当帧不向游戏交�
 转去编辑倍率或死区会结束录入，输入数字只修改该字段，不会同时变成新的绑定键。
 切换离开手柄轴时清零不适用的死区；切回手柄轴时重新继承默认死区。同一轴来源内换控制保留个人死区，包括显式零值。
 来源切回原类别时优先使用项目默认控制；默认控制被宿主保留时仍选择其他合法候选，不恢复此前个人来源历史。
-当前宿主保留 Esc 用于退出／停止，玩家面板禁止新选择或录入它；已有绑定仅警告、不自动删除。
+当前宿主保留 Esc 用于退出／停止；app 还保留 F1／F6 用于菜单和模板重载，禁止新录入这些键。
+已有绑定仅警告、不自动删除。
 项目默认面板仍允许填写合法 `Escape`，宿主保留策略不改变文件格式。
 
 绑定标明继承默认、个人覆盖或覆盖未生效；“绑定关系”使用合成后的有效配置，仍是上述两两关系说明。

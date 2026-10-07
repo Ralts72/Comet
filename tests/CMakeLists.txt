@@ -66,6 +66,7 @@ set(UNIT_TEST_SOURCES
         input/test_player_input_edit.cpp
         input/test_player_input_settings.cpp
         input/test_runtime_input.cpp
+        app/test_player_input_menu.cpp
         render/test_lighting.cpp
         render/test_line_draw_list.cpp
         render/test_material.cpp
@@ -99,7 +100,11 @@ set(EDITOR_UI_SOURCES
         editor/ui/test_viewport_gizmo_ui.cpp
         editor/ui/test_viewport_play_ui.cpp)
 set(INTEGRATION_SOURCES
+        app/test_player_input_menu_gpu.cpp
         core/test_window.cpp
+        core/test_window_ui_events.cpp
+        ui/test_rml_context.cpp
+        ui/test_rml_platform.cpp
         editor/integration/test_material_editing.cpp
         editor/integration/test_viewport.cpp
         graphics/test_allocator.cpp
@@ -121,6 +126,8 @@ set(INTEGRATION_SOURCES
         render/test_material_rendering.cpp
         render/test_material_runtime.cpp
         render/test_offscreen_resize.cpp
+        render/test_overlay_record_context.cpp
+        render/test_rml_ui.cpp
         render/test_render_diagnostics.cpp
         render/test_render_graph_gpu.cpp
         render/test_render_pipeline_gpu.cpp
@@ -179,6 +186,13 @@ foreach(target IN LISTS TEST_TARGETS)
     comet_copy_runtime_dependencies(${target})
 endforeach()
 
+foreach(target unit_testing integration_testing)
+    target_link_libraries(${target} PRIVATE comet_demo_ui RmlUi::Core)
+    target_compile_definitions(${target} PRIVATE
+            COMET_TEST_UI_DIRECTORY="${CMAKE_SOURCE_DIR}/demo/assets/ui"
+            COMET_TEST_UI_FONT_DIRECTORY="${CMAKE_BINARY_DIR}/engine/src/ui/fonts")
+endforeach()
+
 if (COMET_BUILD_EDITOR)
     foreach(target editor_ui_testing integration_testing)
         target_link_libraries(${target} PRIVATE editor_ui)
@@ -205,7 +219,7 @@ if(COMET_BUILD_EDITOR)
     add_test(NAME editor_ui_testing COMMAND editor_ui_testing)
     set_tests_properties(editor_ui_testing PROPERTIES LABELS "integration;ui")
 endif()
-set(SYNC_VALIDATION_FILTER "RenderGraphGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.*:ImGuiOverlayGpuTest.*")
+set(SYNC_VALIDATION_FILTER "RenderGraphGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.*:ImGuiOverlayGpuTest.*:RmlUiGpuTest.*:RmlContextGpuTest.*:PlayerInputMenuGpuTest.*:OverlayRecordContextTest.*")
 add_test(NAME integration_testing COMMAND integration_testing
         "--gtest_filter=-${SYNC_VALIDATION_FILTER}" ${TEST_PLATFORM_ARGS})
 set_tests_properties(integration_testing PROPERTIES LABELS "integration;gpu" RESOURCE_LOCK comet_gpu)

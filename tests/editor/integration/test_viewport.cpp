@@ -88,7 +88,8 @@ namespace CometEditor::Tests {
         unsigned prepared_frames = 0;
         bool visible = false;
         renderer.set_viewport_pick_callback([&](auto) { ++picks; });
-        renderer.set_overlay({.render = [&](Comet::CommandBuffer& command) {
+        renderer.set_overlay({.render = [&](Comet::OverlayRecordContext& overlay) {
+            auto& command = overlay.command_buffer();
             ++overlays;
             ui.render(command);
             const auto& snapshot = renderer.get_diagnostics().get_snapshot();
@@ -109,6 +110,8 @@ namespace CometEditor::Tests {
             EXPECT_EQ(calls->stops, 0);
             if(overlays == 4)
                 engine.get_window().request_close();
+
+            return Comet::Result<void, Comet::GraphicsError>::success();
         }});
         unsigned attempts = 0;
         bool removed = false;
@@ -171,8 +174,11 @@ namespace CometEditor::Tests {
         ui.release_swapchain_resources();
         auto rebuilt = ui.rebuild_swapchain_resources({.image_count_changed = true});
         ASSERT_TRUE(rebuilt) << rebuilt.error();
-        renderer.set_overlay(
-            {.render = [&](Comet::CommandBuffer& command) { ui.render(command); }});
+        renderer.set_overlay({.render = [&](Comet::OverlayRecordContext& overlay) {
+            auto& command = overlay.command_buffer();
+            ui.render(command);
+            return Comet::Result<void, Comet::GraphicsError>::success();
+        }});
         {
             const auto preparation = renderer.prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
@@ -214,8 +220,11 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(sampler) << sampler.error();
         Viewport viewport(state, engine.get_scene_runtime(), selection, history, components, edit,
             shortcuts, renderer, engine.get_asset_registry(), ui, std::move(sampler).value());
-        renderer.set_overlay(
-            {.render = [&](Comet::CommandBuffer& command_buffer) { ui.render(command_buffer); }});
+        renderer.set_overlay({.render = [&](Comet::OverlayRecordContext& overlay) {
+            auto& command_buffer = overlay.command_buffer();
+            ui.render(command_buffer);
+            return Comet::Result<void, Comet::GraphicsError>::success();
+        }});
         const auto draw_frame = [&] {
             engine.get_window().poll_events();
             const auto preparation = renderer.prepare_frame();

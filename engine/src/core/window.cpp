@@ -68,6 +68,23 @@ namespace Comet {
             return Key::Unknown;
         }
 
+        uint8_t translate_modifiers(const int modifiers) {
+            uint8_t result = 0;
+            if(modifiers & GLFW_MOD_SHIFT)
+                result |= Window::UiEvent::Shift;
+            if(modifiers & GLFW_MOD_CONTROL)
+                result |= Window::UiEvent::Control;
+            if(modifiers & GLFW_MOD_ALT)
+                result |= Window::UiEvent::Alt;
+            if(modifiers & GLFW_MOD_SUPER)
+                result |= Window::UiEvent::Super;
+            if(modifiers & GLFW_MOD_CAPS_LOCK)
+                result |= Window::UiEvent::CapsLock;
+            if(modifiers & GLFW_MOD_NUM_LOCK)
+                result |= Window::UiEvent::NumLock;
+            return result;
+        }
+
         // GLFW 窗口的创建和销毁必须在主线程执行。
         std::size_t window_count = 0;
     }
@@ -110,6 +127,7 @@ namespace Comet {
         }
         ++window_count;
         glfwSetWindowUserPointer(m_window.get(), this);
+        glfwSetInputMode(m_window.get(), GLFW_LOCK_KEY_MODS, GLFW_TRUE);
         install_input_callbacks();
         glfwSetWindowCloseCallback(m_window.get(), [](GLFWwindow* window) {
             auto& owner = *static_cast<Window*>(glfwGetWindowUserPointer(window));
@@ -143,7 +161,8 @@ namespace Comet {
         }
 
         glfwShowWindow(m_window.get());
-        m_input.focus_event(glfwGetWindowAttrib(m_window.get(), GLFW_FOCUSED) == GLFW_TRUE);
+        m_ui_focused = glfwGetWindowAttrib(m_window.get(), GLFW_FOCUSED) == GLFW_TRUE;
+        m_input.focus_event(m_ui_focused);
         double cursor_x = 0;
         double cursor_y = 0;
         glfwGetCursorPos(m_window.get(), &cursor_x, &cursor_y);
@@ -210,38 +229,127 @@ namespace Comet {
             static_cast<uint32_t>(std::max(width, 0)), static_cast<uint32_t>(std::max(height, 0))};
     }
 
+    Math::Vec2u Window::get_size() const {
+        int width = 0;
+        int height = 0;
+        glfwGetWindowSize(m_window.get(), &width, &height);
+        return {
+            static_cast<uint32_t>(std::max(width, 0)), static_cast<uint32_t>(std::max(height, 0))};
+    }
+
+    Math::Vec2 Window::get_content_scale() const {
+        float x = 1;
+        float y = 1;
+        glfwGetWindowContentScale(m_window.get(), &x, &y);
+        const Math::Vec2 scale{x, y};
+        return Math::is_finite(scale) && x > 0 && y > 0 ? scale : Math::Vec2{1, 1};
+    }
+
+    void Window::append_ui_event(const UiEvent& event) {
+        if(m_ui_events_overflowed)
+            return;
+        if(m_pending_ui_event_count == MAX_UI_EVENTS) {
+            // 缺失任何一个 release 都会破坏状态；整批取消，禁止转发残缺序列。
+            m_pending_ui_event_count = 0;
+            m_ui_events_overflowed = true;
+            m_input.discard_pending();
+            return;
+        }
+        m_pending_ui_events[m_pending_ui_event_count++] = event;
+    }
+
+    void Window::discard_pending_input() {
+        m_input.discard_pending();
+        m_pending_ui_event_count = 0;
+        m_ui_events_overflowed = false;
+    }
+
     void Window::poll_events() {
         PROFILE_SCOPE("Window::PollEvents");
         glfwPollEvents();
     }
 
     void Window::install_input_callbacks() {
-        glfwSetKeyCallback(m_window.get(), [](GLFWwindow* window, int key, int, int action, int) {
-            if(action != GLFW_PRESS && action != GLFW_RELEASE)
+        glfwSetKeyCallback(m_window.get(), [](GLFWwindow* window, int key, int, int action,
+                                               int mods) {
+            if(action != GLFW_PRESS && action != GLFW_RELEASE && action != GLFW_REPEAT)
                 return;
-            auto& input = static_cast<Window*>(glfwGetWindowUserPointer(window))->m_input;
-            input.key_event(translate_key(key), action == GLFW_PRESS);
+            auto& owner = *static_cast<Window*>(glfwGetWindowUserPointer(window));
+            const auto translated = translate_key(key);
+            if(action != GLFW_REPEAT)
+                owner.m_input.key_event(translated, action == GLFW_PRESS);
+            owner.m_ui_modifiers = translate_modifiers(mods);
+            if(owner.m_ui_focused && translated != Input::Key::Unknown)
+                owner.append_ui_event(
+                    {.type = action == GLFW_RELEASE ? UiEvent::Type::KeyUp : UiEvent::Type::KeyDown,
+                        .key = translated,
+                        .modifiers = owner.m_ui_modifiers,
+                        .repeat = action == GLFW_REPEAT});
         });
-        glfwSetMouseButtonCallback(m_window.get(), [](GLFWwindow* window, int button, int action,
-                                                       int) {
-            if(action != GLFW_PRESS && action != GLFW_RELEASE)
-                return;
-            auto& input = static_cast<Window*>(glfwGetWindowUserPointer(window))->m_input;
-            input.mouse_button_event(static_cast<Input::MouseButton>(button), action == GLFW_PRESS);
+        glfwSetCharCallback(m_window.get(), [](GLFWwindow* window, unsigned int codepoint) {
+            auto& owner = *static_cast<Window*>(glfwGetWindowUserPointer(window));
+            const bool scalar = codepoint >= 32 && codepoint <= 0x10ffff
+                                && !(codepoint >= 0xd800 && codepoint <= 0xdfff)
+                                && codepoint != 127;
+            if(owner.m_ui_focused && scalar)
+                owner.append_ui_event({.type = UiEvent::Type::Text,
+                    .modifiers = owner.m_ui_modifiers,
+                    .codepoint = static_cast<char32_t>(codepoint)});
         });
+        glfwSetMouseButtonCallback(
+            m_window.get(), [](GLFWwindow* window, int button, int action, int mods) {
+                if(action != GLFW_PRESS && action != GLFW_RELEASE)
+                    return;
+                auto& owner = *static_cast<Window*>(glfwGetWindowUserPointer(window));
+                if(button < 0 || button >= static_cast<int>(Input::MouseButton::Count))
+                    return;
+                const auto translated = static_cast<Input::MouseButton>(button);
+                owner.m_input.mouse_button_event(translated, action == GLFW_PRESS);
+                owner.m_ui_modifiers = translate_modifiers(mods);
+                if(owner.m_ui_focused) {
+                    const auto position = owner.get_cursor_position();
+                    owner.append_ui_event({.type = action == GLFW_PRESS ? UiEvent::Type::MouseDown
+                                                                        : UiEvent::Type::MouseUp,
+                        .button = translated,
+                        .modifiers = owner.m_ui_modifiers,
+                        .position = position});
+                }
+            });
         glfwSetCursorPosCallback(m_window.get(), [](GLFWwindow* window, double x, double y) {
-            auto& input = static_cast<Window*>(glfwGetWindowUserPointer(window))->m_input;
-            input.cursor_event({static_cast<float>(x), static_cast<float>(y)});
+            auto& owner = *static_cast<Window*>(glfwGetWindowUserPointer(window));
+            const Math::Vec2 position{static_cast<float>(x), static_cast<float>(y)};
+            owner.m_input.cursor_event(position);
+            if(owner.m_ui_focused && Math::is_finite(position))
+                owner.append_ui_event({.type = UiEvent::Type::MouseMove,
+                    .modifiers = owner.m_ui_modifiers,
+                    .position = position});
         });
         glfwSetScrollCallback(m_window.get(), [](GLFWwindow* window, double x, double y) {
-            auto& input = static_cast<Window*>(glfwGetWindowUserPointer(window))->m_input;
-            input.scroll_event({static_cast<float>(x), static_cast<float>(y)});
+            auto& owner = *static_cast<Window*>(glfwGetWindowUserPointer(window));
+            const Math::Vec2 offset{static_cast<float>(x), static_cast<float>(y)};
+            owner.m_input.scroll_event(offset);
+            if(owner.m_ui_focused && Math::is_finite(offset))
+                owner.append_ui_event({.type = UiEvent::Type::Scroll,
+                    .modifiers = owner.m_ui_modifiers,
+                    .position = offset});
+        });
+        glfwSetCursorEnterCallback(m_window.get(), [](GLFWwindow* window, int entered) {
+            auto& owner = *static_cast<Window*>(glfwGetWindowUserPointer(window));
+            if(entered != GLFW_TRUE)
+                owner.append_ui_event({.type = UiEvent::Type::PointerLeave});
         });
         glfwSetWindowFocusCallback(m_window.get(), [](GLFWwindow* window, int focused) {
             auto& owner = *static_cast<Window*>(glfwGetWindowUserPointer(window));
             owner.m_input.focus_event(focused == GLFW_TRUE);
-            if(focused != GLFW_TRUE)
+            if(owner.m_ui_focused != (focused == GLFW_TRUE)) {
+                owner.m_ui_focused = focused == GLFW_TRUE;
+                owner.append_ui_event(
+                    {.type = UiEvent::Type::Focus, .focused = owner.m_ui_focused});
+            }
+            if(focused != GLFW_TRUE) {
+                owner.m_ui_modifiers = 0;
                 owner.set_cursor_locked(false);
+            }
         });
     }
 
@@ -266,7 +374,12 @@ namespace Comet {
             }
             m_input.gamepad_sample(static_cast<size_t>(index), sample);
         }
-        return m_input.publish_frame();
+        const auto& frame = m_input.publish_frame();
+        m_ui_event_count = m_pending_ui_event_count;
+        std::copy_n(m_pending_ui_events.begin(), m_ui_event_count, m_ui_events.begin());
+        m_pending_ui_event_count = 0;
+        m_ui_events_overflowed = false;
+        return frame;
     }
 
     void Window::wait_events(double timeout_seconds) {

@@ -95,6 +95,7 @@ set(SOURCES
         src/graphics/pipeline/descriptor_set.cpp
         src/graphics/resource/sampler.cpp
         src/render/renderer.cpp
+        src/render/overlay_record_context.cpp
         src/render/debug/line_draw_list.cpp
         src/render/lighting.cpp
         src/render/debug/debug_renderer.cpp
@@ -171,3 +172,7 @@ endif ()
 if (COMET_NATIVE_OPTIMIZATION AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(engine PRIVATE -march=native)
 endif ()
+
+if(COMET_BUILD_GAME_UI)
+    add_subdirectory(src/ui)
+endif()

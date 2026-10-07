@@ -1,0 +1,101 @@
+body {
+    display: block;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    font-family: Comet;
+    font-weight: bold;
+    font-size: 16dp;
+    color: #eef2f8;
+    pointer-events: none;
+}
+#hud {
+    position: absolute;
+    top: 18dp;
+    right: 22dp;
+    text-align: right;
+}
+#fps { margin-right: 16dp; color: #b6c3d7; }
+#notice { display: block; max-width: 360dp; color: #ffa79c; margin-top: 8dp; }
+button {
+    display: inline-block;
+    box-sizing: border-box;
+    min-width: 88dp;
+    padding: 10dp 16dp;
+    margin: 4dp;
+    border: 1dp #42536e;
+    border-radius: 7dp;
+    background-color: #233049;
+    color: #eef2f8;
+    text-align: center;
+    vertical-align: middle;
+    pointer-events: auto;
+    tab-index: auto;
+    nav-up: auto;
+    nav-down: auto;
+    nav-left: auto;
+    nav-right: auto;
+}
+button:hover { background-color: #334865; }
+button:focus { border-color: #7dc4ff; background-color: #354f71; }
+button:active { background-color: #476e99; }
+button[disabled] {
+    color: #7c8ca4;
+    background-color: #202b3c;
+    focus: none;
+    pointer-events: none;
+    tab-index: none;
+}
+.primary { background-color: #2c698d; border-color: #52a8cc; }
+#menu {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #101927cc;
+    pointer-events: auto;
+}
+#panel {
+    display: block;
+    box-sizing: border-box;
+    width: 82%;
+    max-width: 880dp;
+    max-height: 82%;
+    margin: 5% auto;
+    padding: 24dp;
+    border: 1dp #40526c;
+    background-color: #182538;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+#panel scrollbarvertical { width: 12dp; background-color: #101c2d; }
+#panel scrollbarvertical slidertrack { width: 12dp; }
+#panel scrollbarvertical sliderbar {
+    width: 10dp;
+    min-height: 24dp;
+    margin-left: 1dp;
+    border-radius: 4dp;
+    background-color: #526985;
+}
+#panel scrollbarvertical sliderbar:hover { background-color: #7495b9; }
+#panel scrollbarvertical sliderbar:active { background-color: #8dc8e6; }
+#panel scrollbarvertical sliderarrowdec, #panel scrollbarvertical sliderarrowinc {
+    width: 0;
+    height: 0;
+}
+.eyebrow { display: block; color: #8dc8e6; font-size: 12dp; letter-spacing: 1dp; }
+h1 { display: block; margin: 8dp 0 12dp; font-size: 28dp; }
+p { display: block; margin: 8dp 0; }
+.muted, .hint { color: #acbbcd; }
+.hint { font-size: 12dp; margin-top: 14dp; }
+#action-selector { display: block; margin: 18dp 0 12dp; text-align: center; }
+#action-name { display: inline-block; min-width: 160dp; font-size: 20dp; vertical-align: middle; }
+#bindings { display: block; }
+.binding { display: block; margin: 8dp 0; padding: 12dp; border: 1dp #344760; background-color: #1e2e44; }
+.binding-name { display: block; margin-bottom: 8dp; color: #d6e9f5; }
+.binding-note { display: block; color: #a6b5c8; font-size: 12dp; }
+#status { color: #9ad6bd; }
+#error { color: #ffa79c; }
+#footer { display: block; margin-top: 14dp; text-align: right; }

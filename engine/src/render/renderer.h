@@ -8,6 +8,7 @@
 #include "render/frame_scheduler.h"
 #include "render/material/material_renderer.h"
 #include "render/presentation.h"
+#include "render/overlay_record_context.h"
 
 #include <cstdint>
 #include <functional>
@@ -39,7 +40,7 @@ namespace Comet {
         };
 
         struct Overlay {
-            std::function<void(CommandBuffer&)> render;
+            std::function<Result<void, GraphicsError>(OverlayRecordContext&)> render;
             std::function<void()> release;
             std::function<Result<void, GraphicsError>(const SwapchainCompatibility&)> rebuild;
         };
@@ -100,6 +101,7 @@ namespace Comet {
             std::unique_ptr<FrameScheduler> frames, std::unique_ptr<MaterialPrograms> programs,
             std::unique_ptr<SceneRenderer> scene, const AssetRegistry& assets);
         Result<void, GraphicsError> complete_frame(const RenderScene* render_scene);
+        Result<void, GraphicsError> record_overlay(std::vector<QueueSemaphoreSubmit>& waits);
         void discard_frame_requests();
         struct ViewportPickRequest {
             Math::Vec2u pixel;
@@ -116,7 +118,7 @@ namespace Comet {
         SceneResolver m_scene_resolver;
         const AssetRegistry& m_asset_registry;
         RenderView m_render_view;
-        std::function<void(CommandBuffer&)> m_render_overlay;
+        std::function<Result<void, GraphicsError>(OverlayRecordContext&)> m_render_overlay;
         bool m_shutdown_prepared = false;
         std::optional<ViewportPickRequest> m_viewport_pick_request;
         ViewportPickCallback m_viewport_pick_callback;

@@ -127,9 +127,11 @@ namespace Comet::Tests {
                 return Result<void, GraphicsError>::failure(target.error());
             presentation_pass = std::move(pass).value();
             presentation_target = std::move(target).value();
-            renderer.set_overlay({.render = [this](CommandBuffer& command) {
+            renderer.set_overlay({.render = [this](OverlayRecordContext& overlay) {
+                auto& command = overlay.command_buffer();
                 presentation_target->begin_render_target(command);
                 presentation_target->end_render_target(command);
+                return Result<void, GraphicsError>::success();
             }});
             return Result<void, GraphicsError>::success();
         }

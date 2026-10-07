@@ -22,8 +22,12 @@ set(ENGINE_SOURCE "${COMET_SOURCE_ROOT}/engine/src")
 file(GLOB_RECURSE ENGINE_FILES RELATIVE "${ENGINE_SOURCE}"
     "${ENGINE_SOURCE}/*.h" "${ENGINE_SOURCE}/*.cpp")
 check_includes("${ENGINE_SOURCE}" "${ENGINE_FILES}"
-    "editor/|imgui|player_input_panel\\.h|input_widgets\\.h"
+    "editor/|imgui|player_input_menu\\.h|player_input_panel\\.h|input_widgets\\.h"
     "Engine must not include Editor or shared UI")
+set(ENGINE_CORE_FILES ${ENGINE_FILES})
+list(FILTER ENGINE_CORE_FILES EXCLUDE REGEX "^ui/")
+check_includes("${ENGINE_SOURCE}" "${ENGINE_CORE_FILES}" "RmlUi/|ui/rml_"
+    "Only the optional Engine UI module may depend on RmlUi")
 
 set(LOW_LEVEL_FILES)
 foreach(directory common input scene scripting audio)
@@ -57,3 +61,15 @@ file(GLOB_RECURSE UI_FILES RELATIVE "${UI_SOURCE}"
     "${UI_SOURCE}/*.h" "${UI_SOURCE}/*.cpp")
 check_includes("${UI_SOURCE}" "${UI_FILES}" "editor/|project/editor_|ui/language\\.h|editor_state\\.h"
     "Shared UI must not depend on Editor state or resources")
+
+set(RUNTIME_UI_SOURCE "${COMET_SOURCE_ROOT}/engine/src/ui")
+file(GLOB_RECURSE RUNTIME_UI_FILES RELATIVE "${RUNTIME_UI_SOURCE}"
+    "${RUNTIME_UI_SOURCE}/*.h" "${RUNTIME_UI_SOURCE}/*.cpp")
+check_includes("${RUNTIME_UI_SOURCE}" "${RUNTIME_UI_FILES}"
+    "editor/|imgui|app/|input/player_input_edit\\.h|player_input_panel\\.h|render/frame_scheduler\\.h"
+    "Engine UI must not depend on game menus, Editor, ImGui or frame scheduling internals")
+file(GLOB_RECURSE APP_FILES RELATIVE "${COMET_SOURCE_ROOT}/app"
+    "${COMET_SOURCE_ROOT}/app/*.h" "${COMET_SOURCE_ROOT}/app/*.cpp")
+check_includes("${COMET_SOURCE_ROOT}/app" "${APP_FILES}"
+    "editor/|imgui|player_input_panel\\.h|imgui_context\\.h"
+    "Runtime app must not depend on Editor or ImGui")
