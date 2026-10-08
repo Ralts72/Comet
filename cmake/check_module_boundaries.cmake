@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.31)
+
 if(NOT DEFINED COMET_SOURCE_ROOT)
     message(FATAL_ERROR "COMET_SOURCE_ROOT is required")
 endif()
