@@ -54,7 +54,9 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(script);
         ASSERT_TRUE(assets.register_asset(handle, script.value()));
         Comet::SceneRuntime runtime;
-        ASSERT_TRUE(runtime.add_system(std::make_unique<Comet::ScriptSystem>(assets)));
+        auto candidate_system = std::make_unique<Comet::ScriptSystem>(Comet::ScriptAssets{assets});
+        auto* script_system = candidate_system.get();
+        ASSERT_TRUE(runtime.add_system(std::move(candidate_system)));
         CommandHistory history;
         history.bind_scene(original);
         const auto saved = history.state_id();
@@ -92,7 +94,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(
             entity.get_component<Comet::TransformComponent>().translation, Comet::Math::Vec3(0));
         EXPECT_EQ(history.state_id(), saved);
-        EXPECT_FALSE(entity.get_component<Comet::ScriptComponent>().running_script());
+        EXPECT_FALSE(script_system->running_script(entity));
 
         auto repaired =
             Comet::Script::create("return {update = function(self) comet.translate(1, 0, 0) end}");
@@ -639,7 +641,7 @@ namespace CometEditor::Tests {
         const auto components = create_scene_component_registry();
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(ScriptAssets{assets})));
         auto script = Script::create(R"(return {
             properties = {speed = 100, enabled = true, label = "spin", axis = {0, 1, 0}},
             fixed_update = function(self, dt)

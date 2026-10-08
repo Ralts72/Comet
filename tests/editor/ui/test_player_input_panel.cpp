@@ -1604,7 +1604,8 @@ namespace CometEditor::Ui::Tests {
         const ScopeExit stop_runtime([&] { EXPECT_TRUE(runtime.stop()); });
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
         ASSERT_TRUE(runtime.set_input_actions(defaults));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets, &materials)));
+        ASSERT_TRUE(
+            runtime.add_system(std::make_unique<ScriptSystem>(ScriptAssets{assets}, &materials)));
         ASSERT_TRUE(runtime.start(*playing));
         Comet::Tests::TemporaryDirectory directory;
         const auto file = directory.path() / "input.json";

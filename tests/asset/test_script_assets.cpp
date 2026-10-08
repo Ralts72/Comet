@@ -36,10 +36,13 @@ namespace Comet::Tests {
         AssetManager manager{database, registry, factory, scheduler};
         Scene scene;
         SceneRuntime runtime;
+        ScriptSystem* script_system = nullptr;
 
         void SetUp() override {
             std::filesystem::create_directories(paths.assets() / "scripts");
-            ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(registry)));
+            auto candidate_system = std::make_unique<ScriptSystem>(ScriptAssets{registry});
+            script_system = candidate_system.get();
+            ASSERT_TRUE(runtime.add_system(std::move(candidate_system)));
         }
         void write(const std::filesystem::path& path, const std::string_view source) {
             ASSERT_TRUE(write_text_file_atomic(paths.assets() / path, source));
@@ -92,16 +95,14 @@ namespace Comet::Tests {
         EXPECT_NE(registry.resolve<Script>(first), old_first);
         EXPECT_NE(registry.resolve<Script>(second), old_second);
         ASSERT_TRUE(runtime.advance(0));
-        EXPECT_EQ(left.get_component<ScriptComponent>().running_script(), old_first);
-        EXPECT_EQ(right.get_component<ScriptComponent>().running_script(), old_second);
+        EXPECT_EQ(script_system->running_script(left), old_first);
+        EXPECT_EQ(script_system->running_script(right), old_second);
         ASSERT_TRUE(runtime.request_step());
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_EQ(left.get_component<TransformComponent>().translation, Math::Vec3(21, 2, 0));
         EXPECT_EQ(right.get_component<TransformComponent>().translation, Math::Vec3(21, 2, 0));
-        EXPECT_EQ(left.get_component<ScriptComponent>().running_script(),
-            registry.resolve<Script>(first));
-        EXPECT_EQ(right.get_component<ScriptComponent>().running_script(),
-            registry.resolve<Script>(second));
+        EXPECT_EQ(script_system->running_script(left), registry.resolve<Script>(first));
+        EXPECT_EQ(script_system->running_script(right), registry.resolve<Script>(second));
         EXPECT_FALSE(std::filesystem::exists(paths.assets() / "scripts/shared.module.lua.meta"));
     }
 
@@ -214,9 +215,9 @@ namespace Comet::Tests {
         ASSERT_TRUE(manager.scan().succeeded());
         const auto pending = actor(first);
         ASSERT_TRUE(runtime.advance(0));
-        EXPECT_EQ(left.get_component<ScriptComponent>().running_script(), old_first);
-        EXPECT_EQ(right.get_component<ScriptComponent>().running_script(), old_second);
-        EXPECT_FALSE(pending.get_component<ScriptComponent>().running_script());
+        EXPECT_EQ(script_system->running_script(left), old_first);
+        EXPECT_EQ(script_system->running_script(right), old_second);
+        EXPECT_FALSE(script_system->running_script(pending));
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_EQ(left.get_component<TransformComponent>().translation, Math::Vec3(2, 1, 0));
         EXPECT_EQ(right.get_component<TransformComponent>().translation, Math::Vec3(2, 1, 0));
@@ -244,10 +245,10 @@ namespace Comet::Tests {
         const auto candidate = registry.resolve<Script>(first);
         ASSERT_NE(candidate, previous);
         ASSERT_TRUE(runtime.advance(0));
-        EXPECT_EQ(left.get_component<ScriptComponent>().running_script(), previous);
+        EXPECT_EQ(script_system->running_script(left), previous);
         scene.destroy_entity(right);
         ASSERT_TRUE(runtime.advance(0));
-        EXPECT_EQ(left.get_component<ScriptComponent>().running_script(), candidate);
+        EXPECT_EQ(script_system->running_script(left), candidate);
         EXPECT_EQ(left.get_component<TransformComponent>().translation, Math::Vec3(11, 2, 0));
     }
 
@@ -267,21 +268,19 @@ namespace Comet::Tests {
         ASSERT_TRUE(manager.scan().succeeded());
         const auto pending = actor(first);
         ASSERT_TRUE(runtime.advance(0));
-        EXPECT_FALSE(pending.get_component<ScriptComponent>().running_script());
+        EXPECT_FALSE(script_system->running_script(pending));
 
         scene.destroy_entity(left);
         ASSERT_TRUE(runtime.advance(0));
-        EXPECT_EQ(right.get_component<ScriptComponent>().running_script(), old_second);
-        EXPECT_FALSE(pending.get_component<ScriptComponent>().running_script());
+        EXPECT_EQ(script_system->running_script(right), old_second);
+        EXPECT_FALSE(script_system->running_script(pending));
         EXPECT_EQ(right.get_component<TransformComponent>().translation, Math::Vec3(2, 1, 0));
         EXPECT_EQ(pending.get_component<TransformComponent>().translation, Math::Vec3(0));
 
         ASSERT_TRUE(load(second));
         ASSERT_TRUE(runtime.advance(0));
-        EXPECT_EQ(right.get_component<ScriptComponent>().running_script(),
-            registry.resolve<Script>(second));
-        EXPECT_EQ(pending.get_component<ScriptComponent>().running_script(),
-            registry.resolve<Script>(first));
+        EXPECT_EQ(script_system->running_script(right), registry.resolve<Script>(second));
+        EXPECT_EQ(script_system->running_script(pending), registry.resolve<Script>(first));
         EXPECT_EQ(right.get_component<TransformComponent>().translation, Math::Vec3(12, 2, 0));
         EXPECT_EQ(pending.get_component<TransformComponent>().translation, Math::Vec3(10, 1, 0));
     }
@@ -304,19 +303,16 @@ namespace Comet::Tests {
         ASSERT_TRUE(manager.scan().succeeded());
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_TRUE(runtime.is_active());
-        EXPECT_EQ(left.get_component<ScriptComponent>().running_script(), old_first);
-        EXPECT_EQ(right.get_component<ScriptComponent>().running_script(), old_second);
-        EXPECT_FALSE(pending.get_component<ScriptComponent>().running_script());
+        EXPECT_EQ(script_system->running_script(left), old_first);
+        EXPECT_EQ(script_system->running_script(right), old_second);
+        EXPECT_FALSE(script_system->running_script(pending));
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_EQ(left.get_component<TransformComponent>().translation, Math::Vec3(2, 1, 0));
         pending.get_component<ScriptComponent>().parameters["value"] = 5.0f;
         ASSERT_TRUE(runtime.advance(0));
-        EXPECT_EQ(left.get_component<ScriptComponent>().running_script(),
-            registry.resolve<Script>(first));
-        EXPECT_EQ(right.get_component<ScriptComponent>().running_script(),
-            registry.resolve<Script>(second));
-        EXPECT_EQ(pending.get_component<ScriptComponent>().running_script(),
-            registry.resolve<Script>(first));
+        EXPECT_EQ(script_system->running_script(left), registry.resolve<Script>(first));
+        EXPECT_EQ(script_system->running_script(right), registry.resolve<Script>(second));
+        EXPECT_EQ(script_system->running_script(pending), registry.resolve<Script>(first));
         EXPECT_EQ(left.get_component<TransformComponent>().translation, Math::Vec3(12, 2, 0));
         EXPECT_EQ(right.get_component<TransformComponent>().translation, Math::Vec3(12, 2, 0));
         EXPECT_EQ(pending.get_component<TransformComponent>().translation, Math::Vec3(10, 1, 0));

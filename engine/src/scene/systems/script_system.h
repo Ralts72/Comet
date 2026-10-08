@@ -3,6 +3,8 @@
 #include "scene/systems/system.h"
 #include "scene/entity.h"
 #include "scripting/script.h"
+#include "scripting/script_assets.h"
+#include "scripting/script_runtime_view.h"
 #include <map>
 #include <optional>
 #include <set>
@@ -10,14 +12,13 @@
 #include <vector>
 
 namespace Comet {
-    class AssetRegistry;
-
-    class COMET_API ScriptSystem final: public System {
+    class COMET_API ScriptSystem final: public System, public ScriptRuntimeView {
     public:
         explicit ScriptSystem(
-            const AssetRegistry& assets, const MaterialParameterValidator* materials = nullptr)
+            ScriptAssets assets, const MaterialParameterValidator* materials = nullptr)
             : m_assets(assets), m_materials(materials) {}
         ~ScriptSystem() override;
+        [[nodiscard]] std::shared_ptr<const Script> running_script(Entity entity) const override;
         Result<void, Error> on_start(
             Scene& scene, RuntimeSession&, const RuntimeServices&) override;
         Result<void, Error> fixed_update(Scene& scene, const Context& context) override;
@@ -63,10 +64,10 @@ namespace Comet {
         Result<void, Error> dispatch_contacts(Scene& scene, const Context& context);
         Result<void, Error> dispatch_events(Scene& scene, const Context& context);
         enum class StopReason { LiveChange, Shutdown };
-        void stop_entry(const Key& key, Entry& entry, StopReason reason) noexcept;
+        void stop_entry(Entry& entry, StopReason reason) noexcept;
         void stop_all() noexcept;
 
-        const AssetRegistry& m_assets;
+        ScriptAssets m_assets;
         const MaterialParameterValidator* m_materials;
         std::map<Key, Entry> m_entries;
         std::vector<Key> m_start_order;

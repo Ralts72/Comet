@@ -15,7 +15,6 @@ namespace Comet {
         if(this != &other) {
             asset = other.asset;
             parameters = other.parameters;
-            m_running_script.reset();
             m_lifetime = next_lifetime.fetch_add(1, std::memory_order_relaxed) + 1;
         }
         return *this;

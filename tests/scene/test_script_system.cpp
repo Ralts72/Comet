@@ -40,10 +40,14 @@ namespace Comet::Tests {
         Scene scene;
         PhysicsService physics;
         SceneRuntime runtime;
+        ScriptSystem* script_system = nullptr;
         void SetUp() override {
             ASSERT_TRUE(runtime.set_services({.physics = &physics}));
             ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-            ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets, &materials)));
+            auto candidate_system =
+                std::make_unique<ScriptSystem>(ScriptAssets{assets}, &materials);
+            script_system = candidate_system.get();
+            ASSERT_TRUE(runtime.add_system(std::move(candidate_system)));
         }
         void source(std::string code) {
             auto script = Script::create(std::move(code), "test.lua");
@@ -59,6 +63,114 @@ namespace Comet::Tests {
             return entity;
         }
     };
+
+    TEST_F(ScriptSystemTest, RuntimeViewRejectsForeignScenesAndReplacedComponentLifetimes) {
+        source("return {properties = {speed = 2}}");
+        auto entity = actor();
+        const auto definition = assets.resolve<Script>(handle);
+        const ScriptRuntimeView& view = *script_system;
+        EXPECT_FALSE(view.running_script(entity));
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_EQ(view.running_script(entity), definition);
+        const auto registry = create_scene_component_registry();
+        auto cloned = SceneSerializer(registry).clone(scene);
+        const ScopeExit stop_runtime([&] { EXPECT_TRUE(runtime.stop()); });
+        ASSERT_TRUE(cloned) << cloned.error();
+        const auto copied = cloned.value()->find_entity(entity.get_uuid());
+        ASSERT_TRUE(copied);
+        EXPECT_EQ(entity.get_id(), copied.get_id());
+        EXPECT_FALSE(view.running_script(copied));
+
+        auto replacement = entity.get_component<ScriptComponent>();
+        entity.get_component<ScriptComponent>() = std::move(replacement);
+        EXPECT_FALSE(view.running_script(entity));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(view.running_script(entity), definition);
+        entity.remove_component<ScriptComponent>();
+        EXPECT_FALSE(view.running_script(entity));
+        entity.add_component<ScriptComponent>().asset = handle;
+        EXPECT_FALSE(view.running_script(entity));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(view.running_script(entity), definition);
+
+        const auto uuid = entity.get_uuid();
+        scene.destroy_entity(entity);
+        auto recreated = scene.create_entity_with_uuid(uuid);
+        ASSERT_TRUE(recreated);
+        recreated.add_component<ScriptComponent>().asset = handle;
+        EXPECT_FALSE(view.running_script(entity));
+        EXPECT_FALSE(view.running_script(recreated));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(view.running_script(recreated), definition);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(view.running_script(recreated));
+        ASSERT_TRUE(runtime.start(*cloned.value()));
+        EXPECT_FALSE(view.running_script(recreated));
+        EXPECT_EQ(view.running_script(copied), definition);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(ScriptSystemTest, RuntimeViewsTrackInstalledVersionsIndependentlyOfSharedAssets) {
+        source(R"(return {properties = {speed = 1}, update = function(self)
+            comet.translate(self.parameters.speed, 0, 0)
+        end})");
+        const auto entity = actor();
+        Scene other_scene;
+        auto other = other_scene.create_entity_with_uuid(entity.get_uuid());
+        ASSERT_TRUE(other);
+        other.add_component<ScriptComponent>().asset = handle;
+        SceneRuntime other_runtime;
+        auto other_system = std::make_unique<ScriptSystem>(ScriptAssets{assets});
+        const ScriptRuntimeView& other_view = *other_system;
+        ASSERT_TRUE(other_runtime.add_system(std::move(other_system)));
+        const ScriptRuntimeView& view = *script_system;
+        ASSERT_TRUE(runtime.start(scene, SceneRuntime::State::Paused));
+        ASSERT_TRUE(other_runtime.start(other_scene));
+        const auto original = view.running_script(entity);
+        ASSERT_TRUE(original);
+        EXPECT_EQ(other_view.running_script(other), original);
+        EXPECT_FALSE(view.running_script(other));
+        EXPECT_FALSE(other_view.running_script(entity));
+        source(R"(return {properties = {speed = 2}, update = function(self)
+            comet.translate(self.parameters.speed, 0, 0)
+        end})");
+        const ScriptAssets definitions{assets};
+        const auto candidate = definitions.resolve(handle);
+        ASSERT_NE(candidate, original);
+        EXPECT_FALSE(definitions.resolve(AssetHandle{999}));
+        EXPECT_EQ(view.running_script(entity), original);
+        ASSERT_TRUE(other_runtime.advance(0));
+        EXPECT_EQ(other_view.running_script(other), candidate);
+        EXPECT_FLOAT_EQ(other.get_component<TransformComponent>().translation.x, 2);
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(view.running_script(entity), original);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(view.running_script(entity), candidate);
+        EXPECT_FLOAT_EQ(entity.get_component<TransformComponent>().translation.x, 2);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(view.running_script(entity));
+        EXPECT_EQ(other_view.running_script(other), candidate);
+        ASSERT_TRUE(other_runtime.advance(0));
+        EXPECT_FLOAT_EQ(other.get_component<TransformComponent>().translation.x, 4);
+    }
+
+    TEST_F(ScriptSystemTest, RuntimeViewSnapshotsRetainDefinitionsWithoutRetainingInstances) {
+        source("return {on_start = function() comet.translate(1, 0, 0) end}");
+        const auto entity = actor();
+        ASSERT_TRUE(runtime.start(scene));
+        auto snapshot = script_system->running_script(entity);
+        ASSERT_TRUE(snapshot);
+        const std::weak_ptr<const Script> definition = snapshot;
+        ASSERT_TRUE(assets.unregister_asset(handle));
+        EXPECT_FALSE(ScriptAssets{assets}.resolve(handle));
+        EXPECT_EQ(script_system->running_script(entity), snapshot);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(script_system->running_script(entity));
+        EXPECT_FALSE(definition.expired());
+        snapshot.reset();
+        EXPECT_TRUE(definition.expired());
+    }
 
     TEST_F(ScriptSystemTest, OnStartWritesProjectMaterialBeforeFirstShaderPublication) {
         const AssetHandle material_handle{77}, program_handle{78};
@@ -786,7 +898,9 @@ namespace Comet::Tests {
 
     TEST_F(ScriptSystemTest, TriggerNotificationsReachBothParticipantsAndIgnoreOtherScripts) {
         ASSERT_TRUE(runtime.clear_systems());
-        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
+        auto candidate_system = std::make_unique<ScriptSystem>(ScriptAssets{assets});
+        script_system = candidate_system.get();
+        ASSERT_TRUE(runtime.add_system(std::move(candidate_system)));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         source(R"(return {
             on_trigger_enter = function(self, other)
@@ -825,7 +939,9 @@ namespace Comet::Tests {
 
     TEST_F(ScriptSystemTest, FailedContactCallbackStopsRuntimeAndClearsNotifications) {
         ASSERT_TRUE(runtime.clear_systems());
-        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
+        auto candidate_system = std::make_unique<ScriptSystem>(ScriptAssets{assets});
+        script_system = candidate_system.get();
+        ASSERT_TRUE(runtime.add_system(std::move(candidate_system)));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         source(R"(return {
             on_collision_enter = function(self, other)
@@ -861,7 +977,9 @@ namespace Comet::Tests {
             Entity target;
         };
         ASSERT_TRUE(runtime.clear_systems());
-        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
+        auto candidate_system = std::make_unique<ScriptSystem>(ScriptAssets{assets});
+        script_system = candidate_system.get();
+        ASSERT_TRUE(runtime.add_system(std::move(candidate_system)));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         source(R"(return {
             on_collision_enter = function(self, other)
@@ -938,7 +1056,7 @@ namespace Comet::Tests {
                 {"retained", 3.0f}, {"removed", 7.0f}, {"changed", 8.0f}};
         second.get_component<ScriptComponent>().parameters["retained"] = 6.0f;
         ASSERT_TRUE(runtime.start(scene));
-        const auto old_script = first.get_component<ScriptComponent>().running_script();
+        const auto old_script = script_system->running_script(first);
         const auto lifetime = first.get_component<ScriptComponent>().lifetime();
         ASSERT_TRUE(runtime.advance(0));
         ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
@@ -961,15 +1079,15 @@ namespace Comet::Tests {
         const auto replacement = assets.resolve<Script>(handle);
         ASSERT_NE(replacement, old_script);
         ASSERT_TRUE(runtime.advance(1));
-        EXPECT_EQ(first.get_component<ScriptComponent>().running_script(), old_script);
-        EXPECT_EQ(second.get_component<ScriptComponent>().running_script(), old_script);
+        EXPECT_EQ(script_system->running_script(first), old_script);
+        EXPECT_EQ(script_system->running_script(second), old_script);
         EXPECT_EQ(first.get_component<TransformComponent>().translation, Math::Vec3(1, 0, 0));
         EXPECT_EQ(second.get_component<TransformComponent>().translation, Math::Vec3(1, 0, 0));
         ASSERT_TRUE(runtime.request_step());
         ASSERT_TRUE(runtime.advance(0));
         for(const auto entity : {first, second}) {
             const auto& component = entity.get_component<ScriptComponent>();
-            EXPECT_EQ(component.running_script(), replacement);
+            EXPECT_EQ(script_system->running_script(entity), replacement);
             ASSERT_EQ(component.parameters.size(), 1u);
             EXPECT_TRUE(component.parameters.contains("retained"));
         }
@@ -984,8 +1102,8 @@ namespace Comet::Tests {
         EXPECT_EQ(first.get_component<TransformComponent>().translation, Math::Vec3(7, 1, 3));
         EXPECT_EQ(second.get_component<TransformComponent>().translation, Math::Vec3(13, 1, 3));
         ASSERT_TRUE(runtime.stop());
-        EXPECT_FALSE(first.get_component<ScriptComponent>().running_script());
-        EXPECT_FALSE(second.get_component<ScriptComponent>().running_script());
+        EXPECT_FALSE(script_system->running_script(first));
+        EXPECT_FALSE(script_system->running_script(second));
         first.set_transform({});
         second.set_transform({});
         ASSERT_TRUE(runtime.start(scene));
@@ -1011,7 +1129,7 @@ namespace Comet::Tests {
         second.get_component<ScriptComponent>().parameters["speed"] = 2.0f;
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(0));
-        const auto previous = first.get_component<ScriptComponent>().running_script();
+        const auto previous = script_system->running_script(first);
         source(R"(
             local script = {properties = {speed = 100}}
             function script:helper()
@@ -1025,9 +1143,9 @@ namespace Comet::Tests {
         pending.get_component<ScriptComponent>().parameters["speed"] = true;
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_TRUE(runtime.is_active());
-        EXPECT_EQ(first.get_component<ScriptComponent>().running_script(), previous);
-        EXPECT_EQ(second.get_component<ScriptComponent>().running_script(), previous);
-        EXPECT_FALSE(pending.get_component<ScriptComponent>().running_script());
+        EXPECT_EQ(script_system->running_script(first), previous);
+        EXPECT_EQ(script_system->running_script(second), previous);
+        EXPECT_FALSE(script_system->running_script(pending));
         EXPECT_EQ(first.get_component<TransformComponent>().translation, Math::Vec3(3, 0, 0));
         EXPECT_EQ(second.get_component<TransformComponent>().translation, Math::Vec3(6, 0, 0));
         EXPECT_EQ(pending.get_component<TransformComponent>().translation, Math::Vec3(0));
@@ -1035,8 +1153,7 @@ namespace Comet::Tests {
         pending.get_component<ScriptComponent>().parameters["speed"] = 4.0f;
         ASSERT_TRUE(runtime.advance(0));
         for(const auto entity : {first, second, pending})
-            EXPECT_EQ(entity.get_component<ScriptComponent>().running_script(),
-                assets.resolve<Script>(handle));
+            EXPECT_EQ(script_system->running_script(entity), assets.resolve<Script>(handle));
         EXPECT_EQ(first.get_component<TransformComponent>().translation, Math::Vec3(3, 100, 0));
         EXPECT_EQ(second.get_component<TransformComponent>().translation, Math::Vec3(6, 2, 0));
         EXPECT_EQ(pending.get_component<TransformComponent>().translation, Math::Vec3(0, 4, 0));
@@ -1047,7 +1164,7 @@ namespace Comet::Tests {
         source("return {}");
         const auto entity = actor();
         ASSERT_TRUE(runtime.start(scene));
-        const auto old_script = entity.get_component<ScriptComponent>().running_script();
+        const auto old_script = script_system->running_script(entity);
         ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
         source(R"(return {
             on_start = function() comet.translate(1, 0, 0) end,
@@ -1055,12 +1172,11 @@ namespace Comet::Tests {
             update = function() comet.translate(0, 0, 1) end
         })");
         ASSERT_TRUE(runtime.advance(1));
-        EXPECT_EQ(entity.get_component<ScriptComponent>().running_script(), old_script);
+        EXPECT_EQ(script_system->running_script(entity), old_script);
         EXPECT_EQ(entity.get_component<TransformComponent>().translation, Math::Vec3(0));
         ASSERT_TRUE(runtime.request_step());
         ASSERT_TRUE(runtime.advance(0));
-        EXPECT_EQ(entity.get_component<ScriptComponent>().running_script(),
-            assets.resolve<Script>(handle));
+        EXPECT_EQ(script_system->running_script(entity), assets.resolve<Script>(handle));
         EXPECT_EQ(entity.get_component<TransformComponent>().translation, Math::Vec3(1, 1, 1));
         ASSERT_TRUE(runtime.advance(1));
         EXPECT_EQ(entity.get_component<TransformComponent>().translation, Math::Vec3(1, 1, 1));
@@ -1110,8 +1226,8 @@ namespace Comet::Tests {
         ASSERT_FALSE(reloaded);
         EXPECT_NE(reloaded.error().message.find("reload start failed"), std::string::npos);
         EXPECT_FALSE(runtime.is_active());
-        EXPECT_FALSE(first.get_component<ScriptComponent>().running_script());
-        EXPECT_FALSE(second.get_component<ScriptComponent>().running_script());
+        EXPECT_FALSE(script_system->running_script(first));
+        EXPECT_FALSE(script_system->running_script(second));
         EXPECT_EQ(scene.entity_count(), 2u);
         EXPECT_FALSE(runtime.get_session().get_value("reload.pending"));
         source(R"(return {
@@ -1194,8 +1310,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
         ASSERT_TRUE(runtime.stop());
         EXPECT_EQ(messages.size(), 4u);
-        EXPECT_FALSE(first.get_component<ScriptComponent>().running_script());
-        EXPECT_FALSE(second.get_component<ScriptComponent>().running_script());
+        EXPECT_FALSE(script_system->running_script(first));
+        EXPECT_FALSE(script_system->running_script(second));
 
         source(R"(return {
             properties = {label = 'first'},

@@ -43,6 +43,7 @@ set(AUDIO_HEADERS "${RUNTIME_HEADERS}|audio/|scene/systems/audio_system\\.h$")
 
 set(PHYSICS_HEADERS "${RUNTIME_HEADERS}|physics/|scene/systems/physics_system\\.h$")
 set(PHYSICS_BACKEND_HEADERS "${ASSET_HEADERS}|physics/|scene/(components|entity_id|entity_uuid)\\.h$")
+set(SCRIPTING_HEADERS "${RUNTIME_HEADERS}|scripting/|scene/systems/script_system\\.h$")
 
 function(check_module_closure module sources allowed)
     set(pending ${sources})
@@ -57,11 +58,14 @@ function(check_module_closure module sources allowed)
         file(STRINGS "${ENGINE_SOURCE}/${path}" includes
             REGEX "^[ \t]*#[ \t]*include[ \t]*[<\"]")
         foreach(line IN LISTS includes)
-            if(line MATCHES "[<\"]([Vv]ulkan/|GLFW/|RmlUi/|imgui|lua\\.h|Jolt/|miniaudio\\.h)")
+            if(line MATCHES "[<\"]([Vv]ulkan/|GLFW/|RmlUi/|imgui|(lua|lauxlib|lualib)\\.h|Jolt/|miniaudio\\.h)")
                 if(NOT ((module STREQUAL "Audio" AND path STREQUAL "audio/audio.cpp"
                     AND line MATCHES "[<\"]miniaudio\\.h[>\"]") OR
                     (module MATCHES "^Physics" AND path STREQUAL "physics/physics_service.cpp"
-                    AND line MATCHES "[<\"]Jolt/")))
+                    AND line MATCHES "[<\"]Jolt/") OR
+                    (module STREQUAL "Scripting" AND
+                    path MATCHES "^scripting/(script|lua_bindings)\\.cpp$" AND
+                    line MATCHES "[<\"](lua|lauxlib|lualib)\\.h[>\"]")))
                     message(FATAL_ERROR "${module} includes a runtime backend: ${path}: ${line}")
                 endif()
             endif()
@@ -77,6 +81,10 @@ function(check_module_closure module sources allowed)
                 endif()
             endif()
             cmake_path(NORMAL_PATH header)
+            if(module STREQUAL "Scripting" AND header STREQUAL "asset/registry.h"
+                AND NOT path STREQUAL "scripting/script_assets.cpp")
+                message(FATAL_ERROR "Scripting must resolve assets through ScriptAssets: ${path}: ${line}")
+            endif()
             if(NOT header MATCHES "^(${allowed})")
                 message(FATAL_ERROR "${module} violates module dependencies: ${path}: ${line}")
             endif()
@@ -99,6 +107,7 @@ check_module_closure(Audio "${COMET_AUDIO_SOURCES}" "${AUDIO_HEADERS}")
 check_module_closure(Physics "${COMET_PHYSICS_SOURCES}" "${PHYSICS_HEADERS}")
 check_module_closure(PhysicsBackend "src/physics/physics_service.cpp;src/physics/physics_service.h"
     "${PHYSICS_BACKEND_HEADERS}")
+check_module_closure(Scripting "${COMET_SCRIPTING_SOURCES}" "${SCRIPTING_HEADERS}")
 check_module_closure(AssetPipeline "${COMET_ASSET_PIPELINE_SOURCES}" "${PIPELINE_HEADERS}")
 
 file(GLOB_RECURSE ENGINE_FILES RELATIVE "${ENGINE_SOURCE}"

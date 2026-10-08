@@ -75,3 +75,15 @@ probe_dependency("src/physics/physics_service.cpp" "\"scene/scene.h\""
     "PhysicsBackend violates module dependencies")
 probe_dependency("src/physics/physics_service.h" "\"scene/entity.h\""
     "PhysicsBackend violates module dependencies")
+probe_dependency("src/scene/script_component.h" "\"scripting/script_runtime_view.h\""
+    "World violates module dependencies")
+probe_dependency("src/scene/systems/script_system.cpp" "\"asset/registry.h\""
+    "Scripting must resolve assets through ScriptAssets")
+probe_dependency("src/scripting/script_assets.h" "<lua.h>"
+    "Scripting includes a runtime backend")
+probe_dependency("src/scene/systems/script_system.h" "<lauxlib.h>"
+    "Scripting includes a runtime backend")
+probe_dependency("src/scripting/script.cpp" "\"physics/physics_service.h\""
+    "Scripting violates module dependencies")
+probe_dependency("src/scripting/lua_bindings.cpp" "\"render/material/material_programs.h\""
+    "Scripting violates module dependencies")

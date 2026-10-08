@@ -19,12 +19,15 @@ App、Editor 和资产准备工具继续链接 `engine`／`Comet::Engine`，无�
 | `comet_runtime` | SceneRuntime、RuntimeSession、固定步时钟、暂停／单步与 System 生命周期契约；World、Input |
 | `comet_audio` | AudioService 的命令、设备与全部 Voice，AudioSystem 同步声音源；Runtime、miniaudio |
 | `comet_physics` | PhysicsService 的世界、刚体、冲量和接触跟踪，PhysicsSystem 同步组件及回写；Runtime、私有 Jolt |
+| `comet_scripting` | Script 定义、行为 VM、ScriptSystem 的场景绑定／换代；Runtime、私有 Lua |
 | `comet_asset_pipeline` | 扫描索引、Artifact、源导入与任务队列；AssetData、stb_image、fastgltf |
 
-项目／Profile 配置聚合、窗口、图形、渲染及脚本实现暂由 engine 主目标组合，后续逐步收窄内部边界。
+项目／Profile 配置聚合、窗口、图形及渲染暂由 engine 主目标组合，后续逐步收窄内部边界。
 Runtime 的源清单同时覆盖公共执行头及无后端的 AudioCommands／PhysicsCommands；禁止引用 Engine／Application、具体服务或 System、图形与平台后端。
 World 不反向依赖 Runtime 或服务命令。Audio 与 Physics 的传递依赖同样检查，只有 `audio/audio.cpp` 可包含 miniaudio，只有 `physics/physics_service.cpp` 可包含 Jolt。
 Physics 后端仅接收配置快照与 UUID／EntityId，不包含 Scene／Entity 头；组件校验、场景身份检查和 Transform／接触交付由适配层负责。
+Scripting 只在 `scripting/script.cpp`／`lua_bindings.cpp` 包含 Lua 头；ScriptSystem 经 ScriptAssets 解析不可变定义，只有 `script_assets.cpp` 包含通用 Registry。
+模块不依赖 AssetManager、导入管线、Render 或具体音频／物理服务；UI 控制器仍拥有独立 VM 与权限。
 对象库只产生编译中间文件；不增加模块动态库、独立构建目录或单独的 CPU 测试入口。
 全局日志、组件 Schema 与任务状态在宿主进程中仍由 engine 提供唯一实现，继续使用统一 `COMET_API`。
 `LogSettings` 归 Foundation；`Config::Log` 保留别名，基础日志头不再依赖完整 Config。
@@ -127,6 +130,8 @@ Lua 只使用元素 ID，不持有原生文档／GPU 句柄；旧控制器的接
 | `input/runtime_input.h` | 运行域输入：序号去重、固定步累积、动作求值、暂停基线和重置 |
 | `input/input_state.h` | 同一授权／阶段的物理与动作只读快照，System／Lua 的统一消费入口 |
 | `scene/systems/script_system.h` | Lua 行为实例的启动、阶段更新、寿命复核与逆序清理；字段仍属于 Scene 组件 |
+| `scripting/script_assets.h` | 借用 Registry 的只读脚本解析能力，不公开通用资产操作；缓存须活到运行系统销毁之后 |
+| `scripting/script_runtime_view.h` | 实际运行定义的只读查询；拒绝其他 Scene、无效实体和已替换组件寿命，视图须活到调用方结束查询之后 |
 | `scene/systems/physics_system.h` | 刚体／碰撞体校验与配置同步，姿态回写及接触交付；保存实体绑定，不拥有 Jolt 对象 |
 | `physics/physics_commands.h` | 无后端的冲量能力，校验运行场景与动态刚体身份；Runtime 绑定和解绑服务 |
 | `physics/physics_service.h` | 每个运行域独立的 Jolt 世界、刚体、冲量队列及接触跟踪；停止／失败销毁模拟对象 |
@@ -176,6 +181,7 @@ Engine
 ├── AudioService → 请求队列 + AudioPlayback + Voice（首次需要声音时创建输出）
 ├── PhysicsService → 冲量队列 + Jolt world / bodies / contacts（运行态专有）
 ├── SceneRuntime → RuntimeSession + System[]（借用 Scene 与 RuntimeServices）
+│   ├── ScriptSystem → 独立 Lua 实例 + 活动定义 + 换代／失败记录（提供只读运行视图）
 │   ├── PhysicsSystem → 实体绑定（配置同步、姿态回写与接触交付）
 │   └── AudioSystem → 实体／组件寿命与 Voice 标识（同步 AudioService）
 ├── TaskScheduler
@@ -523,7 +529,7 @@ render_frame 返回 `Result<void, GraphicsError>`。部分录制失败的命令�
 | Script::Instance | VM、保护调用、Lua 配置表与实例内模块缓存；共享只读源码，不共享 Lua table |
 | 私有 lua_bindings | 当前实体／授权输入的 API 适配，不访问 Editor 或渲染资源 |
 | ScriptSystem | 独占实例、保活所用 Script、同步组件寿命与阶段调用、交付场景通知 |
-| ScriptComponent | 持久化 Handle 与稀疏覆盖；非持久化寿命与活动定义弱引用 |
+| ScriptComponent | 持久化 Handle 与稀疏覆盖；非持久化组件寿命，不持有运行定义或 VM |
 
 复制组件不携带运行绑定。每实体独立 VM；阶段边界只查询脚本组件，新增批次按 UUID 启动，
 按实际启动逆序停止，包含部分启动失败。on_stop 不访问实体／Scene；除普通日志外，只能记录受限输入组关闭输出；
@@ -537,7 +543,9 @@ render_frame 返回 `Result<void, GraphicsError>`。部分录制失败的命令�
 宿主始终从定义表取生命周期与已声明事件入口；给 `self.update` 赋值不重绑定宿主入口。
 辅助方法共享本次保护调用与执行预算，不开新的保护边界；换版仍重建定义、self 和模块，不迁移 Lua 状态。
 
-Inspector Edit 使用当前资产定义，Play 使用活动实例定义；Edit 定义切换会取消旧参数手势。
+Inspector Edit 使用当前资产定义，Play 经 ScriptRuntimeView 查询 ScriptSystem 中的活动实例定义；Edit 定义切换会取消旧参数手势。
+查询校验 Scene 身份、UUID、组件寿命及 Handle；未启动、换绑尚未同步、已删除或停止时返回空值，候选发布不提前改变运行版本。
+Engine 的默认系统提供视图，调用方借用至系统销毁前；返回的不可变定义快照可保留，不延长 Lua 实例寿命。
 Play 实例换代后只清除旧脚本参数控件的活动状态，不打断其他属性／面板的输入，也不回写 Edit 历史。
 更换脚本是 SceneEditor 的完整命令：先加载候选，再一次替换引用并清空覆盖，Edit 的 Undo 同时恢复二者。
 清空引用同样清空覆盖；选同一引用不重置参数；失败不改变原绑定。Play 直接改运行副本，不写 Edit 历史。
@@ -546,7 +554,7 @@ Play 实例换代后只清除旧脚本参数控件的活动状态，不打断其
 运行旧定义和候选定义的模块依赖共同决定关联组；候选删掉依赖也不能漏掉仍使用旧模块的实例。
 先为需要换版的实例与同组新挂载组件创建候选 VM；旧实例按名称与 ParameterValue 类型保留兼容覆盖，
 移除／改型字段使用新版默认值；新组件仍严格验证其覆盖，不借重载静默丢弃错误配置。
-候选全部准备成功后，按实际启动逆序停止该组旧实例，再安装候选、更新组件活动定义和运行态覆盖，按 UUID 执行新版 on_start。
+候选全部准备成功后，按实际启动逆序停止该组旧实例，再安装候选定义与运行态覆盖，按 UUID 执行新版 on_start。
 准备失败保留该组旧实例并延后新实例；失败快照记录实例身份、候选弱引用和参数，只有完整输入相同才跳过重试。
 因此修复参数、删除阻塞组件或恢复缺失资产后仍可重试；失败记录不保活候选源码，Stop 清除。
 语法／声明失败由原有资产加载入口拒绝，不发布到 Registry；ScriptSystem 不自己读文件、监听或另建资产版本缓存。

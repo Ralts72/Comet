@@ -157,7 +157,7 @@ SceneRuntime／System 契约已由内部 Runtime 对象模块编译，只依赖 
 对外提供 `engine`／`Comet::Engine`；不新增独立 build 项目、工具 Profile、模块动态库或公开模块组合入口。
 内部 target 服务于依赖约束与增量编译，最终汇入 engine；出现真实产品需求后再讨论单独交付。
 
-**已实现首轮：**Foundation、Serialization、ShaderContracts、AssetData、Input、World、Runtime、Audio、Physics、AssetPipeline
+**已实现首轮：**Foundation、Serialization、ShaderContracts、AssetData、Input、World、Runtime、Audio、Physics、Scripting、AssetPipeline
 已按源码职责提取为内部对象库，依赖方向及传递 include 由现有 CTest 检查。
 基础日志使用独立 `LogSettings`，不再通过 Logger 引入完整 Config；仍统一使用 `COMET_API`。
 资产准备工具复用现有构建和 engine；Shader 编译工具直接复用 Foundation 对象，避免生成任务反向依赖 engine。
@@ -167,7 +167,9 @@ RuntimeSession 已独立保存会话值、输入组请求和重开意图，Syste
 World 已移除 Input 依赖，检查拒绝 World 反向包含输入或会话头。
 AudioService 已从 Scene 移出音频请求，统一拥有设备与播放实例；PhysicsService 拥有冲量和 Jolt 运行对象。
 RuntimeServices 显式提供服务权限，Runtime 不依赖具体服务；公共头及后端私有 include 均受依赖检查约束，Jolt 后端禁止包含 Scene／Entity。
-脚本实现、其他运行态、Render 和游戏 UI 的内部拆分仍未完成。
+Scripting 已独立编译行为 VM 与场景绑定；ScriptAssets 限定只读定义解析，ScriptRuntimeView 提供实际运行版本，World 不再保存运行定义引用。
+Lua 头仅进入实现，脚本模块不包含导入管线、Render 或具体服务；原有热重载失败保留及 Inspector 手势语义继续验收。
+其他运行态、Render 和游戏 UI 的内部拆分仍未完成。
 AssetManager 仍承担导入与运行时发布编排。
 
 | 当前范围 | 后续内部边界 | 需要解决的问题 |
@@ -176,7 +178,7 @@ AssetManager 仍承担导入与运行时发布编排。
 | AssetHandle、Registry、产品数据／加载与驻留 | AssetData 与运行时资产服务 | 导入生产、运行时加载、GPU 发布分别负责；拆开 AssetManager 的混合职责 |
 | `core/window` 与 GLFW 接线 | Platform | 平台适配提供采样及窗口服务，Input 的动作求值和改键不反向依赖 GLFW |
 | `graphics/`、`render/` | 图形后端与 Render | Vulkan／VMA 归后端；Render 消费场景提取与资源服务，World 不反向依赖 Render |
-| `scripting/` 与 ScriptSystem | Scripting | Lua 生命周期及世界绑定归脚本模块，World 只保存配置；UI VM 与行为 VM 保持独立所有权 |
+| Scripting／ScriptSystem（首轮已完成） | Scripting | 定义、VM 与世界绑定归脚本模块；组件只保留配置与身份，Editor 查询活动定义；只读资产解析和私有 Lua 依赖有检查，UI VM 独立 |
 | Audio／AudioSystem（首轮已完成） | Audio | AudioService 拥有队列、设备与 Voice；System 同步组件，Runtime 通过接口管理启停，miniaudio 只进入后端实现 |
 | Physics／PhysicsSystem（首轮已完成） | Physics | PhysicsService 拥有冲量、世界／刚体及接触跟踪；System 适配组件与模拟输出，Jolt 仅进入后端实现；预算、临时分配和并行调度待测量优化 |
 | `engine/src/ui/` | Engine UI | 先依赖输入／资产／平台／渲染的必要接口，再纳入统一 engine 组合，消除对完整 engine 的反向链接；项目页面与业务仍归 demo／项目 |
@@ -194,7 +196,7 @@ AssetManager 仍承担导入与运行时发布编排。
 2. **World／Runtime 与宿主（执行与会话边界首轮已完成）**：Runtime 对象模块、统一输入交付和会话归属已接通；
    继续收窄 Scene 的通知与材质运行态，明确后台／最小化策略及 Input／Platform 接线；
    验证固定步、暂停／单步、重开和关闭，两个世界状态隔离，呈现延期不决定模拟推进。
-3. **资产与系统服务（音频与物理首轮已完成）**：下一步收窄 Scripting 的实现、世界绑定与资产访问边界；随后拆开 AssetManager 的导入、加载和 GPU 发布职责，
+3. **资产与系统服务（音频、物理与脚本首轮已完成）**：下一步拆开 AssetManager 的导入、加载和 GPU 发布职责，
    显式装配服务，验证部分启动失败、逆序清理和重复 Play／Stop，数据模块不引入后端。
 4. **图形与游戏 UI**：收束 Graphics／Render／Platform／UI 的依赖，通过统一 engine 入口组合；
    完整 Editor 的项目 UI 预览／Play 与 App 共用页面和控制器，编辑器工具面板继续使用 ImGui。

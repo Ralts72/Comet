@@ -104,10 +104,12 @@ namespace Comet {
         // 注册顺序也是各更新阶段的执行顺序；SceneRuntime 停止时按逆序清理。
         if(auto added = add_system(std::make_unique<CameraControllerSystem>()); !added)
             return added;
-        if(auto added = add_system(std::make_unique<ScriptSystem>(
-               *m_asset_registry, &m_renderer->get_material_programs()));
-            !added)
+        auto scripts = std::make_unique<ScriptSystem>(
+            ScriptAssets{*m_asset_registry}, &m_renderer->get_material_programs());
+        const auto* script_view = scripts.get();
+        if(auto added = add_system(std::move(scripts)); !added)
             return added;
+        m_script_runtime_view = script_view;
         if(auto added = add_system(std::make_unique<PhysicsSystem>(*m_physics_service)); !added)
             return added;
         return add_system(std::make_unique<AudioSystem>(*m_audio_service));

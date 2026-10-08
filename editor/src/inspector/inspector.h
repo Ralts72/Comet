@@ -17,6 +17,7 @@ namespace Comet {
     class ComponentRegistry;
     class Entity;
     class Script;
+    class ScriptRuntimeView;
 }
 
 namespace CometEditor {
@@ -35,7 +36,8 @@ namespace CometEditor {
             const Comet::ComponentRegistry& component_registry,
             const PropertyEditorRegistry& property_editor_registry,
             const Comet::AssetDatabase& asset_database, const Comet::AssetRegistry& runtime_assets,
-            const Comet::MaterialPrograms& programs);
+            const Comet::MaterialPrograms& programs,
+            const Comet::ScriptRuntimeView* scripts = nullptr);
 
         void render() override;
         [[nodiscard]] bool finish_edit(bool cancel = false);
@@ -71,6 +73,7 @@ namespace CometEditor {
         const PropertyEditorRegistry& m_property_editor_registry;
         const Comet::AssetDatabase& m_asset_database;
         const Comet::AssetRegistry& m_runtime_assets;
+        const Comet::ScriptRuntimeView* m_scripts;
         std::shared_ptr<const Comet::Script> m_script_edit_version;
         AssetInspector m_asset_inspector;
         std::optional<AssetAssignment> m_asset_assignment;

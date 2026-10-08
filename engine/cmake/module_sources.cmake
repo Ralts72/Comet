@@ -83,6 +83,18 @@ set(COMET_PHYSICS_SOURCES
     src/scene/systems/physics_system.h
 )
 
+set(COMET_SCRIPTING_SOURCES
+    src/scripting/script.cpp
+    src/scripting/script.h
+    src/scripting/script_assets.cpp
+    src/scripting/script_assets.h
+    src/scripting/script_runtime_view.h
+    src/scripting/lua_bindings.cpp
+    src/scripting/lua_bindings.h
+    src/scene/systems/script_system.cpp
+    src/scene/systems/script_system.h
+)
+
 set(COMET_ASSET_PIPELINE_SOURCES
     src/asset/database.cpp
     src/asset/database_scan.cpp

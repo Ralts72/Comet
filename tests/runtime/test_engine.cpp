@@ -6,6 +6,10 @@
 #include "support/engine_fixture.h"
 #include "support/scene_motion_system.h"
 #include "scene/systems/camera_controller.h"
+#include "scene/script_component.h"
+#include "scripting/script.h"
+#include "scripting/script_runtime_view.h"
+#include "asset/registry.h"
 
 #include <gtest/gtest.h>
 #include <GLFW/glfw3.h>
@@ -112,10 +116,22 @@ namespace Comet::Tests {
         ASSERT_TRUE(created) << created.error().message;
         auto& engine = *created.value();
         ASSERT_TRUE(engine.add_default_scene_systems());
-        engine.set_scene(std::make_unique<Scene>());
+        const auto* scripts = engine.get_script_runtime_view();
+        ASSERT_NE(scripts, nullptr);
+        auto scene = std::make_unique<Scene>();
+        auto entity = scene->create_entity();
+        constexpr AssetHandle handle{42};
+        entity.add_component<ScriptComponent>().asset = handle;
+        const auto script = Script::create("return {}");
+        ASSERT_TRUE(script);
+        ASSERT_TRUE(engine.get_asset_registry().register_asset(handle, script.value()));
+        engine.set_scene(std::move(scene));
+        EXPECT_FALSE(scripts->running_script(entity));
         ASSERT_TRUE(engine.start_scene_runtime());
+        EXPECT_EQ(scripts->running_script(entity), script.value());
         EXPECT_FALSE(engine.add_default_scene_systems());
         ASSERT_TRUE(engine.stop_scene_runtime());
+        EXPECT_FALSE(scripts->running_script(entity));
     }
 
     TEST(EngineRunTest, RoutesInputOnceAfterUiWithoutCarryingItIntoTheNextFrame) {

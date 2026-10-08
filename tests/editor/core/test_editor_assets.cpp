@@ -339,7 +339,8 @@ namespace CometEditor::Tests {
         EXPECT_EQ(history.state_id(), after);
         EXPECT_EQ(binding.asset, b);
         Comet::SceneRuntime execution;
-        ASSERT_TRUE(execution.add_system(std::make_unique<Comet::ScriptSystem>(runtime)));
+        ASSERT_TRUE(execution.add_system(
+            std::make_unique<Comet::ScriptSystem>(Comet::ScriptAssets{runtime})));
         ASSERT_TRUE(execution.start(playing));
         ASSERT_TRUE(execution.stop());
     }
@@ -478,7 +479,8 @@ namespace CometEditor::Tests {
         Comet::Scene scene;
         scene.create_entity().add_component<Comet::ScriptComponent>().asset = record->handle;
         Comet::SceneRuntime player;
-        ASSERT_TRUE(player.add_system(std::make_unique<Comet::ScriptSystem>(runtime)));
+        ASSERT_TRUE(
+            player.add_system(std::make_unique<Comet::ScriptSystem>(Comet::ScriptAssets{runtime})));
         ASSERT_TRUE(player.start(scene));
         ASSERT_TRUE(player.advance(1.0 / 60.0));
         ASSERT_TRUE(player.stop());
@@ -580,7 +582,8 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(runtime.resolve<Comet::Script>(second));
         EXPECT_EQ(runtime.size(), registered + 2);
         Comet::SceneRuntime player;
-        ASSERT_TRUE(player.add_system(std::make_unique<Comet::ScriptSystem>(runtime)));
+        ASSERT_TRUE(
+            player.add_system(std::make_unique<Comet::ScriptSystem>(Comet::ScriptAssets{runtime})));
         ASSERT_TRUE(player.start(scene));
         ASSERT_TRUE(player.advance(0));
         EXPECT_FLOAT_EQ(left.get_component<Comet::TransformComponent>().translation.x, 1);
@@ -657,7 +660,8 @@ namespace CometEditor::Tests {
         EXPECT_EQ(assets->database().find("shared.module.lua"), nullptr);
         EXPECT_FALSE(std::filesystem::exists(paths.assets() / "shared.module.lua.meta"));
         Comet::SceneRuntime player;
-        ASSERT_TRUE(player.add_system(std::make_unique<Comet::ScriptSystem>(runtime)));
+        ASSERT_TRUE(
+            player.add_system(std::make_unique<Comet::ScriptSystem>(Comet::ScriptAssets{runtime})));
         ASSERT_TRUE(player.start(scene));
         ASSERT_TRUE(player.advance(0));
         EXPECT_FLOAT_EQ(left.get_component<Comet::TransformComponent>().translation.x, 7);
@@ -711,7 +715,9 @@ namespace CometEditor::Tests {
         left.add_component<Comet::ScriptComponent>().asset = first;
         right.add_component<Comet::ScriptComponent>().asset = second;
         Comet::SceneRuntime player;
-        ASSERT_TRUE(player.add_system(std::make_unique<Comet::ScriptSystem>(runtime)));
+        auto candidate_system = std::make_unique<Comet::ScriptSystem>(Comet::ScriptAssets{runtime});
+        auto* script_system = candidate_system.get();
+        ASSERT_TRUE(player.add_system(std::move(candidate_system)));
         ASSERT_TRUE(player.start(scene));
         ASSERT_TRUE(player.advance(0));
 
@@ -749,11 +755,11 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(current_second);
         EXPECT_NE(current_first, original_first);
         EXPECT_NE(current_second, original_second);
-        EXPECT_EQ(left.get_component<Comet::ScriptComponent>().running_script(), original_first);
-        EXPECT_EQ(right.get_component<Comet::ScriptComponent>().running_script(), original_second);
+        EXPECT_EQ(script_system->running_script(left), original_first);
+        EXPECT_EQ(script_system->running_script(right), original_second);
         ASSERT_TRUE(player.advance(0));
-        EXPECT_EQ(left.get_component<Comet::ScriptComponent>().running_script(), current_first);
-        EXPECT_EQ(right.get_component<Comet::ScriptComponent>().running_script(), current_second);
+        EXPECT_EQ(script_system->running_script(left), current_first);
+        EXPECT_EQ(script_system->running_script(right), current_second);
         EXPECT_FLOAT_EQ(left.get_component<Comet::TransformComponent>().translation.x, 7);
         EXPECT_FLOAT_EQ(right.get_component<Comet::TransformComponent>().translation.x, 7);
         EXPECT_EQ(assets->database().size(), indexed);
@@ -798,7 +804,9 @@ namespace CometEditor::Tests {
         auto left = scene.create_entity();
         left.add_component<Comet::ScriptComponent>().asset = first;
         Comet::SceneRuntime player;
-        ASSERT_TRUE(player.add_system(std::make_unique<Comet::ScriptSystem>(runtime)));
+        auto candidate_system = std::make_unique<Comet::ScriptSystem>(Comet::ScriptAssets{runtime});
+        auto* script_system = candidate_system.get();
+        ASSERT_TRUE(player.add_system(std::move(candidate_system)));
         ASSERT_TRUE(player.start(scene));
         ASSERT_TRUE(player.advance(0));
 
@@ -824,7 +832,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(runtime.resolve<Comet::Script>(first), original);
         EXPECT_EQ(left.get_component<Comet::ScriptComponent>().asset, first);
         ASSERT_TRUE(player.advance(0));
-        EXPECT_EQ(left.get_component<Comet::ScriptComponent>().running_script(), original);
+        EXPECT_EQ(script_system->running_script(left), original);
         EXPECT_FLOAT_EQ(left.get_component<Comet::TransformComponent>().translation.x, 2);
 
         const auto cold = assets->load_reference(
@@ -842,11 +850,11 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(assets->load_reference(
             second, Comet::AssetType::Script, assets->database().get_revision(second)));
         ASSERT_TRUE(runtime.resolve<Comet::Script>(second));
-        EXPECT_EQ(left.get_component<Comet::ScriptComponent>().running_script(), original);
+        EXPECT_EQ(script_system->running_script(left), original);
         auto right = scene.create_entity();
         right.add_component<Comet::ScriptComponent>().asset = second;
         ASSERT_TRUE(player.advance(0));
-        EXPECT_EQ(left.get_component<Comet::ScriptComponent>().running_script(), repaired);
+        EXPECT_EQ(script_system->running_script(left), repaired);
         EXPECT_FLOAT_EQ(left.get_component<Comet::TransformComponent>().translation.x, 6);
         EXPECT_FLOAT_EQ(right.get_component<Comet::TransformComponent>().translation.x, 4);
         EXPECT_EQ(assets->database().size(), indexed);
@@ -872,7 +880,9 @@ namespace CometEditor::Tests {
         auto entity = scene.create_entity();
         entity.add_component<Comet::ScriptComponent>().asset = handle;
         Comet::SceneRuntime player;
-        ASSERT_TRUE(player.add_system(std::make_unique<Comet::ScriptSystem>(runtime)));
+        auto candidate_system = std::make_unique<Comet::ScriptSystem>(Comet::ScriptAssets{runtime});
+        auto* script_system = candidate_system.get();
+        ASSERT_TRUE(player.add_system(std::move(candidate_system)));
         ASSERT_TRUE(player.start(scene));
         ASSERT_TRUE(player.advance(0));
 
@@ -885,7 +895,7 @@ namespace CometEditor::Tests {
                 std::ranges::find(report.modified_assets, handle), report.modified_assets.end());
             EXPECT_EQ(runtime.resolve<Comet::Script>(handle), original);
             ASSERT_TRUE(player.advance(0));
-            EXPECT_EQ(entity.get_component<Comet::ScriptComponent>().running_script(), original);
+            EXPECT_EQ(script_system->running_script(entity), original);
         }
         EXPECT_FLOAT_EQ(entity.get_component<Comet::TransformComponent>().translation.x, 3);
 
@@ -895,9 +905,9 @@ namespace CometEditor::Tests {
         const auto repaired = runtime.resolve<Comet::Script>(handle);
         ASSERT_TRUE(repaired);
         ASSERT_NE(repaired, original);
-        EXPECT_EQ(entity.get_component<Comet::ScriptComponent>().running_script(), original);
+        EXPECT_EQ(script_system->running_script(entity), original);
         ASSERT_TRUE(player.advance(0));
-        EXPECT_EQ(entity.get_component<Comet::ScriptComponent>().running_script(), repaired);
+        EXPECT_EQ(script_system->running_script(entity), repaired);
         EXPECT_FLOAT_EQ(entity.get_component<Comet::TransformComponent>().translation.x, -7);
         ASSERT_TRUE(player.stop());
     }
@@ -922,7 +932,9 @@ namespace CometEditor::Tests {
         auto entity = scene.create_entity();
         entity.add_component<Comet::ScriptComponent>().asset = handle;
         Comet::SceneRuntime player;
-        ASSERT_TRUE(player.add_system(std::make_unique<Comet::ScriptSystem>(runtime)));
+        auto candidate_system = std::make_unique<Comet::ScriptSystem>(Comet::ScriptAssets{runtime});
+        auto* script_system = candidate_system.get();
+        ASSERT_TRUE(player.add_system(std::move(candidate_system)));
         ASSERT_TRUE(player.start(scene));
         ASSERT_TRUE(player.advance(0));
 
@@ -959,7 +971,7 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(warnings.front().ends_with(rejected.error().message)) << warnings.front();
         EXPECT_EQ(runtime.resolve<Comet::Script>(handle), original);
         ASSERT_TRUE(player.advance(0));
-        EXPECT_EQ(entity.get_component<Comet::ScriptComponent>().running_script(), original);
+        EXPECT_EQ(script_system->running_script(entity), original);
         EXPECT_FLOAT_EQ(entity.get_component<Comet::TransformComponent>().translation.x, 2);
 
         ASSERT_TRUE(Comet::write_text_file_atomic(module_path, "return {step = 2}"));

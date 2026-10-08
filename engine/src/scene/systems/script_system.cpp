@@ -1,7 +1,6 @@
 #include "scene/systems/script_system.h"
 #include "scene/script_component.h"
 #include "scene/scene.h"
-#include "asset/registry.h"
 #include "diagnostics/logger.h"
 #include "scene/runtime_session.h"
 
@@ -12,6 +11,17 @@ namespace Comet {
         stop_all();
     }
 
+    std::shared_ptr<const Script> ScriptSystem::running_script(const Entity entity) const {
+        if(!m_scene || !m_scene->is_valid(entity) || !entity.has_component<ScriptComponent>())
+            return nullptr;
+        const auto& component = entity.get_component<ScriptComponent>();
+        const Key key{entity.get_uuid(), component.lifetime(), component.asset};
+        const auto found = m_entries.find(key);
+        if(found == m_entries.end() || !is_live(found->first, found->second))
+            return nullptr;
+        return found->second.script;
+    }
+
     bool ScriptSystem::is_live(const Key& key, const Entry& entry) const {
         if(!entry.entity || !entry.entity.has_component<ScriptComponent>())
             return false;
@@ -20,7 +30,7 @@ namespace Comet {
                && component.asset == key.asset;
     }
 
-    void ScriptSystem::stop_entry(const Key& key, Entry& entry, const StopReason reason) noexcept {
+    void ScriptSystem::stop_entry(Entry& entry, const StopReason reason) noexcept {
         std::vector<std::string> disabled_contexts;
         if(auto stopped = entry.instance->invoke(Script::Phase::Stop, {}, entry.parameters,
                {.disabled_input_contexts = &disabled_contexts});
@@ -31,15 +41,12 @@ namespace Comet {
                 if(!m_session->request_input_context(name, false))
                     LOG_ERROR("Cannot release input context '{}' during script cleanup", name);
         }
-        if(entry.entity && entry.entity.has_component<ScriptComponent>()
-            && entry.entity.get_component<ScriptComponent>().lifetime() == key.lifetime)
-            entry.entity.get_component<ScriptComponent>().m_running_script.reset();
     }
 
     void ScriptSystem::stop_all() noexcept {
         for(auto it = m_start_order.rbegin(); it != m_start_order.rend(); ++it) {
             const auto found = m_entries.find(*it);
-            stop_entry(found->first, found->second, StopReason::Shutdown);
+            stop_entry(found->second, StopReason::Shutdown);
             m_entries.erase(found);
         }
         m_start_order.clear();
@@ -106,13 +113,13 @@ namespace Comet {
             auto& version = versions[key.asset];
             version.dependencies.insert(
                 entry.script->dependencies().begin(), entry.script->dependencies().end());
-            version.current = m_assets.resolve<Script>(key.asset);
+            version.current = m_assets.resolve(key.asset);
             if(version.current != entry.script) {
                 version.changed = true;
             }
         }
         for(const auto& [key, entity] : pending)
-            versions[key.asset].current = m_assets.resolve<Script>(key.asset);
+            versions[key.asset].current = m_assets.resolve(key.asset);
         for(auto& [handle, version] : versions) {
             if(version.current)
                 version.dependencies.insert(
@@ -179,7 +186,7 @@ namespace Comet {
         const std::map<Key, Entity>& pending) {
         std::set<AssetHandle> blocked;
         const bool changed = std::ranges::any_of(m_entries, [&](const auto& value) {
-            const auto script = m_assets.resolve<Script>(value.first.asset);
+            const auto script = m_assets.resolve(value.first.asset);
             return script != value.second.script;
         });
         if(!changed) {
@@ -244,7 +251,7 @@ namespace Comet {
             if(!prepared.contains(*it))
                 continue;
             auto previous = m_entries.find(*it);
-            stop_entry(previous->first, previous->second, StopReason::LiveChange);
+            stop_entry(previous->second, StopReason::LiveChange);
             m_entries.erase(previous);
         }
         std::erase_if(m_start_order, [&](const Key& key) { return prepared.contains(key); });
@@ -252,7 +259,6 @@ namespace Comet {
             auto& entry = m_entries.emplace(key, std::move(candidate)).first->second;
             auto& component = entry.entity.get_component<ScriptComponent>();
             component.parameters = *entry.overrides;
-            component.m_running_script = entry.script;
             m_start_order.push_back(key);
             if(auto started = invoke(key, entry, Script::Phase::Start); !started)
                 return started;
@@ -265,7 +271,7 @@ namespace Comet {
             auto found = m_entries.find(*it);
             if(is_live(found->first, found->second))
                 continue;
-            stop_entry(found->first, found->second, StopReason::LiveChange);
+            stop_entry(found->second, StopReason::LiveChange);
             m_entries.erase(found);
         }
         std::erase_if(m_start_order, [this](const Key& key) { return !m_entries.contains(key); });
@@ -283,7 +289,7 @@ namespace Comet {
         for(const auto& [key, entity] : pending) {
             if(reloaded.value().contains(key.asset) || m_entries.contains(key))
                 continue;
-            auto script = m_assets.resolve<Script>(key.asset);
+            auto script = m_assets.resolve(key.asset);
             if(!script)
                 return Result<void, Error>::failure(
                     {"Script asset is unavailable: " + std::to_string(key.asset.value())});
@@ -294,7 +300,6 @@ namespace Comet {
                     {key.entity.to_string() + ": " + prepared.error().message});
             auto& entry = m_entries.emplace(key, std::move(prepared).value()).first->second;
             m_start_order.push_back(key);
-            entry.entity.get_component<ScriptComponent>().m_running_script = entry.script;
             if(auto started = invoke(key, entry, Script::Phase::Start); !started)
                 return started;
         }

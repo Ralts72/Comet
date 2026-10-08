@@ -171,7 +171,7 @@ namespace Comet::Tests {
         constexpr AssetHandle handle{42};
         ASSERT_TRUE(assets.register_asset(handle, script.value()));
         body.add_component<ScriptComponent>().asset = handle;
-        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(ScriptAssets{assets})));
         add_physics_system();
         ASSERT_TRUE(runtime.start(scene));
         EXPECT_FLOAT_EQ(position_x(), 0);
@@ -235,7 +235,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(assets.register_asset(handle, script.value()));
         body.add_component<ScriptComponent>().asset = handle;
         ASSERT_TRUE(runtime.set_services({}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(ScriptAssets{assets})));
         const auto started = runtime.start(scene);
         ASSERT_FALSE(started);
         EXPECT_NE(
