@@ -4,7 +4,7 @@
 #include "scene/command_history.h"
 #include "scene/scene_commands.h"
 #include "editor_state.h"
-#include "widgets.h"
+#include "ui/widgets.h"
 
 #include <cstdint>
 #include <imgui.h>
@@ -154,7 +154,7 @@ namespace CometEditor {
         if(opening)
             ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(360.0f);
-        const bool submitted = CometUi::input_text(Ui::label("Name").c_str(), m_rename_name,
+        const bool submitted = Ui::input_text(Ui::label("Name").c_str(), m_rename_name,
             ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
         if(ImGui::Button(Ui::label("Rename").c_str(), ImVec2(100.0f, 0.0f)) || submitted) {
             if(!m_rename_name.empty()) {

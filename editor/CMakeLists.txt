@@ -49,7 +49,28 @@ if (NOT COMET_BUILD_EDITOR)
     return()
 endif ()
 
+include("${CMAKE_SOURCE_DIR}/engine/cmake/compile_shader.cmake")
+set(COMET_EDITOR_SHADER_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/shaders")
+compile_shaders(
+        TARGET editor_imgui_shaders
+        COMPILER comet_shader_compiler
+        OUTPUT_DIRECTORY "${COMET_EDITOR_SHADER_DIRECTORY}"
+        SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/imgui_hdr.frag"
+)
+
+add_library(editor_imgui STATIC src/ui/imgui_context.cpp)
+add_dependencies(editor_imgui editor_imgui_shaders)
+target_include_directories(editor_imgui
+        PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        PRIVATE "${COMET_EDITOR_SHADER_DIRECTORY}/include")
+target_link_libraries(editor_imgui PUBLIC engine imgui)
+target_compile_definitions(editor_imgui PRIVATE
+        COMET_EDITOR_FONT_DIRECTORY="${CMAKE_SOURCE_DIR}/engine/resources/fonts")
+target_compile_options(editor_imgui PUBLIC "$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
+
 add_library(editor_ui STATIC
+        src/project/player_input_panel.cpp
+        src/project/input_widgets.cpp
         src/project/project_name_dialog.cpp
         src/project/input_settings_panel.cpp
         src/project/project_settings.cpp
@@ -68,10 +89,11 @@ add_library(editor_ui STATIC
         src/ui/language.cpp
         src/ui/shortcuts.cpp
         src/ui/shortcut_settings_dialog.cpp
+        src/ui/widgets.cpp
         src/viewport/viewport_panel.cpp
         src/viewport/viewport.cpp
 )
-target_link_libraries(editor_ui PUBLIC editor_core comet_ui PRIVATE yaml-cpp simdjson)
+target_link_libraries(editor_ui PUBLIC editor_core editor_imgui PRIVATE yaml-cpp simdjson)
 target_compile_options(editor_ui PUBLIC "$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
 target_compile_definitions(editor_ui PRIVATE
         COMET_EDITOR_RESOURCE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources"

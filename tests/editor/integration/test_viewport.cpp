@@ -8,7 +8,7 @@
 #include "core/window.h"
 #include "graphics/swapchain.h"
 #include "graphics/resource/sampler.h"
-#include "imgui_context.h"
+#include "ui/imgui_context.h"
 #include "ui/shortcuts.h"
 #include "scene/selection.h"
 #include "core/engine.h"
@@ -33,10 +33,11 @@
 
 namespace CometEditor::Tests {
     namespace {
-        CometUi::ImGuiContext::Options editor_ui_options(const std::filesystem::path& ini_path) {
+        CometEditor::Ui::ImGuiContext::Options editor_ui_options(
+            const std::filesystem::path& ini_path) {
             return {.ini_path = ini_path,
                 .docking = true,
-                .composition = CometUi::ImGuiContext::Composition::Clear};
+                .composition = CometEditor::Ui::ImGuiContext::Composition::Clear};
         }
     }
 
@@ -74,7 +75,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(engine.add_system(std::make_unique<Comet::Tests::SceneMotionSystem>(calls)));
         ASSERT_TRUE(engine.start_scene_runtime());
         Comet::Tests::TemporaryDirectory directory;
-        auto ui_result = CometUi::ImGuiContext::create(engine.get_window(),
+        auto ui_result = CometEditor::Ui::ImGuiContext::create(engine.get_window(),
             renderer.get_render_context(), editor_ui_options(directory.path() / "imgui.ini"));
         ASSERT_TRUE(ui_result) << ui_result.error();
         auto& ui = *ui_result.value();
@@ -162,7 +163,7 @@ namespace CometEditor::Tests {
         auto& engine = *engine_result.value();
         auto& renderer = engine.get_renderer();
         Comet::Tests::TemporaryDirectory directory;
-        auto result = CometUi::ImGuiContext::create(engine.get_window(),
+        auto result = CometEditor::Ui::ImGuiContext::create(engine.get_window(),
             renderer.get_render_context(), editor_ui_options(directory.path() / "imgui.ini"));
         ASSERT_TRUE(result) << result.error();
         auto& ui = *result.value();
@@ -202,7 +203,7 @@ namespace CometEditor::Tests {
         auto& renderer = engine.get_renderer();
         ASSERT_TRUE(renderer.enable_offscreen_rendering({320, 240}));
         Comet::Tests::TemporaryDirectory directory;
-        auto ui_result = CometUi::ImGuiContext::create(engine.get_window(),
+        auto ui_result = CometEditor::Ui::ImGuiContext::create(engine.get_window(),
             renderer.get_render_context(), editor_ui_options(directory.path() / "imgui.ini"));
         ASSERT_TRUE(ui_result) << ui_result.error();
         auto& ui = *ui_result.value();

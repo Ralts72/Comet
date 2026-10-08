@@ -1,18 +1,16 @@
 #pragma once
 
 #include "input/input_actions.h"
+#include "ui/language.h"
 
 #include <cstddef>
-#include <map>
 #include <span>
 #include <string>
 #include <string_view>
 
 struct ImVec2;
 
-namespace CometUi {
-    using Translations = std::map<std::string, std::string, std::less<>>;
-
+namespace CometEditor::Ui {
     // 菜单只共享静态数据；标签翻译、控件身份和选中后的写回由面板负责。
     [[nodiscard]] const char* input_type_name(Comet::InputActions::Type type);
     [[nodiscard]] std::span<const std::string_view> input_sources(Comet::InputActions::Type type);

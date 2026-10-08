@@ -4,8 +4,8 @@
 #include "common/scope_exit.h"
 #include "core/project.h"
 #include "input/player_input_settings.h"
-#include "input_widgets.h"
-#include "player_input_panel.h"
+#include "project/input_widgets.h"
+#include "project/player_input_panel.h"
 #include "render/material/material.h"
 #include "render/material/material_programs.h"
 #include "scene/component_registry.h"
@@ -32,7 +32,7 @@
 #include <utility>
 #include <vector>
 
-namespace CometUi::Tests {
+namespace CometEditor::Ui::Tests {
     namespace {
         using Actions = Comet::InputActions;
         using Overrides = Comet::InputOverrides;

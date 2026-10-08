@@ -6,12 +6,19 @@
 #include "common/uuid.h"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace Comet {
     class COMET_API Project final {
     public:
         static constexpr std::uint32_t FORMAT_VERSION = 2;
+
+        struct UiEntry {
+            std::filesystem::path document;
+            std::filesystem::path controller;
+            bool operator==(const UiEntry&) const = default;
+        };
 
         [[nodiscard]] static Result<Project> load(const std::filesystem::path& path);
         [[nodiscard]] Result<void> save_name(std::string name);
@@ -23,6 +30,7 @@ namespace Comet {
         [[nodiscard]] const std::string& name() const { return m_name; }
         [[nodiscard]] const std::filesystem::path& startup_scene() const { return m_startup_scene; }
         [[nodiscard]] const InputActions& input_actions() const { return m_input_actions; }
+        [[nodiscard]] const std::optional<UiEntry>& ui() const { return m_ui; }
 
     private:
         explicit Project(ProjectPaths paths);
@@ -36,6 +44,7 @@ namespace Comet {
         std::string m_name;
         std::filesystem::path m_startup_scene;
         InputActions m_input_actions;
+        std::optional<UiEntry> m_ui;
         std::string m_source_contents;
     };
 }

@@ -95,7 +95,8 @@ namespace Comet {
             }
             if(extension == ".shader")
                 return AssetType::ShaderProgram;
-            if(extension == ".lua" && !is_lua_module_source(path))
+            if(extension == ".lua" && !is_lua_module_source(path)
+                && lowercase_extension(path.stem()) != ".ui")
                 return AssetType::Script;
             if(extension == ".wav")
                 return AssetType::Audio;
@@ -107,7 +108,9 @@ namespace Comet {
         bool is_source_only_path(const std::filesystem::path& path) {
             const auto extension = lowercase_extension(path);
             return extension == ".bin" || extension == ".glsl" || extension == ".rml"
-                   || extension == ".rcss" || is_lua_module_source(path);
+                   || extension == ".rcss"
+                   || (extension == ".lua" && lowercase_extension(path.stem()) == ".ui")
+                   || is_lua_module_source(path);
         }
 
         std::string path_text(const std::filesystem::path& path) {

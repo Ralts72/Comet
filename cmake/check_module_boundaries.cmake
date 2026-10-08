@@ -18,12 +18,14 @@ function(check_includes root paths forbidden rule)
     endforeach()
 endfunction()
 
+set(EDITOR_UI_HEADERS
+    "project/(player_input_panel|input_widgets)\\.h|ui/(imgui_context|widgets|language)\\.h")
 set(ENGINE_SOURCE "${COMET_SOURCE_ROOT}/engine/src")
 file(GLOB_RECURSE ENGINE_FILES RELATIVE "${ENGINE_SOURCE}"
     "${ENGINE_SOURCE}/*.h" "${ENGINE_SOURCE}/*.cpp")
 check_includes("${ENGINE_SOURCE}" "${ENGINE_FILES}"
-    "editor/|imgui|player_input_menu\\.h|player_input_panel\\.h|input_widgets\\.h"
-    "Engine must not include Editor or shared UI")
+    "editor/|imgui|player_input_menu\\.h|player_input_panel\\.h|input_widgets\\.h|${EDITOR_UI_HEADERS}"
+    "Engine must not include Editor or ImGui")
 set(ENGINE_CORE_FILES ${ENGINE_FILES})
 list(FILTER ENGINE_CORE_FILES EXCLUDE REGEX "^ui/")
 check_includes("${ENGINE_SOURCE}" "${ENGINE_CORE_FILES}" "RmlUi/|ui/rml_"
@@ -52,24 +54,25 @@ check_includes("${ENGINE_SOURCE}" "asset/data/texture_data.h"
 set(EDITOR_SOURCE "${COMET_SOURCE_ROOT}/editor/src")
 file(GLOB_RECURSE EDITOR_FILES RELATIVE "${EDITOR_SOURCE}"
     "${EDITOR_SOURCE}/*.h" "${EDITOR_SOURCE}/*.cpp")
+set(EDITOR_IMGUI_FILES ui/imgui_context.h ui/imgui_context.cpp)
+list(REMOVE_ITEM EDITOR_FILES ${EDITOR_IMGUI_FILES})
 check_includes("${EDITOR_SOURCE}" "${EDITOR_FILES}"
     "render/(scene/scene_renderer|render_context|frame_scheduler|presentation)\\.h|[Vv]ulkan|GLFW/"
     "Editor features must use Renderer workflows, not rendering internals")
 
-set(UI_SOURCE "${COMET_SOURCE_ROOT}/ui/src")
-file(GLOB_RECURSE UI_FILES RELATIVE "${UI_SOURCE}"
-    "${UI_SOURCE}/*.h" "${UI_SOURCE}/*.cpp")
-check_includes("${UI_SOURCE}" "${UI_FILES}" "editor/|project/editor_|ui/language\\.h|editor_state\\.h"
-    "Shared UI must not depend on Editor state or resources")
+# ImGui 呈现适配单独编译，允许连接图形后端，不依赖编辑器工作流。
+check_includes("${EDITOR_SOURCE}" "${EDITOR_IMGUI_FILES}"
+    "assets/|project/|inspector/|viewport/|ui/(language|menu_bar|dialogs|shortcuts)\\.h|editor_state\\.h"
+    "Editor ImGui backend must not depend on Editor workflows")
 
 set(RUNTIME_UI_SOURCE "${COMET_SOURCE_ROOT}/engine/src/ui")
 file(GLOB_RECURSE RUNTIME_UI_FILES RELATIVE "${RUNTIME_UI_SOURCE}"
     "${RUNTIME_UI_SOURCE}/*.h" "${RUNTIME_UI_SOURCE}/*.cpp")
 check_includes("${RUNTIME_UI_SOURCE}" "${RUNTIME_UI_FILES}"
-    "editor/|imgui|app/|input/player_input_edit\\.h|player_input_panel\\.h|render/frame_scheduler\\.h"
+    "editor/|imgui|app/|player_input_panel\\.h|${EDITOR_UI_HEADERS}|render/frame_scheduler\\.h"
     "Engine UI must not depend on game menus, Editor, ImGui or frame scheduling internals")
 file(GLOB_RECURSE APP_FILES RELATIVE "${COMET_SOURCE_ROOT}/app"
     "${COMET_SOURCE_ROOT}/app/*.h" "${COMET_SOURCE_ROOT}/app/*.cpp")
 check_includes("${COMET_SOURCE_ROOT}/app" "${APP_FILES}"
-    "editor/|imgui|player_input_panel\\.h|imgui_context\\.h"
+    "editor/|imgui|player_input_panel\\.h|imgui_context\\.h|${EDITOR_UI_HEADERS}"
     "Runtime app must not depend on Editor or ImGui")

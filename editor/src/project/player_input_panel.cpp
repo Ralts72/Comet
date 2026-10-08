@@ -1,6 +1,6 @@
-#include "player_input_panel.h"
-#include "input_widgets.h"
-#include "widgets.h"
+#include "project/player_input_panel.h"
+#include "project/input_widgets.h"
+#include "ui/widgets.h"
 
 #include <algorithm>
 #include <imgui.h>
@@ -8,7 +8,7 @@
 #include <string_view>
 #include <utility>
 
-namespace CometUi {
+namespace CometEditor {
     namespace {
         using Input = Comet::Input;
         using Actions = Comet::InputActions;
@@ -75,7 +75,7 @@ namespace CometUi {
 
         std::optional<Actions::Control> first_control(std::string_view source,
             const Actions::Control& default_control, std::span<const Input::Key> reserved_keys) {
-            const auto controls = input_controls(source);
+            const auto controls = Ui::input_controls(source);
             if(controls.empty())
                 return std::nullopt;
             if(std::ranges::find(controls, default_control) != controls.end()
@@ -110,7 +110,7 @@ namespace CometUi {
             std::string_view source, std::span<const Input::Key> reserved_keys,
             const Text& translations) {
             std::optional<Actions::Control> chosen;
-            for(const auto& value : input_controls(source)) {
+            for(const auto& value : Ui::input_controls(source)) {
                 const auto name = Actions::format_binding({value}).value();
                 const bool selected = current == value;
                 ImGui::BeginDisabled(is_reserved(value, reserved_keys));
@@ -179,7 +179,7 @@ namespace CometUi {
         set_field_width(145, text(translations, "Source"));
         if(ImGui::BeginCombo(
                label(translations, "Source").c_str(), text(translations, name.source.data()))) {
-            for(const auto source : input_sources(action.type)) {
+            for(const auto source : Ui::input_sources(action.type)) {
                 if(ImGui::Selectable(
                        label(translations, source.data()).c_str(), name.source == source)
                     && name.source != source) {
@@ -295,7 +295,7 @@ namespace CometUi {
     void PlayerInputPanel::render_action_selector(const Text& translations) {
         const auto& actions = m_edit.defaults().actions();
         set_field_width(250, text(translations, "Filter Actions"));
-        input_text(label(translations, "Filter Actions").c_str(), m_action_filter);
+        Ui::input_text(label(translations, "Filter Actions").c_str(), m_action_filter);
         if(!m_action_filter.empty()) {
             same_line_if_fits(button_width(text(translations, "Clear Filter")));
             if(ImGui::Button(label(translations, "Clear Filter").c_str()))
@@ -332,8 +332,9 @@ namespace CometUi {
         }
         render_action_selector(translations);
         const auto& action = actions[m_selected_action];
-        same_line_if_fits(ImGui::CalcTextSize(text(translations, input_type_name(action.type))).x);
-        ImGui::TextDisabled("%s", text(translations, input_type_name(action.type)));
+        same_line_if_fits(
+            ImGui::CalcTextSize(text(translations, Ui::input_type_name(action.type))).x);
+        ImGui::TextDisabled("%s", text(translations, Ui::input_type_name(action.type)));
         const auto* patch = m_edit.action_patch(action.id);
         bool incompatible = patch && patch->type != action.type;
         bool disabled = !incompatible && patch && patch->disabled;
@@ -375,7 +376,8 @@ namespace CometUi {
         if(ImGui::CollapsingHeader(label(translations, "Binding Relationships").c_str(),
                ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::BeginChild("Relationships", ImVec2(0, 120), true);
-            render_binding_relationships(resolved.value().actions, m_selected_action, translations);
+            Ui::render_binding_relationships(
+                resolved.value().actions, m_selected_action, translations);
             ImGui::EndChild();
         }
         render_diagnostics(resolved.value(), translations);
@@ -465,7 +467,7 @@ namespace CometUi {
             ImGui::OpenPopup(title.c_str());
             m_open_requested = false;
         }
-        set_next_input_modal_bounds(title.c_str(), opening, ImVec2(800, 550), ImVec2(320, 240));
+        Ui::set_next_input_modal_bounds(title.c_str(), opening, ImVec2(800, 550), ImVec2(320, 240));
         if(!ImGui::BeginPopupModal(title.c_str(), nullptr,
                ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar
                    | ImGuiWindowFlags_NoScrollWithMouse)) {

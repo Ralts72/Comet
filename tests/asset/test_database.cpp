@@ -127,7 +127,7 @@ namespace Comet::Tests {
         project.add_file("textures/button.png");
         const std::array ui_paths{std::filesystem::path("ui/page.rml"),
             std::filesystem::path("ui/theme.rcss"), std::filesystem::path("ui/other.RML"),
-            std::filesystem::path("ui/other.RCSS")};
+            std::filesystem::path("ui/other.RCSS"), std::filesystem::path("ui/runtime.ui.lua")};
         for(const auto& path : ui_paths)
             project.add_file(path);
         AssetDatabase database(project.paths());

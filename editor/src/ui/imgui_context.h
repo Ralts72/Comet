@@ -22,7 +22,7 @@ namespace Comet {
     struct SwapchainCompatibility;
 }
 
-namespace CometUi {
+namespace CometEditor::Ui {
     class ImGuiContext {
     public:
         // Preserve 要求当前交换链图像已由场景 pass 写入并处于 PresentSrcKHR。

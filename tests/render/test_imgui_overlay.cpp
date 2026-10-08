@@ -1,5 +1,5 @@
-#ifdef COMET_TEST_SHARED_UI
-#include "imgui_context.h"
+#ifdef COMET_TEST_EDITOR_IMGUI
+#include "ui/imgui_context.h"
 #include "imgui_hdr_frag.h"
 #include "support/render_gpu_test.h"
 #include "common/scope_exit.h"
@@ -86,12 +86,12 @@ namespace Comet::Tests {
 
     class ImGuiOverlayGpuTest: public RenderGpuTest {
     protected:
-        std::unique_ptr<CometUi::ImGuiContext> ui;
+        std::unique_ptr<CometEditor::Ui::ImGuiContext> ui;
 
         void create_ui() {
-            auto created = CometUi::ImGuiContext::create(engine->get_window(),
+            auto created = CometEditor::Ui::ImGuiContext::create(engine->get_window(),
                 engine->get_renderer().get_render_context(),
-                {.composition = CometUi::ImGuiContext::Composition::Preserve});
+                {.composition = CometEditor::Ui::ImGuiContext::Composition::Preserve});
             ASSERT_TRUE(created) << created.error();
             ui = std::move(created).value();
         }

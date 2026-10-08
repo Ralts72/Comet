@@ -1,7 +1,7 @@
 #include "ui/shortcut_settings_dialog.h"
 
 #include "ui/language.h"
-#include "widgets.h"
+#include "ui/widgets.h"
 
 #include <array>
 #include <cctype>
@@ -58,7 +58,8 @@ namespace CometEditor {
                 const auto chord = trim(remaining.substr(0, separator));
                 if(chord.empty())
                     return Result::failure(std::string(EditorShortcuts::action_name(
-                        static_cast<EditorShortcuts::Action>(index))) + ": empty shortcut");
+                                               static_cast<EditorShortcuts::Action>(index)))
+                                           + ": empty shortcut");
                 bindings[index].emplace_back(chord);
                 if(separator == std::string_view::npos)
                     break;
@@ -95,7 +96,7 @@ namespace CometEditor {
             ImGui::TextUnformatted(Ui::text(ACTION_LABELS[index]));
             ImGui::SameLine(200.0f);
             ImGui::SetNextItemWidth(330.0f);
-            CometUi::input_text("##Shortcut", m_draft[index]);
+            Ui::input_text("##Shortcut", m_draft[index]);
             ImGui::PopID();
         }
         if(ImGui::Button(Ui::label("Restore Defaults").c_str())) {

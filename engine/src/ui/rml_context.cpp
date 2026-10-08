@@ -222,7 +222,8 @@ namespace Comet::Ui {
         }
 
         Result<Rml::ElementDocument*> replace_document(Rml::ElementDocument* current,
-            const std::filesystem::path& file, const PrepareDocument& prepare) {
+            const std::filesystem::path& file, const PrepareDocument& prepare,
+            const PrepareDocument& finalize) {
             using Replacement = Result<Rml::ElementDocument*>;
             const ScopeExit finish_load([this] { m_loading_document = false; });
             m_loading_document = true;
@@ -249,6 +250,14 @@ namespace Comet::Ui {
                     failure = "Cannot update candidate UI document";
                 else if(const auto validated = m_renderer->validate(*m_context); !validated)
                     failure = "Cannot prepare UI resources: " + validated.error().message;
+            }
+            if(candidate && failure.empty() && finalize) {
+                if(auto result = finalize(*candidate); !result)
+                    failure = result.error();
+                else if(!m_context->Update())
+                    failure = "Cannot finalize candidate UI document";
+                else if(auto validated = m_renderer->validate(*m_context); !validated)
+                    failure = "Cannot finalize UI resources: " + validated.error().message;
             }
             if(failure.empty()
                 && (m_system.m_errors != errors_before || m_system.m_warnings != warnings_before))
@@ -325,8 +334,9 @@ namespace Comet::Ui {
         return Result<void>::success();
     }
     Result<Rml::ElementDocument*> RmlContext::replace_document(Rml::ElementDocument* current,
-        const std::filesystem::path& file, const PrepareDocument& prepare) {
-        return m_impl->replace_document(current, file, prepare);
+        const std::filesystem::path& file, const PrepareDocument& prepare,
+        const PrepareDocument& finalize) {
+        return m_impl->replace_document(current, file, prepare, finalize);
     }
     bool RmlContext::is_loading_document() const {
         return m_impl->m_loading_document;

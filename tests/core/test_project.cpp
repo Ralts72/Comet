@@ -538,4 +538,48 @@ namespace Comet::Tests {
         std::filesystem::copy_file(root / "project.json", root / "alias.json");
         EXPECT_FALSE(Project::load(root / "alias.json"));
     }
+    TEST_F(ProjectTest, OptionalUiEntrySurvivesProjectSettingsSaves) {
+        auto source = manifest();
+        source.insert(
+            source.size() - 1, R"(,"ui":{"document":"ui/menu.rml","controller":"ui/menu.ui.lua"})");
+        write(source);
+        auto loaded = Project::load(root);
+        ASSERT_TRUE(loaded) << loaded.error();
+        ASSERT_TRUE(loaded.value().ui());
+        EXPECT_EQ(loaded.value().ui()->document, "ui/menu.rml");
+        EXPECT_EQ(loaded.value().ui()->controller, "ui/menu.ui.lua");
+        ASSERT_TRUE(loaded.value().save_name("Renamed"));
+        ASSERT_TRUE(loaded.value().save_startup_scene("scenes/other.scene"));
+        ASSERT_TRUE(loaded.value().save_input_actions(InputActions{}));
+        auto reopened = Project::load(root);
+        ASSERT_TRUE(reopened) << reopened.error();
+        EXPECT_EQ(reopened.value().ui(), loaded.value().ui());
+        write(manifest());
+        auto without_ui = Project::load(root);
+        ASSERT_TRUE(without_ui);
+        EXPECT_FALSE(without_ui.value().ui());
+    }
+
+    TEST_F(ProjectTest, UiEntriesRejectMalformedAndEscapingPaths) {
+        for(const char* entry : {"null", "{}", R"({"document":"ui/menu.rml"})",
+                R"({"document":"../menu.rml","controller":"ui/menu.ui.lua"})",
+                R"({"document":"ui/menu.rml","controller":"/menu.ui.lua"})",
+                R"({"document":"ui/menu.rml","controller":"ui/menu.lua"})",
+                R"({"document":"ui/menu.rcss","controller":"ui/menu.ui.lua"})",
+                R"({"document":"ui/menu.rml","controller":"ui/menu.ui.lua","extra":true})"}) {
+            SCOPED_TRACE(entry);
+            auto source = manifest();
+            source.insert(source.size() - 1, ",\"ui\":" + std::string(entry));
+            write(source);
+            EXPECT_FALSE(Project::load(root));
+        }
+        auto source = manifest();
+        source.insert(source.size() - 1,
+            R"(,"ui":{"document":"ui/alias/menu.rml","controller":"ui/menu.ui.lua"})");
+        std::filesystem::create_directories(root / "assets/ui");
+        std::filesystem::create_directory_symlink(root, root / "assets/ui/alias");
+        write(source);
+        EXPECT_FALSE(Project::load(root));
+    }
+
 }

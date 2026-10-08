@@ -4,7 +4,9 @@
 #include "common/json.h"
 
 #include <string_view>
+#include <algorithm>
 #include <system_error>
+#include <tuple>
 #include <utility>
 
 namespace Comet {
@@ -258,8 +260,8 @@ namespace Comet {
             return Result<Project>::failure(
                 context.error("version", "unsupported version " + std::to_string(version.value())
                                              + "; expected " + std::to_string(FORMAT_VERSION)));
-        if(auto valid = context.validate_keys(
-               data, {"version", "id", "name", "startup_scene", "input_actions", "input_contexts"});
+        if(auto valid = context.validate_keys(data,
+               {"version", "id", "name", "startup_scene", "input_actions", "input_contexts", "ui"});
             !valid)
             return Result<Project>::failure(valid.error());
 
@@ -293,6 +295,33 @@ namespace Comet {
         if(!resolved)
             return Result<Project>::failure(context.error("startup_scene", resolved.error()));
         project.m_startup_scene = relative.lexically_normal();
+        Json::Node ui;
+        if(!data["ui"].get(ui)) {
+            if(auto valid = context.validate_keys(ui, {"document", "controller"}, "ui"); !valid)
+                return Result<Project>::failure(valid.error());
+            UiEntry entry;
+            for(const auto& [field, extension, target] :
+                {std::tuple{"document", ".rml", &entry.document},
+                    std::tuple{"controller", ".ui.lua", &entry.controller}}) {
+                auto value =
+                    context.read_field<std::string>(ui, field, "an assets-relative path", "ui");
+                if(!value)
+                    return Result<Project>::failure(value.error());
+                const std::filesystem::path path(value.value());
+                if(path.empty() || path.is_absolute()
+                    || value.value().find('\\') != std::string::npos
+                    || !value.value().ends_with(extension)
+                    || std::ranges::any_of(path, [](const auto& part) { return part == ".."; }))
+                    return Result<Project>::failure(context.error(std::string("ui.") + field,
+                        "expected an assets-relative " + std::string(extension) + " path"));
+                auto resolved = project.paths().resolve_asset_path(path);
+                if(!resolved)
+                    return Result<Project>::failure(
+                        context.error(std::string("ui.") + field, resolved.error()));
+                *target = path.lexically_normal();
+            }
+            project.m_ui = std::move(entry);
+        }
         auto contexts = read_input_contexts(data, context);
         if(!contexts)
             return Result<Project>::failure(contexts.error());
@@ -320,6 +349,13 @@ namespace Comet {
         writer.field("id", m_id.to_string());
         writer.field("name", name);
         writer.field("startup_scene", startup_scene.generic_string());
+        if(m_ui) {
+            writer.key("ui");
+            writer.begin_object();
+            writer.field("document", m_ui->document.generic_string());
+            writer.field("controller", m_ui->controller.generic_string());
+            writer.end_object();
+        }
         if(auto written = write_input_actions(input_actions, writer); !written)
             return Result<std::string>::failure(written.error());
         writer.end_object();

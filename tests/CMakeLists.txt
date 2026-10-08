@@ -66,7 +66,7 @@ set(UNIT_TEST_SOURCES
         input/test_player_input_edit.cpp
         input/test_player_input_settings.cpp
         input/test_runtime_input.cpp
-        app/test_player_input_menu.cpp
+        ui/test_demo_ui.cpp
         render/test_lighting.cpp
         render/test_line_draw_list.cpp
         render/test_material.cpp
@@ -100,7 +100,7 @@ set(EDITOR_UI_SOURCES
         editor/ui/test_viewport_gizmo_ui.cpp
         editor/ui/test_viewport_play_ui.cpp)
 set(INTEGRATION_SOURCES
-        app/test_player_input_menu_gpu.cpp
+        ui/test_project_ui.cpp
         core/test_window.cpp
         core/test_window_ui_events.cpp
         ui/test_rml_context.cpp
@@ -187,7 +187,7 @@ foreach(target IN LISTS TEST_TARGETS)
 endforeach()
 
 foreach(target unit_testing integration_testing)
-    target_link_libraries(${target} PRIVATE comet_demo_ui RmlUi::Core)
+    target_link_libraries(${target} PRIVATE comet_game_ui RmlUi::Core)
     target_compile_definitions(${target} PRIVATE
             COMET_TEST_UI_DIRECTORY="${CMAKE_SOURCE_DIR}/demo/assets/ui"
             COMET_TEST_UI_FONT_DIRECTORY="${CMAKE_BINARY_DIR}/engine/src/ui/fonts")
@@ -200,11 +200,11 @@ if (COMET_BUILD_EDITOR)
     endforeach()
 endif ()
 
-if(TARGET comet_ui)
-    target_link_libraries(integration_testing PRIVATE comet_ui)
-    target_compile_definitions(integration_testing PRIVATE COMET_TEST_SHARED_UI)
+if(TARGET editor_imgui)
+    target_link_libraries(integration_testing PRIVATE editor_imgui)
+    target_compile_definitions(integration_testing PRIVATE COMET_TEST_EDITOR_IMGUI)
     target_include_directories(integration_testing PRIVATE
-        "${CMAKE_BINARY_DIR}/ui/generated/shaders/include")
+        "${CMAKE_BINARY_DIR}/editor/generated/shaders/include")
 endif()
 
 # AppKit 窗口动画可能占用 Metal 编译所需的调度线程，因此仅在测试进程中关闭动画。
@@ -219,7 +219,7 @@ if(COMET_BUILD_EDITOR)
     add_test(NAME editor_ui_testing COMMAND editor_ui_testing)
     set_tests_properties(editor_ui_testing PROPERTIES LABELS "integration;ui")
 endif()
-set(SYNC_VALIDATION_FILTER "RenderGraphGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.*:ImGuiOverlayGpuTest.*:RmlUiGpuTest.*:RmlContextGpuTest.*:PlayerInputMenuGpuTest.*:OverlayRecordContextTest.*")
+set(SYNC_VALIDATION_FILTER "RenderGraphGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.*:ImGuiOverlayGpuTest.*:RmlUiGpuTest.*:RmlContextGpuTest.*:ProjectUiGpuTest.*:OverlayRecordContextTest.*")
 add_test(NAME integration_testing COMMAND integration_testing
         "--gtest_filter=-${SYNC_VALIDATION_FILTER}" ${TEST_PLATFORM_ARGS})
 set_tests_properties(integration_testing PROPERTIES LABELS "integration;gpu" RESOURCE_LOCK comet_gpu)

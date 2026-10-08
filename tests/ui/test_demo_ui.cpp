@@ -82,7 +82,7 @@ namespace {
         std::vector<std::string> diagnostics;
     };
 
-    class PlayerInputMenuDocumentTest: public testing::Test {
+    class DemoUiDocumentTest: public testing::Test {
     protected:
         void SetUp() override {
             Rml::SetSystemInterface(&system);
@@ -96,7 +96,7 @@ namespace {
                 Rml::Style::FontStyle::Normal, Rml::Style::FontWeight::Bold, true));
             context = Rml::CreateContext("runtime-ui-test", {1280, 720});
             ASSERT_NE(context, nullptr);
-            auto constructor = context->CreateDataModel("runtime");
+            auto constructor = context->CreateDataModel("ui");
             ASSERT_TRUE(constructor);
             ASSERT_TRUE(constructor.Bind("fps_text", &fps));
             ASSERT_TRUE(constructor.Bind("action_name", &action));
@@ -154,7 +154,7 @@ namespace {
     };
 }
 
-TEST_F(PlayerInputMenuDocumentTest, WaitingDisablesControlsAndFailureRestoresKeyboardFocus) {
+TEST_F(DemoUiDocumentTest, WaitingDisablesControlsAndFailureRestoresKeyboardFocus) {
     show_menu();
     auto* apply = document->GetElementById("apply");
     ASSERT_NE(apply, nullptr);
@@ -198,7 +198,7 @@ TEST_F(PlayerInputMenuDocumentTest, WaitingDisablesControlsAndFailureRestoresKey
     EXPECT_EQ(context->GetFocusElement(), cancel);
 }
 
-TEST_F(PlayerInputMenuDocumentTest, SharedChineseFontsAndRoundedButtonsUseOnlyBasicRenderer) {
+TEST_F(DemoUiDocumentTest, SharedChineseFontsAndRoundedButtonsUseOnlyBasicRenderer) {
     for(const auto* id : {"hud", "fps", "settings", "notice", "menu", "panel", "action-selector",
             "action-name", "previous", "next", "bindings", "status", "error", "footer", "restore",
             "cancel", "apply"})
@@ -216,7 +216,7 @@ TEST_F(PlayerInputMenuDocumentTest, SharedChineseFontsAndRoundedButtonsUseOnlyBa
     EXPECT_EQ(renderer.compiled, compiled);
 }
 
-TEST_F(PlayerInputMenuDocumentTest, ResizeAndDensityUseFramebufferPixelsOnce) {
+TEST_F(DemoUiDocumentTest, ResizeAndDensityUseFramebufferPixelsOnce) {
     show_menu();
     context->SetDimensions({640, 480});
     context->SetDensityIndependentPixelRatio(1);
@@ -232,7 +232,7 @@ TEST_F(PlayerInputMenuDocumentTest, ResizeAndDensityUseFramebufferPixelsOnce) {
     EXPECT_FALSE(renderer.unsupported);
 }
 
-TEST_F(PlayerInputMenuDocumentTest, KeyboardNavigationAndDynamicBindingCallbacksAreLive) {
+TEST_F(DemoUiDocumentTest, KeyboardNavigationAndDynamicBindingCallbacksAreLive) {
     show_menu();
     document->GetElementById("bindings")
         ->SetInnerRML(
@@ -254,7 +254,7 @@ TEST_F(PlayerInputMenuDocumentTest, KeyboardNavigationAndDynamicBindingCallbacks
     EXPECT_TRUE(system.diagnostics.empty());
 }
 
-TEST_F(PlayerInputMenuDocumentTest, ApplyPreservesSparseRecordsAndSaveFailureCanRetry) {
+TEST_F(DemoUiDocumentTest, ApplyPreservesSparseRecordsAndSaveFailureCanRetry) {
     const auto action_id = Comet::Uuid::generate();
     const auto binding_id = Comet::Uuid::generate();
     const auto stale_action = Comet::Uuid::generate();
@@ -282,7 +282,7 @@ TEST_F(PlayerInputMenuDocumentTest, ApplyPreservesSparseRecordsAndSaveFailureCan
     EXPECT_TRUE(edit.complete(Comet::Result<void>::success()));
 }
 
-TEST_F(PlayerInputMenuDocumentTest, HudBindingChangesWithoutReplacingDocument) {
+TEST_F(DemoUiDocumentTest, HudBindingChangesWithoutReplacingDocument) {
     fps = "144 FPS";
     model.DirtyVariable("fps_text");
     ASSERT_TRUE(context->Update());

@@ -1,6 +1,6 @@
 # Comet 引擎路线图
 
-更新：2026-10-07。目标是职责清晰、数据与执行模型可扩展的实时 3D 游戏引擎，同时保留完整的编辑与内容发布闭环。
+更新：2026-10-08。目标是职责清晰、数据与执行模型可扩展的实时 3D 游戏引擎，同时保留完整的编辑与内容发布闭环。
 本文只维护阶段、待办和设计约束，不累计每次迁移的完成日志。
 
 ## 当前阶段与下一步
@@ -23,7 +23,8 @@
 1. **Gameplay 样例整体验收**（阶段 6）：在 app 和 Editor Play 实际走通输入、触发、计分、声音与可见反馈；检查暂停／单步、Stop／再次 Play，以及修改项目默认输入后重启的行为。不以 CPU 测试通过代替完整玩法验收。
 2. **脚本文件命名事务补齐**（阶段 4／6）：支持大小写不敏感卷上的同目录纯大小写改名，保留组件身份与模块 source-only 语义；阶段 4 列出暂存／失败恢复约束。可在完整硬件验收条件未就绪时独立推进。
 3. **按样例暴露的需求补运行时能力**（阶段 6／7）：已有能力见下方 Gameplay 状态；后续更多受控组件操作、脚本开发工作流或玩家覆盖按真实消费者分别验收，不同时展开全部扩展。
-4. **项目 UI 入口与控制器**（阶段 6／7）：补齐项目声明、控制器生命周期及 Lua 数据／事件桥接，随后将 HUD 和改键菜单业务迁入 demo；详见[项目 UI 入口与控制器](#项目-ui-入口与控制器待实现)。
+4. **项目 UI 制作与发布**（阶段 6／7）：项目声明、Lua 控制器和 demo 业务迁移首轮已接通；后续接入 Editor Play 共用装载及 UI 资产依赖／发布包，详见[项目 UI 入口与控制器](#项目-ui-入口与控制器部分实现)。
+5. **Engine 构建模块收敛**（基础架构主线）：先解除资产工具对完整 engine 的链接、分离无图形 Runtime 与图形宿主，再统一可选系统和对外组合入口；顺序与验收集中在[构建模块计划](#engine-构建模块与组合入口)。
 
 Shader 保留为按需分支：同一 Program 的多个材质实例已有 UI／GPU 验证；出现不同编辑契约消费者时再决定 metadata 格式。
 多渲染域发布、复杂接口和发布包交付分别验收，不再把它们作为当前 Gameplay 主线的默认下一项。
@@ -72,9 +73,9 @@ Shader 保留为按需分支：同一 Program 的多个材质实例已有 UI／G
 | 每帧全量提取、解析、排序，无裁剪／LOD／实例合批 | Transform 已增量同步，渲染场景和绘制队列仍逐帧构造 | [持久渲染世界与视图](#持久渲染世界与视图待实现)、[批处理与实例化](#批处理与实例化渲染待实现) |
 | RenderGraph 缺瞬态资源生命周期与调度规划 | 有序单队列同步图已接通，资源仍由调用方创建并导入 | [图资源规划](#图资源规划待实现) |
 | Property 类型平面、内容复制依赖文件格式 | Scene clone 已使用 Descriptor 内容快照直接恢复；递归 Schema 与版本迁移待完成 | [内容类型与复制](#内容类型与复制部分实现)、阶段 7 |
-| 单一 engine target 难以验证独立 Runtime | include 边界检查已有，公开构建依赖仍包含 Vulkan | [模块依赖](#模块依赖与-engineeditor-边界首轮已接通持续收敛) |
+| 单一 engine target 难以验证独立 Runtime | 游戏 UI 已独立构建；资产工具仍链接完整 engine，World／Runtime／后端尚未形成构建隔离 | [构建模块与组合入口](#engine-构建模块与组合入口) |
 | Editor／app 工作流策略重复 | PlayerInputEdit 已与 ImGui 分离，设置保存及 Runtime 应用仍分别由宿主编排 | [宿主编排](#宿主编排与场景激活的后续验收阶段-47)、[玩家输入模型与游戏 UI](#玩家输入模型与游戏-ui) |
-| 游戏 UI 行为仍固化在宿主，制作与发布链路不完整 | RmlUi Runtime 试点已接通；项目控制器、IME、资产生产、原生手柄与性能仍需验收 | [项目 UI 入口与控制器](#项目-ui-入口与控制器待实现)、[玩家输入模型与游戏 UI](#玩家输入模型与游戏-ui) |
+| 游戏 UI 的制作与发布链路不完整 | 项目 Lua 控制器与业务迁移首轮已接通；Editor 共用装载、IME、资产生产、原生手柄与性能待验收 | [项目 UI 入口与控制器](#项目-ui-入口与控制器部分实现)、[玩家输入模型与游戏 UI](#玩家输入模型与游戏-ui) |
 | 性能优化缺跨系统预算与规模验收 | 已有渲染／资产扫描基准和分段诊断，覆盖仍需扩展 | [性能观测与规模验收](#性能观测与规模验收) |
 
 ### 世界、会话与执行契约
@@ -131,7 +132,7 @@ Shader 保留为按需分支：同一 Program 的多个材质实例已有 UI／G
 
 目标是让模块职责由构建依赖与公开接口共同表达。现有 include 检查是起点，独立 Runtime 构建与可选图形宿主属于上方主线的交付目标。
 
-- **建立并维护允许的依赖方向**：Foundation／平台基础能力承载错误、数学、文件与任务等通用能力；Scene 数据与序列化不依赖 Render／Vulkan；Runtime Systems 消费 Scene 和稳定资产身份，不直接依赖 Editor 或图形后端；Render 消费提取后的场景数据并通过资源服务取得运行时资源；Editor 与 app 通过 Engine 组合入口和各自明确的工作流接口使用这些能力。具体模块归属先以当前代码核实，不为套用分层名称批量搬文件。
+- **建立并维护允许的依赖方向**：Foundation 承载错误、数学、文件与任务等通用能力，窗口和设备适配归 Platform／后端；Scene 数据与序列化不依赖 Render／Vulkan；Runtime Systems 消费 Scene 和稳定资产身份，不直接依赖 Editor 或图形后端；Render 消费提取后的场景数据并通过资源服务取得运行时资源；Editor 与 app 通过 Engine 组合入口和各自明确的工作流接口使用这些能力。具体模块归属先以当前代码核实，不为套用分层名称批量搬文件。
 - **逐步让规则可检查**：先记录允许依赖与已知例外，再增加低成本的构建／include 检查，禁止新增明显反向依赖，例如 Scene 公共头引入 Vulkan 类型、Runtime 依赖 ImGui、引擎通用模块依赖 Editor。现有单一 `engine` 库可以暂时保留；只有当依赖边界稳定且拆分能提供真实隔离或独立构建收益时，才逐步拆 CMake target。
   目标 target 边界必须通过独立构建验证：Foundation／World／Runtime 不链接 Vulkan、GLFW、ImGui 或源导入器；
   AssetPipeline 工具可独立生产产品，图形 app 和 Editor 在上层组合。CI 同时验证无图形 Runtime、无 Editor 的发布 app 及完整 Editor，
@@ -140,6 +141,73 @@ Shader 保留为按需分支：同一 Program 的多个材质实例已有 UI／G
 - **按纵向功能增量迁移**：选择一个实际消费者作为试点，迁移接口、调用方和测试后再扩展到相邻模块；期间保留 app/editor 的既有行为和生命周期协议。不得仅为缩短 `Engine` 成员列表引入转发 façade、Service Locator 或一批新 Manager。
 
 首轮验收：模块依赖表与代码相符，新增代码不能建立禁止依赖，Engine／Editor 使用路径通过窄接口完成，app、editor 与相关测试可按需构建。后续独立 Runtime／Headless 构建按上方主线验收。
+
+<a id="engine-构建模块与组合入口"></a>
+
+#### Engine 构建模块与组合入口（部分实现）
+
+**当前代码依据：**`engine/CMakeLists.txt` 将 CPU 世界、源导入、窗口、图形和各系统后端编入同一动态库，
+公开链接 Vulkan／VMA；根 CMake 无条件查找 Vulkan，并配置 GLFW、Jolt、Lua 和 miniaudio。
+`tools/asset` 仍公开链接 engine，因此无窗口资产准备不等于脱离图形 SDK／运行库。
+`SceneRuntime` 已有独立推进接口，但位于 `runtime/` 的 Application 仍持有创建窗口／Renderer 的 Engine；
+`scene/systems/` 中的物理、音频和脚本实现也随 Scene 目录混编。
+游戏 UI 已是独立 `comet_game_ui`，目前仍依赖完整 engine；其余模块拆分、统一组合入口和完整 Editor 的默认 UI 尚待实现。
+
+**模块判断：**按独立消费者、第三方依赖、可裁剪能力和所有权确定构建边界。下表是目标职责，目标名称尚未冻结；
+不得直接按目录生成一个库，也不要求每个构建模块成为独立 DLL 或运行时插件。
+
+| 当前代码范围 | 构建处理建议 | 主要收益与前置工作 |
+| --- | --- | --- |
+| `common/`、纯 CPU `core/` 工具、基础日志与计时 | 提取 Foundation 底层目标 | 文件／任务／数学／错误可供工具和 Runtime 独立使用；Window、Engine 组合器不纳入 Foundation |
+| Scene 实体、组件、层级、Schema 与序列化 | 提取 World 内容目标 | 内容编辑和复制不需要创建运行后端；持久组件数据与 Script／Physics／Audio 运行对象分开 |
+| `input/` | 保持独立 CPU 边界，提取输入目标 | 同供 Runtime、Editor 设置和游戏 UI 使用；Window 提供采样，动作求值／改键模型不链接 GLFW；初期可与 CPU Runtime 一起交付 |
+| `SceneRuntime`、System 契约、时间与会话编排 | 提取无图形 Runtime 目标 | 显式输入／时间可驱动模拟；区分现有 `runtime/Application` 图形启动器，注册具体系统由组合层完成 |
+| AssetHandle、Registry、产品数据／加载与驻留 | 提取 CPU RuntimeAssets 目标 | Registry 当前已不依赖 GPU；专用加载器由所属模块装配，GPU 创建／发布桥接不塞进资产核心 |
+| `asset/import/`、源扫描／metadata、Artifact 生产、工具 Shader 编译 | 分离 AssetPipeline 工具目标 | 共用产品契约，发布 Runtime 不链接源导入器；拆开 AssetManager 的导入调度与运行时加载／GPU 发布职责 |
+| `core/window` 与 GLFW 输入接线 | 提取 Platform 窗口适配目标 | Headless 不查找或链接 GLFW；采样快照留在输入模块，surface／swapchain 生命周期由图形集成处理 |
+| 图形枚举、ShaderInterface／SPIR-V 反射 | 提取无 GPU 的图形／Shader 契约与 CPU 反射目标 | 反射当前只处理 SPIR-V 字节与值，不需要 Vulkan 设备；供后端、工具和 CPU 测试共用，glslang 源编译仍归工具 |
+| `graphics/` 的设备、资源、命令与同步 | 提取 Vulkan 后端目标 | Vulkan／VMA 限制在后端；依赖低层图形契约，当前不预建多图形 API 通用接口 |
+| `render/` | 提取 Render 目标 | 帧、RenderGraph、资源、pass 属于同一呈现域；世界提取和资产发布明确集成方向，CPU 世界不反向依赖 Render |
+| `scripting/` 与 ScriptSystem | 提取可选脚本目标 | Lua 生命周期及世界绑定留在脚本模块，World／基础 Runtime 不强制链接 Lua；UI VM 与行为 VM 继续隔离所有权 |
+| PhysicsSystem／Jolt、`audio/`／AudioSystem | 分别提取可选物理、音频目标 | 第三方后端不进入 World 公共头；音频 CPU 数据／解码与设备播放区分，离线工具不创建音频设备 |
+| `engine/src/ui/` | 保留独立 Engine UI 目标，统一命名与依赖入口 | 改为依赖所需的输入／资产／平台／渲染模块，完整 Editor／App 共用项目 UI；页面与业务继续归项目 |
+| `config/`、`diagnostics/`、geometry／计时等小工具 | 按职责归入所属模块，暂不各拆一个库 | Config／Profile 聚合放组合层，日志／CPU 计时留基础层，GPU 诊断留 Render；基础层不依赖大 Config 或含输入动作的 Project 描述 |
+
+`config.h` 当前使用的是不含 Vulkan 头的图形枚举；目录间引用本身不代表 GPU 后端依赖。
+处理 Config／Graphics 和 Scene／Scripting 的交叉引用时，先区分值契约与运行实现，再归属参数、组件定义和系统接线。
+稳定资产身份／CPU 产品契约位于世界与后端共同可用的低层；AssetPipeline 与 RuntimeAssets 分别生产／消费产品，互不反向链接。
+Runtime 依赖 World／Input／CPU 资产契约，具体脚本、物理、音频系统消费 Runtime 契约；UI 消费输入与呈现服务。
+Engine 图形宿主和构建组合入口位于上层，拥有具体模块的装配、启动和逆序关闭。
+
+**统一对外入口与裁剪：**计划提供 `Comet::Engine` 完整图形组合、`Comet::Runtime` 无图形组合和资产生产工具入口，
+常规项目不逐一拼接内部库。内部优先静态／对象目标，保留单个 engine 动态库交付的可能；拆 target 不承诺新增 DLL 或热插拔。
+当前 UI 依赖完整 engine，不能让 engine 再直接链接 UI 形成环；须先拆出底层依赖，再用上层组合目标聚合。
+组件 Schema、Registry、日志、任务与第三方实现保持明确的共享所有权，不能因重复编入宿主／模块而产生多份全局状态；
+Windows 导出宏、静态聚合、传递头文件和链接接口一起设计，实际多 DLL 时使用各模块导出策略。
+
+目标构建策略：完整 Editor 默认包含游戏 UI，在 Play 视口运行与 App 相同的项目页面／控制器；编辑器工具面板继续使用 ImGui。
+发布 App 按项目声明决定是否创建 UI，会话不存在时不装配示例菜单；构建裁剪与运行时不创建界面分别验收。
+Headless 与资产工具按用途关闭窗口、图形和 UI；Lua／物理／音频按项目需求显式选择。关闭后端仍能读取、编辑和保存其持久配置，
+实际运行依赖缺失时明确报告不支持，不静默丢弃组件；测试按所需能力分组，基础测试不强制启用全部后端。
+能力依赖在配置期检查；当前 Lua UI 控制器仍需要 Lua，关闭场景脚本系统不等于删除 UI 所需的 Lua 库，二者共用唯一第三方构建目标。
+
+**推进顺序与验收：**每步交付可独立配置／构建的真实消费者，保留已有生命周期、输入授权和失败恢复协议。
+
+1. **基础与 CPU 资产链路**：建立 Foundation／低层契约及 CPU 资产目标，拆离源导入与 GPU 发布；
+   资产准备 CLI 和基础测试在无 Vulkan／GLFW／UI SDK 的配置中构建、生成产品，Shader 反射独立 CPU 验收；
+   第三方与 Shader 构建任务只按所需能力启用，基础 Runtime 不强制生成图形 Shader。
+2. **World／Runtime 与宿主**：分离内容、会话和图形启动器，建立 Input 与 Platform 边界；
+   无窗口进程完成启动、固定步、暂停／单步、重开与关闭；图形帧 Deferred 不决定模拟推进，两个世界状态隔离。
+3. **可选系统**：迁移 Physics／Audio／Scripting，实现显式服务与系统装配；
+   分别验证启用／关闭、缺失能力诊断、部分启动失败清理和重复 Play／Stop，CPU 核心不传递链接后端。
+4. **图形与游戏 UI 组合**：收束 Vulkan／Render／Platform 和 UI 依赖，提供统一对外组合入口；
+   完整 Editor 的项目 UI 预览／Play 与发布 App 同路，无 Editor 的 App 不携带编辑器状态、面板或源导入器。
+5. **构建与发布矩阵**：CI 分别配置无图形 Runtime／CPU 工具、无 Editor 的产品 App、完整 Editor；
+   各用例运行与能力对应的测试，独立编译公开头并检查实际链接／交付依赖、安装后的外部 CMake 消费和 Windows 导出。
+   继续执行 include 边界检查，增加 target 依赖无环检查；使用同一 Release 基准比较编译／链接与运行结果。
+
+拆库收益以可裁剪依赖、增量构建和交付体积衡量；运行性能另测 CPU／GPU 分位耗时、热路径分配和内存峰值，
+不得为模块边界引入逐实体虚调用、通用事件转发或序列化往返。保留必要的跨模块优化能力，不把拆库本身当成性能提升。
 
 现有依赖表、include 检查和视口访问边界见[模块依赖方向](architecture/overview.md#模块依赖方向)；
 后续以独立 Runtime 构建验证目标拆分，并持续收窄 Engine／Editor 的穿透访问。
@@ -882,8 +950,9 @@ validation、同步测试和生命周期回归通过。
 #### 玩家输入模型与游戏 UI
 
 `input/player_input_edit` 已将玩家草稿、录入、候选校验和提交状态从 ImGui 面板分离；
-Editor 使用 `ui/player_input_panel`，app 的 `player_input_menu` 复用可选 `engine/src/ui`，试点中的保存及 Runtime 应用由宿主编排。
-项目 UI 控制器尚未接通，页面替换仍须遵守 app 固定的控件 ID、命令与菜单流程；后续边界见下方计划。
+Editor 使用 `editor/src/project/player_input_panel`，ImGui 呈现适配与公共控件均归 Editor；
+app 按项目清单装配可选 `Ui::ProjectUi`，保存及 Runtime 应用由宿主服务编排。
+demo 的 HUD、菜单状态、控件和快捷键已迁入项目 Lua 控制器；制作与发布等后续边界见下方计划。
 正式游戏界面沿以下契约接入，同一输入模型可由不同呈现层使用：
 
 - UI 文档／控件实例负责布局、主题、显示名称、本地化、字体和缩放；编辑器面板及布局状态不进入发布产品。
@@ -901,12 +970,12 @@ Editor 使用 `ui/player_input_panel`，app 的 `player_input_menu` 复用可选
 核对最终游戏与 SDK 重分发授权、[免费版功能限制](https://ultralig.ht/pricing)；两者都需验证 Comet 设备与帧生命周期，不能由平台支持表推断可直接接入。
 
 - 可选 `engine/src/ui` 提供 RmlUi 上下文、可配置字体、文档替换、焦点／导航与 GPU 适配；
-  试点业务绑定暂位于 app，页面／主题位于 `demo/assets/ui`，第三方类型不进入 Scene／Input 核心公共接口。
+  项目业务绑定、页面／主题位于 `demo/assets/ui`，第三方类型不进入 Scene／Input 核心公共接口。
   后续编辑器通过同一运行时路径预览游戏 UI，文档、字体和纹理接入项目资产生产与发布包。
 - 通过 RenderInterface 接入已有 Device、渲染图、上传和在途资源回收，不直接复制参考后端的第二套设备、交换链及主循环。
   锁定具体库版本与提交，分别核对其功能矩阵；稳定版与 master 的 Vulkan 能力不能混为一谈。
 - RmlUi 固定 6.3、FreeType 固定 2.14.3 随源码静态构建；设置、改键和 FPS HUD 经现有 Vulkan 帧绘制，
-  demo 页面与引擎共用字体按各自来源复制进 app 资源目录。F6 候选重载失败保留旧文档；CPU 回归和 GPU 像素检查不替代真实交互与性能验收。
+  demo 页面从项目 assets 装载，引擎共用字体复制进 app 资源目录。F6 候选重载失败保留旧文档／控制器／草稿；CPU 回归和 GPU 像素检查不替代真实交互与性能验收。
 - 首轮仅接通基础几何、纹理、矩形裁切与变换。后续 UI 图层进入显示合成链，统一 UNORM／sRGB／线性 HDR 的线性 alpha 混合；
   当前 UNORM 直显仍在显示编码空间混合。复杂 clip mask、滤镜、动画特效和图层扩展另行验证。
 - [GLFW 默认 IME 支持存在缺口](https://mikke89.github.io/RmlUiDoc/pages/cpp_manual/ime.html)；
@@ -917,10 +986,15 @@ Editor 使用 `ui/player_input_panel`，app 的 `player_input_menu` 复用可选
 验收：不链接 Editor 的独立 app 可打开、修改、取消和保存设置；保存失败保留草稿；
 手柄导航、失焦、文本输入、录入取消与重复打开均不把 UI 操作交付给 Gameplay。
 
-#### 项目 UI 入口与控制器（待实现）
+#### 项目 UI 入口与控制器（部分实现）
 
 目标：Engine 提供 UI 与输入服务，app 启动并装载项目，游戏项目拥有界面资源及交互行为。
 项目 C++ 控制器可作为原生模块链接进游戏程序，源码仍归项目；首轮优先接通已有 Lua 工作流。
+
+首轮已接通：可选项目入口、受控 Lua 模型／事件桥接、挂载／逐帧／停用／销毁边界、候选换代及 demo 业务迁移。
+宿主与 Engine UI 不再包含 demo 控件和命令。独立页面／控制器、草稿保留、失败重试与布局由代码回归覆盖。
+剩余工作：Editor Play 同路装载、UI 依赖与发布包、可选原生项目模块、独立开发调试叠层、真实手柄／IME 和规模性能验收。
+Deferred／最小化期间的 UI 推进仍随宿主呈现边界，需和世界／呈现解耦计划一起处理。
 
 1. **项目声明与装载**：由项目描述声明 UI 页面及控制器入口，允许项目没有游戏 UI。
    app 按声明装配，不依赖 `runtime.rml`、改键控件 ID 或菜单命令；无效入口有明确诊断，不回退装配 demo 菜单。
@@ -933,6 +1007,7 @@ Editor 使用 `ui/player_input_panel`，app 的 `player_input_menu` 复用可选
    项目控制器根据服务结果决定关闭页面或展示错误。FPS 开发叠层由显式调试开关装配，发布默认不启用。
 5. **项目制作与发布**：文档、样式、控制器和引用资源进入项目资产依赖及发布包；Editor Play 复用同一控制器装载路径。
    文件目录迁移与项目行为解耦分别验收，避免移动源码后仍由 app 固定调用示例控制器。
+   完整 Editor 默认构建 Engine UI；模块组合与精简构建按[构建模块计划](#engine-构建模块与组合入口)统一推进，当前 Editor-only 默认关闭不作为最终策略。
 
 验收：两个项目使用不同 UI 和控制器，切换项目无需修改 app；没有 UI 入口的项目不出现 demo 菜单。
 暂停、加载、重复打开及项目切换期间 UI 正常工作且不泄漏输入；无效控制器／重载失败保留有效会话。
@@ -957,7 +1032,7 @@ app 与 Editor Play 的相同项目行为一致，发布包能独立运行，宿
 2. 用真实标准手柄确认按钮映射、录入与断连重连体验；继续验证 demo 调色与游戏组切换，
    不把合成手柄输入或单个脚本用例当作完整硬件玩法验收。
 
-共享 UI 的实际 HDR surface 切换、真实交换链图像数 3→2 仍缺验证；离屏像素测试不是生产交换链的直接回读。
+编辑器 ImGui 的实际 HDR surface 切换、真实交换链图像数 3→2 仍缺验证；离屏像素测试不是生产交换链的直接回读。
 这些限制应在后续图形验收中处理。
 
 #### 按实际消费者扩展

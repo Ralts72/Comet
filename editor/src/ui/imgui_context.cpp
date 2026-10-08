@@ -1,4 +1,4 @@
-#include "imgui_context.h"
+#include "ui/imgui_context.h"
 #include "graphics/context.h"
 #include "graphics/device.h"
 #include "graphics/render_pass.h"
@@ -27,7 +27,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace CometUi {
+namespace CometEditor::Ui {
     namespace {
         void prepare_mouse_input(const Comet::Window& window) {
             auto& io = ImGui::GetIO();
@@ -156,8 +156,9 @@ namespace CometUi {
         }
         io.IniFilename = m_ini_path.empty() ? nullptr : m_ini_path.c_str();
 
-        const auto font_directory = m_options.font_directory.empty()
-            ? std::filesystem::path(COMET_UI_FONT_DIRECTORY) : m_options.font_directory;
+        auto font_directory = m_options.font_directory;
+        if(font_directory.empty())
+            font_directory = COMET_EDITOR_FONT_DIRECTORY;
         if(!io.Fonts->AddFontFromFileTTF(
                (font_directory / "Roboto-Bold.ttf").string().c_str(), 16.0f))
             return Comet::Result<void, Comet::GraphicsError>::failure(

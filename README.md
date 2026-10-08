@@ -9,15 +9,15 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | `engine/src/` | 引擎库：runtime、core、input、scene、asset、audio、render、graphics、config、diagnostics |
 | `engine/shaders/` | 生产 Shader，按 material、lighting、shadow、environment、debug、post、common 分目录；仅编译 CMake 显式列表 |
 | `engine/resources/fonts/` | App／Editor 共用的 Roboto Bold 与 Noto Sans SC Bold 字体 |
-| `engine/src/ui/` | 可选游戏 UI 模块 `comet_game_ui`：RmlUi 上下文、字体、输入适配和 Vulkan 绘制；不包含游戏页面或改键业务 |
-| `ui/` | 编辑器使用的 ImGui 后端及玩家改键面板 |
+| `engine/src/ui/` | 可选游戏 UI 模块 `comet_game_ui`：RmlUi 呈现、输入适配与项目 Lua 控制器桥接；不包含固定项目页面或菜单流程 |
 | `tools/shader/` | 共用 CPU Shader 编译库与构建 CLI，不链接 engine 运行时 |
 | `tools/asset/` | 编辑器与独立工具共用的项目 Shader 导入，以及无窗口的启动场景资产准备入口 |
 | `tools/render_benchmark/` | 固定场景渲染性能基准及一键运行脚本，链接 engine，不依赖测试框架或编辑器 |
 | `tools/asset_scan_benchmark/` | 可选的资产扫描 CPU 基准及一键运行脚本，分别测量候选准备与索引发布 |
 | `editor/` | 编辑器入口，`src/` 按 scene、viewport、assets、inspector、project、render、ui 组织，`resources/` 保存私有图标和语言词表 |
-| `app/` | Runtime 示例入口、`src/player_input_menu` 的 HUD／改键示例与 `resources/` 私有图标 |
-| `demo/assets/ui/` | 示例项目的 RML 页面与 RCSS 样式，业务绑定由 app 提供 |
+| `editor/src/ui/`、`editor/shaders/` | 编辑器 ImGui 控件与呈现适配；后端单独构建为 `editor_imgui`，设置面板属于 `editor/src/project/` |
+| `app/` | 通用项目 Runtime 入口与 `resources/` 私有图标 |
+| `demo/assets/ui/` | 示例项目的 RML 页面、RCSS 样式与 Lua UI 控制器 |
 | `demo/` | 随仓库提供的完整示例项目，与引擎／编辑器源码分开 |
 | `demo/assets/` | 示例场景、源资产及相邻 `.meta`；可选大资源由脚本下载，不进入版本控制 |
 | `demo/assets/scripts/` | Lua 项目行为；默认字段由脚本声明，实体仅保存覆盖值 |
@@ -88,7 +88,7 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 | `app-release` | Release：app | `./release.sh` |
 
 构建 app/editor 需指定 `COMET_CONFIG_PROFILE`，并按需组合 `COMET_BUILD_APP/EDITOR/TESTS/BENCHMARKS`。
-编辑器分为无 ImGui 的 `editor_core` 与 `editor_ui`；新增源码需维护所属库清单。
+编辑器分为无 ImGui 的 `editor_core`、ImGui 呈现适配 `editor_imgui` 与功能界面 `editor_ui`；新增源码需维护所属库清单。
 仅启用 tests 时仍构建 core；测试辅助代码位于 `tests/support/`。
 测试按执行条件分组，源码只编译到所属入口，不重复运行：
 
@@ -430,16 +430,26 @@ App 通过画面右上角“设置”、F1 或手柄 Start 打开 RmlUi 控制�
 Editor Play 通过工具栏“输入”打开 ImGui 玩家面板，暂停时也可编辑；两种界面复用同一改键模型和个人文件。
 app 首轮不提供来源、倍率和死区编辑，已有这些字段及未显示的覆盖记录仍保留。
 
-示例页面和样式位于 `demo/assets/ui/runtime.rml` 与 `runtime.rcss`，随示例 app 复制到构建资源目录或 bundle。
-外部项目的 `assets/ui/runtime.rml` 可覆盖示例页面，需保留这个 app 改键菜单的控件 ID 和数据绑定；
-图片与样式路径相对页面，引擎文件接口允许读取该项目资产根目录内的资源。
-`engine/src/ui` 只提供通用上下文、候选页面替换、输入与绘制，加载其他页面无需这些菜单控件。
-示例菜单与 F1／F6 属于 `app/src/player_input_menu`，保存及 Runtime 应用由 app 宿主编排；引擎不会自动装配这份示例菜单。
-当前是宿主实现菜单行为的接入试点，尚未支持项目 UI 控制器；后续归属与迁移见路线图的[项目 UI 入口与控制器](docs/engine-roadmap.md#项目-ui-入口与控制器待实现)。
-共用字体独立位于 `engine/resources/fonts/`，同时复制到 app 资源目录。
-修改后在 app 按 F6 手动重载，解析、必需控件或资源准备失败时保留旧文档并显示错误。
-资产扫描接受 `.rml`／`.rcss` 源文件，不生成 `.meta` 或资产句柄；UI 当前直接读取文件。
-尚未接入项目 UI 资产索引／发布包、自动监视、完整 macOS 中文预编辑或滤镜／图层效果。
+项目通过 `project.json` 的可选 `ui` 声明页面和 Lua 控制器，路径相对 assets：
+
+```json
+"ui": {"document": "ui/runtime.rml", "controller": "ui/runtime.ui.lua"}
+```
+
+没有 `ui` 的项目不创建游戏界面；无效入口直接报告错误。app 不约定菜单控件、命令或快捷键。
+demo 的页面、样式与 HUD／改键菜单交互位于 `demo/assets/ui/`；修改 `runtime.ui.lua` 无需重编译 app。
+Lua 编排界面操作；录入、草稿校验和提交状态由 Engine 的 C++ `PlayerInputEdit` 实现，个人设置保存与运行时换绑通过宿主服务完成。
+页面通过 `data-model="ui"` 使用控制器的标量 `model`，通过 `command(...)` 交付控件事件。
+控制器的 `on_mount` 校验页面，`on_frame` 接收 FPS／游戏可用状态，`on_present` 更新呈现，
+`on_event` 决定交互；`on_input_result` 决定保存后关闭或保留菜单，`on_deactivate` 处理场景重启。
+受控 API 提供模型、布局、焦点和 `PlayerInputEdit` 事务服务，不暴露 GPU 或 Editor 对象。
+生命周期、API 与预算见[项目 UI 控制器](docs/architecture/overview.md#项目-ui-控制器)。
+
+共用字体位于 `engine/resources/fonts/`，复制到 app 资源目录；项目页面始终从自身 assets 装载。
+demo 按 F6 手动重载页面与控制器，候选失败保留旧页面、控制器和改键草稿；
+成功重载迁移 `state` 中的标量及已有模型值，取消正在进行的按键录入。
+资产扫描接受 `.rml`／`.rcss`／`.ui.lua` 源文件，不生成 `.meta` 或资产句柄；组件脚本继续使用普通 `.lua`。
+项目 UI 资产发布、Editor Play 共用控制器、自动监视、完整 macOS 中文预编辑与滤镜／图层仍在[路线图](docs/engine-roadmap.md#项目-ui-入口与控制器部分实现)。
 已提交 Unicode 文本与中文字体支持不能替代完整 IME 验收。
 
 以下高级控件说明适用于 Editor 玩家面板：

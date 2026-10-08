@@ -13,14 +13,15 @@
 | `tools/asset/` | Engine CPU 资产与共用 Shader 编译库 | 编辑器与 CLI 共用源编译；无窗口准备启动场景依赖，engine/app 不链接该工具库 |
 | `render/` | Scene 提取结果、资产缓存、Graphics | Renderer 编排帧与离屏输出；SceneRenderer 拥有目标，不知道 ImGui |
 | `graphics/` | Vulkan、平台窗口及通用能力 | 图形后端不依赖 Editor；`core/engine.cpp` 是宿主组合点，可使用 Graphics/Render |
-| `ui/` | Engine 输入值／图形后端、ImGui | 编辑器的设置界面和呈现后端，不依赖 Editor 状态或编辑工作流 |
-| `engine/src/ui/` | Engine 输入值／图形资源、RmlUi Core／FreeType | 可选 `comet_game_ui` 库；拥有通用上下文、字体、页面加载、输入与 GPU 适配，不依赖游戏菜单 |
-| `editor/`、`app/` | Engine 组合入口、明确的工作流接口；分别装配 `comet_ui`／`comet_game_ui` | 业务视口经 Renderer 离屏帧快照取图，不穿透 SceneRenderer |
+| `editor/src/ui/` | Engine 工作流接口、ImGui | 编辑器公共控件；`editor_imgui` 呈现适配可依赖图形后端，但不依赖编辑器状态或功能面板 |
+| `editor/src/project/` | Editor 状态、Engine 项目及输入值、ImGui | 项目设置和编辑器玩家改键面板；动作录入与草稿校验复用 Engine 输入模块 |
+| `engine/src/ui/` | Engine 输入值／图形资源、RmlUi Core／FreeType | 可选 `comet_game_ui` 库；拥有通用上下文、项目 Lua 控制器、字体、页面加载、输入与 GPU 适配，不依赖游戏菜单 |
+| `editor/`、`app/` | Engine 组合入口、明确的工作流接口；分别装配 `editor_ui`／`comet_game_ui` | 业务视口经 Renderer 离屏帧快照取图，不穿透 SceneRenderer |
 
 App／Editor 使用 `engine/resources/fonts/` 中的同一字体。ImGui 合并与 RmlUi 字体回退由各 UI 后端负责，
 Engine 核心库不链接 UI 框架；`engine/src/ui` 通过 `COMET_BUILD_GAME_UI` 作为可选库接入 RmlUi，可独立于示例 app 构建。
-示例 RML／RCSS 属于 `demo/assets/ui`，HUD、改键数据绑定与快捷键属于 `app/src/player_input_menu`。
-页面资源和字体按各自来源复制进示例 app bundle，不由引擎模块携带示例页面。
+示例 RML／RCSS、HUD、改键数据绑定与快捷键均属于 `demo/assets/ui`，由 `runtime.ui.lua` 实现。
+app 从项目清单装配 UI，字体复制进 app bundle；项目页面不由引擎或 app 携带。
 
 `SceneSerializer` 的 serialize／clone 共用 Descriptor 内容采集，deserialize／clone 共用实体和层级恢复。
 clone 直接使用内存内容快照，保留 UUID、实体引用及树遍历创建顺序；不复制 transient 字段、运行会话或排队请求。
@@ -30,10 +31,12 @@ clone 直接使用内存内容快照，保留 UUID、实体引用及树遍历创
 `common/`、`input/`、`scene/`、`scripting/`、`audio/` 不得引入 Render、Graphics、Vulkan/GLFW 后端。
 资产层也执行该限制，明确排除 AssetManager 的两个实现文件，并仅允许 TextureData 引用后端无关枚举。
 `editor/src/` 功能代码不得直接包含 SceneRenderer、RenderContext、FrameScheduler、Presentation 或 Vulkan/GLFW 头；
-ImGuiContext 位于共享 `ui/`，不再为 Editor 功能目录保留后端例外；`editor/editor.cpp` 是扫描范围外的宿主集成点。
+只有 `editor/src/ui/imgui_context.h/.cpp` 作为独立 `editor_imgui` 呈现适配允许连接图形后端；
+其 include 单独检查，不允许依赖编辑器工作流。`editor/editor.cpp` 是扫描范围外的宿主集成点。
 这些是防止依赖倒退的轻量检查，不检查传递包含；Engine 核心库与可选 `comet_game_ui` 分开编译。
-编辑器按链接依赖分为 `editor_core`（无 ImGui）和 `editor_ui`，入口及对应测试复用这些库；
-`comet_ui` 链接 engine／ImGui；app 通过示例视图库 `comet_demo_ui` 链接 `comet_game_ui`，不链接 ImGui、editor_core／editor_ui。
+编辑器按链接依赖分为 `editor_core`（无 ImGui）、`editor_imgui`（呈现适配）和 `editor_ui`（功能界面），
+入口及对应测试复用这些库；`editor_imgui` 链接 engine／ImGui，`editor_ui` 组合 core 与呈现适配。
+app 直接链接 `comet_game_ui`，不链接 ImGui 或编辑器库。字体归 Engine 公共资源，ImGui 专用 Shader 归 `editor/shaders/`。
 
 `Ui::RmlContext` 提供通用 RmlUi 会话、可配置字体、候选文档替换、输入处理和 Overlay 绘制。
 它要求调用方提供资源根目录，能加载没有改键控件的任意页面；不认识 demo 路径、动作名或个人设置。
@@ -42,12 +45,42 @@ ImGuiContext 位于共享 `ui/`，不再为 Editor 功能目录保留后端例�
 候选文档先解析、由调用方校验结构，再生成资源并验证绘制；失败恢复旧文档，成功才关闭旧文档。
 业务回调通过加载状态及当前文档身份忽略候选页事件，避免无效候选页修改应用状态。
 
-`app/src/player_input_menu` 负责 HUD、菜单控件 ID、数据模型与快捷键，改键交易由 `PlayerInputEdit` 管理；
-个人文件保存和 Runtime 应用继续由 app 宿主编排。Window 发布与物理帧同序号的有界、有序 UI 事件。
-输入适配处理 DPI、已提交 Unicode、焦点、指针及模拟手柄导航；关闭和失焦取消尚未派发的 UI 输入，关闭当帧仍阻断 Gameplay。
-录入期间保留控件焦点并暂停 UI 按键／指针派发。完整原生 IME、UI 资产发布和 Editor 预览尚未接通。
-资产扫描将 `.rml`／`.rcss` 识别为源文件，不生成元数据或稳定资产句柄；当前 UI 直接读取文件，资产发布链路仍待接入。
+`Ui::ProjectUi` 装载清单中的页面与 `.ui.lua` 控制器；宿主注入个人设置读取、保存与 Runtime 换绑服务。
+控制器拥有模型、菜单状态、控件 ID、命令及快捷键，`PlayerInputEdit` 仍属于 Engine 输入模块。
+Window 发布与物理帧同序号的有界、有序 UI 事件。适配处理 DPI、Unicode、焦点、指针和手柄导航；
+关闭当帧仍阻断 Gameplay，录入保留控件焦点并暂停 UI 派发；同帧动态 RML 替换合并到输入交付结束后。
+资产扫描将 `.rml`／`.rcss`／`.ui.lua` 识别为源文件，不生成元数据或稳定资产句柄；UI 直接读取项目文件。
+完整原生 IME、资产发布和 Editor Play 共用控制器仍待接通。
 FreeType 的字体解析、度量与栅格化可供其他文字模块复用；图集缓存、GPU 资源及其在途生命周期属于各呈现后端。
+
+### 项目 UI 控制器
+
+`project.json.ui` 可省略；存在时必须声明 assets 内的 `.rml` 页面与 `.ui.lua` 控制器。
+`ProjectUi` 与 SceneRuntime 分开持有，在加载、暂停时继续接收呈现帧，不依赖物理固定步；
+当前宿主的 Deferred 帧仍不推进 UI。重开场景调用 `deactivate()`，关闭或换代调用 `on_destroy` 并销毁旧 VM。
+Lua 只使用元素 ID，不持有原生文档／GPU 句柄；旧控制器的接口在销毁前失效。
+
+脚本返回包含标量 `model`、可选标量 `state` 和生命周期函数的 table：
+
+- `on_mount(self, ui, reloading)`：候选页面校验和呈现初始化；此阶段禁止修改输入事务或调用宿主服务。
+- `on_frame(self, ui, frame)`：`frame.fps`、`game_available`、`focused`；原始快捷键由 `ui.pressed(source, control)` 查询。
+- `on_event(self, ui, ...)`：`data-event-click="command(...)"` 等 Rml 数据事件，参数按序交付。
+- `on_present(self, ui)`：合并数据和布局；候选验证结束时也调用，只能使用呈现与只读输入接口。
+- `on_input_result(self, ui, success, error)`、`on_reload_error(self, ui, error)`：项目决定错误提示和后续呈现。
+- `on_deactivate(self, ui)`：宿主运行状态变化；`on_destroy(self, ui)`：仅清理脚本自身状态，UI／输入接口已失效。
+
+`ui.set(name, scalar)` 对接 Rml 的 `data-model="ui"`；`require_element`、`property`、`markup`、`focus`、
+`focus_first`、`has_focus` 操作当前文档。`modal` 决定游戏输入归属，`stop_input` 终止当前事件批次，`reload` 请求候选换代。
+`input_begin(reserved_keys, reserved_gamepad_buttons)` 读取个人设置并建立草稿；`input_status`／`input_actions` 返回值快照。
+`input_restore`、`input_restore_binding`、`input_toggle_binding`、`input_capture(action, binding, kind)`、`input_apply`、`input_end`
+复用输入模块，不规定按钮文案和菜单流程。提交由宿主服务返回结果；失败保留草稿，服务不在候选验证时调用。
+
+每 VM 最多 16 MiB，入口源码最多 1 MiB；初始化预算 100 万指令，每回调预算 20 万指令。
+模型最多 128 个标量字段；热重载 `state` 最多迁移 128 个标量，单个文本／动态 RML 最多 256 KiB。
+基础库仅开放 base／math／string／table，不开放文件、原生库、动态加载、元表或嵌套保护调用；UI VM 与组件脚本 VM 独立。
+重载先验证新 VM、文档、资源与呈现，成功后才接管事件；失败保留旧会话和输入草稿。
+显式 `state` 的标量和同类型模型字段迁移，Lua 闭包／任意嵌套状态不迁移。当前每会话使用单一 `ui` 数据模型，
+模型字段绑定在会话内有界累积；独立多页面／多窗口、模块依赖、资产发布与 Editor 游戏视口接入属于后续扩展。
 
 ## 先看哪个类
 
@@ -76,7 +109,7 @@ FreeType 的字体解析、度量与栅格化可供其他文字模块复用；�
 | `render/resource/render_resources.h` | 设备资源工厂、上传及 Sampler 共享资源 |
 | `graphics/` | Vulkan 对象与显式同步后端 |
 | `editor/src/viewport/viewport.h` | 组合 ViewportPanel/Gizmo，连接编辑器相机、选择反馈与 Renderer |
-| `ui/src/imgui_context.h` | App／Editor 共用 UI 呈现、纹理绑定和交换链重建，不属于 engine |
+| `editor/src/ui/imgui_context.h` | 编辑器 ImGui 呈现、纹理绑定和交换链重建；可选游戏 UI 使用独立的 RmlUi 适配 |
 
 engine 入口路径相对 `engine/src/`。Graphics 的 command/resource/pipeline/synchronization 按职责分目录；
 Context、Device、Queue、Swapchain、RenderPass、FrameBuffer 保留在根层，因为它们跨越多个职责组。
@@ -292,7 +325,7 @@ Engine 启动 Runtime 使用 InputStart::Rebase，直到首张已授权输入才
 根据有效组件与已授权 `camera.look` 提供。SceneRuntime 只在 Running 且当前输入边界已准备时汇总，
 Engine 在更新后交给 Window 执行，暂停／停止／最小化／退出及时释放。Viewport 不重新解析物理绑定。
 Window 使用 GLFW disabled cursor，支持时开启 raw motion；真实模式切换仅重置鼠标位置基线，
-不清键沿或递增整体输入中断版本。共享 ImGui 在捕获期间禁用鼠标命中，仍接收键盘；未改变原生回调串接。
+不清键沿或递增整体输入中断版本。编辑器 ImGui 在捕获期间禁用鼠标命中，仍接收键盘；未改变原生回调串接。
 解锁时先恢复 UI 位置基线再处理排队点击，避免静止解锁首击丢失；不把恢复位置追加为晚于点击的移动事件。
 Runtime 的输入准备标志只用于阻止 Resume／discard 后查询旧意图，不替代 RuntimeInput 的电平与释放历史。
 

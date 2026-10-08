@@ -21,7 +21,7 @@
 #include "scene/scene_editor.h"
 #include "scene/editor_scene_session.h"
 #include "editor_state.h"
-#include "imgui_context.h"
+#include "ui/imgui_context.h"
 #include "inspector/property_editor_registry.h"
 #include "scene/scene_document.h"
 #include "ui/shortcuts.h"
@@ -29,8 +29,8 @@
 #include "core/engine.h"
 #include "core/project.h"
 #include "input/player_input_settings.h"
-#include "input_widgets.h"
-#include "player_input_panel.h"
+#include "project/input_widgets.h"
+#include "project/player_input_panel.h"
 #include "common/scope_exit.h"
 #include "render/renderer.h"
 #include "core/window.h"
@@ -88,10 +88,10 @@ namespace {
                 return Comet::Result<void, Comet::Error>::failure({state_directory.error()});
             m_shortcut_settings_path = state_directory.value() / "shortcuts.yaml";
             m_language_settings_path = state_directory.value() / "language.json";
-            auto ui = CometUi::ImGuiContext::create(engine.get_window(), render_context,
+            auto ui = CometEditor::Ui::ImGuiContext::create(engine.get_window(), render_context,
                 {.ini_path = state_directory.value() / "imgui.ini",
                     .docking = true,
-                    .composition = CometUi::ImGuiContext::Composition::Clear});
+                    .composition = CometEditor::Ui::ImGuiContext::Composition::Clear});
             if(!ui)
                 return Comet::Result<void, Comet::Error>::failure(ui.error().as_error());
             m_imgui_context = std::move(ui).value();
@@ -658,10 +658,11 @@ namespace {
                 m_player_input_settings.reset();
             const bool close_error = input.focused && input.key(Comet::Input::Key::Escape).pressed;
             if(m_ui_language == CometEditor::Ui::Language::Chinese)
-                blocked |= CometUi::render_player_input_error(
+                blocked |= CometEditor::Ui::render_player_input_error(
                     m_player_input_error, close_error, m_translations);
             else
-                blocked |= CometUi::render_player_input_error(m_player_input_error, close_error);
+                blocked |=
+                    CometEditor::Ui::render_player_input_error(m_player_input_error, close_error);
             return blocked;
         }
 
@@ -1060,10 +1061,10 @@ namespace {
         std::uint64_t m_reference_history_state = 0;
         Comet::Project m_project;
         CometEditor::ProjectSettings m_project_settings{m_project};
-        CometUi::PlayerInputPanel m_player_input_panel;
+        CometEditor::PlayerInputPanel m_player_input_panel;
         std::optional<Comet::PlayerInputSettings> m_player_input_settings;
         std::string m_player_input_error;
-        std::unique_ptr<CometUi::ImGuiContext> m_imgui_context;
+        std::unique_ptr<CometEditor::Ui::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::EditorAssets> m_assets;
         std::unique_ptr<CometEditor::MaterialShaderReload> m_material_shader_reload;
         std::optional<CometEditor::SelectionService> m_selection;

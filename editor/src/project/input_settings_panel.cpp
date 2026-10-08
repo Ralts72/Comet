@@ -1,8 +1,8 @@
 #include "project/input_settings_panel.h"
 
-#include "input_widgets.h"
+#include "project/input_widgets.h"
 #include "ui/language.h"
-#include "widgets.h"
+#include "ui/widgets.h"
 
 #include <algorithm>
 #include <iterator>
@@ -17,7 +17,7 @@ namespace CometEditor {
 
         void render_control(const std::string_view source, std::string& control) {
             if(source == "key") {
-                CometUi::input_text("##Control", control);
+                Ui::input_text("##Control", control);
                 return;
             }
             const char* preview = control.c_str();
@@ -25,7 +25,7 @@ namespace CometEditor {
                 preview = Ui::text("Select a control");
             if(!ImGui::BeginCombo("##Control", preview))
                 return;
-            for(const auto& option : CometUi::input_controls(source)) {
+            for(const auto& option : Ui::input_controls(source)) {
                 const auto name = Comet::InputActions::format_binding({option}).value();
                 const bool selected = control == name.control;
                 if(ImGui::Selectable(name.control.c_str(), selected))
@@ -102,7 +102,7 @@ namespace CometEditor {
             auto& context = m_contexts[index];
             ImGui::PushID(static_cast<int>(index));
             ImGui::SetNextItemWidth(180.0f);
-            CometUi::input_text("##ContextName", context.name);
+            Ui::input_text("##ContextName", context.name);
             ImGui::SameLine();
             ImGui::Checkbox(Ui::label("Initially Enabled").c_str(), &context.enabled);
             const bool used = std::ranges::any_of(
@@ -150,7 +150,7 @@ namespace CometEditor {
         ImGui::TableSetColumnIndex(0);
         ImGui::SetNextItemWidth(-1);
         if(ImGui::BeginCombo("##Source", binding.source.c_str())) {
-            for(const auto source : CometUi::input_sources(action.type)) {
+            for(const auto source : Ui::input_sources(action.type)) {
                 if(ImGui::Selectable(source.data(), binding.source == source)
                     && binding.source != source) {
                     binding.source = source;
@@ -202,12 +202,12 @@ namespace CometEditor {
         auto& action = m_actions[index];
         ImGui::PushID(static_cast<int>(index));
         ImGui::SetNextItemWidth(165.0f);
-        CometUi::input_text("##Name", action.name);
+        Ui::input_text("##Name", action.name);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(110.0f);
-        if(ImGui::BeginCombo("##Type", Ui::text(CometUi::input_type_name(action.type)))) {
+        if(ImGui::BeginCombo("##Type", Ui::text(Ui::input_type_name(action.type)))) {
             for(const auto type : {Type::Button, Type::Axis, Type::Delta}) {
-                if(ImGui::Selectable(Ui::text(CometUi::input_type_name(type)), action.type == type)
+                if(ImGui::Selectable(Ui::text(Ui::input_type_name(type)), action.type == type)
                     && action.type != type) {
                     action.type = type;
                     cancel_capture();
@@ -286,7 +286,7 @@ namespace CometEditor {
             ImGui::TextWrapped("%s", configured.error().c_str());
             return;
         }
-        CometUi::render_binding_relationships(configured.value(), action_index, Ui::translations());
+        Ui::render_binding_relationships(configured.value(), action_index, Ui::translations());
     }
 
     void InputSettingsPanel::cancel_capture() {

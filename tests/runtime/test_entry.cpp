@@ -11,8 +11,8 @@
 #include "diagnostics/logger.h"
 #include "support/temporary_directory.h"
 
-#ifdef COMET_TEST_SHARED_UI
-#include "imgui_context.h"
+#ifdef COMET_TEST_EDITOR_IMGUI
+#include "ui/imgui_context.h"
 #endif
 
 #include <gtest/gtest.h>
@@ -235,15 +235,15 @@ namespace Comet::Tests {
             bool engine_alive_during_shutdown = false;
             bool rendering_stopped_during_shutdown = false;
             TemporaryDirectory directory;
-#ifdef COMET_TEST_SHARED_UI
-            std::unique_ptr<CometUi::ImGuiContext> ui;
+#ifdef COMET_TEST_EDITOR_IMGUI
+            std::unique_ptr<CometEditor::Ui::ImGuiContext> ui;
 #endif
             RunResult on_init() override {
-#ifdef COMET_TEST_SHARED_UI
-                auto result = CometUi::ImGuiContext::create(get_engine().get_window(),
+#ifdef COMET_TEST_EDITOR_IMGUI
+                auto result = CometEditor::Ui::ImGuiContext::create(get_engine().get_window(),
                     get_engine().get_renderer().get_render_context(),
                     {.ini_path = directory.path() / "imgui.ini",
-                        .composition = CometUi::ImGuiContext::Composition::Clear});
+                        .composition = CometEditor::Ui::ImGuiContext::Composition::Clear});
                 if(!result)
                     return RunResult::failure(result.error().as_error());
                 ui = std::move(result).value();
@@ -263,7 +263,7 @@ namespace Comet::Tests {
                 return RunResult::failure({"update failure"});
             }
             RunResult on_frame_ready(Engine::FrameContext&) override {
-#ifdef COMET_TEST_SHARED_UI
+#ifdef COMET_TEST_EDITOR_IMGUI
                 if(ui->begin_frame()) {
                     const ScopeExit end_ui([this] { ui->end_frame(); });
                     ImGui::TextUnformatted("Frame failure test");
@@ -278,11 +278,11 @@ namespace Comet::Tests {
                 ++shutdowns;
                 engine_alive_during_shutdown = get_engine().get_window().get() != nullptr;
                 rendering_stopped_during_shutdown = !get_engine().get_renderer().prepare_frame();
-#ifdef COMET_TEST_SHARED_UI
+#ifdef COMET_TEST_EDITOR_IMGUI
                 if(fail_at == 4)
                     EXPECT_NE(ImGui::GetDrawData(), nullptr);
 #endif
-#ifdef COMET_TEST_SHARED_UI
+#ifdef COMET_TEST_EDITOR_IMGUI
                 ui.reset();
 #endif
             }
@@ -330,7 +330,7 @@ namespace Comet::Tests {
         EXPECT_EQ(app.shutdowns, 1);
         EXPECT_TRUE(app.engine_alive_during_shutdown);
         EXPECT_TRUE(app.rendering_stopped_during_shutdown);
-#ifdef COMET_TEST_SHARED_UI
+#ifdef COMET_TEST_EDITOR_IMGUI
         EXPECT_EQ(ImGui::GetCurrentContext(), nullptr);
 #endif
     }

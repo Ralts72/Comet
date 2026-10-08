@@ -7,7 +7,7 @@
 #include <span>
 #include <string>
 
-namespace CometUi {
+namespace CometEditor {
     class PlayerInputPanel final {
     public:
         using Text = std::map<std::string, std::string, std::less<>>;

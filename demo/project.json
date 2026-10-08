@@ -3,6 +3,10 @@
   "id": "bf04a980-f080-4d3f-b1ac-1a938379a190",
   "name": "sampler",
   "startup_scene": "scenes/default.scene",
+  "ui": {
+    "document": "ui/runtime.rml",
+    "controller": "ui/runtime.ui.lua"
+  },
   "input_contexts": [
     {"name": "gameplay", "enabled": true},
     {"name": "camera", "enabled": true},

@@ -8,7 +8,7 @@
 #ifdef COMET_TEST_EDITOR_UI
 #include "common/scope_exit.h"
 #include "render/render_stats.h"
-#include "imgui_context.h"
+#include "ui/imgui_context.h"
 #include "support/imgui_context.h"
 #include "support/temporary_directory.h"
 #include <imgui_internal.h>
@@ -306,11 +306,11 @@ namespace Comet::Tests {
             CometEditor::Ui::Language::Chinese, &translations.value());
         auto& renderer = engine->get_renderer();
         TemporaryDirectory directory;
-        auto created =
-            CometUi::ImGuiContext::create(engine->get_window(), renderer.get_render_context(),
-                {.ini_path = directory.path() / "imgui.ini",
-                    .docking = true,
-                    .composition = CometUi::ImGuiContext::Composition::Clear});
+        auto created = CometEditor::Ui::ImGuiContext::create(engine->get_window(),
+            renderer.get_render_context(),
+            {.ini_path = directory.path() / "imgui.ini",
+                .docking = true,
+                .composition = CometEditor::Ui::ImGuiContext::Composition::Clear});
         ASSERT_TRUE(created) << created.error();
         auto& ui = *created.value();
         CometEditor::RenderStatsPanel panel(

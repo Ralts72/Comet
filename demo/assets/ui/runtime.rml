@@ -3,7 +3,7 @@
     <title>Comet Runtime</title>
     <link type="text/rcss" href="runtime.rcss" />
 </head>
-<body data-model="runtime">
+<body data-model="ui">
     <div id="hud">
         <span id="fps">{{ fps_text }}</span>
         <button id="settings" data-event-click="command('open')" data-attrif-disabled="!menu_available">设置 / F1</button>

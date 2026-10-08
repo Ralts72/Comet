@@ -56,9 +56,10 @@ namespace Comet::Ui {
         [[nodiscard]] bool pointer_blocked() const;
         [[nodiscard]] Result<void> update();
 
-        // 调用方可校验页面结构；解析、资源或绘制能力失败时保留当前页面。
+        // prepare 校验和准备页面，finalize 恢复最终呈现；任一阶段失败均保留当前页面。
         [[nodiscard]] Result<Rml::ElementDocument*> replace_document(Rml::ElementDocument* current,
-            const std::filesystem::path& file, const PrepareDocument& prepare = {});
+            const std::filesystem::path& file, const PrepareDocument& prepare = {},
+            const PrepareDocument& finalize = {});
         // 候选页面会触发 RmlUi 事件；业务回调在发布前应忽略这些事件。
         [[nodiscard]] bool is_loading_document() const;
 

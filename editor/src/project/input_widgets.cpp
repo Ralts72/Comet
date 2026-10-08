@@ -1,11 +1,11 @@
-#include "input_widgets.h"
+#include "project/input_widgets.h"
 
 #include <algorithm>
 #include <array>
 #include <imgui.h>
 #include <imgui_internal.h>
 
-namespace CometUi {
+namespace CometEditor::Ui {
     namespace {
         using Actions = Comet::InputActions;
         using BindingRelation = Actions::BindingRelation;
