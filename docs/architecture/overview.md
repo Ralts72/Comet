@@ -15,8 +15,8 @@ App、Editor 和资产准备工具继续链接 `engine`／`Comet::Engine`，无�
 | `comet_shader_contracts` | 后端无关 Shader 契约与 SPIR-V 反射；Foundation、SPIRV-Reflect |
 | `comet_asset_data` | 资产身份、Registry、CPU 产品数据及其序列化；Serialization、ShaderContracts |
 | `comet_input` | 输入采样值、动作、运行域求值、改键草稿与个人设置；Serialization |
-| `comet_world` | 实体、组件、Schema、层级与持久场景序列化；AssetData、Input、EnTT |
-| `comet_runtime` | SceneRuntime、固定步时钟、暂停／单步与 System 生命周期契约；World、Input |
+| `comet_world` | 实体、组件、Schema、层级与持久场景序列化；AssetData、EnTT |
+| `comet_runtime` | SceneRuntime、RuntimeSession、固定步时钟、暂停／单步与 System 生命周期契约；World、Input |
 | `comet_asset_pipeline` | 扫描索引、Artifact、源导入与任务队列；AssetData、stb_image、fastgltf |
 
 项目／Profile 配置聚合、窗口、图形、渲染及具体运行系统暂由 engine 主目标组合，后续逐步收窄内部边界。
@@ -164,7 +164,7 @@ GpuResourceResult 的失败路径先保存错误码，调用 `error()` 时才生
 ```text
 Engine
 ├── Scene（组件、AssetHandle 与非持久运行态；不持有 GPU 资源）
-├── SceneRuntime → System[]（活动时借用 Scene，停止时逆序退出）
+├── SceneRuntime → RuntimeSession + System[]（活动时借用 Scene，停止时逆序退出）
 │   └── PhysicsSystem → Jolt world / bodies（Play／app 专有；Stop 销毁）
 │   └── AudioSystem → AudioPlayback / Voice（有声音源时创建；Stop 销毁）
 ├── TaskScheduler
@@ -408,8 +408,8 @@ InputOverrides 的 control／scale／deadzone 按字段继承，disabled 与保�
 按绑定而不是整个动作或设备消费，倍率／死区不改变控制身份。`compare_bindings` 复用同一判定，
 但只说明双方启用时的两两关系；UI 使用有效草稿，不能把它冒充实时路由或全局冲突禁令。
 
-`comet.set_input_context → Scene 有界请求 → SceneRuntime::advance → RuntimeInput`。
-Scene 按组名合并非持久请求，不拥有输入；下一次输入准备前应用，因此同帧所有阶段使用同一组状态。
+`comet.set_input_context → RuntimeSession 有界请求 → SceneRuntime::advance → RuntimeInput`。
+RuntimeSession 按组名合并非持久请求，不拥有输入；下一次输入准备前应用，因此同帧所有阶段使用同一组状态。
 未知组走运行失败清理。on_start 可请求启停；on_stop 无 Scene 权限，只可记录关闭组输出。
 换绑／移除／成功重载时旧 on_stop 先于新 on_start，清理输出交同一队列；后续清理错误不撤销已记录的关闭。
 Stop／失败清空请求，完整退出不再发布清理输出；暂停可处理组请求但不推进模拟。
@@ -528,7 +528,7 @@ Play 实例换代后只清除旧脚本参数控件的活动状态，不打断其
 语法／声明失败由原有资产加载入口拒绝，不发布到 Registry；ScriptSystem 不自己读文件、监听或另建资产版本缓存。
 暂停中不运行 synchronize，继续或单步时切换；普通参数编辑不重建 VM，代码、定义和事件声明则随实例一起替换。
 新 on_start 可能已修改 Scene，因此执行失败沿 Runtime 的整体停止／Editor 恢复 Edit 路径处理，不承诺回滚世界副作用。
-仅 Lua 实例的 self 状态重置，Scene 会话值、实体、物理和待交付通知保留；pending 通知交给换代后的事件声明，不重放已消费通知。
+仅 Lua 实例的 self 状态重置，RuntimeSession 会话值、实体、物理和待交付通知保留；pending 通知交给换代后的事件声明，不重放已消费通知。
 不迁移任意 Lua 状态、不自动回写 Edit 参数；独立 app 可消费已发布新版，但没有新增源文件监听。
 
 项目内 require 从 assets 根将点分名称解析为 `.module.lua`，模块是 source-only，不占 AssetRegistry／Handle／`.meta`。
@@ -555,7 +555,7 @@ AssetManager 的脚本加载与刷新集中在 `asset_manager_scripts.cpp`，仍
 失败时保留旧依赖和已尝试路径的并集，缺失模块恢复可再次通知消费者；成功后只保留实际新依赖。
 仅已证实过期的读取快照进入既有刷新重试队列；语法／声明错误等待新的文件变化，不每帧重读。
 新消费者加入时，字节和自身闭包均未变化的旧 Script 保持指针身份，不因此重启旧实例。
-模块不是跨实体共享可变状态的工具；项目需要共享玩法状态时仍显式使用 Scene 会话值或组件。
+模块不是跨实体共享可变状态的工具；项目需要共享玩法状态时仍显式使用 RuntimeSession 会话值或组件。
 
 参数检查与合并分开：Inspector 调用 validate_overrides，不生成无用的完整参数表；
 ScriptSystem 仅在覆盖变化时 resolve_parameters，Instance 在有效值或运行场景变化时重建 Lua 配置表。
@@ -588,10 +588,14 @@ Hierarchy 在完成非拖放点击时才切换选择，起拖期间不改变 Ins
 VM 将 UUID 绑定成已有的受保护实体引用，不把 Scene 指针写进 Lua 配置；
 引用同时校验场景世代和 EntityId，有效引用按实体实例比较，未分配或缺失引用可安全调用 `is_valid()`。
 绑定后目标被删除、即使同 UUID 重建，已捕获的引用也不自动转向新实体；参数表重建或重新 Play 才重新解析配置。
-`session_set/session_get` 立即读写当前运行场景的会话值，nil 表示删除；最多 128 个键，键长最多 128 字节。
+`session_set/session_get` 立即读写当前 RuntimeSession 的会话值，nil 表示删除；最多 128 个键，键长最多 128 字节。
 值只接收 bool／有限 float／Vec3／最多 4096 字节的 string，不因共享 ParameterValue 类型而开放实体或 Vec4 存储。
 暂停保留、单步照常读写，不进入 .scene 或 Edit 场景；on_stop 不访问会话状态。
-Scene 的 begin_runtime／end_runtime 共用一份清理清单，清除会话、请求队列、材质覆盖和重开意图，
+SceneRuntime 在 System 启动前绑定 RuntimeSession，逆序停止 System 后清空会话值、输入组请求和重开意图；
+启动／更新失败同样清理，暂停保留。同一 Scene 同时只绑定一个运行域；独立运行域的会话互不共享。
+System 的启停参数和更新 Context 显式提供会话引用，不转移所有权。ScriptSystem 在启动至停止期间借用会话，并传入 Invocation，
+Instance 拒绝会话与 Scene 不匹配的调用，每次结束清除绑定，on_stop 撤销会话／世界权限。
+Scene 的 begin_runtime／end_runtime 继续清理结构／服务请求和材质覆盖；音频、物理、通知等请求归属留待服务拆分。
 不把固定步冲量、阶段末结构变更和 Update 通知合并成同一种消费协议。
 
 `comet.remove_rigid_body(reference)` 复用同一 EntityRequest 队列和 UUID／EntityId 身份检查，
@@ -632,9 +636,9 @@ Scene 也独立校验变换有限性和非零资源 Handle；阶段提交中完�
 暂停不执行脚本阶段，单步正常提交；失败或 Stop 丢弃未提交请求。已提交实体属于运行 Scene，
 Editor Stop 丢弃 Play 副本，不是在 SceneRuntime::stop 内逐个删除运行中创建的实体。
 
-`comet.restart_scene()` 只在更新调用中向 Scene 记录合并的重开意图；许可从 Script::Phase 得出，
+`comet.restart_scene()` 只在更新调用中向 RuntimeSession 记录合并的重开意图；许可从 Script::Phase 得出，
 输入指针只表示是否提供输入，不代表调用阶段。同阶段其他脚本／System 仍正常完成。
-失败或 Stop 清掉意图；宿主在下一次 on_update 消费，不能从 Lua 栈内替换 Scene。
+失败或 Stop 清掉意图；宿主在下一次 on_update 经 Runtime 消费，执行回调期间不能取走意图或替换 Scene。
 GameApp 保留启动时的 Scene 基线，EditorSceneSession 复用保留的 Edit Scene；两者都经 Serializer 克隆，
 先完成候选准备，再停止旧 System、交换 Scene、启动新 System。基线只保存场景配置和 Handle，不复制 GPU 资源。
 重开保留 Edit 文档与历史；目标、Transform、会话值、Lua 实例、物理和声音均来自新一局。

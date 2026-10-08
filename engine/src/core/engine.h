@@ -64,6 +64,9 @@ namespace Comet {
         [[nodiscard]] Result<void, Error> stop_scene_runtime();
         [[nodiscard]] Result<void, Error> set_runtime_state(SceneRuntime::State state);
         [[nodiscard]] Result<void, Error> request_runtime_step();
+        [[nodiscard]] bool take_runtime_restart_request() {
+            return m_scene_runtime.take_restart_request();
+        }
         [[nodiscard]] const SceneRuntime& get_scene_runtime() const { return m_scene_runtime; }
         [[nodiscard]] AssetRegistry& get_asset_registry() { return *m_asset_registry; }
         [[nodiscard]] const AssetRegistry& get_asset_registry() const { return *m_asset_registry; }

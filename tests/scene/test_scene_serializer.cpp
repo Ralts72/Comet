@@ -594,8 +594,8 @@ namespace Comet::Tests {
         const auto actor = scene.create_entity("Actor");
         SceneRuntime source_runtime;
         ASSERT_TRUE(source_runtime.start(scene));
-        ASSERT_TRUE(scene.set_session_value("score", 7.0f));
-        ASSERT_TRUE(scene.request_restart());
+        ASSERT_TRUE(source_runtime.get_session().set_value("score", 7.0f));
+        ASSERT_TRUE(source_runtime.get_session().request_restart());
         const auto queued = scene.request_create_entity("Pending", {});
         ASSERT_TRUE(queued);
 
@@ -605,16 +605,15 @@ namespace Comet::Tests {
         EXPECT_EQ(cloned.value()->entity_count(), 1u);
         EXPECT_TRUE(cloned.value()->find_entity(actor.get_uuid()));
         EXPECT_FALSE(cloned.value()->find_entity(*queued));
-        EXPECT_FALSE(cloned.value()->take_restart_request());
-        EXPECT_FALSE(cloned.value()->set_session_value("score", 8.0f));
-
         SceneRuntime clone_runtime;
+        EXPECT_FALSE(clone_runtime.take_restart_request());
+        EXPECT_FALSE(clone_runtime.get_session().set_value("score", 8.0f));
         ASSERT_TRUE(clone_runtime.start(*cloned.value()));
-        EXPECT_FALSE(cloned.value()->get_session_value("score"));
+        EXPECT_FALSE(clone_runtime.get_session().get_value("score"));
         ASSERT_TRUE(clone_runtime.advance(1.0 / 60.0));
         EXPECT_EQ(cloned.value()->entity_count(), 1u);
-        EXPECT_EQ(scene.get_session_value("score"), ParameterValue(7.0f));
-        EXPECT_TRUE(scene.take_restart_request());
+        EXPECT_EQ(source_runtime.get_session().get_value("score"), ParameterValue(7.0f));
+        EXPECT_TRUE(source_runtime.take_restart_request());
         ASSERT_TRUE(source_runtime.advance(1.0 / 60.0));
         EXPECT_TRUE(scene.find_entity(*queued));
     }

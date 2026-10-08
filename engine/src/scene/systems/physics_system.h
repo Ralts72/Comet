@@ -10,9 +10,9 @@ namespace Comet {
         PhysicsSystem();
         ~PhysicsSystem() override;
 
-        Result<void, Error> on_start(Scene& scene) override;
+        Result<void, Error> on_start(Scene& scene, RuntimeSession&) override;
         Result<void, Error> fixed_update(Scene& scene, const Context& context) override;
-        void on_stop(Scene& scene) noexcept override;
+        void on_stop(Scene& scene, RuntimeSession&) noexcept override;
 
     private:
         struct Impl;

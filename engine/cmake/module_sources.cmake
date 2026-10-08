@@ -55,6 +55,8 @@ set(COMET_WORLD_SOURCES
 )
 
 set(COMET_RUNTIME_SOURCES
+    src/scene/runtime_session.cpp
+    src/scene/runtime_session.h
     src/scene/scene_runtime.cpp
     src/scene/scene_runtime.h
     src/scene/systems/system.h

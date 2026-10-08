@@ -174,7 +174,8 @@ namespace {
                 [this](std::unique_ptr<Comet::Scene> scene) {
                     return commit_scene(std::move(scene), CometEditor::EditorMode::Edit);
                 },
-                [this](Comet::SceneRuntime::State state) { return start_play_runtime(state); });
+                [this](Comet::SceneRuntime::State state) { return start_play_runtime(state); },
+                [engine_ptr]() { return engine_ptr->take_runtime_restart_request(); });
             auto& scene = *engine.get_scene();
             if(auto configured = engine.set_input_actions(m_project.input_actions()); !configured)
                 return configured;

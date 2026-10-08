@@ -91,7 +91,8 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 保留 `build/`、`build-editor/`、`build-release/` 三个构建目录，CI 复用 `build/`。
 对外通过 `engine`／`Comet::Engine` 使用引擎；内部对象库按职责约束依赖，最终汇入同一个 engine 动态库，
 不增加独立构建配置或模块动态库。源码归属见 `engine/cmake/module_sources.cmake`，依赖见 `modules.cmake`。
-`comet_runtime` 负责 SceneRuntime 与 System 执行契约，只依赖 World／Input；窗口、渲染和具体系统由 engine 组合。
+`comet_runtime` 负责 SceneRuntime、RuntimeSession 与 System 执行契约，只依赖 World／Input；窗口、渲染和具体系统由 engine 组合。
+World 保存场景内容，不依赖 Input 或 Runtime；运行输入和本局状态归 Runtime。
 编辑器分为无 ImGui 的 `editor_core`、ImGui 呈现适配 `editor_imgui` 与功能界面 `editor_ui`；新增源码需维护所属库清单。
 仅启用 tests 时仍构建 core；测试辅助代码位于 `tests/support/`。
 测试按执行条件分组，源码只编译到所属入口，不重复运行：
@@ -560,6 +561,8 @@ Trigger 对应 `on_trigger_enter/exit`，不产生物理碰撞响应。结构提
 ### 场景运行时
 
 app 与 editor Play 共用 SceneRuntime：先固定更新，再普通更新，退出时逆序停止 System；Edit 不执行游戏行为。
+RuntimeSession 保存本局会话值、输入组请求和重开意图，System 显式访问当前会话；Lua API 保持一致。
+暂停保留会话，停止／失败后清空；场景保存或克隆只复制内容，两个运行域不共享本局状态。
 宿主在 UI 更新后通过 `on_runtime_input` 每个非挂起帧交付一次授权输入；渲染延期仍推进 Runtime，未授权只关闭游戏输入。
 默认固定步 1/60 秒，每帧最多补算 8 步；暂停仍允许 UI 和资源维护，单步只推进一次固定更新和普通更新。
 Play 修改只作用于副本；脚本启动或运行失败会记录错误并恢复 Edit，不关闭编辑器。设备丢失等渲染故障仍退出。
@@ -695,7 +698,7 @@ Finder 导入只支持独立组件脚本，暂不处理 Lua 多文件依赖包�
 生命周期回调内可再次 require 已在顶层加载过的模块，不读取磁盘。
 
 编辑器保存共享模块后，现有依赖索引会刷新关联脚本；整组候选失败保留旧版，成功则在下一次运行更新切换。
-暂停中仍等单步或继续；实例的模块状态随换版重建，不改 Edit 场景和历史，也不重置 Scene 会话值。
+暂停中仍等单步或继续；实例的模块状态随换版重建，不改 Edit 场景和历史，也不重置 RuntimeSession 会话值。
 首次缺失模块或中途删掉模块会报告错误，补齐文件后可由既有资产监听恢复；app 加载同一项目模块，但不自动监视源码。
 
 ## 编辑器使用

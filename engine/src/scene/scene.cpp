@@ -1,6 +1,5 @@
 #include "scene/scene.h"
 #include "scene/material_parameters.h"
-#include "input/input_actions.h"
 
 #include "diagnostics/logger.h"
 
@@ -210,17 +209,6 @@ namespace Comet {
         return std::exchange(m_impulse_requests, {});
     }
 
-    bool Scene::request_restart() {
-        if(!m_runtime_active)
-            return false;
-        m_restart_requested = true;
-        return true;
-    }
-
-    bool Scene::take_restart_request() {
-        return std::exchange(m_restart_requested, false);
-    }
-
     bool Scene::commit_entity_requests() {
         auto requests = std::move(m_entity_requests);
         m_entity_requests.clear();
@@ -269,43 +257,12 @@ namespace Comet {
     }
 
     void Scene::clear_runtime_state() noexcept {
-        m_restart_requested = false;
         m_entity_requests.clear();
         m_audio_play_requests.clear();
         m_impulse_requests.clear();
         m_contact_events.clear();
         m_events.clear();
-        m_input_context_requests.clear();
-        m_session_values.clear();
         m_material_overrides.clear();
-    }
-
-    std::optional<ParameterValue> Scene::get_session_value(const std::string_view key) const {
-        if(!m_runtime_active || !valid_parameter_name(key))
-            return std::nullopt;
-        const auto found = m_session_values.find(std::string(key));
-        if(found == m_session_values.end())
-            return std::nullopt;
-        return found->second;
-    }
-
-    bool Scene::set_session_value(const std::string_view key, ParameterValue value) {
-        if(!m_runtime_active || !valid_parameter_name(key) || !valid_parameter_value(value)
-            || std::holds_alternative<EntityUuid>(value)
-            || std::holds_alternative<Math::Vec4>(value))
-            return false;
-        std::string name(key);
-        if(m_session_values.size() >= 128 && !m_session_values.contains(name))
-            return false;
-        m_session_values.insert_or_assign(std::move(name), std::move(value));
-        return true;
-    }
-
-    bool Scene::erase_session_value(const std::string_view key) {
-        if(!m_runtime_active || !valid_parameter_name(key))
-            return false;
-        m_session_values.erase(std::string(key));
-        return true;
     }
 
     bool Scene::emit_event(const std::string_view name, std::optional<ParameterValue> value) {
@@ -321,20 +278,6 @@ namespace Comet {
 
     std::vector<Scene::Event> Scene::take_events() {
         return std::exchange(m_events, {});
-    }
-
-    bool Scene::request_input_context(const std::string_view name, const bool enabled) {
-        if(!m_runtime_active || !InputActions::valid_name(name))
-            return false;
-        if(m_input_context_requests.size() >= InputActions::MAX_CONTEXTS
-            && !m_input_context_requests.contains(name))
-            return false;
-        m_input_context_requests.insert_or_assign(std::string(name), enabled);
-        return true;
-    }
-
-    Scene::InputContextRequests Scene::take_input_context_requests() {
-        return std::exchange(m_input_context_requests, {});
     }
 
     void Scene::clear_material_overrides(entt::registry&, const entt::entity entity) {

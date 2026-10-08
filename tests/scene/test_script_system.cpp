@@ -583,21 +583,21 @@ namespace Comet::Tests {
         reader.add_component<ScriptComponent>().asset = reader_handle;
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(0));
-        EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 2.0f);
-        EXPECT_FALSE(scene.set_session_value("game.target", reader.get_uuid()));
-        EXPECT_FALSE(scene.get_session_value("game.target"));
-        EXPECT_FALSE(scene.set_session_value("game.color", Math::Vec4(1)));
-        EXPECT_FALSE(scene.get_session_value("game.color"));
+        EXPECT_EQ(std::get<float>(*runtime.get_session().get_value("game.score")), 2.0f);
+        EXPECT_FALSE(runtime.get_session().set_value("game.target", reader.get_uuid()));
+        EXPECT_FALSE(runtime.get_session().get_value("game.target"));
+        EXPECT_FALSE(runtime.get_session().set_value("game.color", Math::Vec4(1)));
+        EXPECT_FALSE(runtime.get_session().get_value("game.color"));
         ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
         ASSERT_TRUE(runtime.advance(1));
-        EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 2.0f);
+        EXPECT_EQ(std::get<float>(*runtime.get_session().get_value("game.score")), 2.0f);
         ASSERT_TRUE(runtime.request_step());
         ASSERT_TRUE(runtime.advance(0));
-        EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 3.0f);
+        EXPECT_EQ(std::get<float>(*runtime.get_session().get_value("game.score")), 3.0f);
         ASSERT_TRUE(runtime.stop());
-        EXPECT_FALSE(scene.get_session_value("game.score"));
+        EXPECT_FALSE(runtime.get_session().get_value("game.score"));
         ASSERT_TRUE(runtime.start(scene));
-        EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 1.0f);
+        EXPECT_EQ(std::get<float>(*runtime.get_session().get_value("game.score")), 1.0f);
         ASSERT_TRUE(runtime.stop());
     }
 
@@ -773,8 +773,8 @@ namespace Comet::Tests {
         EXPECT_NE(advanced.error().message.find("event handler failed"), std::string::npos);
         EXPECT_FALSE(runtime.is_active());
         EXPECT_EQ(scene.entity_count(), 1u);
-        EXPECT_FALSE(scene.get_session_value("event.called"));
-        EXPECT_FALSE(scene.take_restart_request());
+        EXPECT_FALSE(runtime.get_session().get_value("event.called"));
+        EXPECT_FALSE(runtime.take_restart_request());
         EXPECT_FLOAT_EQ(entity.get_component<TransformComponent>().translation.x, 0);
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(0));
@@ -897,8 +897,8 @@ namespace Comet::Tests {
         ASSERT_FALSE(failed);
         EXPECT_NE(failed.error().message.find("script failed"), std::string::npos);
         EXPECT_EQ(scene.entity_count(), 1u);
-        EXPECT_FALSE(scene.get_session_value("game.score"));
-        EXPECT_FALSE(scene.take_restart_request());
+        EXPECT_FALSE(runtime.get_session().get_value("game.score"));
+        EXPECT_FALSE(runtime.take_restart_request());
         EXPECT_FALSE(runtime.is_active());
     }
 
@@ -1111,7 +1111,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(first.get_component<ScriptComponent>().running_script());
         EXPECT_FALSE(second.get_component<ScriptComponent>().running_script());
         EXPECT_EQ(scene.entity_count(), 2u);
-        EXPECT_FALSE(scene.get_session_value("reload.pending"));
+        EXPECT_FALSE(runtime.get_session().get_value("reload.pending"));
         source(R"(return {
             on_start = function()
                 assert(comet.session_get('reload.started') == nil)
@@ -1145,7 +1145,7 @@ namespace Comet::Tests {
                 if(!text.starts_with("Script cleanup failed:"))
                     return;
                 if(retiring_old_instances)
-                    EXPECT_FALSE(scene.get_session_value("reload.started"));
+                    EXPECT_FALSE(runtime.get_session().get_value("reload.started"));
                 messages.emplace_back(text);
             });
         logger->sinks().push_back(sink);
@@ -1183,7 +1183,7 @@ namespace Comet::Tests {
         ASSERT_EQ(messages.size(), 2u);
         EXPECT_NE(messages[0].find("second"), std::string::npos);
         EXPECT_NE(messages[1].find("first"), std::string::npos);
-        EXPECT_TRUE(scene.get_session_value("reload.started"));
+        EXPECT_TRUE(runtime.get_session().get_value("reload.started"));
         EXPECT_EQ(first.get_component<TransformComponent>().translation, Math::Vec3(1, 1, 0));
         EXPECT_EQ(second.get_component<TransformComponent>().translation, Math::Vec3(1, 1, 0));
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
@@ -1522,7 +1522,7 @@ namespace Comet::Tests {
         control(Input::Key::Right, Input::GamepadButton::DpadRight, false);
 
         // 收集逻辑关闭 gameplay 后，调色模式退出不得擅自重新启用它。
-        ASSERT_TRUE(scene.request_input_context("gameplay", false));
+        ASSERT_TRUE(runtime.get_session().request_input_context("gameplay", false));
         control(Input::Key::Tab, Input::GamepadButton::North, true);
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
         control(Input::Key::Tab, Input::GamepadButton::North, false);
@@ -1540,7 +1540,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
         control(Input::Key::R, Input::GamepadButton::Start, true);
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
-        EXPECT_TRUE(scene.take_restart_request());
+        EXPECT_TRUE(runtime.take_restart_request());
         EXPECT_EQ(material->get_revision(), material_revision);
         ASSERT_TRUE(runtime.stop());
         EXPECT_FALSE(scene.get_material_overrides(center));
@@ -1603,7 +1603,7 @@ namespace Comet::Tests {
     }
 
     TEST_P(DemoPaletteLifecycleTest, ReleasingConsumptionDoesNotResetDisabledGameplay) {
-        ASSERT_TRUE(scene.request_input_context("gameplay", false));
+        ASSERT_TRUE(runtime.get_session().request_input_context("gameplay", false));
         change_palette_binding();
         input.key_event(Input::Key::Right, true);
         const auto& position = player.get_component<TransformComponent>().translation;
@@ -1612,7 +1612,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
         EXPECT_EQ(position, Math::Vec3(0));
 
-        ASSERT_TRUE(scene.request_input_context("gameplay", true));
+        ASSERT_TRUE(runtime.get_session().request_input_context("gameplay", true));
         ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
         EXPECT_GT(position.x, 0);
     }
@@ -1712,7 +1712,7 @@ namespace Comet::Tests {
         bool score_feedback_observed = false;
         for(int frame = 0; frame < 120; ++frame) {
             ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
-            if(playing.value()->get_session_value("demo.score")) {
+            if(runtime.get_session().get_value("demo.score")) {
                 EXPECT_FLOAT_EQ(center.get_component<TransformComponent>().translation.y, 0.4f);
                 const auto tint = playing.value()->get_material_overrides(center);
                 ASSERT_TRUE(tint);
@@ -1753,7 +1753,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(collected_goal.has_component<ColliderComponent>());
         EXPECT_TRUE(collected_goal.has_component<MeshRendererComponent>());
         EXPECT_TRUE(collected_goal.has_component<ScriptComponent>());
-        const auto score = playing.value()->get_session_value("demo.score");
+        const auto score = runtime.get_session().get_value("demo.score");
         ASSERT_TRUE(score);
         EXPECT_FLOAT_EQ(std::get<float>(*score), 1);
         Entity marker;
@@ -1799,14 +1799,14 @@ namespace Comet::Tests {
             ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
         EXPECT_FALSE(playing.value()->find_entity(*goal_uuid));
         EXPECT_TRUE(playing.value()->is_valid(marker));
-        EXPECT_EQ(playing.value()->get_session_value("demo.score"), score);
+        EXPECT_EQ(runtime.get_session().get_value("demo.score"), score);
         EXPECT_EQ(score_messages, 1u);
         EXPECT_EQ(player.get_component<TransformComponent>().translation, player_position_at_score);
 
         control(Input::Key::Right, Input::GamepadButton::DpadRight, false);
         control(Input::Key::R, Input::GamepadButton::Start, true);
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
-        EXPECT_TRUE(playing.value()->take_restart_request());
+        EXPECT_TRUE(runtime.take_restart_request());
         EXPECT_FALSE(playing.value()->find_entity(*goal_uuid));
         ASSERT_TRUE(runtime.stop());
         EXPECT_TRUE(edit_scene.value()->find_entity(*goal_uuid));
@@ -1819,7 +1819,7 @@ namespace Comet::Tests {
         const auto restarted_goal = restarted.value()->find_entity(*goal_uuid);
         ASSERT_TRUE(restarted_goal);
         EXPECT_TRUE(restarted_goal.has_component<RigidBodyComponent>());
-        EXPECT_FALSE(restarted.value()->get_session_value("demo.score"));
+        EXPECT_FALSE(runtime.get_session().get_value("demo.score"));
         EXPECT_FALSE(restarted.value()->get_material_overrides(
             restarted.value()->find_entity(*center_uuid)));
         const auto restarted_player = restarted.value()->find_entity(*player_uuid);
@@ -1832,7 +1832,7 @@ namespace Comet::Tests {
             authored_player_position);
         control(Input::Key::Right, Input::GamepadButton::DpadRight, true);
         ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
-        EXPECT_FALSE(restarted.value()->take_restart_request());
+        EXPECT_FALSE(runtime.take_restart_request());
         EXPECT_GT(restarted_player.get_component<TransformComponent>().translation.x,
             authored_player_position.x);
         control(Input::Key::Right, Input::GamepadButton::DpadRight, false);
@@ -1840,7 +1840,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
         control(Input::Key::R, Input::GamepadButton::Start, true);
         ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
-        EXPECT_TRUE(restarted.value()->take_restart_request());
+        EXPECT_TRUE(runtime.take_restart_request());
         ASSERT_TRUE(runtime.stop());
     }
 
@@ -1867,7 +1867,7 @@ namespace Comet::Tests {
                 {{"player", target}}, {.scene = &scene, .contact_other = other}));
         }
         EXPECT_TRUE(scene.is_valid(goal));
-        EXPECT_FALSE(scene.get_session_value("demo.score"));
+        EXPECT_FALSE(runtime.get_session().get_value("demo.score"));
     }
 
     TEST_F(ScriptSystemTest, OneShotRequiresAnAuthoredAudioSource) {

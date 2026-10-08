@@ -34,10 +34,10 @@ set(ASSET_HEADERS
     "${SERIALIZATION_HEADERS}|${SHADER_HEADERS}|asset/(data/|serialization/|(handle|metadata|import_settings|registry|reference)\\.h$)")
 set(INPUT_HEADERS "${SERIALIZATION_HEADERS}|input/")
 set(WORLD_HEADERS
-    "${ASSET_HEADERS}|input/|scene/(component_registry|components|entity|entity_id|entity_uuid|material_parameters|property|scene|scene_serializer|scene_settings|script_component)\\.h$")
+    "${ASSET_HEADERS}|scene/(component_registry|components|entity|entity_id|entity_uuid|material_parameters|property|scene|scene_serializer|scene_settings|script_component)\\.h$")
 set(PIPELINE_HEADERS "${ASSET_HEADERS}|asset/(artifact/|import/|database\\.h$)")
 
-set(RUNTIME_HEADERS "${WORLD_HEADERS}|scene/(scene_runtime|systems/system)\\.h$")
+set(RUNTIME_HEADERS "${WORLD_HEADERS}|${INPUT_HEADERS}|scene/(scene_runtime|runtime_session|systems/system)\\.h$")
 
 function(check_module_closure module sources allowed)
     set(pending ${sources})

@@ -516,37 +516,79 @@ return group
         const auto instance = script.value()->instantiate();
         ASSERT_TRUE(instance);
         Scene scene;
+        SceneRuntime runtime;
         const auto actor = scene.create_entity();
         InputState input;
-        EXPECT_FALSE(instance.value()->invoke(
-            Script::Phase::Update, actor, {}, {.scene = &scene, .input = &input}));
-        EXPECT_FALSE(scene.take_restart_request());
-        SceneRuntime runtime;
+        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {},
+            {.scene = &scene, .session = &runtime.get_session(), .input = &input}));
+        EXPECT_FALSE(runtime.take_restart_request());
         ASSERT_TRUE(runtime.start(scene));
         for(const auto phase : {Script::Phase::Start, Script::Phase::Stop}) {
-            EXPECT_FALSE(instance.value()->invoke(phase, actor, {}, {.scene = &scene}));
-            EXPECT_FALSE(scene.take_restart_request());
-            EXPECT_FALSE(
-                instance.value()->invoke(phase, actor, {}, {.scene = &scene, .input = &input}));
-            EXPECT_FALSE(scene.take_restart_request());
+            EXPECT_FALSE(instance.value()->invoke(
+                phase, actor, {}, {.scene = &scene, .session = &runtime.get_session()}));
+            EXPECT_FALSE(runtime.take_restart_request());
+            EXPECT_FALSE(instance.value()->invoke(phase, actor, {},
+                {.scene = &scene, .session = &runtime.get_session(), .input = &input}));
+            EXPECT_FALSE(runtime.take_restart_request());
         }
         for(const auto phase : {Script::Phase::Update, Script::Phase::FixedUpdate,
                 Script::Phase::TriggerEnter, Script::Phase::TriggerExit,
                 Script::Phase::CollisionEnter, Script::Phase::CollisionExit}) {
-            const auto called = instance.value()->invoke(
-                phase, actor, {}, {.scene = &scene, .contact_other = actor});
+            const auto called = instance.value()->invoke(phase, actor, {},
+                {.scene = &scene, .session = &runtime.get_session(), .contact_other = actor});
             ASSERT_TRUE(called) << called.error().message;
-            EXPECT_TRUE(scene.take_restart_request());
-            EXPECT_TRUE(scene.get_session_value("after.restart"));
+            EXPECT_TRUE(runtime.take_restart_request());
+            EXPECT_TRUE(runtime.get_session().get_value("after.restart"));
         }
-        EXPECT_FALSE(instance.value()->invoke(
-            static_cast<Script::Phase>(-1), actor, {}, {.scene = &scene, .input = &input}));
-        EXPECT_FALSE(scene.take_restart_request());
+        EXPECT_FALSE(instance.value()->invoke(static_cast<Script::Phase>(-1), actor, {},
+            {.scene = &scene, .session = &runtime.get_session(), .input = &input}));
+        EXPECT_FALSE(runtime.take_restart_request());
         scene.destroy_entity(actor);
-        EXPECT_FALSE(instance.value()->invoke(
-            Script::Phase::Update, actor, {}, {.scene = &scene, .input = &input}));
-        EXPECT_FALSE(scene.take_restart_request());
+        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {},
+            {.scene = &scene, .session = &runtime.get_session(), .input = &input}));
+        EXPECT_FALSE(runtime.take_restart_request());
         ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(ScriptInvocationTest, SessionAccessRequiresExplicitMatchingRuntime) {
+        Scene scene;
+        Scene other_scene;
+        const auto actor = scene.create_entity();
+        SceneRuntime runtime;
+        SceneRuntime other_runtime;
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(other_runtime.start(other_scene));
+        const auto script = Script::create(R"(return {
+            update = function()
+                comet.session_set('score', 3)
+                comet.translate(1, 0, 0)
+                comet.restart_scene()
+            end
+        })");
+        ASSERT_TRUE(script);
+        const auto instance = script.value()->instantiate();
+        ASSERT_TRUE(instance);
+        const auto mismatch = instance.value()->invoke(Script::Phase::Update, actor, {},
+            {.scene = &scene, .session = &other_runtime.get_session()});
+        ASSERT_FALSE(mismatch);
+        EXPECT_NE(mismatch.error().message.find("another scene"), std::string::npos);
+        EXPECT_FALSE(runtime.get_session().get_value("score"));
+        EXPECT_FALSE(other_runtime.get_session().get_value("score"));
+        EXPECT_EQ(actor.get_component<TransformComponent>().translation, Math::Vec3(0));
+        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene}));
+        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Update, actor, {},
+            {.scene = &scene, .session = &runtime.get_session()}));
+        EXPECT_EQ(runtime.get_session().get_value("score"), ParameterValue(3.0f));
+        EXPECT_TRUE(runtime.take_restart_request());
+        EXPECT_FALSE(other_runtime.take_restart_request());
+        // 一次合法调用不能给后续未提供会话的调用遗留权限。
+        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene}));
+        EXPECT_EQ(actor.get_component<TransformComponent>().translation, Math::Vec3(1, 0, 0));
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {},
+            {.scene = &scene, .session = &runtime.get_session()}));
+        EXPECT_FALSE(runtime.get_session().get_value("score"));
+        EXPECT_TRUE(other_runtime.is_active());
     }
 
     TEST(ScriptInvocationTest, InputContextsValidateCallsAndFailUnknownGroupsAtTheRuntimeBoundary) {
@@ -566,14 +608,17 @@ return group
             {{"gameplay", true}});
         ASSERT_TRUE(actions);
         Scene scene;
-        const auto actor = scene.create_entity();
         SceneRuntime runtime;
+        const auto actor = scene.create_entity();
         ASSERT_TRUE(runtime.set_input_actions(std::move(actions).value()));
-        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Start, actor, {}, {.scene = &scene}));
+        EXPECT_FALSE(instance.value()->invoke(
+            Script::Phase::Start, actor, {}, {.scene = &scene, .session = &runtime.get_session()}));
         ASSERT_TRUE(runtime.start(scene));
         std::vector<std::string> disabled_contexts;
         ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, actor, {},
-            {.scene = &scene, .disabled_input_contexts = &disabled_contexts}));
+            {.scene = &scene,
+                .session = &runtime.get_session(),
+                .disabled_input_contexts = &disabled_contexts}));
         EXPECT_TRUE(disabled_contexts.empty());
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_FALSE(instance.value()->invoke(Script::Phase::Stop, {}, {}));
@@ -587,19 +632,21 @@ return group
             ASSERT_TRUE(invalid);
             auto invalid_instance = invalid.value()->instantiate();
             ASSERT_TRUE(invalid_instance);
-            EXPECT_FALSE(invalid_instance.value()->invoke(
-                Script::Phase::Update, actor, {}, {.scene = &scene}));
+            EXPECT_FALSE(invalid_instance.value()->invoke(Script::Phase::Update, actor, {},
+                {.scene = &scene, .session = &runtime.get_session()}));
         }
         ASSERT_TRUE(runtime.advance(0));
         ASSERT_TRUE(instance.value()->invoke(Script::Phase::Update, actor, {},
-            {.scene = &scene, .disabled_input_contexts = &disabled_contexts}));
+            {.scene = &scene,
+                .session = &runtime.get_session(),
+                .disabled_input_contexts = &disabled_contexts}));
         EXPECT_TRUE(disabled_contexts.empty());
-        EXPECT_TRUE(scene.get_session_value("before.failure"));
+        EXPECT_TRUE(runtime.get_session().get_value("before.failure"));
         const auto failed = runtime.advance(0);
         ASSERT_FALSE(failed);
         EXPECT_NE(failed.error().message.find("missing"), std::string::npos);
         EXPECT_FALSE(runtime.is_active());
-        EXPECT_FALSE(scene.get_session_value("before.failure"));
+        EXPECT_FALSE(runtime.get_session().get_value("before.failure"));
         ASSERT_TRUE(runtime.start(scene));
         EXPECT_TRUE(runtime.advance(0));
         ASSERT_TRUE(runtime.stop());
@@ -675,6 +722,7 @@ return group
 
     TEST(ScriptInvocationTest, StopInvocationCannotBorrowSceneOrInputCapabilities) {
         Scene scene;
+        SceneRuntime runtime;
         const auto actor = scene.create_entity();
         const auto actions =
             InputActions::create({{"test", InputActions::Type::Button, {{Input::Key::Space}}}});
@@ -682,7 +730,6 @@ return group
         InputState input;
         actions.value().evaluate({}, input);
         ASSERT_NE(input.action("test"), nullptr);
-        SceneRuntime runtime;
         ASSERT_TRUE(runtime.start(scene));
         for(const char* operation : {"comet.translate(1, 0, 0)", "self.target:translate(1, 0, 0)",
                 "comet.session_set('leaked', true)", "comet.emit('leaked')",
@@ -696,16 +743,19 @@ return group
             ASSERT_TRUE(script) << script.error().message;
             const auto instance = script.value()->instantiate();
             ASSERT_TRUE(instance);
-            ASSERT_TRUE(
-                instance.value()->invoke(Script::Phase::Start, actor, {}, {.scene = &scene}));
+            ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, actor, {},
+                {.scene = &scene, .session = &runtime.get_session()}));
             std::vector<std::string> disabled_contexts;
             const auto stopped = instance.value()->invoke(Script::Phase::Stop, actor, {},
-                {.scene = &scene, .input = &input, .disabled_input_contexts = &disabled_contexts});
+                {.scene = &scene,
+                    .session = &runtime.get_session(),
+                    .input = &input,
+                    .disabled_input_contexts = &disabled_contexts});
             ASSERT_FALSE(stopped);
             EXPECT_EQ(disabled_contexts, std::vector<std::string>{"palette"});
             EXPECT_EQ(actor.get_component<TransformComponent>().translation, Math::Vec3(0));
-            EXPECT_FALSE(scene.get_session_value("leaked"));
-            EXPECT_FALSE(scene.take_restart_request());
+            EXPECT_FALSE(runtime.get_session().get_value("leaked"));
+            EXPECT_FALSE(runtime.take_restart_request());
         }
         // 输出只属于调用方；未配置 palette 的 Runtime 不应收到这批关闭请求。
         EXPECT_TRUE(runtime.advance(0));
@@ -1235,9 +1285,10 @@ return group
         Scene scene;
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.start(scene));
-        ASSERT_TRUE(scene.set_session_value("value", Math::Vec3(1, 2, 3)));
-        EXPECT_FALSE(scene.set_session_value("value", Math::Vec4(1, 2, 3, 4)));
-        EXPECT_EQ(std::get<Math::Vec3>(*scene.get_session_value("value")), Math::Vec3(1, 2, 3));
+        ASSERT_TRUE(runtime.get_session().set_value("value", Math::Vec3(1, 2, 3)));
+        EXPECT_FALSE(runtime.get_session().set_value("value", Math::Vec4(1, 2, 3, 4)));
+        EXPECT_EQ(
+            std::get<Math::Vec3>(*runtime.get_session().get_value("value")), Math::Vec3(1, 2, 3));
         const auto script = Script::create(R"(return {
             update = function()
                 local value = comet.session_get('value')
@@ -1248,11 +1299,12 @@ return group
         ASSERT_TRUE(script);
         auto instance = script.value()->instantiate();
         ASSERT_TRUE(instance);
-        const auto result =
-            instance.value()->invoke(Script::Phase::Update, {}, {}, {.scene = &scene});
+        const auto result = instance.value()->invoke(
+            Script::Phase::Update, {}, {}, {.scene = &scene, .session = &runtime.get_session()});
         ASSERT_FALSE(result);
         EXPECT_NE(result.error().message.find("three finite numbers"), std::string::npos);
-        EXPECT_EQ(std::get<Math::Vec3>(*scene.get_session_value("value")), Math::Vec3(1, 2, 3));
+        EXPECT_EQ(
+            std::get<Math::Vec3>(*runtime.get_session().get_value("value")), Math::Vec3(1, 2, 3));
         ASSERT_TRUE(runtime.stop());
     }
 
@@ -1264,16 +1316,17 @@ return group
             Scene scene;
             SceneRuntime runtime;
             ASSERT_TRUE(runtime.start(scene));
-            ASSERT_TRUE(scene.set_session_value("value", Math::Vec3(4, 5, 6)));
+            ASSERT_TRUE(runtime.get_session().set_value("value", Math::Vec3(4, 5, 6)));
             const auto script = Script::create(
                 std::string("return {update = function() comet.session_set('value', ") + vector
                 + ") end}");
             ASSERT_TRUE(script) << script.error().message;
             auto instance = script.value()->instantiate();
             ASSERT_TRUE(instance);
-            EXPECT_FALSE(
-                instance.value()->invoke(Script::Phase::Update, {}, {}, {.scene = &scene}));
-            EXPECT_EQ(std::get<Math::Vec3>(*scene.get_session_value("value")), Math::Vec3(4, 5, 6));
+            EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, {}, {},
+                {.scene = &scene, .session = &runtime.get_session()}));
+            EXPECT_EQ(std::get<Math::Vec3>(*runtime.get_session().get_value("value")),
+                Math::Vec3(4, 5, 6));
         }
     }
 
@@ -1576,7 +1629,7 @@ return group
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.start(scene));
         const std::string payload(4096, 'x');
-        ASSERT_TRUE(scene.set_session_value("payload", payload));
+        ASSERT_TRUE(runtime.get_session().set_value("payload", payload));
         const auto script = Script::create(R"(
             local script = {}
             function script:on_start()
@@ -1592,14 +1645,15 @@ return group
         for(int attempt = 0; attempt < 3; ++attempt) {
             auto instance = script.value()->instantiate();
             ASSERT_TRUE(instance) << instance.error().message;
-            ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, {}, {}, {.scene = &scene}));
+            ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, {}, {},
+                {.scene = &scene, .session = &runtime.get_session()}));
             // 预留表容量后，8 MiB 上限命中 session_get 的 Lua 字符串分配。
-            const auto result =
-                instance.value()->invoke(Script::Phase::Update, {}, {}, {.scene = &scene});
+            const auto result = instance.value()->invoke(Script::Phase::Update, {}, {},
+                {.scene = &scene, .session = &runtime.get_session()});
             ASSERT_FALSE(result);
             EXPECT_NE(result.error().message.find("memory"), std::string::npos);
-            ASSERT_TRUE(scene.get_session_value("payload"));
-            EXPECT_EQ(std::get<std::string>(*scene.get_session_value("payload")), payload);
+            ASSERT_TRUE(runtime.get_session().get_value("payload"));
+            EXPECT_EQ(std::get<std::string>(*runtime.get_session().get_value("payload")), payload);
         }
         ASSERT_TRUE(runtime.stop());
     }

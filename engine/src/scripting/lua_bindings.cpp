@@ -1,5 +1,6 @@
 #include "scripting/lua_bindings.h"
 #include "scene/scene.h"
+#include "scene/runtime_session.h"
 #include "input/input_state.h"
 #include "input/input_actions.h"
 #include "diagnostics/logger.h"
@@ -135,8 +136,8 @@ namespace Comet::LuaBindings {
         }
         int restart_scene(lua_State* state) {
             const auto& context = current(state);
-            if(!context.can_request_restart || !context.scene
-                || !context.scene->is_valid(context.entity) || !context.scene->request_restart())
+            if(!context.can_request_restart || !context.scene || !context.session
+                || !context.scene->is_valid(context.entity) || !context.session->request_restart())
                 return luaL_error(state, "Scene restart requires an active runtime update");
             return 0;
         }
@@ -317,16 +318,16 @@ namespace Comet::LuaBindings {
                 luaL_error(state, "Expected a session key of at most 128 bytes");
             return key;
         }
-        Scene& session_scene(lua_State* state) {
-            auto* scene = current(state).scene;
-            if(!scene)
-                luaL_error(state, "Session state requires an active scene");
-            return *scene;
+        RuntimeSession& runtime_session(lua_State* state) {
+            auto* session = current(state).session;
+            if(!session || !session->is_active())
+                luaL_error(state, "Session state requires an active runtime");
+            return *session;
         }
         int session_get(lua_State* state) {
             const auto key = session_key(state);
             auto& value = current(state).return_value;
-            value = session_scene(state).get_session_value(key);
+            value = runtime_session(state).get_value(key);
             if(!value) {
                 lua_pushnil(state);
                 return 1;
@@ -381,15 +382,15 @@ namespace Comet::LuaBindings {
         }
         int session_set(lua_State* state) {
             const auto key = session_key(state);
-            auto& scene = session_scene(state);
+            auto& session = runtime_session(state);
             if(lua_isnil(state, 2)) {
-                if(!scene.erase_session_value(key))
+                if(!session.erase_value(key))
                     return luaL_error(state, "Cannot remove session value");
                 return 0;
             }
             read_runtime_value(state, 2);
             auto& value = current(state).return_value;
-            const bool accepted = scene.set_session_value(key, std::move(*value));
+            const bool accepted = session.set_value(key, std::move(*value));
             value.reset();
             if(!accepted)
                 return luaL_error(state, "Cannot set session value");
@@ -442,8 +443,8 @@ namespace Comet::LuaBindings {
                     return luaL_error(state, "Cannot record input context cleanup");
                 return 0;
             }
-            auto* scene = context.scene;
-            if(!scene || !scene->request_input_context(std::string_view(name, length), enabled))
+            auto* session = context.session;
+            if(!session || !session->request_input_context(std::string_view(name, length), enabled))
                 return luaL_error(state, "Cannot request input context change");
             return 0;
         }

@@ -1,3 +1,4 @@
+#include "scene/runtime_session.h"
 #include "scene/systems/camera_controller.h"
 #include "scene/scene.h"
 #include "core/project.h"
@@ -15,6 +16,7 @@ namespace Comet::Tests {
         const TransformComponent& camera = entity.get_component<TransformComponent>();
         InputActions actions;
         InputState input_state;
+        RuntimeSession session;
 
         void SetUp() override {
             const auto project = Project::load(
@@ -31,7 +33,7 @@ namespace Comet::Tests {
             CameraControllerSystem system;
             const auto& frame = input.publish_frame();
             actions.evaluate(frame, input_state);
-            EXPECT_TRUE(system.update(scene, {delta_time, 0, 0, input_state}));
+            EXPECT_TRUE(system.update(scene, {delta_time, 0, 0, input_state, session}));
         }
 
         void expect_position(Math::Vec3 expected) const {
@@ -147,7 +149,7 @@ namespace Comet::Tests {
         const auto advance = [&](bool enabled, bool pointer_enabled) {
             actions.evaluate(
                 gate.read(input.publish_frame(), enabled, pointer_enabled), input_state);
-            EXPECT_TRUE(system.update(scene, {0.1, 0, 0, input_state}));
+            EXPECT_TRUE(system.update(scene, {0.1, 0, 0, input_state, session}));
         };
         advance(true, true);
         Input::GamepadSample pad;

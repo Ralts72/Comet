@@ -3,6 +3,8 @@
 #include "scene/scene.h"
 #include "asset/registry.h"
 #include "diagnostics/logger.h"
+#include "scene/runtime_session.h"
+
 #include <algorithm>
 
 namespace Comet {
@@ -24,9 +26,9 @@ namespace Comet {
                {.disabled_input_contexts = &disabled_contexts});
             !stopped)
             LOG_ERROR("Script cleanup failed: {}", stopped.error().message);
-        if(reason == StopReason::LiveChange && m_scene) {
+        if(reason == StopReason::LiveChange && m_session) {
             for(const auto& name : disabled_contexts)
-                if(!m_scene->request_input_context(name, false))
+                if(!m_session->request_input_context(name, false))
                     LOG_ERROR("Cannot release input context '{}' during script cleanup", name);
         }
         if(entry.entity && entry.entity.has_component<ScriptComponent>()
@@ -43,6 +45,7 @@ namespace Comet {
         m_start_order.clear();
         m_failed_reloads.clear();
         m_scene = nullptr;
+        m_session = nullptr;
     }
 
     Result<void, Error> ScriptSystem::invoke(const Key& key, Entry& entry, Script::Phase phase,
@@ -59,6 +62,7 @@ namespace Comet {
         }
         Script::Invocation invocation;
         invocation.scene = m_scene;
+        invocation.session = m_session;
         invocation.contact_other = contact_other;
         invocation.materials = m_materials;
         invocation.event_handler = event_handler;
@@ -293,8 +297,9 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
-    Result<void, Error> ScriptSystem::on_start(Scene& scene) {
+    Result<void, Error> ScriptSystem::on_start(Scene& scene, RuntimeSession& session) {
         m_scene = &scene;
+        m_session = &session;
         return synchronize(scene);
     }
     Result<void, Error> ScriptSystem::dispatch(
@@ -370,7 +375,7 @@ namespace Comet {
             return contacted;
         return dispatch_events(scene, context);
     }
-    void ScriptSystem::on_stop(Scene&) noexcept {
+    void ScriptSystem::on_stop(Scene&, RuntimeSession&) noexcept {
         stop_all();
     }
 }

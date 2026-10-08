@@ -84,8 +84,8 @@ namespace CometEditor::Tests {
         EXPECT_NE(failed.error().message.find("helper"), std::string::npos);
         EXPECT_FALSE(runtime.is_active());
         EXPECT_EQ(active_scene->entity_count(), 1u);
-        EXPECT_FALSE(active_scene->get_session_value("discarded"));
-        EXPECT_FALSE(active_scene->take_restart_request());
+        EXPECT_FALSE(runtime.get_session().get_value("discarded"));
+        EXPECT_FALSE(runtime.take_restart_request());
         session.request_mode(EditorMode::Edit);
         ASSERT_TRUE(session.apply_mode_request());
         EXPECT_EQ(active_scene.get(), original);
@@ -210,12 +210,15 @@ namespace CometEditor::Tests {
         public:
             explicit OrderedSystem(std::vector<std::string>& events) : m_events(events) {}
 
-            Comet::Result<void, Comet::Error> on_start(Comet::Scene&) override {
+            Comet::Result<void, Comet::Error> on_start(
+                Comet::Scene&, Comet::RuntimeSession&) override {
                 m_events.emplace_back("system-start");
                 return Comet::Result<void, Comet::Error>::success();
             }
 
-            void on_stop(Comet::Scene&) noexcept override { m_events.emplace_back("system-stop"); }
+            void on_stop(Comet::Scene&, Comet::RuntimeSession&) noexcept override {
+                m_events.emplace_back("system-stop");
+            }
 
         private:
             std::vector<std::string>& m_events;
@@ -346,13 +349,14 @@ namespace CometEditor::Tests {
         public:
             bool fail = true;
             int stopped = 0;
-            Comet::Result<void, Comet::Error> on_start(Comet::Scene& scene) override {
+            Comet::Result<void, Comet::Error> on_start(
+                Comet::Scene& scene, Comet::RuntimeSession&) override {
                 scene.create_entity("Runtime only");
                 if(fail)
                     return Comet::Result<void, Comet::Error>::failure({"Startup failed"});
                 return Comet::Result<void, Comet::Error>::success();
             }
-            void on_stop(Comet::Scene& scene) noexcept override {
+            void on_stop(Comet::Scene& scene, Comet::RuntimeSession&) noexcept override {
                 EXPECT_EQ(scene.get_entities().size(), 2u);
                 ++stopped;
             }
@@ -465,7 +469,8 @@ namespace CometEditor::Tests {
                     if(reject_start)
                         return Comet::Result<void, Comet::Error>::failure({"Start failed"});
                     return runtime.start(*active, initial);
-                });
+                },
+                [this] { return runtime.take_restart_request(); });
             session->request_mode(EditorMode::Play);
             const auto started = session->apply_mode_request(Comet::SceneRuntime::State::Paused);
             ASSERT_TRUE(started);
@@ -499,9 +504,9 @@ namespace CometEditor::Tests {
         auto* previous = active.get();
         active->destroy_entity(active->find_entity(entity_uuid));
         active->create_entity("Runtime_Only");
-        ASSERT_TRUE(active->set_session_value("score", 1.0f));
-        ASSERT_TRUE(active->request_restart());
-        ASSERT_TRUE(active->request_restart());
+        ASSERT_TRUE(runtime.get_session().set_value("score", 1.0f));
+        ASSERT_TRUE(runtime.get_session().request_restart());
+        ASSERT_TRUE(runtime.get_session().request_restart());
 
         const auto restarted = session->apply_mode_request();
         ASSERT_TRUE(restarted);
@@ -514,7 +519,7 @@ namespace CometEditor::Tests {
         const auto restored_entity = active->find_entity(entity_uuid);
         ASSERT_TRUE(restored_entity);
         EXPECT_EQ(restored_entity.get_component<Comet::NameComponent>().name, "Edited");
-        EXPECT_FALSE(active->get_session_value("score"));
+        EXPECT_FALSE(runtime.get_session().get_value("score"));
         EXPECT_EQ(history.get_scene(), original);
         EXPECT_EQ(history.state_id(), edited_state);
         const auto idle = session->apply_mode_request();
@@ -532,7 +537,7 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(RuntimeRestartTest, StopTakesPrecedenceOverPendingRestart) {
-        ASSERT_TRUE(active->request_restart());
+        ASSERT_TRUE(runtime.get_session().request_restart());
         session->request_mode(EditorMode::Edit);
         ASSERT_TRUE(session->apply_mode_request());
         EXPECT_EQ(state.mode, EditorMode::Edit);
@@ -549,7 +554,7 @@ namespace CometEditor::Tests {
     TEST_F(RuntimeRestartTest, PausedRestartDoesNotResumeOrCarryAPendingStep) {
         ASSERT_TRUE(runtime.set_state(Comet::SceneRuntime::State::Paused));
         ASSERT_TRUE(runtime.request_step());
-        ASSERT_TRUE(active->request_restart());
+        ASSERT_TRUE(runtime.get_session().request_restart());
         const auto restarted = session->apply_mode_request(runtime.get_state());
         ASSERT_TRUE(restarted);
         EXPECT_TRUE(restarted.value());
@@ -570,7 +575,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(runtime.set_state(Comet::SceneRuntime::State::Paused));
         auto& edit_name = original->find_entity(entity_uuid).get_component<Comet::NameComponent>();
         edit_name.name = std::string(1, '\xff');
-        ASSERT_TRUE(active->request_restart());
+        ASSERT_TRUE(runtime.get_session().request_restart());
         EXPECT_FALSE(session->apply_mode_request());
         EXPECT_EQ(preparations, 1);
         EXPECT_EQ(active.get(), previous);
@@ -580,7 +585,7 @@ namespace CometEditor::Tests {
 
         edit_name.name = "Edited";
         reject_preparation = true;
-        ASSERT_TRUE(active->request_restart());
+        ASSERT_TRUE(runtime.get_session().request_restart());
         const auto rejected = session->apply_mode_request();
         ASSERT_FALSE(rejected);
         EXPECT_EQ(rejected.error().message, "Preparation failed");
@@ -596,7 +601,7 @@ namespace CometEditor::Tests {
         const auto idle = session->apply_mode_request();
         ASSERT_TRUE(idle);
         EXPECT_FALSE(idle.value());
-        ASSERT_TRUE(active->request_restart());
+        ASSERT_TRUE(runtime.get_session().request_restart());
         ASSERT_TRUE(session->apply_mode_request(runtime.get_state()));
         EXPECT_EQ(starts, 2);
         EXPECT_EQ(runtime.get_state(), Comet::SceneRuntime::State::Paused);
@@ -604,7 +609,7 @@ namespace CometEditor::Tests {
 
     TEST_F(RuntimeRestartTest, StartupFailureRestoresEditAndAllowsAnotherPlay) {
         reject_start = true;
-        ASSERT_TRUE(active->request_restart());
+        ASSERT_TRUE(runtime.get_session().request_restart());
         const auto failed = session->apply_mode_request();
         ASSERT_FALSE(failed);
         EXPECT_EQ(failed.error().message, "Start failed");

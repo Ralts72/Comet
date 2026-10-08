@@ -12,7 +12,7 @@ namespace Comet::Tests {
         public:
             explicit RequestOneShot(Entity source) : m_source(source) {}
 
-            Result<void, Error> on_start(Scene&) override {
+            Result<void, Error> on_start(Scene&, RuntimeSession&) override {
                 m_requested = false;
                 return Result<void, Error>::success();
             }

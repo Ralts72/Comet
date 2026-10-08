@@ -486,7 +486,7 @@ namespace Comet {
     PhysicsSystem::PhysicsSystem() = default;
     PhysicsSystem::~PhysicsSystem() = default;
 
-    Result<void, Error> PhysicsSystem::on_start(Scene& scene) {
+    Result<void, Error> PhysicsSystem::on_start(Scene& scene, RuntimeSession&) {
         if(m_impl)
             return Result<void, Error>::failure({"Physics world is already active"});
         m_impl = std::make_unique<Impl>();
@@ -529,7 +529,7 @@ namespace Comet {
         return m_impl->publish_contacts(scene);
     }
 
-    void PhysicsSystem::on_stop(Scene&) noexcept {
+    void PhysicsSystem::on_stop(Scene&, RuntimeSession&) noexcept {
         m_impl.reset();
     }
 }

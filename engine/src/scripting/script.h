@@ -19,6 +19,7 @@ namespace Comet {
     class InputState;
     class MaterialParameterValidator;
     class Scene;
+    class RuntimeSession;
     // 不可变源码与字段定义；运行实例不存入资产缓存。
     class COMET_API Script final {
         struct SourceSet;
@@ -60,6 +61,7 @@ namespace Comet {
         struct Invocation {
             double delta_time = 0;
             Scene* scene = nullptr;
+            RuntimeSession* session = nullptr;
             const InputState* input = nullptr;
             Entity contact_other;
             const MaterialParameterValidator* materials = nullptr;

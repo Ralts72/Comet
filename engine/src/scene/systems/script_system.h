@@ -18,10 +18,10 @@ namespace Comet {
             const AssetRegistry& assets, const MaterialParameterValidator* materials = nullptr)
             : m_assets(assets), m_materials(materials) {}
         ~ScriptSystem() override;
-        Result<void, Error> on_start(Scene& scene) override;
+        Result<void, Error> on_start(Scene& scene, RuntimeSession&) override;
         Result<void, Error> fixed_update(Scene& scene, const Context& context) override;
         Result<void, Error> update(Scene& scene, const Context& context) override;
-        void on_stop(Scene&) noexcept override;
+        void on_stop(Scene&, RuntimeSession&) noexcept override;
 
     private:
         struct Key {
@@ -71,5 +71,6 @@ namespace Comet {
         std::vector<Key> m_start_order;
         std::vector<FailedReload> m_failed_reloads;
         Scene* m_scene = nullptr;
+        RuntimeSession* m_session = nullptr;
     };
 }

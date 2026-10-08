@@ -25,12 +25,14 @@ namespace CometEditor {
         // 恢复保留的 Edit 场景不重新准备资产，并返回待销毁的 Play 场景。
         using RestoreEditScene =
             std::function<std::unique_ptr<Comet::Scene>(std::unique_ptr<Comet::Scene>)>;
+        using TakeRestartRequest = std::function<bool()>;
         using StartRuntime =
             std::function<Comet::Result<void, Comet::Error>(Comet::SceneRuntime::State)>;
 
         EditorSceneSession(EditorState& state, const Comet::SceneSerializer& serializer,
             ActiveSceneGetter get_active_scene, ActivatePlayScene activate_play_scene,
-            RestoreEditScene restore_edit_scene, StartRuntime start_runtime);
+            RestoreEditScene restore_edit_scene, StartRuntime start_runtime,
+            TakeRestartRequest take_restart_request = {});
 
         ~EditorSceneSession();
 
@@ -53,6 +55,7 @@ namespace CometEditor {
         ActivatePlayScene m_activate_play_scene;
         RestoreEditScene m_restore_edit_scene;
         StartRuntime m_start_runtime;
+        TakeRestartRequest m_take_restart_request;
         std::unique_ptr<Comet::Scene> m_edit_scene;
         std::optional<EditorMode> m_requested_mode;
     };

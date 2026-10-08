@@ -1,6 +1,5 @@
 #pragma once
 #include <cstddef>
-#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -73,17 +72,6 @@ namespace Comet {
         [[nodiscard]] bool request_play_one_shot(Entity entity);
         // 世界空间质心冲量，在下一物理固定步消费，不直接改写 Transform。
         [[nodiscard]] bool request_apply_impulse(Entity entity, Math::Vec3 impulse);
-
-        // 只提交意图；宿主在下一次更新边界从本局基线重建，不在 System 内换场景。
-        [[nodiscard]] bool request_restart();
-        [[nodiscard]] bool take_restart_request();
-        // 同名请求合并；下一次 Runtime 输入准备时生效，不改变当前阶段快照。
-        [[nodiscard]] bool request_input_context(std::string_view name, bool enabled);
-
-        // 仅当前 Runtime 有效，不序列化。
-        [[nodiscard]] std::optional<ParameterValue> get_session_value(std::string_view key) const;
-        [[nodiscard]] bool set_session_value(std::string_view key, ParameterValue value);
-        [[nodiscard]] bool erase_session_value(std::string_view key);
 
         // 场景通知不序列化；交付期间发出的新通知留至下一次有效更新。
         [[nodiscard]] bool emit_event(
@@ -159,7 +147,6 @@ namespace Comet {
         static constexpr std::size_t MAX_AUDIO_PLAY_REQUESTS = 128;
         static constexpr std::size_t MAX_IMPULSE_REQUESTS = 128;
         static constexpr std::size_t MAX_EVENTS = 1024;
-        using InputContextRequests = std::map<std::string, bool, std::less<>>;
 
         struct EntityRequest {
             enum class Type { Create, Destroy, RemoveRigidBody } type;
@@ -182,7 +169,6 @@ namespace Comet {
         [[nodiscard]] std::vector<AudioPlayRequest> take_audio_play_requests();
         [[nodiscard]] std::vector<ImpulseRequest> take_impulse_requests();
         [[nodiscard]] std::vector<Event> take_events();
-        [[nodiscard]] InputContextRequests take_input_context_requests();
         void end_runtime() noexcept;
         void clear_runtime_state() noexcept;
         [[nodiscard]] bool append_contact_event(ContactEvent event);
@@ -207,10 +193,7 @@ namespace Comet {
         std::vector<ImpulseRequest> m_impulse_requests;
         std::vector<ContactEvent> m_contact_events;
         std::vector<Event> m_events;
-        InputContextRequests m_input_context_requests;
-        ParameterMap m_session_values;
         bool m_runtime_active = false;
-        bool m_restart_requested = false;
         SceneEnvironment m_environment;
         PostProcessSettings m_post_process;
         std::unordered_map<entt::entity, std::shared_ptr<const MaterialOverrides>>

@@ -19,10 +19,10 @@ namespace Comet {
             const AssetRegistry& assets, AudioPlayback::Mode mode = AudioPlayback::Mode::Realtime)
             : m_assets(assets), m_mode(mode) {}
 
-        Result<void, Error> on_start(Scene& scene) override;
+        Result<void, Error> on_start(Scene& scene, RuntimeSession&) override;
         Result<void, Error> update(Scene& scene, const Context& context) override;
         void on_pause_changed(bool paused) noexcept override;
-        void on_stop(Scene& scene) noexcept override;
+        void on_stop(Scene& scene, RuntimeSession&) noexcept override;
 
     private:
         static constexpr std::size_t MAX_ONE_SHOT_VOICES = 64;

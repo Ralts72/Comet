@@ -1682,7 +1682,7 @@ namespace CometEditor::Ui::Tests {
 
         // 真实 demo 的公共重开请求后，重新读取文件并克隆 Edit；旧 Space 不再确认。
         ASSERT_TRUE(press(Key::R));
-        EXPECT_TRUE(playing->take_restart_request());
+        EXPECT_TRUE(runtime.take_restart_request());
         ASSERT_TRUE(runtime.stop());
         cloned = serializer.clone(edit);
         ASSERT_TRUE(cloned);

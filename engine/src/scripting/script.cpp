@@ -1,6 +1,7 @@
 #include "scripting/script.h"
 #include "scripting/lua_bindings.h"
 #include "scene/scene.h"
+#include "scene/runtime_session.h"
 
 extern "C" {
 #include <lua.h>
@@ -743,9 +744,14 @@ namespace Comet {
         if(phase == Phase::Stop) {
             entity = {};
             invocation.scene = nullptr;
+            invocation.session = nullptr;
             invocation.input = nullptr;
             invocation.materials = nullptr;
         }
+        if(invocation.session
+            && (!invocation.scene || !invocation.session->is_bound_to(*invocation.scene)))
+            return Result<void, Error>::failure(
+                {"Script session is inactive or belongs to another scene"});
         if(phase == Phase::Event) {
             if(!valid_parameter_name(invocation.event_handler))
                 return Result<void, Error>::failure({"Invalid script event handler"});
@@ -763,8 +769,9 @@ namespace Comet {
             ++m_impl->scene_generation;
             m_impl->parameters_changed = true;
         }
-        m_impl->bindings = {entity, invocation.scene, invocation.input, m_impl->scene_generation,
-            std::nullopt, invocation.materials, phase != Phase::Start && phase != Phase::Stop};
+        m_impl->bindings = {entity, invocation.scene, invocation.session, invocation.input,
+            m_impl->scene_generation, std::nullopt, invocation.materials,
+            phase != Phase::Start && phase != Phase::Stop};
         m_impl->bindings.can_log = true;
         if(phase == Phase::Stop)
             m_impl->bindings.disabled_input_contexts = invocation.disabled_input_contexts;

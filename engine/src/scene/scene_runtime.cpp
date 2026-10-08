@@ -64,6 +64,7 @@ namespace Comet {
         if(!scene.begin_runtime())
             return Result<void, Error>::failure({"Scene already has an active runtime"});
         m_scene = &scene;
+        m_session.begin(scene);
         m_state = state;
         m_step_pending = false;
         m_input_prepared = false;
@@ -77,7 +78,7 @@ namespace Comet {
         while(m_started < m_systems.size()) {
             auto& system = m_systems[m_started++];
             system->on_pause_changed(state == State::Paused);
-            if(auto result = system->on_start(scene); !result)
+            if(auto result = system->on_start(scene, m_session); !result)
                 return result;
         }
         if(!scene.commit_entity_requests())
@@ -90,16 +91,21 @@ namespace Comet {
     void SceneRuntime::stop_systems() noexcept {
         m_executing = true;
         while(m_started > 0)
-            m_systems[--m_started]->on_stop(*m_scene);
+            m_systems[--m_started]->on_stop(*m_scene, m_session);
         if(m_scene)
             m_scene->end_runtime();
         m_scene = nullptr;
+        m_session.end();
         m_state = State::Running;
         m_step_pending = false;
         m_input_prepared = false;
         m_accumulator = 0;
         m_input.reset();
         m_executing = false;
+    }
+
+    bool SceneRuntime::take_restart_request() {
+        return !m_executing && m_session.take_restart_request();
     }
 
     Result<void, Error> SceneRuntime::stop() {
@@ -167,7 +173,7 @@ namespace Comet {
                 {"Scene runtime delta must be finite and nonnegative"});
         if(!is_active())
             return Result<void, Error>::success();
-        for(const auto& [name, enabled] : m_scene->take_input_context_requests()) {
+        for(const auto& [name, enabled] : m_session.take_input_context_requests()) {
             if(auto changed = m_input.set_context_enabled(name, enabled); !changed) {
                 stop_systems();
                 return Result<void, Error>::failure({changed.error()});
@@ -197,8 +203,8 @@ namespace Comet {
             ++m_timing.fixed_index;
             ++m_timing.fixed_steps;
             m_timing.fixed_time = m_timing.fixed_index * step;
-            const System::Context context{
-                step, m_timing.fixed_time, m_timing.fixed_index, m_input.consume_fixed()};
+            const System::Context context{step, m_timing.fixed_time, m_timing.fixed_index,
+                m_input.consume_fixed(), m_session};
             for(auto& system : m_systems)
                 if(auto result = system->fixed_update(*m_scene, context); !result)
                     return result;
@@ -213,7 +219,7 @@ namespace Comet {
         m_timing.total_time += delta;
         ++m_timing.frame_index;
         const System::Context context{
-            delta, m_timing.total_time, m_timing.frame_index, m_input.update()};
+            delta, m_timing.total_time, m_timing.frame_index, m_input.update(), m_session};
         for(auto& system : m_systems)
             if(auto result = system->update(*m_scene, context); !result)
                 return result;

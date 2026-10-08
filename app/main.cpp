@@ -169,7 +169,7 @@ namespace {
             }
             if(auto assets = m_asset_manager->process_completions(); !assets)
                 return Comet::Result<void, Comet::Error>::failure(assets.error());
-            if(auto* scene = get_engine().get_scene(); scene && scene->take_restart_request()) {
+            if(get_engine().take_runtime_restart_request()) {
                 if(auto restarted = restart_scene(); !restarted)
                     return restarted;
             }

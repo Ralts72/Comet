@@ -429,7 +429,7 @@ namespace Comet::Tests {
             ASSERT_FALSE(started);
             EXPECT_NE(started.error().message.find("scaled radius"), std::string::npos);
             EXPECT_FALSE(runtime.is_active());
-            EXPECT_FALSE(scene.request_restart());
+            EXPECT_FALSE(runtime.get_session().request_restart());
 
             collider.radius = 0.5f;
             ball.edit_transform(
@@ -445,7 +445,7 @@ namespace Comet::Tests {
             ASSERT_FALSE(advanced);
             EXPECT_NE(advanced.error().message.find("scaled radius"), std::string::npos);
             EXPECT_FALSE(runtime.is_active());
-            EXPECT_FALSE(scene.request_restart());
+            EXPECT_FALSE(runtime.get_session().request_restart());
 
             collider.radius = 0.5f;
             ball.edit_transform(
@@ -813,7 +813,7 @@ namespace Comet::Tests {
                 ASSERT_FALSE(result);
                 EXPECT_NE(result.error().message.find("mass"), std::string::npos);
                 EXPECT_FALSE(runtime.is_active());
-                EXPECT_FALSE(scene.request_restart());
+                EXPECT_FALSE(runtime.get_session().request_restart());
                 rigid.mass = 1;
                 ASSERT_TRUE(runtime.start(scene));
                 ASSERT_TRUE(runtime.stop());

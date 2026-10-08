@@ -9,7 +9,7 @@
 #include <utility>
 
 namespace Comet {
-    Result<void, Error> AudioSystem::on_start(Scene& scene) {
+    Result<void, Error> AudioSystem::on_start(Scene& scene, RuntimeSession&) {
         return synchronize(scene);
     }
 
@@ -126,7 +126,7 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
-    void AudioSystem::on_stop(Scene&) noexcept {
+    void AudioSystem::on_stop(Scene&, RuntimeSession&) noexcept {
         m_one_shots.clear();
         m_entries.clear();
         m_playback.reset();

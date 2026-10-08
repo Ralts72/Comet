@@ -2,6 +2,7 @@
 
 #include "scene/systems/system.h"
 #include "input/runtime_input.h"
+#include "scene/runtime_session.h"
 
 #include <memory>
 #include <vector>
@@ -53,6 +54,10 @@ namespace Comet {
         [[nodiscard]] bool is_active() const { return m_scene != nullptr; }
         [[nodiscard]] State get_state() const { return m_state; }
         [[nodiscard]] const Timing& get_timing() const { return m_timing; }
+        [[nodiscard]] RuntimeSession& get_session() { return m_session; }
+        [[nodiscard]] const RuntimeSession& get_session() const { return m_session; }
+        // 仅宿主更新边界消费；运行回调内不取走本局的重开意图。
+        [[nodiscard]] bool take_restart_request();
         // 当前场景和最近授权输入的意图；不是窗口已经捕获的状态。
         [[nodiscard]] bool wants_cursor_capture() const;
 
@@ -71,5 +76,6 @@ namespace Comet {
         bool m_input_prepared = false;
         double m_accumulator = 0;
         RuntimeInput m_input;
+        RuntimeSession m_session;
     };
 }

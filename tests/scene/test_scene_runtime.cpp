@@ -30,7 +30,8 @@ namespace Comet::Tests {
         class RecordingSystem final: public System {
         public:
             RecordingSystem(Calls& calls, std::string name) : calls(calls), name(std::move(name)) {}
-            UpdateResult on_start(Scene& scene) override {
+            UpdateResult on_start(Scene& scene, RuntimeSession& session) override {
+                EXPECT_TRUE(session.is_bound_to(scene));
                 calls.order.push_back("start " + name);
                 if(start)
                     return start(scene);
@@ -56,7 +57,8 @@ namespace Comet::Tests {
                 if(pause)
                     pause(paused);
             }
-            void on_stop(Scene& scene) noexcept override {
+            void on_stop(Scene& scene, RuntimeSession& session) noexcept override {
+                EXPECT_TRUE(session.is_bound_to(scene));
                 calls.order.push_back("stop " + name);
                 if(stop)
                     stop(scene);
@@ -179,10 +181,10 @@ namespace Comet::Tests {
         input.key_event(Input::Key::K, true);
         advance(0);
         EXPECT_TRUE(runtime.wants_cursor_capture());
-        ASSERT_TRUE(scene.request_input_context("menu", true));
+        ASSERT_TRUE(runtime.get_session().request_input_context("menu", true));
         advance(0);
         EXPECT_FALSE(runtime.wants_cursor_capture());
-        ASSERT_TRUE(scene.request_input_context("menu", false));
+        ASSERT_TRUE(runtime.get_session().request_input_context("menu", false));
         advance(0);
         EXPECT_TRUE(runtime.wants_cursor_capture());
         destroyer->update_frame = [&](Scene& current, const System::Context&) {
@@ -384,42 +386,43 @@ namespace Comet::Tests {
     }
 
     TEST_F(SceneRuntimeTest, RestartRequestsCoalesceWithoutInterruptingTheCurrentPhase) {
-        EXPECT_FALSE(scene.request_restart());
-        EXPECT_FALSE(scene.take_restart_request());
+        EXPECT_FALSE(runtime.get_session().request_restart());
+        EXPECT_FALSE(runtime.take_restart_request());
         const auto entity = scene.create_entity("Unchanged until host restart");
         auto* requester = add("requester");
-        requester->update_frame = [&](Scene& current, const System::Context&) {
-            EXPECT_TRUE(current.request_restart());
-            EXPECT_TRUE(current.request_restart());
-            EXPECT_TRUE(current.set_session_value("after.request", true));
+        requester->update_frame = [&](Scene&, const System::Context& context) {
+            EXPECT_TRUE(context.session.request_restart());
+            EXPECT_FALSE(runtime.take_restart_request());
+            EXPECT_TRUE(context.session.request_restart());
+            EXPECT_TRUE(context.session.set_value("after.request", true));
             return UpdateResult::success();
         };
         auto* observer = add("observer");
-        observer->update_frame = [&](Scene& current, const System::Context&) {
+        observer->update_frame = [&](Scene& current, const System::Context& context) {
             EXPECT_TRUE(current.is_valid(entity));
-            EXPECT_TRUE(current.get_session_value("after.request"));
+            EXPECT_TRUE(context.session.get_value("after.request"));
             return UpdateResult::success();
         };
         ASSERT_TRUE(runtime.start(scene));
         advance(0);
         EXPECT_TRUE(runtime.is_active());
-        EXPECT_TRUE(scene.take_restart_request());
-        EXPECT_FALSE(scene.take_restart_request());
+        EXPECT_TRUE(runtime.take_restart_request());
+        EXPECT_FALSE(runtime.take_restart_request());
 
         ASSERT_TRUE(runtime.set_state(State::Paused));
         advance(1);
-        EXPECT_FALSE(scene.take_restart_request());
+        EXPECT_FALSE(runtime.take_restart_request());
         ASSERT_TRUE(runtime.request_step());
         advance(0);
         EXPECT_EQ(runtime.get_state(), State::Paused);
-        EXPECT_TRUE(scene.take_restart_request());
-        EXPECT_FALSE(scene.take_restart_request());
-        EXPECT_TRUE(scene.request_restart());
+        EXPECT_TRUE(runtime.take_restart_request());
+        EXPECT_FALSE(runtime.take_restart_request());
+        EXPECT_TRUE(runtime.get_session().request_restart());
         ASSERT_TRUE(runtime.stop());
-        EXPECT_FALSE(scene.take_restart_request());
-        EXPECT_FALSE(scene.request_restart());
+        EXPECT_FALSE(runtime.take_restart_request());
+        EXPECT_FALSE(runtime.get_session().request_restart());
         ASSERT_TRUE(runtime.start(scene));
-        EXPECT_FALSE(scene.take_restart_request());
+        EXPECT_FALSE(runtime.take_restart_request());
         ASSERT_TRUE(runtime.stop());
     }
 
@@ -614,8 +617,8 @@ namespace Comet::Tests {
             EXPECT_TRUE(current.request_create_entity("Discarded",
                 {.transform = {.translation = {1, 2, 3}},
                     .mesh_renderer = MeshRendererComponent{AssetHandle{11}, AssetHandle{22}}}));
-            EXPECT_TRUE(current.set_session_value("game.score", 2.0f));
-            EXPECT_TRUE(current.request_restart());
+            EXPECT_TRUE(runtime.get_session().set_value("game.score", 2.0f));
+            EXPECT_TRUE(runtime.get_session().request_restart());
             return UpdateResult::failure({"phase failed"});
         };
         ASSERT_TRUE(runtime.start(scene));
@@ -623,8 +626,8 @@ namespace Comet::Tests {
         EXPECT_EQ(scene.entity_count(), 0u);
         EXPECT_FALSE(runtime.is_active());
         EXPECT_FALSE(scene.request_create_entity("Inactive"));
-        EXPECT_FALSE(scene.get_session_value("game.score"));
-        EXPECT_FALSE(scene.take_restart_request());
+        EXPECT_FALSE(runtime.get_session().get_value("game.score"));
+        EXPECT_FALSE(runtime.take_restart_request());
     }
 
     TEST_F(SceneRuntimeTest, RigidBodyRemovalCommitsAfterEachPhaseAndPreservesOtherComponents) {
@@ -834,18 +837,18 @@ namespace Comet::Tests {
     }
 
     TEST_F(SceneRuntimeTest, SessionValuesExistOnlyWhileRuntimeIsActive) {
-        EXPECT_FALSE(scene.set_session_value("game.score", 1.0f));
-        EXPECT_FALSE(scene.get_session_value("game.score"));
+        EXPECT_FALSE(runtime.get_session().set_value("game.score", 1.0f));
+        EXPECT_FALSE(runtime.get_session().get_value("game.score"));
         add();
         ASSERT_TRUE(runtime.start(scene));
-        ASSERT_TRUE(scene.set_session_value("game.score", 1.0f));
-        ASSERT_TRUE(scene.set_session_value("game.complete", false));
-        ASSERT_TRUE(scene.set_session_value("game.note", std::string("ready")));
-        ASSERT_TRUE(scene.set_session_value("game.spawn", Math::Vec3(1, 2, 3)));
-        EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 1.0f);
+        ASSERT_TRUE(runtime.get_session().set_value("game.score", 1.0f));
+        ASSERT_TRUE(runtime.get_session().set_value("game.complete", false));
+        ASSERT_TRUE(runtime.get_session().set_value("game.note", std::string("ready")));
+        ASSERT_TRUE(runtime.get_session().set_value("game.spawn", Math::Vec3(1, 2, 3)));
+        EXPECT_EQ(std::get<float>(*runtime.get_session().get_value("game.score")), 1.0f);
         SceneRuntime another_runtime;
         EXPECT_FALSE(another_runtime.start(scene));
-        EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 1.0f);
+        EXPECT_EQ(std::get<float>(*runtime.get_session().get_value("game.score")), 1.0f);
         const auto registry = create_scene_component_registry();
         const SceneSerializer serializer(registry);
         const auto serialized = serializer.serialize(scene);
@@ -855,44 +858,106 @@ namespace Comet::Tests {
         ASSERT_TRUE(clone);
         SceneRuntime clone_runtime;
         ASSERT_TRUE(clone_runtime.start(*clone.value()));
-        EXPECT_FALSE(clone.value()->get_session_value("game.score"));
+        EXPECT_FALSE(clone_runtime.get_session().get_value("game.score"));
         ASSERT_TRUE(clone_runtime.stop());
-        EXPECT_FALSE(scene.set_session_value("game.score", std::numeric_limits<float>::infinity()));
-        EXPECT_FALSE(scene.set_session_value("", 1.0f));
-        EXPECT_FALSE(scene.set_session_value(std::string(129, 'x'), 1.0f));
-        EXPECT_FALSE(scene.set_session_value(std::string_view("bad\0key", 7), 1.0f));
-        EXPECT_FALSE(scene.set_session_value("game.score", EntityUuid::generate()));
-        EXPECT_FALSE(scene.set_session_value(
+        EXPECT_FALSE(
+            runtime.get_session().set_value("game.score", std::numeric_limits<float>::infinity()));
+        EXPECT_FALSE(runtime.get_session().set_value("", 1.0f));
+        EXPECT_FALSE(runtime.get_session().set_value(std::string(129, 'x'), 1.0f));
+        EXPECT_FALSE(runtime.get_session().set_value(std::string_view("bad\0key", 7), 1.0f));
+        EXPECT_FALSE(runtime.get_session().set_value("game.score", EntityUuid::generate()));
+        EXPECT_FALSE(runtime.get_session().set_value(
             "game.spawn", Math::Vec3(std::numeric_limits<float>::quiet_NaN(), 0, 0)));
-        EXPECT_EQ(
-            std::get<Math::Vec3>(*scene.get_session_value("game.spawn")), Math::Vec3(1, 2, 3));
-        EXPECT_FALSE(scene.set_session_value("game.note", std::string(4097, 'x')));
-        EXPECT_EQ(std::get<std::string>(*scene.get_session_value("game.note")), "ready");
+        EXPECT_EQ(std::get<Math::Vec3>(*runtime.get_session().get_value("game.spawn")),
+            Math::Vec3(1, 2, 3));
+        EXPECT_FALSE(runtime.get_session().set_value("game.note", std::string(4097, 'x')));
+        EXPECT_EQ(std::get<std::string>(*runtime.get_session().get_value("game.note")), "ready");
         ASSERT_TRUE(runtime.set_state(State::Paused));
         advance(1);
-        EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 1.0f);
+        EXPECT_EQ(std::get<float>(*runtime.get_session().get_value("game.score")), 1.0f);
         ASSERT_TRUE(runtime.request_step());
         advance(0);
-        EXPECT_EQ(std::get<float>(*scene.get_session_value("game.score")), 1.0f);
-        EXPECT_TRUE(scene.erase_session_value("game.note"));
-        EXPECT_FALSE(scene.get_session_value("game.note"));
+        EXPECT_EQ(std::get<float>(*runtime.get_session().get_value("game.score")), 1.0f);
+        EXPECT_TRUE(runtime.get_session().erase_value("game.note"));
+        EXPECT_FALSE(runtime.get_session().get_value("game.note"));
         ASSERT_TRUE(runtime.stop());
-        EXPECT_FALSE(scene.get_session_value("game.score"));
-        EXPECT_FALSE(scene.set_session_value("game.score", 3.0f));
+        EXPECT_FALSE(runtime.get_session().get_value("game.score"));
+        EXPECT_FALSE(runtime.get_session().set_value("game.score", 3.0f));
         ASSERT_TRUE(another_runtime.start(scene));
-        EXPECT_FALSE(scene.get_session_value("game.score"));
+        EXPECT_FALSE(another_runtime.get_session().get_value("game.score"));
         ASSERT_TRUE(another_runtime.stop());
     }
 
     TEST_F(SceneRuntimeTest, SessionStateHasBoundedKeysAndPreservesExistingValues) {
         ASSERT_TRUE(runtime.start(scene));
         for(int index = 0; index < 128; ++index)
-            ASSERT_TRUE(scene.set_session_value("key." + std::to_string(index), float(index)));
-        EXPECT_FALSE(scene.set_session_value("overflow", 1.0f));
-        EXPECT_TRUE(scene.set_session_value("key.0", 9.0f));
-        EXPECT_EQ(std::get<float>(*scene.get_session_value("key.0")), 9.0f);
-        EXPECT_FALSE(scene.get_session_value("overflow"));
+            ASSERT_TRUE(
+                runtime.get_session().set_value("key." + std::to_string(index), float(index)));
+        EXPECT_FALSE(runtime.get_session().set_value("overflow", 1.0f));
+        EXPECT_TRUE(runtime.get_session().set_value("key.0", 9.0f));
+        EXPECT_EQ(std::get<float>(*runtime.get_session().get_value("key.0")), 9.0f);
+        EXPECT_FALSE(runtime.get_session().get_value("overflow"));
         ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(SceneRuntimeTest, ConcurrentSessionsIsolateValuesControlRequestsAndRestart) {
+        Scene other_scene;
+        Calls other_calls;
+        SceneRuntime other_runtime;
+        auto actions = InputActions::create(
+            {{"jump", InputActions::Type::Button, {{Input::Key::Space}}, "gameplay"}},
+            {{"gameplay", true}});
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(runtime.set_input_actions(actions.value()));
+        ASSERT_TRUE(other_runtime.set_input_actions(actions.value()));
+        bool jump = false;
+        bool other_jump = false;
+        auto other_reader = std::make_unique<RecordingSystem>(other_calls, "other");
+        other_reader->update_frame = [&](Scene& current, const System::Context& context) {
+            EXPECT_TRUE(context.session.is_bound_to(current));
+            EXPECT_EQ(&context.session, &other_runtime.get_session());
+            other_jump = context.input.action("jump")->down;
+            return UpdateResult::success();
+        };
+        ASSERT_TRUE(other_runtime.add_system(std::move(other_reader)));
+        auto* reader = add();
+        reader->update_frame = [&](Scene& current, const System::Context& context) {
+            EXPECT_TRUE(context.session.is_bound_to(current));
+            EXPECT_EQ(&context.session, &runtime.get_session());
+            jump = context.input.action("jump")->down;
+            return UpdateResult::success();
+        };
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(other_runtime.start(other_scene));
+        auto& session = runtime.get_session();
+        auto& other_session = other_runtime.get_session();
+        ASSERT_TRUE(session.set_value("score", 1.0f));
+        ASSERT_TRUE(other_session.set_value("score", 2.0f));
+        ASSERT_TRUE(session.request_restart());
+        ASSERT_TRUE(session.request_input_context("gameplay", false));
+        input.key_event(Input::Key::Space, true);
+        advance(0);
+        EXPECT_FALSE(jump);
+        ASSERT_TRUE(other_runtime.advance(0, &input.get_frame()));
+        EXPECT_TRUE(other_jump);
+        EXPECT_FALSE(other_runtime.take_restart_request());
+        EXPECT_TRUE(runtime.take_restart_request());
+
+        // Stop 丢弃尚未消费的控制请求；新一局恢复默认输入组。
+        ASSERT_TRUE(session.request_restart());
+        ASSERT_TRUE(session.request_input_context("missing", true));
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(session.is_active());
+        EXPECT_FALSE(session.get_value("score"));
+        EXPECT_FALSE(session.request_restart());
+        EXPECT_FALSE(session.request_input_context("gameplay", true));
+        EXPECT_FALSE(runtime.take_restart_request());
+        EXPECT_EQ(other_session.get_value("score"), ParameterValue(2.0f));
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_FALSE(session.get_value("score"));
+        advance(0);
+        EXPECT_TRUE(jump);
+        EXPECT_TRUE(other_session.is_bound_to(other_scene));
     }
 
     TEST_F(SceneRuntimeTest, InputInterruptionDiscardsPendingPressButPreservesReleaseAndClock) {
@@ -1354,7 +1419,7 @@ namespace Comet::Tests {
         advance(2);
         EXPECT_EQ(transform.rotation, Math::Vec3(0, -36, 0));
         EXPECT_EQ(runtime.get_timing().fixed_steps, 1u);
-        ASSERT_TRUE(scene.request_input_context("camera", false));
+        ASSERT_TRUE(runtime.get_session().request_input_context("camera", false));
         advance(0);
         auto bindings = actions.value().actions();
         bindings.front().bindings.front().control = Input::GamepadAxis::LeftX;
@@ -1365,7 +1430,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.request_step());
         advance(1);
         EXPECT_EQ(transform.rotation, Math::Vec3(0, -36, 0));
-        ASSERT_TRUE(scene.request_input_context("camera", true));
+        ASSERT_TRUE(runtime.get_session().request_input_context("camera", true));
         ASSERT_TRUE(runtime.request_step());
         advance(0);
         EXPECT_EQ(transform.rotation, Math::Vec3(0, -24, 0));

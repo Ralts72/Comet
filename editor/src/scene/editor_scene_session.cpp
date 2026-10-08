@@ -10,11 +10,12 @@ namespace CometEditor {
     EditorSceneSession::EditorSceneSession(EditorState& state,
         const Comet::SceneSerializer& serializer, ActiveSceneGetter get_active_scene,
         ActivatePlayScene activate_play_scene, RestoreEditScene restore_edit_scene,
-        StartRuntime start_runtime)
+        StartRuntime start_runtime, TakeRestartRequest take_restart_request)
         : m_state(state), m_serializer(serializer), m_get_active_scene(std::move(get_active_scene)),
           m_activate_play_scene(std::move(activate_play_scene)),
           m_restore_edit_scene(std::move(restore_edit_scene)),
-          m_start_runtime(std::move(start_runtime)) {}
+          m_start_runtime(std::move(start_runtime)),
+          m_take_restart_request(std::move(take_restart_request)) {}
 
     EditorSceneSession::~EditorSceneSession() = default;
 
@@ -38,11 +39,8 @@ namespace CometEditor {
             }
             return Comet::Result<bool, Comet::Error>::success(false);
         }
-        if(m_state.mode == EditorMode::Play) {
-            auto* scene = m_get_active_scene();
-            if(scene && scene->take_restart_request())
-                return start_play_mode(restart_state);
-        }
+        if(m_state.mode == EditorMode::Play && m_take_restart_request && m_take_restart_request())
+            return start_play_mode(restart_state);
         return Comet::Result<bool, Comet::Error>::success(false);
     }
 
