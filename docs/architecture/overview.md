@@ -17,10 +17,12 @@ App、Editor 和资产准备工具继续链接 `engine`／`Comet::Engine`，无�
 | `comet_input` | 输入采样值、动作、运行域求值、改键草稿与个人设置；Serialization |
 | `comet_world` | 实体、组件、Schema、层级与持久场景序列化；AssetData、EnTT |
 | `comet_runtime` | SceneRuntime、RuntimeSession、固定步时钟、暂停／单步与 System 生命周期契约；World、Input |
+| `comet_audio` | AudioService 的命令、设备与全部 Voice，AudioSystem 同步声音源；Runtime、miniaudio |
 | `comet_asset_pipeline` | 扫描索引、Artifact、源导入与任务队列；AssetData、stb_image、fastgltf |
 
 项目／Profile 配置聚合、窗口、图形、渲染及具体运行系统暂由 engine 主目标组合，后续逐步收窄内部边界。
-Runtime 的源清单同时覆盖公共执行头，禁止引用 Engine／Application、具体 System、图形与平台后端；World 不反向依赖 Runtime。
+Runtime 的源清单同时覆盖公共执行头及无后端的 AudioCommands；禁止引用 Engine／Application、具体服务或 System、图形与平台后端。
+World 不反向依赖 Runtime 或音频命令。Audio 的传递依赖同样检查，只有 `audio/audio.cpp` 可包含 miniaudio 后端头。
 对象库只产生编译中间文件；不增加模块动态库、独立构建目录或单独的 CPU 测试入口。
 全局日志、组件 Schema 与任务状态在宿主进程中仍由 engine 提供唯一实现，继续使用统一 `COMET_API`。
 `LogSettings` 归 Foundation；`Config::Log` 保留别名，基础日志头不再依赖完整 Config。
@@ -124,7 +126,10 @@ Lua 只使用元素 ID，不持有原生文档／GPU 句柄；旧控制器的接
 | `input/input_state.h` | 同一授权／阶段的物理与动作只读快照，System／Lua 的统一消费入口 |
 | `scene/systems/script_system.h` | Lua 行为实例的启动、阶段更新、寿命复核与逆序清理；字段仍属于 Scene 组件 |
 | `scene/systems/physics_system.h` | 固定步 Jolt 世界，按 Scene 刚体／碰撞体组件同步；只在运行态持有物理对象 |
-| `scene/systems/audio_system.h` | 普通更新同步声音源；运行期拥有设备与播放实例，Stop 清理 |
+| `scene/runtime_services.h` | 组合层装配、Runtime 借用的服务接口；必须活到 Runtime 停止之后 |
+| `scene/systems/audio_system.h` | 同步声音源配置及实体寿命，保存 Voice 标识；不拥有设备或 Voice |
+| `audio/audio_commands.h` | 无后端的短音效命令接口；Runtime 负责服务的启停与暂停 |
+| `audio/audio_service.h` | 每个运行域独立的有界音频请求、设备及全部 Voice；停止／失败清空 |
 | `scene/material_parameters.h` | 非持久的材质覆盖快照与 CPU 校验契约；不属于 `.mat` 序列化数据 |
 | `audio/audio.h` | AudioClip 已解码 CPU 数据与 AudioPlayback 播放实例；不向 Scene 公开 miniaudio 类型 |
 | `render/renderer.h` | 渲染子系统组合根，编排帧、RenderView、overlay 与拾取 |
@@ -164,9 +169,10 @@ GpuResourceResult 的失败路径先保存错误码，调用 `error()` 时才生
 ```text
 Engine
 ├── Scene（组件、AssetHandle 与非持久运行态；不持有 GPU 资源）
-├── SceneRuntime → RuntimeSession + System[]（活动时借用 Scene，停止时逆序退出）
-│   └── PhysicsSystem → Jolt world / bodies（Play／app 专有；Stop 销毁）
-│   └── AudioSystem → AudioPlayback / Voice（有声音源时创建；Stop 销毁）
+├── AudioService → 请求队列 + AudioPlayback + Voice（首次需要声音时创建输出）
+├── SceneRuntime → RuntimeSession + System[]（借用 Scene 与 RuntimeServices）
+│   ├── PhysicsSystem → Jolt world / bodies（Play／app 专有；Stop 销毁）
+│   └── AudioSystem → 实体／组件寿命与 Voice 标识（同步 AudioService）
 ├── TaskScheduler
 ├── AssetRegistry → Runtime Mesh / Texture / Material / Environment / Script / AudioClip / ShaderProgramArtifact
 └── Renderer
@@ -445,12 +451,20 @@ PhysicsSystem 在同步组件后、模拟前按提交顺序取出并执行一次
 静态体新增／移动或刚体移除／重建时，按受影响包围盒局部唤醒邻居，再由 Jolt 检测实际接触。
 ScriptSystem 用事件参与实体的 UUID、组件寿命和脚本 Handle 直接查询实例，不为每条通知遍历全部脚本。
 
-AudioSystem 接收同一暂停通知，停止 AudioPlayback 的设备回调，保留 Voice 播放状态；单步期间主线程独占混音推进，
+Scene 只保存 AudioSourceComponent 的持久配置，不保存音频请求或播放实例。
+Engine 拥有 AudioService，通过 RuntimeServices 装配无后端的 AudioCommands；AudioSystem 只保存实体／组件寿命与 Voice 标识。
+SceneRuntime 在所有 System 启动前绑定音频服务，逆序停止 System 后释放全部声音与请求；启动／更新失败走相同清理。
+活动服务不能绑定第二个运行域，失败尝试不干扰原运行域；服务只能在 Runtime 停止后替换。
+ScriptSystem 显式传递音频权限，Instance 拒绝跨场景或失效服务，每次调用后撤销绑定；on_stop 不保留音频权限。
+`comet.play_one_shot()` 在启动或更新中提交片段 Handle／音量快照，实体随后删除或配置更改不改变已提交请求。
+
+AudioService 由 SceneRuntime 通知暂停，停止 AudioPlayback 的设备回调，保留 Voice 播放状态；单步期间主线程独占混音推进，
 按 Context::delta_time 读取并丢弃采样。先推进原有声音，再清理结束实例、同步组件和接收本步末的新请求，
 避免提前消耗新音效时长；分数采样帧保留余量，不因连续单步积累截断误差。继续时从推进后的位置恢复设备输出，
 不重播已结束音效；Stop 丢弃全部声音。单步首次创建播放设备时直接以暂停状态初始化，不先启动再关闭设备。
 音频数据与设备仍由 Voice 保活，不向 Scene 或 Editor 暴露 miniaudio 类型。设备启停失败时清理声音并降级为本次运行静音。
-Scene 的短音效待处理队列与 AudioSystem 的活跃播放预算分别有界：最多 64 个并发 one-shot，先到先播；
+AudioService 最多接受 128 个待处理请求，消费后保留队列容量，停止／失败清空。
+最多 64 个并发 one-shot，先到先播；
 满额直接丢弃新请求，不保留延迟补播队列、不停止 Runtime，每次运行只警告一次。
 自动 Audio Source 独立随组件管理，不计入 one-shot 预算；单步完成的 Voice 及时回收，Stop 清空播放与告警状态。
 Offline 模式可同步读取 48 kHz 双声道 float PCM；Realtime 禁止外部读取，只有设备停止后才允许静默推进，
@@ -474,7 +488,7 @@ ComponentDescriptor 只公开只读组件访问，通过 assign_property 将属�
 Transform 在副本上赋值后进入 try_set_transform，Inspector／Gizmo／Undo／Lua／CameraController 共用此边界。
 Serializer 也通过该入口恢复属性；Restore 模式忽略 UI 可编辑标记并保留已存值，不执行编辑用的角度归一化。
 NumericPropertyMetadata 的范围默认只是控件提示；明确设置 enforce_bounds 的属性才把范围作为数据契约。
-Audio Source 音量采用该契约，编辑、恢复和保存共用 PropertyDescriptor 校验；AudioSystem 仍防御直接写入组件的越界值。
+Audio Source 音量采用该契约，编辑、恢复和保存共用 PropertyDescriptor 校验；AudioService 仍防御直接写入组件的越界值。
 创建、TRS／父级变化和组件增删标记受影响子树；重复标记跳过已脏子树，销毁清除对应脏节点。
 `update_world_transforms` 只消费脏集合，按父先子后更新；无变化时不扫描实体或比较 TRS。
 `get_world_matrix` 是即时查询，仅同步该实体的脏祖先链；无关脏分支留给后续同步。
@@ -595,7 +609,7 @@ SceneRuntime 在 System 启动前绑定 RuntimeSession，逆序停止 System 后
 启动／更新失败同样清理，暂停保留。同一 Scene 同时只绑定一个运行域；独立运行域的会话互不共享。
 System 的启停参数和更新 Context 显式提供会话引用，不转移所有权。ScriptSystem 在启动至停止期间借用会话，并传入 Invocation，
 Instance 拒绝会话与 Scene 不匹配的调用，每次结束清除绑定，on_stop 撤销会话／世界权限。
-Scene 的 begin_runtime／end_runtime 继续清理结构／服务请求和材质覆盖；音频、物理、通知等请求归属留待服务拆分。
+Scene 的 begin_runtime／end_runtime 继续清理结构／物理／通知请求和材质覆盖；音频请求已归 AudioService，其他服务归属继续拆分。
 不把固定步冲量、阶段末结构变更和 Update 通知合并成同一种消费协议。
 
 `comet.remove_rigid_body(reference)` 复用同一 EntityRequest 队列和 UUID／EntityId 身份检查，

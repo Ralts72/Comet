@@ -20,6 +20,7 @@ namespace Comet {
     class MaterialParameterValidator;
     class Scene;
     class RuntimeSession;
+    class AudioCommands;
     // 不可变源码与字段定义；运行实例不存入资产缓存。
     class COMET_API Script final {
         struct SourceSet;
@@ -62,6 +63,7 @@ namespace Comet {
             double delta_time = 0;
             Scene* scene = nullptr;
             RuntimeSession* session = nullptr;
+            AudioCommands* audio = nullptr;
             const InputState* input = nullptr;
             Entity contact_other;
             const MaterialParameterValidator* materials = nullptr;

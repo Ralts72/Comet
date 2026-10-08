@@ -15,11 +15,13 @@ namespace Comet {
     class MaterialParameterValidator;
     class Scene;
     class RuntimeSession;
+    class AudioCommands;
     namespace LuaBindings {
         struct Context {
             Entity entity;
             Scene* scene = nullptr;
             RuntimeSession* session = nullptr;
+            AudioCommands* audio = nullptr;
             const InputState* input = nullptr;
             std::uint64_t scene_generation = 0;
             // 由 lua_pcall 外的宿主持有，Lua 内存错误不能跳过 C++ 对象析构。

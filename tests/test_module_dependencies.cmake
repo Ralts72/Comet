@@ -55,3 +55,11 @@ probe_dependency("src/scene/scene.cpp" "\"input/input_actions.h\""
     "World violates module dependencies")
 probe_dependency("src/scene/runtime_session.h" "<vulkan/vulkan_core.h>"
     "Runtime includes a runtime backend")
+probe_dependency("src/scene/scene.h" "\"audio/audio_commands.h\""
+    "World violates module dependencies")
+probe_dependency("src/scene/runtime_services.h" "\"audio/audio_service.h\""
+    "Runtime violates module dependencies")
+probe_dependency("src/audio/audio_service.h" "<miniaudio.h>"
+    "Audio includes a runtime backend")
+probe_dependency("src/scene/systems/audio_system.cpp" "\"core/engine.h\""
+    "Audio violates module dependencies")

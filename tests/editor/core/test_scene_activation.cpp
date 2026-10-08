@@ -136,14 +136,15 @@ namespace CometEditor::Tests {
         public:
             bool fail = true;
             int stops = 0;
-            Comet::Result<void, Comet::Error> on_start(
-                Comet::Scene& scene, Comet::RuntimeSession&) override {
+            Comet::Result<void, Comet::Error> on_start(Comet::Scene& scene, Comet::RuntimeSession&,
+                const Comet::RuntimeServices&) override {
                 scene.create_entity("RuntimeOnly");
                 if(fail)
                     return Comet::Result<void, Comet::Error>::failure({"Startup failed"});
                 return Comet::Result<void, Comet::Error>::success();
             }
-            void on_stop(Comet::Scene& scene, Comet::RuntimeSession&) noexcept override {
+            void on_stop(Comet::Scene& scene, Comet::RuntimeSession&,
+                const Comet::RuntimeServices&) noexcept override {
                 EXPECT_EQ(scene.entity_count(), 2U);
                 ++stops;
             }

@@ -1,4 +1,5 @@
 #include "scripting/lua_bindings.h"
+#include "audio/audio_commands.h"
 #include "scene/scene.h"
 #include "scene/runtime_session.h"
 #include "input/input_state.h"
@@ -254,8 +255,15 @@ namespace Comet::LuaBindings {
         }
         int play_one_shot(lua_State* state) {
             const auto& context = current(state);
-            if(!context.scene || !context.scene->request_play_one_shot(context.entity))
+            if(!context.scene || !context.scene->is_valid(context.entity)
+                || !context.entity.has_component<AudioSourceComponent>())
                 return luaL_error(state, "Current entity needs a valid Audio Source");
+            if(!context.audio)
+                return luaL_error(state, "Audio service is unavailable in this runtime");
+            const auto& source = context.entity.get_component<AudioSourceComponent>();
+            if(!context.audio->request_one_shot(source.clip, source.volume))
+                return luaL_error(
+                    state, "Cannot queue one-shot: invalid source or audio request limit reached");
             return 0;
         }
         int apply_impulse(lua_State* state) {

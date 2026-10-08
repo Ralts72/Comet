@@ -14,6 +14,7 @@
 
 namespace Comet {
     class AssetRegistry;
+    class AudioService;
     class Scene;
     class TaskScheduler;
     class Window;
@@ -93,6 +94,7 @@ namespace Comet {
         std::unique_ptr<AssetRegistry> m_asset_registry;
         std::unique_ptr<Scene> m_scene;
         std::unique_ptr<Renderer> m_renderer;
+        std::unique_ptr<AudioService> m_audio_service;
         SceneRuntime m_scene_runtime;
         FrameDiagnostics m_frame_diagnostics;
         bool m_running = false;

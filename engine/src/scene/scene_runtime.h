@@ -37,6 +37,7 @@ namespace Comet {
         SceneRuntime& operator=(const SceneRuntime&) = delete;
 
         Result<void, Error> set_settings(Settings settings);
+        Result<void, Error> set_services(RuntimeServices services);
         Result<void, Error> set_input_actions(InputActions actions);
         // 活动运行域的绑定替换在下一次输入准备时生效，不重启系统或修改动作定义。
         Result<void, Error> rebind_input_actions(InputActions actions);
@@ -77,5 +78,6 @@ namespace Comet {
         double m_accumulator = 0;
         RuntimeInput m_input;
         RuntimeSession m_session;
+        RuntimeServices m_services;
     };
 }

@@ -12,16 +12,18 @@ namespace Comet::Tests {
         public:
             explicit RequestOneShot(Entity source) : m_source(source) {}
 
-            Result<void, Error> on_start(Scene&, RuntimeSession&) override {
+            Result<void, Error> on_start(Scene&, RuntimeSession&, const RuntimeServices&) override {
                 m_requested = false;
                 return Result<void, Error>::success();
             }
 
-            Result<void, Error> update(Scene& scene, const Context&) override {
+            Result<void, Error> update(Scene& scene, const Context& context) override {
                 if(m_requested)
                     return Result<void, Error>::success();
                 m_requested = true;
-                if(!scene.request_play_one_shot(m_source)
+                const auto& source = m_source.get_component<AudioSourceComponent>();
+                if(!context.services.audio
+                    || !context.services.audio->request_one_shot(source.clip, source.volume)
                     || !scene.request_destroy_entity(m_source))
                     return Result<void, Error>::failure({"Cannot request one-shot cue"});
                 return Result<void, Error>::success();
@@ -41,9 +43,10 @@ namespace Comet::Tests {
         auto& source = entity.add_component<AudioSourceComponent>();
         source.clip = cue_handle;
         source.volume = 0.5f;
+        AudioService audio(assets, AudioPlayback::Mode::Offline);
         SceneRuntime runtime;
-        ASSERT_TRUE(runtime.add_system(
-            std::make_unique<AudioSystem>(assets, AudioPlayback::Mode::Offline)));
+        ASSERT_TRUE(runtime.set_services({.audio = &audio}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<AudioSystem>(audio)));
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(0));
         source.loop = true;
@@ -63,9 +66,10 @@ namespace Comet::Tests {
         AssetRegistry assets;
         Scene scene;
         scene.create_entity().add_component<AudioSourceComponent>().clip = cue_handle;
+        AudioService audio(assets, AudioPlayback::Mode::Offline);
         SceneRuntime runtime;
-        ASSERT_TRUE(runtime.add_system(
-            std::make_unique<AudioSystem>(assets, AudioPlayback::Mode::Offline)));
+        ASSERT_TRUE(runtime.set_services({.audio = &audio}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<AudioSystem>(audio)));
         EXPECT_FALSE(runtime.start(scene, SceneRuntime::State::Paused));
         EXPECT_FALSE(runtime.is_active());
         ASSERT_TRUE(assets.register_asset(cue_handle, load_cue()));
@@ -78,9 +82,10 @@ namespace Comet::Tests {
         ASSERT_TRUE(assets.register_asset(cue_handle, load_cue()));
         Scene scene;
         scene.create_entity("Sound").add_component<AudioSourceComponent>().clip = cue_handle;
+        AudioService audio(assets, AudioPlayback::Mode::Offline);
         SceneRuntime runtime;
-        ASSERT_TRUE(runtime.add_system(
-            std::make_unique<AudioSystem>(assets, AudioPlayback::Mode::Offline)));
+        ASSERT_TRUE(runtime.set_services({.audio = &audio}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<AudioSystem>(audio)));
         ASSERT_TRUE(runtime.start(scene, SceneRuntime::State::Paused));
         ASSERT_TRUE(runtime.advance(10));
         EXPECT_EQ(runtime.get_timing().frame_index, 0);
@@ -99,10 +104,11 @@ namespace Comet::Tests {
         auto& source = entity.add_component<AudioSourceComponent>();
         source.clip = cue_handle;
         source.play_on_start = false;
+        AudioService audio(assets, AudioPlayback::Mode::Offline);
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.audio = &audio}));
         ASSERT_TRUE(runtime.add_system(std::make_unique<RequestOneShot>(entity)));
-        ASSERT_TRUE(runtime.add_system(
-            std::make_unique<AudioSystem>(assets, AudioPlayback::Mode::Offline)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<AudioSystem>(audio)));
 
         ASSERT_TRUE(runtime.start(scene));
         const auto missing = runtime.advance(0);
@@ -127,10 +133,11 @@ namespace Comet::Tests {
         auto& source = entity.add_component<AudioSourceComponent>();
         source.clip = cue_handle;
         source.play_on_start = false;
+        AudioService audio(assets, AudioPlayback::Mode::Offline);
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.audio = &audio}));
         ASSERT_TRUE(runtime.add_system(std::make_unique<RequestOneShot>(entity)));
-        ASSERT_TRUE(runtime.add_system(
-            std::make_unique<AudioSystem>(assets, AudioPlayback::Mode::Offline)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<AudioSystem>(audio)));
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
         ASSERT_TRUE(runtime.advance(1));
@@ -160,12 +167,13 @@ namespace Comet::Tests {
         auto& source = entity.add_component<AudioSourceComponent>();
         source.clip = cue_handle;
         source.play_on_start = false;
+        AudioService audio(assets, AudioPlayback::Mode::Offline);
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.audio = &audio}));
         constexpr double step = 0.01;
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = step}));
         ASSERT_TRUE(runtime.add_system(std::make_unique<RequestOneShot>(entity)));
-        ASSERT_TRUE(runtime.add_system(
-            std::make_unique<AudioSystem>(assets, AudioPlayback::Mode::Offline)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<AudioSystem>(audio)));
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
         ASSERT_TRUE(runtime.request_step());
@@ -203,15 +211,16 @@ namespace Comet::Tests {
         auto& source = entity.add_component<AudioSourceComponent>();
         source.clip = cue_handle;
         source.play_on_start = false;
+        AudioService audio(assets, AudioPlayback::Mode::Offline);
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.audio = &audio}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.1}));
-        ASSERT_TRUE(runtime.add_system(
-            std::make_unique<AudioSystem>(assets, AudioPlayback::Mode::Offline)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<AudioSystem>(audio)));
         ASSERT_TRUE(runtime.start(scene));
         const auto owners_without_voices = clip.use_count();
         for(int frame = 0; frame < 4; ++frame) {
             for(int request = 0; request < 32; ++request)
-                ASSERT_TRUE(scene.request_play_one_shot(entity));
+                ASSERT_TRUE(audio.request_one_shot(source.clip, source.volume));
             ASSERT_TRUE(runtime.advance(0));
         }
         EXPECT_EQ(clip.use_count() - owners_without_voices, 64);
@@ -223,7 +232,7 @@ namespace Comet::Tests {
         const std::weak_ptr<AudioClip> observed_overflow = overflow;
         ASSERT_TRUE(assets.register_asset(overflow_handle, std::move(overflow)));
         source.clip = overflow_handle;
-        ASSERT_TRUE(scene.request_play_one_shot(entity));
+        ASSERT_TRUE(audio.request_one_shot(source.clip, source.volume));
         ASSERT_TRUE(runtime.advance(0));
         ASSERT_TRUE(assets.unregister_asset(overflow_handle));
         EXPECT_TRUE(observed_overflow.expired());
@@ -240,13 +249,13 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Running));
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_EQ(clip.use_count(), owners_without_voices);
-        ASSERT_TRUE(scene.request_play_one_shot(entity));
+        ASSERT_TRUE(audio.request_one_shot(source.clip, source.volume));
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_EQ(clip.use_count() - owners_without_voices, 1);
         ASSERT_TRUE(runtime.stop());
         EXPECT_EQ(clip.use_count(), owners_without_voices);
         ASSERT_TRUE(runtime.start(scene));
-        ASSERT_TRUE(scene.request_play_one_shot(entity));
+        ASSERT_TRUE(audio.request_one_shot(source.clip, source.volume));
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_EQ(clip.use_count() - owners_without_voices, 1);
         ASSERT_TRUE(runtime.stop());

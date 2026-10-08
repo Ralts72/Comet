@@ -30,7 +30,8 @@ namespace Comet::Tests {
         class RecordingSystem final: public System {
         public:
             RecordingSystem(Calls& calls, std::string name) : calls(calls), name(std::move(name)) {}
-            UpdateResult on_start(Scene& scene, RuntimeSession& session) override {
+            UpdateResult on_start(
+                Scene& scene, RuntimeSession& session, const RuntimeServices&) override {
                 EXPECT_TRUE(session.is_bound_to(scene));
                 calls.order.push_back("start " + name);
                 if(start)
@@ -57,7 +58,8 @@ namespace Comet::Tests {
                 if(pause)
                     pause(paused);
             }
-            void on_stop(Scene& scene, RuntimeSession& session) noexcept override {
+            void on_stop(
+                Scene& scene, RuntimeSession& session, const RuntimeServices&) noexcept override {
                 EXPECT_TRUE(session.is_bound_to(scene));
                 calls.order.push_back("stop " + name);
                 if(stop)

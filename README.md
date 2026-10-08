@@ -91,7 +91,9 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 保留 `build/`、`build-editor/`、`build-release/` 三个构建目录，CI 复用 `build/`。
 对外通过 `engine`／`Comet::Engine` 使用引擎；内部对象库按职责约束依赖，最终汇入同一个 engine 动态库，
 不增加独立构建配置或模块动态库。源码归属见 `engine/cmake/module_sources.cmake`，依赖见 `modules.cmake`。
-`comet_runtime` 负责 SceneRuntime、RuntimeSession 与 System 执行契约，只依赖 World／Input；窗口、渲染和具体系统由 engine 组合。
+`comet_runtime` 负责 SceneRuntime、RuntimeSession 与 System 执行契约，只依赖 World／Input 和无后端的服务接口。
+`comet_audio` 拥有音频请求、设备和播放实例；Engine 装配 AudioService，Runtime 通过 RuntimeServices 借用命令接口。
+窗口、渲染和具体系统由 engine 组合。
 World 保存场景内容，不依赖 Input 或 Runtime；运行输入和本局状态归 Runtime。
 编辑器分为无 ImGui 的 `editor_core`、ImGui 呈现适配 `editor_imgui` 与功能界面 `editor_ui`；新增源码需维护所属库清单。
 仅启用 tests 时仍构建 core；测试辅助代码位于 `tests/support/`。
@@ -581,8 +583,9 @@ Edit 中位置保持原样。刚体与碰撞体在 Inspector 添加、编辑并�
 demo 的 `Move_Cube` 使用运动学刚体，与目标保持同一高度；Play／app 中按左右方向键移动，无需先等待它落地。
 目标的 Script 参数 `player` 指向 `Move_Cube`，只有指定方块碰触目标才计分；其他物体不会误触发。
 目标附有 Audio Source，关闭启动自动播放；触发时脚本调用 `comet.play_one_shot()` 播放一次 `demo/assets/audio/play_chime.wav`。
-这项调用使用当前实体 Audio Source 的片段和音量，忽略循环配置；播放实例由 AudioSystem 保持，目标在同帧删除也不会立刻截断声音。
-没有 Audio Source 或有效片段时调用会报告脚本错误。一般声音源仍可通过 `play_on_start` 在 Play／app 启动时自动播放，默认开启；Edit 不播放，Stop 销毁播放实例。
+这项调用提交当前实体 Audio Source 的片段和音量快照，忽略循环配置；AudioService 保存请求和播放实例，目标在同帧删除也不会立刻截断声音。
+AudioSystem 只同步声音源组件；每个运行域使用独立服务，默认由 Engine 装配。脚本可在 `on_start` 请求播放；停止／失败清空声音和待播请求。
+没有 Audio Source、有效片段或音频服务时会报告脚本错误。一般声音源仍可通过 `play_on_start` 在 Play／app 启动时自动播放，默认开启；Edit 不播放，Stop 销毁播放实例。
 项目 WAV 由 Git LFS 管理，与相邻 `.meta` 一起使用，也可从 Finder 拖入 Project；场景保存 Audio Clip 的 Handle、自动播放、循环和 0..1 音量。可在 Inspector 添加或编辑 Audio Source。
 首版将短音效完整解码到内存，限制为单／双声道、约 1600 万采样值；尚无流式音乐、空间定位或混音编辑器。
 脚本短音效最多同时播放 64 个，超额新请求直接丢弃，不排队补播；不占用自动 Audio Source 的播放名额。

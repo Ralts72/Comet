@@ -37,7 +37,9 @@ set(WORLD_HEADERS
     "${ASSET_HEADERS}|scene/(component_registry|components|entity|entity_id|entity_uuid|material_parameters|property|scene|scene_serializer|scene_settings|script_component)\\.h$")
 set(PIPELINE_HEADERS "${ASSET_HEADERS}|asset/(artifact/|import/|database\\.h$)")
 
-set(RUNTIME_HEADERS "${WORLD_HEADERS}|${INPUT_HEADERS}|scene/(scene_runtime|runtime_session|systems/system)\\.h$")
+set(RUNTIME_HEADERS "${WORLD_HEADERS}|${INPUT_HEADERS}|audio/audio_commands\\.h$|scene/(scene_runtime|runtime_session|runtime_services|systems/system)\\.h$")
+
+set(AUDIO_HEADERS "${RUNTIME_HEADERS}|audio/|scene/systems/audio_system\\.h$")
 
 function(check_module_closure module sources allowed)
     set(pending ${sources})
@@ -53,7 +55,10 @@ function(check_module_closure module sources allowed)
             REGEX "^[ \t]*#[ \t]*include[ \t]*[<\"]")
         foreach(line IN LISTS includes)
             if(line MATCHES "[<\"]([Vv]ulkan/|GLFW/|RmlUi/|imgui|lua\\.h|Jolt/|miniaudio\\.h)")
-                message(FATAL_ERROR "${module} includes a runtime backend: ${path}: ${line}")
+                if(NOT (module STREQUAL "Audio" AND path STREQUAL "audio/audio.cpp"
+                    AND line MATCHES "[<\"]miniaudio\\.h[>\"]"))
+                    message(FATAL_ERROR "${module} includes a runtime backend: ${path}: ${line}")
+                endif()
             endif()
             if(NOT line MATCHES "[<\"]([^>\"]+)[>\"]")
                 continue()
@@ -85,6 +90,7 @@ check_module_closure(AssetData "${COMET_ASSET_DATA_SOURCES}" "${ASSET_HEADERS}")
 check_module_closure(Input "${COMET_INPUT_SOURCES}" "${INPUT_HEADERS}")
 check_module_closure(World "${COMET_WORLD_SOURCES}" "${WORLD_HEADERS}")
 check_module_closure(Runtime "${COMET_RUNTIME_SOURCES}" "${RUNTIME_HEADERS}")
+check_module_closure(Audio "${COMET_AUDIO_SOURCES}" "${AUDIO_HEADERS}")
 check_module_closure(AssetPipeline "${COMET_ASSET_PIPELINE_SOURCES}" "${PIPELINE_HEADERS}")
 
 file(GLOB_RECURSE ENGINE_FILES RELATIVE "${ENGINE_SOURCE}"

@@ -211,12 +211,13 @@ namespace CometEditor::Tests {
             explicit OrderedSystem(std::vector<std::string>& events) : m_events(events) {}
 
             Comet::Result<void, Comet::Error> on_start(
-                Comet::Scene&, Comet::RuntimeSession&) override {
+                Comet::Scene&, Comet::RuntimeSession&, const Comet::RuntimeServices&) override {
                 m_events.emplace_back("system-start");
                 return Comet::Result<void, Comet::Error>::success();
             }
 
-            void on_stop(Comet::Scene&, Comet::RuntimeSession&) noexcept override {
+            void on_stop(Comet::Scene&, Comet::RuntimeSession&,
+                const Comet::RuntimeServices&) noexcept override {
                 m_events.emplace_back("system-stop");
             }
 
@@ -349,14 +350,15 @@ namespace CometEditor::Tests {
         public:
             bool fail = true;
             int stopped = 0;
-            Comet::Result<void, Comet::Error> on_start(
-                Comet::Scene& scene, Comet::RuntimeSession&) override {
+            Comet::Result<void, Comet::Error> on_start(Comet::Scene& scene, Comet::RuntimeSession&,
+                const Comet::RuntimeServices&) override {
                 scene.create_entity("Runtime only");
                 if(fail)
                     return Comet::Result<void, Comet::Error>::failure({"Startup failed"});
                 return Comet::Result<void, Comet::Error>::success();
             }
-            void on_stop(Comet::Scene& scene, Comet::RuntimeSession&) noexcept override {
+            void on_stop(Comet::Scene& scene, Comet::RuntimeSession&,
+                const Comet::RuntimeServices&) noexcept override {
                 EXPECT_EQ(scene.get_entities().size(), 2u);
                 ++stopped;
             }

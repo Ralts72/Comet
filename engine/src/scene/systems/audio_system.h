@@ -1,49 +1,32 @@
 #pragma once
 
-#include "audio/audio.h"
+#include "audio/audio_service.h"
 #include "scene/entity.h"
 #include "scene/systems/system.h"
 
-#include <cstddef>
 #include <map>
-#include <memory>
-#include <vector>
 
 namespace Comet {
-    class AssetRegistry;
-
-    // Scene 保存声音配置；System 只在运行期间拥有设备与播放实例。
+    // 仅桥接场景配置与音频服务；播放实例由服务拥有。
     class COMET_API AudioSystem final: public System {
     public:
-        explicit AudioSystem(
-            const AssetRegistry& assets, AudioPlayback::Mode mode = AudioPlayback::Mode::Realtime)
-            : m_assets(assets), m_mode(mode) {}
+        explicit AudioSystem(AudioService& audio) : m_audio(audio) {}
 
-        Result<void, Error> on_start(Scene& scene, RuntimeSession&) override;
+        Result<void, Error> on_start(
+            Scene& scene, RuntimeSession&, const RuntimeServices&) override;
         Result<void, Error> update(Scene& scene, const Context& context) override;
-        void on_pause_changed(bool paused) noexcept override;
-        void on_stop(Scene& scene, RuntimeSession&) noexcept override;
+        void on_stop(Scene& scene, RuntimeSession&, const RuntimeServices&) noexcept override;
 
     private:
-        static constexpr std::size_t MAX_ONE_SHOT_VOICES = 64;
-
         struct Entry {
             Entity entity;
             AssetHandle clip;
             uint64_t lifetime;
-            std::unique_ptr<AudioPlayback::Voice> voice;
+            AudioService::VoiceId voice;
         };
 
         Result<void, Error> synchronize(Scene& scene);
-        Result<void, Error> prepare_playback();
-
-        const AssetRegistry& m_assets;
-        AudioPlayback::Mode m_mode;
-        std::unique_ptr<AudioPlayback> m_playback;
+        AudioService& m_audio;
         std::map<EntityUuid, Entry> m_entries;
-        std::vector<std::unique_ptr<AudioPlayback::Voice>> m_one_shots;
-        bool m_device_unavailable = false;
-        bool m_paused = false;
-        bool m_one_shot_limit_reported = false;
     };
 }

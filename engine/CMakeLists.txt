@@ -8,7 +8,6 @@ set(SOURCES
         src/core/project.cpp
         src/config/config_loader.cpp
         src/diagnostics/diagnostics.cpp
-        src/audio/audio.cpp
         src/asset/asset_manager.cpp
         src/asset/asset_manager_async.cpp
         src/asset/asset_manager_scripts.cpp
@@ -79,7 +78,6 @@ set(SOURCES
         src/render/material/material_renderer.cpp
         src/scene/systems/camera_controller.cpp
         src/scene/systems/physics_system.cpp
-        src/scene/systems/audio_system.cpp
         src/scene/systems/script_system.cpp
         src/scripting/script.cpp
         src/scripting/lua_bindings.cpp
@@ -101,7 +99,6 @@ target_link_libraries(engine
         yaml-cpp
         comet_lua
         Jolt::Jolt
-        comet_miniaudio
         glfw
 )
 target_include_directories(engine

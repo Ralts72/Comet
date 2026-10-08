@@ -1690,11 +1690,12 @@ namespace Comet::Tests {
         edit_center.get_component<ScriptComponent>().parameters["score_color"] = score_color;
         auto playing = serializer.clone(*edit_scene.value());
         ASSERT_TRUE(playing) << playing.error();
+        AudioService audio(assets, AudioPlayback::Mode::Offline);
         const ScopeExit stop_playing([&] { EXPECT_TRUE(runtime.stop()); });
+        ASSERT_TRUE(runtime.set_services({.audio = &audio}));
         ASSERT_TRUE(runtime.add_system(std::make_unique<CameraControllerSystem>()));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
-        ASSERT_TRUE(runtime.add_system(
-            std::make_unique<AudioSystem>(assets, AudioPlayback::Mode::Offline)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<AudioSystem>(audio)));
         ASSERT_TRUE(runtime.start(*playing.value()));
 
         auto impulse_cube = playing.value()->find_entity(*impulse_uuid);

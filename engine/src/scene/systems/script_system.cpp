@@ -46,6 +46,7 @@ namespace Comet {
         m_failed_reloads.clear();
         m_scene = nullptr;
         m_session = nullptr;
+        m_audio = nullptr;
     }
 
     Result<void, Error> ScriptSystem::invoke(const Key& key, Entry& entry, Script::Phase phase,
@@ -63,6 +64,7 @@ namespace Comet {
         Script::Invocation invocation;
         invocation.scene = m_scene;
         invocation.session = m_session;
+        invocation.audio = m_audio;
         invocation.contact_other = contact_other;
         invocation.materials = m_materials;
         invocation.event_handler = event_handler;
@@ -297,9 +299,11 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
-    Result<void, Error> ScriptSystem::on_start(Scene& scene, RuntimeSession& session) {
+    Result<void, Error> ScriptSystem::on_start(
+        Scene& scene, RuntimeSession& session, const RuntimeServices& services) {
         m_scene = &scene;
         m_session = &session;
+        m_audio = services.audio;
         return synchronize(scene);
     }
     Result<void, Error> ScriptSystem::dispatch(
@@ -375,7 +379,7 @@ namespace Comet {
             return contacted;
         return dispatch_events(scene, context);
     }
-    void ScriptSystem::on_stop(Scene&, RuntimeSession&) noexcept {
+    void ScriptSystem::on_stop(Scene&, RuntimeSession&, const RuntimeServices&) noexcept {
         stop_all();
     }
 }

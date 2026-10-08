@@ -176,23 +176,6 @@ namespace Comet {
         return true;
     }
 
-    bool Scene::request_play_one_shot(const Entity entity) {
-        if(!m_runtime_active || !is_valid(entity) || !entity.has_component<AudioSourceComponent>()
-            || m_audio_play_requests.size() >= MAX_AUDIO_PLAY_REQUESTS)
-            return false;
-        const auto& source = entity.get_component<AudioSourceComponent>();
-        if(!source.clip || !std::isfinite(source.volume) || source.volume < 0 || source.volume > 1)
-            return false;
-        m_audio_play_requests.push_back({source.clip, source.volume});
-        return true;
-    }
-
-    std::vector<Scene::AudioPlayRequest> Scene::take_audio_play_requests() {
-        auto requests = std::move(m_audio_play_requests);
-        m_audio_play_requests.clear();
-        return requests;
-    }
-
     bool Scene::request_apply_impulse(const Entity entity, const Math::Vec3 impulse) {
         if(!m_runtime_active || !is_valid(entity) || !Math::is_finite(impulse)
             || !entity.has_component<TransformComponent>()
@@ -258,7 +241,6 @@ namespace Comet {
 
     void Scene::clear_runtime_state() noexcept {
         m_entity_requests.clear();
-        m_audio_play_requests.clear();
         m_impulse_requests.clear();
         m_contact_events.clear();
         m_events.clear();

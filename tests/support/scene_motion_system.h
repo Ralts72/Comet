@@ -20,7 +20,8 @@ namespace Comet::Tests {
     public:
         explicit SceneMotionSystem(std::shared_ptr<RuntimeCalls> calls)
             : m_calls(std::move(calls)) {}
-        Result<void, Error> on_start(Scene& scene, RuntimeSession&) override {
+        Result<void, Error> on_start(
+            Scene& scene, RuntimeSession&, const RuntimeServices&) override {
             ++m_calls->starts;
             m_calls->started_scene = &scene;
             return Result<void, Error>::success();
@@ -40,7 +41,7 @@ namespace Comet::Tests {
             ++m_calls->fixed_updates;
             return Result<void, Error>::success();
         }
-        void on_stop(Scene& scene, RuntimeSession&) noexcept override {
+        void on_stop(Scene& scene, RuntimeSession&, const RuntimeServices&) noexcept override {
             ++m_calls->stops;
             m_calls->stopped_scene = &scene;
         }

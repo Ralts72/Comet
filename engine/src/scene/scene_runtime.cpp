@@ -1,5 +1,6 @@
 #include "scene/scene_runtime.h"
 #include "scene/scene.h"
+#include "audio/audio_commands.h"
 #include "common/scope_exit.h"
 
 #include <algorithm>
@@ -20,6 +21,14 @@ namespace Comet {
             || settings.max_fixed_steps == 0 || settings.max_fixed_steps > 1024)
             return Result<void, Error>::failure({"Invalid scene runtime timing settings"});
         m_settings = settings;
+        return Result<void, Error>::success();
+    }
+
+    Result<void, Error> SceneRuntime::set_services(const RuntimeServices services) {
+        if(m_executing || is_active())
+            return Result<void, Error>::failure(
+                {"Stop the scene runtime before replacing services"});
+        m_services = services;
         return Result<void, Error>::success();
     }
 
@@ -63,6 +72,11 @@ namespace Comet {
             return Result<void, Error>::failure({"Invalid runtime start state"});
         if(!scene.begin_runtime())
             return Result<void, Error>::failure({"Scene already has an active runtime"});
+        if(m_services.audio && !m_services.audio->begin(scene, state == State::Paused)) {
+            scene.end_runtime();
+            return Result<void, Error>::failure(
+                {"Audio service already belongs to an active runtime"});
+        }
         m_scene = &scene;
         m_session.begin(scene);
         m_state = state;
@@ -78,7 +92,7 @@ namespace Comet {
         while(m_started < m_systems.size()) {
             auto& system = m_systems[m_started++];
             system->on_pause_changed(state == State::Paused);
-            if(auto result = system->on_start(scene, m_session); !result)
+            if(auto result = system->on_start(scene, m_session, m_services); !result)
                 return result;
         }
         if(!scene.commit_entity_requests())
@@ -91,9 +105,12 @@ namespace Comet {
     void SceneRuntime::stop_systems() noexcept {
         m_executing = true;
         while(m_started > 0)
-            m_systems[--m_started]->on_stop(*m_scene, m_session);
-        if(m_scene)
+            m_systems[--m_started]->on_stop(*m_scene, m_session, m_services);
+        if(m_scene) {
+            if(m_services.audio)
+                m_services.audio->end();
             m_scene->end_runtime();
+        }
         m_scene = nullptr;
         m_session.end();
         m_state = State::Running;
@@ -131,6 +148,8 @@ namespace Comet {
         m_timing.interpolation = 0;
         m_timing.dropped_time = 0;
         m_executing = true;
+        if(m_services.audio)
+            m_services.audio->set_paused(state == State::Paused);
         for(auto& system : m_systems)
             system->on_pause_changed(state == State::Paused);
         m_executing = false;
@@ -204,7 +223,7 @@ namespace Comet {
             ++m_timing.fixed_steps;
             m_timing.fixed_time = m_timing.fixed_index * step;
             const System::Context context{step, m_timing.fixed_time, m_timing.fixed_index,
-                m_input.consume_fixed(), m_session};
+                m_input.consume_fixed(), m_session, m_services};
             for(auto& system : m_systems)
                 if(auto result = system->fixed_update(*m_scene, context); !result)
                     return result;
@@ -218,8 +237,8 @@ namespace Comet {
         m_timing.interpolation = m_accumulator / step;
         m_timing.total_time += delta;
         ++m_timing.frame_index;
-        const System::Context context{
-            delta, m_timing.total_time, m_timing.frame_index, m_input.update(), m_session};
+        const System::Context context{delta, m_timing.total_time, m_timing.frame_index,
+            m_input.update(), m_session, m_services};
         for(auto& system : m_systems)
             if(auto result = system->update(*m_scene, context); !result)
                 return result;
