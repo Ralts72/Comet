@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "diagnostics/log_settings.h"
 #include "asset/import/asset_task_types.h"
 #include "graphics/enums.h"
 
@@ -11,11 +12,7 @@
 namespace Comet {
     class COMET_API Config {
     public:
-        struct Log {
-            bool enable_file_logging = true;
-            std::string level = "trace";
-            std::filesystem::path directory;
-        };
+        using Log = LogSettings;
 
         struct Diagnostics {
             Log log;

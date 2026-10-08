@@ -6,7 +6,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 
 | 目录 | 职责 |
 | --- | --- |
-| `engine/src/` | 引擎库：runtime、core、input、scene、asset、audio、render、graphics、config、diagnostics |
+| `engine/src/` | 引擎库：基础与数据模块，以及 runtime、audio、render、graphics 等运行后端 |
 | `engine/shaders/` | 生产 Shader，按 material、lighting、shadow、environment、debug、post、common 分目录；仅编译 CMake 显式列表 |
 | `engine/resources/fonts/` | App／Editor 共用的 Roboto Bold 与 Noto Sans SC Bold 字体 |
 | `engine/src/ui/` | 可选游戏 UI 模块 `comet_game_ui`：RmlUi 呈现、输入适配与项目 Lua 控制器桥接；不包含固定项目页面或菜单流程 |
@@ -33,7 +33,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 需要 CMake 3.31+、C++20 编译器、Vulkan SDK、Git LFS 和 Submodule。
 SPIRV-Reflect、glslang、Jolt Physics、miniaudio、Lua、RmlUi 6.3 和 FreeType 2.14.3 由固定提交 submodule 提供。
 RmlUi 只链接 Core，FreeType 随源码静态构建，无需安装系统字体库。
-`COMET_BUILD_GAME_UI` 可独立构建引擎游戏 UI 库；构建示例 app 或测试时默认开启并要求启用，纯 editor 构建默认关闭。
+`COMET_BUILD_GAME_UI` 在现有构建中选择引擎游戏 UI 能力；构建示例 app 或测试时默认开启并要求启用，纯 editor 构建默认关闭。
 构建会生成 `comet_shader_compiler`，无需安装 `glslangValidator`；engine／app 不链接源编译器。
 
 ```bash
@@ -58,15 +58,15 @@ ctest --preset dev-debug
 可选环境缺失或失败时诊断并回退纯色，重导入失败保留旧版。
 脚本可从任意工作目录运行，逐文件校验 SHA-256，跳过已校验文件；下载失败不会覆盖现有资源。
 
-直接运行 app 前，也可单独增量准备项目（不打开窗口，不创建 GPU 资源）：
+现有构建同时提供项目资产准备工具，可在启动 app 前增量准备项目：
 
 ```bash
-cmake --build build --target comet_prepare_project --parallel
 ./build/tools/asset/comet_prepare_project ./demo
 ```
 
 工具按当前 Profile 额度准备启动场景的 Mesh、Environment 和 ShaderProgram；有效缓存不重写，失败保留旧产物。
-它不创建 GPU 对象或发布包。`release.sh` 会在启动 app 前自动执行，无需先打开编辑器。
+它在现有构建中复用 engine 与工具 Shader 编译库，不创建窗口或 GPU 对象，也不生成发布包。
+`release.sh` 会在启动 app 前自动执行，无需先打开编辑器。
 未下载时 demo 保留环境资产引用并提示缺失，背景回退为纯色；下载后重新打开项目即可。
 构建和启动不会自动联网。普通测试使用小型本地数据，不自动导入下载的 HDR。
 真实 HDR 验证需显式启用：`cmake --preset dev-debug -DCOMET_TEST_DOWNLOADED_ASSETS=ON`，
@@ -88,13 +88,16 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 | `app-release` | Release：app | `./release.sh` |
 
 构建 app/editor 需指定 `COMET_CONFIG_PROFILE`，并按需组合 `COMET_BUILD_APP/EDITOR/TESTS/BENCHMARKS`。
+保留 `build/`、`build-editor/`、`build-release/` 三个构建目录，CI 复用 `build/`。
+对外通过 `engine`／`Comet::Engine` 使用引擎；内部对象库按职责约束依赖，最终汇入同一个 engine 动态库，
+不增加独立构建配置或模块动态库。源码归属见 `engine/cmake/module_sources.cmake`，依赖见 `modules.cmake`。
 编辑器分为无 ImGui 的 `editor_core`、ImGui 呈现适配 `editor_imgui` 与功能界面 `editor_ui`；新增源码需维护所属库清单。
 仅启用 tests 时仍构建 core；测试辅助代码位于 `tests/support/`。
 测试按执行条件分组，源码只编译到所属入口，不重复运行：
 
 | 入口／目录 | 依赖 | CTest 标签 |
 | --- | --- | --- |
-| `unit_testing`，含 `tests/editor/core/` | CPU 逻辑 | `cpu`、`unit` |
+| `unit_testing`，含 `tests/editor/core/` | CPU 逻辑；链接完整运行库 | `cpu`、`unit` |
 | `editor_ui_testing`，`tests/editor/ui/` | 内存中的 ImGui，不创建窗口／GPU | `ui`、`integration` |
 | `integration_testing`，含 `tests/editor/integration/` | 真实窗口／GPU | `gpu`、`integration` |
 

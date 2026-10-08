@@ -1133,7 +1133,7 @@ namespace Comet::Tests {
             {{"first", true}, {"second", true}});
         ASSERT_TRUE(actions);
         ASSERT_TRUE(runtime.set_input_actions(std::move(actions).value()));
-        Config::Log config;
+        LogSettings config;
         config.enable_file_logging = false;
         Logger::init(config);
         const auto logger = Logger::get_console_logger();
@@ -1626,7 +1626,7 @@ namespace Comet::Tests {
 
     TEST_P(DemoControlsTest, DemoGoalAndRestartRestoreAnIsolatedRunFromTheAuthoredScene) {
         const bool owns_logger = !Logger::get_console_logger();
-        Config::Log log_config;
+        LogSettings log_config;
         log_config.enable_file_logging = false;
         Logger::init(log_config);
         const auto logger = Logger::get_console_logger();

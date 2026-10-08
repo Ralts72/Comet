@@ -941,7 +941,7 @@ namespace CometEditor::Tests {
         EXPECT_NE(rejected.error().message.find("actor.lua:"), std::string::npos);
         EXPECT_NE(rejected.error().message.find("stack traceback:"), std::string::npos);
 
-        Comet::Config::Log config;
+        Comet::LogSettings config;
         config.enable_file_logging = false;
         Comet::Logger::init(config);
         const auto logger = Comet::Logger::get_console_logger();

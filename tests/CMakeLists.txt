@@ -1,3 +1,13 @@
+add_test(NAME project_prepare_cli COMMAND "${CMAKE_COMMAND}"
+    "-DPREPARE_TOOL=$<TARGET_FILE:comet_prepare_project>"
+    "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/project-prepare-cli"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/asset/test_prepare_cli.cmake")
+set_tests_properties(project_prepare_cli PROPERTIES LABELS "cpu")
+add_test(NAME module_dependency_contract COMMAND "${CMAKE_COMMAND}"
+    "-DCOMET_SOURCE_ROOT=${CMAKE_SOURCE_DIR}"
+    "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/module-dependency-contract"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/test_module_dependencies.cmake")
+set_tests_properties(module_dependency_contract PROPERTIES LABELS "cpu")
 # 按运行依赖显式分组；扫描只检查遗漏，不替新测试猜测执行环境。
 set(UNIT_TEST_SOURCES
         audio/test_audio.cpp
@@ -15,6 +25,7 @@ set(UNIT_TEST_SOURCES
         asset/test_mesh_importer.cpp
         asset/test_metadata.cpp
         asset/test_project_assets.cpp
+        asset/test_project_prepare.cpp
         asset/test_registry.cpp
         asset/test_script_assets.cpp
         asset/test_texture_importer.cpp

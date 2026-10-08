@@ -1,68 +1,28 @@
+include(cmake/modules.cmake)
+
 set(SHADER_COMPILE_TARGET shader_compile)
 set(SHADER_GENERATED_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/shaders")
 add_subdirectory(shaders)
 
-find_package(Threads REQUIRED)
-
 set(SOURCES
+        src/core/project.cpp
+        src/config/config_loader.cpp
+        src/diagnostics/diagnostics.cpp
         src/audio/audio.cpp
-        src/asset/artifact/mesh_artifact.cpp
-        src/asset/artifact/environment_artifact.cpp
-        src/asset/artifact/shader_program_artifact.cpp
-        src/asset/database.cpp
-        src/asset/database_scan.cpp
-        src/asset/handle.cpp
-        src/asset/import_settings.cpp
-        src/asset/import/input_snapshot.cpp
-        src/asset/import/mesh_importer.cpp
-        src/asset/import/import_service.cpp
-        src/asset/import/asset_task_queue.cpp
-        src/asset/import/texture_importer.cpp
-        src/asset/import/environment_importer.cpp
-        src/asset/import/environment_lighting.cpp
         src/asset/asset_manager.cpp
         src/asset/asset_manager_async.cpp
         src/asset/asset_manager_scripts.cpp
-        src/asset/data/material_data.cpp
-        src/asset/metadata.cpp
-        src/asset/registry.cpp
-        src/asset/serialization/material_serializer.cpp
-        src/asset/serialization/shader_program_serializer.cpp
-        src/asset/serialization/metadata_serializer.cpp
-        src/common/json.cpp
-        src/common/file_io.cpp
-        src/common/retry_backoff.cpp
-        src/common/uuid.cpp
         src/render/presentation.cpp
         src/render/render_graph.cpp
         src/render/render_diagnostics.cpp
         src/render/passes/output_pass.cpp
         src/render/passes/bloom_pass.cpp
-        src/scene/scene_settings.cpp
         src/render/passes/skybox_pass.cpp
         src/render/passes/shadow_pass.cpp
-        src/config/config_loader.cpp
-        src/diagnostics/diagnostics.cpp
-        src/diagnostics/frame_diagnostics.cpp
-        src/diagnostics/timing_history.cpp
-        src/diagnostics/profiler.cpp
-        src/diagnostics/logger.cpp
         src/core/window.cpp
-        src/input/input.cpp
-        src/input/input_actions.cpp
-        src/input/input_overrides.cpp
-        src/input/player_input_settings.cpp
-        src/input/player_input_edit.cpp
-        src/input/input_state.cpp
-        src/input/runtime_input.cpp
-        src/core/frame_timer.cpp
-        src/core/project_paths.cpp
-        src/core/project.cpp
         src/runtime/entry.cpp
         src/runtime/application.cpp
-        src/core/task_scheduler.cpp
         src/core/engine.cpp
-        src/core/geometry.cpp
         src/graphics/convert.cpp
         src/graphics/context.cpp
         src/graphics/device.cpp
@@ -82,7 +42,6 @@ set(SOURCES
         src/graphics/pipeline/pipeline_config.cpp
         src/graphics/pipeline/pipeline_key.cpp
         src/graphics/pipeline/shader.cpp
-        src/graphics/pipeline/shader_interface.cpp
         src/graphics/command/command_buffer.cpp
         src/graphics/command/command_context.cpp
         src/graphics/command/upload_manager.cpp
@@ -118,42 +77,33 @@ set(SOURCES
         src/render/material/material_shader.cpp
         src/render/material/material_runtime.cpp
         src/render/material/material_renderer.cpp
-        src/scene/entity.cpp
-        src/scene/component_registry.cpp
-        src/scene/property.cpp
-        src/scene/scene.cpp
-        src/scene/scene_serializer.cpp
         src/scene/scene_runtime.cpp
         src/scene/systems/camera_controller.cpp
         src/scene/systems/physics_system.cpp
         src/scene/systems/audio_system.cpp
-        src/scene/audio_source_component.cpp
-        src/scene/script_component.cpp
         src/scene/systems/script_system.cpp
         src/scripting/script.cpp
         src/scripting/lua_bindings.cpp
 )
 
 add_library(engine SHARED ${SOURCES})
+add_library(Comet::Engine ALIAS engine)
 add_dependencies(engine ${SHADER_COMPILE_TARGET})
 target_link_libraries(engine
         PUBLIC
-        spdlog::spdlog
         glm
+        spdlog::spdlog
+        EnTT::EnTT
+        simdjson::simdjson
         Vulkan::Vulkan
         GPUOpen::VulkanMemoryAllocator
-        EnTT::EnTT
         PRIVATE
+        ${COMET_ENGINE_MODULES}
+        yaml-cpp
         comet_lua
         Jolt::Jolt
         comet_miniaudio
         glfw
-        Threads::Threads
-        stb_image
-        fastgltf::fastgltf
-        spirv-reflect-static
-        simdjson::simdjson
-        yaml-cpp
 )
 target_include_directories(engine
         PUBLIC

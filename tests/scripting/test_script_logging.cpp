@@ -20,7 +20,7 @@ namespace Comet::Tests {
 
         void SetUp() override {
             owns_logger = !Logger::get_console_logger();
-            Config::Log config;
+            LogSettings config;
             config.enable_file_logging = false;
             Logger::init(config);
             logger = Logger::get_console_logger();

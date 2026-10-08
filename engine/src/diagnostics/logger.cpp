@@ -45,7 +45,7 @@ namespace Comet {
         }
     }
 
-    void Logger::init(const Config::Log& config, const bool enable_profiler) {
+    void Logger::init(const LogSettings& config, const bool enable_profiler) {
         if(s_initialized) {
             return;
         }

@@ -1,0 +1,39 @@
+include("${CMAKE_CURRENT_LIST_DIR}/module_sources.cmake")
+find_package(Threads REQUIRED)
+
+# Object targets constrain build dependencies and feed the single engine library.
+function(comet_add_module name)
+    string(TOUPPER "${name}" source_group)
+    add_library(comet_${name} OBJECT ${COMET_${source_group}_SOURCES})
+    set_target_properties(comet_${name} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_include_directories(comet_${name} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_compile_definitions(comet_${name} PRIVATE COMET_EXPORTS)
+    target_precompile_headers(comet_${name} PRIVATE
+        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/pch.h>")
+    if(NOT WIN32)
+        target_compile_options(comet_${name} PRIVATE -Wall -fvisibility=hidden)
+    endif()
+    if(COMET_NATIVE_OPTIMIZATION AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(comet_${name} PRIVATE -march=native)
+    endif()
+endfunction()
+
+comet_add_module(foundation)
+comet_add_module(serialization)
+comet_add_module(shader_contracts)
+comet_add_module(asset_data)
+comet_add_module(input)
+comet_add_module(world)
+comet_add_module(asset_pipeline)
+
+target_link_libraries(comet_foundation PUBLIC glm spdlog::spdlog Threads::Threads)
+target_link_libraries(comet_serialization PUBLIC comet_foundation simdjson::simdjson)
+target_link_libraries(comet_shader_contracts PUBLIC comet_foundation PRIVATE spirv-reflect-static)
+target_link_libraries(comet_asset_data PUBLIC comet_serialization comet_shader_contracts)
+target_link_libraries(comet_input PUBLIC comet_serialization)
+target_link_libraries(comet_world PUBLIC comet_asset_data comet_input EnTT::EnTT)
+target_link_libraries(comet_asset_pipeline PUBLIC comet_asset_data PRIVATE stb_image fastgltf::fastgltf)
+
+set(COMET_ENGINE_MODULES
+    comet_foundation comet_serialization comet_shader_contracts comet_asset_data
+    comet_input comet_world comet_asset_pipeline)

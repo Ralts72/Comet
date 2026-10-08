@@ -5,7 +5,6 @@ target_include_directories(comet_shader_tools PUBLIC
 target_link_libraries(comet_shader_tools PRIVATE
         glslang::glslang glslang::glslang-default-resource-limits)
 
-add_executable(comet_shader_compiler main.cpp
-        "${CMAKE_SOURCE_DIR}/engine/src/common/file_io.cpp")
-target_link_libraries(comet_shader_compiler PRIVATE comet_shader_tools)
+add_executable(comet_shader_compiler main.cpp)
+target_link_libraries(comet_shader_compiler PRIVATE comet_shader_tools comet_foundation)
 target_compile_definitions(comet_shader_compiler PRIVATE COMET_EXPORTS)

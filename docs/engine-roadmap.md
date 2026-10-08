@@ -44,11 +44,11 @@ Shader 保留为按需分支：同一 Program 的多个材质实例已有 UI／G
 
 ### 运行时基础架构主线
 
-基础能力以独立构建、所有权和可测量行为验收，功能阶段与本主线共同推进。
+基础能力通过现有构建中的模块边界、所有权和可测量行为验收，功能阶段与本主线共同推进。
 
 | 顺序 | 目标职责 | 验收 |
 | --- | --- | --- |
-| 1 世界与模块 | Foundation、World、Runtime、RuntimeAssets、Render／Vulkan 与 AssetPipeline 形成可检查的构建边界；World 管实体与组件，RuntimeSession 管时钟、输入及运行会话，系统服务处理类型化命令 | 无窗口／无 Vulkan 的 Runtime 可独立构建与推进；多个世界身份和状态隔离；模拟暂停由宿主策略决定 |
+| 1 世界与模块 | Foundation、World、Runtime、RuntimeAssets、Render／Vulkan 与 AssetPipeline 形成可检查的构建边界；World 管实体与组件，RuntimeSession 管时钟、输入及运行会话，系统服务处理类型化命令 | Runtime 推进接口不依赖窗口／Vulkan，现有测试可直接驱动；多个世界身份和状态隔离；模拟暂停由宿主策略决定 |
 | 2 执行与变换 | 系统声明组件／资源读写和阶段依赖；帧任务与后台 I/O 区分调度策略；物理与动画变换所有权明确，渲染消费插值姿态 | 串行回归与并行执行均验证阶段顺序；工作线程总额有界；GPU acquire 延期不隐式停止模拟；暂停／单步／唤醒一致 |
 | 3 资产产品 | 源导入与构建归工具链，Runtime 仅消费产品目录／包；统一异步需求、取消、占位、CPU／GPU 驻留预算与淘汰 | 发布包脱离源码和开发缓存运行；加载／卸载、过期结果和预算饱和可恢复；多场景依赖闭包完整 |
 | 4 渲染数据 | 持久 RenderWorld 按结构和脏变更更新代理；每 View 生成裁剪／LOD／实例列表；RenderGraph 声明资源生命周期并规划瞬态分配 | 高对象／多材质基准记录可见数、draw、CPU／GPU p50／p95／p99、分配与驻留峰值；主绘制／阴影／拾取一致，在途资源不被覆盖 |
@@ -73,7 +73,7 @@ Shader 保留为按需分支：同一 Program 的多个材质实例已有 UI／G
 | 每帧全量提取、解析、排序，无裁剪／LOD／实例合批 | Transform 已增量同步，渲染场景和绘制队列仍逐帧构造 | [持久渲染世界与视图](#持久渲染世界与视图待实现)、[批处理与实例化](#批处理与实例化渲染待实现) |
 | RenderGraph 缺瞬态资源生命周期与调度规划 | 有序单队列同步图已接通，资源仍由调用方创建并导入 | [图资源规划](#图资源规划待实现) |
 | Property 类型平面、内容复制依赖文件格式 | Scene clone 已使用 Descriptor 内容快照直接恢复；递归 Schema 与版本迁移待完成 | [内容类型与复制](#内容类型与复制部分实现)、阶段 7 |
-| 单一 engine target 难以验证独立 Runtime | 游戏 UI 已独立构建；资产工具仍链接完整 engine，World／Runtime／后端尚未形成构建隔离 | [构建模块与组合入口](#engine-构建模块与组合入口) |
+| 内部模块职责与依赖约束不完整 | 基础、数据与资产管线已提取内部对象库；Runtime／系统后端／Render／UI 边界待收窄 | [构建模块与组合入口](#engine-构建模块与组合入口) |
 | Editor／app 工作流策略重复 | PlayerInputEdit 已与 ImGui 分离，设置保存及 Runtime 应用仍分别由宿主编排 | [宿主编排](#宿主编排与场景激活的后续验收阶段-47)、[玩家输入模型与游戏 UI](#玩家输入模型与游戏-ui) |
 | 游戏 UI 的制作与发布链路不完整 | 项目 Lua 控制器与业务迁移首轮已接通；Editor 共用装载、IME、资产生产、原生手柄与性能待验收 | [项目 UI 入口与控制器](#项目-ui-入口与控制器部分实现)、[玩家输入模型与游戏 UI](#玩家输入模型与游戏-ui) |
 | 性能优化缺跨系统预算与规模验收 | 已有渲染／资产扫描基准和分段诊断，覆盖仍需扩展 | [性能观测与规模验收](#性能观测与规模验收) |
@@ -130,87 +130,63 @@ Shader 保留为按需分支：同一 Program 的多个材质实例已有 UI／G
 
 ### 模块依赖与 Engine／Editor 边界
 
-目标是让模块职责由构建依赖与公开接口共同表达。现有 include 检查是起点，独立 Runtime 构建与可选图形宿主属于上方主线的交付目标。
+目标是让模块职责由内部构建依赖与公开接口共同表达，沿用现有构建和统一 engine 入口。
 
 - **建立并维护允许的依赖方向**：Foundation 承载错误、数学、文件与任务等通用能力，窗口和设备适配归 Platform／后端；Scene 数据与序列化不依赖 Render／Vulkan；Runtime Systems 消费 Scene 和稳定资产身份，不直接依赖 Editor 或图形后端；Render 消费提取后的场景数据并通过资源服务取得运行时资源；Editor 与 app 通过 Engine 组合入口和各自明确的工作流接口使用这些能力。具体模块归属先以当前代码核实，不为套用分层名称批量搬文件。
-- **逐步让规则可检查**：先记录允许依赖与已知例外，再增加低成本的构建／include 检查，禁止新增明显反向依赖，例如 Scene 公共头引入 Vulkan 类型、Runtime 依赖 ImGui、引擎通用模块依赖 Editor。现有单一 `engine` 库可以暂时保留；只有当依赖边界稳定且拆分能提供真实隔离或独立构建收益时，才逐步拆 CMake target。
-  目标 target 边界必须通过独立构建验证：Foundation／World／Runtime 不链接 Vulkan、GLFW、ImGui 或源导入器；
-  AssetPipeline 工具可独立生产产品，图形 app 和 Editor 在上层组合。CI 同时验证无图形 Runtime、无 Editor 的发布 app 及完整 Editor，
-  公共头和链接接口不能靠 PRIVATE／PUBLIC 标记掩盖实际依赖。
+- **逐步让规则可检查**：先记录允许依赖与已知例外，再增加低成本的构建／include 检查，禁止新增明显反向依赖，例如 Scene 公共头引入 Vulkan 类型、Runtime 依赖 ImGui、引擎通用模块依赖 Editor。保留单一 `engine` 交付库，按稳定职责逐步建立内部 target。
+  内部 target 只声明职责所需的依赖，并通过传递 include 检查和现有测试验证；
+  保留统一 engine 交付入口及现有三种构建，不为验证分层增加独立工具／Headless 配置。
 - **收窄 Engine 与 Editor 的接触面**：Engine 保留生命周期和子系统组合职责，但不继续无条件扩充可供上层穿透访问所有内部对象的接口。Editor 新需求优先通过已存在的 SceneDocument／EditorSceneSession、资产工作流及视口请求边界表达；避免编辑器功能代码直接依赖 SceneRenderer、RenderContext 等渲染实现细节。ImGui/Vulkan 后端等确需底层协作的代码集中在明确的集成边界，不做全局抽象化改写。
 - **按纵向功能增量迁移**：选择一个实际消费者作为试点，迁移接口、调用方和测试后再扩展到相邻模块；期间保留 app/editor 的既有行为和生命周期协议。不得仅为缩短 `Engine` 成员列表引入转发 façade、Service Locator 或一批新 Manager。
 
-首轮验收：模块依赖表与代码相符，新增代码不能建立禁止依赖，Engine／Editor 使用路径通过窄接口完成，app、editor 与相关测试可按需构建。后续独立 Runtime／Headless 构建按上方主线验收。
+首轮验收：模块依赖表与代码相符，新增代码不能建立禁止依赖，Engine／Editor 使用路径通过窄接口完成，app、editor 与相关测试可按需构建。后续按下方内部模块拆分顺序推进。
 
 <a id="engine-构建模块与组合入口"></a>
 
-#### Engine 构建模块与组合入口（部分实现）
+#### Engine 内部模块与组合入口（部分实现）
 
-**当前代码依据：**`engine/CMakeLists.txt` 将 CPU 世界、源导入、窗口、图形和各系统后端编入同一动态库，
-公开链接 Vulkan／VMA；根 CMake 无条件查找 Vulkan，并配置 GLFW、Jolt、Lua 和 miniaudio。
-`tools/asset` 仍公开链接 engine，因此无窗口资产准备不等于脱离图形 SDK／运行库。
-`SceneRuntime` 已有独立推进接口，但位于 `runtime/` 的 Application 仍持有创建窗口／Renderer 的 Engine；
-`scene/systems/` 中的物理、音频和脚本实现也随 Scene 目录混编。
-游戏 UI 已是独立 `comet_game_ui`，目前仍依赖完整 engine；其余模块拆分、统一组合入口和完整 Editor 的默认 UI 尚待实现。
+**范围：**目标是引擎子模块解耦。继续使用 `build/`、`build-editor/`、`build-release/`，
+对外提供 `engine`／`Comet::Engine`；不新增独立 build 项目、工具 Profile、模块动态库或公开模块组合入口。
+内部 target 服务于依赖约束与增量编译，最终汇入 engine；出现真实产品需求后再讨论单独交付。
 
-**模块判断：**按独立消费者、第三方依赖、可裁剪能力和所有权确定构建边界。下表是目标职责，目标名称尚未冻结；
-不得直接按目录生成一个库，也不要求每个构建模块成为独立 DLL 或运行时插件。
+**已实现首轮：**Foundation、Serialization、ShaderContracts、AssetData、Input、World、AssetPipeline
+已按源码职责提取为内部对象库，依赖方向及传递 include 由现有 CTest 检查。
+基础日志使用独立 `LogSettings`，不再通过 Logger 引入完整 Config；仍统一使用 `COMET_API`。
+资产准备工具复用现有构建和 engine；Shader 编译工具直接复用 Foundation 对象，避免生成任务反向依赖 engine。
+当前没有完成 Runtime、系统后端、Render 和游戏 UI 的内部依赖拆分；AssetManager 也仍承担导入与运行时发布编排。
 
-| 当前代码范围 | 构建处理建议 | 主要收益与前置工作 |
+| 当前范围 | 后续内部边界 | 需要解决的问题 |
 | --- | --- | --- |
-| `common/`、纯 CPU `core/` 工具、基础日志与计时 | 提取 Foundation 底层目标 | 文件／任务／数学／错误可供工具和 Runtime 独立使用；Window、Engine 组合器不纳入 Foundation |
-| Scene 实体、组件、层级、Schema 与序列化 | 提取 World 内容目标 | 内容编辑和复制不需要创建运行后端；持久组件数据与 Script／Physics／Audio 运行对象分开 |
-| `input/` | 保持独立 CPU 边界，提取输入目标 | 同供 Runtime、Editor 设置和游戏 UI 使用；Window 提供采样，动作求值／改键模型不链接 GLFW；初期可与 CPU Runtime 一起交付 |
-| `SceneRuntime`、System 契约、时间与会话编排 | 提取无图形 Runtime 目标 | 显式输入／时间可驱动模拟；区分现有 `runtime/Application` 图形启动器，注册具体系统由组合层完成 |
-| AssetHandle、Registry、产品数据／加载与驻留 | 提取 CPU RuntimeAssets 目标 | Registry 当前已不依赖 GPU；专用加载器由所属模块装配，GPU 创建／发布桥接不塞进资产核心 |
-| `asset/import/`、源扫描／metadata、Artifact 生产、工具 Shader 编译 | 分离 AssetPipeline 工具目标 | 共用产品契约，发布 Runtime 不链接源导入器；拆开 AssetManager 的导入调度与运行时加载／GPU 发布职责 |
-| `core/window` 与 GLFW 输入接线 | 提取 Platform 窗口适配目标 | Headless 不查找或链接 GLFW；采样快照留在输入模块，surface／swapchain 生命周期由图形集成处理 |
-| 图形枚举、ShaderInterface／SPIR-V 反射 | 提取无 GPU 的图形／Shader 契约与 CPU 反射目标 | 反射当前只处理 SPIR-V 字节与值，不需要 Vulkan 设备；供后端、工具和 CPU 测试共用，glslang 源编译仍归工具 |
-| `graphics/` 的设备、资源、命令与同步 | 提取 Vulkan 后端目标 | Vulkan／VMA 限制在后端；依赖低层图形契约，当前不预建多图形 API 通用接口 |
-| `render/` | 提取 Render 目标 | 帧、RenderGraph、资源、pass 属于同一呈现域；世界提取和资产发布明确集成方向，CPU 世界不反向依赖 Render |
-| `scripting/` 与 ScriptSystem | 提取可选脚本目标 | Lua 生命周期及世界绑定留在脚本模块，World／基础 Runtime 不强制链接 Lua；UI VM 与行为 VM 继续隔离所有权 |
-| PhysicsSystem／Jolt、`audio/`／AudioSystem | 分别提取可选物理、音频目标 | 第三方后端不进入 World 公共头；音频 CPU 数据／解码与设备播放区分，离线工具不创建音频设备 |
-| `engine/src/ui/` | 保留独立 Engine UI 目标，统一命名与依赖入口 | 改为依赖所需的输入／资产／平台／渲染模块，完整 Editor／App 共用项目 UI；页面与业务继续归项目 |
-| `config/`、`diagnostics/`、geometry／计时等小工具 | 按职责归入所属模块，暂不各拆一个库 | Config／Profile 聚合放组合层，日志／CPU 计时留基础层，GPU 诊断留 Render；基础层不依赖大 Config 或含输入动作的 Project 描述 |
+| `SceneRuntime`、System 契约、时间与会话 | Runtime | 依赖 World／Input／资产值契约；与图形 Application 分开，具体系统由组合层注册 |
+| AssetHandle、Registry、产品数据／加载与驻留 | AssetData 与运行时资产服务 | 导入生产、运行时加载、GPU 发布分别负责；拆开 AssetManager 的混合职责 |
+| `core/window` 与 GLFW 接线 | Platform | 平台适配提供采样及窗口服务，Input 的动作求值和改键不反向依赖 GLFW |
+| `graphics/`、`render/` | 图形后端与 Render | Vulkan／VMA 归后端；Render 消费场景提取与资源服务，World 不反向依赖 Render |
+| `scripting/` 与 ScriptSystem | Scripting | Lua 生命周期及世界绑定归脚本模块，World 只保存配置；UI VM 与行为 VM 保持独立所有权 |
+| PhysicsSystem／Jolt、Audio／AudioSystem | Physics、Audio | 持久组件与运行对象分开，第三方后端不进入 World 公共头；由组合层管理启停和失败清理 |
+| `engine/src/ui/` | Engine UI | 先依赖输入／资产／平台／渲染的必要接口，再纳入统一 engine 组合，消除对完整 engine 的反向链接；项目页面与业务仍归 demo／项目 |
+| `config/`、`diagnostics/` 与纯 CPU 工具 | 按职责归属 | Config／Profile 聚合归组合层，日志与 CPU 计时归 Foundation，GPU 诊断归 Render；不按小目录机械拆库 |
 
-`config.h` 当前使用的是不含 Vulkan 头的图形枚举；目录间引用本身不代表 GPU 后端依赖。
-处理 Config／Graphics 和 Scene／Scripting 的交叉引用时，先区分值契约与运行实现，再归属参数、组件定义和系统接线。
-稳定资产身份／CPU 产品契约位于世界与后端共同可用的低层；AssetPipeline 与 RuntimeAssets 分别生产／消费产品，互不反向链接。
-Runtime 依赖 World／Input／CPU 资产契约，具体脚本、物理、音频系统消费 Runtime 契约；UI 消费输入与呈现服务。
-Engine 图形宿主和构建组合入口位于上层，拥有具体模块的装配、启动和逆序关闭。
+模块边界同时覆盖源码依赖和生命周期；不得只把现有混合职责换一个 target 名称。
+关闭或未装配某个运行系统时仍能读取、编辑和保存其持久配置；实际运行缺少服务时明确诊断，不丢弃组件。
+保留日志、Schema、Registry 与第三方实现的唯一所有权，避免同一宿主进程重复编入全局状态。
+不为每个模块默认新增 CMake 开关；仅保留有实际使用场景的能力选择。
 
-**统一对外入口与裁剪：**计划提供 `Comet::Engine` 完整图形组合、`Comet::Runtime` 无图形组合和资产生产工具入口，
-常规项目不逐一拼接内部库。内部优先静态／对象目标，保留单个 engine 动态库交付的可能；拆 target 不承诺新增 DLL 或热插拔。
-当前 UI 依赖完整 engine，不能让 engine 再直接链接 UI 形成环；须先拆出底层依赖，再用上层组合目标聚合。
-组件 Schema、Registry、日志、任务与第三方实现保持明确的共享所有权，不能因重复编入宿主／模块而产生多份全局状态；
-Windows 导出宏、静态聚合、传递头文件和链接接口一起设计，实际多 DLL 时使用各模块导出策略。
+**推进顺序与验收：**每步使用现有 App、Editor 和测试作为消费者，不新增构建项目。
 
-目标构建策略：完整 Editor 默认包含游戏 UI，在 Play 视口运行与 App 相同的项目页面／控制器；编辑器工具面板继续使用 ImGui。
-发布 App 按项目声明决定是否创建 UI，会话不存在时不装配示例菜单；构建裁剪与运行时不创建界面分别验收。
-Headless 与资产工具按用途关闭窗口、图形和 UI；Lua／物理／音频按项目需求显式选择。关闭后端仍能读取、编辑和保存其持久配置，
-实际运行依赖缺失时明确报告不支持，不静默丢弃组件；测试按所需能力分组，基础测试不强制启用全部后端。
-能力依赖在配置期检查；当前 Lua UI 控制器仍需要 Lua，关闭场景脚本系统不等于删除 UI 所需的 Lua 库，二者共用唯一第三方构建目标。
+1. **基础与数据边界（首轮已完成）**：内部对象库汇入 engine；正向依赖通过，传递反向依赖能被检查捕获。
+   现有资产准备、Shader 编译／反射、缓存复用和失败保留测试继续通过。
+2. **World／Runtime 与宿主**：分离持久内容、运行会话和图形启动器，明确 Input／Platform 接线；
+   验证固定步、暂停／单步、重开和关闭，两个世界状态隔离，呈现延期不决定模拟推进。
+3. **资产与系统服务**：拆开 AssetManager 的导入、加载和 GPU 发布职责；迁移 Physics／Audio／Scripting，
+   显式装配服务，验证部分启动失败、逆序清理和重复 Play／Stop，数据模块不引入后端。
+4. **图形与游戏 UI**：收束 Graphics／Render／Platform／UI 的依赖，通过统一 engine 入口组合；
+   完整 Editor 的项目 UI 预览／Play 与 App 共用页面和控制器，编辑器工具面板继续使用 ImGui。
+5. **现有构建回归**：验证现有 Debug、Editor、Release 配置，CI 复用现有构建；
+   检查 include 方向、链接依赖、唯一符号与 Windows 导出，按现有标签运行对应测试。
 
-**推进顺序与验收：**每步交付可独立配置／构建的真实消费者，保留已有生命周期、输入授权和失败恢复协议。
-
-1. **基础与 CPU 资产链路**：建立 Foundation／低层契约及 CPU 资产目标，拆离源导入与 GPU 发布；
-   资产准备 CLI 和基础测试在无 Vulkan／GLFW／UI SDK 的配置中构建、生成产品，Shader 反射独立 CPU 验收；
-   第三方与 Shader 构建任务只按所需能力启用，基础 Runtime 不强制生成图形 Shader。
-2. **World／Runtime 与宿主**：分离内容、会话和图形启动器，建立 Input 与 Platform 边界；
-   无窗口进程完成启动、固定步、暂停／单步、重开与关闭；图形帧 Deferred 不决定模拟推进，两个世界状态隔离。
-3. **可选系统**：迁移 Physics／Audio／Scripting，实现显式服务与系统装配；
-   分别验证启用／关闭、缺失能力诊断、部分启动失败清理和重复 Play／Stop，CPU 核心不传递链接后端。
-4. **图形与游戏 UI 组合**：收束 Vulkan／Render／Platform 和 UI 依赖，提供统一对外组合入口；
-   完整 Editor 的项目 UI 预览／Play 与发布 App 同路，无 Editor 的 App 不携带编辑器状态、面板或源导入器。
-5. **构建与发布矩阵**：CI 分别配置无图形 Runtime／CPU 工具、无 Editor 的产品 App、完整 Editor；
-   各用例运行与能力对应的测试，独立编译公开头并检查实际链接／交付依赖、安装后的外部 CMake 消费和 Windows 导出。
-   继续执行 include 边界检查，增加 target 依赖无环检查；使用同一 Release 基准比较编译／链接与运行结果。
-
-拆库收益以可裁剪依赖、增量构建和交付体积衡量；运行性能另测 CPU／GPU 分位耗时、热路径分配和内存峰值，
-不得为模块边界引入逐实体虚调用、通用事件转发或序列化往返。保留必要的跨模块优化能力，不把拆库本身当成性能提升。
-
-现有依赖表、include 检查和视口访问边界见[模块依赖方向](architecture/overview.md#模块依赖方向)；
-后续以独立 Runtime 构建验证目标拆分，并持续收窄 Engine／Editor 的穿透访问。
+拆分收益以职责清晰、依赖约束和增量构建衡量；运行性能另测 CPU／GPU 耗时、分配与内存峰值。
+不得为模块边界引入逐实体虚调用、通用事件转发或序列化往返，也不把 target 数量当成架构质量。
+现有依赖规则见[模块依赖方向](architecture/overview.md#模块依赖方向)；持续收窄 Engine／Editor 的穿透访问。
 
 <a id="宿主编排与场景激活的后续验收阶段-47"></a>
 

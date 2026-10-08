@@ -2,6 +2,36 @@
 
 描述当前运行时、编辑器、资产与渲染的调用链、所有权和失败边界；待实现能力与验收见[路线图](../engine-roadmap.md)。
 
+## 构建模块
+
+模块拆分用于约束引擎内部职责和依赖；保留现有 `build/`、`build-editor/`、`build-release/` 三个构建目录。
+App、Editor 和资产准备工具继续链接 `engine`／`Comet::Engine`，无需逐个组装内部模块。
+`engine/cmake/module_sources.cmake` 显式分配实现，`modules.cmake` 定义以下对象库，最终共同编入一个 engine 动态库：
+
+| 内部目标 | 职责与主要依赖 |
+| --- | --- |
+| `comet_foundation` | 文件、错误／UUID、数学、任务、项目路径、基础日志与 CPU 计时；GLM、spdlog、Threads |
+| `comet_serialization` | JSON 读取与校验；Foundation、simdjson |
+| `comet_shader_contracts` | 后端无关 Shader 契约与 SPIR-V 反射；Foundation、SPIRV-Reflect |
+| `comet_asset_data` | 资产身份、Registry、CPU 产品数据及其序列化；Serialization、ShaderContracts |
+| `comet_input` | 输入采样值、动作、运行域求值、改键草稿与个人设置；Serialization |
+| `comet_world` | 实体、组件、Schema、层级与持久场景序列化；AssetData、Input、EnTT |
+| `comet_asset_pipeline` | 扫描索引、Artifact、源导入与任务队列；AssetData、stb_image、fastgltf |
+
+项目／Profile 配置聚合、窗口、图形、渲染及具体运行系统暂由 engine 主目标组合，后续逐步收窄内部边界。
+对象库只产生编译中间文件；不增加模块动态库、独立构建目录或单独的 CPU 测试入口。
+全局日志、组件 Schema 与任务状态在宿主进程中仍由 engine 提供唯一实现，继续使用统一 `COMET_API`。
+`LogSettings` 归 Foundation；`Config::Log` 保留别名，基础日志头不再依赖完整 Config。
+
+现有 `comet_shader_compiler` 是生成 Shader 的构建工具，直接使用 Foundation 对象实现文件操作。
+它在独立进程内运行，不链接 engine，避免 engine → Shader 生成 → 编译工具 → engine 的构建环。
+资产准备 CLI 继续使用现有 `tools/asset` 目标和 engine，同一构建提供源码编译、缓存格式及失败恢复。
+这些工具没有新增构建 Profile。
+
+依赖检查从每个内部模块的实际源清单追踪引擎头的传递包含：基础层不依赖配置聚合，Input 不依赖 World，
+AssetData 不依赖导入管线，各纯数据／逻辑模块不引入窗口、图形或运行系统后端。
+正常源码检查与故意引入反向依赖的检查均并入现有 CTest。
+
 ## 模块依赖方向
 
 | 模块 | 当前允许的主要依赖 | 边界与例外 |
@@ -33,7 +63,7 @@ clone 直接使用内存内容快照，保留 UUID、实体引用及树遍历创
 `editor/src/` 功能代码不得直接包含 SceneRenderer、RenderContext、FrameScheduler、Presentation 或 Vulkan/GLFW 头；
 只有 `editor/src/ui/imgui_context.h/.cpp` 作为独立 `editor_imgui` 呈现适配允许连接图形后端；
 其 include 单独检查，不允许依赖编辑器工作流。`editor/editor.cpp` 是扫描范围外的宿主集成点。
-这些是防止依赖倒退的轻量检查，不检查传递包含；Engine 核心库与可选 `comet_game_ui` 分开编译。
+目录规则检查直接包含，内部数据／逻辑模块另外检查引擎头的传递包含；Engine 核心库与可选 `comet_game_ui` 分开编译。
 编辑器按链接依赖分为 `editor_core`（无 ImGui）、`editor_imgui`（呈现适配）和 `editor_ui`（功能界面），
 入口及对应测试复用这些库；`editor_imgui` 链接 engine／ImGui，`editor_ui` 组合 core 与呈现适配。
 app 直接链接 `comet_game_ui`，不链接 ImGui 或编辑器库。字体归 Engine 公共资源，ImGui 专用 Shader 归 `editor/shaders/`。

@@ -1,6 +1,6 @@
 #pragma once
 #include "common/export.h"
-#include "config/config.h"
+#include "diagnostics/log_settings.h"
 
 #include <cassert>
 #include <exception>
@@ -21,7 +21,7 @@ namespace Comet {
 
         Logger& operator=(const Logger&) = delete;
 
-        static void init(const Config::Log& config = {}, bool enable_profiler = false);
+        static void init(const LogSettings& config = {}, bool enable_profiler = false);
 
         static void shutdown();
 
