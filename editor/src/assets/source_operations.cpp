@@ -8,7 +8,7 @@
 #include "asset/import/mesh_importer.h"
 #include "asset/import/texture_importer.h"
 #include "asset/import/environment_importer.h"
-#include "scripting/script.h"
+#include "asset/script.h"
 #include "audio/audio.h"
 #include "diagnostics/logger.h"
 #include <fastgltf/core.hpp>

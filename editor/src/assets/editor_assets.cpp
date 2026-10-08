@@ -6,7 +6,7 @@
 #include "asset/serialization/material_serializer.h"
 #include "assets/source_operations.h"
 #include "core/task_scheduler.h"
-#include "scripting/script.h"
+#include "asset/script.h"
 
 #include <algorithm>
 #include <unordered_set>

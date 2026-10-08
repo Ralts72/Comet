@@ -1,3 +1,4 @@
+#include "scripting/script_instance.h"
 #include "scene/systems/script_system.h"
 #include "asset/registry.h"
 #include "scene/script_component.h"
@@ -33,7 +34,7 @@ namespace Comet {
 
     void ScriptSystem::stop_entry(Entry& entry, const StopReason reason) noexcept {
         std::vector<std::string> disabled_contexts;
-        if(auto stopped = entry.instance->invoke(Script::Phase::Stop, {}, entry.parameters,
+        if(auto stopped = entry.instance->invoke(ScriptInstance::Phase::Stop, {}, entry.parameters,
                {.disabled_input_contexts = &disabled_contexts});
             !stopped)
             LOG_ERROR("Script cleanup failed: {}", stopped.error().message);
@@ -58,9 +59,9 @@ namespace Comet {
         m_physics = nullptr;
     }
 
-    Result<void, Error> ScriptSystem::invoke(const Key& key, Entry& entry, Script::Phase phase,
-        const Context* context, const Entity contact_other, const std::string_view event_handler,
-        const ParameterValue* event_value) {
+    Result<void, Error> ScriptSystem::invoke(const Key& key, Entry& entry,
+        ScriptInstance::Phase phase, const Context* context, const Entity contact_other,
+        const std::string_view event_handler, const ParameterValue* event_value) {
         const auto& overrides = entry.entity.get_component<ScriptComponent>().parameters;
         if(!entry.overrides || *entry.overrides != overrides) {
             auto parameters = entry.script->resolve_parameters(overrides);
@@ -70,7 +71,7 @@ namespace Comet {
             entry.parameters = std::move(parameters).value();
             entry.overrides = overrides;
         }
-        Script::Invocation invocation;
+        ScriptInstance::Invocation invocation;
         invocation.scene = m_scene;
         invocation.session = m_session;
         invocation.audio = m_audio;
@@ -95,7 +96,7 @@ namespace Comet {
         auto parameters = script->resolve_parameters(overrides);
         if(!parameters)
             return Result<Entry, Error>::failure(parameters.error());
-        auto instance = script->instantiate();
+        auto instance = ScriptInstance::create(*script);
         if(!instance)
             return Result<Entry, Error>::failure(instance.error());
         return Result<Entry, Error>::success({entity, std::move(script),
@@ -261,7 +262,7 @@ namespace Comet {
             auto& component = entry.entity.get_component<ScriptComponent>();
             component.parameters = *entry.overrides;
             m_start_order.push_back(key);
-            if(auto started = invoke(key, entry, Script::Phase::Start); !started)
+            if(auto started = invoke(key, entry, ScriptInstance::Phase::Start); !started)
                 return started;
         }
         return Result<void, Error>::success();
@@ -301,7 +302,7 @@ namespace Comet {
                     {key.entity.to_string() + ": " + prepared.error().message});
             auto& entry = m_entries.emplace(key, std::move(prepared).value()).first->second;
             m_start_order.push_back(key);
-            if(auto started = invoke(key, entry, Script::Phase::Start); !started)
+            if(auto started = invoke(key, entry, ScriptInstance::Phase::Start); !started)
                 return started;
         }
         return Result<void, Error>::success();
@@ -316,7 +317,7 @@ namespace Comet {
         return synchronize(scene);
     }
     Result<void, Error> ScriptSystem::dispatch(
-        Scene& scene, const Context& context, Script::Phase phase) {
+        Scene& scene, const Context& context, ScriptInstance::Phase phase) {
         if(auto synced = synchronize(scene); !synced)
             return synced;
         // 结构请求在阶段结束后提交，synchronize 已保证本轮实例有效。
@@ -326,25 +327,25 @@ namespace Comet {
         return Result<void, Error>::success();
     }
     Result<void, Error> ScriptSystem::fixed_update(Scene& scene, const Context& context) {
-        return dispatch(scene, context, Script::Phase::FixedUpdate);
+        return dispatch(scene, context, ScriptInstance::Phase::FixedUpdate);
     }
     Result<void, Error> ScriptSystem::dispatch_contacts(Scene& scene, const Context& context) {
         for(const auto& event : scene.get_contact_events()) {
             if(!scene.is_valid(event.first) || !scene.is_valid(event.second))
                 continue;
-            Script::Phase phase;
+            ScriptInstance::Phase phase;
             switch(event.kind) {
                 case Scene::ContactEvent::Kind::CollisionEnter:
-                    phase = Script::Phase::CollisionEnter;
+                    phase = ScriptInstance::Phase::CollisionEnter;
                     break;
                 case Scene::ContactEvent::Kind::CollisionExit:
-                    phase = Script::Phase::CollisionExit;
+                    phase = ScriptInstance::Phase::CollisionExit;
                     break;
                 case Scene::ContactEvent::Kind::TriggerEnter:
-                    phase = Script::Phase::TriggerEnter;
+                    phase = ScriptInstance::Phase::TriggerEnter;
                     break;
                 case Scene::ContactEvent::Kind::TriggerExit:
-                    phase = Script::Phase::TriggerExit;
+                    phase = ScriptInstance::Phase::TriggerExit;
                     break;
                 default:
                     return Result<void, Error>::failure({"Unknown contact event kind"});
@@ -373,8 +374,8 @@ namespace Comet {
                 if(handler == handlers.end())
                     continue;
                 const auto* value = event.value ? &*event.value : nullptr;
-                if(auto delivered = invoke(
-                       key, entry, Script::Phase::Event, &context, {}, handler->second, value);
+                if(auto delivered = invoke(key, entry, ScriptInstance::Phase::Event, &context, {},
+                       handler->second, value);
                     !delivered)
                     return delivered;
             }
@@ -382,7 +383,7 @@ namespace Comet {
         return Result<void, Error>::success();
     }
     Result<void, Error> ScriptSystem::update(Scene& scene, const Context& context) {
-        if(auto updated = dispatch(scene, context, Script::Phase::Update); !updated)
+        if(auto updated = dispatch(scene, context, ScriptInstance::Phase::Update); !updated)
             return updated;
         if(auto contacted = dispatch_contacts(scene, context); !contacted)
             return contacted;

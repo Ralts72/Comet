@@ -1,7 +1,7 @@
 #pragma once
 
 #include "scene/property.h"
-#include "scripting/script.h"
+#include "asset/script.h"
 
 #include <functional>
 #include <cstdint>

@@ -16,7 +16,6 @@ namespace Comet {
     class AssetRegistry;
     class AudioService;
     class PhysicsService;
-    class ScriptSystem;
     class Scene;
     class TaskScheduler;
     class Window;
@@ -71,7 +70,6 @@ namespace Comet {
             return m_scene_runtime.take_restart_request();
         }
         [[nodiscard]] const SceneRuntime& get_scene_runtime() const { return m_scene_runtime; }
-        [[nodiscard]] const ScriptSystem* get_script_system() const { return m_script_system; }
         [[nodiscard]] AssetRegistry& get_asset_registry() { return *m_asset_registry; }
         [[nodiscard]] const AssetRegistry& get_asset_registry() const { return *m_asset_registry; }
 
@@ -100,7 +98,6 @@ namespace Comet {
         std::unique_ptr<AudioService> m_audio_service;
         std::unique_ptr<PhysicsService> m_physics_service;
         SceneRuntime m_scene_runtime;
-        const ScriptSystem* m_script_system = nullptr;
         FrameDiagnostics m_frame_diagnostics;
         bool m_running = false;
         bool m_shutdown_prepared = false;

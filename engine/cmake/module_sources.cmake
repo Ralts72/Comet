@@ -1,6 +1,8 @@
 # Explicit internal ownership; all implementations are delivered by engine.
 
 set(COMET_FOUNDATION_SOURCES
+    src/common/parameters.cpp
+    src/common/parameters.h
     src/common/file_io.cpp
     src/common/retry_backoff.cpp
     src/common/uuid.cpp
@@ -23,6 +25,10 @@ set(COMET_SHADER_CONTRACTS_SOURCES
 )
 
 set(COMET_ASSET_DATA_SOURCES
+    src/asset/script.cpp
+    src/asset/script.h
+    src/asset/data/script_sources.cpp
+    src/asset/data/script_sources.h
     src/asset/handle.cpp
     src/asset/import_settings.cpp
     src/asset/metadata.cpp
@@ -84,8 +90,9 @@ set(COMET_PHYSICS_SOURCES
 )
 
 set(COMET_SCRIPTING_SOURCES
-    src/scripting/script.cpp
-    src/scripting/script.h
+    src/scripting/script_instance.cpp
+    src/scripting/script_instance.h
+    src/scripting/script_compiler.h
     src/scripting/lua_bindings.cpp
     src/scripting/lua_bindings.h
     src/scene/systems/script_system.cpp
@@ -112,6 +119,7 @@ set(COMET_RUNTIME_ASSETS_SOURCES
     src/asset/asset_manager.h
     src/asset/asset_manager_async.cpp
     src/asset/asset_manager_scripts.cpp
+    src/asset/runtime/script_loader.cpp
     src/asset/runtime/asset_loader.cpp
     src/asset/runtime/asset_loader.h
     src/asset/runtime/render_asset_publisher.h

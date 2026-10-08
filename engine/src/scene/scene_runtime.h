@@ -4,6 +4,7 @@
 #include "input/runtime_input.h"
 #include "scene/runtime_session.h"
 
+#include <concepts>
 #include <memory>
 #include <vector>
 
@@ -43,6 +44,14 @@ namespace Comet {
         Result<void, Error> rebind_input_actions(InputActions actions);
         Result<void, Error> add_system(std::unique_ptr<System> system);
         Result<void, Error> clear_systems();
+        // 按注册顺序查询；只读借用在 clear_systems 或 Runtime 销毁后失效。
+        template<std::derived_from<System> T> [[nodiscard]] const T* find_system() const {
+            for(const auto& system : m_systems)
+                if(const auto* found = dynamic_cast<const T*>(system.get()))
+                    return found;
+            return nullptr;
+        }
+
         // Rebase 在首张授权输入上建立基线，不把开局前的按下／位移重放到新局。
         Result<void, Error> start(
             Scene& scene, State state = State::Running, InputStart input = InputStart::Fresh);

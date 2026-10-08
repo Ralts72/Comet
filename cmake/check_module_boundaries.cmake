@@ -31,7 +31,7 @@ set(FOUNDATION_HEADERS
 set(SERIALIZATION_HEADERS "${FOUNDATION_HEADERS}")
 set(SHADER_HEADERS "${FOUNDATION_HEADERS}|graphics/(enums|pipeline/shader_interface)\\.h$")
 set(ASSET_HEADERS
-    "${SERIALIZATION_HEADERS}|${SHADER_HEADERS}|asset/(data/|serialization/|(handle|metadata|import_settings|registry|reference)\\.h$)")
+    "${SERIALIZATION_HEADERS}|${SHADER_HEADERS}|asset/(data/|serialization/|(handle|metadata|import_settings|registry|reference|script)\\.h$)")
 set(INPUT_HEADERS "${SERIALIZATION_HEADERS}|input/")
 set(WORLD_HEADERS
     "${ASSET_HEADERS}|scene/(component_registry|components|entity|entity_id|entity_uuid|material_parameters|property|scene|scene_serializer|scene_settings|script_component)\\.h$")
@@ -44,7 +44,7 @@ set(AUDIO_HEADERS "${RUNTIME_HEADERS}|audio/|scene/systems/audio_system\\.h$")
 set(PHYSICS_HEADERS "${RUNTIME_HEADERS}|physics/|scene/systems/physics_system\\.h$")
 set(PHYSICS_BACKEND_HEADERS "${ASSET_HEADERS}|physics/|scene/(components|entity_id|entity_uuid)\\.h$")
 set(SCRIPTING_HEADERS "${RUNTIME_HEADERS}|scripting/|scene/systems/script_system\\.h$")
-set(RUNTIME_ASSET_HEADERS "${PIPELINE_HEADERS}|${RUNTIME_HEADERS}|asset/(asset_manager\\.h$|runtime/)|scripting/script\\.h$|audio/audio\\.h$|graphics/error\\.h$")
+set(RUNTIME_ASSET_HEADERS "${PIPELINE_HEADERS}|asset/(asset_manager\\.h$|runtime/)|scripting/script_compiler\\.h$|audio/audio\\.h$|graphics/error\\.h$")
 set(RENDER_ASSET_HEADERS "${FOUNDATION_HEADERS}|asset/(handle|registry)\\.h$|asset/data/|asset/runtime/render_asset_publisher\\.h$|graphics/|render/(resource/|material/material\\.h$)")
 
 function(check_module_closure module sources allowed)
@@ -67,7 +67,7 @@ function(check_module_closure module sources allowed)
                     (module MATCHES "^Physics" AND path STREQUAL "physics/physics_service.cpp"
                     AND line MATCHES "[<\"]Jolt/") OR
                     (module STREQUAL "Scripting" AND
-                    path MATCHES "^scripting/(script|lua_bindings)\\.cpp$" AND
+                    path MATCHES "^scripting/(script_instance|lua_bindings)\\.cpp$" AND
                     line MATCHES "[<\"](lua|lauxlib|lualib)\\.h[>\"]")))
                     message(FATAL_ERROR "${module} includes a runtime backend: ${path}: ${line}")
                 endif()

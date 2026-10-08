@@ -1,4 +1,5 @@
-#include "scripting/script.h"
+#include "scripting/script_instance.h"
+#include "asset/script.h"
 #include "scene/script_component.h"
 #include "scene/material_parameters.h"
 #include "scene/scene.h"
@@ -308,10 +309,10 @@ namespace Comet::Tests {
             const auto script =
                 Script::create(std::string("return {update = function() ") + invalid + " end}");
             ASSERT_TRUE(script) << script.error().message;
-            auto instance = script.value()->instantiate();
+            auto instance = ScriptInstance::create(*script.value());
             ASSERT_TRUE(instance) << instance.error().message;
-            const auto update = instance.value()->invoke(
-                Script::Phase::Update, entity, {}, {.scene = &scene, .materials = &materials});
+            const auto update = instance.value()->invoke(ScriptInstance::Phase::Update, entity, {},
+                {.scene = &scene, .materials = &materials});
             ASSERT_FALSE(update);
             EXPECT_FALSE(update.error().message.empty());
             EXPECT_EQ(scene.get_material_overrides(entity), accepted);
@@ -322,10 +323,10 @@ namespace Comet::Tests {
         const auto script = Script::create(
             "return {update = function() comet.set_material_scalar('roughness', 0.5) end}");
         ASSERT_TRUE(script);
-        auto without_validator = script.value()->instantiate();
+        auto without_validator = ScriptInstance::create(*script.value());
         ASSERT_TRUE(without_validator);
         EXPECT_FALSE(without_validator.value()->invoke(
-            Script::Phase::Update, entity, {}, {.scene = &scene}));
+            ScriptInstance::Phase::Update, entity, {}, {.scene = &scene}));
         EXPECT_EQ(scene.get_material_overrides(entity), accepted);
         ASSERT_TRUE(runtime.stop());
     }
@@ -1975,13 +1976,13 @@ namespace Comet::Tests {
         const std::array<std::filesystem::path, 1> roots{"scripts/collect_goal.lua"};
         auto scripts = Script::load_group(project.value().paths().assets(), roots);
         ASSERT_TRUE(scripts) << scripts.error().message;
-        auto instance = scripts.value().front()->instantiate();
+        auto instance = ScriptInstance::create(*scripts.value().front());
         ASSERT_TRUE(instance);
         const auto goal = scene.create_entity("Goal");
         const auto player = scene.create_entity("Player");
         const auto other = scene.create_entity("Other");
         for(const auto target : {player.get_uuid(), EntityUuid{}}) {
-            ASSERT_TRUE(instance.value()->invoke(Script::Phase::TriggerEnter, goal,
+            ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::TriggerEnter, goal,
                 {{"player", target}}, {.scene = &scene, .contact_other = other}));
         }
         EXPECT_TRUE(scene.is_valid(goal));

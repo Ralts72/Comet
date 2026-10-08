@@ -105,6 +105,28 @@ namespace Comet::Tests {
         }
     };
 
+    TEST_F(SceneRuntimeTest, SystemQueryFollowsRegistrationAndClearWithoutOwningSystems) {
+        EXPECT_EQ(runtime.find_system<RecordingSystem>(), nullptr);
+        EXPECT_EQ(runtime.find_system<CameraControllerSystem>(), nullptr);
+        auto* first = add("First");
+        add("Second");
+        ASSERT_TRUE(runtime.add_system(std::make_unique<CameraControllerSystem>()));
+        const auto& observer = runtime;
+        EXPECT_EQ(observer.find_system<RecordingSystem>(), first);
+        EXPECT_NE(observer.find_system<CameraControllerSystem>(), nullptr);
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_EQ(observer.find_system<RecordingSystem>(), first);
+        EXPECT_FALSE(runtime.clear_systems());
+        EXPECT_EQ(observer.find_system<RecordingSystem>(), first);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_EQ(observer.find_system<RecordingSystem>(), first);
+        ASSERT_TRUE(runtime.clear_systems());
+        EXPECT_EQ(observer.find_system<RecordingSystem>(), nullptr);
+        EXPECT_EQ(observer.find_system<CameraControllerSystem>(), nullptr);
+        auto* replacement = add("Replacement");
+        EXPECT_EQ(observer.find_system<RecordingSystem>(), replacement);
+    }
+
     TEST_F(SceneRuntimeTest, CursorCaptureRequiresFreshAuthorizationAcrossRuntimeBoundaries) {
         add("No capture");
         auto* system = add("Capture");

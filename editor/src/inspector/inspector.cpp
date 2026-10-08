@@ -6,8 +6,9 @@
 
 #include "scene/component_registry.h"
 #include "scene/script_component.h"
+#include "scene/scene_runtime.h"
 #include "asset/registry.h"
-#include "scripting/script.h"
+#include "asset/script.h"
 #include "scene/systems/script_system.h"
 
 #include <imgui.h>
@@ -29,11 +30,11 @@ namespace CometEditor {
         const Comet::ComponentRegistry& component_registry,
         const PropertyEditorRegistry& property_editor_registry,
         const Comet::AssetDatabase& asset_database, const Comet::AssetRegistry& runtime_assets,
-        const Comet::MaterialPrograms& programs, const Comet::ScriptSystem* scripts)
+        const Comet::MaterialPrograms& programs, const Comet::SceneRuntime* runtime)
         : EditorPanel("Inspector"), m_state(state), m_selection(selection), m_history(history),
           m_property_edit(property_edit), m_component_registry(component_registry),
           m_property_editor_registry(property_editor_registry), m_asset_database(asset_database),
-          m_runtime_assets(runtime_assets), m_scripts(scripts),
+          m_runtime_assets(runtime_assets), m_runtime(runtime),
           m_asset_inspector(asset_database, programs) {}
 
     void InspectorPanel::render() {
@@ -272,8 +273,10 @@ namespace CometEditor {
         const auto& binding = entity.get_component<Comet::ScriptComponent>();
         std::shared_ptr<const Comet::Script> script;
         if(m_state.mode == EditorMode::Play) {
-            if(m_scripts)
-                script = m_scripts->running_script(entity);
+            if(m_runtime) {
+                if(const auto* scripts = m_runtime->find_system<Comet::ScriptSystem>())
+                    script = scripts->running_script(entity);
+            }
         } else
             script = m_runtime_assets.resolve<Comet::Script>(binding.asset);
         const PropertyEditTransaction::Target target{entity.get_uuid(), component.id, property.id};

@@ -1,3 +1,4 @@
+#include "scripting/script_instance.h"
 #include "audio/audio_service.h"
 #include "asset/registry.h"
 #include "common/scope_exit.h"
@@ -224,7 +225,7 @@ namespace Comet::Tests {
             }
         )");
         ASSERT_TRUE(script);
-        auto instance = script.value()->instantiate();
+        auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
         auto entity = scene.create_entity("Cue");
         auto& source = entity.add_component<AudioSourceComponent>();
@@ -233,27 +234,27 @@ namespace Comet::Tests {
         add_audio_system();
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(instance.value()->invoke(
-            Script::Phase::Update, entity, {}, {.scene = &scene, .audio = &audio}));
+            ScriptInstance::Phase::Update, entity, {}, {.scene = &scene, .audio = &audio}));
         const auto missing =
-            instance.value()->invoke(Script::Phase::Update, entity, {}, {.scene = &scene});
+            instance.value()->invoke(ScriptInstance::Phase::Update, entity, {}, {.scene = &scene});
         ASSERT_FALSE(missing);
         EXPECT_NE(missing.error().message.find("Audio service is unavailable"), std::string::npos);
         EXPECT_FLOAT_EQ(entity.get_component<TransformComponent>().translation.x, 1);
         Scene other_scene;
         auto other_entity = other_scene.create_entity("Other");
         other_entity.add_component<AudioSourceComponent>().clip = cue_handle;
-        const auto wrong_scene = instance.value()->invoke(
-            Script::Phase::Update, other_entity, {}, {.scene = &other_scene, .audio = &audio});
+        const auto wrong_scene = instance.value()->invoke(ScriptInstance::Phase::Update,
+            other_entity, {}, {.scene = &other_scene, .audio = &audio});
         ASSERT_FALSE(wrong_scene);
         EXPECT_NE(wrong_scene.error().message.find("another scene"), std::string::npos);
         EXPECT_FLOAT_EQ(other_entity.get_component<TransformComponent>().translation.x, 0);
         const auto stopped = instance.value()->invoke(
-            Script::Phase::Stop, entity, {}, {.scene = &scene, .audio = &audio});
+            ScriptInstance::Phase::Stop, entity, {}, {.scene = &scene, .audio = &audio});
         ASSERT_FALSE(stopped);
         EXPECT_NE(stopped.error().message.find("valid Audio Source"), std::string::npos);
         ASSERT_TRUE(runtime.stop());
         const auto inactive = instance.value()->invoke(
-            Script::Phase::Update, entity, {}, {.scene = &scene, .audio = &audio});
+            ScriptInstance::Phase::Update, entity, {}, {.scene = &scene, .audio = &audio});
         ASSERT_FALSE(inactive);
         EXPECT_NE(inactive.error().message.find("inactive"), std::string::npos);
     }

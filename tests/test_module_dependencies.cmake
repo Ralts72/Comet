@@ -39,6 +39,14 @@ probe_dependency("src/asset/database.cpp" "<vulkan/vulkan_core.h>"
     "AssetPipeline includes a runtime backend")
 probe_dependency("src/input/input.cpp" "\"scene/scene.h\""
     "Input violates module dependencies")
+probe_dependency("src/asset/script.h" "\"scene/entity.h\""
+    "AssetData violates module dependencies")
+probe_dependency("src/asset/script.h" "\"scripting/script_instance.h\""
+    "AssetData violates module dependencies")
+probe_dependency("src/common/parameters.h" "\"scene/property.h\""
+    "Foundation violates module dependencies")
+probe_dependency("src/asset/runtime/script_loader.cpp" "\"scripting/script_instance.h\""
+    "RuntimeAssets violates module dependencies")
 probe_dependency("src/asset/data/material_data.cpp" "\"asset/database.h\""
     "AssetData violates module dependencies")
 probe_dependency("src/scene/scene_runtime.cpp" "\"core/engine.h\""
@@ -83,7 +91,7 @@ probe_dependency("src/scene/systems/script_system.h" "<lua.h>"
     "Scripting includes a runtime backend")
 probe_dependency("src/scene/systems/script_system.h" "<lauxlib.h>"
     "Scripting includes a runtime backend")
-probe_dependency("src/scripting/script.cpp" "\"physics/physics_service.h\""
+probe_dependency("src/scripting/script_instance.cpp" "\"physics/physics_service.h\""
     "Scripting violates module dependencies")
 probe_dependency("src/scripting/lua_bindings.cpp" "\"render/material/material_programs.h\""
     "Scripting violates module dependencies")

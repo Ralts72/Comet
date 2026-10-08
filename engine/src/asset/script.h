@@ -1,7 +1,6 @@
 #pragma once
 
-#include "scene/entity.h"
-#include "scene/property.h"
+#include "common/parameters.h"
 #include "common/error.h"
 #include "common/result.h"
 
@@ -15,17 +14,10 @@
 #include <vector>
 
 namespace Comet {
-    class Entity;
-    class InputState;
-    class MaterialParameterValidator;
-    class Scene;
-    class RuntimeSession;
-    class AudioCommands;
-    class PhysicsCommands;
+    struct ScriptSources;
+    class ScriptInstance;
     // 不可变源码与字段定义；运行实例不存入资产缓存。
     class COMET_API Script final {
-        struct SourceSet;
-
     public:
         struct Property {
             enum class Semantic { Default, Color };
@@ -46,48 +38,7 @@ namespace Comet {
 
         private:
             friend class Script;
-            std::shared_ptr<const SourceSet> m_sources;
-        };
-
-        enum class Phase {
-            Start,
-            FixedUpdate,
-            Update,
-            Stop,
-            CollisionEnter,
-            CollisionExit,
-            TriggerEnter,
-            TriggerExit,
-            Event
-        };
-        struct Invocation {
-            double delta_time = 0;
-            Scene* scene = nullptr;
-            RuntimeSession* session = nullptr;
-            AudioCommands* audio = nullptr;
-            PhysicsCommands* physics = nullptr;
-            const InputState* input = nullptr;
-            Entity contact_other;
-            const MaterialParameterValidator* materials = nullptr;
-            std::string_view event_handler;
-            const ParameterValue* event_value = nullptr;
-            // Stop 只记录关闭请求；宿主在回调结束后决定是否交给运行中的场景。
-            std::vector<std::string>* disabled_input_contexts = nullptr;
-        };
-        class COMET_API Instance final {
-        public:
-            ~Instance();
-            Instance(const Instance&) = delete;
-            Instance& operator=(const Instance&) = delete;
-            Result<void, Error> invoke(
-                Phase phase, Entity entity, const ParameterMap& parameters, Invocation invocation);
-            Result<void, Error> invoke(Phase phase, Entity entity, const ParameterMap& parameters);
-
-        private:
-            friend class Script;
-            struct Impl;
-            explicit Instance(std::unique_ptr<Impl> impl);
-            std::unique_ptr<Impl> m_impl;
+            std::shared_ptr<const ScriptSources> m_sources;
         };
 
         [[nodiscard]] static Result<std::shared_ptr<Script>, Error> load(
@@ -101,7 +52,6 @@ namespace Comet {
         [[nodiscard]] static Result<std::filesystem::path> module_path(std::string_view name);
         [[nodiscard]] static Result<std::string> module_name(
             const std::filesystem::path& relative_path);
-        [[nodiscard]] Result<std::unique_ptr<Instance>, Error> instantiate() const;
         [[nodiscard]] Result<void, Error> validate_overrides(const ParameterMap& overrides) const;
         // 只移除缺失声明或存储类型不匹配的覆盖；值合法性仍由严格校验负责。
         void retain_compatible_overrides(ParameterMap& overrides) const;
@@ -117,16 +67,15 @@ namespace Comet {
         [[nodiscard]] bool has_same_sources(const Script& other) const;
 
     private:
-        [[nodiscard]] Result<std::unique_ptr<Instance>, Error> instantiate(
-            SourceSet* collecting, std::vector<std::filesystem::path>* dependencies) const;
-        Result<void, Error> prepare_definition(SourceSet* collecting = nullptr,
-            std::vector<std::filesystem::path>* dependencies = nullptr);
+        friend class ScriptInstance;
+        friend Result<void, Error> prepare_script_definition(
+            Script&, ScriptSources*, std::vector<std::filesystem::path>*);
 
         std::string m_source;
         std::string m_name;
         std::filesystem::path m_source_path;
         std::vector<std::filesystem::path> m_dependencies;
-        std::shared_ptr<const SourceSet> m_sources;
+        std::shared_ptr<const ScriptSources> m_sources;
         PropertyMap m_properties;
         EventHandlers m_event_handlers;
     };

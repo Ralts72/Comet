@@ -1,3 +1,4 @@
+#include "scripting/script_instance.h"
 #include "physics/physics_service.h"
 #include "audio/audio_service.h"
 #include "asset/registry.h"
@@ -188,7 +189,7 @@ namespace Comet::Tests {
             end, on_stop = function() comet.apply_impulse(100, 0, 0) end}
         )");
         ASSERT_TRUE(script);
-        auto instance = script.value()->instantiate();
+        auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
         Scene other_scene;
         SceneRuntime other_runtime;
@@ -197,33 +198,33 @@ namespace Comet::Tests {
         ASSERT_TRUE(other_runtime.start(other_scene));
         add_physics_system();
         const auto inactive = instance.value()->invoke(
-            Script::Phase::Update, body, {}, {.scene = &scene, .physics = &physics});
+            ScriptInstance::Phase::Update, body, {}, {.scene = &scene, .physics = &physics});
         ASSERT_FALSE(inactive);
         EXPECT_NE(inactive.error().message.find("inactive"), std::string::npos);
         ASSERT_TRUE(runtime.start(scene));
-        const auto foreign = instance.value()->invoke(
-            Script::Phase::Update, other_body, {}, {.scene = &other_scene, .physics = &physics});
+        const auto foreign = instance.value()->invoke(ScriptInstance::Phase::Update, other_body, {},
+            {.scene = &other_scene, .physics = &physics});
         ASSERT_FALSE(foreign);
         EXPECT_NE(foreign.error().message.find("another scene"), std::string::npos);
         ASSERT_TRUE(instance.value()->invoke(
-            Script::Phase::Update, body, {}, {.scene = &scene, .physics = &physics}));
+            ScriptInstance::Phase::Update, body, {}, {.scene = &scene, .physics = &physics}));
         ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_GT(position_x(), 0);
 
         const auto impulse_script =
             Script::create("return {update = function() comet.apply_impulse(100, 0, 0) end}");
         ASSERT_TRUE(impulse_script);
-        auto impulse = impulse_script.value()->instantiate();
+        auto impulse = ScriptInstance::create(*impulse_script.value());
         ASSERT_TRUE(impulse);
         ASSERT_TRUE(impulse.value()->invoke(
-            Script::Phase::Update, body, {}, {.scene = &scene, .physics = &physics}));
+            ScriptInstance::Phase::Update, body, {}, {.scene = &scene, .physics = &physics}));
         const auto missing =
-            impulse.value()->invoke(Script::Phase::Update, body, {}, {.scene = &scene});
+            impulse.value()->invoke(ScriptInstance::Phase::Update, body, {}, {.scene = &scene});
         ASSERT_FALSE(missing);
         EXPECT_NE(
             missing.error().message.find("Physics service is unavailable"), std::string::npos);
         EXPECT_FALSE(instance.value()->invoke(
-            Script::Phase::Stop, body, {}, {.scene = &scene, .physics = &physics}));
+            ScriptInstance::Phase::Stop, body, {}, {.scene = &scene, .physics = &physics}));
         EXPECT_TRUE(physics.is_bound_to(scene));
     }
 

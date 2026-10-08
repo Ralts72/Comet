@@ -1,4 +1,5 @@
-#include "scripting/script.h"
+#include "scripting/script_instance.h"
+#include "asset/script.h"
 #include "physics/physics_service.h"
 #include "scene/entity.h"
 #include "scene/scene.h"
@@ -28,11 +29,12 @@ namespace Comet::Tests {
         const auto file = Script::load(path);
         ASSERT_TRUE(file) << file.error().message;
         for(const auto& script : {memory.value(), file.value()}) {
-            const auto instance = script->instantiate();
+            const auto instance = ScriptInstance::create(*script);
             ASSERT_TRUE(instance) << instance.error().message;
             const auto parameters = script->resolve_parameters({});
             ASSERT_TRUE(parameters);
-            EXPECT_TRUE(instance.value()->invoke(Script::Phase::Update, {}, parameters.value()));
+            EXPECT_TRUE(
+                instance.value()->invoke(ScriptInstance::Phase::Update, {}, parameters.value()));
         }
         EXPECT_EQ(read_text_file(path).value(), source);
         for(const auto* prefix : {"\xef", "\xef\xbb", "\xff\xfe", "\xef\xbb\xbf\xef\xbb\xbf"})
@@ -115,9 +117,9 @@ namespace Comet::Tests {
         ASSERT_TRUE(group) << group.error().message;
         const auto script = group.value().front();
         EXPECT_TRUE(script->inputs_are_current());
-        const auto instance = script->instantiate();
+        const auto instance = ScriptInstance::create(*script);
         ASSERT_TRUE(instance);
-        const auto failed = instance.value()->invoke(Script::Phase::Update, {}, {});
+        const auto failed = instance.value()->invoke(ScriptInstance::Phase::Update, {}, {});
         ASSERT_FALSE(failed);
         EXPECT_NE(failed.error().message.find("value.module.lua:3:"), std::string::npos);
         EXPECT_NE(failed.error().message.find("actor.lua:2:"), std::string::npos);
@@ -127,9 +129,9 @@ namespace Comet::Tests {
         const auto changed = load();
         ASSERT_TRUE(changed);
         EXPECT_FALSE(script->has_same_sources(*changed.value().front()));
-        const auto retained = script->instantiate();
+        const auto retained = ScriptInstance::create(*script);
         ASSERT_TRUE(retained);
-        const auto old_failure = retained.value()->invoke(Script::Phase::Update, {}, {});
+        const auto old_failure = retained.value()->invoke(ScriptInstance::Phase::Update, {}, {});
         ASSERT_FALSE(old_failure);
         EXPECT_NE(old_failure.error().message.find("value.module.lua:3:"), std::string::npos);
     }
@@ -166,15 +168,15 @@ namespace Comet::Tests {
         EXPECT_TRUE(script->inputs_are_current());
         write("scripts/value.module.lua", "return {base = 9}");
         EXPECT_FALSE(script->inputs_are_current());
-        auto first = script->instantiate();
-        auto second = script->instantiate();
+        auto first = ScriptInstance::create(*script);
+        auto second = ScriptInstance::create(*script);
         ASSERT_TRUE(first) << first.error().message;
         ASSERT_TRUE(second) << second.error().message;
         group.value().clear();
         script.reset();
         for(int step = 0; step < 3; ++step) {
-            EXPECT_TRUE(first.value()->invoke(Script::Phase::Update, {}, {}));
-            EXPECT_TRUE(second.value()->invoke(Script::Phase::Update, {}, {}));
+            EXPECT_TRUE(first.value()->invoke(ScriptInstance::Phase::Update, {}, {}));
+            EXPECT_TRUE(second.value()->invoke(ScriptInstance::Phase::Update, {}, {}));
         }
     }
 
@@ -207,19 +209,19 @@ namespace Comet::Tests {
         )");
         const auto group = load();
         ASSERT_TRUE(group) << group.error().message;
-        const auto first = group.value().front()->instantiate();
-        const auto second = group.value().front()->instantiate();
+        const auto first = ScriptInstance::create(*group.value().front());
+        const auto second = ScriptInstance::create(*group.value().front());
         ASSERT_TRUE(first) << first.error().message;
         ASSERT_TRUE(second) << second.error().message;
 
         ASSERT_TRUE(first.value()->invoke(
-            Script::Phase::Update, {}, {{"expected", 2.0f}}, {.delta_time = 2}));
+            ScriptInstance::Phase::Update, {}, {{"expected", 2.0f}}, {.delta_time = 2}));
         ASSERT_TRUE(first.value()->invoke(
-            Script::Phase::Update, {}, {{"expected", 5.0f}}, {.delta_time = 3}));
+            ScriptInstance::Phase::Update, {}, {{"expected", 5.0f}}, {.delta_time = 3}));
         ASSERT_TRUE(second.value()->invoke(
-            Script::Phase::Update, {}, {{"expected", 7.0f}}, {.delta_time = 7}));
+            ScriptInstance::Phase::Update, {}, {{"expected", 7.0f}}, {.delta_time = 7}));
         ASSERT_TRUE(first.value()->invoke(
-            Script::Phase::Update, {}, {{"expected", 6.0f}}, {.delta_time = 1}));
+            ScriptInstance::Phase::Update, {}, {{"expected", 6.0f}}, {.delta_time = 1}));
     }
 
     TEST_F(ScriptModulesTest, InvocationErrorsTraceEntryHelperAndModuleWithoutAccumulatingStack) {
@@ -244,9 +246,9 @@ return group
 )");
         const auto group = load();
         ASSERT_TRUE(group) << group.error().message;
-        const auto instance = group.value().front()->instantiate();
+        const auto instance = ScriptInstance::create(*group.value().front());
         ASSERT_TRUE(instance) << instance.error().message;
-        const auto failed = instance.value()->invoke(Script::Phase::Update, {}, {});
+        const auto failed = instance.value()->invoke(ScriptInstance::Phase::Update, {}, {});
         ASSERT_FALSE(failed);
         const auto& message = failed.error().message;
         EXPECT_TRUE(message.starts_with("@actor.lua: "));
@@ -256,10 +258,10 @@ return group
         EXPECT_NE(message.find("actor.lua:4:"), std::string::npos);
         EXPECT_NE(message.find("actor.lua:7:"), std::string::npos);
         for(int repeat = 0; repeat < 256; ++repeat) {
-            ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, {}, {}));
-            ASSERT_FALSE(instance.value()->invoke(Script::Phase::Update, {}, {}));
+            ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Start, {}, {}));
+            ASSERT_FALSE(instance.value()->invoke(ScriptInstance::Phase::Update, {}, {}));
         }
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Stop, {}, {}));
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Stop, {}, {}));
     }
 
     TEST_F(ScriptModulesTest, InitializationErrorsTraceNestedRequireSources) {
@@ -421,7 +423,7 @@ return group
             outside.path() / "value.module.lua", directory.path() / "value.module.lua", error);
         ASSERT_FALSE(error);
         EXPECT_FALSE(captured.value()[0]->inputs_are_current());
-        EXPECT_TRUE(captured.value()[0]->instantiate());
+        EXPECT_TRUE(ScriptInstance::create(*captured.value()[0]));
     }
 
     TEST_F(ScriptModulesTest, RuntimeCannotDiscoverModulesEvenFromAnotherPreparedRoot) {
@@ -432,9 +434,9 @@ return group
         const auto group = Script::load_group(directory.path(), paths);
         ASSERT_TRUE(group);
         EXPECT_TRUE(group.value()[1]->dependencies().empty());
-        const auto instance = group.value()[1]->instantiate();
+        const auto instance = ScriptInstance::create(*group.value()[1]);
         ASSERT_TRUE(instance);
-        const auto result = instance.value()->invoke(Script::Phase::Update, {}, {});
+        const auto result = instance.value()->invoke(ScriptInstance::Phase::Update, {}, {});
         ASSERT_FALSE(result);
         EXPECT_NE(result.error().message.find("not loaded during script initialization"),
             std::string::npos);
@@ -514,17 +516,17 @@ return group
                 on_collision_exit = restart}
         )");
         ASSERT_TRUE(script) << script.error().message;
-        const auto instance = script.value()->instantiate();
+        const auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
         Scene scene;
         SceneRuntime runtime;
         const auto actor = scene.create_entity();
         InputState input;
-        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {},
+        EXPECT_FALSE(instance.value()->invoke(ScriptInstance::Phase::Update, actor, {},
             {.scene = &scene, .session = &runtime.get_session(), .input = &input}));
         EXPECT_FALSE(runtime.take_restart_request());
         ASSERT_TRUE(runtime.start(scene));
-        for(const auto phase : {Script::Phase::Start, Script::Phase::Stop}) {
+        for(const auto phase : {ScriptInstance::Phase::Start, ScriptInstance::Phase::Stop}) {
             EXPECT_FALSE(instance.value()->invoke(
                 phase, actor, {}, {.scene = &scene, .session = &runtime.get_session()}));
             EXPECT_FALSE(runtime.take_restart_request());
@@ -532,20 +534,20 @@ return group
                 {.scene = &scene, .session = &runtime.get_session(), .input = &input}));
             EXPECT_FALSE(runtime.take_restart_request());
         }
-        for(const auto phase : {Script::Phase::Update, Script::Phase::FixedUpdate,
-                Script::Phase::TriggerEnter, Script::Phase::TriggerExit,
-                Script::Phase::CollisionEnter, Script::Phase::CollisionExit}) {
+        for(const auto phase : {ScriptInstance::Phase::Update, ScriptInstance::Phase::FixedUpdate,
+                ScriptInstance::Phase::TriggerEnter, ScriptInstance::Phase::TriggerExit,
+                ScriptInstance::Phase::CollisionEnter, ScriptInstance::Phase::CollisionExit}) {
             const auto called = instance.value()->invoke(phase, actor, {},
                 {.scene = &scene, .session = &runtime.get_session(), .contact_other = actor});
             ASSERT_TRUE(called) << called.error().message;
             EXPECT_TRUE(runtime.take_restart_request());
             EXPECT_TRUE(runtime.get_session().get_value("after.restart"));
         }
-        EXPECT_FALSE(instance.value()->invoke(static_cast<Script::Phase>(-1), actor, {},
+        EXPECT_FALSE(instance.value()->invoke(static_cast<ScriptInstance::Phase>(-1), actor, {},
             {.scene = &scene, .session = &runtime.get_session(), .input = &input}));
         EXPECT_FALSE(runtime.take_restart_request());
         scene.destroy_entity(actor);
-        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {},
+        EXPECT_FALSE(instance.value()->invoke(ScriptInstance::Phase::Update, actor, {},
             {.scene = &scene, .session = &runtime.get_session(), .input = &input}));
         EXPECT_FALSE(runtime.take_restart_request());
         ASSERT_TRUE(runtime.stop());
@@ -567,26 +569,28 @@ return group
             end
         })");
         ASSERT_TRUE(script);
-        const auto instance = script.value()->instantiate();
+        const auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
-        const auto mismatch = instance.value()->invoke(Script::Phase::Update, actor, {},
+        const auto mismatch = instance.value()->invoke(ScriptInstance::Phase::Update, actor, {},
             {.scene = &scene, .session = &other_runtime.get_session()});
         ASSERT_FALSE(mismatch);
         EXPECT_NE(mismatch.error().message.find("another scene"), std::string::npos);
         EXPECT_FALSE(runtime.get_session().get_value("score"));
         EXPECT_FALSE(other_runtime.get_session().get_value("score"));
         EXPECT_EQ(actor.get_component<TransformComponent>().translation, Math::Vec3(0));
-        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene}));
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Update, actor, {},
+        EXPECT_FALSE(
+            instance.value()->invoke(ScriptInstance::Phase::Update, actor, {}, {.scene = &scene}));
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Update, actor, {},
             {.scene = &scene, .session = &runtime.get_session()}));
         EXPECT_EQ(runtime.get_session().get_value("score"), ParameterValue(3.0f));
         EXPECT_TRUE(runtime.take_restart_request());
         EXPECT_FALSE(other_runtime.take_restart_request());
         // 一次合法调用不能给后续未提供会话的调用遗留权限。
-        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene}));
+        EXPECT_FALSE(
+            instance.value()->invoke(ScriptInstance::Phase::Update, actor, {}, {.scene = &scene}));
         EXPECT_EQ(actor.get_component<TransformComponent>().translation, Math::Vec3(1, 0, 0));
         ASSERT_TRUE(runtime.stop());
-        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {},
+        EXPECT_FALSE(instance.value()->invoke(ScriptInstance::Phase::Update, actor, {},
             {.scene = &scene, .session = &runtime.get_session()}));
         EXPECT_FALSE(runtime.get_session().get_value("score"));
         EXPECT_TRUE(other_runtime.is_active());
@@ -602,7 +606,7 @@ return group
             end
         })");
         ASSERT_TRUE(script) << script.error().message;
-        auto instance = script.value()->instantiate();
+        auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
         auto actions = InputActions::create(
             {{"move", InputActions::Type::Axis, {{Input::Key::L}}, "gameplay"}},
@@ -612,17 +616,17 @@ return group
         SceneRuntime runtime;
         const auto actor = scene.create_entity();
         ASSERT_TRUE(runtime.set_input_actions(std::move(actions).value()));
-        EXPECT_FALSE(instance.value()->invoke(
-            Script::Phase::Start, actor, {}, {.scene = &scene, .session = &runtime.get_session()}));
+        EXPECT_FALSE(instance.value()->invoke(ScriptInstance::Phase::Start, actor, {},
+            {.scene = &scene, .session = &runtime.get_session()}));
         ASSERT_TRUE(runtime.start(scene));
         std::vector<std::string> disabled_contexts;
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, actor, {},
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Start, actor, {},
             {.scene = &scene,
                 .session = &runtime.get_session(),
                 .disabled_input_contexts = &disabled_contexts}));
         EXPECT_TRUE(disabled_contexts.empty());
         ASSERT_TRUE(runtime.advance(0));
-        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Stop, {}, {}));
+        EXPECT_FALSE(instance.value()->invoke(ScriptInstance::Phase::Stop, {}, {}));
 
         for(const char* arguments : {"42, true", "'', true", "'bad name', true",
                 "string.rep('a', 65), true", "'gameplay', 1", "'gameplay', nil", "'gameplay'"}) {
@@ -631,13 +635,13 @@ return group
                 Script::create(std::string("return {update = function() ")
                                + "comet.set_input_context(" + arguments + ") end}");
             ASSERT_TRUE(invalid);
-            auto invalid_instance = invalid.value()->instantiate();
+            auto invalid_instance = ScriptInstance::create(*invalid.value());
             ASSERT_TRUE(invalid_instance);
-            EXPECT_FALSE(invalid_instance.value()->invoke(Script::Phase::Update, actor, {},
+            EXPECT_FALSE(invalid_instance.value()->invoke(ScriptInstance::Phase::Update, actor, {},
                 {.scene = &scene, .session = &runtime.get_session()}));
         }
         ASSERT_TRUE(runtime.advance(0));
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Update, actor, {},
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Update, actor, {},
             {.scene = &scene,
                 .session = &runtime.get_session(),
                 .disabled_input_contexts = &disabled_contexts}));
@@ -666,20 +670,20 @@ return group
             end
         end})");
         ASSERT_TRUE(script) << script.error().message;
-        const auto instance = script.value()->instantiate();
+        const auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
         std::vector<std::string> disabled_contexts;
-        const Script::Invocation cleanup{.disabled_input_contexts = &disabled_contexts};
+        const ScriptInstance::Invocation cleanup{.disabled_input_contexts = &disabled_contexts};
         const auto boundary = std::string(64, 'a');
-        ASSERT_TRUE(
-            instance.value()->invoke(Script::Phase::Stop, {}, {{"name", boundary}}, cleanup));
+        ASSERT_TRUE(instance.value()->invoke(
+            ScriptInstance::Phase::Stop, {}, {{"name", boundary}}, cleanup));
         EXPECT_EQ(disabled_contexts, std::vector<std::string>{boundary});
         for(const auto& name : {std::string{}, std::string("bad name"), std::string(65, 'a'),
                 std::string("palette\0hidden", 14)}) {
             SCOPED_TRACE(name);
             disabled_contexts.clear();
-            EXPECT_FALSE(
-                instance.value()->invoke(Script::Phase::Stop, {}, {{"name", name}}, cleanup));
+            EXPECT_FALSE(instance.value()->invoke(
+                ScriptInstance::Phase::Stop, {}, {{"name", name}}, cleanup));
             EXPECT_TRUE(disabled_contexts.empty());
         }
 
@@ -691,7 +695,7 @@ return group
             SCOPED_TRACE(count);
             disabled_contexts.clear();
             const auto stopped = instance.value()->invoke(
-                Script::Phase::Stop, {}, {{"count", static_cast<float>(count)}}, cleanup);
+                ScriptInstance::Phase::Stop, {}, {{"count", static_cast<float>(count)}}, cleanup);
             EXPECT_EQ(static_cast<bool>(stopped), count == InputActions::MAX_CONTEXTS);
             EXPECT_EQ(disabled_contexts, expected);
         }
@@ -704,12 +708,12 @@ return group
             error('cleanup failed after disable')
         end})");
         ASSERT_TRUE(script) << script.error().message;
-        const auto instance = script.value()->instantiate();
+        const auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
         for(const bool enable : {true, false}) {
             SCOPED_TRACE(enable);
             std::vector<std::string> disabled_contexts;
-            const auto stopped = instance.value()->invoke(Script::Phase::Stop, {},
+            const auto stopped = instance.value()->invoke(ScriptInstance::Phase::Stop, {},
                 {{"enable", enable}}, {.disabled_input_contexts = &disabled_contexts});
             ASSERT_FALSE(stopped);
             EXPECT_EQ(disabled_contexts, std::vector<std::string>{"palette"});
@@ -742,12 +746,12 @@ return group
                 + "on_stop = function(self) comet.set_input_context('palette', false); " + operation
                 + " end}");
             ASSERT_TRUE(script) << script.error().message;
-            const auto instance = script.value()->instantiate();
+            const auto instance = ScriptInstance::create(*script.value());
             ASSERT_TRUE(instance);
-            ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, actor, {},
+            ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Start, actor, {},
                 {.scene = &scene, .session = &runtime.get_session()}));
             std::vector<std::string> disabled_contexts;
-            const auto stopped = instance.value()->invoke(Script::Phase::Stop, actor, {},
+            const auto stopped = instance.value()->invoke(ScriptInstance::Phase::Stop, actor, {},
                 {.scene = &scene,
                     .session = &runtime.get_session(),
                     .input = &input,
@@ -772,7 +776,7 @@ return group
                 on_collision_exit = impulse}
         )");
         ASSERT_TRUE(script) << script.error().message;
-        const auto instance = script.value()->instantiate();
+        const auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
         Scene scene;
         PhysicsService physics;
@@ -780,33 +784,34 @@ return group
         actor.add_component<RigidBodyComponent>();
         actor.add_component<ColliderComponent>();
         EXPECT_FALSE(instance.value()->invoke(
-            Script::Phase::Start, actor, {}, {.scene = &scene, .physics = &physics}));
+            ScriptInstance::Phase::Start, actor, {}, {.scene = &scene, .physics = &physics}));
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.start(scene));
-        for(const auto phase : {Script::Phase::Start, Script::Phase::FixedUpdate,
-                Script::Phase::Update, Script::Phase::CollisionEnter, Script::Phase::CollisionExit,
-                Script::Phase::TriggerEnter, Script::Phase::TriggerExit}) {
+        for(const auto phase : {ScriptInstance::Phase::Start, ScriptInstance::Phase::FixedUpdate,
+                ScriptInstance::Phase::Update, ScriptInstance::Phase::CollisionEnter,
+                ScriptInstance::Phase::CollisionExit, ScriptInstance::Phase::TriggerEnter,
+                ScriptInstance::Phase::TriggerExit}) {
             const auto called = instance.value()->invoke(
                 phase, actor, {}, {.scene = &scene, .physics = &physics, .contact_other = actor});
             ASSERT_TRUE(called) << called.error().message;
         }
-        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Stop, {}, {}));
+        EXPECT_FALSE(instance.value()->invoke(ScriptInstance::Phase::Stop, {}, {}));
         EXPECT_FALSE(instance.value()->invoke(
-            Script::Phase::Update, {}, {}, {.scene = &scene, .physics = &physics}));
+            ScriptInstance::Phase::Update, {}, {}, {.scene = &scene, .physics = &physics}));
         for(const auto motion : {BodyMotion::Static, BodyMotion::Kinematic}) {
             actor.get_component<RigidBodyComponent>().motion = motion;
             EXPECT_FALSE(instance.value()->invoke(
-                Script::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
+                ScriptInstance::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
         }
         actor.get_component<RigidBodyComponent>().motion = BodyMotion::Dynamic;
         actor.remove_component<ColliderComponent>();
         EXPECT_FALSE(instance.value()->invoke(
-            Script::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
+            ScriptInstance::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
         actor.add_component<ColliderComponent>();
         actor.remove_component<RigidBodyComponent>();
         EXPECT_FALSE(instance.value()->invoke(
-            Script::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
+            ScriptInstance::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
         actor.add_component<RigidBodyComponent>();
         for(const char* arguments : {"", "0, 1", "0, 1, 0, 1", "'0', 1, 0", "0, true, 0",
                 "0, nil, 0", "0, {}, 0", "0, math.huge, 0", "0, 0/0, 0", "0, 1e40, 0"}) {
@@ -814,14 +819,14 @@ return group
             const auto invalid = Script::create(std::string("return {update = function() ")
                                                 + "comet.apply_impulse(" + arguments + ") end}");
             ASSERT_TRUE(invalid);
-            auto invalid_instance = invalid.value()->instantiate();
+            auto invalid_instance = ScriptInstance::create(*invalid.value());
             ASSERT_TRUE(invalid_instance);
             EXPECT_FALSE(invalid_instance.value()->invoke(
-                Script::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
+                ScriptInstance::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
         }
         scene.destroy_entity(actor);
         EXPECT_FALSE(instance.value()->invoke(
-            Script::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
+            ScriptInstance::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
         ASSERT_TRUE(runtime.stop());
     }
 
@@ -854,11 +859,11 @@ return group
             end,
         })");
         ASSERT_TRUE(script) << script.error().message;
-        auto instance = script.value()->instantiate();
+        auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
         const ParameterMap parameters{{"target", uuid}};
-        const auto requested =
-            instance.value()->invoke(Script::Phase::Start, actor, parameters, {.scene = &scene});
+        const auto requested = instance.value()->invoke(
+            ScriptInstance::Phase::Start, actor, parameters, {.scene = &scene});
         ASSERT_TRUE(requested) << requested.error().message;
         EXPECT_TRUE(target.has_component<RigidBodyComponent>());
         ASSERT_TRUE(runtime.advance(0));
@@ -872,8 +877,8 @@ return group
         EXPECT_EQ(target.get_component<MeshRendererComponent>().mesh, AssetHandle{11});
         EXPECT_EQ(target.get_component<MeshRendererComponent>().material, AssetHandle{12});
         EXPECT_EQ(target.get_component<NameComponent>().name, "Target");
-        const auto repeated =
-            instance.value()->invoke(Script::Phase::Update, actor, parameters, {.scene = &scene});
+        const auto repeated = instance.value()->invoke(
+            ScriptInstance::Phase::Update, actor, parameters, {.scene = &scene});
         ASSERT_TRUE(repeated) << repeated.error().message;
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_EQ(scene.entity_count(), 2u);
@@ -898,36 +903,36 @@ return group
                         on_stop = access,
                     })");
             ASSERT_TRUE(script) << script.error().message;
-            auto instance = script.value()->instantiate();
+            auto instance = ScriptInstance::create(*script.value());
             ASSERT_TRUE(instance);
             EXPECT_EQ(static_cast<bool>(instance.value()->invoke(
-                          Script::Phase::Start, actor, {}, {.scene = &scene})),
+                          ScriptInstance::Phase::Start, actor, {}, {.scene = &scene})),
                 read_only);
             EXPECT_TRUE(actor.has_component<RigidBodyComponent>());
             SceneRuntime runtime;
             ASSERT_TRUE(runtime.start(scene));
-            ASSERT_TRUE(
-                instance.value()->invoke(Script::Phase::Start, actor, {}, {.scene = &scene}));
-            EXPECT_FALSE(instance.value()->invoke(Script::Phase::Stop, {}, {}));
+            ASSERT_TRUE(instance.value()->invoke(
+                ScriptInstance::Phase::Start, actor, {}, {.scene = &scene}));
+            EXPECT_FALSE(instance.value()->invoke(ScriptInstance::Phase::Stop, {}, {}));
             for(const char* argument : {"", "nil", "false", "42", "'entity'", "{}"}) {
                 SCOPED_TRACE(argument);
                 const auto invalid =
                     Script::create(std::string("return {update = function() comet.") + operation
                                    + "(" + argument + ") end}");
                 ASSERT_TRUE(invalid);
-                auto invalid_instance = invalid.value()->instantiate();
+                auto invalid_instance = ScriptInstance::create(*invalid.value());
                 ASSERT_TRUE(invalid_instance);
                 EXPECT_FALSE(invalid_instance.value()->invoke(
-                    Script::Phase::Update, actor, {}, {.scene = &scene}));
+                    ScriptInstance::Phase::Update, actor, {}, {.scene = &scene}));
             }
             ASSERT_TRUE(runtime.stop());
             EXPECT_TRUE(actor.has_component<RigidBodyComponent>());
-            const auto stale =
-                instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene});
+            const auto stale = instance.value()->invoke(
+                ScriptInstance::Phase::Update, actor, {}, {.scene = &scene});
             ASSERT_FALSE(stale);
             EXPECT_NE(stale.error().message.find("stale"), std::string::npos);
             EXPECT_EQ(static_cast<bool>(instance.value()->invoke(
-                          Script::Phase::Start, actor, {}, {.scene = &scene})),
+                          ScriptInstance::Phase::Start, actor, {}, {.scene = &scene})),
                 read_only);
             ASSERT_TRUE(runtime.start(scene));
             ASSERT_TRUE(runtime.advance(0));
@@ -951,30 +956,30 @@ return group
                     "return {on_start = function(self) self.target = comet.self_entity() end,")
                 + "update = function(self) comet." + operation + "(self.target) end}");
             ASSERT_TRUE(script) << script.error().message;
-            auto instance = script.value()->instantiate();
+            auto instance = ScriptInstance::create(*script.value());
             ASSERT_TRUE(instance);
-            ASSERT_TRUE(
-                instance.value()->invoke(Script::Phase::Start, original, {}, {.scene = &first}));
+            ASSERT_TRUE(instance.value()->invoke(
+                ScriptInstance::Phase::Start, original, {}, {.scene = &first}));
             first.destroy_entity(original);
             auto replacement = first.create_entity_with_uuid(uuid);
             replacement.add_component<RigidBodyComponent>();
             ASSERT_NE(replacement.get_id(), id);
-            auto result =
-                instance.value()->invoke(Script::Phase::Update, replacement, {}, {.scene = &first});
+            auto result = instance.value()->invoke(
+                ScriptInstance::Phase::Update, replacement, {}, {.scene = &first});
             ASSERT_FALSE(result);
             EXPECT_NE(result.error().message.find("stale"), std::string::npos);
             ASSERT_TRUE(first_runtime.advance(0));
             EXPECT_TRUE(replacement.has_component<RigidBodyComponent>());
 
-            ASSERT_TRUE(
-                instance.value()->invoke(Script::Phase::Start, replacement, {}, {.scene = &first}));
+            ASSERT_TRUE(instance.value()->invoke(
+                ScriptInstance::Phase::Start, replacement, {}, {.scene = &first}));
             Scene second;
             auto foreign = second.create_entity_with_uuid(uuid);
             foreign.add_component<RigidBodyComponent>();
             SceneRuntime second_runtime;
             ASSERT_TRUE(second_runtime.start(second));
-            result =
-                instance.value()->invoke(Script::Phase::Update, foreign, {}, {.scene = &second});
+            result = instance.value()->invoke(
+                ScriptInstance::Phase::Update, foreign, {}, {.scene = &second});
             ASSERT_FALSE(result);
             EXPECT_NE(result.error().message.find("stale"), std::string::npos);
             ASSERT_TRUE(second_runtime.advance(0));
@@ -1026,27 +1031,27 @@ return group
             return script
         )");
         ASSERT_TRUE(script) << script.error().message;
-        auto instance = script.value()->instantiate();
+        auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
         Scene scene;
         const auto actor = scene.create_entity();
         const auto target = scene.create_entity("Target");
         const auto uuid = target.get_uuid();
         const ParameterMap parameters{{"target", uuid}};
-        ASSERT_TRUE(
-            instance.value()->invoke(Script::Phase::Start, actor, parameters, {.scene = &scene}));
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::TriggerEnter, actor, parameters,
+        ASSERT_TRUE(instance.value()->invoke(
+            ScriptInstance::Phase::Start, actor, parameters, {.scene = &scene}));
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::TriggerEnter, actor, parameters,
             {.scene = &scene, .contact_other = target}));
         scene.destroy_entity(target);
         const auto replacement = scene.create_entity_with_uuid(uuid);
         ASSERT_TRUE(instance.value()->invoke(
-            Script::Phase::Update, actor, parameters, {.delta_time = 1, .scene = &scene}));
+            ScriptInstance::Phase::Update, actor, parameters, {.delta_time = 1, .scene = &scene}));
         EXPECT_EQ(replacement.get_component<TransformComponent>().translation, Math::Vec3(0));
         Scene other;
         const auto other_actor = other.create_entity();
         const auto other_target = other.create_entity_with_uuid(uuid);
         ASSERT_TRUE(instance.value()->invoke(
-            Script::Phase::Update, other_actor, parameters, {.scene = &other}));
+            ScriptInstance::Phase::Update, other_actor, parameters, {.scene = &other}));
         EXPECT_EQ(
             other_target.get_component<TransformComponent>().translation, Math::Vec3(1, 0, 0));
     }
@@ -1057,16 +1062,16 @@ return group
             on_start = function(self) self.parameters.target:translate(1, 0, 0) end
         })");
         ASSERT_TRUE(script);
-        auto instance = script.value()->instantiate();
+        auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
         Scene scene;
         const auto actor = scene.create_entity();
         for(const auto target : {EntityUuid{}, EntityUuid::generate()}) {
             const ParameterMap parameters{{"target", target}};
             ASSERT_TRUE(instance.value()->invoke(
-                Script::Phase::Update, actor, parameters, {.scene = &scene}));
+                ScriptInstance::Phase::Update, actor, parameters, {.scene = &scene}));
             const auto invalid = instance.value()->invoke(
-                Script::Phase::Start, actor, parameters, {.scene = &scene});
+                ScriptInstance::Phase::Start, actor, parameters, {.scene = &scene});
             ASSERT_FALSE(invalid);
             EXPECT_NE(invalid.error().message.find("stale"), std::string::npos);
         }
@@ -1254,17 +1259,17 @@ return group
             end,
         })");
         ASSERT_TRUE(script) << script.error().message;
-        auto instance = script.value()->instantiate();
+        auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
         const auto defaults = script.value()->resolve_parameters({});
         ASSERT_TRUE(defaults);
         ASSERT_TRUE(instance.value()->invoke(
-            Script::Phase::Update, {}, defaults.value(), {.delta_time = 0.5}));
+            ScriptInstance::Phase::Update, {}, defaults.value(), {.delta_time = 0.5}));
         const auto overridden =
             script.value()->resolve_parameters({{"tint", Math::Vec4(1, 2, 3, 0.25f)}});
         ASSERT_TRUE(overridden);
         ASSERT_TRUE(instance.value()->invoke(
-            Script::Phase::Update, {}, overridden.value(), {.delta_time = 0.25}));
+            ScriptInstance::Phase::Update, {}, overridden.value(), {.delta_time = 0.25}));
     }
 
     TEST(ScriptInvocationTest, FourComponentParametersRejectTopLevelAndNestedWrites) {
@@ -1278,12 +1283,12 @@ return group
                                 + mutation + " end}";
             const auto script = Script::create(source);
             ASSERT_TRUE(script) << script.error().message;
-            auto instance = script.value()->instantiate();
+            auto instance = ScriptInstance::create(*script.value());
             ASSERT_TRUE(instance);
             const auto parameters = script.value()->resolve_parameters({});
             ASSERT_TRUE(parameters);
             const auto result =
-                instance.value()->invoke(Script::Phase::Update, {}, parameters.value());
+                instance.value()->invoke(ScriptInstance::Phase::Update, {}, parameters.value());
             ASSERT_FALSE(result);
             EXPECT_NE(result.error().message.find("read-only"), std::string::npos);
         }
@@ -1305,10 +1310,10 @@ return group
             end,
         })");
         ASSERT_TRUE(script);
-        auto instance = script.value()->instantiate();
+        auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
-        const auto result = instance.value()->invoke(
-            Script::Phase::Update, {}, {}, {.scene = &scene, .session = &runtime.get_session()});
+        const auto result = instance.value()->invoke(ScriptInstance::Phase::Update, {}, {},
+            {.scene = &scene, .session = &runtime.get_session()});
         ASSERT_FALSE(result);
         EXPECT_NE(result.error().message.find("three finite numbers"), std::string::npos);
         EXPECT_EQ(
@@ -1329,9 +1334,9 @@ return group
                 std::string("return {update = function() comet.session_set('value', ") + vector
                 + ") end}");
             ASSERT_TRUE(script) << script.error().message;
-            auto instance = script.value()->instantiate();
+            auto instance = ScriptInstance::create(*script.value());
             ASSERT_TRUE(instance);
-            EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, {}, {},
+            EXPECT_FALSE(instance.value()->invoke(ScriptInstance::Phase::Update, {}, {},
                 {.scene = &scene, .session = &runtime.get_session()}));
             EXPECT_EQ(std::get<Math::Vec3>(*runtime.get_session().get_value("value")),
                 Math::Vec3(4, 5, 6));
@@ -1366,14 +1371,15 @@ return group
             return group
         )");
         ASSERT_TRUE(script) << script.error().message;
-        const auto instance = script.value()->instantiate();
+        const auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance) << instance.error().message;
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, {}, {}));
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Update, {}, {}, {.delta_time = 2}));
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Start, {}, {}));
+        ASSERT_TRUE(
+            instance.value()->invoke(ScriptInstance::Phase::Update, {}, {}, {.delta_time = 2}));
         const ParameterValue event_value = 5.0f;
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Event, {}, {},
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Event, {}, {},
             {.event_handler = "on_step", .event_value = &event_value}));
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Stop, {}, {}));
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Stop, {}, {}));
     }
 
     TEST(ScriptInvocationTest, MethodsKeepPropertiesSeparateFromReadOnlyParameterSnapshots) {
@@ -1398,19 +1404,20 @@ return group
             return group
         )");
         ASSERT_TRUE(script) << script.error().message;
-        const auto instance = script.value()->instantiate();
+        const auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance) << instance.error().message;
         const auto first = script.value()->resolve_parameters({{"speed", 4.0f}});
         const auto changed = script.value()->resolve_parameters({{"speed", 7.0f}});
         ASSERT_TRUE(first);
         ASSERT_TRUE(changed);
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, {}, first.value()));
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Start, {}, first.value()));
         for(int repeat = 0; repeat < 2; ++repeat)
             ASSERT_TRUE(instance.value()->invoke(
-                Script::Phase::Update, {}, first.value(), {.delta_time = 4}));
+                ScriptInstance::Phase::Update, {}, first.value(), {.delta_time = 4}));
         ASSERT_TRUE(instance.value()->invoke(
-            Script::Phase::Update, {}, changed.value(), {.delta_time = 7}));
-        const auto stopped = instance.value()->invoke(Script::Phase::Stop, {}, changed.value());
+            ScriptInstance::Phase::Update, {}, changed.value(), {.delta_time = 7}));
+        const auto stopped =
+            instance.value()->invoke(ScriptInstance::Phase::Stop, {}, changed.value());
         ASSERT_FALSE(stopped);
         EXPECT_NE(stopped.error().message.find("read-only"), std::string::npos);
         EXPECT_EQ(std::get<float>(script.value()->properties().at("speed").default_value), 1);
@@ -1442,9 +1449,9 @@ return group
             return group
         )");
         ASSERT_TRUE(script) << script.error().message;
-        const auto instance = script.value()->instantiate();
+        const auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance) << instance.error().message;
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Update, {}, {}));
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Update, {}, {}));
     }
 
     TEST(ScriptInvocationTest, MethodErrorsAndResourceLimitsStayInsideProtectedInvocation) {
@@ -1469,13 +1476,13 @@ return group
             )",
                     "helper_error.lua");
             ASSERT_TRUE(script) << script.error().message;
-            const auto instance = script.value()->instantiate();
+            const auto instance = ScriptInstance::create(*script.value());
             ASSERT_TRUE(instance) << instance.error().message;
-            const auto result = instance.value()->invoke(Script::Phase::Update, {}, {});
+            const auto result = instance.value()->invoke(ScriptInstance::Phase::Update, {}, {});
             ASSERT_FALSE(result);
             EXPECT_NE(result.error().message.find("helper_error.lua"), std::string::npos);
             EXPECT_NE(result.error().message.find(message), std::string::npos);
-            ASSERT_TRUE(instance.value()->invoke(Script::Phase::Stop, {}, {}));
+            ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Stop, {}, {}));
         }
     }
 
@@ -1491,15 +1498,15 @@ return group
                 )",
                 "nonstring.lua");
             ASSERT_TRUE(script) << script.error().message;
-            const auto instance = script.value()->instantiate();
+            const auto instance = ScriptInstance::create(*script.value());
             ASSERT_TRUE(instance) << instance.error().message;
-            const auto failed = instance.value()->invoke(Script::Phase::Update, {}, {});
+            const auto failed = instance.value()->invoke(ScriptInstance::Phase::Update, {}, {});
             ASSERT_FALSE(failed);
             const auto& message = failed.error().message;
             EXPECT_TRUE(message.starts_with("@nonstring.lua: Lua raised a non-string error"));
             EXPECT_NE(message.find("stack traceback:"), std::string::npos);
             EXPECT_EQ(message.find("user tostring called"), std::string::npos);
-            ASSERT_TRUE(instance.value()->invoke(Script::Phase::Stop, {}, {}));
+            ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Stop, {}, {}));
         }
     }
 
@@ -1513,18 +1520,18 @@ return group
             on_stop = function(self) assert(self.parameters.speed == 3) end,
         })");
         ASSERT_TRUE(script);
-        auto instance = script.value()->instantiate();
+        auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
         // VM 加载后独立持有 Lua 代码，不借用 Script 的源码存储。
         script.value().reset();
         for(const float speed : {2.0f, 2.0f, 3.0f})
             ASSERT_TRUE(instance.value()->invoke(
-                Script::Phase::Update, {}, {{"speed", speed}}, {.delta_time = speed}));
+                ScriptInstance::Phase::Update, {}, {{"speed", speed}}, {.delta_time = speed}));
         auto failed = instance.value()->invoke(
-            Script::Phase::Update, {}, {{"speed", 13.0f}}, {.delta_time = 13});
+            ScriptInstance::Phase::Update, {}, {{"speed", 13.0f}}, {.delta_time = 13});
         ASSERT_FALSE(failed);
         EXPECT_NE(failed.error().message.find("update failed"), std::string::npos);
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Stop, {}, {{"speed", 3.0f}}));
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Stop, {}, {{"speed", 3.0f}}));
     }
 
     TEST(ScriptSourceTest, InvalidCodeSchemaAndUnsafeLibrariesFailWithoutProcessTermination) {
@@ -1572,10 +1579,11 @@ return group
         const auto script =
             Script::create("return {update = function() comet.emit('test.event', true) end}");
         ASSERT_TRUE(script) << script.error().message;
-        const auto instance = script.value()->instantiate();
+        const auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
-        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {}));
-        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene}));
+        EXPECT_FALSE(instance.value()->invoke(ScriptInstance::Phase::Update, actor, {}));
+        EXPECT_FALSE(
+            instance.value()->invoke(ScriptInstance::Phase::Update, actor, {}, {.scene = &scene}));
 
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.start(scene));
@@ -1585,10 +1593,10 @@ return group
                                                              "comet.emit('test.event', ")
                                                  + payload + ") end}");
             ASSERT_TRUE(emitting) << emitting.error().message;
-            const auto emitting_instance = emitting.value()->instantiate();
+            const auto emitting_instance = ScriptInstance::create(*emitting.value());
             ASSERT_TRUE(emitting_instance);
             const auto emitted = emitting_instance.value()->invoke(
-                Script::Phase::Start, actor, {}, {.scene = &scene});
+                ScriptInstance::Phase::Start, actor, {}, {.scene = &scene});
             EXPECT_TRUE(emitted) << emitted.error().message;
         }
         for(const char* invalid : {"comet.emit('', 1)", R"(comet.emit('test\0hidden', 1))",
@@ -1600,10 +1608,10 @@ return group
             const auto rejected =
                 Script::create(std::string("return {update = function() ") + invalid + " end}");
             ASSERT_TRUE(rejected) << rejected.error().message;
-            const auto rejected_instance = rejected.value()->instantiate();
+            const auto rejected_instance = ScriptInstance::create(*rejected.value());
             ASSERT_TRUE(rejected_instance);
             const auto emitted = rejected_instance.value()->invoke(
-                Script::Phase::Update, actor, {}, {.scene = &scene});
+                ScriptInstance::Phase::Update, actor, {}, {.scene = &scene});
             ASSERT_FALSE(emitted);
             EXPECT_FALSE(emitted.error().message.empty());
         }
@@ -1651,12 +1659,12 @@ return group
         )");
         ASSERT_TRUE(script) << script.error().message;
         for(int attempt = 0; attempt < 3; ++attempt) {
-            auto instance = script.value()->instantiate();
+            auto instance = ScriptInstance::create(*script.value());
             ASSERT_TRUE(instance) << instance.error().message;
-            ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, {}, {},
+            ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Start, {}, {},
                 {.scene = &scene, .session = &runtime.get_session()}));
             // 预留表容量后，8 MiB 上限命中 session_get 的 Lua 字符串分配。
-            const auto result = instance.value()->invoke(Script::Phase::Update, {}, {},
+            const auto result = instance.value()->invoke(ScriptInstance::Phase::Update, {}, {},
                 {.scene = &scene, .session = &runtime.get_session()});
             ASSERT_FALSE(result);
             EXPECT_NE(result.error().message.find("memory"), std::string::npos);
@@ -1682,18 +1690,18 @@ return group
             end
         })");
         ASSERT_TRUE(script) << script.error().message;
-        auto instance = script.value()->instantiate();
+        auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance) << instance.error().message;
         const ParameterMap parameters{{"uuid", uuid.to_string()}};
         ASSERT_TRUE(instance.value()->invoke(
-            Script::Phase::Start, original, parameters, {.scene = &first}));
+            ScriptInstance::Phase::Start, original, parameters, {.scene = &first}));
         ASSERT_TRUE(instance.value()->invoke(
-            Script::Phase::Update, replacement, parameters, {.scene = &second}));
+            ScriptInstance::Phase::Update, replacement, parameters, {.scene = &second}));
         EXPECT_FALSE(instance.value()->invoke(
-            Script::Phase::Update, original, parameters, {.scene = &second}));
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Stop, {}, parameters));
+            ScriptInstance::Phase::Update, original, parameters, {.scene = &second}));
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Stop, {}, parameters));
         ASSERT_TRUE(instance.value()->invoke(
-            Script::Phase::Update, original, parameters, {.scene = &first}));
+            ScriptInstance::Phase::Update, original, parameters, {.scene = &first}));
     }
 
     TEST(ScriptInvocationTest, EntityLookupReportsMalformedIdsAndMissingEntitiesSeparately) {
@@ -1706,11 +1714,11 @@ return group
             end
         })");
         ASSERT_TRUE(script) << script.error().message;
-        auto instance = script.value()->instantiate();
+        auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance) << instance.error().message;
         const ParameterMap parameters{{"missing", EntityUuid::generate().to_string()}};
-        auto result =
-            instance.value()->invoke(Script::Phase::Update, actor, parameters, {.scene = &scene});
+        auto result = instance.value()->invoke(
+            ScriptInstance::Phase::Update, actor, parameters, {.scene = &scene});
         ASSERT_FALSE(result);
         EXPECT_NE(result.error().message.find("Expected an entity UUID"), std::string::npos);
     }
@@ -1750,18 +1758,18 @@ return group
             end,
         })");
         ASSERT_TRUE(script) << script.error().message;
-        auto instance = script.value()->instantiate();
+        auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
         const auto parameters = script.value()->resolve_parameters({});
         ASSERT_TRUE(parameters);
         ASSERT_TRUE(instance.value()->invoke(
-            Script::Phase::Start, actor, parameters.value(), {.scene = &scene}));
+            ScriptInstance::Phase::Start, actor, parameters.value(), {.scene = &scene}));
         EXPECT_EQ(scene.entity_count(), 1u);
         actor.get_component<MeshRendererComponent>().material = AssetHandle{13};
         ASSERT_TRUE(runtime.advance(0));
         ASSERT_EQ(scene.entity_count(), 6u);
         ASSERT_TRUE(instance.value()->invoke(
-            Script::Phase::Update, actor, parameters.value(), {.scene = &scene}));
+            ScriptInstance::Phase::Update, actor, parameters.value(), {.scene = &scene}));
         for(const auto created : scene.get_entities()) {
             if(created == actor)
                 continue;
@@ -1798,12 +1806,12 @@ return group
             "return {properties = {vector = {1, 2, 3, 4}}, update = function(self) comet.create_entity('Invalid', "
             + options + ") end}");
         ASSERT_TRUE(script) << script.error().message;
-        auto instance = script.value()->instantiate();
+        auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
         const auto parameters = script.value()->resolve_parameters({});
         ASSERT_TRUE(parameters);
         EXPECT_FALSE(instance.value()->invoke(
-            Script::Phase::Update, actor, parameters.value(), {.scene = &scene}));
+            ScriptInstance::Phase::Update, actor, parameters.value(), {.scene = &scene}));
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_EQ(scene.entity_count(), 1u);
         ASSERT_TRUE(runtime.stop());
@@ -1836,15 +1844,15 @@ return group
             end,
         })");
         ASSERT_TRUE(script);
-        auto instance = script.value()->instantiate();
+        auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
         for(int configuration = 0; configuration < 3; ++configuration) {
             if(configuration == 1)
                 actor.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{});
             if(configuration == 2)
                 actor.get_component<MeshRendererComponent>() = {AssetHandle{}, AssetHandle{12}};
-            const auto result =
-                instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene});
+            const auto result = instance.value()->invoke(
+                ScriptInstance::Phase::Update, actor, {}, {.scene = &scene});
             ASSERT_FALSE(result);
             EXPECT_NE(result.error().message.find("Mesh source"), std::string::npos);
             ASSERT_TRUE(runtime.advance(0));
@@ -1867,15 +1875,15 @@ return group
             end,
         })");
         ASSERT_TRUE(script);
-        auto instance = script.value()->instantiate();
+        auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
-        ASSERT_TRUE(
-            instance.value()->invoke(Script::Phase::Start, original, {}, {.scene = &first}));
+        ASSERT_TRUE(instance.value()->invoke(
+            ScriptInstance::Phase::Start, original, {}, {.scene = &first}));
         first.destroy_entity(original);
         auto replacement = first.create_entity_with_uuid(uuid);
         replacement.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{12});
-        auto result =
-            instance.value()->invoke(Script::Phase::Update, replacement, {}, {.scene = &first});
+        auto result = instance.value()->invoke(
+            ScriptInstance::Phase::Update, replacement, {}, {.scene = &first});
         ASSERT_FALSE(result);
         EXPECT_NE(result.error().message.find("stale"), std::string::npos);
         ASSERT_TRUE(first_runtime.advance(0));
@@ -1885,7 +1893,8 @@ return group
         foreign.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{12});
         SceneRuntime second_runtime;
         ASSERT_TRUE(second_runtime.start(second));
-        result = instance.value()->invoke(Script::Phase::Update, foreign, {}, {.scene = &second});
+        result = instance.value()->invoke(
+            ScriptInstance::Phase::Update, foreign, {}, {.scene = &second});
         ASSERT_FALSE(result);
         EXPECT_NE(result.error().message.find("stale"), std::string::npos);
         ASSERT_TRUE(second_runtime.advance(0));
@@ -1912,15 +1921,15 @@ return group
             end
         })");
         ASSERT_TRUE(script);
-        auto instance = script.value()->instantiate();
+        auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
         const auto resolved = script.value()->resolve_parameters({});
         ASSERT_TRUE(resolved);
         const auto& parameters = resolved.value();
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, {}, parameters));
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Update, {}, parameters));
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Update, {}, parameters));
-        auto stopped = instance.value()->invoke(Script::Phase::Stop, {}, parameters);
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Start, {}, parameters));
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Update, {}, parameters));
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Update, {}, parameters));
+        auto stopped = instance.value()->invoke(ScriptInstance::Phase::Stop, {}, parameters);
         ASSERT_FALSE(stopped);
         EXPECT_NE(stopped.error().message.find("read-only"), std::string::npos);
     }

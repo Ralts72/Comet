@@ -18,7 +18,7 @@
 #include "scene/scene_runtime.h"
 #include "scene/script_component.h"
 #include "scene/systems/script_system.h"
-#include "scripting/script.h"
+#include "asset/script.h"
 #include "common/file_io.h"
 #include "common/scope_exit.h"
 #include "diagnostics/logger.h"

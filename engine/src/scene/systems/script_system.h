@@ -1,8 +1,10 @@
 #pragma once
 
+#include "scripting/script_instance.h"
+
 #include "scene/systems/system.h"
 #include "scene/entity.h"
-#include "scripting/script.h"
+#include "asset/script.h"
 #include <map>
 #include <optional>
 #include <set>
@@ -35,7 +37,7 @@ namespace Comet {
         struct Entry {
             Entity entity;
             std::shared_ptr<const Script> script;
-            std::unique_ptr<Script::Instance> instance;
+            std::unique_ptr<ScriptInstance> instance;
             ParameterMap parameters;
             std::optional<ParameterMap> overrides;
         };
@@ -57,8 +59,9 @@ namespace Comet {
             const std::map<Key, Entity>& pending);
         Result<void, Error> install_reload(std::map<Key, Entry>& prepared);
         Result<void, Error> synchronize(Scene& scene);
-        Result<void, Error> dispatch(Scene& scene, const Context& context, Script::Phase phase);
-        Result<void, Error> invoke(const Key& key, Entry& entry, Script::Phase phase,
+        Result<void, Error> dispatch(
+            Scene& scene, const Context& context, ScriptInstance::Phase phase);
+        Result<void, Error> invoke(const Key& key, Entry& entry, ScriptInstance::Phase phase,
             const Context* context = nullptr, Entity contact_other = {},
             std::string_view event_handler = {}, const ParameterValue* event_value = nullptr);
         Result<void, Error> dispatch_contacts(Scene& scene, const Context& context);

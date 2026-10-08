@@ -709,7 +709,7 @@ namespace {
                 *m_selection, m_command_history, m_property_edit, m_component_registry,
                 m_property_editor_registry, m_assets->database(), get_engine().get_asset_registry(),
                 get_engine().get_renderer().get_material_programs(),
-                get_engine().get_script_system());
+                &get_engine().get_scene_runtime());
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>(m_assets->database(),
                 m_project.paths().assets(), std::move(initial_asset_scan), *m_selection,
                 m_command_history);

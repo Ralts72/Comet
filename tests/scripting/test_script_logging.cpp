@@ -1,4 +1,5 @@
-#include "scripting/script.h"
+#include "scripting/script_instance.h"
+#include "asset/script.h"
 #include "common/file_io.h"
 #include "diagnostics/logger.h"
 #include "scene/scene.h"
@@ -59,15 +60,15 @@ namespace Comet::Tests {
         const std::array<std::filesystem::path, 1> roots{"actor.lua"};
         const auto scripts = Script::load_group(directory.path(), roots);
         ASSERT_TRUE(scripts) << scripts.error().message;
-        const auto instance = scripts.value()[0]->instantiate();
+        const auto instance = ScriptInstance::create(*scripts.value()[0]);
         ASSERT_TRUE(instance);
         EXPECT_TRUE(messages.empty());
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Start, {}, {}));
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Update, {}, {}));
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Start, {}, {}));
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Update, {}, {}));
         const ParameterValue value = std::string("event");
-        ASSERT_TRUE(instance.value()->invoke(
-            Script::Phase::Event, {}, {}, {.event_handler = "message", .event_value = &value}));
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Stop, {}, {}));
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Event, {}, {},
+            {.event_handler = "message", .event_value = &value}));
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Stop, {}, {}));
         ASSERT_EQ(messages.size(), 4u);
         for(const auto& [level, text] : messages) {
             EXPECT_EQ(level, spdlog::level::info);
@@ -81,7 +82,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(messages[3].second.ends_with(": stop"));
 
         logger->set_level(spdlog::level::warn);
-        ASSERT_TRUE(instance.value()->invoke(Script::Phase::Update, {}, {}));
+        ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Update, {}, {}));
         EXPECT_EQ(messages.size(), 4u);
     }
 
@@ -94,9 +95,9 @@ namespace Comet::Tests {
             const auto script = Script::create(
                 std::string("return {update = function() comet.log(") + arguments + ") end}");
             ASSERT_TRUE(script);
-            const auto instance = script.value()->instantiate();
+            const auto instance = ScriptInstance::create(*script.value());
             ASSERT_TRUE(instance);
-            const auto invoked = instance.value()->invoke(Script::Phase::Update, {}, {});
+            const auto invoked = instance.value()->invoke(ScriptInstance::Phase::Update, {}, {});
             ASSERT_FALSE(invoked);
             EXPECT_NE(invoked.error().message.find("exactly one string"), std::string::npos);
         }
@@ -113,13 +114,13 @@ namespace Comet::Tests {
         })",
             "budget.lua");
         ASSERT_TRUE(script);
-        const auto instance = script.value()->instantiate();
+        const auto instance = ScriptInstance::create(*script.value());
         ASSERT_TRUE(instance);
         Scene scene;
         const auto entity = scene.create_entity();
         for(int call = 1; call <= 2; ++call) {
-            ASSERT_TRUE(
-                instance.value()->invoke(Script::Phase::Update, entity, {}, {.scene = &scene}));
+            ASSERT_TRUE(instance.value()->invoke(
+                ScriptInstance::Phase::Update, entity, {}, {.scene = &scene}));
             EXPECT_FLOAT_EQ(entity.get_component<TransformComponent>().translation.x, call);
             EXPECT_EQ(std::ranges::count(messages, spdlog::level::info,
                           [](const auto& message) { return message.first; }),

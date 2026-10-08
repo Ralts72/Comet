@@ -14,7 +14,7 @@
 #include "scene/scene_serializer.h"
 #include "scene/script_component.h"
 #include "scene/systems/script_system.h"
-#include "scripting/script.h"
+#include "asset/script.h"
 #include "support/imgui_context.h"
 #include "support/temporary_directory.h"
 

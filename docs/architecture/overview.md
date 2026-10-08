@@ -13,13 +13,13 @@ App、Editor 和资产准备工具继续链接 `engine`／`Comet::Engine`，无�
 | `comet_foundation` | 文件、错误／UUID、数学、任务、项目路径、基础日志与 CPU 计时；GLM、spdlog、Threads |
 | `comet_serialization` | JSON 读取与校验；Foundation、simdjson |
 | `comet_shader_contracts` | 后端无关 Shader 契约与 SPIR-V 反射；Foundation、SPIRV-Reflect |
-| `comet_asset_data` | 资产身份、Registry、CPU 产品数据及其序列化；Serialization、ShaderContracts |
+| `comet_asset_data` | 资产身份、Registry、CPU 产品数据、不可变脚本定义与源码快照及其序列化；Serialization、ShaderContracts |
 | `comet_input` | 输入采样值、动作、运行域求值、改键草稿与个人设置；Serialization |
 | `comet_world` | 实体、组件、Schema、层级与持久场景序列化；AssetData、EnTT |
 | `comet_runtime` | SceneRuntime、RuntimeSession、固定步时钟、暂停／单步与 System 生命周期契约；World、Input |
 | `comet_audio` | AudioService 的命令、设备与全部 Voice，AudioSystem 同步声音源；Runtime、miniaudio |
 | `comet_physics` | PhysicsService 的世界、刚体、冲量和接触跟踪，PhysicsSystem 同步组件及回写；Runtime、私有 Jolt |
-| `comet_scripting` | Script 定义、行为 VM、ScriptSystem 的场景绑定／换代；Runtime、私有 Lua |
+| `comet_scripting` | ScriptInstance 行为 VM、资产准备的 Lua 校验、ScriptSystem 的场景绑定／换代；Runtime、私有 Lua |
 | `comet_asset_pipeline` | 扫描索引、Artifact、源导入与任务队列；AssetData、stb_image、fastgltf |
 | `comet_runtime_assets` | AssetManager 的需求／失效／版本编排、AssetLoader 的读取与依赖加载；AssetPipeline、Audio／Script 定义和无后端的渲染发布契约 |
 
@@ -27,8 +27,11 @@ App、Editor 和资产准备工具继续链接 `engine`／`Comet::Engine`，无�
 Runtime 的源清单同时覆盖公共执行头及无后端的 AudioCommands／PhysicsCommands；禁止引用 Engine／Application、具体服务或 System、图形与平台后端。
 World 不反向依赖 Runtime 或服务命令。Audio 与 Physics 的传递依赖同样检查，只有 `audio/audio.cpp` 可包含 miniaudio，只有 `physics/physics_service.cpp` 可包含 Jolt。
 Physics 后端仅接收配置快照与 UUID／EntityId，不包含 Scene／Entity 头；组件校验、场景身份检查和 Transform／接触交付由适配层负责。
-Scripting 只在 `scripting/script.cpp`／`lua_bindings.cpp` 包含 Lua 头；ScriptSystem 借用 `const AssetRegistry&`，通过 `resolve<const Script>` 读取定义。
-Inspector 借用 `const ScriptSystem*` 查询实际运行定义，不另设资源读取适配器或运行查询虚接口；Registry 必须活到系统销毁之后。
+Scripting 只在 `scripting/script_instance.cpp`／`lua_bindings.cpp` 包含 Lua 头；ScriptSystem 借用 `const AssetRegistry&`，通过 `resolve<const Script>` 读取定义。
+Inspector 借用 `const SceneRuntime*`，经 `find_system<ScriptSystem>()` 查询当前注册系统和实际运行定义；Engine 不保留脚本系统指针。
+查询只读、按注册顺序返回首个匹配，清空系统后返回空；查询结果不得跨系统清理或 Runtime 销毁保留。Registry 必须活到系统销毁之后。
+`asset/script.h` 仅包含资产及共用参数契约；`common/parameters.h` 不依赖场景 Schema。
+源码准备由 `asset/runtime/script_loader.cpp` 负责，通过无实体／服务的 `scripting/script_compiler.h` 复用 Lua 校验，资产定义不包含 VM 接口。
 模块不依赖 AssetManager、导入管线、Render 或具体音频／物理服务；UI 控制器仍拥有独立 VM 与权限。
 RuntimeAssets 不包含渲染对象定义或 Vulkan 头；`asset/runtime/render_asset_publisher.h` 只声明 CPU 数据、对象引用与发布操作，
 实现在 `render/resource/render_asset_publisher.cpp`，不依赖源索引、导入或项目路径。
@@ -131,7 +134,7 @@ Lua 只使用元素 ID，不持有原生文档／GPU 句柄；旧控制器的接
 | 入口 | 职责 |
 | --- | --- |
 | `core/engine.h` | 组合宿主服务，统一 SceneRuntime 的绑定、启停与主循环 |
-| `scene/scene_runtime.h` | 拥有串行 System，管理时间、固定步、暂停与单步，调用输入模块准备阶段数据 |
+| `scene/scene_runtime.h` | 拥有串行 System，管理时间、固定步、暂停与单步；统一提供只读系统查询，调用输入模块准备阶段数据 |
 | `input/runtime_input.h` | 运行域输入：序号去重、固定步累积、动作求值、暂停基线和重置 |
 | `input/input_state.h` | 同一授权／阶段的物理与动作只读快照，System／Lua 的统一消费入口 |
 | `scene/systems/script_system.h` | Lua 实例的启动、更新、寿命复核与逆序清理；`running_script` 只读查询实际运行定义，拒绝其他 Scene、无效实体及已替换组件寿命；借用须在系统销毁前结束 |
@@ -530,8 +533,8 @@ render_frame 返回 `Result<void, GraphicsError>`。部分录制失败的命令�
 
 | 所属位置 | 持有与职责 |
 | --- | --- |
-| Script | 不可变入口／模块源码快照、字段定义（默认值与编辑语义）与事件声明；创建独立 Instance |
-| Script::Instance | VM、保护调用、Lua 配置表与实例内模块缓存；共享只读源码，不共享 Lua table |
+| `asset/script` | 不可变入口／模块源码快照、字段定义（默认值与编辑语义）与事件声明；不依赖实体、会话或 VM |
+| `scripting/script_instance` | VM、保护调用、Lua 配置表与实例内模块缓存；从 Script 定义创建实例，共享只读源码，不共享 Lua table |
 | 私有 lua_bindings | 当前实体／授权输入的 API 适配，不访问 Editor 或渲染资源 |
 | ScriptSystem | 独占实例、保活所用 Script、同步组件寿命与阶段调用、交付场景通知 |
 | ScriptComponent | 持久化 Handle 与稀疏覆盖；非持久化组件寿命，不持有运行定义或 VM |
@@ -550,7 +553,7 @@ render_frame 返回 `Result<void, GraphicsError>`。部分录制失败的命令�
 
 Inspector Edit 使用当前资产定义，Play 经只读 ScriptSystem 查询活动实例定义；Edit 定义切换会取消旧参数手势。
 查询校验 Scene 身份、UUID、组件寿命及 Handle；未启动、换绑尚未同步、已删除或停止时返回空值，候选发布不提前改变运行版本。
-Engine 的默认系统提供视图，调用方借用至系统销毁前；返回的不可变定义快照可保留，不延长 Lua 实例寿命。
+Inspector 每次从 SceneRuntime 查询已注册的 ScriptSystem，系统清理／替换后不继续使用旧指针；返回的不可变定义快照可保留，不延长 Lua 实例寿命。
 Play 实例换代后只清除旧脚本参数控件的活动状态，不打断其他属性／面板的输入，也不回写 Edit 历史。
 更换脚本是 SceneEditor 的完整命令：先加载候选，再一次替换引用并清空覆盖，Edit 的 Undo 同时恢复二者。
 清空引用同样清空覆盖；选同一引用不重置参数；失败不改变原绑定。Play 直接改运行副本，不写 Edit 历史。
@@ -673,7 +676,7 @@ Scene 也独立校验变换有限性和非零资源 Handle；阶段提交中完�
 暂停不执行脚本阶段，单步正常提交；失败或 Stop 丢弃未提交请求。已提交实体属于运行 Scene，
 Editor Stop 丢弃 Play 副本，不是在 SceneRuntime::stop 内逐个删除运行中创建的实体。
 
-`comet.restart_scene()` 只在更新调用中向 RuntimeSession 记录合并的重开意图；许可从 Script::Phase 得出，
+`comet.restart_scene()` 只在更新调用中向 RuntimeSession 记录合并的重开意图；许可从 ScriptInstance::Phase 得出，
 输入指针只表示是否提供输入，不代表调用阶段。同阶段其他脚本／System 仍正常完成。
 失败或 Stop 清掉意图；宿主在下一次 on_update 经 Runtime 消费，执行回调期间不能取走意图或替换 Scene。
 GameApp 保留启动时的 Scene 基线，EditorSceneSession 复用保留的 Edit Scene；两者都经 Serializer 克隆，
@@ -699,7 +702,7 @@ Script 准备／模块顶层执行不产生日志副作用。每次调用的输�
 参数表与会话值复用单个名称／值校验；会话值额外限制类型，不为单次赋值构造临时参数表。
 Lua 只借用当前阶段的 InputState，通过具名动作查询输入，统一遵守重绑定与动作组开关；不提供原始按键入口。
 绑定层只复用 InputActions 的组名校验与容量约束，不采样或持有 RuntimeInput。
-Script::Invocation 与 LuaBindings::Context 各只传一个 input，结束调用后解除借用，不自行采集或消耗输入。
+ScriptInstance::Invocation 与 LuaBindings::Context 各只传一个 input，结束调用后解除借用，不自行采集或消耗输入。
 材质写入也只借用当前调用的 MaterialParameterValidator；Engine 将 MaterialPrograms 接入 ScriptSystem，
 Lua／Scene 不包含 render 或 graphics 头。Result 的错误先存入外层 Context，再调用 luaL_error，
 不让 Result／字符串局部对象跨越 longjmp。更多组件操作与完整脚本调试按路线图扩展。

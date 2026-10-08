@@ -167,7 +167,9 @@ RuntimeSession 已独立保存会话值、输入组请求和重开意图，Syste
 World 已移除 Input 依赖，检查拒绝 World 反向包含输入或会话头。
 AudioService 已从 Scene 移出音频请求，统一拥有设备与播放实例；PhysicsService 拥有冲量和 Jolt 运行对象。
 RuntimeServices 显式提供服务权限，Runtime 不依赖具体服务；公共头及后端私有 include 均受依赖检查约束，Jolt 后端禁止包含 Scene／Entity。
-Scripting 已独立编译行为 VM 与场景绑定；ScriptSystem 借用 Registry 读取只读定义，并直接提供实际运行版本查询，World 不再保存运行定义引用。
+Scripting 已独立编译行为 VM 与场景绑定；脚本定义／源码快照归 AssetData，源码准备归 RuntimeAssets，通过无实体的编译契约复用 Lua 校验。
+ScriptInstance 独占执行状态，共用参数值不依赖 World；ScriptSystem 借用 Registry 读取只读定义，并提供实际运行版本查询。
+所有 System 由 SceneRuntime 拥有，Editor 通过只读系统查询读取活动定义；Engine 不保留专用脚本入口，World 不保存运行定义引用。
 Lua 头仅进入实现，脚本模块不包含导入管线、Render 或具体服务；原有热重载失败保留及 Inspector 手势语义继续验收。
 AssetLoader 已承担同步读取与依赖加载，RenderAssetPublisher 在渲染层创建和发布对象；AssetManager 保留需求、失效、预算与版本编排。
 RuntimeAssets 不再包含渲染对象或 Vulkan 头，渲染发布不读取源索引／导入，传递依赖检查覆盖两侧边界；Registry 仍只有一份。
@@ -179,15 +181,15 @@ RuntimeAssets 不再包含渲染对象或 Vulkan 头，渲染发布不读取源�
 | AssetHandle、Registry、产品数据／加载与驻留（职责拆分首轮已完成） | AssetData、AssetPipeline、RuntimeAssets 与 Render | 导入、加载和渲染发布已分开；后续只读 ProductCatalog、产品异步 I/O、取消和驻留淘汰见资产主线 |
 | `core/window` 与 GLFW 接线 | Platform | 平台适配提供采样及窗口服务，Input 的动作求值和改键不反向依赖 GLFW |
 | `graphics/`、`render/` | 图形后端与 Render | Vulkan／VMA 归后端；Render 消费场景提取与资源服务，World 不反向依赖 Render |
-| Scripting／ScriptSystem（编译边界首轮已完成） | 资产定义与 Scripting 执行 | Script 仍合并定义与实例接口；源码快照、依赖和字段定义归资产，Lua 实例／执行归 Scripting；组件保留配置与身份，Editor 查询活动定义，UI VM 独立 |
+| Scripting／ScriptSystem（定义与执行边界首轮已完成） | 资产定义与 Scripting 执行 | Script 定义、源码快照与参数校验归资产；Lua 实例／执行归 Scripting；组件保留配置与身份，Editor 从 Runtime 查询活动定义，UI VM 独立；产品化脚本装载按资产主线推进 |
 | Audio／AudioSystem（首轮已完成） | Audio | AudioService 拥有队列、设备与 Voice；System 同步组件，Runtime 通过接口管理启停，miniaudio 只进入后端实现 |
 | Physics／PhysicsSystem（首轮已完成） | Physics | PhysicsService 拥有冲量、世界／刚体及接触跟踪；System 适配组件与模拟输出，Jolt 仅进入后端实现；预算、临时分配和并行调度待测量优化 |
 | `engine/src/ui/` | Engine UI | 先依赖输入／资产／平台／渲染的必要接口，再纳入统一 engine 组合，消除对完整 engine 的反向链接；项目页面与业务仍归 demo／项目 |
 | `config/`、`diagnostics/` 与纯 CPU 工具 | 按职责归属 | Config／Profile 聚合归组合层，日志与 CPU 计时归 Foundation，GPU 诊断归 Render；不按小目录机械拆库 |
 
 模块边界同时覆盖源码依赖和生命周期；不得只把现有混合职责换一个 target 名称。
-脚本定义与执行继续按职责分离：资产公共头不包含实体／运行会话，字段默认值复用后端无关的数据契约，
-避免资产反向依赖 World；源码校验可以调用 Lua 后端，实例和场景副作用仍归 Scripting。
+脚本定义与执行已按职责分离：资产公共头不包含实体／运行会话，字段默认值复用后端无关的数据契约，
+依赖检查拒绝资产反向包含 World 或实例头；源码校验复用 Lua 后端，实例和场景副作用归 Scripting。
 复用 Registry 和实际运行版本查询，不为单一读取或查询另建包装层；明确区分候选加载失败与已经开始执行后的错误。
 关闭或未装配某个运行系统时仍能读取、编辑和保存其持久配置；实际运行缺少服务时明确诊断，不丢弃组件。
 保留日志、Schema、Registry 与第三方实现的唯一所有权，避免同一宿主进程重复编入全局状态。

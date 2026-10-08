@@ -94,7 +94,9 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 `comet_runtime` 负责 SceneRuntime、RuntimeSession 与 System 执行契约，只依赖 World／Input 和无后端的服务接口。
 `comet_audio` 拥有音频请求、设备和播放实例；Engine 装配 AudioService，Runtime 通过 RuntimeServices 借用命令接口。
 `comet_physics` 拥有 Jolt 世界、刚体和冲量队列；PhysicsSystem 同步场景配置并回写姿态，Runtime 借用 PhysicsCommands。
-`comet_scripting` 负责脚本定义、Lua 实例、场景绑定与热重载；ScriptSystem 从同一 Registry 读取只读定义，Lua 依赖限于实现。
+`asset/script` 保存不可变脚本定义，`asset/runtime/script_loader` 准备源码并复用 Lua 校验；共用参数值归 `common/parameters`。
+`comet_scripting` 负责 Lua 实例、场景绑定与热重载；ScriptSystem 从同一 Registry 读取定义，Lua 依赖限于实现。
+所有场景系统由 SceneRuntime 拥有；Editor 通过只读 `find_system<T>()` 查询已注册系统，Engine 不为单个系统提供专用访问入口。
 `comet_runtime_assets` 负责加载、依赖与版本编排，不包含 Vulkan；ImportService 准备 CPU 数据，RenderAssetPublisher 在渲染层创建与发布对象，共用原 Registry。
 窗口、渲染和具体系统由 engine 组合。
 World 保存场景内容，不依赖 Input 或 Runtime；运行输入和本局状态归 Runtime。

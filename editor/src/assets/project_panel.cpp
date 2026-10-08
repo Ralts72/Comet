@@ -3,7 +3,7 @@
 #include "assets/asset_reference.h"
 #include "scene/command_history.h"
 #include "ui/widgets.h"
-#include "scripting/script.h"
+#include "asset/script.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>

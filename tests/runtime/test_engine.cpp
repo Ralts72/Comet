@@ -1,3 +1,5 @@
+#include "scene/systems/audio_system.h"
+#include "scene/systems/physics_system.h"
 #include "core/engine.h"
 #include "core/task_scheduler.h"
 #include "config/config.h"
@@ -7,7 +9,7 @@
 #include "support/scene_motion_system.h"
 #include "scene/systems/camera_controller.h"
 #include "scene/script_component.h"
-#include "scripting/script.h"
+#include "asset/script.h"
 #include "scene/systems/script_system.h"
 #include "asset/registry.h"
 
@@ -115,8 +117,12 @@ namespace Comet::Tests {
         auto created = Engine::create(Config{});
         ASSERT_TRUE(created) << created.error().message;
         auto& engine = *created.value();
+        EXPECT_EQ(engine.get_scene_runtime().find_system<ScriptSystem>(), nullptr);
         ASSERT_TRUE(engine.add_default_scene_systems());
-        const auto* scripts = engine.get_script_system();
+        EXPECT_NE(engine.get_scene_runtime().find_system<CameraControllerSystem>(), nullptr);
+        EXPECT_NE(engine.get_scene_runtime().find_system<PhysicsSystem>(), nullptr);
+        EXPECT_NE(engine.get_scene_runtime().find_system<AudioSystem>(), nullptr);
+        const auto* scripts = engine.get_scene_runtime().find_system<ScriptSystem>();
         ASSERT_NE(scripts, nullptr);
         auto scene = std::make_unique<Scene>();
         auto entity = scene->create_entity();
@@ -133,9 +139,9 @@ namespace Comet::Tests {
         ASSERT_TRUE(engine.stop_scene_runtime());
         EXPECT_FALSE(scripts->running_script(entity));
         engine.prepare_shutdown();
-        EXPECT_EQ(engine.get_script_system(), nullptr);
+        EXPECT_EQ(engine.get_scene_runtime().find_system<ScriptSystem>(), nullptr);
         engine.prepare_shutdown();
-        EXPECT_EQ(engine.get_script_system(), nullptr);
+        EXPECT_EQ(engine.get_scene_runtime().find_system<ScriptSystem>(), nullptr);
     }
 
     TEST(EngineRunTest, RoutesInputOnceAfterUiWithoutCarryingItIntoTheNextFrame) {

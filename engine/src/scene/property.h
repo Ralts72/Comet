@@ -2,7 +2,7 @@
 
 #include "asset/metadata.h"
 #include "common/export.h"
-#include "core/math_utils.h"
+#include "common/parameters.h"
 #include "scene/entity_uuid.h"
 
 #include <functional>
@@ -28,15 +28,8 @@ namespace Comet {
         EntityReference
     };
 
-    using ParameterValue =
-        std::variant<bool, float, Math::Vec3, Math::Vec4, std::string, EntityUuid>;
-    using ParameterMap = std::map<std::string, ParameterValue>;
     using PropertyValue = std::variant<bool, float, Math::Vec3, Math::Vec4, AssetHandle,
         std::string, ParameterMap, EntityUuid>;
-    [[nodiscard]] COMET_API bool valid_parameter_name(std::string_view name);
-    [[nodiscard]] COMET_API bool valid_parameter_value(const ParameterValue& value);
-    [[nodiscard]] COMET_API bool valid_parameters(const ParameterMap& parameters);
-
     [[nodiscard]] COMET_API bool property_values_equal(
         const PropertyValue& left, const PropertyValue& right);
 

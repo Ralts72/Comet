@@ -1,6 +1,6 @@
 #pragma once
 
-#include "scripting/script.h"
+#include "asset/script.h"
 #include "audio/audio.h"
 #include "common/file_io.h"
 #include "asset/asset_manager.h"

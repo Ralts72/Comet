@@ -1,7 +1,7 @@
 #include "asset/asset_manager.h"
 #include "asset/registry.h"
 #include "diagnostics/logger.h"
-#include "scripting/script.h"
+#include "asset/script.h"
 
 #include <algorithm>
 #include <map>
