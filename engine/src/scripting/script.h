@@ -21,6 +21,7 @@ namespace Comet {
     class Scene;
     class RuntimeSession;
     class AudioCommands;
+    class PhysicsCommands;
     // 不可变源码与字段定义；运行实例不存入资产缓存。
     class COMET_API Script final {
         struct SourceSet;
@@ -64,6 +65,7 @@ namespace Comet {
             Scene* scene = nullptr;
             RuntimeSession* session = nullptr;
             AudioCommands* audio = nullptr;
+            PhysicsCommands* physics = nullptr;
             const InputState* input = nullptr;
             Entity contact_other;
             const MaterialParameterValidator* materials = nullptr;

@@ -18,11 +18,13 @@ App、Editor 和资产准备工具继续链接 `engine`／`Comet::Engine`，无�
 | `comet_world` | 实体、组件、Schema、层级与持久场景序列化；AssetData、EnTT |
 | `comet_runtime` | SceneRuntime、RuntimeSession、固定步时钟、暂停／单步与 System 生命周期契约；World、Input |
 | `comet_audio` | AudioService 的命令、设备与全部 Voice，AudioSystem 同步声音源；Runtime、miniaudio |
+| `comet_physics` | PhysicsService 的世界、刚体、冲量和接触跟踪，PhysicsSystem 同步组件及回写；Runtime、私有 Jolt |
 | `comet_asset_pipeline` | 扫描索引、Artifact、源导入与任务队列；AssetData、stb_image、fastgltf |
 
-项目／Profile 配置聚合、窗口、图形、渲染及具体运行系统暂由 engine 主目标组合，后续逐步收窄内部边界。
-Runtime 的源清单同时覆盖公共执行头及无后端的 AudioCommands；禁止引用 Engine／Application、具体服务或 System、图形与平台后端。
-World 不反向依赖 Runtime 或音频命令。Audio 的传递依赖同样检查，只有 `audio/audio.cpp` 可包含 miniaudio 后端头。
+项目／Profile 配置聚合、窗口、图形、渲染及脚本实现暂由 engine 主目标组合，后续逐步收窄内部边界。
+Runtime 的源清单同时覆盖公共执行头及无后端的 AudioCommands／PhysicsCommands；禁止引用 Engine／Application、具体服务或 System、图形与平台后端。
+World 不反向依赖 Runtime 或服务命令。Audio 与 Physics 的传递依赖同样检查，只有 `audio/audio.cpp` 可包含 miniaudio，只有 `physics/physics_service.cpp` 可包含 Jolt。
+Physics 后端仅接收配置快照与 UUID／EntityId，不包含 Scene／Entity 头；组件校验、场景身份检查和 Transform／接触交付由适配层负责。
 对象库只产生编译中间文件；不增加模块动态库、独立构建目录或单独的 CPU 测试入口。
 全局日志、组件 Schema 与任务状态在宿主进程中仍由 engine 提供唯一实现，继续使用统一 `COMET_API`。
 `LogSettings` 归 Foundation；`Config::Log` 保留别名，基础日志头不再依赖完整 Config。
@@ -41,7 +43,7 @@ AssetData 不依赖导入管线，各纯数据／逻辑模块不引入窗口、�
 | 模块 | 当前允许的主要依赖 | 边界与例外 |
 | --- | --- | --- |
 | `common/`、`input/` | 通用值、输入采样及映射 | 不引入 Render、Graphics 或窗口后端头；窗口事件的接线在 `core/window` |
-| `scene/`、`scripting/`、`audio/` | 通用值、输入、资产身份／只读缓存；脚本实现可依赖 Lua，物理实现可依赖 Jolt，音频实现可依赖 miniaudio | Scene 组件和序列化不含 GPU／音频设备对象；System 不直接调用渲染后端 |
+| `scene/`、`scripting/`、`audio/`、`physics/` | 通用值、输入、资产身份／只读缓存；Lua、Jolt 和 miniaudio 限定在所属模块实现 | Scene 组件和序列化不含 GPU／物理世界／音频设备对象；System 不直接调用物理或渲染后端 |
 | `asset/` 的数据、索引、导入与序列化 | 稳定 Handle、CPU 数据、文件与后台任务 | 不依赖 Render／图形后端；`asset/data/texture_data.h` 暂复用不含 Vulkan 头的 `graphics/enums.h` |
 | `asset/asset_manager` | 上述 CPU 能力、AssetRegistry，以及 RenderResourceFactory／Runtime Asset | 运行时加载与发布桥接；Render 依赖限定在两个实现文件，源文件编辑事务属于 `editor/assets/` |
 | `tools/asset/` | Engine CPU 资产与共用 Shader 编译库 | 编辑器与 CLI 共用源编译；无窗口准备启动场景依赖，engine/app 不链接该工具库 |
@@ -125,7 +127,9 @@ Lua 只使用元素 ID，不持有原生文档／GPU 句柄；旧控制器的接
 | `input/runtime_input.h` | 运行域输入：序号去重、固定步累积、动作求值、暂停基线和重置 |
 | `input/input_state.h` | 同一授权／阶段的物理与动作只读快照，System／Lua 的统一消费入口 |
 | `scene/systems/script_system.h` | Lua 行为实例的启动、阶段更新、寿命复核与逆序清理；字段仍属于 Scene 组件 |
-| `scene/systems/physics_system.h` | 固定步 Jolt 世界，按 Scene 刚体／碰撞体组件同步；只在运行态持有物理对象 |
+| `scene/systems/physics_system.h` | 刚体／碰撞体校验与配置同步，姿态回写及接触交付；保存实体绑定，不拥有 Jolt 对象 |
+| `physics/physics_commands.h` | 无后端的冲量能力，校验运行场景与动态刚体身份；Runtime 绑定和解绑服务 |
+| `physics/physics_service.h` | 每个运行域独立的 Jolt 世界、刚体、冲量队列及接触跟踪；停止／失败销毁模拟对象 |
 | `scene/runtime_services.h` | 组合层装配、Runtime 借用的服务接口；必须活到 Runtime 停止之后 |
 | `scene/systems/audio_system.h` | 同步声音源配置及实体寿命，保存 Voice 标识；不拥有设备或 Voice |
 | `audio/audio_commands.h` | 无后端的短音效命令接口；Runtime 负责服务的启停与暂停 |
@@ -170,8 +174,9 @@ GpuResourceResult 的失败路径先保存错误码，调用 `error()` 时才生
 Engine
 ├── Scene（组件、AssetHandle 与非持久运行态；不持有 GPU 资源）
 ├── AudioService → 请求队列 + AudioPlayback + Voice（首次需要声音时创建输出）
+├── PhysicsService → 冲量队列 + Jolt world / bodies / contacts（运行态专有）
 ├── SceneRuntime → RuntimeSession + System[]（借用 Scene 与 RuntimeServices）
-│   ├── PhysicsSystem → Jolt world / bodies（Play／app 专有；Stop 销毁）
+│   ├── PhysicsSystem → 实体绑定（配置同步、姿态回写与接触交付）
 │   └── AudioSystem → 实体／组件寿命与 Voice 标识（同步 AudioService）
 ├── TaskScheduler
 ├── AssetRegistry → Runtime Mesh / Texture / Material / Environment / Script / AudioClip / ShaderProgramArtifact
@@ -432,21 +437,26 @@ PhysicsSystem 排在脚本之后：动态刚体的外部 Transform 写入作为�
 目标不变时也更新运动学速度，避免残留上一固定步的速度。静态刚体只从 Scene 同步位置，不由模拟改写。
 运动学可推动动态物体并触发静态 Trigger，但不是带阻挡／滑动的角色控制器；普通非动态物体之间不额外开启接触检测。
 Collider 的尺寸乘以本地正缩放，球体暂要求均匀缩放，
-刚体暂不允许父级，避免把局部 TRS 误当世界姿态。Scene 只保存 RigidBody／Collider 参数，
-Play／app 启动时创建 Jolt 世界和 body，Stop／启动失败时清理；Edit Scene 不模拟。
+刚体暂不允许父级，避免把局部 TRS 误当世界姿态。Scene 保存 RigidBody／Collider 参数，
+PhysicsSystem 校验组件并提交快照，PhysicsService 在 Play／app 启动时创建 Jolt 世界和 body；
+System 读取模拟输出，回写动态姿态并将接触结果交给 Scene 的阶段通知缓冲。Stop／启动失败清空服务，Edit Scene 不模拟。
 RigidBody 保存显式 `mass`（kg，默认 1、最低 0.001），PropertyDescriptor 共用于编辑、撤销和序列化；
 字段缺省取组件默认值，非法值不能通过文件或 Restore 绕过校验。Static／Kinematic 保留配置，质量响应仅作用于 Dynamic。
 创建动态刚体时使用指定质量，惯性仍由已缩放的 Collider 计算，不再由形状体积隐式改变质量。
 仅质量变化时在下一固定步原地更新质量与惯性、保留线／角速度并唤醒，不销毁 body 或重置接触身份；
 同步先于待处理冲量，冲量使用更新后的质量。暂停不执行该同步，单步执行一次；当前未开放 Lua 改质量接口。
-`comet.apply_impulse → Scene::request_apply_impulse → PhysicsSystem::fixed_update` 提交本实体的质心冲量，
-方向为世界空间；Scene 只排队实体 ID 和有限 Vec3，不保存 BodyID／速度，不把命令写入刚体配置。
+`comet.apply_impulse → PhysicsCommands::request_impulse → PhysicsService` 提交本实体的质心冲量，
+方向为世界空间；服务排队 UUID、实体 ID 和有限 Vec3，不把命令写入刚体配置或 Scene。
 最多 128 条待处理请求；提交时要求当前运行场景中的动态刚体、Transform 与 Collider。
-PhysicsSystem 在同步组件后、模拟前按提交顺序取出并执行一次，普通 Update／接触回调的请求留到后续固定步。
+PhysicsSystem 在同步组件后调用服务推进，服务在模拟前按提交顺序执行冲量一次，普通 Update／接触回调的请求留到后续固定步。
 零固定步和暂停不消费，单步消费一次；Stop／失败清空。消费前已销毁、移除刚体或不再动态的目标丢弃，
 单调实体 ID 防止同 UUID 重建接收旧请求；非法刚体配置仍由既有同步校验报错。
 冲量由 Jolt 按质量改变速度并唤醒休眠体；执行前检查候选速度的有限性，防止巨大有限输入在质量换算或限速中溢出。
-这不是全局事件通知，也不新增 PhysicsManager 或脚本对 System 的直连回调。
+Engine 拥有 PhysicsService，RuntimeServices 只暴露 PhysicsCommands；无后端的命令校验实现在 Runtime，Jolt 实现不读取 Scene／Entity。
+SceneRuntime 在所有 System 启动前绑定服务，因此 Lua 的 on_start 可在物理世界创建前请求冲量；逆序停止所有 System 后才清空服务。
+同一服务不能同时绑定两个运行域；部分服务绑定失败只回收本次取得的绑定，保留已有运行域。脚本拒绝跨场景／未激活服务，每次调用清除权限，on_stop 撤销物理权限。
+未装配服务时 Lua 调用明确报错；未启用 PhysicsSystem 不影响组件编辑和内容克隆，克隆不复制速度、接触跟踪或请求。
+当前仍使用单线程模拟、TempAllocatorMalloc 和固定容量；任务调度及预算配置后续按性能测量推进。
 接触通知表示逻辑进入／离开，不把 Jolt 休眠后停止报告接触当作离开。仅延续两端整步未活动、BodyID 仍有效的既有接触；
 静态体新增／移动或刚体移除／重建时，按受影响包围盒局部唤醒邻居，再由 Jolt 检测实际接触。
 ScriptSystem 用事件参与实体的 UUID、组件寿命和脚本 Handle 直接查询实例，不为每条通知遍历全部脚本。
@@ -609,7 +619,7 @@ SceneRuntime 在 System 启动前绑定 RuntimeSession，逆序停止 System 后
 启动／更新失败同样清理，暂停保留。同一 Scene 同时只绑定一个运行域；独立运行域的会话互不共享。
 System 的启停参数和更新 Context 显式提供会话引用，不转移所有权。ScriptSystem 在启动至停止期间借用会话，并传入 Invocation，
 Instance 拒绝会话与 Scene 不匹配的调用，每次结束清除绑定，on_stop 撤销会话／世界权限。
-Scene 的 begin_runtime／end_runtime 继续清理结构／物理／通知请求和材质覆盖；音频请求已归 AudioService，其他服务归属继续拆分。
+Scene 的 begin_runtime／end_runtime 继续清理结构请求、接触／Gameplay 通知和材质覆盖；音频与冲量请求已分别归 AudioService／PhysicsService，其他运行态归属继续拆分。
 不把固定步冲量、阶段末结构变更和 Update 通知合并成同一种消费协议。
 
 `comet.remove_rigid_body(reference)` 复用同一 EntityRequest 队列和 UUID／EntityId 身份检查，

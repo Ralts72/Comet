@@ -1,4 +1,5 @@
 #include "scripting/script.h"
+#include "physics/physics_service.h"
 #include "scene/entity.h"
 #include "scene/scene.h"
 #include "scene/scene_runtime.h"
@@ -774,32 +775,38 @@ return group
         const auto instance = script.value()->instantiate();
         ASSERT_TRUE(instance);
         Scene scene;
+        PhysicsService physics;
         auto actor = scene.create_entity();
         actor.add_component<RigidBodyComponent>();
         actor.add_component<ColliderComponent>();
-        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Start, actor, {}, {.scene = &scene}));
+        EXPECT_FALSE(instance.value()->invoke(
+            Script::Phase::Start, actor, {}, {.scene = &scene, .physics = &physics}));
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.start(scene));
         for(const auto phase : {Script::Phase::Start, Script::Phase::FixedUpdate,
                 Script::Phase::Update, Script::Phase::CollisionEnter, Script::Phase::CollisionExit,
                 Script::Phase::TriggerEnter, Script::Phase::TriggerExit}) {
             const auto called = instance.value()->invoke(
-                phase, actor, {}, {.scene = &scene, .contact_other = actor});
+                phase, actor, {}, {.scene = &scene, .physics = &physics, .contact_other = actor});
             ASSERT_TRUE(called) << called.error().message;
         }
         EXPECT_FALSE(instance.value()->invoke(Script::Phase::Stop, {}, {}));
-        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, {}, {}, {.scene = &scene}));
+        EXPECT_FALSE(instance.value()->invoke(
+            Script::Phase::Update, {}, {}, {.scene = &scene, .physics = &physics}));
         for(const auto motion : {BodyMotion::Static, BodyMotion::Kinematic}) {
             actor.get_component<RigidBodyComponent>().motion = motion;
-            EXPECT_FALSE(
-                instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene}));
+            EXPECT_FALSE(instance.value()->invoke(
+                Script::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
         }
         actor.get_component<RigidBodyComponent>().motion = BodyMotion::Dynamic;
         actor.remove_component<ColliderComponent>();
-        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene}));
+        EXPECT_FALSE(instance.value()->invoke(
+            Script::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
         actor.add_component<ColliderComponent>();
         actor.remove_component<RigidBodyComponent>();
-        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene}));
+        EXPECT_FALSE(instance.value()->invoke(
+            Script::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
         actor.add_component<RigidBodyComponent>();
         for(const char* arguments : {"", "0, 1", "0, 1, 0, 1", "'0', 1, 0", "0, true, 0",
                 "0, nil, 0", "0, {}, 0", "0, math.huge, 0", "0, 0/0, 0", "0, 1e40, 0"}) {
@@ -810,10 +817,11 @@ return group
             auto invalid_instance = invalid.value()->instantiate();
             ASSERT_TRUE(invalid_instance);
             EXPECT_FALSE(invalid_instance.value()->invoke(
-                Script::Phase::Update, actor, {}, {.scene = &scene}));
+                Script::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
         }
         scene.destroy_entity(actor);
-        EXPECT_FALSE(instance.value()->invoke(Script::Phase::Update, actor, {}, {.scene = &scene}));
+        EXPECT_FALSE(instance.value()->invoke(
+            Script::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
         ASSERT_TRUE(runtime.stop());
     }
 

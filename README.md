@@ -93,6 +93,7 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 不增加独立构建配置或模块动态库。源码归属见 `engine/cmake/module_sources.cmake`，依赖见 `modules.cmake`。
 `comet_runtime` 负责 SceneRuntime、RuntimeSession 与 System 执行契约，只依赖 World／Input 和无后端的服务接口。
 `comet_audio` 拥有音频请求、设备和播放实例；Engine 装配 AudioService，Runtime 通过 RuntimeServices 借用命令接口。
+`comet_physics` 拥有 Jolt 世界、刚体和冲量队列；PhysicsSystem 同步场景配置并回写姿态，Runtime 借用 PhysicsCommands。
 窗口、渲染和具体系统由 engine 组合。
 World 保存场景内容，不依赖 Input 或 Runtime；运行输入和本局状态归 Runtime。
 编辑器分为无 ImGui 的 `editor_core`、ImGui 呈现适配 `editor_imgui` 与功能界面 `editor_ui`；新增源码需维护所属库清单。
@@ -572,6 +573,8 @@ Play 修改只作用于副本；脚本启动或运行失败会记录错误并恢
 
 demo 场景的 Ground 有静态盒碰撞体，Falling Cube 有动态刚体；打开编辑器点击 Play（或运行 app）即可看到方块落地，
 Edit 中位置保持原样。刚体与碰撞体在 Inspector 添加、编辑并保存到 `.scene`；物理世界不会保存，Stop 即销毁。
+Engine 为每个运行域装配 PhysicsService；启动前绑定服务，停止／失败时清空模拟对象和待处理冲量。
+脚本可在 `on_start` 提交冲量，下一固定步执行；未装配物理服务时调用 `comet.apply_impulse` 会明确报错，组件配置仍可编辑和保存。
 只添加碰撞体不会参与模拟，还需添加刚体；静态刚体本身不会下落，也只有与其他物理 body 接触时才有碰撞效果。
 运动类型可选静态、动态、运动学：动态由物理推进并回写位置；运动学由脚本／场景 Transform 给出每个固定步的目标，
 不受重力或碰撞反推，可推动动态物体并触发静态 Trigger。脚本驱动移动平台或旋转障碍物应使用运动学，

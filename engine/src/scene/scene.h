@@ -67,8 +67,6 @@ namespace Comet {
         [[nodiscard]] bool request_destroy_entity(Entity entity);
         // 仅移除刚体，保留碰撞体配置和其他组件；无刚体或重复请求幂等成功。
         [[nodiscard]] bool request_remove_rigid_body(Entity entity);
-        // 世界空间质心冲量，在下一物理固定步消费，不直接改写 Transform。
-        [[nodiscard]] bool request_apply_impulse(Entity entity, Math::Vec3 impulse);
 
         // 场景通知不序列化；交付期间发出的新通知留至下一次有效更新。
         [[nodiscard]] bool emit_event(
@@ -140,7 +138,6 @@ namespace Comet {
         friend class ComponentRegistry;
 
         static constexpr std::size_t MAX_ENTITY_REQUESTS = 1024;
-        static constexpr std::size_t MAX_IMPULSE_REQUESTS = 128;
         static constexpr std::size_t MAX_EVENTS = 1024;
 
         struct EntityRequest {
@@ -150,14 +147,9 @@ namespace Comet {
             std::string name;
             EntityCreation creation;
         };
-        struct ImpulseRequest {
-            EntityId entity_id;
-            Math::Vec3 impulse;
-        };
 
         [[nodiscard]] bool begin_runtime();
         [[nodiscard]] bool commit_entity_requests();
-        [[nodiscard]] std::vector<ImpulseRequest> take_impulse_requests();
         [[nodiscard]] std::vector<Event> take_events();
         void end_runtime() noexcept;
         void clear_runtime_state() noexcept;
@@ -179,7 +171,6 @@ namespace Comet {
 
         EntityId m_next_entity_id = 1;
         std::vector<EntityRequest> m_entity_requests;
-        std::vector<ImpulseRequest> m_impulse_requests;
         std::vector<ContactEvent> m_contact_events;
         std::vector<Event> m_events;
         bool m_runtime_active = false;

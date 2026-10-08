@@ -37,9 +37,12 @@ set(WORLD_HEADERS
     "${ASSET_HEADERS}|scene/(component_registry|components|entity|entity_id|entity_uuid|material_parameters|property|scene|scene_serializer|scene_settings|script_component)\\.h$")
 set(PIPELINE_HEADERS "${ASSET_HEADERS}|asset/(artifact/|import/|database\\.h$)")
 
-set(RUNTIME_HEADERS "${WORLD_HEADERS}|${INPUT_HEADERS}|audio/audio_commands\\.h$|scene/(scene_runtime|runtime_session|runtime_services|systems/system)\\.h$")
+set(RUNTIME_HEADERS "${WORLD_HEADERS}|${INPUT_HEADERS}|audio/audio_commands\\.h$|physics/physics_commands\\.h$|scene/(scene_runtime|runtime_session|runtime_services|systems/system)\\.h$")
 
 set(AUDIO_HEADERS "${RUNTIME_HEADERS}|audio/|scene/systems/audio_system\\.h$")
+
+set(PHYSICS_HEADERS "${RUNTIME_HEADERS}|physics/|scene/systems/physics_system\\.h$")
+set(PHYSICS_BACKEND_HEADERS "${ASSET_HEADERS}|physics/|scene/(components|entity_id|entity_uuid)\\.h$")
 
 function(check_module_closure module sources allowed)
     set(pending ${sources})
@@ -55,8 +58,10 @@ function(check_module_closure module sources allowed)
             REGEX "^[ \t]*#[ \t]*include[ \t]*[<\"]")
         foreach(line IN LISTS includes)
             if(line MATCHES "[<\"]([Vv]ulkan/|GLFW/|RmlUi/|imgui|lua\\.h|Jolt/|miniaudio\\.h)")
-                if(NOT (module STREQUAL "Audio" AND path STREQUAL "audio/audio.cpp"
-                    AND line MATCHES "[<\"]miniaudio\\.h[>\"]"))
+                if(NOT ((module STREQUAL "Audio" AND path STREQUAL "audio/audio.cpp"
+                    AND line MATCHES "[<\"]miniaudio\\.h[>\"]") OR
+                    (module MATCHES "^Physics" AND path STREQUAL "physics/physics_service.cpp"
+                    AND line MATCHES "[<\"]Jolt/")))
                     message(FATAL_ERROR "${module} includes a runtime backend: ${path}: ${line}")
                 endif()
             endif()
@@ -91,6 +96,9 @@ check_module_closure(Input "${COMET_INPUT_SOURCES}" "${INPUT_HEADERS}")
 check_module_closure(World "${COMET_WORLD_SOURCES}" "${WORLD_HEADERS}")
 check_module_closure(Runtime "${COMET_RUNTIME_SOURCES}" "${RUNTIME_HEADERS}")
 check_module_closure(Audio "${COMET_AUDIO_SOURCES}" "${AUDIO_HEADERS}")
+check_module_closure(Physics "${COMET_PHYSICS_SOURCES}" "${PHYSICS_HEADERS}")
+check_module_closure(PhysicsBackend "src/physics/physics_service.cpp;src/physics/physics_service.h"
+    "${PHYSICS_BACKEND_HEADERS}")
 check_module_closure(AssetPipeline "${COMET_ASSET_PIPELINE_SOURCES}" "${PIPELINE_HEADERS}")
 
 file(GLOB_RECURSE ENGINE_FILES RELATIVE "${ENGINE_SOURCE}"
@@ -104,13 +112,13 @@ check_includes("${ENGINE_SOURCE}" "${ENGINE_CORE_FILES}" "RmlUi/|ui/rml_"
     "Only the optional Engine UI module may depend on RmlUi")
 
 set(LOW_LEVEL_FILES)
-foreach(directory common input scene scripting audio)
+foreach(directory common input scene scripting audio physics)
     file(GLOB_RECURSE files RELATIVE "${ENGINE_SOURCE}"
         "${ENGINE_SOURCE}/${directory}/*.h" "${ENGINE_SOURCE}/${directory}/*.cpp")
     list(APPEND LOW_LEVEL_FILES ${files})
 endforeach()
 check_includes("${ENGINE_SOURCE}" "${LOW_LEVEL_FILES}" "render/|graphics/|[Vv]ulkan|GLFW/"
-    "Scene/Input/Scripting/Audio/Common must not include rendering or platform backends")
+    "Scene/Input/Scripting/Audio/Physics/Common must not include rendering or platform backends")
 
 file(GLOB_RECURSE ASSET_FILES RELATIVE "${ENGINE_SOURCE}"
     "${ENGINE_SOURCE}/asset/*.h" "${ENGINE_SOURCE}/asset/*.cpp")

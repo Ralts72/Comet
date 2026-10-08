@@ -59,6 +59,8 @@ set(COMET_RUNTIME_SOURCES
     src/scene/runtime_session.h
     src/scene/runtime_services.h
     src/audio/audio_commands.h
+    src/physics/physics_commands.cpp
+    src/physics/physics_commands.h
     src/scene/scene_runtime.cpp
     src/scene/scene_runtime.h
     src/scene/systems/system.h
@@ -72,6 +74,13 @@ set(COMET_AUDIO_SOURCES
     src/audio/audio_service.h
     src/scene/systems/audio_system.cpp
     src/scene/systems/audio_system.h
+)
+
+set(COMET_PHYSICS_SOURCES
+    src/physics/physics_service.cpp
+    src/physics/physics_service.h
+    src/scene/systems/physics_system.cpp
+    src/scene/systems/physics_system.h
 )
 
 set(COMET_ASSET_PIPELINE_SOURCES

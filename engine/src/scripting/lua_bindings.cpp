@@ -1,5 +1,6 @@
 #include "scripting/lua_bindings.h"
 #include "audio/audio_commands.h"
+#include "physics/physics_commands.h"
 #include "scene/scene.h"
 #include "scene/runtime_session.h"
 #include "input/input_state.h"
@@ -273,7 +274,12 @@ namespace Comet::LuaBindings {
                 luaL_checktype(state, argument, LUA_TNUMBER);
             const Math::Vec3 impulse{number(state, 1), number(state, 2), number(state, 3)};
             const auto& context = current(state);
-            if(!context.scene || !context.scene->request_apply_impulse(context.entity, impulse))
+            if(!context.scene || !context.scene->is_valid(context.entity))
+                return luaL_error(
+                    state, "Cannot queue impulse: active dynamic body with Collider required");
+            if(!context.physics)
+                return luaL_error(state, "Physics service is unavailable in this runtime");
+            if(!context.physics->request_impulse(context.entity, impulse))
                 return luaL_error(state,
                     "Cannot queue impulse: active dynamic body with Collider required, or queue full");
             return 0;

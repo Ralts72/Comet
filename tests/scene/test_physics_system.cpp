@@ -41,12 +41,14 @@ namespace Comet::Tests {
     TEST(PhysicsSystemTest, PublishesContactTransitionsAfterFixedStep) {
         for(const bool trigger : {false, true}) {
             Scene scene;
+            PhysicsService physics;
             auto floor = add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0});
             floor.get_component<ColliderComponent>().is_trigger = trigger;
             auto falling = add_body(scene, "Falling", BodyMotion::Dynamic, {0, 0.3f, 0});
             SceneRuntime runtime;
+            ASSERT_TRUE(runtime.set_services({.physics = &physics}));
             ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-            ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+            ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
             auto probe = std::make_unique<ContactProbe>();
             auto* observed = probe.get();
             ASSERT_TRUE(runtime.add_system(std::move(probe)));
@@ -82,10 +84,12 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, CollidesOnFixedStepsAndRespectsPauseStepAndStop) {
         Scene scene;
+        PhysicsService physics;
         add_body(scene, "Floor", BodyMotion::Static, {0, -1, 0}, {10, 0.2f, 10});
         const auto falling = add_body(scene, "Falling", BodyMotion::Dynamic, {0, 2, 0});
         SceneRuntime runtime;
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_FLOAT_EQ(falling.get_component<TransformComponent>().translation.y, 2);
@@ -110,11 +114,13 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, SleepingContactPersistsUntilBodyActuallyMovesAway) {
         Scene scene;
+        PhysicsService physics;
         add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
         auto resting = add_body(scene, "Resting", BodyMotion::Dynamic, {0, 2, 0});
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         auto probe = std::make_unique<ContactProbe>();
         auto* observed = probe.get();
         ASSERT_TRUE(runtime.add_system(std::move(probe)));
@@ -140,13 +146,15 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, StableSleepingBodiesKeepTransformsCleanAndStepPublishesWakeUp) {
         Scene scene;
+        PhysicsService physics;
         add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
         const auto resting = add_body(scene, "Resting", BodyMotion::Dynamic, {0, 2, 0});
         const auto child = scene.create_entity("Visual child");
         ASSERT_TRUE(scene.set_parent(child, resting));
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(scene));
         for(int step = 0; step < 300; ++step)
             ASSERT_TRUE(runtime.advance(0.01));
@@ -161,7 +169,7 @@ namespace Comet::Tests {
         }
 
         ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
-        ASSERT_TRUE(scene.request_apply_impulse(resting, {0, 10, 0}));
+        ASSERT_TRUE(physics.request_impulse(resting, {0, 10, 0}));
         ASSERT_TRUE(runtime.advance(0.1));
         EXPECT_EQ(scene.update_world_transforms(), 0u);
         ASSERT_TRUE(runtime.request_step());
@@ -175,13 +183,15 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, PreservesAuthoredEulerUntilPhysicsRotationChanges) {
         Scene scene;
+        PhysicsService physics;
         const auto falling = add_body(scene, "Falling", BodyMotion::Dynamic, {0, 10, 0});
         const Math::Vec3 authored_rotation(0, 0, 385);
         falling.edit_transform(
             [&](TransformComponent& transform) { transform.rotation = authored_rotation; });
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_LT(falling.get_component<TransformComponent>().translation.y, 10);
@@ -208,11 +218,13 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, MovingStaticSupportWakesRestingBodyAndEndsContact) {
         Scene scene;
+        PhysicsService physics;
         auto floor = add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0});
         auto resting = add_body(scene, "Resting", BodyMotion::Dynamic, {0, 0.5f, 0});
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         auto probe = std::make_unique<ContactProbe>();
         auto* observed = probe.get();
         ASSERT_TRUE(runtime.add_system(std::move(probe)));
@@ -231,13 +243,15 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, StaticSensorEditsRecheckSleepingOverlapAndDropDestroyedContacts) {
         Scene scene;
+        PhysicsService physics;
         add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
         add_body(scene, "Resting", BodyMotion::Dynamic, {0, 0.5f, 0});
         auto sensor = add_body(scene, "Sensor", BodyMotion::Static, {10, 0.5f, 0});
         sensor.get_component<ColliderComponent>().is_trigger = true;
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         auto probe = std::make_unique<ContactProbe>();
         auto* observed = probe.get();
         ASSERT_TRUE(runtime.add_system(std::move(probe)));
@@ -269,11 +283,13 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, NewStaticSensorDetectsAnAlreadySleepingBody) {
         Scene scene;
+        PhysicsService physics;
         add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
         add_body(scene, "Resting", BodyMotion::Dynamic, {0, 0.5f, 0});
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         auto probe = std::make_unique<ContactProbe>();
         auto* observed = probe.get();
         ASSERT_TRUE(runtime.add_system(std::move(probe)));
@@ -291,12 +307,14 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, KinematicMotionPushesDynamicBodyWithoutPhysicsWritingItsPose) {
         Scene scene;
+        PhysicsService physics;
         add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
         auto pusher = add_body(scene, "Pusher", BodyMotion::Kinematic, {-1.5f, 0.5f, 0});
         auto pushed = add_body(scene, "Pushed", BodyMotion::Dynamic, {0, 0.5f, 0});
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(scene));
         for(int step = 0; step < 30; ++step) {
             pusher.edit_transform(
@@ -312,12 +330,14 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, KinematicStopsAtUnchangedTargetAndExitsStaticTriggerWhenMovedAway) {
         Scene scene;
+        PhysicsService physics;
         auto sensor = add_body(scene, "Sensor", BodyMotion::Static, {0, 0, 0});
         sensor.get_component<ColliderComponent>().is_trigger = true;
         auto mover = add_body(scene, "Mover", BodyMotion::Kinematic, {-2, 0, 0});
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         auto probe = std::make_unique<ContactProbe>();
         auto* observed = probe.get();
         ASSERT_TRUE(runtime.add_system(std::move(probe)));
@@ -347,13 +367,15 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, KinematicRotationMovesColliderAndClearsAngularVelocityAtTarget) {
         Scene scene;
+        PhysicsService physics;
         auto sensor = add_body(scene, "Sensor", BodyMotion::Static, {0, 0, 1.5f});
         sensor.get_component<ColliderComponent>().is_trigger = true;
         auto rod = add_body(scene, "Rod", BodyMotion::Kinematic, {0, 0, 0});
         rod.get_component<ColliderComponent>().half_extents = {2, 0.2f, 0.2f};
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         auto probe = std::make_unique<ContactProbe>();
         auto* observed = probe.get();
         ASSERT_TRUE(runtime.add_system(std::move(probe)));
@@ -378,9 +400,11 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, SwitchingMotionRecreatesBodyWithTheNewPoseOwner) {
         Scene scene;
+        PhysicsService physics;
         auto body = add_body(scene, "Body", BodyMotion::Kinematic, {0, 2, 0});
         SceneRuntime runtime;
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(1.0 / 60.0));
         EXPECT_FLOAT_EQ(body.get_component<TransformComponent>().translation.y, 2);
@@ -397,12 +421,14 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, RejectsParentedBodiesAndCleansPartialStart) {
         Scene scene;
+        PhysicsService physics;
         add_body(scene, "Floor", BodyMotion::Static, {0, -1, 0});
         auto parent = scene.create_entity("Parent");
         auto child = add_body(scene, "Child", BodyMotion::Dynamic, {0, 2, 0});
         ASSERT_TRUE(scene.set_parent(child, parent));
         SceneRuntime runtime;
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         const auto started = runtime.start(scene);
         ASSERT_FALSE(started);
         EXPECT_FALSE(runtime.is_active());
@@ -417,13 +443,15 @@ namespace Comet::Tests {
             {std::numeric_limits<float>::max(), std::numeric_limits<float>::min()}) {
             SCOPED_TRACE(value);
             Scene scene;
+            PhysicsService physics;
             add_body(scene, "Floor", BodyMotion::Static, {0, -1, 0});
             auto ball = add_body(scene, "Ball", BodyMotion::Dynamic, {0, 2, 0}, Math::Vec3(value));
             auto& collider = ball.get_component<ColliderComponent>();
             collider.shape = ColliderShape::Sphere;
             collider.radius = value;
             SceneRuntime runtime;
-            ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+            ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+            ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
 
             const auto started = runtime.start(scene);
             ASSERT_FALSE(started);
@@ -458,9 +486,11 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, AppliesExternalPoseAtNextFixedStepAndRemovesDeletedBody) {
         Scene scene;
+        PhysicsService physics;
         auto falling = add_body(scene, "Falling", BodyMotion::Dynamic, {0, 2, 0});
         SceneRuntime runtime;
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(1.0 / 60.0));
         falling.edit_transform(
@@ -478,6 +508,7 @@ namespace Comet::Tests {
         for(const bool remove_sensor : {false, true}) {
             SCOPED_TRACE(remove_sensor);
             Scene scene;
+            PhysicsService physics;
             auto sensor = add_body(scene, "Sensor", BodyMotion::Static, {0, 0, 0});
             sensor.get_component<ColliderComponent>().is_trigger = true;
             const auto falling = add_body(scene, "Falling", BodyMotion::Dynamic, {0, 0.3f, 0});
@@ -486,8 +517,9 @@ namespace Comet::Tests {
             const auto uuid = removed.get_uuid();
             const auto id = removed.get_id();
             SceneRuntime runtime;
+            ASSERT_TRUE(runtime.set_services({.physics = &physics}));
             ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-            ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+            ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
             auto probe = std::make_unique<ContactProbe>();
             auto* observed = probe.get();
             ASSERT_TRUE(runtime.add_system(std::move(probe)));
@@ -558,42 +590,46 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, ImpulseRequestsValidateTargetsAndBoundThePendingQueue) {
         Scene scene;
+        PhysicsService physics;
         const auto dynamic = add_body(scene, "Dynamic", BodyMotion::Dynamic, {0, 10, 0});
         const auto stationary = add_body(scene, "Static", BodyMotion::Static, {10, 0, 0});
         const auto kinematic = add_body(scene, "Kinematic", BodyMotion::Kinematic, {20, 0, 0});
         const auto no_body = scene.create_entity("NoBody");
         Scene other_scene;
         const auto foreign = add_body(other_scene, "Foreign", BodyMotion::Dynamic, {0, 10, 0});
-        EXPECT_FALSE(scene.request_apply_impulse(dynamic, {1, 0, 0}));
+        EXPECT_FALSE(physics.request_impulse(dynamic, {1, 0, 0}));
         SceneRuntime runtime;
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(scene));
-        EXPECT_FALSE(scene.request_apply_impulse({}, {1, 0, 0}));
-        EXPECT_FALSE(scene.request_apply_impulse(foreign, {1, 0, 0}));
-        EXPECT_FALSE(scene.request_apply_impulse(stationary, {1, 0, 0}));
-        EXPECT_FALSE(scene.request_apply_impulse(kinematic, {1, 0, 0}));
-        EXPECT_FALSE(scene.request_apply_impulse(no_body, {1, 0, 0}));
+        EXPECT_FALSE(physics.request_impulse({}, {1, 0, 0}));
+        EXPECT_FALSE(physics.request_impulse(foreign, {1, 0, 0}));
+        EXPECT_FALSE(physics.request_impulse(stationary, {1, 0, 0}));
+        EXPECT_FALSE(physics.request_impulse(kinematic, {1, 0, 0}));
+        EXPECT_FALSE(physics.request_impulse(no_body, {1, 0, 0}));
         EXPECT_FALSE(
-            scene.request_apply_impulse(dynamic, {std::numeric_limits<float>::infinity(), 0, 0}));
+            physics.request_impulse(dynamic, {std::numeric_limits<float>::infinity(), 0, 0}));
         EXPECT_FALSE(
-            scene.request_apply_impulse(dynamic, {0, std::numeric_limits<float>::quiet_NaN(), 0}));
+            physics.request_impulse(dynamic, {0, std::numeric_limits<float>::quiet_NaN(), 0}));
         for(int i = 0; i < 128; ++i)
-            ASSERT_TRUE(scene.request_apply_impulse(dynamic, {0, 0, 0}));
-        EXPECT_FALSE(scene.request_apply_impulse(dynamic, {1, 0, 0}));
+            ASSERT_TRUE(physics.request_impulse(dynamic, {0, 0, 0}));
+        EXPECT_FALSE(physics.request_impulse(dynamic, {1, 0, 0}));
         ASSERT_TRUE(runtime.advance(1.0 / 60.0));
-        EXPECT_TRUE(scene.request_apply_impulse(dynamic, {1, 0, 0}));
+        EXPECT_TRUE(physics.request_impulse(dynamic, {1, 0, 0}));
         ASSERT_TRUE(runtime.stop());
-        EXPECT_FALSE(scene.request_apply_impulse(dynamic, {1, 0, 0}));
+        EXPECT_FALSE(physics.request_impulse(dynamic, {1, 0, 0}));
     }
 
     TEST(PhysicsSystemTest, ImpulseRunsOnceAtFixedBoundaryAndStopDiscardsPendingRequests) {
         Scene scene;
+        PhysicsService physics;
         auto body = add_body(scene, "Body", BodyMotion::Dynamic, {0, 10, 0});
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(scene));
-        ASSERT_TRUE(scene.request_apply_impulse(body, {10, 0, 0}));
+        ASSERT_TRUE(physics.request_impulse(body, {10, 0, 0}));
         ASSERT_TRUE(runtime.advance(0.005));
         EXPECT_FLOAT_EQ(body.get_component<TransformComponent>().translation.x, 0);
         ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
@@ -606,7 +642,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.advance(0.03));
         EXPECT_NEAR(body.get_component<TransformComponent>().translation.x, 0.4f, 0.005f);
 
-        ASSERT_TRUE(scene.request_apply_impulse(body, {10, 0, 0}));
+        ASSERT_TRUE(physics.request_impulse(body, {10, 0, 0}));
         ASSERT_TRUE(runtime.stop());
         body.edit_transform(
             [](TransformComponent& transform) { transform.translation = {0, 10, 0}; });
@@ -619,16 +655,18 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, ImpulsesKeepSubmissionOrderWithinOneFixedStep) {
         Scene scene;
+        PhysicsService physics;
         const auto first = add_body(scene, "First", BodyMotion::Dynamic, {0, 10, -10});
         const auto second = add_body(scene, "Second", BodyMotion::Dynamic, {0, 10, 10});
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(scene));
-        ASSERT_TRUE(scene.request_apply_impulse(first, {1000000, 0, 0}));
-        ASSERT_TRUE(scene.request_apply_impulse(first, {-1000000, 0, 0}));
-        ASSERT_TRUE(scene.request_apply_impulse(second, {-1000000, 0, 0}));
-        ASSERT_TRUE(scene.request_apply_impulse(second, {1000000, 0, 0}));
+        ASSERT_TRUE(physics.request_impulse(first, {1000000, 0, 0}));
+        ASSERT_TRUE(physics.request_impulse(first, {-1000000, 0, 0}));
+        ASSERT_TRUE(physics.request_impulse(second, {-1000000, 0, 0}));
+        ASSERT_TRUE(physics.request_impulse(second, {1000000, 0, 0}));
         ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_LT(first.get_component<TransformComponent>().translation.x, -1);
         EXPECT_GT(second.get_component<TransformComponent>().translation.x, 1);
@@ -637,14 +675,16 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, ImpulseCannotReachRecreatedOrNoLongerDynamicTargets) {
         Scene scene;
+        PhysicsService physics;
         const auto original = add_body(scene, "Original", BodyMotion::Dynamic, {0, 10, 0});
         const auto uuid = original.get_uuid();
         const auto original_id = original.get_id();
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(scene));
-        ASSERT_TRUE(scene.request_apply_impulse(original, {10, 0, 0}));
+        ASSERT_TRUE(physics.request_impulse(original, {10, 0, 0}));
         scene.destroy_entity(original);
         auto replacement = scene.create_entity_with_uuid(uuid, "Replacement");
         ASSERT_TRUE(replacement);
@@ -657,13 +697,13 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(replacement.get_component<TransformComponent>().translation.x, 0);
         for(const auto motion : {BodyMotion::Static, BodyMotion::Kinematic}) {
             replacement.get_component<RigidBodyComponent>().motion = BodyMotion::Dynamic;
-            ASSERT_TRUE(scene.request_apply_impulse(replacement, {10, 0, 0}));
+            ASSERT_TRUE(physics.request_impulse(replacement, {10, 0, 0}));
             replacement.get_component<RigidBodyComponent>().motion = motion;
             ASSERT_TRUE(runtime.advance(0.01));
             EXPECT_FLOAT_EQ(replacement.get_component<TransformComponent>().translation.x, 0);
         }
         replacement.get_component<RigidBodyComponent>().motion = BodyMotion::Dynamic;
-        ASSERT_TRUE(scene.request_apply_impulse(replacement, {10, 0, 0}));
+        ASSERT_TRUE(physics.request_impulse(replacement, {10, 0, 0}));
         replacement.remove_component<RigidBodyComponent>();
         ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_FLOAT_EQ(replacement.get_component<TransformComponent>().translation.x, 0);
@@ -672,11 +712,13 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, ImpulseWakesRestingBodyAndRechecksItsContact) {
         Scene scene;
+        PhysicsService physics;
         add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
         const auto resting = add_body(scene, "Resting", BodyMotion::Dynamic, {0, 2, 0});
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         auto probe = std::make_unique<ContactProbe>();
         auto* observed = probe.get();
         ASSERT_TRUE(runtime.add_system(std::move(probe)));
@@ -686,7 +728,7 @@ namespace Comet::Tests {
         ASSERT_NEAR(resting.get_component<TransformComponent>().translation.y, 0.5f, 0.03f);
         ASSERT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1);
         ASSERT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionExit), 0);
-        ASSERT_TRUE(scene.request_apply_impulse(resting, {0, 10, 0}));
+        ASSERT_TRUE(physics.request_impulse(resting, {0, 10, 0}));
         for(int i = 0; i < 5; ++i)
             ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_GT(resting.get_component<TransformComponent>().translation.y, 0.9f);
@@ -696,18 +738,20 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, ExcessiveFiniteImpulseFailsBeforeWritingInvalidVelocity) {
         Scene scene;
+        PhysicsService physics;
         const auto body = add_body(scene, "Body", BodyMotion::Dynamic, {0, 10, 0});
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(scene));
-        ASSERT_TRUE(scene.request_apply_impulse(body, {std::numeric_limits<float>::max(), 0, 0}));
+        ASSERT_TRUE(physics.request_impulse(body, {std::numeric_limits<float>::max(), 0, 0}));
         const auto result = runtime.advance(0.01);
         ASSERT_FALSE(result);
         EXPECT_NE(result.error().message.find("velocity range"), std::string::npos);
         EXPECT_FALSE(runtime.is_active());
         EXPECT_TRUE(Math::is_finite(body.get_component<TransformComponent>().translation));
-        EXPECT_FALSE(scene.request_apply_impulse(body, {1, 0, 0}));
+        EXPECT_FALSE(physics.request_impulse(body, {1, 0, 0}));
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_FLOAT_EQ(body.get_component<TransformComponent>().translation.x, 0);
@@ -718,6 +762,7 @@ namespace Comet::Tests {
     TEST(PhysicsSystemTest, ConfiguredMassControlsImpulseResponseIndependentlyOfShapeSize) {
         for(const auto shape : {ColliderShape::Box, ColliderShape::Sphere}) {
             Scene scene;
+            PhysicsService physics;
             auto light = add_body(scene, "Light", BodyMotion::Dynamic, {0, 10, -10});
             auto heavy = add_body(scene, "Heavy", BodyMotion::Dynamic, {0, 10, 0});
             auto large = add_body(scene, "Large", BodyMotion::Dynamic, {0, 10, 10}, Math::Vec3(2));
@@ -725,11 +770,12 @@ namespace Comet::Tests {
             for(auto entity : {light, heavy, large})
                 entity.get_component<ColliderComponent>().shape = shape;
             SceneRuntime runtime;
+            ASSERT_TRUE(runtime.set_services({.physics = &physics}));
             ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-            ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+            ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
             ASSERT_TRUE(runtime.start(scene));
             for(const auto entity : {light, heavy, large})
-                ASSERT_TRUE(scene.request_apply_impulse(entity, {10, 0, 0}));
+                ASSERT_TRUE(physics.request_impulse(entity, {10, 0, 0}));
             ASSERT_TRUE(runtime.advance(0.01));
             const auto distance = light.get_component<TransformComponent>().translation.x;
             EXPECT_NEAR(distance, 0.1f, 0.002f);
@@ -742,17 +788,19 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, MassChangesAtFixedBoundaryWithoutResettingVelocity) {
         Scene scene;
+        PhysicsService physics;
         auto body = add_body(scene, "Body", BodyMotion::Dynamic, {0, 10, 0});
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(scene));
-        ASSERT_TRUE(scene.request_apply_impulse(body, {10, 0, 0}));
+        ASSERT_TRUE(physics.request_impulse(body, {10, 0, 0}));
         ASSERT_TRUE(runtime.advance(0.01));
         const auto before_pause = body.get_component<TransformComponent>().translation.x;
         ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
         body.get_component<RigidBodyComponent>().mass = 2;
-        ASSERT_TRUE(scene.request_apply_impulse(body, {10, 0, 0}));
+        ASSERT_TRUE(physics.request_impulse(body, {10, 0, 0}));
         ASSERT_TRUE(runtime.advance(0.1));
         EXPECT_FLOAT_EQ(body.get_component<TransformComponent>().translation.x, before_pause);
         ASSERT_TRUE(runtime.request_step());
@@ -769,11 +817,13 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, ChangingRestingBodyMassPreservesContactIdentity) {
         Scene scene;
+        PhysicsService physics;
         add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
         auto resting = add_body(scene, "Resting", BodyMotion::Dynamic, {0, 2, 0});
         SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         auto probe = std::make_unique<ContactProbe>();
         auto* observed = probe.get();
         ASSERT_TRUE(runtime.add_system(std::move(probe)));
@@ -796,11 +846,13 @@ namespace Comet::Tests {
                     std::numeric_limits<float>::quiet_NaN()}) {
                 SCOPED_TRACE(mass);
                 Scene scene;
+                PhysicsService physics;
                 auto body = add_body(scene, "Body", motion, {0, 10, 0});
                 auto& rigid = body.get_component<RigidBodyComponent>();
                 rigid.mass = mass;
                 SceneRuntime runtime;
-                ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+                ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+                ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
                 auto result = runtime.start(scene);
                 ASSERT_FALSE(result);
                 EXPECT_NE(result.error().message.find("mass"), std::string::npos);
@@ -823,11 +875,13 @@ namespace Comet::Tests {
 
     TEST(PhysicsSystemTest, FiniteMassWithUnrepresentableInertiaFailsBeforeJoltConsumesIt) {
         Scene scene;
+        PhysicsService physics;
         auto body = add_body(scene, "Body", BodyMotion::Dynamic, {0, 10, 0}, Math::Vec3(100));
         auto& rigid = body.get_component<RigidBodyComponent>();
         rigid.mass = 1e36f;
         SceneRuntime runtime;
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         auto result = runtime.start(scene);
         ASSERT_FALSE(result);
         EXPECT_NE(result.error().message.find("inertia"), std::string::npos);
@@ -854,8 +908,10 @@ namespace Comet::Tests {
         ASSERT_TRUE(loaded) << loaded.error();
         EXPECT_EQ(loaded.value()->component_count<RigidBodyComponent>(), 5u);
         EXPECT_EQ(loaded.value()->component_count<ColliderComponent>(), 5u);
+        PhysicsService physics;
         SceneRuntime runtime;
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(*loaded.value()));
         ASSERT_TRUE(runtime.advance(1.0 / 60.0));
         ASSERT_TRUE(runtime.stop());

@@ -62,6 +62,7 @@ namespace Comet {
         if(auto detached = m_scene_runtime.set_services({}); !detached)
             LOG_FATAL("Cannot detach stopped runtime services");
         m_audio_service.reset();
+        m_physics_service.reset();
         m_task_scheduler->shutdown();
         m_renderer->prepare_shutdown();
         m_shutdown_prepared = true;
@@ -94,7 +95,10 @@ namespace Comet {
             return Result<void, Error>::failure({"Engine is shutting down"});
         if(!m_audio_service)
             m_audio_service = std::make_unique<AudioService>(*m_asset_registry);
-        if(auto configured = m_scene_runtime.set_services({.audio = m_audio_service.get()});
+        if(!m_physics_service)
+            m_physics_service = std::make_unique<PhysicsService>();
+        if(auto configured = m_scene_runtime.set_services(
+               {.audio = m_audio_service.get(), .physics = m_physics_service.get()});
             !configured)
             return configured;
         // 注册顺序也是各更新阶段的执行顺序；SceneRuntime 停止时按逆序清理。
@@ -104,7 +108,7 @@ namespace Comet {
                *m_asset_registry, &m_renderer->get_material_programs()));
             !added)
             return added;
-        if(auto added = add_system(std::make_unique<PhysicsSystem>()); !added)
+        if(auto added = add_system(std::make_unique<PhysicsSystem>(*m_physics_service)); !added)
             return added;
         return add_system(std::make_unique<AudioSystem>(*m_audio_service));
     }

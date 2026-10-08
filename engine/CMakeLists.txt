@@ -77,7 +77,6 @@ set(SOURCES
         src/render/material/material_runtime.cpp
         src/render/material/material_renderer.cpp
         src/scene/systems/camera_controller.cpp
-        src/scene/systems/physics_system.cpp
         src/scene/systems/script_system.cpp
         src/scripting/script.cpp
         src/scripting/lua_bindings.cpp
@@ -98,7 +97,6 @@ target_link_libraries(engine
         ${COMET_ENGINE_MODULES}
         yaml-cpp
         comet_lua
-        Jolt::Jolt
         glfw
 )
 target_include_directories(engine

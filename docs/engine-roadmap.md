@@ -66,7 +66,7 @@ Shader 保留为按需分支：同一 Program 的多个材质实例已有 UI／G
 | 问题 | 当前状态 | 计划位置 |
 | --- | --- | --- |
 | 模拟受窗口／GPU 帧准备限制，活动世界与渲染 View 单一 | Engine 仍在呈现链路中推进单个 SceneRuntime | [世界、会话与执行契约](#世界会话与执行契约)、[持久渲染世界与视图](#持久渲染世界与视图待实现) |
-| Scene 同时保存世界数据、会话值及专用系统请求 | 会话已迁入 RuntimeSession，音频请求与播放实例已归 AudioService；物理等请求仍待迁移 | [世界、会话与执行契约](#世界会话与执行契约) |
+| Scene 同时保存世界数据、会话值及专用系统请求 | 会话已迁入 RuntimeSession；音频和冲量请求已归各自服务，接触／Gameplay 通知、结构请求和材质运行覆盖仍待收窄 | [世界、会话与执行契约](#世界会话与执行契约) |
 | 串行系统靠注册顺序，缺阶段依赖与帧任务图 | TaskScheduler 支持后台任务，尚无系统访问声明与依赖执行计划 | [世界、会话与执行契约](#世界会话与执行契约) |
 | 物理全量同步、单线程任务与临时分配 | 休眠动态刚体跳过重复回写；结构同步、Jolt 单线程和 malloc 临时分配仍保留 | 阶段 6 的物理条目与[世界、会话与执行契约](#世界会话与执行契约) |
 | 源编辑／导入、运行时资产与 GPU 发布共用宽入口 | 已有 Artifact 与候选发布，app 仍消费开发目录 | [资产生产与运行时驻留](#资产生产与运行时驻留待完成)、阶段 7 发布包 |
@@ -81,16 +81,17 @@ Shader 保留为按需分支：同一 Program 的多个材质实例已有 UI／G
 ### 世界、会话与执行契约
 
 **当前状态：**SceneRuntime 能独立测试固定步、暂停与单步，但生产 Engine 始终创建窗口和 Renderer；
-窗口最小化会在模拟前返回，GPU 帧准备发生在 Runtime 推进之前。Scene 仍直接保存冲量、结构和通知请求及材质运行覆盖。
-会话值、输入组请求和重开意图已迁入 RuntimeSession；音频请求、设备和全部 Voice 已归 AudioService。
+窗口最小化会在模拟前返回，GPU 帧准备发生在 Runtime 推进之前。Scene 仍直接保存结构请求、接触／Gameplay 通知及材质运行覆盖。
+会话值、输入组请求和重开意图已迁入 RuntimeSession；音频请求、设备和全部 Voice 已归 AudioService，冲量、Jolt 世界／刚体和接触跟踪已归 PhysicsService。
 SceneRuntime／System 契约已由内部 Runtime 对象模块编译，只依赖 World／Input 和服务值契约；宿主在 UI 后统一交付一次授权输入，
 渲染延期仍调用输入钩子并推进模拟。Editor 的当帧编辑、无 UI 帧撤销输入及运行失败恢复保留原有时点。
 
-1. **世界与会话职责（会话与音频首轮已完成）**：World 保存实体、组件、层级、稳定身份和结构／字段变更记录；
+1. **世界与会话职责（会话、音频与物理首轮已完成）**：World 保存实体、组件、层级、稳定身份和结构／字段变更记录；
    SceneRuntime 管理时钟、运行状态和输入授权，拥有 RuntimeSession 的会话值、输入组请求及重开意图。
    System 显式借用会话，Lua 拒绝跨世界会话；暂停保留、停止／失败清空，内容保存／克隆不包含运行会话。
-   音频服务已显式装配并通过窄接口接通 System／Lua；暂停、停止／失败清理与运行域隔离已覆盖测试。
-   下一步迁移物理运行对象和冲量请求，保留接触事件、固定步和 Transform 回写语义，再处理其他服务。
+   音频与物理服务已显式装配并通过窄接口接通 System／Lua；暂停／单步、停止／失败清理与运行域隔离已覆盖测试。
+   PhysicsSystem 只负责组件同步、姿态回写和接触交付；Jolt 后端仅消费配置快照和实体身份，保持原有固定步语义。
+   后续收窄脚本与资产服务，再明确接触／Gameplay 通知和材质运行覆盖的归属。
    通用结构命令支持组件增删与实例化，明确阶段末提交、失败结果、顺序和载荷寿命，
    不为每种新系统扩充 Scene。世界销毁与重建后，外部句柄须能识别世界身份和实体代次，拒绝旧世界或已销毁实体的访问。
 2. **宿主与呈现解耦**：无窗口 Runtime 使用显式时间和输入推进；前后台、最小化、失焦是否暂停由应用策略指定。
@@ -156,7 +157,7 @@ SceneRuntime／System 契约已由内部 Runtime 对象模块编译，只依赖 
 对外提供 `engine`／`Comet::Engine`；不新增独立 build 项目、工具 Profile、模块动态库或公开模块组合入口。
 内部 target 服务于依赖约束与增量编译，最终汇入 engine；出现真实产品需求后再讨论单独交付。
 
-**已实现首轮：**Foundation、Serialization、ShaderContracts、AssetData、Input、World、Runtime、Audio、AssetPipeline
+**已实现首轮：**Foundation、Serialization、ShaderContracts、AssetData、Input、World、Runtime、Audio、Physics、AssetPipeline
 已按源码职责提取为内部对象库，依赖方向及传递 include 由现有 CTest 检查。
 基础日志使用独立 `LogSettings`，不再通过 Logger 引入完整 Config；仍统一使用 `COMET_API`。
 资产准备工具复用现有构建和 engine；Shader 编译工具直接复用 Foundation 对象，避免生成任务反向依赖 engine。
@@ -164,8 +165,9 @@ Runtime 的执行与 System 契约已和图形宿主分开编译，传递 includ
 Engine::Callbacks 区分更新、帧就绪、输入交付和失败恢复；App 不再备份／回滚 Gate，Editor 只交付当帧有效 UI 的授权。
 RuntimeSession 已独立保存会话值、输入组请求和重开意图，System／Lua 显式访问会话；
 World 已移除 Input 依赖，检查拒绝 World 反向包含输入或会话头。
-AudioService 已从 Scene 移出音频请求，统一拥有设备与播放实例；RuntimeServices 显式提供服务权限，Runtime 不依赖音频实现。
-音频公共头及后端私有 include 均受依赖检查约束；其他服务请求、系统后端、Render 和游戏 UI 的内部拆分仍未完成。
+AudioService 已从 Scene 移出音频请求，统一拥有设备与播放实例；PhysicsService 拥有冲量和 Jolt 运行对象。
+RuntimeServices 显式提供服务权限，Runtime 不依赖具体服务；公共头及后端私有 include 均受依赖检查约束，Jolt 后端禁止包含 Scene／Entity。
+脚本实现、其他运行态、Render 和游戏 UI 的内部拆分仍未完成。
 AssetManager 仍承担导入与运行时发布编排。
 
 | 当前范围 | 后续内部边界 | 需要解决的问题 |
@@ -176,7 +178,7 @@ AssetManager 仍承担导入与运行时发布编排。
 | `graphics/`、`render/` | 图形后端与 Render | Vulkan／VMA 归后端；Render 消费场景提取与资源服务，World 不反向依赖 Render |
 | `scripting/` 与 ScriptSystem | Scripting | Lua 生命周期及世界绑定归脚本模块，World 只保存配置；UI VM 与行为 VM 保持独立所有权 |
 | Audio／AudioSystem（首轮已完成） | Audio | AudioService 拥有队列、设备与 Voice；System 同步组件，Runtime 通过接口管理启停，miniaudio 只进入后端实现 |
-| PhysicsSystem／Jolt | Physics | 下一步将冲量请求和 Jolt 运行对象迁入显式物理服务，保留阶段末结构提交、固定步与接触事件语义 |
+| Physics／PhysicsSystem（首轮已完成） | Physics | PhysicsService 拥有冲量、世界／刚体及接触跟踪；System 适配组件与模拟输出，Jolt 仅进入后端实现；预算、临时分配和并行调度待测量优化 |
 | `engine/src/ui/` | Engine UI | 先依赖输入／资产／平台／渲染的必要接口，再纳入统一 engine 组合，消除对完整 engine 的反向链接；项目页面与业务仍归 demo／项目 |
 | `config/`、`diagnostics/` 与纯 CPU 工具 | 按职责归属 | Config／Profile 聚合归组合层，日志与 CPU 计时归 Foundation，GPU 诊断归 Render；不按小目录机械拆库 |
 
@@ -190,9 +192,9 @@ AssetManager 仍承担导入与运行时发布编排。
 1. **基础与数据边界（首轮已完成）**：内部对象库汇入 engine；正向依赖通过，传递反向依赖能被检查捕获。
    现有资产准备、Shader 编译／反射、缓存复用和失败保留测试继续通过。
 2. **World／Runtime 与宿主（执行与会话边界首轮已完成）**：Runtime 对象模块、统一输入交付和会话归属已接通；
-   继续分离 Scene 中的服务请求，明确后台／最小化策略及 Input／Platform 接线；
+   继续收窄 Scene 的通知与材质运行态，明确后台／最小化策略及 Input／Platform 接线；
    验证固定步、暂停／单步、重开和关闭，两个世界状态隔离，呈现延期不决定模拟推进。
-3. **资产与系统服务（音频首轮已完成）**：下一步迁移 Physics 的冲量请求与运行对象，随后收窄 Scripting；拆开 AssetManager 的导入、加载和 GPU 发布职责，
+3. **资产与系统服务（音频与物理首轮已完成）**：下一步收窄 Scripting 的实现、世界绑定与资产访问边界；随后拆开 AssetManager 的导入、加载和 GPU 发布职责，
    显式装配服务，验证部分启动失败、逆序清理和重复 Play／Stop，数据模块不引入后端。
 4. **图形与游戏 UI**：收束 Graphics／Render／Platform／UI 的依赖，通过统一 engine 入口组合；
    完整 Editor 的项目 UI 预览／Play 与 App 共用页面和控制器，编辑器工具面板继续使用 ImGui。

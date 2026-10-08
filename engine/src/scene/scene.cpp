@@ -176,22 +176,6 @@ namespace Comet {
         return true;
     }
 
-    bool Scene::request_apply_impulse(const Entity entity, const Math::Vec3 impulse) {
-        if(!m_runtime_active || !is_valid(entity) || !Math::is_finite(impulse)
-            || !entity.has_component<TransformComponent>()
-            || !entity.has_component<ColliderComponent>()
-            || !entity.has_component<RigidBodyComponent>()
-            || entity.get_component<RigidBodyComponent>().motion != BodyMotion::Dynamic
-            || m_impulse_requests.size() >= MAX_IMPULSE_REQUESTS)
-            return false;
-        m_impulse_requests.push_back({entity.get_id(), impulse});
-        return true;
-    }
-
-    std::vector<Scene::ImpulseRequest> Scene::take_impulse_requests() {
-        return std::exchange(m_impulse_requests, {});
-    }
-
     bool Scene::commit_entity_requests() {
         auto requests = std::move(m_entity_requests);
         m_entity_requests.clear();
@@ -241,7 +225,6 @@ namespace Comet {
 
     void Scene::clear_runtime_state() noexcept {
         m_entity_requests.clear();
-        m_impulse_requests.clear();
         m_contact_events.clear();
         m_events.clear();
         m_material_overrides.clear();

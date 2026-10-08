@@ -78,6 +78,7 @@ set(UNIT_TEST_SOURCES
         input/test_player_input_edit.cpp
         input/test_player_input_settings.cpp
         input/test_runtime_input.cpp
+        physics/test_physics_service.cpp
         ui/test_demo_ui.cpp
         render/test_lighting.cpp
         render/test_line_draw_list.cpp

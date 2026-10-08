@@ -38,8 +38,10 @@ namespace Comet::Tests {
         AssetRegistry assets;
         MaterialPrograms materials{assets};
         Scene scene;
+        PhysicsService physics;
         SceneRuntime runtime;
         void SetUp() override {
+            ASSERT_TRUE(runtime.set_services({.physics = &physics}));
             ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
             ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets, &materials)));
         }
@@ -305,7 +307,7 @@ namespace Comet::Tests {
         auto entity = actor();
         entity.add_component<RigidBodyComponent>().motion = BodyMotion::Kinematic;
         entity.add_component<ColliderComponent>();
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(0.02));
         const auto& transform = entity.get_component<TransformComponent>();
@@ -353,7 +355,7 @@ namespace Comet::Tests {
             entity.add_component<RigidBodyComponent>();
             entity.add_component<ColliderComponent>();
         }
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(scene));
         Input input;
         input.focus_event(true);
@@ -394,7 +396,7 @@ namespace Comet::Tests {
             entity.add_component<RigidBodyComponent>();
             entity.add_component<ColliderComponent>();
         }
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(scene));
         for(int frame = 0; frame < 2; ++frame) {
             ASSERT_TRUE(runtime.advance(0));
@@ -785,7 +787,7 @@ namespace Comet::Tests {
     TEST_F(ScriptSystemTest, TriggerNotificationsReachBothParticipantsAndIgnoreOtherScripts) {
         ASSERT_TRUE(runtime.clear_systems());
         ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         source(R"(return {
             on_trigger_enter = function(self, other)
                 assert(other:is_valid())
@@ -824,7 +826,7 @@ namespace Comet::Tests {
     TEST_F(ScriptSystemTest, FailedContactCallbackStopsRuntimeAndClearsNotifications) {
         ASSERT_TRUE(runtime.clear_systems());
         ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         source(R"(return {
             on_collision_enter = function(self, other)
                 assert(other:is_valid())
@@ -860,7 +862,7 @@ namespace Comet::Tests {
         };
         ASSERT_TRUE(runtime.clear_systems());
         ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         source(R"(return {
             on_collision_enter = function(self, other)
                 error('stale contact delivered')
@@ -1438,7 +1440,7 @@ namespace Comet::Tests {
         impulse.add_component<RigidBodyComponent>();
         impulse.add_component<ColliderComponent>();
         impulse.edit_transform([](auto& transform) { transform.translation.y = 2; });
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         const auto& rotation = center.get_component<TransformComponent>().rotation;
         const auto& position = player.get_component<TransformComponent>().translation;
         ASSERT_TRUE(runtime.start(scene));
@@ -1692,9 +1694,9 @@ namespace Comet::Tests {
         ASSERT_TRUE(playing) << playing.error();
         AudioService audio(assets, AudioPlayback::Mode::Offline);
         const ScopeExit stop_playing([&] { EXPECT_TRUE(runtime.stop()); });
-        ASSERT_TRUE(runtime.set_services({.audio = &audio}));
+        ASSERT_TRUE(runtime.set_services({.audio = &audio, .physics = &physics}));
         ASSERT_TRUE(runtime.add_system(std::make_unique<CameraControllerSystem>()));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.add_system(std::make_unique<AudioSystem>(audio)));
         ASSERT_TRUE(runtime.start(*playing.value()));
 

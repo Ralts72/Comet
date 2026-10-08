@@ -47,6 +47,7 @@ namespace Comet {
         m_scene = nullptr;
         m_session = nullptr;
         m_audio = nullptr;
+        m_physics = nullptr;
     }
 
     Result<void, Error> ScriptSystem::invoke(const Key& key, Entry& entry, Script::Phase phase,
@@ -65,6 +66,7 @@ namespace Comet {
         invocation.scene = m_scene;
         invocation.session = m_session;
         invocation.audio = m_audio;
+        invocation.physics = m_physics;
         invocation.contact_other = contact_other;
         invocation.materials = m_materials;
         invocation.event_handler = event_handler;
@@ -304,6 +306,7 @@ namespace Comet {
         m_scene = &scene;
         m_session = &session;
         m_audio = services.audio;
+        m_physics = services.physics;
         return synchronize(scene);
     }
     Result<void, Error> ScriptSystem::dispatch(

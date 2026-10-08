@@ -63,3 +63,15 @@ probe_dependency("src/audio/audio_service.h" "<miniaudio.h>"
     "Audio includes a runtime backend")
 probe_dependency("src/scene/systems/audio_system.cpp" "\"core/engine.h\""
     "Audio violates module dependencies")
+probe_dependency("src/scene/scene.h" "\"physics/physics_commands.h\""
+    "World violates module dependencies")
+probe_dependency("src/physics/physics_commands.h" "\"physics/physics_service.h\""
+    "Runtime violates module dependencies")
+probe_dependency("src/physics/physics_service.h" "<Jolt/Jolt.h>"
+    "Physics includes a runtime backend")
+probe_dependency("src/scene/systems/physics_system.cpp" "<Jolt/Physics/PhysicsSystem.h>"
+    "Physics includes a runtime backend")
+probe_dependency("src/physics/physics_service.cpp" "\"scene/scene.h\""
+    "PhysicsBackend violates module dependencies")
+probe_dependency("src/physics/physics_service.h" "\"scene/entity.h\""
+    "PhysicsBackend violates module dependencies")

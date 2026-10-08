@@ -1,6 +1,7 @@
 #include "scene/scene_runtime.h"
 #include "scene/scene.h"
 #include "audio/audio_commands.h"
+#include "physics/physics_commands.h"
 #include "common/scope_exit.h"
 
 #include <algorithm>
@@ -72,7 +73,14 @@ namespace Comet {
             return Result<void, Error>::failure({"Invalid runtime start state"});
         if(!scene.begin_runtime())
             return Result<void, Error>::failure({"Scene already has an active runtime"});
+        if(m_services.physics && !m_services.physics->begin(scene)) {
+            scene.end_runtime();
+            return Result<void, Error>::failure(
+                {"Physics service already belongs to an active runtime"});
+        }
         if(m_services.audio && !m_services.audio->begin(scene, state == State::Paused)) {
+            if(m_services.physics)
+                m_services.physics->end();
             scene.end_runtime();
             return Result<void, Error>::failure(
                 {"Audio service already belongs to an active runtime"});
@@ -109,6 +117,8 @@ namespace Comet {
         if(m_scene) {
             if(m_services.audio)
                 m_services.audio->end();
+            if(m_services.physics)
+                m_services.physics->end();
             m_scene->end_runtime();
         }
         m_scene = nullptr;

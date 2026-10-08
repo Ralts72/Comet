@@ -74,5 +74,6 @@ namespace Comet {
         Scene* m_scene = nullptr;
         RuntimeSession* m_session = nullptr;
         AudioCommands* m_audio = nullptr;
+        PhysicsCommands* m_physics = nullptr;
     };
 }

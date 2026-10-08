@@ -1,5 +1,6 @@
 #include "scripting/script.h"
 #include "audio/audio_commands.h"
+#include "physics/physics_commands.h"
 #include "scripting/lua_bindings.h"
 #include "scene/scene.h"
 #include "scene/runtime_session.h"
@@ -747,6 +748,7 @@ namespace Comet {
             invocation.scene = nullptr;
             invocation.session = nullptr;
             invocation.audio = nullptr;
+            invocation.physics = nullptr;
             invocation.input = nullptr;
             invocation.materials = nullptr;
         }
@@ -758,6 +760,10 @@ namespace Comet {
             && (!invocation.scene || !invocation.audio->is_bound_to(*invocation.scene)))
             return Result<void, Error>::failure(
                 {"Script audio service is inactive or belongs to another scene"});
+        if(invocation.physics
+            && (!invocation.scene || !invocation.physics->is_bound_to(*invocation.scene)))
+            return Result<void, Error>::failure(
+                {"Script physics service is inactive or belongs to another scene"});
         if(phase == Phase::Event) {
             if(!valid_parameter_name(invocation.event_handler))
                 return Result<void, Error>::failure({"Invalid script event handler"});
@@ -780,6 +786,7 @@ namespace Comet {
             .scene = invocation.scene,
             .session = invocation.session,
             .audio = invocation.audio,
+            .physics = invocation.physics,
             .input = invocation.input,
             .scene_generation = m_impl->scene_generation,
             .materials = invocation.materials,
