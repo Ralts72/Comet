@@ -177,9 +177,9 @@ namespace Comet::Ui::Detail {
         }
         static int initialize(lua_State* state) {
             auto& vm = current(state);
-            for(const auto& [name, open] :
-                {std::pair{"_G", luaopen_base}, std::pair{"math", luaopen_math},
-                    std::pair{"string", luaopen_string}, std::pair{"table", luaopen_table}}) {
+            static constexpr luaL_Reg libraries[] = {{"_G", luaopen_base}, {"math", luaopen_math},
+                {"string", luaopen_string}, {"table", luaopen_table}};
+            for(const auto& [name, open] : libraries) {
                 luaL_requiref(state, name, open, 1);
                 lua_pop(state, 1);
             }
