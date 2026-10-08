@@ -29,6 +29,7 @@ comet_add_module(audio)
 comet_add_module(physics)
 comet_add_module(scripting)
 comet_add_module(asset_pipeline)
+comet_add_module(runtime_assets)
 
 target_link_libraries(comet_foundation PUBLIC glm spdlog::spdlog Threads::Threads)
 target_link_libraries(comet_serialization PUBLIC comet_foundation simdjson::simdjson)
@@ -41,7 +42,9 @@ target_link_libraries(comet_audio PUBLIC comet_runtime PRIVATE comet_miniaudio)
 target_link_libraries(comet_physics PUBLIC comet_runtime PRIVATE Jolt::Jolt)
 target_link_libraries(comet_scripting PUBLIC comet_runtime PRIVATE comet_lua)
 target_link_libraries(comet_asset_pipeline PUBLIC comet_asset_data PRIVATE stb_image fastgltf::fastgltf)
+target_link_libraries(comet_runtime_assets PUBLIC comet_asset_pipeline PRIVATE comet_audio comet_scripting)
 
 set(COMET_ENGINE_MODULES
     comet_foundation comet_serialization comet_shader_contracts comet_asset_data
-    comet_input comet_world comet_runtime comet_audio comet_physics comet_scripting comet_asset_pipeline)
+    comet_input comet_world comet_runtime comet_audio comet_physics comet_scripting comet_asset_pipeline
+    comet_runtime_assets)

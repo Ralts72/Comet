@@ -8,7 +8,7 @@
 #include "scene/script_component.h"
 #include "asset/registry.h"
 #include "scripting/script.h"
-#include "scripting/script_runtime_view.h"
+#include "scene/systems/script_system.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -29,7 +29,7 @@ namespace CometEditor {
         const Comet::ComponentRegistry& component_registry,
         const PropertyEditorRegistry& property_editor_registry,
         const Comet::AssetDatabase& asset_database, const Comet::AssetRegistry& runtime_assets,
-        const Comet::MaterialPrograms& programs, const Comet::ScriptRuntimeView* scripts)
+        const Comet::MaterialPrograms& programs, const Comet::ScriptSystem* scripts)
         : EditorPanel("Inspector"), m_state(state), m_selection(selection), m_history(history),
           m_property_edit(property_edit), m_component_registry(component_registry),
           m_property_editor_registry(property_editor_registry), m_asset_database(asset_database),

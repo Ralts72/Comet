@@ -8,7 +8,7 @@
 #include "scene/systems/camera_controller.h"
 #include "scene/script_component.h"
 #include "scripting/script.h"
-#include "scripting/script_runtime_view.h"
+#include "scene/systems/script_system.h"
 #include "asset/registry.h"
 
 #include <gtest/gtest.h>
@@ -116,7 +116,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(created) << created.error().message;
         auto& engine = *created.value();
         ASSERT_TRUE(engine.add_default_scene_systems());
-        const auto* scripts = engine.get_script_runtime_view();
+        const auto* scripts = engine.get_script_system();
         ASSERT_NE(scripts, nullptr);
         auto scene = std::make_unique<Scene>();
         auto entity = scene->create_entity();
@@ -132,6 +132,10 @@ namespace Comet::Tests {
         EXPECT_FALSE(engine.add_default_scene_systems());
         ASSERT_TRUE(engine.stop_scene_runtime());
         EXPECT_FALSE(scripts->running_script(entity));
+        engine.prepare_shutdown();
+        EXPECT_EQ(engine.get_script_system(), nullptr);
+        engine.prepare_shutdown();
+        EXPECT_EQ(engine.get_script_system(), nullptr);
     }
 
     TEST(EngineRunTest, RoutesInputOnceAfterUiWithoutCarryingItIntoTheNextFrame) {

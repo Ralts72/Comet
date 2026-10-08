@@ -61,8 +61,7 @@ namespace Comet::Tests {
 
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.set_input_actions(project.value().input_actions()));
-        ASSERT_TRUE(
-            runtime.add_system(std::make_unique<ScriptSystem>(ScriptAssets{assets}, &materials)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets, &materials)));
         ASSERT_TRUE(runtime.start(scene));
         Input input;
         input.focus_event(true);

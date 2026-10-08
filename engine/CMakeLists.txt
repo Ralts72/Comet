@@ -8,9 +8,6 @@ set(SOURCES
         src/core/project.cpp
         src/config/config_loader.cpp
         src/diagnostics/diagnostics.cpp
-        src/asset/asset_manager.cpp
-        src/asset/asset_manager_async.cpp
-        src/asset/asset_manager_scripts.cpp
         src/render/presentation.cpp
         src/render/render_graph.cpp
         src/render/render_diagnostics.cpp
@@ -61,6 +58,7 @@ set(SOURCES
         src/render/resource/mesh.cpp
         src/render/resource/texture.cpp
         src/render/resource/environment.cpp
+        src/render/resource/render_asset_publisher.cpp
         src/render/resource/sampled_image_binding.cpp
         src/render/render_context.cpp
         src/render/scene/scene_resolver.cpp

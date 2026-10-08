@@ -1,4 +1,6 @@
 #include "asset/asset_manager.h"
+#include "asset/runtime/render_asset_publisher.h"
+#include "graphics/error.h"
 
 #include "asset/import/asset_task_queue.h"
 #include "asset/import/import_candidate.h"
@@ -10,9 +12,6 @@
 #include "asset/serialization/material_serializer.h"
 #include "diagnostics/logger.h"
 #include "common/scope_exit.h"
-#include "render/resource/texture.h"
-#include "render/resource/environment.h"
-#include "render/resource/resource_factory.h"
 
 #include <string>
 #include <system_error>
@@ -66,8 +65,8 @@ namespace Comet {
                 continue;
             }
             if(preparing_environment) {
-                const auto current = m_registry.resolve<Environment>(handle);
-                if(current && !current->has_lighting())
+                const auto current = m_render_assets->environment(handle);
+                if(current && !m_render_assets->has_lighting(current))
                     static_cast<void>(m_registry.unregister_asset(handle));
                 m_environment_previews.erase(handle);
             }
@@ -100,7 +99,7 @@ namespace Comet {
                 accepted = schedule_material_refresh(record);
                 break;
             case AssetType::Texture:
-                if(!m_registry.resolve<Texture>(record.handle)
+                if(!m_render_assets->texture(record.handle)
                     || !std::holds_alternative<TextureImportSettings>(record.import_settings)) {
                     LOG_ERROR(
                         "Cannot refresh texture asset handle {}: incompatible runtime type or settings",
@@ -204,18 +203,16 @@ namespace Comet {
             auto background = pending->preview.take();
             if(!background)
                 continue;
-            auto texture = m_resource_factory.try_create_texture(*background);
-            if(!texture) {
-                if(texture.error().is_device_lost())
-                    return Result<void, Error>::failure(texture.error().as_error());
-                LOG_WARN("Cannot upload environment preview: {}", texture.error().message);
+            auto environment = m_render_assets->prepare_preview(*background);
+            if(!environment) {
+                if(is_device_lost(environment.error()))
+                    return Result<void, Error>::failure(environment.error());
+                LOG_WARN("Cannot upload environment preview: {}", environment.error().message);
                 return Result<void, Error>::success();
             }
             if(!m_database.is_current(handle, pending->revision))
                 return Result<void, Error>::success();
-            auto environment = std::make_shared<Environment>();
-            environment->background = std::move(texture).value();
-            static_cast<void>(m_registry.register_asset(handle, std::move(environment)));
+            static_cast<void>(m_render_assets->publish(handle, environment.value(), false));
             return Result<void, Error>::success();
         }
         return Result<void, Error>::success();
@@ -306,7 +303,7 @@ namespace Comet {
         const AssetRevision revision = m_database.get_revision(handle);
         if(m_task_queue->contains(handle, revision))
             return true;
-        const auto previous_texture = m_registry.resolve<Texture>(handle);
+        const auto previous_texture = m_render_assets->texture(handle);
         if(!previous_texture) {
             return !m_registry.contains(handle);
         }

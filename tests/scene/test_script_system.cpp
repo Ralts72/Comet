@@ -44,8 +44,7 @@ namespace Comet::Tests {
         void SetUp() override {
             ASSERT_TRUE(runtime.set_services({.physics = &physics}));
             ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-            auto candidate_system =
-                std::make_unique<ScriptSystem>(ScriptAssets{assets}, &materials);
+            auto candidate_system = std::make_unique<ScriptSystem>(assets, &materials);
             script_system = candidate_system.get();
             ASSERT_TRUE(runtime.add_system(std::move(candidate_system)));
         }
@@ -64,11 +63,11 @@ namespace Comet::Tests {
         }
     };
 
-    TEST_F(ScriptSystemTest, RuntimeViewRejectsForeignScenesAndReplacedComponentLifetimes) {
+    TEST_F(ScriptSystemTest, RunningDefinitionRejectsForeignScenesAndReplacedComponentLifetimes) {
         source("return {properties = {speed = 2}}");
         auto entity = actor();
         const auto definition = assets.resolve<Script>(handle);
-        const ScriptRuntimeView& view = *script_system;
+        const ScriptSystem& view = *script_system;
         EXPECT_FALSE(view.running_script(entity));
         ASSERT_TRUE(runtime.start(scene));
         EXPECT_EQ(view.running_script(entity), definition);
@@ -110,7 +109,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
-    TEST_F(ScriptSystemTest, RuntimeViewsTrackInstalledVersionsIndependentlyOfSharedAssets) {
+    TEST_F(ScriptSystemTest, RunningDefinitionsTrackInstalledVersionsIndependentlyOfSharedAssets) {
         source(R"(return {properties = {speed = 1}, update = function(self)
             comet.translate(self.parameters.speed, 0, 0)
         end})");
@@ -120,10 +119,10 @@ namespace Comet::Tests {
         ASSERT_TRUE(other);
         other.add_component<ScriptComponent>().asset = handle;
         SceneRuntime other_runtime;
-        auto other_system = std::make_unique<ScriptSystem>(ScriptAssets{assets});
-        const ScriptRuntimeView& other_view = *other_system;
+        auto other_system = std::make_unique<ScriptSystem>(assets);
+        const ScriptSystem& other_view = *other_system;
         ASSERT_TRUE(other_runtime.add_system(std::move(other_system)));
-        const ScriptRuntimeView& view = *script_system;
+        const ScriptSystem& view = *script_system;
         ASSERT_TRUE(runtime.start(scene, SceneRuntime::State::Paused));
         ASSERT_TRUE(other_runtime.start(other_scene));
         const auto original = view.running_script(entity);
@@ -134,10 +133,10 @@ namespace Comet::Tests {
         source(R"(return {properties = {speed = 2}, update = function(self)
             comet.translate(self.parameters.speed, 0, 0)
         end})");
-        const ScriptAssets definitions{assets};
-        const auto candidate = definitions.resolve(handle);
+        const AssetRegistry& definitions = assets;
+        const auto candidate = definitions.resolve<const Script>(handle);
         ASSERT_NE(candidate, original);
-        EXPECT_FALSE(definitions.resolve(AssetHandle{999}));
+        EXPECT_FALSE(definitions.resolve<const Script>(AssetHandle{999}));
         EXPECT_EQ(view.running_script(entity), original);
         ASSERT_TRUE(other_runtime.advance(0));
         EXPECT_EQ(other_view.running_script(other), candidate);
@@ -155,7 +154,7 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(other.get_component<TransformComponent>().translation.x, 4);
     }
 
-    TEST_F(ScriptSystemTest, RuntimeViewSnapshotsRetainDefinitionsWithoutRetainingInstances) {
+    TEST_F(ScriptSystemTest, RunningDefinitionSnapshotsRetainDefinitionsWithoutRetainingInstances) {
         source("return {on_start = function() comet.translate(1, 0, 0) end}");
         const auto entity = actor();
         ASSERT_TRUE(runtime.start(scene));
@@ -163,7 +162,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(snapshot);
         const std::weak_ptr<const Script> definition = snapshot;
         ASSERT_TRUE(assets.unregister_asset(handle));
-        EXPECT_FALSE(ScriptAssets{assets}.resolve(handle));
+        EXPECT_FALSE(assets.resolve<const Script>(handle));
         EXPECT_EQ(script_system->running_script(entity), snapshot);
         ASSERT_TRUE(runtime.stop());
         EXPECT_FALSE(script_system->running_script(entity));
@@ -898,7 +897,7 @@ namespace Comet::Tests {
 
     TEST_F(ScriptSystemTest, TriggerNotificationsReachBothParticipantsAndIgnoreOtherScripts) {
         ASSERT_TRUE(runtime.clear_systems());
-        auto candidate_system = std::make_unique<ScriptSystem>(ScriptAssets{assets});
+        auto candidate_system = std::make_unique<ScriptSystem>(assets);
         script_system = candidate_system.get();
         ASSERT_TRUE(runtime.add_system(std::move(candidate_system)));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
@@ -939,7 +938,7 @@ namespace Comet::Tests {
 
     TEST_F(ScriptSystemTest, FailedContactCallbackStopsRuntimeAndClearsNotifications) {
         ASSERT_TRUE(runtime.clear_systems());
-        auto candidate_system = std::make_unique<ScriptSystem>(ScriptAssets{assets});
+        auto candidate_system = std::make_unique<ScriptSystem>(assets);
         script_system = candidate_system.get();
         ASSERT_TRUE(runtime.add_system(std::move(candidate_system)));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
@@ -977,7 +976,7 @@ namespace Comet::Tests {
             Entity target;
         };
         ASSERT_TRUE(runtime.clear_systems());
-        auto candidate_system = std::make_unique<ScriptSystem>(ScriptAssets{assets});
+        auto candidate_system = std::make_unique<ScriptSystem>(assets);
         script_system = candidate_system.get();
         ASSERT_TRUE(runtime.add_system(std::move(candidate_system)));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));

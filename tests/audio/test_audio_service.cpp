@@ -88,7 +88,7 @@ namespace Comet::Tests {
         source.clip = cue_handle;
         source.volume = 0.25f;
         source.play_on_start = false;
-        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(ScriptAssets{assets})));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
         add_audio_system();
         ASSERT_TRUE(runtime.start(scene));
         EXPECT_FALSE(entity);
@@ -267,7 +267,7 @@ namespace Comet::Tests {
         entity.add_component<ScriptComponent>().asset = script_handle;
         entity.add_component<AudioSourceComponent>().clip = cue_handle;
         ASSERT_TRUE(runtime.set_services({}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(ScriptAssets{assets})));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
         ASSERT_TRUE(runtime.start(scene));
         const auto result = runtime.advance(0);
         ASSERT_FALSE(result);

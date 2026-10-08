@@ -287,8 +287,7 @@ namespace CometEditor::Tests {
         const Comet::AssetHandle script_handle{42};
         ASSERT_TRUE(assets.register_asset(script_handle, scripts.value().front()));
         entity.add_component<Comet::ScriptComponent>().asset = script_handle;
-        ASSERT_TRUE(
-            runtime.add_system(std::make_unique<Comet::ScriptSystem>(Comet::ScriptAssets{assets})));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Comet::ScriptSystem>(assets)));
         activate_play_camera();
         const auto& rotation = entity.get_component<Comet::TransformComponent>().rotation;
         EXPECT_GT(rotation.y, 0);

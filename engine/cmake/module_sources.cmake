@@ -86,9 +86,6 @@ set(COMET_PHYSICS_SOURCES
 set(COMET_SCRIPTING_SOURCES
     src/scripting/script.cpp
     src/scripting/script.h
-    src/scripting/script_assets.cpp
-    src/scripting/script_assets.h
-    src/scripting/script_runtime_view.h
     src/scripting/lua_bindings.cpp
     src/scripting/lua_bindings.h
     src/scene/systems/script_system.cpp
@@ -108,4 +105,14 @@ set(COMET_ASSET_PIPELINE_SOURCES
     src/asset/import/texture_importer.cpp
     src/asset/import/environment_importer.cpp
     src/asset/import/environment_lighting.cpp
+)
+
+set(COMET_RUNTIME_ASSETS_SOURCES
+    src/asset/asset_manager.cpp
+    src/asset/asset_manager.h
+    src/asset/asset_manager_async.cpp
+    src/asset/asset_manager_scripts.cpp
+    src/asset/runtime/asset_loader.cpp
+    src/asset/runtime/asset_loader.h
+    src/asset/runtime/render_asset_publisher.h
 )

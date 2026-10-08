@@ -85,6 +85,7 @@ set(UNIT_TEST_SOURCES
         render/test_material.cpp
         render/test_material_shader.cpp
         render/test_render_graph.cpp
+        render/test_render_asset_publisher.cpp
         render/test_scene_extractor.cpp
         render/test_scene_picking.cpp
         scene/test_audio_system.cpp

@@ -44,6 +44,8 @@ set(AUDIO_HEADERS "${RUNTIME_HEADERS}|audio/|scene/systems/audio_system\\.h$")
 set(PHYSICS_HEADERS "${RUNTIME_HEADERS}|physics/|scene/systems/physics_system\\.h$")
 set(PHYSICS_BACKEND_HEADERS "${ASSET_HEADERS}|physics/|scene/(components|entity_id|entity_uuid)\\.h$")
 set(SCRIPTING_HEADERS "${RUNTIME_HEADERS}|scripting/|scene/systems/script_system\\.h$")
+set(RUNTIME_ASSET_HEADERS "${PIPELINE_HEADERS}|${RUNTIME_HEADERS}|asset/(asset_manager\\.h$|runtime/)|scripting/script\\.h$|audio/audio\\.h$|graphics/error\\.h$")
+set(RENDER_ASSET_HEADERS "${FOUNDATION_HEADERS}|asset/(handle|registry)\\.h$|asset/data/|asset/runtime/render_asset_publisher\\.h$|graphics/|render/(resource/|material/material\\.h$)")
 
 function(check_module_closure module sources allowed)
     set(pending ${sources})
@@ -59,7 +61,8 @@ function(check_module_closure module sources allowed)
             REGEX "^[ \t]*#[ \t]*include[ \t]*[<\"]")
         foreach(line IN LISTS includes)
             if(line MATCHES "[<\"]([Vv]ulkan/|GLFW/|RmlUi/|imgui|(lua|lauxlib|lualib)\\.h|Jolt/|miniaudio\\.h)")
-                if(NOT ((module STREQUAL "Audio" AND path STREQUAL "audio/audio.cpp"
+                if(NOT ((module STREQUAL "RenderAssetPublication" AND line MATCHES "[<\"][Vv]ulkan/") OR
+                    (module STREQUAL "Audio" AND path STREQUAL "audio/audio.cpp"
                     AND line MATCHES "[<\"]miniaudio\\.h[>\"]") OR
                     (module MATCHES "^Physics" AND path STREQUAL "physics/physics_service.cpp"
                     AND line MATCHES "[<\"]Jolt/") OR
@@ -81,10 +84,6 @@ function(check_module_closure module sources allowed)
                 endif()
             endif()
             cmake_path(NORMAL_PATH header)
-            if(module STREQUAL "Scripting" AND header STREQUAL "asset/registry.h"
-                AND NOT path STREQUAL "scripting/script_assets.cpp")
-                message(FATAL_ERROR "Scripting must resolve assets through ScriptAssets: ${path}: ${line}")
-            endif()
             if(NOT header MATCHES "^(${allowed})")
                 message(FATAL_ERROR "${module} violates module dependencies: ${path}: ${line}")
             endif()
@@ -109,6 +108,9 @@ check_module_closure(PhysicsBackend "src/physics/physics_service.cpp;src/physics
     "${PHYSICS_BACKEND_HEADERS}")
 check_module_closure(Scripting "${COMET_SCRIPTING_SOURCES}" "${SCRIPTING_HEADERS}")
 check_module_closure(AssetPipeline "${COMET_ASSET_PIPELINE_SOURCES}" "${PIPELINE_HEADERS}")
+check_module_closure(RuntimeAssets "${COMET_RUNTIME_ASSETS_SOURCES}" "${RUNTIME_ASSET_HEADERS}")
+check_module_closure(RenderAssetPublication "src/render/resource/render_asset_publisher.cpp"
+    "${RENDER_ASSET_HEADERS}")
 
 file(GLOB_RECURSE ENGINE_FILES RELATIVE "${ENGINE_SOURCE}"
     "${ENGINE_SOURCE}/*.h" "${ENGINE_SOURCE}/*.cpp")
@@ -131,14 +133,9 @@ check_includes("${ENGINE_SOURCE}" "${LOW_LEVEL_FILES}" "render/|graphics/|[Vv]ul
 
 file(GLOB_RECURSE ASSET_FILES RELATIVE "${ENGINE_SOURCE}"
     "${ENGINE_SOURCE}/asset/*.h" "${ENGINE_SOURCE}/asset/*.cpp")
-# 运行时加载桥接只允许在 AssetManager 实现中依赖 Render。
-list(REMOVE_ITEM ASSET_FILES asset/asset_manager.cpp asset/asset_manager_async.cpp
-    asset/data/texture_data.h)
+# 资产代码只使用 CPU 数据和不含后端头的渲染发布契约。
 check_includes("${ENGINE_SOURCE}" "${ASSET_FILES}" "render/|graphics/|[Vv]ulkan|GLFW/"
-    "CPU asset code must not include rendering or platform backends")
-check_includes("${ENGINE_SOURCE}" "asset/data/texture_data.h"
-    "render/|graphics/|[Vv]ulkan|GLFW/"
-    "TextureData may only use backend-free graphics enums" "graphics/enums\\.h")
+    "CPU asset code must not include rendering or platform backends" "graphics/(enums|error)\\.h")
 
 set(EDITOR_SOURCE "${COMET_SOURCE_ROOT}/editor/src")
 file(GLOB_RECURSE EDITOR_FILES RELATIVE "${EDITOR_SOURCE}"

@@ -21,13 +21,17 @@ App、Editor 和资产准备工具继续链接 `engine`／`Comet::Engine`，无�
 | `comet_physics` | PhysicsService 的世界、刚体、冲量和接触跟踪，PhysicsSystem 同步组件及回写；Runtime、私有 Jolt |
 | `comet_scripting` | Script 定义、行为 VM、ScriptSystem 的场景绑定／换代；Runtime、私有 Lua |
 | `comet_asset_pipeline` | 扫描索引、Artifact、源导入与任务队列；AssetData、stb_image、fastgltf |
+| `comet_runtime_assets` | AssetManager 的需求／失效／版本编排、AssetLoader 的读取与依赖加载；AssetPipeline、Audio／Script 定义和无后端的渲染发布契约 |
 
 项目／Profile 配置聚合、窗口、图形及渲染暂由 engine 主目标组合，后续逐步收窄内部边界。
 Runtime 的源清单同时覆盖公共执行头及无后端的 AudioCommands／PhysicsCommands；禁止引用 Engine／Application、具体服务或 System、图形与平台后端。
 World 不反向依赖 Runtime 或服务命令。Audio 与 Physics 的传递依赖同样检查，只有 `audio/audio.cpp` 可包含 miniaudio，只有 `physics/physics_service.cpp` 可包含 Jolt。
 Physics 后端仅接收配置快照与 UUID／EntityId，不包含 Scene／Entity 头；组件校验、场景身份检查和 Transform／接触交付由适配层负责。
-Scripting 只在 `scripting/script.cpp`／`lua_bindings.cpp` 包含 Lua 头；ScriptSystem 经 ScriptAssets 解析不可变定义，只有 `script_assets.cpp` 包含通用 Registry。
+Scripting 只在 `scripting/script.cpp`／`lua_bindings.cpp` 包含 Lua 头；ScriptSystem 借用 `const AssetRegistry&`，通过 `resolve<const Script>` 读取定义。
+Inspector 借用 `const ScriptSystem*` 查询实际运行定义，不另设资源读取适配器或运行查询虚接口；Registry 必须活到系统销毁之后。
 模块不依赖 AssetManager、导入管线、Render 或具体音频／物理服务；UI 控制器仍拥有独立 VM 与权限。
+RuntimeAssets 不包含渲染对象定义或 Vulkan 头；`asset/runtime/render_asset_publisher.h` 只声明 CPU 数据、对象引用与发布操作，
+实现在 `render/resource/render_asset_publisher.cpp`，不依赖源索引、导入或项目路径。
 对象库只产生编译中间文件；不增加模块动态库、独立构建目录或单独的 CPU 测试入口。
 全局日志、组件 Schema 与任务状态在宿主进程中仍由 engine 提供唯一实现，继续使用统一 `COMET_API`。
 `LogSettings` 归 Foundation；`Config::Log` 保留别名，基础日志头不再依赖完整 Config。
@@ -48,7 +52,8 @@ AssetData 不依赖导入管线，各纯数据／逻辑模块不引入窗口、�
 | `common/`、`input/` | 通用值、输入采样及映射 | 不引入 Render、Graphics 或窗口后端头；窗口事件的接线在 `core/window` |
 | `scene/`、`scripting/`、`audio/`、`physics/` | 通用值、输入、资产身份／只读缓存；Lua、Jolt 和 miniaudio 限定在所属模块实现 | Scene 组件和序列化不含 GPU／物理世界／音频设备对象；System 不直接调用物理或渲染后端 |
 | `asset/` 的数据、索引、导入与序列化 | 稳定 Handle、CPU 数据、文件与后台任务 | 不依赖 Render／图形后端；`asset/data/texture_data.h` 暂复用不含 Vulkan 头的 `graphics/enums.h` |
-| `asset/asset_manager` | 上述 CPU 能力、AssetRegistry，以及 RenderResourceFactory／Runtime Asset | 运行时加载与发布桥接；Render 依赖限定在两个实现文件，源文件编辑事务属于 `editor/assets/` |
+| `asset/asset_manager`、`asset/runtime` | CPU 资产能力、AssetRegistry、Audio／Script 定义和 RenderAssetPublisher 契约 | 需求／失效／版本编排与读取分开；不包含渲染对象或后端头，项目源文件工作流属于 `editor/assets/` |
+| `render/resource/render_asset_publisher` | CPU 产品数据、已解析的材质依赖、Registry、RenderResourceFactory | 创建及发布渲染版本；不读取源文件、索引或导入产物 |
 | `tools/asset/` | Engine CPU 资产与共用 Shader 编译库 | 编辑器与 CLI 共用源编译；无窗口准备启动场景依赖，engine/app 不链接该工具库 |
 | `render/` | Scene 提取结果、资产缓存、Graphics | Renderer 编排帧与离屏输出；SceneRenderer 拥有目标，不知道 ImGui |
 | `graphics/` | Vulkan、平台窗口及通用能力 | 图形后端不依赖 Editor；`core/engine.cpp` 是宿主组合点，可使用 Graphics/Render |
@@ -68,7 +73,7 @@ clone 直接使用内存内容快照，保留 UUID、实体引用及树遍历创
 
 `module_boundaries` CTest 检查直接 include：整个 engine 不得引入 Editor/ImGui；
 `common/`、`input/`、`scene/`、`scripting/`、`audio/` 不得引入 Render、Graphics、Vulkan/GLFW 后端。
-资产层也执行该限制，明确排除 AssetManager 的两个实现文件，并仅允许 TextureData 引用后端无关枚举。
+整个资产层也执行该限制，只允许后端无关的 `graphics/enums.h` 和 `graphics/error.h`；不再排除 AssetManager 实现。
 `editor/src/` 功能代码不得直接包含 SceneRenderer、RenderContext、FrameScheduler、Presentation 或 Vulkan/GLFW 头；
 只有 `editor/src/ui/imgui_context.h/.cpp` 作为独立 `editor_imgui` 呈现适配允许连接图形后端；
 其 include 单独检查，不允许依赖编辑器工作流。`editor/editor.cpp` 是扫描范围外的宿主集成点。
@@ -129,9 +134,7 @@ Lua 只使用元素 ID，不持有原生文档／GPU 句柄；旧控制器的接
 | `scene/scene_runtime.h` | 拥有串行 System，管理时间、固定步、暂停与单步，调用输入模块准备阶段数据 |
 | `input/runtime_input.h` | 运行域输入：序号去重、固定步累积、动作求值、暂停基线和重置 |
 | `input/input_state.h` | 同一授权／阶段的物理与动作只读快照，System／Lua 的统一消费入口 |
-| `scene/systems/script_system.h` | Lua 行为实例的启动、阶段更新、寿命复核与逆序清理；字段仍属于 Scene 组件 |
-| `scripting/script_assets.h` | 借用 Registry 的只读脚本解析能力，不公开通用资产操作；缓存须活到运行系统销毁之后 |
-| `scripting/script_runtime_view.h` | 实际运行定义的只读查询；拒绝其他 Scene、无效实体和已替换组件寿命，视图须活到调用方结束查询之后 |
+| `scene/systems/script_system.h` | Lua 实例的启动、更新、寿命复核与逆序清理；`running_script` 只读查询实际运行定义，拒绝其他 Scene、无效实体及已替换组件寿命；借用须在系统销毁前结束 |
 | `scene/systems/physics_system.h` | 刚体／碰撞体校验与配置同步，姿态回写及接触交付；保存实体绑定，不拥有 Jolt 对象 |
 | `physics/physics_commands.h` | 无后端的冲量能力，校验运行场景与动态刚体身份；Runtime 绑定和解绑服务 |
 | `physics/physics_service.h` | 每个运行域独立的 Jolt 世界、刚体、冲量队列及接触跟踪；停止／失败销毁模拟对象 |
@@ -245,6 +248,8 @@ Finder 的 `.DS_Store` 与原子写临时文件不计入快照变化，
 - EditorAssets 中 SceneAssetReferences 先于其借用的 AssetManager 和 AssetDatabase 销毁，AssetManager 先于 AssetDatabase 销毁；开发态 app 的 AssetManager 自持索引。
   EditorAssets 和 AssetManager 从索引读取项目路径，提交后台任务时按值捕获路径快照，不让 Worker 借用数据库。
   app/editor 的 AssetManager 均先于 Engine 销毁；后台任务先结束，GPU 使用完成后再释放 Registry 和渲染资源。
+  AssetManager 拥有 ImportService、AssetLoader、RenderAssetPublisher 和任务队列；Loader 借用相同索引、ImportService 及发布入口，
+  发布入口借用 Engine 的资源工厂和原 Registry。任务队列先销毁，Loader 先于其依赖销毁，不增加第二份缓存。
 - `PreparedFileImport::State` 直接拥有暂存路径、待发布文件和清理状态；放弃候选自动清理，发布仍执行输入复核及失败补偿。
   不再另包一层只转发 prepare/publish 的事务对象；这不改变批次并非崩溃原子的限制。
 
@@ -543,7 +548,7 @@ render_frame 返回 `Result<void, GraphicsError>`。部分录制失败的命令�
 宿主始终从定义表取生命周期与已声明事件入口；给 `self.update` 赋值不重绑定宿主入口。
 辅助方法共享本次保护调用与执行预算，不开新的保护边界；换版仍重建定义、self 和模块，不迁移 Lua 状态。
 
-Inspector Edit 使用当前资产定义，Play 经 ScriptRuntimeView 查询 ScriptSystem 中的活动实例定义；Edit 定义切换会取消旧参数手势。
+Inspector Edit 使用当前资产定义，Play 经只读 ScriptSystem 查询活动实例定义；Edit 定义切换会取消旧参数手势。
 查询校验 Scene 身份、UUID、组件寿命及 Handle；未启动、换绑尚未同步、已删除或停止时返回空值，候选发布不提前改变运行版本。
 Engine 的默认系统提供视图，调用方借用至系统销毁前；返回的不可变定义快照可保留，不延长 Lua 实例寿命。
 Play 实例换代后只清除旧脚本参数控件的活动状态，不打断其他属性／面板的输入，也不回写 Edit 历史。
@@ -846,7 +851,12 @@ AssetManager 的私有 environment_state 从 Registry、当前 revision 的排�
 重复请求不重排队；同步加载拒绝抢跑正在准备的任务；低清预览不算完成。失败等待源变化，已有完整版本仍优先作为可用版本。
 SceneResolver 不将 Registry 中尚未发布的环境当作错误，等待期间返回无环境纹理的提交；真实缺失／准备失败由资产层报告。
 已发布对象不是 Environment 时，SceneResolver 报告类型错误并按 Handle 去重，不依赖 AssetManager 的调度状态。
-ImportService 负责 CPU 导入与缓存，AssetManager 负责加载需求、revision 检查和运行时发布；二者不访问 ImGui。
+ImportService 负责 CPU 导入与缓存；AssetLoader 负责同步产品读取、依赖加载及加载提交前的 revision 检查；
+AssetManager 负责需求、刷新、完成预算和异步／编辑候选的 revision 检查。
+RenderAssetPublisher 只接收准备好的数据和已解析的依赖，创建 Mesh／Texture／Material／Environment，
+经独立 publish 操作注册或替换原 Registry 的对象；prepare 不修改 Registry，失败或过期候选由所有者丢弃。
+环境背景预览与完整光照仍分别准备，完整环境的多个纹理整组发布。跨边界保留原 error_code，设备丢失继续向宿主传播。
+这些职责边界不改变开发目录加载方式，ProductCatalog、发布包及 CPU／GPU 驻留淘汰仍待实现；资产与渲染发布均不访问 ImGui。
 后台首次准备与驻留重载共用缓存路径，输入路径／内容指纹和算法版本必须匹配；格式、尺寸、载荷长度和校验值不符则重建。
 缓存原子写只保证单文件；缓存可独立存在，不代表 GPU 已发布。GPU 创建失败不替换 Registry，旧帧仍持有旧版本。
 EnvironmentArtifact v2 将背景、最高 16² 漫反射、最高 128² 镜面 mip 链和 128² LUT 作为同一载荷校验；旧 v1 自动重建。

@@ -94,7 +94,8 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 `comet_runtime` 负责 SceneRuntime、RuntimeSession 与 System 执行契约，只依赖 World／Input 和无后端的服务接口。
 `comet_audio` 拥有音频请求、设备和播放实例；Engine 装配 AudioService，Runtime 通过 RuntimeServices 借用命令接口。
 `comet_physics` 拥有 Jolt 世界、刚体和冲量队列；PhysicsSystem 同步场景配置并回写姿态，Runtime 借用 PhysicsCommands。
-`comet_scripting` 负责脚本定义、Lua 实例、场景绑定与热重载；ScriptSystem 通过只读 ScriptAssets 解析定义，Lua 依赖限于实现。
+`comet_scripting` 负责脚本定义、Lua 实例、场景绑定与热重载；ScriptSystem 从同一 Registry 读取只读定义，Lua 依赖限于实现。
+`comet_runtime_assets` 负责加载、依赖与版本编排，不包含 Vulkan；ImportService 准备 CPU 数据，RenderAssetPublisher 在渲染层创建与发布对象，共用原 Registry。
 窗口、渲染和具体系统由 engine 组合。
 World 保存场景内容，不依赖 Input 或 Runtime；运行输入和本局状态归 Runtime。
 编辑器分为无 ImGui 的 `editor_core`、ImGui 呈现适配 `editor_imgui` 与功能界面 `editor_ui`；新增源码需维护所属库清单。
@@ -627,7 +628,7 @@ Windows 使用系统记事本，Linux 使用 `text/plain` 默认程序。
 暂停时等待继续或单步；同名同类型的参数覆盖保留，删除／改类型的覆盖丢弃并采用新默认值，不改 Edit 场景。
 新实例重新执行 `on_start`，不保留任意 `self` 状态，也不重置整个场景的物理或会话值。
 语法／声明错误不替换旧版本；新 `on_start` 的执行错误仍会停止 Runtime，并让编辑器恢复 Edit。
-Inspector 在 Play 中通过 ScriptRuntimeView 查询实际运行版本，暂停或候选安装失败时继续显示旧实例的字段；组件只保存脚本引用和参数覆盖。
+Inspector 在 Play 中借用只读 ScriptSystem 查询实际运行版本，暂停或候选安装失败时继续显示旧实例的字段；组件只保存脚本引用和参数覆盖。
 独立 app 共用实例换代机制，但本轮不为它增加开发期源文件监听。详细顺序见[Lua 架构](docs/architecture/overview.md#lua-脚本与参数)。
 Stop 后再次 Play 仍读取未自动改写的 Edit 覆盖；若字段已改名／改型，先在 Edit 中移除不兼容覆盖，再按需配置新字段。
 `self.parameters` 是只读配置；累计时间等内部状态放在 self 的其他字段，不显示或保存到场景。

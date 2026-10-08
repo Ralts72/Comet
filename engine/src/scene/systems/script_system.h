@@ -3,8 +3,6 @@
 #include "scene/systems/system.h"
 #include "scene/entity.h"
 #include "scripting/script.h"
-#include "scripting/script_assets.h"
-#include "scripting/script_runtime_view.h"
 #include <map>
 #include <optional>
 #include <set>
@@ -12,13 +10,15 @@
 #include <vector>
 
 namespace Comet {
-    class COMET_API ScriptSystem final: public System, public ScriptRuntimeView {
+    class AssetRegistry;
+
+    class COMET_API ScriptSystem final: public System {
     public:
         explicit ScriptSystem(
-            ScriptAssets assets, const MaterialParameterValidator* materials = nullptr)
+            const AssetRegistry& assets, const MaterialParameterValidator* materials = nullptr)
             : m_assets(assets), m_materials(materials) {}
         ~ScriptSystem() override;
-        [[nodiscard]] std::shared_ptr<const Script> running_script(Entity entity) const override;
+        [[nodiscard]] std::shared_ptr<const Script> running_script(Entity entity) const;
         Result<void, Error> on_start(
             Scene& scene, RuntimeSession&, const RuntimeServices&) override;
         Result<void, Error> fixed_update(Scene& scene, const Context& context) override;
@@ -67,7 +67,7 @@ namespace Comet {
         void stop_entry(Entry& entry, StopReason reason) noexcept;
         void stop_all() noexcept;
 
-        ScriptAssets m_assets;
+        const AssetRegistry& m_assets;
         const MaterialParameterValidator* m_materials;
         std::map<Key, Entry> m_entries;
         std::vector<Key> m_start_order;

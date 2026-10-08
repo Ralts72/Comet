@@ -40,7 +40,7 @@ namespace Comet::Tests {
 
         void SetUp() override {
             std::filesystem::create_directories(paths.assets() / "scripts");
-            auto candidate_system = std::make_unique<ScriptSystem>(ScriptAssets{registry});
+            auto candidate_system = std::make_unique<ScriptSystem>(registry);
             script_system = candidate_system.get();
             ASSERT_TRUE(runtime.add_system(std::move(candidate_system)));
         }

@@ -59,6 +59,7 @@ namespace Comet {
             LOG_FATAL("Cannot shut down Engine during System execution");
         if(auto cleared = m_scene_runtime.clear_systems(); !cleared)
             LOG_FATAL("Cannot release stopped scene systems");
+        m_script_system = nullptr;
         if(auto detached = m_scene_runtime.set_services({}); !detached)
             LOG_FATAL("Cannot detach stopped runtime services");
         m_audio_service.reset();
@@ -104,12 +105,12 @@ namespace Comet {
         // 注册顺序也是各更新阶段的执行顺序；SceneRuntime 停止时按逆序清理。
         if(auto added = add_system(std::make_unique<CameraControllerSystem>()); !added)
             return added;
-        auto scripts = std::make_unique<ScriptSystem>(
-            ScriptAssets{*m_asset_registry}, &m_renderer->get_material_programs());
-        const auto* script_view = scripts.get();
+        auto scripts =
+            std::make_unique<ScriptSystem>(*m_asset_registry, &m_renderer->get_material_programs());
+        const auto* script_system = scripts.get();
         if(auto added = add_system(std::move(scripts)); !added)
             return added;
-        m_script_runtime_view = script_view;
+        m_script_system = script_system;
         if(auto added = add_system(std::make_unique<PhysicsSystem>(*m_physics_service)); !added)
             return added;
         return add_system(std::make_unique<AudioSystem>(*m_audio_service));

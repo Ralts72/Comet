@@ -77,7 +77,7 @@ namespace CometEditor::Tests {
         }
 
         void TearDown() override { inspector.reset(); }
-        void observe_scripts(const Comet::ScriptRuntimeView& scripts) {
+        void observe_scripts(const Comet::ScriptSystem& scripts) {
             inspector = std::make_unique<InspectorPanel>(state, selection, history, edit,
                 components, widgets, assets, runtime_assets, programs, &scripts);
         }
@@ -403,8 +403,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(history.undo());
 
         Comet::SceneRuntime runtime;
-        auto candidate_system =
-            std::make_unique<Comet::ScriptSystem>(Comet::ScriptAssets{runtime_assets});
+        auto candidate_system = std::make_unique<Comet::ScriptSystem>(runtime_assets);
         auto* script_system = candidate_system.get();
         ASSERT_TRUE(runtime.add_system(std::move(candidate_system)));
         observe_scripts(*script_system);
@@ -572,8 +571,7 @@ namespace CometEditor::Tests {
         auto runtime_entity = cloned.value()->find_entity(entity.get_uuid());
         auto& binding = runtime_entity.get_component<Comet::ScriptComponent>();
         Comet::SceneRuntime runtime;
-        auto candidate_system =
-            std::make_unique<Comet::ScriptSystem>(Comet::ScriptAssets{runtime_assets});
+        auto candidate_system = std::make_unique<Comet::ScriptSystem>(runtime_assets);
         auto* script_system = candidate_system.get();
         ASSERT_TRUE(runtime.add_system(std::move(candidate_system)));
         observe_scripts(*script_system);
@@ -814,8 +812,7 @@ namespace CometEditor::Tests {
         auto runtime_entity = runtime_scene.find_entity(entity.get_uuid());
         auto& runtime_binding = runtime_entity.get_component<Comet::ScriptComponent>();
         Comet::SceneRuntime runtime;
-        auto candidate_system =
-            std::make_unique<Comet::ScriptSystem>(Comet::ScriptAssets{runtime_assets});
+        auto candidate_system = std::make_unique<Comet::ScriptSystem>(runtime_assets);
         auto* script_system = candidate_system.get();
         ASSERT_TRUE(runtime.add_system(std::move(candidate_system)));
         observe_scripts(*script_system);
@@ -863,8 +860,7 @@ namespace CometEditor::Tests {
         auto runtime_entity = cloned.value()->find_entity(entity.get_uuid());
         auto& binding = runtime_entity.get_component<Comet::ScriptComponent>();
         Comet::SceneRuntime runtime;
-        auto candidate_system =
-            std::make_unique<Comet::ScriptSystem>(Comet::ScriptAssets{runtime_assets});
+        auto candidate_system = std::make_unique<Comet::ScriptSystem>(runtime_assets);
         auto* script_system = candidate_system.get();
         ASSERT_TRUE(runtime.add_system(std::move(candidate_system)));
         observe_scripts(*script_system);
@@ -941,8 +937,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(runtime_assets.register_asset(handle, original.value()));
         entity.add_component<Comet::ScriptComponent>().asset = handle;
         Comet::SceneRuntime runtime;
-        auto candidate_system =
-            std::make_unique<Comet::ScriptSystem>(Comet::ScriptAssets{runtime_assets});
+        auto candidate_system = std::make_unique<Comet::ScriptSystem>(runtime_assets);
         auto* script_system = candidate_system.get();
         ASSERT_TRUE(runtime.add_system(std::move(candidate_system)));
         observe_scripts(*script_system);

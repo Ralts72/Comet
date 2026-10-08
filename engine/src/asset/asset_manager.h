@@ -19,6 +19,8 @@
 namespace Comet {
     class AssetRegistry;
     class ImportService;
+    class AssetLoader;
+    class RenderAssetPublisher;
     class Material;
     class Mesh;
     class RenderResourceFactory;
@@ -28,7 +30,6 @@ namespace Comet {
     class AudioClip;
     struct MaterialData;
     struct MeshData;
-    struct GraphicsError;
     class AssetTaskQueue;
     struct AssetImportResult;
     struct MeshArtifactCandidate;
@@ -134,9 +135,7 @@ namespace Comet {
         Result<void, Error> reload_loaded_material_dependents(AssetHandle texture_handle);
         Result<void, Error> publish_material(AssetHandle handle, const MaterialData& data,
             const std::shared_ptr<Material>& material, bool replace_existing);
-        [[nodiscard]] Result<std::shared_ptr<Mesh>, Error> create_runtime_mesh(
-            const AssetRecord& record);
-        Result<void, GraphicsError> refresh_loaded_mesh(
+        Result<void, Error> refresh_loaded_mesh(
             AssetHandle handle, AssetRevision revision, const MeshData& data);
         bool record_import_dependencies(
             AssetHandle handle, const std::vector<std::filesystem::path>& dependencies);
@@ -157,19 +156,14 @@ namespace Comet {
         ImportPublication publish_texture_candidate(TextureImportCandidate& candidate);
         ImportPublication publish_environment_candidate(EnvironmentImportCandidate& candidate);
         ImportPublication publish_shader_program_candidate(ShaderProgramImportCandidate& candidate);
-        [[nodiscard]] Result<std::shared_ptr<Texture>, Error> create_runtime_texture(
-            const AssetRecord& record, const TextureImportSettings& import_settings);
-        [[nodiscard]] Result<std::shared_ptr<Material>, Error> create_runtime_material(
-            const AssetRecord& record);
-        [[nodiscard]] Result<std::shared_ptr<Material>, Error> create_runtime_material(
-            const AssetRecord& record, const MaterialData& data);
 
         AssetImportLimits m_limits;
         std::unique_ptr<AssetDatabase> m_owned_database;
         AssetDatabase& m_database;
         std::unique_ptr<ImportService> m_import_service;
         AssetRegistry& m_registry;
-        RenderResourceFactory& m_resource_factory;
+        std::unique_ptr<RenderAssetPublisher> m_render_assets;
+        std::unique_ptr<AssetLoader> m_loader;
         std::unique_ptr<AssetTaskQueue> m_task_queue;
         std::unordered_map<AssetHandle, AssetRevision> m_refresh_requests;
         std::unordered_map<AssetHandle, AssetRevision> m_failed_environments;

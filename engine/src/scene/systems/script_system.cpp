@@ -1,4 +1,5 @@
 #include "scene/systems/script_system.h"
+#include "asset/registry.h"
 #include "scene/script_component.h"
 #include "scene/scene.h"
 #include "diagnostics/logger.h"
@@ -113,13 +114,13 @@ namespace Comet {
             auto& version = versions[key.asset];
             version.dependencies.insert(
                 entry.script->dependencies().begin(), entry.script->dependencies().end());
-            version.current = m_assets.resolve(key.asset);
+            version.current = m_assets.resolve<const Script>(key.asset);
             if(version.current != entry.script) {
                 version.changed = true;
             }
         }
         for(const auto& [key, entity] : pending)
-            versions[key.asset].current = m_assets.resolve(key.asset);
+            versions[key.asset].current = m_assets.resolve<const Script>(key.asset);
         for(auto& [handle, version] : versions) {
             if(version.current)
                 version.dependencies.insert(
@@ -186,7 +187,7 @@ namespace Comet {
         const std::map<Key, Entity>& pending) {
         std::set<AssetHandle> blocked;
         const bool changed = std::ranges::any_of(m_entries, [&](const auto& value) {
-            const auto script = m_assets.resolve(value.first.asset);
+            const auto script = m_assets.resolve<const Script>(value.first.asset);
             return script != value.second.script;
         });
         if(!changed) {
@@ -289,7 +290,7 @@ namespace Comet {
         for(const auto& [key, entity] : pending) {
             if(reloaded.value().contains(key.asset) || m_entries.contains(key))
                 continue;
-            auto script = m_assets.resolve(key.asset);
+            auto script = m_assets.resolve<const Script>(key.asset);
             if(!script)
                 return Result<void, Error>::failure(
                     {"Script asset is unavailable: " + std::to_string(key.asset.value())});
