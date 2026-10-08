@@ -352,8 +352,12 @@ namespace {
         if(auto populated = populate_scene(*engine, assets, options); !populated)
             return populated;
         Measurement measurement(*engine, options);
-        const auto run = engine->run(
-            [&](Comet::Engine::FrameContext& frame) { return measurement.sample(frame.update); });
+        const auto run = engine->run({
+            .update =
+                [&](const Comet::Engine::FrameContext& frame) {
+                    return measurement.sample(frame.update);
+                },
+        });
         if(!run)
             return Result<void>::failure(run.error().message);
         return measurement.write_report();

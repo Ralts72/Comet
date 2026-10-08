@@ -73,7 +73,7 @@ namespace Comet::Tests {
             }
             return count;
         };
-        const auto frame_ready = [&](Engine::FrameContext&) {
+        const auto frame_ready = [&](const Engine::FrameContext&) {
             ++preparations;
             EXPECT_EQ(updates, 1);
             EXPECT_EQ(calls->updates, 0);
@@ -131,13 +131,15 @@ namespace Comet::Tests {
                 renderer.submit_lines(lines);
             }
         });
-        EXPECT_TRUE(engine.run(
-            [&](Engine::FrameContext&) {
-                if(++updates > 5)
-                    engine.get_window().request_close();
-                return Result<void, Error>::success();
-            },
-            frame_ready));
+        EXPECT_TRUE(engine.run({
+            .update =
+                [&](const Engine::FrameContext&) {
+                    if(++updates > 5)
+                        engine.get_window().request_close();
+                    return Result<void, Error>::success();
+                },
+            .frame_ready = frame_ready,
+        }));
         renderer.set_overlay({});
         renderer.set_viewport_pick_callback({});
         EXPECT_EQ(preparations, 1);

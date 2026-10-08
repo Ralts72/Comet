@@ -154,7 +154,8 @@ namespace {
             return Init::success();
         }
 
-        Comet::Result<void, Comet::Error> on_update(Comet::Engine::FrameContext& frame) override {
+        Comet::Result<void, Comet::Error> on_update(
+            const Comet::Engine::FrameContext& frame) override {
             if((!m_ui || !m_ui->is_modal()) && !m_ui_blocked
                 && frame.physical_input.key(Comet::Input::Key::Escape).pressed) {
                 get_engine().get_window().request_close();
@@ -174,18 +175,11 @@ namespace {
             }
             if(auto activated = activate_pending_scene(); !activated)
                 return activated;
-            // 延期帧没有 UI 回调，仍保持菜单对游戏输入的阻断。
-            m_input_before_ui = m_input_gate;
-            frame.runtime_input = m_input_gate.read(frame.physical_input,
-                !m_pending_scene && (!m_ui || !m_ui->is_modal()) && !m_ui_blocked,
-                !m_ui_pointer_blocked);
             return Comet::Result<void, Comet::Error>::success();
         }
 
         Comet::Result<void, Comet::Error> on_frame_ready(
-            Comet::Engine::FrameContext& frame) override {
-            // Runtime 尚未消费 fallback；按最终 UI 授权重算，不消费同一物理帧两次。
-            m_input_gate = m_input_before_ui;
+            const Comet::Engine::FrameContext& frame) override {
             if(m_ui) {
                 const auto result = m_ui->frame(frame.physical_input,
                     {.fps = frame.update.fps,
@@ -197,9 +191,14 @@ namespace {
                 if(!m_ui->is_modal())
                     m_player_input_settings.reset();
             }
-            frame.runtime_input = m_input_gate.read(
-                frame.physical_input, !m_pending_scene && !m_ui_blocked, !m_ui_pointer_blocked);
             return Comet::Result<void, Comet::Error>::success();
+        }
+
+        std::optional<Comet::Input::Frame> on_runtime_input(
+            const Comet::Engine::FrameContext& frame) override {
+            return m_input_gate.read(frame.physical_input,
+                !m_pending_scene && (!m_ui || !m_ui->is_modal()) && !m_ui_blocked,
+                !m_ui_pointer_blocked);
         }
 
         void on_shutdown() override {
@@ -280,7 +279,6 @@ namespace {
 
         Comet::Project m_project;
         Comet::Input::Gate m_input_gate;
-        Comet::Input::Gate m_input_before_ui;
         std::unique_ptr<Comet::Ui::ProjectUi> m_ui;
         std::optional<Comet::PlayerInputSettings> m_player_input_settings;
         bool m_ui_blocked = false;

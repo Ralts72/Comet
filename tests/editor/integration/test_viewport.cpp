@@ -116,36 +116,39 @@ namespace CometEditor::Tests {
         }});
         unsigned attempts = 0;
         bool removed = false;
-        const auto run = engine.run(
-            [&](Comet::Engine::FrameContext&) {
-                if(overlays == 2 && !removed) {
-                    EXPECT_TRUE(engine.get_asset_registry().unregister_asset(handle));
-                    removed = true;
-                }
-                if(++attempts > 10)
-                    engine.get_window().request_close();
-                return Comet::Result<void, Comet::Error>::success();
-            },
-            [&](Comet::Engine::FrameContext&) {
-                ++prepared_frames;
-                visible = prepared_frames == 4;
-                if(!ui.begin_frame())
-                    return Comet::Result<void, Comet::Error>::failure({"UI is not ready"});
-                ImGui::Begin("UI stays active");
-                ImGui::TextUnformatted("Inspector");
-                ImGui::End();
-                ui.end_frame();
-                auto view = renderer.set_render_view({.visible = visible,
-                    .camera_selection = Comet::RenderView::CameraSelection::Override,
-                    .camera_override = Comet::RenderCamera{}});
-                if(!view)
-                    return Comet::Result<void, Comet::Error>::failure(view.error().as_error());
-                if(!visible) {
-                    renderer.request_viewport_pick({1, 1}, {160, 120});
-                    EXPECT_TRUE(engine.get_scene()->set_post_process({.exposure = 2}));
-                }
-                return Comet::Result<void, Comet::Error>::success();
-            });
+        const auto run = engine.run({
+            .update =
+                [&](const Comet::Engine::FrameContext&) {
+                    if(overlays == 2 && !removed) {
+                        EXPECT_TRUE(engine.get_asset_registry().unregister_asset(handle));
+                        removed = true;
+                    }
+                    if(++attempts > 10)
+                        engine.get_window().request_close();
+                    return Comet::Result<void, Comet::Error>::success();
+                },
+            .frame_ready =
+                [&](const Comet::Engine::FrameContext&) {
+                    ++prepared_frames;
+                    visible = prepared_frames == 4;
+                    if(!ui.begin_frame())
+                        return Comet::Result<void, Comet::Error>::failure({"UI is not ready"});
+                    ImGui::Begin("UI stays active");
+                    ImGui::TextUnformatted("Inspector");
+                    ImGui::End();
+                    ui.end_frame();
+                    auto view = renderer.set_render_view({.visible = visible,
+                        .camera_selection = Comet::RenderView::CameraSelection::Override,
+                        .camera_override = Comet::RenderCamera{}});
+                    if(!view)
+                        return Comet::Result<void, Comet::Error>::failure(view.error().as_error());
+                    if(!visible) {
+                        renderer.request_viewport_pick({1, 1}, {160, 120});
+                        EXPECT_TRUE(engine.get_scene()->set_post_process({.exposure = 2}));
+                    }
+                    return Comet::Result<void, Comet::Error>::success();
+                },
+        });
         ASSERT_TRUE(run) << run.error();
         EXPECT_EQ(overlays, 4);
         EXPECT_EQ(picks, 0);

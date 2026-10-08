@@ -155,9 +155,7 @@ namespace Comet {
         return scene;
     }
 
-    Result<void, Error> Engine::run(const std::function<Result<void, Error>(FrameContext&)>& update,
-        const std::function<Result<void, Error>(FrameContext&)>& frame_ready,
-        const std::function<Result<void, Error>(const Error&)>& runtime_failed) {
+    Result<void, Error> Engine::run(const Callbacks& callbacks) {
         if(m_shutdown_prepared)
             return Result<void, Error>::failure({"Engine is shutting down"});
         if(m_running)
@@ -170,16 +168,13 @@ namespace Comet {
         LOG_INFO("running engine...");
 
         while(!m_window->should_close()) {
-            if(auto frame = tick(update, frame_ready, runtime_failed); !frame)
+            if(auto frame = tick(callbacks); !frame)
                 return frame;
         }
         return Result<void, Error>::success();
     }
 
-    Result<void, Error> Engine::tick(
-        const std::function<Result<void, Error>(FrameContext&)>& update,
-        const std::function<Result<void, Error>(FrameContext&)>& frame_ready,
-        const std::function<Result<void, Error>(const Error&)>& runtime_failed) {
+    Result<void, Error> Engine::tick(const Callbacks& callbacks) {
         PROFILE_SCOPE("Engine::Frame");
         m_frame_diagnostics.begin_frame(m_renderer->get_diagnostics().is_enabled());
         ScopeExit discard_unfinished_diagnostics([this] { m_frame_diagnostics.clear_current(); });
@@ -204,10 +199,10 @@ namespace Comet {
         m_window->publish_input_frame();
         m_frame_diagnostics.mark_events();
         m_frame_timer->tick();
-        FrameContext frame{m_frame_timer->get_update_context(), m_window->get_input_frame(), {}};
+        const FrameContext frame{m_frame_timer->get_update_context(), m_window->get_input_frame()};
         m_frame_diagnostics.set_frame_index(frame.update.frame_index);
-        if(update) {
-            if(auto result = update(frame); !result)
+        if(callbacks.update) {
+            if(auto result = callbacks.update(frame); !result)
                 return result;
         }
         if(m_window->should_close()) {
@@ -223,8 +218,8 @@ namespace Comet {
             return Result<void, Error>::failure(preparation.error().as_error());
         }
         const bool frame_ready_to_render = preparation.value() == Renderer::FramePreparation::Ready;
-        if(frame_ready_to_render && frame_ready) {
-            if(auto edited = frame_ready(frame); !edited) {
+        if(frame_ready_to_render && callbacks.frame_ready) {
+            if(auto edited = callbacks.frame_ready(frame); !edited) {
                 // 已获取的帧不再重用；交互失败终止本次引擎生命周期。
                 prepare_shutdown();
                 return edited;
@@ -232,11 +227,14 @@ namespace Comet {
         }
 
         m_frame_diagnostics.mark_prepare();
+        std::optional<Input::Frame> runtime_input;
+        if(callbacks.runtime_input)
+            runtime_input = callbacks.runtime_input(frame);
         if(auto advanced = m_scene_runtime.advance(
-               frame.update.delta_time, frame.runtime_input ? &*frame.runtime_input : nullptr);
+               frame.update.delta_time, runtime_input ? &*runtime_input : nullptr);
             !advanced) {
             m_window->set_cursor_locked(false);
-            if(!runtime_failed || is_device_lost(advanced.error())) {
+            if(!callbacks.runtime_failed || is_device_lost(advanced.error())) {
                 prepare_shutdown();
                 return advanced;
             }
@@ -247,7 +245,7 @@ namespace Comet {
                     return Result<void, Error>::failure(drained.error().as_error());
                 }
             }
-            if(auto recovered = runtime_failed(advanced.error()); !recovered) {
+            if(auto recovered = callbacks.runtime_failed(advanced.error()); !recovered) {
                 prepare_shutdown();
                 return recovered;
             }

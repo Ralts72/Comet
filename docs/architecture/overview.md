@@ -16,9 +16,11 @@ App、Editor 和资产准备工具继续链接 `engine`／`Comet::Engine`，无�
 | `comet_asset_data` | 资产身份、Registry、CPU 产品数据及其序列化；Serialization、ShaderContracts |
 | `comet_input` | 输入采样值、动作、运行域求值、改键草稿与个人设置；Serialization |
 | `comet_world` | 实体、组件、Schema、层级与持久场景序列化；AssetData、Input、EnTT |
+| `comet_runtime` | SceneRuntime、固定步时钟、暂停／单步与 System 生命周期契约；World、Input |
 | `comet_asset_pipeline` | 扫描索引、Artifact、源导入与任务队列；AssetData、stb_image、fastgltf |
 
 项目／Profile 配置聚合、窗口、图形、渲染及具体运行系统暂由 engine 主目标组合，后续逐步收窄内部边界。
+Runtime 的源清单同时覆盖公共执行头，禁止引用 Engine／Application、具体 System、图形与平台后端；World 不反向依赖 Runtime。
 对象库只产生编译中间文件；不增加模块动态库、独立构建目录或单独的 CPU 测试入口。
 全局日志、组件 Schema 与任务状态在宿主进程中仍由 engine 提供唯一实现，继续使用统一 `COMET_API`。
 `LogSettings` 归 Foundation；`Config::Log` 保留别名，基础日志头不再依赖完整 Config。
@@ -278,6 +280,7 @@ Engine::run → 内部 tick：事件与时间 → Application::on_update（消�
       回收完成的 upload → Presentation 等待 slot / acquire / 开始录制
   → Application::on_frame_ready（仅帧就绪后）
       ImGui begin → UI/请求收集、即时属性与 Gizmo、输入授权、最新 RenderView → ImGui end → 反馈提交
+  → Application::on_runtime_input（每个非挂起帧一次，包含渲染延期帧；默认关闭游戏输入）
   → SceneRuntime::advance（Running：有界 Fixed Update → 一次普通 Update；Paused：仅显式单步推进）
   → SceneExtractor（读取此时的活动 Scene，更新 world transform）
   → Renderer::render_frame
@@ -312,7 +315,9 @@ CPU 诊断；正常关闭只取消未完成采样，保留上一条已完成帧�
 Runtime 每次先于各 System::on_start 通知 on_pause_changed(初始暂停值)，之后仅在 Running／Paused 实际切换时通知；通知期间禁止重入 Runtime，
 不借该通知推进模拟或改场景结构。单步保持 Paused，不临时发出恢复／再暂停；Stop 直接清理，不先恢复子系统。
 Runtime 统一保证 System 启停顺序和部分启动失败清理；具体 System 不重复保存仅用于检查调用顺序的 Scene owner。
-两个宿主都收到同一个当帧 `Engine::FrameContext`：App 在 on_update 交付窗口 Gate 结果，Editor 在 on_frame_ready 交付 UI Gate 结果；上下文退出时丢弃授权，未授权释放按钮但不暂停模拟。
+Engine::Callbacks 具名区分宿主更新、帧就绪、输入授权和 Runtime 失败恢复；各阶段读取同一份只读 FrameContext。
+App 在 on_runtime_input 按最终 UI 状态读取窗口 Gate；Editor 在有效 ImGui 帧内完成视口授权，随后通过该钩子交付并清空暂存值。
+Engine 只为当前 advance 保存授权快照；空值释放按钮但不暂停模拟。宿主更新阶段确认关闭，或帧准备／UI 失败时，不调用输入钩子。
 Viewport 在实际进入 Running 时一次性聚焦（Play／Resume），不在按钮发出请求时提前授权。
 键盘／手柄跟随窗口焦点，鼠标起始授权受画面悬停限制；已捕获期间沿用 Viewport 授权，虚拟坐标越界不打断转向。
 Gate 分别维护整体与鼠标授权，避免工具栏点击／滚轮穿透，鼠标离开画面不再中断键盘输入。
@@ -343,7 +348,7 @@ Gate 分别维护整体与鼠标授权，避免工具栏点击／滚轮穿透，
 必要时产生一次释放，重新获得授权须等原按住键松开。Ctrl／Alt／Super 本身不代表 UI 占用，
 实际窗口切换、编辑控件、弹窗及失焦仍阻断。物理 serial 与 Gate 发布的授权 serial 不是同一序列。
 
-App 的 on_update 先交付延期帧回退；ready 帧恢复尚未消费的 Gate 快照，再按最终 UI 计算授权。
+App 每帧只读取一次 Gate；渲染延期时沿用现有菜单阻断状态，Editor 没有有效 UI 帧时返回空值，不沿用上帧授权。
 面板及其关闭当帧阻断游戏输入，设置入口仅占用命中的鼠标，不隐式暂停模拟。
 Engine 启动 Runtime 使用 InputStart::Rebase，直到首张已授权输入才建立基线，避免重开重放旧点击。
 零固定步保留短按，多次补步只消费一次边沿；暂停／单步重建物理和动作基线。多个按钮绑定合并电平，

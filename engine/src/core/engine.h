@@ -26,7 +26,13 @@ namespace Comet {
         struct FrameContext {
             const UpdateContext update;
             const Input::Frame& physical_input;
-            std::optional<Input::Frame> runtime_input;
+        };
+        struct Callbacks {
+            std::function<Result<void, Error>(const FrameContext&)> update;
+            std::function<Result<void, Error>(const FrameContext&)> frame_ready;
+            // 每个非挂起帧在 UI 后调用一次，包括渲染延期帧；空值关闭游戏输入。
+            std::function<std::optional<Input::Frame>(const FrameContext&)> runtime_input;
+            std::function<Result<void, Error>(const Error&)> runtime_failed;
         };
         [[nodiscard]] const FrameDiagnostics& frame_diagnostics() const {
             return m_frame_diagnostics;
@@ -39,10 +45,7 @@ namespace Comet {
         void prepare_shutdown();
 
         // 同步运行；帧上下文仅在当前 tick 存活，不跨帧保存授权输入。
-        [[nodiscard]] Result<void, Error> run(
-            const std::function<Result<void, Error>(FrameContext&)>& update = {},
-            const std::function<Result<void, Error>(FrameContext&)>& frame_ready = {},
-            const std::function<Result<void, Error>(const Error&)>& runtime_failed = {});
+        [[nodiscard]] Result<void, Error> run(const Callbacks& callbacks = {});
 
         void set_scene(std::unique_ptr<Scene> scene);
 
@@ -80,10 +83,7 @@ namespace Comet {
     private:
         Engine(std::unique_ptr<Window> window, std::unique_ptr<AssetRegistry> assets,
             std::unique_ptr<Renderer> renderer, std::unique_ptr<TaskScheduler> scheduler);
-        [[nodiscard]] Result<void, Error> tick(
-            const std::function<Result<void, Error>(FrameContext&)>& update,
-            const std::function<Result<void, Error>(FrameContext&)>& frame_ready,
-            const std::function<Result<void, Error>(const Error&)>& runtime_failed);
+        [[nodiscard]] Result<void, Error> tick(const Callbacks& callbacks);
         std::unique_ptr<FrameTimer> m_frame_timer;
         std::unique_ptr<TaskScheduler> m_task_scheduler;
         std::unique_ptr<Window> m_window;

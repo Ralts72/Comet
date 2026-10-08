@@ -213,10 +213,13 @@ namespace Comet::Tests {
         auto& diagnostics = renderer.get_diagnostics();
         ASSERT_TRUE(diagnostics.set_enabled(true));
         unsigned updates = 0;
-        ASSERT_TRUE(engine->run([&](Engine::FrameContext&) {
-            if(++updates == 4)
-                engine->get_window().request_close();
-            return Result<void, Error>::success();
+        ASSERT_TRUE(engine->run({
+            .update =
+                [&](const Engine::FrameContext&) {
+                    if(++updates == 4)
+                        engine->get_window().request_close();
+                    return Result<void, Error>::success();
+                },
         }));
         ASSERT_EQ(updates, 4);
         ASSERT_TRUE(engine->frame_diagnostics().current());

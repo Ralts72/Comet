@@ -415,29 +415,34 @@ namespace Comet::Tests {
         const PostProcessSettings enabled{.exposure = 0.75f, .bloom_enabled = true};
         unsigned rendered = 0;
         unsigned updates = 0;
-        const auto result = engine->run(
-            [&](Engine::FrameContext&) {
-                if(rendered == 1)
-                    EXPECT_EQ(renderer.get_scene_renderer().get_post_process_settings(), enabled);
-                if(rendered >= 2) {
-                    EXPECT_EQ(renderer.get_scene_renderer().get_post_process_settings(),
-                        PostProcessSettings{});
-                    engine->get_window().request_close();
-                }
-                if(++updates > 30)
-                    engine->get_window().request_close();
-                return Result<void, Error>::success();
-            },
-            [&](Engine::FrameContext&) {
-                if(rendered == 0) {
-                    if(!engine->get_scene()->set_post_process(enabled))
-                        return Result<void, Error>::failure({"Cannot edit scene post processing"});
-                } else {
-                    engine->set_scene(std::make_unique<Scene>());
-                }
-                ++rendered;
-                return Result<void, Error>::success();
-            });
+        const auto result = engine->run({
+            .update =
+                [&](const Engine::FrameContext&) {
+                    if(rendered == 1)
+                        EXPECT_EQ(
+                            renderer.get_scene_renderer().get_post_process_settings(), enabled);
+                    if(rendered >= 2) {
+                        EXPECT_EQ(renderer.get_scene_renderer().get_post_process_settings(),
+                            PostProcessSettings{});
+                        engine->get_window().request_close();
+                    }
+                    if(++updates > 30)
+                        engine->get_window().request_close();
+                    return Result<void, Error>::success();
+                },
+            .frame_ready =
+                [&](const Engine::FrameContext&) {
+                    if(rendered == 0) {
+                        if(!engine->get_scene()->set_post_process(enabled))
+                            return Result<void, Error>::failure(
+                                {"Cannot edit scene post processing"});
+                    } else {
+                        engine->set_scene(std::make_unique<Scene>());
+                    }
+                    ++rendered;
+                    return Result<void, Error>::success();
+                },
+        });
         ASSERT_TRUE(result) << result.error().message;
         EXPECT_EQ(rendered, 2u);
     }

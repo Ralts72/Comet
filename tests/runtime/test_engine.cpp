@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 #include <GLFW/glfw3.h>
 #include <type_traits>
+#include <vector>
 
 namespace Comet::Tests {
     static_assert(
@@ -44,20 +45,26 @@ namespace Comet::Tests {
 
             return Result<void, GraphicsError>::success();
         }});
-        const auto result = engine->run(
-            [&](Engine::FrameContext&) {
-                if(++updates > 20)
-                    window.request_close();
-                return Result<void, Error>::success();
-            },
-            [&](Engine::FrameContext& frame) {
-                if(++ready_calls == 2)
-                    input.key_event(Input::Key::Space, true);
-                frame.runtime_input = input.publish_frame();
+        const auto result = engine->run({
+            .update =
+                [&](const Engine::FrameContext&) {
+                    if(++updates > 20)
+                        window.request_close();
+                    return Result<void, Error>::success();
+                },
+            .frame_ready =
+                [&](const Engine::FrameContext&) {
+                    if(++ready_calls == 2)
+                        input.key_event(Input::Key::Space, true);
+                    return Result<void, Error>::success();
+                },
+            .runtime_input = [&](const Engine::FrameContext&) -> std::optional<Input::Frame> {
+                auto routed = input.publish_frame();
                 if(ready_calls == 3)
-                    frame.runtime_input->pointer_enabled = false;
-                return Result<void, Error>::success();
-            });
+                    routed.pointer_enabled = false;
+                return routed;
+            },
+        });
         engine->get_renderer().set_overlay({});
         ASSERT_TRUE(result) << result.error().message;
         EXPECT_EQ(ready_calls, 3);
@@ -80,16 +87,19 @@ namespace Comet::Tests {
 
             return Result<void, GraphicsError>::success();
         }});
-        const auto result = engine->run([&](Engine::FrameContext&) {
-            if(++updates > 8)
-                engine->get_window().request_close();
-            if(draws == 2)
-                engine->set_scene(std::make_unique<Scene>());
-            if(draws == 3) {
-                auto camera = engine->get_scene()->create_entity("Camera");
-                camera.add_component<CameraComponent>().primary = true;
-            }
-            return Result<void, Error>::success();
+        const auto result = engine->run({
+            .update =
+                [&](const Engine::FrameContext&) {
+                    if(++updates > 8)
+                        engine->get_window().request_close();
+                    if(draws == 2)
+                        engine->set_scene(std::make_unique<Scene>());
+                    if(draws == 3) {
+                        auto camera = engine->get_scene()->create_entity("Camera");
+                        camera.add_component<CameraComponent>().primary = true;
+                    }
+                    return Result<void, Error>::success();
+                },
         });
         engine->get_renderer().set_overlay({});
         ASSERT_TRUE(result) << result.error().message;
@@ -108,7 +118,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(engine.stop_scene_runtime());
     }
 
-    TEST(EngineRunTest, FrameContextRoutesInputWithoutCarryingItIntoTheNextFrame) {
+    TEST(EngineRunTest, RoutesInputOnceAfterUiWithoutCarryingItIntoTheNextFrame) {
         auto created = Engine::create(Config{});
         ASSERT_TRUE(created) << created.error().message;
         auto& engine = *created.value();
@@ -118,40 +128,110 @@ namespace Comet::Tests {
         ASSERT_TRUE(engine.start_scene_runtime());
         int updates = 0;
         int ready_calls = 0;
+        int input_calls = 0;
         int draws = 0;
-        Engine::FrameContext* current_frame = nullptr;
+        const Engine::FrameContext* current_frame = nullptr;
         engine.get_renderer().set_overlay({.render = [&](OverlayRecordContext&) {
             if(++draws == 3)
                 engine.get_window().request_close();
 
             return Result<void, GraphicsError>::success();
         }});
-        const auto result = engine.run(
-            [&](Engine::FrameContext& frame) {
-                current_frame = &frame;
-                ++updates;
-                if(updates > 1)
-                    EXPECT_TRUE(calls->input_focused);
-                if(updates == 1) {
-                    frame.runtime_input = frame.physical_input;
-                    frame.runtime_input->focused = true;
-                }
-                return Result<void, Error>::success();
-            },
-            [&](Engine::FrameContext& frame) {
+        const auto result = engine.run({
+            .update =
+                [&](const Engine::FrameContext& frame) {
+                    current_frame = &frame;
+                    ++updates;
+                    if(updates > 1)
+                        EXPECT_TRUE(calls->input_focused);
+                    return Result<void, Error>::success();
+                },
+            .frame_ready =
+                [&](const Engine::FrameContext& frame) {
+                    EXPECT_EQ(&frame, current_frame);
+                    ++ready_calls;
+                    return Result<void, Error>::success();
+                },
+            .runtime_input = [&](const Engine::FrameContext& frame) -> std::optional<Input::Frame> {
                 EXPECT_EQ(&frame, current_frame);
-                if(++ready_calls == 2) {
-                    frame.runtime_input = frame.physical_input;
-                    frame.runtime_input->focused = true;
-                }
-                return Result<void, Error>::success();
-            });
+                EXPECT_EQ(++input_calls, ready_calls);
+                EXPECT_EQ(calls->updates, input_calls - 1);
+                if(input_calls == 3)
+                    return std::nullopt;
+                auto routed = frame.physical_input;
+                routed.focused = true;
+                return routed;
+            },
+        });
         engine.get_renderer().set_overlay({});
         ASSERT_TRUE(result) << result.error().message;
         EXPECT_EQ(updates, 3);
         EXPECT_EQ(ready_calls, 3);
+        EXPECT_EQ(input_calls, 3);
         EXPECT_EQ(calls->updates, 3);
         EXPECT_FALSE(calls->input_focused);
+    }
+
+    TEST_F(EngineSceneActivationTest, UiCaptureBlocksCurrentPressUntilReleaseAndNewPress) {
+        class InputTraceSystem final: public System {
+        public:
+            std::vector<InputState> frames;
+            Result<void, Error> update(Scene&, const Context& context) override {
+                frames.push_back(context.input);
+                return Result<void, Error>::success();
+            }
+        };
+        auto observer = std::make_unique<InputTraceSystem>();
+        const auto& frames = observer->frames;
+        ASSERT_TRUE(engine->add_system(std::move(observer)));
+        engine->set_scene(std::make_unique<Scene>());
+        ASSERT_TRUE(engine->start_scene_runtime());
+        Input physical;
+        physical.focus_event(true);
+        Input::Gate gate;
+        bool ui_blocked = false;
+        int updates = 0;
+        int inputs = 0;
+        int draws = 0;
+        engine->get_renderer().set_overlay({.render = [&](OverlayRecordContext&) {
+            if(++draws == 5)
+                engine->get_window().request_close();
+            return Result<void, GraphicsError>::success();
+        }});
+        const auto result = engine->run({
+            .update =
+                [&](const Engine::FrameContext&) {
+                    if(++updates > 10)
+                        engine->get_window().request_close();
+                    return Result<void, Error>::success();
+                },
+            .frame_ready =
+                [&](const Engine::FrameContext&) {
+                    ui_blocked = draws == 1;
+                    if(draws == 1 || draws == 4)
+                        physical.key_event(Input::Key::Space, true);
+                    if(draws == 3)
+                        physical.key_event(Input::Key::Space, false);
+                    return Result<void, Error>::success();
+                },
+            .runtime_input = [&](const Engine::FrameContext&) -> std::optional<Input::Frame> {
+                ++inputs;
+                return gate.read(physical.publish_frame(), !ui_blocked);
+            },
+        });
+        engine->get_renderer().set_overlay({});
+        ASSERT_TRUE(result) << result.error();
+        ASSERT_EQ(frames.size(), 5u);
+        EXPECT_EQ(inputs, 5);
+        EXPECT_TRUE(frames[0].focused());
+        EXPECT_FALSE(frames[1].focused());
+        EXPECT_TRUE(frames[2].focused());
+        for(size_t index = 0; index < 4; ++index) {
+            EXPECT_FALSE(frames[index].physical().key(Input::Key::Space).pressed);
+            EXPECT_FALSE(frames[index].physical().key(Input::Key::Space).down);
+        }
+        EXPECT_TRUE(frames[4].physical().key(Input::Key::Space).pressed);
+        EXPECT_TRUE(frames[4].physical().key(Input::Key::Space).down);
     }
 
     TEST(EngineRunTest, RuntimeLifecycleFollowsOwnedSceneAndShutdownIsFinal) {
@@ -220,21 +300,24 @@ namespace Comet::Tests {
 
             return Result<void, GraphicsError>::success();
         }});
-        const auto result = engine.run(
-            [&](Engine::FrameContext&) {
-                ++hosts;
-                if(hosts > 8)
-                    engine.get_window().request_close();
-                if(hosts == 2)
-                    return engine.request_runtime_step();
-                if(hosts == 4)
-                    return engine.set_runtime_state(SceneRuntime::State::Running);
-                return Result<void, Error>::success();
-            },
-            [&](Engine::FrameContext&) {
-                ++ui_frames;
-                return Result<void, Error>::success();
-            });
+        const auto result = engine.run({
+            .update =
+                [&](const Engine::FrameContext&) {
+                    ++hosts;
+                    if(hosts > 8)
+                        engine.get_window().request_close();
+                    if(hosts == 2)
+                        return engine.request_runtime_step();
+                    if(hosts == 4)
+                        return engine.set_runtime_state(SceneRuntime::State::Running);
+                    return Result<void, Error>::success();
+                },
+            .frame_ready =
+                [&](const Engine::FrameContext&) {
+                    ++ui_frames;
+                    return Result<void, Error>::success();
+                },
+        });
         engine.get_renderer().set_overlay({});
         ASSERT_TRUE(result);
         EXPECT_EQ(hosts, 4);
@@ -253,26 +336,35 @@ namespace Comet::Tests {
         auto& engine = *engine_result.value();
         int updates = 0;
         int preparations = 0;
-        EXPECT_TRUE(engine.run(
-            [&](Engine::FrameContext& frame) {
-                ++updates;
-                EXPECT_EQ(frame.physical_input.serial, 1u);
-                const auto nested = engine.run();
-                EXPECT_FALSE(nested);
-                if(!nested) {
-                    EXPECT_EQ(nested.error().message, "Engine update loop is already running");
-                    EXPECT_FALSE(nested.error().code);
-                }
-                EXPECT_FALSE(engine.run());
-                engine.get_window().request_close();
-                return Result<void, Error>::success();
+        int inputs = 0;
+        EXPECT_TRUE(engine.run({
+            .update =
+                [&](const Engine::FrameContext& frame) {
+                    ++updates;
+                    EXPECT_EQ(frame.physical_input.serial, 1u);
+                    const auto nested = engine.run();
+                    EXPECT_FALSE(nested);
+                    if(!nested) {
+                        EXPECT_EQ(nested.error().message, "Engine update loop is already running");
+                        EXPECT_FALSE(nested.error().code);
+                    }
+                    EXPECT_FALSE(engine.run());
+                    engine.get_window().request_close();
+                    return Result<void, Error>::success();
+                },
+            .frame_ready =
+                [&](const Engine::FrameContext&) {
+                    ++preparations;
+                    return Result<void, Error>::success();
+                },
+            .runtime_input = [&](const Engine::FrameContext&) -> std::optional<Input::Frame> {
+                ++inputs;
+                return std::nullopt;
             },
-            [&](Engine::FrameContext&) {
-                ++preparations;
-                return Result<void, Error>::success();
-            }));
+        }));
         EXPECT_EQ(updates, 1);
         EXPECT_EQ(preparations, 0);
+        EXPECT_EQ(inputs, 0);
     }
 
     TEST(EngineRunTest, DeferredFrameSkipsEditingAndDrawingButContinuesUpdates) {
@@ -295,6 +387,7 @@ namespace Comet::Tests {
         int edits = 0;
         int draws = 0;
         int rebuilds = 0;
+        int input_calls = 0;
         renderer.set_overlay({.render =
                                   [&](OverlayRecordContext&) {
                                       ++draws;
@@ -308,32 +401,42 @@ namespace Comet::Tests {
                         {"temporary UI allocation failure", vk::Result::eErrorOutOfDeviceMemory});
                 }});
         renderer.request_swapchain_recreation();
-        const auto result = engine.run(
-            [&](Engine::FrameContext& frame) {
-                EXPECT_EQ(frame.physical_input.serial, static_cast<uint64_t>(updates + 1));
-                if(++updates == 1) {
-                    frame.runtime_input = frame.physical_input;
-                    frame.runtime_input->focused = true;
-                    focus(window, GLFW_TRUE);
-                    key(window, GLFW_KEY_SPACE, 0, GLFW_PRESS, 0);
-                    key(window, GLFW_KEY_SPACE, 0, GLFW_RELEASE, 0);
-                    EXPECT_FALSE(frame.physical_input.key(Input::Key::Space).pressed);
-                } else {
-                    EXPECT_TRUE(frame.physical_input.key(Input::Key::Space).pressed);
-                    EXPECT_TRUE(frame.physical_input.key(Input::Key::Space).released);
-                    engine.get_window().request_close();
-                }
-                return Result<void, Error>::success();
+        const auto result = engine.run({
+            .update =
+                [&](const Engine::FrameContext& frame) {
+                    EXPECT_EQ(frame.physical_input.serial, static_cast<uint64_t>(updates + 1));
+                    if(++updates == 1) {
+                        focus(window, GLFW_TRUE);
+                        key(window, GLFW_KEY_SPACE, 0, GLFW_PRESS, 0);
+                        key(window, GLFW_KEY_SPACE, 0, GLFW_RELEASE, 0);
+                        EXPECT_FALSE(frame.physical_input.key(Input::Key::Space).pressed);
+                    } else {
+                        EXPECT_TRUE(frame.physical_input.key(Input::Key::Space).pressed);
+                        EXPECT_TRUE(frame.physical_input.key(Input::Key::Space).released);
+                        engine.get_window().request_close();
+                    }
+                    return Result<void, Error>::success();
+                },
+            .frame_ready =
+                [&](const Engine::FrameContext&) {
+                    ++edits;
+                    return Result<void, Error>::success();
+                },
+            .runtime_input = [&](const Engine::FrameContext& frame) -> std::optional<Input::Frame> {
+                ++input_calls;
+                EXPECT_EQ(edits, 0);
+                EXPECT_EQ(calls->updates, 0);
+                auto routed = frame.physical_input;
+                routed.focused = true;
+                return routed;
             },
-            [&](Engine::FrameContext&) {
-                ++edits;
-                return Result<void, Error>::success();
-            });
+        });
         renderer.set_overlay({});
         EXPECT_TRUE(result);
         EXPECT_EQ(updates, 2);
         EXPECT_EQ(rebuilds, 1);
         EXPECT_EQ(edits, 0);
+        EXPECT_EQ(input_calls, 1);
         EXPECT_EQ(draws, 0);
         EXPECT_EQ(calls->updates, 1);
         EXPECT_TRUE(calls->input_focused);
@@ -382,24 +485,26 @@ namespace Comet::Tests {
             ++draws;
             return Result<void, GraphicsError>::success();
         }});
-        const auto result = engine.run(
-            [&](Engine::FrameContext&) {
-                if(draws >= 2)
-                    engine.get_window().request_close();
-                return Result<void, Error>::success();
-            },
-            {},
-            [&](const Error& error) {
-                ++recoveries;
-                EXPECT_EQ(error.message, "runtime update failed");
-                EXPECT_EQ(draws, 1);
-                EXPECT_FALSE(engine.get_renderer().get_frame_scheduler().is_frame_active());
-                EXPECT_FALSE(engine.get_scene_runtime().is_active());
-                EXPECT_EQ(calls->stops, 1);
-                auto previous = engine.replace_scene(std::make_unique<Scene>());
-                EXPECT_EQ(previous.get(), original);
-                return Result<void, Error>::success();
-            });
+        const auto result = engine.run({
+            .update =
+                [&](const Engine::FrameContext&) {
+                    if(draws >= 2)
+                        engine.get_window().request_close();
+                    return Result<void, Error>::success();
+                },
+            .runtime_failed =
+                [&](const Error& error) {
+                    ++recoveries;
+                    EXPECT_EQ(error.message, "runtime update failed");
+                    EXPECT_EQ(draws, 1);
+                    EXPECT_FALSE(engine.get_renderer().get_frame_scheduler().is_frame_active());
+                    EXPECT_FALSE(engine.get_scene_runtime().is_active());
+                    EXPECT_EQ(calls->stops, 1);
+                    auto previous = engine.replace_scene(std::make_unique<Scene>());
+                    EXPECT_EQ(previous.get(), original);
+                    return Result<void, Error>::success();
+                },
+        });
         EXPECT_TRUE(result);
         EXPECT_EQ(recoveries, 1);
         EXPECT_EQ(draws, 2);
@@ -418,9 +523,12 @@ namespace Comet::Tests {
         }});
         const Error failure =
             GraphicsError{"asset creation failed", vk::Result::eErrorDeviceLost}.as_error();
-        const auto result = engine.run({}, [&](Engine::FrameContext&) {
-            ++edits;
-            return Result<void, Error>::failure(failure);
+        const auto result = engine.run({
+            .frame_ready =
+                [&](const Engine::FrameContext&) {
+                    ++edits;
+                    return Result<void, Error>::failure(failure);
+                },
         });
         ASSERT_FALSE(result);
         EXPECT_EQ(result.error().message, failure.message);
@@ -461,9 +569,12 @@ namespace Comet::Tests {
         engine.set_scene(std::make_unique<Scene>());
         ASSERT_TRUE(engine.add_system(std::make_unique<SceneMotionSystem>(calls)));
         ASSERT_TRUE(engine.start_scene_runtime());
-        const auto result = engine.run({}, [&](Engine::FrameContext&) {
-            engine.get_renderer().prepare_shutdown();
-            return Result<void, Error>::success();
+        const auto result = engine.run({
+            .frame_ready =
+                [&](const Engine::FrameContext&) {
+                    engine.get_renderer().prepare_shutdown();
+                    return Result<void, Error>::success();
+                },
         });
         ASSERT_FALSE(result);
         EXPECT_EQ(result.error().message, "Renderer is shutting down");
@@ -478,19 +589,25 @@ namespace Comet::Tests {
         auto engine_result = Engine::create(config);
         ASSERT_TRUE(engine_result) << engine_result.error().message;
         auto& engine = *engine_result.value();
-        const auto failure = engine.run([](Engine::FrameContext&) {
-            return Result<void, Error>::failure(
-                GraphicsError{"update failed", vk::Result::eErrorDeviceLost}.as_error());
+        const auto failure = engine.run({
+            .update =
+                [](const Engine::FrameContext&) {
+                    return Result<void, Error>::failure(
+                        GraphicsError{"update failed", vk::Result::eErrorDeviceLost}.as_error());
+                },
         });
         ASSERT_FALSE(failure);
         EXPECT_EQ(failure.error().message, "update failed");
         EXPECT_EQ(failure.error().code,
             (GraphicsError{"", vk::Result::eErrorDeviceLost}.as_error().code));
         int updates = 0;
-        EXPECT_TRUE(engine.run([&](Engine::FrameContext&) {
-            ++updates;
-            engine.get_window().request_close();
-            return Result<void, Error>::success();
+        EXPECT_TRUE(engine.run({
+            .update =
+                [&](const Engine::FrameContext&) {
+                    ++updates;
+                    engine.get_window().request_close();
+                    return Result<void, Error>::success();
+                },
         }));
         EXPECT_EQ(updates, 1);
     }
@@ -508,11 +625,14 @@ namespace Comet::Tests {
             return Result<void, GraphicsError>::success();
         }});
 
-        const auto result = engine.run([&](Engine::FrameContext&) {
-            if(++updates == 1)
-                return Result<void, Error>::success();
-            EXPECT_TRUE(engine.frame_diagnostics().current().has_value());
-            return Result<void, Error>::failure({"update failed"});
+        const auto result = engine.run({
+            .update =
+                [&](const Engine::FrameContext&) {
+                    if(++updates == 1)
+                        return Result<void, Error>::success();
+                    EXPECT_TRUE(engine.frame_diagnostics().current().has_value());
+                    return Result<void, Error>::failure({"update failed"});
+                },
         });
 
         ASSERT_FALSE(result);

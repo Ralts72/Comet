@@ -37,6 +37,8 @@ set(WORLD_HEADERS
     "${ASSET_HEADERS}|input/|scene/(component_registry|components|entity|entity_id|entity_uuid|material_parameters|property|scene|scene_serializer|scene_settings|script_component)\\.h$")
 set(PIPELINE_HEADERS "${ASSET_HEADERS}|asset/(artifact/|import/|database\\.h$)")
 
+set(RUNTIME_HEADERS "${WORLD_HEADERS}|scene/(scene_runtime|systems/system)\\.h$")
+
 function(check_module_closure module sources allowed)
     set(pending ${sources})
     set(visited)
@@ -82,6 +84,7 @@ check_module_closure(ShaderContracts "${COMET_SHADER_CONTRACTS_SOURCES}" "${SHAD
 check_module_closure(AssetData "${COMET_ASSET_DATA_SOURCES}" "${ASSET_HEADERS}")
 check_module_closure(Input "${COMET_INPUT_SOURCES}" "${INPUT_HEADERS}")
 check_module_closure(World "${COMET_WORLD_SOURCES}" "${WORLD_HEADERS}")
+check_module_closure(Runtime "${COMET_RUNTIME_SOURCES}" "${RUNTIME_HEADERS}")
 check_module_closure(AssetPipeline "${COMET_ASSET_PIPELINE_SOURCES}" "${PIPELINE_HEADERS}")
 
 file(GLOB_RECURSE ENGINE_FILES RELATIVE "${ENGINE_SOURCE}"

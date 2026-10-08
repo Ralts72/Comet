@@ -91,6 +91,7 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 保留 `build/`、`build-editor/`、`build-release/` 三个构建目录，CI 复用 `build/`。
 对外通过 `engine`／`Comet::Engine` 使用引擎；内部对象库按职责约束依赖，最终汇入同一个 engine 动态库，
 不增加独立构建配置或模块动态库。源码归属见 `engine/cmake/module_sources.cmake`，依赖见 `modules.cmake`。
+`comet_runtime` 负责 SceneRuntime 与 System 执行契约，只依赖 World／Input；窗口、渲染和具体系统由 engine 组合。
 编辑器分为无 ImGui 的 `editor_core`、ImGui 呈现适配 `editor_imgui` 与功能界面 `editor_ui`；新增源码需维护所属库清单。
 仅启用 tests 时仍构建 core；测试辅助代码位于 `tests/support/`。
 测试按执行条件分组，源码只编译到所属入口，不重复运行：
@@ -559,6 +560,7 @@ Trigger 对应 `on_trigger_enter/exit`，不产生物理碰撞响应。结构提
 ### 场景运行时
 
 app 与 editor Play 共用 SceneRuntime：先固定更新，再普通更新，退出时逆序停止 System；Edit 不执行游戏行为。
+宿主在 UI 更新后通过 `on_runtime_input` 每个非挂起帧交付一次授权输入；渲染延期仍推进 Runtime，未授权只关闭游戏输入。
 默认固定步 1/60 秒，每帧最多补算 8 步；暂停仍允许 UI 和资源维护，单步只推进一次固定更新和普通更新。
 Play 修改只作用于副本；脚本启动或运行失败会记录错误并恢复 Edit，不关闭编辑器。设备丢失等渲染故障仍退出。
 独立 app 默认在运行错误时退出，不自动重试已部分执行的一帧。
@@ -853,5 +855,5 @@ C++ 遵循根目录 `.clang-format`（100 列），只格式化相关代码，�
 测试按所属模块放在 `tests/`，公共辅助工具放在 `tests/support/`。
 编辑器的纯 CPU 测试位于 `tests/editor/core/`，面板测试位于 `tests/editor/ui/`，无 UI 的图形工作流测试位于 `tests/editor/integration/`。
 新增测试须在 `tests/CMakeLists.txt` 明确归入 CPU、集成或独立进程组；配置时检查遗漏和重复，不根据目录自动猜测。
-`module_boundaries` 检查底层模块、CPU 资产与编辑器功能代码的直接 include 边界；已知集成例外见架构文档。
+`module_boundaries` 检查内部模块的传递 include 与 CPU 资产／编辑器功能的直接边界；`module_dependency_contract` 验证禁止依赖确实被拦截。
 头文件应能独立编译，实现文件直接包含自己使用的类型，不依赖入口头的传递包含。

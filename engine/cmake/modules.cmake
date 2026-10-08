@@ -24,6 +24,7 @@ comet_add_module(shader_contracts)
 comet_add_module(asset_data)
 comet_add_module(input)
 comet_add_module(world)
+comet_add_module(runtime)
 comet_add_module(asset_pipeline)
 
 target_link_libraries(comet_foundation PUBLIC glm spdlog::spdlog Threads::Threads)
@@ -32,8 +33,9 @@ target_link_libraries(comet_shader_contracts PUBLIC comet_foundation PRIVATE spi
 target_link_libraries(comet_asset_data PUBLIC comet_serialization comet_shader_contracts)
 target_link_libraries(comet_input PUBLIC comet_serialization)
 target_link_libraries(comet_world PUBLIC comet_asset_data comet_input EnTT::EnTT)
+target_link_libraries(comet_runtime PUBLIC comet_world comet_input)
 target_link_libraries(comet_asset_pipeline PUBLIC comet_asset_data PRIVATE stb_image fastgltf::fastgltf)
 
 set(COMET_ENGINE_MODULES
     comet_foundation comet_serialization comet_shader_contracts comet_asset_data
-    comet_input comet_world comet_asset_pipeline)
+    comet_input comet_world comet_runtime comet_asset_pipeline)

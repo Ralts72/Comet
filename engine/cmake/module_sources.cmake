@@ -54,6 +54,12 @@ set(COMET_WORLD_SOURCES
     src/scene/audio_source_component.cpp
 )
 
+set(COMET_RUNTIME_SOURCES
+    src/scene/scene_runtime.cpp
+    src/scene/scene_runtime.h
+    src/scene/systems/system.h
+)
+
 set(COMET_ASSET_PIPELINE_SOURCES
     src/asset/database.cpp
     src/asset/database_scan.cpp

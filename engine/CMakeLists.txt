@@ -77,7 +77,6 @@ set(SOURCES
         src/render/material/material_shader.cpp
         src/render/material/material_runtime.cpp
         src/render/material/material_renderer.cpp
-        src/scene/scene_runtime.cpp
         src/scene/systems/camera_controller.cpp
         src/scene/systems/physics_system.cpp
         src/scene/systems/audio_system.cpp

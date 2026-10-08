@@ -219,8 +219,10 @@ namespace {
             return Comet::Result<void, Comet::Error>::success();
         }
 
-        Comet::Result<void, Comet::Error> on_update(Comet::Engine::FrameContext& frame) override {
+        Comet::Result<void, Comet::Error> on_update(
+            const Comet::Engine::FrameContext& frame) override {
             PROFILE_SCOPE("Editor::on_update");
+            m_runtime_input.reset();
             if(const auto language = m_menu_bar->take_language_request();
                 language && *language != m_ui_language) {
                 m_ui_language = *language;
@@ -273,7 +275,7 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> on_frame_ready(
-            Comet::Engine::FrameContext& frame) override {
+            const Comet::Engine::FrameContext& frame) override {
             m_viewport->update_texture();
             if(!m_imgui_context->begin_frame()) {
                 m_viewport->panel().cancel_interaction();
@@ -283,13 +285,19 @@ namespace {
                 const Comet::ScopeExit end_ui([this] { m_imgui_context->end_frame(); });
                 draw_editor_ui(frame.physical_input);
                 const bool input_blocked = render_player_input(frame.physical_input);
-                frame.runtime_input =
+                m_runtime_input =
                     m_viewport->panel().route_runtime_input(frame.physical_input, input_blocked);
                 if(auto viewport = m_viewport->update(get_engine().get_scene()); !viewport)
                     return viewport;
             }
             m_viewport->submit_feedback(get_engine().get_scene());
             return Comet::Result<void, Comet::Error>::success();
+        }
+
+        std::optional<Comet::Input::Frame> on_runtime_input(
+            const Comet::Engine::FrameContext&) override {
+            // ImGui 帧内完成视口授权；延期或 UI 未开始时保持输入关闭。
+            return std::exchange(m_runtime_input, std::nullopt);
         }
 
         Comet::Result<void, Comet::Error> on_runtime_error(const Comet::Error& error) override {
@@ -1062,6 +1070,7 @@ namespace {
         Comet::Project m_project;
         CometEditor::ProjectSettings m_project_settings{m_project};
         CometEditor::PlayerInputPanel m_player_input_panel;
+        std::optional<Comet::Input::Frame> m_runtime_input;
         std::optional<Comet::PlayerInputSettings> m_player_input_settings;
         std::string m_player_input_error;
         std::unique_ptr<CometEditor::Ui::ImGuiContext> m_imgui_context;

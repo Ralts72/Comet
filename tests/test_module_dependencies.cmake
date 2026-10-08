@@ -41,3 +41,11 @@ probe_dependency("src/input/input.cpp" "\"scene/scene.h\""
     "Input violates module dependencies")
 probe_dependency("src/asset/data/material_data.cpp" "\"asset/database.h\""
     "AssetData violates module dependencies")
+probe_dependency("src/scene/scene_runtime.cpp" "\"core/engine.h\""
+    "Runtime violates module dependencies")
+probe_dependency("src/scene/systems/system.h" "\"scene/systems/physics_system.h\""
+    "Runtime violates module dependencies")
+probe_dependency("src/scene/scene_runtime.h" "<RmlUi/Core.h>"
+    "Runtime includes a runtime backend")
+probe_dependency("src/scene/scene.cpp" "\"scene/scene_runtime.h\""
+    "World violates module dependencies")

@@ -38,9 +38,14 @@ namespace Comet {
         m_engine = std::move(engine).value();
         auto result = on_init();
         if(result)
-            result = m_engine->run([this](Engine::FrameContext& frame) { return on_update(frame); },
-                [this](Engine::FrameContext& frame) { return on_frame_ready(frame); },
-                [this](const Error& error) { return on_runtime_error(error); });
+            result = m_engine->run({
+                .update = [this](const Engine::FrameContext& frame) { return on_update(frame); },
+                .frame_ready =
+                    [this](const Engine::FrameContext& frame) { return on_frame_ready(frame); },
+                .runtime_input =
+                    [this](const Engine::FrameContext& frame) { return on_runtime_input(frame); },
+                .runtime_failed = [this](const Error& error) { return on_runtime_error(error); },
+            });
         m_engine->prepare_shutdown();
         on_shutdown();
         m_engine.reset();
