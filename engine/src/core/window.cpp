@@ -165,7 +165,8 @@ namespace Comet {
         double cursor_x = 0;
         double cursor_y = 0;
         glfwGetCursorPos(m_window.get(), &cursor_x, &cursor_y);
-        m_input.cursor_event({static_cast<float>(cursor_x), static_cast<float>(cursor_y)});
+        m_ui_cursor_position = {static_cast<float>(cursor_x), static_cast<float>(cursor_y)};
+        m_input.cursor_event(m_ui_cursor_position);
     }
 
     Window::~Window() = default;
@@ -315,19 +316,22 @@ namespace Comet {
                 owner.m_input.mouse_button_event(translated, action == GLFW_PRESS);
                 owner.m_ui_modifiers = translate_modifiers(mods);
                 if(owner.m_ui_focused) {
-                    const auto position = owner.get_cursor_position();
+                    // 点击沿用此前移动事件的坐标，避免采样到尚未交付的新位置。
                     owner.append_ui_event({.type = action == GLFW_PRESS ? UiEvent::Type::MouseDown
                                                                         : UiEvent::Type::MouseUp,
                         .button = translated,
                         .modifiers = owner.m_ui_modifiers,
-                        .position = position});
+                        .position = owner.m_ui_cursor_position});
                 }
             });
         glfwSetCursorPosCallback(m_window.get(), [](GLFWwindow* window, double x, double y) {
             auto& owner = *static_cast<Window*>(glfwGetWindowUserPointer(window));
             const Math::Vec2 position{static_cast<float>(x), static_cast<float>(y)};
+            if(!Math::is_finite(position))
+                return;
+            owner.m_ui_cursor_position = position;
             owner.m_input.cursor_event(position);
-            if(owner.m_ui_focused && Math::is_finite(position))
+            if(owner.m_ui_focused)
                 owner.append_ui_event({.type = UiEvent::Type::MouseMove,
                     .modifiers = owner.m_ui_modifiers,
                     .position = position});
@@ -351,6 +355,8 @@ namespace Comet {
             owner.m_input.focus_event(focused == GLFW_TRUE);
             if(owner.m_ui_focused != (focused == GLFW_TRUE)) {
                 owner.m_ui_focused = focused == GLFW_TRUE;
+                if(owner.m_ui_focused)
+                    owner.m_ui_cursor_position = owner.get_cursor_position();
                 owner.append_ui_event(
                     {.type = UiEvent::Type::Focus, .focused = owner.m_ui_focused});
             }

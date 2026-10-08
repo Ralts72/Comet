@@ -552,7 +552,7 @@ namespace CometEditor {
     }
 
     std::optional<Comet::Ui::View> ViewportPanel::game_ui_view(
-        const Comet::Math::Vec2u pixel_size, const float density) const {
+        const Comet::Math::Vec2u pixel_size) const {
         const auto display = m_layout.image_display_rect;
         const auto visible = m_layout.image_visible_rect;
         if(!m_game_ui_available || !m_show_game_ui || !m_actually_visible
@@ -564,7 +564,8 @@ namespace CometEditor {
         return Comet::Ui::View{.origin = display.min - origin,
             .size = display.size(),
             .pixel_size = pixel_size,
-            .density = density,
+            // 离屏分辨率独立于窗口 DPI；dp 在视口显示后仍对应窗口逻辑尺寸。
+            .density = static_cast<float>(pixel_size.x) / display.size().x,
             .clip = Comet::Ui::View::Clip{visible.min - origin, visible.size()}};
     }
 

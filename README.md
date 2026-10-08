@@ -209,6 +209,7 @@ CPU/GPU 分别统计，不保证来自同一帧。不支持 GPU 时间戳时仍�
 旧仓库根 `logs/` 不自动搬迁或删除。
 
 App／Editor 共用 `engine/resources/fonts/` 中的 Roboto Bold 和 Noto Sans SC Bold；各自 UI 后端负责加载与 DPI 缩放。
+Editor 游戏 UI 按视口显示尺寸换算离屏像素比例，切换渲染分辨率不改变控件的显示大小。
 RmlUi 使用 FreeType 解析字体、读取字形度量并栅格化文字，Comet 的 Vulkan 后端上传和绘制图集。
 引擎 UI 可配置字体文件、族名与回退；FreeType 可用于其他文字模块，当前 ImGui 仍使用自己的字体后端。
 编辑器固定使用简体中文，不提供语言选择，也不再读取或写入用户状态目录中的旧 `language.json`。

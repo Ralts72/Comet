@@ -296,8 +296,7 @@ namespace {
                         {.fps = frame.update.fps,
                             .game_available = m_editor_state.mode == CometEditor::EditorMode::Play
                                               && get_engine().get_scene_runtime().is_active(),
-                            .view = panel.game_ui_view(
-                                output.size, get_engine().get_window().get_content_scale().x)});
+                            .view = panel.game_ui_view(output.size)});
                 if(!ui)
                     return Comet::Result<void, Comet::Error>::failure(ui.error());
                 input_blocked |= ui.value().blocked;

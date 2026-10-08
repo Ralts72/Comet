@@ -112,6 +112,7 @@ namespace Comet {
         std::array<UiEvent, MAX_UI_EVENTS> m_ui_events{};
         size_t m_pending_ui_event_count = 0;
         size_t m_ui_event_count = 0;
+        Math::Vec2 m_ui_cursor_position{};
         uint8_t m_ui_modifiers = 0;
         bool m_ui_focused = false;
         bool m_ui_events_overflowed = false;

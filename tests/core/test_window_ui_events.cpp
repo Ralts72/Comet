@@ -47,7 +47,7 @@ namespace Comet {
         key(window.get(), GLFW_KEY_A, 0, GLFW_REPEAT, modifiers);
         character(window.get(), U'你');
         cursor(window.get(), 12.5, 24.25);
-        const auto button_position = window.get_cursor_position();
+        const Math::Vec2 button_position{12.5f, 24.25f};
         mouse(window.get(), GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, modifiers);
         mouse(window.get(), GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, modifiers);
         scroll(window.get(), 0.5, -2);
@@ -81,6 +81,24 @@ namespace Comet {
         EXPECT_TRUE(window.get_ui_events().empty());
         EXPECT_FALSE(window.get_input_frame().key(Input::Key::A).pressed);
         EXPECT_FALSE(window.get_input_frame().key(Input::Key::A).released);
+    }
+
+    TEST_F(WindowUiEventsTest, ButtonCoordinatesFollowTheOrderedCursorEvents) {
+        cursor(window.get(), 12.5, 24.25);
+        mouse(window.get(), GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, 0);
+        cursor(window.get(), 80, 90);
+        cursor(window.get(), std::numeric_limits<double>::quiet_NaN(), 0);
+        mouse(window.get(), GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, 0);
+        const auto& frame = window.publish_input_frame();
+        const auto events = window.get_ui_events();
+        ASSERT_EQ(events.size(), 4u);
+        EXPECT_EQ(events[1].type, Window::UiEvent::Type::MouseDown);
+        EXPECT_EQ(events[1].position, Math::Vec2(12.5f, 24.25f));
+        EXPECT_EQ(events[3].type, Window::UiEvent::Type::MouseUp);
+        EXPECT_EQ(events[3].position, Math::Vec2(80, 90));
+        EXPECT_EQ(frame.cursor_position, events[3].position);
+        EXPECT_TRUE(frame.mouse(Input::MouseButton::Left).pressed);
+        EXPECT_TRUE(frame.mouse(Input::MouseButton::Left).released);
     }
 
     TEST_F(WindowUiEventsTest, RejectsInvalidUnicodeAndCoordinatesAndUnfocusedText) {

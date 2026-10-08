@@ -57,7 +57,7 @@ namespace CometEditor {
 
         void set_game_ui_available(bool available) { m_game_ui_available = available; }
         [[nodiscard]] std::optional<Comet::Ui::View> game_ui_view(
-            Comet::Math::Vec2u pixel_size, float density) const;
+            Comet::Math::Vec2u pixel_size) const;
         [[nodiscard]] const Comet::Input::Frame& route_game_ui_input(
             const Comet::Input::Frame& input, bool blocked);
         [[nodiscard]] bool take_game_ui_reload_request();

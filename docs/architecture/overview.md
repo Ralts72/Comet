@@ -111,12 +111,14 @@ Editor 固定使用中文，`ui/text` 提供词表读取和短作用域借用；
 
 `Ui::ProjectUi` 装载清单中的页面与 `.ui.lua` 控制器；宿主注入个人设置读取、保存与 Runtime 换绑服务。
 控制器拥有模型、菜单状态、控件 ID、命令及快捷键，`PlayerInputEdit` 仍属于 Engine 输入模块。
-Window 发布与物理帧同序号的有界、有序 UI 事件。适配处理 DPI、Unicode、焦点、指针和手柄导航；
+Window 发布与物理帧同序号的有界、有序 UI 事件；点击坐标沿用此前光标事件，避免重新采样系统位置破坏顺序。
+适配处理 DPI、Unicode、焦点、指针和手柄导航；
 关闭当帧仍阻断 Gameplay，录入保留控件焦点并暂停 UI 派发；同帧动态 RML 替换合并到输入交付结束后。
 资产扫描将 `.rml`／`.rcss`／`.ui.lua` 识别为源文件，不生成元数据或稳定资产句柄；UI 直接读取项目文件。
 Editor 的 `project/GameUi` 只适配项目 UI 呈现与输入，个人设置读取／提交通过宿主注入的 `ProjectUi::Services` 交付；App／Editor 共用 `ProjectUi` 和项目控制器。
 Edit 仅预览，Play／暂停接受视口授权输入；ImGui 编辑工具与项目 UI 各自持有改键草稿。
 `Ui::View` 描述窗口逻辑区域、裁剪范围、UI 像素尺寸和 DPI，RmlPlatform 负责坐标换算。
+Editor 的 UI 密度按离屏像素／视口逻辑宽度计算，不直接使用窗口 DPI；渲染分辨率变化保持控件显示大小。
 游戏 UI 在场景最终离屏输出后合成，恢复 ShaderReadOnly 布局，再由 ImGui 视口采样；不另建窗口、设备或帧循环。
 Framebuffer 按实际输出图像缓存，替换后的目标和管线由帧保留到 GPU 完成。完整原生 IME 和资产发布仍待接通。
 FreeType 的字体解析、度量与栅格化可供其他文字模块复用；图集缓存、GPU 资源及其在途生命周期属于各呈现后端。

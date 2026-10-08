@@ -201,6 +201,42 @@ namespace Comet::Tests {
         ASSERT_TRUE(submit_frame());
     }
 
+    TEST_F(ProjectUiGpuTest, MousePressAcrossFramesActivatesMenuControls) {
+        auto& window = engine->get_window();
+        glfwSetWindowSize(window.get(), 960, 720);
+        glfwFocusWindow(window.get());
+        window.poll_events();
+        const auto focus = glfwSetWindowFocusCallback(window.get(), nullptr);
+        glfwSetWindowFocusCallback(window.get(), focus);
+        ASSERT_NE(focus, nullptr);
+        focus(window.get(), GLFW_FALSE);
+        focus(window.get(), GLFW_TRUE);
+        window.discard_pending_input();
+        click("settings");
+        ASSERT_TRUE(submit_frame());
+        auto* previous = document().GetElementById("previous");
+        ASSERT_NE(previous, nullptr);
+        const auto offset = previous->GetAbsoluteOffset(Rml::BoxArea::Border);
+        const auto size = previous->GetBox().GetSize(Rml::BoxArea::Border);
+        const auto dimensions = Rml::GetContext(0)->GetDimensions();
+        const auto window_size = window.get_size();
+        const auto cursor = glfwSetCursorPosCallback(window.get(), nullptr);
+        glfwSetCursorPosCallback(window.get(), cursor);
+        ASSERT_NE(cursor, nullptr);
+        cursor(window.get(), (offset.x + size.x / 2) * window_size.x / dimensions.x,
+            (offset.y + size.y / 2) * window_size.y / dimensions.y);
+        const auto mouse = glfwSetMouseButtonCallback(window.get(), nullptr);
+        glfwSetMouseButtonCallback(window.get(), mouse);
+        ASSERT_NE(mouse, nullptr);
+        mouse(window.get(), GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, 0);
+        ASSERT_TRUE(submit_frame());
+        EXPECT_EQ(Rml::GetContext(0)->GetFocusElement(), previous);
+        mouse(window.get(), GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, 0);
+        ASSERT_TRUE(submit_frame());
+        EXPECT_NE(document().GetElementById("action-name")->GetInnerRML().find("palette.confirm"),
+            std::string::npos);
+    }
+
     TEST_F(ProjectUiGpuTest, CandidateFailuresPreservePageControllerAndInputDraft) {
         click("settings");
         ASSERT_TRUE(ui->is_modal());

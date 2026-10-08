@@ -15,10 +15,18 @@ namespace CometEditor::Tests {
     TEST_F(ViewportPlayUiTest, ProjectUiInputUsesPlayFocusAndReleasesBeforeGameReacquires) {
         using Key = Comet::Input::Key;
         viewport.set_game_ui_available(true);
-        auto view = viewport.game_ui_view({1600, 1200}, 2);
+        auto view = viewport.game_ui_view({1600, 1200});
         ASSERT_TRUE(view);
         EXPECT_EQ(view->pixel_size, Comet::Math::Vec2u(1600, 1200));
         EXPECT_EQ(view->size, viewport.get_layout().image_display_rect.size());
+        for(const auto pixels : {Comet::Math::Vec2u(800, 600), Comet::Math::Vec2u(1600, 1200),
+                Comet::Math::Vec2u(400, 300)}) {
+            const auto scaled = viewport.game_ui_view(pixels);
+            ASSERT_TRUE(scaled);
+            // 同一 16dp 控件不随离屏分辨率改变显示大小。
+            EXPECT_NEAR(16 * scaled->density * scaled->size.x / pixels.x, 16, 0.0001f);
+            EXPECT_EQ(scaled->origin, view->origin);
+        }
         EXPECT_FALSE(viewport.route_game_ui_input(runtime_input.get_frame(), false).focused);
         activate_play_camera();
         const auto tick_ui = [&](bool blocked = false) {
