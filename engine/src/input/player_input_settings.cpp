@@ -5,6 +5,8 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <optional>
+#include <string>
 #include <string_view>
 #include <system_error>
 #include <utility>
@@ -312,16 +314,10 @@ namespace Comet {
         if(!overrides)
             return Loaded::failure(overrides.error());
         settings.m_overrides = std::move(overrides).value();
-        settings.m_source_contents = std::move(contents).value();
         return Loaded::success(std::move(settings));
     }
 
     Result<void> PlayerInputSettings::save(InputOverrides overrides) {
-        const auto current = read_optional_file(m_path);
-        if(!current)
-            return Result<void>::failure(current.error());
-        if(current.value() != m_source_contents)
-            return Result<void>::failure("Player input settings changed since they were loaded");
         if(overrides == m_overrides)
             return Result<void>::success();
         auto contents = serialize(m_project_id, overrides);
@@ -330,7 +326,22 @@ namespace Comet {
         if(auto saved = write_text_file_atomic(m_path, contents.value()); !saved)
             return saved;
         m_overrides = std::move(overrides);
-        m_source_contents = std::move(contents).value();
+        return Result<void>::success();
+    }
+
+    Result<void> PlayerInputSettings::save_and_apply(const InputActions& defaults,
+        InputOverrides overrides,
+        const std::function<Result<void, Error>(InputActions)>& apply_actions) {
+        if(!apply_actions)
+            return Result<void>::failure("Player input settings require a runtime apply callback");
+        auto resolved = overrides.resolve(defaults);
+        if(!resolved)
+            return Result<void>::failure(resolved.error());
+        if(auto saved = save(std::move(overrides)); !saved)
+            return saved;
+        if(auto applied = apply_actions(std::move(resolved).value().actions); !applied)
+            return Result<void>::failure(
+                "Player settings saved but not applied: " + applied.error().message);
         return Result<void>::success();
     }
 }

@@ -128,14 +128,7 @@ namespace {
             auto ui = Comet::Ui::ProjectUi::create(engine.get_window(), engine.get_renderer(),
                 *m_project.ui(), game_ui_options(m_project),
                 {.input_actions = m_project.input_actions(),
-                    .load_input = [this]() -> Comet::Result<Comet::InputOverrides> {
-                        auto loaded = Comet::PlayerInputSettings::load(m_project.id());
-                        if(!loaded)
-                            return Comet::Result<Comet::InputOverrides>::failure(loaded.error());
-                        m_player_input_settings = std::move(loaded).value();
-                        return Comet::Result<Comet::InputOverrides>::success(
-                            m_player_input_settings->overrides());
-                    },
+                    .load_input = [this] { return load_player_input(); },
                     .apply_input =
                         [this](Comet::InputOverrides overrides) {
                             return apply_player_input(std::move(overrides));
@@ -188,8 +181,6 @@ namespace {
                     return Comet::Result<void, Comet::Error>::failure(result.error());
                 m_ui_blocked = result.value().blocked;
                 m_ui_pointer_blocked = result.value().pointer_blocked;
-                if(!m_ui->is_modal())
-                    m_player_input_settings.reset();
             }
             return Comet::Result<void, Comet::Error>::success();
         }
@@ -229,30 +220,34 @@ namespace {
             return get_engine().start_scene_runtime();
         }
 
+        Comet::Result<Comet::InputOverrides> load_player_input() {
+            if(!m_player_input_settings) {
+                auto loaded = Comet::PlayerInputSettings::load(m_project.id());
+                if(!loaded)
+                    return Comet::Result<Comet::InputOverrides>::failure(loaded.error());
+                m_player_input_settings = std::move(loaded).value();
+            }
+            return Comet::Result<Comet::InputOverrides>::success(
+                m_player_input_settings->overrides());
+        }
+
         Comet::Result<void> apply_player_input(Comet::InputOverrides overrides) {
             if(!m_player_input_settings || !get_engine().get_scene_runtime().is_active())
                 return Comet::Result<void>::failure("Player input settings require an active game");
-            auto resolved = overrides.resolve(m_project.input_actions());
-            if(!resolved)
-                return Comet::Result<void>::failure(resolved.error());
-            if(auto saved = m_player_input_settings->save(std::move(overrides)); !saved)
-                return saved;
-            if(auto applied =
-                    get_engine().rebind_input_actions(std::move(resolved).value().actions);
-                !applied)
-                return Comet::Result<void>::failure(
-                    "Player settings saved but not applied: " + applied.error().message);
-            return Comet::Result<void>::success();
+            return m_player_input_settings->save_and_apply(m_project.input_actions(),
+                std::move(overrides), [this](Comet::InputActions actions) {
+                    return get_engine().rebind_input_actions(std::move(actions));
+                });
         }
 
         Comet::Result<void, Comet::Error> configure_player_input() {
-            auto settings = Comet::PlayerInputSettings::load(m_project.id());
-            if(!settings) {
+            auto overrides = load_player_input();
+            if(!overrides) {
                 LOG_WARN("Player input settings unavailable; using project defaults: {}",
-                    settings.error());
+                    overrides.error());
                 return get_engine().set_input_actions(m_project.input_actions());
             }
-            auto resolved = settings.value().overrides().resolve(m_project.input_actions());
+            auto resolved = overrides.value().resolve(m_project.input_actions());
             if(!resolved)
                 return Comet::Result<void, Comet::Error>::failure({resolved.error()});
             for(const auto& issue : resolved.value().issues)

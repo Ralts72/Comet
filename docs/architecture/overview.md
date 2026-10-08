@@ -110,7 +110,7 @@ app 只链接 engine，不链接 ImGui 或编辑器库。字体归 Engine 公共
 Window 发布与物理帧同序号的有界、有序 UI 事件。适配处理 DPI、Unicode、焦点、指针和手柄导航；
 关闭当帧仍阻断 Gameplay，录入保留控件焦点并暂停 UI 派发；同帧动态 RML 替换合并到输入交付结束后。
 资产扫描将 `.rml`／`.rcss`／`.ui.lua` 识别为源文件，不生成元数据或稳定资产句柄；UI 直接读取项目文件。
-Editor 的 `project/GameUi` 适配宿主个人设置与运行时换绑；App／Editor 共用 `ProjectUi` 和项目控制器。
+Editor 的 `project/GameUi` 只适配项目 UI 呈现与输入，个人设置读取／提交通过宿主注入的 `ProjectUi::Services` 交付；App／Editor 共用 `ProjectUi` 和项目控制器。
 Edit 仅预览，Play／暂停接受视口授权输入；ImGui 编辑工具与项目 UI 各自持有改键草稿。
 `Ui::View` 描述窗口逻辑区域、裁剪范围、UI 像素尺寸和 DPI，RmlPlatform 负责坐标换算。
 游戏 UI 在场景最终离屏输出后合成，恢复 ShaderReadOnly 布局，再由 ImGui 视口采样；不另建窗口、设备或帧循环。
@@ -416,11 +416,13 @@ InputOverrides 的 control／scale／deadzone 按字段继承，disabled 与保�
   关闭丢弃草稿及未消费请求，失败保留草稿，无变化不写盘。面板是具体视图，不参与 EditorPanel 注册。
 - App 启动／每次 Play 或重开：加载玩家文件并合成；坏文件回退默认，不能获得可覆盖坏文件的空设置对象。
   不监视运行中文件变化，也不把玩家配置写回 project.json。
-- 运行中：`PlayerInputPanel 候选 → 宿主 resolve → 保存个人文件 → request_rebind → 下一次 prepare 应用`。
+- 运行中：`ImGui／项目 UI 候选 → PlayerInputSettings::save_and_apply → 保存个人文件 → request_rebind → 下一次 prepare 应用`。
   只允许绑定变化，不能改动作身份、名称、类型、归属或上下文定义；调用处必须在非执行的活动运行域。
   最后一份有效候选生效，按 UUID 保留未改绑定的积累／路由；变动绑定等待授权和设备可用后建立基线。
   活动动作组及阶段电平不整体重置。Stop 丢弃未应用候选，下次 Play 再从文件合成。
 
+App 每局、Editor 每次 Play 共用一个宿主 PlayerInputSettings；关闭／重开菜单不销毁它，两种 Editor 呈现不各自读取独立设置快照。
+项目描述与个人设置按单写入者使用，保存不重读整份文件或维护外部修改基线；仍校验内容并原子写入，成功后才更新内存。
 加载诊断由宿主持有，保存诊断留在草稿面板；先保存后提交的错误如实区分，不宣称回滚已保存文件。
 面板按 Issue 身份显示回退默认、保留失配记录并逐条恢复；禁用摘要不是有效映射，不另存 UI 备份。
 共享 input_widgets 只提供菜单数据、关系正文、弹窗布局及错误展示；词表由宿主借用，未引入跨层回调。

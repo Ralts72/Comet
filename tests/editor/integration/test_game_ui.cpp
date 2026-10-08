@@ -6,6 +6,7 @@
 #include "scene/scene.h"
 #include "core/window.h"
 #include "graphics/resource/sampler.h"
+#include "input/player_input_settings.h"
 
 #include <RmlUi/Core.h>
 #include <imgui.h>
@@ -15,6 +16,7 @@ namespace CometEditor::Tests {
     class EditorGameUiGpuTest: public Comet::Tests::RenderGpuTest {
     protected:
         std::optional<Comet::Project> project;
+        std::optional<Comet::PlayerInputSettings> player_input;
         std::unique_ptr<GameUi> game;
         std::unique_ptr<Ui::ImGuiContext> editor;
         std::shared_ptr<Comet::Sampler> sampler;
@@ -43,7 +45,11 @@ namespace CometEditor::Tests {
             auto sampling = Comet::Sampler::create(renderer.get_render_context().get_device());
             ASSERT_TRUE(sampling) << sampling.error();
             sampler = std::move(sampling).value();
-            game = std::make_unique<GameUi>(*engine, *project);
+            auto settings = Comet::PlayerInputSettings::load(
+                project->id(), documents.path() / "player/input.json");
+            ASSERT_TRUE(settings) << settings.error();
+            player_input = std::move(settings).value();
+            game = std::make_unique<GameUi>(*engine, *project, input_services());
             ASSERT_NE(Rml::GetContext(0), nullptr);
             renderer.set_overlay(
                 {.render =
@@ -117,15 +123,34 @@ namespace CometEditor::Tests {
             FAIL() << "Editor game preview remained deferred";
         }
 
-        void settings() {
+        void click(const char* id) {
             auto* context = Rml::GetContext(0);
             ASSERT_NE(context, nullptr);
             auto* document = context->GetDocument(0);
             ASSERT_NE(document, nullptr);
-            auto* button = document->GetElementById("settings");
+            auto* button = document->GetElementById(id);
             ASSERT_NE(button, nullptr);
             button->Click();
             frame();
+        }
+
+        void settings() { click("settings"); }
+
+        Comet::Ui::ProjectUi::Services input_services() {
+            return {.load_input =
+                        [this] {
+                            return Comet::Result<Comet::InputOverrides>::success(
+                                player_input->overrides());
+                        },
+                .apply_input =
+                    [this](Comet::InputOverrides overrides) {
+                        if(!engine->get_scene_runtime().is_active())
+                            return Comet::Result<void>::failure("No active Play session");
+                        return player_input->save_and_apply(project->input_actions(),
+                            std::move(overrides), [this](Comet::InputActions actions) {
+                                return engine->rebind_input_actions(std::move(actions));
+                            });
+                    }};
         }
     };
 
@@ -174,7 +199,7 @@ namespace CometEditor::Tests {
             std::ofstream script(file, std::ios::trunc);
             script << "return {on_mount=42}";
         }
-        game = std::make_unique<GameUi>(*engine, *project);
+        game = std::make_unique<GameUi>(*engine, *project, input_services());
         EXPECT_FALSE(game->is_modal());
         engine->get_renderer().set_overlay({.render = [this](Comet::OverlayRecordContext& overlay) {
             auto result = game->render(overlay);
@@ -194,6 +219,43 @@ namespace CometEditor::Tests {
         frame();
         settings();
         EXPECT_TRUE(game->is_modal());
+    }
+
+    TEST_F(EditorGameUiGpuTest, ReopenedMenuUsesSharedHostSettingsAndApplyUpdatesThatSameOwner) {
+        ASSERT_TRUE(engine->start_scene_runtime());
+        frame();
+        settings();
+        ASSERT_TRUE(game->is_modal());
+        game->deactivate();
+        frame();
+
+        const auto& actions = project->input_actions().actions();
+        ASSERT_FALSE(actions.empty());
+        ASSERT_FALSE(actions.front().bindings.empty());
+        const auto disabled =
+            Comet::InputOverrides::create({{actions.front().id, actions.front().type, false,
+                {{.id = actions.front().bindings.front().id, .disabled = true}}}});
+        ASSERT_TRUE(disabled) << disabled.error();
+        // 模拟另一种呈现层通过宿主提交；项目 UI 不另读一份设置快照。
+        ASSERT_TRUE(input_services().apply_input(disabled.value()));
+        settings();
+        auto* bindings = Rml::GetContext(0)->GetDocument(0)->GetElementById("bindings");
+        ASSERT_NE(bindings, nullptr);
+        EXPECT_NE(bindings->GetInnerRML().find("已禁用"), std::string::npos);
+
+        click("restore");
+        click("apply");
+        EXPECT_FALSE(game->is_modal());
+        EXPECT_TRUE(player_input->overrides().actions().empty());
+        const auto saved = Comet::PlayerInputSettings::load(project->id(), player_input->path());
+        ASSERT_TRUE(saved) << saved.error();
+        EXPECT_EQ(saved.value().overrides(), player_input->overrides());
+        game->reload();
+        frame();
+        settings();
+        bindings = Rml::GetContext(0)->GetDocument(0)->GetElementById("bindings");
+        ASSERT_NE(bindings, nullptr);
+        EXPECT_EQ(bindings->GetInnerRML().find("已禁用"), std::string::npos);
     }
 }
 #endif

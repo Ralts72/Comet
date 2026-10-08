@@ -541,7 +541,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(saved);
         EXPECT_EQ(std::get<Comet::Input::Key>(saved->actions()[0].bindings[0].control),
             Comet::Input::Key::RightControl);
-        panel.complete(Comet::Result<void>::failure("Project file changed since it was loaded"));
+        panel.complete(Comet::Result<void>::failure("Cannot write project settings"));
         frame();
         EXPECT_TRUE(panel.is_open());
         button("Save");
@@ -945,15 +945,25 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(project.input_actions().actions()[0].id);
         EXPECT_EQ(Comet::Project::load(root).value().input_actions(), project.input_actions());
 
-        const auto external = Comet::read_text_file(root / "project.json").value() + "\n";
-        ASSERT_TRUE(Comet::write_text_file_atomic(root / "project.json", external));
+        const auto manifest = root / "project.json";
+        const auto backup = root / "saved.json";
+        const auto saved_contents = Comet::read_text_file(manifest).value();
+        std::filesystem::rename(manifest, backup);
+        ASSERT_TRUE(std::filesystem::create_directory(manifest));
         ImGui::ActivateItemByID(actions->GetID("Add Action"));
         frame();
         ImGui::ActivateItemByID(window->GetID("Save"));
         frame();
         EXPECT_FALSE(settings.update().input_changed);
         EXPECT_EQ(project.input_actions().actions().size(), 1);
-        EXPECT_EQ(Comet::read_text_file(root / "project.json").value(), external);
+        EXPECT_EQ(Comet::read_text_file(backup).value(), saved_contents);
+        ASSERT_TRUE(std::filesystem::remove(manifest));
+        std::filesystem::rename(backup, manifest);
+        ImGui::ActivateItemByID(window->GetID("Save"));
+        frame();
+        EXPECT_TRUE(settings.update().input_changed);
+        EXPECT_EQ(project.input_actions().actions().size(), 2);
+        EXPECT_EQ(Comet::Project::load(root).value().input_actions(), project.input_actions());
     }
 
     TEST(ProjectSettingsTest, StartupSceneRequiresKnownOrSavedSceneAndReadableContents) {
@@ -988,7 +998,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(Comet::Project::load(root).value().startup_scene(), initial);
     }
 
-    TEST(ProjectSettingsTest, StartupSceneWriteConflictPreservesLoadedSettingsAndExternalFile) {
+    TEST(ProjectSettingsTest, StartupSceneWriteFailurePreservesSettingsAndAllowsRetry) {
         Comet::Tests::TemporaryDirectory directory;
         const auto root = directory.path() / "Project";
         ASSERT_TRUE(create_project(root));
@@ -1004,14 +1014,21 @@ namespace CometEditor::Tests {
         const std::filesystem::path next = "scenes/new.scene";
         ASSERT_TRUE(Comet::write_text_file_atomic(root / "assets" / next, original.value()));
         const auto manifest = root / "project.json";
-        const auto external = Comet::read_text_file(manifest).value() + "\n";
-        ASSERT_TRUE(Comet::write_text_file_atomic(manifest, external));
+        const auto backup = root / "saved.json";
+        const auto saved_contents = Comet::read_text_file(manifest).value();
+        std::filesystem::rename(manifest, backup);
+        ASSERT_TRUE(std::filesystem::create_directory(manifest));
 
         const auto saved = settings.set_startup_scene(next, next, assets, serializer);
         ASSERT_FALSE(saved);
-        EXPECT_NE(saved.error().find("changed since it was loaded"), std::string::npos);
         EXPECT_EQ(project.value().startup_scene(), initial);
-        EXPECT_EQ(Comet::read_text_file(manifest).value(), external);
+        EXPECT_TRUE(std::filesystem::is_directory(manifest));
+        EXPECT_EQ(Comet::read_text_file(backup).value(), saved_contents);
+        ASSERT_TRUE(std::filesystem::remove(manifest));
+        std::filesystem::rename(backup, manifest);
+        ASSERT_TRUE(settings.set_startup_scene(next, next, assets, serializer));
+        EXPECT_EQ(project.value().startup_scene(), next);
+        EXPECT_EQ(Comet::Project::load(root).value().startup_scene(), next);
     }
 }
 #endif

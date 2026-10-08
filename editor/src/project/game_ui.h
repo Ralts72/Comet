@@ -1,7 +1,6 @@
 #pragma once
 
 #include "ui/project_ui.h"
-#include "input/player_input_settings.h"
 
 namespace Comet {
     class Engine;
@@ -11,7 +10,8 @@ namespace CometEditor {
     // Editor 宿主适配；页面与交互行为仍由项目资源和控制器定义。
     class GameUi final {
     public:
-        GameUi(Comet::Engine& engine, const Comet::Project& project);
+        GameUi(Comet::Engine& engine, const Comet::Project& project,
+            Comet::Ui::ProjectUi::Services services);
         void reload();
         void reset();
         void deactivate();
@@ -25,11 +25,10 @@ namespace CometEditor {
             const Comet::SwapchainCompatibility& compatibility);
 
     private:
-        [[nodiscard]] Comet::Result<void> apply_input(Comet::InputOverrides overrides);
         Comet::Engine& m_engine;
         const Comet::Project& m_project;
+        Comet::Ui::ProjectUi::Services m_services;
         std::unique_ptr<Comet::Ui::ProjectUi> m_ui;
-        std::optional<Comet::PlayerInputSettings> m_settings;
         bool m_render = false;
     };
 }

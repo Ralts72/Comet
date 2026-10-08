@@ -337,7 +337,6 @@ namespace Comet {
                 return Result<Project>::failure(context.error("input_contexts", actions.error()));
             project.m_input_actions = std::move(actions).value();
         }
-        project.m_source_contents = std::move(contents).value();
         return Result<Project>::success(std::move(project));
     }
 
@@ -388,11 +387,6 @@ namespace Comet {
             return Saved::failure(resolved.error());
         const auto candidate = path.lexically_normal();
         const auto manifest = m_paths.root() / "project.json";
-        const auto current = read_text_file(manifest);
-        if(!current)
-            return Saved::failure(current.error());
-        if(current.value() != m_source_contents)
-            return Saved::failure("Project file changed since it was loaded");
         if(name == m_name && candidate == m_startup_scene && input_actions == m_input_actions)
             return Saved::success();
         auto serialized = serialize(name, candidate, input_actions);
@@ -403,7 +397,6 @@ namespace Comet {
         m_name = std::move(name);
         m_startup_scene = candidate;
         m_input_actions = std::move(input_actions);
-        m_source_contents = std::move(serialized).value();
         return Saved::success();
     }
 }

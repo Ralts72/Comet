@@ -4,9 +4,12 @@
 #include "diagnostics/logger.h"
 #include "render/renderer.h"
 
+#include <utility>
+
 namespace CometEditor {
-    GameUi::GameUi(Comet::Engine& engine, const Comet::Project& project)
-        : m_engine(engine), m_project(project) {
+    GameUi::GameUi(Comet::Engine& engine, const Comet::Project& project,
+        Comet::Ui::ProjectUi::Services services)
+        : m_engine(engine), m_project(project), m_services(std::move(services)) {
         reload();
     }
 
@@ -18,20 +21,9 @@ namespace CometEditor {
         }
         if(!m_project.ui())
             return;
+        m_services.input_actions = m_project.input_actions();
         auto created = Comet::Ui::ProjectUi::create(m_engine.get_window(), m_engine.get_renderer(),
-            *m_project.ui(), {.resource_root = m_project.paths().assets()},
-            {.input_actions = m_project.input_actions(),
-                .load_input = [this]() -> Comet::Result<Comet::InputOverrides> {
-                    auto loaded = Comet::PlayerInputSettings::load(m_project.id());
-                    if(!loaded)
-                        return Comet::Result<Comet::InputOverrides>::failure(loaded.error());
-                    m_settings = std::move(loaded).value();
-                    return Comet::Result<Comet::InputOverrides>::success(m_settings->overrides());
-                },
-                .apply_input =
-                    [this](Comet::InputOverrides overrides) {
-                        return apply_input(std::move(overrides));
-                    }});
+            *m_project.ui(), {.resource_root = m_project.paths().assets()}, m_services);
         if(!created) {
             LOG_WARN("Project UI unavailable: {}; use Reload UI after fixing the source",
                 created.error().message);
@@ -51,7 +43,6 @@ namespace CometEditor {
     void GameUi::deactivate() {
         if(m_ui)
             m_ui->deactivate();
-        m_settings.reset();
         m_render = false;
     }
 
@@ -69,26 +60,7 @@ namespace CometEditor {
             return Result::success({});
         }
         m_render = true;
-        auto result = m_ui->frame(input, std::move(info));
-        if(!m_ui->is_modal())
-            m_settings.reset();
-        return result;
-    }
-
-    Comet::Result<void> GameUi::apply_input(Comet::InputOverrides overrides) {
-        if(!m_settings || !m_engine.get_scene_runtime().is_active())
-            return Comet::Result<void>::failure(
-                "Player input settings require an active Play session");
-        auto resolved = overrides.resolve(m_project.input_actions());
-        if(!resolved)
-            return Comet::Result<void>::failure(resolved.error());
-        if(auto saved = m_settings->save(std::move(overrides)); !saved)
-            return saved;
-        if(auto applied = m_engine.rebind_input_actions(std::move(resolved).value().actions);
-            !applied)
-            return Comet::Result<void>::failure(
-                "Player settings saved but not applied: " + applied.error().message);
-        return Comet::Result<void>::success();
+        return m_ui->frame(input, std::move(info));
     }
 
     Comet::Result<void, Comet::GraphicsError> GameUi::render(Comet::OverlayRecordContext& frame) {

@@ -20,7 +20,7 @@
 近期独立验收项：
 
 1. **构建收敛（已处理）**：游戏 UI 固定编入 engine，删除 `COMET_BUILD_GAME_UI`／`COMET_EDITOR_GAME_UI` 及对应条件分支。继续使用 `build/`、`build-editor/`、`build-release/`，不新增独立构建项目。
-2. **设置写入与玩家工作流（待实施）**：明确文件写入者；先收敛 App、Editor 玩家面板与项目 UI 的重复加载、验证、保存和 Runtime 换绑，再去掉没有使用场景的外部修改冲突检查。
+2. **设置写入与玩家工作流（首轮已处理）**：项目描述与个人设置按单写入者使用；两种 Editor 玩家界面共享宿主设置实例，App／Editor 共用验证、保存与 Runtime 提交策略，已移除外部修改基线。继续验收完整真实改键体验。
 3. **项目 UI／Gameplay 整体验收**：Editor 视口已接通 Edit 预览及 Play／暂停交互；实际走通设置、改键、取消／应用、计分、声音、暂停／单步、重开和 Stop／再次 Play，检查高 DPI、resize、失焦与重载失败。
 4. **内容编辑与性能**：补纯大小写改名、材质手势一次保存及资产撤销；扩展高对象／多材质、活动／休眠刚体基线，再推进裁剪、实例化、热路径复用与增量物理同步。
 5. **后续功能**：动画、粒子、GI、路径追踪按下方跨阶段计划推进；先后顺序依赖样例与技术前置条件，不因个人使用而取消，也不要求先完成通用工程框架。
@@ -38,13 +38,13 @@
 
 ### 工程审查与收敛计划
 
-以下依据当前代码区分实现事实与待办。除 UI 构建收敛外，本表中的代码改造尚未实施。
+以下依据当前代码区分实现事实与后续工程收敛项。
 
 | 部分 | 当前事实 | 收敛方案与保留边界 |
 | --- | --- | --- |
 | [UI 构建](../CMakeLists.txt)、[内部模块](../engine/cmake/modules.cmake) | 原先允许纯 Editor 不编入游戏 UI，维护没有消费者的变体 | 已固定编入 UI，取消两层开关和相应条件分支；保留内部对象模块及依赖检查，App／Editor／Tests／Benchmarks 选择不变 |
-| [Project 保存](../engine/src/core/project.cpp) | `save_settings` 保存前重读整个 `project.json`，与加载时的 `m_source_contents` 比较 | Editor 独占写入后去掉外部覆盖检测及源文本快照；保留输入／路径校验、原子写入、写入成功后更新内存；不新增冲突合并、重载提示和重试状态机 |
-| [个人设置](../engine/src/input/player_input_settings.cpp)、[App](../app/main.cpp)、[Editor](../editor/editor.cpp)、[项目 UI](../editor/src/project/game_ui.cpp) | 三处重复提交策略；`PlayerInputSettings::save` 也维护源文本快照并拒绝其他写入 | 先共享一个设置 owner／工作流，减少重复解析、保存与换绑；个人文件约定一个活动写入者后再去掉外部比较，不在多个独立快照仍可提交时直接放开覆盖 |
+| [Project 保存](../engine/src/core/project.cpp) | 已移除保存前的整文件重读比较与源文本快照 | Editor 独占写入；保留输入／路径校验、原子写入及写入成功后更新内存，不扩展外部冲突合并／自动恢复 |
+| [个人设置](../engine/src/input/player_input_settings.cpp)、[App](../app/main.cpp)、[Editor](../editor/editor.cpp)、[项目 UI](../editor/src/project/game_ui.cpp) | Editor 两种界面已共用宿主设置实例，App／Editor 共用 `save_and_apply`；外部源文本基线已移除 | 每局一个宿主设置 owner，菜单重开复用它；个人文件约定一个活动写入宿主，不建立跨进程文件锁与合并框架 |
 | [场景保存](../editor/src/scene/scene_document.cpp)、[材质候选](../engine/src/asset/asset_manager.cpp) | 场景没有整文件外部冲突比较；材质提交检查 owner、数据库 revision 及旧运行版本 | 不给场景补外部改写兜底；材质保留进程内候选过期检查，手势保存不扩成文件锁／磁盘事务日志；未保存提示、取消和失败保留有效内容继续保留 |
 | [Runtime](../engine/src/scene/scene_runtime.cpp)、[系统](../engine/src/scene/systems/system.h) | 显式串行系统和阶段末结构提交已工作；尚无并行系统图 | 先写清 Gameplay／物理／动画／变换顺序与写入权；无需先建设通用 job graph。需要系统并行时再加入访问声明与依赖检查；多世界能力保留独立目标 |
 | [资产加载](../engine/src/asset)、[发布](../engine/src/render) | 导入、CPU 加载及 GPU 发布已分工；App 仍消费开发目录 | 保留内容构建／导出功能，先用只读导出目录和小索引；包文件系统、多层 locator、所有资源统一占位／重试／淘汰不作为导出前置，streaming 随场景规模扩展 |
@@ -55,13 +55,6 @@
 | Lua、音频、物理 | 独立寿命的 VM／服务、有界请求及启停清理 | 保留防误写死循环、内存限制与逆序关闭；只合并相同辅助逻辑，不预建任意 Lua 状态迁移、不可信代码沙箱或通用 SimulationManager |
 | UI／语言／配置 | RmlUi 做游戏页面，ImGui 做工具；语言切换已实现 | 固定现有库选择，共用业务流程，不自动删除 ImGui 玩家面板。编辑器可固定中文，移除语言选择及其偏好存储；不预建控件兼容层、插件体系、模板市场或通用偏好框架 |
 | 测试／文档 | 已有 CPU、窗口／GPU、Editor UI、隔离恢复测试；协议在文档重复出现 | 减少重复协议与完成记录，保留真实故障、正常错误和 GPU 生命周期回归；取消无使用场景的构建组合测试。工程机制真正移除时同步删其专属测试，重复装配再合并；功能规划继续保留 |
-
-### 本轮实际改动范围
-
-- **代码简化已完成**：取消 UI 的 Engine／Editor 构建开关、默认选择及无 UI 时的报错约束；UI 源码与 RmlUi／FreeType 固定参与现有构建，相应条件编译清除。内部模块和依赖检查继续保留。
-- **原有开发改动继续保留**：Editor 项目 UI、离屏合成、DPI／坐标和输入授权及相关测试属于此前的功能接入，不算本轮删除冗余机制。
-- **尚未实施**：Project／个人设置的外部修改检测、重复玩家设置流程、呈现重试等代码仍在；本次只重新界定后续工程收敛范围。
-- **规划修正**：恢复上一轮压缩／降级的功能条目与验收；撤回自动删除旧玩家菜单及导出／Prefab 降级等取舍。固定中文、取消模板市场／插件体系／通用偏好框架，以及文档和无用构建组合测试的收敛已确认保留；相关代码仍待实施。没有删除动画、粒子、GI 或路径追踪的实现代码；这些完整能力本来就尚未实现。
 
 <a id="运行时基础架构主线待完成"></a>
 
@@ -144,27 +137,9 @@ ComponentDescriptor／PropertyDescriptor 已共享编辑、序列化与恢复；
 对外提供 `engine`／`Comet::Engine`；不新增独立 build 项目、工具 Profile、模块动态库或公开模块组合入口。
 内部 target 服务于依赖约束与增量编译，最终汇入 engine；出现真实产品需求后再讨论单独交付。
 
-**已实现首轮：**Foundation、Serialization、ShaderContracts、AssetData、Input、World、Runtime、Audio、Physics、Scripting、AssetPipeline、RuntimeAssets、Platform、Graphics、Render、GameUi
-已按源码职责提取为内部对象库，依赖方向及传递 include 由现有 CTest 检查。
-基础日志使用独立 `LogSettings`，不再通过 Logger 引入完整 Config；仍统一使用 `COMET_API`。
-资产准备工具复用现有构建和 engine；Shader 编译工具直接复用 Foundation 对象，避免生成任务反向依赖 engine。
-Runtime 的执行与 System 契约已和图形宿主分开编译，传递 include 检查覆盖执行公共头及 World 的反向依赖。
-Engine::Callbacks 区分更新、帧就绪、输入交付和失败恢复；App 不再备份／回滚 Gate，Editor 只交付当帧有效 UI 的授权。
-RuntimeSession 已独立保存会话值、输入组请求和重开意图，System／Lua 显式访问会话；
-World 已移除 Input 依赖，检查拒绝 World 反向包含输入或会话头。
-AudioService 已从 Scene 移出音频请求，统一拥有设备与播放实例；PhysicsService 拥有冲量和 Jolt 运行对象。
-RuntimeServices 显式提供服务权限，Runtime 不依赖具体服务；公共头及后端私有 include 均受依赖检查约束，Jolt 后端禁止包含 Scene／Entity。
-Scripting 已独立编译行为 VM 与场景绑定；脚本定义／源码快照归 AssetData，源码准备归 RuntimeAssets，通过无实体的编译契约复用 Lua 校验。
-ScriptInstance 独占执行状态，共用参数值不依赖 World；ScriptSystem 借用 Registry 读取只读定义，并提供实际运行版本查询。
-所有 System 由 SceneRuntime 拥有，Editor 通过只读系统查询读取活动定义；Engine 不保留专用脚本入口，World 不保存运行定义引用。
-Lua 头仅进入实现，脚本模块不包含导入管线、Render 或具体服务；原有热重载失败保留及 Inspector 手势语义继续验收。
-AssetLoader 已承担同步读取与依赖加载，RenderAssetPublisher 在渲染层创建和发布对象；AssetManager 保留需求、失效、预算与版本编排。
-RuntimeAssets 不再包含渲染对象或 Vulkan 头，渲染发布不读取源索引／导入，传递依赖检查覆盖两侧边界；Registry 仍只有一份。
-Platform 已拥有 Window／输入采样／剪贴板；Graphics 的 GLFW Surface 接线集中在私有适配，Render 不再依赖完整 Config 或 AssetManager。
-窗口／图形／渲染配置归各自模块，Config 仅在宿主聚合；Shader 产物的文件指纹值不再带入捕获接口。
-GameUi 已改为内部对象模块，使用 `engine/cmake/game_ui.cmake`，App 仅链接 engine；公共 UI 类使用统一 COMET_API。
-RmlUi Core 使用共享依赖，避免重复全局状态；游戏 UI 固定编入 engine，项目入口决定装载，视口决定显示。
-GraphicsError／Render 公共头仍暴露 Vulkan 类型，UI GPU 适配针对 Vulkan；Editor 项目 UI 已接通，产品加载与驻留按下方计划推进，不以通用多后端重写作为前置。
+**当前基线：**Foundation、数据、Runtime、服务、资产管线、Platform、Graphics、Render 与 GameUi 已按职责提取为内部对象库；依赖方向及传递 include 由现有 CTest 检查。
+当前归属、服务装配、唯一 Registry 和后端 include 边界统一见[模块依赖方向](architecture/overview.md#模块依赖方向)，不在路线图重复已完成的迁移记录。
+游戏 UI 固定编入 engine，Editor 已接通项目 UI；后续边界如下。
 
 | 当前范围 | 后续内部边界 | 需要解决的问题 |
 | --- | --- | --- |
@@ -186,21 +161,7 @@ GraphicsError／Render 公共头仍暴露 Vulkan 类型，UI GPU 适配针对 Vu
 保留日志、Schema、Registry 与第三方实现的唯一所有权，避免同一宿主进程重复编入全局状态。
 不为每个模块默认新增 CMake 开关；仅保留有实际使用场景的能力选择。
 
-**推进顺序与验收：**每步使用现有 App、Editor 和测试作为消费者，不新增构建项目。
-
-1. **基础与数据边界（首轮已完成）**：内部对象库汇入 engine；正向依赖通过，传递反向依赖能被检查捕获。
-   现有资产准备、Shader 编译／反射、缓存复用和失败保留测试继续通过。
-2. **World／Runtime 与宿主（执行与会话边界首轮已完成）**：Runtime 对象模块、统一输入交付和会话归属已接通；
-   继续收窄 Scene 的通知与材质运行态，明确后台／最小化策略及 Input／Platform 接线；
-   验证固定步、暂停／单步、重开和关闭，两个世界状态隔离，呈现延期不决定模拟推进。
-3. **资产与系统服务（首轮已完成）**：导入、加载及渲染发布职责已分开，服务显式装配；
-   继续保持部分启动失败、逆序清理和重复 Play／Stop 的回归，产品目录／驻留扩展按资产主线验收。
-4. **图形与游戏 UI（内部组合首轮已完成）**：Graphics／Render／Platform／UI 已通过统一 engine 入口组合；
-   完整 Editor 已在游戏视口接通项目 UI 预览／Play，与 App 共用页面、控制器和输入授权，工具面板继续使用 ImGui。
-   游戏 UI 固定编入 Engine；继续人工验收 DPI、离屏尺寸、视口焦点、改键阻断、暂停／单步、Play／Stop 和页面失败保留。
-   后端接口收窄按渲染主线推进，不为预览引入第二份游戏 UI 状态或专用改键菜单。
-5. **现有构建回归**：验证现有 Debug、Editor、Release 配置，CI 复用现有构建；
-   检查 include 方向、链接依赖、唯一符号与 Windows 导出，按现有标签运行对应测试。
+后续迁移仍使用现有 App、Editor 和测试，不新增构建项目；持续检查 include 方向、链接依赖、唯一所有权与 Windows 导出，保留实际生命周期与失败回归。
 
 拆分收益以职责清晰、依赖约束和增量构建衡量；运行性能另测 CPU／GPU 耗时、分配与内存峰值。
 不得为模块边界引入逐实体虚调用、通用事件转发或序列化往返，也不把 target 数量当成架构质量。
@@ -227,8 +188,8 @@ GraphicsError／Render 公共头仍暴露 Vulkan 类型，UI GPU 适配针对 Vu
   不预建一组转发接口或全局事件总线。
 - 当前拾取反馈在 Renderer 绘制中同步回调 Editor，以保持当帧辅助线与选择反馈。
   只有出现第二个消费者、重入或生命周期问题时，再试验帧结果返回；验收不得悄悄改变当帧反馈时点。
-- 玩家改键的草稿和录入模型已共享，但 app／Editor 仍分别装配加载、解析、保存和 Runtime 应用。
-  将默认／个人配置解析与“验证 → 保存 → 更新边界应用”的共同策略收敛为不依赖呈现层的工作流接口，
+- 玩家改键的草稿与录入模型共享，Editor 两种呈现共用同一宿主设置实例。
+  默认／个人配置加载已由每局宿主设置实例共享，“验证 → 保存 → 更新边界应用”共用 `PlayerInputSettings::save_and_apply`；
   宿主只提供项目身份、设置存储及当前 Runtime 接口；保存失败保留草稿，应用失败须明确持久配置与活动配置的状态。
   同时核对文档命令、资产候选与场景激活的重复策略；仅共享相同契约，不把所有文件事务和生命周期塞进一个通用 Manager。
 
@@ -503,7 +464,7 @@ Shipping 只消费预编译打包数据，不要求松散 .spv。
 
 目标不是减少 RenderResources 的字段数量，而是按资源身份、程序版本、设备资源和帧生命周期划分职责。
 MaterialPrograms 由 Renderer 持有，保存成功的内置覆盖和项目程序 CPU 版本／布局；目标相关 Pipeline 仍由 MaterialRenderer 持有。
-不恢复仅按名称缓存 ShaderModule 的 ShaderManager。本项不阻塞旧 026 的驱动 PipelineCache，也不恢复辅助线热重载。
+不恢复仅按名称缓存 ShaderModule 的 ShaderManager；驱动 PipelineCache 独立维护，不恢复辅助线热重载。
 
 #### 职责与依赖
 
@@ -770,7 +731,7 @@ Scene 保存外观数据，不持有 Pass 实例／执行序列；MeshRenderer �
 材质的多次绘制不必对应多个 Vulkan RenderPass／图节点；不增加附件依赖时可留在同一节点，
 需要中间纹理或跨阶段读写时再声明图节点，特殊的物体内绘制顺序由阶段契约明确。
 
-按独立验收项推进，不作为本轮背景色／撤销改造的前置条件：
+按独立验收项推进，不作为基础编辑或 Gameplay 闭环的前置条件：
 
 1. **材质阶段契约**：结合项目 Shader／程序资产，按实际需求增加主绘制、阴影、深度、遮罩等阶段变体。
    明确阶段输入、附件与渲染状态；顶点变形／透明裁切等在相关阶段保持一致，不直接把任意 Shader 当作通用 pass。

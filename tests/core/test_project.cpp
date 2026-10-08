@@ -135,12 +135,11 @@ namespace Comet::Tests {
             EXPECT_EQ(read_text_file(root / "project.json").value(), original);
         }
 
-        const std::string external =
-            R"({"version":2,"id":"11111111-1111-4111-8111-111111111111","name":"Updated elsewhere"})";
-        write(external);
+        std::filesystem::rename(root / "project.json", root / "saved.json");
+        ASSERT_TRUE(std::filesystem::create_directory(root / "project.json"));
         EXPECT_FALSE(project.save_startup_scene("levels/new.scene"));
         EXPECT_EQ(project.startup_scene(), "levels/old.scene");
-        EXPECT_EQ(read_text_file(root / "project.json").value(), external);
+        EXPECT_EQ(read_text_file(root / "saved.json").value(), original);
     }
 
     TEST_F(ProjectTest, SavesNameWithoutLosingOtherSettings) {
@@ -164,12 +163,9 @@ namespace Comet::Tests {
             EXPECT_EQ(project.name(), "New Game");
             EXPECT_EQ(read_text_file(root / "project.json").value(), saved);
         }
-        write(R"({"version":2,"id":"11111111-1111-4111-8111-111111111111","name":"External"})");
-        EXPECT_FALSE(project.save_name("Stale"));
-        EXPECT_EQ(project.name(), "New Game");
     }
 
-    TEST_F(ProjectTest, SavesInputActionsAtomicallyAndRejectsStaleProject) {
+    TEST_F(ProjectTest, SavesInputActionsAtomically) {
         write(
             R"({"version":2,"id":"11111111-1111-4111-8111-111111111111","name":"Game","startup_scene":"levels/main.scene",
             "input_actions":[{"id":"22222222-2222-4222-8222-000000000003","name":"jump","type":"button","bindings":[]}]})");
@@ -193,11 +189,6 @@ namespace Comet::Tests {
         EXPECT_EQ(reopened.value().name(), "Game");
         EXPECT_EQ(reopened.value().startup_scene(), "levels/main.scene");
         EXPECT_EQ(reopened.value().input_actions(), actions.value());
-
-        write(
-            R"({"version":2,"id":"11111111-1111-4111-8111-111111111111","name":"Changed","startup_scene":"levels/main.scene"})");
-        EXPECT_FALSE(project.save_input_actions(InputActions{}));
-        EXPECT_EQ(project.input_actions(), actions.value());
     }
 
     TEST_F(ProjectTest, PersistsExtendedKeyboardBindingsWithoutChangingTheirIdentity) {

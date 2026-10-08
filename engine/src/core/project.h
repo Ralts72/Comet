@@ -45,6 +45,5 @@ namespace Comet {
         std::filesystem::path m_startup_scene;
         InputActions m_input_actions;
         std::optional<UiEntry> m_ui;
-        std::string m_source_contents;
     };
 }

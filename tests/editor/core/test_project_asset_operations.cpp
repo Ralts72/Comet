@@ -118,23 +118,28 @@ namespace CometEditor::Tests {
             Comet::Math::Vec3(2));
     }
 
-    TEST_F(ProjectAssetOperationsTest, ProjectConflictRollsBackMoveAndReportsLatestAssetSnapshot) {
+    TEST_F(
+        ProjectAssetOperationsTest, ProjectWriteFailureRollsBackMoveAndReportsLatestAssetSnapshot) {
         const std::filesystem::path discovered = "scenes/discovered.scene";
         std::filesystem::copy_file(
             project->paths().assets() / initial, project->paths().assets() / discovered);
         ASSERT_EQ(assets->database().find(discovered), nullptr);
         const auto manifest = root / "project.json";
-        const auto external = Comet::read_text_file(manifest).value() + "\n";
-        ASSERT_TRUE(Comet::write_text_file_atomic(manifest, external));
+        const auto backup = root / "saved.json";
+        const auto original = Comet::read_text_file(manifest).value();
+        std::filesystem::rename(manifest, backup);
+        ASSERT_TRUE(std::filesystem::create_directory(manifest));
         const auto report = move();
-        EXPECT_FALSE(report.succeeded());
+        ASSERT_FALSE(report.succeeded());
         EXPECT_TRUE(report.snapshot_updated);
         ASSERT_NE(assets->database().find(discovered), nullptr);
         EXPECT_EQ(report.indexed_assets, assets->database().size());
         EXPECT_EQ(report.indexed_assets, 2);
+        ASSERT_FALSE(report.issues.empty());
         EXPECT_NE(report.issues.front().message.find("startup scene"), std::string::npos);
         expect_original_paths();
-        EXPECT_EQ(Comet::read_text_file(manifest).value(), external);
+        EXPECT_TRUE(std::filesystem::is_directory(manifest));
+        EXPECT_EQ(Comet::read_text_file(backup).value(), original);
     }
 
     TEST_F(ProjectAssetOperationsTest, SessionWriteFailureKeepsMovedFilesAndProject) {

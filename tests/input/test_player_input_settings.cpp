@@ -53,6 +53,14 @@ namespace Comet::Tests {
                 {{.id = binding_id, .control = key}}}});
         }
 
+        Result<InputActions> defaults() const {
+            InputActions::Binding binding{Input::Key::Space};
+            binding.id = binding_id;
+            InputActions::Action action{"jump", InputActions::Type::Button, {binding}};
+            action.id = action_id;
+            return InputActions::create({action});
+        }
+
         std::string document(std::string_view actions = "[]") const {
             return R"({"version":2,"project_id":")" + project_id.to_string() + R"(","actions":)"
                    + std::string(actions) + "}";
@@ -207,43 +215,6 @@ namespace Comet::Tests {
         EXPECT_EQ(read_text_file(other).value(), "keep");
     }
 
-    TEST_F(PlayerInputSettingsTest, ExternalEditsConflictEvenWhenSavingUnchangedOverrides) {
-        auto loaded = PlayerInputSettings::load(project_id, file);
-        const auto candidate = remapping();
-        ASSERT_TRUE(loaded);
-        ASSERT_TRUE(candidate);
-        ASSERT_TRUE(loaded.value().save(candidate.value()));
-        const auto original = read_text_file(file).value();
-        const auto external = original + "\n";
-        write(external);
-        EXPECT_FALSE(loaded.value().save(candidate.value()));
-        EXPECT_FALSE(loaded.value().save(InputOverrides{}));
-        EXPECT_EQ(loaded.value().overrides(), candidate.value());
-        EXPECT_EQ(read_text_file(file).value(), external);
-        write(original);
-        EXPECT_TRUE(loaded.value().save(InputOverrides{}));
-    }
-
-    TEST_F(PlayerInputSettingsTest, ExternallyCreatedOrRemovedFileDoesNotReplaceLoadedBaseline) {
-        auto missing = PlayerInputSettings::load(project_id, file);
-        const auto candidate = remapping();
-        ASSERT_TRUE(missing);
-        ASSERT_TRUE(candidate);
-        const auto external = document();
-        write(external);
-        EXPECT_FALSE(missing.value().save(candidate.value()));
-        EXPECT_FALSE(missing.value().save(InputOverrides{}));
-        EXPECT_TRUE(missing.value().overrides().actions().empty());
-        EXPECT_EQ(read_text_file(file).value(), external);
-        auto existing = PlayerInputSettings::load(project_id, file);
-        ASSERT_TRUE(existing);
-        ASSERT_TRUE(std::filesystem::remove(file));
-        EXPECT_FALSE(existing.value().save(candidate.value()));
-        EXPECT_TRUE(existing.value().overrides().actions().empty());
-        EXPECT_FALSE(std::filesystem::exists(file));
-        EXPECT_TRUE(missing.value().save(candidate.value()));
-    }
-
     TEST_F(PlayerInputSettingsTest, FilesystemFailurePreservesMemoryAndAllowsRetry) {
         auto loaded = PlayerInputSettings::load(project_id, file);
         const auto candidate = remapping();
@@ -256,6 +227,58 @@ namespace Comet::Tests {
         ASSERT_TRUE(std::filesystem::remove(file.parent_path()));
         EXPECT_TRUE(loaded.value().save(candidate.value()));
         EXPECT_EQ(loaded.value().overrides(), candidate.value());
+    }
+
+    TEST_F(PlayerInputSettingsTest, SavedSettingsSurviveRuntimeFailureAndCanBeAppliedAgain) {
+        auto loaded = PlayerInputSettings::load(project_id, file);
+        const auto candidate = remapping();
+        const auto actions = defaults();
+        ASSERT_TRUE(loaded);
+        ASSERT_TRUE(candidate);
+        ASSERT_TRUE(actions);
+        int attempts = 0;
+        const auto apply = [&](InputActions resolved) -> Result<void, Error> {
+            auto saved = PlayerInputSettings::load(project_id, file);
+            EXPECT_TRUE(saved);
+            if(saved)
+                EXPECT_EQ(saved.value().overrides(), candidate.value());
+            Input input;
+            input.focus_event(true);
+            input.key_event(Input::Key::J, true);
+            InputState state;
+            resolved.evaluate(input.publish_frame(), state);
+            EXPECT_NE(state.action("jump"), nullptr);
+            if(state.action("jump"))
+                EXPECT_FLOAT_EQ(state.action("jump")->value, 1);
+            if(++attempts == 1)
+                return Result<void, Error>::failure({"Runtime rejected the update"});
+            return Result<void, Error>::success();
+        };
+        const auto first = loaded.value().save_and_apply(actions.value(), candidate.value(), apply);
+        ASSERT_FALSE(first);
+        EXPECT_NE(first.error().find("saved but not applied"), std::string::npos);
+        EXPECT_EQ(loaded.value().overrides(), candidate.value());
+        ASSERT_TRUE(loaded.value().save_and_apply(actions.value(), candidate.value(), apply));
+        EXPECT_EQ(attempts, 2);
+    }
+
+    TEST_F(PlayerInputSettingsTest, WriteFailureDoesNotApplyRuntimeCandidate) {
+        auto loaded = PlayerInputSettings::load(project_id, file);
+        const auto candidate = remapping();
+        const auto actions = defaults();
+        ASSERT_TRUE(loaded);
+        ASSERT_TRUE(candidate);
+        ASSERT_TRUE(actions);
+        ASSERT_TRUE(write_text_file_atomic(file.parent_path(), "blocking regular file"));
+        bool applied = false;
+        const auto saved =
+            loaded.value().save_and_apply(actions.value(), candidate.value(), [&](InputActions) {
+                applied = true;
+                return Result<void, Error>::success();
+            });
+        EXPECT_FALSE(saved);
+        EXPECT_FALSE(applied);
+        EXPECT_TRUE(loaded.value().overrides().actions().empty());
     }
 
     TEST_F(PlayerInputSettingsTest, RejectsInvalidTopLevelAndWrongProjectWithoutRewriting) {
