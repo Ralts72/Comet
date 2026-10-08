@@ -1,6 +1,7 @@
 #pragma once
 
-#include "config/config.h"
+#include "graphics/vulkan_settings.h"
+#include "render/render_settings.h"
 #include "common/export.h"
 #include "common/retry_backoff.h"
 #include "graphics/queue.h"
@@ -31,12 +32,12 @@ namespace Comet {
     public:
         // 显式创建指定尺寸的离屏输出。
         static Result<std::unique_ptr<SceneRenderer>, GraphicsError> create(Device& device,
-            MaterialPrograms& programs, RenderResources& resources, const Config::Vulkan& vulkan,
-            const Config::Render& render, Math::Vec2u size);
+            MaterialPrograms& programs, RenderResources& resources, const VulkanSettings& vulkan,
+            const RenderSettings& render, Math::Vec2u size);
         // 按 scene_output 选择输出；离屏模式以交换链尺寸初始化。
         static Result<std::unique_ptr<SceneRenderer>, GraphicsError> create(Device& device,
-            MaterialPrograms& programs, RenderResources& resources, const Config::Vulkan& vulkan,
-            const Config::Render& render, Swapchain& swapchain);
+            MaterialPrograms& programs, RenderResources& resources, const VulkanSettings& vulkan,
+            const RenderSettings& render, Swapchain& swapchain);
         [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
             const;
         [[nodiscard]] MaterialRenderer::Statistics get_material_statistics() const;
@@ -62,8 +63,8 @@ namespace Comet {
 
     private:
         friend class Renderer;
-        SceneRenderer(Device& device, MaterialPrograms& programs, const Config::Vulkan& vulkan,
-            const Config::Render& render);
+        SceneRenderer(Device& device, MaterialPrograms& programs, const VulkanSettings& vulkan,
+            const RenderSettings& render);
         void skip_frame();
         void collect_removed_assets(const AssetRegistry& assets);
         Result<void, GraphicsError> configure_bloom(bool enabled);

@@ -9,7 +9,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | `engine/src/` | 引擎库：基础与数据模块，以及 runtime、audio、render、graphics 等运行后端 |
 | `engine/shaders/` | 生产 Shader，按 material、lighting、shadow、environment、debug、post、common 分目录；仅编译 CMake 显式列表 |
 | `engine/resources/fonts/` | App／Editor 共用的 Roboto Bold 与 Noto Sans SC Bold 字体 |
-| `engine/src/ui/` | 可选游戏 UI 模块 `comet_game_ui`：RmlUi 呈现、输入适配与项目 Lua 控制器桥接；不包含固定项目页面或菜单流程 |
+| `engine/src/ui/` | 合入 engine 的可选游戏 UI 对象模块 `comet_game_ui`：RmlUi 呈现、输入适配与项目 Lua 控制器桥接；不包含固定项目页面或菜单流程 |
 | `tools/shader/` | 共用 CPU Shader 编译库与构建 CLI，不链接 engine 运行时 |
 | `tools/asset/` | 编辑器与独立工具共用的项目 Shader 导入，以及无窗口的启动场景资产准备入口 |
 | `tools/render_benchmark/` | 固定场景渲染性能基准及一键运行脚本，链接 engine，不依赖测试框架或编辑器 |
@@ -98,6 +98,11 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 `comet_scripting` 负责 Lua 实例、场景绑定与热重载；ScriptSystem 从同一 Registry 读取定义，Lua 依赖限于实现。
 所有场景系统由 SceneRuntime 拥有；Editor 通过只读 `find_system<T>()` 查询已注册系统，Engine 不为单个系统提供专用访问入口。
 `comet_runtime_assets` 负责加载、依赖与版本编排，不包含 Vulkan；ImportService 准备 CPU 数据，RenderAssetPublisher 在渲染层创建与发布对象，共用原 Registry。
+`comet_platform` 拥有窗口、事件和剪贴板；`comet_graphics` 拥有 Vulkan 后端，窗口 Surface 接线集中在私有适配中。
+`comet_render` 编排渲染与资产发布；各层使用自己的配置值，完整 Config 仅由宿主聚合。
+`comet_game_ui` 通过 `engine/cmake/game_ui.cmake` 作为对象模块汇入 engine，App 只链接 engine。
+UI 的 RmlUi Core 使用共享库，扩展与 engine 共用一份全局上下文；FreeType 仍静态编入 Core。
+纯 Editor 配置可关闭 `COMET_BUILD_GAME_UI`，不编译或链接 RmlUi／FreeType。
 窗口、渲染和具体系统由 engine 组合。
 World 保存场景内容，不依赖 Input 或 Runtime；运行输入和本局状态归 Runtime。
 编辑器分为无 ImGui 的 `editor_core`、ImGui 呈现适配 `editor_imgui` 与功能界面 `editor_ui`；新增源码需维护所属库清单。

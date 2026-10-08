@@ -1,7 +1,7 @@
 #pragma once
 
 #include "asset/handle.h"
-#include "asset/import/input_snapshot.h"
+#include "asset/data/import_input_snapshot.h"
 #include "asset/data/shader_program_data.h"
 #include "common/export.h"
 #include "common/result.h"

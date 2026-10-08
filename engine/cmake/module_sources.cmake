@@ -25,6 +25,7 @@ set(COMET_SHADER_CONTRACTS_SOURCES
 )
 
 set(COMET_ASSET_DATA_SOURCES
+    src/asset/data/import_input_snapshot.h
     src/asset/script.cpp
     src/asset/script.h
     src/asset/data/script_sources.cpp
@@ -123,4 +124,89 @@ set(COMET_RUNTIME_ASSETS_SOURCES
     src/asset/runtime/asset_loader.cpp
     src/asset/runtime/asset_loader.h
     src/asset/runtime/render_asset_publisher.h
+)
+
+set(COMET_PLATFORM_SOURCES
+    src/core/window.cpp
+    src/core/window_settings.h
+)
+
+set(COMET_GRAPHICS_SOURCES
+    src/graphics/convert.cpp
+    src/graphics/context.cpp
+    src/graphics/device.cpp
+    src/graphics/gpu_timer.cpp
+    src/graphics/vk_capability.cpp
+    src/graphics/synchronization/barrier.cpp
+    src/graphics/synchronization/gpu_completion_point.cpp
+    src/graphics/synchronization/resource_state.cpp
+    src/graphics/queue.cpp
+    src/graphics/swapchain.cpp
+    src/graphics/render_pass.cpp
+    src/graphics/resource/image.cpp
+    src/graphics/resource/image_view.cpp
+    src/graphics/frame_buffer.cpp
+    src/graphics/pipeline/pipeline.cpp
+    src/graphics/pipeline/pipeline_cache.cpp
+    src/graphics/pipeline/pipeline_config.cpp
+    src/graphics/pipeline/pipeline_key.cpp
+    src/graphics/pipeline/shader.cpp
+    src/graphics/command/command_buffer.cpp
+    src/graphics/command/command_context.cpp
+    src/graphics/command/upload_manager.cpp
+    src/graphics/synchronization/fence.cpp
+    src/graphics/synchronization/semaphore.cpp
+    src/graphics/pipeline/vertex_description.cpp
+    src/graphics/resource/allocator.cpp
+    src/graphics/resource/buffer.cpp
+    src/graphics/result.cpp
+    src/graphics/pipeline/descriptor_set.cpp
+    src/graphics/resource/sampler.cpp
+    src/graphics/vulkan_settings.h
+    src/graphics/window_surface.cpp
+    src/graphics/window_surface.h
+)
+
+set(COMET_RENDER_SOURCES
+    src/render/presentation.cpp
+    src/render/render_graph.cpp
+    src/render/render_diagnostics.cpp
+    src/render/passes/output_pass.cpp
+    src/render/passes/bloom_pass.cpp
+    src/render/passes/skybox_pass.cpp
+    src/render/passes/shadow_pass.cpp
+    src/render/renderer.cpp
+    src/render/overlay_record_context.cpp
+    src/render/debug/line_draw_list.cpp
+    src/render/lighting.cpp
+    src/render/debug/debug_renderer.cpp
+    src/render/render_target.cpp
+    src/render/resource/mesh.cpp
+    src/render/resource/texture.cpp
+    src/render/resource/environment.cpp
+    src/render/resource/render_asset_publisher.cpp
+    src/render/resource/sampled_image_binding.cpp
+    src/render/render_context.cpp
+    src/render/scene/scene_resolver.cpp
+    src/render/scene/render_scene.cpp
+    src/render/scene/scene_picking.cpp
+    src/render/scene/scene_extractor.cpp
+    src/render/scene/scene_renderer.cpp
+    src/render/resource/render_resources.cpp
+    src/render/frame_scheduler.cpp
+    src/render/material/material.cpp
+    src/render/material/material_layout.cpp
+    src/render/material/material_programs.cpp
+    src/render/material/material_shader.cpp
+    src/render/material/material_runtime.cpp
+    src/render/material/material_renderer.cpp
+    src/render/render_settings.h
+)
+
+set(COMET_GAME_UI_SOURCES
+    src/ui/rml_context.cpp
+    src/ui/rml_platform.cpp
+    src/ui/rml_renderer.cpp
+    src/ui/project_ui.cpp
+    src/ui/lua_controller.cpp
 )

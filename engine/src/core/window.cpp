@@ -1,5 +1,4 @@
 #include "window.h"
-#include "config/config.h"
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
 
@@ -95,7 +94,7 @@ namespace Comet {
             glfwTerminate();
     }
 
-    Window::Window(const Config::Window& config) {
+    Window::Window(const WindowSettings& config) {
         PROFILE_SCOPE("Window::Constructor");
         if(window_count == 0 && glfwInit() != GLFW_TRUE)
             LOG_FATAL("Failed to initialize GLFW.");
@@ -177,6 +176,15 @@ namespace Comet {
 
     void Window::set_title(const std::string& title) {
         glfwSetWindowTitle(m_window.get(), title.c_str());
+    }
+
+    void Window::set_clipboard_text(const std::string& text) {
+        glfwSetClipboardString(m_window.get(), text.c_str());
+    }
+
+    std::string Window::get_clipboard_text() const {
+        const auto* text = glfwGetClipboardString(m_window.get());
+        return text ? text : "";
     }
 
     bool Window::should_close() const {

@@ -22,8 +22,17 @@ App、Editor 和资产准备工具继续链接 `engine`／`Comet::Engine`，无�
 | `comet_scripting` | ScriptInstance 行为 VM、资产准备的 Lua 校验、ScriptSystem 的场景绑定／换代；Runtime、私有 Lua |
 | `comet_asset_pipeline` | 扫描索引、Artifact、源导入与任务队列；AssetData、stb_image、fastgltf |
 | `comet_runtime_assets` | AssetManager 的需求／失效／版本编排、AssetLoader 的读取与依赖加载；AssetPipeline、Audio／Script 定义和无后端的渲染发布契约 |
+| `comet_platform` | Window、GLFW 事件／输入采样、剪贴板；Input，私有 GLFW |
+| `comet_graphics` | Vulkan／VMA 后端、资源、命令与同步；ShaderContracts，窗口 Surface 私有适配 |
+| `comet_render` | 帧、呈现、场景提取与渲染、资产 GPU 发布；Graphics、World、Platform |
+| `comet_game_ui`（可选） | RmlUi 会话、输入／GPU 适配与项目控制器；Render、Platform、RmlUi Core、私有 Lua |
 
-项目／Profile 配置聚合、窗口、图形及渲染暂由 engine 主目标组合，后续逐步收窄内部边界。
+项目／Profile 配置聚合及宿主启动留在 engine 主目标；UI 的 Shader／字体生成由 `engine/cmake/game_ui.cmake` 管理。
+WindowSettings、VulkanSettings、RenderSettings 分别归 Platform、Graphics、Render，Config 保留原嵌套名称的类型别名。
+Renderer 只接收图形、渲染和诊断开关的 Settings；宿主负责从 Config 装配，不向模块传入完整配置。
+GLFW 头仅出现在 `core/window.cpp` 与 `graphics/window_surface.cpp`：前者提供窗口／输入／剪贴板，后者连接 Vulkan Surface。
+Surface 候选仍先创建、验证队列兼容性，再替换旧 owner；没有增加虚调用或改变在途资源释放顺序。
+Render 只读取 Shader 产物中的字节码／材质数据，文件指纹值归 AssetData，不包含输入捕获接口或 AssetManager。
 Runtime 的源清单同时覆盖公共执行头及无后端的 AudioCommands／PhysicsCommands；禁止引用 Engine／Application、具体服务或 System、图形与平台后端。
 World 不反向依赖 Runtime 或服务命令。Audio 与 Physics 的传递依赖同样检查，只有 `audio/audio.cpp` 可包含 miniaudio，只有 `physics/physics_service.cpp` 可包含 Jolt。
 Physics 后端仅接收配置快照与 UUID／EntityId，不包含 Scene／Entity 头；组件校验、场景身份检查和 Transform／接触交付由适配层负责。
@@ -62,11 +71,13 @@ AssetData 不依赖导入管线，各纯数据／逻辑模块不引入窗口、�
 | `graphics/` | Vulkan、平台窗口及通用能力 | 图形后端不依赖 Editor；`core/engine.cpp` 是宿主组合点，可使用 Graphics/Render |
 | `editor/src/ui/` | Engine 工作流接口、ImGui | 编辑器公共控件；`editor_imgui` 呈现适配可依赖图形后端，但不依赖编辑器状态或功能面板 |
 | `editor/src/project/` | Editor 状态、Engine 项目及输入值、ImGui | 项目设置和编辑器玩家改键面板；动作录入与草稿校验复用 Engine 输入模块 |
-| `engine/src/ui/` | Engine 输入值／图形资源、RmlUi Core／FreeType | 可选 `comet_game_ui` 库；拥有通用上下文、项目 Lua 控制器、字体、页面加载、输入与 GPU 适配，不依赖游戏菜单 |
-| `editor/`、`app/` | Engine 组合入口、明确的工作流接口；分别装配 `editor_ui`／`comet_game_ui` | 业务视口经 Renderer 离屏帧快照取图，不穿透 SceneRenderer |
+| `engine/src/ui/` | Engine 输入值／图形资源、RmlUi Core／FreeType | 合入 engine 的可选 `comet_game_ui` 对象模块；拥有通用上下文、项目 Lua 控制器、字体、页面加载、输入与 GPU 适配，不依赖游戏菜单 |
+| `editor/`、`app/` | Engine 组合入口、明确的工作流接口；Editor 装配 `editor_ui`，App 经 engine 使用游戏 UI | 业务视口经 Renderer 离屏帧快照取图，不穿透 SceneRenderer |
 
 App／Editor 使用 `engine/resources/fonts/` 中的同一字体。ImGui 合并与 RmlUi 字体回退由各 UI 后端负责，
-Engine 核心库不链接 UI 框架；`engine/src/ui` 通过 `COMET_BUILD_GAME_UI` 作为可选库接入 RmlUi，可独立于示例 app 构建。
+`COMET_BUILD_GAME_UI` 决定是否将游戏 UI 编入 engine；纯 Editor 构建可关闭，App／测试配置启用。
+UI 只链接必要内部目标，不反向链接 engine。RmlUi Core 作为共享依赖保证宿主／扩展使用同一份全局状态，FreeType 静态编入 Core。
+App／测试通过现有 engine 使用 UI；直接使用 RmlUi 扩展接口的消费者另链接同一 Core，Windows 随既有运行依赖复制流程部署。
 示例 RML／RCSS、HUD、改键数据绑定与快捷键均属于 `demo/assets/ui`，由 `runtime.ui.lua` 实现。
 app 从项目清单装配 UI，字体复制进 app bundle；项目页面不由引擎或 app 携带。
 
@@ -80,10 +91,12 @@ clone 直接使用内存内容快照，保留 UUID、实体引用及树遍历创
 `editor/src/` 功能代码不得直接包含 SceneRenderer、RenderContext、FrameScheduler、Presentation 或 Vulkan/GLFW 头；
 只有 `editor/src/ui/imgui_context.h/.cpp` 作为独立 `editor_imgui` 呈现适配允许连接图形后端；
 其 include 单独检查，不允许依赖编辑器工作流。`editor/editor.cpp` 是扫描范围外的宿主集成点。
-目录规则检查直接包含，内部数据／逻辑模块另外检查引擎头的传递包含；Engine 核心库与可选 `comet_game_ui` 分开编译。
+目录规则检查直接包含，内部对象模块另外检查引擎头的传递包含；GameUi 与其他对象最终汇入 engine。
+Platform 禁止包含 Graphics／Config；Graphics 禁止包含 Render；Render 禁止包含 Config／AssetManager；UI 禁止包含宿主 Engine 或直接调用 GLFW。
+GraphicsError／Render 公共接口目前仍带有 Vulkan 类型，UI 呈现适配仍针对 Vulkan；本轮建立职责与配置边界，后端接口继续按渲染主线收窄。
 编辑器按链接依赖分为 `editor_core`（无 ImGui）、`editor_imgui`（呈现适配）和 `editor_ui`（功能界面），
 入口及对应测试复用这些库；`editor_imgui` 链接 engine／ImGui，`editor_ui` 组合 core 与呈现适配。
-app 直接链接 `comet_game_ui`，不链接 ImGui 或编辑器库。字体归 Engine 公共资源，ImGui 专用 Shader 归 `editor/shaders/`。
+app 只链接 engine，不链接 ImGui 或编辑器库。字体归 Engine 公共资源，ImGui 专用 Shader 归 `editor/shaders/`。
 
 `Ui::RmlContext` 提供通用 RmlUi 会话、可配置字体、候选文档替换、输入处理和 Overlay 绘制。
 它要求调用方提供资源根目录，能加载没有改键控件的任意页面；不认识 demo 路径、动作名或个人设置。
@@ -1168,7 +1181,7 @@ MSAA 与离屏 resize。独立 `render_graph_sync_validation` CTest 开启同步
 材质／物体选择与屏幕空间处理分开，后者需要明确的颜色、深度或遮罩输入，由渲染管线编排资源与合成。
 目前没有为 MeshRenderer 提供任意 Pass 列表或自定义后处理链。
 
-场景颜色由 Config::Render::SCENE_COLOR_FORMAT 固定为 R16G16B16A16_SFLOAT，MSAA resolve 也保留 HDR。
+场景颜色由 RenderSettings::SCENE_COLOR_FORMAT 固定为 R16G16B16A16_SFLOAT，MSAA resolve 也保留 HDR。
 RenderContext 把场景格式写入 DeviceCapabilityRequest；设备候选评估和场景创建复用
 graphics 层的 validate_color_target，检查 attachment／blend／sampled、单采样 resolve 和场景 MSAA。
 输出附件按实际选中的交换链格式单独检查 Count1，不把显示格式当成场景 MSAA 格式。

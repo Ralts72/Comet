@@ -2,7 +2,7 @@
 #include "common/export.h"
 #include "vk_common.h"
 #include "vk_capability.h"
-#include "config/config.h"
+#include "graphics/vulkan_settings.h"
 #include "graphics/result.h"
 #include <memory>
 
@@ -10,7 +10,7 @@ namespace Comet {
     class Window;
     class COMET_API Context {
     public:
-        Context(const Window& window, const Config::Vulkan& config,
+        Context(const Window& window, const VulkanSettings& config,
             const DeviceCapabilityRequest& capability_request);
 
         Context(const Context&) = delete;
@@ -57,7 +57,6 @@ namespace Comet {
         void pickup_physical_device(const DeviceCapabilityRequest& capability_request);
 
         void create_surface(const Window& window);
-        Result<vk::UniqueSurfaceKHR, GraphicsError> create_surface_candidate(const Window& window);
 
         vk::Instance m_instance;
         vk::DebugUtilsMessengerEXT m_debug_messenger;

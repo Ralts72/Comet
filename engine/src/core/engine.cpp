@@ -26,7 +26,9 @@ namespace Comet {
         auto window = std::make_unique<Window>(config.window);
         auto assets = std::make_unique<AssetRegistry>();
         LOG_INFO("init renderer");
-        auto renderer = Renderer::create(*window, config, *assets);
+        const Renderer::Settings renderer_settings{
+            config.vulkan, config.render, config.diagnostics.enable_render_diagnostics};
+        auto renderer = Renderer::create(*window, renderer_settings, *assets);
         if(!renderer)
             return Result<std::unique_ptr<Engine>, Error>::failure(renderer.error().as_error());
         auto scheduler = std::make_unique<TaskScheduler>();

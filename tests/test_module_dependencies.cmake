@@ -107,3 +107,19 @@ probe_dependency("src/render/resource/render_asset_publisher.cpp" "\"asset/datab
     "RenderAssetPublication violates module dependencies")
 probe_dependency("src/render/resource/render_asset_publisher.cpp" "\"asset/import/import_service.h\""
     "RenderAssetPublication violates module dependencies")
+probe_dependency("src/core/window.h" "\"graphics/context.h\""
+    "Platform violates module dependencies")
+probe_dependency("src/core/window.h" "\"config/config.h\""
+    "Platform violates module dependencies")
+probe_dependency("src/graphics/device.cpp" "\"render/renderer.h\""
+    "Graphics violates module dependencies")
+probe_dependency("src/graphics/context.cpp" "<GLFW/glfw3.h>"
+    "Graphics includes a runtime backend")
+probe_dependency("src/render/renderer.h" "\"config/config.h\""
+    "Render violates module dependencies")
+probe_dependency("src/render/renderer.cpp" "\"asset/asset_manager.h\""
+    "Render violates module dependencies")
+probe_dependency("src/ui/rml_context.cpp" "<GLFW/glfw3.h>"
+    "GameUi includes a runtime backend")
+probe_dependency("src/ui/project_ui.cpp" "\"core/engine.h\""
+    "GameUi violates module dependencies")

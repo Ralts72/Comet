@@ -49,8 +49,8 @@ namespace Comet {
     };
 
     Result<std::unique_ptr<SceneRenderer>, GraphicsError> SceneRenderer::create(Device& device,
-        MaterialPrograms& programs, RenderResources& resources, const Config::Vulkan& vulkan,
-        const Config::Render& render, Math::Vec2u size) {
+        MaterialPrograms& programs, RenderResources& resources, const VulkanSettings& vulkan,
+        const RenderSettings& render, Math::Vec2u size) {
         using Creation = Result<std::unique_ptr<SceneRenderer>, GraphicsError>;
         auto scene =
             std::unique_ptr<SceneRenderer>(new SceneRenderer(device, programs, vulkan, render));
@@ -60,9 +60,9 @@ namespace Comet {
     }
 
     Result<std::unique_ptr<SceneRenderer>, GraphicsError> SceneRenderer::create(Device& device,
-        MaterialPrograms& programs, RenderResources& resources, const Config::Vulkan& vulkan,
-        const Config::Render& render, Swapchain& swapchain) {
-        if(render.scene_output == Config::Render::SceneOutput::Offscreen)
+        MaterialPrograms& programs, RenderResources& resources, const VulkanSettings& vulkan,
+        const RenderSettings& render, Swapchain& swapchain) {
+        if(render.scene_output == RenderSettings::SceneOutput::Offscreen)
             return create(device, programs, resources, vulkan, render,
                 Math::Vec2u{swapchain.get_width(), swapchain.get_height()});
         using Creation = Result<std::unique_ptr<SceneRenderer>, GraphicsError>;
@@ -74,7 +74,7 @@ namespace Comet {
     }
 
     SceneRenderer::SceneRenderer(Device& device, MaterialPrograms& programs,
-        const Config::Vulkan& vulkan, const Config::Render& render)
+        const VulkanSettings& vulkan, const RenderSettings& render)
         : m_device(device), m_programs(programs), m_offscreen_format(vulkan.surface_format),
           m_hdr_headroom(render.hdr_headroom), m_depth_format(vulkan.depth_format),
           m_msaa_samples(vulkan.msaa_samples), m_frame_slot_count(render.max_frames_in_flight) {}
@@ -89,13 +89,13 @@ namespace Comet {
         if(!swapchain && (size.x == 0 || size.y == 0))
             return Creation::failure({"Offscreen render target size must be greater than zero"});
         if(auto supported = validate_color_target(m_device.get_capability().physical_device,
-               Config::Render::SCENE_COLOR_FORMAT, m_msaa_samples);
+               RenderSettings::SCENE_COLOR_FORMAT, m_msaa_samples);
             !supported)
             return Creation::failure(supported.error());
         auto next = std::make_shared<RenderState>();
         next->offscreen = !swapchain;
         auto color =
-            Attachment::get_color_attachment(Config::Render::SCENE_COLOR_FORMAT, m_msaa_samples);
+            Attachment::get_color_attachment(RenderSettings::SCENE_COLOR_FORMAT, m_msaa_samples);
         auto depth = Attachment::get_depth_attachment(m_depth_format, m_msaa_samples);
         color.description.initial_layout = ImageLayout::ColorAttachmentOptimal;
         color.description.final_layout = ImageLayout::ColorAttachmentOptimal;
@@ -112,7 +112,7 @@ namespace Comet {
         subpass.resolve_usage =
             Flags<ImageUsage>(ImageUsage::ColorAttachment) | ImageUsage::Sampled;
         auto pass = RenderPass::create(
-            m_device, {color, depth}, {subpass}, Config::Render::SCENE_COLOR_FORMAT);
+            m_device, {color, depth}, {subpass}, RenderSettings::SCENE_COLOR_FORMAT);
         if(!pass)
             return Creation::failure(pass.error());
         next->scene_pass = std::move(pass).value();

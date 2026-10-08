@@ -8,7 +8,7 @@ namespace Comet {
     namespace {
         class WindowUiEventsTest: public ::testing::Test {
         protected:
-            Window window{Config::Window{.width = 320, .height = 240, .title = "UI events"}};
+            Window window{WindowSettings{.width = 320, .height = 240, .title = "UI events"}};
             GLFWkeyfun key = nullptr;
             GLFWcharfun character = nullptr;
             GLFWcursorposfun cursor = nullptr;

@@ -55,7 +55,7 @@ namespace Comet::Ui {
         class RmlPlatformTest: public ::testing::Test {
         protected:
             Comet::Window window{
-                Comet::Config::Window{.width = 320, .height = 240, .title = "Rml platform"}};
+                Comet::WindowSettings{.width = 320, .height = 240, .title = "Rml platform"}};
             NullRenderer renderer;
             RmlPlatform platform;
             Rml::Context* context = nullptr;

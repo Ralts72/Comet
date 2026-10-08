@@ -46,6 +46,10 @@ set(PHYSICS_BACKEND_HEADERS "${ASSET_HEADERS}|physics/|scene/(components|entity_
 set(SCRIPTING_HEADERS "${RUNTIME_HEADERS}|scripting/|scene/systems/script_system\\.h$")
 set(RUNTIME_ASSET_HEADERS "${PIPELINE_HEADERS}|asset/(asset_manager\\.h$|runtime/)|scripting/script_compiler\\.h$|audio/audio\\.h$|graphics/error\\.h$")
 set(RENDER_ASSET_HEADERS "${FOUNDATION_HEADERS}|asset/(handle|registry)\\.h$|asset/data/|asset/runtime/render_asset_publisher\\.h$|graphics/|render/(resource/|material/material\\.h$)")
+set(PLATFORM_HEADERS "${INPUT_HEADERS}|core/(window|window_settings)\\.h$")
+set(GRAPHICS_HEADERS "${FOUNDATION_HEADERS}|graphics/|${PLATFORM_HEADERS}")
+set(RENDER_HEADERS "${GRAPHICS_HEADERS}|${WORLD_HEADERS}|render/|asset/artifact/shader_program_artifact\\.h$|asset/runtime/render_asset_publisher\\.h$")
+set(GAME_UI_HEADERS "${RENDER_HEADERS}|ui/|core/project\\.h$")
 
 function(check_module_closure module sources allowed)
     set(pending ${sources})
@@ -61,7 +65,15 @@ function(check_module_closure module sources allowed)
             REGEX "^[ \t]*#[ \t]*include[ \t]*[<\"]")
         foreach(line IN LISTS includes)
             if(line MATCHES "[<\"]([Vv]ulkan/|GLFW/|RmlUi/|imgui|(lua|lauxlib|lualib)\\.h|Jolt/|miniaudio\\.h)")
-                if(NOT ((module STREQUAL "RenderAssetPublication" AND line MATCHES "[<\"][Vv]ulkan/") OR
+                if(NOT ((module MATCHES "^(Graphics|Render|RenderAssetPublication|GameUi)$"
+                    AND line MATCHES "[<\"][Vv]ulkan/") OR
+                    (module MATCHES "^(Platform|Graphics|Render|GameUi)$"
+                    AND path MATCHES "^(core/window|graphics/window_surface)\\.cpp$"
+                    AND line MATCHES "[<\"]GLFW/") OR
+                    (module STREQUAL "GameUi" AND path MATCHES "^ui/"
+                    AND line MATCHES "[<\"]RmlUi/") OR
+                    (module STREQUAL "GameUi" AND path MATCHES "^ui/(lua_controller|project_ui)\\.cpp$"
+                    AND line MATCHES "[<\"](lua|lauxlib|lualib)\\.h[>\"]") OR
                     (module STREQUAL "Audio" AND path STREQUAL "audio/audio.cpp"
                     AND line MATCHES "[<\"]miniaudio\\.h[>\"]") OR
                     (module MATCHES "^Physics" AND path STREQUAL "physics/physics_service.cpp"
@@ -109,8 +121,12 @@ check_module_closure(PhysicsBackend "src/physics/physics_service.cpp;src/physics
 check_module_closure(Scripting "${COMET_SCRIPTING_SOURCES}" "${SCRIPTING_HEADERS}")
 check_module_closure(AssetPipeline "${COMET_ASSET_PIPELINE_SOURCES}" "${PIPELINE_HEADERS}")
 check_module_closure(RuntimeAssets "${COMET_RUNTIME_ASSETS_SOURCES}" "${RUNTIME_ASSET_HEADERS}")
+check_module_closure(Platform "${COMET_PLATFORM_SOURCES}" "${PLATFORM_HEADERS}")
+check_module_closure(Graphics "${COMET_GRAPHICS_SOURCES}" "${GRAPHICS_HEADERS}")
 check_module_closure(RenderAssetPublication "src/render/resource/render_asset_publisher.cpp"
     "${RENDER_ASSET_HEADERS}")
+check_module_closure(Render "${COMET_RENDER_SOURCES}" "${RENDER_HEADERS}")
+check_module_closure(GameUi "${COMET_GAME_UI_SOURCES}" "${GAME_UI_HEADERS}")
 
 file(GLOB_RECURSE ENGINE_FILES RELATIVE "${ENGINE_SOURCE}"
     "${ENGINE_SOURCE}/*.h" "${ENGINE_SOURCE}/*.cpp")

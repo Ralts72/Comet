@@ -1,6 +1,8 @@
 #pragma once
 #include "common/export.h"
 #include "graphics/result.h"
+#include "graphics/vulkan_settings.h"
+#include "render/render_settings.h"
 #include "render/scene/render_scene.h"
 #include "render/scene/scene_resolver.h"
 #include "render/scene/scene_picking.h"
@@ -23,7 +25,6 @@ namespace Comet {
     class RenderContext;
     class RenderResources;
     class SceneRenderer;
-    class Config;
     class RenderDiagnostics;
     class ImageView;
     class MaterialLayout;
@@ -31,6 +32,12 @@ namespace Comet {
 
     class COMET_API Renderer {
     public:
+        struct Settings {
+            VulkanSettings vulkan;
+            RenderSettings render;
+            bool enable_diagnostics = false;
+        };
+
         enum class FramePreparation { Ready, Deferred };
 
         struct OffscreenFrame {
@@ -46,7 +53,7 @@ namespace Comet {
         };
 
         static Result<std::unique_ptr<Renderer>, GraphicsError> create(
-            const Window& window, const Config& config, const AssetRegistry& asset_registry);
+            const Window& window, const Settings& settings, const AssetRegistry& asset_registry);
 
         ~Renderer();
 

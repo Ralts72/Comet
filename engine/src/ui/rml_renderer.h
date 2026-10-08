@@ -1,5 +1,7 @@
 #pragma once
 
+#include "common/export.h"
+
 #include "graphics/enums.h"
 #include "graphics/result.h"
 
@@ -20,7 +22,7 @@ namespace Comet {
 }
 
 namespace Comet::Ui {
-    class RmlRenderer final {
+    class COMET_API RmlRenderer final {
     public:
         struct Target {
             std::shared_ptr<Comet::RenderPass> pass;

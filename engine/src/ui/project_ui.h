@@ -1,12 +1,14 @@
 #pragma once
 
+#include "common/export.h"
+
 #include "core/project.h"
 #include "input/input_overrides.h"
 #include "ui/rml_context.h"
 
 namespace Comet::Ui {
     // 项目呈现生命周期独立于 Scene；宿主只提供持久化和 Runtime 应用服务。
-    class ProjectUi final {
+    class COMET_API ProjectUi final {
     public:
         struct Services {
             InputActions input_actions;

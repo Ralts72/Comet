@@ -1,5 +1,7 @@
 #pragma once
 
+#include "common/export.h"
+
 #include "input/input.h"
 
 #include <bitset>
@@ -15,7 +17,7 @@ namespace Comet {
 
 namespace Comet::Ui {
     // 不替换 GLFW 回调；消费 Window 与物理快照同步发布的有序事件。
-    class RmlPlatform {
+    class COMET_API RmlPlatform {
     public:
         void update(Rml::Context& context, const Comet::Window& window,
             const Comet::Input::Frame& frame, bool modal_open);

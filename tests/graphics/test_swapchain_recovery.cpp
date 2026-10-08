@@ -72,9 +72,8 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetSwapchainImagesKHR(
     return query(device, swapchain, count, images);
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL vkAcquireNextImageKHR(VkDevice device,
-    VkSwapchainKHR swapchain, uint64_t timeout, VkSemaphore semaphore, VkFence fence,
-    uint32_t* image) {
+VKAPI_ATTR VkResult VKAPI_CALL vkAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain,
+    uint64_t timeout, VkSemaphore semaphore, VkFence fence, uint32_t* image) {
     ++calls.acquires;
     if(calls.expire_acquires) {
         --calls.expire_acquires;
@@ -85,8 +84,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkAcquireNextImageKHR(VkDevice device,
     return acquire(device, swapchain, timeout, semaphore, fence, image);
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL vkQueuePresentKHR(
-    VkQueue queue, const VkPresentInfoKHR* info) {
+VKAPI_ATTR VkResult VKAPI_CALL vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* info) {
     ++calls.presents;
     const auto result = calls.real_present(queue, info);
     if(calls.expire_present && result == VK_SUCCESS)
@@ -115,19 +113,21 @@ namespace Comet::Tests {
             Logger::init();
             sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(messages);
             Logger::add_custom_sink(sink);
-            Config config;
-            config.vulkan.msaa_samples = SampleCount::Count1;
-            config.vulkan.enable_validation = true;
-            window = std::make_unique<Window>(config.window);
-            auto created = RenderContext::create(*window, config.vulkan, config.render);
+            VulkanSettings vulkan;
+            vulkan.msaa_samples = SampleCount::Count1;
+            vulkan.enable_validation = true;
+            const RenderSettings render;
+            window = std::make_unique<Window>(WindowSettings{});
+            auto created = RenderContext::create(*window, vulkan, render);
             ASSERT_TRUE(created);
             context = std::move(created).value();
             auto& device = context->get_device();
             auto& swapchain = context->get_swapchain();
             calls.real_present = reinterpret_cast<PFN_vkQueuePresentKHR>(
                 device.get().getProcAddr("vkQueuePresentKHR"));
-            frames = std::make_unique<FrameScheduler>(device, config.render.max_frames_in_flight);
-            frames->initialize_swapchain_images(static_cast<uint32_t>(swapchain.get_images().size()));
+            frames = std::make_unique<FrameScheduler>(device, render.max_frames_in_flight);
+            frames->initialize_swapchain_images(
+                static_cast<uint32_t>(swapchain.get_images().size()));
             const auto format = swapchain.get_images().front()->get_info().format;
             const auto color = Attachment::get_color_attachment(format);
             const std::vector<RenderSubPass> subpasses{
@@ -145,16 +145,15 @@ namespace Comet::Tests {
                 ASSERT_TRUE(offscreen_render_pass);
                 offscreen_pass = std::move(offscreen_render_pass).value();
                 auto multi = RenderTarget::try_create_multi_target(device, *offscreen_pass,
-                    window->get_framebuffer_size(), config.render.max_frames_in_flight);
+                    window->get_framebuffer_size(), render.max_frames_in_flight);
                 ASSERT_TRUE(multi);
                 offscreen = std::move(multi).value();
             }
             presentation = std::make_unique<Presentation>(*context, *frames,
-                Presentation::Dependent{
-                    [this] {
-                        ++releases;
-                        target.reset();
-                    },
+                Presentation::Dependent{[this] {
+                                            ++releases;
+                                            target.reset();
+                                        },
                     [this](const SwapchainCompatibility& compatibility) {
                         ++rebuilds;
                         EXPECT_FALSE(compatibility.format_changed);

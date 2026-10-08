@@ -201,7 +201,7 @@ foreach(target IN LISTS TEST_TARGETS)
 endforeach()
 
 foreach(target unit_testing integration_testing)
-    target_link_libraries(${target} PRIVATE comet_game_ui RmlUi::Core)
+    target_link_libraries(${target} PRIVATE RmlUi::Core)
     target_compile_definitions(${target} PRIVATE
             COMET_TEST_UI_DIRECTORY="${CMAKE_SOURCE_DIR}/demo/assets/ui"
             COMET_TEST_UI_FONT_DIRECTORY="${CMAKE_BINARY_DIR}/engine/src/ui/fonts")

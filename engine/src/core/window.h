@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common/export.h"
-#include "config/config.h"
+#include "core/window_settings.h"
 #include "core/math_utils.h"
 #include "input/input.h"
 #include <array>
@@ -54,7 +54,7 @@ namespace Comet {
         };
         static constexpr size_t MAX_UI_EVENTS = 512;
 
-        explicit Window(const Config::Window& config);
+        explicit Window(const WindowSettings& config);
 
         ~Window();
         Window(const Window&) = delete;
@@ -65,6 +65,8 @@ namespace Comet {
 
         [[nodiscard]] std::string get_title() const;
         void set_title(const std::string& title);
+        void set_clipboard_text(const std::string& text);
+        [[nodiscard]] std::string get_clipboard_text() const;
 
         [[nodiscard]] bool should_close() const;
         void request_close();

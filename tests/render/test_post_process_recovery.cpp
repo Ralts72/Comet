@@ -71,7 +71,7 @@ TEST(PostProcessRecoveryTest, RendererKeepsDrawingOnOomWithoutChangingAuthoredSe
     config.window.height = 64;
     Window window(config.window);
     AssetRegistry assets;
-    auto created = Renderer::create(window, config, assets);
+    auto created = Renderer::create(window, {config.vulkan, config.render}, assets);
     ASSERT_TRUE(created) << created.error();
     auto& renderer = *created.value();
     creations = 0;

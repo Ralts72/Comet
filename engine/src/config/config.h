@@ -3,11 +3,9 @@
 #include "common/export.h"
 #include "diagnostics/log_settings.h"
 #include "asset/import/asset_task_types.h"
-#include "graphics/enums.h"
-
-#include <cstdint>
-#include <filesystem>
-#include <string>
+#include "core/window_settings.h"
+#include "graphics/vulkan_settings.h"
+#include "render/render_settings.h"
 
 namespace Comet {
     class COMET_API Config {
@@ -20,37 +18,9 @@ namespace Comet {
             bool enable_render_diagnostics = false;
         };
 
-        struct Window {
-            int width = 1280;
-            int height = 720;
-            std::string title = "Comet";
-            bool fullscreen = false;
-            bool resizable = true;
-        };
-
-        struct Vulkan {
-            Format surface_format = Format::B8G8R8A8_SRGB;
-            ImageColorSpace color_space = ImageColorSpace::SrgbNonlinearKHR;
-            Format depth_format = Format::D32_SFLOAT;
-            PresentMode present_mode = PresentMode::Immediate;
-            std::uint32_t swapchain_image_count = 3;
-            SampleCount msaa_samples = SampleCount::Count4;
-            bool enable_validation = false;
-            // 本机启动上下文，不从共享 YAML 读取；空路径禁用磁盘缓存。
-            std::filesystem::path pipeline_cache_directory;
-        };
-
-        struct Render {
-            enum class SceneOutput { Presentation, Offscreen };
-            static constexpr Format SCENE_COLOR_FORMAT = Format::R16G16B16A16_SFLOAT;
-            // 由宿主在启动时选择，不从项目或共享 YAML 读取。
-            SceneOutput scene_output = SceneOutput::Presentation;
-            OutputMode output_mode = OutputMode::Sdr;
-            // 扩展线性输出峰值相对于 SDR 白色的倍数，不代表显示器实测能力。
-            float hdr_headroom = 4.0f;
-            std::uint32_t max_frames_in_flight = 2;
-            float max_anisotropy = 1.0f;
-        };
+        using Window = WindowSettings;
+        using Vulkan = VulkanSettings;
+        using Render = RenderSettings;
 
         Diagnostics diagnostics;
         Window window;

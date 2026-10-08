@@ -1,6 +1,5 @@
 #include "renderer.h"
 #include "common/scope_exit.h"
-#include "config/config.h"
 #include "render/render_context.h"
 #include "render/render_diagnostics.h"
 #include "render/material/material_programs.h"
@@ -17,28 +16,28 @@
 
 namespace Comet {
     Result<std::unique_ptr<Renderer>, GraphicsError> Renderer::create(
-        const Window& window, const Config& config, const AssetRegistry& asset_registry) {
+        const Window& window, const Settings& settings, const AssetRegistry& asset_registry) {
         using Creation = Result<std::unique_ptr<Renderer>, GraphicsError>;
-        if(config.render.max_frames_in_flight == 0)
+        if(settings.render.max_frames_in_flight == 0)
             return Creation::failure({"Renderer requires at least one frame slot"});
-        auto context = RenderContext::create(window, config.vulkan, config.render);
+        auto context = RenderContext::create(window, settings.vulkan, settings.render);
         if(!context)
             return Creation::failure(context.error());
         auto& device = context.value()->get_device();
         auto resources = std::make_unique<RenderResources>(device);
-        auto frames = std::make_unique<FrameScheduler>(device, config.render.max_frames_in_flight);
+        auto frames =
+            std::make_unique<FrameScheduler>(device, settings.render.max_frames_in_flight);
         auto programs = std::make_unique<MaterialPrograms>(asset_registry);
         auto& swapchain = context.value()->get_swapchain();
         frames->initialize_swapchain_images(static_cast<uint32_t>(swapchain.get_images().size()));
         auto scene = SceneRenderer::create(
-            device, *programs, *resources, config.vulkan, config.render, swapchain);
+            device, *programs, *resources, settings.vulkan, settings.render, swapchain);
         if(!scene)
             return Creation::failure(scene.error());
         auto renderer =
             std::unique_ptr<Renderer>(new Renderer(std::move(context).value(), std::move(resources),
                 std::move(frames), std::move(programs), std::move(scene).value(), asset_registry));
-        if(auto enabled =
-                renderer->m_diagnostics->set_enabled(config.diagnostics.enable_render_diagnostics);
+        if(auto enabled = renderer->m_diagnostics->set_enabled(settings.enable_diagnostics);
             !enabled)
             return Creation::failure({enabled.error()});
         return Creation::success(std::move(renderer));

@@ -1,8 +1,5 @@
 #include "context.h"
-#include "config/config.h"
-#include "core/window.h"
-
-#include <GLFW/glfw3.h>
+#include "graphics/window_surface.h"
 
 #include <algorithm>
 #include <string_view>
@@ -94,7 +91,7 @@ namespace Comet {
         }
     }
 
-    Context::Context(const Window& window, const Config::Vulkan& config,
+    Context::Context(const Window& window, const VulkanSettings& config,
         const DeviceCapabilityRequest& capability_request) {
         create_instance(config.enable_validation);
         create_surface(window);
@@ -146,21 +143,19 @@ namespace Comet {
             available_extension_names.emplace(extension.extensionName);
         }
 
-        unsigned int glfw_extension_count = 0;
-        const char** glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
-        if(!glfw_extensions || glfw_extension_count == 0) {
-            LOG_FATAL("GLFW did not provide the required Vulkan instance extensions");
-        }
+        const auto window_extensions = Detail::window_instance_extensions();
+        if(!window_extensions)
+            LOG_FATAL("{}", window_extensions.error().message);
 
         std::vector<const char*> enabled_extensions;
-        enabled_extensions.reserve(glfw_extension_count + requested_instance_extensions.size() + 1);
-        for(uint32_t i = 0; i < glfw_extension_count; ++i) {
-            if(!available_extension_names.contains(glfw_extensions[i])) {
-                LOG_FATAL("Required GLFW Vulkan instance extension is unavailable: {}",
-                    glfw_extensions[i]);
-            }
-            enabled_extensions.push_back(glfw_extensions[i]);
-            LOG_INFO("Enabled GLFW instance extension: {}", glfw_extensions[i]);
+        enabled_extensions.reserve(
+            window_extensions.value().size() + requested_instance_extensions.size() + 1);
+        for(const char* extension : window_extensions.value()) {
+            if(!available_extension_names.contains(extension))
+                LOG_FATAL(
+                    "Required window Vulkan instance extension is unavailable: {}", extension);
+            enabled_extensions.push_back(extension);
+            LOG_INFO("Enabled window instance extension: {}", extension);
         }
 
         const auto custom_extensions = get_available_names(
@@ -223,28 +218,15 @@ namespace Comet {
     }
 
     void Context::create_surface(const Window& window) {
-        auto candidate = create_surface_candidate(window);
+        auto candidate = Detail::create_window_surface(m_instance, window);
         if(!candidate)
             LOG_FATAL("{}", candidate.error().message);
         m_surface = std::make_shared<vk::UniqueSurfaceKHR>(std::move(candidate).value());
         LOG_INFO("Vulkan surface created successfully");
     }
 
-    Result<vk::UniqueSurfaceKHR, GraphicsError> Context::create_surface_candidate(
-        const Window& window) {
-        using Creation = Result<vk::UniqueSurfaceKHR, GraphicsError>;
-        if(!window.get())
-            return Creation::failure({"GLFW window not created"});
-        VkSurfaceKHR surface = VK_NULL_HANDLE;
-        const auto result = static_cast<vk::Result>(
-            glfwCreateWindowSurface(m_instance, window.get(), nullptr, &surface));
-        if(result != vk::Result::eSuccess)
-            return Creation::failure({"Cannot create window surface", result});
-        return Creation::success(vk::UniqueSurfaceKHR(vk::SurfaceKHR(surface), {m_instance}));
-    }
-
     Result<void, GraphicsError> Context::recreate_surface(const Window& window) {
-        auto candidate = create_surface_candidate(window);
+        auto candidate = Detail::create_window_surface(m_instance, window);
         if(!candidate)
             return Result<void, GraphicsError>::failure(candidate.error());
         vk::Bool32 supported = false;

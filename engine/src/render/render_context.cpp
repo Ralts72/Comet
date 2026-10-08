@@ -1,6 +1,7 @@
 #include "render_context.h"
 #include "core/window.h"
-#include "config/config.h"
+#include "graphics/vulkan_settings.h"
+#include "render/render_settings.h"
 #include "graphics/context.h"
 #include "graphics/device.h"
 #include "graphics/swapchain.h"
@@ -11,8 +12,8 @@
 
 namespace Comet {
     Result<std::unique_ptr<RenderContext>, GraphicsError> RenderContext::create(
-        const Window& window, const Config::Vulkan& vulkan_config,
-        const Config::Render& render_config) {
+        const Window& window, const VulkanSettings& vulkan_config,
+        const RenderSettings& render_config) {
         PROFILE_SCOPE("RenderContext::Constructor");
         LOG_INFO("init graphics system");
 
@@ -23,7 +24,7 @@ namespace Comet {
             .present_mode = vulkan_config.present_mode,
             .usage = Flags<ImageUsage>(ImageUsage::ColorAttachment)};
         const DeviceCapabilityRequest capability_request{.swapchain = swapchain_request,
-            .scene_color_format = Config::Render::SCENE_COLOR_FORMAT,
+            .scene_color_format = RenderSettings::SCENE_COLOR_FORMAT,
             .depth_format = vulkan_config.depth_format,
             .sample_count = vulkan_config.msaa_samples,
             .max_sampler_anisotropy = render_config.max_anisotropy};

@@ -1,6 +1,7 @@
 #pragma once
 #include "common/export.h"
-#include "config/config.h"
+#include "graphics/vulkan_settings.h"
+#include "render/render_settings.h"
 #include "graphics/result.h"
 
 #include <memory>
@@ -13,7 +14,7 @@ namespace Comet {
     class COMET_API RenderContext {
     public:
         static Result<std::unique_ptr<RenderContext>, GraphicsError> create(const Window& window,
-            const Config::Vulkan& vulkan_config, const Config::Render& render_config);
+            const VulkanSettings& vulkan_config, const RenderSettings& render_config);
         ~RenderContext();
 
         [[nodiscard]] Device& get_device() { return *m_device; }

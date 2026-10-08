@@ -7,7 +7,6 @@
 #include "diagnostics/logger.h"
 
 #include <RmlUi/Core.h>
-#include <GLFW/glfw3.h>
 
 #include <algorithm>
 #include <atomic>
@@ -135,11 +134,10 @@ namespace Comet::Ui {
                 return true;
             }
             void SetClipboardText(const Rml::String& text) override {
-                glfwSetClipboardString(m_window.get(), text.c_str());
+                m_window.set_clipboard_text(text);
             }
             void GetClipboardText(Rml::String& text) override {
-                const auto* clipboard = glfwGetClipboardString(m_window.get());
-                text = clipboard ? clipboard : "";
+                text = m_window.get_clipboard_text();
             }
             std::size_t m_errors = 0;
             std::size_t m_warnings = 0;
