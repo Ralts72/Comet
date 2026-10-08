@@ -1,5 +1,5 @@
 #include "ui/dialogs.h"
-#include "ui/language.h"
+#include "ui/text.h"
 
 #include <imgui.h>
 

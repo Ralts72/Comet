@@ -1,6 +1,6 @@
 #include "project/project_name_dialog.h"
 
-#include "ui/language.h"
+#include "ui/text.h"
 #include "ui/widgets.h"
 
 #include <imgui.h>

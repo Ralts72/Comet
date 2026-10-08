@@ -1,7 +1,7 @@
 #include "project/input_settings_panel.h"
 
 #include "project/input_widgets.h"
-#include "ui/language.h"
+#include "ui/text.h"
 #include "ui/widgets.h"
 
 #include <algorithm>

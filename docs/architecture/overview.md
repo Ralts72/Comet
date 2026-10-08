@@ -98,6 +98,10 @@ GraphicsError／Render 公共接口目前仍带有 Vulkan 类型，UI 呈现适�
 入口及对应测试复用这些库；`editor_imgui` 链接 engine／ImGui，`editor_ui` 组合 core 与呈现适配。
 app 只链接 engine，不链接 ImGui 或编辑器库。字体归 Engine 公共资源，ImGui 专用 Shader 归 `editor/shaders/`。
 
+Editor 固定使用中文，`ui/text` 提供词表读取和短作用域借用；不维护语言选择或用户语言偏好。
+显示文字与控件身份分开，中文标签保留原有 ImGui ID；项目名称、路径、属性标识及日志保持原文。
+内置词表读取或校验失败会报告启动错误，单个缺词保留原始标识；文本作用域不进入 Engine 或项目数据。
+
 `Ui::RmlContext` 提供通用 RmlUi 会话、可配置字体、候选文档替换、输入处理和 Overlay 绘制。
 它要求调用方提供资源根目录，能加载没有改键控件的任意页面；不认识 demo 路径、动作名或个人设置。
 后端扩展接口只在 UI 模块中暴露 RmlUi，Scene／Input／Renderer 核心公共接口不包含第三方 UI 类型。

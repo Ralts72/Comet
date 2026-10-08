@@ -1,5 +1,5 @@
 #include "inspector/property_editor_registry.h"
-#include "ui/language.h"
+#include "ui/text.h"
 #include "ui/widgets.h"
 #include "assets/asset_reference.h"
 #include "scene/entity_reference.h"

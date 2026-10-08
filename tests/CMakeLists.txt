@@ -104,7 +104,7 @@ set(EDITOR_UI_SOURCES
         editor/ui/test_asset_editing.cpp
         editor/ui/test_console_panel.cpp
         editor/ui/test_editing_ui.cpp
-        editor/ui/test_language.cpp
+        editor/ui/test_ui_text.cpp
         editor/ui/test_project_panel.cpp
         editor/ui/test_project_settings.cpp
         editor/ui/test_player_input_panel.cpp

@@ -1,6 +1,6 @@
 #include "ui/shortcut_settings_dialog.h"
 
-#include "ui/language.h"
+#include "ui/text.h"
 #include "ui/widgets.h"
 
 #include <array>

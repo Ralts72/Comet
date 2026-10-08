@@ -87,14 +87,14 @@ add_library(editor_ui STATIC
         src/ui/dialogs.cpp
         src/ui/console.cpp
         src/ui/menu_bar.cpp
-        src/ui/language.cpp
+        src/ui/text.cpp
         src/ui/shortcuts.cpp
         src/ui/shortcut_settings_dialog.cpp
         src/ui/widgets.cpp
         src/viewport/viewport_panel.cpp
         src/viewport/viewport.cpp
 )
-target_link_libraries(editor_ui PUBLIC editor_core editor_imgui PRIVATE yaml-cpp simdjson)
+target_link_libraries(editor_ui PUBLIC editor_core editor_imgui PRIVATE yaml-cpp)
 target_compile_options(editor_ui PUBLIC "$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
 target_compile_definitions(editor_ui PRIVATE
         COMET_EDITOR_RESOURCE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources"

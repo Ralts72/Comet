@@ -1,5 +1,5 @@
 #include "ui/path_dialog.h"
-#include "ui/language.h"
+#include "ui/text.h"
 #include "ui/widgets.h"
 #include <utility>
 #include <imgui.h>

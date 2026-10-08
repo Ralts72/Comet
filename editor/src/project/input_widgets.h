@@ -1,7 +1,7 @@
 #pragma once
 
 #include "input/input_actions.h"
-#include "ui/language.h"
+#include "ui/text.h"
 
 #include <cstddef>
 #include <span>

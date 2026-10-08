@@ -1,6 +1,6 @@
 #include "scene/entity_reference.h"
 #include "scene/scene.h"
-#include "ui/language.h"
+#include "ui/text.h"
 
 #include <imgui.h>
 #include <algorithm>

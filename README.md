@@ -211,9 +211,10 @@ CPU/GPU 分别统计，不保证来自同一帧。不支持 GPU 时间戳时仍�
 App／Editor 共用 `engine/resources/fonts/` 中的 Roboto Bold 和 Noto Sans SC Bold；各自 UI 后端负责加载与 DPI 缩放。
 RmlUi 使用 FreeType 解析字体、读取字形度量并栅格化文字，Comet 的 Vulkan 后端上传和绘制图集。
 引擎 UI 可配置字体文件、族名与回退；FreeType 可用于其他文字模块，当前 ImGui 仍使用自己的字体后端。
-顶栏「语言 / Language」切换简体中文／English，首次默认中文；选择存于用户状态目录 `language.json`，跨项目生效。
+编辑器固定使用简体中文，不提供语言选择，也不再读取或写入用户状态目录中的旧 `language.json`。
 仅翻译编辑器显示文本，不翻译资产名、路径、Shader 标识或原始日志。
-词表为 `editor/resources/locales/zh-CN.yaml`，修改后重启生效；键和值须为字符串，格式占位符与英文原文一致，缺词或无效文件回退英文。
+词表为 `editor/resources/locales/zh-CN.yaml`，修改后重启生效；键和值须为字符串，格式占位符与英文键一致。
+缺词显示原始标识；内置词表无法读取或格式无效时，启动会报告错误。中文标签保留稳定控件 ID，继续复用已有布局。
 
 启动时的显示输出在 `config/common.yaml` 的 `render` 下设置，也可由当前 Profile 覆盖：
 

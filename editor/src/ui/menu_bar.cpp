@@ -1,5 +1,6 @@
 #include "ui/menu_bar.h"
 #include "ui/editor_panel.h"
+#include "ui/text.h"
 
 #include <algorithm>
 #include <imgui.h>
@@ -20,15 +21,6 @@ namespace CometEditor {
             render_project_menu(current_scene, startup_scene);
             render_edit_menu();
             render_view_menu();
-            if(ImGui::BeginMenu(Ui::label("Language").c_str())) {
-                if(ImGui::MenuItem(
-                       "简体中文###Chinese", nullptr, Ui::language() == Ui::Language::Chinese))
-                    m_requested_language = Ui::Language::Chinese;
-                if(ImGui::MenuItem("English", nullptr, Ui::language() == Ui::Language::English))
-                    m_requested_language = Ui::Language::English;
-                ImGui::EndMenu();
-            }
-
             float fps_text_width = ImGui::CalcTextSize("FPS: 999.9").x;
             ImGui::SameLine(
                 ImGui::GetWindowWidth() - fps_text_width - ImGui::GetStyle().WindowPadding.x);
@@ -151,10 +143,6 @@ namespace CometEditor {
 
     void MenuBar::set_available_scenes(std::vector<std::filesystem::path> scenes) {
         m_available_scenes = std::move(scenes);
-    }
-
-    std::optional<Ui::Language> MenuBar::take_language_request() {
-        return std::exchange(m_requested_language, std::nullopt);
     }
 
     void MenuBar::render_view_menu() {

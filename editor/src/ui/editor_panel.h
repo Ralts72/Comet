@@ -1,5 +1,5 @@
 #pragma once
-#include "ui/language.h"
+#include "ui/text.h"
 #include <string>
 
 namespace CometEditor {

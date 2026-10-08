@@ -3,7 +3,7 @@
 #include "assets/asset_reference.h"
 #include "render/material/material_programs.h"
 #include "ui/dialogs.h"
-#include "ui/language.h"
+#include "ui/text.h"
 
 #include <imgui.h>
 #include <algorithm>

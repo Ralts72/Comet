@@ -9,6 +9,7 @@
 #include "common/scope_exit.h"
 #include "render/render_stats.h"
 #include "ui/imgui_context.h"
+#include "ui/text.h"
 #include "support/imgui_context.h"
 #include "support/temporary_directory.h"
 #include <imgui_internal.h>
@@ -305,8 +306,7 @@ namespace Comet::Tests {
     TEST_F(RenderDiagnosticsGpuTest, StatsPanelRendersChineseWithSharedDefaultFont) {
         const auto translations = CometEditor::Ui::load_translations();
         ASSERT_TRUE(translations) << translations.error();
-        const CometEditor::Ui::LanguageScope chinese(
-            CometEditor::Ui::Language::Chinese, &translations.value());
+        const CometEditor::Ui::TextScope text(translations.value());
         auto& renderer = engine->get_renderer();
         TemporaryDirectory directory;
         auto created = CometEditor::Ui::ImGuiContext::create(engine->get_window(),

@@ -1,19 +1,14 @@
-#include "ui/language.h"
+#include "ui/text.h"
 #include "common/file_io.h"
-#include "common/json.h"
 
-#include <cstdint>
 #include <optional>
-#include <system_error>
 #include <utility>
 #include <vector>
 #include <yaml-cpp/yaml.h>
 
 namespace CometEditor::Ui {
     namespace {
-        thread_local Language current = Language::English;
         thread_local const Translations* current_translations = nullptr;
-        constexpr std::uint32_t PREFERENCE_VERSION = 1;
 
         bool is_string(const YAML::Node& node) {
             if(!node.IsScalar())
@@ -117,62 +112,9 @@ namespace CometEditor::Ui {
         return translations;
     }
 
-    Comet::Result<Language> load_language_preference(const std::filesystem::path& path) {
-        using Result = Comet::Result<Language>;
-        std::error_code error;
-        if(!std::filesystem::exists(path, error)) {
-            if(error)
-                return Result::failure(
-                    "Cannot inspect editor language preference: " + error.message());
-            return Result::success(Language::Chinese);
-        }
-
-        auto contents = Comet::read_text_file(path);
-        if(!contents)
-            return Result::failure(contents.error());
-        const Comet::Json::Context context("editor language preference", path.string());
-        simdjson::dom::parser parser;
-        auto parsed = context.parse(parser, contents.value());
-        if(!parsed)
-            return Result::failure(parsed.error());
-        const auto root = parsed.value();
-        if(auto valid = context.validate_keys(root, {"version", "language"}); !valid)
-            return Result::failure(valid.error());
-        auto version = context.read_field<std::uint32_t>(root, "version", "an unsigned integer");
-        if(!version)
-            return Result::failure(version.error());
-        if(version.value() != PREFERENCE_VERSION)
-            return Result::failure(context.error("version", "unsupported version"));
-        auto language = context.read_field<std::string>(root, "language", "a language string");
-        if(!language)
-            return Result::failure(language.error());
-        if(language.value() == "zh-CN")
-            return Result::success(Language::Chinese);
-        if(language.value() == "en")
-            return Result::success(Language::English);
-        return Result::failure(context.error("language", "expected zh-CN or en"));
-    }
-
-    Comet::Result<void> save_language_preference(
-        const std::filesystem::path& path, const Language language) {
-        Comet::Json::Writer writer;
-        writer.begin_object();
-        writer.field("version", std::uint64_t(PREFERENCE_VERSION));
-        writer.field("language", language == Language::Chinese ? "zh-CN" : "en");
-        writer.end_object();
-        auto contents = std::move(writer).finish();
-        if(!contents)
-            return Comet::Result<void>::failure(contents.error());
-        return Comet::write_text_file_atomic(path, contents.value());
-    }
-
-    Language language() {
-        return current;
-    }
-
     const Translations& translations() {
         static const Translations empty;
-        return current == Language::Chinese && current_translations ? *current_translations : empty;
+        return current_translations ? *current_translations : empty;
     }
 
     const char* text(const char* english) {
@@ -188,14 +130,11 @@ namespace CometEditor::Ui {
         return std::string(translated) + "###" + english;
     }
 
-    LanguageScope::LanguageScope(Language language, const Translations* translations)
-        : m_previous(current), m_previous_translations(current_translations) {
-        current = language;
-        if(translations)
-            current_translations = translations;
+    TextScope::TextScope(const Translations& translations)
+        : m_previous_translations(current_translations) {
+        current_translations = &translations;
     }
-    LanguageScope::~LanguageScope() {
-        current = m_previous;
+    TextScope::~TextScope() {
         current_translations = m_previous_translations;
     }
 }

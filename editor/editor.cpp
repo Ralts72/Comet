@@ -17,6 +17,7 @@
 #include "project/asset_operations.h"
 #include "scene/editor_request_policy.h"
 #include "ui/dialogs.h"
+#include "ui/text.h"
 #include "scene/command_history.h"
 #include "scene/scene_editor.h"
 #include "scene/editor_scene_session.h"
@@ -88,7 +89,6 @@ namespace {
             if(!state_directory)
                 return Comet::Result<void, Comet::Error>::failure({state_directory.error()});
             m_shortcut_settings_path = state_directory.value() / "shortcuts.yaml";
-            m_language_settings_path = state_directory.value() / "language.json";
             auto ui = CometEditor::Ui::ImGuiContext::create(engine.get_window(), render_context,
                 {.ini_path = state_directory.value() / "imgui.ini",
                     .docking = true,
@@ -112,20 +112,9 @@ namespace {
             }
 
             auto translations = CometEditor::Ui::load_translations();
-            if(translations) {
-                m_translations = std::move(translations).value();
-            } else {
-                LOG_WARN("{}; using English editor text", translations.error());
-                m_ui_language = CometEditor::Ui::Language::English;
-            }
-            if(auto preferred = CometEditor::Ui::load_language_preference(m_language_settings_path);
-                preferred) {
-                if(!m_translations.empty()
-                    || preferred.value() == CometEditor::Ui::Language::English)
-                    m_ui_language = preferred.value();
-            } else {
-                LOG_WARN("{}; using default editor language", preferred.error());
-            }
+            if(!translations)
+                return Comet::Result<void, Comet::Error>::failure({translations.error()});
+            m_translations = std::move(translations).value();
 
             constexpr auto quiet_period = CometEditor::DEFAULT_FILE_CHANGE_QUIET_PERIOD;
             m_material_shader_reload = std::make_unique<CometEditor::MaterialShaderReload>(
@@ -240,14 +229,6 @@ namespace {
             const Comet::Engine::FrameContext& frame) override {
             PROFILE_SCOPE("Editor::on_update");
             m_runtime_input.reset();
-            if(const auto language = m_menu_bar->take_language_request();
-                language && *language != m_ui_language) {
-                m_ui_language = *language;
-                if(auto saved = CometEditor::Ui::save_language_preference(
-                       m_language_settings_path, m_ui_language);
-                    !saved)
-                    LOG_WARN("Cannot save editor language preference: {}", saved.error());
-            }
             process_diagnostics_requests();
             if(auto requests = process_editor_requests(); !requests)
                 return requests;
@@ -693,11 +674,7 @@ namespace {
         }
 
         bool render_player_input(const Comet::Input::Frame& input) {
-            bool blocked;
-            if(m_ui_language == CometEditor::Ui::Language::Chinese)
-                blocked = m_player_input_panel.render(input, m_translations);
-            else
-                blocked = m_player_input_panel.render(input);
+            bool blocked = m_player_input_panel.render(input, m_translations);
             if(auto requested = m_player_input_panel.take_request()) {
                 const auto result = apply_player_input(std::move(*requested));
                 m_player_input_panel.complete(result);
@@ -705,12 +682,8 @@ namespace {
                     LOG_WARN("Cannot apply player input: {}", result.error());
             }
             const bool close_error = input.focused && input.key(Comet::Input::Key::Escape).pressed;
-            if(m_ui_language == CometEditor::Ui::Language::Chinese)
-                blocked |= CometEditor::Ui::render_player_input_error(
-                    m_player_input_error, close_error, m_translations);
-            else
-                blocked |=
-                    CometEditor::Ui::render_player_input_error(m_player_input_error, close_error);
+            blocked |= CometEditor::Ui::render_player_input_error(
+                m_player_input_error, close_error, m_translations);
             return blocked;
         }
 
@@ -764,7 +737,7 @@ namespace {
         }
 
         void draw_editor_ui(const Comet::Input::Frame& input) {
-            const CometEditor::Ui::LanguageScope language(m_ui_language, &m_translations);
+            const CometEditor::Ui::TextScope text(m_translations);
             constexpr ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
             ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), dockspace_flags);
 
@@ -1131,8 +1104,6 @@ namespace {
         CometEditor::EditorState m_editor_state;
         CometEditor::EditorShortcuts m_shortcuts;
         std::filesystem::path m_shortcut_settings_path;
-        std::filesystem::path m_language_settings_path;
-        CometEditor::Ui::Language m_ui_language = CometEditor::Ui::Language::Chinese;
         CometEditor::Ui::Translations m_translations;
         std::unique_ptr<CometEditor::SceneEditor> m_scene_editor;
         std::unique_ptr<CometEditor::SceneDocument> m_scene_document;

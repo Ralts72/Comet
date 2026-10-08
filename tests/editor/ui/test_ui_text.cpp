@@ -1,6 +1,5 @@
 #ifdef COMET_TEST_EDITOR_UI
-#include "ui/language.h"
-#include "ui/menu_bar.h"
+#include "ui/text.h"
 #include "support/imgui_context.h"
 #include "support/temporary_directory.h"
 #include "common/file_io.h"
@@ -32,7 +31,7 @@ namespace Comet::Tests {
 File: 文件
 )");
         ASSERT_TRUE(parsed) << parsed.error();
-        const Ui::LanguageScope chinese(Ui::Language::Chinese, &parsed.value());
+        const Ui::TextScope text(parsed.value());
         EXPECT_STREQ(
             Ui::text("Value %*.*f / %zu / %llu / %s / %%"), "值 %*.*f / %zu / %llu / %s / %%");
         EXPECT_STREQ(Ui::text("Line\nnext"), "行\n下一行");
@@ -41,24 +40,24 @@ File: 文件
         EXPECT_STREQ(Ui::text("Unknown custom property"), "Unknown custom property");
     }
 
-    TEST(EditorTranslationTest, OwnsLoadedTextAndFallsBackWithoutAValidCatalog) {
+    TEST(EditorTranslationTest, OwnsLoadedTextAndReportsCatalogErrors) {
         TemporaryDirectory directory;
         const auto path = directory.path() / "zh-CN.yaml";
         const Ui::Translations empty;
-        const Ui::LanguageScope fallback(Ui::Language::Chinese, &empty);
+        const Ui::TextScope fallback(empty);
         EXPECT_FALSE(Ui::load_translations(path));
         EXPECT_STREQ(Ui::text("File"), "File");
         ASSERT_TRUE(write_text_file_atomic(path, "File: 文件"));
         auto first = Ui::load_translations(path);
         ASSERT_TRUE(first) << first.error();
         {
-            const Ui::LanguageScope first_scope(Ui::Language::Chinese, &first.value());
+            const Ui::TextScope first_scope(first.value());
             ASSERT_TRUE(write_text_file_atomic(path, "File: 修改后的文字"));
             EXPECT_STREQ(Ui::text("File"), "文件");
             auto second = Ui::load_translations(path);
             ASSERT_TRUE(second) << second.error();
             {
-                const Ui::LanguageScope second_scope(Ui::Language::Chinese, &second.value());
+                const Ui::TextScope second_scope(second.value());
                 EXPECT_STREQ(Ui::text("File"), "修改后的文字");
             }
             EXPECT_STREQ(Ui::text("File"), "文件");
@@ -71,37 +70,7 @@ File: 文件
         EXPECT_STREQ(Ui::text("File"), "File");
     }
 
-    TEST(EditorLanguagePreferenceTest, PersistsAcrossProjectsAndDefaultsToChinese) {
-        TemporaryDirectory directory;
-        const auto path = directory.path() / "editor/language.json";
-        auto initial = Ui::load_language_preference(path);
-        ASSERT_TRUE(initial) << initial.error();
-        EXPECT_EQ(initial.value(), Ui::Language::Chinese);
-
-        ASSERT_TRUE(Ui::save_language_preference(path, Ui::Language::English));
-        auto reopened = Ui::load_language_preference(path);
-        ASSERT_TRUE(reopened) << reopened.error();
-        EXPECT_EQ(reopened.value(), Ui::Language::English);
-
-        ASSERT_TRUE(Ui::save_language_preference(path, Ui::Language::Chinese));
-        reopened = Ui::load_language_preference(path);
-        ASSERT_TRUE(reopened) << reopened.error();
-        EXPECT_EQ(reopened.value(), Ui::Language::Chinese);
-    }
-
-    TEST(EditorLanguagePreferenceTest, RejectsInvalidStateWithoutOverwritingIt) {
-        TemporaryDirectory directory;
-        const auto path = directory.path() / "language.json";
-        for(const std::string content : {"{", R"({"version":2,"language":"en"})",
-                R"({"version":1,"language":"fr"})", R"({"version":1,"language":42})",
-                R"({"version":1,"language":"en","unknown":true})"}) {
-            ASSERT_TRUE(write_text_file_atomic(path, content));
-            EXPECT_FALSE(Ui::load_language_preference(path));
-            EXPECT_EQ(read_text_file(path).value(), content);
-        }
-    }
-
-    class EditorLanguageTest: public testing::Test {
+    class EditorTextTest: public testing::Test {
     protected:
         void SetUp() override {
             auto loaded = Ui::load_translations();
@@ -111,12 +80,12 @@ File: 文件
         Ui::Translations translations;
     };
 
-    TEST_F(EditorLanguageTest, TranslationKeepsControlIdentityAndUnknownText) {
+    TEST_F(EditorTextTest, TranslationKeepsControlIdentityAndUnknownText) {
         ImGuiTestContext imgui;
         const std::string custom = "custom_shader_parameter";
         EXPECT_STREQ(Ui::text("Inspector"), "Inspector");
         {
-            const Ui::LanguageScope chinese(Ui::Language::Chinese, &translations);
+            const Ui::TextScope text(translations);
             EXPECT_STREQ(Ui::text("Inspector"), "属性");
             EXPECT_STREQ(Ui::text("Rigid Body"), "刚体");
             EXPECT_STREQ(Ui::text("Collider"), "碰撞体");
@@ -126,19 +95,13 @@ File: 文件
             EXPECT_EQ(
                 ImHashStr(Ui::label("Near Clip").c_str(), 0, 123), ImHashStr("Near Clip", 0, 123));
             EXPECT_EQ(Ui::label(custom.c_str()), custom);
-            {
-                const Ui::LanguageScope english(Ui::Language::English);
-                EXPECT_STREQ(Ui::text("Inspector"), "Inspector");
-            }
-            EXPECT_EQ(Ui::language(), Ui::Language::Chinese);
         }
-        EXPECT_EQ(Ui::language(), Ui::Language::English);
+        EXPECT_STREQ(Ui::text("Inspector"), "Inspector");
     }
 
-    TEST_F(EditorLanguageTest, ChangingLanguageRetainsWindowAndCollapsingHeaderState) {
+    TEST_F(EditorTextTest, ChineseLabelsReuseWindowAndCollapsingHeaderState) {
         ImGuiTestContext imgui;
-        const auto draw = [&](Ui::Language language) {
-            const Ui::LanguageScope scope(language, &translations);
+        const auto draw = [&] {
             ImGui::NewFrame();
             ImGui::Begin(Ui::label("Inspector").c_str());
             const bool open = ImGui::CollapsingHeader(Ui::label("Camera").c_str());
@@ -146,42 +109,14 @@ File: 文件
             ImGui::Render();
             return open;
         };
-        draw(Ui::Language::English);
+        draw();
         auto* window = ImGui::FindWindowByName("Inspector");
         ASSERT_NE(window, nullptr);
         window->StateStorage.SetInt(window->GetID("Camera"), 1);
-        EXPECT_TRUE(draw(Ui::Language::Chinese));
+        const Ui::TextScope text(translations);
+        EXPECT_TRUE(draw());
         EXPECT_EQ(ImGui::FindWindowByName("Inspector"), window);
-        EXPECT_TRUE(draw(Ui::Language::English));
-    }
-
-    TEST_F(EditorLanguageTest, MenuEmitsOneLanguageRequestWithoutChangingGlobalState) {
-        ImGuiTestContext imgui;
-        EditorState state;
-        CommandHistory history;
-        EditorShortcuts shortcuts;
-        MenuBar menu(state, history, shortcuts);
-        const Ui::LanguageScope chinese(Ui::Language::Chinese, &translations);
-        const auto frame = [&] {
-            ImGui::NewFrame();
-            menu.render();
-            ImGui::Render();
-        };
-        frame();
-        const auto* bar = ImGui::FindWindowByName("##MainMenuBar");
-        ASSERT_NE(bar, nullptr);
-        const auto menu_id = ImHashStr("Language", 0, ImHashStr("##MenuBar", 0, bar->ID));
-        ImGui::ActivateItemByID(menu_id);
-        frame();
-        frame();
-        ASSERT_FALSE(GImGui->OpenPopupStack.empty());
-        auto* popup = GImGui->OpenPopupStack.back().Window;
-        ASSERT_NE(popup, nullptr);
-        ImGui::ActivateItemByID(popup->GetID("English"));
-        frame();
-        EXPECT_EQ(menu.take_language_request(), Ui::Language::English);
-        EXPECT_FALSE(menu.take_language_request());
-        EXPECT_EQ(Ui::language(), Ui::Language::Chinese);
+        EXPECT_TRUE(draw());
     }
 }
 #endif

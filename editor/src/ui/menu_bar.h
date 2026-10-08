@@ -3,7 +3,6 @@
 #include "editor_state.h"
 #include "scene/command_history.h"
 #include "ui/shortcuts.h"
-#include "ui/language.h"
 
 #include <filesystem>
 #include <optional>
@@ -48,7 +47,6 @@ namespace CometEditor {
         void set_available_scenes(std::vector<std::filesystem::path> scenes);
         void collect_shortcuts();
         [[nodiscard]] std::optional<Request> take_request();
-        [[nodiscard]] std::optional<Ui::Language> take_language_request();
 
         void register_panel(EditorPanel& panel);
 
@@ -67,7 +65,6 @@ namespace CometEditor {
         std::vector<EditorPanel*> m_panels;
         std::vector<std::filesystem::path> m_available_scenes;
         std::optional<Request> m_request;
-        std::optional<Ui::Language> m_requested_language;
         float m_fps = 0.0f;
     };
 

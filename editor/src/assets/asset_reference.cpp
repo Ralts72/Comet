@@ -1,5 +1,5 @@
 #include "assets/asset_reference.h"
-#include "ui/language.h"
+#include "ui/text.h"
 #include "asset/database.h"
 #include <imgui.h>
 #include <cstring>
