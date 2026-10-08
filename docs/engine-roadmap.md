@@ -50,7 +50,7 @@
 | [资产加载](../engine/src/asset)、[发布](../engine/src/render) | 导入、CPU 加载及 GPU 发布已分工；App 仍消费开发目录 | 保留内容构建／导出功能，先用只读导出目录和小索引；包文件系统、多层 locator、所有资源统一占位／重试／淘汰不作为导出前置，streaming 随场景规模扩展 |
 | [内容描述](../engine/src/scene/component_registry.h) | Descriptor 已共享编辑、序列化和内容复制 | 为动画、Prefab 等真实内容补字段／容器描述；自己已有文件需要升级时做对应迁移，不建设未知类型插件协议或永久多版本兼容矩阵 |
 | [渲染](../engine/src/render)、[图形](../engine/src/graphics) | 单队列图、逐帧提取和 Vulkan 适配；已有版本及在途保活 | 裁剪／实例化、持久代理、图资源规划继续推进；具体 GPU 适配可使用 Vulkan 类型，不先复制完整原生类型体系，不把第二后端或 RenderThread 作为新效果前置 |
-| [呈现恢复](../engine/src/render/presentation.cpp) | 交换链状态机区分目标与 surface 恢复，OOM 也进入有界自动重试 | 保留 resize／最小化、OutOfDate 和交换链退休／释放的正确时序；进一步收窄 OOM 等非暂态故障的重试，可诊断后退出或显式重试，不扩展全设备自动重建 |
+| [呈现恢复](../engine/src/render/presentation.cpp) | 交换链状态机仅对暂态错误有界重试，内存不足直接沿错误路径退出 | 保留 resize／最小化、OutOfDate 和交换链退休／释放的正确时序；不扩展全设备自动重建 |
 | 源文件监听／缓存 | 源码热编辑、异步产物和可重建缓存有实际用途 | 连续保存、防抖及旧任务拒绝保留；罕见通知失败可报告并手动 Refresh／重新打开。已有平台适配继续维护，不先扩展全部后端故障组合与自治恢复；坏派生缓存可删除重建 |
 | Lua、音频、物理 | 独立寿命的 VM／服务、有界请求及启停清理 | 保留防误写死循环、内存限制与逆序关闭；只合并相同辅助逻辑，不预建任意 Lua 状态迁移、不可信代码沙箱或通用 SimulationManager |
 | UI／语言／配置 | RmlUi 做游戏页面，ImGui 做工具；Editor 已固定中文，语言选择与偏好存储已移除 | 固定现有库选择，共用业务流程，保留中文词表和稳定控件 ID，不自动删除 ImGui 玩家面板；不预建控件兼容层、插件体系、模板市场或通用偏好框架 |
@@ -542,8 +542,8 @@ ShaderModule 只用于 Pipeline 创建，不因程序资产存在就长期缓存
    不保留可被业务绕回使用的旧入口，也不承诺所有函数 noexcept。
 2. **ImGui 第三方后端失败（暂缓）**：先明确局部资源接管／释放和中断策略，再接错误回调；
    Init 的 bool 不覆盖全部 Vulkan 失败，不能直接抛异常跳过局部资源释放，不以修改第三方源码掩盖边界。
-3. **WSI 扩展恢复**：无呈现退避、dependent 重试和 SurfaceLost 重建已接通；
-   后续收窄 OOM 等非暂态错误的自动重试；设备丢失／呈现队列不兼容可诊断后安全退出，不要求自动重新初始化整个引擎。正常 resize／最小化的交换链时序继续保留。
+3. **WSI 故障验收**：无呈现退避、暂态 dependent 重试和 SurfaceLost 重建已接通；
+   内存不足、设备丢失／呈现队列不兼容直接报告并退出。继续验收正常 resize／最小化的交换链时序，不扩展全设备自动重建。
 4. **原生数据边界**：PipelineConfig、viewport/scissor 按真实消费者整理；不复制全部 Vulkan 类型或预建多后端框架。
    ImGui Vulkan 适配仍允许在私有实现中使用原生接口。
 
@@ -600,7 +600,7 @@ ShaderModule 只用于 Pipeline 创建，不因程序资产存在就长期缓存
   启动输出偏好与重建固定组合分开传递，固定组合不可用不回退为另一种编码。
 - **WSI 无呈现恢复**：传入非空 oldSwapchain 调用创建后，无论成功失败，旧交换链都已退休。
   当前 Presentation 已区分 no-present／dependent／surface 恢复，暂时错误有界退避，失败不从退休对象 acquire。
-  创建失败后的重试使用空 oldSwapchain；dependent 重建失败复用成功新代，SurfaceLost 重建并校验新 surface。
+  临时创建失败后的重试使用空 oldSwapchain；dependent 暂时失败复用成功新代，SurfaceLost 重建并校验新 surface。
   旧资源仍须等待 graphics/present completion，再按 framebuffer → view → swapchain 顺序释放。
   规则来源：[Khronos](https://docs.vulkan.org/refpages/latest/refpages/source/VkSwapchainCreateInfoKHR.html)。
 

@@ -1289,13 +1289,13 @@ Generation 的 shared ownership 只解决寿命，不保证 WSI 可继续 acquir
 传入 oldSwapchain 调用创建后，无论成功失败旧 core 都退休。调用前取走 active 引用，旧 owner 仅保活至创建调用结束，绝不再发布为 active。
 新 Generation 用 UniqueSwapchainKHR 持有句柄，图像查询失败或包装异常都会释放新句柄。
 Presentation 区分交换链重建、dependent 重建与 surface 重建阶段；任一阶段未完成时不 acquire、不录制。
-恢复阶段的内存不足、OutOfDate、SurfaceLost、Timeout／NotReady／Incomplete 按 1／2／4 秒最多重试三次；
+恢复阶段的 OutOfDate、SurfaceLost、Timeout／NotReady／Incomplete 按 1／2／4 秒最多重试三次；
 surface format／present mode 枚举单次最多四轮，持续 INCOMPLETE 返回恢复层，不能在 owner 线程无限循环。
 dependent 暂时失败保留已成功创建的新 Generation，下次仅重建 dependent，重复释放必须兼容部分初始化状态。
 零尺寸延期保持待重建状态；无呈现时主循环继续更新，并通过短时事件等待避免忙等。
 SurfaceLost 在等待 graphics／present、释放 dependent 后重建 surface，并检查原呈现队列是否支持新 surface。
 Generation 同时保活自己的 surface，旧代外部引用不能使 surface 提前释放；实例仍须晚于全部代销毁。
-设备丢失、不支持的配置及重试耗尽以 Result 错误传过 Renderer／Engine，由 Application 统一进入退出清理。
+主机／设备内存不足、设备丢失、不支持的配置及重试耗尽以 Result 错误传过 Renderer／Engine，由 Application 统一进入退出清理。
 request_swapchain_recreation 只登记请求并重置手动重试预算；begin_frame 是唯一推进恢复的入口。
 acquire／present 的自动重建请求不重置预算；提交末尾不直接重建，避免一次调用隐含多个恢复入口。
 帧准备／录制结果沿用[一帧经过哪里](#一帧经过哪里)的 Ready／Deferred／错误协议。
@@ -1304,7 +1304,8 @@ Context 对外只提供借用 Surface 句柄，Surface owner 仅在 Context／Sw
 首次创建与恢复共用私有 Surface 候选创建函数，恢复路径额外校验当前呈现队列，再安装候选。
 
 独立 swapchain_recovery 测试重编译真实 WSI 消费者，只在测试进程重命名 Vulkan 入口，不增加生产故障注入协议。
-覆盖真实旧代退休、创建／枚举失败、OutOfDate、无 active 时关闭、有限重试与恢复后的提交，含离屏 owner 保持。
+覆盖旧代退休、创建／枚举／获取／呈现／dependent 重建的内存不足错误及退出释放；
+临时枚举失败有界重试、OutOfDate 恢复后提交，含离屏 owner 保持。
 SurfaceLost 通过 dependent 错误驱动，不模拟平台真实丢失窗口，也不替代 ImGui 人工验收。
 
 关闭先由 Engine 调用 TaskScheduler::shutdown 停止接收、排空任务并回收线程，再由 Renderer 停止新帧并等待 GPU；随后应用解绑捕获 Editor/ImGuiContext 的 callback 并释放资源。shutdown 由 owner 线程调用，不可从 Worker 调用，也不支持多个线程同时关闭；wait_idle 只等待瞬时空闲，不承担关闭职责。Engine 不直接访问 Device。独立底层 owner 的安全析构等待仍保留。资源释放顺序为：

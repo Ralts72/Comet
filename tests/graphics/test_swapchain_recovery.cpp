@@ -21,8 +21,11 @@ namespace {
     struct WsiCalls {
         bool fail_creation = false;
         bool fail_images = false;
+        bool fail_acquire = false;
+        bool fail_present = false;
         bool expire_present = false;
         bool incomplete_formats = false;
+        VkResult memory_error = VK_ERROR_OUT_OF_DEVICE_MEMORY;
         unsigned format_queries = 0;
         unsigned expire_acquires = 0;
         unsigned creates = 0;
@@ -58,7 +61,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateSwapchainKHR(VkDevice device,
             vkGetDeviceProcAddr(device, "vkDestroySwapchainKHR"));
         destroy(device, *result, allocator);
         *result = VK_NULL_HANDLE;
-        return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+        return calls.memory_error;
     }
     return status;
 }
@@ -66,7 +69,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateSwapchainKHR(VkDevice device,
 VKAPI_ATTR VkResult VKAPI_CALL vkGetSwapchainImagesKHR(
     VkDevice device, VkSwapchainKHR swapchain, uint32_t* count, VkImage* images) {
     if(calls.fail_images)
-        return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+        return calls.memory_error;
     const auto query = reinterpret_cast<PFN_vkGetSwapchainImagesKHR>(
         vkGetDeviceProcAddr(device, "vkGetSwapchainImagesKHR"));
     return query(device, swapchain, count, images);
@@ -75,6 +78,8 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetSwapchainImagesKHR(
 VKAPI_ATTR VkResult VKAPI_CALL vkAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain,
     uint64_t timeout, VkSemaphore semaphore, VkFence fence, uint32_t* image) {
     ++calls.acquires;
+    if(calls.fail_acquire)
+        return calls.memory_error;
     if(calls.expire_acquires) {
         --calls.expire_acquires;
         return VK_ERROR_OUT_OF_DATE_KHR;
@@ -87,6 +92,8 @@ VKAPI_ATTR VkResult VKAPI_CALL vkAcquireNextImageKHR(VkDevice device, VkSwapchai
 VKAPI_ATTR VkResult VKAPI_CALL vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* info) {
     ++calls.presents;
     const auto result = calls.real_present(queue, info);
+    if(calls.fail_present && result == VK_SUCCESS)
+        return calls.memory_error;
     if(calls.expire_present && result == VK_SUCCESS)
         return VK_ERROR_OUT_OF_DATE_KHR;
     return result;
@@ -226,39 +233,84 @@ namespace Comet::Tests {
             calls.fail_images = fail_images;
             presentation->request_recreation();
             ready = presentation->begin_frame();
-            ASSERT_TRUE(ready);
-            EXPECT_FALSE(ready.value());
+            ASSERT_FALSE(ready);
+            EXPECT_EQ(ready.error().result, static_cast<vk::Result>(calls.memory_error));
+            EXPECT_EQ(calls.creates, 1u);
             EXPECT_EQ(calls.previous, static_cast<VkSwapchainKHR>(old_handle));
             EXPECT_FALSE(swapchain.get_active_generation());
             EXPECT_TRUE(previous.expired());
             EXPECT_FALSE(target);
             EXPECT_EQ(rebuilds, 0u);
             const auto acquires = calls.acquires;
-            const auto creates = calls.creates;
             EXPECT_FALSE(swapchain.acquire_next_image(
                 frames->get_current_frame_slot().image_available_semaphore));
-            for(unsigned i = 0; i < 10; ++i) {
-                ready = presentation->begin_frame();
-                ASSERT_TRUE(ready);
-                EXPECT_FALSE(ready.value());
-            }
             EXPECT_EQ(calls.acquires, acquires);
-            EXPECT_EQ(calls.creates, creates);
             EXPECT_FALSE(frames->is_frame_active());
             EXPECT_EQ(frames->get_current_frame_serial(), serial);
-            calls.fail_creation = calls.fail_images = false;
-            resume();
-            EXPECT_EQ(calls.previous, VK_NULL_HANDLE);
-            EXPECT_EQ(rebuilds, 1u);
             EXPECT_EQ(offscreen.get(), retained_offscreen);
+            EXPECT_EQ(messages.str().find("scheduled retry"), std::string::npos);
         }
     };
 
-    TEST_P(SwapchainRecoveryTest, RetiredCreationFailureAutomaticallyRecovers) {
+    TEST_P(SwapchainRecoveryTest, CreationOutOfMemoryRetiresOldGenerationAndFailsImmediately) {
+        calls.memory_error = VK_ERROR_OUT_OF_HOST_MEMORY;
         verify_retirement(false);
     }
-    TEST_P(SwapchainRecoveryTest, ImageEnumerationFailureAutomaticallyRecovers) {
+    TEST_P(SwapchainRecoveryTest, ImageEnumerationOutOfMemoryReleasesCandidateAndFailsImmediately) {
         verify_retirement(true);
+    }
+
+    TEST_P(SwapchainRecoveryTest, AcquireOutOfMemoryDoesNotBeginOrSubmitFrame) {
+        calls.fail_acquire = true;
+        const auto serial = frames->get_current_frame_serial();
+        const auto ready = presentation->begin_frame();
+        ASSERT_FALSE(ready);
+        EXPECT_EQ(ready.error().result, vk::Result::eErrorOutOfDeviceMemory);
+        EXPECT_EQ(calls.acquires, 1u);
+        EXPECT_EQ(calls.creates, 0u);
+        EXPECT_EQ(calls.presents, 0u);
+        EXPECT_FALSE(frames->is_frame_active());
+        EXPECT_EQ(frames->get_current_frame_serial(), serial);
+        EXPECT_TRUE(context->get_swapchain().get_active_generation());
+    }
+
+    TEST_P(SwapchainRecoveryTest, PresentOutOfMemoryFinishesSubmittedFrameAndReturnsError) {
+        const auto ready = presentation->begin_frame();
+        ASSERT_TRUE(ready);
+        ASSERT_TRUE(ready.value());
+        const auto serial = frames->get_current_frame_serial();
+        calls.fail_present = true;
+        calls.memory_error = VK_ERROR_OUT_OF_HOST_MEMORY;
+        auto& command = frames->get_current_command_buffer();
+        target->begin_render_target(command);
+        target->end_render_target(command);
+        const auto presented = presentation->end_frame({});
+        ASSERT_FALSE(presented);
+        EXPECT_EQ(presented.error().result, vk::Result::eErrorOutOfHostMemory);
+        EXPECT_EQ(calls.presents, 1u);
+        EXPECT_EQ(calls.creates, 0u);
+        EXPECT_FALSE(frames->is_frame_active());
+        EXPECT_EQ(frames->get_current_frame_serial(), serial + 1);
+    }
+
+    TEST_P(SwapchainRecoveryTest, DependentOutOfMemoryFailsAfterCreatingNewGeneration) {
+        const auto previous = context->get_swapchain().get();
+        presentation->set_overlay({.rebuild = [](const SwapchainCompatibility&) {
+            return Result<void, GraphicsError>::failure(
+                {"Cannot rebuild overlay", vk::Result::eErrorOutOfHostMemory});
+        }});
+        presentation->request_recreation();
+        const auto ready = presentation->begin_frame();
+        ASSERT_FALSE(ready);
+        EXPECT_EQ(ready.error().result, vk::Result::eErrorOutOfHostMemory);
+        EXPECT_EQ(calls.creates, 1u);
+        EXPECT_EQ(calls.acquires, 0u);
+        EXPECT_EQ(releases, 1u);
+        EXPECT_EQ(rebuilds, 1u);
+        EXPECT_TRUE(target);
+        EXPECT_NE(context->get_swapchain().get(), previous);
+        EXPECT_TRUE(context->get_swapchain().get_active_generation());
+        EXPECT_FALSE(frames->is_frame_active());
     }
     TEST_P(SwapchainRecoveryTest, RepeatedOutOfDateAcquireDoesNotSubmitOrResetFence) {
         calls.expire_acquires = 2;
@@ -274,7 +326,7 @@ namespace Comet::Tests {
         resume();
         EXPECT_EQ(frames->get_current_frame_serial(), serial + 1);
     }
-    TEST_P(SwapchainRecoveryTest, PresentFailureFinishesFrameBeforeFailedRecreation) {
+    TEST_P(SwapchainRecoveryTest, OutOfDatePresentFinishesFrameBeforeRecreationOutOfMemory) {
         const auto ready = presentation->begin_frame();
         ASSERT_TRUE(ready);
         ASSERT_TRUE(ready.value());
@@ -283,21 +335,10 @@ namespace Comet::Tests {
         finish_frame();
         EXPECT_FALSE(frames->is_frame_active());
         EXPECT_EQ(frames->get_current_frame_serial(), serial + 1);
-        auto suspended = presentation->begin_frame();
-        ASSERT_TRUE(suspended);
-        EXPECT_FALSE(suspended.value());
-        EXPECT_FALSE(context->get_swapchain().get_active_generation());
-        calls.expire_present = calls.fail_creation = false;
-        presentation->request_recreation();
-        resume();
-        EXPECT_EQ(calls.previous, VK_NULL_HANDLE);
-    }
-    TEST_P(SwapchainRecoveryTest, ShutdownWithoutActiveSwapchain) {
-        calls.fail_creation = true;
-        presentation->request_recreation();
-        const auto ready = presentation->begin_frame();
-        ASSERT_TRUE(ready);
-        EXPECT_FALSE(ready.value());
+        const auto failed = presentation->begin_frame();
+        ASSERT_FALSE(failed);
+        EXPECT_EQ(failed.error().result, vk::Result::eErrorOutOfDeviceMemory);
+        EXPECT_EQ(calls.creates, 1u);
         EXPECT_FALSE(context->get_swapchain().get_active_generation());
         EXPECT_FALSE(frames->is_frame_active());
     }
@@ -319,18 +360,20 @@ namespace Comet::Tests {
         EXPECT_NE(context->get_swapchain().get_active_generation(), previous);
     }
 
-    TEST_P(SwapchainRecoveryTest, PersistentCreationFailureExhaustsAutomaticRetryBudget) {
-        calls.fail_creation = true;
+    TEST_P(SwapchainRecoveryTest, PersistentIncompleteSurfaceEnumerationExhaustsRetryBudget) {
+        const auto previous = context->get_swapchain().get_active_generation();
+        calls.incomplete_formats = true;
         presentation->request_recreation();
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
         while(std::chrono::steady_clock::now() < deadline) {
             const auto ready = presentation->begin_frame();
             if(!ready) {
-                EXPECT_EQ(ready.error().result, vk::Result::eErrorOutOfDeviceMemory);
-                EXPECT_EQ(calls.creates, 4u);
+                EXPECT_EQ(ready.error().result, vk::Result::eIncomplete);
+                EXPECT_EQ(calls.format_queries, 16u);
+                EXPECT_EQ(calls.creates, 0u);
                 EXPECT_EQ(calls.acquires, 0u);
                 EXPECT_FALSE(frames->is_frame_active());
-                EXPECT_FALSE(context->get_swapchain().get_active_generation());
+                EXPECT_EQ(context->get_swapchain().get_active_generation(), previous);
                 return;
             }
             EXPECT_FALSE(ready.value());

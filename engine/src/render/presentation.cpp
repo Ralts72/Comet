@@ -103,11 +103,11 @@ namespace Comet {
     Result<void, GraphicsError> Presentation::handle_failure(const GraphicsError& error) {
         if(error.result == vk::Result::eErrorSurfaceLostKHR)
             m_recovery = RecoveryStage::Surface;
-        const bool retryable =
-            error.is_out_of_memory() || error.result == vk::Result::eErrorOutOfDateKHR
-            || error.result == vk::Result::eErrorSurfaceLostKHR
-            || error.result == vk::Result::eIncomplete
-            || error.result == vk::Result::eTimeout || error.result == vk::Result::eNotReady;
+        const bool retryable = error.result == vk::Result::eErrorOutOfDateKHR
+                               || error.result == vk::Result::eErrorSurfaceLostKHR
+                               || error.result == vk::Result::eIncomplete
+                               || error.result == vk::Result::eTimeout
+                               || error.result == vk::Result::eNotReady;
         if(!retryable || !m_retry.schedule(RetryBackoff::Clock::now()))
             return Result<void, GraphicsError>::failure(error);
         m_retry_pending = true;

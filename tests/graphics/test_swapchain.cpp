@@ -89,8 +89,7 @@ namespace Comet::Tests {
                 [&](const SwapchainCompatibility&) {
                     if(++rebuilds == 1)
                         return Result<void, GraphicsError>::failure(
-                            {"temporary overlay allocation failure",
-                                vk::Result::eErrorOutOfDeviceMemory});
+                            {"overlay target is out of date", vk::Result::eErrorOutOfDateKHR});
                     return Result<void, GraphicsError>::success();
                 }});
         renderer.request_swapchain_recreation();
@@ -127,7 +126,7 @@ namespace Comet::Tests {
                 [&](const SwapchainCompatibility&) {
                     if(++rebuilds == 1)
                         return Result<void, GraphicsError>::failure(
-                            {"temporary allocation failure", vk::Result::eErrorOutOfHostMemory});
+                            {"overlay target is out of date", vk::Result::eErrorOutOfDateKHR});
                     return Result<void, GraphicsError>::success();
                 }});
         renderer.request_swapchain_recreation();

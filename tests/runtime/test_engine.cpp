@@ -424,7 +424,7 @@ namespace Comet::Tests {
                 [&](const SwapchainCompatibility&) {
                     ++rebuilds;
                     return Result<void, GraphicsError>::failure(
-                        {"temporary UI allocation failure", vk::Result::eErrorOutOfDeviceMemory});
+                        {"UI target is out of date", vk::Result::eErrorOutOfDateKHR});
                 }});
         renderer.request_swapchain_recreation();
         const auto result = engine.run({
@@ -467,6 +467,48 @@ namespace Comet::Tests {
         EXPECT_EQ(calls->updates, 1);
         EXPECT_TRUE(calls->input_focused);
         EXPECT_EQ(runtime.get_timing().frame_index, 1u);
+    }
+
+    TEST_F(EngineSceneActivationTest, PresentationOutOfMemoryStopsRuntimeAndPreservesError) {
+        auto calls = std::make_shared<RuntimeCalls>();
+        engine->set_scene(std::make_unique<Scene>());
+        ASSERT_TRUE(engine->add_system(std::make_unique<SceneMotionSystem>(calls)));
+        ASSERT_TRUE(engine->start_scene_runtime());
+        auto& renderer = engine->get_renderer();
+        int updates = 0;
+        int edits = 0;
+        int rebuilds = 0;
+        renderer.set_overlay({.rebuild = [&](const SwapchainCompatibility&) {
+            ++rebuilds;
+            return Result<void, GraphicsError>::failure(
+                {"UI memory exhausted", vk::Result::eErrorOutOfDeviceMemory});
+        }});
+        renderer.request_swapchain_recreation();
+        const auto result = engine->run({
+            .update =
+                [&](const Engine::FrameContext&) {
+                    ++updates;
+                    return Result<void, Error>::success();
+                },
+            .frame_ready =
+                [&](const Engine::FrameContext&) {
+                    ++edits;
+                    return Result<void, Error>::success();
+                },
+        });
+        renderer.set_overlay({});
+        ASSERT_FALSE(result);
+        const auto expected_error =
+            GraphicsError{"UI memory exhausted", vk::Result::eErrorOutOfDeviceMemory}.as_error();
+        EXPECT_EQ(result.error().message, expected_error.message);
+        EXPECT_EQ(result.error().code, expected_error.code);
+        EXPECT_EQ(updates, 1);
+        EXPECT_EQ(rebuilds, 1);
+        EXPECT_EQ(edits, 0);
+        EXPECT_EQ(calls->updates, 0);
+        EXPECT_FALSE(engine->get_scene_runtime().is_active());
+        EXPECT_FALSE(renderer.get_frame_scheduler().is_frame_active());
+        EXPECT_FALSE(renderer.prepare_frame());
     }
 
     TEST(EngineRunTest, RuntimeFailureStopsSystemsBeforeReturningWithoutDrawing) {
