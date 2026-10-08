@@ -626,7 +626,7 @@ namespace Comet::Ui {
         m_runtime->set_capture_active(was_capturing);
         const bool dispatched_modal = m_controller->m_modal;
         m_dispatching = true;
-        m_runtime->process_input(input, m_controller->m_modal);
+        m_runtime->process_input(input, m_controller->m_modal, m_info.view);
         m_dispatching = false;
         if(!m_event_error.empty())
             return Frame::failure({std::exchange(m_event_error, {})});
@@ -702,7 +702,7 @@ namespace Comet::Ui {
             focus(*m_controller);
         // 同一物理帧内切换 modal 时同步平台基线；下一帧的新按键可以正常导航。
         if(dispatched_modal != m_controller->m_modal)
-            m_runtime->process_input(input, m_controller->m_modal);
+            m_runtime->process_input(input, m_controller->m_modal, m_info.view);
         m_blocked |= m_controller->m_modal;
         return Frame::success({m_blocked, m_runtime->pointer_blocked()});
     }
@@ -747,8 +747,9 @@ namespace Comet::Ui {
     void ProjectUi::deactivate() {
         m_impl->deactivate();
     }
-    Result<void, GraphicsError> ProjectUi::render(OverlayRecordContext& frame) {
-        return m_impl->m_runtime->render(frame);
+    Result<void, GraphicsError> ProjectUi::render(
+        OverlayRecordContext& frame, RenderOutput output) {
+        return m_impl->m_runtime->render(frame, output);
     }
     void ProjectUi::release_swapchain_resources() {
         m_impl->m_runtime->release_swapchain_resources();

@@ -6,6 +6,7 @@
 #include "common/result.h"
 #include "graphics/result.h"
 #include "input/input.h"
+#include "ui/view.h"
 
 #include <filesystem>
 #include <functional>
@@ -50,7 +51,8 @@ namespace Comet::Ui {
 
         // 后端扩展入口；Scene/Input/Renderer 公共接口无需包含 RmlUi。
         [[nodiscard]] Rml::Context& context();
-        void process_input(const Input::Frame& input, bool modal_open);
+        void process_input(
+            const Input::Frame& input, bool modal_open, const std::optional<View>& view = {});
         void set_capture_active(bool active);
         void cancel_input();
         void stop_dispatch_preserve_focus();
@@ -65,7 +67,8 @@ namespace Comet::Ui {
         // 候选页面会触发 RmlUi 事件；业务回调在发布前应忽略这些事件。
         [[nodiscard]] bool is_loading_document() const;
 
-        [[nodiscard]] Result<void, GraphicsError> render(OverlayRecordContext& frame);
+        [[nodiscard]] Result<void, GraphicsError> render(
+            OverlayRecordContext& frame, RenderOutput output = RenderOutput::Presentation);
         void release_swapchain_resources();
         [[nodiscard]] Result<void, GraphicsError> rebuild_swapchain_resources(
             const SwapchainCompatibility& compatibility);

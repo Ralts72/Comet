@@ -40,6 +40,9 @@ namespace Comet::Ui {
         [[nodiscard]] Comet::Result<void, Comet::GraphicsError> validate(Rml::Context& context);
         [[nodiscard]] Comet::Result<void, Comet::GraphicsError> render(
             Comet::OverlayRecordContext& frame, Rml::Context& context);
+        // 在场景最终输出后合成 UI，保留本帧离屏图像供视口采样。
+        [[nodiscard]] Comet::Result<void, Comet::GraphicsError> render_offscreen(
+            Comet::OverlayRecordContext& frame, Rml::Context& context);
         // 离屏目标使用当前 frame slot；调用方负责目标的初始/最终图像状态。
         [[nodiscard]] Comet::Result<void, Comet::GraphicsError> render_to_target(
             Comet::OverlayRecordContext& frame, Rml::Context& context, const Target& target);

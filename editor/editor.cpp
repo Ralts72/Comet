@@ -31,6 +31,7 @@
 #include "input/player_input_settings.h"
 #include "project/input_widgets.h"
 #include "project/player_input_panel.h"
+#include "project/game_ui.h"
 #include "common/scope_exit.h"
 #include "render/renderer.h"
 #include "core/window.h"
@@ -192,17 +193,27 @@ namespace {
             m_inspector_panel->asset_inspector().set_material_layouts(material_layouts);
             m_project_panel->set_material_layouts(std::move(material_layouts));
 
+            m_viewport->panel().set_game_ui_available(m_project.ui().has_value());
+            m_game_ui = std::make_unique<CometEditor::GameUi>(engine, m_project);
             renderer.set_overlay(
                 {.render =
                         [this](Comet::OverlayRecordContext& overlay) {
+                            if(auto result = m_game_ui->render(overlay); !result)
+                                return result;
                             auto& command_buffer = overlay.command_buffer();
                             m_imgui_context->render(command_buffer);
 
                             return Comet::Result<void, Comet::GraphicsError>::success();
                         },
-                    .release = [this] { m_imgui_context->release_swapchain_resources(); },
+                    .release =
+                        [this] {
+                            m_game_ui->release();
+                            m_imgui_context->release_swapchain_resources();
+                        },
                     .rebuild =
                         [this](const Comet::SwapchainCompatibility& compatibility) {
+                            if(auto result = m_game_ui->rebuild(compatibility); !result)
+                                return result;
                             return m_imgui_context->rebuild_swapchain_resources(compatibility);
                         }});
 
@@ -280,16 +291,33 @@ namespace {
             m_viewport->update_texture();
             if(!m_imgui_context->begin_frame()) {
                 m_viewport->panel().cancel_interaction();
+                m_game_ui->deactivate();
                 return Comet::Result<void, Comet::Error>::success();
             }
             {
                 const Comet::ScopeExit end_ui([this] { m_imgui_context->end_frame(); });
                 draw_editor_ui(frame.physical_input);
-                const bool input_blocked = render_player_input(frame.physical_input);
-                m_runtime_input =
-                    m_viewport->panel().route_runtime_input(frame.physical_input, input_blocked);
+                bool input_blocked = render_player_input(frame.physical_input);
+                bool pointer_blocked = false;
                 if(auto viewport = m_viewport->update(get_engine().get_scene()); !viewport)
                     return viewport;
+                auto& panel = m_viewport->panel();
+                if(panel.take_game_ui_reload_request())
+                    m_game_ui->reload();
+                const auto output = get_engine().get_renderer().get_offscreen_frame();
+                const auto ui =
+                    m_game_ui->frame(panel.route_game_ui_input(frame.physical_input, input_blocked),
+                        {.fps = frame.update.fps,
+                            .game_available = m_editor_state.mode == CometEditor::EditorMode::Play
+                                              && get_engine().get_scene_runtime().is_active(),
+                            .view = panel.game_ui_view(
+                                output.size, get_engine().get_window().get_content_scale().x)});
+                if(!ui)
+                    return Comet::Result<void, Comet::Error>::failure(ui.error());
+                input_blocked |= ui.value().blocked;
+                pointer_blocked = ui.value().pointer_blocked;
+                m_runtime_input = m_viewport->panel().route_runtime_input(
+                    frame.physical_input, input_blocked, pointer_blocked);
             }
             m_viewport->submit_feedback(get_engine().get_scene());
             return Comet::Result<void, Comet::Error>::success();
@@ -316,6 +344,9 @@ namespace {
             get_engine().get_window().confirm_close_requests(false);
             LOG_INFO("Editor shutting down...");
             get_engine().get_renderer().set_overlay({});
+            if(m_game_ui)
+                m_game_ui->deactivate();
+            m_game_ui.reset();
             get_engine().get_renderer().set_viewport_pick_callback({});
             if(m_viewport)
                 m_viewport->panel().cancel_interaction();
@@ -568,6 +599,8 @@ namespace {
             if(m_viewport)
                 m_viewport->panel().cancel_interaction();
             m_player_input_panel.close();
+            if(m_game_ui)
+                m_game_ui->deactivate();
             m_player_input_settings.reset();
             m_player_input_error.clear();
             auto previous = get_engine().replace_scene(std::move(scene));
@@ -620,6 +653,7 @@ namespace {
         Comet::Result<void> open_player_input() {
             if(m_player_input_panel.is_open())
                 return Comet::Result<void>::success();
+            m_game_ui->deactivate();
             auto settings = Comet::PlayerInputSettings::load(m_project.id());
             if(!settings) {
                 m_player_input_error = settings.error();
@@ -745,7 +779,9 @@ namespace {
             m_project_settings.render(m_editor_state.mode == CometEditor::EditorMode::Edit, input);
             m_shortcut_settings_dialog.render();
             draw_unsaved_dialog();
-            if(!m_scene_document->has_pending_request())
+            bool allow_shortcuts = !m_scene_document->has_pending_request();
+            allow_shortcuts &= !m_game_ui->is_modal();
+            if(allow_shortcuts)
                 m_menu_bar->collect_shortcuts();
         }
 
@@ -770,6 +806,7 @@ namespace {
         Comet::Result<void, Comet::Error> process_editor_requests() {
             const auto settings = m_project_settings.update();
             if(settings.input_changed) {
+                m_game_ui->reset();
                 if(auto configured = get_engine().set_input_actions(m_project.input_actions());
                     !configured)
                     LOG_WARN("Project input actions were saved; restart the editor to apply: {}",
@@ -1076,6 +1113,7 @@ namespace {
         std::optional<Comet::PlayerInputSettings> m_player_input_settings;
         std::string m_player_input_error;
         std::unique_ptr<CometEditor::Ui::ImGuiContext> m_imgui_context;
+        std::unique_ptr<CometEditor::GameUi> m_game_ui;
         std::unique_ptr<CometEditor::EditorAssets> m_assets;
         std::unique_ptr<CometEditor::MaterialShaderReload> m_material_shader_reload;
         std::optional<CometEditor::SelectionService> m_selection;

@@ -1,4 +1,5 @@
 #include "ui/rml_renderer.h"
+#include "common/scope_exit.h"
 #include "support/render_gpu_test.h"
 
 #include "core/window.h"
@@ -55,6 +56,8 @@ namespace Comet::Tests {
                         float(std::to_integer<unsigned char>(bytes[index * 4 + channel])) / 255;
                 }
             }
+            if(format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM)
+                std::swap(value.r, value.b);
             return value;
         }
 
@@ -68,7 +71,7 @@ namespace Comet::Tests {
             const float alpha, const Format format) {
             Math::Vec3 value;
             for(int channel = 0; channel < 3; ++channel) {
-                if(format == Format::R8G8B8A8_UNORM) {
+                if(format == Format::R8G8B8A8_UNORM || format == Format::B8G8R8A8_UNORM) {
                     // UNORM 沿现有呈现编码域混合。
                     value[channel] =
                         straight_srgb[channel] * alpha + background[channel] * (1 - alpha);
@@ -76,7 +79,7 @@ namespace Comet::Tests {
                 }
                 value[channel] =
                     decode_srgb(straight_srgb[channel]) * alpha + background[channel] * (1 - alpha);
-                if(format == Format::R8G8B8A8_SRGB)
+                if(format == Format::R8G8B8A8_SRGB || format == Format::B8G8R8A8_SRGB)
                     value[channel] = encode_srgb(value[channel]);
             }
             return value;
@@ -298,6 +301,78 @@ namespace Comet::Tests {
             renderer.set_overlay({});
             probe->draw = {};
         }
+    }
+
+    TEST_F(RmlUiGpuTest, SceneOutputCompositionKeepsBackgroundAcrossFrameSlotsAndResize) {
+        auto& renderer = engine->get_renderer();
+        auto& host = renderer.get_render_context();
+        ASSERT_TRUE(prepare_offscreen_host({32, 32}));
+        auto& interface = ui->interface();
+        const auto vertices = quad({128, 32, 0, 128});
+        const auto geometry = interface.CompileGeometry(
+            {vertices.data(), vertices.size()}, {QUAD_INDICES.data(), QUAD_INDICES.size()});
+        ASSERT_NE(geometry, 0u);
+        const ScopeExit release([&] { interface.ReleaseGeometry(geometry); });
+        probe->draw = [&] { interface.RenderGeometry(geometry, {0, 0}, 0); };
+        for(const auto size : {Math::Vec2u(32, 32), Math::Vec2u(64, 48)}) {
+            SCOPED_TRACE(::testing::Message() << size.x << "x" << size.y);
+            ASSERT_TRUE(renderer.set_render_view({.visible = true, .render_size = size}));
+            context->SetDimensions({int(size.x), int(size.y)});
+            ASSERT_TRUE(context->Update());
+            auto readback = std::make_shared<Readback>(
+                host.get_device(), host.get_context().get_physical_device(), size.x * size.y * 4);
+            ASSERT_TRUE(readback->get());
+            bool draw_ui = false;
+            Format format = Format::UNDEFINED;
+            renderer.set_overlay({.render = [&](OverlayRecordContext& frame) {
+                const auto output = renderer.get_offscreen_frame();
+                EXPECT_EQ(output.size, size);
+                const auto image = output.color_view->get_image();
+                format = image->get_info().format;
+                if(draw_ui)
+                    if(auto rendered = ui->render_offscreen(frame, *context); !rendered)
+                        return rendered;
+                copy_target(frame, image, readback, size);
+                vk::ImageMemoryBarrier2 restore;
+                restore.srcStageMask = vk::PipelineStageFlagBits2::eTransfer;
+                restore.srcAccessMask = vk::AccessFlagBits2::eTransferRead;
+                restore.dstStageMask = vk::PipelineStageFlagBits2::eFragmentShader;
+                restore.dstAccessMask = vk::AccessFlagBits2::eShaderRead;
+                restore.oldLayout = vk::ImageLayout::eTransferSrcOptimal;
+                restore.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+                restore.srcQueueFamilyIndex = restore.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                restore.image = image->get();
+                restore.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+                auto& command = frame.command_buffer();
+                command.get().pipelineBarrier2(
+                    vk::DependencyInfo{}.setImageMemoryBarriers(restore));
+                presentation_target->begin_render_target(command);
+                presentation_target->end_render_target(command);
+                return Result<void, GraphicsError>::success();
+            }});
+            ASSERT_TRUE(presentation_frame());
+            renderer.wait_idle();
+            ASSERT_TRUE(format == Format::R8G8B8A8_UNORM || format == Format::B8G8R8A8_UNORM
+                        || format == Format::R8G8B8A8_SRGB || format == Format::B8G8R8A8_SRGB);
+            const auto baseline = readback->read();
+            auto background = Math::Vec3(pixel(baseline, size, {12, 12}, format));
+            if(format == Format::R8G8B8A8_SRGB || format == Format::B8G8R8A8_SRGB)
+                for(int channel = 0; channel < 3; ++channel)
+                    background[channel] = decode_srgb(background[channel]);
+            draw_ui = true;
+            const auto slots = renderer.get_frame_scheduler().get_frame_slot_count();
+            for(unsigned frame = 0; frame < slots + 1; ++frame) {
+                ASSERT_TRUE(presentation_frame());
+                renderer.wait_idle();
+                const auto pixels = readback->read();
+                expect_color(pixels, size, {28, 28}, format,
+                    Math::Vec3(pixel(baseline, size, {28, 28}, format)));
+                expect_color(pixels, size, {12, 12}, format,
+                    expected_pixel(background, {1, 0.25f, 0}, 128.f / 255, format));
+            }
+            renderer.set_overlay({});
+        }
+        probe->draw = {};
     }
 
     TEST_F(RmlUiGpuTest, LinearAtlasFilteringKeepsTransparentEdgesWithoutColorFringes) {

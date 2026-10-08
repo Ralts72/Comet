@@ -108,6 +108,8 @@
 "Primary means Cmd on macOS and Ctrl elsewhere.": "Primary 在 macOS 上是 Cmd，其他平台是 Ctrl。"
 "Hierarchy": "层级"
 "Viewport": "视口"
+"Game UI": "游戏 UI"
+"Reload UI": "重载 UI"
 "Inspector": "属性"
 "Project": "项目"
 "Log": "日志"

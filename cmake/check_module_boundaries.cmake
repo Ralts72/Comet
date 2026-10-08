@@ -136,7 +136,7 @@ check_includes("${ENGINE_SOURCE}" "${ENGINE_FILES}"
 set(ENGINE_CORE_FILES ${ENGINE_FILES})
 list(FILTER ENGINE_CORE_FILES EXCLUDE REGEX "^ui/")
 check_includes("${ENGINE_SOURCE}" "${ENGINE_CORE_FILES}" "RmlUi/|ui/rml_"
-    "Only the optional Engine UI module may depend on RmlUi")
+    "Only the Engine UI module may depend on RmlUi")
 
 set(LOW_LEVEL_FILES)
 foreach(directory common input scene scripting audio physics)

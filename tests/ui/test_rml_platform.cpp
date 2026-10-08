@@ -259,6 +259,56 @@ namespace Comet::Ui {
         button->RemoveEventListener("click", &counter);
     }
 
+    TEST_F(RmlPlatformTest, ViewMapsWindowCoordinatesAndRejectsClippedClicksAndOutsideReleases) {
+        View view{.origin = {100, 50},
+            .size = {160, 120},
+            .pixel_size = {320, 240},
+            .density = 1,
+            .clip = View::Clip{{120, 50}, {140, 120}}};
+        const auto tick_view = [&] {
+            platform.update(*context, window, window.publish_input_frame(), false, view);
+            context->Update();
+        };
+        tick_view();
+        tick_view();
+        EXPECT_EQ(context->GetDimensions(), Rml::Vector2i(320, 240));
+        auto* button = document->GetElementById("first");
+        EventCounter counter;
+        button->AddEventListener("click", &counter);
+        const ScopeExit detach([&] { button->RemoveEventListener("click", &counter); });
+
+        // 视口半尺寸显示，窗口 (130, 70) 对应 UI 像素 (60, 40)。
+        move_cursor(130, 70);
+        tick_view();
+        mouse(window.get(), GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, 0);
+        mouse(window.get(), GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, 0);
+        tick_view();
+        EXPECT_EQ(counter.clicks, 1);
+
+        move_cursor(105, 70);
+        mouse(window.get(), GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, 0);
+        mouse(window.get(), GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, 0);
+        tick_view();
+        EXPECT_EQ(counter.clicks, 1);
+        move_cursor(130, 70);
+        mouse(window.get(), GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, 0);
+        tick_view();
+        move_cursor(105, 70);
+        mouse(window.get(), GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, 0);
+        tick_view();
+        EXPECT_EQ(counter.clicks, 1);
+
+        view.pixel_size = {640, 480};
+        view.density = 2;
+        tick_view();
+        move_cursor(130, 70);
+        mouse(window.get(), GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, 0);
+        mouse(window.get(), GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, 0);
+        tick_view();
+        EXPECT_EQ(counter.clicks, 2);
+        EXPECT_EQ(context->GetDimensions(), Rml::Vector2i(640, 480));
+    }
+
     TEST_F(RmlPlatformTest, LockedCursorKeepsHudPointerUnownedAndGameClickAvailable) {
         glfwFocusWindow(window.get());
         for(int attempt = 0; attempt < 50; ++attempt) {

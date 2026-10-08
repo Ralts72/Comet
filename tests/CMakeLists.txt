@@ -121,6 +121,7 @@ set(INTEGRATION_SOURCES
         ui/test_rml_platform.cpp
         editor/integration/test_material_editing.cpp
         editor/integration/test_viewport.cpp
+        editor/integration/test_game_ui.cpp
         graphics/test_allocator.cpp
         graphics/test_barrier.cpp
         graphics/test_creation.cpp
@@ -233,7 +234,7 @@ if(COMET_BUILD_EDITOR)
     add_test(NAME editor_ui_testing COMMAND editor_ui_testing)
     set_tests_properties(editor_ui_testing PROPERTIES LABELS "integration;ui")
 endif()
-set(SYNC_VALIDATION_FILTER "RenderGraphGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.*:ImGuiOverlayGpuTest.*:RmlUiGpuTest.*:RmlContextGpuTest.*:ProjectUiGpuTest.*:OverlayRecordContextTest.*")
+set(SYNC_VALIDATION_FILTER "RenderGraphGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.*:ImGuiOverlayGpuTest.*:RmlUiGpuTest.*:RmlContextGpuTest.*:ProjectUiGpuTest.*:EditorGameUiGpuTest.*:OverlayRecordContextTest.*")
 add_test(NAME integration_testing COMMAND integration_testing
         "--gtest_filter=-${SYNC_VALIDATION_FILTER}" ${TEST_PLATFORM_ARGS})
 set_tests_properties(integration_testing PROPERTIES LABELS "integration;gpu" RESOURCE_LOCK comet_gpu)

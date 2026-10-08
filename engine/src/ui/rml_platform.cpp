@@ -211,12 +211,25 @@ namespace Comet::Ui {
     }
 
     void RmlPlatform::update(Rml::Context& context, const Comet::Window& window,
-        const Input::Frame& frame, const bool modal_open) {
-        const auto framebuffer = window.get_framebuffer_size();
-        const auto size = window.get_size();
-        const auto scale = window.get_content_scale();
-        context.SetDimensions({static_cast<int>(framebuffer.x), static_cast<int>(framebuffer.y)});
-        context.SetDensityIndependentPixelRatio(scale.x);
+        const Input::Frame& frame, const bool modal_open,
+        const std::optional<View>& supplied_view) {
+        const View view = supplied_view.value_or(View{.size = Math::Vec2(window.get_size()),
+            .pixel_size = window.get_framebuffer_size(),
+            .density = window.get_content_scale().x});
+        const auto framebuffer = view.pixel_size;
+        const auto size = view.size;
+        const bool valid = framebuffer.x && framebuffer.y
+                           && framebuffer.x <= std::uint32_t(std::numeric_limits<int>::max())
+                           && framebuffer.y <= std::uint32_t(std::numeric_limits<int>::max())
+                           && size.x > 0 && size.y > 0 && std::isfinite(size.x)
+                           && std::isfinite(size.y) && std::isfinite(view.origin.x)
+                           && std::isfinite(view.origin.y) && view.density > 0
+                           && std::isfinite(view.density);
+        if(valid) {
+            context.SetDimensions(
+                {static_cast<int>(framebuffer.x), static_cast<int>(framebuffer.y)});
+            context.SetDensityIndependentPixelRatio(view.density);
+        }
 
         const bool fresh = !m_serial || frame.serial != *m_serial;
         const bool skipped = m_serial && frame.serial != *m_serial && frame.serial != *m_serial + 1;
@@ -224,7 +237,7 @@ namespace Comet::Ui {
         const bool acquiring = modal_open && !m_modal_open;
         const bool closing = !modal_open && m_modal_open;
         const bool capture_changed = m_capture_active != m_previous_capture;
-        const bool enabled = frame.focused && framebuffer.x && framebuffer.y && size.x && size.y;
+        const bool enabled = frame.focused && valid;
         m_cancelled = false;
         if(interrupted || closing || (!enabled && m_window_accepting))
             cancel_input(context);
@@ -301,16 +314,21 @@ namespace Comet::Ui {
                         context.ProcessTextInput(static_cast<Rml::Character>(event.codepoint));
                     break;
                 case UiEvent::Type::MouseMove:
-                    if(pointer.pointer_enabled)
-                        context.ProcessMouseMove(pixel_coordinate(event.position.x, x_scale),
-                            pixel_coordinate(event.position.y, y_scale), modifiers);
+                    if(pointer.pointer_enabled && view.contains(event.position))
+                        context.ProcessMouseMove(
+                            pixel_coordinate(event.position.x - view.origin.x, x_scale),
+                            pixel_coordinate(event.position.y - view.origin.y, y_scale), modifiers);
+                    else
+                        context.ProcessMouseLeave();
                     break;
                 case UiEvent::Type::MouseDown: {
-                    if(!pointer.pointer_enabled || !frame.mouse(event.button).pressed)
+                    if(!pointer.pointer_enabled || !view.contains(event.position)
+                        || !frame.mouse(event.button).pressed)
                         break;
                     const auto index = static_cast<size_t>(event.button);
-                    context.ProcessMouseMove(pixel_coordinate(event.position.x, x_scale),
-                        pixel_coordinate(event.position.y, y_scale), modifiers);
+                    context.ProcessMouseMove(
+                        pixel_coordinate(event.position.x - view.origin.x, x_scale),
+                        pixel_coordinate(event.position.y - view.origin.y, y_scale), modifiers);
                     if(m_cancelled)
                         break;
                     m_mouse_down.set(index);
@@ -320,8 +338,15 @@ namespace Comet::Ui {
                 case UiEvent::Type::MouseUp: {
                     const auto index = static_cast<size_t>(event.button);
                     if(m_mouse_down[index]) {
-                        context.ProcessMouseMove(pixel_coordinate(event.position.x, x_scale),
-                            pixel_coordinate(event.position.y, y_scale), modifiers);
+                        if(!view.contains(event.position)) {
+                            context.ProcessMouseLeave();
+                            m_mouse_down.reset(index);
+                            context.ProcessMouseButtonUp(static_cast<int>(index), modifiers);
+                            break;
+                        }
+                        context.ProcessMouseMove(
+                            pixel_coordinate(event.position.x - view.origin.x, x_scale),
+                            pixel_coordinate(event.position.y - view.origin.y, y_scale), modifiers);
                         if(m_cancelled)
                             break;
                         m_mouse_down.reset(index);

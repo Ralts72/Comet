@@ -308,8 +308,9 @@ namespace Comet::Ui {
     Rml::Context& RmlContext::context() {
         return *m_impl->m_context;
     }
-    void RmlContext::process_input(const Input::Frame& input, bool modal_open) {
-        m_impl->m_platform.update(*m_impl->m_context, m_impl->m_window, input, modal_open);
+    void RmlContext::process_input(
+        const Input::Frame& input, bool modal_open, const std::optional<View>& view) {
+        m_impl->m_platform.update(*m_impl->m_context, m_impl->m_window, input, modal_open, view);
     }
     void RmlContext::set_capture_active(bool active) {
         m_impl->m_platform.set_capture_active(active);
@@ -339,7 +340,10 @@ namespace Comet::Ui {
     bool RmlContext::is_loading_document() const {
         return m_impl->m_loading_document;
     }
-    Result<void, GraphicsError> RmlContext::render(OverlayRecordContext& frame) {
+    Result<void, GraphicsError> RmlContext::render(
+        OverlayRecordContext& frame, RenderOutput output) {
+        if(output == RenderOutput::Offscreen)
+            return m_impl->m_renderer->render_offscreen(frame, *m_impl->m_context);
         return m_impl->m_renderer->render(frame, *m_impl->m_context);
     }
     void RmlContext::release_swapchain_resources() {

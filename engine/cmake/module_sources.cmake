@@ -204,6 +204,7 @@ set(COMET_RENDER_SOURCES
 )
 
 set(COMET_GAME_UI_SOURCES
+    src/ui/view.h
     src/ui/rml_context.cpp
     src/ui/rml_platform.cpp
     src/ui/rml_renderer.cpp

@@ -12,6 +12,40 @@
 namespace CometEditor::Tests {
     using ViewportPlayUiTest = ViewportUiTest;
 
+    TEST_F(ViewportPlayUiTest, ProjectUiInputUsesPlayFocusAndReleasesBeforeGameReacquires) {
+        using Key = Comet::Input::Key;
+        viewport.set_game_ui_available(true);
+        auto view = viewport.game_ui_view({1600, 1200}, 2);
+        ASSERT_TRUE(view);
+        EXPECT_EQ(view->pixel_size, Comet::Math::Vec2u(1600, 1200));
+        EXPECT_EQ(view->size, viewport.get_layout().image_display_rect.size());
+        EXPECT_FALSE(viewport.route_game_ui_input(runtime_input.get_frame(), false).focused);
+        activate_play_camera();
+        const auto tick_ui = [&](bool blocked = false) {
+            return viewport.route_game_ui_input(runtime_input.publish_frame(), blocked);
+        };
+        ASSERT_TRUE(tick_ui().focused);
+        runtime_input.key_event(Key::W, true);
+        EXPECT_TRUE(tick_ui().key(Key::W).pressed);
+        auto blocked = tick_ui(true);
+        EXPECT_FALSE(blocked.focused);
+        EXPECT_TRUE(blocked.key(Key::W).released);
+        EXPECT_FALSE(tick_ui().key(Key::W).down);
+        runtime_input.key_event(Key::W, false);
+        tick_ui();
+        runtime_input.key_event(Key::W, true);
+        EXPECT_TRUE(tick_ui().key(Key::W).pressed);
+        move_pointer({2000, 2000});
+        EXPECT_TRUE(tick_ui().focused);
+        EXPECT_FALSE(tick_ui().pointer_enabled);
+        EXPECT_FALSE(
+            viewport.route_runtime_input(runtime_input.get_frame(), false, true).pointer_enabled);
+        state.mode = EditorMode::Edit;
+        const auto stopped = tick_ui();
+        EXPECT_FALSE(stopped.focused);
+        EXPECT_TRUE(stopped.key(Key::W).released);
+    }
+
     TEST_F(ViewportPlayUiTest, CameraCaptureKeepsRelativeMotionOutsideImageUntilRelease) {
         using Actions = Comet::InputActions;
         auto actions = Actions::create(

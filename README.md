@@ -1,6 +1,6 @@
 # Comet 引擎
 
-Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui 编辑器，目前重点是场景编辑、资产导入和单视口交互。Play 与示例 app 还支持固定步刚体模拟和基础音频播放；app 正在试接 RmlUi 游戏界面。
+Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，使用 C++20、CMake 和 Vulkan。目前重点是场景编辑、资产导入和单视口交互。Play 与示例 app 还支持固定步刚体模拟和基础音频播放；两者共用 RmlUi 项目游戏界面。动画、粒子、GI、路径追踪、渲染线程及内容导出继续按路线图推进；工程实现围绕实际使用和实测性能收敛，不预建通用 SDK 或插件生态。
 
 ## 项目结构
 
@@ -9,7 +9,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 | `engine/src/` | 引擎库：基础与数据模块，以及 runtime、audio、render、graphics 等运行后端 |
 | `engine/shaders/` | 生产 Shader，按 material、lighting、shadow、environment、debug、post、common 分目录；仅编译 CMake 显式列表 |
 | `engine/resources/fonts/` | App／Editor 共用的 Roboto Bold 与 Noto Sans SC Bold 字体 |
-| `engine/src/ui/` | 合入 engine 的可选游戏 UI 对象模块 `comet_game_ui`：RmlUi 呈现、输入适配与项目 Lua 控制器桥接；不包含固定项目页面或菜单流程 |
+| `engine/src/ui/` | 合入 engine 的游戏 UI 对象模块 `comet_game_ui`：RmlUi 呈现、输入适配与项目 Lua 控制器桥接；不包含固定项目页面或菜单流程 |
 | `tools/shader/` | 共用 CPU Shader 编译库与构建 CLI，不链接 engine 运行时 |
 | `tools/asset/` | 编辑器与独立工具共用的项目 Shader 导入，以及无窗口的启动场景资产准备入口 |
 | `tools/render_benchmark/` | 固定场景渲染性能基准及一键运行脚本，链接 engine，不依赖测试框架或编辑器 |
@@ -33,7 +33,7 @@ Comet 是使用 C++20、CMake 和 Vulkan 开发的实验性 3D 引擎与 ImGui �
 需要 CMake 3.31+、C++20 编译器、Vulkan SDK、Git LFS 和 Submodule。
 SPIRV-Reflect、glslang、Jolt Physics、miniaudio、Lua、RmlUi 6.3 和 FreeType 2.14.3 由固定提交 submodule 提供。
 RmlUi 只链接 Core，FreeType 随源码静态构建，无需安装系统字体库。
-`COMET_BUILD_GAME_UI` 在现有构建中选择引擎游戏 UI 能力；构建示例 app 或测试时默认开启并要求启用，纯 editor 构建默认关闭。
+Engine 始终包含游戏 UI 能力；App 和 Editor 按项目的 `ui` 入口决定是否装载界面，视口的“游戏 UI”控制显示。
 构建会生成 `comet_shader_compiler`，无需安装 `glslangValidator`；engine／app 不链接源编译器。
 
 ```bash
@@ -102,7 +102,6 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 `comet_render` 编排渲染与资产发布；各层使用自己的配置值，完整 Config 仅由宿主聚合。
 `comet_game_ui` 通过 `engine/cmake/game_ui.cmake` 作为对象模块汇入 engine，App 只链接 engine。
 UI 的 RmlUi Core 使用共享库，扩展与 engine 共用一份全局上下文；FreeType 仍静态编入 Core。
-纯 Editor 配置可关闭 `COMET_BUILD_GAME_UI`，不编译或链接 RmlUi／FreeType。
 窗口、渲染和具体系统由 engine 组合。
 World 保存场景内容，不依赖 Input 或 Runtime；运行输入和本局状态归 Runtime。
 编辑器分为无 ImGui 的 `editor_core`、ImGui 呈现适配 `editor_imgui` 与功能界面 `editor_ui`；新增源码需维护所属库清单。
@@ -337,7 +336,7 @@ demo 的首个标准手柄也可操作这些玩法，绑定仍来自 `project.js
 | 重新开始 | R | Start |
 
 调色组按绑定消费对应手柄按钮，得分后游戏组同样停用；相机和公共重开不受影响。
-app 的 Start 优先打开控制设置，重开使用键盘 R；Editor Play 的 Start 仍按项目绑定重开。
+启用项目 UI 时，App／Editor Play 的 Start 优先打开控制设置，重开使用键盘 R；关闭游戏 UI 的 Editor 仍按项目绑定处理 Start。
 菜单导航有模拟手柄回归，真实硬件体验仍需验收。
 项目 `.lua` 位于 assets，由 `.meta` 提供身份，也可从 Finder 导入；新增脚本无需改 CMake 或重编译宿主。
 引擎私有链接 Lua 5.4.8；参数编辑与运行限制见下方“场景运行时”。
@@ -444,7 +443,10 @@ demo 得分后禁用 `gameplay` 组，方向键移动、空格切换与 J 冲量
 
 App 通过画面右上角“设置”、F1 或手柄 Start 打开 RmlUi 控制菜单，提供 FPS HUD、动作切换、
 按钮录入、禁用、恢复默认、应用和取消。Tab／方向键或手柄方向键导航，Enter／South 确认，Esc／East 返回。
-Editor Play 通过工具栏“输入”打开 ImGui 玩家面板，暂停时也可编辑；两种界面复用同一改键模型和个人文件。
+Editor 游戏视口的“游戏 UI”控制项目界面显示：Edit 预览 HUD，Play 使用同一页面与 Lua 控制器，暂停时菜单仍可操作。
+工具栏“重载 UI”重新装载页面和控制器；初次装载失败不影响编辑，修正源码后可重试。
+工具栏“输入”仍打开 ImGui 玩家面板；打开时关闭项目菜单，两者共用改键模型和个人文件，各自持有草稿。
+视口失焦、隐藏和 Stop 释放输入；菜单关闭当帧阻断游戏，Esc 在菜单内返回，菜单关闭后才用于 Stop。
 app 首轮不提供来源、倍率和死区编辑，已有这些字段及未显示的覆盖记录仍保留。
 
 项目通过 `project.json` 的可选 `ui` 声明页面和 Lua 控制器，路径相对 assets：
@@ -466,7 +468,7 @@ Lua 编排界面操作；录入、草稿校验和提交状态由 Engine 的 C++ 
 demo 按 F6 手动重载页面与控制器，候选失败保留旧页面、控制器和改键草稿；
 成功重载迁移 `state` 中的标量及已有模型值，取消正在进行的按键录入。
 资产扫描接受 `.rml`／`.rcss`／`.ui.lua` 源文件，不生成 `.meta` 或资产句柄；组件脚本继续使用普通 `.lua`。
-项目 UI 资产发布、Editor Play 共用控制器、自动监视、完整 macOS 中文预编辑与滤镜／图层仍在[路线图](docs/engine-roadmap.md#项目-ui-入口与控制器部分实现)。
+项目 UI 的后续交互验收、资源导出、IME、滤镜与图层等功能计划见[路线图](docs/engine-roadmap.md#项目-ui-入口与控制器部分实现)。
 已提交 Unicode 文本与中文字体支持不能替代完整 IME 验收。
 
 以下高级控件说明适用于 Editor 玩家面板：

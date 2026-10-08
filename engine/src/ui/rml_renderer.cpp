@@ -1,4 +1,5 @@
 #include "rml_renderer.h"
+#include "graphics/frame_buffer.h"
 
 #include "asset/data/texture_data.h"
 #include "common/scope_exit.h"
@@ -100,6 +101,29 @@ namespace Comet::Ui {
         static_assert(sizeof(GeometryParameters) == 80);
         static_assert(sizeof(int) == sizeof(std::uint32_t));
         static_assert(sizeof(Rml::ColourbPremultiplied) == 4);
+    }
+
+    namespace {
+        class ViewTarget final: public Comet::RenderTarget {
+        public:
+            ViewTarget(Comet::Device& device, std::shared_ptr<Comet::RenderPass> pass,
+                std::shared_ptr<Comet::ImageView> view, std::shared_ptr<Comet::FrameBuffer> buffer,
+                Comet::Math::Vec2u size)
+                : RenderTarget(device, *pass, size, 1), m_pass(std::move(pass)),
+                  m_view(std::move(view)), m_buffer(std::move(buffer)) {}
+
+            std::shared_ptr<Comet::FrameBuffer> get_framebuffer(uint32_t) const override {
+                return m_buffer;
+            }
+            std::shared_ptr<Comet::ImageView> get_color_view(uint32_t) const override {
+                return m_view;
+            }
+
+        private:
+            std::shared_ptr<Comet::RenderPass> m_pass;
+            std::shared_ptr<Comet::ImageView> m_view;
+            std::shared_ptr<Comet::FrameBuffer> m_buffer;
+        };
     }
 
     class RmlRenderer::Impl final: public Rml::RenderInterface {
@@ -389,6 +413,7 @@ namespace Comet::Ui {
 
         void release_swapchain_resources() {
             m_swapchain_target = {};
+            m_offscreen_targets.clear();
             m_pipeline_cache.clear();
         }
 
@@ -442,7 +467,7 @@ namespace Comet::Ui {
         }
 
         Status render(Comet::OverlayRecordContext& frame, Rml::Context& context,
-            const Target& target, const bool swapchain) {
+            const Target& target, const bool swapchain, const uint32_t target_index) {
             if(auto pending = take_error())
                 return Status::failure(std::move(*pending));
             if(m_recording || m_validating)
@@ -479,7 +504,7 @@ namespace Comet::Ui {
             if(swapchain)
                 target.target->begin_render_target(command);
             else
-                target.target->begin_render_target(command, frame.frame_slot());
+                target.target->begin_render_target(command, target_index);
             const Comet::ScopeExit end_pass([&] { target.target->end_render_target(command); });
             command.set_viewport(vk::Viewport(0, 0, float(size.x), float(size.y), 0, 1));
             command.bind_pipeline(*m_active_pipeline->pipeline);
@@ -496,7 +521,67 @@ namespace Comet::Ui {
 
         Target m_swapchain_target;
 
+        Status render_offscreen(Comet::OverlayRecordContext& frame, Rml::Context& context) {
+            const auto output = m_renderer.get_offscreen_frame();
+            if(!output.color_view || output.size.x == 0 || output.size.y == 0)
+                return Status::failure({"RmlUi scene output is unavailable"});
+            if(output.slot != frame.frame_slot())
+                return Status::failure({"RmlUi scene output does not match the active frame"});
+            const auto format = output.color_view->get_image()->get_info().format;
+            if(m_offscreen_targets.size() <= output.slot)
+                m_offscreen_targets.resize(output.slot + 1);
+            auto& target = m_offscreen_targets[output.slot];
+            if(!target.target || target.target->get_color_view(0) != output.color_view) {
+                std::shared_ptr<Comet::RenderPass> pass;
+                for(const auto& cached : m_offscreen_targets)
+                    if(cached.pass && cached.format == format) {
+                        pass = cached.pass;
+                        break;
+                    }
+                if(!pass) {
+                    auto color = Comet::Attachment::get_color_attachment(format);
+                    color.description.load_op = Comet::AttachmentLoadOp::Load;
+                    color.description.store_op = Comet::AttachmentStoreOp::Store;
+                    color.description.initial_layout = Comet::ImageLayout::ColorAttachmentOptimal;
+                    color.description.final_layout = Comet::ImageLayout::ShaderReadOnlyOptimal;
+                    auto created = Comet::RenderPass::create(m_device, {color},
+                        {{.color_attachments = {Comet::SubpassColorAttachment(0)}}}, format);
+                    if(!created)
+                        return Status::failure(created.error());
+                    pass = std::move(created).value();
+                }
+                auto buffer = Comet::FrameBuffer::try_create(
+                    m_device, *pass, {output.color_view}, output.size.x, output.size.y);
+                if(!buffer)
+                    return Status::failure(buffer.error());
+                auto color_space = Comet::ImageColorSpace::SrgbNonlinearKHR;
+                if(format == Comet::Format::R16G16B16A16_SFLOAT)
+                    color_space = Comet::ImageColorSpace::ExtendedSrgbLinearEXT;
+                target = {pass,
+                    std::make_shared<ViewTarget>(
+                        m_device, pass, output.color_view, std::move(buffer).value(), output.size),
+                    format, color_space};
+            }
+            vk::ImageMemoryBarrier2 barrier;
+            barrier.srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput
+                                   | vk::PipelineStageFlagBits2::eFragmentShader;
+            barrier.srcAccessMask =
+                vk::AccessFlagBits2::eColorAttachmentWrite | vk::AccessFlagBits2::eShaderRead;
+            barrier.dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
+            barrier.dstAccessMask = vk::AccessFlagBits2::eColorAttachmentRead
+                                    | vk::AccessFlagBits2::eColorAttachmentWrite;
+            barrier.oldLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+            barrier.newLayout = vk::ImageLayout::eColorAttachmentOptimal;
+            barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.image = output.color_view->get_image()->get();
+            barrier.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+            frame.command_buffer().get().pipelineBarrier2(
+                vk::DependencyInfo{}.setImageMemoryBarriers(barrier));
+            return render(frame, context, target, false, 0);
+        }
+
     private:
+        std::vector<Target> m_offscreen_targets;
         struct Geometry {
             std::shared_ptr<Comet::CPUBuffer> vertices;
             std::shared_ptr<Comet::CPUBuffer> indices;
@@ -674,12 +759,17 @@ namespace Comet::Ui {
     }
 
     Status RmlRenderer::render(Comet::OverlayRecordContext& frame, Rml::Context& context) {
-        return m_impl->render(frame, context, m_impl->m_swapchain_target, true);
+        return m_impl->render(frame, context, m_impl->m_swapchain_target, true, 0);
+    }
+
+    Status RmlRenderer::render_offscreen(
+        Comet::OverlayRecordContext& frame, Rml::Context& context) {
+        return m_impl->render_offscreen(frame, context);
     }
 
     Status RmlRenderer::render_to_target(
         Comet::OverlayRecordContext& frame, Rml::Context& context, const Target& target) {
-        return m_impl->render(frame, context, target, false);
+        return m_impl->render(frame, context, target, false, frame.frame_slot());
     }
 
     std::optional<Comet::GraphicsError> RmlRenderer::take_error() {

@@ -18,6 +18,7 @@ namespace Comet::Ui {
         struct FrameInfo {
             float fps = 0;
             bool game_available = true;
+            std::optional<View> view;
         };
         struct FrameResult {
             bool blocked = false;
@@ -35,7 +36,8 @@ namespace Comet::Ui {
         [[nodiscard]] Result<void> reload();
         // 场景重启等宿主状态变更；页面仍由项目控制器决定如何呈现。
         void deactivate();
-        [[nodiscard]] Result<void, GraphicsError> render(OverlayRecordContext& frame);
+        [[nodiscard]] Result<void, GraphicsError> render(
+            OverlayRecordContext& frame, RenderOutput output = RenderOutput::Presentation);
         void release_swapchain_resources();
         [[nodiscard]] Result<void, GraphicsError> rebuild_swapchain_resources(
             const SwapchainCompatibility& compatibility);

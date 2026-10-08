@@ -5,6 +5,7 @@
 #include "viewport/viewport_layout.h"
 #include "assets/asset_reference.h"
 #include "input/input.h"
+#include "ui/view.h"
 
 #include <imgui.h>
 #include <cstdint>
@@ -51,7 +52,15 @@ namespace CometEditor {
 
         // 所有面板绘制后复核焦点／弹窗，避免当帧输入穿透到运行场景。
         [[nodiscard]] const Comet::Input::Frame& route_runtime_input(
-            const Comet::Input::Frame& input, bool ui_input_blocked = false);
+            const Comet::Input::Frame& input, bool ui_input_blocked = false,
+            bool pointer_blocked = false);
+
+        void set_game_ui_available(bool available) { m_game_ui_available = available; }
+        [[nodiscard]] std::optional<Comet::Ui::View> game_ui_view(
+            Comet::Math::Vec2u pixel_size, float density) const;
+        [[nodiscard]] const Comet::Input::Frame& route_game_ui_input(
+            const Comet::Input::Frame& input, bool blocked);
+        [[nodiscard]] bool take_game_ui_reload_request();
 
         [[nodiscard]] std::optional<EditorCameraInput> take_camera_input();
 
@@ -82,6 +91,7 @@ namespace CometEditor {
         void update_play_interaction();
         void reset_hidden_view();
         void reset_camera_interaction();
+        [[nodiscard]] bool accepts_runtime_input(bool blocked) const;
 
         const EditorState& m_state;
         const Comet::SceneRuntime& m_runtime;
@@ -96,6 +106,10 @@ namespace CometEditor {
         bool m_play_image_hovered = false;
         bool m_runtime_was_running = false;
         Comet::Input::Gate m_runtime_input;
+        Comet::Input::Gate m_game_ui_input;
+        bool m_game_ui_available = false;
+        bool m_show_game_ui = true;
+        bool m_game_ui_reload_requested = false;
         std::uint32_t m_max_render_dimension = 0;
         ViewportLayout::ResolutionPolicy m_play_resolution_policy;
         ViewportLayout::DisplayMode m_play_display_mode = ViewportLayout::DisplayMode::Fit;

@@ -3,6 +3,7 @@
 #include "common/export.h"
 
 #include "input/input.h"
+#include "ui/view.h"
 
 #include <bitset>
 #include <chrono>
@@ -20,7 +21,8 @@ namespace Comet::Ui {
     class COMET_API RmlPlatform {
     public:
         void update(Rml::Context& context, const Comet::Window& window,
-            const Comet::Input::Frame& frame, bool modal_open);
+            const Comet::Input::Frame& frame, bool modal_open,
+            const std::optional<View>& view = {});
         void set_capture_active(bool active) { m_capture_active = active; }
         [[nodiscard]] bool text_input_active() const { return m_text_input_active; }
         // 关闭弹层或切换改键录入时调用；也会停止当前 update 的剩余事件。

@@ -71,11 +71,11 @@ AssetData 不依赖导入管线，各纯数据／逻辑模块不引入窗口、�
 | `graphics/` | Vulkan、平台窗口及通用能力 | 图形后端不依赖 Editor；`core/engine.cpp` 是宿主组合点，可使用 Graphics/Render |
 | `editor/src/ui/` | Engine 工作流接口、ImGui | 编辑器公共控件；`editor_imgui` 呈现适配可依赖图形后端，但不依赖编辑器状态或功能面板 |
 | `editor/src/project/` | Editor 状态、Engine 项目及输入值、ImGui | 项目设置和编辑器玩家改键面板；动作录入与草稿校验复用 Engine 输入模块 |
-| `engine/src/ui/` | Engine 输入值／图形资源、RmlUi Core／FreeType | 合入 engine 的可选 `comet_game_ui` 对象模块；拥有通用上下文、项目 Lua 控制器、字体、页面加载、输入与 GPU 适配，不依赖游戏菜单 |
+| `engine/src/ui/` | Engine 输入值／图形资源、RmlUi Core／FreeType | 合入 engine 的 `comet_game_ui` 对象模块；拥有通用上下文、项目 Lua 控制器、字体、页面加载、输入与 GPU 适配，不依赖游戏菜单 |
 | `editor/`、`app/` | Engine 组合入口、明确的工作流接口；Editor 装配 `editor_ui`，App 经 engine 使用游戏 UI | 业务视口经 Renderer 离屏帧快照取图，不穿透 SceneRenderer |
 
 App／Editor 使用 `engine/resources/fonts/` 中的同一字体。ImGui 合并与 RmlUi 字体回退由各 UI 后端负责，
-`COMET_BUILD_GAME_UI` 决定是否将游戏 UI 编入 engine；纯 Editor 构建可关闭，App／测试配置启用。
+Engine 始终编入游戏 UI；项目的 `ui` 入口决定是否装载，Editor 视口控制显示，不另维护裁剪 UI 的编辑器构建。
 UI 只链接必要内部目标，不反向链接 engine。RmlUi Core 作为共享依赖保证宿主／扩展使用同一份全局状态，FreeType 静态编入 Core。
 App／测试通过现有 engine 使用 UI；直接使用 RmlUi 扩展接口的消费者另链接同一 Core，Windows 随既有运行依赖复制流程部署。
 示例 RML／RCSS、HUD、改键数据绑定与快捷键均属于 `demo/assets/ui`，由 `runtime.ui.lua` 实现。
@@ -100,7 +100,7 @@ app 只链接 engine，不链接 ImGui 或编辑器库。字体归 Engine 公共
 
 `Ui::RmlContext` 提供通用 RmlUi 会话、可配置字体、候选文档替换、输入处理和 Overlay 绘制。
 它要求调用方提供资源根目录，能加载没有改键控件的任意页面；不认识 demo 路径、动作名或个人设置。
-后端扩展接口只在这个可选模块中暴露 RmlUi，Scene／Input／Renderer 核心公共接口不包含第三方 UI 类型。
+后端扩展接口只在 UI 模块中暴露 RmlUi，Scene／Input／Renderer 核心公共接口不包含第三方 UI 类型。
 首轮每个进程只允许一个 `RmlContext` 拥有 RmlUi Core；多窗口／多上下文共享会话尚待扩展。
 候选文档先解析、由调用方校验结构，再生成资源并验证绘制；失败恢复旧文档，成功才关闭旧文档。
 业务回调通过加载状态及当前文档身份忽略候选页事件，避免无效候选页修改应用状态。
@@ -110,7 +110,11 @@ app 只链接 engine，不链接 ImGui 或编辑器库。字体归 Engine 公共
 Window 发布与物理帧同序号的有界、有序 UI 事件。适配处理 DPI、Unicode、焦点、指针和手柄导航；
 关闭当帧仍阻断 Gameplay，录入保留控件焦点并暂停 UI 派发；同帧动态 RML 替换合并到输入交付结束后。
 资产扫描将 `.rml`／`.rcss`／`.ui.lua` 识别为源文件，不生成元数据或稳定资产句柄；UI 直接读取项目文件。
-完整原生 IME、资产发布和 Editor Play 共用控制器仍待接通。
+Editor 的 `project/GameUi` 适配宿主个人设置与运行时换绑；App／Editor 共用 `ProjectUi` 和项目控制器。
+Edit 仅预览，Play／暂停接受视口授权输入；ImGui 编辑工具与项目 UI 各自持有改键草稿。
+`Ui::View` 描述窗口逻辑区域、裁剪范围、UI 像素尺寸和 DPI，RmlPlatform 负责坐标换算。
+游戏 UI 在场景最终离屏输出后合成，恢复 ShaderReadOnly 布局，再由 ImGui 视口采样；不另建窗口、设备或帧循环。
+Framebuffer 按实际输出图像缓存，替换后的目标和管线由帧保留到 GPU 完成。完整原生 IME 和资产发布仍待接通。
 FreeType 的字体解析、度量与栅格化可供其他文字模块复用；图集缓存、GPU 资源及其在途生命周期属于各呈现后端。
 
 ### 项目 UI 控制器
@@ -140,7 +144,7 @@ Lua 只使用元素 ID，不持有原生文档／GPU 句柄；旧控制器的接
 基础库仅开放 base／math／string／table，不开放文件、原生库、动态加载、元表或嵌套保护调用；UI VM 与组件脚本 VM 独立。
 重载先验证新 VM、文档、资源与呈现，成功后才接管事件；失败保留旧会话和输入草稿。
 显式 `state` 的标量和同类型模型字段迁移，Lua 闭包／任意嵌套状态不迁移。当前每会话使用单一 `ui` 数据模型，
-模型字段绑定在会话内有界累积；独立多页面／多窗口、模块依赖、资产发布与 Editor 游戏视口接入属于后续扩展。
+模型字段绑定在会话内有界累积；独立多页面／多窗口、模块依赖与资产发布属于后续扩展。
 
 ## 先看哪个类
 
@@ -872,7 +876,7 @@ AssetManager 负责需求、刷新、完成预算和异步／编辑候选的 rev
 RenderAssetPublisher 只接收准备好的数据和已解析的依赖，创建 Mesh／Texture／Material／Environment，
 经独立 publish 操作注册或替换原 Registry 的对象；prepare 不修改 Registry，失败或过期候选由所有者丢弃。
 环境背景预览与完整光照仍分别准备，完整环境的多个纹理整组发布。跨边界保留原 error_code，设备丢失继续向宿主传播。
-这些职责边界不改变开发目录加载方式，ProductCatalog、发布包及 CPU／GPU 驻留淘汰仍待实现；资产与渲染发布均不访问 ImGui。
+这些职责边界不改变开发目录加载方式；产品加载、导出与驻留管理尚未实现，后续计划见[资产生产与运行时驻留](../engine-roadmap.md#资产生产与运行时驻留待完成)。先以只读导出目录验收，再按场景规模扩展，不要求先建设通用包文件系统。资产与渲染发布均不访问 ImGui。
 后台首次准备与驻留重载共用缓存路径，输入路径／内容指纹和算法版本必须匹配；格式、尺寸、载荷长度和校验值不符则重建。
 缓存原子写只保证单文件；缓存可独立存在，不代表 GPU 已发布。GPU 创建失败不替换 Registry，旧帧仍持有旧版本。
 EnvironmentArtifact v2 将背景、最高 16² 漫反射、最高 128² 镜面 mip 链和 128² LUT 作为同一载荷校验；旧 v1 自动重建。

@@ -60,7 +60,5 @@ set(COMET_ENGINE_MODULES
     comet_input comet_world comet_runtime comet_audio comet_physics comet_scripting comet_asset_pipeline
     comet_runtime_assets comet_platform comet_graphics comet_render)
 
-if(COMET_BUILD_GAME_UI)
-    include("${CMAKE_CURRENT_LIST_DIR}/game_ui.cmake")
-    list(APPEND COMET_ENGINE_MODULES comet_game_ui)
-endif()
+include("${CMAKE_CURRENT_LIST_DIR}/game_ui.cmake")
+list(APPEND COMET_ENGINE_MODULES comet_game_ui)

@@ -142,6 +142,13 @@ namespace CometEditor {
             ImGui::SameLine();
             render_gizmo_settings();
         }
+        if(m_game_ui_available) {
+            ImGui::SameLine();
+            ImGui::Checkbox(Ui::label("Game UI").c_str(), &m_show_game_ui);
+            ImGui::SameLine();
+            if(ImGui::Button(Ui::label("Reload UI").c_str()))
+                m_game_ui_reload_requested = true;
+        }
         ImGui::Separator();
     }
 
@@ -502,6 +509,7 @@ namespace CometEditor {
     void ViewportPanel::cancel_interaction() {
         m_play_image_hovered = false;
         m_runtime_input = {};
+        m_game_ui_input = {};
         static_cast<void>(m_gizmo.cancel());
         if(m_interaction_id != 0 && ImGui::GetActiveID() == m_interaction_id) {
             ImGui::ClearActiveID();
@@ -522,20 +530,53 @@ namespace CometEditor {
         ImGui::SetKeyOwner(ImGuiKey_MouseWheelY, m_interaction_id);
     }
 
+    bool ViewportPanel::accepts_runtime_input(const bool blocked) const {
+        const auto* focused = GImGui->NavWindow;
+        const auto image_size = m_layout.image_visible_rect.size();
+        return m_state.mode == EditorMode::Play && m_runtime.is_active() && m_actually_visible
+               && m_texture_id != ImTextureID_Invalid && image_size.x > 0 && image_size.y > 0
+               && !m_play_command && focused && focused->RootWindow->ID == m_window_id && !blocked
+               && !ui_blocks_runtime_input();
+    }
+
     const Comet::Input::Frame& ViewportPanel::route_runtime_input(
-        const Comet::Input::Frame& input, const bool ui_input_blocked) {
+        const Comet::Input::Frame& input, const bool ui_input_blocked, const bool pointer_blocked) {
         const bool blocked = ui_input_blocked || ui_blocks_runtime_input();
         if(!blocked && m_state.mode == EditorMode::Play && input.focused
             && input.key(Comet::Input::Key::Escape).pressed)
             m_play_command = PlayCommand::Stop;
-        const auto* focused = GImGui->NavWindow;
-        const auto image_size = m_layout.image_visible_rect.size();
-        const bool accepting = m_state.mode == EditorMode::Play && m_runtime.is_active()
-                               && m_actually_visible && m_texture_id != ImTextureID_Invalid
-                               && image_size.x > 0 && image_size.y > 0 && !m_play_command && focused
-                               && focused->RootWindow->ID == m_window_id && !blocked;
-        const bool pointer_enabled = m_play_image_hovered || m_runtime.wants_cursor_capture();
+        const bool accepting = accepts_runtime_input(blocked);
+        const bool pointer_enabled =
+            !pointer_blocked && (m_play_image_hovered || m_runtime.wants_cursor_capture());
         return m_runtime_input.read(input, accepting, pointer_enabled);
+    }
+
+    std::optional<Comet::Ui::View> ViewportPanel::game_ui_view(
+        const Comet::Math::Vec2u pixel_size, const float density) const {
+        const auto display = m_layout.image_display_rect;
+        const auto visible = m_layout.image_visible_rect;
+        if(!m_game_ui_available || !m_show_game_ui || !m_actually_visible
+            || m_texture_id == ImTextureID_Invalid || display.size().x <= 0 || display.size().y <= 0
+            || visible.size().x <= 0 || visible.size().y <= 0 || !pixel_size.x || !pixel_size.y)
+            return std::nullopt;
+        const auto window = ImGui::GetMainViewport()->Pos;
+        const Comet::Math::Vec2 origin{window.x, window.y};
+        return Comet::Ui::View{.origin = display.min - origin,
+            .size = display.size(),
+            .pixel_size = pixel_size,
+            .density = density,
+            .clip = Comet::Ui::View::Clip{visible.min - origin, visible.size()}};
+    }
+
+    const Comet::Input::Frame& ViewportPanel::route_game_ui_input(
+        const Comet::Input::Frame& input, const bool blocked) {
+        return m_game_ui_input.read(input,
+            m_game_ui_available && m_show_game_ui && accepts_runtime_input(blocked),
+            m_play_image_hovered);
+    }
+
+    bool ViewportPanel::take_game_ui_reload_request() {
+        return std::exchange(m_game_ui_reload_requested, false);
     }
 
     void ViewportPanel::draw_gizmo() {
