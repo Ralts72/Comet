@@ -227,12 +227,25 @@ namespace Comet::Tests {
     TEST(PhysicsSystemTest, CollisionWakesSleepingBodyAndPublishesItsPoseInTheSameStep) {
         Scene scene;
         PhysicsService physics;
-        add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
+        const auto floor =
+            add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {100, 1, 100});
         const auto resting = add_body(scene, "Resting", BodyMotion::Dynamic, {0, 0.5f, 0});
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        auto probe = std::make_unique<ContactProbe>();
+        auto* observed = probe.get();
+        ASSERT_TRUE(runtime.add_system(std::move(probe)));
+        const auto has_contact = [observed](
+                                     Scene::ContactEvent::Kind kind, Entity first, Entity second) {
+            return std::any_of(
+                observed->contacts.begin(), observed->contacts.end(), [=](const auto& event) {
+                    return event.kind == kind
+                           && ((event.first == first && event.second == second)
+                               || (event.first == second && event.second == first));
+                });
+        };
         ASSERT_TRUE(runtime.start(scene));
         for(int step = 0; step < 300; ++step)
             ASSERT_TRUE(runtime.advance(0.01));
@@ -250,6 +263,20 @@ namespace Comet::Tests {
         EXPECT_GT(
             resting.get_component<TransformComponent>().translation.x, sleeping_pose.translation.x);
         EXPECT_GT(striker.get_component<TransformComponent>().translation.x, striker_position.x);
+        EXPECT_TRUE(has_contact(Scene::ContactEvent::Kind::CollisionEnter, resting, striker));
+
+        for(int step = 0; step < 500; ++step)
+            ASSERT_TRUE(runtime.advance(0.01));
+        ASSERT_EQ(physics.get_statistics().active_bodies, 0u);
+        for(int step = 0; step < 30; ++step) {
+            ASSERT_TRUE(runtime.advance(0.01));
+            EXPECT_TRUE(observed->contacts.empty());
+            EXPECT_EQ(physics.get_statistics().pose_updates, 0u);
+        }
+        resting.edit_transform(
+            [](TransformComponent& transform) { transform.translation = {1000, 3, 0}; });
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_TRUE(has_contact(Scene::ContactEvent::Kind::CollisionExit, floor, resting));
         ASSERT_TRUE(runtime.stop());
     }
 

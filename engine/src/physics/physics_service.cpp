@@ -158,7 +158,7 @@ namespace Comet {
             ColliderComponent collider;
             TransformComponent last_transform;
             JPH::Quat last_physics_rotation;
-            bool active_before_step = false;
+            bool active_this_step = false;
         };
 
         struct Contact {
@@ -353,18 +353,18 @@ namespace Comet {
         }
 
         void capture_active_bodies() {
-            for(const auto id : active_before)
+            for(const auto id : step_active_bodies)
                 if(auto* body = find_body(id))
-                    body->active_before_step = false;
-            active_before.clear();
+                    body->active_this_step = false;
+            step_active_bodies.clear();
             // 活动数组只在 Jolt Update 之外借用，跨步只保存完整 BodyID。
             const auto count = world.GetNumActiveBodies(JPH::EBodyType::RigidBody);
             const auto* active = world.GetActiveBodiesUnsafe(JPH::EBodyType::RigidBody);
             for(unsigned index = 0; index < count; ++index) {
                 const auto id = active[index];
                 if(auto* body = find_body(id)) {
-                    body->active_before_step = true;
-                    active_before.push_back(id);
+                    body->active_this_step = true;
+                    step_active_bodies.push_back(id);
                 }
             }
         }
@@ -389,14 +389,19 @@ namespace Comet {
                 body.last_physics_rotation = rotation;
             };
             // 本步入睡仍须回写最终姿态。
-            for(const auto id : active_before)
+            for(const auto id : step_active_bodies)
                 if(auto* body = find_body(id))
                     collect(*body);
             const auto count = world.GetNumActiveBodies(JPH::EBodyType::RigidBody);
             const auto* active = world.GetActiveBodiesUnsafe(JPH::EBodyType::RigidBody);
-            for(unsigned index = 0; index < count; ++index)
-                if(auto* body = find_body(active[index]); body && !body->active_before_step)
+            for(unsigned index = 0; index < count; ++index) {
+                const auto id = active[index];
+                if(auto* body = find_body(id); body && !body->active_this_step) {
                     collect(*body); // 本步被碰撞唤醒的刚体也须立即回写。
+                    body->active_this_step = true;
+                    step_active_bodies.push_back(id);
+                }
+            }
         }
 
         void publish_contacts() {
@@ -431,7 +436,6 @@ namespace Comet {
                     changes.push_back({kind_for(contact, true), contact.first, contact.second,
                         contact.first_uuid, contact.second_uuid});
             }
-            const auto& interface = world.GetBodyInterface();
             for(auto it = tracked_contacts.begin(); it != tracked_contacts.end();) {
                 auto& [pair, contact] = *it;
                 if(std::exchange(contact.reported, false)) {
@@ -440,9 +444,8 @@ namespace Comet {
                 }
                 const auto* first = find_body(pair.first);
                 const auto* second = find_body(pair.second);
-                // Jolt 不报告休眠接触；只有两端整步未活动才能沿用上一逻辑状态。
-                if(first && second && !first->active_before_step && !second->active_before_step
-                    && !interface.IsActive(pair.first) && !interface.IsActive(pair.second)) {
+                // Jolt 不报告休眠接触；两端在步进前后均未活动才能沿用上一逻辑状态。
+                if(first && second && !first->active_this_step && !second->active_this_step) {
                     ++it;
                     continue;
                 }
@@ -472,7 +475,7 @@ namespace Comet {
         JPH::JobSystemSingleThreaded jobs;
         std::unordered_map<EntityId, Body> bodies;
         std::vector<Body*> body_lookup;
-        std::vector<JPH::BodyID> active_before;
+        std::vector<JPH::BodyID> step_active_bodies;
         std::vector<Pair> frame_contacts;
         std::map<Pair, Contact> tracked_contacts;
     };
