@@ -224,6 +224,35 @@ namespace Comet::Tests {
         EXPECT_EQ(physics.get_statistics().pose_updates, 0u);
     }
 
+    TEST(PhysicsSystemTest, CollisionWakesSleepingBodyAndPublishesItsPoseInTheSameStep) {
+        Scene scene;
+        PhysicsService physics;
+        add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
+        const auto resting = add_body(scene, "Resting", BodyMotion::Dynamic, {0, 0.5f, 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        ASSERT_TRUE(runtime.start(scene));
+        for(int step = 0; step < 300; ++step)
+            ASSERT_TRUE(runtime.advance(0.01));
+        ASSERT_EQ(physics.get_statistics().active_bodies, 0u);
+        const auto sleeping_pose = resting.get_component<TransformComponent>();
+        const Math::Vec3 striker_position(-0.9f, sleeping_pose.translation.y, 0);
+        const auto striker = add_body(scene, "Striker", BodyMotion::Dynamic, striker_position);
+        ASSERT_TRUE(physics.request_impulse(striker, {10, 0, 0}));
+        ASSERT_EQ(physics.get_statistics().active_bodies, 0u);
+
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(physics.get_statistics().bodies, 3u);
+        EXPECT_EQ(physics.get_statistics().active_bodies, 2u);
+        EXPECT_EQ(physics.get_statistics().pose_updates, 2u);
+        EXPECT_GT(
+            resting.get_component<TransformComponent>().translation.x, sleeping_pose.translation.x);
+        EXPECT_GT(striker.get_component<TransformComponent>().translation.x, striker_position.x);
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST(PhysicsSystemTest, PreservesAuthoredEulerUntilPhysicsRotationChanges) {
         Scene scene;
         PhysicsService physics;

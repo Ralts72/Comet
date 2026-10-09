@@ -252,10 +252,10 @@ namespace Comet {
             bodies.erase(it);
         }
 
-        const Body* find_body(const JPH::BodyID id) const {
+        Body* find_body(const JPH::BodyID id) {
             if(id.GetIndex() >= body_lookup.size())
                 return nullptr;
-            const auto* body = body_lookup[id.GetIndex()];
+            auto* body = body_lookup[id.GetIndex()];
             // Jolt 复用槽位时序号会改变，不能把旧接触绑定到新刚体。
             if(!body || body->id != id)
                 return nullptr;
@@ -350,6 +350,53 @@ namespace Comet {
             return Result<void, Error>::success();
         }
 
+        void capture_active_bodies() {
+            for(const auto id : active_before)
+                if(auto* body = find_body(id))
+                    body->active_before_step = false;
+            active_before.clear();
+            // 活动数组只在 Jolt Update 之外借用，跨步只保存完整 BodyID。
+            const auto count = world.GetNumActiveBodies(JPH::EBodyType::RigidBody);
+            const auto* active = world.GetActiveBodiesUnsafe(JPH::EBodyType::RigidBody);
+            for(unsigned index = 0; index < count; ++index) {
+                const auto id = active[index];
+                if(auto* body = find_body(id)) {
+                    body->active_before_step = true;
+                    active_before.push_back(id);
+                }
+            }
+        }
+
+        void collect_poses() {
+            const auto collect = [this](Body& body) {
+                if(body.motion != BodyMotion::Dynamic)
+                    return;
+                JPH::RVec3 position;
+                JPH::Quat rotation;
+                world.GetBodyInterface().GetPositionAndRotation(body.id, position, rotation);
+                auto transform = body.last_transform;
+                transform.translation =
+                    Math::Vec3(position.GetX(), position.GetY(), position.GetZ());
+                // 旋转未变时保留原 Euler 表示，避免无意义的转换及舍入扰动。
+                if(rotation != body.last_physics_rotation
+                    && rotation != -body.last_physics_rotation)
+                    transform.rotation = from_rotation(rotation);
+                if(!same_pose(body.last_transform, transform))
+                    poses.push_back({body.entity, transform});
+                body.last_transform = transform;
+                body.last_physics_rotation = rotation;
+            };
+            // 本步入睡仍须回写最终姿态。
+            for(const auto id : active_before)
+                if(auto* body = find_body(id))
+                    collect(*body);
+            const auto count = world.GetNumActiveBodies(JPH::EBodyType::RigidBody);
+            const auto* active = world.GetActiveBodiesUnsafe(JPH::EBodyType::RigidBody);
+            for(unsigned index = 0; index < count; ++index)
+                if(auto* body = find_body(active[index]); body && !body->active_before_step)
+                    collect(*body); // 本步被碰撞唤醒的刚体也须立即回写。
+        }
+
         void publish_contacts() {
             changes.clear();
             collector.drain(frame_contacts);
@@ -422,7 +469,8 @@ namespace Comet {
         JPH::TempAllocatorMalloc allocator;
         JPH::JobSystemSingleThreaded jobs;
         std::map<EntityUuid, Body> bodies;
-        std::vector<const Body*> body_lookup;
+        std::vector<Body*> body_lookup;
+        std::vector<JPH::BodyID> active_before;
         std::vector<Pair> frame_contacts;
         std::map<Pair, Contact> tracked_contacts;
     };
@@ -434,8 +482,7 @@ namespace Comet {
         if(auto applied = m_impl->apply_impulses(m_impulses); !applied)
             return applied;
         m_impl->poses.clear();
-        for(auto& [uuid, body] : m_impl->bodies)
-            body.active_before_step = m_impl->world.GetBodyInterface().IsActive(body.id);
+        m_impl->capture_active_bodies();
         const auto errors = m_impl->world.Update(delta_time, 1, &m_impl->allocator, &m_impl->jobs);
         if(errors != JPH::EPhysicsUpdateError::None) {
             std::string message = "Physics capacity exceeded:";
@@ -450,25 +497,7 @@ namespace Comet {
                 message += " contact constraints";
             return Result<void, Error>::failure({std::move(message)});
         }
-        for(auto& [uuid, body] : m_impl->bodies) {
-            if(body.motion != BodyMotion::Dynamic)
-                continue;
-            // 本步入睡仍须回写最终姿态，本步被唤醒的刚体也不能跳过。
-            if(!body.active_before_step && !m_impl->world.GetBodyInterface().IsActive(body.id))
-                continue;
-            JPH::RVec3 position;
-            JPH::Quat rotation;
-            m_impl->world.GetBodyInterface().GetPositionAndRotation(body.id, position, rotation);
-            auto transform = body.last_transform;
-            transform.translation = Math::Vec3(position.GetX(), position.GetY(), position.GetZ());
-            // 旋转未变时保留原 Euler 表示，避免无意义的转换及舍入扰动。
-            if(rotation != body.last_physics_rotation && rotation != -body.last_physics_rotation)
-                transform.rotation = from_rotation(rotation);
-            if(!same_pose(body.last_transform, transform))
-                m_impl->poses.push_back({body.entity, transform});
-            body.last_transform = transform;
-            body.last_physics_rotation = rotation;
-        }
+        m_impl->collect_poses();
         m_impl->publish_contacts();
         return Result<void, Error>::success();
     }
