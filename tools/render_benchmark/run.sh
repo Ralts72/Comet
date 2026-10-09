@@ -9,7 +9,7 @@ usage() {
         '用法：tools/render_benchmark/run.sh [OUTPUT.csv OBJECTS WIDTH HEIGHT FRAMES BLOOM(0/1) [MATERIALS [WORKLOAD]]]' \
         '不带参数：64 个物体、640×360 逻辑窗口、240 帧、Bloom 开启。' \
         'MATERIALS 默认 1，范围 1..256 且不能超过物体数。' \
-        'WORKLOAD：static（默认）、physics-active、physics-sleeping；物理场景最多 512 个物体。' \
+        'WORKLOAD：static（默认）、culling（3/4 物体屏外）、physics-active、physics-sleeping；物理场景最多 512 个物体。' \
         '默认报告：仓库 build-release/reports/render-benchmark.csv。' \
         '自定义相对报告路径以调用时的工作目录为准。' \
         '复用 build-release，仅构建基准程序及其依赖；不启动 app/editor。'

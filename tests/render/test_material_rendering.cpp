@@ -85,6 +85,67 @@ namespace Comet::Tests {
         }
     };
 
+    TEST_F(MaterialRenderingTest, CullingKeepsResidentMaterialsAndUsesReloadedMeshBounds) {
+        constexpr AssetHandle visible_mesh(9190), hidden_mesh(9191);
+        constexpr AssetHandle visible_material(9192), hidden_material(9193);
+        auto& assets = engine->get_asset_registry();
+        const auto mesh = engine->get_render_resources().try_create_mesh(
+            {.vertices = {{{-0.5f, -0.5f, -2}}, {{0.5f, -0.5f, -2}}, {{0, 0.5f, -2}}},
+                .indices = {0, 1, 2}});
+        ASSERT_TRUE(mesh);
+        ASSERT_TRUE(assets.register_asset(visible_mesh, mesh.value()));
+        ASSERT_TRUE(assets.register_asset(hidden_mesh, mesh.value()));
+        const auto material = std::make_shared<Material>("hidden", "unlit_color");
+        ASSERT_TRUE(assets.register_asset(
+            visible_material, std::make_shared<Material>("visible", "unlit_color")));
+        ASSERT_TRUE(assets.register_asset(hidden_material, material));
+        RenderScene scene;
+        scene.cameras.push_back({.primary = true});
+        scene.render_items = {{.mesh_handle = visible_mesh, .material_handle = visible_material},
+            {.mesh_handle = hidden_mesh,
+                .material_handle = hidden_material,
+                .material_overrides = std::make_shared<const MaterialOverrides>(
+                    MaterialOverrides{.instance_id = 41, .material = hidden_material})}};
+        auto& renderer = engine->get_renderer();
+        const auto draw = [&] {
+            const auto prepared = renderer.prepare_frame();
+            EXPECT_TRUE(prepared);
+            if(!prepared || prepared.value() != Renderer::FramePreparation::Ready)
+                return false;
+            const auto rendered = renderer.render_frame(scene);
+            EXPECT_TRUE(rendered);
+            return bool(rendered);
+        };
+        for(unsigned frame = 0; frame < 6; ++frame) {
+            SCOPED_TRACE(frame);
+            const bool hidden = frame % 2 == 0;
+            scene.render_items.back().model_matrix =
+                Math::translate(Math::Mat4(1), {hidden ? 20.0f : 0.0f, 0, 0});
+            if(frame == 4)
+                ASSERT_TRUE(material->set_vector_property("color", {0, 0.5f, 0, 1}));
+            ASSERT_TRUE(draw());
+            const auto stats = renderer.get_scene_renderer().get_material_statistics();
+            EXPECT_EQ(stats.render_items, 2u);
+            EXPECT_EQ(stats.culled_items, hidden ? 1u : 0u);
+            EXPECT_EQ(stats.draw_calls, hidden ? 1u : 2u);
+            EXPECT_EQ(stats.cached_material_versions, frame == 0 ? 1u : 2u);
+            EXPECT_EQ(stats.material_versions_created, frame == 0 || frame == 1 || frame == 5);
+        }
+        scene.render_items.back().model_matrix = Math::translate(Math::Mat4(1), {20, 0, 0});
+        const auto replacement = engine->get_render_resources().try_create_mesh(
+            {.vertices = {{{-20.5f, -0.5f, -2}}, {{-19.5f, -0.5f, -2}}, {{-20, 0.5f, -2}}},
+                .indices = {0, 1, 2}});
+        ASSERT_TRUE(replacement);
+        ASSERT_TRUE(assets.replace_asset(hidden_mesh, replacement.value()));
+        ASSERT_TRUE(draw());
+        EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().culled_items, 0u);
+        EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().draw_calls, 2u);
+        scene.render_items.pop_back();
+        ASSERT_TRUE(draw());
+        EXPECT_EQ(
+            renderer.get_scene_renderer().get_material_statistics().cached_material_versions, 1u);
+    }
+
     TEST_F(MaterialRenderingTest, ProjectProgramHandleCreatesPipelineAndRejectsIncompatibleCode) {
         constexpr AssetHandle program_handle(9081);
         constexpr AssetHandle material_handle(9082);

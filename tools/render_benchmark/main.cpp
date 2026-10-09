@@ -46,12 +46,14 @@ namespace {
     constexpr unsigned MAX_PHYSICS_OBJECTS = 512;
     constexpr std::string_view USAGE =
         "Usage: render_benchmark OUTPUT.csv OBJECTS WIDTH HEIGHT FRAMES BLOOM(0/1) "
-        "[MATERIALS [static|physics-active|physics-sleeping]]";
+        "[MATERIALS [static|culling|physics-active|physics-sleeping]]";
 
-    enum class Workload { Static, PhysicsActive, PhysicsSleeping };
+    enum class Workload { Static, Culling, PhysicsActive, PhysicsSleeping };
 
     std::string_view workload_name(Workload workload) {
         switch(workload) {
+            case Workload::Culling:
+                return "culling";
             case Workload::PhysicsActive:
                 return "physics-active";
             case Workload::PhysicsSleeping:
@@ -59,6 +61,10 @@ namespace {
             default:
                 return "static";
         }
+    }
+
+    bool uses_physics(Workload workload) {
+        return workload == Workload::PhysicsActive || workload == Workload::PhysicsSleeping;
     }
 
     struct Options {
@@ -92,7 +98,9 @@ namespace {
         Workload workload = Workload::Static;
         if(argc == 9) {
             const std::string_view name(argv[8]);
-            if(name == "physics-active")
+            if(name == "culling")
+                workload = Workload::Culling;
+            else if(name == "physics-active")
                 workload = Workload::PhysicsActive;
             else if(name == "physics-sleeping")
                 workload = Workload::PhysicsSleeping;
@@ -101,7 +109,7 @@ namespace {
         }
         if(values[5] > values[0])
             return Result<Options>::failure("Material count cannot exceed object count");
-        if(workload != Workload::Static && values[0] > MAX_PHYSICS_OBJECTS)
+        if(uses_physics(workload) && values[0] > MAX_PHYSICS_OBJECTS)
             return Result<Options>::failure(
                 "Physics workloads support at most 512 objects plus ground");
         return Result<Options>::success({argv[1], values[0], values[1], values[2], values[3],
@@ -221,7 +229,12 @@ namespace {
                                       (index / columns + 0.5f) * spacing - 5},
                 .rotation = {0, 20, 0},
                 .scale = Comet::Math::Vec3(spacing * 0.65f)});
-            if(options.workload != Workload::Static) {
+            if(options.workload == Workload::Culling && index >= (options.objects + 3) / 4) {
+                auto transform = entity.get_component<Comet::TransformComponent>();
+                transform.translation.x += 100;
+                entity.set_transform(transform);
+            }
+            if(uses_physics(options.workload)) {
                 entity.add_component<Comet::RigidBodyComponent>();
                 entity.add_component<Comet::ColliderComponent>();
                 if(options.workload == Workload::PhysicsActive) {
@@ -235,7 +248,7 @@ namespace {
         ground.add_component<Comet::MeshRendererComponent>(mesh_handle, materials.front());
         ground.set_transform(
             {.translation = {0, -spacing * 0.325f - 0.1f, 0}, .scale = {12, 0.2f, 12}});
-        if(options.workload != Workload::Static) {
+        if(uses_physics(options.workload)) {
             ground.add_component<Comet::RigidBodyComponent>().motion = Comet::BodyMotion::Static;
             ground.add_component<Comet::ColliderComponent>();
         }
@@ -366,15 +379,19 @@ namespace {
                    << "# objects=" << m_options.objects << " scene_draws=" << stats.draw_calls
                    << " lights=" << stats.light_count << " msaa=4 bloom=" << m_options.bloom
                    << " ibl=off output=sdr\n"
+                   << "# render_items=" << stats.render_items
+                   << " culled_items=" << stats.culled_items << '\n'
                    << "# workload=" << workload_name(m_options.workload)
-                   << " materials=" << m_options.materials << " layout=grid-v1 stable_ids=on\n"
+                   << " materials=" << m_options.materials << " layout="
+                   << (m_options.workload == Workload::Culling ? "culling-v1" : "grid-v1")
+                   << " stable_ids=on\n"
                    << "# physics_bodies=" << physics_statistics().bodies
                    << " active_bodies_min=" << m_active_min << " active_bodies_max=" << m_active_max
                    << " pose_updates_min=" << m_pose_min << " pose_updates_max=" << m_pose_max
                    << '\n'
                    << "# physics_fixed_delta_s=" << Comet::SceneRuntime::Settings{}.fixed_delta
-                   << " physics_steps_per_frame="
-                   << (m_options.workload == Workload::Static ? 0 : 1) << " settle_steps="
+                   << " physics_steps_per_frame=" << (!uses_physics(m_options.workload) ? 0 : 1)
+                   << " settle_steps="
                    << (m_options.workload == Workload::PhysicsSleeping ? SETTLE_STEPS : 0)
                    << " respawn_steps="
                    << (m_options.workload == Workload::PhysicsActive ? RESPAWN_STEPS : 0) << '\n'
@@ -419,10 +436,16 @@ namespace {
         Result<void> validate_frame(const Comet::RenderDiagnostics::GraphTiming& frame) const {
             const auto& scene = m_engine.get_renderer().get_scene_renderer();
             const auto& stats = scene.get_material_statistics();
+            const auto visible_objects = m_options.workload == Workload::Culling
+                                             ? (m_options.objects + 3) / 4
+                                             : m_options.objects;
+            const auto visible_materials = std::min(m_options.materials, visible_objects);
             if(frame.truncated || frame.passes.size() != m_passes.size()
-                || stats.draw_calls != m_options.objects + 1 || stats.light_count != 3
-                || stats.pipeline_binds != 1 || stats.material_binds != m_options.materials
-                || stats.cached_material_versions != m_options.materials
+                || stats.render_items != m_options.objects + 1
+                || stats.culled_items != m_options.objects - visible_objects
+                || stats.draw_calls != visible_objects + 1 || stats.light_count != 3
+                || stats.pipeline_binds != 1 || stats.material_binds != visible_materials
+                || stats.cached_material_versions != visible_materials
                 || scene.get_post_process_settings().uses_bloom() != m_options.bloom)
                 return Result<void>::failure(
                     "Benchmark did not execute the expected forward scene");
@@ -432,7 +455,7 @@ namespace {
             return Result<void>::success();
         }
         Result<void> validate_workload(const Comet::PhysicsService::Statistics& physics) const {
-            if(m_options.workload == Workload::Static) {
+            if(!uses_physics(m_options.workload)) {
                 if(physics.bodies != 0)
                     return Result<void>::failure("Static benchmark unexpectedly ran physics");
                 return Result<void>::success();
@@ -503,7 +526,7 @@ namespace {
         if(auto populated = populate_scene(*engine, assets, options, body_poses); !populated)
             return populated;
         auto& runtime = engine->get_scene_runtime();
-        if(options.workload != Workload::Static) {
+        if(uses_physics(options.workload)) {
             if(auto added = engine->add_default_scene_systems(); !added)
                 return Result<void>::failure(added.error().message);
             if(auto started = engine->start_scene_runtime(Comet::SceneRuntime::State::Paused);
@@ -516,7 +539,7 @@ namespace {
                 [&](const Comet::Engine::FrameContext& frame) {
                     if(auto sampled = measurement.sample(frame.update); !sampled)
                         return sampled;
-                    if(options.workload == Workload::Static)
+                    if(!uses_physics(options.workload))
                         return Result<void, Comet::Error>::success();
                     if(options.workload == Workload::PhysicsActive
                         && runtime.get_timing().fixed_index % RESPAWN_STEPS == 0)

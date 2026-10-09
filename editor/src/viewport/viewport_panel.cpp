@@ -525,6 +525,8 @@ namespace CometEditor {
         if(!m_runtime.is_active() || !m_play_image_hovered || m_play_command
             || ui_blocks_runtime_input())
             return;
+        // 画面拥有鼠标悬停，避免 ImGui 把游戏点击当作窗口背景拖动。
+        ImGui::SetHoveredID(m_interaction_id);
         ImGui::SetWindowFocus();
         ImGui::SetKeyOwner(ImGuiKey_MouseWheelX, m_interaction_id);
         ImGui::SetKeyOwner(ImGuiKey_MouseWheelY, m_interaction_id);

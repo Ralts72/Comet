@@ -154,8 +154,6 @@ block(SCOPE_FOR VARIABLES)
     set(RMLUI_LOTTIE_PLUGIN OFF)
     set(RMLUI_FONT_ENGINE freetype)
     set(RMLUI_PRECOMPILED_HEADERS OFF)
-    # Engine 与直接使用 RmlUi 的消费者共用 Core，避免重复全局状态。
-    set(BUILD_SHARED_LIBS ON)
     add_subdirectory(RmlUi EXCLUDE_FROM_ALL)
 endblock()
 

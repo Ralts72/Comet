@@ -8,16 +8,24 @@ if(NOT result STREQUAL "0" OR NOT help MATCHES "Usage: render_benchmark OUTPUT.c
     message(FATAL_ERROR "Invalid benchmark help: ${result} ${help} ${error}")
 endif()
 file(MAKE_DIRECTORY "${OUTPUT_DIRECTORY}")
-foreach(case static-0 static-1 multi active sleeping)
+foreach(case static-0 static-1 multi active sleeping culling)
     set(bloom 0)
     set(materials 1)
     set(workload static)
+    set(draws 9)
+    set(culled 0)
     set(workload_args)
     if(case STREQUAL "static-1")
         set(bloom 1)
     elseif(case STREQUAL "multi")
         set(materials 8)
         list(APPEND workload_args ${materials})
+    elseif(case STREQUAL "culling")
+        set(workload culling)
+        set(materials 2)
+        set(draws 3)
+        set(culled 6)
+        list(APPEND workload_args ${materials} ${workload})
     elseif(case STREQUAL "active" OR case STREQUAL "sleeping")
         set(materials 4)
         set(workload "physics-${case}")
@@ -36,7 +44,8 @@ foreach(case static-0 static-1 multi active sleeping)
             message(FATAL_ERROR "Missing complete metric: ${metric}\n${csv}")
         endif()
     endforeach()
-    if(NOT csv MATCHES "scene_draws=9 lights=3 msaa=4 bloom=${bloom}"
+    if(NOT csv MATCHES "scene_draws=${draws} lights=3 msaa=4 bloom=${bloom}"
+            OR NOT csv MATCHES "render_items=9 culled_items=${culled}"
             OR NOT csv MATCHES "pipeline_binds=1 material_binds=${materials} cached_material_versions=${materials}"
             OR NOT csv MATCHES "workload=${workload} materials=${materials}"
             OR NOT csv MATCHES "metric,samples,p50_ms,p95_ms,p99_ms"

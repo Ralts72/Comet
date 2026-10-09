@@ -101,7 +101,7 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 `comet_platform` 拥有窗口、事件和剪贴板；`comet_graphics` 拥有 Vulkan 后端，窗口 Surface 接线集中在私有适配中。
 `comet_render` 编排渲染与资产发布；各层使用自己的配置值，完整 Config 仅由宿主聚合。
 `comet_game_ui` 通过 `engine/cmake/game_ui.cmake` 作为对象模块汇入 engine，App 只链接 engine。
-UI 的 RmlUi Core 使用共享库，扩展与 engine 共用一份全局上下文；FreeType 仍静态编入 Core。
+RmlUi Core 与 FreeType 均静态编入 engine，不单独部署 UI 动态库。
 窗口、渲染和具体系统由 engine 组合。
 World 保存场景内容，不依赖 Input 或 Runtime；运行输入和本局状态归 Runtime。
 编辑器分为无 ImGui 的 `editor_core`、ImGui 呈现适配 `editor_imgui` 与功能界面 `editor_ui`；新增源码需维护所属库清单。
@@ -129,6 +129,7 @@ World 保存场景内容，不依赖 Input 或 Runtime；运行输入和本局�
 ./tools/render_benchmark/run.sh
 ./tools/render_benchmark/run.sh /tmp/comet-benchmark.csv 64 640 360 240 1
 ./tools/render_benchmark/run.sh /tmp/comet-multi.csv 2048 640 360 240 0 64
+./tools/render_benchmark/run.sh /tmp/comet-culling.csv 2048 640 360 240 0 64 culling
 ./tools/render_benchmark/run.sh /tmp/comet-active.csv 512 640 360 240 0 32 physics-active
 ./tools/render_benchmark/run.sh /tmp/comet-sleeping.csv 512 640 360 240 0 32 physics-sleeping
 ./tools/render_benchmark/run.sh --help
@@ -154,11 +155,13 @@ ctest --preset dev-debug -R '^render_benchmark_smoke$'
 `app-release`／`editor-dev` 默认不构建基准；再次使用这些 preset 配置会恢复该默认，不删除已编译产物。
 
 参数依次为 CSV 路径、物体数（1..4096）、逻辑窗口宽高（64..4096）、采样帧数（8..10000）、Bloom（0/1）。
-末尾可追加材质数（1..256，不能超过物体数）及场景类型（`static`、`physics-active`、`physics-sleeping`），默认单材质、静态场景。
+末尾可追加材质数（1..256，不能超过物体数）及场景类型（`static`、`culling`、`physics-active`、`physics-sleeping`），默认单材质、静态场景。
 macOS 可在末尾追加 `-NSAutomaticWindowAnimationsEnabled NO` 关闭该进程的窗口动画；报告以实际 framebuffer 像素为准。
 固定场景使用 PBR 材质、共享立方体网格与地面、三类光源、方向光阴影、4×MSAA 和 SDR 输出；IBL 关闭，
 不依赖可选 HDR 下载。资产复制到临时目录后走生产扫描／导入／加载，结束清理，不修改 demo 的资源和缓存。
-多材质参数在临时项目中生成稳定身份的 PBR 变体，按网格顺序交错分配；所有场景使用相同布局和固定实体身份。
+多材质参数在临时项目中生成稳定身份的 PBR 变体，按网格顺序交错分配，实体身份固定。
+`culling` 将后 3/4 立方体移到屏外，保留它们的阴影提交；报告记录主材质的候选数、裁剪数和实际 draw 数。
+可见物体少于材质数时只准备可见材质；使用同参数的 `static` 场景观察全可见时的裁剪开销。
 物理场景走 Engine 默认系统，每个渲染帧单步推进 1/60 秒，基准限制为 512 个动态立方体加静态地面，为现有接触缓存保留余量；这不是引擎刚体容量上限。
 `physics-active` 每 24 步把立方体放回固定空中位置，保持活动；`physics-sleeping` 先沉降 300 步。
 采样逐帧检查实际活动刚体数、姿态回写数和固定步数；状态不符则拒绝报告。
@@ -759,6 +762,7 @@ Finder 导入只支持独立组件脚本，暂不处理 Lua 多文件依赖包�
   Directional 的 Cast shadow 可启用阴影；最多选择一盏有效方向光，使用 1024² 深度图与 3×3 PCF。
   默认示例包含投影 Key Light、Ground 和纯色 PBR 地面材质 `materials/ground.mat`。
   阴影覆盖当前提交网格的包围盒，暂不支持级联、透明裁切或点／聚光阴影。
+  内置静态网格材质按当前相机做视锥裁剪，屏外物体仍参与阴影；项目 Shader 暂不裁剪，以免误判顶点变形。
   PBR 支持全局 IBL：环境漫反射和随粗糙度变化的镜面反射，不添加固定 ambient。
 - 点击 Hierarchy 的 Scene，在 Inspector 的 Environment 中选择 HDR map，勾选 Background 显示天空盒。
   Lighting 独立控制环境照明，Lighting intensity 控制照明强度；隐藏背景时仍可照明，Intensity 只控制背景。

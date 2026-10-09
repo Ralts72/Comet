@@ -109,6 +109,11 @@ namespace Comet {
             m_entries, [&](const auto& entry) { return entry.first.material_handle == handle; });
     }
 
+    void MaterialRuntimeCache::mark_used(const MaterialInstanceKey key) {
+        if(const auto found = m_entries.find(key); found != m_entries.end())
+            found->second.used = true;
+    }
+
     void MaterialRuntimeCache::collect_unused() {
         std::erase_if(m_entries, [](const auto& entry) { return !entry.second.used; });
         for(auto& [handle, entry] : m_entries) {

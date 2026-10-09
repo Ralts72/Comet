@@ -59,31 +59,61 @@ namespace Comet {
                && std::isfinite(max_parameter) && max_parameter >= 0.0f;
     }
 
+    std::optional<Frustum> Frustum::from_view_projection(const Math::Mat4& view_projection) {
+        const auto rows = glm::transpose(view_projection);
+        Frustum frustum;
+        frustum.m_planes = {rows[3] + rows[0], rows[3] - rows[0], rows[3] + rows[1],
+            rows[3] - rows[1], rows[2], rows[3] - rows[2]};
+        for(auto& plane : frustum.m_planes) {
+            const float length = Math::length(Math::Vec3(plane));
+            if(!Math::is_finite(plane) || !std::isfinite(length) || length == 0)
+                return std::nullopt;
+            plane /= length;
+            if(!Math::is_finite(plane))
+                return std::nullopt;
+        }
+        return frustum;
+    }
+
+    bool Frustum::intersects(const BoundingBox& box) const {
+        if(!box.is_valid())
+            return true;
+        for(const auto& plane : m_planes) {
+            const Math::Vec3 support{plane.x >= 0 ? box.maximum.x : box.minimum.x,
+                plane.y >= 0 ? box.maximum.y : box.minimum.y,
+                plane.z >= 0 ? box.maximum.z : box.minimum.z};
+            if(glm::dot(Math::Vec3(plane), support) + plane.w >= 0)
+                continue;
+            double distance = plane.w;
+            double magnitude = std::abs(distance);
+            for(int axis = 0; axis < 3; ++axis) {
+                const double term = double(plane[axis]) * support[axis];
+                distance += term;
+                magnitude += std::abs(term);
+            }
+            // 留出浮点误差余量，贴着裁剪面的物体继续提交。
+            const double tolerance =
+                8 * std::numeric_limits<float>::epsilon() * std::max(1.0, magnitude);
+            if(distance < -tolerance)
+                return false;
+        }
+        return true;
+    }
+
     std::optional<BoundingBox> transform_box(const BoundingBox& box, const Math::Mat4& transform) {
         if(!box.is_valid() || transform[0][3] != 0.0f || transform[1][3] != 0.0f
             || transform[2][3] != 0.0f || transform[3][3] != 1.0f) {
             return std::nullopt;
         }
 
-        std::optional<BoundingBox> result;
-        for(int corner_index = 0; corner_index < 8; ++corner_index) {
-            Math::Vec3 corner = box.minimum;
-            for(int axis = 0; axis < 3; ++axis) {
-                if((corner_index & (1 << axis)) != 0) {
-                    corner[axis] = box.maximum[axis];
-                }
-            }
-            const Math::Vec3 point(transform * Math::Vec4(corner, 1.0f));
-            if(!Math::is_finite(point)) {
-                return std::nullopt;
-            }
-            if(result) {
-                result->include(point);
-            } else {
-                result = BoundingBox::from_point(point);
-            }
+        auto result = BoundingBox::from_point(Math::Vec3(transform[3]));
+        for(int axis = 0; axis < 3; ++axis) {
+            const auto first = Math::Vec3(transform[axis]) * box.minimum[axis];
+            const auto second = Math::Vec3(transform[axis]) * box.maximum[axis];
+            result.minimum += glm::min(first, second);
+            result.maximum += glm::max(first, second);
         }
-        return result;
+        return result.is_valid() ? std::optional(result) : std::nullopt;
     }
 
     std::optional<float> intersect_ray_box(const Ray& ray, const BoundingBox& box) {

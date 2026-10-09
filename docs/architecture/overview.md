@@ -25,7 +25,7 @@ App、Editor 和资产准备工具继续链接 `engine`／`Comet::Engine`，无�
 | `comet_platform` | Window、GLFW 事件／输入采样、剪贴板；Input，私有 GLFW |
 | `comet_graphics` | Vulkan／VMA 后端、资源、命令与同步；ShaderContracts，窗口 Surface 私有适配 |
 | `comet_render` | 帧、呈现、场景提取与渲染、资产 GPU 发布；Graphics、World、Platform |
-| `comet_game_ui`（可选） | RmlUi 会话、输入／GPU 适配与项目控制器；Render、Platform、RmlUi Core、私有 Lua |
+| `comet_game_ui` | RmlUi 会话、输入／GPU 适配与项目控制器；Render、Platform、RmlUi Core、私有 Lua |
 
 项目／Profile 配置聚合及宿主启动留在 engine 主目标；UI 的 Shader／字体生成由 `engine/cmake/game_ui.cmake` 管理。
 WindowSettings、VulkanSettings、RenderSettings 分别归 Platform、Graphics、Render，Config 保留原嵌套名称的类型别名。
@@ -76,8 +76,8 @@ AssetData 不依赖导入管线，各纯数据／逻辑模块不引入窗口、�
 
 App／Editor 使用 `engine/resources/fonts/` 中的同一字体。ImGui 合并与 RmlUi 字体回退由各 UI 后端负责，
 Engine 始终编入游戏 UI；项目的 `ui` 入口决定是否装载，Editor 视口控制显示，不另维护裁剪 UI 的编辑器构建。
-UI 只链接必要内部目标，不反向链接 engine。RmlUi Core 作为共享依赖保证宿主／扩展使用同一份全局状态，FreeType 静态编入 Core。
-App／测试通过现有 engine 使用 UI；直接使用 RmlUi 扩展接口的消费者另链接同一 Core，Windows 随既有运行依赖复制流程部署。
+UI 只链接必要内部目标，不反向链接 engine。RmlUi Core 与 FreeType 均为静态依赖，最终编入 engine。
+App／Editor 通过 engine 使用 UI；需要直接操作 RmlUi 的白盒测试复用 UI 对象模块，在测试进程内建立自己的会话。
 示例 RML／RCSS、HUD、改键数据绑定与快捷键均属于 `demo/assets/ui`，由 `runtime.ui.lua` 实现。
 app 从项目清单装配 UI，字体复制进 app bundle；项目页面不由引擎或 app 携带。
 
@@ -922,6 +922,12 @@ EnvironmentArtifact v2 将背景、最高 16² 漫反射、最高 128² 镜面 m
 
 MaterialRenderer 保留资源所有权，主流程按阶段组织：同步运行实例／材质输入 → 准备程序，
 绘制时更新帧资源 → 准备并排序绘制列表 → 录制 → 回收未使用缓存。不另建转发 Manager。
+主材质在准备绘制列表前提取六个视锥平面，以静态 Mesh 世界包围盒保守裁剪；NDC 深度使用 [0, 1]。
+包围盒变换逐轴累加区间，支持错切、负／非均匀缩放，拾取和阴影共用该算法。
+只裁剪没有项目 Shader 引用的内置材质；项目顶点变形尚无有效界限契约，继续提交。无效视锥或界限也不拒绝物体。
+裁剪只影响主材质队列，RenderSubmission 保留完整列表供拾取和阴影使用，不以主相机可见性丢弃投影者。
+屏外材质尚未驻留时不创建 GPU 绑定；已驻留且仍被场景引用的材质保留缓存，重新可见时再校验当前版本。
+Statistics 的 render_items／culled_items 与实际 draw_calls 分别记录主材质候选、裁剪和提交数。
 材质、天空盒与阴影通过 Device::query_format_support 查询最优平铺图像的采样、线性过滤和深度附件能力；
 该查询不替代具体尺寸、用途组合与采样数的创建校验，Vulkan 格式转换留在 graphics 实现内。
 
@@ -939,7 +945,7 @@ MaterialLayout 保留 metadata 声明顺序，PreparedMaterial 单独按 binding
 MaterialRuntimeCache 按 `(Material Handle, instance_id)` 索引，0 表示共享材质基线，其余表示实体运行覆盖。
 比较 Material 对象身份／revision、布局身份与覆盖快照身份；失败也缓存，输入变化后才重试。
 prepare／rebind 返回 Result 和具体诊断，不自行写日志；MaterialRenderer 负责去重报告与回退。
-未使用项按渲染周期回收，已取得的 PreparedMaterial 仍拥有当时的 Texture 和参数副本。
+不再被场景引用的项按渲染周期回收，已取得的 PreparedMaterial 仍拥有当时的 Texture 和参数副本。
 
 set 0 是按 slot 更新的相机 FrameSet；set 1 是按不可变材质版本创建的 MaterialSet；model matrix 使用 push constant。
 MaterialResources 持有 PreparedMaterial、PipelineState、Sampler、参数 buffer 与 descriptor pool；

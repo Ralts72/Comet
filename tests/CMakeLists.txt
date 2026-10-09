@@ -202,7 +202,8 @@ foreach(target IN LISTS TEST_TARGETS)
 endforeach()
 
 foreach(target unit_testing integration_testing)
-    target_link_libraries(${target} PRIVATE RmlUi::Core)
+    # 白盒测试复用 UI 对象模块，在测试进程内操作自己的 RmlUi 会话。
+    target_link_libraries(${target} PRIVATE comet_game_ui RmlUi::Core)
     target_compile_definitions(${target} PRIVATE
             COMET_TEST_UI_DIRECTORY="${CMAKE_SOURCE_DIR}/demo/assets/ui"
             COMET_TEST_UI_FONT_DIRECTORY="${CMAKE_BINARY_DIR}/engine/src/ui/fonts")

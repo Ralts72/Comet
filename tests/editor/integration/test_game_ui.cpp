@@ -4,10 +4,17 @@
 #include "support/render_gpu_test.h"
 #include "support/temporary_directory.h"
 #include "scene/scene.h"
+#include "scene/selection.h"
+#include "scene/command_history.h"
+#include "scene/component_registry.h"
 #include "core/window.h"
 #include "graphics/resource/sampler.h"
 #include "input/player_input_settings.h"
+#include "viewport/viewport_panel.h"
+#include "viewport/transform_gizmo.h"
+#include "ui/shortcuts.h"
 
+#include <GLFW/glfw3.h>
 #include <RmlUi/Core.h>
 #include <imgui.h>
 #include <fstream>
@@ -21,6 +28,9 @@ namespace CometEditor::Tests {
         std::unique_ptr<Ui::ImGuiContext> editor;
         std::shared_ptr<Comet::Sampler> sampler;
         bool visible = true;
+        bool docked = false;
+        std::optional<Comet::Math::Vec2> pointer;
+        std::optional<Comet::Ui::View> ui_view;
         Comet::Tests::TemporaryDirectory documents;
 
         void SetUp() override {
@@ -89,7 +99,7 @@ namespace CometEditor::Tests {
             RenderGpuTest::TearDown();
         }
 
-        void frame() {
+        void frame(ViewportPanel* viewport = nullptr, std::optional<bool> mouse_down = {}) {
             auto& renderer = engine->get_renderer();
             auto& window = engine->get_window();
             for(unsigned attempt = 0; attempt < 12; ++attempt) {
@@ -98,23 +108,64 @@ namespace CometEditor::Tests {
                 ASSERT_TRUE(prepared) << prepared.error();
                 if(prepared.value() != Comet::Renderer::FramePreparation::Ready)
                     continue;
+                if(viewport) {
+                    // 脚本化输入在 poll 后交付，避免系统窗口焦点变化污染测试事件。
+                    const auto focus = glfwSetWindowFocusCallback(window.get(), nullptr);
+                    glfwSetWindowFocusCallback(window.get(), focus);
+                    ASSERT_NE(focus, nullptr);
+                    focus(window.get(), GLFW_TRUE);
+                    if(pointer) {
+                        const auto enter = glfwSetCursorEnterCallback(window.get(), nullptr);
+                        glfwSetCursorEnterCallback(window.get(), enter);
+                        ASSERT_NE(enter, nullptr);
+                        enter(window.get(), GLFW_TRUE);
+                        const auto cursor = glfwSetCursorPosCallback(window.get(), nullptr);
+                        glfwSetCursorPosCallback(window.get(), cursor);
+                        ASSERT_NE(cursor, nullptr);
+                        cursor(window.get(), pointer->x, pointer->y);
+                    }
+                    if(mouse_down) {
+                        const auto mouse = glfwSetMouseButtonCallback(window.get(), nullptr);
+                        glfwSetMouseButtonCallback(window.get(), mouse);
+                        ASSERT_NE(mouse, nullptr);
+                        mouse(window.get(), GLFW_MOUSE_BUTTON_LEFT,
+                            *mouse_down ? GLFW_PRESS : GLFW_RELEASE, 0);
+                    }
+                }
                 const auto output = renderer.get_offscreen_frame();
                 ASSERT_TRUE(editor->begin_frame());
                 editor->set_viewport_image(output.slot, output.color_view, sampler);
-                ImGui::Begin("Game preview");
-                const auto origin = ImGui::GetCursorScreenPos();
-                ImGui::Image(editor->get_viewport_texture_id(output.slot), {120, 90});
-                ImGui::End();
+                auto input = window.publish_input_frame();
                 std::optional<Comet::Ui::View> view;
-                if(visible)
-                    view = Comet::Ui::View{.origin = {origin.x, origin.y},
-                        .size = {120, 90},
-                        .pixel_size = output.size,
-                        .density = 1};
-                const auto ui = game->frame(window.publish_input_frame(),
-                    {.fps = 60,
-                        .game_available = engine->get_scene_runtime().is_active(),
-                        .view = view});
+                if(viewport) {
+                    if(docked) {
+                        const auto dockspace = ImGui::DockSpaceOverViewport();
+                        ImGui::SetNextWindowDockID(dockspace, ImGuiCond_Always);
+                    } else {
+                        ImGui::SetNextWindowPos({20, 40});
+                        ImGui::SetNextWindowSize({900, 650});
+                    }
+                    viewport->set_texture_id(
+                        editor->get_viewport_texture_id(output.slot), output.size.x, output.size.y);
+                    viewport->render();
+                    view = viewport->game_ui_view(output.size);
+                    input = viewport->route_game_ui_input(input, false);
+                } else {
+                    ImGui::Begin("Game preview");
+                    const auto origin = ImGui::GetCursorScreenPos();
+                    ImGui::Image(editor->get_viewport_texture_id(output.slot), {120, 90});
+                    ImGui::End();
+                    if(visible)
+                        view = Comet::Ui::View{.origin = {origin.x, origin.y},
+                            .size = {120, 90},
+                            .pixel_size = output.size,
+                            .density = 1};
+                }
+                const auto ui = game->frame(
+                    input, {.fps = 60,
+                               .game_available = engine->get_scene_runtime().is_active(),
+                               .view = view});
+                ui_view = view;
                 ASSERT_TRUE(ui) << ui.error().message;
                 editor->end_frame();
                 ASSERT_TRUE(renderer.render_frame());
@@ -153,6 +204,57 @@ namespace CometEditor::Tests {
                     }};
         }
     };
+
+    TEST_F(EditorGameUiGpuTest, MouseClickThroughPlayViewportOpensSettingsWhileRunningAndPaused) {
+        auto& window = engine->get_window();
+        glfwSetWindowSize(window.get(), 960, 720);
+        ASSERT_TRUE(engine->start_scene_runtime());
+        EditorState state;
+        state.mode = EditorMode::Play;
+        SelectionService selection(*engine->get_scene());
+        CommandHistory history;
+        auto components = Comet::create_scene_component_registry();
+        PropertyEditTransaction property_edit(history, components);
+        TransformGizmo gizmo(history, components);
+        EditorShortcuts shortcuts;
+        ViewportPanel viewport(
+            state, engine->get_scene_runtime(), selection, gizmo, property_edit, 4096, shortcuts);
+        viewport.set_game_ui_available(true);
+        struct Scenario {
+            bool docked;
+            Comet::SceneRuntime::State state;
+        };
+        for(const auto scenario : {Scenario{false, Comet::SceneRuntime::State::Running},
+                Scenario{false, Comet::SceneRuntime::State::Paused},
+                Scenario{true, Comet::SceneRuntime::State::Running},
+                Scenario{true, Comet::SceneRuntime::State::Paused}}) {
+            SCOPED_TRACE(::testing::Message() << "docked=" << scenario.docked
+                                              << " state=" << static_cast<int>(scenario.state));
+            docked = scenario.docked;
+            ASSERT_TRUE(engine->set_runtime_state(scenario.state));
+            frame(&viewport);
+            frame(&viewport);
+            const auto view = ui_view;
+            ASSERT_TRUE(view);
+            auto* settings = Rml::GetContext(0)->GetDocument(0)->GetElementById("settings");
+            ASSERT_NE(settings, nullptr);
+            const auto offset = settings->GetAbsoluteOffset(Rml::BoxArea::Border);
+            const auto size = settings->GetBox().GetSize(Rml::BoxArea::Border);
+            pointer = Comet::Math::Vec2{
+                view->origin.x + (offset.x + size.x / 2) * view->size.x / view->pixel_size.x,
+                view->origin.y + (offset.y + size.y / 2) * view->size.y / view->pixel_size.y};
+            frame(&viewport);
+            frame(&viewport);
+            frame(&viewport, true);
+            ASSERT_TRUE(viewport.route_game_ui_input(window.get_input_frame(), false).focused);
+            frame(&viewport);
+            frame(&viewport, false);
+            EXPECT_TRUE(game->is_modal());
+            game->deactivate();
+            frame(&viewport);
+            EXPECT_FALSE(game->is_modal());
+        }
+    }
 
     TEST_F(
         EditorGameUiGpuTest, PreviewPlayPauseHideAndStopReuseProjectControllerAndImGuiComposition) {

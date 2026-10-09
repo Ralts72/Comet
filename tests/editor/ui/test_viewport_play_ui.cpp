@@ -12,6 +12,29 @@
 namespace CometEditor::Tests {
     using ViewportPlayUiTest = ViewportUiTest;
 
+    TEST_F(ViewportPlayUiTest, MouseClickInsidePlayImageKeepsProjectUiInputUntilRelease) {
+        using Button = Comet::Input::MouseButton;
+        viewport.set_game_ui_available(true);
+        activate_play_camera();
+        EXPECT_TRUE(viewport.route_game_ui_input(runtime_input.get_frame(), false).focused);
+        auto& io = ImGui::GetIO();
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+        runtime_input.mouse_button_event(Button::Left, true);
+        frame();
+        auto input = viewport.route_game_ui_input(runtime_input.get_frame(), false);
+        EXPECT_TRUE(input.mouse(Button::Left).pressed);
+        frame();
+        input = viewport.route_game_ui_input(runtime_input.get_frame(), false);
+        EXPECT_TRUE(input.focused);
+        EXPECT_TRUE(input.mouse(Button::Left).down);
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+        runtime_input.mouse_button_event(Button::Left, false);
+        frame();
+        input = viewport.route_game_ui_input(runtime_input.get_frame(), false);
+        EXPECT_TRUE(input.focused);
+        EXPECT_TRUE(input.mouse(Button::Left).released);
+    }
+
     TEST_F(ViewportPlayUiTest, ProjectUiInputUsesPlayFocusAndReleasesBeforeGameReacquires) {
         using Key = Comet::Input::Key;
         viewport.set_game_ui_available(true);

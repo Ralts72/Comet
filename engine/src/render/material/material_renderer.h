@@ -23,6 +23,7 @@ namespace Comet {
     class Device;
     class MaterialLayout;
     class FrameScheduler;
+    class Frustum;
     class Pipeline;
     class PipelineManager;
     class RenderResources;
@@ -54,6 +55,8 @@ namespace Comet {
         };
 
         struct Statistics {
+            uint32_t render_items = 0;
+            uint32_t culled_items = 0;
             uint32_t draw_calls = 0;
             uint32_t pipeline_binds = 0;
             uint32_t material_binds = 0;
@@ -168,7 +171,8 @@ namespace Comet {
             const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map,
             std::vector<QueueSemaphoreSubmit>& waits);
         Result<std::vector<DrawItem>, GraphicsError> prepare_draw_queue(
-            std::span<const ResolvedRenderItem> items, uint64_t frame_serial);
+            std::span<const ResolvedRenderItem> items, uint64_t frame_serial,
+            const Frustum* frustum);
         void record_draws(FrameScheduler& frames, std::span<const DrawItem> queue,
             std::vector<QueueSemaphoreSubmit>& waits);
         void collect_unused_materials(uint64_t frame_serial);

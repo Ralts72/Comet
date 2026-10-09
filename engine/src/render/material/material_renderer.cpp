@@ -2,6 +2,7 @@
 #include "render/material/material_programs.h"
 #include "render/material/material_layout.h"
 #include "asset/registry.h"
+#include "core/geometry.h"
 #include "asset/artifact/shader_program_artifact.h"
 #include "scene/material_parameters.h"
 
@@ -768,8 +769,10 @@ namespace Comet {
         std::vector<QueueSemaphoreSubmit> waits;
         update_frame_resources(frames, submission, lighting, shadow_map, waits);
         if(submission.view_project_matrix) {
-            auto queue =
-                prepare_draw_queue(submission.render_items, frames.get_current_frame_serial());
+            const auto& matrices = *submission.view_project_matrix;
+            const auto frustum = Frustum::from_view_projection(matrices.projection * matrices.view);
+            auto queue = prepare_draw_queue(submission.render_items,
+                frames.get_current_frame_serial(), frustum ? &*frustum : nullptr);
             if(!queue)
                 return Draw::failure(queue.error());
             record_draws(frames, queue.value(), waits);
@@ -839,11 +842,26 @@ namespace Comet {
     }
 
     Result<std::vector<MaterialRenderer::DrawItem>, GraphicsError> MaterialRenderer::
-        prepare_draw_queue(
-            const std::span<const ResolvedRenderItem> items, const uint64_t frame_serial) {
+        prepare_draw_queue(const std::span<const ResolvedRenderItem> items,
+            const uint64_t frame_serial, const Frustum* frustum) {
         std::vector<DrawItem> queue;
         queue.reserve(items.size());
         for(const auto& item : items) {
+            ++m_statistics.render_items;
+            // 项目 Shader 可以改变顶点位置，不能用静态 Mesh 界限裁剪。
+            if(frustum && item.mesh && item.material.resource
+                && !item.material.resource->get_shader_program()) {
+                const auto bounds = transform_box(item.mesh->get_local_bounds(), item.model_matrix);
+                if(bounds && !frustum->intersects(*bounds)) {
+                    ++m_statistics.culled_items;
+                    const MaterialInstanceKey key{item.material.material_handle,
+                        item.material.overrides ? item.material.overrides->instance_id : 0};
+                    if(const auto cached = m_materials.find(key); cached != m_materials.end())
+                        cached->second.used = true;
+                    m_prepared.mark_used(key);
+                    continue;
+                }
+            }
             auto material = prepare_material(item.material, frame_serial);
             if(!material)
                 return Result<std::vector<DrawItem>, GraphicsError>::failure(material.error());

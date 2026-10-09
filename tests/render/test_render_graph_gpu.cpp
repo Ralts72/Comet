@@ -502,19 +502,22 @@ namespace Comet::Tests {
             ShadowsDisabled,
             RebuildAndRemoveOccluder,
             NoLights,
-            TiltedLight
+            TiltedLight,
+            OffscreenOccluder
         };
         for(const auto& [scenario, name] : {std::pair{Scenario::MovingOccluder, "moving occluder"},
                 std::pair{Scenario::ShadowsDisabled, "shadows disabled"},
                 std::pair{Scenario::RebuildAndRemoveOccluder, "rebuild target and remove occluder"},
                 std::pair{Scenario::NoLights, "no lights"},
-                std::pair{Scenario::TiltedLight, "tilted light"}}) {
+                std::pair{Scenario::TiltedLight, "tilted light"},
+                std::pair{Scenario::OffscreenOccluder, "occluder beyond camera far plane"}}) {
             SCOPED_TRACE(name);
             for(unsigned index = 0; index < 2; ++index) {
                 SCOPED_TRACE(index);
                 const float x = index == 0 ? -0.5f : 0.5f;
-                const auto occluder = Math::scale(
-                    Math::translate(Math::Mat4(1), {x, 0, 0.625f}), {0.25f, 0.25f, 0.25f});
+                const float z = scenario == Scenario::OffscreenOccluder ? 1.5f : 0.625f;
+                const auto occluder =
+                    Math::scale(Math::translate(Math::Mat4(1), {x, 0, z}), {0.25f, 0.25f, 0.25f});
                 RenderSubmission submission{
                     .view_project_matrix = ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)},
                     .render_items = {{.mesh = mesh, .material = {AssetHandle(559), material}},
@@ -540,6 +543,10 @@ namespace Comet::Tests {
                 auto& scene = *scene_owner.value();
                 auto drawn = scene.render(frames, submission);
                 ASSERT_TRUE(drawn) << drawn.error();
+                if(scenario == Scenario::OffscreenOccluder) {
+                    EXPECT_EQ(scene.get_material_statistics().culled_items, 1u);
+                    EXPECT_EQ(scene.get_material_statistics().draw_calls, 1u);
+                }
                 outputs[index] = std::make_shared<Readback>(
                     device, context.get_context().get_physical_device(), 33 * 33 * 4);
                 copy_output(frames,

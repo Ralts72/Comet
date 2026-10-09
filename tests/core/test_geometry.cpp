@@ -25,6 +25,29 @@ namespace Comet::Tests {
         EXPECT_NEAR(world->size().x, 4.0f, 0.0001f);
         EXPECT_NEAR(world->size().y, 6.0f, 0.0001f);
         EXPECT_NEAR(world->size().z, 1.0f, 0.0001f);
+
+        // 与独立的八角点参考比较，覆盖非对称界限、错切和负缩放。
+        for(int sample = 0; sample < 32; ++sample) {
+            transform = Math::compose_trs(
+                {float(sample), -3, 2}, {13, float(sample * 11), 29}, {-0.7f, 2.3f, 0.4f});
+            transform[1][0] += 0.6f;
+            const BoundingBox asymmetric{{-3, -2, -1}, {1, 4, 2}};
+            auto reference =
+                BoundingBox::from_point(Math::Vec3(transform * Math::Vec4(asymmetric.minimum, 1)));
+            for(int corner = 0; corner < 8; ++corner) {
+                auto point = asymmetric.minimum;
+                for(int axis = 0; axis < 3; ++axis)
+                    if(corner & (1 << axis))
+                        point[axis] = asymmetric.maximum[axis];
+                reference.include(Math::Vec3(transform * Math::Vec4(point, 1)));
+            }
+            const auto actual = transform_box(asymmetric, transform);
+            ASSERT_TRUE(actual);
+            for(int axis = 0; axis < 3; ++axis) {
+                EXPECT_NEAR(actual->minimum[axis], reference.minimum[axis], 0.00001f);
+                EXPECT_NEAR(actual->maximum[axis], reference.maximum[axis], 0.00001f);
+            }
+        }
     }
 
     TEST(BoundingBoxTest, RejectsNonFiniteTransform) {
@@ -55,6 +78,42 @@ namespace Comet::Tests {
 
         ASSERT_TRUE(hit);
         EXPECT_FLOAT_EQ(*hit, 4.0f);
+    }
+
+    TEST(FrustumTest, UsesZeroToOneDepthAndKeepsBoundaryBoxes) {
+        const auto frustum = Frustum::from_view_projection(Math::Mat4(1));
+        ASSERT_TRUE(frustum);
+        EXPECT_TRUE(frustum->intersects(UNIT_BOX));
+        for(const auto point :
+            {Math::Vec3{-1, 0, 0.5f}, Math::Vec3{1, 0, 0.5f}, Math::Vec3{0, -1, 0.5f},
+                Math::Vec3{0, 1, 0.5f}, Math::Vec3{0, 0, 0}, Math::Vec3{0, 0, 1}})
+            EXPECT_TRUE(frustum->intersects(BoundingBox::from_point(point)));
+        for(const auto point :
+            {Math::Vec3{-2, 0, 0.5f}, Math::Vec3{2, 0, 0.5f}, Math::Vec3{0, -2, 0.5f},
+                Math::Vec3{0, 2, 0.5f}, Math::Vec3{0, 0, -0.1f}, Math::Vec3{0, 0, 1.1f}})
+            EXPECT_FALSE(frustum->intersects(BoundingBox::from_point(point)));
+        const BoundingBox crossing{{0.9f, -0.1f, 0.1f}, {1.2f, 0.1f, 0.2f}};
+        EXPECT_TRUE(frustum->intersects(crossing));
+    }
+
+    TEST(FrustumTest, HandlesPerspectiveOrthographicAndMovingCamera) {
+        for(const auto projection :
+            {Math::perspective(90, 1, 1, 10), Math::ortho(-2, 2, -2, 2, 1, 10)}) {
+            const auto view = Math::look_at({3, 4, 5}, {3, 4, 0}, {0, 1, 0});
+            const auto frustum = Frustum::from_view_projection(projection * view);
+            ASSERT_TRUE(frustum);
+            EXPECT_TRUE(frustum->intersects(BoundingBox::from_point({3, 4, 2})));
+            EXPECT_FALSE(frustum->intersects(BoundingBox::from_point({3, 4, 6})));
+            EXPECT_FALSE(frustum->intersects(BoundingBox::from_point({3, 4, -6})));
+            EXPECT_FALSE(frustum->intersects(BoundingBox::from_point({30, 4, 2})));
+        }
+        EXPECT_FALSE(Frustum::from_view_projection(Math::Mat4(0)));
+        auto invalid = Math::Mat4(1);
+        invalid[0][0] = std::numeric_limits<float>::quiet_NaN();
+        EXPECT_FALSE(Frustum::from_view_projection(invalid));
+        const auto frustum = Frustum::from_view_projection(Math::Mat4(1));
+        ASSERT_TRUE(frustum);
+        EXPECT_TRUE(frustum->intersects({Math::Vec3(1), Math::Vec3(-1)}));
     }
 
     TEST(RayBoxTest, HandlesParallelMissAndOriginInside) {

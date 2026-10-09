@@ -3,6 +3,7 @@
 #include "common/export.h"
 #include "core/math_utils.h"
 
+#include <array>
 #include <limits>
 #include <optional>
 
@@ -26,6 +27,18 @@ namespace Comet {
         float max_parameter = std::numeric_limits<float>::max();
 
         [[nodiscard]] bool is_valid() const;
+    };
+
+    // NDC 深度为 [0, 1]；只拒绝完全位于某个裁剪面外的包围盒。
+    class COMET_API Frustum {
+    public:
+        [[nodiscard]] static std::optional<Frustum> from_view_projection(
+            const Math::Mat4& view_projection);
+        [[nodiscard]] bool intersects(const BoundingBox& box) const;
+
+    private:
+        Frustum() = default;
+        std::array<Math::Vec4, 6> m_planes;
     };
 
     // 仿射变换后的世界轴对齐包围盒；不接受投影矩阵。

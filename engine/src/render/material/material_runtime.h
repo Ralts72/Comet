@@ -46,6 +46,8 @@ namespace Comet {
             const std::shared_ptr<const MaterialOverrides>& overrides = {});
 
         void collect_unused();
+        // 标记仍被场景引用的已有缓存，不为屏外材质创建新资源。
+        void mark_used(MaterialInstanceKey key);
         void erase(AssetHandle handle);
         void erase(MaterialInstanceKey key) { m_entries.erase(key); }
         Result<std::shared_ptr<const PreparedMaterial>> rebind(

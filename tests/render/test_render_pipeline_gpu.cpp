@@ -63,7 +63,10 @@ namespace Comet::Tests {
                 {.model_matrix =
                         Math::scale(Math::translate(Math::Mat4(1), {0.5f, 0, 0}), {0.5f, 1, 1}),
                     .mesh = quad,
-                    .material = {AssetHandle(9813), right}}}};
+                    .material = {AssetHandle(9813), right}},
+                {.model_matrix = Math::translate(Math::Mat4(1), {20, 0, 0}),
+                    .mesh = quad,
+                    .material = {AssetHandle(9812), left}}}};
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
@@ -92,6 +95,8 @@ namespace Comet::Tests {
             auto drawn = scene.render(frames, submission);
             ASSERT_TRUE(drawn) << drawn.error();
             EXPECT_EQ(scene.get_material_statistics().cached_material_versions, 2u);
+            EXPECT_EQ(scene.get_material_statistics().culled_items, 0u);
+            EXPECT_EQ(scene.get_material_statistics().draw_calls, 3u);
             outputs[index] =
                 std::make_shared<Readback>(device, context.get_context().get_physical_device(), 64);
             copy_output(frames,
