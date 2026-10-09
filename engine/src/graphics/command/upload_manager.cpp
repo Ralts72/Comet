@@ -173,7 +173,8 @@ namespace Comet {
     GpuResourceResult<GpuCompletionPoint> UploadManager::submit_batch(UploadBatch& batch) {
         // GPU 提交后，接管在途资源不能再分配内存或抛异常。
         static_assert(std::is_nothrow_move_constructible_v<PendingBatch>);
-        m_pending_batches.reserve(m_pending_batches.size() + 1);
+        if(m_pending_batches.size() == m_pending_batches.capacity())
+            m_pending_batches.reserve(std::max<size_t>(8, m_pending_batches.size() * 2));
         const auto completion = batch.m_context->submit();
         if(!completion) {
             abort_batch(batch);

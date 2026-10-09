@@ -121,11 +121,13 @@ namespace Comet {
             std::shared_ptr<DescriptorSetLayout> material_layout;
             std::shared_ptr<Pipeline> pipeline;
             std::shared_ptr<Pipeline> instanced_pipeline;
+            bool static_mesh_bounds = false;
         };
         struct MaterialInput {
             std::shared_ptr<const Material> source;
-            uint64_t revision;
+            uint64_t revision = 0;
             std::shared_ptr<const MaterialOverrides> overrides;
+            const MaterialBinding* requested_input = nullptr;
         };
         using MaterialInputs = std::map<MaterialInstanceKey, MaterialInput>;
         struct ProjectPipeline {
@@ -181,15 +183,18 @@ namespace Comet {
             uint32_t first_instance = 0;
         };
 
-        using ProgramMaterials = std::map<std::pair<AssetHandle, std::string>, MaterialInputs>;
-
         void sync_runtime_instances();
-        void sync_program_inputs(ProgramMaterials&& requested);
+        void sync_program_inputs();
         void update_frame_resources(FrameScheduler& frames, const RenderSubmission& submission,
             const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map,
             std::vector<QueueSemaphoreSubmit>& waits);
         Result<void, GraphicsError> prepare_draw_queue(
             const RenderGeometry& geometry, uint64_t frame_serial, const Frustum* frustum);
+        void collect_visible_draws(const RenderGeometry& geometry, const Frustum* frustum);
+        Result<void, GraphicsError> prepare_draw_materials(uint64_t frame_serial);
+        [[nodiscard]] const std::shared_ptr<const PipelineState>& find_pipeline(
+            const Material& material) const;
+        [[nodiscard]] bool can_cull(const MaterialBinding& material) const;
         void record_draws(FrameScheduler& frames, std::span<const DrawItem> queue,
             std::vector<QueueSemaphoreSubmit>& waits);
         void append_material_draws(std::span<DrawItem> items,
@@ -202,7 +207,8 @@ namespace Comet {
             const std::shared_ptr<Shader>& fragment, std::shared_ptr<const MaterialLayout> layout,
             SampleCount samples, std::shared_ptr<DescriptorSetLayout> material_layout,
             AssetHandle shader_program = INVALID_ASSET_HANDLE,
-            const std::shared_ptr<Shader>& instanced_vertex = nullptr);
+            const std::shared_ptr<Shader>& instanced_vertex = nullptr,
+            bool static_mesh_bounds = false);
         Result<void, GraphicsError> prepare_builtin_pipeline(PipelineManager& pipelines,
             const MaterialShaderDefinition& definition, const MaterialShaderProgram& code,
             SampleCount samples,

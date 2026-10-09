@@ -1,4 +1,7 @@
 #include "asset/asset_manager.h"
+#include "asset/artifact/shader_program_artifact.h"
+#include "asset/registry.h"
+#include "asset/runtime/render_asset_publisher.h"
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
 #include "common/file_io.h"
@@ -13,6 +16,8 @@
 #include "render/render_context.h"
 #include "render/render_diagnostics.h"
 #include "render/renderer.h"
+#include "render/material/material.h"
+#include "render/material/material_shader.h"
 #include "render/resource/render_resources.h"
 #include "render/scene/scene_renderer.h"
 #include "render/render_target.h"
@@ -46,14 +51,16 @@ namespace {
     constexpr unsigned MAX_PHYSICS_OBJECTS = 512;
     constexpr std::string_view USAGE =
         "Usage: render_benchmark OUTPUT.csv OBJECTS WIDTH HEIGHT FRAMES BLOOM(0/1) "
-        "[MATERIALS [static|culling|physics-active|physics-sleeping]]";
+        "[MATERIALS [static|culling|project-shader|physics-active|physics-sleeping]]";
 
-    enum class Workload { Static, Culling, PhysicsActive, PhysicsSleeping };
+    enum class Workload { Static, Culling, ProjectShader, PhysicsActive, PhysicsSleeping };
 
     std::string_view workload_name(Workload workload) {
         switch(workload) {
             case Workload::Culling:
                 return "culling";
+            case Workload::ProjectShader:
+                return "project-shader";
             case Workload::PhysicsActive:
                 return "physics-active";
             case Workload::PhysicsSleeping:
@@ -104,6 +111,8 @@ namespace {
                 workload = Workload::PhysicsActive;
             else if(name == "physics-sleeping")
                 workload = Workload::PhysicsSleeping;
+            else if(name == "project-shader")
+                workload = Workload::ProjectShader;
             else if(name != "static")
                 return Result<Options>::failure("Invalid benchmark workload: " + std::string(name));
         }
@@ -182,7 +191,8 @@ namespace {
     };
 
     Result<void> populate_scene(Comet::Engine& engine, Comet::AssetManager& assets,
-        const Options& options, std::vector<BodyPose>& body_poses) {
+        const std::filesystem::path& root, const Options& options,
+        std::vector<BodyPose>& body_poses) {
         if(!assets.scan().succeeded())
             return Result<void>::failure("Benchmark asset scan failed");
         const auto* mesh = assets.get_database().find("meshes/cube.gltf");
@@ -194,6 +204,18 @@ namespace {
         if(auto loaded = assets.ensure_loaded(mesh_handle, Comet::AssetType::Mesh); !loaded)
             return Result<void>::failure(loaded.error().message);
         std::vector<Comet::AssetHandle> materials;
+        Comet::RenderAssetPublisher publisher(
+            engine.get_asset_registry(), engine.get_render_resources());
+        constexpr Comet::AssetHandle project_program(0xc0be700000000001ULL);
+        if(options.workload == Workload::ProjectShader) {
+            const auto code = Comet::default_material_shaders().at("pbr");
+            auto program = std::make_shared<Comet::ShaderProgramArtifact>();
+            program->handle = project_program;
+            program->vertex_words = code.vertex;
+            program->fragment_words = code.fragment;
+            if(!engine.get_asset_registry().register_asset(project_program, std::move(program)))
+                return Result<void>::failure("Cannot register benchmark Shader program");
+        }
         for(unsigned index = 0; index < options.materials; ++index) {
             const auto* material = assets.get_database().find(material_path(index));
             if(!material)
@@ -201,6 +223,22 @@ namespace {
             materials.push_back(material->handle);
             if(auto loaded = assets.ensure_loaded(material->handle, material->type); !loaded)
                 return Result<void>::failure(loaded.error().message);
+            if(options.workload == Workload::ProjectShader) {
+                auto data =
+                    Comet::MaterialSerializer{}.load(root / "assets" / material_path(index));
+                if(!data)
+                    return Result<void>::failure(data.error());
+                data.value().shader_program = project_program;
+                std::map<std::string, std::shared_ptr<Comet::Texture>> textures;
+                for(const auto& [name, handle] : data.value().texture_properties)
+                    textures.emplace(name, publisher.texture(handle));
+                auto version = publisher.prepare_material(
+                    "benchmark project material", data.value(), textures);
+                if(!version)
+                    return Result<void>::failure(version.error().message);
+                if(!publisher.publish(material->handle, version.value(), true))
+                    return Result<void>::failure("Cannot register benchmark project material");
+            }
         }
         auto scene = std::make_unique<Comet::Scene>();
         unsigned identity = 0;
@@ -453,14 +491,16 @@ namespace {
                                              : m_options.objects;
             const auto visible_materials = std::min(m_options.materials, visible_objects);
             const auto& shadow = scene.get_shadow_statistics();
-            const auto pipeline_binds = visible_objects >= 2 * visible_materials - 1 ? 1u : 2u;
+            const bool project_shader = m_options.workload == Workload::ProjectShader;
+            const auto draws = project_shader ? visible_objects + 1 : visible_materials;
+            const auto pipeline_binds =
+                project_shader || visible_objects >= 2 * visible_materials - 1 ? 1u : 2u;
             if(frame.truncated || frame.passes.size() != m_passes.size()
                 || stats.render_items != m_options.objects + 1
                 || stats.culled_items != m_options.objects - visible_objects
-                || stats.draw_calls != visible_materials
-                || stats.drawn_instances != visible_objects + 1 || shadow.draw_calls != 1
-                || shadow.drawn_instances != m_options.objects + 1 || stats.light_count != 3
-                || stats.pipeline_binds != pipeline_binds
+                || stats.draw_calls != draws || stats.drawn_instances != visible_objects + 1
+                || shadow.draw_calls != 1 || shadow.drawn_instances != m_options.objects + 1
+                || stats.light_count != 3 || stats.pipeline_binds != pipeline_binds
                 || stats.material_binds != visible_materials
                 || stats.material_preparations != visible_materials || stats.mesh_binds != 1
                 || stats.cached_material_versions != visible_materials
@@ -541,7 +581,8 @@ namespace {
             engine->get_task_scheduler());
         const Comet::ScopeExit shutdown([&] { engine->prepare_shutdown(); });
         std::vector<BodyPose> body_poses;
-        if(auto populated = populate_scene(*engine, assets, options, body_poses); !populated)
+        if(auto populated = populate_scene(*engine, assets, project.value(), options, body_poses);
+            !populated)
             return populated;
         auto& runtime = engine->get_scene_runtime();
         if(uses_physics(options.workload)) {

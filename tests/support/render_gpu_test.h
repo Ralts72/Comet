@@ -135,6 +135,11 @@ namespace Comet::Tests {
             }});
             return Result<void, GraphicsError>::success();
         }
+        static void begin_frame(FrameScheduler& frames) {
+            frames.wait_for_current_slot();
+            frames.begin_frame(0);
+            frames.get_current_command_buffer().begin();
+        }
         static void submit(
             Device&, FrameScheduler& frames, std::span<const QueueSemaphoreSubmit> waits = {}) {
             frames.get_current_command_buffer().end();
@@ -178,6 +183,18 @@ namespace Comet::Tests {
                 return Result<void, GraphicsError>::success();
             }));
         }
+        static void finish_readback(SceneRenderer& scene, FrameScheduler& frames,
+            const std::shared_ptr<Readback>& readback, Math::Vec2u size,
+            std::span<const QueueSemaphoreSubmit> waits = {}) {
+            const auto view = scene.get_offscreen_color_view(frames.get_current_frame_slot_index());
+            ASSERT_TRUE(view);
+            copy_output(frames, view->get_image(), readback, size);
+            if(HasFatalFailure())
+                return;
+            submit(frames.get_device(), frames, waits);
+            if(!HasFatalFailure())
+                frames.wait_for_all_slots();
+        }
         static void render_and_copy(Renderer& renderer, const RenderScene& scene,
             FrameScheduler& readback_frames, const std::shared_ptr<Readback>& readback) {
             auto prepared = renderer.prepare_frame();
@@ -186,9 +203,7 @@ namespace Comet::Tests {
             const auto output = renderer.get_offscreen_frame();
             ASSERT_TRUE(output.color_view);
             ASSERT_TRUE(renderer.render_frame(scene));
-            readback_frames.wait_for_current_slot();
-            readback_frames.begin_frame(0);
-            readback_frames.get_current_command_buffer().begin();
+            begin_frame(readback_frames);
             copy_output(readback_frames, output.color_view->get_image(), readback, output.size);
             submit(readback_frames.get_device(), readback_frames);
         }

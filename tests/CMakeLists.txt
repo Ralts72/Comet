@@ -147,6 +147,8 @@ set(INTEGRATION_SOURCES
         render/test_render_diagnostics.cpp
         render/test_render_graph_gpu.cpp
         render/test_render_pipeline_gpu.cpp
+        render/test_instanced_rendering.cpp
+        render/test_environment_rendering.cpp
         render/test_scene_resolver.cpp
         render/test_script_material.cpp
         runtime/test_engine.cpp

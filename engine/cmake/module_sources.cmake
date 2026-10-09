@@ -202,6 +202,7 @@ set(COMET_RENDER_SOURCES
     src/render/material/material_shader.cpp
     src/render/material/material_runtime.cpp
     src/render/material/material_renderer.cpp
+    src/render/material/material_draw_queue.cpp
     src/render/render_settings.h
 )
 

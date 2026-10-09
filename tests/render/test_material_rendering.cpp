@@ -42,16 +42,20 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <type_traits>
 
 namespace Comet::Tests {
-    static_assert(!std::is_constructible_v<MaterialRenderer, Device&, PipelineManager&,
-        RenderResources&, uint32_t, SampleCount>);
-    static_assert(!std::is_constructible_v<DebugRenderer, Device&, PipelineManager&,
-        RenderResources&, uint32_t, SampleCount>);
-
     class MaterialRenderingTest: public EngineTest {
     protected:
+        bool draw(const RenderScene& scene) {
+            auto& renderer = engine->get_renderer();
+            const auto prepared = renderer.prepare_frame();
+            EXPECT_TRUE(prepared);
+            if(!prepared || prepared.value() != Renderer::FramePreparation::Ready)
+                return false;
+            const auto rendered = renderer.render_frame(scene);
+            EXPECT_TRUE(rendered);
+            return bool(rendered);
+        }
         GpuResourceResult<std::shared_ptr<Texture>> texture(std::vector<uint8_t> rgba) {
             return engine->get_render_resources().try_create_texture(
                 {.width = 1, .height = 1, .pixels = std::move(rgba)});
@@ -199,15 +203,6 @@ namespace Comet::Tests {
                 .material_overrides = std::make_shared<const MaterialOverrides>(
                     MaterialOverrides{.instance_id = 41, .material = hidden_material})}};
         auto& renderer = engine->get_renderer();
-        const auto draw = [&] {
-            const auto prepared = renderer.prepare_frame();
-            EXPECT_TRUE(prepared);
-            if(!prepared || prepared.value() != Renderer::FramePreparation::Ready)
-                return false;
-            const auto rendered = renderer.render_frame(scene);
-            EXPECT_TRUE(rendered);
-            return bool(rendered);
-        };
         for(unsigned frame = 0; frame < 6; ++frame) {
             SCOPED_TRACE(frame);
             const bool hidden = frame % 2 == 0;
@@ -215,7 +210,7 @@ namespace Comet::Tests {
                 Math::translate(Math::Mat4(1), {hidden ? 20.0f : 0.0f, 0, 0});
             if(frame == 4)
                 ASSERT_TRUE(material->set_vector_property("color", {0, 0.5f, 0, 1}));
-            ASSERT_TRUE(draw());
+            ASSERT_TRUE(draw(scene));
             const auto stats = renderer.get_scene_renderer().get_material_statistics();
             EXPECT_EQ(stats.render_items, 2u);
             EXPECT_EQ(stats.culled_items, hidden ? 1u : 0u);
@@ -229,13 +224,95 @@ namespace Comet::Tests {
                 .indices = {0, 1, 2}});
         ASSERT_TRUE(replacement);
         ASSERT_TRUE(assets.replace_asset(hidden_mesh, replacement.value()));
-        ASSERT_TRUE(draw());
+        ASSERT_TRUE(draw(scene));
         EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().culled_items, 0u);
         EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().draw_calls, 2u);
         scene.render_items.pop_back();
-        ASSERT_TRUE(draw());
+        ASSERT_TRUE(draw(scene));
         EXPECT_EQ(
             renderer.get_scene_renderer().get_material_statistics().cached_material_versions, 1u);
+    }
+
+    TEST_F(MaterialRenderingTest, CullingFollowsPublishedVertexCodeAcrossReloadFailureAndRestore) {
+        constexpr AssetHandle mesh_handle(9194), material_handle(9195);
+        auto& assets = engine->get_asset_registry();
+        const auto mesh = engine->get_render_resources().try_create_mesh(
+            {.vertices = {{{-0.5f, -0.5f, -2}}, {{0.5f, -0.5f, -2}}, {{0, 0.5f, -2}}},
+                .indices = {0, 1, 2}});
+        ASSERT_TRUE(mesh);
+        ASSERT_TRUE(assets.register_asset(mesh_handle, mesh.value()));
+        ASSERT_TRUE(assets.register_asset(
+            material_handle, std::make_shared<Material>("translated", "unlit_color")));
+        RenderScene scene;
+        scene.cameras.push_back({.primary = true});
+        scene.render_items.push_back({.model_matrix = Math::translate(Math::Mat4(1), {1000, 0, 0}),
+            .mesh_handle = mesh_handle,
+            .material_handle = material_handle});
+        auto& renderer = engine->get_renderer();
+        ASSERT_TRUE(draw(scene));
+        EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().culled_items, 1u);
+        EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().draw_calls, 0u);
+
+        TemporaryDirectory directory;
+        const auto source = directory.path() / "translated.vert";
+        ASSERT_TRUE(write_text_file_atomic(source,
+            "#version 450\n#extension GL_GOOGLE_include_directive : require\n"
+            "#include \"frame.glsl\"\nlayout(location=0) in vec3 position;\n"
+            "layout(push_constant) uniform ObjectData {mat4 model;} object;\n"
+            "void main(){vec4 world=object.model*vec4(position,1);world.x-=1000;"
+            "gl_Position=frame.projection*frame.view*world;}\n"));
+        const auto compiled = ShaderCompiler::compile({.source = source,
+            .stage = ShaderStage::Vertex,
+            .include_directories = {
+                std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/common"}});
+        ASSERT_TRUE(compiled.succeeded()) << compiled.diagnostics;
+        auto shaders = default_material_shaders();
+        shaders.at("unlit_color").vertex = compiled.words;
+        ASSERT_TRUE(renderer.reload_material_shaders(shaders));
+        ASSERT_TRUE(draw(scene));
+        EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().culled_items, 0u);
+        EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().draw_calls, 1u);
+
+        shaders.at("unlit_color").vertex = {0};
+        EXPECT_FALSE(renderer.reload_material_shaders(shaders));
+        ASSERT_TRUE(draw(scene));
+        EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().culled_items, 0u);
+        EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().draw_calls, 1u);
+
+        ASSERT_TRUE(renderer.reload_material_shaders(default_material_shaders()));
+        ASSERT_TRUE(draw(scene));
+        EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().culled_items, 1u);
+        EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().draw_calls, 0u);
+
+        constexpr AssetHandle program_handle(9196);
+        auto program = std::make_shared<ShaderProgramArtifact>();
+        program->handle = program_handle;
+        program->vertex_words = compiled.words;
+        program->fragment_words = default_material_shaders().at("unlit_color").fragment;
+        ASSERT_TRUE(assets.register_asset(program_handle, program));
+        ASSERT_TRUE(assets.replace_asset(
+            material_handle, std::make_shared<Material>("project", "unlit_color", program_handle)));
+        scene.render_items.front().material_overrides = std::make_shared<const MaterialOverrides>(
+            MaterialOverrides{.instance_id = 47, .material = material_handle});
+        ASSERT_TRUE(draw(scene));
+        EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().draw_calls, 1u);
+
+        ASSERT_TRUE(assets.replace_asset(
+            material_handle, std::make_shared<Material>("builtin", "unlit_color")));
+        scene.render_items.front().material_overrides =
+            std::make_shared<const MaterialOverrides>(MaterialOverrides{.instance_id = 47,
+                .material = material_handle,
+                .scalar_properties = {{"unknown", 1}}});
+        ASSERT_TRUE(draw(scene));
+        EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().culled_items, 0u);
+        EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().draw_calls, 1u);
+
+        scene.render_items.front().material_overrides = std::make_shared<const MaterialOverrides>(
+            MaterialOverrides{.instance_id = 47, .material = material_handle});
+        ASSERT_TRUE(draw(scene));
+        ASSERT_TRUE(draw(scene));
+        EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().culled_items, 1u);
+        EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().draw_calls, 0u);
     }
 
     TEST_F(MaterialRenderingTest, ProjectProgramHandleCreatesPipelineAndRejectsIncompatibleCode) {

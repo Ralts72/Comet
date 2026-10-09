@@ -44,6 +44,10 @@ namespace Comet {
         }
         m_invalid_environment = invalid_environment;
         submission.render_items.reserve(render_scene.render_items.size());
+        for(auto& [handle, used] : m_missing_mesh_handles)
+            used = false;
+        for(auto& [handle, used] : m_missing_material_handles)
+            used = false;
 
         // 成功提交的上一项可共享资源；引用仅在这次解析内有效。
         const RenderItem* previous = nullptr;
@@ -54,7 +58,10 @@ namespace Comet {
             else
                 mesh = m_asset_registry.resolve<Mesh>(item.mesh_handle);
             if(!mesh) {
-                if(m_missing_mesh_handles.insert(item.mesh_handle).second)
+                const auto [entry, inserted] =
+                    m_missing_mesh_handles.try_emplace(item.mesh_handle, true);
+                entry->second = true;
+                if(inserted)
                     LOG_ERROR(
                         "Render item references missing mesh handle {}", item.mesh_handle.value());
                 continue;
@@ -67,7 +74,10 @@ namespace Comet {
             else
                 material = m_asset_registry.resolve<const Material>(item.material_handle);
             if(!material) {
-                if(m_missing_material_handles.insert(item.material_handle).second)
+                const auto [entry, inserted] =
+                    m_missing_material_handles.try_emplace(item.material_handle, true);
+                entry->second = true;
+                if(inserted)
                     LOG_ERROR("Render item references missing material handle {}",
                         item.material_handle.value());
                 continue;
@@ -81,6 +91,8 @@ namespace Comet {
                     .overrides = item.material_overrides}});
             previous = &item;
         }
+        std::erase_if(m_missing_mesh_handles, [](const auto& entry) { return !entry.second; });
+        std::erase_if(m_missing_material_handles, [](const auto& entry) { return !entry.second; });
     }
 
     std::optional<ViewProjectMatrix> SceneResolver::resolve_camera(

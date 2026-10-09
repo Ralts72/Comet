@@ -27,7 +27,7 @@ namespace Comet {
 }
 
 namespace Comet::Ui {
-    // 可选 RmlUi 后端。页面、数据绑定和业务行为由调用方拥有。
+    // RmlUi 上下文；页面、数据绑定和业务行为由调用方拥有。
     class COMET_API RmlContext final {
     public:
         struct FontFace {

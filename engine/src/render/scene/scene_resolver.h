@@ -6,7 +6,7 @@
 #include "render/scene/render_submission.h"
 
 #include <optional>
-#include <unordered_set>
+#include <unordered_map>
 
 namespace Comet {
     class AssetRegistry;
@@ -32,8 +32,8 @@ namespace Comet {
             const RenderScene& render_scene, const RenderView& view);
 
         const AssetRegistry& m_asset_registry;
-        std::unordered_set<AssetHandle> m_missing_mesh_handles;
-        std::unordered_set<AssetHandle> m_missing_material_handles;
+        std::unordered_map<AssetHandle, bool> m_missing_mesh_handles;
+        std::unordered_map<AssetHandle, bool> m_missing_material_handles;
         AssetHandle m_invalid_environment;
         std::optional<CameraDiagnostic> m_camera_diagnostic;
         bool m_missing_primary_camera = false;

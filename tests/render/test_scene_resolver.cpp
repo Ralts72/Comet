@@ -10,6 +10,7 @@
 #include "render/scene/scene_resolver.h"
 #include "support/engine_fixture.h"
 #include "support/math_assertions.h"
+#include "support/render_resource_factory.h"
 
 #include <limits>
 #include <algorithm>
@@ -67,6 +68,42 @@ namespace Comet::Tests {
             resolver.resolve(render_scene, runtime_view(Math::Vec2u(1280, 720)));
 
         EXPECT_TRUE(submission.render_items.empty());
+    }
+
+    TEST(SceneResolverTest, MissingResourceDiagnosticsExpireWhenReferencesLeaveTheScene) {
+        AssetRegistry registry;
+        FakeRenderResourceFactory resources;
+        const auto mesh = resources.try_create_mesh({});
+        ASSERT_TRUE(mesh);
+        ASSERT_TRUE(registry.register_asset(AssetHandle(10), mesh.value()));
+        SceneResolver resolver(registry);
+        RenderScene scene;
+        scene.cameras.push_back({.primary = true});
+        scene.render_items = {{.mesh_handle = AssetHandle(11), .material_handle = AssetHandle(20)},
+            {.mesh_handle = AssetHandle(10), .material_handle = AssetHandle(21)}};
+        const auto view = runtime_view({160, 120});
+        const auto logger = Logger::get_console_logger();
+        ASSERT_TRUE(logger);
+        std::ostringstream messages;
+        const auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(messages);
+        Logger::add_custom_sink(sink);
+        const ScopeExit remove_sink([&] { std::erase(logger->sinks(), sink); });
+        EXPECT_TRUE(resolver.resolve(scene, view).render_items.empty());
+        const auto reported = messages.str();
+        EXPECT_NE(reported.find("missing mesh handle 11"), std::string::npos);
+        EXPECT_NE(reported.find("missing material handle 21"), std::string::npos);
+        EXPECT_TRUE(resolver.resolve(scene, view).render_items.empty());
+        EXPECT_EQ(messages.str(), reported);
+
+        const auto items = std::exchange(scene.render_items, {});
+        EXPECT_TRUE(resolver.resolve(scene, view).render_items.empty());
+        EXPECT_EQ(messages.str(), reported);
+        scene.render_items = items;
+        EXPECT_TRUE(resolver.resolve(scene, view).render_items.empty());
+        EXPECT_NE(
+            messages.str().find("missing mesh handle 11", reported.size()), std::string::npos);
+        EXPECT_NE(
+            messages.str().find("missing material handle 21", reported.size()), std::string::npos);
     }
 
     using SceneEnvironmentResolverTest = EngineTest;

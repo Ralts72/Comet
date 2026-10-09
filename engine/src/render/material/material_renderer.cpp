@@ -1,4 +1,5 @@
 #include "render/material/material_renderer.h"
+#include "render/scene/draw_order.h"
 #include "render/material/material_programs.h"
 #include "render/material/material_layout.h"
 #include "asset/registry.h"
@@ -243,7 +244,9 @@ namespace Comet {
         std::shared_ptr<Shader> instanced_vertex;
         // 只配对已知内置顶点程序；开发覆盖可能修改顶点位置，必须使用覆盖本身。
         static const auto builtins = default_material_shaders();
-        if(code.vertex_entry == "main" && code.vertex == builtins.at(name).vertex) {
+        const bool static_mesh_bounds =
+            code.vertex_entry == "main" && code.vertex == builtins.at(name).vertex;
+        if(static_mesh_bounds) {
             const auto words = name == "pbr"
                                    ? std::span<const uint32_t>(PBR_INSTANCED_VERT)
                                    : std::span<const uint32_t>(UNLIT_COLOR_INSTANCED_VERT);
@@ -252,8 +255,9 @@ namespace Comet {
                 return Result<void, GraphicsError>::failure(shader.error());
             instanced_vertex = std::move(shader).value();
         }
-        auto candidate = create_pipeline(pipelines, vertex.value(), fragment.value(),
-            reflected.value(), samples, descriptor_layout, INVALID_ASSET_HANDLE, instanced_vertex);
+        auto candidate =
+            create_pipeline(pipelines, vertex.value(), fragment.value(), reflected.value(), samples,
+                descriptor_layout, INVALID_ASSET_HANDLE, instanced_vertex, static_mesh_bounds);
         if(!candidate)
             return Result<void, GraphicsError>::failure(candidate.error());
         if(old != m_pipelines.end() && old->second->pipeline == candidate.value()->pipeline
@@ -393,14 +397,12 @@ namespace Comet {
 
     Result<void, GraphicsError> MaterialRenderer::prepare_programs(
         const RenderSubmission& submission) {
-        ProgramMaterials requested;
         bool requested_instances = false;
         for(const auto& item : submission.render_items) {
             const auto& material = item.material;
             if(!material.resource)
                 continue;
-            const MaterialInstanceKey key{
-                material.material_handle, material.overrides ? material.overrides->instance_id : 0};
+            const auto key = DrawOrder::material_key(material);
             if(key.instance_id) {
                 requested_instances = true;
                 if(const auto cached = m_materials.find(key); cached != m_materials.end())
@@ -410,15 +412,14 @@ namespace Comet {
                 continue;
             const auto program = std::pair{
                 material.resource->get_shader_program(), material.resource->get_template_name()};
-            requested[program].insert_or_assign(
-                key, MaterialInput{
-                         material.resource, material.resource->get_revision(), material.overrides});
-            m_project_pipelines.try_emplace(program);
+            auto& active = m_project_pipelines[program];
+            // 借用本次提交的最后一个输入；同步后不保留提交指针。
+            active.materials[key].requested_input = &material;
         }
         if(requested_instances || m_has_runtime_instances)
             sync_runtime_instances();
         m_has_runtime_instances = requested_instances;
-        sync_program_inputs(std::move(requested));
+        sync_program_inputs();
         for(const auto& [program, active] : m_project_pipelines) {
             if(active.materials.empty())
                 continue;
@@ -456,35 +457,36 @@ namespace Comet {
         }
     }
 
-    void MaterialRenderer::sync_program_inputs(ProgramMaterials&& requested) {
+    void MaterialRenderer::sync_program_inputs() {
         for(auto& [program, active] : m_project_pipelines) {
-            const auto found = requested.find(program);
-            MaterialInputs materials;
-            if(found != requested.end())
-                materials = std::move(found->second);
-            if(active.failed_source
-                && active.failure_cause == ProjectPipeline::FailureCause::Materials) {
-                const bool unchanged = std::ranges::equal(
-                    active.materials, materials, [](const auto& previous, const auto& current) {
-                        return previous.first == current.first
-                               && previous.second.source == current.second.source
-                               && previous.second.revision == current.second.revision;
-                    });
-                if(!unchanged)
-                    active.failed_source.reset();
-            } else if(active.failed_source
-                      && active.failure_cause == ProjectPipeline::FailureCause::Overrides) {
-                const auto overridden = std::views::filter(
-                    [](const auto& material) { return bool(material.second.overrides); });
-                const bool unchanged = std::ranges::equal(active.materials | overridden,
-                    materials | overridden, [](const auto& previous, const auto& current) {
-                        return previous.first == current.first
-                               && previous.second.overrides == current.second.overrides;
-                    });
-                if(!unchanged)
-                    active.failed_source.reset();
+            bool materials_changed = false;
+            bool overrides_changed = false;
+            for(auto entry = active.materials.begin(); entry != active.materials.end();) {
+                auto& input = entry->second;
+                const auto* requested = std::exchange(input.requested_input, nullptr);
+                if(!requested) {
+                    materials_changed = true;
+                    overrides_changed |= bool(input.overrides);
+                    entry = active.materials.erase(entry);
+                    continue;
+                }
+                const auto revision = requested->resource->get_revision();
+                materials_changed |=
+                    input.source != requested->resource || input.revision != revision;
+                overrides_changed |= input.overrides != requested->overrides;
+                if(input.source != requested->resource)
+                    input.source = requested->resource;
+                input.revision = revision;
+                if(input.overrides != requested->overrides)
+                    input.overrides = requested->overrides;
+                ++entry;
             }
-            active.materials = std::move(materials);
+            const bool retry = (active.failure_cause == ProjectPipeline::FailureCause::Materials
+                                   && materials_changed)
+                               || (active.failure_cause == ProjectPipeline::FailureCause::Overrides
+                                   && overrides_changed);
+            if(retry)
+                active.failed_source.reset();
         }
     }
 
@@ -601,7 +603,8 @@ namespace Comet {
         create_pipeline(PipelineManager& pipelines, const std::shared_ptr<Shader>& vertex,
             const std::shared_ptr<Shader>& fragment, std::shared_ptr<const MaterialLayout> layout,
             const SampleCount samples, std::shared_ptr<DescriptorSetLayout> material_layout,
-            const AssetHandle shader_program, const std::shared_ptr<Shader>& instanced_vertex) {
+            const AssetHandle shader_program, const std::shared_ptr<Shader>& instanced_vertex,
+            const bool static_mesh_bounds) {
         using Creation = Result<std::shared_ptr<const PipelineState>, GraphicsError>;
         if(!layout)
             return Creation::failure({"Missing material layout"});
@@ -609,6 +612,7 @@ namespace Comet {
             return Creation::failure({checked.error()});
         auto state = std::make_shared<PipelineState>();
         state->shader_program = shader_program;
+        state->static_mesh_bounds = static_mesh_bounds;
         state->layout = std::move(layout);
         if(!material_layout) {
             DescriptorSetLayoutBindings bindings;
@@ -663,16 +667,7 @@ namespace Comet {
         using Preparation = Result<std::shared_ptr<MaterialResources>, GraphicsError>;
         if(!material.resource)
             return Preparation::success(nullptr);
-        std::shared_ptr<const PipelineState> pipeline;
-        if(material.resource->get_shader_program()) {
-            const auto found = m_project_pipelines.find(
-                {material.resource->get_shader_program(), material.resource->get_template_name()});
-            if(found != m_project_pipelines.end())
-                pipeline = found->second.pipeline;
-        } else if(const auto builtin = m_pipelines.find(material.resource->get_template_name());
-            builtin != m_pipelines.end()) {
-            pipeline = builtin->second;
-        }
+        const auto& pipeline = find_pipeline(*material.resource);
         if(!pipeline) {
             const auto [entry, inserted] =
                 m_unsupported.try_emplace(material.material_handle, frame_serial);
@@ -684,8 +679,7 @@ namespace Comet {
             return Preparation::success(nullptr);
         }
         m_unsupported.erase(material.material_handle);
-        const MaterialInstanceKey key{
-            material.material_handle, material.overrides ? material.overrides->instance_id : 0};
+        const auto key = DrawOrder::material_key(material);
         if(key.instance_id)
             m_has_runtime_instances = true;
         auto& cached = m_materials[key];
@@ -893,122 +887,6 @@ namespace Comet {
             LOG_WARN("Lighting omitted {} excess and {} invalid lights (limit {})",
                 m_statistics.excess_lights, m_statistics.invalid_lights, LightingData::MAX_LIGHTS);
         frames.retain_current_frame_resource(frame);
-    }
-
-    Result<void, GraphicsError> MaterialRenderer::prepare_draw_queue(
-        const RenderGeometry& geometry, const uint64_t frame_serial, const Frustum* frustum) {
-        auto& queue = m_draw_queue;
-        queue.clear();
-        queue.reserve(geometry.get_items().size());
-        m_instance_transforms.clear();
-        for(const auto& prepared : geometry.get_items()) {
-            const auto& item = *prepared.source;
-            ++m_statistics.render_items;
-            // 项目 Shader 可以改变顶点位置，不能用静态 Mesh 界限裁剪。
-            if(frustum && item.mesh && item.material.resource
-                && !item.material.resource->get_shader_program()) {
-                const auto& bounds = prepared.world_bounds;
-                if(bounds && !frustum->intersects(*bounds)) {
-                    ++m_statistics.culled_items;
-                    const MaterialInstanceKey key{item.material.material_handle,
-                        item.material.overrides ? item.material.overrides->instance_id : 0};
-                    if(const auto cached = m_materials.find(key); cached != m_materials.end())
-                        cached->second.used = true;
-                    m_prepared.mark_used(key);
-                    continue;
-                }
-            }
-            queue.push_back({&item, nullptr});
-        }
-        const auto material_key = [](const DrawItem& draw) {
-            const auto& material = draw.item->material;
-            return MaterialInstanceKey{
-                material.material_handle, material.overrides ? material.overrides->instance_id : 0};
-        };
-        const auto material_less = [&](const DrawItem& a, const DrawItem& b) {
-            const auto a_key = material_key(a);
-            const auto b_key = material_key(b);
-            return a_key != b_key ? a_key < b_key : a.item < b.item;
-        };
-        if(!std::is_sorted(queue.begin(), queue.end(), material_less))
-            std::sort(queue.begin(), queue.end(), material_less);
-        size_t batches = 0;
-        for(size_t first = 0; first < queue.size();) {
-            const auto& input = queue[first].item->material;
-            size_t end = first + 1;
-            while(end < queue.size()) {
-                const auto& next = queue[end].item->material;
-                if(next.material_handle != input.material_handle || next.resource != input.resource
-                    || next.overrides != input.overrides)
-                    break;
-                ++end;
-            }
-            auto material = prepare_material(input, frame_serial);
-            if(!material) {
-                queue.clear();
-                return Result<void, GraphicsError>::failure(material.error());
-            }
-            if(material.value()) {
-                append_material_draws(
-                    std::span(queue).subspan(first, end - first), material.value(), batches);
-            }
-            first = end;
-        }
-        queue.resize(batches);
-        // 失败回退可能使用旧布局，按实际准备结果排序。
-        const auto draw_less = [](const DrawItem& a, const DrawItem& b) {
-            const auto a_instance =
-                a.item->material.overrides ? a.item->material.overrides->instance_id : 0;
-            const auto b_instance =
-                b.item->material.overrides ? b.item->material.overrides->instance_id : 0;
-            const auto a_key = std::tie(a.material->prepared->layout->get_name(),
-                a.item->material.material_handle, a_instance);
-            const auto b_key = std::tie(b.material->prepared->layout->get_name(),
-                b.item->material.material_handle, b_instance);
-            if(a_key != b_key)
-                return a_key < b_key;
-            const auto* a_mesh =
-                a.material->pipeline->instanced_pipeline ? a.item->mesh.get() : nullptr;
-            const auto* b_mesh =
-                b.material->pipeline->instanced_pipeline ? b.item->mesh.get() : nullptr;
-            if(a_mesh != b_mesh)
-                return std::less<const Mesh*>{}(a_mesh, b_mesh);
-            return a.item < b.item;
-        };
-        if(!std::is_sorted(queue.begin(), queue.end(), draw_less))
-            std::sort(queue.begin(), queue.end(), draw_less);
-        return Result<void, GraphicsError>::success();
-    }
-
-    void MaterialRenderer::append_material_draws(const std::span<DrawItem> items,
-        const std::shared_ptr<MaterialResources>& material, size_t& batches) {
-        const bool instanced = material->pipeline->instanced_pipeline != nullptr;
-        // 有序 Mesh 组直接合批；项目顶点程序保持原提交顺序。
-        if(instanced) {
-            const auto mesh_less = [](const DrawItem& a, const DrawItem& b) {
-                if(a.item->mesh != b.item->mesh)
-                    return std::less<const Mesh*>{}(a.item->mesh.get(), b.item->mesh.get());
-                return a.item < b.item;
-            };
-            if(!std::is_sorted(items.begin(), items.end(), mesh_less))
-                std::sort(items.begin(), items.end(), mesh_less);
-        }
-        for(size_t first = 0; first < items.size();) {
-            size_t end = first + 1;
-            if(instanced) {
-                while(end < items.size() && items[end].item->mesh == items[first].item->mesh)
-                    ++end;
-            }
-            DrawItem draw{items[first].item, material};
-            draw.instance_count = static_cast<uint32_t>(end - first);
-            if(draw.instance_count > 1) {
-                draw.first_instance = static_cast<uint32_t>(m_instance_transforms.size());
-                for(size_t index = first; index < end; ++index)
-                    m_instance_transforms.push_back(items[index].item->model_matrix);
-            }
-            m_draw_queue[batches++] = std::move(draw);
-            first = end;
-        }
     }
 
     Result<void, GraphicsError> MaterialRenderer::upload_instances(FrameScheduler& frames) {

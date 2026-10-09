@@ -10,330 +10,6 @@
 #include <algorithm>
 
 namespace Comet::Tests {
-    TEST_F(RenderGraphGpuTest, InstancedPbrMatchesIndividualDrawsAcrossBufferGrowthAndMeshChanges) {
-        auto& context = engine->get_renderer().get_render_context();
-        auto& device = context.get_device();
-        constexpr AssetHandle material_handle(9830), program_handle(9831);
-        auto program = std::make_shared<ShaderProgramArtifact>();
-        program->handle = program_handle;
-        program->vertex_words.assign(PBR_VERT.begin(), PBR_VERT.end());
-        program->fragment_words.assign(PBR_FRAG.begin(), PBR_FRAG.end());
-        ASSERT_TRUE(engine->get_asset_registry().register_asset(program_handle, program));
-        MaterialPrograms programs(engine->get_asset_registry());
-        auto batched = create_scene(programs, {65, 65});
-        auto individual = create_scene(programs, {65, 65});
-        ASSERT_TRUE(batched);
-        ASSERT_TRUE(individual);
-        auto material = std::make_shared<Material>("builtin", "pbr");
-        auto reference = std::make_shared<Material>("project", "pbr", program_handle);
-        auto mesh = lit_quad({1, 0, 1});
-        ASSERT_TRUE(mesh);
-        const auto other_mesh = lit_quad({1, 0, 1});
-        ASSERT_TRUE(other_mesh);
-        FrameScheduler batch_frames(device, 2), reference_frames(device, 2);
-        batch_frames.initialize_swapchain_images(2);
-        reference_frames.initialize_swapchain_images(2);
-        FrameWait batch_wait{device, batch_frames}, reference_wait{device, reference_frames};
-        std::vector<std::shared_ptr<Readback>> actual, expected;
-        const std::array counts{2u, 32u, 2u, 64u, 64u, 64u, 64u, 2u, 2u, 2u, 8u, 8u, 8u, 8u};
-        for(size_t frame = 0; frame < counts.size(); ++frame) {
-            SCOPED_TRACE(frame);
-            if(frame == 2) {
-                mesh = lit_quad({0, 1, 1});
-                ASSERT_TRUE(mesh);
-            }
-            if(frame == 3) {
-                MeshData nonindexed{
-                    .vertices = {{{-1, -1, 0.5f}, {}, {0, 1, 1}}, {{1, -1, 0.5f}, {}, {0, 1, 1}},
-                        {{1, 1, 0.5f}, {}, {0, 1, 1}}, {{1, 1, 0.5f}, {}, {0, 1, 1}},
-                        {{-1, 1, 0.5f}, {}, {0, 1, 1}}, {{-1, -1, 0.5f}, {}, {0, 1, 1}}}};
-                auto uploaded = engine->get_render_resources().try_create_mesh(nonindexed);
-                ASSERT_TRUE(uploaded);
-                mesh = std::move(uploaded).value();
-            }
-            const Math::Vec4 color{0.8f, 0.2f + 0.1f * frame, 0.1f, 1};
-            ASSERT_TRUE(material->set_vector_property("base_color", color));
-            ASSERT_TRUE(reference->set_vector_property("base_color", color));
-            RenderSubmission submission{
-                .view_project_matrix =
-                    ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
-                        Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
-                .lights = {{.direction = {-0.4f, 0, -1}, .intensity = 4, .casts_shadow = true}}};
-            for(unsigned group = 0; group < 3; ++group) {
-                std::shared_ptr<const MaterialOverrides> overrides;
-                if(group > 0)
-                    overrides = std::make_shared<const MaterialOverrides>(
-                        MaterialOverrides{.instance_id = group,
-                            .material = material_handle,
-                            .vector_properties = {{"base_color", {0.1f, 0.2f, 0.3f * group, 1}}}});
-                for(unsigned index = 0; index < counts[frame]; ++index) {
-                    auto model = Math::translate(
-                        Math::Mat4(1), {-0.65f + 0.65f * group, index % 2 ? 0.35f : -0.35f, 0});
-                    if(frame >= 6 && group == 1)
-                        model[3].x += 0.04f;
-                    const float x_scale = frame == 2 && group == 1 ? -0.27f : 0.27f;
-                    model *= Math::scale(Math::Mat4(1), {x_scale, 0.28f, index % 2 ? 0.8f : 1.4f});
-                    submission.render_items.push_back(
-                        {.entity_id = group * counts[frame] + index + 1,
-                            .model_matrix = model,
-                            .mesh = frame >= 10 && index % 2 ? other_mesh : mesh,
-                            .material = {material_handle, material, overrides}});
-                }
-            }
-            // 同一内容覆盖材质有序、Mesh 有序、倒序与循环移位提交。
-            if(frame == 11) {
-                std::sort(submission.render_items.begin(), submission.render_items.end(),
-                    [](const auto& a, const auto& b) {
-                        if(a.mesh != b.mesh)
-                            return std::less<const Mesh*>{}(a.mesh.get(), b.mesh.get());
-                        return a.entity_id < b.entity_id;
-                    });
-            } else if(frame == 12) {
-                std::reverse(submission.render_items.begin(), submission.render_items.end());
-            } else if(frame == 13) {
-                std::rotate(submission.render_items.begin(), submission.render_items.begin() + 7,
-                    submission.render_items.end());
-            }
-            const auto draw = [&](SceneRenderer& scene, FrameScheduler& frames,
-                                  std::vector<std::shared_ptr<Readback>>& outputs) {
-                ASSERT_TRUE(scene.prepare_material_programs(submission));
-                frames.wait_for_current_slot();
-                frames.begin_frame(0);
-                frames.get_current_command_buffer().begin();
-                auto rendered = scene.render(frames, submission);
-                ASSERT_TRUE(rendered) << rendered.error();
-                const auto shadow = scene.get_shadow_statistics();
-                EXPECT_EQ(shadow.draw_calls, frame >= 10 ? 2u : 1u);
-                EXPECT_EQ(shadow.drawn_instances, 3 * counts[frame]);
-                auto output = std::make_shared<Readback>(
-                    device, context.get_context().get_physical_device(), 65 * 65 * 4);
-                copy_output(frames,
-                    scene.get_offscreen_color_view(frames.get_current_frame_slot_index())
-                        ->get_image(),
-                    output, {65, 65});
-                submit(device, frames, rendered.value());
-                outputs.push_back(std::move(output));
-            };
-            ASSERT_NO_FATAL_FAILURE(draw(*batched.value(), batch_frames, actual));
-            const auto stats = batched.value()->get_material_statistics();
-            EXPECT_EQ(stats.draw_calls, frame >= 10 ? 6u : 3u);
-            EXPECT_EQ(stats.drawn_instances, 3 * counts[frame]);
-            auto expected_upload = 3 * counts[frame] * sizeof(Math::Mat4);
-            if(frame == 5 || frame == 9 || frame >= 12)
-                expected_upload = 0;
-            EXPECT_EQ(stats.instance_upload_bytes, expected_upload);
-            for(auto& item : submission.render_items)
-                item.material.resource = reference;
-            ASSERT_NO_FATAL_FAILURE(draw(*individual.value(), reference_frames, expected));
-            EXPECT_EQ(individual.value()->get_material_statistics().draw_calls, 3 * counts[frame]);
-            EXPECT_EQ(individual.value()->get_material_statistics().instance_upload_bytes, 0u);
-        }
-        batch_frames.wait_for_all_slots();
-        reference_frames.wait_for_all_slots();
-        for(size_t frame = 0; frame < actual.size(); ++frame) {
-            SCOPED_TRACE(frame);
-            const auto a = actual[frame]->read(), b = expected[frame]->read();
-            int difference = 0;
-            for(size_t byte = 0; byte < a.size(); ++byte)
-                difference = std::max(difference,
-                    std::abs(std::to_integer<int>(a[byte]) - std::to_integer<int>(b[byte])));
-            EXPECT_LE(difference, 2) << "frame=" << frame;
-            unsigned lit_pixels = 0;
-            for(size_t pixel = 0; pixel < a.size(); pixel += 4)
-                if(std::to_integer<int>(a[pixel]) > 10 || std::to_integer<int>(a[pixel + 1]) > 10
-                    || std::to_integer<int>(a[pixel + 2]) > 10)
-                    ++lit_pixels;
-            EXPECT_GT(lit_pixels, 500u);
-        }
-    }
-
-    TEST_F(RenderGraphGpuTest, SameHandleWithDistinctMaterialSnapshotsKeepsEachColor) {
-        auto& context = engine->get_renderer().get_render_context();
-        auto& device = context.get_device();
-        MaterialPrograms programs(engine->get_asset_registry());
-        auto scene = create_scene(programs, {65, 65});
-        ASSERT_TRUE(scene);
-        const auto mesh = lit_quad();
-        ASSERT_TRUE(mesh);
-        RenderSubmission submission{
-            .view_project_matrix = ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
-                Math::ortho(-1, 1, -1, 1, 0.1f, 10)}};
-        const std::array colors{
-            Math::Vec4(1, 0, 0, 1), Math::Vec4(0, 1, 0, 1), Math::Vec4(0, 0, 1, 1)};
-        for(unsigned group = 0; group < colors.size(); ++group) {
-            auto material = std::make_shared<Material>("snapshot", "unlit_color");
-            ASSERT_TRUE(material->set_vector_property("color", colors[group]));
-            for(unsigned row = 0; row < 2; ++row) {
-                const auto model =
-                    Math::scale(Math::translate(Math::Mat4(1),
-                                    {-0.65f + 0.65f * group, row ? 0.35f : -0.35f, 0}),
-                        {0.25f, 0.25f, 1});
-                submission.render_items.push_back({.model_matrix = model,
-                    .mesh = mesh,
-                    .material = {AssetHandle{9832}, material}});
-            }
-        }
-        FrameScheduler frames(device, 2);
-        frames.initialize_swapchain_images(2);
-        FrameWait wait{device, frames};
-        ASSERT_TRUE(scene.value()->prepare_material_programs(submission));
-        frames.wait_for_current_slot();
-        frames.begin_frame(0);
-        frames.get_current_command_buffer().begin();
-        auto rendered = scene.value()->render(frames, submission);
-        ASSERT_TRUE(rendered) << rendered.error();
-        const auto stats = scene.value()->get_material_statistics();
-        EXPECT_EQ(stats.draw_calls, 3u);
-        EXPECT_EQ(stats.drawn_instances, 6u);
-        auto output = std::make_shared<Readback>(
-            device, context.get_context().get_physical_device(), 65 * 65 * 4);
-        const auto image = scene.value()
-                               ->get_offscreen_color_view(frames.get_current_frame_slot_index())
-                               ->get_image();
-        copy_output(frames, image, output, {65, 65});
-        submit(device, frames, rendered.value());
-        frames.wait_for_all_slots();
-        const auto bytes = output->read();
-        const auto format = image->get_info().format;
-        const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
-        std::array<unsigned, 3> pixels{};
-        for(size_t offset = 0; offset < bytes.size(); offset += 4) {
-            const std::array rgb{std::to_integer<unsigned>(bytes[offset + (bgra ? 2 : 0)]),
-                std::to_integer<unsigned>(bytes[offset + 1]),
-                std::to_integer<unsigned>(bytes[offset + (bgra ? 0 : 2)])};
-            for(size_t channel = 0; channel < 3; ++channel)
-                if(rgb[channel] > 20 && rgb[channel] > 2 * rgb[(channel + 1) % 3]
-                    && rgb[channel] > 2 * rgb[(channel + 2) % 3])
-                    ++pixels[channel];
-        }
-        for(const auto count : pixels)
-            EXPECT_GT(count, 100u);
-    }
-
-    TEST_F(RenderGraphGpuTest, ProjectShaderProgramKeepsTwoMaterialsAfterRejectedVersion) {
-        constexpr AssetHandle program_handle(9811);
-        auto& renderer = engine->get_renderer();
-        auto& context = renderer.get_render_context();
-        auto& device = context.get_device();
-        MaterialPrograms programs(engine->get_asset_registry());
-        auto scene_owner = create_scene(programs, {4, 4});
-        ASSERT_TRUE(scene_owner) << scene_owner.error();
-        auto& scene = *scene_owner.value();
-        TemporaryDirectory sources;
-        auto& registry = engine->get_asset_registry();
-        const auto compile_program = [&](const float scale) {
-            const auto path = sources.path() / "project.frag";
-            const std::string fragment =
-                "#version 450\n"
-                "layout(location=0) out vec4 color;\n"
-                "layout(set=1,binding=0,std140) uniform MaterialData {\n"
-                "  vec4 color; float intensity; float frequency;\n"
-                "} material;\n"
-                "void main() { color = vec4(material.color.rgb * material.intensity "
-                "* material.frequency * "
-                + std::to_string(scale) + ", material.color.a); }\n";
-            EXPECT_TRUE(write_text_file_atomic(path, fragment));
-            auto compiled =
-                ShaderCompiler::compile({.source = path, .stage = ShaderStage::Fragment});
-            EXPECT_TRUE(compiled.succeeded()) << compiled.diagnostics;
-            auto program = std::make_shared<ShaderProgramArtifact>();
-            program->handle = program_handle;
-            program->vertex_words.assign(UNLIT_COLOR_VERT.begin(), UNLIT_COLOR_VERT.end());
-            program->fragment_words = std::move(compiled.words);
-            program->material = ShaderProgramMaterial{
-                .scalars = {{"intensity", "Intensity", 1.0f, 0.0f, 10.0f, 0.05f},
-                    {"frequency", "Frequency", 1.0f, 0.0f, 10.0f, 0.1f}},
-                .vectors = {{"color", "Color", {1, 1, 1, 1}, true}}};
-            return program;
-        };
-        ASSERT_TRUE(registry.register_asset(program_handle, compile_program(0.25f)));
-        auto left = std::make_shared<Material>("left", "unlit_color", program_handle);
-        ASSERT_TRUE(left->set_vector_property("color", {0.6f, 0.3f, 0.1f, 1}));
-        ASSERT_TRUE(left->set_scalar_property("frequency", 1.0f));
-        auto right = std::make_shared<Material>("right", "unlit_color", program_handle);
-        ASSERT_TRUE(right->set_vector_property("color", {0.1f, 0.3f, 0.6f, 1}));
-        ASSERT_TRUE(right->set_scalar_property("frequency", 2.0f));
-        auto quad = lit_quad();
-        ASSERT_NE(quad, nullptr);
-        RenderSubmission submission{
-            .view_project_matrix = ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
-                Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
-            .render_items = {{.model_matrix = Math::scale(
-                                  Math::translate(Math::Mat4(1), {-0.5f, 0, 0}), {0.5f, 1, 1}),
-                                 .mesh = quad,
-                                 .material = {AssetHandle(9812), left}},
-                {.model_matrix =
-                        Math::scale(Math::translate(Math::Mat4(1), {0.5f, 0, 0}), {0.5f, 1, 1}),
-                    .mesh = quad,
-                    .material = {AssetHandle(9813), right}},
-                {.model_matrix = Math::translate(Math::Mat4(1), {20, 0, 0}),
-                    .mesh = quad,
-                    .material = {AssetHandle(9812), left}}}};
-        FrameScheduler frames(device, 2);
-        frames.initialize_swapchain_images(2);
-        FrameWait wait{device, frames};
-        std::array<std::shared_ptr<Readback>, 3> outputs;
-        std::shared_ptr<const ShaderProgramArtifact> accepted;
-        for(std::size_t index = 0; index < outputs.size(); ++index) {
-            if(index == 1) {
-                ASSERT_TRUE(registry.replace_asset(program_handle, compile_program(0.5f)));
-            } else if(index == 2) {
-                auto broken = compile_program(1.0f);
-                broken->material->scalars[1].name = "missing";
-                ASSERT_TRUE(registry.replace_asset(program_handle, std::move(broken)));
-            }
-            ASSERT_TRUE(scene.prepare_material_programs(submission));
-            const auto* published = programs.published(program_handle, "unlit_color");
-            ASSERT_NE(published, nullptr);
-            if(index == 2) {
-                EXPECT_EQ(published->source, accepted);
-                EXPECT_EQ(published->layout->get_scalars()[1].name, "frequency");
-            } else {
-                accepted = published->source;
-            }
-            frames.wait_for_current_slot();
-            frames.begin_frame(0);
-            frames.get_current_command_buffer().begin();
-            auto drawn = scene.render(frames, submission);
-            ASSERT_TRUE(drawn) << drawn.error();
-            EXPECT_EQ(scene.get_material_statistics().cached_material_versions, 2u);
-            EXPECT_EQ(scene.get_material_statistics().culled_items, 0u);
-            EXPECT_EQ(scene.get_material_statistics().draw_calls, 3u);
-            outputs[index] =
-                std::make_shared<Readback>(device, context.get_context().get_physical_device(), 64);
-            copy_output(frames,
-                scene.get_offscreen_color_view(frames.get_current_frame_slot_index())->get_image(),
-                outputs[index], {4, 4});
-            submit(device, frames, drawn.value());
-        }
-        frames.wait_for_all_slots();
-        const auto format = scene.get_offscreen_color_view(0)->get_image()->get_info().format;
-        const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
-        for(std::size_t index = 0; index < outputs.size(); ++index) {
-            const auto bytes = outputs[index]->read();
-            const float scale = index == 0 ? 0.25f : 0.5f;
-            for(std::size_t side = 0; side < 2; ++side) {
-                const auto pixel = (2 * 4 + (side == 0 ? 0 : 3)) * 4;
-                const std::array<float, 3> base =
-                    side == 0 ? std::array{0.6f, 0.3f, 0.1f} : std::array{0.1f, 0.3f, 0.6f};
-                const float frequency = side == 0 ? 1.0f : 2.0f;
-                for(std::size_t channel = 0; channel < base.size(); ++channel) {
-                    const auto component = bgra ? 2 - channel : channel;
-                    EXPECT_NEAR(std::to_integer<int>(bytes[pixel + component]),
-                        mapped_byte(base[channel] * frequency * scale), 3);
-                }
-            }
-        }
-        const auto diagnostics = messages.str();
-        EXPECT_NE(diagnostics.find("Missing or incompatible material parameter: missing"),
-            std::string::npos);
-        EXPECT_EQ(std::count(diagnostics.begin(), diagnostics.end(), '\n'), 1);
-        EXPECT_EQ(diagnostics.find("VUID-"), std::string::npos);
-        EXPECT_EQ(diagnostics.find("Validation Error"), std::string::npos);
-        messages.str(std::string{});
-        messages.clear();
-    }
-
     TEST_F(RenderGraphGpuTest, PbrParametersAndCameraProjectionMatchReferencePixels) {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
@@ -400,17 +76,14 @@ namespace Comet::Tests {
                 .lights = {light}};
             if(!sample.has_light)
                 submission.lights.clear();
-            frames.wait_for_current_slot();
-            frames.begin_frame(0);
-            frames.get_current_command_buffer().begin();
+            begin_frame(frames);
             const auto drawn = scene.render(frames, submission);
             ASSERT_TRUE(drawn) << drawn.error();
             auto output = std::make_shared<Readback>(
                 device, context.get_context().get_physical_device(), 33 * 33 * 4);
             const auto view = scene.get_offscreen_color_view(frames.get_current_frame_slot_index());
-            copy_output(frames, view->get_image(), output, {33, 33});
-            submit(device, frames, drawn.value());
-            frames.wait_for_all_slots();
+            ASSERT_NO_FATAL_FAILURE(
+                finish_readback(scene, frames, output, {33, 33}, drawn.value()));
             auto direction = -glm::dvec3(light.direction);
             double radiance = light.intensity;
             if(light.type != LightType::Directional) {
@@ -435,338 +108,6 @@ namespace Comet::Tests {
                 }
             }
         }
-    }
-
-    TEST_F(RenderGraphGpuTest, IblLightsDielectricsAndMetalsWithoutBackgroundAndKeepsOldFrames) {
-        auto& renderer = engine->get_renderer();
-        auto& context = renderer.get_render_context();
-        auto& device = context.get_device();
-        MaterialPrograms programs(engine->get_asset_registry());
-        auto scene_owner = create_scene(programs, {9, 9});
-        ASSERT_TRUE(scene_owner) << scene_owner.error();
-        auto& scene = *scene_owner.value();
-        TemporaryDirectory directory;
-        write_hdr(directory.path() / "uniform.hdr");
-        auto data = EnvironmentImporter{}.import(directory.path() / "uniform.hdr");
-        ASSERT_TRUE(data);
-        auto uploaded = Environment::try_create(engine->get_render_resources(), data.value());
-        ASSERT_TRUE(uploaded);
-        auto environment = std::move(uploaded).value();
-        const auto mesh = lit_quad();
-        FrameScheduler frames(device, 2);
-        frames.initialize_swapchain_images(2);
-        FrameWait wait{device, frames};
-        struct Scenario {
-            float metallic = 0;
-            float roughness = 0.25f;
-            bool enabled = true;
-            bool background = false;
-            float intensity = 1;
-            bool missing = false;
-            bool replace = false;
-            float rotation = 0;
-        };
-        const std::array cases{Scenario{}, Scenario{.metallic = 1}, Scenario{.roughness = 1},
-            Scenario{.metallic = 1, .roughness = 1}, Scenario{.enabled = false},
-            Scenario{.background = true}, Scenario{.intensity = 0.5f}, Scenario{.intensity = 0},
-            Scenario{.missing = true}, Scenario{.rotation = 90}, Scenario{.replace = true}};
-        std::vector<std::shared_ptr<Readback>> outputs;
-        std::vector<glm::dvec3> expected;
-        Format output_format{};
-        for(size_t index = 0; index < cases.size(); ++index) {
-            const auto sample = cases[index];
-            if(sample.replace) {
-                write_hdr(directory.path() / "uniform.hdr", 16, 8,
-                    [](int, int) { return std::array<unsigned char, 4>{32, 64, 128, 131}; });
-                auto replacement = EnvironmentImporter{}.import(directory.path() / "uniform.hdr");
-                ASSERT_TRUE(replacement);
-                auto resource =
-                    Environment::try_create(engine->get_render_resources(), replacement.value());
-                ASSERT_TRUE(resource);
-                environment = std::move(resource).value();
-            }
-            auto material = std::make_shared<Material>("IBL", "pbr");
-            ASSERT_TRUE(material->set_vector_property("base_color", {0.8f, 0.2f, 0.1f, 1}));
-            ASSERT_TRUE(material->set_scalar_property("metallic", sample.metallic));
-            ASSERT_TRUE(material->set_scalar_property("roughness", sample.roughness));
-            RenderSubmission submission{
-                .view_project_matrix =
-                    ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
-                        Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
-                .render_items = {{.mesh = mesh, .material = {AssetHandle(index + 1000), material}}},
-                .environment = {{}, sample.background, 0.1f, sample.rotation, sample.enabled,
-                    sample.intensity},
-                .environment_resource = environment};
-            if(sample.missing)
-                submission.environment_resource.reset();
-            frames.wait_for_current_slot();
-            frames.begin_frame(0);
-            frames.get_current_command_buffer().begin();
-            auto drawn = scene.render(frames, submission);
-            ASSERT_TRUE(drawn) << drawn.error();
-            auto output = std::make_shared<Readback>(
-                device, context.get_context().get_physical_device(), 9 * 9 * 4);
-            const auto view = scene.get_offscreen_color_view(frames.get_current_frame_slot_index());
-            output_format = view->get_image()->get_info().format;
-            copy_output(frames, view->get_image(), output, {9, 9});
-            submit(device, frames, drawn.value());
-            outputs.push_back(output);
-
-            // 在 N=V 时独立积分直接光照的镜面 BRDF，作为半球反射参考值。
-            glm::dvec3 reflected(0);
-            const glm::dvec3 base(0.8, 0.2, 0.1);
-            const auto f0 = glm::mix(glm::dvec3(0.04), base, double(sample.metallic));
-            constexpr int STEPS = 8192;
-            for(int step = 0; step < STEPS; ++step) {
-                const double cosine = (step + 0.5) / STEPS;
-                reflected +=
-                    pbr_reference({0, 0, 1}, {0, 0, 1}, {std::sqrt(1 - cosine * cosine), 0, cosine},
-                        f0, 1, sample.roughness, 1)
-                    * (2 * std::numbers::pi / STEPS);
-            }
-            glm::dvec3 radiance(4, 2, 1);
-            if(sample.replace)
-                radiance = {1, 2, 4};
-            auto color = radiance * (base * (1.0 - sample.metallic) * (1.0 - reflected) + reflected)
-                         * double(sample.intensity);
-            if(!sample.enabled || sample.missing)
-                color = glm::dvec3(0);
-            expected.push_back(color);
-        }
-        frames.wait_for_all_slots();
-        const bool bgra =
-            output_format == Format::B8G8R8A8_SRGB || output_format == Format::B8G8R8A8_UNORM;
-        for(size_t index = 0; index < outputs.size(); ++index) {
-            const auto pixels = outputs[index]->read();
-            for(unsigned channel = 0; channel < 3; ++channel) {
-                const auto component = bgra ? 2 - channel : channel;
-                EXPECT_NEAR(std::to_integer<int>(pixels[(4 * 9 + 4) * 4 + component]),
-                    mapped_byte(float(expected[index][channel])), 3)
-                    << index << ',' << channel;
-            }
-        }
-    }
-
-    TEST_F(RenderGraphGpuTest, IblRotationChangesReflectionWithBackgroundDisabled) {
-        auto& renderer = engine->get_renderer();
-        auto& context = renderer.get_render_context();
-        auto& device = context.get_device();
-        MaterialPrograms programs(engine->get_asset_registry());
-        auto scene_owner = create_scene(programs, {9, 9});
-        ASSERT_TRUE(scene_owner) << scene_owner.error();
-        auto& scene = *scene_owner.value();
-        TemporaryDirectory directory;
-        write_hdr(directory.path() / "axes.hdr", 32, 16, [](int x, int) {
-            if(x >= 16)
-                return std::array<unsigned char, 4>{128, 0, 0, 129};
-            return std::array<unsigned char, 4>{0, 0, 128, 129};
-        });
-        auto data = EnvironmentImporter{}.import(directory.path() / "axes.hdr");
-        ASSERT_TRUE(data);
-        auto environment = Environment::try_create(engine->get_render_resources(), data.value());
-        ASSERT_TRUE(environment);
-        auto material = std::make_shared<Material>("mirror", "pbr");
-        ASSERT_TRUE(material->set_vector_property("base_color", {1, 1, 1, 1}));
-        ASSERT_TRUE(material->set_scalar_property("metallic", 1));
-        ASSERT_TRUE(material->set_scalar_property("roughness", 0.045f));
-        RenderSubmission submission{
-            .view_project_matrix = ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
-                Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
-            .render_items = {{.mesh = lit_quad(), .material = {AssetHandle(1521), material}}},
-            .environment = {{}, false, 0, 0, true, 1},
-            .environment_resource = environment.value()};
-        FrameScheduler frames(device, 2);
-        frames.initialize_swapchain_images(2);
-        FrameWait wait{device, frames};
-        std::array<std::shared_ptr<Readback>, 2> outputs;
-        Format format{};
-        for(size_t index = 0; index < outputs.size(); ++index) {
-            submission.environment.rotation = float(index * 180);
-            frames.wait_for_current_slot();
-            frames.begin_frame(0);
-            frames.get_current_command_buffer().begin();
-            auto drawn = scene.render(frames, submission);
-            ASSERT_TRUE(drawn) << drawn.error();
-            outputs[index] = std::make_shared<Readback>(
-                device, context.get_context().get_physical_device(), 9 * 9 * 4);
-            const auto view = scene.get_offscreen_color_view(frames.get_current_frame_slot_index());
-            format = view->get_image()->get_info().format;
-            copy_output(frames, view->get_image(), outputs[index], {9, 9});
-            submit(device, frames, drawn.value());
-        }
-        frames.wait_for_all_slots();
-        const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
-        const auto first = outputs[0]->read(), second = outputs[1]->read();
-        const auto red = (4 * 9 + 4) * 4 + (bgra ? 2 : 0);
-        const auto blue = (4 * 9 + 4) * 4 + (bgra ? 0 : 2);
-        EXPECT_GT(std::to_integer<int>(first[red]), std::to_integer<int>(first[blue]) + 100);
-        EXPECT_GT(std::to_integer<int>(second[blue]), std::to_integer<int>(second[red]) + 100);
-    }
-
-    TEST_F(RenderGraphGpuTest, SkyboxFacesRespectCameraRotationNotTranslationAndKeepOldFrames) {
-        auto& renderer = engine->get_renderer();
-        auto& context = renderer.get_render_context();
-        auto& device = context.get_device();
-        const Math::Vec2u size(9, 9);
-        MaterialPrograms programs(engine->get_asset_registry());
-        auto scene_owner = create_scene(programs, size);
-        ASSERT_TRUE(scene_owner) << scene_owner.error();
-        auto& scene = *scene_owner.value();
-        TextureData data{.width = 4,
-            .height = 4,
-            .format = Format::R16G16B16A16_SFLOAT,
-            .mip_levels = 3,
-            .cubemap = true};
-        const std::array<Math::Vec3, 6> colors{
-            {{4, 0, 0}, {0, 4, 0}, {0, 0, 4}, {4, 4, 0}, {4, 0, 4}, {0, 4, 4}}};
-        for(int extent = 4; extent > 0; extent /= 2)
-            for(const auto color : colors)
-                for(int i = 0; i < extent * extent; ++i) {
-                    const auto packed = glm::packHalf(glm::vec4(color, 1));
-                    const auto offset = data.pixels.size();
-                    data.pixels.resize(offset + sizeof(packed));
-                    std::memcpy(data.pixels.data() + offset, &packed, sizeof(packed));
-                }
-        auto uploaded = engine->get_render_resources().try_create_texture(data);
-        ASSERT_TRUE(uploaded) << uploaded.error().message;
-        RenderSubmission submission{.view_project_matrix = ViewProjectMatrix{Math::Mat4(1),
-                                        Math::perspective(60.0f, 1.0f, 0.1f, 100.0f)},
-            .environment = {{}, true, 0.5f, 0},
-            .environment_resource = std::make_shared<Environment>(
-                Environment{.background = std::move(uploaded).value()})};
-        FrameScheduler frames(device, 2);
-        frames.initialize_swapchain_images(2);
-        FrameWait wait{device, frames};
-        std::array<std::shared_ptr<Readback>, 9> outputs;
-        const std::array<Math::Vec3, 9> expected{
-            {colors[5] * 0.5f, colors[5] * 0.5f, colors[0] * 0.5f, colors[5] * 0.5f,
-                colors[2] * 0.5f, {1, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 1, 0}}};
-        Format output_format{};
-        for(size_t index = 0; index < outputs.size(); ++index) {
-            if(index == 1)
-                submission.view_project_matrix->view =
-                    Math::look_at({19, 4, 8}, {19, 4, 7}, {0, 1, 0});
-            if(index == 2)
-                submission.environment.rotation = 90;
-            if(index == 3) {
-                submission.environment.rotation = 0;
-                submission.view_project_matrix->projection = Math::ortho(-1, 1, -1, 1, 0.1f, 100);
-            }
-            if(index == 4)
-                submission.view_project_matrix->view =
-                    Math::look_at({0, 0, 0}, {0, 1, 0}, {0, 0, 1});
-            if(index == 5) {
-                for(size_t offset = 0; offset < data.pixels.size(); offset += 8) {
-                    const auto packed = glm::packHalf(glm::vec4(2, 0, 0, 1));
-                    std::memcpy(data.pixels.data() + offset, &packed, sizeof(packed));
-                }
-                auto replacement = engine->get_render_resources().try_create_texture(data);
-                ASSERT_TRUE(replacement);
-                submission.environment_resource = std::make_shared<Environment>(
-                    Environment{.background = std::move(replacement).value()});
-            }
-            if(index == 6)
-                submission.environment.background = false;
-            if(index == 7) {
-                submission.environment.background = true;
-                submission.environment_resource.reset();
-            }
-            if(index == 8) {
-                auto replacement = engine->get_render_resources().try_create_texture(data);
-                ASSERT_TRUE(replacement);
-                submission.environment_resource = std::make_shared<Environment>(
-                    Environment{.background = std::move(replacement).value()});
-                submission.view_project_matrix =
-                    ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
-                        Math::ortho(-2, 2, -2, 2, 0.1f, 100)};
-                auto material = std::make_shared<Material>("foreground", "unlit_color");
-                ASSERT_TRUE(material->set_vector_property("color", {0, 1, 0, 1}));
-                submission.render_items.push_back(
-                    {.mesh = lit_quad(), .material = {AssetHandle(1243), material}});
-            }
-            frames.wait_for_current_slot();
-            frames.begin_frame(0);
-            frames.get_current_command_buffer().begin();
-            auto drawn = scene.render(frames, submission);
-            ASSERT_TRUE(drawn) << drawn.error();
-            outputs[index] = std::make_shared<Readback>(
-                device, context.get_context().get_physical_device(), size.x * size.y * 4);
-            const auto view = scene.get_offscreen_color_view(frames.get_current_frame_slot_index());
-            output_format = view->get_image()->get_info().format;
-            copy_output(frames, view->get_image(), outputs[index], size);
-            submit(device, frames, drawn.value());
-        }
-        frames.wait_for_all_slots();
-        const bool bgra =
-            output_format == Format::B8G8R8A8_SRGB || output_format == Format::B8G8R8A8_UNORM;
-        for(size_t index = 0; index < outputs.size(); ++index) {
-            const auto bytes = outputs[index]->read();
-            for(unsigned channel = 0; channel < 3; ++channel) {
-                const auto component = bgra ? 2 - channel : channel;
-                if(index != 6 && index != 7)
-                    EXPECT_NEAR(std::to_integer<int>(bytes[(4 * size.x + 4) * 4 + component]),
-                        mapped_byte(expected[index][channel]), 2)
-                        << index << ',' << channel;
-            }
-        }
-        EXPECT_EQ(outputs[0]->read(), outputs[1]->read());
-        EXPECT_EQ(outputs[6]->read(), outputs[7]->read());
-        const auto foreground = outputs[8]->read();
-        const unsigned red = bgra ? 2 : 0;
-        EXPECT_NEAR(std::to_integer<int>(foreground[red]), mapped_byte(1), 2);
-    }
-
-    TEST_F(RenderGraphGpuTest, ImportedHdrSkyboxSurvivesMsaaResolve) {
-        Config config;
-        config.window.width = 160;
-        config.window.height = 120;
-        config.vulkan.enable_validation = true;
-        config.vulkan.msaa_samples = SampleCount::Count4;
-        engine.reset();
-        auto created = Engine::create(config);
-        ASSERT_TRUE(created);
-        engine = std::move(created).value();
-        TemporaryDirectory directory;
-        write_hdr(directory.path() / "sky.hdr");
-        auto imported = EnvironmentImporter{}.import(directory.path() / "sky.hdr");
-        ASSERT_TRUE(imported);
-        auto texture = Environment::try_create(engine->get_render_resources(), imported.value());
-        ASSERT_TRUE(texture);
-        auto& renderer = engine->get_renderer();
-        auto& context = renderer.get_render_context();
-        auto& device = context.get_device();
-        MaterialPrograms programs(engine->get_asset_registry());
-        auto scene_owner = create_scene(programs, {2, 2}, SampleCount::Count4);
-        ASSERT_TRUE(scene_owner) << scene_owner.error();
-        auto& scene = *scene_owner.value();
-        RenderSubmission submission{.view_project_matrix = ViewProjectMatrix{Math::Mat4(1),
-                                        Math::perspective(60.0f, 1, 0.1f, 100)},
-            .environment = {{}, true, 1, 0},
-            .environment_resource = texture.value()};
-        FrameScheduler frames(device, config.render.max_frames_in_flight);
-        frames.initialize_swapchain_images(2);
-        FrameWait wait{device, frames};
-        frames.wait_for_current_slot();
-        frames.begin_frame(0);
-        frames.get_current_command_buffer().begin();
-        auto drawn = scene.render(frames, submission);
-        ASSERT_TRUE(drawn) << drawn.error();
-        auto output =
-            std::make_shared<Readback>(device, context.get_context().get_physical_device(), 16);
-        const auto view = scene.get_offscreen_color_view(frames.get_current_frame_slot_index());
-        copy_output(frames, view->get_image(), output, {2, 2});
-        submit(device, frames, drawn.value());
-        frames.wait_for_all_slots();
-        const auto format = view->get_image()->get_info().format;
-        const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
-        const auto pixels = output->read();
-        const Math::Vec3 expected(4, 2, 1);
-        for(size_t pixel = 0; pixel < 4; ++pixel)
-            for(unsigned channel = 0; channel < 3; ++channel) {
-                const unsigned component = bgra ? 2 - channel : channel;
-                EXPECT_NEAR(std::to_integer<int>(pixels[pixel * 4 + component]),
-                    mapped_byte(expected[channel]), 2);
-            }
     }
 
     TEST_F(RenderGraphGpuTest, MaterialEditCandidatesPublishAtomicallyAndKeepOldFramePixels) {
@@ -875,9 +216,7 @@ namespace Comet::Tests {
             } else {
                 material->set_texture_property("base_color_texture", nullptr);
             }
-            frames.wait_for_current_slot();
-            frames.begin_frame(0);
-            frames.get_current_command_buffer().begin();
+            begin_frame(frames);
             const auto drawn = scene.render(frames, submission);
             ASSERT_TRUE(drawn) << drawn.error();
             EXPECT_EQ(scene.get_material_statistics().draw_calls, 1);
@@ -1033,9 +372,7 @@ namespace Comet::Tests {
         std::array<std::vector<std::byte>, 2> pixels;
         for(unsigned index = 0; index < 2; ++index) {
             submission.lights[0].casts_shadow = index == 1;
-            frames.wait_for_current_slot();
-            frames.begin_frame(0);
-            frames.get_current_command_buffer().begin();
+            begin_frame(frames);
             const auto drawn = scene.render(frames, submission);
             ASSERT_TRUE(drawn) << drawn.error();
             EXPECT_EQ(
@@ -1046,11 +383,8 @@ namespace Comet::Tests {
             EXPECT_EQ(scene.get_shadow_statistics().drawn_instances, index == 1 ? 2u : 0u);
             auto output = std::make_shared<Readback>(
                 device, context.get_context().get_physical_device(), 33 * 33 * 4);
-            copy_output(frames,
-                scene.get_offscreen_color_view(frames.get_current_frame_slot_index())->get_image(),
-                output, {33, 33});
-            submit(device, frames, drawn.value());
-            frames.wait_for_all_slots();
+            ASSERT_NO_FATAL_FAILURE(
+                finish_readback(scene, frames, output, {33, 33}, drawn.value()));
             pixels[index] = output->read();
         }
         for(unsigned channel = 0; channel < 3; ++channel) {
@@ -1138,9 +472,7 @@ namespace Comet::Tests {
                 .lights = {light}};
             if(scenario == Scenario::NoLights)
                 submission.lights.clear();
-            frames.wait_for_current_slot();
-            frames.begin_frame(0);
-            frames.get_current_command_buffer().begin();
+            begin_frame(frames);
             const auto rendered = scene.render(frames, submission, {});
             ASSERT_TRUE(rendered) << rendered.error().message;
             const auto& statistics = scene.get_material_statistics();
@@ -1149,9 +481,8 @@ namespace Comet::Tests {
             if(scenario != Scenario::Directional)
                 EXPECT_EQ(statistics.material_bindings_created, 0);
             auto view = scene.get_offscreen_color_view(frames.get_current_frame_slot_index());
-            copy_output(frames, view->get_image(), readback, {17, 17});
-            submit(device, frames, rendered.value());
-            frames.wait_for_all_slots();
+            ASSERT_NO_FATAL_FAILURE(
+                finish_readback(scene, frames, readback, {17, 17}, rendered.value()));
             const auto bytes = readback->read();
             const auto format = view->get_image()->get_info().format;
             const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
@@ -1198,5 +529,4 @@ namespace Comet::Tests {
             }
         }
     }
-
 }

@@ -11,6 +11,7 @@
 #include "render/frame_scheduler.h"
 #include "render/render_target.h"
 #include "render/resource/mesh.h"
+#include "render/scene/draw_order.h"
 #include "directional_vert.h"
 #include "directional_frag.h"
 
@@ -96,9 +97,7 @@ namespace Comet {
                     m_draw_queue.push_back(item.source);
             }
             const auto mesh_less = [](const auto* a, const auto* b) {
-                if(a->mesh != b->mesh)
-                    return std::less<const Mesh*>{}(a->mesh.get(), b->mesh.get());
-                return a < b;
+                return DrawOrder::by_mesh(*a, *b);
             };
             if(!std::is_sorted(m_draw_queue.begin(), m_draw_queue.end(), mesh_less))
                 std::sort(m_draw_queue.begin(), m_draw_queue.end(), mesh_less);
