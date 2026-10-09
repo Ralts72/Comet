@@ -11,6 +11,7 @@ namespace Comet {
         diagnostics.mark_update();
         diagnostics.mark_prepare();
         diagnostics.mark_runtime_update();
+        diagnostics.mark_scene_extract();
         diagnostics.mark_render_submit();
         diagnostics.finish_frame(true, true);
 
@@ -20,6 +21,8 @@ namespace Comet {
         EXPECT_TRUE(timing.rendered);
         EXPECT_GE(timing.runtime_update_ms, 0);
         EXPECT_LE(timing.runtime_update_ms, timing.update_ms);
+        EXPECT_GE(timing.scene_extract_ms, 0);
+        EXPECT_LE(timing.scene_extract_ms, timing.render_submit_ms);
         EXPECT_DOUBLE_EQ(timing.total_ms,
             timing.events_ms + timing.update_ms + timing.prepare_ms + timing.render_submit_ms);
         EXPECT_EQ(diagnostics.history().summarize().total.count, 1);
@@ -45,6 +48,7 @@ namespace Comet {
         ASSERT_TRUE(diagnostics.current());
         EXPECT_FALSE(diagnostics.current()->rendered);
         EXPECT_DOUBLE_EQ(diagnostics.current()->runtime_update_ms, 0);
+        EXPECT_DOUBLE_EQ(diagnostics.current()->scene_extract_ms, 0);
         EXPECT_EQ(diagnostics.history().summarize().total.count, 1);
     }
 }

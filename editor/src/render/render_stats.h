@@ -23,6 +23,7 @@ namespace CometEditor {
         struct Display {
             Comet::TimingHistory::Summary frame;
             Comet::TimingHistory::Summary cpu;
+            Comet::TimingHistory::Summary preparation;
             Comet::TimingHistory::Summary gpu;
             Comet::MemoryBudgetSnapshot memory;
             bool has_memory = false;

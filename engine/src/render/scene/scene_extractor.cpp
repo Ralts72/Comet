@@ -19,13 +19,14 @@ namespace Comet {
         render_scene.post_process = scene.get_post_process();
 
         render_scene.cameras.reserve(scene.component_count<CameraComponent>());
-        scene.each<const CameraComponent, const TransformComponent, WorldTransformComponent>(
-            [&](Entity entity, const CameraComponent& camera, const TransformComponent&,
-                const WorldTransformComponent& world_transform) {
+        scene.each<const CameraComponent, const TransformComponent, WorldTransformComponent,
+            IdComponent>(
+            [&](Entity, const CameraComponent& camera, const TransformComponent&,
+                const WorldTransformComponent& world_transform, const IdComponent& id) {
                 auto projection = RenderCamera::Projection::Perspective;
                 if(camera.projection == CameraComponent::Projection::Orthographic)
                     projection = RenderCamera::Projection::Orthographic;
-                render_scene.cameras.push_back({.entity_id = entity.get_id(),
+                render_scene.cameras.push_back({.entity_id = id.id,
                     .primary = camera.primary,
                     .view_matrix = Math::inverse(world_transform.pose_world_matrix),
                     .projection = projection,
@@ -36,10 +37,11 @@ namespace Comet {
             });
 
         render_scene.render_items.reserve(scene.component_count<MeshRendererComponent>());
-        scene.each<const MeshRendererComponent, const TransformComponent, WorldTransformComponent>(
+        scene.each<const MeshRendererComponent, const TransformComponent, WorldTransformComponent,
+            IdComponent>(
             [&](Entity entity, const MeshRendererComponent& mesh, const TransformComponent&,
-                const WorldTransformComponent& world_transform) {
-                render_scene.render_items.push_back({.entity_id = entity.get_id(),
+                const WorldTransformComponent& world_transform, const IdComponent& id) {
+                render_scene.render_items.push_back({.entity_id = id.id,
                     .model_matrix = world_transform.world_matrix,
                     .mesh_handle = mesh.mesh,
                     .material_handle = mesh.material,
@@ -47,11 +49,12 @@ namespace Comet {
             });
 
         render_scene.lights.reserve(scene.component_count<LightComponent>());
-        scene.each<const LightComponent, WorldTransformComponent>(
-            [&](Entity entity, const LightComponent& light, const WorldTransformComponent& world) {
+        scene.each<const LightComponent, WorldTransformComponent, IdComponent>(
+            [&](Entity, const LightComponent& light, const WorldTransformComponent& world,
+                const IdComponent& id) {
                 if(!light.enabled)
                     return;
-                render_scene.lights.push_back({.entity_id = entity.get_id(),
+                render_scene.lights.push_back({.entity_id = id.id,
                     .type = light.type,
                     .position = Math::Vec3(world.world_matrix[3]),
                     .direction = -Math::Vec3(world.pose_world_matrix[2]),

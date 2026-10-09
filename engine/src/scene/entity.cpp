@@ -7,7 +7,7 @@ namespace Comet {
     Entity::Entity(const entt::entity handle, Scene* scene) : m_handle(handle), m_scene(scene) {}
 
     EntityId Entity::get_id() const {
-        if(!has_component<IdComponent>()) {
+        if(!*this) {
             return INVALID_ENTITY_ID;
         }
 
@@ -15,7 +15,7 @@ namespace Comet {
     }
 
     EntityUuid Entity::get_uuid() const {
-        if(!has_component<UuidComponent>()) {
+        if(!*this) {
             return INVALID_ENTITY_UUID;
         }
 

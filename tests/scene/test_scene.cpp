@@ -169,6 +169,13 @@ namespace Comet::Tests {
         EXPECT_FALSE(scene.find_entity(id));
         EXPECT_FALSE(scene.find_entity(uuid));
         EXPECT_EQ(scene.entity_count(), 0u);
+
+        const auto replacement = scene.create_entity("Replacement");
+        EXPECT_NE(replacement.get_id(), id);
+        EXPECT_NE(replacement.get_uuid(), uuid);
+        EXPECT_FALSE(entity);
+        EXPECT_EQ(entity.get_id(), INVALID_ENTITY_ID);
+        EXPECT_EQ(entity.get_uuid(), INVALID_ENTITY_UUID);
     }
 
     TEST(SceneTest, FindAndEnumerateEntitiesById) {

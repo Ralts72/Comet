@@ -250,7 +250,7 @@ namespace Comet {
     }
 
     std::shared_ptr<const MaterialOverrides> Scene::get_material_overrides(const Entity entity) {
-        if(!m_runtime_active || !is_valid(entity))
+        if(!m_runtime_active || m_material_overrides.empty() || !is_valid(entity))
             return nullptr;
         const auto found = m_material_overrides.find(entity.m_handle);
         if(found == m_material_overrides.end())

@@ -143,6 +143,8 @@ namespace Comet::Tests {
         frames.wait_for_current_slot();
         frames.begin_frame(0);
         frames.get_current_command_buffer().begin();
+        RenderDiagnostics::measure_preparation(
+            &diagnostics, RenderDiagnostics::PreparationPhase::Geometry, [] {});
         auto recorded = diagnostics.record(plan.value(), {}, [](size_t, CommandBuffer&) {
             return Result<void, GraphicsError>::failure({"injected recorder failure"});
         });
@@ -151,6 +153,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(diagnostics.collect_completed());
         EXPECT_FALSE(diagnostics.get_snapshot().cpu);
         EXPECT_FALSE(diagnostics.get_snapshot().gpu);
+        EXPECT_FALSE(diagnostics.get_snapshot().preparation);
+        EXPECT_FALSE(diagnostics.preparation_history().last_sample_time());
         EXPECT_EQ(frames.get_completed_frame_serial(), 0);
         // 失败帧只结束录制并丢弃，不交给会自动提交的 FrameWait。
         frames.get_current_command_buffer().end();
@@ -230,17 +234,73 @@ namespace Comet::Tests {
         EXPECT_GE(timing.update_ms, 0);
         EXPECT_GE(timing.prepare_ms, 0);
         EXPECT_GE(timing.render_submit_ms, 0);
+        EXPECT_GE(timing.scene_extract_ms, 0);
+        EXPECT_LE(timing.scene_extract_ms, timing.render_submit_ms);
         EXPECT_DOUBLE_EQ(timing.total_ms,
             timing.events_ms + timing.update_ms + timing.prepare_ms + timing.render_submit_ms);
         renderer.wait_idle();
         ASSERT_TRUE(diagnostics.collect_completed());
         ASSERT_TRUE(diagnostics.get_snapshot().cpu);
+        ASSERT_TRUE(diagnostics.get_snapshot().preparation);
+        EXPECT_EQ(
+            diagnostics.get_snapshot().preparation->serial, diagnostics.get_snapshot().cpu->serial);
         EXPECT_EQ(diagnostics.get_snapshot().cpu->passes.size(), 3);
         if(diagnostics.get_snapshot().gpu_supported) {
             ASSERT_TRUE(diagnostics.get_snapshot().gpu) << diagnostics.get_snapshot().gpu_error;
             EXPECT_EQ(
                 diagnostics.get_snapshot().gpu->serial, diagnostics.get_snapshot().cpu->serial);
         }
+    }
+
+    TEST_F(RenderDiagnosticsGpuTest, PreparationPublishesWithItsGraphAndDoesNotCarryAcrossFrames) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        FrameScheduler frames(device, 1);
+        frames.initialize_swapchain_images(1);
+        FrameWait wait{device, frames};
+        RenderDiagnostics diagnostics(frames, false);
+        RenderGraph graph;
+        graph.add_pass({"scene", {}});
+        auto plan = graph.compile();
+        ASSERT_TRUE(plan);
+        unsigned calls = 0;
+        ASSERT_TRUE(diagnostics.set_enabled(true));
+        for(unsigned index = 0; index < 3; ++index) {
+            if(index == 2)
+                ASSERT_TRUE(diagnostics.set_enabled(false));
+            frames.wait_for_current_slot();
+            frames.begin_frame(0);
+            frames.get_current_command_buffer().begin();
+            if(index != 1) {
+                const auto result = RenderDiagnostics::measure_preparation(
+                    &diagnostics, RenderDiagnostics::PreparationPhase::Assets, [&] {
+                        ++calls;
+                        return 42;
+                    });
+                EXPECT_EQ(result, 42);
+            }
+            if(index == 1) {
+                ASSERT_TRUE(diagnostics.get_snapshot().preparation);
+                EXPECT_EQ(diagnostics.get_snapshot().preparation->serial, 1);
+            } else {
+                EXPECT_FALSE(diagnostics.get_snapshot().preparation);
+            }
+            ASSERT_TRUE(diagnostics.record(plan.value(), {},
+                [](size_t, CommandBuffer&) { return Result<void, GraphicsError>::success(); }));
+            const auto& preparation = diagnostics.get_snapshot().preparation;
+            if(index == 0) {
+                ASSERT_TRUE(preparation);
+                EXPECT_EQ(preparation->serial, frames.get_current_frame_serial());
+                EXPECT_GE(preparation->assets_ms, 0);
+                EXPECT_DOUBLE_EQ(preparation->geometry_ms, 0);
+                EXPECT_TRUE(diagnostics.preparation_history().last_sample_time());
+            } else {
+                EXPECT_FALSE(preparation);
+            }
+            submit(device, frames);
+        }
+        EXPECT_EQ(calls, 2);
+        diagnostics.skip_frame();
+        EXPECT_FALSE(diagnostics.get_snapshot().preparation);
     }
 
 #ifdef COMET_TEST_EDITOR_UI

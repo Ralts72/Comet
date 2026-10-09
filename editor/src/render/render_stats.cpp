@@ -86,6 +86,7 @@ namespace CometEditor {
         };
         m_display.frame = summarize(m_frame.history());
         m_display.cpu = summarize(m_render.cpu_history());
+        m_display.preparation = summarize(m_render.preparation_history());
         m_display.gpu = summarize(m_render.gpu_history());
         const auto& snapshot = m_render.get_snapshot();
         m_display.scene_rendered = snapshot.scene_rendered;
@@ -171,8 +172,15 @@ namespace CometEditor {
             Ui::text(
                 "CPU and GPU are sampled independently, not necessarily from the same frame."));
 
-        if(ImGui::CollapsingHeader(Ui::label("CPU phase details").c_str()))
+        if(ImGui::CollapsingHeader(Ui::label("CPU phase details").c_str())) {
             show_details("frame_phases", m_display.frame);
+            ImGui::TextWrapped("%s", Ui::text("Scene extraction is included in Render / submit."));
+            show_summary("CPU scene preparation", m_display.preparation);
+            show_details("scene_preparation", m_display.preparation);
+            ImGui::TextWrapped("%s",
+                Ui::text(
+                    "Preparation phases are included in Render / submit, outside graph recording."));
+        }
         if(ImGui::CollapsingHeader(Ui::label("Render pass details").c_str())) {
             show_summary("CPU graph recording", m_display.cpu);
             show_details("cpu_passes", m_display.cpu);

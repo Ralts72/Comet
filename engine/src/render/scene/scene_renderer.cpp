@@ -40,6 +40,7 @@ namespace Comet {
         std::unique_ptr<MaterialRenderer> materials;
         std::unique_ptr<DebugRenderer> debug;
         RenderGraph::Plan graph;
+        std::vector<RenderGraph::Binding> bindings;
         RenderGraph::ResourceId shadow_resource;
         std::vector<RenderGraph::ResourceId> scene_attachments;
         RenderGraph::PassId shadow_pass_id;
@@ -403,11 +404,18 @@ namespace Comet {
         frames.retain_current_frame_resource(m_state->output_target);
         frames.retain_current_frame_resource(m_state->hdr_target);
         const auto image = frames.get_current_frame_slot_index();
-        if(submission.view_project_matrix)
-            m_geometry.prepare(submission.render_items);
+        RenderDiagnostics::measure_preparation(
+            diagnostics, RenderDiagnostics::PreparationPhase::Geometry, [&] {
+                if(submission.view_project_matrix)
+                    m_geometry.prepare(submission.render_items);
+            });
         const ScopeExit release_geometry([&] { m_geometry.clear(); });
-        const auto lighting = ShadowPass::prepare(submission, m_geometry);
-        std::vector<RenderGraph::Binding> bindings(m_state->graph.resource_count());
+        const auto lighting = RenderDiagnostics::measure_preparation(diagnostics,
+            RenderDiagnostics::PreparationPhase::Lighting,
+            [&] { return ShadowPass::prepare(submission, m_geometry); });
+        auto& bindings = m_state->bindings;
+        bindings.resize(m_state->graph.resource_count());
+        const ScopeExit release_bindings([&] { bindings.clear(); });
         bindings[m_state->shadow_resource.index] =
             m_state->shadow_pass->get_depth_view(image)->get_image();
         const auto& attachments = m_state->hdr_target->get_framebuffer(image)->get_attachments();

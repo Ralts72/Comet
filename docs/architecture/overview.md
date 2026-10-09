@@ -341,6 +341,8 @@ Engine::run → 内部 tick：事件与时间 → Application::on_update（消�
 ```
 
 完整数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
+`Scene::each` 直接提供匹配组件的引用；身份和变换保持只读，回调内不做结构变更。
+SceneExtractor 在同一遍历中读取身份与渲染值，不把组件引用带入快照。
 Engine 拥有 Scene/Runtime，只同步借用宿主回调。Editor 为新场景统一执行资产准备与激活；准备失败不替换活动场景。
 SceneDocument 只接收激活结果并更新文档路径／保存点；EditorSceneSession 保留 Edit Scene，负责 Play 副本与失败恢复，恢复时不重新准备资产。
 文档操作错误通过 Result 返回，弹窗持有展示状态，不再在 SceneDocument 保存一份最近错误。
@@ -774,9 +776,12 @@ events/update/prepare/render-submit 墙钟分段；prepare 包含帧等待和 UI
 render-submit 包含提取、解析、录制与提交／呈现调用。暂缓呈现记录 rendered=false；错误中止不发布半条样本，
 最小化等待不作为正常帧采样。该运行时开关独立于 scope Profiler 的编译开关。
 Timing 另保留 update 中的 runtime_update_ms 子集供基准区分宿主与 Runtime，不增加时钟查询或重复计入总耗时。
+scene_extract_ms 单独标记变换同步与快照提取，属于 render_submit_ms 的子集；标记后剩余提交阶段仍合回原分段。
 
-Renderer 拥有 RenderDiagnostics，SceneRenderer 只在录制图时借用，不再次扩大场景资源所有权。
+Renderer 拥有 RenderDiagnostics，SceneRenderer 在准备与录制图时同步借用，不再次扩大场景资源所有权。
 主循环使用 FrameDiagnostics::Timing，图采样使用 RenderDiagnostics::GraphTiming：计量范围、序号和完成时刻不同，不合并成混合数据结构。
+PreparationTiming 记录资产解析、材质程序、世界界限与光源／阴影准备，均在图录制前；只随同序号的成功图发布，失败或跳过不发布部分准备结果。
+其总和只表示所列准备步骤，不包含渲染／提交的其他工作，也不包含场景提取。关闭诊断时仍执行原步骤，但不读取准备阶段时钟。
 SceneRenderer::record_pass 负责具名 Pass 分发，局部 lambda 仅适配 RenderGraph 的同步回调，不保存或跨线程调度。
 诊断包围既有 Plan::record：CPU 明细计量各回调，总时间还包含图校验与屏障录制；GPU 使用图首、各 pass 结束、
 图尾导出屏障后的时间戳。相邻 GPU 边界包含依赖等待，不表示各 pass 独占硬件的时间。
@@ -1221,7 +1226,8 @@ RenderGraph 只收集 imported 资源、按顺序执行的 pass 和 exported usa
 不改变 pass 顺序，不分配资源，也不持有队列或全局图像 layout。ResourceId 仅在所属图内有效。
 `add_pass()` 返回图内 PassId，录制回调收到同一 ID；调用方保存注册结果分发，不硬编码 pass 序号。
 SceneRenderer 保存阴影与场景附件的 ResourceId，Bloom 保存 ping/pong 的 ResourceId。
-每帧按 Plan::resource_count 分配绑定表，再按 ID 填写；资源声明顺序不再隐含在 append/emplace_back 中。
+绑定表按 Plan::resource_count 调整大小、按 ID 填写，并复用容量；录制结束或失败时清空资源引用，
+实际 GPU 寿命交给 FrameSlot 保活。资源声明顺序不再隐含在 append/emplace_back 中。
 
 编译器按 image subresource 或 buffer offset/size 跟踪状态：保留实际 writer、已初始化内容和全部 reader scope，
 处理 RAW/WAR/WAW 与布局转换；相同可见范围的重复读取不重复插入 barrier。

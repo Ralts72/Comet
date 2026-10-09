@@ -16,6 +16,7 @@ namespace Comet {
             double runtime_update_ms = 0; // update_ms 中的 Runtime 部分，不能重复相加。
             double prepare_ms = 0;
             double render_submit_ms = 0;
+            double scene_extract_ms = 0; // render_submit_ms 中的场景提取部分。
             double total_ms = 0;
             bool rendered = false;
         };
@@ -27,6 +28,7 @@ namespace Comet {
         void mark_prepare();
         void mark_deferred_wait();
         void mark_runtime_update();
+        void mark_scene_extract();
         void mark_render_submit();
         void finish_frame(bool rendered, bool still_enabled);
         void cancel_pending_frame();

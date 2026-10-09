@@ -26,6 +26,11 @@ namespace Comet {
             std::span<const RenderGraph::Barrier> barriers,
             std::span<const RenderGraph::Binding> bindings) {
             NativeBarriers result;
+            const auto images = std::ranges::count_if(barriers, [](const auto& barrier) {
+                return std::holds_alternative<ImageState>(barrier.before);
+            });
+            result.images.reserve(images);
+            result.buffers.reserve(barriers.size() - images);
             for(const auto& barrier : barriers) {
                 const auto index = barrier.resource.index;
                 if(const auto* image = std::get_if<ImageState>(&barrier.before)) {
@@ -364,6 +369,7 @@ namespace Comet {
         }
         // 所有绑定和 barrier 先验证，再对当前命令缓冲产生任何副作用。
         std::vector<NativeBarriers> native;
+        native.reserve(m_passes.size() + 1);
         for(const auto& pass : m_passes) {
             auto prepared = prepare_barriers(pass.barriers, bindings);
             if(!prepared)

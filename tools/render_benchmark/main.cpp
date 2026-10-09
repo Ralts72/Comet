@@ -51,12 +51,14 @@ namespace {
     constexpr unsigned MAX_PHYSICS_OBJECTS = 512;
     constexpr std::string_view USAGE =
         "Usage: render_benchmark OUTPUT.csv OBJECTS WIDTH HEIGHT FRAMES BLOOM(0/1) "
-        "[MATERIALS [static|culling|project-shader|physics-active|physics-sleeping]]";
+        "[MATERIALS [static|moving|culling|project-shader|physics-active|physics-sleeping]]";
 
-    enum class Workload { Static, Culling, ProjectShader, PhysicsActive, PhysicsSleeping };
+    enum class Workload { Static, Moving, Culling, ProjectShader, PhysicsActive, PhysicsSleeping };
 
     std::string_view workload_name(Workload workload) {
         switch(workload) {
+            case Workload::Moving:
+                return "moving";
             case Workload::Culling:
                 return "culling";
             case Workload::ProjectShader:
@@ -107,6 +109,8 @@ namespace {
             const std::string_view name(argv[8]);
             if(name == "culling")
                 workload = Workload::Culling;
+            else if(name == "moving")
+                workload = Workload::Moving;
             else if(name == "physics-active")
                 workload = Workload::PhysicsActive;
             else if(name == "physics-sleeping")
@@ -185,14 +189,14 @@ namespace {
         return Result<void>::success();
     }
 
-    struct BodyPose {
+    struct InitialPose {
         Comet::Entity entity;
         Comet::TransformComponent transform;
     };
 
     Result<void> populate_scene(Comet::Engine& engine, Comet::AssetManager& assets,
         const std::filesystem::path& root, const Options& options,
-        std::vector<BodyPose>& body_poses) {
+        std::vector<InitialPose>& initial_poses) {
         if(!assets.scan().succeeded())
             return Result<void>::failure("Benchmark asset scan failed");
         const auto* mesh = assets.get_database().find("meshes/cube.gltf");
@@ -278,9 +282,12 @@ namespace {
                 if(options.workload == Workload::PhysicsActive) {
                     auto pose = entity.get_component<Comet::TransformComponent>();
                     pose.translation.y += 1;
-                    body_poses.push_back({entity, pose});
+                    initial_poses.push_back({entity, pose});
                 }
             }
+            if(options.workload == Workload::Moving)
+                initial_poses.push_back(
+                    {entity, entity.get_component<Comet::TransformComponent>()});
         }
         auto ground = create_entity("Ground");
         ground.add_component<Comet::MeshRendererComponent>(mesh_handle, materials.front());
@@ -326,13 +333,22 @@ namespace {
                       .get_render_context()
                       .get_swapchain()
                       .get_active_generation()) {
+            for(unsigned material = 0; material < options.materials; ++material) {
+                const auto instances = options.objects / options.materials
+                                       + (material < options.objects % options.materials)
+                                       + (material == 0); // 地面使用第一个材质。
+                if(instances > 1)
+                    m_expected_instance_bytes += instances * sizeof(Comet::Math::Mat4);
+            }
             m_passes = {"directional shadow", "scene"};
             if(options.bloom)
                 m_passes.insert(
                     m_passes.end(), {"bloom extract", "bloom horizontal", "bloom vertical"});
             m_passes.push_back("display");
             for(const auto* name : {"cpu_wall", "cpu_events", "cpu_update", "cpu_prepare",
-                    "cpu_runtime_update", "cpu_render_submit", "cpu_graph", "gpu_graph"})
+                    "cpu_runtime_update", "cpu_render_submit", "cpu_scene_extract",
+                    "cpu_asset_resolution", "cpu_material_programs", "cpu_geometry", "cpu_lighting",
+                    "cpu_graph", "gpu_graph"})
                 m_samples[name].reserve(options.frames);
             for(const auto& pass : m_passes)
                 for(const auto* prefix : {"cpu_", "gpu_"})
@@ -347,6 +363,7 @@ namespace {
                 // 跳帧会使主循环索引与提交序号分离，不能继续当作同一组完整样本。
                 if(!frame || !frame->rendered || frame->frame_index != update.frame_index - 1
                     || !snapshot.cpu || snapshot.cpu->serial != uint64_t(frame->frame_index)
+                    || !snapshot.preparation || snapshot.preparation->serial != snapshot.cpu->serial
                     || renderer.get_scene_renderer().get_render_target().get_size() != m_size
                     || renderer.get_render_context().get_swapchain().get_active_generation()
                            != m_generation)
@@ -368,6 +385,12 @@ namespace {
                     m_samples["cpu_prepare"].push_back(frame->prepare_ms);
                     m_samples["cpu_runtime_update"].push_back(frame->runtime_update_ms);
                     m_samples["cpu_render_submit"].push_back(frame->render_submit_ms);
+                    m_samples["cpu_scene_extract"].push_back(frame->scene_extract_ms);
+                    m_samples["cpu_asset_resolution"].push_back(snapshot.preparation->assets_ms);
+                    m_samples["cpu_material_programs"].push_back(
+                        snapshot.preparation->material_programs_ms);
+                    m_samples["cpu_geometry"].push_back(snapshot.preparation->geometry_ms);
+                    m_samples["cpu_lighting"].push_back(snapshot.preparation->lighting_ms);
                     append_graph("cpu_", *snapshot.cpu);
                 }
             }
@@ -388,10 +411,13 @@ namespace {
             if(!m_finished || m_samples.at("cpu_wall").size() != m_options.frames
                 || m_samples.at("cpu_graph").size() != m_options.frames)
                 return Result<void>::failure("Benchmark ended before collecting all CPU samples");
-            for(const auto& [name, values] : m_samples)
+            for(const auto& [name, values] : m_samples) {
+                if(name.starts_with("cpu_") && values.size() != m_options.frames)
+                    return Result<void>::failure("Incomplete CPU timing samples: " + name);
                 for(const double value : values)
                     if(!std::isfinite(value) || value < 0)
                         return Result<void>::failure("Invalid timing sample: " + name);
+            }
             auto& renderer = m_engine.get_renderer();
             auto& device = renderer.get_render_context().get_device();
             const auto properties = device.get_capability().physical_device.getProperties();
@@ -423,6 +449,8 @@ namespace {
                    << " materials=" << m_options.materials << " layout="
                    << (m_options.workload == Workload::Culling ? "culling-v1" : "grid-v1")
                    << " stable_ids=on\n"
+                   << "# moving_rotation_degrees_per_frame="
+                   << (m_options.workload == Workload::Moving ? 0.5 : 0.0) << '\n'
                    << "# physics_bodies=" << physics_statistics().bodies
                    << " active_bodies_min=" << m_active_min << " active_bodies_max=" << m_active_max
                    << " pose_updates_min=" << m_pose_min << " pose_updates_max=" << m_pose_max
@@ -515,7 +543,16 @@ namespace {
         Result<void> validate_workload(const Comet::PhysicsService::Statistics& physics) const {
             if(!uses_physics(m_options.workload)) {
                 if(physics.bodies != 0)
-                    return Result<void>::failure("Static benchmark unexpectedly ran physics");
+                    return Result<void>::failure("Non-physics benchmark unexpectedly ran physics");
+                if(m_options.workload == Workload::Moving) {
+                    const auto& renderer = m_engine.get_renderer().get_scene_renderer();
+                    const auto bytes = (m_options.objects + 1) * sizeof(Comet::Math::Mat4);
+                    if(renderer.get_material_statistics().instance_upload_bytes
+                            != m_expected_instance_bytes
+                        || renderer.get_shadow_statistics().instance_upload_bytes != bytes)
+                        return Result<void>::failure(
+                            "Moving benchmark did not upload changed transforms");
+                }
                 return Result<void>::success();
             }
             const auto& timing = m_engine.get_scene_runtime().get_timing();
@@ -543,6 +580,7 @@ namespace {
         std::shared_ptr<Comet::Swapchain::Generation> m_generation;
         std::vector<std::string> m_passes;
         std::map<std::string, std::vector<double>> m_samples;
+        std::size_t m_expected_instance_bytes = 0;
         uint64_t m_last_gpu = 0;
         std::size_t m_active_min = std::numeric_limits<std::size_t>::max();
         std::size_t m_active_max = 0;
@@ -580,8 +618,9 @@ namespace {
             engine->get_asset_registry(), engine->get_render_resources(),
             engine->get_task_scheduler());
         const Comet::ScopeExit shutdown([&] { engine->prepare_shutdown(); });
-        std::vector<BodyPose> body_poses;
-        if(auto populated = populate_scene(*engine, assets, project.value(), options, body_poses);
+        std::vector<InitialPose> initial_poses;
+        if(auto populated =
+                populate_scene(*engine, assets, project.value(), options, initial_poses);
             !populated)
             return populated;
         auto& runtime = engine->get_scene_runtime();
@@ -598,11 +637,19 @@ namespace {
                 [&](const Comet::Engine::FrameContext& frame) {
                     if(auto sampled = measurement.sample(frame.update); !sampled)
                         return sampled;
+                    if(options.workload == Workload::Moving) {
+                        const auto angle = std::fmod(frame.update.frame_index * 0.5f, 360.0f);
+                        for(const auto& pose : initial_poses) {
+                            auto transform = pose.transform;
+                            transform.rotation.y += angle;
+                            pose.entity.set_transform(transform);
+                        }
+                    }
                     if(!uses_physics(options.workload))
                         return Result<void, Comet::Error>::success();
                     if(options.workload == Workload::PhysicsActive
                         && runtime.get_timing().fixed_index % RESPAWN_STEPS == 0)
-                        for(const auto& body : body_poses)
+                        for(const auto& body : initial_poses)
                             body.entity.set_transform(body.transform);
                     return engine->request_runtime_step();
                 },

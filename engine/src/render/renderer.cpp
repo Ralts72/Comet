@@ -142,14 +142,19 @@ namespace Comet {
             submission.environment_resource.reset();
         });
         if(render_scene)
-            m_scene_resolver.resolve(*render_scene, frame_view, submission);
+            RenderDiagnostics::measure_preparation(m_diagnostics.get(),
+                RenderDiagnostics::PreparationPhase::Assets,
+                [&] { m_scene_resolver.resolve(*render_scene, frame_view, submission); });
         else {
             submission.view_project_matrix.reset();
             submission.lights.clear();
             submission.environment = {};
             submission.post_process = {};
         }
-        if(auto programs = m_scene_renderer->prepare_material_programs(submission); !programs)
+        if(auto programs = RenderDiagnostics::measure_preparation(m_diagnostics.get(),
+               RenderDiagnostics::PreparationPhase::MaterialPrograms,
+               [&] { return m_scene_renderer->prepare_material_programs(submission); });
+            !programs)
             return programs;
         if(auto prepared = m_scene_renderer->prepare_post_process(submission.post_process);
             !prepared)

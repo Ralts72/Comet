@@ -104,9 +104,9 @@ namespace Comet {
         // 只遍历匹配组件的实体，不保证顺序；回调内不增删实体或组件。
         template<typename... Components, typename Function> void each(Function&& function) {
             auto view = m_registry.view<QueryComponent<Components>...>();
-            for(const auto handle : view)
-                function(
-                    Entity(handle, this), view.template get<QueryComponent<Components>>(handle)...);
+            view.each([&](const entt::entity handle, auto&... components) {
+                function(Entity(handle, this), components...);
+            });
         }
 
         template<typename Component> [[nodiscard]] std::size_t component_count() const {

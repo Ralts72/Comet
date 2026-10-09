@@ -279,6 +279,7 @@ namespace Comet {
         auto rendered = Result<void, GraphicsError>::success();
         if(m_scene) {
             SceneExtractor::extract(*m_scene, m_render_scene);
+            m_frame_diagnostics.mark_scene_extract();
             const ScopeExit release_snapshot([&] { m_render_scene.render_items.clear(); });
             rendered = m_renderer->render_frame(m_render_scene);
         } else {

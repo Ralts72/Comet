@@ -30,18 +30,51 @@ namespace Comet {
         if(enabled && !m_enabled) {
             m_cpu_history.clear();
             m_gpu_history.clear();
+            m_preparation_history.clear();
             m_snapshot.cpu.reset();
             m_snapshot.gpu.reset();
+            m_snapshot.preparation.reset();
             for(const auto& slot : m_slots)
                 if(slot)
                     slot->pending.reset();
         }
         m_enabled = enabled;
+        m_pending_preparation = {};
         return Result<void>::success();
     }
 
     Result<std::string> RenderDiagnostics::build_allocation_report() const {
         return m_frames.get_device().build_allocation_report();
+    }
+
+    std::optional<RenderDiagnostics::Clock::time_point> RenderDiagnostics::
+        begin_preparation_phase() {
+        if(!m_enabled || !m_frames.is_recording_frame())
+            return std::nullopt;
+        const auto serial = m_frames.get_current_frame_serial();
+        if(m_pending_preparation.serial != serial)
+            m_pending_preparation = {.serial = serial};
+        return Clock::now();
+    }
+
+    void RenderDiagnostics::end_preparation_phase(
+        const PreparationPhase phase, const Clock::time_point start) {
+        const auto milliseconds =
+            std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+        switch(phase) {
+            case PreparationPhase::Assets:
+                m_pending_preparation.assets_ms += milliseconds;
+                break;
+            case PreparationPhase::MaterialPrograms:
+                m_pending_preparation.material_programs_ms += milliseconds;
+                break;
+            case PreparationPhase::Geometry:
+                m_pending_preparation.geometry_ms += milliseconds;
+                break;
+            case PreparationPhase::Lighting:
+                m_pending_preparation.lighting_ms += milliseconds;
+                break;
+        }
     }
 
     void RenderDiagnostics::disable_gpu(std::string message) {
@@ -99,6 +132,8 @@ namespace Comet {
         m_snapshot.scene_rendered = false;
         m_snapshot.cpu.reset();
         m_snapshot.gpu.reset();
+        m_snapshot.preparation.reset();
+        m_pending_preparation = {};
         // 保留历史窗口，但不把隐藏前的在途采样发布为当前场景数据。
         for(const auto& slot : m_slots)
             if(slot)
@@ -114,6 +149,7 @@ namespace Comet {
             const ScopeExit finish([&] { m_recording = false; });
             auto recorded = plan.record(m_frames, bindings, callback);
             m_snapshot.scene_rendered = static_cast<bool>(recorded);
+            m_snapshot.preparation.reset();
             return recorded;
         }
         const auto serial = m_frames.get_current_frame_serial();
@@ -154,7 +190,10 @@ namespace Comet {
         }
         m_recording = true;
         m_last_recorded_serial = serial;
-        const ScopeExit finish([&] { m_recording = false; });
+        const ScopeExit finish([&] {
+            m_recording = false;
+            m_pending_preparation = {};
+        });
         const auto start = Clock::now();
         auto recorded = plan.record(m_frames, bindings, [&](size_t index, CommandBuffer& commands) {
             const auto pass_start = Clock::now();
@@ -180,6 +219,18 @@ namespace Comet {
         timing.milliseconds =
             std::chrono::duration<double, std::milli>(Clock::now() - start).count();
         m_cpu_history.record(timing.milliseconds, timing.passes);
+        m_snapshot.preparation.reset();
+        if(m_pending_preparation.serial == serial) {
+            m_snapshot.preparation = m_pending_preparation;
+            const auto& preparation = m_pending_preparation;
+            const TimingHistory::Entry phases[]{{"Asset resolve", preparation.assets_ms},
+                {"Material prep", preparation.material_programs_ms},
+                {"Geometry bounds", preparation.geometry_ms},
+                {"Lighting prep", preparation.lighting_ms}};
+            const auto total = preparation.assets_ms + preparation.material_programs_ms
+                               + preparation.geometry_ms + preparation.lighting_ms;
+            m_preparation_history.record(total, phases);
+        }
         m_snapshot.cpu = std::move(timing);
         m_snapshot.scene_rendered = true;
         return Result<void, GraphicsError>::success();

@@ -129,6 +129,7 @@ World 保存场景内容，不依赖 Input 或 Runtime；运行输入和本局�
 ./tools/render_benchmark/run.sh
 ./tools/render_benchmark/run.sh /tmp/comet-benchmark.csv 64 640 360 240 1
 ./tools/render_benchmark/run.sh /tmp/comet-multi.csv 2048 640 360 240 0 64
+./tools/render_benchmark/run.sh /tmp/comet-moving.csv 2048 640 360 240 0 64 moving
 ./tools/render_benchmark/run.sh /tmp/comet-culling.csv 2048 640 360 240 0 64 culling
 ./tools/render_benchmark/run.sh /tmp/comet-active.csv 512 640 360 240 0 32 physics-active
 ./tools/render_benchmark/run.sh /tmp/comet-sleeping.csv 512 640 360 240 0 32 physics-sleeping
@@ -155,11 +156,12 @@ ctest --preset dev-debug -R '^render_benchmark_smoke$'
 `app-release`／`editor-dev` 默认不构建基准；再次使用这些 preset 配置会恢复该默认，不删除已编译产物。
 
 参数依次为 CSV 路径、物体数（1..4096）、逻辑窗口宽高（64..4096）、采样帧数（8..10000）、Bloom（0/1）。
-末尾可追加材质数（1..256，不能超过物体数）及场景类型（`static`、`culling`、`project-shader`、`physics-active`、`physics-sleeping`），默认单材质、静态场景。
+末尾可追加材质数（1..256，不能超过物体数）及场景类型（`static`、`moving`、`culling`、`project-shader`、`physics-active`、`physics-sleeping`），默认单材质、静态场景。
 macOS 可在末尾追加 `-NSAutomaticWindowAnimationsEnabled NO` 关闭该进程的窗口动画；报告以实际 framebuffer 像素为准。
 固定场景使用 PBR 材质、共享立方体网格与地面、三类光源、方向光阴影、4×MSAA 和 SDR 输出；IBL 关闭，
 不依赖可选 HDR 下载。资产复制到临时目录后走生产扫描／导入／加载，结束清理，不修改 demo 的资源和缓存。
 多材质参数在临时项目中生成稳定身份的 PBR 变体，按网格顺序交错分配，实体身份固定。
+`moving` 每帧将所有立方体绕自身 Y 轴旋转 0.5°，走真实 Transform 更新、场景提取与实例上传；不启用物理，便于与 `static` 比较持续变换的成本。
 `culling` 将后 3/4 立方体移到屏外，保留它们的阴影提交；报告记录主材质的候选数、裁剪数和实际 draw 数。
 `project-shader` 使用与内置 PBR 相同代码的项目程序，测量项目材质输入同步及逐物体绘制，便于与内置材质区分比较。
 内置不透明材质按同一 Mesh 和实际材质版本自动实例化，阴影按 Mesh 合批；项目 Shader 和内置顶点源码覆盖继续逐物体绘制。
@@ -171,6 +173,7 @@ macOS 可在末尾追加 `-NSAutomaticWindowAnimationsEnabled NO` 关闭该进�
 采样逐帧检查实际活动刚体数、姿态回写数和固定步数；状态不符则拒绝报告。
 预热 32 帧（休眠场景额外沉降 300 帧）后输出 CPU 整帧及分段、CPU/GPU 图和各 pass 的样本数、P50/P95/P99，
 以及设备、呈现模式、实际材质／刚体计数和 VMA 分配量。`cpu_runtime_update` 是 `cpu_update` 内的 Runtime 部分，不重复相加；它包含默认系统开销，不是纯 Jolt 模拟时间。
+`cpu_scene_extract` 以及资产解析、材质程序、几何界限、光源准备均是 `cpu_render_submit` 内的子阶段，不重复计入整帧；后四项位于渲染图录制之前。
 GPU 样本按提交序号去重；`gpu_status` 区分完整、部分、不支持和降级，不把缺样本写成零耗时。
 窗口／呈现变化、少画物体或提前退出会拒绝报告；成功报告原子替换指定文件。
 
@@ -211,6 +214,7 @@ CPU/GPU 分别统计，不保证来自同一帧。不支持 GPU 时间戳时仍�
 面板每 250 毫秒刷新，显示近 1 秒均值／峰值及近 5 秒趋势；底层仍逐帧采集，峰值不会因 UI 降频而丢失。
 隐藏 Viewport 会跳过离屏场景绘制，Runtime、UI 和资源维护继续；诊断面板标明未绘制场景，不将历史图耗时当成新样本。
 「暂停显示」只冻结面板，不停止采集；CPU 阶段、渲染阶段和显存堆明细可展开。日常观察无需保存报告。
+CPU 阶段明细另列场景提取、资产解析、材质程序、几何界限与光源准备，区分场景准备和图录制的成本；这些子阶段已计入渲染／提交，不能与整帧重复相加。
 显存预算至多每秒采样一次，并标明驱动报告或 VMA 估算。「保存显存分配报告」手动生成详细报告，
 原子保存到项目 `.comet/editor/diagnostics/gpu-allocations.json`，再次保存替换旧报告，结果写入 Log。
 
