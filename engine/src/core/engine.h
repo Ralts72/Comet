@@ -1,5 +1,6 @@
 #pragma once
 #include "common/export.h"
+#include "render/scene/render_scene.h"
 #include "common/error.h"
 #include "common/result.h"
 #include "input/input.h"
@@ -101,5 +102,6 @@ namespace Comet {
         FrameDiagnostics m_frame_diagnostics;
         bool m_running = false;
         bool m_shutdown_prepared = false;
+        RenderScene m_render_scene;
     };
 }

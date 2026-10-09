@@ -190,7 +190,9 @@ namespace Comet {
             uint64_t frame_serial, const Frustum* frustum);
         void record_draws(FrameScheduler& frames, std::span<const DrawItem> queue,
             std::vector<QueueSemaphoreSubmit>& waits);
-        Result<void, GraphicsError> prepare_instances(FrameScheduler& frames);
+        void append_material_draws(std::span<DrawItem> items,
+            const std::shared_ptr<MaterialResources>& material, size_t& batches);
+        Result<void, GraphicsError> upload_instances(FrameScheduler& frames);
         void collect_unused_materials(uint64_t frame_serial);
 
         Result<std::shared_ptr<const PipelineState>, GraphicsError> create_pipeline(

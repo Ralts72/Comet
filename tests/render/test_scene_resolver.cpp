@@ -6,6 +6,7 @@
 #include "render/resource/render_resources.h"
 #include "render/resource/texture.h"
 #include "render/resource/environment.h"
+#include "render/resource/mesh.h"
 #include "render/scene/scene_resolver.h"
 #include "support/engine_fixture.h"
 #include "support/math_assertions.h"
@@ -79,8 +80,9 @@ namespace Comet::Tests {
         scene.environment = {AssetHandle(17), true, 2, 90};
         const auto view = runtime_view({160, 120});
         const auto before = messages.str();
+        RenderSubmission submission;
         for(int frame = 0; frame < 3; ++frame) {
-            const auto submission = resolver.resolve(scene, view);
+            resolver.resolve(scene, view, submission);
             EXPECT_FALSE(submission.environment_resource);
             EXPECT_EQ(submission.environment, scene.environment);
         }
@@ -94,15 +96,59 @@ namespace Comet::Tests {
             std::make_shared<Environment>(Environment{.background = texture.value()});
         ASSERT_TRUE(registry.register_asset(scene.environment.asset, environment));
         const auto published = messages.str();
-        EXPECT_EQ(resolver.resolve(scene, view).environment_resource, environment);
+        resolver.resolve(scene, view, submission);
+        EXPECT_EQ(submission.environment_resource, environment);
         scene.environment.background = false;
-        EXPECT_FALSE(resolver.resolve(scene, view).environment_resource);
+        resolver.resolve(scene, view, submission);
+        EXPECT_FALSE(submission.environment_resource);
         scene.environment.lighting = true;
-        EXPECT_EQ(resolver.resolve(scene, view).environment_resource, environment);
+        resolver.resolve(scene, view, submission);
+        EXPECT_EQ(submission.environment_resource, environment);
         scene.environment.background = true;
         ASSERT_TRUE(registry.unregister_asset(scene.environment.asset));
-        EXPECT_FALSE(resolver.resolve(scene, view).environment_resource);
+        resolver.resolve(scene, view, submission);
+        EXPECT_FALSE(submission.environment_resource);
         EXPECT_EQ(messages.str(), published);
+    }
+
+    TEST_F(SceneEnvironmentResolverTest, ReusedSubmissionSeesReplacementAndDropsMissingItems) {
+        AssetRegistry registry;
+        SceneResolver resolver(registry);
+        auto mesh = engine->get_render_resources().try_create_mesh(
+            {.vertices = {{{0, 0, -2}}, {{1, 0, -2}}, {{0, 1, -2}}}, .indices = {0, 1, 2}});
+        ASSERT_TRUE(mesh);
+        ASSERT_TRUE(registry.register_asset(AssetHandle{10}, mesh.value()));
+        auto material = std::make_shared<Material>("original", "unlit_color");
+        const std::weak_ptr original = material;
+        ASSERT_TRUE(registry.register_asset(AssetHandle{20}, material));
+        RenderScene scene;
+        scene.cameras.push_back({.primary = true});
+        scene.render_items.push_back(
+            {.mesh_handle = AssetHandle{10}, .material_handle = AssetHandle{20}});
+        scene.lights.push_back({.intensity = 4});
+        RenderSubmission submission;
+        const auto view = runtime_view({160, 120});
+        resolver.resolve(scene, view, submission);
+        ASSERT_EQ(submission.render_items.size(), 1u);
+        EXPECT_EQ(submission.render_items.front().material.resource, material);
+
+        auto replacement = std::make_shared<Material>("replacement", "pbr");
+        ASSERT_TRUE(registry.replace_asset(AssetHandle{20}, replacement));
+        material.reset();
+        EXPECT_FALSE(original.expired());
+        resolver.resolve(scene, view, submission);
+        ASSERT_EQ(submission.render_items.size(), 1u);
+        EXPECT_EQ(submission.render_items.front().material.resource, replacement);
+        EXPECT_TRUE(original.expired());
+
+        ASSERT_TRUE(registry.unregister_asset(AssetHandle{10}));
+        resolver.resolve(scene, view, submission);
+        EXPECT_TRUE(submission.render_items.empty());
+        scene.cameras.clear();
+        scene.lights.clear();
+        resolver.resolve(scene, view, submission);
+        EXPECT_FALSE(submission.view_project_matrix);
+        EXPECT_TRUE(submission.lights.empty());
     }
 
     TEST_F(SceneEnvironmentResolverTest, IncompatibleEnvironmentStillReportsOnceUntilRemoved) {

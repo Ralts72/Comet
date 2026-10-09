@@ -15,6 +15,14 @@ namespace Comet {
     RenderSubmission SceneResolver::resolve(
         const RenderScene& render_scene, const RenderView& view) {
         RenderSubmission submission;
+        resolve(render_scene, view, submission);
+        return submission;
+    }
+
+    void SceneResolver::resolve(
+        const RenderScene& render_scene, const RenderView& view, RenderSubmission& submission) {
+        submission.render_items.clear();
+        submission.environment_resource.reset();
         submission.view_project_matrix = resolve_camera(render_scene, view);
         submission.lights = render_scene.lights;
         submission.environment = render_scene.environment;
@@ -42,8 +50,6 @@ namespace Comet {
                 submission.render_items.push_back(std::move(*resolved_item));
             }
         }
-
-        return submission;
     }
 
     std::optional<ViewProjectMatrix> SceneResolver::resolve_camera(
@@ -150,7 +156,7 @@ namespace Comet {
     }
 
     std::optional<ResolvedRenderItem> SceneResolver::resolve_item(const RenderItem& render_item) {
-        const auto mesh = m_asset_registry.resolve<Mesh>(render_item.mesh_handle);
+        auto mesh = m_asset_registry.resolve<Mesh>(render_item.mesh_handle);
         if(!mesh) {
             if(m_missing_mesh_handles.insert(render_item.mesh_handle).second) {
                 LOG_ERROR("Render item references missing mesh handle {}",
@@ -160,7 +166,7 @@ namespace Comet {
         }
         m_missing_mesh_handles.erase(render_item.mesh_handle);
 
-        const auto material = m_asset_registry.resolve<Material>(render_item.material_handle);
+        auto material = m_asset_registry.resolve<Material>(render_item.material_handle);
         if(!material) {
             if(m_missing_material_handles.insert(render_item.material_handle).second) {
                 LOG_ERROR("Render item references missing material handle {}",
@@ -172,9 +178,9 @@ namespace Comet {
 
         return ResolvedRenderItem{.entity_id = render_item.entity_id,
             .model_matrix = render_item.model_matrix,
-            .mesh = mesh,
+            .mesh = std::move(mesh),
             .material = {.material_handle = render_item.material_handle,
-                .resource = material,
+                .resource = std::move(material),
                 .overrides = render_item.material_overrides}};
     }
 }

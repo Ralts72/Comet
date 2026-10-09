@@ -814,7 +814,7 @@ namespace Comet {
                 frames.get_current_frame_serial(), frustum ? &*frustum : nullptr);
             if(!queue)
                 return Draw::failure(queue.error());
-            if(auto instances = prepare_instances(frames); !instances) {
+            if(auto instances = upload_instances(frames); !instances) {
                 m_draw_queue.clear();
                 return Draw::failure(instances.error());
             }
@@ -891,6 +891,7 @@ namespace Comet {
         auto& queue = m_draw_queue;
         queue.clear();
         queue.reserve(items.size());
+        m_instance_transforms.clear();
         for(const auto& item : items) {
             ++m_statistics.render_items;
             // 项目 Shader 可以改变顶点位置，不能用静态 Mesh 界限裁剪。
@@ -907,15 +908,42 @@ namespace Comet {
                     continue;
                 }
             }
-            auto material = prepare_material(item.material, frame_serial);
+            queue.push_back({&item, nullptr});
+        }
+        const auto material_key = [](const DrawItem& draw) {
+            const auto& material = draw.item->material;
+            return MaterialInstanceKey{
+                material.material_handle, material.overrides ? material.overrides->instance_id : 0};
+        };
+        std::sort(queue.begin(), queue.end(), [&](const DrawItem& a, const DrawItem& b) {
+            const auto a_key = material_key(a);
+            const auto b_key = material_key(b);
+            return a_key != b_key ? a_key < b_key : a.item < b.item;
+        });
+        size_t batches = 0;
+        for(size_t first = 0; first < queue.size();) {
+            const auto& input = queue[first].item->material;
+            size_t end = first + 1;
+            while(end < queue.size()) {
+                const auto& next = queue[end].item->material;
+                if(next.material_handle != input.material_handle || next.resource != input.resource
+                    || next.overrides != input.overrides)
+                    break;
+                ++end;
+            }
+            auto material = prepare_material(input, frame_serial);
             if(!material) {
                 queue.clear();
                 return Result<void, GraphicsError>::failure(material.error());
             }
-            if(material.value())
-                queue.push_back({&item, std::move(material).value()});
+            if(material.value()) {
+                append_material_draws(
+                    std::span(queue).subspan(first, end - first), material.value(), batches);
+            }
+            first = end;
         }
-        // 内置不透明材质按 Mesh 分组；自定义顶点程序保持同材质原提交顺序。
+        queue.resize(batches);
+        // 失败回退可能使用旧布局，按实际准备结果排序。
         std::sort(queue.begin(), queue.end(), [](const DrawItem& a, const DrawItem& b) {
             const auto a_instance =
                 a.item->material.overrides ? a.item->material.overrides->instance_id : 0;
@@ -938,33 +966,43 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
-    Result<void, GraphicsError> MaterialRenderer::prepare_instances(FrameScheduler& frames) {
-        m_instance_transforms.clear();
-        size_t batches = 0;
-        for(size_t first = 0; first < m_draw_queue.size();) {
-            auto& draw = m_draw_queue[first];
+    void MaterialRenderer::append_material_draws(const std::span<DrawItem> items,
+        const std::shared_ptr<MaterialResources>& material, size_t& batches) {
+        const bool instanced = material->pipeline->instanced_pipeline != nullptr;
+        // 常见的共享 Mesh 组无需再次排序；项目顶点程序保持原提交顺序。
+        if(instanced && std::ranges::any_of(items, [&](const DrawItem& draw) {
+               return draw.item->mesh != items[0].item->mesh;
+           })) {
+            std::sort(items.begin(), items.end(), [](const DrawItem& a, const DrawItem& b) {
+                if(a.item->mesh != b.item->mesh)
+                    return std::less<const Mesh*>{}(a.item->mesh.get(), b.item->mesh.get());
+                return a.item < b.item;
+            });
+        }
+        for(size_t first = 0; first < items.size();) {
             size_t end = first + 1;
-            if(draw.material->pipeline->instanced_pipeline) {
-                while(end < m_draw_queue.size() && m_draw_queue[end].material == draw.material
-                      && m_draw_queue[end].item->mesh == draw.item->mesh)
+            if(instanced) {
+                while(end < items.size() && items[end].item->mesh == items[first].item->mesh)
                     ++end;
             }
+            DrawItem draw{items[first].item, material};
             draw.instance_count = static_cast<uint32_t>(end - first);
             if(draw.instance_count > 1) {
                 draw.first_instance = static_cast<uint32_t>(m_instance_transforms.size());
                 for(size_t index = first; index < end; ++index)
-                    m_instance_transforms.push_back(m_draw_queue[index].item->model_matrix);
+                    m_instance_transforms.push_back(items[index].item->model_matrix);
             }
-            if(batches != first)
-                m_draw_queue[batches] = std::move(draw);
-            ++batches;
+            m_draw_queue[batches++] = std::move(draw);
             first = end;
         }
-        m_draw_queue.resize(batches);
+    }
+
+    Result<void, GraphicsError> MaterialRenderer::upload_instances(FrameScheduler& frames) {
         auto& instances = m_frames.at(frames.get_current_frame_slot_index())->instances;
-        if(auto uploaded = instances.upload(m_device, m_instance_transforms); !uploaded)
-            return uploaded;
-        m_statistics.instance_upload_bytes = m_instance_transforms.size() * sizeof(Math::Mat4);
+        auto uploaded = instances.upload(m_device, m_instance_transforms);
+        if(!uploaded)
+            return Result<void, GraphicsError>::failure(uploaded.error());
+        m_statistics.instance_upload_bytes = uploaded.value();
         if(!m_instance_transforms.empty()) {
             frames.retain_current_frame_resource(instances.get_buffer());
             instances.bind(frames.get_current_command_buffer());

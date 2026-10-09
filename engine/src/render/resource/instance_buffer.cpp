@@ -5,6 +5,7 @@
 #include "graphics/resource/buffer.h"
 
 #include <algorithm>
+#include <cstring>
 
 namespace Comet {
     void InstanceBuffer::describe(VertexInputDescription& input) {
@@ -15,11 +16,14 @@ namespace Comet {
                 3 + column, 1, Format::R32G32B32A32_SFLOAT, column * sizeof(Math::Vec4));
     }
 
-    Result<void, GraphicsError> InstanceBuffer::upload(
+    Result<size_t, GraphicsError> InstanceBuffer::upload(
         Device& device, const std::span<const Math::Mat4> transforms) {
         if(transforms.empty())
-            return Result<void, GraphicsError>::success();
+            return Result<size_t, GraphicsError>::success(0);
         const auto bytes = transforms.size_bytes();
+        if(transforms.size() == m_uploaded_transforms.size()
+            && std::memcmp(transforms.data(), m_uploaded_transforms.data(), bytes) == 0)
+            return Result<size_t, GraphicsError>::success(0);
         if(!m_buffer || m_buffer->get_size() < bytes) {
             const auto capacity =
                 std::max(bytes, m_buffer ? m_buffer->get_size() * 2 : size_t{4096});
@@ -27,11 +31,12 @@ namespace Comet {
                 Buffer::try_create_cpu_buffer(device, Flags<BufferUsage>(BufferUsage::Vertex),
                     capacity, true, nullptr, "mesh instance transforms");
             if(!buffer)
-                return Result<void, GraphicsError>::failure(buffer.error());
+                return Result<size_t, GraphicsError>::failure(buffer.error());
             m_buffer = std::move(buffer).value();
         }
         m_buffer->write(transforms.data(), bytes, 0);
-        return Result<void, GraphicsError>::success();
+        m_uploaded_transforms.assign(transforms.begin(), transforms.end());
+        return Result<size_t, GraphicsError>::success(bytes);
     }
 
     void InstanceBuffer::bind(const CommandBuffer& command) const {

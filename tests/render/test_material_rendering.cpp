@@ -161,7 +161,7 @@ namespace Comet::Tests {
             EXPECT_EQ(stats.draw_calls, expected_draws);
             EXPECT_EQ(stats.drawn_instances, 96u);
             EXPECT_EQ(stats.instanced_draw_calls, frame == 4 ? 0u : stats.draw_calls);
-            EXPECT_EQ(stats.instance_upload_bytes, frame == 4 ? 0u : 96u * sizeof(Math::Mat4));
+            EXPECT_EQ(stats.instance_upload_bytes, frame >= 2 ? 0u : 96u * sizeof(Math::Mat4));
             EXPECT_EQ(stats.material_preparations, 3u);
             EXPECT_EQ(stats.material_binds, 3u);
             EXPECT_EQ(stats.cached_material_versions, 3u);

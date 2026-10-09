@@ -106,6 +106,40 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
+    TEST(SceneExtractorTest, ReusedSnapshotDropsRemovedEntitiesAndSceneSettings) {
+        Scene scene;
+        auto mesh = scene.create_entity("Mesh");
+        mesh.add_component<MeshRendererComponent>(AssetHandle{10}, AssetHandle{20});
+        auto camera = scene.create_entity("Camera");
+        camera.add_component<CameraComponent>().primary = true;
+        auto light = scene.create_entity("Light");
+        light.add_component<LightComponent>();
+        ASSERT_TRUE(scene.set_environment({AssetHandle{30}, true, 2, 90}));
+        ASSERT_TRUE(scene.set_post_process({.exposure = 2}));
+        RenderScene snapshot;
+        SceneExtractor::extract(scene, snapshot);
+        ASSERT_EQ(snapshot.render_items.size(), 1u);
+        ASSERT_EQ(snapshot.cameras.size(), 1u);
+        ASSERT_EQ(snapshot.lights.size(), 1u);
+
+        mesh.remove_component<MeshRendererComponent>();
+        camera.remove_component<CameraComponent>();
+        light.get_component<LightComponent>().enabled = false;
+        SceneExtractor::extract(scene, snapshot);
+        EXPECT_TRUE(snapshot.render_items.empty());
+        EXPECT_TRUE(snapshot.cameras.empty());
+        EXPECT_TRUE(snapshot.lights.empty());
+
+        Scene next_scene;
+        auto replacement = next_scene.create_entity();
+        replacement.add_component<MeshRendererComponent>(AssetHandle{40}, AssetHandle{50});
+        SceneExtractor::extract(next_scene, snapshot);
+        ASSERT_EQ(snapshot.render_items.size(), 1u);
+        EXPECT_EQ(snapshot.render_items.front().mesh_handle, AssetHandle{40});
+        EXPECT_EQ(snapshot.environment, next_scene.get_environment());
+        EXPECT_EQ(snapshot.post_process, next_scene.get_post_process());
+    }
+
     TEST(SceneExtractorTest, ExtractsOnlyEntitiesWithRequiredComponents) {
         Scene scene;
 

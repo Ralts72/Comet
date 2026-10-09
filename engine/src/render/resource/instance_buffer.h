@@ -5,6 +5,7 @@
 
 #include <memory>
 #include <span>
+#include <vector>
 
 namespace Comet {
     class CPUBuffer;
@@ -16,11 +17,13 @@ namespace Comet {
     class InstanceBuffer {
     public:
         static void describe(VertexInputDescription& input);
-        Result<void, GraphicsError> upload(Device& device, std::span<const Math::Mat4> transforms);
+        Result<size_t, GraphicsError> upload(
+            Device& device, std::span<const Math::Mat4> transforms);
         void bind(const CommandBuffer& command) const;
         [[nodiscard]] const std::shared_ptr<CPUBuffer>& get_buffer() const { return m_buffer; }
 
     private:
         std::shared_ptr<CPUBuffer> m_buffer;
+        std::vector<Math::Mat4> m_uploaded_transforms;
     };
 }

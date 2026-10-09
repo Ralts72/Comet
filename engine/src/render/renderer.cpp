@@ -136,9 +136,19 @@ namespace Comet {
         }
         RenderView frame_view = m_render_view;
         frame_view.render_size = m_scene_renderer->get_render_target().get_size();
-        RenderSubmission submission;
+        auto& submission = m_submission;
+        const ScopeExit release_submission([&] {
+            submission.render_items.clear();
+            submission.environment_resource.reset();
+        });
         if(render_scene)
-            submission = m_scene_resolver.resolve(*render_scene, frame_view);
+            m_scene_resolver.resolve(*render_scene, frame_view, submission);
+        else {
+            submission.view_project_matrix.reset();
+            submission.lights.clear();
+            submission.environment = {};
+            submission.post_process = {};
+        }
         if(auto programs = m_scene_renderer->prepare_material_programs(submission); !programs)
             return programs;
         if(auto prepared = m_scene_renderer->prepare_post_process(submission.post_process);

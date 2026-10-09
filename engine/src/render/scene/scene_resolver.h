@@ -17,6 +17,8 @@ namespace Comet {
 
         [[nodiscard]] RenderSubmission resolve(
             const RenderScene& render_scene, const RenderView& view);
+        void resolve(
+            const RenderScene& render_scene, const RenderView& view, RenderSubmission& output);
 
     private:
         struct CameraDiagnostic {

@@ -5,9 +5,16 @@
 
 namespace Comet {
     RenderScene SceneExtractor::extract(Scene& scene) {
-        scene.update_world_transforms();
-
         RenderScene render_scene;
+        extract(scene, render_scene);
+        return render_scene;
+    }
+
+    void SceneExtractor::extract(Scene& scene, RenderScene& render_scene) {
+        scene.update_world_transforms();
+        render_scene.cameras.clear();
+        render_scene.render_items.clear();
+        render_scene.lights.clear();
         render_scene.environment = scene.get_environment();
         render_scene.post_process = scene.get_post_process();
 
@@ -55,6 +62,5 @@ namespace Comet {
                     .outer_angle = light.outer_angle,
                     .casts_shadow = light.casts_shadow});
             });
-        return render_scene;
     }
 }

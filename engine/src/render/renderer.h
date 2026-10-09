@@ -130,5 +130,6 @@ namespace Comet {
         std::optional<ViewportPickRequest> m_viewport_pick_request;
         ViewportPickCallback m_viewport_pick_callback;
         LineDrawList m_line_draw_list;
+        RenderSubmission m_submission;
     };
 }

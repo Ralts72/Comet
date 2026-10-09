@@ -935,7 +935,7 @@ Mesh::bind 负责绑定缓冲，Mesh::draw 消费当前绑定并接收 instance_
 material_preparations／mesh_binds 记录实际 CPU 准备和主材质 Mesh 绑定次数，draw_calls 仍为实际绘制命令数。
 同一 Mesh、MaterialResources（含参数覆盖与 PipelineState）的多个对象使用内置实例化顶点变体；单物体继续 push constant 路径。
 实例化与普通管线共用同一片元 Shader 和 descriptor 契约。仅已知构建内嵌顶点程序配对实例化变体，项目 Shader 和开发顶点覆盖继续逐物体提交；片元热更新同时更新两条管线。
-InstanceBuffer 只负责矩阵顶点输入与容量复用，分别由主材质和阴影的飞行帧槽位持有；等待槽位 fence 后上传，每次录制单独保活所用 buffer。
+InstanceBuffer 负责矩阵顶点输入、容量与已上传数据复用，分别由主材质和阴影的飞行帧槽位持有；等待槽位 fence 后比较 CPU 矩阵副本，内容或长度变化才写入。每次录制仍单独保活所用 buffer，不读取 GPU 映射区做比较。
 主材质上传 model，阴影上传 light MVP；阴影从完整提交按 Mesh 合批。原 RenderSubmission 的 EntityId 和当前 CPU 拾取路径不变，不上传没有 GPU 消费者的对象身份。
 drawn_instances 记录实际物体数，instanced_draw_calls 记录主通道实例化命令数，instance_upload_bytes 记录本帧写入字节数；阴影提供独立 draw／实例／上传统计。
 材质、天空盒与阴影通过 Device::query_format_support 查询最优平铺图像的采样、线性过滤和深度附件能力；
@@ -971,7 +971,8 @@ CPU 准备失败与 GPU 创建失败共用回退判断，只保留同 Handle／�
 Renderer 每次 prepare_frame 在 acquire 前检查 Registry，移除已注销材质的 CPU／GPU 缓存以及项目程序的材质依赖引用，隐藏／延期同样执行。
 依赖变化只解除相应材质／覆盖导致的失败，不让纯 Shader 失败因无关材质删除而重复尝试。
 同 Handle 的新版本不触发这类淘汰，仍允许准备失败时回退旧兼容版本；在途帧保活不受缓存淘汰影响。
-队列按模板名、材质 Handle 与运行实例身份排序；可实例化的内置材质再按 Mesh 分组。
+Engine 与 Renderer 分别复用提取／解析容器，帧结束释放快照内的资源引用；资产仍逐帧从 Registry 解析，没有额外失效协议。
+候选先按材质 Handle 与运行实例身份排序，同一源资源和覆盖快照集中准备一次，再按 Mesh 形成实例批次；最终只对实际批次按准备后的布局排序。
 
 编辑器材质文件修改采用显式准备／提交，区别于上述绘制时的延迟准备：
 AssetManager::prepare_material_update 保留源 revision、数据及只读运行时候选，不改原材质文件或该材质的 Registry 条目；序列化留到最终保存。

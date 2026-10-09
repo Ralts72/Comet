@@ -121,11 +121,12 @@ namespace Comet {
                 m_transforms.push_back(lighting.shadow_view_projection * item->model_matrix);
         }
         auto& instances = m_instances.at(frames.get_current_frame_slot_index());
-        if(auto uploaded = instances.upload(m_device, m_transforms); !uploaded) {
+        auto uploaded = instances.upload(m_device, m_transforms);
+        if(!uploaded) {
             m_draw_queue.clear();
             return Draw::failure(uploaded.error());
         }
-        m_statistics.instance_upload_bytes = m_transforms.size() * sizeof(Math::Mat4);
+        m_statistics.instance_upload_bytes = uploaded.value();
         auto& command = frames.get_current_command_buffer();
         frames.retain_current_frame_resource(m_render_pass);
         frames.retain_current_frame_resource(m_target);
