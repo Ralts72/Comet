@@ -378,23 +378,36 @@ namespace Comet::Tests {
         auto root = scene.create_entity();
         auto left = scene.create_entity();
         auto right = scene.create_entity();
+        auto grandchild = scene.create_entity();
         ASSERT_TRUE(scene.set_parent(left, root));
         ASSERT_TRUE(scene.set_parent(right, root));
+        ASSERT_TRUE(scene.set_parent(grandchild, left));
         scene.update_world_transforms();
         ASSERT_TRUE(root.try_set_transform({.translation = {2, 0, 0}}));
         EXPECT_FLOAT_EQ(scene.get_world_matrix(left)[3].x, 2);
         // 祖先已同步，但另一支仍脏；再次写祖先必须重新覆盖已干净的分支。
         ASSERT_TRUE(root.try_set_transform({.translation = {4, 0, 0}}));
-        EXPECT_EQ(scene.update_world_transforms(), 3u);
+        EXPECT_EQ(scene.update_world_transforms(), 4u);
         EXPECT_FLOAT_EQ(scene.get_world_matrix(right)[3].x, 4);
         ASSERT_TRUE(right.try_set_transform({.translation = {1, 0, 0}}));
         ASSERT_TRUE(scene.clear_parent(right));
         EXPECT_FLOAT_EQ(scene.get_world_matrix(right)[3].x, 1);
         ASSERT_TRUE(root.try_set_transform({.translation = {6, 0, 0}}));
+        const auto retired_uuid = root.get_uuid();
         scene.destroy_entity(root);
         EXPECT_EQ(scene.update_world_transforms(), 0u);
-        auto replacement = scene.create_entity();
-        EXPECT_TRUE(TestUtils::IsIdentityMatrix(scene.get_world_matrix(replacement)));
+        auto replacement = scene.create_entity_with_uuid(retired_uuid);
+        EXPECT_FALSE(root.try_set_transform({}));
+        replacement.set_transform({.translation = {2, 0, 0}});
+        ASSERT_TRUE(scene.set_parent(replacement, right));
+        auto replacement_child = scene.create_entity();
+        ASSERT_TRUE(scene.set_parent(replacement_child, replacement));
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(replacement)[3].x, 3);
+        EXPECT_EQ(scene.update_world_transforms(), 1u);
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(replacement_child)[3].x, 3);
+        ASSERT_TRUE(scene.set_parent(replacement_child, right));
+        EXPECT_EQ(scene.update_world_transforms(), 1u);
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(replacement_child)[3].x, 1);
         EXPECT_EQ(scene.update_world_transforms(), 0u);
     }
 

@@ -6,7 +6,6 @@
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -182,7 +181,7 @@ namespace Comet {
         std::unordered_map<EntityId, entt::entity> m_entities_by_id;
         std::unordered_map<EntityUuid, entt::entity> m_entities_by_uuid;
         std::unordered_map<EntityId, std::vector<entt::entity>> m_children_by_parent;
-        std::unordered_set<entt::entity> m_dirty_transforms;
+        entt::sparse_set m_dirty_transforms;
         std::vector<entt::entity> m_transform_work;
     };
 

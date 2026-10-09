@@ -555,6 +555,8 @@ Serializer 也通过该入口恢复属性；Restore 模式忽略 UI 可编辑标
 NumericPropertyMetadata 的范围默认只是控件提示；明确设置 enforce_bounds 的属性才把范围作为数据契约。
 Audio Source 音量采用该契约，编辑、恢复和保存共用 PropertyDescriptor 校验；AudioService 仍防御直接写入组件的越界值。
 创建、TRS／父级变化和组件增删标记受影响子树；重复标记跳过已脏子树，销毁清除对应脏节点。
+脏集合复用 EnTT sparse_set，保存带版本号的实体句柄并复用容量，避免逐次分配／释放哈希节点。
+传播队列只保存首次变脏的节点；没有父子关系时直接登记，无需查询子节点索引或准备遍历缓冲。
 `update_world_transforms` 只消费脏集合，按父先子后更新；无变化时不扫描实体或比较 TRS。
 `get_world_matrix` 是即时查询，仅同步该实体的脏祖先链；无关脏分支留给后续同步。
 SceneExtractor 同步后直接读取 WorldTransformComponent，不在每个渲染项中触发更新或分配遍历容器。

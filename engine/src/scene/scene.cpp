@@ -58,7 +58,7 @@ namespace Comet {
                 m_entities_by_id.erase(id);
             if(uuid_indexed)
                 m_entities_by_uuid.erase(uuid);
-            m_dirty_transforms.erase(handle);
+            m_dirty_transforms.remove(handle);
             m_registry.destroy(handle);
         });
         m_registry.emplace<IdComponent>(handle, id);
@@ -102,7 +102,7 @@ namespace Comet {
             m_children_by_parent.erase(id);
             m_entities_by_id.erase(id);
             m_entities_by_uuid.erase(uuid);
-            m_dirty_transforms.erase(it->m_handle);
+            m_dirty_transforms.remove(it->m_handle);
             m_registry.destroy(it->m_handle);
         }
     }
@@ -190,7 +190,7 @@ namespace Comet {
                     ScopeExit rollback([&] {
                         m_entities_by_id.erase(id);
                         m_entities_by_uuid.erase(request.uuid);
-                        m_dirty_transforms.erase(entity.m_handle);
+                        m_dirty_transforms.remove(entity.m_handle);
                         m_registry.destroy(entity.m_handle);
                     });
                     if(!entity.try_set_transform(request.creation.transform))
@@ -416,17 +416,25 @@ namespace Comet {
     }
 
     void Scene::mark_transform_dirty(const entt::entity handle) {
+        if(m_dirty_transforms.contains(handle))
+            return;
+        m_dirty_transforms.push(handle);
+        if(m_children_by_parent.empty())
+            return;
         m_transform_work.clear();
         m_transform_work.push_back(handle);
         for(std::size_t i = 0; i < m_transform_work.size(); ++i) {
-            const auto current = m_transform_work[i];
-            if(!m_dirty_transforms.insert(current).second)
-                continue;
             const auto children =
-                m_children_by_parent.find(m_registry.get<IdComponent>(current).id);
-            if(children != m_children_by_parent.end())
-                m_transform_work.insert(
-                    m_transform_work.end(), children->second.begin(), children->second.end());
+                m_children_by_parent.find(m_registry.get<IdComponent>(m_transform_work[i]).id);
+            if(children == m_children_by_parent.end())
+                continue;
+            for(const auto child : children->second) {
+                // 已脏节点的子树也已标记，传播队列只保存首次变脏的节点。
+                if(m_dirty_transforms.contains(child))
+                    continue;
+                m_dirty_transforms.push(child);
+                m_transform_work.push_back(child);
+            }
         }
     }
 
