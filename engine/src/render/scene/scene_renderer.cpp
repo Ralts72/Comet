@@ -1,4 +1,5 @@
 #include "render/scene/scene_renderer.h"
+#include "common/scope_exit.h"
 #include "render/material/material_layout.h"
 #include "render/material/material_programs.h"
 #include "render/render_graph.h"
@@ -402,7 +403,10 @@ namespace Comet {
         frames.retain_current_frame_resource(m_state->output_target);
         frames.retain_current_frame_resource(m_state->hdr_target);
         const auto image = frames.get_current_frame_slot_index();
-        const auto lighting = ShadowPass::prepare(submission);
+        if(submission.view_project_matrix)
+            m_geometry.prepare(submission.render_items);
+        const ScopeExit release_geometry([&] { m_geometry.clear(); });
+        const auto lighting = ShadowPass::prepare(submission, m_geometry);
         std::vector<RenderGraph::Binding> bindings(m_state->graph.resource_count());
         bindings[m_state->shadow_resource.index] =
             m_state->shadow_pass->get_depth_view(image)->get_image();
@@ -440,7 +444,7 @@ namespace Comet {
         }
         auto drawn = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::success({});
         if(pass == m_state->shadow_pass_id)
-            drawn = m_state->shadow_pass->render(frames, lighting, submission.render_items);
+            drawn = m_state->shadow_pass->render(frames, lighting, m_geometry);
         else if(pass == m_state->scene_pass_id)
             drawn = draw_scene(
                 frames, frames.get_current_command_buffer(), submission, lines, lighting);
@@ -470,7 +474,7 @@ namespace Comet {
         auto skybox = m_state->skybox_pass->render(frames, submission);
         if(!skybox)
             return skybox;
-        auto waits = m_state->materials->render(frames, submission, lighting,
+        auto waits = m_state->materials->render(frames, submission, m_geometry, lighting,
             m_state->shadow_pass->get_depth_view(frames.get_current_frame_slot_index()));
         if(!waits)
             return waits;

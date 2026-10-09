@@ -72,32 +72,16 @@ namespace Comet {
         return m_target->get_framebuffer(slot)->get_attachments().front();
     }
 
-    LightingData ShadowPass::prepare(const RenderSubmission& submission) {
+    LightingData ShadowPass::prepare(
+        const RenderSubmission& submission, const RenderGeometry& geometry) {
         auto lighting = LightingData::prepare(submission.lights);
-        if(!submission.view_project_matrix)
-            return lighting;
-        std::optional<BoundingBox> bounds;
-        for(const auto& item : submission.render_items) {
-            if(!item.mesh)
-                continue;
-            const auto box = transform_box(item.mesh->get_local_bounds(), item.model_matrix);
-            if(!box)
-                continue;
-            if(!bounds)
-                bounds = box;
-            else {
-                bounds->include(box->minimum);
-                bounds->include(box->maximum);
-            }
-        }
-        if(bounds)
-            lighting.prepare_shadow(*bounds, RESOLUTION);
+        if(submission.view_project_matrix && geometry.get_scene_bounds())
+            lighting.prepare_shadow(*geometry.get_scene_bounds(), RESOLUTION);
         return lighting;
     }
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> ShadowPass::render(
-        FrameScheduler& frames, const LightingData& lighting,
-        const std::span<const ResolvedRenderItem> items) {
+        FrameScheduler& frames, const LightingData& lighting, const RenderGeometry& geometry) {
         using Draw = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
         if(!frames.is_recording_frame() || &frames.get_device() != &m_device
             || frames.get_current_frame_slot_index() >= m_frame_slots)
@@ -106,16 +90,20 @@ namespace Comet {
         m_draw_queue.clear();
         m_transforms.clear();
         if(lighting.shadow_light_index >= 0) {
-            m_draw_queue.reserve(items.size());
-            for(const auto& item : items) {
-                if(item.mesh && transform_box(item.mesh->get_local_bounds(), item.model_matrix))
-                    m_draw_queue.push_back(&item);
+            m_draw_queue.reserve(geometry.get_items().size());
+            for(const auto& item : geometry.get_items()) {
+                if(item.world_bounds)
+                    m_draw_queue.push_back(item.source);
             }
-            std::sort(m_draw_queue.begin(), m_draw_queue.end(), [](const auto* a, const auto* b) {
-                if(a->mesh != b->mesh)
-                    return std::less<const Mesh*>{}(a->mesh.get(), b->mesh.get());
-                return a < b;
-            });
+            if(std::ranges::any_of(m_draw_queue,
+                   [&](const auto* item) { return item->mesh != m_draw_queue.front()->mesh; })) {
+                std::sort(
+                    m_draw_queue.begin(), m_draw_queue.end(), [](const auto* a, const auto* b) {
+                        if(a->mesh != b->mesh)
+                            return std::less<const Mesh*>{}(a->mesh.get(), b->mesh.get());
+                        return a < b;
+                    });
+            }
             m_transforms.reserve(m_draw_queue.size());
             for(const auto* item : m_draw_queue)
                 m_transforms.push_back(lighting.shadow_view_projection * item->model_matrix);

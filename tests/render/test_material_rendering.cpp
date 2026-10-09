@@ -1032,11 +1032,14 @@ namespace Comet::Tests {
                     instances.push_back(std::move(copy));
                 }
             }
-            const auto waits = materials->render(frames,
-                {.view_project_matrix =
-                        ViewProjectMatrix{.view = Math::Mat4(1), .projection = Math::Mat4(1)},
-                    .render_items = std::move(instances)},
-                lighting, shadow_input.value()->get_image_view());
+            const RenderSubmission draw_submission{
+                .view_project_matrix =
+                    ViewProjectMatrix{.view = Math::Mat4(1), .projection = Math::Mat4(1)},
+                .render_items = std::move(instances)};
+            RenderGeometry geometry;
+            geometry.prepare(draw_submission.render_items);
+            const auto waits = materials->render(frames, draw_submission, geometry, lighting,
+                shadow_input.value()->get_image_view());
             ASSERT_TRUE(waits) << waits.error();
             EXPECT_EQ(materials->get_statistics().drawn_instances, 6u);
             EXPECT_EQ(materials->get_statistics().draw_calls, iteration == 3 ? 2u : 3u);

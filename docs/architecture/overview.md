@@ -172,6 +172,7 @@ Lua 只使用元素 ID，不持有原生文档／GPU 句柄；旧控制器的接
 | `audio/audio.h` | AudioClip 已解码 CPU 数据与 AudioPlayback 播放实例；不向 Scene 公开 miniaudio 类型 |
 | `render/renderer.h` | 渲染子系统组合根，编排帧、RenderView、overlay 与拾取 |
 | `render/scene/scene_extractor.h` | Scene → 不含 GPU 对象的 RenderScene 快照 |
+| `render/scene/render_geometry.h` | 本帧提交的世界界限与场景包围盒；主材质裁剪、阴影拟合／提交共用，录制后释放借用 |
 | `render/scene/scene_resolver.h` | Handle/Camera → RenderSubmission |
 | `render/presentation.h` | acquire／submit／present 与交换链 dependent 有序重建 |
 | `render/scene/scene_renderer.h` | 完整目标版本的创建／安装与多 pass 编排 |
@@ -849,7 +850,7 @@ Frame binding 0 由 `common/frame.glsl` 统一声明，160 字节包括两矩阵
 
 ### 方向光阴影
 
-`ShadowPass::prepare` 对提交网格的世界包围盒求并集，再由 LightingData 选择前 32 灯中
+`RenderGeometry` 对提交网格的世界包围盒求并集，`ShadowPass::prepare` 使用该结果，由 LightingData 选择前 32 灯中
 EntityId 最小、强度大于零且 casts_shadow 开启的方向光，构造覆盖场景的正交投影。
 无相机、无有效网格或无符合条件的光源时，阴影索引为 -1；旧场景缺失开关时默认关闭。
 阴影开关复用已有保存、克隆和属性撤销链路，不增加新组件或编辑命令。
@@ -937,6 +938,8 @@ material_preparations／mesh_binds 记录实际 CPU 准备和主材质 Mesh 绑�
 实例化与普通管线共用同一片元 Shader 和 descriptor 契约。仅已知构建内嵌顶点程序配对实例化变体，项目 Shader 和开发顶点覆盖继续逐物体提交；片元热更新同时更新两条管线。
 InstanceBuffer 负责矩阵顶点输入、容量与已上传数据复用，分别由主材质和阴影的飞行帧槽位持有；等待槽位 fence 后比较 CPU 矩阵副本，内容或长度变化才写入。每次录制仍单独保活所用 buffer，不读取 GPU 映射区做比较。
 主材质上传 model，阴影上传 light MVP；阴影从完整提交按 Mesh 合批。原 RenderSubmission 的 EntityId 和当前 CPU 拾取路径不变，不上传没有 GPU 消费者的对象身份。
+SceneRenderer 在有效相机帧集中准备 RenderGeometry，世界界限只计算一次；无效界限不参与阴影，主材质继续保守提交，项目 Shader 仍不使用静态界限裁剪。
+共享 Mesh 的阴影队列沿用原提交顺序，只有不同 Mesh 才排序。光照用固定 32 项数组选择有效光源，按 EntityId 与原提交顺序排序，继续报告无效与超额计数。
 drawn_instances 记录实际物体数，instanced_draw_calls 记录主通道实例化命令数，instance_upload_bytes 记录本帧写入字节数；阴影提供独立 draw／实例／上传统计。
 材质、天空盒与阴影通过 Device::query_format_support 查询最优平铺图像的采样、线性过滤和深度附件能力；
 该查询不替代具体尺寸、用途组合与采样数的创建校验，Vulkan 格式转换留在 graphics 实现内。

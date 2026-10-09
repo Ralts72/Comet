@@ -798,8 +798,8 @@ namespace Comet {
     }
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> MaterialRenderer::render(
-        FrameScheduler& frames, const RenderSubmission& submission, const LightingData& lighting,
-        const std::shared_ptr<ImageView>& shadow_map) {
+        FrameScheduler& frames, const RenderSubmission& submission, const RenderGeometry& geometry,
+        const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map) {
         using Draw = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
         if(!frames.is_recording_frame() || &frames.get_device() != &m_device
             || frames.get_current_frame_slot_index() >= m_frames.size() || !shadow_map)
@@ -810,8 +810,8 @@ namespace Comet {
         if(submission.view_project_matrix) {
             const auto& matrices = *submission.view_project_matrix;
             const auto frustum = Frustum::from_view_projection(matrices.projection * matrices.view);
-            auto queue = prepare_draw_queue(submission.render_items,
-                frames.get_current_frame_serial(), frustum ? &*frustum : nullptr);
+            auto queue = prepare_draw_queue(
+                geometry, frames.get_current_frame_serial(), frustum ? &*frustum : nullptr);
             if(!queue)
                 return Draw::failure(queue.error());
             if(auto instances = upload_instances(frames); !instances) {
@@ -886,18 +886,18 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> MaterialRenderer::prepare_draw_queue(
-        const std::span<const ResolvedRenderItem> items, const uint64_t frame_serial,
-        const Frustum* frustum) {
+        const RenderGeometry& geometry, const uint64_t frame_serial, const Frustum* frustum) {
         auto& queue = m_draw_queue;
         queue.clear();
-        queue.reserve(items.size());
+        queue.reserve(geometry.get_items().size());
         m_instance_transforms.clear();
-        for(const auto& item : items) {
+        for(const auto& prepared : geometry.get_items()) {
+            const auto& item = *prepared.source;
             ++m_statistics.render_items;
             // 项目 Shader 可以改变顶点位置，不能用静态 Mesh 界限裁剪。
             if(frustum && item.mesh && item.material.resource
                 && !item.material.resource->get_shader_program()) {
-                const auto bounds = transform_box(item.mesh->get_local_bounds(), item.model_matrix);
+                const auto& bounds = prepared.world_bounds;
                 if(bounds && !frustum->intersects(*bounds)) {
                     ++m_statistics.culled_items;
                     const MaterialInstanceKey key{item.material.material_handle,

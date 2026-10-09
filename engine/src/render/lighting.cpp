@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <vector>
 
 namespace Comet {
     static_assert(sizeof(LightingData::Light) == 64);
@@ -57,18 +56,33 @@ namespace Comet {
 
     LightingData LightingData::prepare(const std::span<const RenderLight> input) {
         LightingData result;
-        std::vector<const RenderLight*> sorted;
+        std::array<const RenderLight*, MAX_LIGHTS> sorted{};
+        size_t count = 0;
+        size_t valid_count = 0;
+        const auto order = [](const RenderLight* a, const RenderLight* b) {
+            return a->entity_id != b->entity_id ? a->entity_id < b->entity_id : a < b;
+        };
         for(const auto& light : input) {
             if(!is_valid_light(light)) {
                 ++result.invalid_lights;
                 continue;
             }
-            sorted.push_back(&light);
+            ++valid_count;
+            if(count < MAX_LIGHTS) {
+                sorted[count++] = &light;
+                continue;
+            }
+            if(valid_count == MAX_LIGHTS + 1)
+                std::make_heap(sorted.begin(), sorted.end(), order);
+            if(order(&light, sorted.front())) {
+                std::pop_heap(sorted.begin(), sorted.end(), order);
+                sorted.back() = &light;
+                std::push_heap(sorted.begin(), sorted.end(), order);
+            }
         }
-        std::stable_sort(sorted.begin(), sorted.end(),
-            [](const auto* a, const auto* b) { return a->entity_id < b->entity_id; });
-        result.light_count = static_cast<float>(std::min(sorted.size(), size_t(MAX_LIGHTS)));
-        result.excess_lights = static_cast<float>(sorted.size()) - result.light_count;
+        std::sort(sorted.begin(), sorted.begin() + count, order);
+        result.light_count = static_cast<float>(count);
+        result.excess_lights = static_cast<float>(valid_count - count);
         for(size_t index = 0; index < static_cast<size_t>(result.light_count); ++index) {
             const auto& light = *sorted[index];
             auto& packed = result.lights[index];

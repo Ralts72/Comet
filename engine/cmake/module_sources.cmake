@@ -190,6 +190,7 @@ set(COMET_RENDER_SOURCES
     src/render/render_context.cpp
     src/render/scene/scene_resolver.cpp
     src/render/scene/render_scene.cpp
+    src/render/scene/render_geometry.cpp
     src/render/scene/scene_picking.cpp
     src/render/scene/scene_extractor.cpp
     src/render/scene/scene_renderer.cpp

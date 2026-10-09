@@ -137,6 +137,7 @@ set(INTEGRATION_SOURCES
         render/test_debug_renderer.cpp
         render/test_frame_edit_order.cpp
         render/test_frame_scheduler.cpp
+        render/test_render_geometry.cpp
         render/test_imgui_overlay.cpp
         render/test_material_rendering.cpp
         render/test_material_runtime.cpp

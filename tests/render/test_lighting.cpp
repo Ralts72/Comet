@@ -10,6 +10,7 @@
 
 #include <gtest/gtest.h>
 #include <limits>
+#include <algorithm>
 
 namespace Comet::Tests {
     TEST(LightingTest, OwnsWorldPoseAndIgnoresLocalAndAncestorScaleForDirection) {
@@ -76,6 +77,30 @@ namespace Comet::Tests {
         const auto points = LightingData::prepare(lights);
         EXPECT_EQ(points.lights.front().position.x, 1);
         EXPECT_EQ(points.lights.back().position.x, 32);
+    }
+
+    TEST(LightingTest, BoundedSelectionMatchesStableFullSortWithDuplicateIdentities) {
+        std::vector<RenderLight> lights;
+        for(unsigned index = 0; index < 768; ++index) {
+            lights.push_back({.entity_id = (index * 73) % 97,
+                .type = LightType::Point,
+                .position = {float(index), 0, 1},
+                .range = index % 17 == 0 ? 0.0f : 10.0f,
+                .casts_shadow = index % 3 == 0});
+        }
+        auto reference = lights;
+        std::erase_if(reference, [](const auto& light) { return light.range == 0; });
+        std::stable_sort(reference.begin(), reference.end(),
+            [](const auto& a, const auto& b) { return a.entity_id < b.entity_id; });
+        const auto packed = LightingData::prepare(lights);
+        EXPECT_EQ(packed.light_count, LightingData::MAX_LIGHTS);
+        EXPECT_EQ(packed.invalid_lights, lights.size() - reference.size());
+        EXPECT_EQ(packed.excess_lights, reference.size() - LightingData::MAX_LIGHTS);
+        for(size_t index = 0; index < packed.lights.size(); ++index) {
+            EXPECT_EQ(packed.lights[index].position, reference[index].position);
+            EXPECT_EQ(
+                packed.lights[index].casts_shadow, reference[index].casts_shadow ? 1.0f : 0.0f);
+        }
     }
 
     TEST(LightingTest, RejectsInvalidRangesConesAndEnergyWithoutPoisoningValidLights) {

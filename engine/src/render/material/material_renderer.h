@@ -7,6 +7,7 @@
 #include "render/material/material_runtime.h"
 #include "render/material/material_shader.h"
 #include "render/scene/render_submission.h"
+#include "render/scene/render_geometry.h"
 #include "render/resource/instance_buffer.h"
 
 #include <cstdint>
@@ -101,7 +102,8 @@ namespace Comet {
         // shadow_map 必须已处于片元 SampledRead；即使关闭阴影也需有效采样绑定。
         [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render(
             FrameScheduler& frames, const RenderSubmission& submission,
-            const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map);
+            const RenderGeometry& geometry, const LightingData& lighting,
+            const std::shared_ptr<ImageView>& shadow_map);
         [[nodiscard]] Statistics get_statistics() const;
         void reset_statistics() { m_statistics = {}; }
         void collect_removed_assets(const AssetRegistry& assets);
@@ -186,8 +188,8 @@ namespace Comet {
         void update_frame_resources(FrameScheduler& frames, const RenderSubmission& submission,
             const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map,
             std::vector<QueueSemaphoreSubmit>& waits);
-        Result<void, GraphicsError> prepare_draw_queue(std::span<const ResolvedRenderItem> items,
-            uint64_t frame_serial, const Frustum* frustum);
+        Result<void, GraphicsError> prepare_draw_queue(
+            const RenderGeometry& geometry, uint64_t frame_serial, const Frustum* frustum);
         void record_draws(FrameScheduler& frames, std::span<const DrawItem> queue,
             std::vector<QueueSemaphoreSubmit>& waits);
         void append_material_draws(std::span<DrawItem> items,

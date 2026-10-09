@@ -2,6 +2,7 @@
 
 #include "graphics/queue.h"
 #include "render/scene/render_submission.h"
+#include "render/scene/render_geometry.h"
 #include "render/resource/instance_buffer.h"
 
 namespace Comet {
@@ -24,13 +25,13 @@ namespace Comet {
             Device& device, uint32_t frame_slots);
         ShadowPass(const ShadowPass&) = delete;
         ShadowPass& operator=(const ShadowPass&) = delete;
-        [[nodiscard]] static LightingData prepare(const RenderSubmission& submission);
+        [[nodiscard]] static LightingData prepare(
+            const RenderSubmission& submission, const RenderGeometry& geometry);
         [[nodiscard]] std::shared_ptr<ImageView> get_depth_view(uint32_t slot) const;
         [[nodiscard]] Statistics get_statistics() const { return m_statistics; }
         void reset_statistics() { m_statistics = {}; }
         [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render(
-            FrameScheduler& frames, const LightingData& lighting,
-            std::span<const ResolvedRenderItem> items);
+            FrameScheduler& frames, const LightingData& lighting, const RenderGeometry& geometry);
 
     private:
         ShadowPass(Device& device, uint32_t frame_slots, std::shared_ptr<RenderPass> pass,

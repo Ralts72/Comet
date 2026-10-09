@@ -8,6 +8,7 @@
 #include "render/material/material_renderer.h"
 #include "render/passes/shadow_pass.h"
 #include "render/scene/render_submission.h"
+#include "render/scene/render_geometry.h"
 #include "render/debug/line_draw_list.h"
 
 #include <chrono>
@@ -111,5 +112,6 @@ namespace Comet {
         std::shared_ptr<RenderState> m_state;
         std::optional<TargetRetry> m_resize_failure;
         std::optional<TargetRetry> m_post_process_failure;
+        RenderGeometry m_geometry;
     };
 }

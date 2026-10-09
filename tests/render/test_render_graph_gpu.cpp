@@ -533,7 +533,9 @@ namespace Comet::Tests {
                     submission.lights.clear();
                 if(scenario == Scenario::TiltedLight)
                     submission.lights.front().direction = {1, 0, -1};
-                const auto lighting = ShadowPass::prepare(submission);
+                RenderGeometry geometry;
+                geometry.prepare(submission.render_items);
+                const auto lighting = ShadowPass::prepare(submission, geometry);
                 const bool shadow_enabled =
                     scenario != Scenario::ShadowsDisabled && scenario != Scenario::NoLights;
                 EXPECT_EQ(lighting.shadow_light_index, shadow_enabled ? 0 : -1);
@@ -622,7 +624,9 @@ namespace Comet::Tests {
             .view_project_matrix = ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)},
             .render_items = {{.mesh = lit_quad()}},
             .lights = {{.casts_shadow = true}}};
-        const auto lighting = ShadowPass::prepare(submission);
+        RenderGeometry geometry;
+        geometry.prepare(submission.render_items);
+        const auto lighting = ShadowPass::prepare(submission, geometry);
         ASSERT_EQ(lighting.shadow_light_index, 0);
         RenderGraph graph;
         const auto depth = graph.import_image(
@@ -638,7 +642,7 @@ namespace Comet::Tests {
         const auto plan = graph.compile();
         ASSERT_TRUE(plan) << plan.error();
         ASSERT_TRUE(plan.value().record(frames, bindings, [&](size_t, CommandBuffer&) {
-            auto drawn = shadow->render(frames, lighting, submission.render_items);
+            auto drawn = shadow->render(frames, lighting, geometry);
             if(!drawn)
                 return Result<void, GraphicsError>::failure(drawn.error());
             EXPECT_TRUE(drawn.value().empty());
