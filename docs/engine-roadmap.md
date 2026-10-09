@@ -649,7 +649,7 @@ ShaderModule 只用于 Pipeline 创建，不因程序资产存在就长期缓存
 
 #### 持久渲染世界与视图
 
-当前每帧从 ECS 提取完整 RenderScene，再解析资产并构造／排序绘制队列；Transform 的增量缓存不等于持久渲染代理。
+当前每帧从 ECS 提取完整 RenderScene，再解析资产并填充／排序复用的绘制队列；Transform 的增量缓存不等于持久渲染代理。
 已接通内置静态网格的主材质 CPU 视锥裁剪，屏外物体跳过材质准备、排序与 draw，仍保留阴影投射；
 尚未前移到资产解析或建立持久空间索引。项目 Shader／未来蒙皮和顶点变形需要有效界限契约后再参与裁剪。
 `render_benchmark` 的 `static`／`culling` 负载分别验收全可见开销和 3/4 屏外收益，并记录候选／裁剪／实际 draw 数。
@@ -671,7 +671,8 @@ Renderer 当前只有一个活动 RenderView。基础实例化与后续渲染线
 
 #### 批处理与实例化渲染
 
-当前 MaterialRenderer 仅按布局／材质排序、复用 descriptor 并减少绑定；Mesh::draw 每物体仍提交一次 draw，
+当前 MaterialRenderer 按布局／材质排序，复用帧内相同材质的准备结果与绘制队列容量，减少 descriptor／Mesh 绑定及重复资源登记；
+主材质与阴影都复用连续相同 Mesh 的绑定，Mesh::draw 每物体仍提交一次 draw，
 主材质与阴影均未自动实例化。CommandBuffer 已有 `instance_count` 参数，不等于完整批渲染链路已接通。
 
 1. **CPU 分组 + GPU instancing**：先对同一 Mesh／子网格、材质版本、管线及兼容渲染状态的非透明对象分组，

@@ -928,6 +928,11 @@ MaterialRenderer 保留资源所有权，主流程按阶段组织：同步运行
 裁剪只影响主材质队列，RenderSubmission 保留完整列表供拾取和阴影使用，不以主相机可见性丢弃投影者。
 屏外材质尚未驻留时不创建 GPU 绑定；已驻留且仍被场景引用的材质保留缓存，重新可见时再校验当前版本。
 Statistics 的 render_items／culled_items 与实际 draw_calls 分别记录主材质候选、裁剪和提交数。
+绘制队列保留容量，录制后清空借用指针与资源引用；排序用原提交顺序打破同材质的平局，不分配 stable_sort 缓冲。
+同一帧 serial 内，材质源对象／revision、覆盖快照和 PipelineState 均相同时复用准备结果，下一帧重新校验。
+材质保活与纹理 ready wait 按实际绑定登记；主绘制及阴影连续使用同一 Mesh 时复用顶点／索引绑定。
+Mesh::bind 负责绑定缓冲，Mesh::draw 消费当前绑定；每个 pass 独立跟踪，不假设前一个 pass 的状态。
+material_preparations／mesh_binds 记录实际 CPU 准备和主材质 Mesh 绑定次数，draw_calls 仍为实际绘制命令数。
 材质、天空盒与阴影通过 Device::query_format_support 查询最优平铺图像的采样、线性过滤和深度附件能力；
 该查询不替代具体尺寸、用途组合与采样数的创建校验，Vulkan 格式转换留在 graphics 实现内。
 

@@ -401,6 +401,8 @@ namespace {
                    << "# pipeline_binds=" << stats.pipeline_binds
                    << " material_binds=" << stats.material_binds
                    << " cached_material_versions=" << stats.cached_material_versions << '\n'
+                   << "# mesh_binds=" << stats.mesh_binds
+                   << " material_preparations=" << stats.material_preparations << '\n'
                    << "# window=" << m_options.width << 'x' << m_options.height
                    << " framebuffer=" << m_size.x << 'x' << m_size.y
                    << " present_mode=" << vk::to_string(m_generation->get_config().present_mode)
@@ -445,6 +447,7 @@ namespace {
                 || stats.culled_items != m_options.objects - visible_objects
                 || stats.draw_calls != visible_objects + 1 || stats.light_count != 3
                 || stats.pipeline_binds != 1 || stats.material_binds != visible_materials
+                || stats.material_preparations != visible_materials || stats.mesh_binds != 1
                 || stats.cached_material_versions != visible_materials
                 || scene.get_post_process_settings().uses_bloom() != m_options.bloom)
                 return Result<void>::failure(

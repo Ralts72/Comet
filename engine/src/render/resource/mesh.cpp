@@ -84,11 +84,14 @@ namespace Comet {
           m_ready_completion(ready_completion), m_local_bounds(local_bounds),
           m_vertex_count(vertex_count), m_index_count(index_count) {}
 
-    void Mesh::draw(const CommandBuffer& command_buffer) const {
+    void Mesh::bind(const CommandBuffer& command_buffer) const {
         command_buffer.bind_vertex_buffer({*m_vertex_buffer, 0});
-
-        if(m_index_count > 0) {
+        if(m_index_count > 0)
             command_buffer.bind_index_buffer(*m_index_buffer, 0, IndexType::Uint32);
+    }
+
+    void Mesh::draw(const CommandBuffer& command_buffer) const {
+        if(m_index_count > 0) {
             command_buffer.draw_indexed(m_index_count, 1, 0, 0);
         } else {
             command_buffer.draw(m_vertex_count, 1, 0, 0);

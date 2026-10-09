@@ -110,18 +110,23 @@ namespace Comet {
         std::vector<QueueSemaphoreSubmit> waits;
         if(lighting.shadow_light_index >= 0) {
             command.bind_pipeline(*m_pipeline);
+            const Mesh* active_mesh = nullptr;
             for(const auto& item : items) {
                 if(!item.mesh || !transform_box(item.mesh->get_local_bounds(), item.model_matrix))
                     continue;
                 const auto mvp = lighting.shadow_view_projection * item.model_matrix;
                 command.push_constants(*m_pipeline->get_layout(),
                     Flags<ShaderStage>(ShaderStage::Vertex), 0, &mvp, sizeof(mvp));
-                frames.retain_current_frame_resource(item.mesh);
-                const auto& ready = item.mesh->get_ready_completion();
-                if(ready.is_valid() && !ready.is_complete())
-                    merge_semaphore_wait(
-                        waits, QueueSemaphoreSubmit(
-                                   ready, Flags<PipelineStage>(PipelineStage::VertexInput)));
+                if(active_mesh != item.mesh.get()) {
+                    active_mesh = item.mesh.get();
+                    active_mesh->bind(command);
+                    frames.retain_current_frame_resource(item.mesh);
+                    const auto& ready = item.mesh->get_ready_completion();
+                    if(ready.is_valid() && !ready.is_complete())
+                        merge_semaphore_wait(
+                            waits, QueueSemaphoreSubmit(
+                                       ready, Flags<PipelineStage>(PipelineStage::VertexInput)));
+                }
                 item.mesh->draw(command);
             }
         }

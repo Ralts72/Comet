@@ -60,6 +60,8 @@ namespace Comet {
             uint32_t draw_calls = 0;
             uint32_t pipeline_binds = 0;
             uint32_t material_binds = 0;
+            uint32_t mesh_binds = 0;
+            uint32_t material_preparations = 0;
             uint32_t material_versions_created = 0;
             uint32_t material_bindings_created = 0;
             uint32_t cached_material_versions = 0;
@@ -155,6 +157,12 @@ namespace Comet {
             std::weak_ptr<const PipelineState> failed_pipeline;
             uint64_t retry_after_serial = 0;
             std::string preparation_error;
+            // 帧内输入身份；非拥有指针仅在同一 serial 内比较。
+            uint64_t prepared_serial = 0;
+            uint64_t prepared_revision = 0;
+            const Material* prepared_source = nullptr;
+            const MaterialOverrides* prepared_overrides = nullptr;
+            const PipelineState* prepared_pipeline = nullptr;
             bool used = false;
         };
         struct DrawItem {
@@ -170,9 +178,8 @@ namespace Comet {
         void update_frame_resources(FrameScheduler& frames, const RenderSubmission& submission,
             const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map,
             std::vector<QueueSemaphoreSubmit>& waits);
-        Result<std::vector<DrawItem>, GraphicsError> prepare_draw_queue(
-            std::span<const ResolvedRenderItem> items, uint64_t frame_serial,
-            const Frustum* frustum);
+        Result<void, GraphicsError> prepare_draw_queue(std::span<const ResolvedRenderItem> items,
+            uint64_t frame_serial, const Frustum* frustum);
         void record_draws(FrameScheduler& frames, std::span<const DrawItem> queue,
             std::vector<QueueSemaphoreSubmit>& waits);
         void collect_unused_materials(uint64_t frame_serial);
@@ -214,6 +221,7 @@ namespace Comet {
         MaterialRuntimeCache m_prepared;
         std::map<MaterialInstanceKey, CachedMaterial> m_materials;
         std::unordered_map<AssetHandle, uint64_t> m_unsupported;
+        std::vector<DrawItem> m_draw_queue;
         Statistics m_statistics;
     };
 }

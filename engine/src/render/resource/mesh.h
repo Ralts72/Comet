@@ -19,6 +19,8 @@ namespace Comet {
         [[nodiscard]] static GpuResourceResult<std::shared_ptr<Mesh>> try_create(Device& device,
             UploadManager& upload_manager, const MeshData& data, bool within_budget);
 
+        void bind(const CommandBuffer& command_buffer) const;
+        // 当前 CommandBuffer 已绑定此 Mesh 的顶点／索引缓冲。
         void draw(const CommandBuffer& command_buffer) const;
         [[nodiscard]] const GpuCompletionPoint& get_ready_completion() const {
             return m_ready_completion;

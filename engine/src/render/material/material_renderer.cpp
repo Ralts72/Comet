@@ -655,8 +655,23 @@ namespace Comet {
         const MaterialInstanceKey key{
             material.material_handle, material.overrides ? material.overrides->instance_id : 0};
         auto& cached = m_materials[key];
+        const auto revision = material.resource->get_revision();
+        if(cached.used && cached.prepared_serial == frame_serial
+            && cached.prepared_source == material.resource.get()
+            && cached.prepared_revision == revision && cached.prepared_pipeline == pipeline.get()
+            && cached.prepared_overrides == material.overrides.get())
+            return Preparation::success(cached.resources);
         cached.used = true;
         cached.overrides = material.overrides;
+        ++m_statistics.material_preparations;
+        const auto complete = [&] {
+            cached.prepared_serial = frame_serial;
+            cached.prepared_revision = revision;
+            cached.prepared_source = material.resource.get();
+            cached.prepared_overrides = material.overrides.get();
+            cached.prepared_pipeline = pipeline.get();
+            return Preparation::success(cached.resources);
+        };
         const auto keep_previous = [&](const GraphicsError& error) {
             if(error.is_device_lost())
                 return Preparation::failure(error);
@@ -671,7 +686,7 @@ namespace Comet {
                     previous ? previous->pipeline->shader_program.value() : 0);
                 cached.preparation_error = error.message;
             }
-            return Preparation::success(previous);
+            return complete();
         };
         const auto preparation = m_prepared.prepare(
             material.material_handle, material.resource, pipeline->layout, material.overrides);
@@ -680,10 +695,10 @@ namespace Comet {
         const auto& prepared = preparation.value();
         if(cached.resources && cached.resources->prepared == prepared
             && cached.resources->pipeline == pipeline)
-            return Preparation::success(cached.resources);
+            return complete();
         if(cached.failed_candidate == prepared && cached.failed_pipeline.lock() == pipeline
             && frame_serial < cached.retry_after_serial) {
-            return Preparation::success(cached.resources);
+            return complete();
         }
         auto candidate = create_material(prepared, pipeline, cached.resources);
         if(!candidate) {
@@ -699,7 +714,7 @@ namespace Comet {
         cached.failed_pipeline.reset();
         cached.preparation_error.clear();
         ++m_statistics.material_versions_created;
-        return Preparation::success(cached.resources);
+        return complete();
     }
 
     Result<std::shared_ptr<MaterialRenderer::MaterialResources>, GraphicsError> MaterialRenderer::
@@ -775,7 +790,8 @@ namespace Comet {
                 frames.get_current_frame_serial(), frustum ? &*frustum : nullptr);
             if(!queue)
                 return Draw::failure(queue.error());
-            record_draws(frames, queue.value(), waits);
+            record_draws(frames, m_draw_queue, waits);
+            m_draw_queue.clear();
             std::erase_if(waits,
                 [](const auto& wait) { return wait.semaphore->get_counter_value() >= wait.value; });
         }
@@ -841,10 +857,11 @@ namespace Comet {
         frames.retain_current_frame_resource(frame);
     }
 
-    Result<std::vector<MaterialRenderer::DrawItem>, GraphicsError> MaterialRenderer::
-        prepare_draw_queue(const std::span<const ResolvedRenderItem> items,
-            const uint64_t frame_serial, const Frustum* frustum) {
-        std::vector<DrawItem> queue;
+    Result<void, GraphicsError> MaterialRenderer::prepare_draw_queue(
+        const std::span<const ResolvedRenderItem> items, const uint64_t frame_serial,
+        const Frustum* frustum) {
+        auto& queue = m_draw_queue;
+        queue.clear();
         queue.reserve(items.size());
         for(const auto& item : items) {
             ++m_statistics.render_items;
@@ -863,22 +880,25 @@ namespace Comet {
                 }
             }
             auto material = prepare_material(item.material, frame_serial);
-            if(!material)
-                return Result<std::vector<DrawItem>, GraphicsError>::failure(material.error());
+            if(!material) {
+                queue.clear();
+                return Result<void, GraphicsError>::failure(material.error());
+            }
             if(material.value())
                 queue.push_back({&item, std::move(material).value()});
         }
-        std::stable_sort(queue.begin(), queue.end(), [](const DrawItem& a, const DrawItem& b) {
+        // 同材质保持原提交顺序；地址来自同一 span，排序不需要临时分配。
+        std::sort(queue.begin(), queue.end(), [](const DrawItem& a, const DrawItem& b) {
             const auto a_instance =
                 a.item->material.overrides ? a.item->material.overrides->instance_id : 0;
             const auto b_instance =
                 b.item->material.overrides ? b.item->material.overrides->instance_id : 0;
             return std::tie(a.material->prepared->layout->get_name(),
-                       a.item->material.material_handle, a_instance)
+                       a.item->material.material_handle, a_instance, a.item)
                    < std::tie(b.material->prepared->layout->get_name(),
-                       b.item->material.material_handle, b_instance);
+                       b.item->material.material_handle, b_instance, b.item);
         });
-        return Result<std::vector<DrawItem>, GraphicsError>::success(std::move(queue));
+        return Result<void, GraphicsError>::success();
     }
 
     void MaterialRenderer::record_draws(FrameScheduler& frames,
@@ -887,6 +907,7 @@ namespace Comet {
         auto& command = frames.get_current_command_buffer();
         const Pipeline* active_pipeline = nullptr;
         const MaterialResources* active_material = nullptr;
+        const Mesh* active_mesh = nullptr;
         for(const auto& draw : queue) {
             const auto& material = draw.material;
             const auto& pipeline = material->pipeline->pipeline;
@@ -901,14 +922,19 @@ namespace Comet {
                 command.bind_descriptor_sets(*pipeline->get_layout(), sets);
                 active_material = material.get();
                 ++m_statistics.material_binds;
+                frames.retain_current_frame_resource(material);
+                for(const auto& texture : material->textures) {
+                    append_wait(waits, texture->get_ready_completion(),
+                        Flags<PipelineStage>(PipelineStage::FragmentShader));
+                }
             }
-            frames.retain_current_frame_resource(material);
-            frames.retain_current_frame_resource(draw.item->mesh);
-            append_wait(waits, draw.item->mesh->get_ready_completion(),
-                Flags<PipelineStage>(PipelineStage::VertexInput));
-            for(const auto& texture : material->textures) {
-                append_wait(waits, texture->get_ready_completion(),
-                    Flags<PipelineStage>(PipelineStage::FragmentShader));
+            if(active_mesh != draw.item->mesh.get()) {
+                active_mesh = draw.item->mesh.get();
+                active_mesh->bind(command);
+                frames.retain_current_frame_resource(draw.item->mesh);
+                append_wait(waits, draw.item->mesh->get_ready_completion(),
+                    Flags<PipelineStage>(PipelineStage::VertexInput));
+                ++m_statistics.mesh_binds;
             }
             const PushConstant push{.model = draw.item->model_matrix};
             command.push_constants(*pipeline->get_layout(), Flags<ShaderStage>(ShaderStage::Vertex),

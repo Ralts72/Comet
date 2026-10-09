@@ -85,6 +85,71 @@ namespace Comet::Tests {
         }
     };
 
+    TEST_F(MaterialRenderingTest, RepeatedDrawsReusePreparationAndKeepRuntimeOverridesSeparate) {
+        constexpr AssetHandle mesh_handle(9180), other_mesh_handle(9181), material_handle(9182);
+        auto& assets = engine->get_asset_registry();
+        MeshData data{.vertices = {{{-0.5f, -0.5f, -2}}, {{0.5f, -0.5f, -2}}, {{0, 0.5f, -2}}},
+            .indices = {0, 1, 2}};
+        const auto mesh = engine->get_render_resources().try_create_mesh(data);
+        ASSERT_TRUE(mesh);
+        ASSERT_TRUE(assets.register_asset(mesh_handle, mesh.value()));
+        data.indices.clear();
+        const auto other_mesh = engine->get_render_resources().try_create_mesh(data);
+        ASSERT_TRUE(other_mesh);
+        ASSERT_TRUE(assets.register_asset(other_mesh_handle, other_mesh.value()));
+        const auto material = std::make_shared<Material>("shared", "unlit_color");
+        ASSERT_TRUE(assets.register_asset(material_handle, material));
+        auto red = std::make_shared<const MaterialOverrides>(MaterialOverrides{.instance_id = 11,
+            .material = material_handle,
+            .vector_properties = {{"color", {1, 0, 0, 1}}}});
+        const auto green =
+            std::make_shared<const MaterialOverrides>(MaterialOverrides{.instance_id = 12,
+                .material = material_handle,
+                .vector_properties = {{"color", {0, 1, 0, 1}}}});
+        RenderScene scene;
+        scene.cameras.push_back({.primary = true});
+        auto& renderer = engine->get_renderer();
+        for(unsigned frame = 0; frame < 4; ++frame) {
+            SCOPED_TRACE(frame);
+            if(frame == 2) {
+                ASSERT_TRUE(material->set_vector_property("color", {0, 0, 1, 1}));
+                red = std::make_shared<const MaterialOverrides>(MaterialOverrides{.instance_id = 11,
+                    .material = material_handle,
+                    .vector_properties = {{"color", {0.5f, 0, 0, 1}}}});
+            }
+            scene.render_items.clear();
+            for(unsigned index = 0; index < 96; ++index) {
+                std::shared_ptr<const MaterialOverrides> overrides;
+                if(index % 3 == 1)
+                    overrides = red;
+                else if(index % 3 == 2)
+                    overrides = green;
+                scene.render_items.push_back(
+                    {.mesh_handle = frame == 3 && index % 2 ? other_mesh_handle : mesh_handle,
+                        .material_handle = material_handle,
+                        .material_overrides = std::move(overrides)});
+            }
+            const auto prepared = renderer.prepare_frame();
+            ASSERT_TRUE(prepared);
+            ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
+            const auto rendered = renderer.render_frame(scene);
+            ASSERT_TRUE(rendered) << rendered.error();
+            const auto stats = renderer.get_scene_renderer().get_material_statistics();
+            EXPECT_EQ(stats.draw_calls, 96u);
+            EXPECT_EQ(stats.material_preparations, 3u);
+            EXPECT_EQ(stats.material_binds, 3u);
+            EXPECT_EQ(stats.cached_material_versions, 3u);
+            if(frame == 3)
+                EXPECT_GT(stats.mesh_binds, 1u);
+            else
+                EXPECT_EQ(stats.mesh_binds, 1u);
+            if(frame == 1)
+                EXPECT_EQ(stats.material_versions_created, 0u);
+            if(frame == 2)
+                EXPECT_GT(stats.material_versions_created, 0u);
+        }
+    }
+
     TEST_F(MaterialRenderingTest, CullingKeepsResidentMaterialsAndUsesReloadedMeshBounds) {
         constexpr AssetHandle visible_mesh(9190), hidden_mesh(9191);
         constexpr AssetHandle visible_material(9192), hidden_material(9193);
