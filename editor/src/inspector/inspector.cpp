@@ -230,6 +230,7 @@ namespace CometEditor {
     }
 
     bool InspectorPanel::finish_edit(const bool cancel) {
+        m_asset_inspector.finish_material_edit(cancel);
         if(m_active_item && ImGui::GetCurrentContext() && ImGui::GetActiveID() == m_active_item)
             ImGui::ClearActiveID();
         m_active_item = 0;

@@ -21,6 +21,7 @@ add_library(editor_core STATIC
         ${COMET_SYSTEM_TEXT_EDITOR_SOURCE}
         src/assets/source_monitor.cpp
         src/assets/material_editing.cpp
+        src/assets/material_edit_session.cpp
         src/render/shader_reload.cpp
         src/render/material_shader_reload.cpp
         src/scene/command_history.cpp

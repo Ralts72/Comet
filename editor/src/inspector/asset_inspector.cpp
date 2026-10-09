@@ -6,6 +6,7 @@
 #include "ui/text.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <algorithm>
 #include <array>
 #include <utility>
@@ -36,8 +37,17 @@ namespace CometEditor {
     }
 
     void AssetInspector::select(Comet::AssetHandle handle) {
-        if(m_selected_asset == handle)
+        if(m_selected_asset == handle) {
+            m_next_asset.reset();
             return;
+        }
+        if(m_material_before) {
+            if(m_next_asset && *m_next_asset == handle)
+                return;
+            m_next_asset = handle;
+            finish_material_edit();
+            return;
+        }
         m_selected_asset = handle;
         m_loaded_asset = {};
         m_loaded_revision = 0;
@@ -47,6 +57,7 @@ namespace CometEditor {
         m_template_change.reset();
         m_asset_read.reset();
         m_asset_edit.reset();
+        m_next_asset.reset();
     }
 
     void AssetInspector::set_material_layouts(
@@ -183,7 +194,10 @@ namespace CometEditor {
     void AssetInspector::render_material(
         const Comet::AssetRecord& record, std::uint64_t generation, bool allow_drop) {
         std::optional<Comet::MaterialData> previous_data;
+        bool parameter_changed = false;
+        bool parameter_active = false;
         const auto layout = material_layout();
+        ImGui::BeginDisabled(m_material_before.has_value());
         if(ImGui::BeginCombo(
                Ui::label("Render Template").c_str(), m_material_data->template_name.c_str())) {
             for(const auto& candidate : m_material_layouts) {
@@ -196,11 +210,13 @@ namespace CometEditor {
             }
             ImGui::EndCombo();
         }
+        ImGui::EndDisabled();
         const auto remember_previous = [&] {
             if(!previous_data)
                 previous_data = *m_material_data;
         };
         ImGui::BeginDisabled(m_template_change.has_value());
+        ImGui::BeginDisabled(m_material_before.has_value());
         const auto select_program = [&](const Comet::AssetHandle program) {
             if(program == m_material_data->shader_program)
                 return;
@@ -234,6 +250,7 @@ namespace CometEditor {
             ImGui::TextDisabled("%s", Ui::text("No registered layout for this material"));
             if(!m_program_layout_error.empty())
                 ImGui::TextWrapped("%s", m_program_layout_error.c_str());
+            ImGui::EndDisabled();
             ImGui::EndDisabled();
             return;
         }
@@ -274,6 +291,7 @@ namespace CometEditor {
             ImGui::PopID();
         }
 
+        ImGui::EndDisabled();
         if(!layout->get_scalars().empty() || !layout->get_vectors().empty())
             ImGui::SeparatorText(Ui::text("Parameters"));
         for(const auto& property : layout->get_scalars()) {
@@ -291,7 +309,9 @@ namespace CometEditor {
                 m_material_data->texture_properties.erase(property.name);
                 m_material_data->vector_properties.erase(property.name);
                 m_material_data->scalar_properties[property.name] = value;
+                parameter_changed = true;
             }
+            parameter_active |= ImGui::IsItemActive();
             ImGui::PopID();
         }
         for(const auto& property : layout->get_vectors()) {
@@ -314,7 +334,9 @@ namespace CometEditor {
                 m_material_data->texture_properties.erase(property.name);
                 m_material_data->scalar_properties.erase(property.name);
                 m_material_data->vector_properties[property.name] = value;
+                parameter_changed = true;
             }
+            parameter_active |= ImGui::IsItemActive();
             ImGui::PopID();
         }
 
@@ -323,10 +345,32 @@ namespace CometEditor {
             ImGui::TextColored(ImVec4(0.9f, 0.25f, 0.2f, 1.0f), "%s", validation_error.c_str());
         }
 
-        if(previous_data && validation_error.empty()) {
-            update_material(record, *previous_data);
+        if(parameter_active)
+            m_material_active_item = ImGui::GetActiveID();
+        if(m_material_before && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            finish_material_edit(true);
+        } else if(previous_data && validation_error.empty()) {
+            if(parameter_changed && !m_material_before)
+                m_material_before = *previous_data;
+            if(m_material_before) {
+                auto action = AssetEdit::Action::Commit;
+                if(parameter_active)
+                    action = AssetEdit::Action::Preview;
+                update_material(record, *m_material_before, action);
+            } else {
+                update_material(record, *previous_data);
+            }
+        } else if(m_material_before && !parameter_active && m_asset_error.empty()) {
+            finish_material_edit();
         }
         ImGui::EndDisabled();
+        if(m_material_before && !m_asset_error.empty()) {
+            if(ImGui::Button(Ui::label("Retry Save").c_str()))
+                finish_material_edit();
+            ImGui::SameLine();
+            if(ImGui::Button(Ui::label("Cancel Changes").c_str()))
+                finish_material_edit(true);
+        }
     }
 
     void AssetInspector::confirm_material_template() {
@@ -408,14 +452,30 @@ namespace CometEditor {
             TextureEdit{previous_settings, *m_texture_import_settings}};
     }
 
-    void AssetInspector::update_material(
-        const Comet::AssetRecord& record, const Comet::MaterialData& previous_data) {
+    void AssetInspector::update_material(const Comet::AssetRecord& record,
+        const Comet::MaterialData& previous_data, const AssetEdit::Action action) {
         if(!m_material_data) {
             return;
         }
 
-        m_asset_edit = AssetEdit{
-            record.handle, m_loaded_revision, MaterialEdit{previous_data, *m_material_data}};
+        m_asset_edit = AssetEdit{record.handle, m_loaded_revision,
+            MaterialEdit{previous_data, *m_material_data}, action};
+    }
+
+    void AssetInspector::finish_material_edit(const bool cancel) {
+        if(!m_material_before || !m_material_data)
+            return;
+        if(m_material_active_item && ImGui::GetCurrentContext()
+            && ImGui::GetActiveID() == m_material_active_item)
+            ImGui::ClearActiveID();
+        m_material_active_item = 0;
+        auto action = AssetEdit::Action::Commit;
+        if(cancel) {
+            action = AssetEdit::Action::Cancel;
+            m_material_data = *m_material_before;
+        }
+        m_asset_edit = AssetEdit{m_loaded_asset, m_loaded_revision,
+            MaterialEdit{*m_material_before, *m_material_data}, action};
     }
 
     std::optional<AssetEdit> AssetInspector::take_asset_edit() {
@@ -427,8 +487,24 @@ namespace CometEditor {
         if(m_loaded_asset != edit.handle || m_loaded_revision != edit.revision)
             return;
         m_asset_error = std::move(error);
-        if(succeeded)
+        if(edit.action == AssetEdit::Action::Preview)
             return;
+        if(edit.action == AssetEdit::Action::Commit || edit.action == AssetEdit::Action::Cancel) {
+            if(!succeeded && edit.action == AssetEdit::Action::Commit)
+                return;
+            m_material_before.reset();
+            m_loaded_revision = m_asset_database.get_revision(edit.handle);
+            if(m_next_asset) {
+                const auto next = *m_next_asset;
+                m_next_asset.reset();
+                select(next);
+            }
+            return;
+        }
+        if(succeeded) {
+            m_loaded_revision = m_asset_database.get_revision(edit.handle);
+            return;
+        }
         if(const auto* material = std::get_if<MaterialEdit>(&edit.value))
             m_material_data = material->before;
         else

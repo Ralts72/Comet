@@ -54,6 +54,8 @@ namespace CometEditor::Tests {
         std::size_t payload_size = sizeof(AssetDragPayload);
         bool dragging = false;
         int material_updates = 0;
+        int material_previews = 0;
+        int material_cancels = 0;
         bool material_update_success = true;
         Comet::MaterialData submitted_material;
 
@@ -126,9 +128,21 @@ namespace CometEditor::Tests {
                 EXPECT_EQ(request->revision, database.get_revision(request->handle));
                 const auto* update = std::get_if<MaterialEdit>(&request->value);
                 ASSERT_NE(update, nullptr);
-                ++material_updates;
                 submitted_material = update->after;
-                inspector->asset_inspector().complete_asset_edit(*request, material_update_success);
+                bool succeeded = material_update_success;
+                if(request->action == AssetEdit::Action::Preview) {
+                    ++material_previews;
+                    succeeded = true;
+                } else if(request->action == AssetEdit::Action::Cancel) {
+                    ++material_cancels;
+                    succeeded = true;
+                } else {
+                    ++material_updates;
+                }
+                std::string error;
+                if(!succeeded)
+                    error = "Cannot save material";
+                inspector->asset_inspector().complete_asset_edit(*request, succeeded, error);
                 EXPECT_FALSE(inspector->asset_inspector().take_asset_edit());
             }
         }
@@ -988,9 +1002,9 @@ namespace CometEditor::Tests {
         ASSERT_EQ(material_updates, 1);
         EXPECT_EQ(submitted_material.texture_properties.at("base_color_texture"), second_texture);
         material_update_success = true;
-        EXPECT_FALSE(drop(point));
+        EXPECT_FALSE(drop(material_point("base_color_texture", "Base Color Texture")));
         EXPECT_EQ(material_updates, 2);
-        EXPECT_FALSE(drop(point));
+        EXPECT_FALSE(drop(material_point("base_color_texture", "Base Color Texture")));
         EXPECT_EQ(material_updates, 2);
         EXPECT_EQ(history.undo_size(), 0);
         EXPECT_EQ(Comet::MaterialSerializer{}
@@ -1076,7 +1090,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(history.undo_size(), 0);
     }
 
-    TEST_F(AssetEditingUiTest, FailedScalarUpdateRestoresValuesAndAllowsRetry) {
+    TEST_F(AssetEditingUiTest, FailedScalarSaveKeepsDraftAndAllowsRetry) {
         selection.select_asset(material);
         frame();
         frame();
@@ -1085,18 +1099,78 @@ namespace CometEditor::Tests {
         drag_value(point, 20);
         ASSERT_GT(material_updates, 0);
         const auto failed_updates = material_updates;
+        const auto draft = submitted_material;
         // 隔开两次手势，避免触发 DragFloat 的双击文本编辑。
         for(int index = 0; index < 20; ++index)
             frame();
         EXPECT_EQ(material_updates, failed_updates);
         material_update_success = true;
-        drag_value(point, -20);
-        EXPECT_GT(material_updates, failed_updates);
-        EXPECT_NEAR(submitted_material.scalar_properties.at("roughness"), 0.3f, 0.001f);
+        click_item(widget_point("Inspector", "Retry Save"));
+        EXPECT_EQ(material_updates, failed_updates + 1);
+        EXPECT_EQ(submitted_material, draft);
         const auto updates = material_updates;
         frame();
         frame();
         EXPECT_EQ(material_updates, updates);
+    }
+
+    TEST_F(AssetEditingUiTest, MaterialDragPreviewsSavesOnceAndEscapeCancelsWithoutSaving) {
+        selection.select_asset(material);
+        frame();
+        frame();
+        auto& io = ImGui::GetIO();
+        const auto point = material_point("roughness", "Roughness");
+        begin_value_drag(point, 20);
+        EXPECT_GT(material_previews, 0);
+        EXPECT_EQ(material_updates, 0);
+        const auto preview = submitted_material;
+        io.AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_EQ(material_updates, 1);
+        EXPECT_EQ(submitted_material, preview);
+        for(int index = 0; index < 20; ++index)
+            frame();
+        begin_value_drag(point, -20);
+        EXPECT_EQ(material_updates, 1);
+        io.AddKeyEvent(ImGuiKey_Escape, true);
+        frame();
+        EXPECT_EQ(material_cancels, 1);
+        EXPECT_EQ(submitted_material, preview);
+        io.AddKeyEvent(ImGuiKey_Escape, false);
+        io.AddMouseButtonEvent(0, false);
+        frame();
+        frame();
+        EXPECT_EQ(material_updates, 1);
+        EXPECT_EQ(history.undo_size(), 0u);
+    }
+
+    TEST_F(AssetEditingUiTest, MaterialNumberInputAndSelectionChangeFinishOneEdit) {
+        selection.select_asset(material);
+        frame();
+        frame();
+        auto& io = ImGui::GetIO();
+        const auto point = material_point("roughness", "Roughness");
+        click_item(point);
+        click_item(point);
+        io.AddInputCharactersUTF8("0.25");
+        frame();
+        EXPECT_EQ(material_updates, 0);
+        io.AddKeyEvent(ImGuiKey_Enter, true);
+        frame();
+        io.AddKeyEvent(ImGuiKey_Enter, false);
+        frame();
+        ASSERT_EQ(material_updates, 1);
+        EXPECT_FLOAT_EQ(submitted_material.scalar_properties.at("roughness"), 0.25f);
+        for(int index = 0; index < 20; ++index)
+            frame();
+        begin_value_drag(point, 20);
+        EXPECT_EQ(material_updates, 1);
+        selection.select_asset(second_texture);
+        frame();
+        io.AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_EQ(material_updates, 2);
+        EXPECT_EQ(history.undo_size(), 0u);
     }
 
     TEST_F(AssetEditingUiTest, RepairsMissingTextureSlotsWithoutAnApplyButton) {

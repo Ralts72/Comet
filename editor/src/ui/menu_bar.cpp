@@ -100,12 +100,12 @@ namespace CometEditor {
             const bool mac = ImGui::GetIO().ConfigMacOSXBehaviors;
             if(ImGui::MenuItem(Ui::label("Undo").c_str(),
                    m_shortcuts.label(EditorShortcuts::Action::Undo, mac).c_str(), false,
-                   m_history.can_undo())) {
+                   can_undo())) {
                 m_request = Request{Command::Undo, {}};
             }
             if(ImGui::MenuItem(Ui::label("Redo").c_str(),
                    m_shortcuts.label(EditorShortcuts::Action::Redo, mac).c_str(), false,
-                   m_history.can_redo())) {
+                   can_redo())) {
                 m_request = Request{Command::Redo, {}};
             }
             ImGui::Separator();
@@ -129,9 +129,9 @@ namespace CometEditor {
             const bool pressed = m_shortcuts.pressed(action, ImGuiInputFlags_RouteGlobal);
             if(!pressed || m_request)
                 continue;
-            if(command == Command::Undo && !m_history.can_undo())
+            if(command == Command::Undo && !can_undo())
                 continue;
-            if(command == Command::Redo && !m_history.can_redo())
+            if(command == Command::Redo && !can_redo())
                 continue;
             m_request = Request{command, {}};
         }

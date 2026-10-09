@@ -49,6 +49,7 @@ namespace Comet {
         public:
             [[nodiscard]] AssetHandle handle() const { return m_record.handle; }
             [[nodiscard]] std::shared_ptr<const Material> material() const;
+            [[nodiscard]] std::shared_ptr<Material> expected_material() const { return m_expected; }
 
         private:
             friend class AssetManager;
@@ -57,9 +58,8 @@ namespace Comet {
             AssetRecord m_record;
             AssetRevision m_revision = 0;
             MaterialData m_data;
-            std::string m_serialized;
             std::shared_ptr<Material> m_material;
-            std::shared_ptr<Material> m_previous;
+            std::shared_ptr<Material> m_expected;
         };
 
         AssetManager(ProjectPaths paths, AssetRegistry& registry,
@@ -119,6 +119,10 @@ namespace Comet {
             AssetHandle handle, const MaterialData& data);
         [[nodiscard]] Result<std::shared_ptr<Material>, Error> commit_material_update(
             const MaterialUpdate& update);
+        // 预览只替换运行版本；文件与依赖仍在最终提交时保存。
+        [[nodiscard]] Result<void, Error> preview_material_update(MaterialUpdate& update);
+        [[nodiscard]] Result<void, Error> restore_material_preview(
+            const MaterialUpdate& update, const std::shared_ptr<Material>& previous);
         [[nodiscard]] Result<std::shared_ptr<Material>, Error> reload_material(AssetHandle handle);
 
         [[nodiscard]] const AssetDatabase& get_database() const noexcept { return m_database; }

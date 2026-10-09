@@ -4,6 +4,7 @@
 #include "assets/editor_assets.h"
 #include "assets/system_text_editor.h"
 #include "assets/material_editing.h"
+#include "assets/material_edit_session.h"
 #include "render/material_shader_reload.h"
 #include "render/render_stats.h"
 #include "render/render_diagnostics.h"
@@ -245,19 +246,21 @@ namespace {
                 return action;
             if(get_engine().get_window().should_close())
                 return Comet::Result<void, Comet::Error>::success();
-            auto shaders = m_material_shader_reload->update(get_engine().get_renderer());
-            if(!shaders)
-                return Comet::Result<void, Comet::Error>::failure(shaders.error());
-            if(shaders.value()) {
-                auto layouts = get_engine().get_renderer().get_material_layouts();
-                m_inspector_panel->asset_inspector().set_material_layouts(layouts);
-                m_project_panel->set_material_layouts(std::move(layouts));
+            if(!m_material_edits->active()) {
+                auto shaders = m_material_shader_reload->update(get_engine().get_renderer());
+                if(!shaders)
+                    return Comet::Result<void, Comet::Error>::failure(shaders.error());
+                if(shaders.value()) {
+                    auto layouts = get_engine().get_renderer().get_material_layouts();
+                    m_inspector_panel->asset_inspector().set_material_layouts(layouts);
+                    m_project_panel->set_material_layouts(std::move(layouts));
+                }
+                auto assets = m_assets->update();
+                if(!assets)
+                    return Comet::Result<void, Comet::Error>::failure(assets.error());
+                if(assets.value())
+                    accept_asset_report(std::move(*assets.value()));
             }
-            auto assets = m_assets->update();
-            if(!assets)
-                return Comet::Result<void, Comet::Error>::failure(assets.error());
-            if(assets.value())
-                accept_asset_report(std::move(*assets.value()));
             if(auto mode = apply_editor_mode_request(); !mode)
                 return mode;
 
@@ -355,6 +358,11 @@ namespace {
             m_selection.reset();
             m_scene_session.reset();
             m_scene_document.reset();
+            if(m_material_edits) {
+                if(auto cancelled = m_material_edits->cancel(); !cancelled)
+                    LOG_WARN("Cannot restore material preview: {}", cancelled.error().message);
+            }
+            m_material_edits.reset();
             m_assets.reset();
             m_material_shader_reload.reset();
             m_project_session.reset();
@@ -385,7 +393,7 @@ namespace {
 
         bool finish_active_edit() {
             m_viewport->panel().cancel_interaction();
-            if(m_inspector_panel->finish_edit())
+            if(m_inspector_panel->finish_edit() && process_asset_edit())
                 return true;
             LOG_ERROR("Cannot finish active property edit; editor request rejected");
             return false;
@@ -499,11 +507,17 @@ namespace {
                     m_shortcut_settings_dialog.request(m_shortcuts);
                     break;
                 case CometEditor::MenuBar::Command::Undo:
-                    if(!m_scene_editor->undo(get_engine().get_scene()))
+                    if(const auto asset = m_selection->get_selected_asset(); asset) {
+                        if(auto result = m_material_edits->undo(asset); !result)
+                            LOG_WARN("Cannot undo material edit: {}", result.error().message);
+                    } else if(!m_scene_editor->undo(get_engine().get_scene()))
                         LOG_WARN("Cannot undo scene edit");
                     break;
                 case CometEditor::MenuBar::Command::Redo:
-                    if(!m_scene_editor->redo(get_engine().get_scene()))
+                    if(const auto asset = m_selection->get_selected_asset(); asset) {
+                        if(auto result = m_material_edits->redo(asset); !result)
+                            LOG_WARN("Cannot redo material edit: {}", result.error().message);
+                    } else if(!m_scene_editor->redo(get_engine().get_scene()))
                         LOG_WARN("Cannot redo scene edit");
                     break;
                 case CometEditor::MenuBar::Command::CopyEntity:
@@ -703,6 +717,8 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> setup_panels(Comet::AssetScanReport initial_asset_scan) {
+            m_material_edits = std::make_unique<CometEditor::MaterialEditSession>(
+                *m_assets, get_engine().get_renderer());
             auto sampler =
                 get_engine().get_render_resources().get_sampler_manager().get_nearest_clamp();
             if(!sampler)
@@ -744,6 +760,7 @@ namespace {
             std::span<const std::filesystem::path> recent;
             if(m_recent_projects)
                 recent = m_recent_projects->entries();
+            update_undo_state();
             m_menu_bar->render(current_saved_scene(), m_project.startup_scene(), recent);
             m_hierarchy_panel->render();
             m_viewport->panel().render();
@@ -758,8 +775,18 @@ namespace {
             draw_unsaved_dialog();
             bool allow_shortcuts = !m_scene_document->has_pending_request();
             allow_shortcuts &= !m_game_ui->is_modal();
+            update_undo_state();
             if(allow_shortcuts)
                 m_menu_bar->collect_shortcuts();
+        }
+
+        void update_undo_state() {
+            if(const auto asset = m_selection->get_selected_asset(); asset)
+                m_menu_bar->set_undo_state(
+                    m_material_edits->can_undo(asset), m_material_edits->can_redo(asset));
+            else
+                m_menu_bar->set_undo_state(
+                    m_command_history.can_undo(), m_command_history.can_redo());
         }
 
         Comet::Result<void, Comet::Error> handle_asset_assignment(
@@ -804,9 +831,21 @@ namespace {
 
         Comet::Result<void, Comet::Error> apply_asset_edit(const CometEditor::AssetEdit& edit) {
             if(std::holds_alternative<CometEditor::MaterialEdit>(edit.value))
-                return CometEditor::apply_material_edit(
-                    *m_assets, get_engine().get_renderer(), edit);
+                return m_material_edits->process(edit);
             return m_assets->apply_texture_edit(edit);
+        }
+
+        Comet::Result<void, Comet::Error> process_asset_edit() {
+            if(const auto edit = m_inspector_panel->asset_inspector().take_asset_edit()) {
+                const auto result = apply_asset_edit(*edit);
+                std::string error;
+                if(!result)
+                    error = result.error().message;
+                m_inspector_panel->asset_inspector().complete_asset_edit(
+                    *edit, static_cast<bool>(result), std::move(error));
+                return result;
+            }
+            return Comet::Result<void, Comet::Error>::success();
         }
 
         Comet::Result<void, Comet::Error> process_asset_requests() {
@@ -859,18 +898,10 @@ namespace {
             }
             if(m_project_panel->take_refresh_request())
                 accept_asset_report(m_assets->refresh());
-            if(const auto edit = m_inspector_panel->asset_inspector().take_asset_edit()) {
-                const auto result = apply_asset_edit(*edit);
-                std::string error;
-                if(!result)
-                    error = result.error().message;
-                m_inspector_panel->asset_inspector().complete_asset_edit(
-                    *edit, static_cast<bool>(result), std::move(error));
-                if(!result) {
-                    if(is_device_lost(result.error()))
-                        return result;
-                    LOG_WARN("Asset edit rejected: {}", result.error().message);
-                }
+            if(const auto result = process_asset_edit(); !result) {
+                if(is_device_lost(result.error()))
+                    return result;
+                LOG_WARN("Asset edit rejected: {}", result.error().message);
             }
             for(const auto& drop : get_engine().get_window().take_file_drops()) {
                 // GLFW 与主 ImGui viewport 都使用逻辑坐标，不乘 Retina framebuffer scale。
@@ -1092,6 +1123,7 @@ namespace {
         std::unique_ptr<CometEditor::Ui::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::GameUi> m_game_ui;
         std::unique_ptr<CometEditor::EditorAssets> m_assets;
+        std::unique_ptr<CometEditor::MaterialEditSession> m_material_edits;
         std::unique_ptr<CometEditor::MaterialShaderReload> m_material_shader_reload;
         std::optional<CometEditor::SelectionService> m_selection;
         Comet::ComponentRegistry m_component_registry = Comet::create_scene_component_registry();

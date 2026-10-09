@@ -14,6 +14,7 @@ namespace Comet {
     public:
         static constexpr std::uint32_t FORMAT_VERSION = 2;
 
+        [[nodiscard]] Result<void> validate(const MaterialData& data) const;
         [[nodiscard]] Result<std::string> serialize(const MaterialData& data) const;
         [[nodiscard]] Result<MaterialData> deserialize(
             std::string_view contents, std::string_view source = "<memory>") const;

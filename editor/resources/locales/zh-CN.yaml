@@ -236,6 +236,8 @@
 "Path: %s": "路径：%s"
 "Type: %s": "类型：%s"
 "Retry Load": "重试加载"
+"Retry Save": "重试保存"
+"Cancel Changes": "取消修改"
 "No inspector is available for this asset type": "此资产类型暂无属性编辑器"
 "Color Space": "色彩空间"
 "Flip Y": "翻转 Y"

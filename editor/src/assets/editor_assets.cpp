@@ -396,6 +396,17 @@ namespace CometEditor {
         return Comet::Result<void, Comet::Error>::success();
     }
 
+    Comet::Result<void, Comet::Error> EditorAssets::preview_material_edit(
+        Comet::AssetManager::MaterialUpdate& update) {
+        return m_manager.preview_material_update(update);
+    }
+
+    Comet::Result<void, Comet::Error> EditorAssets::restore_material_preview(
+        const Comet::AssetManager::MaterialUpdate& update,
+        const std::shared_ptr<Comet::Material>& previous) {
+        return m_manager.restore_material_preview(update, previous);
+    }
+
     Comet::Result<void, Comet::Error> EditorAssets::apply_texture_edit(const AssetEdit& edit) {
         if(!database().is_current(edit.handle, edit.revision))
             return Comet::Result<void, Comet::Error>::failure({"Asset edit revision is stale"});

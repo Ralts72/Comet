@@ -40,7 +40,7 @@ namespace Comet {
         public:
             MaterialUpdate(MaterialUpdate&&) = default;
             MaterialUpdate& operator=(MaterialUpdate&&) = default;
-            // 同一帧边界内保存资产后发布；期间不可重建 renderer 或发布 Shader。
+            // 帧边界发布；编辑器可保留回退候选，期间不可重建 renderer 或发布 Shader。
             void publish() &&;
 
         private:

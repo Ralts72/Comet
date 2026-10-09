@@ -755,10 +755,8 @@ namespace Comet {
 
         const AssetRevision revision = m_database.get_revision(handle);
         const AssetRecord snapshot = *record;
-        const auto serialized_data = MaterialSerializer{}.serialize(data);
-        if(!serialized_data) {
-            return Preparation::failure({serialized_data.error()});
-        }
+        if(auto valid = MaterialSerializer{}.validate(data); !valid)
+            return Preparation::failure({valid.error()});
         auto material = m_loader->prepare_material(snapshot, data);
         if(!material)
             return Preparation::failure(material.error());
@@ -772,9 +770,8 @@ namespace Comet {
         update.m_record = snapshot;
         update.m_revision = revision;
         update.m_data = data;
-        update.m_serialized = serialized_data.value();
         update.m_material = std::move(material).value();
-        update.m_previous = runtime.asset;
+        update.m_expected = runtime.asset;
         return Preparation::success(std::move(update));
     }
 
@@ -785,20 +782,44 @@ namespace Comet {
             find_runtime_asset(m_registry, handle, m_render_assets->material(handle));
         if(update.m_owner != this || !update.m_material
             || !m_database.is_current(handle, update.m_revision) || runtime.type_conflict
-            || runtime.asset != update.m_previous)
+            || runtime.asset != update.m_expected)
             return Result<std::shared_ptr<Material>, Error>::failure({"Material update is stale"});
+        const auto serialized = MaterialSerializer{}.serialize(update.m_data);
+        if(!serialized)
+            return Result<std::shared_ptr<Material>, Error>::failure({serialized.error()});
         if(auto saved = write_text_file_atomic(
-               m_database.paths().assets() / update.m_record.path, update.m_serialized);
+               m_database.paths().assets() / update.m_record.path, serialized.value());
             !saved) {
             return Result<std::shared_ptr<Material>, Error>::failure({saved.error()});
         }
         if(auto published = publish_material(
-               handle, update.m_data, update.m_material, static_cast<bool>(update.m_previous));
+               handle, update.m_data, update.m_material, static_cast<bool>(update.m_expected));
             !published)
             return Result<std::shared_ptr<Material>, Error>::failure(published.error());
         LOG_INFO("Updated material asset '{}' (handle {})", update.m_record.path.generic_string(),
             handle.value());
         return Result<std::shared_ptr<Material>, Error>::success(update.m_material);
+    }
+
+    Result<void, Error> AssetManager::preview_material_update(MaterialUpdate& update) {
+        if(update.m_owner != this || !update.m_material
+            || !m_database.is_current(update.handle(), update.m_revision)
+            || m_render_assets->material(update.handle()) != update.m_expected)
+            return Result<void, Error>::failure({"Material preview is stale"});
+        if(!m_render_assets->publish(update.handle(), update.m_material, true))
+            return Result<void, Error>::failure({"Cannot publish material preview"});
+        update.m_expected = update.m_material;
+        return Result<void, Error>::success();
+    }
+
+    Result<void, Error> AssetManager::restore_material_preview(
+        const MaterialUpdate& update, const std::shared_ptr<Material>& previous) {
+        if(update.m_owner != this || !previous
+            || m_render_assets->material(update.handle()) != update.m_material)
+            return Result<void, Error>::failure({"Material preview was replaced"});
+        if(!m_render_assets->publish(update.handle(), previous, true))
+            return Result<void, Error>::failure({"Cannot restore material preview"});
+        return Result<void, Error>::success();
     }
 
     Result<void, Error> AssetManager::publish_material(const AssetHandle handle,

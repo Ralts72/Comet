@@ -937,15 +937,24 @@ Renderer 每次 prepare_frame 在 acquire 前检查 Registry，移除已注销�
 队列按模板名、材质 Handle 与运行实例身份排序。
 
 编辑器材质文件修改采用显式准备／提交，区别于上述绘制时的延迟准备：
-AssetManager::prepare_material_update 保留源 revision、序列化内容及只读运行时候选，不改原材质文件或该材质的 Registry 条目。
+AssetManager::prepare_material_update 保留源 revision、数据及只读运行时候选，不改原材质文件或该材质的 Registry 条目；序列化留到最终保存。
 Renderer 在无活动帧时接收候选，MaterialRenderer 在局部缓存打包参数并创建完整 GPU 绑定；失败丢弃候选。
 editor/assets/material_editing 的 apply_material_edit 统一串联以上步骤：提交文件和 Registry，成功才发布 GPU 候选；
 MaterialUpdate 发布结束后释放候选自身的源引用；调用右值限定的 publish 并不意味着 C++ 对象已经析构。
-保存失败时两类候选均释放，Inspector 恢复旧模板和参数。Editor 只分发请求；EditorAssets 保留底层 prepare/commit，
+模板／纹理的离散编辑保存失败时两类候选均释放，Inspector 恢复原值。Editor 只分发请求；EditorAssets 保留底层 prepare/commit，
 纹理使用明确的 apply_texture_edit，不再有绕过 GPU 准备的通用材质提交分支。
 这两个编辑入口同时涉及源数据和运行时发布，不能仅按所在目录拆开提交步骤；它们不代表
 `AssetManager` 重新接管了移动、删除、导入和创建等源文件工作流。
 这一小段同步操作不得插入 Shader 发布或 renderer 重建；旧在途帧仍独立持有旧 MaterialResources。
+
+连续参数编辑由 editor/assets/material_edit_session 的 MaterialEditSession 拥有一次手势。
+首次预览保留原 Material 及已准备的 GPU 回退候选；每次有效变化先准备完整绑定，再替换 Registry 运行版本，源文件与依赖索引不变。
+松手／数值确认后使用最后候选序列化并原子保存一次，再更新依赖；无变化不保存。取消恢复同一个原 Material 和保留的 GPU 候选，不依赖重新创建 GPU 资源。
+保存失败保留预览与草稿，Inspector 提供重试／取消；切换资产和隐藏面板结束手势，保存失败暂留原材质。
+Editor 在活动手势期间推迟 Shader 和资产后台发布；正常 offscreen resize 只替换目标，不销毁 MaterialRenderer。
+准备／保存仍检查进程内 revision 和当前运行版本；取消只恢复仍由该手势拥有的预览，不覆盖其他发布者的新版本。
+材质 Undo/Redo 按 Handle 保留最多 128 次编辑，独立于场景历史；重放重新准备并保存材质，成功才移动历史游标。
+选中资产时菜单／快捷键使用材质历史，选中实体／场景时使用场景历史；项目关闭时释放资产历史和未结束预览。
 不以回调把 Renderer 注入资产层；AssetManager 不认识 Pipeline/Descriptor，MaterialRenderer 不解析资产文件。
 Project 新建材质只创建源和身份，首次指定给物体时沿用资产加载；模板切换不生成新 Handle，也不修改场景引用。
 

@@ -47,6 +47,11 @@ namespace CometEditor {
         prepare_material_edit(const AssetEdit& edit);
         [[nodiscard]] Comet::Result<void, Comet::Error> commit_material_edit(
             const Comet::AssetManager::MaterialUpdate& update);
+        [[nodiscard]] Comet::Result<void, Comet::Error> preview_material_edit(
+            Comet::AssetManager::MaterialUpdate& update);
+        [[nodiscard]] Comet::Result<void, Comet::Error> restore_material_preview(
+            const Comet::AssetManager::MaterialUpdate& update,
+            const std::shared_ptr<Comet::Material>& previous);
         [[nodiscard]] Comet::AssetScanReport create_material(
             const std::filesystem::path& destination, const Comet::MaterialData& data);
         [[nodiscard]] Comet::AssetScanReport create_script(const std::filesystem::path& destination,

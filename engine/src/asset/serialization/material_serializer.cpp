@@ -209,6 +209,10 @@ namespace Comet {
         }
     }
 
+    Result<void> MaterialSerializer::validate(const MaterialData& data) const {
+        return validate_material_data(data, Json::Context("material", "<memory>"));
+    }
+
     Result<std::string> MaterialSerializer::serialize(const MaterialData& data) const {
         return AssetSerialization::serialize_json("material", data, encode_material);
     }

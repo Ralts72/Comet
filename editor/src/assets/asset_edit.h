@@ -23,8 +23,10 @@ namespace CometEditor {
     };
 
     struct AssetEdit {
+        enum class Action { Apply, Preview, Commit, Cancel };
         Comet::AssetHandle handle;
         Comet::AssetRevision revision;
         std::variant<MaterialEdit, TextureEdit> value;
+        Action action = Action::Apply;
     };
 }
