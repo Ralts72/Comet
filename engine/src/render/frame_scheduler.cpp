@@ -87,7 +87,7 @@ namespace Comet {
 
         auto& image_state = m_swapchain_image_states.at(image_index);
         if(const auto previous_frame_slot = image_state.in_flight_frame_slot;
-            previous_frame_slot.has_value()) {
+            previous_frame_slot && !is_frame_serial_complete(image_state.last_submission_serial)) {
             wait_for_slot(*previous_frame_slot);
         }
 
@@ -129,6 +129,8 @@ namespace Comet {
         m_submission_recorded = true;
         slot.last_submission_serial = m_current_frame_serial;
         m_swapchain_image_states[m_current_image_index].in_flight_frame_slot = m_current_frame_slot;
+        m_swapchain_image_states[m_current_image_index].last_submission_serial =
+            m_current_frame_serial;
         return completion;
     }
 
@@ -166,6 +168,7 @@ namespace Comet {
         // 重置后未成功提交的 fence 不会收到完成信号，不能等待。
         if(!is_frame_serial_complete(slot.last_submission_serial))
             m_device.wait_for_fences(std::span(&slot.in_flight_fence, 1));
+        // Release owners at completion; the slot's pool reuses node allocations.
         slot.retained_resources.clear();
         m_completed_frame_serial = std::max(m_completed_frame_serial, slot.last_submission_serial);
     }

@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <memory_resource>
 #include <optional>
 #include <unordered_map>
 #include <vector>
@@ -25,15 +26,22 @@ namespace Comet {
             : in_flight_fence(device), image_available_semaphore(device),
               command_buffer(command_buffer) {}
 
+        FrameSlot(FrameSlot&&) noexcept = default;
+        FrameSlot& operator=(FrameSlot&&) = delete;
+
     private:
         friend class FrameScheduler;
 
-        std::unordered_map<const void*, std::shared_ptr<void>> retained_resources;
+        std::unique_ptr<std::pmr::unsynchronized_pool_resource> retained_resource_pool =
+            std::make_unique<std::pmr::unsynchronized_pool_resource>();
+        std::pmr::unordered_map<const void*, std::shared_ptr<void>> retained_resources{
+            retained_resource_pool.get()};
     };
 
     struct SwapchainImageState {
         Semaphore render_finished_semaphore;
         std::optional<uint32_t> in_flight_frame_slot;
+        uint64_t last_submission_serial = 0;
 
         explicit SwapchainImageState(Device& device) : render_finished_semaphore(device) {}
     };

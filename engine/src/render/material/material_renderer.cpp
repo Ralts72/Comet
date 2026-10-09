@@ -76,20 +76,20 @@ namespace Comet {
     void MaterialRenderer::collect_removed_assets(const AssetRegistry& assets) {
         // 仅淘汰已注销身份；同 Handle 的旧版本仍可作为准备失败时的回退。
         std::erase_if(m_materials, [&](const auto& entry) {
-            if(assets.resolve<Material>(entry.first.material_handle))
+            if(assets.contains<Material>(entry.first.material_handle))
                 return false;
             m_prepared.erase(entry.first.material_handle);
             return true;
         });
         std::erase_if(m_unsupported,
-            [&](const auto& entry) { return !assets.resolve<Material>(entry.first); });
+            [&](const auto& entry) { return !assets.contains<Material>(entry.first); });
         std::erase_if(m_project_pipelines, [&](const auto& entry) {
-            return !assets.resolve<ShaderProgramArtifact>(entry.first.first);
+            return !assets.contains<ShaderProgramArtifact>(entry.first.first);
         });
         for(auto& [program, active] : m_project_pipelines) {
             bool invalidates_failure = false;
             std::erase_if(active.materials, [&](const auto& entry) {
-                if(assets.resolve<Material>(entry.first.material_handle))
+                if(assets.contains<Material>(entry.first.material_handle))
                     return false;
                 if(active.failure_cause == ProjectPipeline::FailureCause::Materials
                     || (active.failure_cause == ProjectPipeline::FailureCause::Overrides

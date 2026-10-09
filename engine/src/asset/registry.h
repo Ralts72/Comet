@@ -34,6 +34,7 @@ namespace Comet {
         template<typename T> [[nodiscard]] std::shared_ptr<T> resolve(AssetHandle handle) const;
 
         [[nodiscard]] bool contains(AssetHandle handle) const;
+        template<typename T> [[nodiscard]] bool contains(AssetHandle handle) const;
 
         [[nodiscard]] bool unregister_asset(AssetHandle handle);
 
@@ -55,6 +56,7 @@ namespace Comet {
 
         [[nodiscard]] std::shared_ptr<void> resolve_impl(
             AssetHandle handle, std::type_index type) const;
+        [[nodiscard]] bool contains_impl(AssetHandle handle, std::type_index type) const;
 
         std::unordered_map<AssetHandle, AssetEntry> m_assets;
     };
@@ -80,5 +82,10 @@ namespace Comet {
 
         return std::static_pointer_cast<T>(
             resolve_impl(handle, std::type_index(typeid(std::remove_cv_t<T>))));
+    }
+
+    template<typename T> bool AssetRegistry::contains(const AssetHandle handle) const {
+        static_assert(!std::is_void_v<T>, "AssetRegistry requires a concrete asset type");
+        return contains_impl(handle, std::type_index(typeid(std::remove_cv_t<T>)));
     }
 }

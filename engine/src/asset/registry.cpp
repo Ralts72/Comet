@@ -72,6 +72,13 @@ namespace Comet {
         return handle && m_assets.contains(handle);
     }
 
+    bool AssetRegistry::contains_impl(const AssetHandle handle, const std::type_index type) const {
+        if(!handle)
+            return false;
+        const auto found = m_assets.find(handle);
+        return found != m_assets.end() && found->second.type == type;
+    }
+
     bool AssetRegistry::unregister_asset(const AssetHandle handle) {
         return handle && m_assets.erase(handle) > 0;
     }

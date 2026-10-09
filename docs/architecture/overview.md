@@ -1182,9 +1182,12 @@ slot 数 N 与 swapchain image 数 M 独立；image-available 属于 slot，rend
 slot 循环索引不是永久 completion 身份；frame serial 用于帧身份和失败重试节流。
 相机 UBO 只在对应 slot fence 完成后改写；材质参数与 descriptor 不原地改写，新版本替换缓存后，旧版本由在途 slot 保留。
 retention 只保留真实资源 owner，不接受任意业务回调。
+slot 完成后清空保活表并立即释放 owner，slot 内存池复用哈希节点分配，不保留过期资源身份；内存复用不延长资源寿命。
+仅检查资产身份／类型时使用 AssetRegistry::contains<T>，清理缓存不为存在性判断取得强引用；实际资源消费仍使用 resolve<T>。
 
 FrameScheduler::begin_frame 只取得已完成的 slot/image，录制期间不重置 fence、不登记 image 在途。
 submit 负责 fence reset 和 Queue 提交；只有成功才登记 serial 与 image-slot 关联，不再由调用方单独 record_submission。
+image 同时记录所关联提交的 serial；该提交已完成时不再等待已复用帧槽中的新提交，N 个 slot 与 M 个 image 的完成身份保持独立。
 等待以成功提交的 serial 为依据，没有未完成提交就不等待 fence，避免 reset 后提交失败造成永久等待。
 Presentation 检查提交结果，失败交给应用退出清理，不继续 present，也不自动复用已 acquire 的二进制 semaphore。
 

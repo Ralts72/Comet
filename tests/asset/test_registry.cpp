@@ -22,6 +22,9 @@ namespace Comet::Tests {
 
         EXPECT_TRUE(registry.register_asset(handle, mesh));
         EXPECT_TRUE(registry.contains(handle));
+        EXPECT_TRUE(registry.contains<TestMesh>(handle));
+        EXPECT_TRUE(registry.contains<const TestMesh>(handle));
+        EXPECT_FALSE(registry.contains<TestMaterial>(handle));
         EXPECT_EQ(registry.size(), 1u);
 
         const auto resolved_mesh = registry.resolve<TestMesh>(handle);
@@ -51,6 +54,8 @@ namespace Comet::Tests {
         const AssetRegistry registry;
 
         EXPECT_FALSE(registry.contains(INVALID_ASSET_HANDLE));
+        EXPECT_FALSE(registry.contains<TestMesh>(INVALID_ASSET_HANDLE));
+        EXPECT_FALSE(registry.contains<TestMesh>(AssetHandle(99)));
         EXPECT_EQ(registry.resolve<TestMesh>(INVALID_ASSET_HANDLE), nullptr);
         EXPECT_EQ(registry.resolve<TestMesh>(AssetHandle(99)), nullptr);
     }
@@ -68,6 +73,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(registry.unregister_asset(handle));
         EXPECT_TRUE(weak_mesh.expired());
         EXPECT_FALSE(registry.contains(handle));
+        EXPECT_FALSE(registry.contains<TestMesh>(handle));
         EXPECT_FALSE(registry.unregister_asset(handle));
     }
 
@@ -85,6 +91,8 @@ namespace Comet::Tests {
         EXPECT_EQ(registry.size(), 0u);
         EXPECT_FALSE(registry.contains(AssetHandle(4)));
         EXPECT_FALSE(registry.contains(AssetHandle(5)));
+        EXPECT_FALSE(registry.contains<TestMesh>(AssetHandle(4)));
+        EXPECT_FALSE(registry.contains<TestMaterial>(AssetHandle(5)));
     }
 
     TEST(AssetRegistryTest, ReplacesExistingAssetWithoutChangingItsType) {
@@ -96,6 +104,7 @@ namespace Comet::Tests {
 
         EXPECT_TRUE(registry.replace_asset(handle, replacement));
         EXPECT_EQ(registry.resolve<TestMesh>(handle), replacement);
+        EXPECT_TRUE(registry.contains<TestMesh>(handle));
         EXPECT_EQ(original->vertex_count, 1);
         EXPECT_FALSE(registry.replace_asset(AssetHandle(73), std::make_shared<TestMesh>()));
         EXPECT_FALSE(registry.replace_asset(handle, std::make_shared<TestMaterial>()));

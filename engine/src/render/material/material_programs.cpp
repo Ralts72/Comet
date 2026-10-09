@@ -93,7 +93,9 @@ namespace Comet {
     }
 
     void MaterialPrograms::collect_removed() {
-        std::erase_if(m_published, [&](const auto& entry) { return !latest(entry.first.first); });
+        std::erase_if(m_published, [&](const auto& entry) {
+            return !m_assets.contains<ShaderProgramArtifact>(entry.first.first);
+        });
     }
 
     const MaterialShaders* MaterialPrograms::builtin_overrides() const {
