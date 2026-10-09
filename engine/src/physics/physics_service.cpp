@@ -23,6 +23,7 @@
 #include <mutex>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -30,6 +31,7 @@ namespace Comet {
     namespace {
         constexpr JPH::ObjectLayer STATIC_LAYER = 0;
         constexpr JPH::ObjectLayer MOVING_LAYER = 1;
+        constexpr unsigned SCRATCH_BYTES = 1024 * 1024;
         std::mutex jolt_mutex;
         unsigned jolt_users = 0;
 
@@ -243,7 +245,7 @@ namespace Comet {
             world.GetBodyInterface().ActivateBodiesInAABox(bounds, {}, {});
         }
 
-        void remove_body(std::map<EntityUuid, Body>::iterator it) {
+        void remove_body(std::unordered_map<EntityUuid, Body>::iterator it) {
             auto& interface = world.GetBodyInterface();
             wake_nearby_bodies(it->second.id);
             body_lookup[it->second.id.GetIndex()] = nullptr;
@@ -466,9 +468,9 @@ namespace Comet {
         std::unique_ptr<JPH::ObjectVsBroadPhaseLayerFilterTable> object_filter;
         ContactCollector collector;
         JPH::PhysicsSystem world;
-        JPH::TempAllocatorMalloc allocator;
+        JPH::TempAllocatorImplWithMallocFallback allocator{SCRATCH_BYTES};
         JPH::JobSystemSingleThreaded jobs;
-        std::map<EntityUuid, Body> bodies;
+        std::unordered_map<EntityUuid, Body> bodies;
         std::vector<Body*> body_lookup;
         std::vector<JPH::BodyID> active_before;
         std::vector<Pair> frame_contacts;

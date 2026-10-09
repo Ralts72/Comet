@@ -253,6 +253,54 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
+    TEST(PhysicsSystemTest, RuntimeBodyGrowthPreservesPosesImpulsesAndExistingContacts) {
+        Scene scene;
+        PhysicsService physics;
+        add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0});
+        const auto resting = add_body(scene, "Resting", BodyMotion::Dynamic, {0, 0.3f, 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        auto probe = std::make_unique<ContactProbe>();
+        auto* observed = probe.get();
+        ASSERT_TRUE(runtime.add_system(std::move(probe)));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1u);
+
+        std::vector<Entity> added;
+        for(int i = 0; i < 128; ++i)
+            added.push_back(add_body(scene, "Added", BodyMotion::Dynamic, {4.0f + i * 3.0f, 5, 0}));
+        ASSERT_TRUE(physics.request_impulse(added.front(), {10, 0, 0}));
+        ASSERT_TRUE(physics.request_impulse(added.back(), {10, 0, 0}));
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(physics.get_statistics().bodies, 130u);
+        EXPECT_EQ(physics.get_statistics().pose_updates, 129u);
+        for(size_t i = 0; i < added.size(); ++i) {
+            const auto& position = added[i].get_component<TransformComponent>().translation;
+            EXPECT_LT(position.y, 5);
+            if(i == 0 || i == added.size() - 1)
+                EXPECT_GT(position.x, 4.0f + i * 3.0f);
+            else
+                EXPECT_FLOAT_EQ(position.x, 4.0f + i * 3.0f);
+        }
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1u);
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionExit), 0u);
+
+        for(size_t i = 0; i < added.size(); i += 2)
+            scene.destroy_entity(added[i]);
+        resting.edit_transform(
+            [](TransformComponent& transform) { transform.translation = {-10, 3, 0}; });
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(physics.get_statistics().bodies, 66u);
+        EXPECT_EQ(physics.get_statistics().pose_updates, 65u);
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1u);
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionExit), 1u);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_EQ(physics.get_statistics().bodies, 0u);
+    }
+
     TEST(PhysicsSystemTest, PreservesAuthoredEulerUntilPhysicsRotationChanges) {
         Scene scene;
         PhysicsService physics;

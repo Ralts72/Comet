@@ -4,7 +4,7 @@
 #include "scene/entity.h"
 #include "scene/systems/system.h"
 
-#include <map>
+#include <unordered_map>
 
 namespace Comet {
     class COMET_API PhysicsSystem final: public System {
@@ -26,6 +26,6 @@ namespace Comet {
         };
         Result<void, Error> synchronize(Scene& scene, float delta_time);
         PhysicsService& m_physics;
-        std::map<EntityUuid, Entry> m_entries;
+        std::unordered_map<EntityUuid, Entry> m_entries;
     };
 }
