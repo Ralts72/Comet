@@ -689,6 +689,14 @@ namespace Comet::Tests {
         const auto frozen = falling.get_component<TransformComponent>().translation.y;
         ASSERT_TRUE(runtime.advance(1.0 / 60.0));
         EXPECT_FLOAT_EQ(falling.get_component<TransformComponent>().translation.y, frozen);
+        EXPECT_EQ(physics.get_statistics().bodies, 0u);
+        falling.add_component<RigidBodyComponent>();
+        ASSERT_TRUE(runtime.advance(1.0 / 60.0));
+        EXPECT_EQ(physics.get_statistics().bodies, 1u);
+        EXPECT_LT(falling.get_component<TransformComponent>().translation.y, frozen);
+        scene.destroy_entity(falling);
+        ASSERT_TRUE(runtime.advance(1.0 / 60.0));
+        EXPECT_EQ(physics.get_statistics().bodies, 0u);
         ASSERT_TRUE(runtime.stop());
     }
 

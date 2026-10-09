@@ -56,10 +56,8 @@ namespace Comet {
     Result<void, Error> PhysicsSystem::synchronize(Scene& scene, const float delta_time) {
         std::erase_if(m_entries, [this](const auto& item) {
             const Entry& entry = item.second;
-            const auto entity = entry.entity;
-            if(entity && entity.has_component<RigidBodyComponent>()
-                && entity.has_component<ColliderComponent>()
-                && entity.has_component<TransformComponent>() && entity.get_uuid() == entry.uuid)
+            // has_component 已检查句柄寿命；必需组件在下方统一校验。
+            if(entry.entity.has_component<RigidBodyComponent>())
                 return false;
             m_physics.remove_body(entry.uuid, item.first);
             return true;
