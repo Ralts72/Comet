@@ -5,7 +5,7 @@
 
 namespace Comet {
     bool GpuCompletionPoint::is_complete() const {
-        return is_valid() && m_timeline->get_counter_value() >= m_value;
+        return is_valid() && m_timeline->has_reached(m_value);
     }
 
     void GpuCompletionPoint::wait() const {

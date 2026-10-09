@@ -1192,7 +1192,11 @@ Queue::submit2 使用现有 GpuResourceResult 返回原生错误，成功才推�
 CommandContext 在结束录制前关闭本次提交机会，只有 Queue 成功才进入 Submitted，失败后不能追加录制或再次提交。
 Mesh/Texture 静态工厂先创建完整 GPU owner，再通过 UploadBatch 提交 copy/barrier，检查成功并保存 ready completion 后返回，
 不进行 CPU wait。SceneRenderer 按 VertexInput/FragmentShader 汇总实际资源的 timeline wait。
+Semaphore 记录 timeline 已观察到的完成值下限，GpuCompletionPoint 的完成检查复用该值；更高值仍查询 Vulkan。
+显式 counter 查询仍读取驱动，CPU wait 仍实际等待并在成功后推进下限；移动 Semaphore 替换对应的完成记录。
+材质和阴影在汇总前排除已完成资源，不为稳定资源重复构造等待列表。
 UploadManager pending batch 保留 staging page、CommandContext 与目标 owner，完成后才回收；
+所有批次提交到 graphics queue 0，只回收连续完成的前缀，遇到未完成批次停止检查并一次移除前缀。
 pending 容器在 Queue 提交前预留空间，成功后的所有权转移不再分配内存；staging 回收容器在初始化时按缓存上限预留。
 staging 增长或 Queue 提交失败只 abort 自己尚未提交的 batch，不影响其他事务，也不发布 Mesh/Texture 候选。
 

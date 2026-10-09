@@ -54,7 +54,7 @@ namespace Comet {
     namespace {
         void append_wait(std::vector<QueueSemaphoreSubmit>& waits,
             const GpuCompletionPoint& completion, const Flags<PipelineStage> stages) {
-            if(!completion.is_valid())
+            if(!completion.is_valid() || completion.is_complete())
                 return;
             merge_semaphore_wait(waits, QueueSemaphoreSubmit(completion, stages));
         }
@@ -830,8 +830,8 @@ namespace Comet {
             }
             record_draws(frames, m_draw_queue, waits);
             m_draw_queue.clear();
-            std::erase_if(waits,
-                [](const auto& wait) { return wait.semaphore->get_counter_value() >= wait.value; });
+            std::erase_if(
+                waits, [](const auto& wait) { return wait.semaphore->has_reached(wait.value); });
         }
         collect_unused_materials(frames.get_current_frame_serial());
         return Draw::success(std::move(waits));

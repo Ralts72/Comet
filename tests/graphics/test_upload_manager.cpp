@@ -3,6 +3,7 @@
 #include <GLFW/glfw3.h>
 
 #include "config/config.h"
+#include "common/scope_exit.h"
 #include "core/window.h"
 #include "graphics/command/command_context.h"
 #include "graphics/context.h"
@@ -203,6 +204,100 @@ namespace Comet::Tests {
             manager.collect_completed();
             EXPECT_TRUE(retained.expired());
         }
+    }
+
+    TEST_F(UploadBatchGpuTest, TimelineObservationsDoNotCompleteFutureValues) {
+        Semaphore timeline(*m_device, Semaphore::Type::Timeline, 4);
+        const auto signal = [&](const uint64_t value) {
+            vk::SemaphoreSignalInfo info{};
+            info.semaphore = timeline.get();
+            info.value = value;
+            m_device->get().signalSemaphore(info);
+        };
+
+        EXPECT_TRUE(timeline.has_reached(0));
+        EXPECT_TRUE(timeline.has_reached(4));
+        EXPECT_FALSE(timeline.has_reached(5));
+        signal(7);
+        EXPECT_TRUE(timeline.has_reached(7));
+        EXPECT_TRUE(timeline.has_reached(5));
+        EXPECT_FALSE(timeline.has_reached(8));
+        signal(9);
+        EXPECT_EQ(timeline.get_counter_value(), 9U);
+        EXPECT_FALSE(timeline.wait_for(12, 0));
+        EXPECT_FALSE(timeline.has_reached(12));
+        signal(12);
+        EXPECT_TRUE(timeline.wait_for(12, 0));
+        EXPECT_TRUE(timeline.has_reached(12));
+        EXPECT_FALSE(timeline.has_reached(13));
+    }
+
+    TEST_F(UploadBatchGpuTest, MovingTimelineReplacesPreviousCompletionHistory) {
+        Semaphore source(*m_device, Semaphore::Type::Timeline, 7);
+        EXPECT_TRUE(source.has_reached(7));
+        const auto handle = source.get();
+        Semaphore moved(std::move(source));
+        EXPECT_EQ(moved.get(), handle);
+        EXPECT_FALSE(static_cast<bool>(source.get()));
+        EXPECT_TRUE(moved.has_reached(7));
+        EXPECT_FALSE(moved.has_reached(8));
+
+        Semaphore destination(*m_device, Semaphore::Type::Timeline, 500);
+        EXPECT_TRUE(destination.has_reached(500));
+        destination = std::move(moved);
+        EXPECT_EQ(destination.get(), handle);
+        EXPECT_FALSE(static_cast<bool>(moved.get()));
+        EXPECT_TRUE(destination.has_reached(7));
+        EXPECT_FALSE(destination.has_reached(8));
+    }
+
+    TEST_F(UploadBatchGpuTest, BlockedUploadSuffixRetainsAllDestinations) {
+        UploadManager manager(*m_device, {.staging_page_size = 64});
+        Semaphore gate(*m_device, Semaphore::Type::Timeline);
+        auto& queue = m_device->get_graphics_queue();
+        ScopeExit drain([&] {
+            if(!gate.has_reached(1)) {
+                vk::SemaphoreSignalInfo info{};
+                info.semaphore = gate.get();
+                info.value = 1;
+                m_device->get().signalSemaphore(info);
+            }
+            queue.wait_idle();
+        });
+        const std::array waits{
+            QueueSemaphoreSubmit(gate, Flags<PipelineStage>(PipelineStage::AllCommands), 1)};
+        const auto blocked = queue.submit2(waits, {}, {}, nullptr);
+        ASSERT_TRUE(blocked) << blocked.error();
+        const auto after = resolve_resource_state(ResourceUsage::VertexBuffer);
+        ASSERT_TRUE(after);
+        const std::array<std::byte, 4> data{};
+        std::array<std::weak_ptr<Buffer>, 32> retained;
+        GpuCompletionPoint last;
+        for(auto& owner : retained) {
+            auto destination = Buffer::create_gpu_buffer(
+                *m_device, Flags<BufferUsage>(BufferUsage::Vertex), data.size(), "blocked upload");
+            owner = destination;
+            auto batch = manager.begin_batch();
+            ASSERT_TRUE(batch.try_enqueue_upload(destination, data, *after, true));
+            const auto submitted = batch.submit();
+            ASSERT_TRUE(submitted) << submitted.error();
+            last = submitted.value();
+        }
+
+        EXPECT_FALSE(last.is_complete());
+        manager.collect_completed();
+        for(const auto& owner : retained)
+            EXPECT_FALSE(owner.expired());
+
+        vk::SemaphoreSignalInfo info{};
+        info.semaphore = gate.get();
+        info.value = 1;
+        m_device->get().signalSemaphore(info);
+        last.wait();
+        manager.collect_completed();
+        for(const auto& owner : retained)
+            EXPECT_TRUE(owner.expired());
+        manager.collect_completed();
     }
 
     TEST(UploadManagerInterfaceTest, HasExpectedStagingDefaults) {

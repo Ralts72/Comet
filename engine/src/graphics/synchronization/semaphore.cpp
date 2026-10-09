@@ -6,7 +6,7 @@
 
 namespace Comet {
     Semaphore::Semaphore(Device& device, const Type type, const uint64_t initial_value)
-        : m_device(&device), m_type(type) {
+        : m_device(&device), m_type(type), m_completed_value(initial_value) {
         if(type == Type::Binary && initial_value != 0) {
             LOG_FATAL("Binary semaphore initial value must be zero");
         }
@@ -28,7 +28,8 @@ namespace Comet {
     }
 
     Semaphore::Semaphore(Semaphore&& other) noexcept
-        : m_device(other.m_device), m_semaphore(other.m_semaphore), m_type(other.m_type) {
+        : m_device(other.m_device), m_semaphore(other.m_semaphore), m_type(other.m_type),
+          m_completed_value(other.m_completed_value.exchange(0, std::memory_order_relaxed)) {
         other.m_device = nullptr;
         other.m_semaphore = VK_NULL_HANDLE;
         other.m_type = Type::Binary;
@@ -42,6 +43,8 @@ namespace Comet {
             m_device = other.m_device;
             m_semaphore = other.m_semaphore;
             m_type = other.m_type;
+            m_completed_value.store(other.m_completed_value.exchange(0, std::memory_order_relaxed),
+                std::memory_order_relaxed);
             other.m_device = nullptr;
             other.m_semaphore = VK_NULL_HANDLE;
             other.m_type = Type::Binary;
@@ -53,7 +56,25 @@ namespace Comet {
         if(m_type != Type::Timeline || !m_device || !m_semaphore) {
             LOG_FATAL("Semaphore counter is only available for a valid timeline semaphore");
         }
-        return m_device->get().getSemaphoreCounterValue(m_semaphore);
+        const auto value = m_device->get().getSemaphoreCounterValue(m_semaphore);
+        observe_completed(value);
+        return value;
+    }
+
+    bool Semaphore::has_reached(const uint64_t value) const {
+        if(m_type != Type::Timeline || !m_device || !m_semaphore) {
+            LOG_FATAL("Semaphore completion is only available for a valid timeline semaphore");
+        }
+        return m_completed_value.load(std::memory_order_relaxed) >= value
+               || get_counter_value() >= value;
+    }
+
+    void Semaphore::observe_completed(const uint64_t value) const {
+        // Timeline values never decrease; concurrent observations only advance this lower bound.
+        auto completed = m_completed_value.load(std::memory_order_relaxed);
+        while(completed < value
+              && !m_completed_value.compare_exchange_weak(
+                  completed, value, std::memory_order_relaxed)) {}
     }
 
     void Semaphore::wait(const uint64_t value) const {
@@ -78,6 +99,7 @@ namespace Comet {
         if(result != vk::Result::eSuccess) {
             LOG_FATAL("Timeline semaphore wait failed: {}", vk::to_string(result));
         }
+        observe_completed(value);
         return true;
     }
 }

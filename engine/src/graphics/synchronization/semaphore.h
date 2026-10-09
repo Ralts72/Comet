@@ -1,6 +1,7 @@
 #pragma once
 #include "graphics/vk_common.h"
 
+#include <atomic>
 #include <cstdint>
 
 namespace Comet {
@@ -22,12 +23,16 @@ namespace Comet {
         [[nodiscard]] vk::Semaphore get() const { return m_semaphore; }
         [[nodiscard]] Type get_type() const { return m_type; }
         [[nodiscard]] uint64_t get_counter_value() const;
+        [[nodiscard]] bool has_reached(uint64_t value) const;
         void wait(uint64_t value) const;
         [[nodiscard]] bool wait_for(uint64_t value, uint64_t timeout) const;
 
     private:
+        void observe_completed(uint64_t value) const;
+
         Device* m_device = nullptr;
         vk::Semaphore m_semaphore{};
         Type m_type = Type::Binary;
+        mutable std::atomic<uint64_t> m_completed_value{0};
     };
 }

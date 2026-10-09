@@ -207,14 +207,13 @@ namespace Comet {
     }
 
     void UploadManager::collect_completed() {
-        for(auto batch = m_pending_batches.begin(); batch != m_pending_batches.end();) {
-            if(!batch->completion.is_complete()) {
-                ++batch;
-                continue;
-            }
+        // All batches submit to graphics queue 0, so completion follows registration order.
+        auto batch = m_pending_batches.begin();
+        while(batch != m_pending_batches.end() && batch->completion.is_complete()) {
             recycle_staging_pages(batch->resources);
-            batch = m_pending_batches.erase(batch);
+            ++batch;
         }
+        m_pending_batches.erase(m_pending_batches.begin(), batch);
     }
 
     void UploadBatch::ensure_active() const {
