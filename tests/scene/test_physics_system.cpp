@@ -82,6 +82,39 @@ namespace Comet::Tests {
         }
     }
 
+    TEST(PhysicsSystemTest, RecreatedColliderExitsOldContactBeforeEnteringNewKind) {
+        Scene scene;
+        PhysicsService physics;
+        auto floor = add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0});
+        add_body(scene, "Resting", BodyMotion::Dynamic, {0, 0.3f, 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        auto probe = std::make_unique<ContactProbe>();
+        auto* observed = probe.get();
+        ASSERT_TRUE(runtime.add_system(std::move(probe)));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.01));
+        ASSERT_EQ(observed->contacts.size(), 1u);
+        using Kind = Scene::ContactEvent::Kind;
+        ASSERT_EQ(observed->contacts.front().kind, Kind::CollisionEnter);
+
+        for(const bool trigger : {true, false, true, false}) {
+            floor.get_component<ColliderComponent>().is_trigger = trigger;
+            ASSERT_TRUE(runtime.advance(0.01));
+            ASSERT_EQ(observed->contacts.size(), 2u);
+            EXPECT_EQ(
+                observed->contacts[0].kind, trigger ? Kind::CollisionExit : Kind::TriggerExit);
+            EXPECT_EQ(
+                observed->contacts[1].kind, trigger ? Kind::TriggerEnter : Kind::CollisionEnter);
+            EXPECT_EQ(physics.get_statistics().bodies, 2u);
+            ASSERT_TRUE(runtime.advance(0.01));
+            EXPECT_TRUE(observed->contacts.empty());
+        }
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST(PhysicsSystemTest, CollidesOnFixedStepsAndRespectsPauseStepAndStop) {
         Scene scene;
         PhysicsService physics;

@@ -151,7 +151,7 @@ ComponentDescriptor／PropertyDescriptor 已共享编辑、序列化与恢复；
 | `graphics/`、`render/`（内部组合与配置边界首轮已完成） | 图形后端与 Render | Vulkan／VMA 归后端；Render 消费场景提取与资源服务，World 不反向依赖 Render |
 | Scripting／ScriptSystem（定义与执行边界首轮已完成） | 资产定义与 Scripting 执行 | Script 定义、源码快照与参数校验归资产；Lua 实例／执行归 Scripting；组件保留配置与身份，Editor 从 Runtime 查询活动定义，UI VM 独立；产品化脚本装载按资产主线推进 |
 | Audio／AudioSystem（首轮已完成） | Audio | AudioService 拥有队列、设备与 Voice；System 同步组件，Runtime 通过接口管理启停，miniaudio 只进入后端实现 |
-| Physics／PhysicsSystem（首轮已完成） | Physics | PhysicsService 拥有冲量、世界／刚体及接触跟踪；System 适配组件与模拟输出，Jolt 仅进入后端实现；预算、临时分配和并行调度待测量优化 |
+| Physics／PhysicsSystem（首轮已完成） | Physics | PhysicsService 拥有冲量、世界／刚体及接触跟踪；System 适配组件与模拟输出，Jolt 仅进入后端实现；刚体索引与接触缓冲已复用，增量同步、Jolt 临时分配及并行待测量优化 |
 | `engine/src/ui/`（内部组合首轮已完成） | Engine UI | 通过必要内部目标汇入 engine，已消除完整 engine 反向链接；Editor 游戏视口已接通预览／Play，共用页面和控制器，项目业务仍归 demo／项目 |
 | `config/`、`diagnostics/` 与纯 CPU 工具 | 按职责归属 | Config／Profile 聚合归组合层，日志与 CPU 计时归 Foundation，GPU 诊断归 Render；不按小目录机械拆库 |
 
@@ -810,7 +810,8 @@ validation、同步测试和生命周期回归通过。同设备、场景与构�
 - **变换**：动画、脚本、物理明确写入时点和所有权；用直接 TRS 组合校验缓存。
   深层级／高频祖先写入的脏根合并、并行同步和渲染插值按实际规模测量，避免仅为命名增加 TransformSystem。
 - **物理**：现有单线程、1024 body 和无父子刚体限制见架构文档。
-  增量结构／配置同步与临时内存复用按规模测量；Jolt 并行独立接入有界线程，不要求先建全引擎任务图；
+  后端已复用刚体槽位索引、接触表及回调缓冲；增量结构／配置同步与 Jolt 临时内存复用按规模测量，避免漏掉直接组件写入。
+  Jolt 并行独立接入有界线程，不要求先建全引擎任务图；
   约束、连续碰撞、调试绘制、持续力、力矩、密度模式和速度查询分别扩展。
   角色控制器验收墙面阻挡、滑动、台阶及落地判定，与 Transform 同步分工明确；App／Play 仍需整体验收。
 - **音频**：流式音乐、空间音效、独立 UI 通道与混音编辑器按样例验收，再扩展优先级、可配置预算和通道抢占。

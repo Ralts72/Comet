@@ -133,9 +133,10 @@ namespace Comet {
                 std::lock_guard lock(mutex);
                 active.emplace_back(first.GetID(), second.GetID());
             }
-            std::vector<Pair> take() {
+            void drain(std::vector<Pair>& output) {
                 std::lock_guard lock(mutex);
-                return std::exchange(active, {});
+                active.swap(output);
+                active.clear();
             }
             std::mutex mutex;
             std::vector<Pair> active;
@@ -164,6 +165,7 @@ namespace Comet {
             EntityUuid first_uuid;
             EntityUuid second_uuid;
             bool trigger;
+            bool reported = false;
         };
 
         Impl() : pairs(2), broad_phase(2, 2), jobs(1024) {
@@ -174,6 +176,7 @@ namespace Comet {
             object_filter =
                 std::make_unique<JPH::ObjectVsBroadPhaseLayerFilterTable>(broad_phase, 2, pairs, 2);
             world.Init(1024, 0, 1024, 1024, broad_phase, *object_filter, pairs);
+            body_lookup.resize(world.GetMaxBodies());
             world.SetContactListener(&collector);
         }
 
@@ -217,9 +220,10 @@ namespace Comet {
             const auto id = world.GetBodyInterface().CreateAndAddBody(settings, activation);
             if(id.IsInvalid())
                 return Result<void, Error>::failure({"Physics body capacity exceeded"});
-            bodies.emplace(definition.uuid,
+            const auto inserted = bodies.emplace(definition.uuid,
                 Body{definition.entity, definition.uuid, id, motion, rigid.mass, collider,
                     transform, world.GetBodyInterface().GetRotation(id)});
+            body_lookup[id.GetIndex()] = &inserted.first->second;
             if(motion == BodyMotion::Static)
                 wake_nearby_bodies(id);
             return Result<void, Error>::success();
@@ -242,9 +246,20 @@ namespace Comet {
         void remove_body(std::map<EntityUuid, Body>::iterator it) {
             auto& interface = world.GetBodyInterface();
             wake_nearby_bodies(it->second.id);
+            body_lookup[it->second.id.GetIndex()] = nullptr;
             interface.RemoveBody(it->second.id);
             interface.DestroyBody(it->second.id);
             bodies.erase(it);
+        }
+
+        const Body* find_body(const JPH::BodyID id) const {
+            if(id.GetIndex() >= body_lookup.size())
+                return nullptr;
+            const auto* body = body_lookup[id.GetIndex()];
+            // Jolt 复用槽位时序号会改变，不能把旧接触绑定到新刚体。
+            if(!body || body->id != id)
+                return nullptr;
+            return body;
         }
 
         Result<void, Error> update_mass(Body& body, const float mass) {
@@ -337,40 +352,10 @@ namespace Comet {
 
         void publish_contacts() {
             changes.clear();
-            auto active = collector.take();
-            std::sort(active.begin(), active.end());
-            active.erase(std::unique(active.begin(), active.end()), active.end());
-            std::map<JPH::BodyID, const Body*> by_id;
-            for(const auto& [uuid, body] : bodies)
-                by_id.emplace(body.id, &body);
-            std::map<Pair, Contact> current;
-            for(const auto& pair : active) {
-                const auto first = by_id.find(pair.first);
-                const auto second = by_id.find(pair.second);
-                if(first == by_id.end() || second == by_id.end())
-                    continue;
-                const Body* first_body = first->second;
-                const Body* second_body = second->second;
-                if(first_body->uuid > second_body->uuid)
-                    std::swap(first_body, second_body);
-                current.emplace(
-                    pair, Contact{first_body->entity, second_body->entity, first_body->uuid,
-                              second_body->uuid,
-                              first_body->collider.is_trigger || second_body->collider.is_trigger});
-            }
-            const auto& interface = world.GetBodyInterface();
-            for(const auto& [pair, contact] : previous_contacts) {
-                if(current.contains(pair))
-                    continue;
-                const auto first = by_id.find(pair.first);
-                const auto second = by_id.find(pair.second);
-                if(first == by_id.end() || second == by_id.end())
-                    continue;
-                // Jolt 不报告休眠接触；只有两端整步未活动才能沿用上一逻辑状态。
-                if(!first->second->active_before_step && !second->second->active_before_step
-                    && !interface.IsActive(pair.first) && !interface.IsActive(pair.second))
-                    current.emplace(pair, contact);
-            }
+            collector.drain(frame_contacts);
+            std::sort(frame_contacts.begin(), frame_contacts.end());
+            frame_contacts.erase(
+                std::unique(frame_contacts.begin(), frame_contacts.end()), frame_contacts.end());
             const auto kind_for = [](const Contact& contact, const bool entering) {
                 if(contact.trigger) {
                     if(entering)
@@ -381,15 +366,40 @@ namespace Comet {
                     return ContactChange::Kind::CollisionEnter;
                 return ContactChange::Kind::CollisionExit;
             };
-            for(const auto& [pair, contact] : previous_contacts) {
-                if(!current.contains(pair))
-                    changes.push_back({kind_for(contact, false), contact.first, contact.second,
-                        contact.first_uuid, contact.second_uuid});
-            }
-            for(const auto& [pair, contact] : current) {
-                if(!previous_contacts.contains(pair))
+            for(const auto& pair : frame_contacts) {
+                const Body* first = find_body(pair.first);
+                const Body* second = find_body(pair.second);
+                if(!first || !second)
+                    continue;
+                if(first->uuid > second->uuid)
+                    std::swap(first, second);
+                const auto [found, added] = tracked_contacts.try_emplace(
+                    pair, Contact{first->entity, second->entity, first->uuid, second->uuid,
+                              first->collider.is_trigger || second->collider.is_trigger});
+                auto& contact = found->second;
+                contact.reported = true;
+                if(added)
                     changes.push_back({kind_for(contact, true), contact.first, contact.second,
                         contact.first_uuid, contact.second_uuid});
+            }
+            const auto& interface = world.GetBodyInterface();
+            for(auto it = tracked_contacts.begin(); it != tracked_contacts.end();) {
+                auto& [pair, contact] = *it;
+                if(std::exchange(contact.reported, false)) {
+                    ++it;
+                    continue;
+                }
+                const auto* first = find_body(pair.first);
+                const auto* second = find_body(pair.second);
+                // Jolt 不报告休眠接触；只有两端整步未活动才能沿用上一逻辑状态。
+                if(first && second && !first->active_before_step && !second->active_before_step
+                    && !interface.IsActive(pair.first) && !interface.IsActive(pair.second)) {
+                    ++it;
+                    continue;
+                }
+                changes.push_back({kind_for(contact, false), contact.first, contact.second,
+                    contact.first_uuid, contact.second_uuid});
+                it = tracked_contacts.erase(it);
             }
             std::sort(changes.begin(), changes.end(), [](const auto& a, const auto& b) {
                 const auto order = [](const ContactChange::Kind kind) {
@@ -399,7 +409,6 @@ namespace Comet {
                 return std::tuple{a.first_uuid, a.second_uuid, order(a.kind), a.kind}
                        < std::tuple{b.first_uuid, b.second_uuid, order(b.kind), b.kind};
             });
-            previous_contacts = std::move(current);
         }
 
         std::vector<Pose> poses;
@@ -413,7 +422,9 @@ namespace Comet {
         JPH::TempAllocatorMalloc allocator;
         JPH::JobSystemSingleThreaded jobs;
         std::map<EntityUuid, Body> bodies;
-        std::map<Pair, Contact> previous_contacts;
+        std::vector<const Body*> body_lookup;
+        std::vector<Pair> frame_contacts;
+        std::map<Pair, Contact> tracked_contacts;
     };
 
     Result<void, Error> PhysicsService::step(const float delta_time) {
