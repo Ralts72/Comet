@@ -497,6 +497,45 @@ namespace CometEditor::Tests {
         EXPECT_EQ(move_count, 0);
     }
 
+    TEST_F(ProjectPanelTest, CaseOnlyRenameClosesDialogForAssetAndModule) {
+        auto report = AssetSourceOperations::create_script(
+            database, "folder/shared.module.lua", AssetSourceOperations::ScriptKind::Module);
+        ASSERT_TRUE(report.succeeded());
+        project->update_scan_report(std::move(report));
+        const auto selected = database.find("a.png")->handle;
+        selection.select_asset(selected);
+        search("shared.module.lua");
+        open_rename(2);
+        rename("Shared");
+        frame();
+        EXPECT_EQ(module_move_count, 1);
+        EXPECT_FALSE(ImGui::FindWindowByName("Rename Asset")->Active);
+        EXPECT_EQ(selection.get_selected_asset(), selected);
+        const auto resolved =
+            AssetSourceOperations::resolve_source_file(database, "folder/Shared.module.lua");
+        ASSERT_TRUE(resolved);
+        EXPECT_EQ(resolved.value().filename(), "Shared.module.lua");
+
+        search("a.png");
+        open_rename(1);
+        rename("A");
+        frame();
+        EXPECT_EQ(move_count, 1);
+        EXPECT_FALSE(ImGui::FindWindowByName("Rename Asset")->Active);
+        EXPECT_EQ(database.find(selected)->path, "A.png");
+        EXPECT_EQ(selection.get_selected_asset(), selected);
+        bool found_source = false;
+        bool found_metadata = false;
+        for(const auto& entry : std::filesystem::directory_iterator(paths.assets())) {
+            EXPECT_NE(entry.path().filename(), "a.png");
+            EXPECT_NE(entry.path().filename(), "a.png.meta");
+            found_source = found_source || entry.path().filename() == "A.png";
+            found_metadata = found_metadata || entry.path().filename() == "A.png.meta";
+        }
+        EXPECT_TRUE(found_source);
+        EXPECT_TRUE(found_metadata);
+    }
+
     TEST_F(ProjectPanelTest, ModuleRenameSameNameAndCancelLeaveAssetRenameIndependent) {
         auto report = AssetSourceOperations::create_script(
             database, "folder/shared.module.lua", AssetSourceOperations::ScriptKind::Module);

@@ -709,7 +709,7 @@ return script
 
 `.module.lua` 是源码依赖，不生成 `.meta`，不能挂到实体的 Script 槽位。
 Project 右键 New Lua Module 可创建空模块，显示可复制的 `require` 引用；New Script 仍创建组件脚本。
-模块在 Project 中显示为源码文件，点击或拖动不改变当前资产选择；右键 Rename 可在同目录内改名，保留 `.module.lua` 后缀。
+模块在 Project 中显示为源码文件，点击或拖动不改变当前资产选择；右键 Rename 可在同目录内改名，支持仅修改名称大小写，保留 `.module.lua` 后缀。
 可将模块拖到现有项目目录或 assets 根节点，移动与改名共用单源码事务，不生成 `.meta` 或场景撤销记录。
 例如移到 `scripts/lib/shared.module.lua` 后，作者需要将引用改为 `require("scripts.lib.shared")`；
 拖动时提示引用不会自动更新，成功后 Log 记录旧／新 require。目标冲突或目录名不能组成模块名时保留原文件并报错。
@@ -782,6 +782,7 @@ Finder 导入只支持独立组件脚本，暂不处理 Lua 多文件依赖包�
   资产变化在后台复核，主线程发布；Refresh 仍同步重扫。macOS 使用目录通知，其他平台暂用 500 ms 轮询；
   监视及过期候选规则见[Owner 结构](docs/architecture/overview.md#owner-结构)。
   拖动资产到目录可移动，右键 Rename 改名；右键 Delete 或选中资产后按 Cmd/Ctrl+Backspace，均经确认后把资产及 `.meta` 成对送入系统回收站；
+  同目录改名支持仅修改名称大小写，资产与 `.meta` 保留身份；扫描失败恢复原文件名，不覆盖已有目标文件。
   在编辑器内移动场景会同步保存路径、项目启动场景和 Session；配置保存失败会补偿回滚，不改变场景内容或 Undo。
   当前打开的场景与启动场景不能直接删除，需先切换；外部 Finder 移动不自动改写项目配置。
   已被其他索引资产引用的文件不能删除，场景引用不会自动清空，资产删除不能通过编辑器 Undo 撤销。

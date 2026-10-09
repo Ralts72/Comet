@@ -161,6 +161,92 @@ namespace CometEditor::AssetSourceOperations {
             return Result<void>::success();
         }
 
+        bool is_case_only_rename(
+            const std::filesystem::path& source, const std::filesystem::path& target) {
+            if(source == target || source.parent_path() != target.parent_path())
+                return false;
+            const auto original = source.filename().string();
+            const auto renamed = target.filename().string();
+            return std::ranges::equal(
+                original, renamed, [](unsigned char left, unsigned char right) {
+                    return std::tolower(left) == std::tolower(right);
+                });
+        }
+
+        Result<void> validate_rename_destination(
+            const std::filesystem::path& source, const std::filesystem::path& target) {
+            if(!is_case_only_rename(source, target))
+                return validate_available(target);
+
+            std::error_code error;
+            const auto source_status = std::filesystem::symlink_status(source, error);
+            if(error || !std::filesystem::is_regular_file(source_status))
+                return Result<void>::failure(
+                    "Rename source must be a regular file: " + source.string());
+            const auto resolved = std::filesystem::weakly_canonical(source, error);
+            if(error || resolved != source.lexically_normal())
+                return Result<void>::failure(
+                    "Rename paths cannot use symlink aliases: " + source.string());
+
+            // equivalent() alone also accepts two separate hard-link directory entries.
+            bool found_source = false;
+            auto entry = std::filesystem::directory_iterator(source.parent_path(), error);
+            const std::filesystem::directory_iterator end;
+            while(!error && entry != end) {
+                const auto name = entry->path().filename();
+                if(name == target.filename())
+                    return Result<void>::failure(
+                        "Destination already exists (not overwritten): " + target.string());
+                found_source = found_source || name == source.filename();
+                entry.increment(error);
+            }
+            if(error)
+                return Result<void>::failure("Cannot inspect rename directory: " + error.message());
+            if(!found_source)
+                return Result<void>::failure(
+                    "Rename source spelling does not match its directory entry");
+
+            const auto target_status = std::filesystem::symlink_status(target, error);
+            if(error == std::errc::no_such_file_or_directory
+                || (!error && !std::filesystem::exists(target_status)))
+                return Result<void>::success();
+            if(error || !std::filesystem::is_regular_file(target_status)
+                || !std::filesystem::equivalent(source, target, error))
+                return Result<void>::failure(
+                    "Destination already exists (not overwritten): " + target.string());
+            return Result<void>::success();
+        }
+
+        Result<void> rename_source_file(
+            const std::filesystem::path& source, const std::filesystem::path& target) {
+            std::error_code error;
+            if(!is_case_only_rename(source, target)) {
+                std::filesystem::rename(source, target, error);
+                if(error)
+                    return Result<void>::failure(error.message());
+                return Result<void>::success();
+            }
+
+            const auto temporary =
+                source.parent_path()
+                / (".comet-tmp-rename-" + std::to_string(AssetHandle::generate().value()));
+            if(auto valid = validate_available(temporary); !valid)
+                return valid;
+            std::filesystem::rename(source, temporary, error);
+            if(error)
+                return Result<void>::failure("Cannot stage rename: " + error.message());
+            std::filesystem::rename(temporary, target, error);
+            if(!error)
+                return Result<void>::success();
+            std::string message = "Cannot publish rename: " + error.message();
+            std::error_code restore_error;
+            std::filesystem::rename(temporary, source, restore_error);
+            if(restore_error)
+                message += "; rollback failed, source retained at '" + temporary.string()
+                           + "': " + restore_error.message();
+            return Result<void>::failure(std::move(message));
+        }
+
         void restore_moved_module(const std::filesystem::path& target,
             const std::filesystem::path& source, std::error_code& error) {
             const auto status = std::filesystem::symlink_status(source, error);
@@ -852,13 +938,16 @@ return script
             return operation_error(source, "Cannot resolve assets directory: " + error.message());
         const auto original = root / source;
         const auto target = root / destination;
+        const bool case_only = is_case_only_rename(original, target);
         for(const auto& path : {original, target}) {
             if(auto valid = validate_inside(root, path); !valid)
                 return operation_error(path, valid.error());
-            const auto resolved = std::filesystem::weakly_canonical(path, error);
+            // Canonicalizing the target file can return the source spelling on an insensitive volume.
+            const auto checked = path == target && case_only ? path.parent_path() : path;
+            const auto resolved = std::filesystem::weakly_canonical(checked, error);
             if(error)
                 return operation_error(path, "Cannot resolve Lua module path: " + error.message());
-            if(resolved != path.lexically_normal())
+            if(resolved != checked.lexically_normal())
                 return operation_error(path, "Lua module paths cannot use symlink aliases");
         }
         const auto status = std::filesystem::symlink_status(original, error);
@@ -868,20 +957,37 @@ return script
         if(error || !std::filesystem::is_directory(parent_status))
             return operation_error(
                 destination, "Lua module destination parent must be an existing directory");
-        for(const auto& path : {metadata_path(original), target, metadata_path(target)})
+        for(const auto& path : {metadata_path(original), metadata_path(target)})
             if(auto valid = validate_available(path); !valid)
                 return operation_error(path, valid.error());
+        if(auto valid = validate_rename_destination(original, target); !valid)
+            return operation_error(destination, valid.error());
 
         AssetDatabase candidate = database;
-        std::filesystem::create_hard_link(original, target, error);
-        if(error)
-            return operation_error(
-                destination, "Cannot publish moved Lua module: " + error.message());
-        std::error_code rollback_error;
-        const auto rollback = [&] { restore_moved_module(target, original, rollback_error); };
+        if(case_only) {
+            if(auto moved = rename_source_file(original, target); !moved)
+                return operation_error(destination, "Cannot rename Lua module: " + moved.error());
+        } else {
+            std::filesystem::create_hard_link(original, target, error);
+            if(error)
+                return operation_error(
+                    destination, "Cannot publish moved Lua module: " + error.message());
+        }
+        std::string rollback_error;
+        const auto rollback = [&] {
+            if(case_only) {
+                if(auto restored = rename_source_file(target, original); !restored)
+                    rollback_error = restored.error();
+            } else {
+                std::error_code restore_error;
+                restore_moved_module(target, original, restore_error);
+                if(restore_error)
+                    rollback_error = restore_error.message();
+            }
+        };
         ScopeExit rollback_on_exit(rollback);
         AssetScanReport report;
-        if(!std::filesystem::remove(original, error)) {
+        if(!case_only && !std::filesystem::remove(original, error)) {
             std::string message = "Cannot remove original Lua module";
             if(error)
                 message += ": " + error.message();
@@ -906,10 +1012,10 @@ return script
         report.added_assets.clear();
         report.removed_assets.clear();
         report.modified_assets.clear();
-        if(rollback_error)
+        if(!rollback_error.empty())
             report.issues.push_back(
                 {destination, "Lua module move failed and rollback was incomplete; files retained: "
-                                  + rollback_error.message()});
+                                  + rollback_error});
         else
             report.issues.push_back({destination,
                 "Lua module move was rolled back because the database snapshot could not be committed"});
@@ -1203,22 +1309,10 @@ return script
             return operation_error(source_relative, std::move(message));
         }
 
-        const bool target_exists = std::filesystem::exists(target, error);
-        if(error || target_exists) {
-            std::string message = "asset destination already exists";
-            if(error) {
-                message = "failed to inspect asset destination: " + error.message();
-            }
-            return operation_error(destination_relative, std::move(message));
-        }
-        const bool target_metadata_exists = std::filesystem::exists(target_metadata, error);
-        if(error || target_metadata_exists) {
-            std::string message = "destination metadata already exists";
-            if(error) {
-                message = "failed to inspect destination metadata: " + error.message();
-            }
-            return operation_error(metadata_path(destination_relative), std::move(message));
-        }
+        if(auto valid = validate_rename_destination(source, target); !valid)
+            return operation_error(destination_relative, valid.error());
+        if(auto valid = validate_rename_destination(source_metadata, target_metadata); !valid)
+            return operation_error(metadata_path(destination_relative), valid.error());
 
         const std::filesystem::path canonical_root =
             std::filesystem::weakly_canonical(asset_root, error);
@@ -1257,15 +1351,17 @@ return script
         }
         bool source_moved = false;
         bool metadata_moved = false;
-        std::error_code source_rollback_error;
-        std::error_code metadata_rollback_error;
+        std::string source_rollback_error;
+        std::string metadata_rollback_error;
         const auto rollback = [&] {
             if(metadata_moved) {
-                std::filesystem::rename(target_metadata, source_metadata, metadata_rollback_error);
+                if(auto restored = rename_source_file(target_metadata, source_metadata); !restored)
+                    metadata_rollback_error = restored.error();
                 metadata_moved = false;
             }
             if(source_moved) {
-                std::filesystem::rename(target, source, source_rollback_error);
+                if(auto restored = rename_source_file(target, source); !restored)
+                    source_rollback_error = restored.error();
                 source_moved = false;
             }
             remove_created_directories(created_directories);
@@ -1277,16 +1373,14 @@ return script
                 return operation_error(destination_relative,
                     "failed to create destination directory: " + error.message());
 
-            std::filesystem::rename(source, target, error);
-            if(error)
+            if(auto moved = rename_source_file(source, target); !moved)
                 return operation_error(
-                    destination_relative, "failed to move asset source: " + error.message());
+                    destination_relative, "failed to move asset source: " + moved.error());
             source_moved = true;
 
-            std::filesystem::rename(source_metadata, target_metadata, error);
-            if(error)
+            if(auto moved = rename_source_file(source_metadata, target_metadata); !moved)
                 return operation_error(
-                    destination_relative, "failed to move asset metadata: " + error.message());
+                    destination_relative, "failed to move asset metadata: " + moved.error());
             metadata_moved = true;
 
             auto report = candidate_database.scan();
@@ -1318,12 +1412,12 @@ return script
         report.added_assets.clear();
         report.removed_assets.clear();
         report.modified_assets.clear();
-        if(metadata_rollback_error || source_rollback_error) {
+        if(!metadata_rollback_error.empty() || !source_rollback_error.empty()) {
             std::string message = "asset move failed and file rollback was incomplete";
-            if(metadata_rollback_error)
-                message += "; metadata: " + metadata_rollback_error.message();
-            if(source_rollback_error)
-                message += "; source: " + source_rollback_error.message();
+            if(!metadata_rollback_error.empty())
+                message += "; metadata: " + metadata_rollback_error;
+            if(!source_rollback_error.empty())
+                message += "; source: " + source_rollback_error;
             report.issues.push_back({.path = destination_relative, .message = std::move(message)});
         } else if(files_changed) {
             report.issues.push_back({.path = destination_relative,

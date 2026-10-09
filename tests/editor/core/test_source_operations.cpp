@@ -3,9 +3,173 @@
 #include "support/asset_manager_fixture.h"
 
 #include <array>
+#include <set>
 
 namespace Comet::Tests {
     namespace SourceOperations = CometEditor::AssetSourceOperations;
+
+    class AssetSourceCaseRenameTest: public ::testing::TestWithParam<bool> {
+    protected:
+        TemporaryProject project;
+        AssetDatabase database{project.paths()};
+        std::filesystem::path source;
+        std::filesystem::path destination;
+        AssetHandle handle;
+        std::string contents;
+        std::string metadata;
+
+        void SetUp() override {
+            const auto suffix = GetParam() ? ".module.lua" : ".lua";
+            source = std::string("actor") + suffix;
+            destination = std::string("Actor") + suffix;
+            const auto kind = GetParam() ? SourceOperations::ScriptKind::Module
+                                         : SourceOperations::ScriptKind::Component;
+            ASSERT_TRUE(SourceOperations::create_script(database, source, kind).succeeded());
+            contents = read_text_file(project.paths().assets() / source).value();
+            if(!GetParam()) {
+                handle = database.find(source)->handle;
+                metadata = read_text_file(metadata_path(project.paths().assets() / source)).value();
+            }
+        }
+
+        AssetScanReport move(const std::filesystem::path& from, const std::filesystem::path& to) {
+            if(GetParam())
+                return SourceOperations::move_module(database, from, to);
+            return SourceOperations::move(database, handle, to);
+        }
+
+        std::set<std::string> names() const {
+            std::set<std::string> result;
+            for(const auto& entry : std::filesystem::directory_iterator(project.paths().assets()))
+                result.insert(entry.path().filename().string());
+            return result;
+        }
+
+        void expect_spelling(const std::filesystem::path& path) const {
+            std::set<std::string> expected{path.string()};
+            if(!GetParam())
+                expected.insert(metadata_path(path).string());
+            EXPECT_EQ(names(), expected);
+            EXPECT_EQ(read_text_file(project.paths().assets() / path).value(), contents);
+            if(handle) {
+                ASSERT_NE(database.find(handle), nullptr);
+                EXPECT_EQ(database.find(handle)->path, path);
+                EXPECT_EQ(read_text_file(metadata_path(project.paths().assets() / path)).value(),
+                    metadata);
+            } else {
+                EXPECT_EQ(database.size(), 0u);
+                EXPECT_FALSE(
+                    std::filesystem::exists(metadata_path(project.paths().assets() / path)));
+            }
+        }
+    };
+
+    TEST_P(AssetSourceCaseRenameTest, PreservesIdentityAndOpensSourceWithNewSpelling) {
+        for(const auto& [from, to] :
+            std::array{std::pair{source, destination}, std::pair{destination, source}}) {
+            const auto report = move(from, to);
+            ASSERT_TRUE(report.succeeded())
+                << (report.issues.empty() ? "" : report.issues.front().message);
+            ASSERT_TRUE(report.snapshot_updated);
+            EXPECT_EQ(report.generated_metadata, 0u);
+            EXPECT_TRUE(report.added_assets.empty());
+            EXPECT_TRUE(report.removed_assets.empty());
+            expect_spelling(to);
+            const auto resolved = SourceOperations::resolve_source_file(database, to);
+            ASSERT_TRUE(resolved) << resolved.error();
+            EXPECT_EQ(resolved.value().filename(), to);
+            AssetDatabase reopened(project.paths());
+            ASSERT_TRUE(reopened.scan().succeeded());
+            if(handle) {
+                ASSERT_NE(reopened.find(to), nullptr);
+                EXPECT_EQ(reopened.find(to)->handle, handle);
+                EXPECT_EQ(reopened.find(from), nullptr);
+            } else
+                EXPECT_EQ(reopened.size(), 0u);
+        }
+    }
+
+    TEST_P(AssetSourceCaseRenameTest, FailedScanRestoresOriginalSpellingAndSnapshot) {
+        const auto generation = database.generation();
+        const auto revision = database.get_revision(handle);
+        const auto broken = project.paths().assets() / "broken.mat";
+        ASSERT_TRUE(write_text_file_atomic(broken, "{}"));
+        ASSERT_TRUE(write_text_file_atomic(metadata_path(broken), "invalid metadata"));
+
+        const auto report = move(source, destination);
+
+        EXPECT_FALSE(report.succeeded());
+        EXPECT_FALSE(report.snapshot_updated);
+        EXPECT_TRUE(has_issue_containing(report, "rolled back"));
+        EXPECT_EQ(database.generation(), generation);
+        EXPECT_EQ(database.get_revision(handle), revision);
+        EXPECT_TRUE(report.added_assets.empty());
+        EXPECT_TRUE(report.removed_assets.empty());
+        EXPECT_TRUE(report.modified_assets.empty());
+        ASSERT_TRUE(std::filesystem::remove(broken));
+        ASSERT_TRUE(std::filesystem::remove(metadata_path(broken)));
+        expect_spelling(source);
+        const auto retried = move(source, destination);
+        ASSERT_TRUE(retried.succeeded())
+            << (retried.issues.empty() ? "" : retried.issues.front().message);
+        expect_spelling(destination);
+    }
+
+    TEST_P(AssetSourceCaseRenameTest, RejectsSeparateHardLinkAndCaseSensitiveNameConflicts) {
+        const auto root = project.paths().assets();
+        const auto other = std::string("other") + (GetParam() ? ".module.lua" : ".lua");
+        std::filesystem::create_hard_link(root / source, root / other);
+        const auto generation = database.generation();
+        EXPECT_FALSE(move(source, other).succeeded());
+        EXPECT_EQ(database.generation(), generation);
+        EXPECT_EQ(read_text_file(root / other).value(), contents);
+        ASSERT_TRUE(std::filesystem::remove(root / other));
+
+        // Sensitive filesystems can have distinct entries with case-only names.
+        if(!std::filesystem::exists(root / destination)) {
+            std::filesystem::create_hard_link(root / source, root / destination);
+            EXPECT_FALSE(move(source, destination).succeeded());
+            EXPECT_EQ(database.generation(), generation);
+            ASSERT_TRUE(std::filesystem::remove(root / destination));
+            ASSERT_TRUE(write_text_file_atomic(root / destination, "reserved contents"));
+            EXPECT_FALSE(move(source, destination).succeeded());
+            EXPECT_EQ(read_text_file(root / destination).value(), "reserved contents");
+            ASSERT_TRUE(std::filesystem::remove(root / destination));
+        }
+        expect_spelling(source);
+    }
+
+    TEST_P(AssetSourceCaseRenameTest, RejectsSourceSymlinkWithoutChangingFiles) {
+        const auto root = project.paths().assets();
+        const auto kept = project.paths().root() / "kept.lua";
+        ASSERT_TRUE(write_text_file_atomic(kept, contents));
+        ASSERT_TRUE(std::filesystem::remove(root / source));
+        std::filesystem::create_symlink(kept, root / source);
+        const auto generation = database.generation();
+        EXPECT_FALSE(move(source, destination).succeeded());
+        EXPECT_EQ(database.generation(), generation);
+        EXPECT_TRUE(std::filesystem::is_symlink(root / source));
+        EXPECT_EQ(read_text_file(kept).value(), contents);
+        EXPECT_FALSE(names().contains(destination.string()));
+    }
+
+    TEST(AssetSourceOperationsTest, CaseOnlyRenameRejectsMetadataSymlink) {
+        const TemporaryProject project;
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(SourceOperations::create_script(database, "actor.lua").succeeded());
+        const auto handle = database.find("actor.lua")->handle;
+        const auto root = project.paths().assets();
+        const auto meta = metadata_path(root / "actor.lua");
+        const auto kept = project.paths().root() / "kept.meta";
+        std::filesystem::rename(meta, kept);
+        std::filesystem::create_symlink(kept, meta);
+        EXPECT_FALSE(SourceOperations::move(database, handle, "Actor.lua").succeeded());
+        EXPECT_EQ(database.find(handle)->path, "actor.lua");
+        EXPECT_TRUE(std::filesystem::is_symlink(meta));
+        EXPECT_EQ(MetadataSerializer{}.load(kept).value().handle, handle);
+    }
+
+    INSTANTIATE_TEST_SUITE_P(ComponentOrModule, AssetSourceCaseRenameTest, ::testing::Bool());
 
     TEST(AssetSourceOperationsTest, ResolvesScriptAndModuleForEditingWithoutCompilingOrScanning) {
         const TemporaryProject project;
@@ -770,7 +934,7 @@ namespace Comet::Tests {
         const auto report = SourceOperations::move(database, handle, "occupied.mat");
 
         EXPECT_FALSE(report.snapshot_updated);
-        EXPECT_TRUE(has_issue_containing(report, "destination already exists"));
+        EXPECT_TRUE(has_issue_containing(report, "already exists"));
         EXPECT_TRUE(std::filesystem::is_regular_file(source));
         EXPECT_TRUE(std::filesystem::is_regular_file(metadata_path(source)));
         ASSERT_NE(database.find(handle), nullptr);

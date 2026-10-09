@@ -602,6 +602,8 @@ Project 的组件／模块请求沿 `EditorAssets → AssetSourceOperations` 共
 模块不发布 metadata，只发布源码并提交候选扫描；成功仍沿既有依赖更新路径恢复消费者，不直接操作 Lua VM。
 模块改名与跨目录拖放共用 move_module 请求／完成链路，使用路径请求而非 AssetHandle；Project 复用重命名弹窗，
 EditorAssets 复用文件监听确认及 accept_scan，SourceOperations 执行无覆盖文件发布与候选扫描／失败回滚。
+同目录纯大小写改名核对实际目录项，通过唯一同目录临时名切换拼写；资产源码与 `.meta` 仍成对提交，模块仍只有源码。
+候选扫描失败沿同一路径恢复原拼写；不将独立硬链接或符号链接视为大小写别名。
 拖放使用独立的源码路径 payload，ImGui 复制路径字节；接收时只接受当前项目内的合法模块路径。
 不自动改写 require；磁盘移动／改名成功不代表所有 Lua 引用已修好，后者继续由脚本关联组加载验证，失败保留 last-good。
 模块删除同样使用路径请求，与资产删除共用确认框和文件事务；模块只有源码，资产仍为源码／metadata 对。

@@ -168,6 +168,36 @@ namespace CometEditor::Tests {
         EXPECT_EQ(reopened.last_scene(), destination);
     }
 
+    TEST_F(ProjectAssetOperationsTest,
+        CaseOnlySceneRenameUpdatesPathsAndRollsBackProjectWriteFailure) {
+        const std::filesystem::path renamed = "scenes/Main.scene";
+        const auto report =
+            move_project_asset(*assets, *project, *document, *session, handle, renamed);
+        ASSERT_TRUE(report.succeeded());
+        EXPECT_EQ(document->get_asset_relative_path(), renamed);
+        EXPECT_EQ(project->startup_scene(), renamed);
+        EXPECT_EQ(session->last_scene(), renamed);
+        EXPECT_EQ(assets->database().find(handle)->path, renamed);
+        EXPECT_EQ(Comet::Project::load(root).value().startup_scene(), renamed);
+
+        const auto manifest = root / "project.json";
+        std::filesystem::rename(manifest, root / "saved.json");
+        ASSERT_TRUE(std::filesystem::create_directory(manifest));
+        const auto failed =
+            move_project_asset(*assets, *project, *document, *session, handle, initial);
+        EXPECT_FALSE(failed.succeeded());
+        EXPECT_EQ(document->get_asset_relative_path(), renamed);
+        EXPECT_EQ(project->startup_scene(), renamed);
+        EXPECT_EQ(session->last_scene(), renamed);
+        EXPECT_EQ(assets->database().find(handle)->path, renamed);
+        for(const auto& entry :
+            std::filesystem::directory_iterator(project->paths().assets() / "scenes")) {
+            EXPECT_TRUE(entry.path().filename() == "Main.scene"
+                        || entry.path().filename() == "Main.scene.meta")
+                << entry.path();
+        }
+    }
+
     TEST_F(ProjectAssetOperationsTest, InvalidDestinationDoesNotUpdatePathReferences) {
         const auto report =
             move_project_asset(*assets, *project, *document, *session, handle, "../outside.scene");
