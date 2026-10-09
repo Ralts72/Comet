@@ -6,46 +6,38 @@
 
 namespace Comet {
     namespace {
-        Result<void, Error> validate_body(Scene& scene, Entity entity) {
-            if(!entity.has_component<TransformComponent>()
-                || !entity.has_component<ColliderComponent>())
-                return Result<void, Error>::failure({"Rigid body requires Transform and Collider: "
-                                                     + entity.get_uuid().to_string()});
-            if(scene.get_parent(entity))
-                return Result<void, Error>::failure(
-                    {"Parented rigid body is unsupported: " + entity.get_uuid().to_string()});
-            const auto& transform = entity.get_component<TransformComponent>();
-            const auto& collider = entity.get_component<ColliderComponent>();
-            const auto& rigid = entity.get_component<RigidBodyComponent>();
+        Result<void, Error> validate_body(const EntityUuid uuid,
+            const TransformComponent& transform, const ColliderComponent& collider,
+            const RigidBodyComponent& rigid) {
             const auto motion = rigid.motion;
             if(motion != BodyMotion::Static && motion != BodyMotion::Dynamic
                 && motion != BodyMotion::Kinematic)
                 return Result<void, Error>::failure(
-                    {"Unknown rigid body motion: " + entity.get_uuid().to_string()});
+                    {"Unknown rigid body motion: " + uuid.to_string()});
             if(!std::isfinite(rigid.mass) || rigid.mass < RigidBodyComponent::MIN_MASS)
                 return Result<void, Error>::failure(
-                    {"Invalid rigid body mass: " + entity.get_uuid().to_string()});
+                    {"Invalid rigid body mass: " + uuid.to_string()});
             const auto valid_scale = Math::is_finite(transform.scale)
                                      && glm::all(glm::greaterThan(transform.scale, Math::Vec3(0)));
             if(!Math::is_finite(transform.translation) || !Math::is_finite(transform.rotation)
                 || !valid_scale)
                 return Result<void, Error>::failure(
-                    {"Invalid rigid body transform: " + entity.get_uuid().to_string()});
+                    {"Invalid rigid body transform: " + uuid.to_string()});
             if(collider.shape == ColliderShape::Box) {
                 const auto size = collider.half_extents * transform.scale;
                 if(!Math::is_finite(size) || !glm::all(glm::greaterThan(size, Math::Vec3(0))))
                     return Result<void, Error>::failure(
-                        {"Invalid box collider: " + entity.get_uuid().to_string()});
+                        {"Invalid box collider: " + uuid.to_string()});
             } else if(collider.shape == ColliderShape::Sphere) {
                 const auto radius = collider.radius * transform.scale.x;
                 if(!std::isfinite(radius) || radius <= 0 || transform.scale.x != transform.scale.y
                     || transform.scale.x != transform.scale.z)
                     return Result<void, Error>::failure(
                         {"Sphere collider requires a finite positive scaled radius and uniform scale: "
-                            + entity.get_uuid().to_string()});
+                            + uuid.to_string()});
             } else {
                 return Result<void, Error>::failure(
-                    {"Unknown collider shape: " + entity.get_uuid().to_string()});
+                    {"Unknown collider shape: " + uuid.to_string()});
             }
             return Result<void, Error>::success();
         }
@@ -73,21 +65,35 @@ namespace Comet {
             return true;
         });
         Result<void, Error> result = Result<void, Error>::success();
-        scene.each<const RigidBodyComponent>([&](Entity entity, const RigidBodyComponent& rigid) {
-            if(!result)
-                return;
-            result = validate_body(scene, entity);
-            if(!result)
-                return;
-            const auto uuid = entity.get_uuid();
-            const auto id = entity.get_id();
-            result =
-                m_physics.synchronize_body({uuid, id, entity.get_component<TransformComponent>(),
-                                               entity.get_component<ColliderComponent>(), rigid},
-                    delta_time);
-            if(result)
-                m_entries.try_emplace(id, Entry{entity, uuid});
-        });
+        scene.each<const RigidBodyComponent, const IdComponent, const UuidComponent,
+            const RelationshipComponent>(
+            [&](Entity entity, const RigidBodyComponent& rigid, const IdComponent& id_component,
+                const UuidComponent& uuid_component, const RelationshipComponent& relationship) {
+                if(!result)
+                    return;
+                const auto uuid = uuid_component.uuid;
+                if(!entity.has_component<TransformComponent>()
+                    || !entity.has_component<ColliderComponent>()) {
+                    result = Result<void, Error>::failure(
+                        {"Rigid body requires Transform and Collider: " + uuid.to_string()});
+                    return;
+                }
+                if(relationship.parent != INVALID_ENTITY_ID) {
+                    result = Result<void, Error>::failure(
+                        {"Parented rigid body is unsupported: " + uuid.to_string()});
+                    return;
+                }
+                const auto& transform = entity.get_component<TransformComponent>();
+                const auto& collider = entity.get_component<ColliderComponent>();
+                result = validate_body(uuid, transform, collider, rigid);
+                if(!result)
+                    return;
+                const auto id = id_component.id;
+                result =
+                    m_physics.synchronize_body({uuid, id, transform, collider, rigid}, delta_time);
+                if(result)
+                    m_entries.try_emplace(id, Entry{entity, uuid});
+            });
         return result;
     }
 

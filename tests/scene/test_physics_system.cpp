@@ -539,6 +539,47 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
+    TEST(PhysicsSystemTest, MissingRequiredComponentsFailStartAndFixedSynchronization) {
+        for(const bool missing_transform : {false, true}) {
+            Scene scene;
+            PhysicsService physics;
+            auto body = add_body(scene, "Body", BodyMotion::Dynamic, {0, 2, 0});
+            const auto remove_required = [&] {
+                if(missing_transform)
+                    body.remove_component<TransformComponent>();
+                else
+                    body.remove_component<ColliderComponent>();
+            };
+            SceneRuntime runtime;
+            ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+            ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+            remove_required();
+            const auto started = runtime.start(scene);
+            ASSERT_FALSE(started);
+            EXPECT_NE(
+                started.error().message.find("requires Transform and Collider"), std::string::npos);
+            EXPECT_NE(started.error().message.find(body.get_uuid().to_string()), std::string::npos);
+            EXPECT_EQ(physics.get_statistics().bodies, 0u);
+            ASSERT_TRUE(runtime.stop());
+
+            if(missing_transform)
+                body.add_component<TransformComponent>();
+            else
+                body.add_component<ColliderComponent>();
+            ASSERT_TRUE(runtime.start(scene));
+            ASSERT_TRUE(physics.request_impulse(body, {10, 0, 0}));
+            remove_required();
+            const auto advanced = runtime.advance(1.0 / 60.0);
+            ASSERT_FALSE(advanced);
+            EXPECT_NE(advanced.error().message.find("requires Transform and Collider"),
+                std::string::npos);
+            EXPECT_NE(
+                advanced.error().message.find(body.get_uuid().to_string()), std::string::npos);
+            EXPECT_EQ(physics.get_statistics().bodies, 0u);
+            ASSERT_TRUE(runtime.stop());
+        }
+    }
+
     TEST(PhysicsSystemTest, RejectsParentedBodiesAndCleansPartialStart) {
         Scene scene;
         PhysicsService physics;
