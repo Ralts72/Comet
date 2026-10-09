@@ -296,14 +296,15 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1u);
 
+        constexpr size_t capacity = 1024;
         std::vector<Entity> added;
-        for(int i = 0; i < 128; ++i)
+        for(size_t i = 0; i < capacity - 2; ++i)
             added.push_back(add_body(scene, "Added", BodyMotion::Dynamic, {4.0f + i * 3.0f, 5, 0}));
         ASSERT_TRUE(physics.request_impulse(added.front(), {10, 0, 0}));
         ASSERT_TRUE(physics.request_impulse(added.back(), {10, 0, 0}));
         ASSERT_TRUE(runtime.advance(0.01));
-        EXPECT_EQ(physics.get_statistics().bodies, 130u);
-        EXPECT_EQ(physics.get_statistics().pose_updates, 129u);
+        EXPECT_EQ(physics.get_statistics().bodies, capacity);
+        EXPECT_EQ(physics.get_statistics().pose_updates, capacity - 1);
         for(size_t i = 0; i < added.size(); ++i) {
             const auto& position = added[i].get_component<TransformComponent>().translation;
             EXPECT_LT(position.y, 5);
@@ -315,13 +316,27 @@ namespace Comet::Tests {
         EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1u);
         EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionExit), 0u);
 
-        for(size_t i = 0; i < added.size(); i += 2)
+        added.back().get_component<ColliderComponent>().half_extents *= 0.5f;
+        added.back().get_component<RigidBodyComponent>().mass = 2;
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(physics.get_statistics().bodies, capacity);
+
+        std::vector<Entity> replacements;
+        for(size_t i = 0; i < added.size(); i += 2) {
             scene.destroy_entity(added[i]);
+            replacements.push_back(
+                add_body(scene, "Replacement", BodyMotion::Dynamic, {-4.0f - i * 3.0f, 5, 0}));
+        }
+        const auto replacement_x =
+            replacements.back().get_component<TransformComponent>().translation.x;
+        ASSERT_TRUE(physics.request_impulse(replacements.back(), {10, 0, 0}));
         resting.edit_transform(
             [](TransformComponent& transform) { transform.translation = {-10, 3, 0}; });
         ASSERT_TRUE(runtime.advance(0.01));
-        EXPECT_EQ(physics.get_statistics().bodies, 66u);
-        EXPECT_EQ(physics.get_statistics().pose_updates, 65u);
+        EXPECT_EQ(physics.get_statistics().bodies, capacity);
+        EXPECT_EQ(physics.get_statistics().pose_updates, capacity - 1);
+        EXPECT_GT(
+            replacements.back().get_component<TransformComponent>().translation.x, replacement_x);
         EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1u);
         EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionExit), 1u);
         ASSERT_TRUE(runtime.stop());

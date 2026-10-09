@@ -50,16 +50,16 @@ namespace Comet {
                 {"PhysicsSystem requires its physics service in RuntimeServices"});
         if(auto ready = m_physics.prepare_world(); !ready)
             return ready;
+        m_entries.reserve(scene.component_count<RigidBodyComponent>());
         return synchronize(scene, 0);
     }
 
     Result<void, Error> PhysicsSystem::synchronize(Scene& scene, const float delta_time) {
-        std::erase_if(m_entries, [this](const auto& item) {
-            const Entry& entry = item.second;
+        std::erase_if(m_entries, [this](const Entry& entry) {
             // has_component 已检查句柄寿命；必需组件在下方统一校验。
             if(entry.entity.has_component<RigidBodyComponent>())
                 return false;
-            m_physics.remove_body(entry.uuid, item.first);
+            m_physics.remove_body(entry.uuid, entry.id);
             return true;
         });
         Result<void, Error> result = Result<void, Error>::success();
@@ -87,10 +87,14 @@ namespace Comet {
                 if(!result)
                     return;
                 const auto id = id_component.id;
-                result =
+                const auto synchronized =
                     m_physics.synchronize_body({uuid, id, transform, collider, rigid}, delta_time);
-                if(result)
-                    m_entries.try_emplace(id, Entry{entity, uuid});
+                if(!synchronized) {
+                    result = Result<void, Error>::failure(synchronized.error());
+                    return;
+                }
+                if(synchronized.value())
+                    m_entries.push_back({entity, id, uuid});
             });
         return result;
     }
@@ -106,7 +110,7 @@ namespace Comet {
             return stepped;
         for(const auto& pose : m_physics.poses()) {
             const auto entity = scene.find_entity(pose.entity);
-            if(!entity || !entity.try_set_transform(pose.transform))
+            if(!entity.try_set_transform(pose.transform))
                 return Result<void, Error>::failure({"Cannot write physics transform"});
         }
         for(const auto& contact : m_physics.contacts()) {

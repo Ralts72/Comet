@@ -30,11 +30,12 @@ namespace Comet {
         friend class PhysicsSystem;
         static constexpr std::size_t MAX_IMPULSES = 128;
         struct BodyDefinition {
+            // 仅在同步调用内借用组件，后端缓存独立值。
             EntityUuid uuid;
             EntityId entity;
-            TransformComponent transform;
-            ColliderComponent collider;
-            RigidBodyComponent rigid;
+            const TransformComponent& transform;
+            const ColliderComponent& collider;
+            const RigidBodyComponent& rigid;
         };
         struct Pose {
             EntityId entity;
@@ -56,7 +57,8 @@ namespace Comet {
         bool enqueue_impulse(EntityUuid uuid, EntityId entity, Math::Vec3 impulse) override;
         void reset() noexcept override;
         Result<void, Error> prepare_world();
-        Result<void, Error> synchronize_body(const BodyDefinition& definition, float delta_time);
+        // 首次登记 EntityId 返回 true；同实体的刚体重建不重复登记。
+        Result<bool, Error> synchronize_body(const BodyDefinition& definition, float delta_time);
         void remove_body(EntityUuid uuid, EntityId entity);
         Result<void, Error> step(float delta_time);
         [[nodiscard]] std::span<const Pose> poses() const;

@@ -284,46 +284,49 @@ namespace Comet {
             return Result<void, Error>::success();
         }
 
-        Result<void, Error> synchronize_body(
+        Result<bool, Error> synchronize_body(
             const BodyDefinition& definition, const float delta_time) {
             const auto& transform = definition.transform;
             const auto& collider = definition.collider;
             const auto& rigid = definition.rigid;
             auto it = bodies.find(definition.entity);
-            if(it != bodies.end()) {
-                if(it->second.uuid != definition.uuid || it->second.motion != rigid.motion
+            const bool added = it == bodies.end();
+            if(!added
+                && (it->second.uuid != definition.uuid || it->second.motion != rigid.motion
                     || !same_shape(it->second.collider, collider)
-                    || !glm::all(glm::equal(it->second.last_transform.scale, transform.scale))) {
-                    remove_body(it);
-                    return add_body(definition);
-                }
-                if(it->second.mass != rigid.mass)
-                    if(auto updated = update_mass(it->second, rigid.mass); !updated)
-                        return updated;
-                if(rigid.motion == BodyMotion::Kinematic && delta_time > 0) {
-                    // 目标未变也要更新速度，避免沿用上一固定步的运动。
-                    world.GetBodyInterface().MoveKinematic(it->second.id,
-                        to_position(transform.translation), to_rotation(transform.rotation),
-                        delta_time);
-                    it->second.last_transform = transform;
-                } else if(!same_pose(it->second.last_transform, transform)) {
-                    if(rigid.motion == BodyMotion::Static)
-                        wake_nearby_bodies(it->second.id);
-                    auto activation = JPH::EActivation::DontActivate;
-                    if(rigid.motion != BodyMotion::Static)
-                        activation = JPH::EActivation::Activate;
-                    world.GetBodyInterface().SetPositionAndRotationWhenChanged(it->second.id,
-                        to_position(transform.translation), to_rotation(transform.rotation),
-                        activation);
-                    it->second.last_physics_rotation =
-                        world.GetBodyInterface().GetRotation(it->second.id);
-                    if(rigid.motion == BodyMotion::Static)
-                        wake_nearby_bodies(it->second.id);
-                    it->second.last_transform = transform;
-                }
-                return Result<void, Error>::success();
+                    || !glm::all(glm::equal(it->second.last_transform.scale, transform.scale)))) {
+                remove_body(it);
+                it = bodies.end();
             }
-            return add_body(definition);
+            if(it == bodies.end()) {
+                if(auto created = add_body(definition); !created)
+                    return Result<bool, Error>::failure(created.error());
+                return Result<bool, Error>::success(added);
+            }
+            auto& body = it->second;
+            if(body.mass != rigid.mass)
+                if(auto updated = update_mass(body, rigid.mass); !updated)
+                    return Result<bool, Error>::failure(updated.error());
+            if(rigid.motion == BodyMotion::Kinematic && delta_time > 0) {
+                // 目标未变也要更新速度，避免沿用上一固定步的运动。
+                world.GetBodyInterface().MoveKinematic(body.id, to_position(transform.translation),
+                    to_rotation(transform.rotation), delta_time);
+                body.last_transform = transform;
+            } else if(!same_pose(body.last_transform, transform)) {
+                if(rigid.motion == BodyMotion::Static)
+                    wake_nearby_bodies(body.id);
+                auto activation = JPH::EActivation::DontActivate;
+                if(rigid.motion != BodyMotion::Static)
+                    activation = JPH::EActivation::Activate;
+                world.GetBodyInterface().SetPositionAndRotationWhenChanged(body.id,
+                    to_position(transform.translation), to_rotation(transform.rotation),
+                    activation);
+                body.last_physics_rotation = world.GetBodyInterface().GetRotation(body.id);
+                if(rigid.motion == BodyMotion::Static)
+                    wake_nearby_bodies(body.id);
+                body.last_transform = transform;
+            }
+            return Result<bool, Error>::success(false);
         }
 
         Result<void, Error> apply_impulses(const std::span<const Impulse> impulses) {
@@ -375,7 +378,8 @@ namespace Comet {
                     return;
                 JPH::RVec3 position;
                 JPH::Quat rotation;
-                world.GetBodyInterface().GetPositionAndRotation(body.id, position, rotation);
+                // Update 已返回，主线程独占世界，姿态回读无需逐刚体加锁。
+                world.GetBodyInterfaceNoLock().GetPositionAndRotation(body.id, position, rotation);
                 auto transform = body.last_transform;
                 transform.translation =
                     Math::Vec3(position.GetX(), position.GetY(), position.GetZ());
@@ -542,10 +546,10 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
-    Result<void, Error> PhysicsService::synchronize_body(
+    Result<bool, Error> PhysicsService::synchronize_body(
         const BodyDefinition& definition, const float delta_time) {
         if(!m_impl)
-            return Result<void, Error>::failure({"Physics world is not active"});
+            return Result<bool, Error>::failure({"Physics world is not active"});
         return m_impl->synchronize_body(definition, delta_time);
     }
 
