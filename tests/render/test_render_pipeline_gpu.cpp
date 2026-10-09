@@ -4,10 +4,128 @@
 #include "render/material/material_layout.h"
 #include "render/material/material_programs.h"
 #include "unlit_color_vert.h"
+#include "pbr_frag.h"
+#include "scene/material_parameters.h"
 
 #include <algorithm>
 
 namespace Comet::Tests {
+    TEST_F(RenderGraphGpuTest, InstancedPbrMatchesIndividualDrawsAcrossBufferGrowthAndMeshChanges) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        constexpr AssetHandle material_handle(9830), program_handle(9831);
+        auto program = std::make_shared<ShaderProgramArtifact>();
+        program->handle = program_handle;
+        program->vertex_words.assign(PBR_VERT.begin(), PBR_VERT.end());
+        program->fragment_words.assign(PBR_FRAG.begin(), PBR_FRAG.end());
+        ASSERT_TRUE(engine->get_asset_registry().register_asset(program_handle, program));
+        MaterialPrograms programs(engine->get_asset_registry());
+        auto batched = create_scene(programs, {65, 65});
+        auto individual = create_scene(programs, {65, 65});
+        ASSERT_TRUE(batched);
+        ASSERT_TRUE(individual);
+        auto material = std::make_shared<Material>("builtin", "pbr");
+        auto reference = std::make_shared<Material>("project", "pbr", program_handle);
+        auto mesh = lit_quad({1, 0, 1});
+        ASSERT_TRUE(mesh);
+        FrameScheduler batch_frames(device, 2), reference_frames(device, 2);
+        batch_frames.initialize_swapchain_images(2);
+        reference_frames.initialize_swapchain_images(2);
+        FrameWait batch_wait{device, batch_frames}, reference_wait{device, reference_frames};
+        std::vector<std::shared_ptr<Readback>> actual, expected;
+        const std::array counts{2u, 32u, 2u, 64u};
+        for(size_t frame = 0; frame < counts.size(); ++frame) {
+            SCOPED_TRACE(frame);
+            if(frame == 2) {
+                mesh = lit_quad({0, 1, 1});
+                ASSERT_TRUE(mesh);
+            }
+            if(frame == 3) {
+                MeshData nonindexed{
+                    .vertices = {{{-1, -1, 0.5f}, {}, {0, 1, 1}}, {{1, -1, 0.5f}, {}, {0, 1, 1}},
+                        {{1, 1, 0.5f}, {}, {0, 1, 1}}, {{1, 1, 0.5f}, {}, {0, 1, 1}},
+                        {{-1, 1, 0.5f}, {}, {0, 1, 1}}, {{-1, -1, 0.5f}, {}, {0, 1, 1}}}};
+                auto uploaded = engine->get_render_resources().try_create_mesh(nonindexed);
+                ASSERT_TRUE(uploaded);
+                mesh = std::move(uploaded).value();
+            }
+            const Math::Vec4 color{0.8f, 0.2f + 0.1f * frame, 0.1f, 1};
+            ASSERT_TRUE(material->set_vector_property("base_color", color));
+            ASSERT_TRUE(reference->set_vector_property("base_color", color));
+            RenderSubmission submission{
+                .view_project_matrix =
+                    ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                        Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
+                .lights = {{.direction = {-0.4f, 0, -1}, .intensity = 4, .casts_shadow = true}}};
+            for(unsigned group = 0; group < 3; ++group) {
+                std::shared_ptr<const MaterialOverrides> overrides;
+                if(group > 0)
+                    overrides = std::make_shared<const MaterialOverrides>(
+                        MaterialOverrides{.instance_id = group,
+                            .material = material_handle,
+                            .vector_properties = {{"base_color", {0.1f, 0.2f, 0.3f * group, 1}}}});
+                for(unsigned index = 0; index < counts[frame]; ++index) {
+                    auto model = Math::translate(
+                        Math::Mat4(1), {-0.65f + 0.65f * group, index % 2 ? 0.35f : -0.35f, 0});
+                    const float x_scale = frame == 2 && group == 1 ? -0.27f : 0.27f;
+                    model *= Math::scale(Math::Mat4(1), {x_scale, 0.28f, index % 2 ? 0.8f : 1.4f});
+                    submission.render_items.push_back(
+                        {.entity_id = group * counts[frame] + index + 1,
+                            .model_matrix = model,
+                            .mesh = mesh,
+                            .material = {material_handle, material, overrides}});
+                }
+            }
+            const auto draw = [&](SceneRenderer& scene, FrameScheduler& frames,
+                                  std::vector<std::shared_ptr<Readback>>& outputs) {
+                ASSERT_TRUE(scene.prepare_material_programs(submission));
+                frames.wait_for_current_slot();
+                frames.begin_frame(0);
+                frames.get_current_command_buffer().begin();
+                auto rendered = scene.render(frames, submission);
+                ASSERT_TRUE(rendered) << rendered.error();
+                const auto shadow = scene.get_shadow_statistics();
+                EXPECT_EQ(shadow.draw_calls, 1u);
+                EXPECT_EQ(shadow.drawn_instances, 3 * counts[frame]);
+                auto output = std::make_shared<Readback>(
+                    device, context.get_context().get_physical_device(), 65 * 65 * 4);
+                copy_output(frames,
+                    scene.get_offscreen_color_view(frames.get_current_frame_slot_index())
+                        ->get_image(),
+                    output, {65, 65});
+                submit(device, frames, rendered.value());
+                outputs.push_back(std::move(output));
+            };
+            ASSERT_NO_FATAL_FAILURE(draw(*batched.value(), batch_frames, actual));
+            const auto stats = batched.value()->get_material_statistics();
+            EXPECT_EQ(stats.draw_calls, 3u);
+            EXPECT_EQ(stats.drawn_instances, 3 * counts[frame]);
+            EXPECT_EQ(stats.instance_upload_bytes, 3 * counts[frame] * sizeof(Math::Mat4));
+            for(auto& item : submission.render_items)
+                item.material.resource = reference;
+            ASSERT_NO_FATAL_FAILURE(draw(*individual.value(), reference_frames, expected));
+            EXPECT_EQ(individual.value()->get_material_statistics().draw_calls, 3 * counts[frame]);
+            EXPECT_EQ(individual.value()->get_material_statistics().instance_upload_bytes, 0u);
+        }
+        batch_frames.wait_for_all_slots();
+        reference_frames.wait_for_all_slots();
+        for(size_t frame = 0; frame < actual.size(); ++frame) {
+            SCOPED_TRACE(frame);
+            const auto a = actual[frame]->read(), b = expected[frame]->read();
+            int difference = 0;
+            for(size_t byte = 0; byte < a.size(); ++byte)
+                difference = std::max(difference,
+                    std::abs(std::to_integer<int>(a[byte]) - std::to_integer<int>(b[byte])));
+            EXPECT_LE(difference, 2) << "frame=" << frame;
+            unsigned lit_pixels = 0;
+            for(size_t pixel = 0; pixel < a.size(); pixel += 4)
+                if(std::to_integer<int>(a[pixel]) > 10 || std::to_integer<int>(a[pixel + 1]) > 10
+                    || std::to_integer<int>(a[pixel + 2]) > 10)
+                    ++lit_pixels;
+            EXPECT_GT(lit_pixels, 500u);
+        }
+    }
+
     TEST_F(RenderGraphGpuTest, ProjectShaderProgramKeepsTwoMaterialsAfterRejectedVersion) {
         constexpr AssetHandle program_handle(9811);
         auto& renderer = engine->get_renderer();
@@ -838,6 +956,10 @@ namespace Comet::Tests {
             ASSERT_TRUE(drawn) << drawn.error();
             EXPECT_EQ(
                 scene.get_material_statistics().material_bindings_created, index == 0 ? 1 : 0);
+            EXPECT_EQ(scene.get_material_statistics().draw_calls, 1u);
+            EXPECT_EQ(scene.get_material_statistics().drawn_instances, 2u);
+            EXPECT_EQ(scene.get_shadow_statistics().draw_calls, index == 1 ? 1u : 0u);
+            EXPECT_EQ(scene.get_shadow_statistics().drawn_instances, index == 1 ? 2u : 0u);
             auto output = std::make_shared<Readback>(
                 device, context.get_context().get_physical_device(), 33 * 33 * 4);
             copy_output(frames,

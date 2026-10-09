@@ -21,7 +21,8 @@ namespace Comet {
 
         void bind(const CommandBuffer& command_buffer) const;
         // 当前 CommandBuffer 已绑定此 Mesh 的顶点／索引缓冲。
-        void draw(const CommandBuffer& command_buffer) const;
+        void draw(const CommandBuffer& command_buffer, uint32_t instance_count = 1,
+            uint32_t first_instance = 0) const;
         [[nodiscard]] const GpuCompletionPoint& get_ready_completion() const {
             return m_ready_completion;
         }

@@ -109,13 +109,31 @@ namespace Comet::Tests {
         RenderScene scene;
         scene.cameras.push_back({.primary = true});
         auto& renderer = engine->get_renderer();
-        for(unsigned frame = 0; frame < 4; ++frame) {
+        TemporaryDirectory sources;
+        for(unsigned frame = 0; frame < 5; ++frame) {
             SCOPED_TRACE(frame);
             if(frame == 2) {
                 ASSERT_TRUE(material->set_vector_property("color", {0, 0, 1, 1}));
                 red = std::make_shared<const MaterialOverrides>(MaterialOverrides{.instance_id = 11,
                     .material = material_handle,
                     .vector_properties = {{"color", {0.5f, 0, 0, 1}}}});
+            }
+            if(frame == 4) {
+                const auto path = sources.path() / "override.vert";
+                ASSERT_TRUE(write_text_file_atomic(path,
+                    "#version 450\n#extension GL_GOOGLE_include_directive : require\n"
+                    "#include \"frame.glsl\"\nlayout(location=0) in vec3 position;\n"
+                    "layout(push_constant) uniform ObjectData {mat4 model;} object;\n"
+                    "void main(){vec4 world=object.model*vec4(position,1);world.x+=0.01;"
+                    "gl_Position=frame.projection*frame.view*world;}\n"));
+                auto vertex = ShaderCompiler::compile({.source = path,
+                    .stage = ShaderStage::Vertex,
+                    .include_directories = {
+                        std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/common"}});
+                ASSERT_TRUE(vertex.succeeded()) << vertex.diagnostics;
+                auto shaders = default_material_shaders();
+                shaders.at("unlit_color").vertex = std::move(vertex.words);
+                ASSERT_TRUE(renderer.reload_material_shaders(shaders));
             }
             scene.render_items.clear();
             for(unsigned index = 0; index < 96; ++index) {
@@ -135,7 +153,15 @@ namespace Comet::Tests {
             const auto rendered = renderer.render_frame(scene);
             ASSERT_TRUE(rendered) << rendered.error();
             const auto stats = renderer.get_scene_renderer().get_material_statistics();
-            EXPECT_EQ(stats.draw_calls, 96u);
+            uint32_t expected_draws = 3;
+            if(frame == 3)
+                expected_draws = 6;
+            else if(frame == 4)
+                expected_draws = 96;
+            EXPECT_EQ(stats.draw_calls, expected_draws);
+            EXPECT_EQ(stats.drawn_instances, 96u);
+            EXPECT_EQ(stats.instanced_draw_calls, frame == 4 ? 0u : stats.draw_calls);
+            EXPECT_EQ(stats.instance_upload_bytes, frame == 4 ? 0u : 96u * sizeof(Math::Mat4));
             EXPECT_EQ(stats.material_preparations, 3u);
             EXPECT_EQ(stats.material_binds, 3u);
             EXPECT_EQ(stats.cached_material_versions, 3u);
@@ -997,12 +1023,25 @@ namespace Comet::Tests {
             target->begin_render_target(command, slot);
             command.set_viewport(Graphics::get_viewport(64, 32));
             command.set_scissor(Graphics::get_scissor(64, 32));
+            std::vector<ResolvedRenderItem> instances;
+            for(const auto& item : items) {
+                for(float y : {-0.38f, 0.38f}) {
+                    auto copy = item;
+                    copy.model_matrix *= Math::translate(Math::Mat4(1), {0, y, 0})
+                                         * Math::scale(Math::Mat4(1), {1, 0.5f, 1.3f});
+                    instances.push_back(std::move(copy));
+                }
+            }
             const auto waits = materials->render(frames,
                 {.view_project_matrix =
                         ViewProjectMatrix{.view = Math::Mat4(1), .projection = Math::Mat4(1)},
-                    .render_items = {items.begin(), items.end()}},
+                    .render_items = std::move(instances)},
                 lighting, shadow_input.value()->get_image_view());
             ASSERT_TRUE(waits) << waits.error();
+            EXPECT_EQ(materials->get_statistics().drawn_instances, 6u);
+            EXPECT_EQ(materials->get_statistics().draw_calls, iteration == 3 ? 2u : 3u);
+            EXPECT_EQ(materials->get_statistics().instanced_draw_calls,
+                materials->get_statistics().draw_calls);
             target->end_render_target(command);
             vk::MemoryBarrier barrier(
                 vk::AccessFlagBits::eColorAttachmentWrite, vk::AccessFlagBits::eTransferRead);
@@ -1031,11 +1070,11 @@ namespace Comet::Tests {
             if(iteration == 1) {
                 EXPECT_FALSE(retired.expired());
                 pipelines.collect_unused();
-                EXPECT_EQ(pipelines.get_cached_pipeline_count(), initial_pipelines + 1);
+                EXPECT_EQ(pipelines.get_cached_pipeline_count(), initial_pipelines + 2);
             }
             if(iteration == 2) {
                 pipelines.collect_unused();
-                EXPECT_EQ(pipelines.get_cached_pipeline_count(), initial_pipelines + 2);
+                EXPECT_EQ(pipelines.get_cached_pipeline_count(), initial_pipelines + 4);
             }
         }
         frames.wait_for_all_slots();
@@ -1048,8 +1087,10 @@ namespace Comet::Tests {
             const auto* pixels = all_pixels + iteration * 64 * 32 * 4;
             const auto check = [&](uint32_t x, Math::Vec3i expected) {
                 for(int channel = 0; channel < 3; ++channel) {
-                    EXPECT_NEAR(pixels[(16 * 64 + x) * 4 + channel], expected[channel], 2)
-                        << "iteration=" << iteration << " x=" << x << " channel=" << channel;
+                    for(unsigned y : {8u, 16u, 24u})
+                        EXPECT_NEAR(pixels[(y * 64 + x) * 4 + channel], expected[channel], 2)
+                            << "iteration=" << iteration << " x=" << x << " y=" << y
+                            << " channel=" << channel;
                 }
             };
             if(iteration == 0) {

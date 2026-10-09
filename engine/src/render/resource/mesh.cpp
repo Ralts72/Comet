@@ -90,11 +90,12 @@ namespace Comet {
             command_buffer.bind_index_buffer(*m_index_buffer, 0, IndexType::Uint32);
     }
 
-    void Mesh::draw(const CommandBuffer& command_buffer) const {
+    void Mesh::draw(const CommandBuffer& command_buffer, const uint32_t instance_count,
+        const uint32_t first_instance) const {
         if(m_index_count > 0) {
-            command_buffer.draw_indexed(m_index_count, 1, 0, 0);
+            command_buffer.draw_indexed(m_index_count, instance_count, 0, 0, first_instance);
         } else {
-            command_buffer.draw(m_vertex_count, 1, 0, 0);
+            command_buffer.draw(m_vertex_count, instance_count, 0, first_instance);
         }
     }
 

@@ -15,6 +15,9 @@ foreach(PROGRAM IN LISTS SHADER_PROGRAMS)
             "${CMAKE_CURRENT_SOURCE_DIR}/${PROGRAM}.vert"
             "${CMAKE_CURRENT_SOURCE_DIR}/${PROGRAM}.frag")
 endforeach()
+list(APPEND SHADER_FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/material/pbr_instanced.vert"
+        "${CMAKE_CURRENT_SOURCE_DIR}/material/unlit_color_instanced.vert")
 
 source_group("shaders" FILES ${SHADER_FILES})
 

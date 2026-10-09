@@ -403,6 +403,16 @@ namespace {
                    << " cached_material_versions=" << stats.cached_material_versions << '\n'
                    << "# mesh_binds=" << stats.mesh_binds
                    << " material_preparations=" << stats.material_preparations << '\n'
+                   << "# drawn_instances=" << stats.drawn_instances
+                   << " instanced_draws=" << stats.instanced_draw_calls
+                   << " instance_upload_bytes=" << stats.instance_upload_bytes << '\n'
+                   << "# shadow_draws="
+                   << renderer.get_scene_renderer().get_shadow_statistics().draw_calls
+                   << " shadow_instances="
+                   << renderer.get_scene_renderer().get_shadow_statistics().drawn_instances
+                   << " shadow_upload_bytes="
+                   << renderer.get_scene_renderer().get_shadow_statistics().instance_upload_bytes
+                   << '\n'
                    << "# window=" << m_options.width << 'x' << m_options.height
                    << " framebuffer=" << m_size.x << 'x' << m_size.y
                    << " present_mode=" << vk::to_string(m_generation->get_config().present_mode)
@@ -442,11 +452,16 @@ namespace {
                                              ? (m_options.objects + 3) / 4
                                              : m_options.objects;
             const auto visible_materials = std::min(m_options.materials, visible_objects);
+            const auto& shadow = scene.get_shadow_statistics();
+            const auto pipeline_binds = visible_objects >= 2 * visible_materials - 1 ? 1u : 2u;
             if(frame.truncated || frame.passes.size() != m_passes.size()
                 || stats.render_items != m_options.objects + 1
                 || stats.culled_items != m_options.objects - visible_objects
-                || stats.draw_calls != visible_objects + 1 || stats.light_count != 3
-                || stats.pipeline_binds != 1 || stats.material_binds != visible_materials
+                || stats.draw_calls != visible_materials
+                || stats.drawn_instances != visible_objects + 1 || shadow.draw_calls != 1
+                || shadow.drawn_instances != m_options.objects + 1 || stats.light_count != 3
+                || stats.pipeline_binds != pipeline_binds
+                || stats.material_binds != visible_materials
                 || stats.material_preparations != visible_materials || stats.mesh_binds != 1
                 || stats.cached_material_versions != visible_materials
                 || scene.get_post_process_settings().uses_bloom() != m_options.bloom)

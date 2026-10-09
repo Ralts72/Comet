@@ -23,6 +23,8 @@
 #include "render/resource/texture.h"
 #include "render/resource/environment.h"
 #include "graphics/resource/image.h"
+#include "pbr_instanced_vert.h"
+#include "unlit_color_instanced_vert.h"
 
 #include <algorithm>
 #include <array>
@@ -237,11 +239,24 @@ namespace Comet {
         std::shared_ptr<DescriptorSetLayout> descriptor_layout;
         if(old != m_pipelines.end() && reflected.value() == old->second->layout)
             descriptor_layout = old->second->material_layout;
+        std::shared_ptr<Shader> instanced_vertex;
+        // 只配对已知内置顶点程序；开发覆盖可能修改顶点位置，必须使用覆盖本身。
+        static const auto builtins = default_material_shaders();
+        if(code.vertex_entry == "main" && code.vertex == builtins.at(name).vertex) {
+            const auto words = name == "pbr"
+                                   ? std::span<const uint32_t>(PBR_INSTANCED_VERT)
+                                   : std::span<const uint32_t>(UNLIT_COLOR_INSTANCED_VERT);
+            auto shader = Shader::create(m_device, name + " instanced", words);
+            if(!shader)
+                return Result<void, GraphicsError>::failure(shader.error());
+            instanced_vertex = std::move(shader).value();
+        }
         auto candidate = create_pipeline(pipelines, vertex.value(), fragment.value(),
-            reflected.value(), samples, descriptor_layout);
+            reflected.value(), samples, descriptor_layout, INVALID_ASSET_HANDLE, instanced_vertex);
         if(!candidate)
             return Result<void, GraphicsError>::failure(candidate.error());
-        if(old != m_pipelines.end() && old->second->pipeline == candidate.value()->pipeline)
+        if(old != m_pipelines.end() && old->second->pipeline == candidate.value()->pipeline
+            && old->second->instanced_pipeline == candidate.value()->instanced_pipeline)
             candidates.insert_or_assign(std::string(definition.material), old->second);
         else {
             candidates.insert_or_assign(
@@ -578,7 +593,7 @@ namespace Comet {
         create_pipeline(PipelineManager& pipelines, const std::shared_ptr<Shader>& vertex,
             const std::shared_ptr<Shader>& fragment, std::shared_ptr<const MaterialLayout> layout,
             const SampleCount samples, std::shared_ptr<DescriptorSetLayout> material_layout,
-            const AssetHandle shader_program) {
+            const AssetHandle shader_program, const std::shared_ptr<Shader>& instanced_vertex) {
         using Creation = Result<std::shared_ptr<const PipelineState>, GraphicsError>;
         if(!layout)
             return Creation::failure({"Missing material layout"});
@@ -623,6 +638,15 @@ namespace Comet {
         if(!pipeline)
             return Creation::failure(pipeline.error());
         state->pipeline = std::move(pipeline).value();
+        if(instanced_vertex) {
+            InstanceBuffer::describe(input);
+            config.set_vertex_input_state(input);
+            auto instanced = pipelines.create_pipeline(state->layout->get_name() + " instanced",
+                shader_layout, config, instanced_vertex, fragment);
+            if(!instanced)
+                return Creation::failure(instanced.error());
+            state->instanced_pipeline = std::move(instanced).value();
+        }
         return Creation::success(std::move(state));
     }
 
@@ -790,6 +814,10 @@ namespace Comet {
                 frames.get_current_frame_serial(), frustum ? &*frustum : nullptr);
             if(!queue)
                 return Draw::failure(queue.error());
+            if(auto instances = prepare_instances(frames); !instances) {
+                m_draw_queue.clear();
+                return Draw::failure(instances.error());
+            }
             record_draws(frames, m_draw_queue, waits);
             m_draw_queue.clear();
             std::erase_if(waits,
@@ -887,17 +915,60 @@ namespace Comet {
             if(material.value())
                 queue.push_back({&item, std::move(material).value()});
         }
-        // 同材质保持原提交顺序；地址来自同一 span，排序不需要临时分配。
+        // 内置不透明材质按 Mesh 分组；自定义顶点程序保持同材质原提交顺序。
         std::sort(queue.begin(), queue.end(), [](const DrawItem& a, const DrawItem& b) {
             const auto a_instance =
                 a.item->material.overrides ? a.item->material.overrides->instance_id : 0;
             const auto b_instance =
                 b.item->material.overrides ? b.item->material.overrides->instance_id : 0;
-            return std::tie(a.material->prepared->layout->get_name(),
-                       a.item->material.material_handle, a_instance, a.item)
-                   < std::tie(b.material->prepared->layout->get_name(),
-                       b.item->material.material_handle, b_instance, b.item);
+            const auto a_key = std::tie(a.material->prepared->layout->get_name(),
+                a.item->material.material_handle, a_instance);
+            const auto b_key = std::tie(b.material->prepared->layout->get_name(),
+                b.item->material.material_handle, b_instance);
+            if(a_key != b_key)
+                return a_key < b_key;
+            const auto* a_mesh =
+                a.material->pipeline->instanced_pipeline ? a.item->mesh.get() : nullptr;
+            const auto* b_mesh =
+                b.material->pipeline->instanced_pipeline ? b.item->mesh.get() : nullptr;
+            if(a_mesh != b_mesh)
+                return std::less<const Mesh*>{}(a_mesh, b_mesh);
+            return a.item < b.item;
         });
+        return Result<void, GraphicsError>::success();
+    }
+
+    Result<void, GraphicsError> MaterialRenderer::prepare_instances(FrameScheduler& frames) {
+        m_instance_transforms.clear();
+        size_t batches = 0;
+        for(size_t first = 0; first < m_draw_queue.size();) {
+            auto& draw = m_draw_queue[first];
+            size_t end = first + 1;
+            if(draw.material->pipeline->instanced_pipeline) {
+                while(end < m_draw_queue.size() && m_draw_queue[end].material == draw.material
+                      && m_draw_queue[end].item->mesh == draw.item->mesh)
+                    ++end;
+            }
+            draw.instance_count = static_cast<uint32_t>(end - first);
+            if(draw.instance_count > 1) {
+                draw.first_instance = static_cast<uint32_t>(m_instance_transforms.size());
+                for(size_t index = first; index < end; ++index)
+                    m_instance_transforms.push_back(m_draw_queue[index].item->model_matrix);
+            }
+            if(batches != first)
+                m_draw_queue[batches] = std::move(draw);
+            ++batches;
+            first = end;
+        }
+        m_draw_queue.resize(batches);
+        auto& instances = m_frames.at(frames.get_current_frame_slot_index())->instances;
+        if(auto uploaded = instances.upload(m_device, m_instance_transforms); !uploaded)
+            return uploaded;
+        m_statistics.instance_upload_bytes = m_instance_transforms.size() * sizeof(Math::Mat4);
+        if(!m_instance_transforms.empty()) {
+            frames.retain_current_frame_resource(instances.get_buffer());
+            instances.bind(frames.get_current_command_buffer());
+        }
         return Result<void, GraphicsError>::success();
     }
 
@@ -910,7 +981,9 @@ namespace Comet {
         const Mesh* active_mesh = nullptr;
         for(const auto& draw : queue) {
             const auto& material = draw.material;
-            const auto& pipeline = material->pipeline->pipeline;
+            const bool instanced = draw.instance_count > 1;
+            const auto& pipeline =
+                instanced ? material->pipeline->instanced_pipeline : material->pipeline->pipeline;
             if(active_pipeline != pipeline.get()) {
                 command.bind_pipeline(*pipeline);
                 active_pipeline = pipeline.get();
@@ -936,11 +1009,16 @@ namespace Comet {
                     Flags<PipelineStage>(PipelineStage::VertexInput));
                 ++m_statistics.mesh_binds;
             }
-            const PushConstant push{.model = draw.item->model_matrix};
-            command.push_constants(*pipeline->get_layout(), Flags<ShaderStage>(ShaderStage::Vertex),
-                0, &push, sizeof(push));
-            draw.item->mesh->draw(command);
+            if(instanced)
+                ++m_statistics.instanced_draw_calls;
+            else {
+                const PushConstant push{.model = draw.item->model_matrix};
+                command.push_constants(*pipeline->get_layout(),
+                    Flags<ShaderStage>(ShaderStage::Vertex), 0, &push, sizeof(push));
+            }
+            draw.item->mesh->draw(command, draw.instance_count, draw.first_instance);
             ++m_statistics.draw_calls;
+            m_statistics.drawn_instances += draw.instance_count;
         }
     }
 

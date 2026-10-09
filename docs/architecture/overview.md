@@ -921,18 +921,23 @@ EnvironmentArtifact v2 将背景、最高 16² 漫反射、最高 128² 镜面 m
 ### 材质准备与寿命
 
 MaterialRenderer 保留资源所有权，主流程按阶段组织：同步运行实例／材质输入 → 准备程序，
-绘制时更新帧资源 → 准备并排序绘制列表 → 录制 → 回收未使用缓存。不另建转发 Manager。
+绘制时更新帧资源 → 准备并排序绘制列表 → 合批与上传实例变换 → 录制 → 回收未使用缓存。不另建转发 Manager。
 主材质在准备绘制列表前提取六个视锥平面，以静态 Mesh 世界包围盒保守裁剪；NDC 深度使用 [0, 1]。
 包围盒变换逐轴累加区间，支持错切、负／非均匀缩放，拾取和阴影共用该算法。
 只裁剪没有项目 Shader 引用的内置材质；项目顶点变形尚无有效界限契约，继续提交。无效视锥或界限也不拒绝物体。
 裁剪只影响主材质队列，RenderSubmission 保留完整列表供拾取和阴影使用，不以主相机可见性丢弃投影者。
 屏外材质尚未驻留时不创建 GPU 绑定；已驻留且仍被场景引用的材质保留缓存，重新可见时再校验当前版本。
 Statistics 的 render_items／culled_items 与实际 draw_calls 分别记录主材质候选、裁剪和提交数。
-绘制队列保留容量，录制后清空借用指针与资源引用；排序用原提交顺序打破同材质的平局，不分配 stable_sort 缓冲。
+绘制队列保留容量，录制后清空借用指针与资源引用；内置不透明材质按 Mesh 分组，同组以原提交顺序打破平局，不分配 stable_sort 缓冲。
 同一帧 serial 内，材质源对象／revision、覆盖快照和 PipelineState 均相同时复用准备结果，下一帧重新校验。
 材质保活与纹理 ready wait 按实际绑定登记；主绘制及阴影连续使用同一 Mesh 时复用顶点／索引绑定。
-Mesh::bind 负责绑定缓冲，Mesh::draw 消费当前绑定；每个 pass 独立跟踪，不假设前一个 pass 的状态。
+Mesh::bind 负责绑定缓冲，Mesh::draw 消费当前绑定并接收 instance_count／first_instance；每个 pass 独立跟踪，不假设前一个 pass 的状态。
 material_preparations／mesh_binds 记录实际 CPU 准备和主材质 Mesh 绑定次数，draw_calls 仍为实际绘制命令数。
+同一 Mesh、MaterialResources（含参数覆盖与 PipelineState）的多个对象使用内置实例化顶点变体；单物体继续 push constant 路径。
+实例化与普通管线共用同一片元 Shader 和 descriptor 契约。仅已知构建内嵌顶点程序配对实例化变体，项目 Shader 和开发顶点覆盖继续逐物体提交；片元热更新同时更新两条管线。
+InstanceBuffer 只负责矩阵顶点输入与容量复用，分别由主材质和阴影的飞行帧槽位持有；等待槽位 fence 后上传，每次录制单独保活所用 buffer。
+主材质上传 model，阴影上传 light MVP；阴影从完整提交按 Mesh 合批。原 RenderSubmission 的 EntityId 和当前 CPU 拾取路径不变，不上传没有 GPU 消费者的对象身份。
+drawn_instances 记录实际物体数，instanced_draw_calls 记录主通道实例化命令数，instance_upload_bytes 记录本帧写入字节数；阴影提供独立 draw／实例／上传统计。
 材质、天空盒与阴影通过 Device::query_format_support 查询最优平铺图像的采样、线性过滤和深度附件能力；
 该查询不替代具体尺寸、用途组合与采样数的创建校验，Vulkan 格式转换留在 graphics 实现内。
 
@@ -966,7 +971,7 @@ CPU 准备失败与 GPU 创建失败共用回退判断，只保留同 Handle／�
 Renderer 每次 prepare_frame 在 acquire 前检查 Registry，移除已注销材质的 CPU／GPU 缓存以及项目程序的材质依赖引用，隐藏／延期同样执行。
 依赖变化只解除相应材质／覆盖导致的失败，不让纯 Shader 失败因无关材质删除而重复尝试。
 同 Handle 的新版本不触发这类淘汰，仍允许准备失败时回退旧兼容版本；在途帧保活不受缓存淘汰影响。
-队列按模板名、材质 Handle 与运行实例身份排序。
+队列按模板名、材质 Handle 与运行实例身份排序；可实例化的内置材质再按 Mesh 分组。
 
 编辑器材质文件修改采用显式准备／提交，区别于上述绘制时的延迟准备：
 AssetManager::prepare_material_update 保留源 revision、数据及只读运行时候选，不改原材质文件或该材质的 Registry 条目；序列化留到最终保存。

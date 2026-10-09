@@ -6,6 +6,7 @@
 #include "common/retry_backoff.h"
 #include "graphics/queue.h"
 #include "render/material/material_renderer.h"
+#include "render/passes/shadow_pass.h"
 #include "render/scene/render_submission.h"
 #include "render/debug/line_draw_list.h"
 
@@ -41,6 +42,7 @@ namespace Comet {
         [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
             const;
         [[nodiscard]] MaterialRenderer::Statistics get_material_statistics() const;
+        [[nodiscard]] ShadowPass::Statistics get_shadow_statistics() const;
         [[nodiscard]] const PostProcessSettings& get_post_process_settings() const;
         [[nodiscard]] RenderTarget& get_render_target();
         [[nodiscard]] const RenderTarget& get_render_target() const;

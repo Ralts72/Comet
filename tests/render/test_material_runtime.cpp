@@ -104,10 +104,11 @@ namespace Comet::Tests {
             EXPECT_TRUE(renderer.render_frame(scene));
             const auto& stats = renderer.get_scene_renderer().get_material_statistics();
             EXPECT_EQ(stats.frame_set_count, 2u);
-            EXPECT_EQ(stats.draw_calls, 3u);
+            EXPECT_EQ(stats.draw_calls, 2u);
+            EXPECT_EQ(stats.drawn_instances, 3u);
             EXPECT_EQ(stats.material_binds, 2u);
             EXPECT_EQ(stats.cached_material_versions, 2u);
-            EXPECT_EQ(stats.pipeline_binds, frames == 7 ? 1u : 2u);
+            EXPECT_EQ(stats.pipeline_binds, 2u);
             uint32_t expected_versions = 0;
             if(frames == 0)
                 expected_versions = 2;

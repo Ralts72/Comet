@@ -182,6 +182,7 @@ set(COMET_RENDER_SOURCES
     src/render/debug/debug_renderer.cpp
     src/render/render_target.cpp
     src/render/resource/mesh.cpp
+    src/render/resource/instance_buffer.cpp
     src/render/resource/texture.cpp
     src/render/resource/environment.cpp
     src/render/resource/render_asset_publisher.cpp

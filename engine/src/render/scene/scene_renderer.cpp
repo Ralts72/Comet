@@ -365,6 +365,10 @@ namespace Comet {
         return m_state->materials->get_statistics();
     }
 
+    ShadowPass::Statistics SceneRenderer::get_shadow_statistics() const {
+        return m_state->shadow_pass->get_statistics();
+    }
+
     const PostProcessSettings& SceneRenderer::get_post_process_settings() const {
         return m_post_process;
     }
@@ -382,6 +386,7 @@ namespace Comet {
 
     void SceneRenderer::skip_frame() {
         m_state->materials->reset_statistics();
+        m_state->shadow_pass->reset_statistics();
     }
 
     void SceneRenderer::collect_removed_assets(const AssetRegistry& assets) {

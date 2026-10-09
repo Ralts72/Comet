@@ -12,18 +12,19 @@ foreach(case static-0 static-1 multi active sleeping culling)
     set(bloom 0)
     set(materials 1)
     set(workload static)
-    set(draws 9)
+    set(pipelines 1)
     set(culled 0)
     set(workload_args)
     if(case STREQUAL "static-1")
         set(bloom 1)
     elseif(case STREQUAL "multi")
         set(materials 8)
+        set(pipelines 2)
         list(APPEND workload_args ${materials})
     elseif(case STREQUAL "culling")
         set(workload culling)
         set(materials 2)
-        set(draws 3)
+        set(pipelines 2)
         set(culled 6)
         list(APPEND workload_args ${materials} ${workload})
     elseif(case STREQUAL "active" OR case STREQUAL "sleeping")
@@ -44,9 +45,9 @@ foreach(case static-0 static-1 multi active sleeping culling)
             message(FATAL_ERROR "Missing complete metric: ${metric}\n${csv}")
         endif()
     endforeach()
-    if(NOT csv MATCHES "scene_draws=${draws} lights=3 msaa=4 bloom=${bloom}"
+    if(NOT csv MATCHES "scene_draws=${materials} lights=3 msaa=4 bloom=${bloom}"
             OR NOT csv MATCHES "render_items=9 culled_items=${culled}"
-            OR NOT csv MATCHES "pipeline_binds=1 material_binds=${materials} cached_material_versions=${materials}"
+            OR NOT csv MATCHES "pipeline_binds=${pipelines} material_binds=${materials} cached_material_versions=${materials}"
             OR NOT csv MATCHES "workload=${workload} materials=${materials}"
             OR NOT csv MATCHES "metric,samples,p50_ms,p95_ms,p99_ms"
             OR NOT csv MATCHES "gpu_samples=[0-9]+ gpu_status=(complete|partial|unsupported|degraded)")
@@ -54,6 +55,11 @@ foreach(case static-0 static-1 multi active sleeping culling)
     endif()
     if(NOT csv MATCHES "mesh_binds=1 material_preparations=${materials}")
         message(FATAL_ERROR "Invalid preparation or mesh binding counts\n${csv}")
+    endif()
+    math(EXPR instances "9 - ${culled}")
+    if(NOT csv MATCHES "drawn_instances=${instances} instanced_draws="
+            OR NOT csv MATCHES "shadow_draws=1 shadow_instances=9 shadow_upload_bytes=576")
+        message(FATAL_ERROR "Invalid instance or shadow counts\n${csv}")
     endif()
     if(case STREQUAL "active")
         if(NOT csv MATCHES "physics_bodies=9 active_bodies_min=8 active_bodies_max=8"
