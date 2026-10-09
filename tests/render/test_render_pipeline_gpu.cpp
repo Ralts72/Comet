@@ -28,12 +28,14 @@ namespace Comet::Tests {
         auto reference = std::make_shared<Material>("project", "pbr", program_handle);
         auto mesh = lit_quad({1, 0, 1});
         ASSERT_TRUE(mesh);
+        const auto other_mesh = lit_quad({1, 0, 1});
+        ASSERT_TRUE(other_mesh);
         FrameScheduler batch_frames(device, 2), reference_frames(device, 2);
         batch_frames.initialize_swapchain_images(2);
         reference_frames.initialize_swapchain_images(2);
         FrameWait batch_wait{device, batch_frames}, reference_wait{device, reference_frames};
         std::vector<std::shared_ptr<Readback>> actual, expected;
-        const std::array counts{2u, 32u, 2u, 64u, 64u, 64u, 64u, 2u, 2u, 2u};
+        const std::array counts{2u, 32u, 2u, 64u, 64u, 64u, 64u, 2u, 2u, 2u, 8u, 8u, 8u, 8u};
         for(size_t frame = 0; frame < counts.size(); ++frame) {
             SCOPED_TRACE(frame);
             if(frame == 2) {
@@ -74,9 +76,23 @@ namespace Comet::Tests {
                     submission.render_items.push_back(
                         {.entity_id = group * counts[frame] + index + 1,
                             .model_matrix = model,
-                            .mesh = mesh,
+                            .mesh = frame >= 10 && index % 2 ? other_mesh : mesh,
                             .material = {material_handle, material, overrides}});
                 }
+            }
+            // 同一内容覆盖材质有序、Mesh 有序、倒序与循环移位提交。
+            if(frame == 11) {
+                std::sort(submission.render_items.begin(), submission.render_items.end(),
+                    [](const auto& a, const auto& b) {
+                        if(a.mesh != b.mesh)
+                            return std::less<const Mesh*>{}(a.mesh.get(), b.mesh.get());
+                        return a.entity_id < b.entity_id;
+                    });
+            } else if(frame == 12) {
+                std::reverse(submission.render_items.begin(), submission.render_items.end());
+            } else if(frame == 13) {
+                std::rotate(submission.render_items.begin(), submission.render_items.begin() + 7,
+                    submission.render_items.end());
             }
             const auto draw = [&](SceneRenderer& scene, FrameScheduler& frames,
                                   std::vector<std::shared_ptr<Readback>>& outputs) {
@@ -87,7 +103,7 @@ namespace Comet::Tests {
                 auto rendered = scene.render(frames, submission);
                 ASSERT_TRUE(rendered) << rendered.error();
                 const auto shadow = scene.get_shadow_statistics();
-                EXPECT_EQ(shadow.draw_calls, 1u);
+                EXPECT_EQ(shadow.draw_calls, frame >= 10 ? 2u : 1u);
                 EXPECT_EQ(shadow.drawn_instances, 3 * counts[frame]);
                 auto output = std::make_shared<Readback>(
                     device, context.get_context().get_physical_device(), 65 * 65 * 4);
@@ -100,10 +116,12 @@ namespace Comet::Tests {
             };
             ASSERT_NO_FATAL_FAILURE(draw(*batched.value(), batch_frames, actual));
             const auto stats = batched.value()->get_material_statistics();
-            EXPECT_EQ(stats.draw_calls, 3u);
+            EXPECT_EQ(stats.draw_calls, frame >= 10 ? 6u : 3u);
             EXPECT_EQ(stats.drawn_instances, 3 * counts[frame]);
-            EXPECT_EQ(stats.instance_upload_bytes,
-                frame == 5 || frame == 9 ? 0u : 3 * counts[frame] * sizeof(Math::Mat4));
+            auto expected_upload = 3 * counts[frame] * sizeof(Math::Mat4);
+            if(frame == 5 || frame == 9 || frame >= 12)
+                expected_upload = 0;
+            EXPECT_EQ(stats.instance_upload_bytes, expected_upload);
             for(auto& item : submission.render_items)
                 item.material.resource = reference;
             ASSERT_NO_FATAL_FAILURE(draw(*individual.value(), reference_frames, expected));

@@ -925,11 +925,13 @@ namespace Comet {
             return MaterialInstanceKey{
                 material.material_handle, material.overrides ? material.overrides->instance_id : 0};
         };
-        std::sort(queue.begin(), queue.end(), [&](const DrawItem& a, const DrawItem& b) {
+        const auto material_less = [&](const DrawItem& a, const DrawItem& b) {
             const auto a_key = material_key(a);
             const auto b_key = material_key(b);
             return a_key != b_key ? a_key < b_key : a.item < b.item;
-        });
+        };
+        if(!std::is_sorted(queue.begin(), queue.end(), material_less))
+            std::sort(queue.begin(), queue.end(), material_less);
         size_t batches = 0;
         for(size_t first = 0; first < queue.size();) {
             const auto& input = queue[first].item->material;
@@ -954,7 +956,7 @@ namespace Comet {
         }
         queue.resize(batches);
         // 失败回退可能使用旧布局，按实际准备结果排序。
-        std::sort(queue.begin(), queue.end(), [](const DrawItem& a, const DrawItem& b) {
+        const auto draw_less = [](const DrawItem& a, const DrawItem& b) {
             const auto a_instance =
                 a.item->material.overrides ? a.item->material.overrides->instance_id : 0;
             const auto b_instance =
@@ -972,22 +974,24 @@ namespace Comet {
             if(a_mesh != b_mesh)
                 return std::less<const Mesh*>{}(a_mesh, b_mesh);
             return a.item < b.item;
-        });
+        };
+        if(!std::is_sorted(queue.begin(), queue.end(), draw_less))
+            std::sort(queue.begin(), queue.end(), draw_less);
         return Result<void, GraphicsError>::success();
     }
 
     void MaterialRenderer::append_material_draws(const std::span<DrawItem> items,
         const std::shared_ptr<MaterialResources>& material, size_t& batches) {
         const bool instanced = material->pipeline->instanced_pipeline != nullptr;
-        // 常见的共享 Mesh 组无需再次排序；项目顶点程序保持原提交顺序。
-        if(instanced && std::ranges::any_of(items, [&](const DrawItem& draw) {
-               return draw.item->mesh != items[0].item->mesh;
-           })) {
-            std::sort(items.begin(), items.end(), [](const DrawItem& a, const DrawItem& b) {
+        // 有序 Mesh 组直接合批；项目顶点程序保持原提交顺序。
+        if(instanced) {
+            const auto mesh_less = [](const DrawItem& a, const DrawItem& b) {
                 if(a.item->mesh != b.item->mesh)
                     return std::less<const Mesh*>{}(a.item->mesh.get(), b.item->mesh.get());
                 return a.item < b.item;
-            });
+            };
+            if(!std::is_sorted(items.begin(), items.end(), mesh_less))
+                std::sort(items.begin(), items.end(), mesh_less);
         }
         for(size_t first = 0; first < items.size();) {
             size_t end = first + 1;
