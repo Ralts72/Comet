@@ -5,6 +5,7 @@
 #include "common/result.h"
 #include "scene/components.h"
 
+#include <cstddef>
 #include <memory>
 #include <span>
 #include <vector>
@@ -14,8 +15,16 @@ namespace Comet {
 
     class COMET_API PhysicsService final: public PhysicsCommands {
     public:
+        struct Statistics {
+            std::size_t bodies = 0;
+            std::size_t active_bodies = 0;
+            std::size_t pose_updates = 0;
+        };
+
         PhysicsService();
         ~PhysicsService() override;
+        // 主线程在固定步之外读取；pose_updates 对应最近完成的固定步。
+        [[nodiscard]] Statistics get_statistics() const;
 
     private:
         friend class PhysicsSystem;

@@ -425,9 +425,20 @@ namespace Comet {
         m_impl->poses.clear();
         for(auto& [uuid, body] : m_impl->bodies)
             body.active_before_step = m_impl->world.GetBodyInterface().IsActive(body.id);
-        if(m_impl->world.Update(delta_time, 1, &m_impl->allocator, &m_impl->jobs)
-            != JPH::EPhysicsUpdateError::None)
-            return Result<void, Error>::failure({"Physics simulation failed"});
+        const auto errors = m_impl->world.Update(delta_time, 1, &m_impl->allocator, &m_impl->jobs);
+        if(errors != JPH::EPhysicsUpdateError::None) {
+            std::string message = "Physics capacity exceeded:";
+            if((errors & JPH::EPhysicsUpdateError::ManifoldCacheFull)
+                != JPH::EPhysicsUpdateError::None)
+                message += " manifold cache";
+            if((errors & JPH::EPhysicsUpdateError::BodyPairCacheFull)
+                != JPH::EPhysicsUpdateError::None)
+                message += " body pair cache";
+            if((errors & JPH::EPhysicsUpdateError::ContactConstraintsFull)
+                != JPH::EPhysicsUpdateError::None)
+                message += " contact constraints";
+            return Result<void, Error>::failure({std::move(message)});
+        }
         for(auto& [uuid, body] : m_impl->bodies) {
             if(body.motion != BodyMotion::Dynamic)
                 continue;
@@ -452,6 +463,14 @@ namespace Comet {
     }
 
     PhysicsService::PhysicsService() = default;
+    PhysicsService::Statistics PhysicsService::get_statistics() const {
+        if(!m_impl)
+            return {};
+        return {.bodies = m_impl->bodies.size(),
+            .active_bodies = m_impl->world.GetNumActiveBodies(JPH::EBodyType::RigidBody),
+            .pose_updates = m_impl->poses.size()};
+    }
+
     PhysicsService::~PhysicsService() {
         end();
     }

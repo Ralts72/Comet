@@ -1,4 +1,6 @@
 #include "asset/asset_manager.h"
+#include "asset/serialization/material_serializer.h"
+#include "asset/serialization/metadata_serializer.h"
 #include "common/file_io.h"
 #include "common/scope_exit.h"
 #include "config/config.h"
@@ -7,6 +9,7 @@
 #include "diagnostics/diagnostics.h"
 #include "graphics/device.h"
 #include "graphics/swapchain.h"
+#include "physics/physics_service.h"
 #include "render/render_context.h"
 #include "render/render_diagnostics.h"
 #include "render/renderer.h"
@@ -14,6 +17,7 @@
 #include "render/scene/scene_renderer.h"
 #include "render/render_target.h"
 #include "scene/scene.h"
+#include "scene/systems/physics_system.h"
 
 #include <algorithm>
 #include <array>
@@ -22,6 +26,7 @@
 #include <filesystem>
 #include <iostream>
 #include <locale>
+#include <limits>
 #include <map>
 #include <memory>
 #include <random>
@@ -35,27 +40,48 @@
 namespace {
     using Comet::Result;
     constexpr unsigned WARMUP_FRAMES = 32;
+    constexpr unsigned SETTLE_STEPS = 300;
+    constexpr unsigned RESPAWN_STEPS = 24;
+    // 默认物理世界的接触缓存需要余量，不能只按刚体容量取上限。
+    constexpr unsigned MAX_PHYSICS_OBJECTS = 512;
     constexpr std::string_view USAGE =
-        "Usage: render_benchmark OUTPUT.csv OBJECTS WIDTH HEIGHT FRAMES BLOOM(0/1)";
+        "Usage: render_benchmark OUTPUT.csv OBJECTS WIDTH HEIGHT FRAMES BLOOM(0/1) "
+        "[MATERIALS [static|physics-active|physics-sleeping]]";
+
+    enum class Workload { Static, PhysicsActive, PhysicsSleeping };
+
+    std::string_view workload_name(Workload workload) {
+        switch(workload) {
+            case Workload::PhysicsActive:
+                return "physics-active";
+            case Workload::PhysicsSleeping:
+                return "physics-sleeping";
+            default:
+                return "static";
+        }
+    }
 
     struct Options {
         std::filesystem::path output;
         unsigned objects, width, height, frames;
         bool bloom;
+        unsigned materials = 1;
+        Workload workload = Workload::Static;
     };
 
     Result<Options> parse_options(int argc, char** argv) {
 #ifdef __APPLE__
-        if(argc == 9 && std::string_view(argv[7]) == "-NSAutomaticWindowAnimationsEnabled"
-            && std::string_view(argv[8]) == "NO")
-            argc = 7;
+        if(argc >= 3 && std::string_view(argv[argc - 2]) == "-NSAutomaticWindowAnimationsEnabled"
+            && std::string_view(argv[argc - 1]) == "NO")
+            argc -= 2;
 #endif
-        if(argc != 7 || std::string_view(argv[1]).empty())
+        if(argc < 7 || argc > 9 || std::string_view(argv[1]).empty())
             return Result<Options>::failure(std::string(USAGE));
-        const std::array<unsigned, 5> minimum{1, 64, 64, 8, 0};
-        const std::array<unsigned, 5> maximum{4096, 4096, 4096, 10000, 1};
-        std::array<unsigned, 5> values{};
-        for(size_t index = 0; index < values.size(); ++index) {
+        const std::array<unsigned, 6> minimum{1, 64, 64, 8, 0, 1};
+        const std::array<unsigned, 6> maximum{4096, 4096, 4096, 10000, 1, 256};
+        std::array<unsigned, 6> values{0, 0, 0, 0, 0, 1};
+        const unsigned numeric_count = argc >= 8 ? 6 : 5;
+        for(unsigned index = 0; index < numeric_count; ++index) {
             const std::string_view text(argv[index + 2]);
             const auto [end, error] =
                 std::from_chars(text.data(), text.data() + text.size(), values[index]);
@@ -63,8 +89,23 @@ namespace {
                 || values[index] < minimum[index] || values[index] > maximum[index])
                 return Result<Options>::failure("Invalid benchmark argument: " + std::string(text));
         }
-        return Result<Options>::success(
-            {argv[1], values[0], values[1], values[2], values[3], values[4] != 0});
+        Workload workload = Workload::Static;
+        if(argc == 9) {
+            const std::string_view name(argv[8]);
+            if(name == "physics-active")
+                workload = Workload::PhysicsActive;
+            else if(name == "physics-sleeping")
+                workload = Workload::PhysicsSleeping;
+            else if(name != "static")
+                return Result<Options>::failure("Invalid benchmark workload: " + std::string(name));
+        }
+        if(values[5] > values[0])
+            return Result<Options>::failure("Material count cannot exceed object count");
+        if(workload != Workload::Static && values[0] > MAX_PHYSICS_OBJECTS)
+            return Result<Options>::failure(
+                "Physics workloads support at most 512 objects plus ground");
+        return Result<Options>::success({argv[1], values[0], values[1], values[2], values[3],
+            values[4] != 0, values[5], workload});
     }
 
     Result<std::filesystem::path> create_temporary_project() {
@@ -87,7 +128,13 @@ namespace {
         return Result<std::filesystem::path>::failure("Cannot create unique benchmark directory");
     }
 
-    Result<void> prepare_assets(const std::filesystem::path& root) {
+    std::filesystem::path material_path(unsigned index) {
+        if(index == 0)
+            return "materials/ground.mat";
+        return "materials/pbr-" + std::to_string(index) + ".mat";
+    }
+
+    Result<void> prepare_assets(const std::filesystem::path& root, const Options& options) {
         for(const auto* relative : {"meshes/cube.gltf", "meshes/cube.gltf.meta",
                 "materials/ground.mat", "materials/ground.mat.meta"}) {
             const auto destination = root / "assets" / relative;
@@ -100,56 +147,111 @@ namespace {
             if(error)
                 return Result<void>::failure("Cannot copy benchmark asset: " + error.message());
         }
+        const auto base = Comet::MaterialSerializer{}.load(root / "assets" / material_path(0));
+        if(!base)
+            return Result<void>::failure(base.error());
+        for(unsigned index = 1; index < options.materials; ++index) {
+            auto data = base.value();
+            const float t = float(index) / options.materials;
+            data.scalar_properties["roughness"] = 0.2f + 0.8f * t;
+            data.vector_properties["base_color"] = {
+                0.2f + 0.8f * t, 0.9f - 0.5f * t, 0.3f + 0.4f * t, 1};
+            const auto path = root / "assets" / material_path(index);
+            if(auto saved = Comet::MaterialSerializer{}.save(data, path); !saved)
+                return saved;
+            if(auto saved = Comet::MetadataSerializer{}.save(
+                   {.handle = Comet::AssetHandle(index), .type = Comet::AssetType::Material},
+                   Comet::metadata_path(path));
+                !saved)
+                return saved;
+        }
         return Result<void>::success();
     }
 
-    Result<void> populate_scene(
-        Comet::Engine& engine, Comet::AssetManager& assets, const Options& options) {
+    struct BodyPose {
+        Comet::Entity entity;
+        Comet::TransformComponent transform;
+    };
+
+    Result<void> populate_scene(Comet::Engine& engine, Comet::AssetManager& assets,
+        const Options& options, std::vector<BodyPose>& body_poses) {
         if(!assets.scan().succeeded())
             return Result<void>::failure("Benchmark asset scan failed");
         const auto* mesh = assets.get_database().find("meshes/cube.gltf");
-        const auto* material = assets.get_database().find("materials/ground.mat");
-        if(!mesh || !material)
+        if(!mesh)
             return Result<void>::failure("Benchmark assets were not indexed");
-        if(auto imported = assets.import_mesh(mesh->handle); !imported)
+        const auto mesh_handle = mesh->handle;
+        if(auto imported = assets.import_mesh(mesh_handle); !imported)
             return Result<void>::failure(imported.error().message);
-        for(const auto* record : {mesh, material}) {
-            if(auto loaded = assets.ensure_loaded(record->handle, record->type); !loaded)
+        if(auto loaded = assets.ensure_loaded(mesh_handle, Comet::AssetType::Mesh); !loaded)
+            return Result<void>::failure(loaded.error().message);
+        std::vector<Comet::AssetHandle> materials;
+        for(unsigned index = 0; index < options.materials; ++index) {
+            const auto* material = assets.get_database().find(material_path(index));
+            if(!material)
+                return Result<void>::failure("Benchmark material was not indexed");
+            materials.push_back(material->handle);
+            if(auto loaded = assets.ensure_loaded(material->handle, material->type); !loaded)
                 return Result<void>::failure(loaded.error().message);
         }
         auto scene = std::make_unique<Comet::Scene>();
+        unsigned identity = 0;
+        const auto create_entity = [&](const char* name) {
+            ++identity;
+            Comet::EntityUuid::Bytes bytes{};
+            bytes[0] = 0xc0;
+            bytes[6] = 0x40;
+            bytes[8] = 0x80;
+            bytes[14] = static_cast<uint8_t>(identity >> 8);
+            bytes[15] = static_cast<uint8_t>(identity);
+            return scene->create_entity_with_uuid(Comet::EntityUuid(bytes), name);
+        };
         if(!scene->set_post_process({.bloom_enabled = options.bloom}))
             return Result<void>::failure("Invalid benchmark post processing settings");
-        auto camera = scene->create_entity("Camera");
+        auto camera = create_entity("Camera");
         camera.add_component<Comet::CameraComponent>().primary = true;
         camera.set_transform({.translation = {0, 10, 16}, .rotation = {-30, 0, 0}});
         const auto columns = static_cast<unsigned>(std::ceil(std::sqrt(options.objects)));
         const float spacing = 10.0f / columns;
         for(unsigned index = 0; index < options.objects; ++index) {
-            auto entity = scene->create_entity("PBR cube");
-            entity.add_component<Comet::MeshRendererComponent>(mesh->handle, material->handle);
+            auto entity = create_entity("PBR cube");
+            entity.add_component<Comet::MeshRendererComponent>(
+                mesh_handle, materials[index % materials.size()]);
             entity.set_transform({.translation = {(index % columns + 0.5f) * spacing - 5, 0,
                                       (index / columns + 0.5f) * spacing - 5},
                 .rotation = {0, 20, 0},
                 .scale = Comet::Math::Vec3(spacing * 0.65f)});
+            if(options.workload != Workload::Static) {
+                entity.add_component<Comet::RigidBodyComponent>();
+                entity.add_component<Comet::ColliderComponent>();
+                if(options.workload == Workload::PhysicsActive) {
+                    auto pose = entity.get_component<Comet::TransformComponent>();
+                    pose.translation.y += 1;
+                    body_poses.push_back({entity, pose});
+                }
+            }
         }
-        auto ground = scene->create_entity("Ground");
-        ground.add_component<Comet::MeshRendererComponent>(mesh->handle, material->handle);
+        auto ground = create_entity("Ground");
+        ground.add_component<Comet::MeshRendererComponent>(mesh_handle, materials.front());
         ground.set_transform(
             {.translation = {0, -spacing * 0.325f - 0.1f, 0}, .scale = {12, 0.2f, 12}});
-        auto key = scene->create_entity("Directional");
+        if(options.workload != Workload::Static) {
+            ground.add_component<Comet::RigidBodyComponent>().motion = Comet::BodyMotion::Static;
+            ground.add_component<Comet::ColliderComponent>();
+        }
+        auto key = create_entity("Directional");
         key.set_transform({.rotation = {-30, -35, 0}});
         auto& directional = key.add_component<Comet::LightComponent>();
         directional.intensity = 4;
         directional.casts_shadow = true;
-        auto point = scene->create_entity("Point");
+        auto point = create_entity("Point");
         point.set_transform({.translation = {-3, 2, 0}});
         auto& point_light = point.add_component<Comet::LightComponent>();
         point_light.type = Comet::LightType::Point;
         point_light.color = {1, 0.2f, 0.1f};
         point_light.intensity = 20;
         point_light.range = 8;
-        auto spot = scene->create_entity("Spot");
+        auto spot = create_entity("Spot");
         spot.set_transform({.translation = {3, 4, 3}, .rotation = {-50, 30, 0}});
         auto& spot_light = spot.add_component<Comet::LightComponent>();
         spot_light.type = Comet::LightType::Spot;
@@ -165,6 +267,9 @@ namespace {
     public:
         Measurement(Comet::Engine& engine, const Options& options)
             : m_engine(engine), m_options(options),
+              m_physics(engine.get_scene_runtime().find_system<Comet::PhysicsSystem>()),
+              m_warmup(WARMUP_FRAMES
+                       + (options.workload == Workload::PhysicsSleeping ? SETTLE_STEPS : 0)),
               m_size(engine.get_renderer().get_scene_renderer().get_render_target().get_size()),
               m_generation(engine.get_renderer()
                       .get_render_context()
@@ -176,7 +281,7 @@ namespace {
                     m_passes.end(), {"bloom extract", "bloom horizontal", "bloom vertical"});
             m_passes.push_back("display");
             for(const auto* name : {"cpu_wall", "cpu_events", "cpu_update", "cpu_prepare",
-                    "cpu_render_submit", "cpu_graph", "gpu_graph"})
+                    "cpu_runtime_update", "cpu_render_submit", "cpu_graph", "gpu_graph"})
                 m_samples[name].reserve(options.frames);
             for(const auto& pass : m_passes)
                 for(const auto* prefix : {"cpu_", "gpu_"})
@@ -199,10 +304,18 @@ namespace {
                 if(auto checked = validate_frame(*snapshot.cpu); !checked)
                     return Result<void, Comet::Error>::failure({checked.error()});
                 if(in_range(snapshot.cpu->serial)) {
+                    const auto physics = physics_statistics();
+                    if(auto checked = validate_workload(physics); !checked)
+                        return Result<void, Comet::Error>::failure({checked.error()});
+                    m_active_min = std::min(m_active_min, physics.active_bodies);
+                    m_active_max = std::max(m_active_max, physics.active_bodies);
+                    m_pose_min = std::min(m_pose_min, physics.pose_updates);
+                    m_pose_max = std::max(m_pose_max, physics.pose_updates);
                     m_samples["cpu_wall"].push_back(frame->total_ms);
                     m_samples["cpu_events"].push_back(frame->events_ms);
                     m_samples["cpu_update"].push_back(frame->update_ms);
                     m_samples["cpu_prepare"].push_back(frame->prepare_ms);
+                    m_samples["cpu_runtime_update"].push_back(frame->runtime_update_ms);
                     m_samples["cpu_render_submit"].push_back(frame->render_submit_ms);
                     append_graph("cpu_", *snapshot.cpu);
                 }
@@ -213,7 +326,7 @@ namespace {
                     append_graph("gpu_", *snapshot.gpu);
             }
             const auto drain = renderer.get_frame_scheduler().get_frame_slot_count() + 2;
-            if(update.frame_index > WARMUP_FRAMES + m_options.frames + drain) {
+            if(update.frame_index > m_warmup + m_options.frames + drain) {
                 m_finished = true;
                 m_engine.get_window().request_close();
             }
@@ -253,6 +366,18 @@ namespace {
                    << "# objects=" << m_options.objects << " scene_draws=" << stats.draw_calls
                    << " lights=" << stats.light_count << " msaa=4 bloom=" << m_options.bloom
                    << " ibl=off output=sdr\n"
+                   << "# workload=" << workload_name(m_options.workload)
+                   << " materials=" << m_options.materials << " layout=grid-v1 stable_ids=on\n"
+                   << "# physics_bodies=" << physics_statistics().bodies
+                   << " active_bodies_min=" << m_active_min << " active_bodies_max=" << m_active_max
+                   << " pose_updates_min=" << m_pose_min << " pose_updates_max=" << m_pose_max
+                   << '\n'
+                   << "# physics_fixed_delta_s=" << Comet::SceneRuntime::Settings{}.fixed_delta
+                   << " physics_steps_per_frame="
+                   << (m_options.workload == Workload::Static ? 0 : 1) << " settle_steps="
+                   << (m_options.workload == Workload::PhysicsSleeping ? SETTLE_STEPS : 0)
+                   << " respawn_steps="
+                   << (m_options.workload == Workload::PhysicsActive ? RESPAWN_STEPS : 0) << '\n'
                    << "# exposure=" << post_process.exposure
                    << " bloom_strength=" << post_process.bloom_strength
                    << " bloom_threshold=" << post_process.bloom_threshold << '\n'
@@ -263,11 +388,11 @@ namespace {
                    << " framebuffer=" << m_size.x << 'x' << m_size.y
                    << " present_mode=" << vk::to_string(m_generation->get_config().present_mode)
                    << '\n'
-                   << "# warmup=" << WARMUP_FRAMES << " requested_samples=" << m_options.frames
+                   << "# warmup=" << m_warmup << " requested_samples=" << m_options.frames
                    << " gpu_samples=" << gpu_samples << " gpu_status=" << gpu_status << '\n'
                    << "# gpu_error=" << snapshot.gpu_error << '\n'
                    << "# vma_allocation_bytes=" << allocated << '\n'
-                   << "metric,samples,p50_ms,p95_ms\n";
+                   << "metric,samples,p50_ms,p95_ms,p99_ms\n";
             for(auto& [name, values] : m_samples) {
                 if(values.empty())
                     continue;
@@ -276,7 +401,7 @@ namespace {
                     return values[static_cast<size_t>(std::ceil(values.size() * p)) - 1];
                 };
                 report << name << ',' << values.size() << ',' << percentile(0.5) << ','
-                       << percentile(0.95) << '\n';
+                       << percentile(0.95) << ',' << percentile(0.99) << '\n';
             }
             const auto written = Comet::write_text_file_atomic(m_options.output, report.str());
             if(written)
@@ -286,21 +411,40 @@ namespace {
 
     private:
         bool in_range(uint64_t serial) const {
-            return serial > WARMUP_FRAMES && serial <= WARMUP_FRAMES + m_options.frames;
+            return serial > m_warmup && serial <= m_warmup + m_options.frames;
+        }
+        Comet::PhysicsService::Statistics physics_statistics() const {
+            return m_physics ? m_physics->get_statistics() : Comet::PhysicsService::Statistics{};
         }
         Result<void> validate_frame(const Comet::RenderDiagnostics::GraphTiming& frame) const {
             const auto& scene = m_engine.get_renderer().get_scene_renderer();
             const auto& stats = scene.get_material_statistics();
             if(frame.truncated || frame.passes.size() != m_passes.size()
                 || stats.draw_calls != m_options.objects + 1 || stats.light_count != 3
-                || stats.pipeline_binds != 1 || stats.material_binds != 1
-                || stats.cached_material_versions != 1
+                || stats.pipeline_binds != 1 || stats.material_binds != m_options.materials
+                || stats.cached_material_versions != m_options.materials
                 || scene.get_post_process_settings().uses_bloom() != m_options.bloom)
                 return Result<void>::failure(
                     "Benchmark did not execute the expected forward scene");
             for(size_t index = 0; index < m_passes.size(); ++index)
                 if(frame.passes[index].name != m_passes[index])
                     return Result<void>::failure("Unexpected benchmark pass order");
+            return Result<void>::success();
+        }
+        Result<void> validate_workload(const Comet::PhysicsService::Statistics& physics) const {
+            if(m_options.workload == Workload::Static) {
+                if(physics.bodies != 0)
+                    return Result<void>::failure("Static benchmark unexpectedly ran physics");
+                return Result<void>::success();
+            }
+            const auto& timing = m_engine.get_scene_runtime().get_timing();
+            const auto active =
+                m_options.workload == Workload::PhysicsActive ? m_options.objects : 0;
+            if(physics.bodies != m_options.objects + 1 || physics.active_bodies != active
+                || timing.fixed_steps != 1 || timing.dropped_time != 0
+                || (m_options.workload == Workload::PhysicsSleeping && physics.pose_updates != 0))
+                return Result<void>::failure(
+                    "Benchmark physics workload did not maintain its expected state");
             return Result<void>::success();
         }
         void append_graph(
@@ -312,11 +456,17 @@ namespace {
 
         Comet::Engine& m_engine;
         const Options& m_options;
+        const Comet::PhysicsSystem* m_physics;
+        unsigned m_warmup;
         Comet::Math::Vec2u m_size;
         std::shared_ptr<Comet::Swapchain::Generation> m_generation;
         std::vector<std::string> m_passes;
         std::map<std::string, std::vector<double>> m_samples;
         uint64_t m_last_gpu = 0;
+        std::size_t m_active_min = std::numeric_limits<std::size_t>::max();
+        std::size_t m_active_max = 0;
+        std::size_t m_pose_min = std::numeric_limits<std::size_t>::max();
+        std::size_t m_pose_max = 0;
         bool m_finished = false;
     };
 
@@ -328,7 +478,7 @@ namespace {
             std::error_code error;
             std::filesystem::remove_all(project.value(), error);
         });
-        if(auto prepared = prepare_assets(project.value()); !prepared)
+        if(auto prepared = prepare_assets(project.value(), options); !prepared)
             return prepared;
         Comet::Config config;
         config.window.width = static_cast<int>(options.width);
@@ -349,13 +499,30 @@ namespace {
             engine->get_asset_registry(), engine->get_render_resources(),
             engine->get_task_scheduler());
         const Comet::ScopeExit shutdown([&] { engine->prepare_shutdown(); });
-        if(auto populated = populate_scene(*engine, assets, options); !populated)
+        std::vector<BodyPose> body_poses;
+        if(auto populated = populate_scene(*engine, assets, options, body_poses); !populated)
             return populated;
+        auto& runtime = engine->get_scene_runtime();
+        if(options.workload != Workload::Static) {
+            if(auto added = engine->add_default_scene_systems(); !added)
+                return Result<void>::failure(added.error().message);
+            if(auto started = engine->start_scene_runtime(Comet::SceneRuntime::State::Paused);
+                !started)
+                return Result<void>::failure(started.error().message);
+        }
         Measurement measurement(*engine, options);
         const auto run = engine->run({
             .update =
                 [&](const Comet::Engine::FrameContext& frame) {
-                    return measurement.sample(frame.update);
+                    if(auto sampled = measurement.sample(frame.update); !sampled)
+                        return sampled;
+                    if(options.workload == Workload::Static)
+                        return Result<void, Comet::Error>::success();
+                    if(options.workload == Workload::PhysicsActive
+                        && runtime.get_timing().fixed_index % RESPAWN_STEPS == 0)
+                        for(const auto& body : body_poses)
+                            body.entity.set_transform(body.transform);
+                    return engine->request_runtime_step();
                 },
         });
         if(!run)

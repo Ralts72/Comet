@@ -479,6 +479,7 @@ Collider 的尺寸乘以本地正缩放，球体暂要求均匀缩放，
 刚体暂不允许父级，避免把局部 TRS 误当世界姿态。Scene 保存 RigidBody／Collider 参数，
 PhysicsSystem 校验组件并提交快照，PhysicsService 在 Play／app 启动时创建 Jolt 世界和 body；
 System 读取模拟输出，回写动态姿态并将接触结果交给 Scene 的阶段通知缓冲。Stop／启动失败清空服务，Edit Scene 不模拟。
+PhysicsService 提供只读刚体总数、实际活动数及最近固定步的姿态回写数，PhysicsSystem 转发查询；统计在主线程固定步之外读取，未激活时为零。
 RigidBody 保存显式 `mass`（kg，默认 1、最低 0.001），PropertyDescriptor 共用于编辑、撤销和序列化；
 字段缺省取组件默认值，非法值不能通过文件或 Restore 绕过校验。Static／Kinematic 保留配置，质量响应仅作用于 Dynamic。
 创建动态刚体时使用指定质量，惯性仍由已缩放的 Collider 计算，不再由形状体积隐式改变质量。
@@ -754,6 +755,7 @@ Engine 在主循环标记阶段，FrameDiagnostics 负责计时、发布与保�
 events/update/prepare/render-submit 墙钟分段；prepare 包含帧等待和 UI，
 render-submit 包含提取、解析、录制与提交／呈现调用。暂缓呈现记录 rendered=false；错误中止不发布半条样本，
 最小化等待不作为正常帧采样。该运行时开关独立于 scope Profiler 的编译开关。
+Timing 另保留 update 中的 runtime_update_ms 子集供基准区分宿主与 Runtime，不增加时钟查询或重复计入总耗时。
 
 Renderer 拥有 RenderDiagnostics，SceneRenderer 只在录制图时借用，不再次扩大场景资源所有权。
 主循环使用 FrameDiagnostics::Timing，图采样使用 RenderDiagnostics::GraphTiming：计量范围、序号和完成时刻不同，不合并成混合数据结构。

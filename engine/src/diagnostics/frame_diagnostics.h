@@ -13,6 +13,7 @@ namespace Comet {
             int frame_index = 0;
             double events_ms = 0;
             double update_ms = 0;
+            double runtime_update_ms = 0; // update_ms 中的 Runtime 部分，不能重复相加。
             double prepare_ms = 0;
             double render_submit_ms = 0;
             double total_ms = 0;

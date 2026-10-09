@@ -18,6 +18,8 @@ namespace Comet {
         const auto& timing = *diagnostics.current();
         EXPECT_EQ(timing.frame_index, 7);
         EXPECT_TRUE(timing.rendered);
+        EXPECT_GE(timing.runtime_update_ms, 0);
+        EXPECT_LE(timing.runtime_update_ms, timing.update_ms);
         EXPECT_DOUBLE_EQ(timing.total_ms,
             timing.events_ms + timing.update_ms + timing.prepare_ms + timing.render_submit_ms);
         EXPECT_EQ(diagnostics.history().summarize().total.count, 1);
@@ -42,6 +44,7 @@ namespace Comet {
         diagnostics.finish_frame(false, true);
         ASSERT_TRUE(diagnostics.current());
         EXPECT_FALSE(diagnostics.current()->rendered);
+        EXPECT_DOUBLE_EQ(diagnostics.current()->runtime_update_ms, 0);
         EXPECT_EQ(diagnostics.history().summarize().total.count, 1);
     }
 }

@@ -128,6 +128,9 @@ World 保存场景内容，不依赖 Input 或 Runtime；运行输入和本局�
 ```bash
 ./tools/render_benchmark/run.sh
 ./tools/render_benchmark/run.sh /tmp/comet-benchmark.csv 64 640 360 240 1
+./tools/render_benchmark/run.sh /tmp/comet-multi.csv 2048 640 360 240 0 64
+./tools/render_benchmark/run.sh /tmp/comet-active.csv 512 640 360 240 0 32 physics-active
+./tools/render_benchmark/run.sh /tmp/comet-sleeping.csv 512 640 360 240 0 32 physics-sleeping
 ./tools/render_benchmark/run.sh --help
 ```
 
@@ -151,16 +154,22 @@ ctest --preset dev-debug -R '^render_benchmark_smoke$'
 `app-release`／`editor-dev` 默认不构建基准；再次使用这些 preset 配置会恢复该默认，不删除已编译产物。
 
 参数依次为 CSV 路径、物体数（1..4096）、逻辑窗口宽高（64..4096）、采样帧数（8..10000）、Bloom（0/1）。
+末尾可追加材质数（1..256，不能超过物体数）及场景类型（`static`、`physics-active`、`physics-sleeping`），默认单材质、静态场景。
 macOS 可在末尾追加 `-NSAutomaticWindowAnimationsEnabled NO` 关闭该进程的窗口动画；报告以实际 framebuffer 像素为准。
-固定场景使用共享 PBR 材质、立方体网格与地面、三类光源、方向光阴影、4×MSAA 和 SDR 输出；IBL 关闭，
+固定场景使用 PBR 材质、共享立方体网格与地面、三类光源、方向光阴影、4×MSAA 和 SDR 输出；IBL 关闭，
 不依赖可选 HDR 下载。资产复制到临时目录后走生产扫描／导入／加载，结束清理，不修改 demo 的资源和缓存。
-预热 32 帧后输出 CPU 整帧及分段、CPU/GPU 图和各 pass 的样本数、P50/P95，以及设备、呈现模式和 VMA 分配量。
+多材质参数在临时项目中生成稳定身份的 PBR 变体，按网格顺序交错分配；所有场景使用相同布局和固定实体身份。
+物理场景走 Engine 默认系统，每个渲染帧单步推进 1/60 秒，基准限制为 512 个动态立方体加静态地面，为现有接触缓存保留余量；这不是引擎刚体容量上限。
+`physics-active` 每 24 步把立方体放回固定空中位置，保持活动；`physics-sleeping` 先沉降 300 步。
+采样逐帧检查实际活动刚体数、姿态回写数和固定步数；状态不符则拒绝报告。
+预热 32 帧（休眠场景额外沉降 300 帧）后输出 CPU 整帧及分段、CPU/GPU 图和各 pass 的样本数、P50/P95/P99，
+以及设备、呈现模式、实际材质／刚体计数和 VMA 分配量。`cpu_runtime_update` 是 `cpu_update` 内的 Runtime 部分，不重复相加；它包含默认系统开销，不是纯 Jolt 模拟时间。
 GPU 样本按提交序号去重；`gpu_status` 区分完整、部分、不支持和降级，不把缺样本写成零耗时。
 窗口／呈现变化、少画物体或提前退出会拒绝报告；成功报告原子替换指定文件。
 
 测量请求关闭 validation，外部强制 layer 仍需自行排除；应在同机 Release、设备保持唤醒、无并行构建或其他 GPU 测试时重复比较。
 可分别提高物体数、提高实际分辨率、关闭 Bloom，避免一次改变所有变量。物体数增加时会缩小立方体，
-它不是纯 CPU 实验，也不代表多材质、透明物体、IBL 或编辑器开销。CPU 墙钟包含等待，GPU 图不含呈现完成，
+它不是纯 CPU 实验，也不代表透明物体、IBL 或编辑器开销；活动物理场景包含周期性传送的更新成本。CPU 墙钟包含等待，GPU 图不含呈现完成，
 VMA 分配量不等于系统总显存；各分段百分位不能直接相加。CI smoke 只验证测量契约，不设置绝对耗时门槛。
 
 资产扫描基准可接收任意包含 `assets/` 的项目目录。它先复制资产到临时项目并完成一次预热扫描，

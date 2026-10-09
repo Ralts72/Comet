@@ -8,24 +8,53 @@ if(NOT result STREQUAL "0" OR NOT help MATCHES "Usage: render_benchmark OUTPUT.c
     message(FATAL_ERROR "Invalid benchmark help: ${result} ${help} ${error}")
 endif()
 file(MAKE_DIRECTORY "${OUTPUT_DIRECTORY}")
-foreach(bloom 0 1)
-    set(output "${OUTPUT_DIRECTORY}/bloom-${bloom}.csv")
-    execute_process(COMMAND "${BENCHMARK}" "${output}" 8 160 120 16 ${bloom} ${platform_args}
+foreach(case static-0 static-1 multi active sleeping)
+    set(bloom 0)
+    set(materials 1)
+    set(workload static)
+    set(workload_args)
+    if(case STREQUAL "static-1")
+        set(bloom 1)
+    elseif(case STREQUAL "multi")
+        set(materials 8)
+        list(APPEND workload_args ${materials})
+    elseif(case STREQUAL "active" OR case STREQUAL "sleeping")
+        set(materials 4)
+        set(workload "physics-${case}")
+        list(APPEND workload_args ${materials} ${workload})
+    endif()
+    set(output "${OUTPUT_DIRECTORY}/${case}.csv")
+    execute_process(COMMAND "${BENCHMARK}" "${output}" 8 160 120 16 ${bloom} ${workload_args} ${platform_args}
             RESULT_VARIABLE result OUTPUT_VARIABLE report ERROR_VARIABLE error TIMEOUT 30)
     if(NOT result STREQUAL "0")
         message(FATAL_ERROR "Benchmark failed: ${result}\n${report}\n${error}")
     endif()
     file(READ "${output}" csv)
-    foreach(metric cpu_wall cpu_events cpu_update cpu_prepare cpu_render_submit cpu_graph
+    foreach(metric cpu_wall cpu_events cpu_update cpu_prepare cpu_runtime_update cpu_render_submit cpu_graph
             "cpu_directional shadow" cpu_scene cpu_display)
-        if(NOT csv MATCHES "\n${metric},16,[0-9.eE+-]+,[0-9.eE+-]+")
+        if(NOT csv MATCHES "\n${metric},16,[0-9.eE+-]+,[0-9.eE+-]+,[0-9.eE+-]+\n")
             message(FATAL_ERROR "Missing complete metric: ${metric}\n${csv}")
         endif()
     endforeach()
     if(NOT csv MATCHES "scene_draws=9 lights=3 msaa=4 bloom=${bloom}"
-            OR NOT csv MATCHES "pipeline_binds=1 material_binds=1 cached_material_versions=1"
+            OR NOT csv MATCHES "pipeline_binds=1 material_binds=${materials} cached_material_versions=${materials}"
+            OR NOT csv MATCHES "workload=${workload} materials=${materials}"
+            OR NOT csv MATCHES "metric,samples,p50_ms,p95_ms,p99_ms"
             OR NOT csv MATCHES "gpu_samples=[0-9]+ gpu_status=(complete|partial|unsupported|degraded)")
         message(FATAL_ERROR "Invalid scene or GPU coverage metadata\n${csv}")
+    endif()
+    if(case STREQUAL "active")
+        if(NOT csv MATCHES "physics_bodies=9 active_bodies_min=8 active_bodies_max=8"
+                OR NOT csv MATCHES "physics_steps_per_frame=1 settle_steps=0 respawn_steps=24")
+            message(FATAL_ERROR "Active workload was not maintained\n${csv}")
+        endif()
+    elseif(case STREQUAL "sleeping")
+        if(NOT csv MATCHES "physics_bodies=9 active_bodies_min=0 active_bodies_max=0 pose_updates_min=0 pose_updates_max=0"
+                OR NOT csv MATCHES "physics_steps_per_frame=1 settle_steps=300 respawn_steps=0")
+            message(FATAL_ERROR "Sleeping workload was not maintained\n${csv}")
+        endif()
+    elseif(NOT csv MATCHES "physics_bodies=0 active_bodies_min=0 active_bodies_max=0")
+        message(FATAL_ERROR "Static workload unexpectedly included physics\n${csv}")
     endif()
     if(bloom)
         foreach(pass extract horizontal vertical)
@@ -51,6 +80,23 @@ execute_process(COMMAND "${BENCHMARK}" "${output}" 8 160 120 16 2
         RESULT_VARIABLE result OUTPUT_QUIET ERROR_QUIET TIMEOUT 5)
 if(NOT result STREQUAL "2")
     message(FATAL_ERROR "Invalid Bloom switch was accepted")
+endif()
+foreach(materials 0 9 257 4x)
+    execute_process(COMMAND "${BENCHMARK}" "${output}" 8 160 120 16 0 ${materials}
+            RESULT_VARIABLE result OUTPUT_QUIET ERROR_QUIET TIMEOUT 5)
+    if(NOT result STREQUAL "2")
+        message(FATAL_ERROR "Invalid material count was accepted: ${materials}")
+    endif()
+endforeach()
+execute_process(COMMAND "${BENCHMARK}" "${output}" 8 160 120 16 0 4 unknown
+        RESULT_VARIABLE result OUTPUT_QUIET ERROR_QUIET TIMEOUT 5)
+if(NOT result STREQUAL "2")
+    message(FATAL_ERROR "Invalid workload was accepted")
+endif()
+execute_process(COMMAND "${BENCHMARK}" "${output}" 513 160 120 16 0 4 physics-active
+        RESULT_VARIABLE result OUTPUT_QUIET ERROR_QUIET TIMEOUT 5)
+if(NOT result STREQUAL "2")
+    message(FATAL_ERROR "Physics workload limit was not checked before startup")
 endif()
 
 # 临时目录不可用时在启动引擎前失败，不覆盖已有报告。

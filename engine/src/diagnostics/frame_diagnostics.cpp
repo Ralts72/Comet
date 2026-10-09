@@ -41,7 +41,8 @@ namespace Comet {
     }
 
     void FrameDiagnostics::mark_runtime_update() {
-        m_pending.update_ms += elapsed_phase_ms();
+        m_pending.runtime_update_ms = elapsed_phase_ms();
+        m_pending.update_ms += m_pending.runtime_update_ms;
     }
 
     void FrameDiagnostics::mark_render_submit() {

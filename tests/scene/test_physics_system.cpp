@@ -147,6 +147,7 @@ namespace Comet::Tests {
     TEST(PhysicsSystemTest, StableSleepingBodiesKeepTransformsCleanAndStepPublishesWakeUp) {
         Scene scene;
         PhysicsService physics;
+        EXPECT_EQ(physics.get_statistics().bodies, 0u);
         add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
         const auto resting = add_body(scene, "Resting", BodyMotion::Dynamic, {0, 2, 0});
         const auto child = scene.create_entity("Visual child");
@@ -156,9 +157,13 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(scene));
+        EXPECT_EQ(physics.get_statistics().bodies, 2u);
+        EXPECT_EQ(physics.get_statistics().active_bodies, 1u);
         for(int step = 0; step < 300; ++step)
             ASSERT_TRUE(runtime.advance(0.01));
         const auto sleeping_pose = resting.get_component<TransformComponent>();
+        EXPECT_EQ(physics.get_statistics().active_bodies, 0u);
+        EXPECT_EQ(physics.get_statistics().pose_updates, 0u);
         scene.update_world_transforms();
         for(int step = 0; step < 30; ++step) {
             ASSERT_TRUE(runtime.advance(0.01));
@@ -174,11 +179,16 @@ namespace Comet::Tests {
         EXPECT_EQ(scene.update_world_transforms(), 0u);
         ASSERT_TRUE(runtime.request_step());
         ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(physics.get_statistics().active_bodies, 1u);
+        EXPECT_EQ(physics.get_statistics().pose_updates, 1u);
         EXPECT_GT(
             resting.get_component<TransformComponent>().translation.y, sleeping_pose.translation.y);
         EXPECT_EQ(scene.update_world_transforms(), 2u);
         EXPECT_EQ(scene.update_world_transforms(), 0u);
         ASSERT_TRUE(runtime.stop());
+        EXPECT_EQ(physics.get_statistics().bodies, 0u);
+        EXPECT_EQ(physics.get_statistics().active_bodies, 0u);
+        EXPECT_EQ(physics.get_statistics().pose_updates, 0u);
     }
 
     TEST(PhysicsSystemTest, PreservesAuthoredEulerUntilPhysicsRotationChanges) {
