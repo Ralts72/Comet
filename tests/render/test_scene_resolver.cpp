@@ -151,6 +151,56 @@ namespace Comet::Tests {
         EXPECT_TRUE(submission.lights.empty());
     }
 
+    TEST_F(SceneEnvironmentResolverTest,
+        SharedResourcesPreserveItemsAcrossSkippedInputsAndReplacement) {
+        AssetRegistry registry;
+        SceneResolver resolver(registry);
+        const auto first = engine->get_render_resources().try_create_mesh(
+            {.vertices = {{{0, 0, -2}}, {{1, 0, -2}}, {{0, 1, -2}}}, .indices = {0, 1, 2}});
+        const auto second = engine->get_render_resources().try_create_mesh(
+            {.vertices = {{{0, 0, -3}}, {{1, 0, -3}}, {{0, 1, -3}}}, .indices = {0, 1, 2}});
+        ASSERT_TRUE(first);
+        ASSERT_TRUE(second);
+        ASSERT_TRUE(registry.register_asset(AssetHandle{10}, first.value()));
+        ASSERT_TRUE(registry.register_asset(AssetHandle{11}, second.value()));
+        const auto material = std::make_shared<Material>("shared", "unlit_color");
+        ASSERT_TRUE(registry.register_asset(AssetHandle{20}, material));
+        RenderScene scene;
+        scene.cameras.push_back({.primary = true});
+        scene.render_items = {
+            {.entity_id = 1, .mesh_handle = AssetHandle{10}, .material_handle = AssetHandle{20}},
+            {.entity_id = 2, .mesh_handle = AssetHandle{11}, .material_handle = AssetHandle{99}},
+            {.entity_id = 3,
+                .model_matrix = Math::translate(Math::Mat4(1), {2, 0, 0}),
+                .mesh_handle = AssetHandle{10},
+                .material_handle = AssetHandle{20}},
+            {.entity_id = 4, .mesh_handle = AssetHandle{11}, .material_handle = AssetHandle{20}},
+            {.entity_id = 5, .mesh_handle = AssetHandle{99}, .material_handle = AssetHandle{20}},
+            {.entity_id = 6, .mesh_handle = AssetHandle{11}, .material_handle = AssetHandle{20}}};
+        RenderSubmission submission;
+        resolver.resolve(scene, runtime_view({160, 120}), submission);
+        ASSERT_EQ(submission.render_items.size(), 4u);
+        EXPECT_EQ(submission.render_items[0].entity_id, 1u);
+        EXPECT_EQ(submission.render_items[1].entity_id, 3u);
+        EXPECT_EQ(submission.render_items[2].entity_id, 4u);
+        EXPECT_EQ(submission.render_items[3].entity_id, 6u);
+        EXPECT_EQ(submission.render_items[0].mesh, first.value());
+        EXPECT_EQ(submission.render_items[1].mesh, first.value());
+        EXPECT_EQ(submission.render_items[2].mesh, second.value());
+        EXPECT_EQ(submission.render_items[3].mesh, second.value());
+        EXPECT_EQ(submission.render_items[1].model_matrix, scene.render_items[2].model_matrix);
+        for(const auto& item : submission.render_items)
+            EXPECT_EQ(item.material.resource, material);
+
+        ASSERT_TRUE(registry.replace_asset(AssetHandle{10}, second.value()));
+        ASSERT_TRUE(registry.register_asset(AssetHandle{99}, material));
+        resolver.resolve(scene, runtime_view({160, 120}), submission);
+        ASSERT_EQ(submission.render_items.size(), 5u);
+        EXPECT_EQ(submission.render_items[0].mesh, second.value());
+        EXPECT_EQ(submission.render_items[1].entity_id, 2u);
+        EXPECT_EQ(submission.render_items[2].mesh, second.value());
+    }
+
     TEST_F(SceneEnvironmentResolverTest, IncompatibleEnvironmentStillReportsOnceUntilRemoved) {
         AssetRegistry registry;
         SceneResolver resolver(registry);

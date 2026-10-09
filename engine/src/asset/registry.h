@@ -78,7 +78,7 @@ namespace Comet {
     template<typename T> std::shared_ptr<T> AssetRegistry::resolve(const AssetHandle handle) const {
         static_assert(!std::is_void_v<T>, "AssetRegistry requires a concrete asset type");
 
-        const auto asset = resolve_impl(handle, std::type_index(typeid(std::remove_cv_t<T>)));
-        return std::static_pointer_cast<T>(asset);
+        return std::static_pointer_cast<T>(
+            resolve_impl(handle, std::type_index(typeid(std::remove_cv_t<T>))));
     }
 }

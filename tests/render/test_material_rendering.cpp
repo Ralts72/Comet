@@ -25,6 +25,7 @@
 #include "asset/registry.h"
 #include "render/debug/debug_renderer.h"
 #include "render/scene/scene_renderer.h"
+#include "render/scene/scene_resolver.h"
 #include "render/resource/mesh.h"
 #include "render/resource/texture.h"
 #include "shader/compiler.h"
@@ -426,6 +427,73 @@ namespace Comet::Tests {
         EXPECT_EQ(
             renderer.get_scene_renderer().get_material_statistics().material_versions_created, 1u);
         renderer.wait_idle();
+    }
+
+    TEST_F(MaterialRenderingTest, DuplicateRuntimeInputsUseLastSnapshotForReloadAndRemoval) {
+        constexpr AssetHandle program_handle(9240), material_handle(9241), mesh_handle(9242);
+        TemporaryDirectory directory;
+        const auto source = directory.path() / "material.frag";
+        const auto original = scalar_program(source, program_handle, "intensity", 10);
+        const auto limited = scalar_program(source, program_handle, "intensity", 0.2f);
+        ASSERT_TRUE(original);
+        ASSERT_TRUE(limited);
+        auto& assets = engine->get_asset_registry();
+        ASSERT_TRUE(assets.register_asset(program_handle, original));
+        ASSERT_TRUE(assets.register_asset(
+            material_handle, std::make_shared<Material>("runtime", "unlit_color", program_handle)));
+        const auto mesh = engine->get_render_resources().try_create_mesh(
+            {.vertices = {{{-0.5f, -0.5f, -2}}, {{0.5f, -0.5f, -2}}, {{0, 0.5f, -2}}},
+                .indices = {0, 1, 2}});
+        ASSERT_TRUE(mesh);
+        ASSERT_TRUE(assets.register_asset(mesh_handle, mesh.value()));
+        const auto overrides = [&](uint64_t identity, float intensity) {
+            return std::make_shared<const MaterialOverrides>(
+                MaterialOverrides{.instance_id = identity,
+                    .material = material_handle,
+                    .scalar_properties = {{"intensity", intensity}}});
+        };
+        RenderScene scene;
+        scene.cameras.push_back({.primary = true});
+        scene.render_items.push_back({.mesh_handle = mesh_handle,
+            .material_handle = material_handle,
+            .material_overrides = overrides(91, 0.75f)});
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        MaterialPrograms programs(assets);
+        auto owner = SceneRenderer::create(device, programs, engine->get_render_resources(),
+            {.msaa_samples = SampleCount::Count1}, {}, {64, 32});
+        ASSERT_TRUE(owner);
+        auto& scene_renderer = *owner.value();
+        SceneResolver resolver(assets);
+        auto submission = resolver.resolve(scene, {.render_size = {64, 32}});
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        frames.wait_for_current_slot();
+        frames.begin_frame(0);
+        frames.get_current_command_buffer().begin();
+        ASSERT_TRUE(scene_renderer.prepare_material_programs(submission));
+        auto rendered = scene_renderer.render(frames, submission);
+        ASSERT_TRUE(rendered);
+        frames.get_current_command_buffer().end();
+        ASSERT_TRUE(frames.submit(rendered.value(), {}));
+        frames.end_frame();
+        frames.wait_for_all_slots();
+
+        auto item = scene.render_items.front();
+        item.material_overrides = overrides(92, 0.1f);
+        scene.render_items.push_back(item);
+        item.material_overrides = overrides(91, 0.1f);
+        scene.render_items.push_back(item);
+        resolver.resolve(scene, {.render_size = {64, 32}}, submission);
+        ASSERT_TRUE(scene_renderer.prepare_material_programs(submission));
+        ASSERT_TRUE(assets.replace_asset(program_handle, limited));
+        ASSERT_TRUE(scene_renderer.prepare_material_programs(submission));
+        const auto* active = programs.published(program_handle, "unlit_color");
+        ASSERT_NE(active, nullptr);
+        EXPECT_EQ(active->source, limited);
+
+        submission.render_items.clear();
+        ASSERT_TRUE(scene_renderer.prepare_material_programs(submission));
+        EXPECT_EQ(scene_renderer.get_material_statistics().cached_material_versions, 0u);
     }
 
     class ProjectMaterialPublicationTest: public MaterialRenderingTest {

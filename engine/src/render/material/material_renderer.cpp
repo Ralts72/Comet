@@ -27,6 +27,7 @@
 #include "unlit_color_instanced_vert.h"
 
 #include <algorithm>
+#include <utility>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -393,15 +394,18 @@ namespace Comet {
     Result<void, GraphicsError> MaterialRenderer::prepare_programs(
         const RenderSubmission& submission) {
         ProgramMaterials requested;
-        RuntimeInstances instances;
+        bool requested_instances = false;
         for(const auto& item : submission.render_items) {
             const auto& material = item.material;
             if(!material.resource)
                 continue;
             const MaterialInstanceKey key{
                 material.material_handle, material.overrides ? material.overrides->instance_id : 0};
-            if(key.instance_id)
-                instances.insert_or_assign(key, &material);
+            if(key.instance_id) {
+                requested_instances = true;
+                if(const auto cached = m_materials.find(key); cached != m_materials.end())
+                    cached->second.requested_input = &item;
+            }
             if(!material.resource->get_shader_program())
                 continue;
             const auto program = std::pair{
@@ -411,7 +415,9 @@ namespace Comet {
                          material.resource, material.resource->get_revision(), material.overrides});
             m_project_pipelines.try_emplace(program);
         }
-        sync_runtime_instances(instances);
+        if(requested_instances || m_has_runtime_instances)
+            sync_runtime_instances();
+        m_has_runtime_instances = requested_instances;
         sync_program_inputs(std::move(requested));
         for(const auto& [program, active] : m_project_pipelines) {
             if(active.materials.empty())
@@ -423,28 +429,30 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
-    void MaterialRenderer::sync_runtime_instances(const RuntimeInstances& instances) {
-        // 先移除本次提交已不使用的运行实例；在途帧仍拥有完整旧资源。
-        std::erase_if(m_materials, [&](const auto& entry) {
-            const auto& key = entry.first;
-            if(key.instance_id && !instances.contains(key)) {
-                m_prepared.erase(key);
-                return true;
-            }
-            return false;
-        });
-        for(const auto& [key, material] : instances) {
-            const auto found = m_materials.find(key);
-            if(found == m_materials.end())
+    void MaterialRenderer::sync_runtime_instances() {
+        // 只消费本次输入；移除项的在途资源仍由帧保活。
+        for(auto cached = m_materials.begin(); cached != m_materials.end();) {
+            const auto& key = cached->first;
+            if(!key.instance_id) {
+                ++cached;
                 continue;
-            auto& cached = found->second;
-            if(cached.resources && cached.overrides != material->overrides) {
-                // 事务重绑必须读取当前快照，而不是失败候选看到的旧覆盖。
-                if(auto refreshed = m_prepared.prepare(key.material_handle, material->resource,
-                       cached.resources->pipeline->layout, material->overrides);
-                    refreshed)
-                    cached.overrides = material->overrides;
             }
+            auto& current = cached->second;
+            const auto* input = std::exchange(current.requested_input, nullptr);
+            if(!input) {
+                m_prepared.erase(key);
+                cached = m_materials.erase(cached);
+                continue;
+            }
+            const auto& material = input->material;
+            if(current.resources && current.overrides != material.overrides) {
+                // 事务重绑必须读取当前快照，而不是失败候选看到的旧覆盖。
+                if(auto refreshed = m_prepared.prepare(key.material_handle, material.resource,
+                       current.resources->pipeline->layout, material.overrides);
+                    refreshed)
+                    current.overrides = material.overrides;
+            }
+            ++cached;
         }
     }
 
@@ -678,6 +686,8 @@ namespace Comet {
         m_unsupported.erase(material.material_handle);
         const MaterialInstanceKey key{
             material.material_handle, material.overrides ? material.overrides->instance_id : 0};
+        if(key.instance_id)
+            m_has_runtime_instances = true;
         auto& cached = m_materials[key];
         const auto revision = material.resource->get_revision();
         if(cached.used && cached.prepared_serial == frame_serial

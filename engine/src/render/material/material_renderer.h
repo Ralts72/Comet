@@ -171,6 +171,7 @@ namespace Comet {
             const Material* prepared_source = nullptr;
             const MaterialOverrides* prepared_overrides = nullptr;
             const PipelineState* prepared_pipeline = nullptr;
+            const ResolvedRenderItem* requested_input = nullptr; // 程序准备借用，同步时清空。
             bool used = false;
         };
         struct DrawItem {
@@ -180,10 +181,9 @@ namespace Comet {
             uint32_t first_instance = 0;
         };
 
-        using RuntimeInstances = std::map<MaterialInstanceKey, const MaterialBinding*>;
         using ProgramMaterials = std::map<std::pair<AssetHandle, std::string>, MaterialInputs>;
 
-        void sync_runtime_instances(const RuntimeInstances& instances);
+        void sync_runtime_instances();
         void sync_program_inputs(ProgramMaterials&& requested);
         void update_frame_resources(FrameScheduler& frames, const RenderSubmission& submission,
             const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map,
@@ -238,5 +238,6 @@ namespace Comet {
         std::vector<DrawItem> m_draw_queue;
         std::vector<Math::Mat4> m_instance_transforms;
         Statistics m_statistics;
+        bool m_has_runtime_instances = false;
     };
 }

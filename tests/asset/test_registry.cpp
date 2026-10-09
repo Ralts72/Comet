@@ -28,6 +28,7 @@ namespace Comet::Tests {
         ASSERT_NE(resolved_mesh, nullptr);
         EXPECT_EQ(resolved_mesh, mesh);
         EXPECT_EQ(resolved_mesh->vertex_count, 24);
+        EXPECT_EQ(registry.resolve<const TestMesh>(handle), mesh);
     }
 
     TEST(AssetRegistryTest, RejectsInvalidNullAndDuplicateRegistrations) {

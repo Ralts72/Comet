@@ -31,8 +31,6 @@ namespace Comet {
         [[nodiscard]] std::optional<ViewProjectMatrix> resolve_camera(
             const RenderScene& render_scene, const RenderView& view);
 
-        [[nodiscard]] std::optional<ResolvedRenderItem> resolve_item(const RenderItem& render_item);
-
         const AssetRegistry& m_asset_registry;
         std::unordered_set<AssetHandle> m_missing_mesh_handles;
         std::unordered_set<AssetHandle> m_missing_material_handles;
