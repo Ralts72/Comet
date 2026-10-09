@@ -67,9 +67,9 @@ namespace Comet {
             const auto entity = entry.entity;
             if(entity && entity.has_component<RigidBodyComponent>()
                 && entity.has_component<ColliderComponent>()
-                && entity.has_component<TransformComponent>() && entity.get_uuid() == item.first)
+                && entity.has_component<TransformComponent>() && entity.get_uuid() == entry.uuid)
                 return false;
-            m_physics.remove_body(item.first, entry.id);
+            m_physics.remove_body(entry.uuid, item.first);
             return true;
         });
         Result<void, Error> result = Result<void, Error>::success();
@@ -86,7 +86,7 @@ namespace Comet {
                                                entity.get_component<ColliderComponent>(), rigid},
                     delta_time);
             if(result)
-                m_entries.try_emplace(uuid, Entry{entity, id});
+                m_entries.try_emplace(id, Entry{entity, uuid});
         });
         return result;
     }

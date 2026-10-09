@@ -815,18 +815,25 @@ namespace Comet::Tests {
         replacement.add_component<ColliderComponent>();
         ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_FLOAT_EQ(replacement.get_component<TransformComponent>().translation.x, 0);
+        EXPECT_EQ(physics.get_statistics().bodies, 1u);
+        ASSERT_TRUE(physics.request_impulse(replacement, {10, 0, 0}));
+        ASSERT_TRUE(runtime.advance(0.01));
+        const auto moved_x = replacement.get_component<TransformComponent>().translation.x;
+        EXPECT_GT(moved_x, 0);
         for(const auto motion : {BodyMotion::Static, BodyMotion::Kinematic}) {
             replacement.get_component<RigidBodyComponent>().motion = BodyMotion::Dynamic;
             ASSERT_TRUE(physics.request_impulse(replacement, {10, 0, 0}));
             replacement.get_component<RigidBodyComponent>().motion = motion;
             ASSERT_TRUE(runtime.advance(0.01));
-            EXPECT_FLOAT_EQ(replacement.get_component<TransformComponent>().translation.x, 0);
+            EXPECT_FLOAT_EQ(replacement.get_component<TransformComponent>().translation.x, moved_x);
+            EXPECT_EQ(physics.get_statistics().bodies, 1u);
         }
         replacement.get_component<RigidBodyComponent>().motion = BodyMotion::Dynamic;
         ASSERT_TRUE(physics.request_impulse(replacement, {10, 0, 0}));
         replacement.remove_component<RigidBodyComponent>();
         ASSERT_TRUE(runtime.advance(0.01));
-        EXPECT_FLOAT_EQ(replacement.get_component<TransformComponent>().translation.x, 0);
+        EXPECT_FLOAT_EQ(replacement.get_component<TransformComponent>().translation.x, moved_x);
+        EXPECT_EQ(physics.get_statistics().bodies, 0u);
         ASSERT_TRUE(runtime.stop());
     }
 

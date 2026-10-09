@@ -184,7 +184,7 @@ namespace Comet {
 
         ~Impl() {
             auto& interface = world.GetBodyInterface();
-            for(const auto& [uuid, body] : bodies) {
+            for(const auto& [entity, body] : bodies) {
                 interface.RemoveBody(body.id);
                 interface.DestroyBody(body.id);
             }
@@ -222,7 +222,7 @@ namespace Comet {
             const auto id = world.GetBodyInterface().CreateAndAddBody(settings, activation);
             if(id.IsInvalid())
                 return Result<void, Error>::failure({"Physics body capacity exceeded"});
-            const auto inserted = bodies.emplace(definition.uuid,
+            const auto inserted = bodies.emplace(definition.entity,
                 Body{definition.entity, definition.uuid, id, motion, rigid.mass, collider,
                     transform, world.GetBodyInterface().GetRotation(id)});
             body_lookup[id.GetIndex()] = &inserted.first->second;
@@ -245,7 +245,7 @@ namespace Comet {
             world.GetBodyInterface().ActivateBodiesInAABox(bounds, {}, {});
         }
 
-        void remove_body(std::unordered_map<EntityUuid, Body>::iterator it) {
+        void remove_body(std::unordered_map<EntityId, Body>::iterator it) {
             auto& interface = world.GetBodyInterface();
             wake_nearby_bodies(it->second.id);
             body_lookup[it->second.id.GetIndex()] = nullptr;
@@ -289,9 +289,9 @@ namespace Comet {
             const auto& transform = definition.transform;
             const auto& collider = definition.collider;
             const auto& rigid = definition.rigid;
-            auto it = bodies.find(definition.uuid);
+            auto it = bodies.find(definition.entity);
             if(it != bodies.end()) {
-                if(it->second.entity != definition.entity || it->second.motion != rigid.motion
+                if(it->second.uuid != definition.uuid || it->second.motion != rigid.motion
                     || !same_shape(it->second.collider, collider)
                     || !glm::all(glm::equal(it->second.last_transform.scale, transform.scale))) {
                     remove_body(it);
@@ -328,8 +328,8 @@ namespace Comet {
 
         Result<void, Error> apply_impulses(const std::span<const Impulse> impulses) {
             for(const auto& request : impulses) {
-                const auto found = bodies.find(request.uuid);
-                if(found == bodies.end() || found->second.entity != request.entity
+                const auto found = bodies.find(request.entity);
+                if(found == bodies.end() || found->second.uuid != request.uuid
                     || found->second.motion != BodyMotion::Dynamic)
                     continue;
                 const auto id = found->second.id;
@@ -470,7 +470,7 @@ namespace Comet {
         JPH::PhysicsSystem world;
         JPH::TempAllocatorImplWithMallocFallback allocator{SCRATCH_BYTES};
         JPH::JobSystemSingleThreaded jobs;
-        std::unordered_map<EntityUuid, Body> bodies;
+        std::unordered_map<EntityId, Body> bodies;
         std::vector<Body*> body_lookup;
         std::vector<JPH::BodyID> active_before;
         std::vector<Pair> frame_contacts;
@@ -549,8 +549,8 @@ namespace Comet {
     void PhysicsService::remove_body(const EntityUuid uuid, const EntityId entity) {
         if(!m_impl)
             return;
-        const auto found = m_impl->bodies.find(uuid);
-        if(found != m_impl->bodies.end() && found->second.entity == entity)
+        const auto found = m_impl->bodies.find(entity);
+        if(found != m_impl->bodies.end() && found->second.uuid == uuid)
             m_impl->remove_body(found);
     }
 

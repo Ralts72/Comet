@@ -22,10 +22,10 @@ namespace Comet {
     private:
         struct Entry {
             Entity entity;
-            EntityId id;
+            EntityUuid uuid;
         };
         Result<void, Error> synchronize(Scene& scene, float delta_time);
         PhysicsService& m_physics;
-        std::unordered_map<EntityUuid, Entry> m_entries;
+        std::unordered_map<EntityId, Entry> m_entries;
     };
 }
