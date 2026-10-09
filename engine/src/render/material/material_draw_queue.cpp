@@ -4,6 +4,7 @@
 #include "render/material/material_layout.h"
 #include "render/scene/draw_order.h"
 #include "render/scene/render_geometry.h"
+#include "common/scope_exit.h"
 
 #include <algorithm>
 #include <functional>
@@ -41,17 +42,20 @@ namespace Comet {
     Result<void, GraphicsError> MaterialRenderer::prepare_draw_queue(
         const RenderGeometry& geometry, const uint64_t frame_serial, const Frustum* frustum) {
         m_instance_transforms.clear();
+        m_draw_queue.clear();
+        const ScopeExit release_candidates([&] { m_draw_candidates.clear(); });
         collect_visible_draws(geometry, frustum);
         return prepare_draw_materials(frame_serial);
     }
 
     void MaterialRenderer::collect_visible_draws(
         const RenderGeometry& geometry, const Frustum* frustum) {
-        auto& queue = m_draw_queue;
-        queue.clear();
-        queue.reserve(geometry.get_items().size());
+        auto& candidates = m_draw_candidates;
+        candidates.clear();
+        candidates.reserve(geometry.get_items().size());
         const MaterialBinding* previous_material = nullptr;
         bool cull = false;
+        bool marked_hidden = false;
         for(const auto& prepared : geometry.get_items()) {
             const auto& item = *prepared.source;
             ++m_statistics.render_items;
@@ -60,50 +64,53 @@ namespace Comet {
                     || !DrawOrder::same_material_input(*previous_material, item.material))) {
                 previous_material = &item.material;
                 cull = can_cull(item.material);
+                marked_hidden = false;
             }
             if(frustum && cull && prepared.world_bounds
                 && !frustum->intersects(*prepared.world_bounds)) {
                 ++m_statistics.culled_items;
-                const auto key = DrawOrder::material_key(item.material);
-                if(const auto cached = m_materials.find(key); cached != m_materials.end())
-                    cached->second.used = true;
-                m_prepared.mark_used(key);
+                if(!marked_hidden) {
+                    const auto key = DrawOrder::material_key(item.material);
+                    if(const auto cached = m_materials.find(key); cached != m_materials.end())
+                        cached->second.used = true;
+                    m_prepared.mark_used(key);
+                    marked_hidden = true;
+                }
                 continue;
             }
-            queue.push_back({&item, nullptr});
+            candidates.push_back(prepared.source);
         }
     }
 
     Result<void, GraphicsError> MaterialRenderer::prepare_draw_materials(
         const uint64_t frame_serial) {
-        auto& queue = m_draw_queue;
-        const auto material_less = [](const DrawItem& a, const DrawItem& b) {
-            return DrawOrder::by_material(*a.item, *b.item);
+        auto& candidates = m_draw_candidates;
+        const auto material_less = [](const auto* a, const auto* b) {
+            return DrawOrder::by_material(*a, *b);
         };
-        if(!std::is_sorted(queue.begin(), queue.end(), material_less))
-            std::sort(queue.begin(), queue.end(), material_less);
-        size_t batches = 0;
-        for(size_t first = 0; first < queue.size();) {
-            const auto& input = queue[first].item->material;
+        if(!std::is_sorted(candidates.begin(), candidates.end(), material_less))
+            std::sort(candidates.begin(), candidates.end(), material_less);
+        for(size_t first = 0; first < candidates.size();) {
+            const auto& input = candidates[first]->material;
             size_t end = first + 1;
-            while(end < queue.size()) {
-                const auto& next = queue[end].item->material;
+            while(end < candidates.size()) {
+                const auto& next = candidates[end]->material;
                 if(!DrawOrder::same_material_input(input, next))
                     break;
                 ++end;
             }
             auto material = prepare_material(input, frame_serial);
             if(!material) {
-                queue.clear();
+                m_draw_queue.clear();
                 return Result<void, GraphicsError>::failure(material.error());
             }
             if(material.value()) {
                 append_material_draws(
-                    std::span(queue).subspan(first, end - first), material.value(), batches);
+                    std::span(candidates).subspan(first, end - first), material.value());
             }
             first = end;
         }
-        queue.resize(batches);
+        auto& queue = m_draw_queue;
         // 失败回退可能使用旧布局，按实际准备结果排序。
         const auto draw_less = [](const DrawItem& a, const DrawItem& b) {
             const auto a_instance = DrawOrder::material_key(a.item->material).instance_id;
@@ -127,13 +134,13 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
-    void MaterialRenderer::append_material_draws(const std::span<DrawItem> items,
-        const std::shared_ptr<MaterialResources>& material, size_t& batches) {
+    void MaterialRenderer::append_material_draws(const std::span<const ResolvedRenderItem*> items,
+        const std::shared_ptr<MaterialResources>& material) {
         const bool instanced = material->pipeline->instanced_pipeline != nullptr;
         // 有序 Mesh 组直接合批；项目顶点程序保持原提交顺序。
         if(instanced) {
-            const auto mesh_less = [](const DrawItem& a, const DrawItem& b) {
-                return DrawOrder::by_mesh(*a.item, *b.item);
+            const auto mesh_less = [](const auto* a, const auto* b) {
+                return DrawOrder::by_mesh(*a, *b);
             };
             if(!std::is_sorted(items.begin(), items.end(), mesh_less))
                 std::sort(items.begin(), items.end(), mesh_less);
@@ -141,17 +148,17 @@ namespace Comet {
         for(size_t first = 0; first < items.size();) {
             size_t end = first + 1;
             if(instanced) {
-                while(end < items.size() && items[end].item->mesh == items[first].item->mesh)
+                while(end < items.size() && items[end]->mesh == items[first]->mesh)
                     ++end;
             }
-            DrawItem draw{items[first].item, material};
+            DrawItem draw{items[first], material};
             draw.instance_count = static_cast<uint32_t>(end - first);
             if(draw.instance_count > 1) {
                 draw.first_instance = static_cast<uint32_t>(m_instance_transforms.size());
                 for(size_t index = first; index < end; ++index)
-                    m_instance_transforms.push_back(items[index].item->model_matrix);
+                    m_instance_transforms.push_back(items[index]->model_matrix);
             }
-            m_draw_queue[batches++] = std::move(draw);
+            m_draw_queue.push_back(std::move(draw));
             first = end;
         }
     }

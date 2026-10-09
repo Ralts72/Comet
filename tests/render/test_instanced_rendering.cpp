@@ -174,35 +174,42 @@ namespace Comet::Tests {
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
-        ASSERT_TRUE(scene.value()->prepare_material_programs(submission));
-        begin_frame(frames);
-        auto rendered = scene.value()->render(frames, submission);
-        ASSERT_TRUE(rendered) << rendered.error();
-        const auto stats = scene.value()->get_material_statistics();
-        EXPECT_EQ(stats.draw_calls, 3u);
-        EXPECT_EQ(stats.drawn_instances, 6u);
-        auto output = std::make_shared<Readback>(
-            device, context.get_context().get_physical_device(), 65 * 65 * 4);
-        const auto image = scene.value()
-                               ->get_offscreen_color_view(frames.get_current_frame_slot_index())
-                               ->get_image();
-        ASSERT_NO_FATAL_FAILURE(
-            finish_readback(*scene.value(), frames, output, {65, 65}, rendered.value()));
-        const auto bytes = output->read();
-        const auto format = image->get_info().format;
-        const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
-        std::array<unsigned, 3> pixels{};
-        for(size_t offset = 0; offset < bytes.size(); offset += 4) {
-            const std::array rgb{std::to_integer<unsigned>(bytes[offset + (bgra ? 2 : 0)]),
-                std::to_integer<unsigned>(bytes[offset + 1]),
-                std::to_integer<unsigned>(bytes[offset + (bgra ? 0 : 2)])};
-            for(size_t channel = 0; channel < 3; ++channel)
-                if(rgb[channel] > 20 && rgb[channel] > 2 * rgb[(channel + 1) % 3]
-                    && rgb[channel] > 2 * rgb[(channel + 2) % 3])
-                    ++pixels[channel];
+        for(const bool interleaved : {false, true}) {
+            SCOPED_TRACE(interleaved);
+            if(interleaved) {
+                std::swap(submission.render_items[1], submission.render_items[2]);
+                std::swap(submission.render_items[3], submission.render_items[4]);
+            }
+            ASSERT_TRUE(scene.value()->prepare_material_programs(submission));
+            begin_frame(frames);
+            auto rendered = scene.value()->render(frames, submission);
+            ASSERT_TRUE(rendered) << rendered.error();
+            const auto stats = scene.value()->get_material_statistics();
+            EXPECT_EQ(stats.draw_calls, interleaved ? 6u : 3u);
+            EXPECT_EQ(stats.drawn_instances, 6u);
+            auto output = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), 65 * 65 * 4);
+            const auto image = scene.value()
+                                   ->get_offscreen_color_view(frames.get_current_frame_slot_index())
+                                   ->get_image();
+            ASSERT_NO_FATAL_FAILURE(
+                finish_readback(*scene.value(), frames, output, {65, 65}, rendered.value()));
+            const auto bytes = output->read();
+            const auto format = image->get_info().format;
+            const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+            std::array<unsigned, 3> pixels{};
+            for(size_t offset = 0; offset < bytes.size(); offset += 4) {
+                const std::array rgb{std::to_integer<unsigned>(bytes[offset + (bgra ? 2 : 0)]),
+                    std::to_integer<unsigned>(bytes[offset + 1]),
+                    std::to_integer<unsigned>(bytes[offset + (bgra ? 0 : 2)])};
+                for(size_t channel = 0; channel < 3; ++channel)
+                    if(rgb[channel] > 20 && rgb[channel] > 2 * rgb[(channel + 1) % 3]
+                        && rgb[channel] > 2 * rgb[(channel + 2) % 3])
+                        ++pixels[channel];
+            }
+            for(const auto count : pixels)
+                EXPECT_GT(count, 100u);
         }
-        for(const auto count : pixels)
-            EXPECT_GT(count, 100u);
     }
 
     TEST_F(RenderGraphGpuTest, ProjectShaderProgramKeepsTwoMaterialsAfterRejectedVersion) {

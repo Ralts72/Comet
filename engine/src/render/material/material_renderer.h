@@ -197,8 +197,8 @@ namespace Comet {
         [[nodiscard]] bool can_cull(const MaterialBinding& material) const;
         void record_draws(FrameScheduler& frames, std::span<const DrawItem> queue,
             std::vector<QueueSemaphoreSubmit>& waits);
-        void append_material_draws(std::span<DrawItem> items,
-            const std::shared_ptr<MaterialResources>& material, size_t& batches);
+        void append_material_draws(std::span<const ResolvedRenderItem*> items,
+            const std::shared_ptr<MaterialResources>& material);
         Result<void, GraphicsError> upload_instances(FrameScheduler& frames);
         void collect_unused_materials(uint64_t frame_serial);
 
@@ -241,6 +241,7 @@ namespace Comet {
         MaterialRuntimeCache m_prepared;
         std::map<MaterialInstanceKey, CachedMaterial> m_materials;
         std::unordered_map<AssetHandle, uint64_t> m_unsupported;
+        std::vector<const ResolvedRenderItem*> m_draw_candidates;
         std::vector<DrawItem> m_draw_queue;
         std::vector<Math::Mat4> m_instance_transforms;
         Statistics m_statistics;

@@ -202,23 +202,26 @@ namespace Comet::Tests {
                 .material_handle = hidden_material,
                 .material_overrides = std::make_shared<const MaterialOverrides>(
                     MaterialOverrides{.instance_id = 41, .material = hidden_material})}};
+        scene.render_items.push_back(scene.render_items.back());
         auto& renderer = engine->get_renderer();
         for(unsigned frame = 0; frame < 6; ++frame) {
             SCOPED_TRACE(frame);
             const bool hidden = frame % 2 == 0;
-            scene.render_items.back().model_matrix =
-                Math::translate(Math::Mat4(1), {hidden ? 20.0f : 0.0f, 0, 0});
+            for(size_t index = 1; index < scene.render_items.size(); ++index)
+                scene.render_items[index].model_matrix =
+                    Math::translate(Math::Mat4(1), {hidden ? 20.0f : 0.0f, 0, 0});
             if(frame == 4)
                 ASSERT_TRUE(material->set_vector_property("color", {0, 0.5f, 0, 1}));
             ASSERT_TRUE(draw(scene));
             const auto stats = renderer.get_scene_renderer().get_material_statistics();
-            EXPECT_EQ(stats.render_items, 2u);
-            EXPECT_EQ(stats.culled_items, hidden ? 1u : 0u);
+            EXPECT_EQ(stats.render_items, 3u);
+            EXPECT_EQ(stats.culled_items, hidden ? 2u : 0u);
             EXPECT_EQ(stats.draw_calls, hidden ? 1u : 2u);
             EXPECT_EQ(stats.cached_material_versions, frame == 0 ? 1u : 2u);
             EXPECT_EQ(stats.material_versions_created, frame == 0 || frame == 1 || frame == 5);
         }
-        scene.render_items.back().model_matrix = Math::translate(Math::Mat4(1), {20, 0, 0});
+        for(size_t index = 1; index < scene.render_items.size(); ++index)
+            scene.render_items[index].model_matrix = Math::translate(Math::Mat4(1), {20, 0, 0});
         const auto replacement = engine->get_render_resources().try_create_mesh(
             {.vertices = {{{-20.5f, -0.5f, -2}}, {{-19.5f, -0.5f, -2}}, {{-20, 0.5f, -2}}},
                 .indices = {0, 1, 2}});
@@ -227,7 +230,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(draw(scene));
         EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().culled_items, 0u);
         EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().draw_calls, 2u);
-        scene.render_items.pop_back();
+        scene.render_items.resize(1);
         ASSERT_TRUE(draw(scene));
         EXPECT_EQ(
             renderer.get_scene_renderer().get_material_statistics().cached_material_versions, 1u);
