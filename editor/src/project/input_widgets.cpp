@@ -17,11 +17,6 @@ namespace CometEditor::Ui {
             return controls;
         }
 
-        const char* text(const Translations& translations, const char* english) {
-            const auto found = translations.find(english);
-            return found == translations.end() ? english : found->second.c_str();
-        }
-
         const Actions::Context* action_context(
             const Actions& actions, const Actions::Action& action) {
             const auto& contexts = actions.contexts();
@@ -33,51 +28,60 @@ namespace CometEditor::Ui {
             switch(relation) {
                 case BindingRelation::Shared:
                     if(common)
-                        return "Shared (common action bypasses consumption)";
-                    return "Shared";
+                        return "双方共享（公共动作不参与消费）";
+                    return "双方共享";
                 case BindingRelation::Consumes:
-                    return "Consumes this control from the other action";
+                    return "本绑定消费对方的同一输入";
                 case BindingRelation::ConsumedBy:
-                    return "This control is consumed by the other action";
+                    return "本绑定的同一输入被对方消费";
                 case BindingRelation::Unrelated:
-                    return "No overlapping bindings.";
+                    return "没有与其他动作重叠的绑定。";
             }
-            return "Unknown";
+            return "未知";
         }
 
         void render_relationship(const Actions::Binding& binding, const Actions::Action& other,
             const Actions::Context* context, const Actions::Context* other_context,
-            const BindingRelation relation, const Translations& translations) {
+            const BindingRelation relation) {
             const auto control = Actions::format_binding(binding);
             if(!control)
                 return;
-            const char* group = text(translations, "Common (Always Enabled)");
+            const char* group = "公共（始终启用）";
             if(other_context)
                 group = other_context->name.c_str();
             ImGui::Separator();
             ImGui::TextWrapped("%s/%s: %s [%s]", control.value().source.data(),
                 control.value().control.c_str(), other.name.c_str(), group);
-            ImGui::TextWrapped(
-                "%s", text(translations, relation_name(relation, !context || !other_context)));
+            ImGui::TextWrapped("%s", relation_name(relation, !context || !other_context));
             if(context && !context->enabled)
-                ImGui::TextWrapped(
-                    "%s %s", text(translations, "Initially disabled:"), context->name.c_str());
+                ImGui::TextWrapped("%s %s", "默认关闭：", context->name.c_str());
             if(other_context && other_context != context && !other_context->enabled)
-                ImGui::TextWrapped("%s %s", text(translations, "Initially disabled:"),
-                    other_context->name.c_str());
+                ImGui::TextWrapped("%s %s", "默认关闭：", other_context->name.c_str());
         }
     }
 
     const char* input_type_name(const Actions::Type type) {
         switch(type) {
             case Actions::Type::Button:
-                return "Button";
+                return "按钮";
             case Actions::Type::Axis:
-                return "Axis";
+                return "轴";
             case Actions::Type::Delta:
-                return "Delta";
+                return "位移";
         }
-        return "Unknown";
+        return "未知";
+    }
+
+    const char* input_type_label(const Actions::Type type) {
+        switch(type) {
+            case Actions::Type::Button:
+                return "按钮###Button";
+            case Actions::Type::Axis:
+                return "轴###Axis";
+            case Actions::Type::Delta:
+                return "位移###Delta";
+        }
+        return "未知";
     }
 
     std::span<const std::string_view> input_sources(const Actions::Type type) {
@@ -93,6 +97,24 @@ namespace CometEditor::Ui {
                 return all.last(1);
         }
         return {};
+    }
+
+    const char* input_source_name(const std::string_view source) {
+        if(source == "key")
+            return "键盘";
+        if(source == "mouse_button")
+            return "鼠标按钮";
+        if(source == "gamepad_button")
+            return "手柄按钮";
+        if(source == "gamepad_axis")
+            return "手柄轴";
+        if(source == "motion")
+            return "鼠标位移／滚轮";
+        return "未知";
+    }
+
+    std::string input_source_label(const std::string_view source) {
+        return std::string(input_source_name(source)) + "###" + std::string(source);
     }
 
     std::span<const Actions::Control> input_controls(const std::string_view source) {
@@ -120,13 +142,10 @@ namespace CometEditor::Ui {
         return {};
     }
 
-    void render_binding_relationships(const Actions& actions, const std::size_t selected_action,
-        const Translations& translations) {
+    void render_binding_relationships(const Actions& actions, const std::size_t selected_action) {
         if(selected_action >= actions.actions().size())
             return;
-        ImGui::TextWrapped(
-            "%s", text(translations,
-                      "Pairwise rules when both contexts are enabled; not current runtime state."));
+        ImGui::TextWrapped("%s", "以下说明双方组都启用时的两两关系，不代表当前运行状态。");
         const auto& selected = actions.actions()[selected_action];
         const auto* context = action_context(actions, selected);
         bool found = false;
@@ -146,18 +165,17 @@ namespace CometEditor::Ui {
                         Actions::compare_bindings(*binding, context, other_binding, other_context);
                     if(relation == BindingRelation::Unrelated)
                         continue;
-                    render_relationship(
-                        *binding, other, context, other_context, relation, translations);
+                    render_relationship(*binding, other, context, other_context, relation);
                     found = true;
                     break;
                 }
             }
         }
         if(found)
-            ImGui::TextWrapped("%s",
-                text(translations, "Other consuming contexts can still block non-common actions."));
+            ImGui::TextWrapped(
+                "%s", "非公共动作仍可能被其他消费组屏蔽；两两共享不代表最终一定可用。");
         else
-            ImGui::TextDisabled("%s", text(translations, "No overlapping bindings."));
+            ImGui::TextDisabled("%s", "没有与其他动作重叠的绑定。");
     }
 
     void set_next_input_modal_bounds(const char* title, const bool opening,
@@ -186,10 +204,8 @@ namespace CometEditor::Ui {
         }
     }
 
-    bool render_player_input_error(
-        std::string& error, const bool close_requested, const Translations& translations) {
-        const auto title =
-            std::string(text(translations, "Input Settings Error")) + "###Input Settings Error";
+    bool render_player_input_error(std::string& error, const bool close_requested) {
+        const auto title = std::string("输入设置错误###Input Settings Error");
         const bool already_open = ImGui::IsPopupOpen(title.c_str());
         if(error.empty() && !already_open)
             return false;
@@ -212,7 +228,7 @@ namespace CometEditor::Ui {
                 ImGui::SetScrollY(0);
             ImGui::TextWrapped("%s", error.c_str());
             ImGui::EndChild();
-            const auto close = std::string(text(translations, "Close")) + "###Close";
+            const auto close = std::string("关闭###Close");
             if(ImGui::Button(close.c_str()) || close_requested) {
                 error.clear();
                 ImGui::CloseCurrentPopup();

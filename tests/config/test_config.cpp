@@ -2,6 +2,8 @@
 
 #include "config/config.h"
 #include "config/config_loader.h"
+#include "common/file_io.h"
+#include "support/temporary_directory.h"
 
 #include <array>
 #include <filesystem>
@@ -18,10 +20,10 @@ namespace {
         explicit TemporaryConfigFile(const std::string& contents) {
             const auto id = std::random_device{}();
             m_path = std::filesystem::temp_directory_path()
-                     / ("comet_config_test_" + std::to_string(id) + ".yaml");
+                     / ("comet_config_test_" + std::to_string(id) + ".json");
 
             std::ofstream output(m_path);
-            output << contents;
+            output << "{\"test\": " << contents << '}';
         }
 
         ~TemporaryConfigFile() {
@@ -52,8 +54,8 @@ TEST(ConfigTest, ProjectProfilesDefineExpectedDiagnosticsPolicy) {
         std::filesystem::path(std::string(PROJECT_ROOT_DIR)) / "config";
     for(const auto& expectation : expectations) {
         SCOPED_TRACE(expectation.name);
-        const auto loaded = ConfigLoader{}.load(
-            (config_directory / (std::string(expectation.name) + ".yaml")).string());
+        const auto loaded =
+            ConfigLoader{}.load((config_directory / "profiles.json").string(), expectation.name);
         ASSERT_TRUE(loaded) << loaded.error();
         const Config& config = loaded.value();
 
@@ -69,34 +71,35 @@ TEST(ConfigTest, ProjectProfilesDefineExpectedDiagnosticsPolicy) {
 TEST(ConfigTest, RenderDiagnosticsIsIndependentAndValidatesBoolean) {
     EXPECT_FALSE(Config{}.diagnostics.enable_render_diagnostics);
     const TemporaryConfigFile enabled(
-        "diagnostics:\n  enable_render_diagnostics: true\n  enable_profiler: false\n");
-    auto loaded = ConfigLoader{}.load(enabled.path());
+        R"({"diagnostics": {"enable_render_diagnostics": true, "enable_profiler": false}})");
+    auto loaded = ConfigLoader{}.load(enabled.path(), "test");
     ASSERT_TRUE(loaded) << loaded.error();
     EXPECT_TRUE(loaded.value().diagnostics.enable_render_diagnostics);
     EXPECT_FALSE(loaded.value().diagnostics.enable_profiler);
-    const TemporaryConfigFile invalid("diagnostics:\n  enable_render_diagnostics: wrong\n");
-    loaded = ConfigLoader{}.load(invalid.path());
+    const TemporaryConfigFile invalid(R"({"diagnostics": {"enable_render_diagnostics": "wrong"}})");
+    loaded = ConfigLoader{}.load(invalid.path(), "test");
     ASSERT_FALSE(loaded);
     EXPECT_NE(loaded.error().find("diagnostics.enable_render_diagnostics"), std::string::npos);
 }
 
 TEST(ConfigTest, ParsesExplicitConfiguration) {
-    const TemporaryConfigFile file(R"(
-vulkan:
-  surface_format: rgba8_unorm
-  color_space: srgb_nonlinear
-  depth_format: d24_unorm_s8_uint
-  swapchain_image_count: 4
-render:
-  max_frames_in_flight: 3
-diagnostics:
-  log_level: warn
-  enable_file_logging: true
-  enable_profiler: false
-  enable_validation: false
-)");
+    const TemporaryConfigFile file(R"({
+        "vulkan": {
+            "surface_format": "rgba8_unorm",
+            "color_space": "srgb_nonlinear",
+            "depth_format": "d24_unorm_s8_uint",
+            "swapchain_image_count": 4
+        },
+        "render": {"max_frames_in_flight": 3},
+        "diagnostics": {
+            "log_level": "warn",
+            "enable_file_logging": true,
+            "enable_profiler": false,
+            "enable_validation": false
+        }
+    })");
 
-    const auto loaded = ConfigLoader{}.load(file.path());
+    const auto loaded = ConfigLoader{}.load(file.path(), "test");
     ASSERT_TRUE(loaded) << loaded.error();
     const Config& config = loaded.value();
 
@@ -114,9 +117,9 @@ diagnostics:
 }
 
 TEST(ConfigTest, UsesDefaultsForMissingFields) {
-    const TemporaryConfigFile file("diagnostics:\n  log_level: warn\n");
+    const TemporaryConfigFile file(R"({"diagnostics": {"log_level": "warn"}})");
 
-    const auto loaded = ConfigLoader{}.load(file.path());
+    const auto loaded = ConfigLoader{}.load(file.path(), "test");
     ASSERT_TRUE(loaded) << loaded.error();
     const Config& config = loaded.value();
 
@@ -128,38 +131,33 @@ TEST(ConfigTest, UsesDefaultsForMissingFields) {
 }
 
 TEST(ConfigTest, EmptyProfileUsesCppDefaults) {
-    for(const auto contents : {"{}", "# All defaults are built in.\n"}) {
-        SCOPED_TRACE(contents);
-        const TemporaryConfigFile file(contents);
-        const auto loaded = ConfigLoader{}.load(file.path());
-        ASSERT_TRUE(loaded) << loaded.error();
-        const auto& config = loaded.value();
-        EXPECT_EQ(config.window.width, 960);
-        EXPECT_EQ(config.window.height, 720);
-        EXPECT_EQ(config.vulkan.msaa_samples, SampleCount::Count4);
-        EXPECT_EQ(config.vulkan.present_mode, PresentMode::Immediate);
-        EXPECT_FLOAT_EQ(config.render.max_anisotropy, 8);
-        EXPECT_EQ(config.render.output_mode, OutputMode::Sdr);
-        EXPECT_EQ(config.diagnostics.log.level, Config::Log{}.level);
-        EXPECT_EQ(config.assets.source_bytes, AssetImportLimits{}.source_bytes);
-    }
+    const TemporaryConfigFile file("{}");
+    const auto loaded = ConfigLoader{}.load(file.path(), "test");
+    ASSERT_TRUE(loaded) << loaded.error();
+    const auto& config = loaded.value();
+    EXPECT_EQ(config.window.width, 960);
+    EXPECT_EQ(config.window.height, 720);
+    EXPECT_EQ(config.vulkan.msaa_samples, SampleCount::Count4);
+    EXPECT_EQ(config.vulkan.present_mode, PresentMode::Immediate);
+    EXPECT_FLOAT_EQ(config.render.max_anisotropy, 8);
+    EXPECT_EQ(config.render.output_mode, OutputMode::Sdr);
+    EXPECT_EQ(config.diagnostics.log.level, Config::Log{}.level);
+    EXPECT_EQ(config.assets.source_bytes, AssetImportLimits{}.source_bytes);
 }
 
 TEST(ConfigTest, ParsesAssetImportBudgetsAndRejectsInvalidValues) {
-    const TemporaryConfigFile file(R"(
-assets:
-  source_max_mib: 128
-  texture_working_mib: 512
-  mesh_working_mib: 768
-  mesh_owner_inspect_kib: 32
-  external_file_mib: 256
-  external_file_queue: 3
-  async:
-    in_flight: 2
-    queued: 16
-    working_mib: 1536
-)");
-    const auto loaded = ConfigLoader{}.load(file.path());
+    const TemporaryConfigFile file(R"({
+        "assets": {
+            "source_max_mib": 128,
+            "texture_working_mib": 512,
+            "mesh_working_mib": 768,
+            "mesh_owner_inspect_kib": 32,
+            "external_file_mib": 256,
+            "external_file_queue": 3,
+            "async": {"in_flight": 2, "queued": 16, "working_mib": 1536}
+        }
+    })");
+    const auto loaded = ConfigLoader{}.load(file.path(), "test");
     ASSERT_TRUE(loaded) << loaded.error();
     const auto& assets = loaded.value().assets;
     EXPECT_EQ(assets.source_bytes, 128ull * 1024 * 1024);
@@ -172,12 +170,15 @@ assets:
     EXPECT_EQ(assets.async.queued, 16u);
     EXPECT_EQ(assets.async.working_bytes, 1536ull * 1024 * 1024);
 
-    for(const auto invalid : {"assets:\n  source_max_mib: 0\n", "assets:\n  source_max_mib: 2048\n",
-            "assets:\n  texture_working_mib: 16\n", "assets:\n  mesh_owner_inspect_kib: 1048576\n",
-            "assets:\n  external_file_queue: 0\n", "assets:\n  async:\n    in_flight: 65\n",
-            "assets:\n  mesh_working_mib: 4097\n", "assets:\n  async:\n    in_flight: 0\n"}) {
+    for(const auto invalid : {R"({"assets": {"source_max_mib": 0}})",
+            R"({"assets": {"source_max_mib": 2048}})", R"({"assets": {"texture_working_mib": 16}})",
+            R"({"assets": {"mesh_owner_inspect_kib": 1048576}})",
+            R"({"assets": {"external_file_queue": 0}})",
+            R"({"assets": {"async": {"in_flight": 65}}})",
+            R"({"assets": {"mesh_working_mib": 4097}})",
+            R"({"assets": {"async": {"in_flight": 0}}})"}) {
         const TemporaryConfigFile invalid_file(invalid);
-        const auto result = ConfigLoader{}.load(invalid_file.path());
+        const auto result = ConfigLoader{}.load(invalid_file.path(), "test");
         ASSERT_FALSE(result) << invalid;
         EXPECT_NE(result.error().find("assets"), std::string::npos);
     }
@@ -185,10 +186,10 @@ assets:
 
 TEST(ConfigTest, ExplicitValidationSettingOverridesDefault) {
     const bool expected = !Config::Vulkan{}.enable_validation;
-    const TemporaryConfigFile file(
-        std::string("diagnostics:\n  enable_validation: ") + (expected ? "true\n" : "false\n"));
+    const TemporaryConfigFile file(std::string(R"({"diagnostics": {"enable_validation": )")
+                                   + (expected ? "true}}" : "false}}"));
 
-    const auto loaded = ConfigLoader{}.load(file.path());
+    const auto loaded = ConfigLoader{}.load(file.path(), "test");
     ASSERT_TRUE(loaded) << loaded.error();
     const Config& config = loaded.value();
 
@@ -196,9 +197,9 @@ TEST(ConfigTest, ExplicitValidationSettingOverridesDefault) {
 }
 
 TEST(ConfigTest, RejectsInvalidFieldTypeWithFieldAndFileContext) {
-    const TemporaryConfigFile file("render:\n  max_frames_in_flight: many\n");
+    const TemporaryConfigFile file(R"({"render": {"max_frames_in_flight": "many"}})");
 
-    const auto result = ConfigLoader{}.load(file.path());
+    const auto result = ConfigLoader{}.load(file.path(), "test");
     ASSERT_FALSE(result);
     const auto& message = result.error();
     EXPECT_NE(message.find(file.path()), std::string::npos);
@@ -207,15 +208,15 @@ TEST(ConfigTest, RejectsInvalidFieldTypeWithFieldAndFileContext) {
 }
 
 TEST(ConfigTest, ValidatesRequiredPositiveValues) {
-    const TemporaryConfigFile file("render:\n  max_frames_in_flight: 0\n");
+    const TemporaryConfigFile file(R"({"render": {"max_frames_in_flight": 0}})");
 
-    EXPECT_FALSE(ConfigLoader{}.load(file.path()));
+    EXPECT_FALSE(ConfigLoader{}.load(file.path(), "test"));
 }
 
 TEST(ConfigTest, RejectsUnknownVulkanEnumName) {
-    const TemporaryConfigFile file("vulkan:\n  depth_format: unknown\n");
+    const TemporaryConfigFile file(R"({"vulkan": {"depth_format": "unknown"}})");
 
-    const auto result = ConfigLoader{}.load(file.path());
+    const auto result = ConfigLoader{}.load(file.path(), "test");
     ASSERT_FALSE(result);
     const auto& message = result.error();
     EXPECT_NE(message.find("vulkan.depth_format"), std::string::npos);
@@ -223,20 +224,20 @@ TEST(ConfigTest, RejectsUnknownVulkanEnumName) {
 }
 
 TEST(ConfigTest, RejectsPlayerSettingsAndUnknownDeveloperKeys) {
-    constexpr std::array cases = {std::pair{"window: {width: 1200}", "window"},
-        std::pair{"vulkan: {msaa_samples: 8}", "vulkan.msaa_samples"},
-        std::pair{"vulkan: {present_mode: fifo}", "vulkan.present_mode"},
-        std::pair{"render: {max_anisotropy: 16}", "render.max_anisotropy"},
-        std::pair{"render: {output_mode: auto}", "render.output_mode"},
-        std::pair{"render: {hdr_headroom: 8}", "render.hdr_headroom"},
-        std::pair{"render: {hdr_white_level: 1.25}", "render.hdr_white_level"},
-        std::pair{"render: {enable_vsync: true}", "render.enable_vsync"},
-        std::pair{"diagnostics: {log_levle: warn}", "diagnostics.log_levle"},
-        std::pair{"assets: {async: {unknown: 2}}", "assets.async.unknown"}};
+    constexpr std::array cases = {std::pair{R"({"window": {"width": 1200}})", "window"},
+        std::pair{R"({"vulkan": {"msaa_samples": 8}})", "vulkan.msaa_samples"},
+        std::pair{R"({"vulkan": {"present_mode": "fifo"}})", "vulkan.present_mode"},
+        std::pair{R"({"render": {"max_anisotropy": 16}})", "render.max_anisotropy"},
+        std::pair{R"({"render": {"output_mode": "auto"}})", "render.output_mode"},
+        std::pair{R"({"render": {"hdr_headroom": 8}})", "render.hdr_headroom"},
+        std::pair{R"({"render": {"hdr_white_level": 1.25}})", "render.hdr_white_level"},
+        std::pair{R"({"render": {"enable_vsync": true}})", "render.enable_vsync"},
+        std::pair{R"({"diagnostics": {"log_levle": "warn"}})", "diagnostics.log_levle"},
+        std::pair{R"({"assets": {"async": {"unknown": 2}}})", "assets.async.unknown"}};
     for(const auto& [contents, key] : cases) {
         SCOPED_TRACE(contents);
         const TemporaryConfigFile file(contents);
-        const auto result = ConfigLoader{}.load(file.path());
+        const auto result = ConfigLoader{}.load(file.path(), "test");
         ASSERT_FALSE(result);
         EXPECT_NE(result.error().find(file.path()), std::string::npos);
         EXPECT_NE(result.error().find(key), std::string::npos);
@@ -245,18 +246,35 @@ TEST(ConfigTest, RejectsPlayerSettingsAndUnknownDeveloperKeys) {
 }
 
 TEST(ConfigTest, RejectsMalformedProfileAndSectionTypes) {
-    for(const auto contents : {"[diagnostics]", "diagnostics: true", "assets: null",
-            "assets: {async: []}", "diagnostics: {log_level: [warn]}", "diagnostics: [",
-            "diagnostics: {log_level: info, log_level: warn}",
-            "diagnostics: {}\ndiagnostics: {log_level: warn}"}) {
+    for(const auto contents : {"", "null", "[]", R"({"diagnostics": true})", R"({"assets": null})",
+            R"({"assets": {"async": []}})", R"({"diagnostics": {"log_level": ["warn"]}})",
+            R"({"diagnostics": [})",
+            R"({"diagnostics": {"log_level": "info", "log_level": "warn"}})",
+            R"({"diagnostics": {}, "diagnostics": {"log_level": "warn"}})",
+            R"({"diagnostics": {"enable_validation": "true"}})",
+            R"({"vulkan": {"depth_format": 1}})", R"({"render": {"max_frames_in_flight": -1}})",
+            R"({"render": {"max_frames_in_flight": 2.5}})"}) {
         SCOPED_TRACE(contents);
         const TemporaryConfigFile file(contents);
-        const auto result = ConfigLoader{}.load(file.path());
+        const auto result = ConfigLoader{}.load(file.path(), "test");
         ASSERT_FALSE(result);
         EXPECT_NE(result.error().find(file.path()), std::string::npos);
     }
 }
 
 TEST(ConfigTest, ReportsMissingFile) {
-    EXPECT_FALSE(ConfigLoader{}.load("missing-config.yaml"));
+    EXPECT_FALSE(ConfigLoader{}.load("missing-config.json", "test"));
+}
+
+TEST(ConfigTest, RejectsMissingAndMalformedProfileContainers) {
+    Tests::TemporaryDirectory directory;
+    const auto path = directory.path() / "profiles.json";
+    for(const auto contents : {"{}", "[]", "null", R"({"test": {}, "test": {}})"}) {
+        SCOPED_TRACE(contents);
+        ASSERT_TRUE(write_text_file_atomic(path, contents));
+        const auto result = ConfigLoader{}.load(path.string(), "test");
+        ASSERT_FALSE(result);
+        EXPECT_NE(result.error().find(path.string()), std::string::npos);
+        EXPECT_NE(result.error().find("test"), std::string::npos);
+    }
 }

@@ -15,8 +15,8 @@
 namespace CometEditor {
     HierarchyPanel::HierarchyPanel(SelectionService& selection, const CommandHistory& history,
         const EditorState& state, const SceneCommands::EntityClipboard& clipboard)
-        : EditorPanel("Hierarchy"), m_selection(selection), m_history(history), m_state(state),
-          m_clipboard(clipboard) {}
+        : EditorPanel("层级###Hierarchy"), m_selection(selection), m_history(history),
+          m_state(state), m_clipboard(clipboard) {}
 
     bool HierarchyPanel::can_edit_scene() const {
         return m_state.mode == EditorMode::Edit
@@ -105,28 +105,28 @@ namespace CometEditor {
 
     void HierarchyPanel::render_context_menu(const Comet::Entity entity) {
         ImGui::BeginDisabled(!can_edit_scene());
-        if(ImGui::MenuItem(Ui::label(entity ? "Create Child" : "Create Entity").c_str())) {
+        if(ImGui::MenuItem(entity ? "创建子实体###Create Child" : "创建实体###Create Entity")) {
             const auto parent = entity ? entity.get_uuid() : Comet::EntityUuid{};
             m_request = Request{Request::Type::Create, {}, parent, m_history.generation()};
             m_expand_entity = parent;
         }
-        if(ImGui::MenuItem(Ui::label("Paste").c_str(), nullptr, false, m_clipboard.has_content())) {
+        if(ImGui::MenuItem("粘贴###Paste", nullptr, false, m_clipboard.has_content())) {
             const auto parent = entity ? entity.get_uuid() : Comet::EntityUuid{};
             m_request = Request{Request::Type::Paste, {}, parent, m_history.generation()};
             m_expand_entity = parent;
         }
         if(entity) {
             ImGui::Separator();
-            if(ImGui::MenuItem(Ui::label("Rename").c_str())) {
+            if(ImGui::MenuItem("重命名###Rename")) {
                 m_renaming_entity = entity.get_uuid();
                 m_rename_generation = m_history.generation();
                 m_rename_name = entity.get_component<Comet::NameComponent>().name;
                 m_open_rename = true;
             }
-            if(ImGui::MenuItem(Ui::label("Duplicate").c_str()))
+            if(ImGui::MenuItem("复制###Duplicate"))
                 m_request = Request{
                     Request::Type::Duplicate, entity.get_uuid(), {}, m_history.generation()};
-            if(ImGui::MenuItem(Ui::label("Delete").c_str()))
+            if(ImGui::MenuItem("删除###Delete"))
                 m_request =
                     Request{Request::Type::Delete, entity.get_uuid(), {}, m_history.generation()};
         }
@@ -134,12 +134,11 @@ namespace CometEditor {
     }
 
     void HierarchyPanel::render_rename_dialog() {
-        constexpr const char* title = "Rename Entity";
+        constexpr const char* title = "重命名实体###Rename Entity";
         const bool opening = std::exchange(m_open_rename, false);
         if(opening)
             ImGui::OpenPopup(title);
-        if(!ImGui::BeginPopupModal(
-               Ui::label(title).c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        if(!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             return;
 
         const bool valid = can_edit_scene() && m_rename_generation == m_history.generation()
@@ -154,9 +153,9 @@ namespace CometEditor {
         if(opening)
             ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(360.0f);
-        const bool submitted = Ui::input_text(Ui::label("Name").c_str(), m_rename_name,
+        const bool submitted = Ui::input_text("名称###Name", m_rename_name,
             ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
-        if(ImGui::Button(Ui::label("Rename").c_str(), ImVec2(100.0f, 0.0f)) || submitted) {
+        if(ImGui::Button("重命名###Rename", ImVec2(100.0f, 0.0f)) || submitted) {
             if(!m_rename_name.empty()) {
                 m_rename_request =
                     RenameRequest{m_renaming_entity, m_rename_name, m_rename_generation};
@@ -165,7 +164,7 @@ namespace CometEditor {
             }
         }
         ImGui::SameLine();
-        if(ImGui::Button(Ui::label("Cancel").c_str(), ImVec2(100.0f, 0.0f))) {
+        if(ImGui::Button("取消###Cancel", ImVec2(100.0f, 0.0f))) {
             ImGui::CloseCurrentPopup();
             m_renaming_entity = {};
         }
@@ -185,7 +184,7 @@ namespace CometEditor {
                                    | ImGuiTreeNodeFlags_SpanAvailWidth;
         if(m_selection.get_selected_scene())
             flags |= ImGuiTreeNodeFlags_Selected;
-        const bool scene_open = ImGui::TreeNodeEx(Ui::label("Scene").c_str(), flags);
+        const bool scene_open = ImGui::TreeNodeEx("场景###Scene", flags);
         if(ImGui::IsItemClicked())
             m_selection.select_scene();
         if(ImGui::BeginPopupContextItem("Scene actions")) {

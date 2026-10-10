@@ -10,9 +10,6 @@
 [submodule "3rdparty/glfw"]
 	path = 3rdparty/glfw
 	url = https://github.com/glfw/glfw.git
-[submodule "3rdparty/yaml-cpp"]
-	path = 3rdparty/yaml-cpp
-	url = https://github.com/jbeder/yaml-cpp.git
 [submodule "3rdparty/fastgltf"]
 	path = 3rdparty/fastgltf
 	url = https://github.com/spnda/fastgltf.git

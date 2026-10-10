@@ -1,7 +1,5 @@
 #include "project/quality_settings_panel.h"
 
-#include "ui/text.h"
-
 #include <imgui.h>
 #include <utility>
 
@@ -25,9 +23,9 @@ namespace CometEditor {
         if(!m_open)
             return;
         ImGui::SetNextWindowSize({480, 0}, ImGuiCond_FirstUseEver);
-        if(ImGui::Begin(Ui::label("Project Settings - Quality").c_str(), &m_open)) {
+        if(ImGui::Begin("项目设置 - 画质###Project Settings - Quality", &m_open)) {
             ImGui::TextWrapped(
-                "%s", Ui::text("Project defaults; existing players keep their saved choices."));
+                "%s", "修改项目默认值；已有玩家选择保持不变，可在游戏菜单恢复默认。");
             ImGui::SetNextItemWidth(160);
             const auto samples = std::to_string(m_draft.msaa_samples) + "x";
             if(ImGui::BeginCombo("MSAA", samples.c_str())) {
@@ -40,25 +38,23 @@ namespace CometEditor {
             }
             ImGui::SetNextItemWidth(220);
             ImGui::SliderFloat(
-                Ui::label("Anisotropy").c_str(), &m_draft.max_anisotropy, 1, 16, "%.0fx");
+                "各向异性过滤###Anisotropy", &m_draft.max_anisotropy, 1, 16, "%.0fx");
             ImGui::SetNextItemWidth(220);
-            ImGui::SliderFloat(
-                Ui::label("Render Scale").c_str(), &m_draft.render_scale, 0.5f, 1, "%.2f");
-            ImGui::TextWrapped(
-                "%s", Ui::text("Render scale affects the scene; UI keeps output resolution."));
+            ImGui::SliderFloat("渲染比例###Render Scale", &m_draft.render_scale, 0.5f, 1, "%.2f");
+            ImGui::TextWrapped("%s", "渲染比例仅调整场景，UI 保持输出分辨率。");
             if(!m_error.empty()) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.25f, 0.2f, 1.0f));
                 ImGui::TextWrapped("%s", m_error.c_str());
                 ImGui::PopStyleColor();
             }
-            if(ImGui::Button(Ui::label("Save").c_str())) {
+            if(ImGui::Button("保存###Save")) {
                 if(auto valid = m_draft.validate(); valid)
                     m_request = m_draft;
                 else
                     m_error = valid.error();
             }
             ImGui::SameLine();
-            if(ImGui::Button(Ui::label("Cancel").c_str()))
+            if(ImGui::Button("取消###Cancel"))
                 close();
         }
         ImGui::End();

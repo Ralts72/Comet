@@ -21,7 +21,6 @@
 #include "project/asset_operations.h"
 #include "scene/editor_request_policy.h"
 #include "ui/dialogs.h"
-#include "ui/text.h"
 #include "scene/command_history.h"
 #include "scene/scene_editor.h"
 #include "scene/editor_scene_session.h"
@@ -92,7 +91,7 @@ namespace {
             const auto state_directory = CometEditor::editor_user_state_directory();
             if(!state_directory)
                 return Comet::Result<void, Comet::Error>::failure({state_directory.error()});
-            m_shortcut_settings_path = state_directory.value() / "shortcuts.yaml";
+            m_shortcut_settings_path = state_directory.value() / "shortcuts.json";
             auto ui = CometEditor::Ui::ImGuiContext::create(engine.get_window(), render_context,
                 {.ini_path = state_directory.value() / "imgui.ini",
                     .docking = true,
@@ -114,11 +113,6 @@ namespace {
             } else {
                 LOG_WARN("Recent projects unavailable: {}", recent_path.error());
             }
-
-            auto translations = CometEditor::Ui::load_translations();
-            if(!translations)
-                return Comet::Result<void, Comet::Error>::failure({translations.error()});
-            m_translations = std::move(translations).value();
 
             constexpr auto quiet_period = CometEditor::DEFAULT_FILE_CHANGE_QUIET_PERIOD;
             m_material_shader_reload = std::make_unique<CometEditor::MaterialShaderReload>(
@@ -812,7 +806,7 @@ namespace {
         }
 
         bool render_player_input(const Comet::Input::Frame& input) {
-            bool blocked = m_player_input_panel.render(input, m_translations);
+            bool blocked = m_player_input_panel.render(input);
             if(auto requested = m_player_input_panel.take_request()) {
                 const auto result = apply_player_input(std::move(*requested));
                 m_player_input_panel.complete(result);
@@ -820,8 +814,8 @@ namespace {
                     LOG_WARN("Cannot apply player input: {}", result.error());
             }
             const bool close_error = input.focused && input.key(Comet::Input::Key::Escape).pressed;
-            blocked |= CometEditor::Ui::render_player_input_error(
-                m_player_input_error, close_error, m_translations);
+            blocked |=
+                CometEditor::Ui::render_player_input_error(m_player_input_error, close_error);
             return blocked;
         }
 
@@ -877,7 +871,6 @@ namespace {
         }
 
         void draw_editor_ui(const Comet::Input::Frame& input) {
-            const CometEditor::Ui::TextScope text(m_translations);
             constexpr ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
             ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), dockspace_flags);
 
@@ -1270,7 +1263,6 @@ namespace {
         CometEditor::EditorState m_editor_state;
         CometEditor::EditorShortcuts m_shortcuts;
         std::filesystem::path m_shortcut_settings_path;
-        CometEditor::Ui::Translations m_translations;
         std::unique_ptr<CometEditor::SceneEditor> m_scene_editor;
         std::unique_ptr<CometEditor::SceneDocument> m_scene_document;
         std::unique_ptr<CometEditor::EditorSceneSession> m_scene_session;
@@ -1317,7 +1309,7 @@ int main(int argc, char** argv) {
         }
         const std::filesystem::path config_directory = COMET_CONFIG_DIRECTORY;
         auto config = Comet::ConfigLoader{}.load(
-            (config_directory / (std::string(COMET_CONFIG_PROFILE) + ".yaml")).string());
+            (config_directory / "profiles.json").string(), COMET_CONFIG_PROFILE);
         if(!config) {
             std::cerr << "Application failed: " << config.error() << '\n';
             return 1;

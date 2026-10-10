@@ -101,7 +101,7 @@ function(check_module_closure module sources allowed)
                 message(FATAL_ERROR "${module} violates module dependencies: ${path}: ${line}")
             endif()
             if(module MATCHES "^(Foundation|ShaderContracts)$"
-                AND header MATCHES "^common/(json|yaml|serialization)\\.h$")
+                AND header MATCHES "^common/(json|serialization)\\.h$")
                 message(FATAL_ERROR "${module} must not depend on Serialization: ${path}: ${line}")
             endif()
             list(APPEND pending "${header}")

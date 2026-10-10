@@ -1,6 +1,6 @@
 #include "config/config_loader.h"
 #include "common/file_io.h"
-#include "common/yaml.h"
+#include "common/json.h"
 #include <algorithm>
 #include <array>
 #include <initializer_list>
@@ -18,44 +18,45 @@ namespace Comet {
         constexpr std::array DEPTH_FORMATS = {std::pair{"d32_float", Format::D32_SFLOAT},
             std::pair{"d24_unorm_s8_uint", Format::D24_UNORM_S8_UINT},
             std::pair{"d32_float_s8_uint", Format::D32_SFLOAT_S8_UINT}};
-        std::string config_error(
-            std::string_view path, std::string_view key, std::string_view detail) {
-            return Yaml::Context("config", path).error(key, detail);
+        std::string config_error(std::string_view path, std::string_view profile,
+            std::string_view key, std::string_view detail) {
+            const auto kind = "config profile " + std::string(profile);
+            return Json::Context(kind, path).error(key, detail);
         }
         class ConfigReader {
         public:
-            ConfigReader(const YAML::Node& root, const Yaml::Context& context)
+            ConfigReader(Json::Node root, const Json::Context& context)
                 : m_root(root), m_context(context) {}
             bool keys(std::string_view section, std::initializer_list<std::string_view> allowed) {
-                YAML::Node node(YAML::NodeType::Undefined);
+                std::optional<Json::Node> node;
                 if(!find(section, node))
                     return false;
-                if(!node.IsDefined() || (section.empty() && node.IsNull()))
+                if(!node)
                     return true;
-                if(auto valid = m_context.mapping(node, section.empty() ? "<root>" : section);
-                    !valid) {
-                    m_error = valid.error();
+                auto fields = m_context.object(*node, section.empty() ? "<root>" : section);
+                if(!fields) {
+                    m_error = fields.error();
                     return false;
                 }
-                for(const auto& entry : node) {
-                    const auto& key = entry.first.Scalar();
+                for(const auto entry : fields.value()) {
+                    const auto key = entry.key;
                     if(std::find(allowed.begin(), allowed.end(), key) == allowed.end()) {
                         auto location = std::string(section);
                         if(!location.empty())
                             location += '.';
-                        return fail(location + key, "unknown developer setting");
+                        return fail(location + std::string(key), "unknown developer setting");
                     }
                 }
                 return true;
             }
             template<typename T>
             bool read(std::string_view key, T& value, std::string_view expected) {
-                YAML::Node node(YAML::NodeType::Undefined);
+                std::optional<Json::Node> node;
                 if(!find(key, node))
                     return false;
-                if(!node.IsDefined())
+                if(!node)
                     return true;
-                auto candidate = m_context.read_scalar<T>(node, key, expected);
+                auto candidate = m_context.read_scalar<T>(*node, key, expected);
                 if(!candidate) {
                     m_error = candidate.error();
                     return false;
@@ -66,14 +67,17 @@ namespace Comet {
             template<typename T, std::size_t Size>
             bool named(std::string_view key, T& value,
                 const std::array<std::pair<const char*, T>, Size>& names) {
-                YAML::Node node(YAML::NodeType::Undefined);
+                std::optional<Json::Node> node;
                 if(!find(key, node))
                     return false;
-                if(!node.IsDefined())
+                if(!node)
                     return true;
-                if(!node.IsScalar())
-                    return fail(key, "expected a string");
-                const auto& name = node.Scalar();
+                auto parsed = m_context.read_scalar<std::string>(*node, key, "a string");
+                if(!parsed) {
+                    m_error = parsed.error();
+                    return false;
+                }
+                const auto& name = parsed.value();
                 std::string expected;
                 for(const auto& [label, candidate] : names) {
                     if(name == label) {
@@ -109,28 +113,36 @@ namespace Comet {
                 m_error = m_context.error(key, detail);
                 return false;
             }
-            bool find(std::string_view key, YAML::Node& output) {
+            bool find(std::string_view key, std::optional<Json::Node>& output) {
                 auto node = m_context.find(m_root, key);
                 if(!node) {
                     m_error = node.error();
                     return false;
                 }
-                output.reset(node.value());
+                output = node.value();
                 return true;
             }
-            const YAML::Node& m_root;
-            const Yaml::Context& m_context;
+            Json::Node m_root;
+            const Json::Context& m_context;
             std::string m_error;
         };
-        Result<void> read_profile(Config& config, const std::string& path) {
+        Result<void> read_profile(
+            Config& config, const std::string& path, const std::string_view profile) {
             auto text = read_text_file(path);
             if(!text)
                 return Result<void>::failure(text.error());
-            const Yaml::Context context("config", path);
-            auto root = context.parse(text.value());
+            const auto kind = "config profile " + std::string(profile);
+            const Json::Context context(kind, path);
+            simdjson::dom::parser parser;
+            auto root = context.parse(parser, text.value());
             if(!root)
                 return Result<void>::failure(root.error());
-            ConfigReader reader(root.value(), context);
+            if(auto fields = context.object(root.value(), "<root>"); !fields)
+                return Result<void>::failure(fields.error());
+            auto selected = context.required_child(root.value(), profile);
+            if(!selected)
+                return Result<void>::failure(selected.error());
+            ConfigReader reader(selected.value(), context);
             if(!reader.keys("", {"diagnostics", "vulkan", "render", "assets"})
                 || !reader.keys(
                     "diagnostics", {"enable_file_logging", "log_level", "enable_profiler",
@@ -179,40 +191,41 @@ namespace Comet {
             return Result<void>::success();
         }
     }
-    Result<Config> ConfigLoader::load(const std::string& path) const {
+    Result<Config> ConfigLoader::load(
+        const std::string& path, const std::string_view profile) const {
         Config config;
-        if(auto result = read_profile(config, path); !result)
+        if(auto result = read_profile(config, path, profile); !result)
             return Result<Config>::failure(result.error());
         if(config.vulkan.swapchain_image_count == 0)
-            return Result<Config>::failure(
-                config_error(path, "vulkan.swapchain_image_count", "must be greater than zero"));
+            return Result<Config>::failure(config_error(
+                path, profile, "vulkan.swapchain_image_count", "must be greater than zero"));
         if(config.render.max_frames_in_flight == 0)
-            return Result<Config>::failure(
-                config_error(path, "render.max_frames_in_flight", "must be greater than zero"));
+            return Result<Config>::failure(config_error(
+                path, profile, "render.max_frames_in_flight", "must be greater than zero"));
         if(config.assets.async.in_flight == 0 || config.assets.async.queued == 0
             || config.assets.external_file_queue == 0)
             return Result<Config>::failure(
-                config_error(path, "assets", "queue counts must be positive"));
+                config_error(path, profile, "assets", "queue counts must be positive"));
         if(config.assets.async.in_flight > 64 || config.assets.async.queued > 4096
             || config.assets.external_file_queue > 256)
             return Result<Config>::failure(
-                config_error(path, "assets", "queue counts exceed supported limits"));
+                config_error(path, profile, "assets", "queue counts exceed supported limits"));
         if(config.assets.source_bytes > 1024ull * 1024 * 1024)
             return Result<Config>::failure(
-                config_error(path, "assets.source_max_mib", "must not exceed 1024 MiB"));
+                config_error(path, profile, "assets.source_max_mib", "must not exceed 1024 MiB"));
         if(config.assets.texture_working_bytes > 4ull * 1024 * 1024 * 1024
             || config.assets.mesh_working_bytes > 4ull * 1024 * 1024 * 1024
             || config.assets.async.working_bytes > 16ull * 1024 * 1024 * 1024)
             return Result<Config>::failure(
-                config_error(path, "assets", "working budgets exceed supported limits"));
+                config_error(path, profile, "assets", "working budgets exceed supported limits"));
         if(config.assets.texture_working_bytes <= 16ull * 1024 * 1024
             || config.assets.mesh_working_bytes <= 16ull * 1024 * 1024)
             return Result<Config>::failure(config_error(
-                path, "assets", "texture and mesh working budgets must exceed 16 MiB"));
+                path, profile, "assets", "texture and mesh working budgets must exceed 16 MiB"));
         if(config.assets.mesh_owner_inspect_bytes > config.assets.source_bytes
             || config.assets.mesh_owner_inspect_bytes > 1024 * 1024)
-            return Result<Config>::failure(config_error(path, "assets.mesh_owner_inspect_kib",
-                "must not exceed 1 MiB or the source limit"));
+            return Result<Config>::failure(config_error(path, profile,
+                "assets.mesh_owner_inspect_kib", "must not exceed 1 MiB or the source limit"));
         return Result<Config>::success(std::move(config));
     }
 }

@@ -14,10 +14,71 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <string>
+#include <string_view>
+#include <span>
 #include <utility>
 
 namespace CometEditor {
     namespace {
+        using Caption = std::pair<std::string_view, std::string_view>;
+
+        void set_caption(
+            std::string& label, std::string_view id, std::span<const Caption> captions) {
+            for(const auto& [key, caption] : captions) {
+                if(key == id) {
+                    label = std::string(caption) + "###" + label;
+                    return;
+                }
+            }
+        }
+
+        std::vector<Comet::ComponentDescriptor> make_component_descriptions(
+            const Comet::ComponentRegistry& source) {
+            static constexpr Caption components[]{{"script", "脚本"}, {"name", "名称"},
+                {"transform", "变换"}, {"mesh_renderer", "网格渲染"}, {"camera", "相机"},
+                {"camera_controller", "相机控制器"}, {"audio_source", "音频源"},
+                {"rigid_body", "刚体"}, {"collider", "碰撞体"}, {"light", "光源"}};
+            static constexpr Caption properties[]{{"script/asset", "脚本"},
+                {"script/parameters", "参数"}, {"name/name", "名称"},
+                {"transform/translation", "位置"}, {"transform/rotation", "旋转"},
+                {"transform/scale", "缩放"}, {"mesh_renderer/mesh", "网格"},
+                {"mesh_renderer/material", "材质"}, {"camera/primary", "主相机"},
+                {"camera/projection", "投影方式"}, {"camera/fov", "透视视角"},
+                {"camera/orthographic_height", "正交高度"}, {"camera/near_clip", "近裁剪面"},
+                {"camera/far_clip", "远裁剪面"}, {"camera_controller/enabled", "启用"},
+                {"camera_controller/move_speed", "移动速度"},
+                {"camera_controller/look_sensitivity", "鼠标转向灵敏度"},
+                {"camera_controller/look_speed", "持续转向速度 (度/秒)"},
+                {"audio_source/clip", "音频片段"}, {"audio_source/play_on_start", "启动时播放"},
+                {"audio_source/loop", "循环"}, {"audio_source/category", "音频分类"},
+                {"audio_source/volume", "音量"}, {"rigid_body/motion", "运动类型"},
+                {"rigid_body/mass", "质量 (kg)"}, {"collider/shape", "形状"},
+                {"collider/half_extents", "盒体半尺寸"}, {"collider/radius", "球体半径"},
+                {"collider/is_trigger", "触发器"}, {"light/type", "类型"},
+                {"light/enabled", "启用"}, {"light/casts_shadow", "投射阴影（方向光）"},
+                {"light/color", "颜色（线性）"}, {"light/intensity", "强度"},
+                {"light/range", "范围"}, {"light/inner_angle", "内角"},
+                {"light/outer_angle", "外角"}};
+            static constexpr Caption enum_options[]{{"perspective", "透视"},
+                {"orthographic", "正交"}, {"effects", "音效"}, {"music", "音乐"},
+                {"static", "静态"}, {"dynamic", "动态"}, {"kinematic", "运动学"}, {"box", "盒体"},
+                {"sphere", "球体"}, {"directional", "方向光"}, {"point", "点光源"},
+                {"spot", "聚光灯"}};
+
+            const auto& descriptors = source.components();
+            std::vector<Comet::ComponentDescriptor> result(descriptors.begin(), descriptors.end());
+            for(auto& component : result) {
+                set_caption(component.display_name, component.id, components);
+                for(auto& property : component.properties) {
+                    set_caption(
+                        property.display_name, component.id + "/" + property.id, properties);
+                    for(auto& option : property.enum_options)
+                        set_caption(option.display_name, option.id, enum_options);
+                }
+            }
+            return result;
+        }
+
         constexpr PropertyEditTransaction::SceneTarget<Comet::SceneEnvironment> environment_target{
             &Comet::Scene::get_environment, &Comet::Scene::set_environment};
         constexpr PropertyEditTransaction::SceneTarget<Comet::PostProcessSettings>
@@ -31,8 +92,10 @@ namespace CometEditor {
         const PropertyEditorRegistry& property_editor_registry,
         const Comet::AssetDatabase& asset_database, const Comet::AssetRegistry& runtime_assets,
         const Comet::MaterialPrograms& programs, const Comet::SceneRuntime* runtime)
-        : EditorPanel("Inspector"), m_state(state), m_selection(selection), m_history(history),
-          m_property_edit(property_edit), m_component_registry(component_registry),
+        : EditorPanel("属性###Inspector"), m_state(state), m_selection(selection),
+          m_history(history), m_property_edit(property_edit),
+          m_component_registry(component_registry),
+          m_component_descriptions(make_component_descriptions(component_registry)),
           m_property_editor_registry(property_editor_registry), m_asset_database(asset_database),
           m_runtime_assets(runtime_assets), m_runtime(runtime),
           m_asset_inspector(asset_database, programs) {}
@@ -66,7 +129,7 @@ namespace CometEditor {
             render_scene(*scene);
         } else {
             static_cast<void>(m_property_edit.commit());
-            ImGui::TextUnformatted(Ui::text("No entity or asset selected"));
+            ImGui::TextUnformatted("尚未选中实体或资产");
         }
 
         ImGui::End();
@@ -78,8 +141,7 @@ namespace CometEditor {
             m_state.mode == EditorMode::Edit && m_history.get_scene()
             && m_history.get_scene()->find_entity(entity.get_uuid()) == entity;
         const Comet::ComponentDescriptor* remove = nullptr;
-        for(const Comet::ComponentDescriptor& component_descriptor :
-            m_component_registry.components()) {
+        for(const Comet::ComponentDescriptor& component_descriptor : m_component_descriptions) {
             if(!component_descriptor.has_component(entity)) {
                 continue;
             }
@@ -90,10 +152,9 @@ namespace CometEditor {
                 continue;
             }
             const bool expanded = ImGui::CollapsingHeader(
-                Ui::label(component_descriptor.display_name.c_str()).c_str(),
-                ImGuiTreeNodeFlags_DefaultOpen);
+                component_descriptor.display_name.c_str(), ImGuiTreeNodeFlags_DefaultOpen);
             if(ImGui::BeginPopupContextItem("Component actions")) {
-                if(ImGui::MenuItem(Ui::label("Remove Component").c_str(), nullptr, false,
+                if(ImGui::MenuItem("移除组件###Remove Component", nullptr, false,
                        edit_structure
                            && SceneCommands::can_edit_component_structure(component_descriptor)))
                     remove = &component_descriptor;
@@ -120,13 +181,13 @@ namespace CometEditor {
         }
         const Comet::ComponentDescriptor* add = nullptr;
         ImGui::BeginDisabled(!edit_structure);
-        if(ImGui::Button(Ui::label("Add Component").c_str()))
+        if(ImGui::Button("添加组件###Add Component"))
             ImGui::OpenPopup("Add Component");
         if(ImGui::BeginPopup("Add Component")) {
-            for(const auto& component : m_component_registry.components()) {
+            for(const auto& component : m_component_descriptions) {
                 if(SceneCommands::can_edit_component_structure(component)
                     && !component.has_component(entity)
-                    && ImGui::MenuItem(Ui::label(component.display_name.c_str()).c_str()))
+                    && ImGui::MenuItem(component.display_name.c_str()))
                     add = &component;
             }
             ImGui::EndPopup();
@@ -175,53 +236,51 @@ namespace CometEditor {
     }
 
     void InspectorPanel::render_environment(Comet::Scene& scene) {
-        ImGui::SeparatorText(Ui::text("Environment"));
+        ImGui::SeparatorText("环境");
         const bool can_edit = m_state.mode == EditorMode::Edit && m_history.get_scene() == &scene;
         if(!can_edit)
             static_cast<void>(finish_edit(true));
         ImGui::BeginDisabled(!can_edit);
         auto environment = scene.get_environment();
         PropertyEditResult result;
-        result.changed = edit_asset_reference(
-            "HDR map", environment.asset, m_asset_database, Comet::AssetType::Environment);
+        result.changed = edit_asset_reference("HDR 贴图###HDR map", environment.asset,
+            m_asset_database, Comet::AssetType::Environment);
         if(const auto asset = accept_asset_drop(Comet::AssetType::Environment)) {
             environment.asset = asset->handle;
             result.changed = true;
         }
-        result.changed |= ImGui::Checkbox(Ui::label("Background").c_str(), &environment.background);
-        result.changed |= ImGui::Checkbox(Ui::label("Lighting").c_str(), &environment.lighting);
+        result.changed |= ImGui::Checkbox("背景###Background", &environment.background);
+        result.changed |= ImGui::Checkbox("光照###Lighting", &environment.lighting);
         result.finished = result.changed;
-        result.include_item(ImGui::ColorEdit3(Ui::label("Background color").c_str(),
+        result.include_item(ImGui::ColorEdit3("背景色###Background color",
             &environment.background_color.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR));
-        result.include_item(
-            ImGui::DragFloat(Ui::label("Intensity").c_str(), &environment.intensity, 0.02f, 0.0f,
-                Comet::SceneEnvironment::MAX_INTENSITY, "%.2f", ImGuiSliderFlags_AlwaysClamp));
-        result.include_item(ImGui::DragFloat(Ui::label("Lighting intensity").c_str(),
+        result.include_item(ImGui::DragFloat("强度###Intensity", &environment.intensity, 0.02f,
+            0.0f, Comet::SceneEnvironment::MAX_INTENSITY, "%.2f", ImGuiSliderFlags_AlwaysClamp));
+        result.include_item(ImGui::DragFloat("光照强度###Lighting intensity",
             &environment.lighting_intensity, 0.02f, 0.0f, Comet::SceneEnvironment::MAX_INTENSITY,
             "%.2f", ImGuiSliderFlags_AlwaysClamp));
         result.include_item(ImGui::DragFloat(
-            Ui::label("Rotation").c_str(), &environment.rotation, 0.5f, 0.0f, 0.0f, "%.1f deg"));
+            "旋转###Rotation", &environment.rotation, 0.5f, 0.0f, 0.0f, "%.1f deg"));
         apply_scene_edit(environment_target, environment, result, can_edit);
         ImGui::EndDisabled();
     }
 
     void InspectorPanel::render_post_process(Comet::Scene& scene) {
-        ImGui::SeparatorText(Ui::text("Post Processing"));
+        ImGui::SeparatorText("后处理");
         const bool can_edit = m_state.mode == EditorMode::Edit && m_history.get_scene() == &scene;
         ImGui::BeginDisabled(!can_edit);
         auto settings = scene.get_post_process();
         PropertyEditResult result;
-        result.include_item(
-            ImGui::DragFloat(Ui::label("Exposure").c_str(), &settings.exposure, 0.02f, 0.0f,
-                Comet::PostProcessSettings::MAX_EXPOSURE, "%.2f", ImGuiSliderFlags_AlwaysClamp));
-        const bool toggled = ImGui::Checkbox(Ui::label("Bloom").c_str(), &settings.bloom_enabled);
+        result.include_item(ImGui::DragFloat("曝光###Exposure", &settings.exposure, 0.02f, 0.0f,
+            Comet::PostProcessSettings::MAX_EXPOSURE, "%.2f", ImGuiSliderFlags_AlwaysClamp));
+        const bool toggled = ImGui::Checkbox("泛光###Bloom", &settings.bloom_enabled);
         result.changed |= toggled;
         result.finished |= toggled;
         ImGui::BeginDisabled(!settings.bloom_enabled);
-        result.include_item(ImGui::DragFloat(Ui::label("Bloom strength").c_str(),
-            &settings.bloom_strength, 0.01f, 0.0f, Comet::PostProcessSettings::MAX_BLOOM_STRENGTH,
-            "%.2f", ImGuiSliderFlags_AlwaysClamp));
-        result.include_item(ImGui::DragFloat(Ui::label("Bloom threshold").c_str(),
+        result.include_item(ImGui::DragFloat("泛光强度###Bloom strength", &settings.bloom_strength,
+            0.01f, 0.0f, Comet::PostProcessSettings::MAX_BLOOM_STRENGTH, "%.2f",
+            ImGuiSliderFlags_AlwaysClamp));
+        result.include_item(ImGui::DragFloat("泛光阈值###Bloom threshold",
             &settings.bloom_threshold, 0.05f, 0.0f, Comet::PostProcessSettings::MAX_BLOOM_THRESHOLD,
             "%.2f", ImGuiSliderFlags_AlwaysClamp));
         ImGui::EndDisabled();
@@ -296,10 +355,10 @@ namespace CometEditor {
         if(!binding.asset)
             return;
         if(!script) {
-            ImGui::TextDisabled("%s", Ui::text("Script unavailable; see Console"));
+            ImGui::TextDisabled("%s", "脚本未加载，请查看日志");
             return;
         }
-        if(ImGui::Button(Ui::label("Restore default parameters").c_str())) {
+        if(ImGui::Button("恢复默认参数###Restore default parameters")) {
             apply_property_edit(entity, component, property, Comet::ParameterMap{},
                 {.changed = true, .finished = true});
             return;
@@ -310,7 +369,7 @@ namespace CometEditor {
             script->retain_compatible_overrides(compatible);
             if(compatible.size() != binding.parameters.size()
                 && script->validate_overrides(compatible)
-                && ImGui::Button(Ui::label("Remove incompatible overrides").c_str())) {
+                && ImGui::Button("移除不兼容参数覆盖###Remove incompatible overrides")) {
                 apply_property_edit(
                     entity, component, property, compatible, {.changed = true, .finished = true});
             }

@@ -228,8 +228,8 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(ViewportGizmoUiTest, ConfiguredFocusRequiresViewportFocusAndEditMode) {
-        auto parsed =
-            EditorShortcuts::parse("editor: {shortcuts: {viewport.focus_selection: [Primary+G]}}");
+        auto parsed = EditorShortcuts::parse(
+            R"({"editor": {"shortcuts": {"viewport.focus_selection": ["Primary+G"]}}})");
         ASSERT_TRUE(parsed);
         shortcuts = std::move(parsed).value();
         auto& io = ImGui::GetIO();

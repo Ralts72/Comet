@@ -41,6 +41,28 @@ namespace Comet::Json {
         return Result<Node>::success(child);
     }
 
+    Result<std::optional<Node>> Context::find(Node root, std::string_view path) const {
+        using Found = Result<std::optional<Node>>;
+        Node node = root;
+        std::size_t offset = 0;
+        while(offset < path.size()) {
+            const auto location =
+                offset == 0 ? std::string_view("<root>") : path.substr(0, offset - 1);
+            if(auto fields = object(node, location); !fields)
+                return Found::failure(fields.error());
+            const auto separator = path.find('.', offset);
+            const auto segment = path.substr(offset, separator - offset);
+            Node child;
+            if(node[segment].get(child))
+                return Found::success(std::nullopt);
+            node = child;
+            if(separator == std::string_view::npos)
+                break;
+            offset = separator + 1;
+        }
+        return Found::success(node);
+    }
+
     void Writer::separator() {
         auto& scope = m_scopes.back();
         if(!scope.empty)

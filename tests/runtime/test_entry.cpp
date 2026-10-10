@@ -92,7 +92,7 @@ namespace Comet::Tests {
         const int result = launch(1, arguments, options, {}, create_default);
         const auto error = ::testing::internal::GetCapturedStderr();
         EXPECT_EQ(result, 1);
-        EXPECT_NE(error.find("test.yaml"), std::string::npos);
+        EXPECT_NE(error.find("profiles.json"), std::string::npos);
         EXPECT_EQ(DefaultApplication::constructions, 1);
         EXPECT_EQ(DefaultApplication::destructions, 1);
     }

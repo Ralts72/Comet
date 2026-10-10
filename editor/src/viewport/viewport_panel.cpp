@@ -39,13 +39,12 @@ namespace CometEditor {
         }
 
         bool edit_choice(const char* title, int& selected, std::span<const char* const> choices) {
-            if(!ImGui::BeginCombo(Ui::label(title).c_str(), Ui::text(choices[selected])))
+            if(!ImGui::BeginCombo(title, choices[selected]))
                 return false;
             bool changed = false;
             for(size_t index = 0; index < choices.size(); ++index) {
                 ImGui::PushID(static_cast<int>(index));
-                if(ImGui::Selectable(
-                       Ui::label(choices[index]).c_str(), selected == static_cast<int>(index))) {
+                if(ImGui::Selectable(choices[index], selected == static_cast<int>(index))) {
                     selected = static_cast<int>(index);
                     changed = true;
                 }
@@ -61,9 +60,9 @@ namespace CometEditor {
     ViewportPanel::ViewportPanel(const EditorState& state, const Comet::SceneRuntime& runtime,
         SelectionService& selection, TransformGizmo& gizmo, PropertyEditTransaction& inspector_edit,
         const std::uint32_t max_render_dimension, const EditorShortcuts& shortcuts)
-        : EditorPanel("Viewport"), m_state(state), m_runtime(runtime), m_selection(selection),
-          m_gizmo(gizmo), m_inspector_edit(inspector_edit), m_shortcuts(shortcuts),
-          m_max_render_dimension(max_render_dimension) {}
+        : EditorPanel("视口###Viewport"), m_state(state), m_runtime(runtime),
+          m_selection(selection), m_gizmo(gizmo), m_inspector_edit(inspector_edit),
+          m_shortcuts(shortcuts), m_max_render_dimension(max_render_dimension) {}
 
     void ViewportPanel::render() {
         m_actually_visible = false;
@@ -131,7 +130,7 @@ namespace CometEditor {
             ImGui::SameLine();
             render_gizmo_settings();
             ImGui::SameLine(0, group_spacing);
-            if(toolbar_button(Ui::Icon::Play, "###Play", Ui::text("Play")))
+            if(toolbar_button(Ui::Icon::Play, "###Play", "运行"))
                 m_play_command = PlayCommand::Play;
         }
         if(is_playing || m_game_ui_available) {
@@ -160,35 +159,35 @@ namespace CometEditor {
     }
 
     void ViewportPanel::render_gizmo_settings() {
-        if(!begin_toolbar_menu("###Tool", Ui::text("Tool")))
+        if(!begin_toolbar_menu("###Tool", "工具"))
             return;
         auto settings = m_gizmo.settings();
         int mode = static_cast<int>(settings.mode);
         ImGui::SetNextItemWidth(120);
-        constexpr const char* modes[]{"Move", "Rotate", "Scale"};
-        bool changed = edit_choice("Mode", mode, modes);
+        constexpr const char* modes[]{"移动###Move", "旋转###Rotate", "缩放###Scale"};
+        bool changed = edit_choice("模式###Mode", mode, modes);
         settings.mode = static_cast<TransformGizmo::Mode>(mode);
         int space = static_cast<int>(settings.space);
         if(settings.mode == TransformGizmo::Mode::Scale) {
-            ImGui::TextUnformatted(Ui::text("Space: Local (scale)"));
+            ImGui::TextUnformatted("空间：局部（缩放）");
         } else {
             ImGui::SetNextItemWidth(120);
-            constexpr const char* spaces[]{"World", "Local"};
-            changed |= edit_choice("Space", space, spaces);
+            constexpr const char* spaces[]{"世界###World", "局部###Local"};
+            changed |= edit_choice("空间###Space", space, spaces);
             settings.space = static_cast<TransformGizmo::Space>(space);
         }
-        changed |= ImGui::Checkbox(Ui::label("Snap").c_str(), &settings.snap);
+        changed |= ImGui::Checkbox("吸附###Snap", &settings.snap);
         ImGui::BeginDisabled(!settings.snap);
         ImGui::SetNextItemWidth(120);
         if(settings.mode == TransformGizmo::Mode::Rotate)
             changed |= ImGui::InputFloat(
-                Ui::label("Angle step").c_str(), &settings.rotation_step_degrees, 0, 0, "%.1f");
+                "角度步长###Angle step", &settings.rotation_step_degrees, 0, 0, "%.1f");
         else if(settings.mode == TransformGizmo::Mode::Scale)
-            changed |= ImGui::InputFloat(
-                Ui::label("Scale step").c_str(), &settings.scale_step, 0, 0, "%.2f");
+            changed |=
+                ImGui::InputFloat("缩放步长###Scale step", &settings.scale_step, 0, 0, "%.2f");
         else
-            changed |= ImGui::InputFloat(
-                Ui::label("Move step").c_str(), &settings.translation_step, 0, 0, "%.3f");
+            changed |=
+                ImGui::InputFloat("位移步长###Move step", &settings.translation_step, 0, 0, "%.3f");
         ImGui::EndDisabled();
         if(settings.mode == TransformGizmo::Mode::Rotate
             && settings.space == TransformGizmo::Space::World)
@@ -203,7 +202,7 @@ namespace CometEditor {
         using Projection = Comet::RenderCamera::Projection;
         const bool perspective = m_state.camera.projection == Projection::Perspective;
         if(!begin_toolbar_menu("###Projection", perspective ? "3D" : "2D")) {
-            ImGui::SetItemTooltip("%s", Ui::text("Projection"));
+            ImGui::SetItemTooltip("%s", "投影方式");
             return;
         }
         for(const Projection projection : {Projection::Orthographic, Projection::Perspective}) {
@@ -220,7 +219,7 @@ namespace CometEditor {
         const Comet::Math::Vec2u hd_resolution(1280, 720);
         const Comet::Math::Vec2u full_hd_resolution(1920, 1080);
 
-        std::string resolution_label = Ui::text("Free");
+        std::string resolution_label = "自由";
         if(m_play_resolution_policy.mode == ResolutionMode::Aspect16By9) {
             resolution_label = "16:9";
         } else if(m_play_resolution_policy.mode == ResolutionMode::Fixed) {
@@ -229,24 +228,23 @@ namespace CometEditor {
         }
         const char* display_label = "1:1";
         if(m_play_display_mode == ViewportLayout::DisplayMode::Fit)
-            display_label = Ui::text("Fit");
+            display_label = "适应";
         const std::string description = resolution_label + " / " + display_label;
         const auto& style = ImGui::GetStyle();
         const float menu_padding = ImGui::GetFrameHeight() + style.FramePadding.x * 2;
         const float view_width =
-            ImGui::CalcTextSize(Ui::text("View")).x + menu_padding + style.ItemSpacing.x * 2;
+            ImGui::CalcTextSize("视图").x + menu_padding + style.ItemSpacing.x * 2;
         const float width = ImGui::CalcTextSize(description.c_str()).x + menu_padding;
         const char* label = description.c_str();
         if(width + view_width > ImGui::GetContentRegionAvail().x)
-            label = Ui::text("Preview");
+            label = "预览";
         if(!begin_toolbar_menu("###Preview", label)) {
             ImGui::SetItemTooltip("%s", description.c_str());
             return;
         }
 
-        ImGui::TextDisabled("%s", Ui::text("Resolution"));
-        if(ImGui::Selectable(
-               Ui::label("Free").c_str(), m_play_resolution_policy.mode == ResolutionMode::Free))
+        ImGui::TextDisabled("%s", "分辨率");
+        if(ImGui::Selectable("自由###Free", m_play_resolution_policy.mode == ResolutionMode::Free))
             m_play_resolution_policy = {};
         if(ImGui::Selectable("16:9", m_play_resolution_policy.mode == ResolutionMode::Aspect16By9))
             m_play_resolution_policy = {.mode = ResolutionMode::Aspect16By9};
@@ -263,9 +261,8 @@ namespace CometEditor {
                 .mode = ResolutionMode::Fixed, .fixed_resolution = full_hd_resolution};
         }
         ImGui::Separator();
-        ImGui::TextDisabled("%s", Ui::text("Display"));
-        if(ImGui::Selectable(
-               Ui::label("Fit").c_str(), m_play_display_mode == ViewportLayout::DisplayMode::Fit))
+        ImGui::TextDisabled("%s", "显示");
+        if(ImGui::Selectable("适应###Fit", m_play_display_mode == ViewportLayout::DisplayMode::Fit))
             m_play_display_mode = ViewportLayout::DisplayMode::Fit;
         if(ImGui::Selectable("1:1", m_play_display_mode == ViewportLayout::DisplayMode::OneToOne))
             m_play_display_mode = ViewportLayout::DisplayMode::OneToOne;
@@ -273,18 +270,18 @@ namespace CometEditor {
     }
 
     void ViewportPanel::render_view_options() {
-        if(!begin_toolbar_menu("###View", Ui::text("View")))
+        if(!begin_toolbar_menu("###View", "视图"))
             return;
         if(m_game_ui_available) {
-            ImGui::MenuItem(Ui::label("Game UI").c_str(), nullptr, &m_show_game_ui);
-            if(ImGui::MenuItem(Ui::label("Reload UI").c_str()))
+            ImGui::MenuItem("游戏 UI###Game UI", nullptr, &m_show_game_ui);
+            if(ImGui::MenuItem("重载 UI###Reload UI"))
                 m_game_ui_reload_requested = true;
         }
         if(m_state.mode == EditorMode::Play) {
             if(m_game_ui_available)
                 ImGui::Separator();
-            ImGui::TextDisabled("%s", Ui::text("Debug"));
-            if(ImGui::MenuItem(Ui::label("Input").c_str(), nullptr, false, m_runtime.is_active()))
+            ImGui::TextDisabled("%s", "调试");
+            if(ImGui::MenuItem("输入###Input", nullptr, false, m_runtime.is_active()))
                 m_play_command = PlayCommand::InputSettings;
         }
         ImGui::EndCombo();

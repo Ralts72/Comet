@@ -625,7 +625,7 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(project->take_delete_module_request());
         auto* dialog = ImGui::FindWindowByName("Delete Asset");
         ASSERT_NE(dialog, nullptr);
-        EXPECT_TRUE(std::string_view(dialog->Name).starts_with("Delete Lua Module###"));
+        EXPECT_TRUE(std::string_view(dialog->Name).starts_with("删除 Lua 模块###"));
         ImGui::ActivateItemByID(dialog->GetID("Cancel"));
         frame();
         frame();
@@ -707,7 +707,7 @@ namespace CometEditor::Tests {
         search("a.png");
         open_delete(1);
         EXPECT_EQ(ImGui::FindWindowByName("Delete Asset"), dialog);
-        EXPECT_TRUE(std::string_view(dialog->Name).starts_with("Delete Asset###"));
+        EXPECT_TRUE(std::string_view(dialog->Name).starts_with("删除资产###"));
         ImGui::ActivateItemByID(dialog->GetID("Move to Trash"));
         frame();
         const auto request = project->take_delete_request();

@@ -1,6 +1,5 @@
 #include "ui/menu_bar.h"
 #include "ui/editor_panel.h"
-#include "ui/text.h"
 
 #include <algorithm>
 #include <imgui.h>
@@ -31,13 +30,13 @@ namespace CometEditor {
     }
 
     void MenuBar::render_file_menu(std::span<const std::filesystem::path> recent_projects) {
-        if(ImGui::BeginMenu(Ui::label("File").c_str(), m_state.mode == EditorMode::Edit)) {
-            if(ImGui::MenuItem(Ui::label("New Project").c_str()))
+        if(ImGui::BeginMenu("文件###File", m_state.mode == EditorMode::Edit)) {
+            if(ImGui::MenuItem("新建项目###New Project"))
                 m_request = Request{Command::NewProject, {}};
-            if(ImGui::MenuItem(Ui::label("Open Project").c_str())) {
+            if(ImGui::MenuItem("打开项目###Open Project")) {
                 m_request = Request{Command::OpenProject, {}};
             }
-            if(!recent_projects.empty() && ImGui::BeginMenu(Ui::label("Recent Projects").c_str())) {
+            if(!recent_projects.empty() && ImGui::BeginMenu("最近项目###Recent Projects")) {
                 for(const auto& path : recent_projects) {
                     if(ImGui::MenuItem(path.generic_string().c_str())) {
                         m_request = Request{Command::OpenProject, path};
@@ -47,15 +46,15 @@ namespace CometEditor {
             }
             ImGui::Separator();
             const bool mac = ImGui::GetIO().ConfigMacOSXBehaviors;
-            if(ImGui::MenuItem(Ui::label("New Scene").c_str(),
+            if(ImGui::MenuItem("新建场景###New Scene",
                    m_shortcuts.label(EditorShortcuts::Action::NewScene, mac).c_str())) {
                 m_request = Request{Command::NewScene, {}};
             }
-            if(ImGui::MenuItem(Ui::label("Open Scene").c_str(),
+            if(ImGui::MenuItem("打开场景###Open Scene",
                    m_shortcuts.label(EditorShortcuts::Action::OpenScene, mac).c_str())) {
                 m_request = Request{Command::OpenScene, {}};
             }
-            if(ImGui::MenuItem(Ui::label("Save Scene").c_str(),
+            if(ImGui::MenuItem("保存场景###Save Scene",
                    m_shortcuts.label(EditorShortcuts::Action::SaveScene, mac).c_str())) {
                 m_request = Request{Command::SaveScene, {}};
             }
@@ -65,10 +64,10 @@ namespace CometEditor {
 
     void MenuBar::render_project_menu(
         const std::filesystem::path& current_scene, const std::filesystem::path& startup_scene) {
-        if(ImGui::BeginMenu(Ui::label("Project").c_str(), m_state.mode == EditorMode::Edit)) {
-            if(ImGui::MenuItem(Ui::label("Rename Project...").c_str()))
+        if(ImGui::BeginMenu("项目###Project", m_state.mode == EditorMode::Edit)) {
+            if(ImGui::MenuItem("重命名项目...###Rename Project..."))
                 m_request = Request{Command::RenameProject, {}};
-            if(ImGui::BeginMenu(Ui::label("Startup Scene").c_str())) {
+            if(ImGui::BeginMenu("启动场景###Startup Scene")) {
                 for(const auto& path : m_available_scenes) {
                     if(ImGui::MenuItem(
                            path.generic_string().c_str(), nullptr, path == startup_scene)) {
@@ -86,14 +85,14 @@ namespace CometEditor {
                 ImGui::EndMenu();
             }
             ImGui::Separator();
-            if(ImGui::BeginMenu(Ui::label("Settings").c_str())) {
-                if(ImGui::MenuItem(Ui::label("Display").c_str()))
+            if(ImGui::BeginMenu("设置###Settings")) {
+                if(ImGui::MenuItem("显示###Display"))
                     m_request = Request{Command::ProjectDisplaySettings, {}};
-                if(ImGui::MenuItem(Ui::label("Quality").c_str()))
+                if(ImGui::MenuItem("画质###Quality"))
                     m_request = Request{Command::ProjectQualitySettings, {}};
-                if(ImGui::MenuItem(Ui::label("Audio").c_str()))
+                if(ImGui::MenuItem("音频###Audio"))
                     m_request = Request{Command::ProjectAudioSettings, {}};
-                if(ImGui::MenuItem(Ui::label("Input").c_str()))
+                if(ImGui::MenuItem("输入###Input"))
                     m_request = Request{Command::ProjectInputSettings, {}};
                 ImGui::EndMenu();
             }
@@ -102,20 +101,20 @@ namespace CometEditor {
     }
 
     void MenuBar::render_edit_menu() {
-        if(ImGui::BeginMenu(Ui::label("Edit").c_str(), m_state.mode == EditorMode::Edit)) {
+        if(ImGui::BeginMenu("编辑###Edit", m_state.mode == EditorMode::Edit)) {
             const bool mac = ImGui::GetIO().ConfigMacOSXBehaviors;
-            if(ImGui::MenuItem(Ui::label("Undo").c_str(),
+            if(ImGui::MenuItem("撤销###Undo",
                    m_shortcuts.label(EditorShortcuts::Action::Undo, mac).c_str(), false,
                    can_undo())) {
                 m_request = Request{Command::Undo, {}};
             }
-            if(ImGui::MenuItem(Ui::label("Redo").c_str(),
+            if(ImGui::MenuItem("重做###Redo",
                    m_shortcuts.label(EditorShortcuts::Action::Redo, mac).c_str(), false,
                    can_redo())) {
                 m_request = Request{Command::Redo, {}};
             }
             ImGui::Separator();
-            if(ImGui::MenuItem(Ui::label("Keyboard Shortcuts...").c_str()))
+            if(ImGui::MenuItem("快捷键设置...###Keyboard Shortcuts..."))
                 m_request = Request{Command::KeyboardShortcuts, {}};
             ImGui::EndMenu();
         }
@@ -152,7 +151,7 @@ namespace CometEditor {
     }
 
     void MenuBar::render_view_menu() {
-        if(ImGui::BeginMenu(Ui::label("View").c_str())) {
+        if(ImGui::BeginMenu("视图###View")) {
             for(auto* panel : m_panels) {
                 if(ImGui::MenuItem(panel->window_label().c_str(), nullptr, panel->is_open())) {
                     panel->toggle_visible();

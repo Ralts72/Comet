@@ -1,4 +1,5 @@
 #include "asset/artifact/environment_artifact.h"
+#include "common/binary.h"
 #include "common/file_io.h"
 
 #include <algorithm>
@@ -15,12 +16,9 @@ namespace Comet {
     }
 
     static uint64_t hash_pixels(const EnvironmentData& data) {
-        uint64_t hash = 14695981039346656037ull;
+        uint64_t hash = Binary::HASH_SEED;
         for(const auto* texture : textures(data))
-            for(const auto byte : texture->pixels) {
-                hash ^= byte;
-                hash *= 1099511628211ull;
-            }
+            hash = Binary::hash_bytes(std::as_bytes(std::span(texture->pixels)), hash);
         return hash;
     }
 
@@ -65,13 +63,14 @@ namespace Comet {
         if(!input.read(magic.data(), magic.size()) || std::string_view(magic.data(), 8) != MAGIC)
             return std::nullopt;
         // 头部固定为小端编码；分配纹理存储前先拒绝旧版本或不完整产物。
+        std::array<std::byte, 10 * sizeof(uint64_t)> header{};
+        if(!input.read(reinterpret_cast<char*>(header.data()), header.size()))
+            return std::nullopt;
+        Binary::Reader reader(header);
         std::array<uint64_t, 10> fields{};
         for(auto& field : fields) {
-            std::array<unsigned char, 8> bytes{};
-            if(!input.read(reinterpret_cast<char*>(bytes.data()), bytes.size()))
+            if(!reader.read_u64(field))
                 return std::nullopt;
-            for(unsigned i = 0; i < 8; ++i)
-                field |= uint64_t(bytes[i]) << (i * 8);
         }
         const auto [version, identity, importer, size, mips, source_size, source_hash, path_size,
             payload_size, payload_hash] = fields;
@@ -144,19 +143,14 @@ namespace Comet {
         const std::array<uint64_t, 10> fields{FORMAT_VERSION, handle.value(), importer_version,
             static_cast<uint64_t>(size), data.background.mip_levels, source.size, source.hash,
             source_path.size(), payload_bytes(data), hash_pixels(data)};
-        std::vector<std::byte> bytes;
-        bytes.reserve(MAGIC.size() + sizeof(fields) + source_path.size() + payload_bytes(data));
-        const auto append = [&](const auto values) {
-            const auto span = std::as_bytes(values);
-            bytes.insert(bytes.end(), span.begin(), span.end());
-        };
-        append(std::span(MAGIC));
+        Binary::Writer writer(MAGIC.size() + sizeof(fields) + source_path.size());
+        writer.write_bytes(std::as_bytes(std::span(MAGIC)));
         for(const auto field : fields)
-            for(unsigned i = 0; i < 8; ++i)
-                bytes.push_back(static_cast<std::byte>((field >> (i * 8)) & 0xff));
-        append(std::span(source_path));
-        for(const auto* texture : actual_textures)
-            append(std::span(texture->pixels));
-        return write_binary_file_atomic(path, bytes);
+            writer.write_u64(field);
+        writer.write_bytes(std::as_bytes(std::span(source_path)));
+        std::array<std::span<const std::byte>, 5> chunks{std::span<const std::byte>(writer.data())};
+        for(std::size_t index = 0; index < actual_textures.size(); ++index)
+            chunks[index + 1] = std::as_bytes(std::span(actual_textures[index]->pixels));
+        return write_binary_file_atomic(path, chunks);
     }
 }

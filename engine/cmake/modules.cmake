@@ -35,7 +35,7 @@ comet_add_module(graphics)
 comet_add_module(render)
 
 target_link_libraries(comet_foundation PUBLIC glm spdlog::spdlog Threads::Threads)
-target_link_libraries(comet_serialization PUBLIC comet_foundation simdjson::simdjson yaml-cpp)
+target_link_libraries(comet_serialization PUBLIC comet_foundation simdjson::simdjson)
 target_link_libraries(comet_shader_contracts PUBLIC comet_foundation PRIVATE spirv-reflect-static)
 target_link_libraries(comet_asset_data PUBLIC comet_serialization comet_shader_contracts)
 target_link_libraries(comet_input PUBLIC comet_serialization)

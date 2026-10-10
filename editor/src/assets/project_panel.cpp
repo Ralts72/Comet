@@ -35,18 +35,18 @@ namespace CometEditor {
 
         bool input_asset_name(
             std::string& name, const ImGuiInputTextFlags extra_flags = ImGuiInputTextFlags_None) {
-            return Ui::input_text(Ui::label("Name").c_str(), name,
-                ImGuiInputTextFlags_EnterReturnsTrue | extra_flags);
+            return Ui::input_text(
+                "名称###Name", name, ImGuiInputTextFlags_EnterReturnsTrue | extra_flags);
         }
 
         void render_module_reference(
             const char* label, const std::filesystem::path& path, const float width) {
             const auto name = Comet::Script::module_name(path);
-            std::string reference = Ui::text("Invalid module reference");
+            std::string reference = "无效的模块引用";
             if(name)
                 reference = "require(\"" + name.value() + "\")";
             ImGui::SetNextItemWidth(width);
-            Ui::input_text(Ui::label(label).c_str(), reference, ImGuiInputTextFlags_ReadOnly);
+            Ui::input_text(label, reference, ImGuiInputTextFlags_ReadOnly);
         }
     }
 
@@ -143,16 +143,16 @@ namespace CometEditor {
                     ImGui::SetDragDropPayload(
                         MODULE_DRAG_TYPE, absolute.data(), absolute.size(), ImGuiCond_Once);
                     ImGui::TextUnformatted(name.c_str());
-                    ImGui::TextUnformatted(Ui::text("require references will not be changed."));
+                    ImGui::TextUnformatted("require 引用不会自动修改。");
                     ImGui::EndDragDropSource();
                 }
                 if((module || editable)
                     && ImGui::BeginPopupContextItem(module ? "Module actions" : "Source actions")) {
-                    if(ImGui::MenuItem(Ui::label("Open Source").c_str()))
+                    if(ImGui::MenuItem("打开源码###Open Source"))
                         m_pending_open_source = source;
-                    if(module && ImGui::MenuItem(Ui::label("Rename").c_str()))
+                    if(module && ImGui::MenuItem("重命名###Rename"))
                         request_rename(source);
-                    if(module && ImGui::MenuItem(Ui::label("Delete").c_str()))
+                    if(module && ImGui::MenuItem("删除###Delete"))
                         request_delete(source);
                     ImGui::EndPopup();
                 }
@@ -160,7 +160,7 @@ namespace CometEditor {
                     ImGui::SetTooltip("%s", source.generic_string().c_str());
                 }
                 ImGui::SameLine();
-                ImGui::TextDisabled("(%s)", Ui::text("File"));
+                ImGui::TextDisabled("(%s)", "文件");
                 ImGui::PopID();
                 continue;
             }
@@ -179,16 +179,15 @@ namespace CometEditor {
             }
             if(ImGui::BeginPopupContextItem()) {
                 if(AssetSourceOperations::can_open_source(m_database, asset.path)
-                    && ImGui::MenuItem(Ui::label("Open Source").c_str()))
+                    && ImGui::MenuItem("打开源码###Open Source"))
                     m_pending_open_source = asset.path;
-                if(asset.type == Comet::AssetType::Mesh
-                    && ImGui::MenuItem(Ui::label("Reimport").c_str()))
+                if(asset.type == Comet::AssetType::Mesh && ImGui::MenuItem("重新导入###Reimport"))
                     m_reimport_request = asset.handle;
-                if(ImGui::MenuItem(Ui::label("Rename").c_str()))
+                if(ImGui::MenuItem("重命名###Rename"))
                     request_rename(asset);
-                if(ImGui::MenuItem(Ui::label("Delete").c_str()))
+                if(ImGui::MenuItem("删除###Delete"))
                     request_delete(asset);
-                if(ImGui::MenuItem(Ui::label("Refresh").c_str()))
+                if(ImGui::MenuItem("刷新###Refresh"))
                     m_refresh_requested = true;
                 ImGui::EndPopup();
             }
@@ -204,7 +203,7 @@ namespace CometEditor {
     ProjectPanel::ProjectPanel(const Comet::AssetDatabase& database,
         std::filesystem::path asset_root, Comet::AssetScanReport scan_report,
         SelectionService& selection, const CommandHistory& history)
-        : EditorPanel("Project"), m_database(database), m_asset_root(std::move(asset_root)),
+        : EditorPanel("项目###Project"), m_database(database), m_asset_root(std::move(asset_root)),
           m_tree(build_asset_tree()), m_scan_report(std::move(scan_report)), m_selection(selection),
           m_history(history) {
         const auto builtins = Comet::MaterialLayout::builtins();
@@ -226,7 +225,7 @@ namespace CometEditor {
 
         ImGui::SetNextItemWidth(-1.0f);
         if(ImGui::InputTextWithHint(
-               "##asset_search", Ui::text("Search files..."), m_search.data(), m_search.size()))
+               "##asset_search", "搜索文件...", m_search.data(), m_search.size()))
             rebuild_search_tree();
 
         const auto& visible_tree = m_filtered_tree ? *m_filtered_tree : m_tree;
@@ -239,8 +238,7 @@ namespace CometEditor {
         render_directory_menu({});
         if(root_open) {
             if(visible_tree.files.empty() && visible_tree.directories.empty()) {
-                ImGui::TextDisabled(
-                    "%s", Ui::text(m_filtered_tree ? "No matching files" : "No files"));
+                ImGui::TextDisabled("%s", m_filtered_tree ? "没有匹配的文件" : "暂无文件");
             } else {
                 render_asset_tree(visible_tree, {});
             }
@@ -248,8 +246,7 @@ namespace CometEditor {
         }
 
         if(!m_scan_report.issues.empty()
-            && ImGui::CollapsingHeader(
-                Ui::label("Scan Issues").c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+            && ImGui::CollapsingHeader("扫描问题###Scan Issues", ImGuiTreeNodeFlags_DefaultOpen)) {
             for(const Comet::AssetScanIssue& issue : m_scan_report.issues) {
                 ImGui::BulletText(
                     "%s: %s", issue.path.generic_string().c_str(), issue.message.c_str());
@@ -258,14 +255,14 @@ namespace CometEditor {
 
         if(ImGui::BeginPopupContextWindow("Project actions",
                ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverExistingPopup)) {
-            if(ImGui::MenuItem(Ui::label("New Material...").c_str(), nullptr, false,
-                   !m_material_layouts.empty()))
+            if(ImGui::MenuItem(
+                   "新建材质...###New Material...", nullptr, false, !m_material_layouts.empty()))
                 request_create_material({});
-            if(ImGui::MenuItem(Ui::label("New Script...").c_str()))
+            if(ImGui::MenuItem("新建脚本...###New Script..."))
                 request_create_script({});
-            if(ImGui::MenuItem(Ui::label("New Lua Module...").c_str()))
+            if(ImGui::MenuItem("新建 Lua 模块...###New Lua Module..."))
                 request_create_script({}, AssetSourceOperations::ScriptKind::Module);
-            if(ImGui::MenuItem(Ui::label("Refresh").c_str()))
+            if(ImGui::MenuItem("刷新###Refresh"))
                 m_refresh_requested = true;
             ImGui::EndPopup();
         }
@@ -289,12 +286,12 @@ namespace CometEditor {
 
     void ProjectPanel::render_directory_menu(const std::filesystem::path& directory) {
         if(ImGui::BeginPopupContextItem()) {
-            if(ImGui::MenuItem(Ui::label("New Material...").c_str(), nullptr, false,
-                   !m_material_layouts.empty()))
+            if(ImGui::MenuItem(
+                   "新建材质...###New Material...", nullptr, false, !m_material_layouts.empty()))
                 request_create_material(directory);
-            if(ImGui::MenuItem(Ui::label("New Script...").c_str()))
+            if(ImGui::MenuItem("新建脚本...###New Script..."))
                 request_create_script(directory);
-            if(ImGui::MenuItem(Ui::label("New Lua Module...").c_str()))
+            if(ImGui::MenuItem("新建 Lua 模块...###New Lua Module..."))
                 request_create_script(directory, AssetSourceOperations::ScriptKind::Module);
             ImGui::EndPopup();
         }
@@ -322,19 +319,18 @@ namespace CometEditor {
     }
 
     void ProjectPanel::render_create_material_dialog() {
-        constexpr const char* title = "New Material";
+        constexpr const char* title = "新建材质###New Material";
         const bool opening = std::exchange(m_create_requested, false);
         if(opening)
             ImGui::OpenPopup(title);
-        if(!ImGui::BeginPopupModal(
-               Ui::label(title).c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        if(!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             return;
         if(std::exchange(m_close_create, false)) {
             ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
             return;
         }
-        ImGui::Text(Ui::text("Directory: assets/%s"), m_create_directory.generic_string().c_str());
+        ImGui::Text("目录：assets/%s", m_create_directory.generic_string().c_str());
         if(opening)
             ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(320.0f);
@@ -342,7 +338,7 @@ namespace CometEditor {
         ImGui::SameLine();
         ImGui::TextUnformatted(".mat");
         ImGui::SetNextItemWidth(320.0f);
-        if(ImGui::BeginCombo(Ui::label("Render Template").c_str(), m_create_template.c_str())) {
+        if(ImGui::BeginCombo("渲染模板###Render Template", m_create_template.c_str())) {
             for(const auto& layout : m_material_layouts) {
                 const bool selected = layout->get_name() == m_create_template;
                 if(ImGui::Selectable(layout->get_name().c_str(), selected))
@@ -352,7 +348,7 @@ namespace CometEditor {
             }
             ImGui::EndCombo();
         }
-        if(ImGui::Button(Ui::label("Create").c_str()) || submitted) {
+        if(ImGui::Button("创建###Create") || submitted) {
             const auto layout = std::ranges::find_if(m_material_layouts,
                 [&](const auto& item) { return item->get_name() == m_create_template; });
             if(!valid_asset_name(m_create_name))
@@ -371,7 +367,7 @@ namespace CometEditor {
             }
         }
         ImGui::SameLine();
-        if(ImGui::Button(Ui::label("Cancel").c_str())) {
+        if(ImGui::Button("取消###Cancel")) {
             ImGui::CloseCurrentPopup();
             m_operation_error.clear();
         }
@@ -387,20 +383,19 @@ namespace CometEditor {
 
     void ProjectPanel::render_create_script_dialog() {
         const bool module = m_create_script_kind == AssetSourceOperations::ScriptKind::Module;
-        const char* title = module ? "New Lua Module" : "New Script";
+        const char* title = module ? "新建 Lua 模块###New Lua Module" : "新建脚本###New Script";
         const std::string_view suffix = module ? ".module.lua" : ".lua";
         const bool opening = std::exchange(m_create_script_requested, false);
         if(opening)
             ImGui::OpenPopup(title);
-        if(!ImGui::BeginPopupModal(
-               Ui::label(title).c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        if(!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             return;
         if(std::exchange(m_close_create_script, false)) {
             ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
             return;
         }
-        ImGui::Text(Ui::text("Directory: assets/%s"), m_create_directory.generic_string().c_str());
+        ImGui::Text("目录：assets/%s", m_create_directory.generic_string().c_str());
         if(opening)
             ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(320.0f);
@@ -413,12 +408,11 @@ namespace CometEditor {
         const auto destination = m_create_directory / name;
         const auto module_name = Comet::Script::module_name(destination);
         if(module) {
-            ImGui::TextWrapped(
-                "%s", Ui::text("Lua modules are source files, not attachable components."));
+            ImGui::TextWrapped("%s", "Lua 模块仅供脚本复用，不能直接挂载到实体。");
             if(module_name)
-                render_module_reference("Module reference", destination, 320.0f);
+                render_module_reference("模块引用###Module reference", destination, 320.0f);
         }
-        if(ImGui::Button(Ui::label("Create").c_str()) || submitted) {
+        if(ImGui::Button("创建###Create") || submitted) {
             if(!valid_asset_name(m_create_name))
                 m_operation_error = "Enter a file name, not a path";
             else if(module && !module_name)
@@ -429,7 +423,7 @@ namespace CometEditor {
             }
         }
         ImGui::SameLine();
-        if(ImGui::Button(Ui::label("Cancel").c_str())) {
+        if(ImGui::Button("取消###Cancel")) {
             ImGui::CloseCurrentPopup();
             m_operation_error.clear();
         }
@@ -586,7 +580,7 @@ namespace CometEditor {
         m_operation_error.clear();
         const bool committed = report.snapshot_updated && report.succeeded();
         if(!committed) {
-            m_operation_error = Ui::text("Module could not be moved or renamed");
+            m_operation_error = "无法移动或重命名模块";
             if(!report.issues.empty())
                 m_operation_error = report.issues.front().message;
         }
@@ -614,7 +608,7 @@ namespace CometEditor {
         m_operation_error.clear();
         const bool committed = report.snapshot_updated && report.succeeded();
         if(!committed) {
-            m_operation_error = Ui::text("Module could not be deleted");
+            m_operation_error = "无法删除模块";
             if(!report.issues.empty())
                 m_operation_error = report.issues.front().message;
         }
@@ -644,8 +638,8 @@ namespace CometEditor {
 
     void ProjectPanel::render_delete_dialog() {
         const auto* module = std::get_if<std::filesystem::path>(&m_delete_target);
-        const char* title = module ? "Delete Lua Module" : "Delete Asset";
-        const auto label = std::string(Ui::text(title)) + "###Delete Asset";
+        const char* title = module ? "删除 Lua 模块" : "删除资产";
+        const auto label = std::string(title) + "###Delete Asset";
         if(std::exchange(m_delete_requested, false))
             ImGui::OpenPopup("Delete Asset");
         if(!ImGui::BeginPopupModal(label.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
@@ -660,18 +654,18 @@ namespace CometEditor {
         const auto* record = asset ? m_database.find(*asset) : nullptr;
         if(module) {
             ImGui::TextWrapped(
-                Ui::text("Move assets/%s to system trash?"), module->generic_string().c_str());
-            render_module_reference("Module reference", *module, 360.0f);
-            ImGui::TextWrapped("%s", Ui::text("require references will not be changed."));
+                "将源码文件 assets/%s 移到系统回收站？", module->generic_string().c_str());
+            render_module_reference("模块引用###Module reference", *module, 360.0f);
+            ImGui::TextWrapped("%s", "require 引用不会自动修改。");
         } else if(record)
-            ImGui::TextWrapped(Ui::text("Move assets/%s and its metadata to system trash?"),
-                record->path.generic_string().c_str());
+            ImGui::TextWrapped(
+                "将 assets/%s 及其元数据移到系统回收站？", record->path.generic_string().c_str());
         else
-            ImGui::TextDisabled("%s", Ui::text("Asset is no longer available"));
+            ImGui::TextDisabled("%s", "资产已不可用");
         if(!module)
-            ImGui::TextDisabled("%s", Ui::text("Scene references will not be cleared."));
+            ImGui::TextDisabled("%s", "场景中的引用不会自动清除。");
         ImGui::BeginDisabled(!record && !module);
-        if(ImGui::Button(Ui::label("Move to Trash").c_str())) {
+        if(ImGui::Button("移到系统回收站###Move to Trash")) {
             if(module)
                 m_pending_module_delete = ModuleDeleteRequest{*module};
             else if(record)
@@ -681,7 +675,7 @@ namespace CometEditor {
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
-        if(ImGui::Button(Ui::label("Cancel").c_str())) {
+        if(ImGui::Button("取消###Cancel")) {
             ImGui::CloseCurrentPopup();
             m_delete_target = std::monostate{};
             m_operation_error.clear();
@@ -710,12 +704,11 @@ namespace CometEditor {
     }
 
     void ProjectPanel::render_rename_dialog() {
-        constexpr const char* title = "Rename Asset";
+        constexpr const char* title = "重命名资产###Rename Asset";
         const bool opening = std::exchange(m_rename_requested, false);
         if(opening)
             ImGui::OpenPopup(title);
-        if(!ImGui::BeginPopupModal(
-               Ui::label(title).c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        if(!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             return;
 
         if(std::exchange(m_close_rename, false)) {
@@ -736,7 +729,7 @@ namespace CometEditor {
             source = record->path;
         const std::string suffix = module ? ".module.lua" : source.extension().string();
         if(!available)
-            ImGui::TextDisabled("%s", Ui::text("Asset is no longer available"));
+            ImGui::TextDisabled("%s", "资产已不可用");
         ImGui::BeginDisabled(!available);
         if(opening)
             ImGui::SetKeyboardFocusHere();
@@ -753,11 +746,9 @@ namespace CometEditor {
         if(module) {
             render_module_reference("Current module reference", source, 360.0f);
             render_module_reference("New module reference", destination, 360.0f);
-            ImGui::TextWrapped(
-                "%s", Ui::text("Source code is not changed; update require references manually."));
+            ImGui::TextWrapped("%s", "源代码不会自动修改，请手工更新 require 引用。");
         }
-        if((ImGui::Button(Ui::label("Rename").c_str(), ImVec2(100.0f, 0.0f)) || submitted)
-            && available) {
+        if((ImGui::Button("重命名###Rename", ImVec2(100.0f, 0.0f)) || submitted) && available) {
             if(!valid_asset_name(m_rename_name)) {
                 m_operation_error = "Enter a file name, not a path";
             } else if(module) {
@@ -784,7 +775,7 @@ namespace CometEditor {
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
-        if(ImGui::Button(Ui::label("Cancel").c_str(), ImVec2(100.0f, 0.0f))) {
+        if(ImGui::Button("取消###Cancel", ImVec2(100.0f, 0.0f))) {
             ImGui::CloseCurrentPopup();
             m_rename_target = std::monostate{};
             m_operation_error.clear();

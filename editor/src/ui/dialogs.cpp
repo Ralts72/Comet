@@ -1,31 +1,29 @@
 #include "ui/dialogs.h"
-#include "ui/text.h"
 
 #include <imgui.h>
 
 namespace CometEditor {
     std::optional<bool> draw_material_template_dialog(const bool pending,
         const std::string& template_name, const std::span<const std::string> discarded_properties) {
-        constexpr const char* title = "Change Material Template";
+        constexpr const char* title = "切换材质模板###Change Material Template";
         if(pending)
             ImGui::OpenPopup(title);
-        if(!ImGui::BeginPopupModal(
-               Ui::label(title).c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        if(!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             return std::nullopt;
         std::optional<bool> decision;
         if(!pending) {
             ImGui::CloseCurrentPopup();
         } else {
-            ImGui::Text(Ui::text("Switch to %s?"), template_name.c_str());
+            ImGui::Text("切换到 %s？", template_name.c_str());
             if(!discarded_properties.empty()) {
-                ImGui::TextUnformatted(Ui::text("Incompatible properties will be discarded:"));
+                ImGui::TextUnformatted("以下不兼容属性将被移除：");
                 for(const auto& name : discarded_properties)
                     ImGui::BulletText("%s", name.c_str());
             }
-            if(ImGui::Button(Ui::label("Switch").c_str()))
+            if(ImGui::Button("切换###Switch"))
                 decision = true;
             ImGui::SameLine();
-            if(ImGui::Button(Ui::label("Cancel").c_str()))
+            if(ImGui::Button("取消###Cancel"))
                 decision = false;
             if(decision)
                 ImGui::CloseCurrentPopup();
@@ -39,17 +37,17 @@ namespace CometEditor {
         if(needs_confirmation)
             ImGui::OpenPopup("Unsaved Scene");
         if(!ImGui::BeginPopupModal(
-               Ui::label("Unsaved Scene").c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+               "场景尚未保存###Unsaved Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             return std::nullopt;
         std::optional<SceneDocument::Decision> decision;
-        ImGui::TextUnformatted(Ui::text("Save changes before continuing?"));
-        if(ImGui::Button(Ui::label("Save").c_str()))
+        ImGui::TextUnformatted("继续之前保存修改？");
+        if(ImGui::Button("保存###Save"))
             decision = SceneDocument::Decision::Save;
         ImGui::SameLine();
-        if(ImGui::Button(Ui::label("Discard").c_str()))
+        if(ImGui::Button("放弃###Discard"))
             decision = SceneDocument::Decision::Discard;
         ImGui::SameLine();
-        if(ImGui::Button(Ui::label("Cancel").c_str()))
+        if(ImGui::Button("取消###Cancel"))
             decision = SceneDocument::Decision::Cancel;
         if(decision)
             ImGui::CloseCurrentPopup();

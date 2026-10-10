@@ -1,7 +1,5 @@
 #include "project/audio_settings_panel.h"
 
-#include "ui/text.h"
-
 #include <imgui.h>
 #include <utility>
 
@@ -25,28 +23,29 @@ namespace CometEditor {
         if(!m_open)
             return;
         ImGui::SetNextWindowSize({480, 0}, ImGuiCond_FirstUseEver);
-        if(ImGui::Begin(Ui::label("Project Settings - Audio").c_str(), &m_open)) {
+        if(ImGui::Begin("项目设置 - 音频###Project Settings - Audio", &m_open)) {
             ImGui::TextWrapped(
-                "%s", Ui::text("Project defaults; existing players keep their saved choices."));
-            for(const auto& [label, volume] : {std::pair{"Master Volume", &m_draft.master_volume},
-                    std::pair{"Sound Effects", &m_draft.effects_volume},
-                    std::pair{"Music", &m_draft.music_volume}}) {
+                "%s", "修改项目默认值；已有玩家选择保持不变，可在游戏菜单恢复默认。");
+            for(const auto& [label, volume] :
+                {std::pair{"主音量###Master Volume", &m_draft.master_volume},
+                    std::pair{"音效###Sound Effects", &m_draft.effects_volume},
+                    std::pair{"音乐###Music", &m_draft.music_volume}}) {
                 ImGui::SetNextItemWidth(220);
-                ImGui::SliderFloat(Ui::label(label).c_str(), volume, 0, 1, "%.2f");
+                ImGui::SliderFloat(label, volume, 0, 1, "%.2f");
             }
             if(!m_error.empty()) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.25f, 0.2f, 1.0f));
                 ImGui::TextWrapped("%s", m_error.c_str());
                 ImGui::PopStyleColor();
             }
-            if(ImGui::Button(Ui::label("Save").c_str())) {
+            if(ImGui::Button("保存###Save")) {
                 if(auto valid = m_draft.validate(); valid)
                     m_request = m_draft;
                 else
                     m_error = valid.error();
             }
             ImGui::SameLine();
-            if(ImGui::Button(Ui::label("Cancel").c_str()))
+            if(ImGui::Button("取消###Cancel"))
                 close();
         }
         ImGui::End();

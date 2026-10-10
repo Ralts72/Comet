@@ -204,9 +204,8 @@ namespace CometEditor::Tests {
         const int first = 0;
         const auto group_id = ImHashData(&first, sizeof(first), contexts->ID);
         edit_text(contexts, ImHashStr("##ContextName", 0, group_id), "");
-        EXPECT_NE(rendered_text.find("Invalid draft; binding relationships are unavailable."),
-            std::string::npos);
-        EXPECT_EQ(rendered_text.find("No overlapping bindings."), std::string::npos);
+        EXPECT_NE(rendered_text.find("草稿无效，暂不计算绑定关系。"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("没有与其他动作重叠的绑定。"), std::string::npos);
         button("Save");
         EXPECT_FALSE(panel.take_request());
         edit_text(contexts, ImHashStr("##ContextName", 0, group_id), "player_controls");
@@ -273,7 +272,8 @@ namespace CometEditor::Tests {
 
     TEST_F(ProjectInputUiTest, RecordingConsumesShortcutsAndAllowsSharedBindings) {
         EXPECT_NE(
-            rendered_text.find("Escape is reserved by Comet App (quit) and Editor Play (stop)."),
+            rendered_text.find(
+                "Comet App 使用 Esc 退出，Editor Play 使用 Esc 停止；游戏动作请使用其他按键。"),
             std::string::npos);
         record();
         press_physical(Comet::Input::Key::S, ImGuiKey_S);
@@ -521,22 +521,18 @@ namespace CometEditor::Tests {
     TEST_F(ProjectInputUiTest, InvalidDraftAndFailedSaveRemainEditableWhileCloseDiscardsDraft) {
         edit_control("S");
         EXPECT_NE(rendered_text.find("key/S: interact ["), std::string::npos);
-        EXPECT_NE(
-            rendered_text.find("Shared (common action bypasses consumption)"), std::string::npos);
+        EXPECT_NE(rendered_text.find("双方共享（公共动作不参与消费）"), std::string::npos);
         edit_control("unknown_control_longer_than_the_initial_string_capacity");
-        EXPECT_NE(rendered_text.find("Invalid draft; binding relationships are unavailable."),
-            std::string::npos);
+        EXPECT_NE(rendered_text.find("草稿无效，暂不计算绑定关系。"), std::string::npos);
         EXPECT_EQ(rendered_text.find("key/S: interact ["), std::string::npos);
-        EXPECT_EQ(
-            rendered_text.find("Shared (common action bypasses consumption)"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("双方共享（公共动作不参与消费）"), std::string::npos);
         button("Save");
         EXPECT_FALSE(panel.take_request());
         EXPECT_TRUE(panel.is_open());
 
         edit_control("RightControl");
-        EXPECT_EQ(rendered_text.find("Invalid draft; binding relationships are unavailable."),
-            std::string::npos);
-        EXPECT_NE(rendered_text.find("No overlapping bindings."), std::string::npos);
+        EXPECT_EQ(rendered_text.find("草稿无效，暂不计算绑定关系。"), std::string::npos);
+        EXPECT_NE(rendered_text.find("没有与其他动作重叠的绑定。"), std::string::npos);
         button("Save");
         auto saved = panel.take_request();
         ASSERT_TRUE(saved);
@@ -715,7 +711,7 @@ namespace CometEditor::Tests {
 
     TEST_F(ProjectInputUiTest, ChangingSourceRequiresAnExplicitChoiceAndCloseDiscardsIt) {
         ASSERT_NO_FATAL_FAILURE(select_binding_source("gamepad_button"));
-        EXPECT_NE(rendered_text.find("Select a control"), std::string::npos);
+        EXPECT_NE(rendered_text.find("选择按键／轴"), std::string::npos);
         button("Save");
         EXPECT_FALSE(panel.take_request());
         ASSERT_NO_FATAL_FAILURE(select_control("West"));
@@ -770,8 +766,7 @@ namespace CometEditor::Tests {
         button("Save");
         EXPECT_FALSE(panel.take_request());
         EXPECT_TRUE(panel.is_open());
-        EXPECT_NE(rendered_text.find("Invalid draft; binding relationships are unavailable."),
-            std::string::npos);
+        EXPECT_NE(rendered_text.find("草稿无效，暂不计算绑定关系。"), std::string::npos);
         select_action_type("Axis");
         button("Save");
         EXPECT_EQ(panel.take_request(), saved_axis);
@@ -786,17 +781,15 @@ namespace CometEditor::Tests {
             {{"gameplay"}, {"menu", false, 100, true}});
         ASSERT_TRUE(actions);
         reopen(actions.value());
-        EXPECT_NE(rendered_text.find("Binding Relationships"), std::string::npos);
-        EXPECT_NE(rendered_text.find(
-                      "Pairwise rules when both contexts are enabled; not current runtime state."),
+        EXPECT_NE(rendered_text.find("绑定关系"), std::string::npos);
+        EXPECT_NE(rendered_text.find("以下说明双方组都启用时的两两关系，不代表当前运行状态。"),
             std::string::npos);
         EXPECT_NE(
-            rendered_text.find("Other consuming contexts can still block non-common actions."),
+            rendered_text.find("非公共动作仍可能被其他消费组屏蔽；两两共享不代表最终一定可用。"),
             std::string::npos);
         EXPECT_NE(rendered_text.find("key/Space: confirm [menu]"), std::string::npos);
-        EXPECT_NE(
-            rendered_text.find("This control is consumed by the other action"), std::string::npos);
-        EXPECT_NE(rendered_text.find("Initially disabled: menu"), std::string::npos);
+        EXPECT_NE(rendered_text.find("本绑定的同一输入被对方消费"), std::string::npos);
+        EXPECT_NE(rendered_text.find("默认关闭： menu"), std::string::npos);
         EXPECT_FALSE(panel.take_request());
 
         button("Input Contexts");
@@ -804,29 +797,24 @@ namespace CometEditor::Tests {
         ASSERT_NE(contexts, nullptr);
         ImGui::ActivateItemByID(context_id(1, "Initially Enabled"));
         frame();
-        EXPECT_EQ(rendered_text.find("Initially disabled: menu"), std::string::npos);
-        EXPECT_NE(
-            rendered_text.find("This control is consumed by the other action"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("默认关闭： menu"), std::string::npos);
+        EXPECT_NE(rendered_text.find("本绑定的同一输入被对方消费"), std::string::npos);
         ImGui::ActivateItemByID(context_id(1, "Consume Input"));
         frame();
-        EXPECT_NE(rendered_text.find("Shared"), std::string::npos);
-        EXPECT_EQ(
-            rendered_text.find("This control is consumed by the other action"), std::string::npos);
+        EXPECT_NE(rendered_text.find("双方共享"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("本绑定的同一输入被对方消费"), std::string::npos);
         EXPECT_FALSE(panel.take_request());
 
         ImGui::ActivateItemByID(context_id(1, "Consume Input"));
         frame();
         edit_text(contexts, context_id(1, "Priority"), "0");
-        EXPECT_NE(rendered_text.find("Shared"), std::string::npos);
-        EXPECT_EQ(
-            rendered_text.find("This control is consumed by the other action"), std::string::npos);
+        EXPECT_NE(rendered_text.find("双方共享"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("本绑定的同一输入被对方消费"), std::string::npos);
         edit_text(contexts, context_id(0, "Priority"), "200");
         ImGui::ActivateItemByID(context_id(0, "Consume Input"));
         frame();
-        EXPECT_NE(
-            rendered_text.find("Consumes this control from the other action"), std::string::npos);
-        EXPECT_EQ(
-            rendered_text.find("This control is consumed by the other action"), std::string::npos);
+        EXPECT_NE(rendered_text.find("本绑定消费对方的同一输入"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("本绑定的同一输入被对方消费"), std::string::npos);
         EXPECT_FALSE(panel.take_request());
         EXPECT_EQ(actions.value().contexts()[0].priority, 0);
         EXPECT_FALSE(actions.value().contexts()[1].enabled);
@@ -843,11 +831,9 @@ namespace CometEditor::Tests {
         reopen(actions.value());
         edit_control("F01");
         EXPECT_NE(rendered_text.find("key/F1: confirm [menu]"), std::string::npos);
-        EXPECT_NE(rendered_text.find("Shared"), std::string::npos);
-        EXPECT_EQ(
-            rendered_text.find("Consumes this control from the other action"), std::string::npos);
-        EXPECT_EQ(
-            rendered_text.find("This control is consumed by the other action"), std::string::npos);
+        EXPECT_NE(rendered_text.find("双方共享"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("本绑定消费对方的同一输入"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("本绑定的同一输入被对方消费"), std::string::npos);
         EXPECT_EQ(rendered_text.find(": mouse ["), std::string::npos);
         button("Save");
         const auto shared = panel.take_request();
@@ -861,10 +847,9 @@ namespace CometEditor::Tests {
         frame();
         auto* combo = ImGui::FindWindowByName("##Combo_00");
         ASSERT_NE(combo, nullptr);
-        ImGui::ActivateItemByID(combo->GetID("Common (Always Enabled)"));
+        ImGui::ActivateItemByID(combo->GetID("公共（始终启用）"));
         frame();
-        EXPECT_NE(
-            rendered_text.find("Shared (common action bypasses consumption)"), std::string::npos);
+        EXPECT_NE(rendered_text.find("双方共享（公共动作不参与消费）"), std::string::npos);
         EXPECT_FALSE(panel.take_request());
         button("Save");
         const auto common = panel.take_request();
@@ -1039,7 +1024,7 @@ namespace CometEditor::Tests {
         button("Window Mode");
         auto* combo = ImGui::FindWindowByName("##Combo_00");
         ASSERT_NE(combo, nullptr);
-        ImGui::ActivateItemByID(combo->GetID("Borderless"));
+        ImGui::ActivateItemByID(combo->GetID("无边框"));
         frame();
         const auto manifest = root / "project.json";
         const auto backup = root / "saved.json";

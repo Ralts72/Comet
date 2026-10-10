@@ -1,7 +1,6 @@
 #include "project/input_settings_panel.h"
 
 #include "project/input_widgets.h"
-#include "ui/text.h"
 #include "ui/widgets.h"
 
 #include <algorithm>
@@ -22,7 +21,7 @@ namespace CometEditor {
             }
             const char* preview = control.c_str();
             if(control.empty())
-                preview = Ui::text("Select a control");
+                preview = "选择按键／轴";
             if(!ImGui::BeginCombo("##Control", preview))
                 return;
             for(const auto& option : Ui::input_controls(source)) {
@@ -92,29 +91,28 @@ namespace CometEditor {
     }
 
     void InputSettingsPanel::render_contexts() {
-        if(!ImGui::CollapsingHeader(Ui::label("Input Contexts").c_str()))
+        if(!ImGui::CollapsingHeader("输入上下文###Input Contexts"))
             return;
         ImGui::BeginChild("ContextList", ImVec2(0, 200), true);
         ImGui::TextWrapped("%s",
-            Ui::text("Enabled consuming contexts block matching controls at lower priorities; "
-                     "equal priorities share. Common actions bypass consumption."));
+            "已启用且勾选消费的组，仅屏蔽较低优先级的同一按键或轴；同级共享，公共动作不受影响。");
         for(std::size_t index = 0; index < m_contexts.size();) {
             auto& context = m_contexts[index];
             ImGui::PushID(static_cast<int>(index));
             ImGui::SetNextItemWidth(180.0f);
             Ui::input_text("##ContextName", context.name);
             ImGui::SameLine();
-            ImGui::Checkbox(Ui::label("Initially Enabled").c_str(), &context.enabled);
+            ImGui::Checkbox("默认启用###Initially Enabled", &context.enabled);
             const bool used = std::ranges::any_of(
                 m_actions, [&](const auto& action) { return action.context == index; });
             ImGui::SameLine();
             ImGui::BeginDisabled(used);
-            const bool remove = ImGui::Button(Ui::label("Remove Context").c_str());
+            const bool remove = ImGui::Button("删除上下文###Remove Context");
             ImGui::EndDisabled();
             ImGui::SetNextItemWidth(90.0f);
-            ImGui::InputInt(Ui::label("Priority").c_str(), &context.priority, 0, 0);
+            ImGui::InputInt("优先级###Priority", &context.priority, 0, 0);
             ImGui::SameLine();
-            ImGui::Checkbox(Ui::label("Consume Input").c_str(), &context.consume);
+            ImGui::Checkbox("消费输入###Consume Input", &context.consume);
             ImGui::Separator();
             ImGui::PopID();
             if(remove) {
@@ -126,7 +124,7 @@ namespace CometEditor {
                 ++index;
         }
         ImGui::BeginDisabled(m_contexts.size() >= Comet::InputActions::MAX_CONTEXTS);
-        if(ImGui::Button(Ui::label("Add Context").c_str())) {
+        if(ImGui::Button("添加上下文###Add Context")) {
             for(std::size_t number = 1; number <= Comet::InputActions::MAX_CONTEXTS; ++number) {
                 const auto name = "context_" + std::to_string(number);
                 if(std::ranges::none_of(
@@ -137,7 +135,7 @@ namespace CometEditor {
             }
         }
         ImGui::EndDisabled();
-        ImGui::TextDisabled("%s", Ui::text("Unassign actions before removing a context."));
+        ImGui::TextDisabled("%s", "删除上下文前，请先调整其动作的归属。");
         ImGui::EndChild();
     }
 
@@ -149,9 +147,10 @@ namespace CometEditor {
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
         ImGui::SetNextItemWidth(-1);
-        if(ImGui::BeginCombo("##Source", binding.source.c_str())) {
+        if(ImGui::BeginCombo("##Source", Ui::input_source_name(binding.source))) {
             for(const auto source : Ui::input_sources(action.type)) {
-                if(ImGui::Selectable(source.data(), binding.source == source)
+                if(ImGui::Selectable(
+                       Ui::input_source_label(source).c_str(), binding.source == source)
                     && binding.source != source) {
                     binding.source = source;
                     binding.control = source == "motion" ? "CursorX" : "";
@@ -170,7 +169,7 @@ namespace CometEditor {
             const bool capturing = m_capturing && m_capturing->action == action.id
                                    && m_capturing->binding == binding.id;
             const auto caption =
-                std::string(Ui::text(capturing ? "Press Key" : "Record Key")) + "###Record Key";
+                std::string(capturing ? "请按键###Record Key" : "录入按键###Record Key");
             if(ImGui::Button(caption.c_str())) {
                 cancel_capture();
                 if(input.focused)
@@ -190,7 +189,7 @@ namespace CometEditor {
             ImGui::InputFloat("##Deadzone", &binding.deadzone, 0, 0, "%.2f");
         }
         ImGui::TableSetColumnIndex(5);
-        if(ImGui::Button(Ui::label("Remove").c_str())) {
+        if(ImGui::Button("移除###Remove")) {
             action.bindings.erase(action.bindings.begin() + binding_index);
             cancel_capture();
         }
@@ -205,9 +204,9 @@ namespace CometEditor {
         Ui::input_text("##Name", action.name);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(110.0f);
-        if(ImGui::BeginCombo("##Type", Ui::text(Ui::input_type_name(action.type)))) {
+        if(ImGui::BeginCombo("##Type", Ui::input_type_name(action.type))) {
             for(const auto type : {Type::Button, Type::Axis, Type::Delta}) {
-                if(ImGui::Selectable(Ui::text(Ui::input_type_name(type)), action.type == type)
+                if(ImGui::Selectable(Ui::input_type_label(type), action.type == type)
                     && action.type != type) {
                     action.type = type;
                     cancel_capture();
@@ -219,7 +218,7 @@ namespace CometEditor {
             ImGui::EndCombo();
         }
         ImGui::SameLine();
-        if(ImGui::Button(Ui::label("Remove Action").c_str())) {
+        if(ImGui::Button("删除动作###Remove Action")) {
             m_actions.erase(m_actions.begin() + index);
             if(m_actions.empty())
                 m_selected_action.reset();
@@ -230,11 +229,11 @@ namespace CometEditor {
             return;
         }
         ImGui::SetNextItemWidth(220.0f);
-        const char* context_name = Ui::text("Common (Always Enabled)");
+        const char* context_name = "公共（始终启用）";
         if(action.context)
             context_name = m_contexts[*action.context].name.c_str();
-        if(ImGui::BeginCombo(Ui::label("Context").c_str(), context_name)) {
-            if(ImGui::Selectable(Ui::text("Common (Always Enabled)"), !action.context))
+        if(ImGui::BeginCombo("上下文###Context", context_name)) {
+            if(ImGui::Selectable("公共（始终启用）", !action.context))
                 action.context.reset();
             for(std::size_t context = 0; context < m_contexts.size(); ++context)
                 if(!m_contexts[context].name.empty()
@@ -245,11 +244,11 @@ namespace CometEditor {
         }
         if(ImGui::BeginTable(
                "Bindings", 6, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollX)) {
-            ImGui::TableSetupColumn(Ui::text("Source"), ImGuiTableColumnFlags_WidthFixed, 125);
-            ImGui::TableSetupColumn(Ui::text("Control"), ImGuiTableColumnFlags_WidthFixed, 155);
+            ImGui::TableSetupColumn("来源", ImGuiTableColumnFlags_WidthFixed, 125);
+            ImGui::TableSetupColumn("按键／轴", ImGuiTableColumnFlags_WidthFixed, 155);
             ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 105);
-            ImGui::TableSetupColumn(Ui::text("Multiplier"), ImGuiTableColumnFlags_WidthFixed, 90);
-            ImGui::TableSetupColumn(Ui::text("Deadzone"), ImGuiTableColumnFlags_WidthFixed, 90);
+            ImGui::TableSetupColumn("倍率", ImGuiTableColumnFlags_WidthFixed, 90);
+            ImGui::TableSetupColumn("死区", ImGuiTableColumnFlags_WidthFixed, 90);
             ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 80);
             ImGui::TableHeadersRow();
             for(std::size_t binding = 0; binding < action.bindings.size(); ++binding) {
@@ -261,7 +260,7 @@ namespace CometEditor {
             ImGui::EndTable();
         }
         ImGui::BeginDisabled(action.bindings.size() >= Comet::InputActions::MAX_BINDINGS);
-        if(ImGui::Button(Ui::label("Add Binding").c_str())) {
+        if(ImGui::Button("添加绑定###Add Binding")) {
             BindingDraft binding{"key", ""};
             if(action.type == Type::Delta) {
                 binding.source = "motion";
@@ -277,16 +276,15 @@ namespace CometEditor {
 
     void InputSettingsPanel::render_binding_relationships(const std::size_t action_index) {
         if(!ImGui::CollapsingHeader(
-               Ui::label("Binding Relationships").c_str(), ImGuiTreeNodeFlags_DefaultOpen))
+               "绑定关系###Binding Relationships", ImGuiTreeNodeFlags_DefaultOpen))
             return;
         const auto configured = build();
         if(!configured) {
-            ImGui::TextWrapped(
-                "%s", Ui::text("Invalid draft; binding relationships are unavailable."));
+            ImGui::TextWrapped("%s", "草稿无效，暂不计算绑定关系。");
             ImGui::TextWrapped("%s", configured.error().c_str());
             return;
         }
-        Ui::render_binding_relationships(configured.value(), action_index, Ui::translations());
+        Ui::render_binding_relationships(configured.value(), action_index);
     }
 
     void InputSettingsPanel::cancel_capture() {
@@ -356,32 +354,32 @@ namespace CometEditor {
             return;
         bool open = true;
         ImGui::SetNextWindowSize(ImVec2(900, 540), ImGuiCond_Appearing);
-        if(!ImGui::Begin(Ui::label("Project Settings - Input").c_str(), &open)) {
+        if(!ImGui::Begin("项目设置 - 输入###Project Settings - Input", &open)) {
             cancel_capture();
             ImGui::End();
             if(!open)
                 close();
             return;
         }
-        ImGui::TextUnformatted(Ui::text("Project defaults; restart App or Play to apply."));
+        ImGui::TextUnformatted("这里编辑项目默认绑定；重新启动 App 或 Play 后生效。");
         ImGui::TextWrapped(
-            "%s", Ui::text("Escape is reserved by Comet App (quit) and Editor Play (stop)."));
+            "%s", "Comet App 使用 Esc 退出，Editor Play 使用 Esc 停止；游戏动作请使用其他按键。");
         render_contexts();
         ImGui::BeginChild("ActionList", ImVec2(205, -70), true);
-        ImGui::TextUnformatted(Ui::text("Actions"));
+        ImGui::TextUnformatted("动作");
         ImGui::Separator();
         for(std::size_t index = 0; index < m_actions.size(); ++index) {
             ImGui::PushID(static_cast<int>(index));
             const auto& name = m_actions[index].name;
-            if(ImGui::Selectable(name.empty() ? Ui::text("Unnamed Action") : name.c_str(),
-                   m_selected_action == index)) {
+            if(ImGui::Selectable(
+                   name.empty() ? "未命名动作" : name.c_str(), m_selected_action == index)) {
                 m_selected_action = index;
                 cancel_capture();
             }
             ImGui::PopID();
         }
         ImGui::BeginDisabled(m_actions.size() >= Comet::InputActions::MAX_ACTIONS);
-        if(ImGui::Button(Ui::label("Add Action").c_str())) {
+        if(ImGui::Button("添加动作###Add Action")) {
             for(std::size_t number = 1; number <= Comet::InputActions::MAX_ACTIONS; ++number) {
                 const auto name = "action_" + std::to_string(number);
                 if(std::ranges::none_of(
@@ -400,9 +398,9 @@ namespace CometEditor {
         if(m_selected_action && *m_selected_action < m_actions.size())
             render_action(*m_selected_action, input);
         else
-            ImGui::TextDisabled("%s", Ui::text("Select an action"));
+            ImGui::TextDisabled("%s", "选择一个动作");
         ImGui::EndChild();
-        if(ImGui::Button(Ui::label("Save").c_str())) {
+        if(ImGui::Button("保存###Save")) {
             auto actions = build();
             if(actions) {
                 m_request = std::move(actions).value();
@@ -412,7 +410,7 @@ namespace CometEditor {
             }
         }
         ImGui::SameLine();
-        if(ImGui::Button(Ui::label("Close").c_str()))
+        if(ImGui::Button("关闭###Close"))
             open = false;
         if(!m_error.empty())
             ImGui::TextWrapped("%s", m_error.c_str());

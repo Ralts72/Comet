@@ -989,9 +989,10 @@ namespace CometEditor::Tests {
                 const Comet::PropertyDescriptor& property, void* value) {
                 const auto result = builtin.edit_property(property, value);
                 const float end = ImGui::GetItemRectMax().x;
-                const float field_width = ImGui::GetItemRectSize().x
-                                          - ImGui::CalcTextSize(property.display_name.c_str()).x
-                                          - ImGui::GetStyle().ItemInnerSpacing.x;
+                const float field_width =
+                    ImGui::GetItemRectSize().x
+                    - ImGui::CalcTextSize(property.display_name.c_str(), nullptr, true).x
+                    - ImGui::GetStyle().ItemInnerSpacing.x;
                 bounds.emplace_back(end, field_width);
                 return result;
             }));
@@ -1451,8 +1452,8 @@ namespace CometEditor::Tests {
             frame();
         };
         const auto& style = ImGui::GetStyle();
-        const float view_x = ImGui::CalcTextSize("File").x + ImGui::CalcTextSize("Project").x
-                             + ImGui::CalcTextSize("Edit").x + 6.0f * style.ItemSpacing.x + 10.0f;
+        const float view_x = ImGui::CalcTextSize("文件").x + ImGui::CalcTextSize("项目").x
+                             + ImGui::CalcTextSize("编辑").x + 6.0f * style.ItemSpacing.x + 10.0f;
         click({view_x, ImGui::GetFrameHeight() * 0.5f});
         frame();
         ImGuiWindow* popup = nullptr;
@@ -1542,8 +1543,8 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(EditingUiTest, ConfiguredShortcutReplacesDefaultAndKeepsContextGuards) {
-        auto parsed =
-            EditorShortcuts::parse("editor: {shortcuts: {scene.save: [Primary+Shift+S]}}");
+        auto parsed = EditorShortcuts::parse(
+            R"({"editor": {"shortcuts": {"scene.save": ["Primary+Shift+S"]}}})");
         ASSERT_TRUE(parsed);
         shortcuts = std::move(parsed).value();
         auto& io = ImGui::GetIO();

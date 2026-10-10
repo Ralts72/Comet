@@ -1,6 +1,5 @@
 #include "ui/shortcut_settings_dialog.h"
 
-#include "ui/text.h"
 #include "ui/widgets.h"
 
 #include <array>
@@ -11,9 +10,9 @@
 
 namespace CometEditor {
     namespace {
-        constexpr std::array<const char*, EditorShortcuts::ACTION_COUNT> ACTION_LABELS{"New Scene",
-            "Open Scene", "Save Scene", "Undo", "Redo", "Copy Entity", "Paste Entity",
-            "Delete Selection", "Focus Selection"};
+        constexpr std::array<const char*, EditorShortcuts::ACTION_COUNT> ACTION_LABELS{"新建场景",
+            "打开场景", "保存场景", "撤销", "重做", "复制实体", "粘贴实体", "删除选中项",
+            "聚焦选中项"};
 
         std::string_view trim(std::string_view text) {
             while(!text.empty() && std::isspace(static_cast<unsigned char>(text.front())))
@@ -72,13 +71,12 @@ namespace CometEditor {
     void ShortcutSettingsDialog::render() {
         if(!m_active)
             return;
-        constexpr const char* title = "Keyboard Shortcuts";
+        constexpr const char* title = "快捷键设置###Keyboard Shortcuts";
         if(m_open_requested) {
             ImGui::OpenPopup(title);
             m_open_requested = false;
         }
-        if(!ImGui::BeginPopupModal(
-               Ui::label(title).c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        if(!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             return;
         if(m_close_requested) {
             ImGui::CloseCurrentPopup();
@@ -88,23 +86,22 @@ namespace CometEditor {
             return;
         }
 
-        ImGui::TextUnformatted(
-            Ui::text("Separate alternatives with commas; empty disables a shortcut."));
-        ImGui::TextUnformatted(Ui::text("Primary means Cmd on macOS and Ctrl elsewhere."));
+        ImGui::TextUnformatted("多个快捷键用逗号分隔；留空可禁用。");
+        ImGui::TextUnformatted("Primary 在 macOS 上是 Cmd，其他平台是 Ctrl。");
         for(std::size_t index = 0; index < m_draft.size(); ++index) {
             ImGui::PushID(static_cast<int>(index));
-            ImGui::TextUnformatted(Ui::text(ACTION_LABELS[index]));
+            ImGui::TextUnformatted(ACTION_LABELS[index]);
             ImGui::SameLine(200.0f);
             ImGui::SetNextItemWidth(330.0f);
             Ui::input_text("##Shortcut", m_draft[index]);
             ImGui::PopID();
         }
-        if(ImGui::Button(Ui::label("Restore Defaults").c_str())) {
+        if(ImGui::Button("恢复默认###Restore Defaults")) {
             load_draft(EditorShortcuts{});
             m_error.clear();
         }
         ImGui::Separator();
-        if(ImGui::Button(Ui::label("Save").c_str())) {
+        if(ImGui::Button("保存###Save")) {
             auto shortcuts = build_shortcuts();
             if(shortcuts) {
                 m_request = std::move(shortcuts).value();
@@ -114,7 +111,7 @@ namespace CometEditor {
             }
         }
         ImGui::SameLine();
-        if(ImGui::Button(Ui::label("Cancel").c_str())) {
+        if(ImGui::Button("取消###Cancel")) {
             ImGui::CloseCurrentPopup();
             m_active = false;
             m_request.reset();

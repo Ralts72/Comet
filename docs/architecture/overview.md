@@ -11,7 +11,7 @@
 | 模块 | 职责 | 主要依赖 |
 | --- | --- | --- |
 | Foundation | 错误、文件、UUID、参数值、数学、任务、项目路径、日志和 CPU 计时 | GLM、spdlog、Threads |
-| Serialization | 文件编解码流程、错误定位、JSON／YAML 格式适配 | Foundation、simdjson、yaml-cpp |
+| Serialization | 文件编解码流程、错误定位、JSON 编解码 | Foundation、simdjson |
 | ShaderContracts | 后端无关 Shader 契约与 SPIR-V 反射 | Foundation、SPIRV-Reflect |
 | AssetData | Handle、Registry、CPU 产品数据、脚本定义和资产字段序列化 | Serialization、ShaderContracts |
 | Input | 采样值、动作、输入组、运行域求值、改键草稿和覆盖 | Serialization |
@@ -113,7 +113,7 @@ App 依据最终 UI 状态授权，Editor 依据视口焦点／悬停授权；�
 | 设置来源 | 保存位置 | 负责内容 |
 | --- | --- | --- |
 | C++ 默认值 | 所属模块的设置结构 | 完整、可运行的基础默认值 |
-| 开发者 Profile | `config/<Profile>.yaml` | 诊断、底层格式／交换链／在途帧参数、资源预算 |
+| 开发者 Profile | `config/profiles.json` 的对应分组 | 诊断、底层格式／交换链／在途帧参数、资源预算；启动只选择一个分组，缺省值来自 C++ |
 | 项目默认值 | `project.json` | 游戏显示、画质、音量、输入和 UI 入口 |
 | 玩家选择 | 按项目 UUID 隔离的用户目录 | display／quality／audio 完整设置与输入稀疏覆盖 |
 | 编辑器本地状态 | 用户／项目本地状态目录 | 窗口、布局、快捷键、最近项目和会话 |
@@ -128,15 +128,16 @@ App 的显示试用由 DisplaySettingsPreview 保存前态和 15 秒期限；确
 
 | 位置 | 共享能力 | 调用方负责 |
 | --- | --- | --- |
-| `common/file_io` | 文本读取、原子文本／二进制写入 | 文件是否可缺失、预算和业务提交顺序 |
+| `common/file_io` | 文本读取、有大小上限的二进制读取、原子文本／二进制分块写入 | 文件是否可缺失、预算和业务提交顺序 |
+| `common/binary` | 小端整数／浮点数、带长度的字符串读写、分块 FNV-1a 哈希 | Magic、版本、长度前缀宽度、字段限制与领域校验 |
 | `common/serialization` | 来源／字段错误定位、Serializer 文件加载／保存流程 | 格式选择和领域编解码 |
-| `common/json` | simdjson 解析、对象／数组／标量检查、键校验、Writer、编解码入口 | 项目、场景、材质等 Schema 与版本 |
-| `common/yaml` | yaml-cpp 异常转换、映射／重复键检查、可选路径查找、标量／字符串识别 | Profile 字段、快捷键和词表语义 |
+| `common/json` | simdjson 解析、对象／数组／标量检查、键校验、可选路径查找、Writer、编解码入口 | 项目、场景、材质等 Schema 与版本 |
 
-JSON 与 YAML 共享外围流程，各自保留节点和类型语义。JSON DOM 借用 parser；`Json::deserialize` 的回调必须返回拥有数据的结果。
-YAML 节点也只在本次解码中使用。翻译占位符、快捷键冲突、资产身份、范围等属于具体功能，不放入通用 Reader。
+项目、资产、开发者 Profile 与快捷键共用 JSON 工具。JSON DOM 借用 parser；`Json::deserialize` 的回调必须返回拥有数据的结果。
+快捷键冲突、资产身份、范围等属于具体功能，不放入通用 Reader。
 资产 Serializer 不再拥有通用 JSON 文件工具。场景描述符共用于保存、恢复、编辑与内容复制；内容 clone 直接走内存快照，不通过 JSON 往返。
-二进制 Artifact 的领域格式暂由各资产实现；可复用的小端读写、长度检查与校验和收敛列入路线图，保持各格式独立。
+Mesh、ShaderProgram、Environment Artifact 与导入指纹共用二进制基础工具；各资产保留独立头部、版本与校验规则。
+Environment 按纹理读取，发布时将头部和四份纹理存储分块原子写入，避免再复制一份完整像素 payload。
 
 ### 系统更新与场景边界
 
@@ -175,7 +176,8 @@ HUD、改键、菜单、倒计时、导航和草稿逻辑属于 `demo/assets/ui`
 Editor Play 使用相同项目页面；ImGui 项目／玩家面板调用相同引擎业务能力，不复制存储规则。
 候选页面／控制器先准备，失败保留旧版；事件核对当前文档身份，候选事件不提前改变设置。
 RmlUi Core 和 FreeType 静态编入 engine；FreeType 是字体后端。App／Editor 共用 engine 字体，ImGui／RmlUi 分别做图集和回退。
-Editor 固定中文，词表与 ImGui 稳定 ID 分离；UI 文件错误包含来源，业务字符串和日志保留原文。
+Editor 文案固定中文并内置在所属界面的 C++ 代码中，ImGui 稳定 ID 与显示文字分离。
+Inspector 初始化时准备自己的中文显示描述，沿用引擎字段身份和读写回调；项目／脚本名称、原始诊断和日志保持原文。
 当前一个进程只允许一个拥有 RmlUi Core 的 RmlContext；多上下文属于后续能力。
 
 ## 材质、Shader 与 Pipeline

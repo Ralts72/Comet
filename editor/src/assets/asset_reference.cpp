@@ -1,5 +1,4 @@
 #include "assets/asset_reference.h"
-#include "ui/text.h"
 #include "asset/database.h"
 #include <imgui.h>
 #include <cstring>
@@ -9,21 +8,21 @@ namespace CometEditor {
     bool edit_asset_reference(const char* label, Comet::AssetHandle& handle,
         const Comet::AssetDatabase& database, const std::optional<Comet::AssetType> type,
         const bool allow_none) {
-        std::string preview = Ui::text("None");
+        std::string preview = "无";
         if(handle.is_valid()) {
             const auto* record = database.find(handle);
             if(!record) {
-                preview = Ui::text("Missing");
+                preview = "已丢失";
             } else if(type && record->type != *type) {
-                preview = std::string(Ui::text("Invalid type: ")) + record->path.generic_string();
+                preview = std::string("类型不匹配：") + record->path.generic_string();
             } else {
                 preview = record->path.generic_string();
             }
         }
 
         bool changed = false;
-        if(ImGui::BeginCombo(Ui::label(label).c_str(), preview.c_str())) {
-            if(allow_none && ImGui::Selectable(Ui::label("None").c_str(), !handle.is_valid())
+        if(ImGui::BeginCombo(label, preview.c_str())) {
+            if(allow_none && ImGui::Selectable("无###None", !handle.is_valid())
                 && handle.is_valid()) {
                 handle = {};
                 changed = true;
@@ -46,7 +45,7 @@ namespace CometEditor {
                 }
             }
             if(!has_candidates) {
-                ImGui::TextDisabled("%s", Ui::text("No matching assets"));
+                ImGui::TextDisabled("%s", "没有匹配的资产");
             }
             ImGui::EndCombo();
         }

@@ -1,5 +1,4 @@
 #include "inspector/property_editor_registry.h"
-#include "ui/text.h"
 #include "ui/widgets.h"
 #include "assets/asset_reference.h"
 #include "scene/entity_reference.h"
@@ -31,13 +30,12 @@ namespace CometEditor {
             const char* preview = selected.c_str();
             for(const auto& option : property.enum_options)
                 if(option.id == selected)
-                    preview = Ui::text(option.display_name.c_str());
+                    preview = option.display_name.c_str();
             bool changed = false;
-            if(ImGui::BeginCombo(Ui::label(property.display_name.c_str()).c_str(), preview)) {
+            if(ImGui::BeginCombo(property.display_name.c_str(), preview)) {
                 for(const auto& option : property.enum_options) {
                     ImGui::PushID(option.id.c_str());
-                    if(ImGui::Selectable(
-                           Ui::label(option.display_name.c_str()).c_str(), option.id == selected)
+                    if(ImGui::Selectable(option.display_name.c_str(), option.id == selected)
                         && option.id != selected) {
                         selected = option.id;
                         changed = true;
@@ -62,9 +60,8 @@ namespace CometEditor {
                 descriptor.type = Comet::PropertyType::Vec3;
             else if constexpr(std::is_same_v<T, Comet::Math::Vec4>) {
                 if(property.semantic == Comet::Script::Property::Semantic::Color)
-                    return PropertyEditResult::from_item(
-                        ImGui::ColorEdit4(Ui::label(name.c_str()).c_str(), &value.x,
-                            ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR));
+                    return PropertyEditResult::from_item(ImGui::ColorEdit4(name.c_str(), &value.x,
+                        ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR));
                 descriptor.type = Comet::PropertyType::Vec4;
             } else if constexpr(std::is_same_v<T, Comet::EntityUuid>) {
                 const bool changed =
@@ -105,35 +102,34 @@ namespace CometEditor {
 
         register_editor(
             Comet::PropertyType::Bool, [](const Comet::PropertyDescriptor& property, void* value) {
-                return PropertyEditResult::from_item(ImGui::Checkbox(
-                    Ui::label(property.display_name.c_str()).c_str(), static_cast<bool*>(value)));
+                return PropertyEditResult::from_item(
+                    ImGui::Checkbox(property.display_name.c_str(), static_cast<bool*>(value)));
             });
-        register_editor(Comet::PropertyType::Float, [](const Comet::PropertyDescriptor& property,
-                                                        void* value) {
-            const float available = ImGui::GetContentRegionAvail().x;
-            const float label_width = ImGui::CalcTextSize(Ui::text(property.display_name.c_str())).x
-                                      + ImGui::GetStyle().ItemInnerSpacing.x;
-            const float width =
-                std::min({available * 0.4f, available - label_width, ImGui::GetFontSize() * 9});
-            ImGui::SetNextItemWidth(std::max(1.0f, width));
-            return PropertyEditResult::from_item(ImGui::DragFloat(
-                Ui::label(property.display_name.c_str()).c_str(), static_cast<float*>(value),
-                property.numeric.speed, minimum(property), maximum(property)));
+        register_editor(
+            Comet::PropertyType::Float, [](const Comet::PropertyDescriptor& property, void* value) {
+                const float available = ImGui::GetContentRegionAvail().x;
+                const float label_width =
+                    ImGui::CalcTextSize(property.display_name.c_str(), nullptr, true).x
+                    + ImGui::GetStyle().ItemInnerSpacing.x;
+                const float width =
+                    std::min({available * 0.4f, available - label_width, ImGui::GetFontSize() * 9});
+                ImGui::SetNextItemWidth(std::max(1.0f, width));
+                return PropertyEditResult::from_item(
+                    ImGui::DragFloat(property.display_name.c_str(), static_cast<float*>(value),
+                        property.numeric.speed, minimum(property), maximum(property)));
+            });
+        register_editor(Comet::PropertyType::Vec3, [](const Comet::PropertyDescriptor& property,
+                                                       void* value) {
+            auto& vector = *static_cast<Comet::Math::Vec3*>(value);
+            return PropertyEditResult::from_item(ImGui::DragFloat3(property.display_name.c_str(),
+                &vector.x, property.numeric.speed, minimum(property), maximum(property)));
         });
-        register_editor(
-            Comet::PropertyType::Vec3, [](const Comet::PropertyDescriptor& property, void* value) {
-                auto& vector = *static_cast<Comet::Math::Vec3*>(value);
-                return PropertyEditResult::from_item(
-                    ImGui::DragFloat3(Ui::label(property.display_name.c_str()).c_str(), &vector.x,
-                        property.numeric.speed, minimum(property), maximum(property)));
-            });
-        register_editor(
-            Comet::PropertyType::Vec4, [](const Comet::PropertyDescriptor& property, void* value) {
-                auto& vector = *static_cast<Comet::Math::Vec4*>(value);
-                return PropertyEditResult::from_item(
-                    ImGui::DragFloat4(Ui::label(property.display_name.c_str()).c_str(), &vector.x,
-                        property.numeric.speed, minimum(property), maximum(property)));
-            });
+        register_editor(Comet::PropertyType::Vec4, [](const Comet::PropertyDescriptor& property,
+                                                       void* value) {
+            auto& vector = *static_cast<Comet::Math::Vec4*>(value);
+            return PropertyEditResult::from_item(ImGui::DragFloat4(property.display_name.c_str(),
+                &vector.x, property.numeric.speed, minimum(property), maximum(property)));
+        });
         register_editor(Comet::PropertyType::AssetHandle,
             [&database](const Comet::PropertyDescriptor& property, void* value) {
                 auto& handle = *static_cast<Comet::AssetHandle*>(value);
@@ -147,7 +143,7 @@ namespace CometEditor {
             [](const Comet::PropertyDescriptor& property, void* value) {
                 auto& text = *static_cast<std::string*>(value);
                 return PropertyEditResult::from_item(
-                    Ui::input_text(Ui::label(property.display_name.c_str()).c_str(), text));
+                    Ui::input_text(property.display_name.c_str(), text));
             });
 
         register_editor(Comet::PropertyType::Enum, edit_enum_property);
@@ -175,7 +171,7 @@ namespace CometEditor {
                 overrides.insert_or_assign(name, std::move(value));
             if(ImGui::BeginPopupContextItem("Parameter actions",
                    ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverExistingPopup)) {
-                if(ImGui::MenuItem(Ui::label("Use script default").c_str(), nullptr, false,
+                if(ImGui::MenuItem("使用脚本默认值###Use script default", nullptr, false,
                        overrides.contains(name))) {
                     overrides.erase(name);
                     item = {.changed = true, .finished = true};

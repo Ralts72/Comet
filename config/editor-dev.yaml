@@ -1,5 +1,0 @@
-# RelWithDebInfo 运行时诊断配置。
-diagnostics:
-  # 最低日志级别：info、warn、error、critical 或 off。
-  log_level: info
-  enable_file_logging: false

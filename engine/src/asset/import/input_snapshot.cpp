@@ -1,4 +1,5 @@
 #include "asset/import/input_snapshot.h"
+#include "common/binary.h"
 
 #include <array>
 #include <cstddef>
@@ -12,9 +13,6 @@
 
 namespace Comet {
     namespace {
-        constexpr std::uint64_t FNV_OFFSET_BASIS = 14695981039346656037ull;
-        constexpr std::uint64_t FNV_PRIME = 1099511628211ull;
-
         [[nodiscard]] bool is_safe_relative_path(const std::filesystem::path& path) {
             if(path.empty() || path.is_absolute()) {
                 return false;
@@ -61,7 +59,7 @@ namespace Comet {
             }
 
             ImportInputFingerprint fingerprint{
-                .relative_path = std::move(relative_path), .hash = FNV_OFFSET_BASIS};
+                .relative_path = std::move(relative_path), .hash = Binary::HASH_SEED};
             std::array<char, 64 * 1024> buffer{};
             while(input) {
                 input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
@@ -74,10 +72,9 @@ namespace Comet {
                     return std::nullopt;
                 }
                 fingerprint.size += static_cast<std::uint64_t>(count);
-                for(std::streamsize index = 0; index < count; ++index) {
-                    fingerprint.hash ^= static_cast<unsigned char>(buffer[index]);
-                    fingerprint.hash *= FNV_PRIME;
-                }
+                fingerprint.hash = Binary::hash_bytes(
+                    std::as_bytes(std::span(buffer).first(static_cast<std::size_t>(count))),
+                    fingerprint.hash);
             }
             if(!input.eof()) {
                 return std::nullopt;

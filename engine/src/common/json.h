@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -26,6 +27,8 @@ namespace Comet::Json {
         Result<simdjson::dom::array> array(Node node, std::string_view location) const;
         Result<Node> required_child(
             Node node, std::string_view key, std::string_view location = "<root>") const;
+        // 点分路径；缺失字段返回 nullopt，节点仍借用 parser。
+        Result<std::optional<Node>> find(Node root, std::string_view path) const;
 
         template<typename Keys>
         Result<void> validate_keys(

@@ -1,6 +1,6 @@
 #include "ui/shortcuts.h"
 #include "common/file_io.h"
-#include "common/yaml.h"
+#include "common/json.h"
 
 #include <algorithm>
 #include <unordered_map>
@@ -86,37 +86,40 @@ namespace CometEditor {
     }
 
     Comet::Result<EditorShortcuts> EditorShortcuts::parse(
-        const std::string_view yaml, const std::string_view source) {
+        const std::string_view contents, const std::string_view source) {
         using Result = Comet::Result<EditorShortcuts>;
         EditorShortcuts result;
-        const Comet::Yaml::Context context("shortcut config", source);
-        auto root = context.parse(yaml);
+        const Comet::Json::Context context("shortcut config", source);
+        simdjson::dom::parser parser;
+        auto root = context.parse(parser, contents);
         if(!root)
             return Result::failure(root.error());
         auto shortcuts = context.find(root.value(), "editor.shortcuts");
         if(!shortcuts)
             return Result::failure(shortcuts.error());
-        if(!shortcuts.value().IsDefined())
+        if(!shortcuts.value())
             return Result::success(std::move(result));
-        if(auto valid = context.mapping(shortcuts.value(), "editor.shortcuts"); !valid)
-            return Result::failure(valid.error());
+        auto fields = context.object(*shortcuts.value(), "editor.shortcuts");
+        if(!fields)
+            return Result::failure(fields.error());
 
-        for(const auto& entry : shortcuts.value()) {
-            const std::string name = entry.first.Scalar();
+        for(const auto entry : fields.value()) {
+            const std::string name(entry.key);
             const auto action = std::ranges::find(ACTION_NAMES, name);
             if(action == ACTION_NAMES.end())
                 return Result::failure(
                     context.error("editor.shortcuts", "Unknown shortcut action: " + name));
-            if(!entry.second.IsSequence())
-                return Result::failure(
-                    context.error("editor.shortcuts." + name, "expected a list"));
+            const auto location = "editor.shortcuts." + name;
+            auto chords = context.array(entry.value, location);
+            if(!chords)
+                return Result::failure(chords.error());
             auto& bindings = result.m_bindings[action - ACTION_NAMES.begin()];
             bindings.clear();
-            for(const auto& chord : entry.second) {
-                const auto location = "editor.shortcuts." + name;
-                if(!chord.IsScalar())
-                    return Result::failure(context.error(location, "binding must be a string"));
-                auto binding = parse_binding(chord.Scalar());
+            for(const auto chord : chords.value()) {
+                auto text = context.read_scalar<std::string>(chord, location, "a string");
+                if(!text)
+                    return Result::failure(text.error());
+                auto binding = parse_binding(text.value());
                 if(!binding)
                     return Result::failure(context.error(location, binding.error()));
                 bindings.push_back(std::move(binding).value());
@@ -187,24 +190,28 @@ namespace CometEditor {
     Comet::Result<void> EditorShortcuts::save_overrides(const std::filesystem::path& path) const {
         const auto current = binding_texts();
         const auto base = EditorShortcuts{}.binding_texts();
-        std::string overrides;
+        Comet::Json::Writer writer;
+        writer.begin_object();
+        writer.key("editor");
+        writer.begin_object();
+        writer.key("shortcuts");
+        writer.begin_object();
         for(std::size_t index = 0; index < current.size(); ++index) {
             if(current[index] == base[index])
                 continue;
-            overrides += "    " + std::string(ACTION_NAMES[index]) + ": [";
-            for(std::size_t binding = 0; binding < current[index].size(); ++binding) {
-                if(binding != 0)
-                    overrides += ", ";
-                overrides += '"';
-                overrides += current[index][binding];
-                overrides += '"';
-            }
-            overrides += "]\n";
+            writer.key(ACTION_NAMES[index]);
+            writer.begin_array();
+            for(const auto& binding : current[index])
+                writer.value(binding);
+            writer.end_array();
         }
-        std::string yaml = "editor:\n  shortcuts: {}\n";
-        if(!overrides.empty())
-            yaml = "editor:\n  shortcuts:\n" + overrides;
-        return Comet::write_text_file_atomic(path, yaml);
+        writer.end_object();
+        writer.end_object();
+        writer.end_object();
+        auto contents = std::move(writer).finish();
+        if(!contents)
+            return Comet::Result<void>::failure(contents.error());
+        return Comet::write_text_file_atomic(path, contents.value());
     }
 
     bool EditorShortcuts::pressed(const Action action, const ImGuiInputFlags flags) const {

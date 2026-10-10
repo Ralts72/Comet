@@ -13,27 +13,20 @@ namespace CometEditor {
         using Input = Comet::Input;
         using Actions = Comet::InputActions;
         using Overrides = Comet::InputOverrides;
-        using Text = PlayerInputPanel::Text;
-
-        const char* text(const Text& translations, const char* english) {
-            const auto found = translations.find(english);
-            return found == translations.end() ? english : found->second.c_str();
-        }
-
-        std::string label(const Text& translations, const char* english) {
-            return std::string(text(translations, english)) + "###" + english;
-        }
 
         float button_width(const char* caption) {
-            return ImGui::CalcTextSize(caption).x + ImGui::GetStyle().FramePadding.x * 2;
+            return ImGui::CalcTextSize(caption, nullptr, true).x
+                   + ImGui::GetStyle().FramePadding.x * 2;
         }
 
         float field_width(float width, const char* caption) {
-            return width + ImGui::CalcTextSize(caption).x + ImGui::GetStyle().ItemInnerSpacing.x;
+            return width + ImGui::CalcTextSize(caption, nullptr, true).x
+                   + ImGui::GetStyle().ItemInnerSpacing.x;
         }
 
         void set_field_width(float width, const char* caption) {
-            const auto remaining = ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(caption).x
+            const auto remaining = ImGui::GetContentRegionAvail().x
+                                   - ImGui::CalcTextSize(caption, nullptr, true).x
                                    - ImGui::GetStyle().ItemInnerSpacing.x;
             ImGui::SetNextItemWidth(std::max(1.f, std::min(width, remaining)));
         }
@@ -44,13 +37,13 @@ namespace CometEditor {
                 ImGui::SameLine();
         }
 
-        float footer_height(const Text& translations) {
+        float footer_height() {
             const auto& style = ImGui::GetStyle();
             const auto available = std::max(1.f, ImGui::GetContentRegionAvail().x);
             float used = 0;
             int rows = 1;
-            for(const auto caption : {"Apply", "Cancel", "Restore All"}) {
-                const auto width = std::min(available, button_width(text(translations, caption)));
+            for(const auto caption : {"应用", "取消", "全部恢复默认"}) {
+                const auto width = std::min(available, button_width(caption));
                 if(used > 0 && used + style.ItemSpacing.x + width > available) {
                     ++rows;
                     used = 0;
@@ -92,8 +85,7 @@ namespace CometEditor {
             return std::nullopt;
         }
 
-        void render_reserved_keys(
-            std::span<const Input::Key> reserved_keys, const Text& translations) {
+        void render_reserved_keys(std::span<const Input::Key> reserved_keys) {
             if(reserved_keys.empty())
                 return;
             std::string names;
@@ -101,20 +93,19 @@ namespace CometEditor {
                 if(!names.empty())
                     names += ", ";
                 const auto name = Actions::format_binding({key}).value();
-                names += text(translations, name.control.c_str());
+                names += name.control.c_str();
             }
-            ImGui::TextWrapped("%s %s", text(translations, "Reserved keys:"), names.c_str());
+            ImGui::TextWrapped("%s %s", "程序保留键：", names.c_str());
         }
 
         std::optional<Actions::Control> control_choices(const Actions::Control& current,
-            std::string_view source, std::span<const Input::Key> reserved_keys,
-            const Text& translations) {
+            std::string_view source, std::span<const Input::Key> reserved_keys) {
             std::optional<Actions::Control> chosen;
             for(const auto& value : Ui::input_controls(source)) {
                 const auto name = Actions::format_binding({value}).value();
                 const bool selected = current == value;
                 ImGui::BeginDisabled(is_reserved(value, reserved_keys));
-                if(ImGui::Selectable(label(translations, name.control.c_str()).c_str(), selected))
+                if(ImGui::Selectable(name.control.c_str(), selected))
                     chosen = value;
                 if(selected)
                     ImGui::SetItemDefaultFocus();
@@ -136,15 +127,15 @@ namespace CometEditor {
         }
 
         void render_disabled_binding(const Actions::Action& action, const Actions::Binding& binding,
-            const Overrides::Binding& patch, const Text& translations) {
+            const Overrides::Binding& patch) {
             const auto retained = composed_binding(binding, patch);
             const auto name = Actions::format_binding(retained).value();
-            ImGui::TextWrapped("%s %s / %s", text(translations, "Disabled binding (not active):"),
-                text(translations, name.source.data()), text(translations, name.control.c_str()));
+            ImGui::TextWrapped("%s %s / %s", "已禁用绑定（当前不生效）：",
+                Ui::input_source_name(name.source), name.control.c_str());
             if(action.type != Actions::Type::Button || patch.scale)
-                ImGui::TextWrapped("%s: %.3f", text(translations, "Multiplier"), retained.scale);
+                ImGui::TextWrapped("%s: %.3f", "倍率", retained.scale);
             if(name.source == "gamepad_axis" || patch.deadzone)
-                ImGui::TextWrapped("%s: %.3f", text(translations, "Deadzone"), retained.deadzone);
+                ImGui::TextWrapped("%s: %.3f", "死区", retained.deadzone);
         }
     }
 
@@ -170,35 +161,30 @@ namespace CometEditor {
     }
 
     void PlayerInputPanel::render_controls(const Action& action, const Binding& binding,
-        const Binding& effective, const Input::Frame& input, const Text& translations) {
+        const Binding& effective, const Input::Frame& input) {
         const auto name = Actions::format_binding(effective).value();
         if(m_edit.is_reserved(effective.control))
-            ImGui::TextWrapped(
-                "%s", text(translations,
-                          "This binding uses a reserved key and will not reach the game."));
-        set_field_width(145, text(translations, "Source"));
-        if(ImGui::BeginCombo(
-               label(translations, "Source").c_str(), text(translations, name.source.data()))) {
+            ImGui::TextWrapped("%s", "此绑定使用程序保留键，不会传递给游戏。");
+        set_field_width(145, "来源");
+        if(ImGui::BeginCombo("来源###Source", Ui::input_source_name(name.source))) {
             for(const auto source : Ui::input_sources(action.type)) {
-                if(ImGui::Selectable(
-                       label(translations, source.data()).c_str(), name.source == source)
+                if(ImGui::Selectable(Ui::input_source_label(source).c_str(), name.source == source)
                     && name.source != source) {
                     if(const auto control =
                             first_control(source, binding.control, m_edit.reserved_keys()))
                         m_edit.change_control(action.id, binding.id, *control);
                     else
-                        m_edit.report_error("No available controls for this source.");
+                        m_edit.report_error("此输入来源没有可用的控制。");
                     m_edit.cancel_capture();
                 }
             }
             ImGui::EndCombo();
         }
-        same_line_if_fits(field_width(150, text(translations, "Control")));
-        set_field_width(150, text(translations, "Control"));
-        if(ImGui::BeginCombo(
-               label(translations, "Control").c_str(), text(translations, name.control.c_str()))) {
-            if(const auto chosen = control_choices(
-                   effective.control, name.source, m_edit.reserved_keys(), translations)) {
+        same_line_if_fits(field_width(150, "按键／轴"));
+        set_field_width(150, "按键／轴");
+        if(ImGui::BeginCombo("按键／轴###Control", name.control.c_str())) {
+            if(const auto chosen =
+                    control_choices(effective.control, name.source, m_edit.reserved_keys())) {
                 m_edit.change_control(action.id, binding.id, *chosen);
                 m_edit.cancel_capture();
             }
@@ -206,38 +192,36 @@ namespace CometEditor {
         }
         using CaptureKind = Comet::PlayerInputEdit::CaptureKind;
         if(name.source == "key")
-            render_capture_button(action, binding, CaptureKind::Keyboard, input, translations);
+            render_capture_button(action, binding, CaptureKind::Keyboard, input);
         else if(name.source == "gamepad_button")
-            render_capture_button(action, binding, CaptureKind::GamepadButton, input, translations);
+            render_capture_button(action, binding, CaptureKind::GamepadButton, input);
         if(action.type != Actions::Type::Button) {
             auto scale = effective.scale;
-            set_field_width(120, text(translations, "Multiplier"));
-            if(ImGui::InputFloat(label(translations, "Multiplier").c_str(), &scale, 0, 0, "%.3f")) {
+            set_field_width(120, "倍率");
+            if(ImGui::InputFloat("倍率###Multiplier", &scale, 0, 0, "%.3f")) {
                 m_edit.change_scale(action.id, binding.id, scale);
             }
         }
         if(name.source == "gamepad_axis") {
-            same_line_if_fits(field_width(120, text(translations, "Deadzone")));
+            same_line_if_fits(field_width(120, "死区"));
             auto deadzone = effective.deadzone;
-            set_field_width(120, text(translations, "Deadzone"));
-            if(ImGui::InputFloat(
-                   label(translations, "Deadzone").c_str(), &deadzone, 0, 0, "%.3f")) {
+            set_field_width(120, "死区");
+            if(ImGui::InputFloat("死区###Deadzone", &deadzone, 0, 0, "%.3f")) {
                 m_edit.change_deadzone(action.id, binding.id, deadzone);
             }
         }
     }
 
     void PlayerInputPanel::render_capture_button(const Action& action, const Binding& binding,
-        const Comet::PlayerInputEdit::CaptureKind kind, const Input::Frame& input,
-        const Text& translations) {
+        const Comet::PlayerInputEdit::CaptureKind kind, const Input::Frame& input) {
         const auto& capture = m_edit.capture();
         const bool capturing =
             capture && capture->action == action.id && capture->binding == binding.id;
-        const char* caption = capturing ? "Press Key" : "Record Key";
+        const char* caption = capturing ? "请按键###Press Key" : "录入按键###Record Key";
         if(kind == Comet::PlayerInputEdit::CaptureKind::GamepadButton)
-            caption = capturing ? "Press Button" : "Record Button";
-        same_line_if_fits(button_width(text(translations, caption)));
-        if(!ImGui::Button(label(translations, caption).c_str()))
+            caption = capturing ? "请按按钮###Press Button" : "录入按钮###Record Button";
+        same_line_if_fits(button_width(caption));
+        if(!ImGui::Button(caption))
             return;
         m_edit.start_capture(action.id, binding.id, input, kind);
         if(m_edit.capture())
@@ -245,19 +229,19 @@ namespace CometEditor {
     }
 
     void PlayerInputPanel::render_binding(const Action& action, const Binding& binding,
-        Overrides::Resolution& resolved, const Input::Frame& input, const Text& translations) {
+        Overrides::Resolution& resolved, const Input::Frame& input) {
         ImGui::PushID(binding.id.to_string().c_str());
         auto patch = m_edit.binding_patch(action.id, binding.id);
         const auto* action_override = m_edit.action_patch(action.id);
         const bool incompatible = action_override && action_override->type != action.type;
         bool changed = false;
         bool disabled = patch.disabled && !incompatible;
-        if(ImGui::Checkbox(label(translations, "Disable Binding").c_str(), &disabled)) {
+        if(ImGui::Checkbox("禁用绑定###Disable Binding", &disabled)) {
             m_edit.disable_binding(action.id, binding.id, disabled);
             changed = true;
         }
-        same_line_if_fits(button_width(text(translations, "Restore Binding")));
-        if(ImGui::Button(label(translations, "Restore Binding").c_str())) {
+        same_line_if_fits(button_width("恢复绑定默认值"));
+        if(ImGui::Button("恢复绑定默认值###Restore Binding")) {
             m_edit.restore_binding(action.id, binding.id);
             changed = true;
         }
@@ -268,42 +252,41 @@ namespace CometEditor {
         }
         patch = m_edit.binding_patch(action.id, binding.id);
         if(patch.disabled && !incompatible) {
-            render_disabled_binding(action, binding, patch, translations);
+            render_disabled_binding(action, binding, patch);
             ImGui::Separator();
             ImGui::PopID();
             return;
         }
         const bool overridden = patch.control || patch.scale || patch.deadzone;
         const bool rejected = binding_rejected(resolved, action.id, binding.id);
-        const char* status = "Inherits project default";
+        const char* status = "继承项目默认";
         if(rejected)
-            status = "Override ignored; using project default";
+            status = "覆盖未生效；使用项目默认";
         else if(overridden)
-            status = "Personal override";
-        ImGui::TextWrapped("%s", text(translations, status));
+            status = "个人覆盖";
+        ImGui::TextWrapped("%s", status);
         const auto& effective_bindings = resolved.actions.actions()[m_selected_action].bindings;
         const auto effective = std::ranges::find(effective_bindings, binding.id, &Binding::id);
         ImGui::BeginDisabled(rejected);
         const auto& effective_binding =
             effective == effective_bindings.end() ? binding : *effective;
-        render_controls(action, binding, effective_binding, input, translations);
+        render_controls(action, binding, effective_binding, input);
         ImGui::EndDisabled();
         ImGui::Separator();
         ImGui::PopID();
     }
 
-    void PlayerInputPanel::render_action_selector(const Text& translations) {
+    void PlayerInputPanel::render_action_selector() {
         const auto& actions = m_edit.defaults().actions();
-        set_field_width(250, text(translations, "Filter Actions"));
-        Ui::input_text(label(translations, "Filter Actions").c_str(), m_action_filter);
+        set_field_width(250, "筛选动作");
+        Ui::input_text("筛选动作###Filter Actions", m_action_filter);
         if(!m_action_filter.empty()) {
-            same_line_if_fits(button_width(text(translations, "Clear Filter")));
-            if(ImGui::Button(label(translations, "Clear Filter").c_str()))
+            same_line_if_fits(button_width("清除筛选"));
+            if(ImGui::Button("清除筛选###Clear Filter"))
                 m_action_filter.clear();
         }
-        set_field_width(250, text(translations, "Action"));
-        if(ImGui::BeginCombo(
-               label(translations, "Action").c_str(), actions[m_selected_action].name.c_str())) {
+        set_field_width(250, "动作");
+        if(ImGui::BeginCombo("动作###Action", actions[m_selected_action].name.c_str())) {
             bool found = false;
             for(std::size_t index = 0; index < actions.size(); ++index) {
                 if(!m_action_filter.empty()
@@ -319,41 +302,38 @@ namespace CometEditor {
                 ImGui::PopID();
             }
             if(!found)
-                ImGui::TextDisabled("%s", text(translations, "No matching actions."));
+                ImGui::TextDisabled("%s", "没有匹配的动作。");
             ImGui::EndCombo();
         }
     }
 
-    void PlayerInputPanel::render_actions(const Input::Frame& input, const Text& translations) {
+    void PlayerInputPanel::render_actions(const Input::Frame& input) {
         const auto& actions = m_edit.defaults().actions();
         if(actions.empty()) {
-            ImGui::TextDisabled("%s", text(translations, "No input actions."));
+            ImGui::TextDisabled("%s", "项目没有配置输入动作。");
             return;
         }
-        render_action_selector(translations);
+        render_action_selector();
         const auto& action = actions[m_selected_action];
-        same_line_if_fits(
-            ImGui::CalcTextSize(text(translations, Ui::input_type_name(action.type))).x);
-        ImGui::TextDisabled("%s", text(translations, Ui::input_type_name(action.type)));
+        same_line_if_fits(ImGui::CalcTextSize(Ui::input_type_name(action.type)).x);
+        ImGui::TextDisabled("%s", Ui::input_type_name(action.type));
         const auto* patch = m_edit.action_patch(action.id);
         bool incompatible = patch && patch->type != action.type;
         bool disabled = !incompatible && patch && patch->disabled;
         ImGui::BeginDisabled(incompatible);
-        if(ImGui::Checkbox(label(translations, "Disable Action").c_str(), &disabled))
+        if(ImGui::Checkbox("禁用动作###Disable Action", &disabled))
             m_edit.disable_action(action.id, disabled);
         ImGui::EndDisabled();
-        same_line_if_fits(button_width(text(translations, "Restore Action")));
-        if(ImGui::Button(label(translations, "Restore Action").c_str()))
+        same_line_if_fits(button_width("恢复动作默认值"));
+        if(ImGui::Button("恢复动作默认值###Restore Action"))
             m_edit.restore_action(action.id);
         patch = m_edit.action_patch(action.id);
         incompatible = patch && patch->type != action.type;
         disabled = !incompatible && patch && patch->disabled;
         if(incompatible)
-            ImGui::TextWrapped("%s",
-                text(translations, "Restore this action before editing incompatible overrides."));
+            ImGui::TextWrapped("%s", "该动作的类型已变化，请先恢复默认值再编辑。");
         if(disabled) {
-            ImGui::TextWrapped(
-                "%s", text(translations, "Disabled; personal overrides are preserved."));
+            ImGui::TextWrapped("%s", "已禁用；个人配置仍保留，重新启用后恢复。");
             return;
         }
         auto resolved = m_edit.resolution();
@@ -362,39 +342,36 @@ namespace CometEditor {
         ImGui::BeginDisabled(incompatible);
         ImGui::BeginChild("Bindings", ImVec2(0, 190), true);
         for(const auto& binding : action.bindings)
-            render_binding(action, binding, resolved.value(), input, translations);
+            render_binding(action, binding, resolved.value(), input);
         ImGui::EndChild();
         ImGui::EndDisabled();
     }
 
-    void PlayerInputPanel::render_feedback(const Text& translations) {
+    void PlayerInputPanel::render_feedback() {
         const auto resolved = m_edit.resolution();
         if(!resolved) {
-            ImGui::TextWrapped("%s", text(translations, resolved.error().c_str()));
+            ImGui::TextWrapped("%s", resolved.error().c_str());
             return;
         }
-        if(ImGui::CollapsingHeader(label(translations, "Binding Relationships").c_str(),
-               ImGuiTreeNodeFlags_DefaultOpen)) {
+        if(ImGui::CollapsingHeader(
+               "绑定关系###Binding Relationships", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::BeginChild("Relationships", ImVec2(0, 120), true);
-            Ui::render_binding_relationships(
-                resolved.value().actions, m_selected_action, translations);
+            Ui::render_binding_relationships(resolved.value().actions, m_selected_action);
             ImGui::EndChild();
         }
-        render_diagnostics(resolved.value(), translations);
+        render_diagnostics(resolved.value());
     }
 
-    void PlayerInputPanel::render_diagnostics(
-        const Overrides::Resolution& resolved, const Text& translations) {
+    void PlayerInputPanel::render_diagnostics(const Overrides::Resolution& resolved) {
         if(resolved.issues.empty())
             return;
-        ImGui::TextWrapped(
-            "%s", text(translations, "Incompatible overrides are preserved until restored."));
+        ImGui::TextWrapped("%s", "不兼容的个人配置暂不生效，恢复默认前仍保留。");
         ImGui::BeginChild("Diagnostics", ImVec2(0, 75), true);
         for(const auto& issue : resolved.issues) {
             ImGui::PushID(issue.action.to_string().c_str());
             ImGui::PushID(issue.binding.to_string().c_str());
-            ImGui::TextWrapped("%s", text(translations, issue.message.c_str()));
-            if(ImGui::Button(label(translations, "Remove Override").c_str())) {
+            ImGui::TextWrapped("%s", issue.message.c_str());
+            if(ImGui::Button("移除此覆盖###Remove Override")) {
                 if(issue.binding)
                     m_edit.restore_binding(issue.action, issue.binding);
                 else
@@ -411,26 +388,24 @@ namespace CometEditor {
         ImGui::EndChild();
     }
 
-    void PlayerInputPanel::render_error(const Text& translations) {
+    void PlayerInputPanel::render_error() {
         if(m_edit.error().empty())
             return;
-        const auto available = ImGui::GetContentRegionAvail().y - footer_height(translations)
+        const auto available = ImGui::GetContentRegionAvail().y - footer_height()
                                - ImGui::GetStyle().ItemSpacing.y * 2;
         const auto error_height = std::min(96.f, std::max(1.f, available * 0.35f));
         ImGui::BeginChild("Error", ImVec2(0, error_height), true);
-        ImGui::TextWrapped("%s", text(translations, m_edit.error().c_str()));
+        ImGui::TextWrapped("%s", m_edit.error().c_str());
         ImGui::EndChild();
     }
 
-    void PlayerInputPanel::render_content(const Input::Frame& input, const Text& translations) {
-        const auto body_height =
-            std::max(1.f, ImGui::GetContentRegionAvail().y - footer_height(translations)
-                              - ImGui::GetStyle().ItemSpacing.y);
+    void PlayerInputPanel::render_content(const Input::Frame& input) {
+        const auto body_height = std::max(1.f,
+            ImGui::GetContentRegionAvail().y - footer_height() - ImGui::GetStyle().ItemSpacing.y);
         ImGui::BeginChild("Content", ImVec2(0, body_height));
-        ImGui::TextWrapped("%s",
-            text(translations,
-                "Player overrides only; project defaults are unchanged. Unedited fields inherit defaults."));
-        render_actions(input, translations);
+        ImGui::TextWrapped(
+            "%s", "仅修改玩家个人配置，不改变项目默认值；未修改的字段继续使用默认值。");
+        render_actions(input);
         if(!m_edit.waiting()) {
             const bool editing_text = ImGui::GetInputTextState(ImGui::GetActiveID());
             const bool panel_focused =
@@ -438,30 +413,30 @@ namespace CometEditor {
             m_edit.capture_input(input, !editing_text && panel_focused);
         }
         if(m_edit.capture()) {
-            const char* prompt = "Press a key; Escape cancels recording.";
+            const char* prompt = "请按下新按键；Esc 取消录入。";
             if(m_edit.capture()->gamepad)
-                prompt = "Press a gamepad button; Escape cancels recording.";
-            ImGui::TextWrapped("%s", text(translations, prompt));
+                prompt = "请按下手柄按钮；Esc 取消录入。";
+            ImGui::TextWrapped("%s", prompt);
         }
-        render_feedback(translations);
+        render_feedback();
         ImGui::EndChild();
     }
 
-    void PlayerInputPanel::render_footer(const Text& translations) {
-        if(ImGui::Button(label(translations, "Apply").c_str()))
+    void PlayerInputPanel::render_footer() {
+        if(ImGui::Button("应用###Apply"))
             m_edit.apply();
-        same_line_if_fits(button_width(text(translations, "Cancel")));
-        if(ImGui::Button(label(translations, "Cancel").c_str()))
+        same_line_if_fits(button_width("取消"));
+        if(ImGui::Button("取消###Cancel"))
             close();
-        same_line_if_fits(button_width(text(translations, "Restore All")));
-        if(ImGui::Button(label(translations, "Restore All").c_str()))
+        same_line_if_fits(button_width("全部恢复默认"));
+        if(ImGui::Button("全部恢复默认###Restore All"))
             m_edit.restore_all();
     }
 
-    bool PlayerInputPanel::render(const Input::Frame& input, const Text& translations) {
+    bool PlayerInputPanel::render(const Input::Frame& input) {
         if(!m_open && !m_close_requested)
             return false;
-        const auto title = label(translations, "Player Input");
+        const auto title = std::string("玩家输入设置###Player Input");
         const bool opening = m_open_requested;
         if(m_open_requested) {
             ImGui::OpenPopup(title.c_str());
@@ -483,11 +458,11 @@ namespace CometEditor {
                 close();
         }
         if(m_open) {
-            render_reserved_keys(m_edit.reserved_keys(), translations);
-            render_error(translations);
+            render_reserved_keys(m_edit.reserved_keys());
+            render_error();
             ImGui::BeginDisabled(m_edit.waiting());
-            render_content(input, translations);
-            render_footer(translations);
+            render_content(input);
+            render_footer();
             ImGui::EndDisabled();
         }
         if(m_close_requested) {

@@ -1,5 +1,4 @@
 #pragma once
-#include "ui/text.h"
 #include <string>
 
 namespace CometEditor {
@@ -12,7 +11,7 @@ namespace CometEditor {
         virtual void render() = 0;
 
         [[nodiscard]] const std::string& get_name() const { return m_name; }
-        [[nodiscard]] std::string window_label() const { return Ui::label(m_name.c_str()); }
+        [[nodiscard]] const std::string& window_label() const { return m_name; }
 
         void set_visible(const bool visible) { m_user_visible = visible; }
         [[nodiscard]] bool is_open() const { return m_user_visible; }

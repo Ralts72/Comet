@@ -14,7 +14,7 @@ namespace Comet {
         std::uint32_t swapchain_image_count = 3;
         SampleCount msaa_samples = SampleCount::Count4;
         bool enable_validation = false;
-        // 本机启动上下文，不从共享 YAML 读取；空路径禁用磁盘缓存。
+        // 本机启动上下文，不从开发者 Profile 读取；空路径禁用磁盘缓存。
         std::filesystem::path pipeline_cache_directory;
     };
 }

@@ -115,10 +115,10 @@ namespace CometEditor::Ui::Tests {
             physical.focus_event(true);
         }
 
-        void frame(const PlayerInputPanel::Text& translations = {}) {
+        void frame() {
             ImGui::NewFrame();
             ImGui::LogToBuffer(0);
-            blocked = panel.render(physical.publish_frame(), translations);
+            blocked = panel.render(physical.publish_frame());
             rendered_text = ImGui::GetCurrentContext()->LogBuffer.c_str();
             ImGui::LogFinish();
             ImGui::Render();
@@ -200,8 +200,7 @@ namespace CometEditor::Ui::Tests {
 
         void record(Input::Key value) {
             binding_button("Record Key");
-            ASSERT_NE(
-                rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+            ASSERT_NE(rendered_text.find("请按下新按键；Esc 取消录入。"), std::string::npos);
             key(value);
         }
 
@@ -246,21 +245,20 @@ namespace CometEditor::Ui::Tests {
             press_imgui_key(ImGuiKey_Enter);
         }
 
-        std::optional<ImVec2> hover_point(
-            ImGuiWindow* owner, ImGuiID item, const PlayerInputPanel::Text& translations = {}) {
-            return find_hover_point(owner, item, [this, &translations] { frame(translations); });
+        std::optional<ImVec2> hover_point(ImGuiWindow* owner, ImGuiID item) {
+            return find_hover_point(owner, item, [this] { frame(); });
         }
 
-        void mouse_click(ImVec2 point, const PlayerInputPanel::Text& translations = {}) {
+        void mouse_click(ImVec2 point) {
             auto& io = ImGui::GetIO();
             io.AddMousePosEvent(point.x, point.y);
-            frame(translations);
+            frame();
             io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
             physical.mouse_button_event(Input::MouseButton::Left, true);
-            frame(translations);
+            frame();
             io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
             physical.mouse_button_event(Input::MouseButton::Left, false);
-            frame(translations);
+            frame();
         }
 
         void click_footer(const char* english) {
@@ -314,7 +312,7 @@ namespace CometEditor::Ui::Tests {
         filter_actions(long_filter.c_str());
         EXPECT_NE(rendered_text.find(long_filter), std::string::npos);
         button("Action");
-        EXPECT_NE(rendered_text.find("No matching actions."), std::string::npos);
+        EXPECT_NE(rendered_text.find("没有匹配的动作。"), std::string::npos);
         press_imgui_key(ImGuiKey_Escape);
         button("Clear Filter");
         select_action("jump", id(1));
@@ -334,15 +332,14 @@ namespace CometEditor::Ui::Tests {
         show();
         button("Action");
         EXPECT_NE(rendered_text.find("move"), std::string::npos);
-        EXPECT_EQ(rendered_text.find("No matching actions."), std::string::npos);
+        EXPECT_EQ(rendered_text.find("没有匹配的动作。"), std::string::npos);
     }
 
     TEST_F(PlayerInputPanelTest, FilterTextTakesOverRecordingWithoutChangingBindings) {
         show();
         binding_button("Record Key");
-        const PlayerInputPanel::Text translations{{"Filter Actions", "筛选动作"}};
         const auto item = content()->GetID("###Filter Actions");
-        const auto point = hover_point(content(), item, translations);
+        const auto point = hover_point(content(), item);
         ASSERT_TRUE(point);
         EXPECT_NE(rendered_text.find("筛选动作"), std::string::npos);
         auto& io = ImGui::GetIO();
@@ -351,21 +348,21 @@ namespace CometEditor::Ui::Tests {
         physical.key_event(Input::Key::M, true);
         io.AddKeyEvent(ImGuiKey_M, true);
         io.AddInputCharactersUTF8("m");
-        frame(translations);
+        frame();
         EXPECT_EQ(ImGui::GetActiveID(), item);
-        EXPECT_EQ(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        EXPECT_EQ(rendered_text.find("请按下新按键；Esc 取消录入。"), std::string::npos);
         io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
         physical.mouse_button_event(Input::MouseButton::Left, false);
         physical.key_event(Input::Key::M, false);
         io.AddKeyEvent(ImGuiKey_M, false);
-        frame(translations);
-        frame(translations);
+        frame();
+        frame();
         physical.key_event(Input::Key::Enter, true);
         io.AddKeyEvent(ImGuiKey_Enter, true);
-        frame(translations);
+        frame();
         physical.key_event(Input::Key::Enter, false);
         io.AddKeyEvent(ImGuiKey_Enter, false);
-        frame(translations);
+        frame();
         button("Apply");
         const auto request = panel.take_request();
         ASSERT_TRUE(request);
@@ -477,7 +474,7 @@ namespace CometEditor::Ui::Tests {
         EXPECT_TRUE(resolved.value().actions.actions()[2].bindings.empty());
     }
 
-    TEST_F(PlayerInputPanelTest, EmptyDefaultsKeepTranslatedDiagnosticRemovalMouseReachable) {
+    TEST_F(PlayerInputPanelTest, EmptyDefaultsKeepDiagnosticRemovalMouseReachable) {
         defaults = {};
         ImGui::GetIO().DisplaySize = {480, 320};
         const auto current = Overrides::create(
@@ -485,21 +482,20 @@ namespace CometEditor::Ui::Tests {
                 {id(4), Type::Axis, true, {}}});
         ASSERT_TRUE(current);
         show(current.value());
-        EXPECT_NE(rendered_text.find("No input actions."), std::string::npos);
+        EXPECT_NE(rendered_text.find("项目没有配置输入动作。"), std::string::npos);
         ASSERT_NE(diagnostics(), nullptr);
         const auto item = diagnostic_item(id(1));
-        const PlayerInputPanel::Text translations{{"Remove Override", "Remove this record"}};
         ImGui::SetScrollY(content(), content()->ScrollMax.y);
-        frame(translations);
-        frame(translations);
+        frame();
+        frame();
         EXPECT_GT(content()->Scroll.y, 0);
         EXPECT_GT(diagnostics()->ScrollMax.y, 0);
         EXPECT_EQ(diagnostic_item(id(1)), item);
-        EXPECT_NE(rendered_text.find("Remove this record"), std::string::npos);
-        const auto point = hover_point(diagnostics(), item, translations);
+        EXPECT_NE(rendered_text.find("移除此覆盖"), std::string::npos);
+        const auto point = hover_point(diagnostics(), item);
         ASSERT_TRUE(point);
-        mouse_click(*point, translations);
-        frame(translations);
+        mouse_click(*point);
+        frame();
         EXPECT_EQ(rendered_text.find(id(1).to_string()), std::string::npos);
         EXPECT_NE(rendered_text.find(id(4).to_string()), std::string::npos);
         EXPECT_TRUE(panel.is_open());
@@ -540,8 +536,7 @@ namespace CometEditor::Ui::Tests {
             record(Input::Key::J);
             EXPECT_NE(
                 rendered_text.find("This key is reserved. Use another key."), std::string::npos);
-            EXPECT_NE(
-                rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+            EXPECT_NE(rendered_text.find("请按下新按键；Esc 取消录入。"), std::string::npos);
         }
         key(Input::Key::K);
         EXPECT_EQ(rendered_text.find("This key is reserved. Use another key."), std::string::npos);
@@ -556,7 +551,7 @@ namespace CometEditor::Ui::Tests {
         frame();
 
         show();
-        EXPECT_EQ(rendered_text.find("Reserved keys:"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("程序保留键："), std::string::npos);
         record(Input::Key::J);
         button("Apply");
         const auto reopened = panel.take_request();
@@ -569,7 +564,7 @@ namespace CometEditor::Ui::Tests {
     TEST_F(PlayerInputPanelTest, ReservedDropdownChoiceIsDisabledAndRecordingCanContinue) {
         const Input::Key reserved[]{Input::Key::J, Input::Key::Escape};
         show({}, reserved);
-        EXPECT_NE(rendered_text.find("Reserved keys:"), std::string::npos);
+        EXPECT_NE(rendered_text.find("程序保留键："), std::string::npos);
         binding_button("Control");
         auto* combo = ImGui::FindWindowByName("##Combo_00");
         ASSERT_NE(combo, nullptr);
@@ -595,14 +590,14 @@ namespace CometEditor::Ui::Tests {
         show({}, reserved);
         record(Input::Key::J);
         EXPECT_NE(rendered_text.find("This key is reserved. Use another key."), std::string::npos);
-        EXPECT_NE(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        EXPECT_NE(rendered_text.find("请按下新按键；Esc 取消录入。"), std::string::npos);
         key(Input::Key::Space);
         EXPECT_EQ(rendered_text.find("This key is reserved. Use another key."), std::string::npos);
-        EXPECT_EQ(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        EXPECT_EQ(rendered_text.find("请按下新按键；Esc 取消录入。"), std::string::npos);
         binding_button("Record Key");
         key(Input::Key::Escape);
         EXPECT_TRUE(panel.is_open());
-        EXPECT_EQ(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        EXPECT_EQ(rendered_text.find("请按下新按键；Esc 取消录入。"), std::string::npos);
         EXPECT_EQ(rendered_text.find("This key is reserved. Use another key."), std::string::npos);
         button("Apply");
         const auto recorded = panel.take_request();
@@ -615,7 +610,7 @@ namespace CometEditor::Ui::Tests {
         const auto current = Overrides::create({{id(1), Type::Button, false,
             {{.id = id(3), .control = Input::Key::J, .scale = 1, .deadzone = 0}}}});
         ASSERT_TRUE(current);
-        const std::string warning = "This binding uses a reserved key and will not reach the game.";
+        const std::string warning = "此绑定使用程序保留键，不会传递给游戏。";
         show(current.value(), reserved);
         const auto first_warning = rendered_text.find(warning);
         ASSERT_NE(first_warning, std::string::npos);
@@ -699,10 +694,10 @@ namespace CometEditor::Ui::Tests {
                 physical.gamepad_sample(0, pad);
                 show(current);
                 auto binding = id(2);
-                const char* prompt = "Press a key; Escape cancels recording.";
+                const char* prompt = "请按下新按键；Esc 取消录入。";
                 if(gamepad) {
                     binding = id(3);
-                    prompt = "Press a gamepad button; Escape cancels recording.";
+                    prompt = "请按下手柄按钮；Esc 取消录入。";
                     binding_button("Record Button", binding);
                 } else {
                     binding_button("Record Key", binding);
@@ -754,10 +749,10 @@ namespace CometEditor::Ui::Tests {
                 {id(99), Type::Button, true, {}}});
         ASSERT_TRUE(current);
         show(current.value());
-        EXPECT_NE(rendered_text.find("Restore this action before editing incompatible overrides."),
-            std::string::npos);
+        EXPECT_NE(
+            rendered_text.find("该动作的类型已变化，请先恢复默认值再编辑。"), std::string::npos);
         EXPECT_EQ(
-            rendered_text.find("Disabled; personal overrides are preserved."), std::string::npos);
+            rendered_text.find("已禁用；个人配置仍保留，重新启用后恢复。"), std::string::npos);
         button("Restore All");
         button("Apply");
         const auto request = panel.take_request();
@@ -770,20 +765,15 @@ namespace CometEditor::Ui::Tests {
         record(Input::Key::K);
         binding_button("Disable Binding");
         binding_button("Disable Binding", id(3));
-        const PlayerInputPanel::Text captions{
-            {"Disabled binding (not active):", "Inactive binding:"}, {"key", "Stored keyboard"},
-            {"gamepad_button", "Stored gamepad"}, {"Space", "Hidden default Space"},
-            {"K", "Stored personal K"}, {"South", "Stored South"}};
-        frame(captions);
+        frame();
         EXPECT_EQ(
-            rendered_text.find("Disabled; personal overrides are preserved."), std::string::npos);
-        EXPECT_EQ(rendered_text.find("Hidden default Space"), std::string::npos);
-        EXPECT_NE(rendered_text.find("Inactive binding: Stored keyboard / Stored personal K"),
-            std::string::npos);
-        EXPECT_NE(rendered_text.find("Inactive binding: Stored gamepad / Stored South"),
-            std::string::npos);
-        EXPECT_EQ(rendered_text.find("Record Key"), std::string::npos);
-        EXPECT_EQ(rendered_text.find("Record Button"), std::string::npos);
+            rendered_text.find("已禁用；个人配置仍保留，重新启用后恢复。"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("键盘 / Space"), std::string::npos);
+        EXPECT_NE(rendered_text.find("已禁用绑定（当前不生效）： 键盘 / K"), std::string::npos);
+        EXPECT_NE(
+            rendered_text.find("已禁用绑定（当前不生效）： 手柄按钮 / South"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("录入按键"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("录入按钮"), std::string::npos);
         button("Apply");
         const auto request = panel.take_request();
         ASSERT_TRUE(request);
@@ -800,12 +790,11 @@ namespace CometEditor::Ui::Tests {
         frame();
         show(*request);
         binding_button("Restore Binding", id(3));
-        frame(captions);
-        EXPECT_NE(rendered_text.find("Inactive binding: Stored keyboard / Stored personal K"),
-            std::string::npos);
-        EXPECT_EQ(rendered_text.find("Inactive binding: Stored gamepad / Stored South"),
-            std::string::npos);
-        EXPECT_NE(rendered_text.find("Stored South"), std::string::npos);
+        frame();
+        EXPECT_NE(rendered_text.find("已禁用绑定（当前不生效）： 键盘 / K"), std::string::npos);
+        EXPECT_EQ(
+            rendered_text.find("已禁用绑定（当前不生效）： 手柄按钮 / South"), std::string::npos);
+        EXPECT_NE(rendered_text.find("South"), std::string::npos);
         button("Apply");
         const auto restored_gamepad = panel.take_request();
         ASSERT_TRUE(restored_gamepad);
@@ -846,19 +835,19 @@ namespace CometEditor::Ui::Tests {
                     .disabled = true}}}});
         ASSERT_TRUE(current);
         show(current.value());
-        EXPECT_NE(rendered_text.find("Disabled binding (not active): gamepad_axis / RightX"),
-            std::string::npos);
-        EXPECT_NE(rendered_text.find("Multiplier: 1.500"), std::string::npos);
-        EXPECT_NE(rendered_text.find("Deadzone: 0.350"), std::string::npos);
+        EXPECT_NE(
+            rendered_text.find("已禁用绑定（当前不生效）： 手柄轴 / RightX"), std::string::npos);
+        EXPECT_NE(rendered_text.find("倍率: 1.500"), std::string::npos);
+        EXPECT_NE(rendered_text.find("死区: 0.350"), std::string::npos);
         for(const auto* field : {"Multiplier", "Deadzone"}) {
             binding_button(field, id(3));
             EXPECT_NE(ImGui::GetActiveID(), binding_item(id(3), field));
         }
         button("Disable Action");
         EXPECT_NE(
-            rendered_text.find("Disabled; personal overrides are preserved."), std::string::npos);
-        EXPECT_EQ(rendered_text.find("Multiplier"), std::string::npos);
-        EXPECT_EQ(rendered_text.find("Record Key"), std::string::npos);
+            rendered_text.find("已禁用；个人配置仍保留，重新启用后恢复。"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("倍率"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("录入按键"), std::string::npos);
         button("Apply");
         const auto request = panel.take_request();
         ASSERT_TRUE(request);
@@ -885,10 +874,10 @@ namespace CometEditor::Ui::Tests {
         ASSERT_TRUE(current);
         show(current.value());
         button("Disable Action");
-        EXPECT_NE(rendered_text.find("Inherits project default"), std::string::npos);
+        EXPECT_NE(rendered_text.find("继承项目默认"), std::string::npos);
         select_action("move", id(4));
         binding_button("Disable Binding", id(5));
-        EXPECT_NE(rendered_text.find("Inherits project default"), std::string::npos);
+        EXPECT_NE(rendered_text.find("继承项目默认"), std::string::npos);
         button("Apply");
         const auto request = panel.take_request();
         ASSERT_TRUE(request);
@@ -907,22 +896,19 @@ namespace CometEditor::Ui::Tests {
         ASSERT_TRUE(current);
         show(current.value());
         select_action("move", id(4));
-        frame({{"Disabled binding (not active):", "Inactive stored binding:"},
-            {"Space", "Stored Space"}, {"Multiplier", "Stored multiplier"},
-            {"Deadzone", "Stored deadzone"}});
-        EXPECT_NE(
-            rendered_text.find("Inactive stored binding: key / Stored Space"), std::string::npos);
-        EXPECT_NE(rendered_text.find("Stored multiplier: -0.500"), std::string::npos);
-        EXPECT_NE(rendered_text.find("Stored deadzone: 0.300"), std::string::npos);
-        EXPECT_EQ(rendered_text.find("Record Key"), std::string::npos);
+        frame();
+        EXPECT_NE(rendered_text.find("已禁用绑定（当前不生效）： 键盘 / Space"), std::string::npos);
+        EXPECT_NE(rendered_text.find("倍率: -0.500"), std::string::npos);
+        EXPECT_NE(rendered_text.find("死区: 0.300"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("录入按键"), std::string::npos);
         for(const auto* field : {"Multiplier", "Deadzone"}) {
             binding_button(field, id(5));
             EXPECT_NE(ImGui::GetActiveID(), binding_item(id(5), field));
         }
         binding_button("Disable Binding", id(5));
-        frame({{"Space", "Effective Space"}});
-        EXPECT_NE(rendered_text.find("Override ignored; using project default"), std::string::npos);
-        EXPECT_NE(rendered_text.find("Effective Space"), std::string::npos);
+        frame();
+        EXPECT_NE(rendered_text.find("覆盖未生效；使用项目默认"), std::string::npos);
+        EXPECT_NE(rendered_text.find("Space"), std::string::npos);
         button("Apply");
         const auto enabled = panel.take_request();
         ASSERT_TRUE(enabled);
@@ -1008,7 +994,7 @@ namespace CometEditor::Ui::Tests {
         binding_button("Record Key");
         key(Input::Key::Escape);
         EXPECT_TRUE(panel.is_open());
-        EXPECT_EQ(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        EXPECT_EQ(rendered_text.find("请按下新按键；Esc 取消录入。"), std::string::npos);
         physical.key_event(Input::Key::Escape, true);
         frame();
         EXPECT_FALSE(panel.is_open());
@@ -1024,7 +1010,7 @@ namespace CometEditor::Ui::Tests {
         physical.focus_event(false);
         frame();
         EXPECT_TRUE(panel.is_open());
-        EXPECT_EQ(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        EXPECT_EQ(rendered_text.find("请按下新按键；Esc 取消录入。"), std::string::npos);
         physical.focus_event(true);
         key(Input::Key::K);
         button("Apply");
@@ -1047,10 +1033,10 @@ namespace CometEditor::Ui::Tests {
             Input::GamepadSample pad;
             physical.gamepad_sample(0, pad);
             show(current.value());
-            const char* prompt = "Press a key; Escape cancels recording.";
+            const char* prompt = "请按下新按键；Esc 取消录入。";
             if(gamepad) {
                 binding_button("Record Button", id(3));
-                prompt = "Press a gamepad button; Escape cancels recording.";
+                prompt = "请按下手柄按钮；Esc 取消录入。";
             } else {
                 binding_button("Record Key");
             }
@@ -1099,7 +1085,7 @@ namespace CometEditor::Ui::Tests {
         frame();
         EXPECT_TRUE(panel.is_open());
         EXPECT_TRUE(blocked);
-        EXPECT_EQ(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        EXPECT_EQ(rendered_text.find("请按下新按键；Esc 取消录入。"), std::string::npos);
         physical.key_event(Input::Key::K, false);
         frame();
         key(Input::Key::J);
@@ -1114,7 +1100,7 @@ namespace CometEditor::Ui::Tests {
         ImGui::GetIO().ConfigMacOSXBehaviors = true;
         physical.key_event(Input::Key::Enter, true);
         binding_button("Record Key");
-        EXPECT_NE(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        EXPECT_NE(rendered_text.find("请按下新按键；Esc 取消录入。"), std::string::npos);
         physical.key_event(Input::Key::Enter, false);
         frame();
         key(Input::Key::LeftControl);
@@ -1273,22 +1259,20 @@ namespace CometEditor::Ui::Tests {
         ASSERT_TRUE(configured);
         defaults = configured.value();
         show();
-        EXPECT_NE(rendered_text.find("No overlapping bindings."), std::string::npos);
+        EXPECT_NE(rendered_text.find("没有与其他动作重叠的绑定。"), std::string::npos);
 
         binding_button("Record Key");
         physical.key_event(Input::Key::K, true);
         frame();
         EXPECT_NE(rendered_text.find("key/K: confirm [menu]"), std::string::npos);
-        EXPECT_NE(
-            rendered_text.find("This control is consumed by the other action"), std::string::npos);
-        EXPECT_EQ(rendered_text.find("No overlapping bindings."), std::string::npos);
+        EXPECT_NE(rendered_text.find("本绑定的同一输入被对方消费"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("没有与其他动作重叠的绑定。"), std::string::npos);
         physical.key_event(Input::Key::K, false);
         frame();
 
         select_action("confirm", id(10));
         EXPECT_NE(rendered_text.find("key/K: jump [gameplay]"), std::string::npos);
-        EXPECT_NE(
-            rendered_text.find("Consumes this control from the other action"), std::string::npos);
+        EXPECT_NE(rendered_text.find("本绑定消费对方的同一输入"), std::string::npos);
         button("Apply");
         const auto request = panel.take_request();
         ASSERT_TRUE(request);
@@ -1309,23 +1293,23 @@ namespace CometEditor::Ui::Tests {
             {{id(1), Type::Button, false, {{.id = id(2), .control = Input::Key::K}}}});
         ASSERT_TRUE(current);
         show(current.value());
-        EXPECT_NE(rendered_text.find("No overlapping bindings."), std::string::npos);
+        EXPECT_NE(rendered_text.find("没有与其他动作重叠的绑定。"), std::string::npos);
 
         binding_button("Restore Binding");
         EXPECT_NE(rendered_text.find("key/Space: interact [gameplay]"), std::string::npos);
         binding_button("Disable Binding");
-        EXPECT_NE(rendered_text.find("No overlapping bindings."), std::string::npos);
+        EXPECT_NE(rendered_text.find("没有与其他动作重叠的绑定。"), std::string::npos);
         EXPECT_EQ(rendered_text.find("key/Space: interact [gameplay]"), std::string::npos);
         binding_button("Restore Binding");
         EXPECT_NE(rendered_text.find("key/Space: interact [gameplay]"), std::string::npos);
         button("Disable Action");
-        EXPECT_NE(rendered_text.find("No overlapping bindings."), std::string::npos);
+        EXPECT_NE(rendered_text.find("没有与其他动作重叠的绑定。"), std::string::npos);
         EXPECT_EQ(rendered_text.find("key/Space: interact [gameplay]"), std::string::npos);
         button("Restore Action");
         EXPECT_NE(rendered_text.find("key/Space: interact [gameplay]"), std::string::npos);
 
         record(Input::Key::K);
-        EXPECT_NE(rendered_text.find("No overlapping bindings."), std::string::npos);
+        EXPECT_NE(rendered_text.find("没有与其他动作重叠的绑定。"), std::string::npos);
         button("Restore All");
         frame();
         EXPECT_NE(rendered_text.find("key/Space: interact [gameplay]"), std::string::npos);
@@ -1345,23 +1329,17 @@ namespace CometEditor::Ui::Tests {
         ASSERT_TRUE(configured);
         defaults = configured.value();
         show();
-        const PlayerInputPanel::Text translations{{"Shared", "Shared at equal priority"},
-            {"Common (Always Enabled)", "Common group"}, {"Initially disabled:", "Starts off:"}};
-        frame(translations);
-        EXPECT_NE(rendered_text.find("Binding Relationships"), std::string::npos);
-        EXPECT_NE(rendered_text.find(
-                      "Pairwise rules when both contexts are enabled; not current runtime state."),
+        frame();
+        EXPECT_NE(rendered_text.find("绑定关系"), std::string::npos);
+        EXPECT_NE(rendered_text.find("以下说明双方组都启用时的两两关系，不代表当前运行状态。"),
             std::string::npos);
         EXPECT_NE(rendered_text.find("key/Space: interact [walk]"), std::string::npos);
-        EXPECT_NE(rendered_text.find("Shared at equal priority"), std::string::npos);
-        EXPECT_NE(rendered_text.find("Starts off: walk"), std::string::npos);
-        EXPECT_NE(rendered_text.find("key/Space: help [Common group]"), std::string::npos);
-        EXPECT_NE(
-            rendered_text.find("Shared (common action bypasses consumption)"), std::string::npos);
-        EXPECT_EQ(
-            rendered_text.find("Consumes this control from the other action"), std::string::npos);
-        EXPECT_EQ(
-            rendered_text.find("This control is consumed by the other action"), std::string::npos);
+        EXPECT_NE(rendered_text.find("双方共享"), std::string::npos);
+        EXPECT_NE(rendered_text.find("默认关闭： walk"), std::string::npos);
+        EXPECT_NE(rendered_text.find("key/Space: help [公共（始终启用）]"), std::string::npos);
+        EXPECT_NE(rendered_text.find("双方共享（公共动作不参与消费）"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("本绑定消费对方的同一输入"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("本绑定的同一输入被对方消费"), std::string::npos);
         EXPECT_FALSE(panel.take_request());
     }
 
@@ -1433,7 +1411,7 @@ namespace CometEditor::Ui::Tests {
         frame();
         EXPECT_TRUE(panel.is_open());
         EXPECT_TRUE(blocked);
-        ASSERT_NE(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        ASSERT_NE(rendered_text.find("请按下新按键；Esc 取消录入。"), std::string::npos);
         const auto waiting = binding_item(id(2), "Press Key");
         const auto again = hover_point(bindings(), waiting);
         ASSERT_TRUE(again);
@@ -1443,16 +1421,15 @@ namespace CometEditor::Ui::Tests {
         for(int held = 0; held < 2; ++held) {
             frame();
             EXPECT_EQ(ImGui::GetActiveID(), waiting);
-            EXPECT_NE(
-                rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+            EXPECT_NE(rendered_text.find("请按下新按键；Esc 取消录入。"), std::string::npos);
         }
         io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
         physical.mouse_button_event(Input::MouseButton::Left, false);
         frame();
         EXPECT_EQ(ImGui::GetActiveID(), 0u);
-        ASSERT_NE(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        ASSERT_NE(rendered_text.find("请按下新按键；Esc 取消录入。"), std::string::npos);
         key(Input::Key::K);
-        EXPECT_EQ(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        EXPECT_EQ(rendered_text.find("请按下新按键；Esc 取消录入。"), std::string::npos);
         button("Apply");
         const auto request = panel.take_request();
         ASSERT_TRUE(request);
@@ -1478,8 +1455,7 @@ namespace CometEditor::Ui::Tests {
             show(current.value());
             select_action("move", id(4));
             binding_button("Record Key", id(5));
-            ASSERT_NE(
-                rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+            ASSERT_NE(rendered_text.find("请按下新按键；Esc 取消录入。"), std::string::npos);
             const auto multiplier = binding_item(id(5), "Multiplier");
             const auto point = hover_point(bindings(), multiplier);
             ASSERT_TRUE(point);
@@ -1497,8 +1473,7 @@ namespace CometEditor::Ui::Tests {
             frame();
             EXPECT_TRUE(physical.get_frame().key(Input::Key::Digit2).pressed);
             EXPECT_EQ(ImGui::GetActiveID(), multiplier);
-            EXPECT_EQ(
-                rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+            EXPECT_EQ(rendered_text.find("请按下新按键；Esc 取消录入。"), std::string::npos);
             if(same_batch) {
                 io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
                 physical.mouse_button_event(Input::MouseButton::Left, false);
@@ -1552,9 +1527,9 @@ namespace CometEditor::Ui::Tests {
         binding_button("Record Key");
         EXPECT_TRUE(ImGui::GetIO().WantTextInput);
         EXPECT_EQ(ImGui::GetActiveID(), 0u);
-        ASSERT_NE(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        ASSERT_NE(rendered_text.find("请按下新按键；Esc 取消录入。"), std::string::npos);
         key(Input::Key::K);
-        EXPECT_EQ(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        EXPECT_EQ(rendered_text.find("请按下新按键；Esc 取消录入。"), std::string::npos);
         button("Apply");
         const auto request = panel.take_request();
         ASSERT_TRUE(request);
@@ -1647,7 +1622,7 @@ namespace CometEditor::Ui::Tests {
         const auto scope = ImHashStr(confirm->id.to_string().c_str(), 0, combo->ID);
         activate(combo, ImHashStr("palette.confirm", 0, scope));
         binding_button("Record Key", confirm_binding);
-        ASSERT_NE(rendered_text.find("Press a key; Escape cancels recording."), std::string::npos);
+        ASSERT_NE(rendered_text.find("请按下新按键；Esc 取消录入。"), std::string::npos);
         ASSERT_TRUE(press(Key::K));
         EXPECT_TRUE(blocked);
         button("Apply");
@@ -1736,17 +1711,14 @@ namespace CometEditor::Ui::Tests {
         show(current.value());
         EXPECT_FALSE(gate.read(physical.get_frame(), !blocked).focused);
         binding_button("Record Button", id(3));
-        ASSERT_NE(rendered_text.find("Press a gamepad button; Escape cancels recording."),
-            std::string::npos);
+        ASSERT_NE(rendered_text.find("请按下手柄按钮；Esc 取消录入。"), std::string::npos);
 
         pad.buttons[static_cast<std::size_t>(Input::GamepadButton::East)] = true;
         physical.gamepad_sample(2, pad);
         frame();
-        EXPECT_EQ(rendered_text.find("Press a gamepad button; Escape cancels recording."),
-            std::string::npos);
+        EXPECT_EQ(rendered_text.find("请按下手柄按钮；Esc 取消录入。"), std::string::npos);
         EXPECT_NE(rendered_text.find("gamepad_button/East: confirm [menu]"), std::string::npos);
-        EXPECT_NE(
-            rendered_text.find("This control is consumed by the other action"), std::string::npos);
+        EXPECT_NE(rendered_text.find("本绑定的同一输入被对方消费"), std::string::npos);
         const auto captured = gate.read(physical.get_frame(), !blocked);
         EXPECT_FALSE(captured.gamepads[2].button(Input::GamepadButton::East).down);
         EXPECT_FALSE(captured.gamepads[2].button(Input::GamepadButton::East).pressed);
@@ -1801,8 +1773,7 @@ namespace CometEditor::Ui::Tests {
         other.buttons[static_cast<std::size_t>(Input::GamepadButton::West)] = true;
         physical.gamepad_sample(7, other);
         frame();
-        EXPECT_NE(rendered_text.find("Press a gamepad button; Escape cancels recording."),
-            std::string::npos);
+        EXPECT_NE(rendered_text.find("请按下手柄按钮；Esc 取消录入。"), std::string::npos);
 
         first.buttons.fill(false);
         physical.gamepad_sample(4, first);
@@ -1810,8 +1781,7 @@ namespace CometEditor::Ui::Tests {
         first.buttons[static_cast<std::size_t>(Input::GamepadButton::North)] = true;
         physical.gamepad_sample(4, first);
         frame();
-        EXPECT_EQ(rendered_text.find("Press a gamepad button; Escape cancels recording."),
-            std::string::npos);
+        EXPECT_EQ(rendered_text.find("请按下手柄按钮；Esc 取消录入。"), std::string::npos);
         button("Apply");
         const auto request = panel.take_request();
         ASSERT_TRUE(request);
@@ -1826,23 +1796,19 @@ namespace CometEditor::Ui::Tests {
         binding_button("Record Button", id(3));
         frame();
         EXPECT_NE(rendered_text.find("No gamepad connected."), std::string::npos);
-        EXPECT_EQ(rendered_text.find("Press a gamepad button; Escape cancels recording."),
-            std::string::npos);
+        EXPECT_EQ(rendered_text.find("请按下手柄按钮；Esc 取消录入。"), std::string::npos);
         Input::GamepadSample pad;
         pad.buttons[static_cast<std::size_t>(Input::GamepadButton::North)] = true;
         physical.gamepad_sample(0, pad);
         frame();
-        EXPECT_EQ(rendered_text.find("Press a gamepad button; Escape cancels recording."),
-            std::string::npos);
+        EXPECT_EQ(rendered_text.find("请按下手柄按钮；Esc 取消录入。"), std::string::npos);
         binding_button("Record Button", id(3));
         frame();
-        ASSERT_NE(rendered_text.find("Press a gamepad button; Escape cancels recording."),
-            std::string::npos);
+        ASSERT_NE(rendered_text.find("请按下手柄按钮；Esc 取消录入。"), std::string::npos);
         key(Input::Key::Escape);
         EXPECT_TRUE(panel.is_open());
         EXPECT_TRUE(blocked);
-        EXPECT_EQ(rendered_text.find("Press a gamepad button; Escape cancels recording."),
-            std::string::npos);
+        EXPECT_EQ(rendered_text.find("请按下手柄按钮；Esc 取消录入。"), std::string::npos);
         pad.buttons[static_cast<std::size_t>(Input::GamepadButton::East)] = true;
         physical.gamepad_sample(0, pad);
         frame();
@@ -1860,19 +1826,16 @@ namespace CometEditor::Ui::Tests {
         physical.gamepad_sample(4, std::nullopt);
         frame();
         EXPECT_TRUE(panel.is_open());
-        EXPECT_EQ(rendered_text.find("Press a gamepad button; Escape cancels recording."),
-            std::string::npos);
+        EXPECT_EQ(rendered_text.find("请按下手柄按钮；Esc 取消录入。"), std::string::npos);
 
         physical.gamepad_sample(6, pad);
         frame();
         binding_button("Record Button", id(3));
-        ASSERT_NE(rendered_text.find("Press a gamepad button; Escape cancels recording."),
-            std::string::npos);
+        ASSERT_NE(rendered_text.find("请按下手柄按钮；Esc 取消录入。"), std::string::npos);
         physical.gamepad_sample(2, pad);
         frame();
         EXPECT_TRUE(panel.is_open());
-        EXPECT_EQ(rendered_text.find("Press a gamepad button; Escape cancels recording."),
-            std::string::npos);
+        EXPECT_EQ(rendered_text.find("请按下手柄按钮；Esc 取消录入。"), std::string::npos);
         pad.buttons[static_cast<std::size_t>(Input::GamepadButton::East)] = true;
         physical.gamepad_sample(6, pad);
         physical.gamepad_sample(2, pad);
@@ -1899,10 +1862,10 @@ namespace CometEditor::Ui::Tests {
             Input::GamepadSample pad;
             physical.gamepad_sample(0, pad);
             show(current.value());
-            const char* prompt = "Press a key; Escape cancels recording.";
+            const char* prompt = "请按下新按键；Esc 取消录入。";
             if(gamepad) {
                 binding_button("Record Button", id(3));
-                prompt = "Press a gamepad button; Escape cancels recording.";
+                prompt = "请按下手柄按钮；Esc 取消录入。";
             } else {
                 binding_button("Record Key");
             }
@@ -1951,23 +1914,20 @@ namespace CometEditor::Ui::Tests {
         physical.focus_event(false);
         frame();
         EXPECT_TRUE(panel.is_open());
-        EXPECT_EQ(rendered_text.find("Press a gamepad button; Escape cancels recording."),
-            std::string::npos);
+        EXPECT_EQ(rendered_text.find("请按下手柄按钮；Esc 取消录入。"), std::string::npos);
 
         physical.focus_event(true);
         physical.gamepad_sample(0, pad);
         frame();
         binding_button("Record Button", id(3));
-        ASSERT_NE(rendered_text.find("Press a gamepad button; Escape cancels recording."),
-            std::string::npos);
+        ASSERT_NE(rendered_text.find("请按下手柄按钮；Esc 取消录入。"), std::string::npos);
         physical.discard_pending();
         pad.buttons[static_cast<std::size_t>(Input::GamepadButton::East)] = true;
         physical.gamepad_sample(0, pad);
         frame();
         EXPECT_TRUE(panel.is_open());
         EXPECT_TRUE(physical.get_frame().focused);
-        EXPECT_EQ(rendered_text.find("Press a gamepad button; Escape cancels recording."),
-            std::string::npos);
+        EXPECT_EQ(rendered_text.find("请按下手柄按钮；Esc 取消录入。"), std::string::npos);
         pad.buttons[static_cast<std::size_t>(Input::GamepadButton::North)] = true;
         physical.gamepad_sample(0, pad);
         frame();
@@ -1983,15 +1943,15 @@ namespace CometEditor::Ui::Tests {
         ASSERT_TRUE(configured);
         defaults = configured.value();
         show();
-        EXPECT_NE(rendered_text.find("Inherits project default"), std::string::npos);
-        EXPECT_EQ(rendered_text.find("Personal override"), std::string::npos);
+        EXPECT_NE(rendered_text.find("继承项目默认"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("个人覆盖"), std::string::npos);
         record(Input::Key::K);
-        EXPECT_NE(rendered_text.find("Personal override"), std::string::npos);
-        EXPECT_EQ(rendered_text.find("Inherits project default"), std::string::npos);
+        EXPECT_NE(rendered_text.find("个人覆盖"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("继承项目默认"), std::string::npos);
         binding_button("Restore Binding");
         frame();
-        EXPECT_NE(rendered_text.find("Inherits project default"), std::string::npos);
-        EXPECT_EQ(rendered_text.find("Personal override"), std::string::npos);
+        EXPECT_NE(rendered_text.find("继承项目默认"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("个人覆盖"), std::string::npos);
         button("Apply");
         const auto request = panel.take_request();
         ASSERT_TRUE(request);
@@ -2007,27 +1967,21 @@ namespace CometEditor::Ui::Tests {
             {{id(1), Type::Button, false, {{.id = id(2), .control = Input::Key::K, .scale = 2}}}});
         ASSERT_TRUE(current);
         show(current.value());
-        frame({{"Space", "Effective Space"}, {"K", "Rejected K"}});
-        EXPECT_NE(rendered_text.find("Override ignored; using project default"), std::string::npos);
-        EXPECT_NE(rendered_text.find("Effective Space"), std::string::npos);
-        EXPECT_EQ(rendered_text.find("Rejected K"), std::string::npos);
-        EXPECT_EQ(rendered_text.find("Personal override"), std::string::npos);
+        frame();
+        EXPECT_NE(rendered_text.find("覆盖未生效；使用项目默认"), std::string::npos);
+        EXPECT_NE(rendered_text.find("Space"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("K"), std::string::npos);
+        EXPECT_EQ(rendered_text.find("个人覆盖"), std::string::npos);
         button("Apply");
         const auto request = panel.take_request();
         ASSERT_TRUE(request);
         EXPECT_EQ(*request, current.value());
     }
 
-    TEST_F(PlayerInputPanelTest, TranslationsAreBorrowedPerFrameAndKeepWidgetIdentity) {
+    TEST_F(PlayerInputPanelTest, ChineseCaptionsKeepWidgetIdentity) {
         show();
         const auto* original_window = window();
-        {
-            const PlayerInputPanel::Text translations{{"Player Input", "Personal Controls"},
-                {"Apply", "Use bindings"}, {"Disable Action", "Turn off action"}};
-            frame(translations);
-            EXPECT_EQ(window(), original_window);
-            EXPECT_NE(rendered_text.find("Use bindings"), std::string::npos);
-        }
+        EXPECT_NE(rendered_text.find("应用"), std::string::npos);
         button("Apply");
         EXPECT_EQ(window(), original_window);
         EXPECT_TRUE(panel.take_request());
@@ -2042,10 +1996,10 @@ namespace CometEditor::Ui::Tests {
 
         ImGuiWindow* window() { return ImGui::FindWindowByName("###Input Settings Error"); }
 
-        void frame(bool close_requested = false, const Translations& translations = {}) {
+        void frame(bool close_requested = false) {
             ImGui::NewFrame();
             ImGui::LogToBuffer(0);
-            blocked = render_player_input_error(error, close_requested, translations);
+            blocked = render_player_input_error(error, close_requested);
             rendered_text = ImGui::GetCurrentContext()->LogBuffer.c_str();
             ImGui::LogFinish();
             ImGui::Render();
@@ -2110,23 +2064,18 @@ namespace CometEditor::Ui::Tests {
         EXPECT_FALSE(blocked);
     }
 
-    TEST_F(PlayerInputErrorTest, TranslationsKeepIdentityAndExternalClearClosesThePopup) {
+    TEST_F(PlayerInputErrorTest, ChineseCaptionKeepsIdentityAndExternalClearClosesThePopup) {
         frame();
         EXPECT_FALSE(blocked);
         error = "Original file diagnostic";
         frame();
         frame();
         const auto* original_window = window();
-        {
-            const Translations translations{{"Input Settings Error", "Personal settings error"},
-                {"Close", "Dismiss"}, {error, "This replacement must not appear"}};
-            frame(false, translations);
-            EXPECT_EQ(window(), original_window);
-            EXPECT_NE(rendered_text.find("Dismiss"), std::string::npos);
-            EXPECT_NE(rendered_text.find(error), std::string::npos);
-            EXPECT_EQ(rendered_text.find("This replacement must not appear"), std::string::npos);
-            expect_visible();
-        }
+        frame();
+        EXPECT_EQ(window(), original_window);
+        EXPECT_NE(rendered_text.find("关闭"), std::string::npos);
+        EXPECT_NE(rendered_text.find(error), std::string::npos);
+        expect_visible();
         error.clear();
         frame();
         EXPECT_TRUE(blocked);

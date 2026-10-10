@@ -1,5 +1,4 @@
 #include "ui/path_dialog.h"
-#include "ui/text.h"
 #include "ui/widgets.h"
 #include <utility>
 #include <imgui.h>
@@ -29,20 +28,19 @@ namespace CometEditor {
         }
 
         const bool is_open = m_action != Action::SaveScene;
-        const char* title = "Open Scene";
+        const char* title = "打开场景###Open Scene";
         if(m_action == Action::SaveScene)
-            title = "Save Scene";
+            title = "保存场景###Save Scene";
         else if(m_action == Action::OpenProject)
-            title = "Open Project";
+            title = "打开项目###Open Project";
         else if(m_action == Action::CreateProject)
-            title = "New Project";
+            title = "新建项目###New Project";
         if(m_open_requested) {
             ImGui::OpenPopup(title);
             m_open_requested = false;
         }
 
-        if(!ImGui::BeginPopupModal(
-               Ui::label(title).c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if(!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             return;
         }
         if(m_close_requested) {
@@ -55,16 +53,16 @@ namespace CometEditor {
 
         ImGui::SetNextItemWidth(560.0f);
         const bool submitted =
-            Ui::input_text(Ui::label("Path").c_str(), m_path, ImGuiInputTextFlags_EnterReturnsTrue);
+            Ui::input_text("路径###Path", m_path, ImGuiInputTextFlags_EnterReturnsTrue);
 
-        const char* action = is_open ? "Open" : "Save";
+        const char* action = is_open ? "打开###Open" : "保存###Save";
         if(m_action == Action::CreateProject)
             action = "Create";
-        if((ImGui::Button(Ui::label(action).c_str(), ImVec2(100.0f, 0.0f)) || submitted)) {
+        if((ImGui::Button(action, ImVec2(100.0f, 0.0f)) || submitted)) {
             m_request = Request{m_action, m_path};
         }
         ImGui::SameLine();
-        if(ImGui::Button(Ui::label("Cancel").c_str(), ImVec2(100.0f, 0.0f))) {
+        if(ImGui::Button("取消###Cancel", ImVec2(100.0f, 0.0f))) {
             m_cancelled = true;
             ImGui::CloseCurrentPopup();
             m_action = Action::None;

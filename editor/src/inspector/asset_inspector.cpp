@@ -3,27 +3,41 @@
 #include "assets/asset_reference.h"
 #include "render/material/material_programs.h"
 #include "ui/dialogs.h"
-#include "ui/text.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <algorithm>
 #include <array>
+#include <string_view>
+#include <span>
 #include <utility>
 
 namespace CometEditor {
     namespace {
-        const std::string& property_label(const auto& property) {
-            if(property.display_name.empty())
-                return property.name;
-            return property.display_name;
+        std::string property_label(const auto& property, const bool builtin) {
+            const auto& original =
+                property.display_name.empty() ? property.name : property.display_name;
+            if(builtin) {
+                static constexpr std::pair<std::string_view, std::string_view> captions[]{
+                    {"intensity", "强度"},
+                    {"color", "颜色"},
+                    {"base_color_texture", "基础色贴图"},
+                    {"metallic", "金属度"},
+                    {"roughness", "粗糙度"},
+                    {"base_color", "基础色"},
+                };
+                for(const auto& [name, caption] : captions)
+                    if(name == property.name)
+                        return std::string(caption) + "###" + original;
+            }
+            return original;
         }
         const char* texture_color_space_label(const Comet::TextureColorSpace color_space) {
             switch(color_space) {
                 case Comet::TextureColorSpace::Srgb:
-                    return "sRGB";
+                    return "sRGB###sRGB";
                 case Comet::TextureColorSpace::Linear:
-                    return "Linear";
+                    return "线性###Linear";
             }
             return "Unknown";
         }
@@ -126,8 +140,8 @@ namespace CometEditor {
             load_asset(*record);
         }
 
-        ImGui::Text(Ui::text("Path: %s"), record->path.generic_string().c_str());
-        ImGui::Text(Ui::text("Type: %s"), Comet::to_string(record->type).data());
+        ImGui::Text("路径：%s", record->path.generic_string().c_str());
+        ImGui::Text("类型：%s", Comet::to_string(record->type).data());
         ImGui::Separator();
 
         if(!m_asset_error.empty()) {
@@ -138,7 +152,7 @@ namespace CometEditor {
             if(m_material_data) {
                 render_material(*record, generation, allow_drop);
                 confirm_material_template();
-            } else if(ImGui::Button(Ui::label("Retry Load").c_str())) {
+            } else if(ImGui::Button("重试加载###Retry Load")) {
                 load_asset(*record);
             }
             return;
@@ -147,25 +161,25 @@ namespace CometEditor {
         if(record->type == Comet::AssetType::Texture) {
             if(m_texture_import_settings) {
                 render_texture(*record);
-            } else if(ImGui::Button(Ui::label("Retry Load").c_str())) {
+            } else if(ImGui::Button("重试加载###Retry Load")) {
                 load_asset(*record);
             }
             return;
         }
 
-        ImGui::TextDisabled("%s", Ui::text("No inspector is available for this asset type"));
+        ImGui::TextDisabled("%s", "此资产类型暂无属性编辑器");
     }
 
     void AssetInspector::render_texture(const Comet::AssetRecord& record) {
         std::optional<Comet::TextureImportSettings> previous_settings;
         const char* color_space = texture_color_space_label(m_texture_import_settings->color_space);
-        if(ImGui::BeginCombo(Ui::label("Color Space").c_str(), Ui::text(color_space))) {
+        if(ImGui::BeginCombo("色彩空间###Color Space", color_space)) {
             constexpr std::array color_spaces{
                 Comet::TextureColorSpace::Srgb, Comet::TextureColorSpace::Linear};
             for(const Comet::TextureColorSpace candidate : color_spaces) {
                 const bool selected = candidate == m_texture_import_settings->color_space;
                 const char* label = texture_color_space_label(candidate);
-                if(ImGui::Selectable(Ui::label(label).c_str(), selected) && !selected) {
+                if(ImGui::Selectable(label, selected) && !selected) {
                     if(!previous_settings) {
                         previous_settings = *m_texture_import_settings;
                     }
@@ -179,7 +193,7 @@ namespace CometEditor {
         }
 
         bool flip_y = m_texture_import_settings->flip_y;
-        if(ImGui::Checkbox(Ui::label("Flip Y").c_str(), &flip_y)) {
+        if(ImGui::Checkbox("翻转 Y###Flip Y", &flip_y)) {
             if(!previous_settings) {
                 previous_settings = *m_texture_import_settings;
             }
@@ -197,9 +211,11 @@ namespace CometEditor {
         bool parameter_changed = false;
         bool parameter_active = false;
         const auto layout = material_layout();
+        const bool builtin = layout && !m_material_data->shader_program
+                             && Comet::MaterialLayout::find_builtin(layout->get_name());
         ImGui::BeginDisabled(m_material_before.has_value());
         if(ImGui::BeginCombo(
-               Ui::label("Render Template").c_str(), m_material_data->template_name.c_str())) {
+               "渲染模板###Render Template", m_material_data->template_name.c_str())) {
             for(const auto& candidate : m_material_layouts) {
                 const bool selected = candidate->get_name() == m_material_data->template_name;
                 if(ImGui::Selectable(candidate->get_name().c_str(), selected) && !selected)
@@ -237,8 +253,8 @@ namespace CometEditor {
             m_asset_error.clear();
         };
         auto shader_program = m_material_data->shader_program;
-        if(edit_asset_reference(Ui::label("Shader Program").c_str(), shader_program,
-               m_asset_database, Comet::AssetType::ShaderProgram))
+        if(edit_asset_reference("着色器程序###Shader Program", shader_program, m_asset_database,
+               Comet::AssetType::ShaderProgram))
             select_program(shader_program);
         if(allow_drop) {
             if(const auto asset = accept_asset_drop(
@@ -247,7 +263,7 @@ namespace CometEditor {
                 select_program(asset->handle);
         }
         if(!layout) {
-            ImGui::TextDisabled("%s", Ui::text("No registered layout for this material"));
+            ImGui::TextDisabled("%s", "材质模板尚未注册");
             if(!m_program_layout_error.empty())
                 ImGui::TextWrapped("%s", m_program_layout_error.c_str());
             ImGui::EndDisabled();
@@ -255,7 +271,7 @@ namespace CometEditor {
             return;
         }
         if(!layout->get_textures().empty())
-            ImGui::SeparatorText(Ui::text("Textures"));
+            ImGui::SeparatorText("纹理");
 
         for(const auto& property : layout->get_textures()) {
             const auto& property_name = property.name;
@@ -264,7 +280,7 @@ namespace CometEditor {
             if(found != m_material_data->texture_properties.end())
                 texture_handle = found->second;
             ImGui::PushID(property_name.c_str());
-            const auto& label = property_label(property);
+            const auto& label = property_label(property, builtin);
             const auto assign = [&](Comet::AssetHandle value) {
                 if(value == texture_handle)
                     return;
@@ -293,17 +309,17 @@ namespace CometEditor {
 
         ImGui::EndDisabled();
         if(!layout->get_scalars().empty() || !layout->get_vectors().empty())
-            ImGui::SeparatorText(Ui::text("Parameters"));
+            ImGui::SeparatorText("参数");
         for(const auto& property : layout->get_scalars()) {
             const auto found = m_material_data->scalar_properties.find(property.name);
             float value = property.default_value;
             if(found != m_material_data->scalar_properties.end())
                 value = found->second;
             const float before = value;
-            const auto& label = property_label(property);
+            const auto& label = property_label(property, builtin);
             ImGui::PushID(property.name.c_str());
-            if(ImGui::DragFloat(Ui::label(label.c_str()).c_str(), &value, property.step,
-                   property.min_value, property.max_value, "%.3f", ImGuiSliderFlags_AlwaysClamp)
+            if(ImGui::DragFloat(label.c_str(), &value, property.step, property.min_value,
+                   property.max_value, "%.3f", ImGuiSliderFlags_AlwaysClamp)
                 && value != before) {
                 remember_previous();
                 m_material_data->texture_properties.erase(property.name);
@@ -320,14 +336,13 @@ namespace CometEditor {
             if(found != m_material_data->vector_properties.end())
                 value = found->second;
             const auto before = value;
-            const auto& label = property_label(property);
+            const auto& label = property_label(property, builtin);
             ImGui::PushID(property.name.c_str());
             bool changed = false;
             if(property.semantic == Comet::MaterialLayout::VectorProperty::Semantic::Color) {
-                changed = ImGui::ColorEdit4(
-                    Ui::label(label.c_str()).c_str(), &value.x, ImGuiColorEditFlags_Float);
+                changed = ImGui::ColorEdit4(label.c_str(), &value.x, ImGuiColorEditFlags_Float);
             } else {
-                changed = ImGui::DragFloat4(Ui::label(label.c_str()).c_str(), &value.x, 0.01f);
+                changed = ImGui::DragFloat4(label.c_str(), &value.x, 0.01f);
             }
             if(changed && value != before) {
                 remember_previous();
@@ -365,10 +380,10 @@ namespace CometEditor {
         }
         ImGui::EndDisabled();
         if(m_material_before && !m_asset_error.empty()) {
-            if(ImGui::Button(Ui::label("Retry Save").c_str()))
+            if(ImGui::Button("重试保存###Retry Save"))
                 finish_material_edit();
             ImGui::SameLine();
-            if(ImGui::Button(Ui::label("Cancel Changes").c_str()))
+            if(ImGui::Button("取消修改###Cancel Changes"))
                 finish_material_edit(true);
         }
     }

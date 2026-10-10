@@ -1,19 +1,16 @@
 #include "asset/artifact/mesh_artifact.h"
 #include "asset/data/mesh_data.h"
 
+#include "common/binary.h"
 #include "common/file_io.h"
 
 #include <algorithm>
 #include <array>
-#include <bit>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <fstream>
 #include <iterator>
 #include <limits>
 #include <span>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -25,20 +22,6 @@ namespace Comet {
         constexpr std::uint32_t FORMAT_VERSION = 2;
         constexpr std::uint32_t MAX_INPUT_COUNT = 1024;
         constexpr std::uint32_t MAX_PATH_LENGTH = 16 * 1024;
-        constexpr std::uint64_t FNV_OFFSET_BASIS = 14695981039346656037ull;
-        constexpr std::uint64_t FNV_PRIME = 1099511628211ull;
-        static_assert(sizeof(float) == sizeof(std::uint32_t));
-        static_assert(std::numeric_limits<float>::is_iec559);
-
-        [[nodiscard]] std::uint64_t hash_bytes(const std::span<const std::byte> bytes) {
-            std::uint64_t hash = FNV_OFFSET_BASIS;
-            for(const std::byte byte : bytes) {
-                hash ^= std::to_integer<std::uint8_t>(byte);
-                hash *= FNV_PRIME;
-            }
-            return hash;
-        }
-
         [[nodiscard]] bool is_safe_relative_path(const std::filesystem::path& path) {
             if(path.empty() || path.is_absolute()) {
                 return false;
@@ -62,149 +45,7 @@ namespace Comet {
             return std::filesystem::path(decoded);
         }
 
-        class BinaryWriter final {
-        public:
-            void write_bytes(const std::span<const std::byte> bytes) {
-                m_data.insert(m_data.end(), bytes.begin(), bytes.end());
-            }
-
-            void write_u32(const std::uint32_t value) {
-                for(std::uint32_t shift = 0; shift < 32; shift += 8) {
-                    m_data.push_back(static_cast<std::byte>((value >> shift) & 0xFF));
-                }
-            }
-
-            void write_u64(const std::uint64_t value) {
-                for(std::uint32_t shift = 0; shift < 64; shift += 8) {
-                    m_data.push_back(static_cast<std::byte>((value >> shift) & 0xFF));
-                }
-            }
-
-            void write_float(const float value) { write_u32(std::bit_cast<std::uint32_t>(value)); }
-
-            bool write_string(const std::string_view value) {
-                if(value.size() > MAX_PATH_LENGTH) {
-                    return false;
-                }
-                write_u32(static_cast<std::uint32_t>(value.size()));
-                write_bytes(std::as_bytes(std::span(value)));
-                return true;
-            }
-
-            [[nodiscard]] const std::vector<std::byte>& data() const { return m_data; }
-
-        private:
-            std::vector<std::byte> m_data;
-        };
-
-        class BinaryReader final {
-        public:
-            explicit BinaryReader(const std::span<const std::byte> data) : m_data(data) {}
-
-            [[nodiscard]] bool read_bytes(const std::span<const std::byte> expected) {
-                if(expected.size() > remaining()) {
-                    return false;
-                }
-                const bool equal = std::equal(expected.begin(), expected.end(),
-                    m_data.begin() + static_cast<std::ptrdiff_t>(m_offset));
-                m_offset += expected.size();
-                return equal;
-            }
-
-            [[nodiscard]] bool read_u32(std::uint32_t& value) {
-                if(sizeof(value) > remaining()) {
-                    return false;
-                }
-                value = 0;
-                for(std::uint32_t shift = 0; shift < 32; shift += 8) {
-                    value |= static_cast<std::uint32_t>(
-                                 std::to_integer<std::uint8_t>(m_data[m_offset++]))
-                             << shift;
-                }
-                return true;
-            }
-
-            [[nodiscard]] bool read_u64(std::uint64_t& value) {
-                if(sizeof(value) > remaining()) {
-                    return false;
-                }
-                value = 0;
-                for(std::uint32_t shift = 0; shift < 64; shift += 8) {
-                    value |= static_cast<std::uint64_t>(
-                                 std::to_integer<std::uint8_t>(m_data[m_offset++]))
-                             << shift;
-                }
-                return true;
-            }
-
-            [[nodiscard]] bool read_float(float& value) {
-                std::uint32_t bits = 0;
-                if(!read_u32(bits)) {
-                    return false;
-                }
-                value = std::bit_cast<float>(bits);
-                return true;
-            }
-
-            [[nodiscard]] bool read_string(std::string& value) {
-                std::uint32_t size = 0;
-                if(!read_u32(size) || size > MAX_PATH_LENGTH || size > remaining()) {
-                    return false;
-                }
-                value.assign(reinterpret_cast<const char*>(m_data.data() + m_offset), size);
-                m_offset += size;
-                return true;
-            }
-
-            [[nodiscard]] std::size_t remaining() const { return m_data.size() - m_offset; }
-
-        private:
-            std::span<const std::byte> m_data;
-            std::size_t m_offset = 0;
-        };
-
-        [[nodiscard]] std::optional<std::vector<std::byte>> read_file(
-            const std::filesystem::path& path, const std::size_t memory_budget) {
-            std::error_code error;
-            const std::uintmax_t size = std::filesystem::file_size(path, error);
-            if(error || size > memory_budget / 3
-                || size > static_cast<std::uintmax_t>(std::numeric_limits<std::size_t>::max())
-                || size
-                       > static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max())) {
-                return std::nullopt;
-            }
-
-            std::vector<std::byte> bytes(static_cast<std::size_t>(size));
-            std::ifstream input(path, std::ios::binary);
-            if(!input) {
-                return std::nullopt;
-            }
-            if(!bytes.empty()) {
-                input.read(reinterpret_cast<char*>(bytes.data()),
-                    static_cast<std::streamsize>(bytes.size()));
-            }
-            if(!input || input.peek() != std::ifstream::traits_type::eof()) {
-                return std::nullopt;
-            }
-            return bytes;
-        }
-
-        [[nodiscard]] bool read_checksum(
-            const std::span<const std::byte> bytes, std::uint64_t& checksum) {
-            if(bytes.size() < sizeof(checksum)) {
-                return false;
-            }
-            checksum = 0;
-            const std::size_t offset = bytes.size() - sizeof(checksum);
-            for(std::uint32_t shift = 0; shift < 64; shift += 8) {
-                checksum |= static_cast<std::uint64_t>(
-                                std::to_integer<std::uint8_t>(bytes[offset + shift / 8]))
-                            << shift;
-            }
-            return true;
-        }
-
-        [[nodiscard]] bool read_vertex(BinaryReader& reader, MeshVertex& vertex) {
+        [[nodiscard]] bool read_vertex(Binary::Reader& reader, MeshVertex& vertex) {
             return reader.read_float(vertex.position.x) && reader.read_float(vertex.position.y)
                    && reader.read_float(vertex.position.z) && reader.read_float(vertex.texcoord.x)
                    && reader.read_float(vertex.texcoord.y) && reader.read_float(vertex.normal.x)
@@ -213,7 +54,7 @@ namespace Comet {
                    && Math::is_finite(vertex.normal);
         }
 
-        bool write_vertex(BinaryWriter& writer, const MeshVertex& vertex) {
+        bool write_vertex(Binary::Writer& writer, const MeshVertex& vertex) {
             const std::array values{vertex.position.x, vertex.position.y, vertex.position.z,
                 vertex.texcoord.x, vertex.texcoord.y, vertex.normal.x, vertex.normal.y,
                 vertex.normal.z};
@@ -253,30 +94,31 @@ namespace Comet {
 
     std::optional<MeshArtifact> MeshArtifact::load(const std::filesystem::path& artifact_path,
         const AssetHandle expected_handle, const std::size_t memory_budget) {
-        const auto file = read_file(artifact_path, memory_budget);
-        if(!file || file->size() < MAGIC.size() + sizeof(std::uint64_t)) {
+        const auto file = read_binary_file(artifact_path, memory_budget / 3);
+        if(!file || file.value().size() < MAGIC.size() + sizeof(std::uint64_t)) {
             return std::nullopt;
         }
 
         std::uint64_t stored_checksum = 0;
-        if(!read_checksum(*file, stored_checksum)) {
+        if(!Binary::Reader(std::span<const std::byte>(file.value()).last(sizeof(stored_checksum)))
+                .read_u64(stored_checksum)) {
             return std::nullopt;
         }
-        const std::span payload(*file);
+        const std::span payload(file.value());
         const std::span<const std::byte> serialized =
             payload.first(payload.size() - sizeof(stored_checksum));
-        if(hash_bytes(serialized) != stored_checksum) {
+        if(Binary::hash_bytes(serialized) != stored_checksum) {
             return std::nullopt;
         }
 
-        BinaryReader reader(serialized);
+        Binary::Reader reader(serialized);
         std::uint32_t format_version = 0;
         std::uint32_t stored_importer_version = 0;
         std::uint64_t stored_handle = 0;
         std::uint32_t input_count = 0;
         std::uint32_t vertex_count = 0;
         std::uint32_t index_count = 0;
-        if(!reader.read_bytes(MAGIC) || !reader.read_u32(format_version)
+        if(!reader.match_bytes(MAGIC) || !reader.read_u32(format_version)
             || !reader.read_u32(stored_importer_version) || !reader.read_u64(stored_handle)
             || !reader.read_u32(input_count) || !reader.read_u32(vertex_count)
             || !reader.read_u32(index_count) || format_version != FORMAT_VERSION
@@ -293,7 +135,7 @@ namespace Comet {
         for(std::uint32_t index = 0; index < input_count; ++index) {
             std::string serialized_path;
             ImportInputFingerprint input;
-            if(!reader.read_string(serialized_path) || !reader.read_u64(input.size)
+            if(!reader.read_string(serialized_path, MAX_PATH_LENGTH) || !reader.read_u64(input.size)
                 || !reader.read_u64(input.hash)) {
                 return std::nullopt;
             }
@@ -346,7 +188,7 @@ namespace Comet {
                 "Cannot publish a mesh artifact with invalid source inputs");
         }
 
-        BinaryWriter writer;
+        Binary::Writer writer;
         writer.write_bytes(MAGIC);
         writer.write_u32(FORMAT_VERSION);
         writer.write_u32(importer_version);
@@ -355,7 +197,7 @@ namespace Comet {
         writer.write_u32(static_cast<std::uint32_t>(data.vertices.size()));
         writer.write_u32(static_cast<std::uint32_t>(data.indices.size()));
         for(const ImportInputFingerprint& input : source_inputs.files) {
-            if(!writer.write_string(path_to_utf8(input.relative_path)))
+            if(!writer.write_string(path_to_utf8(input.relative_path), MAX_PATH_LENGTH))
                 return Result<void>::failure("Mesh artifact input path is too long");
             writer.write_u64(input.size);
             writer.write_u64(input.hash);
@@ -372,7 +214,7 @@ namespace Comet {
             }
             writer.write_u32(index);
         }
-        writer.write_u64(hash_bytes(writer.data()));
+        writer.write_u64(Binary::hash_bytes(writer.data()));
         return write_binary_file_atomic(artifact_path, writer.data());
     }
 

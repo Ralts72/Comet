@@ -1,6 +1,5 @@
 #include "scene/entity_reference.h"
 #include "scene/scene.h"
-#include "ui/text.h"
 
 #include <imgui.h>
 #include <algorithm>
@@ -16,7 +15,7 @@ namespace CometEditor {
             while(entity) {
                 auto name = entity.get_component<Comet::NameComponent>().name;
                 if(name.empty())
-                    name = Ui::text("Unnamed Entity");
+                    name = "未命名实体";
                 if(!path.empty())
                     name += " / " + path;
                 path = std::move(name);
@@ -47,16 +46,16 @@ namespace CometEditor {
 
     bool edit_entity_reference(const char* label, Comet::EntityUuid& reference, Comet::Scene& scene,
         const std::optional<std::uint64_t> drop_generation) {
-        std::string preview = Ui::text("None");
+        std::string preview = "无";
         if(reference) {
             const auto entity = scene.find_entity(reference);
-            preview = Ui::text("Missing");
+            preview = "已丢失";
             if(entity)
                 preview = entity_path(scene, entity);
         }
         bool changed = false;
-        if(ImGui::BeginCombo(Ui::label(label).c_str(), preview.c_str())) {
-            if(ImGui::Selectable(Ui::label("None").c_str(), !reference) && reference) {
+        if(ImGui::BeginCombo(label, preview.c_str())) {
+            if(ImGui::Selectable("无###None", !reference) && reference) {
                 reference = {};
                 changed = true;
             }

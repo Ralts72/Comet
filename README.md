@@ -14,7 +14,7 @@ Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，
 | `tools/asset/` | 编辑器与独立工具共用的项目 Shader 导入，以及无窗口的启动场景资产准备入口 |
 | `tools/render_benchmark/` | 固定场景渲染性能基准及一键运行脚本，链接 engine，不依赖测试框架或编辑器 |
 | `tools/asset_scan_benchmark/` | 可选的资产扫描 CPU 基准及一键运行脚本，分别测量候选准备与索引发布 |
-| `editor/` | 编辑器入口，`src/` 按 scene、viewport、assets、inspector、project、render、ui 组织，`resources/` 保存私有图标和语言词表 |
+| `editor/` | 编辑器入口，`src/` 按 scene、viewport、assets、inspector、project、render、ui 组织，`resources/` 保存私有图标 |
 | `editor/src/ui/`、`editor/shaders/` | 编辑器 ImGui 控件与呈现适配；后端单独构建为 `editor_imgui`，设置面板属于 `editor/src/project/` |
 | `app/` | 通用项目 Runtime 入口与 `resources/` 私有图标 |
 | `demo/assets/ui/` | 示例项目的 RML 页面、RCSS 样式、Lua UI 控制器与菜单图标 |
@@ -28,7 +28,7 @@ Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，
 
 类入口、依赖方向和资源所有权见[架构文档](docs/architecture/overview.md)。
 
-`engine/src/common/` 提供共享文件读写、JSON／YAML 格式工具和错误定位；各模块负责自身的数据结构与字段校验。
+`engine/src/common/` 提供共享文件读写、JSON 与二进制基础工具和错误定位；各模块负责自身的数据结构与字段校验。
 显示、画质和音量选择共用 `config/player_settings` 存储流程，具体设置类型仍归所属功能模块。
 
 编辑器工具栏与 demo 菜单选用了“570+ 图标 v1.0.3”中的少量透明 PNG。
@@ -209,7 +209,7 @@ VMA 分配量不等于系统总显存；各分段百分位不能直接相加。C
 退出时会清理临时副本；若清理失败，工具会打印残留路径。Debug 构建只用于验证工具，性能判断应使用 Release 与实际规模的项目。
 `--synthetic` 会在临时项目生成指定数量的简单 Lua 资产及扫描产生的 `.meta`，用于观察文件数量扩大时的开销；它不代表真实项目的资产类型、依赖或存储条件。
 
-若要观察扫描对编辑器帧的影响，可在 `config/editor-dev.yaml` 临时启用 `diagnostics.enable_profiler`，
+若要观察扫描对编辑器帧的影响，可在 `config/profiles.json` 的 `editor-dev` 分组临时启用 `diagnostics.enable_profiler`，
 再用 `./editor.sh /path/to/project` 打开项目并触发资产变化。退出时的 Profiler 日志包含 `Engine::Frame`、
 `Editor::on_update`、`EditorAssets::update`、`SceneAssetReferences::restore` 和数据库扫描分段。
 这些是各自的累计／最大耗时，最大值不保证来自同一帧，不能直接相加；编辑器「渲染统计」可另行采集帧时间趋势。
@@ -232,10 +232,10 @@ CPU 阶段明细另列场景提取、资产解析、材质程序、几何界限�
 普通文件日志与 Scope Profiler 日志统一保存到**当前项目**的 `.comet/logs/`，
 分别命名为 `comet_<时间戳>.log`、`profiler_<时间戳>.log`；app/editor 使用同一目录规则。
 例如默认 demo 的路径是 `demo/.comet/logs/`，打开外部项目则写到外部项目内，不依赖仓库根目录或工作目录。
-各 Profile 关闭文件日志；在 `config/<Profile>.yaml` 中将 `diagnostics.enable_file_logging` 改为 `true`
+各 Profile 关闭文件日志；在 `config/profiles.json` 的对应分组中将 `diagnostics.enable_file_logging` 改为 `true`
 后才创建目录与文件。Profiler 文件还需当前构建支持且启用 `diagnostics.enable_profiler`。
 排查资产监视卡顿时，可在 Profiler 输出中分别查看 `AssetSourceMonitor` 的后台局部文件检查／完整快照与主线程结果接纳，以及 `AssetDatabase` 的局部扫描／全量准备／发布（含发布前输入复核和源签名计算）和 `EditorAssets::accept_scan` 的结果处理耗时。
-路径由启动入口传入，不作为 YAML 中的机器路径配置。无日志路径时仅保留终端／自定义输出端，
+路径由启动入口传入，不作为开发者 Profile 中的机器路径配置。无日志路径时仅保留终端／自定义输出端，
 目录无法写入时向标准错误提示并保留这些输出，不回退写到其他目录；项目／配置加载前的失败仍输出到终端。
 旧仓库根 `logs/` 不自动搬迁或删除。
 
@@ -243,10 +243,8 @@ App／Editor 共用 `engine/resources/fonts/` 中的 Roboto Bold 和 Noto Sans S
 Editor 游戏 UI 按视口显示尺寸换算离屏像素比例，切换渲染分辨率不改变控件的显示大小。
 RmlUi 使用 FreeType 解析字体、读取字形度量并栅格化文字，Comet 的 Vulkan 后端上传和绘制图集。
 引擎 UI 可配置字体文件、族名与回退；FreeType 可用于其他文字模块，当前 ImGui 仍使用自己的字体后端。
-编辑器固定使用简体中文，不提供语言选择，也不再读取或写入用户状态目录中的旧 `language.json`。
-仅翻译编辑器显示文本，不翻译资产名、路径、Shader 标识或原始日志。
-词表为 `editor/resources/locales/zh-CN.yaml`，修改后重启生效；键和值须为字符串，格式占位符与英文键一致。
-缺词显示原始标识；内置词表无法读取或格式无效时，启动会报告错误。中文标签保留稳定控件 ID，继续复用已有布局。
+编辑器固定使用简体中文，文案内置在所属界面的 C++ 代码中，不提供语言选择或外部翻译词表。
+可交互标签通过 `###` 分隔显示文案与稳定控件 ID，继续复用已有窗口布局和状态；项目名称、脚本字段和原始诊断保持原文。
 
 App 的输出模式和 HDR 校准通过游戏「设置 → 显示设置」在运行中修改并保存，项目设置提供新玩家默认值。
 Editor 的 Play 固定使用 SDR 预览，保留独立 App 的输出选择。窗口、VSync、帧率上限、画质、音量和改键
@@ -265,7 +263,7 @@ SDR 忽略 HDR 校准，菜单显示实际输出及回退状态。输出模式�
 暂不支持 HDR10/PQ、跨屏模式适配或自动亮度校准。
 SDR/HDR 指显示输出；内部场景目前始终使用浮点 HDR 目标与最终输出 Pass，关闭 Bloom 不会切换成 LDR 管线。
 
-Bloom（泛光）和曝光属于场景内容，不在引擎 YAML 中配置。点击「层级 / Hierarchy」中的「场景 / Scene」，
+Bloom（泛光）和曝光属于场景内容，不在开发者 Profile 中配置。点击「层级 / Hierarchy」中的「场景 / Scene」，
 在 Inspector 的「后处理 / Post Processing」修改：曝光 0..100、泛光开关、强度 0..10、阈值 0..65504。
 拖动实时预览，松手记录一次撤销，Esc 取消；双击可输入数值。保存场景后写入 `.scene` 的 `post_process`，
 Edit、Play 和独立 app 共用这份数据。Play 中该面板只读，运行时代码可修改 Runtime Scene，不回写 Edit 文档。
@@ -316,8 +314,9 @@ app 始终使用项目启动场景，不读取编辑器会话状态。
 项目需要 `project.json` 和 `assets/`；资源及相邻 `.meta` 一起迁移，`.comet/` 是可重建的本地数据。
 编辑器生成的 `.scene`（v2）、`.mat`（v2）、`.meta`（v3）使用 JSON，扩展名不变；
 `.scene` 的 `entities` 只放根实体，子实体通过 `children` 嵌套，不再保存 `parent` 引用；UUID 仍全场景唯一。
-项目描述 `project.json`（v2）同样使用 JSON；引擎运行配置及编辑器用户快捷键覆盖继续使用 YAML。
-JSON 解析直接依赖已有 simdjson。
+项目描述 `project.json`（v2）同样使用 JSON；开发者 Profile 和编辑器用户快捷键覆盖也统一使用 JSON。
+JSON 解析共用 simdjson。`config/profiles.json` 集中保存三个开发者 Profile，启动入口按 CMake preset 选择一个分组。
+只读取该分组的覆盖项，缺省值来自 C++；手动修改后重启生效，不合并其他分组。
 后台导入使用有界队列，合并同一资产的旧请求；队列满时暂存重试，内容错误等待新变更或 Reimport，失败保留旧资源。
 源文件、预估工作集、队列与外部导入额度由 `AssetImportLimits` 提供默认值，需要调试覆盖时在当前 Profile 中添加 `assets`。
 发布默认每次最多 2 项、2 ms 非抢占软预算，均不代表整帧或进程内存上限。
@@ -340,7 +339,7 @@ JSON 解析直接依赖已有 simdjson。
 `display` 是游戏显示默认值，省略时采用 960×720、窗口模式、关闭 VSync；出现时四项须完整填写。
 可选的 `frame_rate_limit` 为 0 到 1000 的整数，0 表示无上限；项目省略时为 0，旧玩家文件省略时继承项目默认值。
 `mode` 支持 `windowed`、`borderless`、`fullscreen`。宽高是普通窗口逻辑尺寸，全屏／无边框使用显示器尺寸；
-framebuffer 像素由 DPI 决定，内部渲染比例另行管理。项目默认值与玩家选择在创建 App 窗口前合成，YAML 数值修改只需重启。
+framebuffer 像素由 DPI 决定，内部渲染比例另行管理。项目默认值与玩家选择在创建 App 窗口前合成；运行中可通过游戏设置菜单调整并保存玩家选择。
 `id` 是项目的持久 UUID，新建项目自动生成，改名或移动项目目录不改变它；复制目录并保留 ID 代表同一项目身份。
 创建独立项目应使用新项目入口，或显式赋予新的项目 ID。旧版项目描述只报版本错误，不自动转换或写回。
 在编辑器中可通过“项目 → 启动场景”选择项目中的场景；未保存的当前场景不能设为启动场景。
@@ -348,7 +347,7 @@ framebuffer 像素由 DPI 决定，内部渲染比例另行管理。项目默认
 app 与 editor 共用 Project、SceneSerializer 和场景资产引用，不再分别创建示例物体、相机或灯光。
 app 使用场景 primary Camera；Edit 使用编辑器相机，因此同一场景不保证相同取景。
 app 窗口创建时使用 `project.json` 的项目名，运行时显示 `项目名 | 120 FPS`；编辑器标题固定为 `Comet Editor`。
-窗口标题由宿主提供，不从共享 YAML 配置读取。
+窗口标题由宿主提供，不从开发者 Profile 读取。
 FPS 复用 editor 的平滑统计，每 0.5 秒采样一次。
 该数值表示主循环帧率，不是 GPU 耗时；全屏隐藏标题栏时不可见。
 app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场景或必需资源加载失败会终止启动，
@@ -880,7 +879,7 @@ Finder 导入只支持独立组件脚本，暂不处理 Lua 多文件依赖包�
   选中实体后按 macOS Cmd+Backspace／其他平台 Ctrl+Backspace 可删除整棵子树，支持 Undo；文本输入时不会触发删除快捷键。
   拖动实体修改父级，保留本地 Transform，因此世界位置可能改变。结构操作支持撤销，仅在 Edit 开放。
 - 编辑器快捷键默认值内置于代码；可在 Edit → 快捷键设置中修改，保存后立即生效。
-  用户覆盖仅保存不同于默认值的动作，写入用户状态目录的 `shortcuts.yaml`，不修改项目配置或仓库文件。
+  用户覆盖仅保存不同于默认值的动作，写入用户状态目录的 `shortcuts.json`，不修改项目配置或仓库文件。
   Shader 文件变化后默认等待 200 ms 静默期以合并连续写入；这是编辑器内部策略，不属于项目或用户设置。
   Undo/Redo 默认 Ctrl+Z／Ctrl+Y，macOS 为 Cmd+Z／Cmd+Shift+Z，文本编辑时不抢占控件的撤销。
   `Primary` 代表 Cmd／Ctrl，`[]` 禁用绑定；冲突会记录日志并回退默认配置。

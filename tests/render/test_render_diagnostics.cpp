@@ -9,7 +9,6 @@
 #include "common/scope_exit.h"
 #include "render/render_stats.h"
 #include "ui/imgui_context.h"
-#include "ui/text.h"
 #include "support/imgui_context.h"
 #include "support/temporary_directory.h"
 #include <imgui_internal.h>
@@ -325,7 +324,7 @@ namespace Comet::Tests {
         ASSERT_NE(window, nullptr);
         window->StateStorage.SetInt(window->GetID("Render pass details"), 1);
         const auto before = frame();
-        ASSERT_NE(before.find("Waiting for samples"), std::string::npos);
+        ASSERT_NE(before.find("等待采样"), std::string::npos);
         const auto render_graph = [&] {
             auto prepared = renderer.prepare_frame();
             ASSERT_TRUE(prepared);
@@ -339,11 +338,11 @@ namespace Comet::Tests {
         ImGui::GetIO().DeltaTime = 0.3f;
         const auto sampled = frame();
         EXPECT_NE(sampled, before);
-        EXPECT_NE(sampled.find("CPU graph recording"), std::string::npos);
+        EXPECT_NE(sampled.find("CPU 渲染图录制"), std::string::npos);
 
         ImGui::ActivateItemByID(window->GetID("Pause display"));
         const auto paused = frame();
-        EXPECT_NE(paused.find("Display paused"), std::string::npos);
+        EXPECT_NE(paused.find("显示已暂停"), std::string::npos);
         ASSERT_TRUE(diagnostics.is_enabled());
         render_graph();
         const auto last_serial = diagnostics.get_snapshot().cpu->serial;
@@ -355,7 +354,7 @@ namespace Comet::Tests {
         frame();
         ImGui::ActivateItemByID(window->GetID("Pause display"));
         const auto stopped = frame();
-        EXPECT_NE(stopped.find("Capture stopped"), std::string::npos);
+        EXPECT_NE(stopped.find("已停止采集"), std::string::npos);
         EXPECT_EQ(frame(), stopped);
         ASSERT_TRUE(diagnostics.set_enabled(true));
         EXPECT_EQ(diagnostics.cpu_history().summarize().total.count, 0);
@@ -364,9 +363,6 @@ namespace Comet::Tests {
     }
 
     TEST_F(RenderDiagnosticsGpuTest, StatsPanelRendersChineseWithSharedDefaultFont) {
-        const auto translations = CometEditor::Ui::load_translations();
-        ASSERT_TRUE(translations) << translations.error();
-        const CometEditor::Ui::TextScope text(translations.value());
         auto& renderer = engine->get_renderer();
         TemporaryDirectory directory;
         auto created = CometEditor::Ui::ImGuiContext::create(engine->get_window(),

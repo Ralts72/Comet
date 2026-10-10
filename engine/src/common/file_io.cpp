@@ -1,13 +1,13 @@
 #include "common/file_io.h"
 
-#include <atomic>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
-#include <span>
 #include <limits>
+#include <span>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -65,13 +65,16 @@ namespace Comet {
             return Result<void>::success();
         }
 
-        Result<void> write_file_atomic(
-            const std::filesystem::path& path, const char* contents, const std::size_t size) {
+        Result<void> write_file_atomic(const std::filesystem::path& path,
+            const std::span<const std::span<const std::byte>> chunks) {
             if(path.empty()) {
                 return Result<void>::failure("Cannot write an empty file path");
             }
-            if(size > static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max()))
-                return Result<void>::failure("File contents are too large: " + path.string());
+            for(const auto chunk : chunks) {
+                if(chunk.size()
+                    > static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max()))
+                    return Result<void>::failure("File contents are too large: " + path.string());
+            }
 
             const std::filesystem::path parent = path.parent_path();
             if(!parent.empty()) {
@@ -90,8 +93,11 @@ namespace Comet {
                 return Result<void>::failure(
                     "Failed to open temporary file for writing: " + temporary.path.string());
             }
-            if(size != 0)
-                output.write(contents, static_cast<std::streamsize>(size));
+            for(const auto chunk : chunks) {
+                if(!chunk.empty())
+                    output.write(reinterpret_cast<const char*>(chunk.data()),
+                        static_cast<std::streamsize>(chunk.size()));
+            }
             output.flush();
             if(!output) {
                 return Result<void>::failure(
@@ -137,12 +143,41 @@ namespace Comet {
 
     Result<void> write_binary_file_atomic(
         const std::filesystem::path& path, const std::span<const std::byte> contents) {
-        return write_file_atomic(
-            path, reinterpret_cast<const char*>(contents.data()), contents.size());
+        const std::array chunks{contents};
+        return write_file_atomic(path, chunks);
+    }
+
+    Result<void> write_binary_file_atomic(const std::filesystem::path& path,
+        const std::span<const std::span<const std::byte>> chunks) {
+        return write_file_atomic(path, chunks);
+    }
+
+    Result<std::vector<std::byte>> read_binary_file(
+        const std::filesystem::path& path, const std::size_t maximum_bytes) {
+        using Read = Result<std::vector<std::byte>>;
+        std::error_code error;
+        const auto size = std::filesystem::file_size(path, error);
+        if(error)
+            return Read::failure(
+                "Failed to inspect file '" + path.string() + "': " + error.message());
+        if(size > maximum_bytes
+            || size > static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max()))
+            return Read::failure("File exceeds read limit: " + path.string());
+        std::ifstream input(path, std::ios::binary);
+        if(!input)
+            return Read::failure("Failed to open file '" + path.string() + "'");
+        std::vector<std::byte> bytes(static_cast<std::size_t>(size));
+        if(!bytes.empty())
+            input.read(
+                reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+        if(!input || input.peek() != std::ifstream::traits_type::eof())
+            return Read::failure("Failed to read file '" + path.string() + "'");
+        return Read::success(std::move(bytes));
     }
 
     Result<void> write_text_file_atomic(
         const std::filesystem::path& path, const std::string_view contents) {
-        return write_file_atomic(path, contents.data(), contents.size());
+        const std::array chunks{std::as_bytes(std::span(contents))};
+        return write_file_atomic(path, chunks);
     }
 }

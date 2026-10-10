@@ -1,6 +1,7 @@
 #pragma once
 
 #include "asset/database.h"
+#include "scene/component_registry.h"
 #include "inspector/asset_inspector.h"
 #include "ui/editor_panel.h"
 #include "scene/command_history.h"
@@ -10,11 +11,11 @@
 
 #include <memory>
 #include <optional>
+#include <vector>
 
 namespace Comet {
     class AssetRegistry;
     class MaterialPrograms;
-    class ComponentRegistry;
     class Entity;
     class Script;
     class SceneRuntime;
@@ -69,6 +70,7 @@ namespace CometEditor {
         CommandHistory& m_history;
         PropertyEditTransaction& m_property_edit;
         const Comet::ComponentRegistry& m_component_registry;
+        const std::vector<Comet::ComponentDescriptor> m_component_descriptions;
         const PropertyEditorRegistry& m_property_editor_registry;
         const Comet::AssetDatabase& m_asset_database;
         const Comet::AssetRegistry& m_runtime_assets;

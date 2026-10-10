@@ -36,14 +36,14 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(window->Active);
         const auto& style = ImGui::GetStyle();
         float x = window->DC.CursorStartPos.x;
-        const char* label = "Save";
+        const char* label = "保存";
         if(GetParam() != SceneDocument::Decision::Save) {
-            x += ImGui::CalcTextSize("Save").x + 2 * style.FramePadding.x + style.ItemSpacing.x;
-            label = "Discard";
+            x += ImGui::CalcTextSize("保存").x + 2 * style.FramePadding.x + style.ItemSpacing.x;
+            label = "放弃";
         }
         if(GetParam() == SceneDocument::Decision::Cancel) {
-            x += ImGui::CalcTextSize("Discard").x + 2 * style.FramePadding.x + style.ItemSpacing.x;
-            label = "Cancel";
+            x += ImGui::CalcTextSize("放弃").x + 2 * style.FramePadding.x + style.ItemSpacing.x;
+            label = "取消";
         }
         x += (ImGui::CalcTextSize(label).x + 2 * style.FramePadding.x) / 2;
         const float y = window->DC.CursorStartPos.y + ImGui::GetTextLineHeight()

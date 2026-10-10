@@ -1,0 +1,22 @@
+{
+    "dev-debug": {
+        "diagnostics": {
+            "enable_file_logging": false,
+            "enable_profiler": true,
+            "enable_render_diagnostics": true,
+            "enable_validation": true
+        }
+    },
+    "editor-dev": {
+        "diagnostics": {
+            "log_level": "info",
+            "enable_file_logging": false
+        }
+    },
+    "app-release": {
+        "diagnostics": {
+            "log_level": "warn",
+            "enable_file_logging": false
+        }
+    }
+}

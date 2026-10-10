@@ -39,13 +39,6 @@ option(GLFW_BUILD_EXAMPLES OFF)
 option(GLFW_INSTALL OFF)
 add_subdirectory(glfw EXCLUDE_FROM_ALL)
 
-# yaml-cpp
-option(YAML_CPP_BUILD_TESTS OFF)
-option(YAML_CPP_BUILD_TOOLS OFF)
-option(YAML_CPP_BUILD_CONTRIB OFF)
-option(YAML_CPP_INSTALL OFF)
-add_subdirectory(yaml-cpp EXCLUDE_FROM_ALL)
-
 # Vulkan Memory Allocator
 add_subdirectory(VulkanMemoryAllocator EXCLUDE_FROM_ALL)
 
