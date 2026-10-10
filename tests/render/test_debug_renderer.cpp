@@ -1,6 +1,7 @@
 #include "core/engine.h"
 #include "config/config.h"
 #include "render/renderer.h"
+#include "render/overlay_record_context.h"
 #include "render/render_context.h"
 #include "render/render_diagnostics.h"
 #include "render/scene/scene_renderer.h"

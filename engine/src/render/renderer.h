@@ -9,10 +9,7 @@
 #include "render/scene/scene_resolver.h"
 #include "render/scene/scene_picking.h"
 #include "render/debug/line_draw_list.h"
-#include "render/frame_scheduler.h"
 #include "render/material/material_renderer.h"
-#include "render/presentation.h"
-#include "render/overlay_record_context.h"
 
 #include <cstdint>
 #include <functional>
@@ -32,6 +29,11 @@ namespace Comet {
     class ImageView;
     class MaterialLayout;
     class MaterialPrograms;
+    class FrameScheduler;
+    class Presentation;
+    class OverlayRecordContext;
+    struct SwapchainCompatibility;
+    struct QueueSemaphoreSubmit;
 
     class COMET_API Renderer {
     public:

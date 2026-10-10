@@ -161,8 +161,8 @@ file(GLOB_RECURSE EDITOR_FILES RELATIVE "${EDITOR_SOURCE}"
 set(EDITOR_IMGUI_FILES ui/imgui_context.h ui/imgui_context.cpp)
 list(REMOVE_ITEM EDITOR_FILES ${EDITOR_IMGUI_FILES})
 check_includes("${EDITOR_SOURCE}" "${EDITOR_FILES}"
-    "render/(scene/scene_renderer|render_context|frame_scheduler|presentation)\\.h|[Vv]ulkan|GLFW/"
-    "Editor features must use Renderer workflows, not rendering internals")
+    "core/engine\\.h|render/(scene/scene_renderer|render_context|frame_scheduler|presentation)\\.h|[Vv]ulkan|GLFW/"
+    "Editor features must use explicit module workflows, not Engine or rendering internals")
 
 # ImGui 呈现适配单独编译，允许连接图形后端，不依赖编辑器工作流。
 check_includes("${EDITOR_SOURCE}" "${EDITOR_IMGUI_FILES}"

@@ -24,6 +24,12 @@ function(expect_boundary expected)
 endfunction()
 
 expect_boundary("")
+set(editor_adapter "${TEST_ROOT}/editor/src/project/game_ui.cpp")
+file(READ "${editor_adapter}" original_adapter)
+file(APPEND "${editor_adapter}" "\n#include \"core/engine.h\"\n")
+expect_boundary("Editor features must use explicit module workflows")
+file(WRITE "${editor_adapter}" "${original_adapter}")
+
 function(probe_dependency source header expected)
     set(path "${TEST_ROOT}/engine/${source}")
     file(READ "${path}" original)

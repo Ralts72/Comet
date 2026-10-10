@@ -13,6 +13,7 @@
 #include "graphics/device.h"
 #include "graphics/swapchain.h"
 #include "physics/physics_service.h"
+#include "render/frame_scheduler.h"
 #include "render/render_context.h"
 #include "render/render_diagnostics.h"
 #include "render/quality_settings.h"

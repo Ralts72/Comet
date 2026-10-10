@@ -2,6 +2,8 @@
 #include "viewport/viewport.h"
 #include "config/config.h"
 #include "render/renderer.h"
+#include "render/frame_scheduler.h"
+#include "render/overlay_record_context.h"
 #include "render/render_context.h"
 #include "graphics/device.h"
 #include "render/resource/render_resources.h"

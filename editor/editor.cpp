@@ -38,6 +38,7 @@
 #include "project/game_ui.h"
 #include "common/scope_exit.h"
 #include "render/renderer.h"
+#include "render/overlay_record_context.h"
 #include "core/window.h"
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
@@ -188,7 +189,8 @@ namespace {
                         static_cast<uint32_t>(display.value().height)});
             else
                 LOG_WARN("Player display settings unavailable: {}", display.error());
-            m_game_ui = std::make_unique<CometEditor::GameUi>(engine, m_project,
+            m_game_ui = std::make_unique<CometEditor::GameUi>(engine.get_window(), renderer,
+                m_project,
                 Comet::Ui::ProjectUi::Services{.load_input = [this] { return load_player_input(); },
                     .apply_input =
                         [this](Comet::InputOverrides overrides) {

@@ -5,6 +5,7 @@
 #include "graphics/device.h"
 #include "graphics/context.h"
 #include "render/scene/scene_renderer.h"
+#include "render/frame_scheduler.h"
 #include "support/engine_fixture.h"
 
 #include <limits>

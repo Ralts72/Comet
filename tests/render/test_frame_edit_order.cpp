@@ -3,6 +3,7 @@
 #include "config/config.h"
 #include "asset/data/mesh_data.h"
 #include "render/renderer.h"
+#include "render/frame_scheduler.h"
 #include "render/scene/scene_renderer.h"
 #include "render/render_target.h"
 #include "render/render_context.h"

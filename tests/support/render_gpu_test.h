@@ -12,6 +12,7 @@
 #include "render/renderer.h"
 #include "render/render_context.h"
 #include "render/frame_scheduler.h"
+#include "render/overlay_record_context.h"
 #include "render/render_graph.h"
 #include "render/render_target.h"
 #include "render/scene/scene_renderer.h"

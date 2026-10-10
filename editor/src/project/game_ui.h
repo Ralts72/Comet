@@ -3,14 +3,15 @@
 #include "ui/project_ui.h"
 
 namespace Comet {
-    class Engine;
+    class Window;
+    class Renderer;
 }
 
 namespace CometEditor {
     // Editor 宿主适配；页面与交互行为仍由项目资源和控制器定义。
     class GameUi final {
     public:
-        GameUi(Comet::Engine& engine, const Comet::Project& project,
+        GameUi(Comet::Window& window, Comet::Renderer& renderer, const Comet::Project& project,
             Comet::Ui::ProjectUi::Services services);
         void reload();
         void reset();
@@ -25,7 +26,8 @@ namespace CometEditor {
             const Comet::SwapchainCompatibility& compatibility);
 
     private:
-        Comet::Engine& m_engine;
+        Comet::Window& m_window;
+        Comet::Renderer& m_renderer;
         const Comet::Project& m_project;
         Comet::Ui::ProjectUi::Services m_services;
         std::unique_ptr<Comet::Ui::ProjectUi> m_ui;

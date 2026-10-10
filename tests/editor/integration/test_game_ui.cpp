@@ -61,7 +61,8 @@ namespace CometEditor::Tests {
                 project->id(), documents.path() / "player/input.json");
             ASSERT_TRUE(settings) << settings.error();
             player_input = std::move(settings).value();
-            game = std::make_unique<GameUi>(*engine, *project, input_services());
+            game = std::make_unique<GameUi>(
+                engine->get_window(), renderer, *project, input_services());
             ASSERT_NE(Rml::GetContext(0), nullptr);
             renderer.set_overlay(
                 {.render =
@@ -303,7 +304,8 @@ namespace CometEditor::Tests {
             std::ofstream script(file, std::ios::trunc);
             script << "return {on_mount=42}";
         }
-        game = std::make_unique<GameUi>(*engine, *project, input_services());
+        game = std::make_unique<GameUi>(
+            engine->get_window(), engine->get_renderer(), *project, input_services());
         EXPECT_FALSE(game->is_modal());
         engine->get_renderer().set_overlay({.render = [this](Comet::OverlayRecordContext& overlay) {
             auto result = game->render(overlay);

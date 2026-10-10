@@ -5,6 +5,7 @@
 #include "config/config.h"
 #include "core/window.h"
 #include "render/renderer.h"
+#include "render/frame_scheduler.h"
 #include "support/engine_fixture.h"
 #include "support/scene_motion_system.h"
 #include "scene/systems/camera_controller.h"

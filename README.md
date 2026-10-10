@@ -112,6 +112,7 @@ RmlUi Core 与 FreeType 均静态编入 engine，不单独部署 UI 动态库。
 窗口、渲染和具体系统由 engine 组合。
 World 保存场景内容，不依赖 Input 或 Runtime；运行输入和本局状态归 Runtime。
 编辑器分为无 ImGui 的 `editor_core`、ImGui 呈现适配 `editor_imgui` 与功能界面 `editor_ui`；新增源码需维护所属库清单。
+Editor 宿主负责装配游戏 UI，适配器只借用窗口、Renderer、项目及设置服务。
 仅启用 tests 时仍构建 core；测试辅助代码位于 `tests/support/`。
 测试按执行条件分组，源码只编译到所属入口，不重复运行：
 
