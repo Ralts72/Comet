@@ -85,7 +85,9 @@ namespace CometEditor::Ui {
         const float icon_size = ImGui::GetFontSize();
         const auto& style = ImGui::GetStyle();
         const auto text_size = ImGui::CalcTextSize(label, nullptr, true);
-        const float content_width = icon_size + style.ItemInnerSpacing.x + text_size.x;
+        float content_width = icon_size;
+        if(text_size.x > 0)
+            content_width += style.ItemInnerSpacing.x + text_size.x;
         size.x = std::max(size.x, content_width + style.FramePadding.x * 2);
         size.y = std::max(size.y, ImGui::GetFrameHeight());
         const auto* stable_id = std::strstr(label, "###");

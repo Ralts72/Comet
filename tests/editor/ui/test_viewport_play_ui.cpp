@@ -141,26 +141,38 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(runtime.wants_cursor_capture());
     }
 
-    TEST_F(ViewportPlayUiTest, PlayerInputButtonOnlyRequestsSettingsInActivePlay) {
+    TEST_F(ViewportPlayUiTest, PlayerInputMenuOnlyRequestsSettingsInActivePlay) {
         auto* window = ImGui::FindWindowByName("Viewport");
         ASSERT_NE(window, nullptr);
         const auto input_button = window->GetID(Ui::label("Input").c_str());
         ImGui::ActivateItemByID(input_button);
         frame();
         EXPECT_FALSE(viewport.take_play_command());
+        const auto select_input = [&] {
+            ImGui::ActivateItemByID(window->GetID(Ui::label("View").c_str()));
+            frame();
+            frame();
+            ASSERT_FALSE(GImGui->OpenPopupStack.empty());
+            auto* popup = GImGui->OpenPopupStack.back().Window;
+            ASSERT_NE(popup, nullptr);
+            ImGui::ActivateItemByID(popup->GetID(Ui::label("Input").c_str()));
+            frame();
+        };
         activate_play_camera();
-        ImGui::ActivateItemByID(input_button);
-        frame();
+        select_input();
         EXPECT_EQ(viewport.take_play_command(), PlayCommand::InputSettings);
         EXPECT_FALSE(viewport.take_play_command());
         EXPECT_EQ(runtime.get_state(), Comet::SceneRuntime::State::Running);
         EXPECT_FALSE(runtime_accepting);
         ASSERT_TRUE(runtime.set_state(Comet::SceneRuntime::State::Paused));
         frame();
-        ImGui::ActivateItemByID(input_button);
-        frame();
+        select_input();
         EXPECT_EQ(viewport.take_play_command(), PlayCommand::InputSettings);
         EXPECT_EQ(runtime.get_state(), Comet::SceneRuntime::State::Paused);
+        ASSERT_TRUE(runtime.stop());
+        frame();
+        select_input();
+        EXPECT_FALSE(viewport.take_play_command());
     }
 
     TEST_F(ViewportPlayUiTest, RuntimeUiBlocksEscapeAndClosingFrameWithoutReplayingHeldKeys) {
@@ -471,6 +483,8 @@ namespace CometEditor::Tests {
         frame();
         auto* window = ImGui::FindWindowByName("Viewport");
         ASSERT_NE(window, nullptr);
+        // 浮动面板保留键盘焦点，但不遮挡现在靠左的播放按钮。
+        ImGui::BringWindowToDisplayFront(window);
         const auto play_id = window->GetID(Ui::label("Play").c_str());
         for(float x = window->WorkRect.Min.x; x < window->WorkRect.Max.x; x += 4) {
             move_pointer({x, window->DC.CursorStartPos.y + 5});

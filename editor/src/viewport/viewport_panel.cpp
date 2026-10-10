@@ -14,7 +14,20 @@
 namespace CometEditor {
     namespace {
         constexpr std::uint32_t RESIZE_STABLE_FRAME_COUNT = 2;
-        constexpr float TOOLBAR_BUTTON_WIDTH = 40.0f;
+
+        bool toolbar_button(Ui::Icon icon, const char* id, const char* description) {
+            const float height = ImGui::GetFrameHeight();
+            const bool pressed = Ui::icon_button(icon, id, {height, height});
+            ImGui::SetItemTooltip("%s", description);
+            return pressed;
+        }
+
+        bool begin_toolbar_menu(const char* id, const char* label) {
+            const float width = ImGui::CalcTextSize(label).x + ImGui::GetFrameHeight()
+                                + ImGui::GetStyle().FramePadding.x * 2;
+            ImGui::SetNextItemWidth(width);
+            return ImGui::BeginCombo(id, label);
+        }
 
         bool ui_blocks_runtime_input() {
             const auto& io = ImGui::GetIO();
@@ -106,80 +119,48 @@ namespace CometEditor {
 
     void ViewportPanel::render_toolbar() {
         const bool is_playing = m_state.mode == EditorMode::Play;
-        const ImVec2 button_size(TOOLBAR_BUTTON_WIDTH, ImGui::GetFrameHeight());
-        ImGui::AlignTextToFramePadding();
+        const float group_spacing = ImGui::GetStyle().ItemSpacing.x * 2;
         if(is_playing) {
-            ImGui::TextUnformatted(Ui::text("Play"));
-        } else {
-            ImGui::TextUnformatted(Ui::text("Edit"));
-        }
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", "|");
-        ImGui::SameLine();
-        ImGui::BeginDisabled(is_playing);
-        render_projection_controls();
-        ImGui::EndDisabled();
-
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", "|");
-        ImGui::SameLine();
-        ImGui::BeginDisabled(is_playing);
-        if(Ui::icon_button(Ui::Icon::Play, Ui::label("Play").c_str(), button_size)) {
-            m_play_command = PlayCommand::Play;
-        }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        ImGui::BeginDisabled(!is_playing);
-        if(Ui::icon_button(Ui::Icon::Stop, Ui::label("Stop").c_str(), button_size)) {
-            m_play_command = PlayCommand::Stop;
-        }
-        ImGui::EndDisabled();
-
-        if(is_playing) {
+            if(toolbar_button(Ui::Icon::Stop, "###Stop", "停止 (Esc)"))
+                m_play_command = PlayCommand::Stop;
             render_runtime_controls();
-            ImGui::SameLine();
-            render_play_toolbar();
+            ImGui::SameLine(0, group_spacing);
+            render_preview_settings();
         } else {
+            render_projection_controls();
             ImGui::SameLine();
             render_gizmo_settings();
+            ImGui::SameLine(0, group_spacing);
+            if(toolbar_button(Ui::Icon::Play, "###Play", Ui::text("Play")))
+                m_play_command = PlayCommand::Play;
         }
-        if(m_game_ui_available) {
-            ImGui::SameLine();
-            ImGui::Checkbox(Ui::label("Game UI").c_str(), &m_show_game_ui);
-            ImGui::SameLine();
-            if(Ui::icon_button(Ui::Icon::Reload, Ui::label("Reload UI").c_str()))
-                m_game_ui_reload_requested = true;
+        if(is_playing || m_game_ui_available) {
+            ImGui::SameLine(0, group_spacing);
+            render_view_options();
         }
         ImGui::Separator();
     }
 
     void ViewportPanel::render_runtime_controls() {
         const bool paused = m_runtime.get_state() == Comet::SceneRuntime::State::Paused;
-        const ImVec2 button_size(TOOLBAR_BUTTON_WIDTH, ImGui::GetFrameHeight());
         ImGui::SameLine();
         ImGui::BeginDisabled(!m_runtime.is_active());
         if(paused) {
-            if(Ui::icon_button(Ui::Icon::Play, "继续###>##Resume", button_size))
+            if(toolbar_button(Ui::Icon::Play, "###>##Resume", "继续"))
                 m_play_command = PlayCommand::Resume;
-        } else if(Ui::icon_button(Ui::Icon::Pause, "暂停###||##Pause", button_size)) {
+        } else if(toolbar_button(Ui::Icon::Pause, "###||##Pause", "暂停")) {
             m_play_command = PlayCommand::Pause;
         }
-        ImGui::SameLine();
-        ImGui::BeginDisabled(!paused);
-        if(Ui::icon_button(Ui::Icon::Step, "单步###|>##Step", button_size))
-            m_play_command = PlayCommand::Step;
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        if(Ui::icon_button(Ui::Icon::Input, Ui::label("Input").c_str(), button_size))
-            m_play_command = PlayCommand::InputSettings;
+        if(paused) {
+            ImGui::SameLine();
+            if(toolbar_button(Ui::Icon::Step, "###|>##Step", "单步"))
+                m_play_command = PlayCommand::Step;
+        }
         ImGui::EndDisabled();
     }
 
     void ViewportPanel::render_gizmo_settings() {
-        if(Ui::icon_button(Ui::Icon::Settings, Ui::label("Tool").c_str(),
-               ImVec2(TOOLBAR_BUTTON_WIDTH, ImGui::GetFrameHeight())))
-            ImGui::OpenPopup("Gizmo Settings");
-        if(!ImGui::BeginPopup("Gizmo Settings"))
+        if(!begin_toolbar_menu("###Tool", Ui::text("Tool")))
             return;
         auto settings = m_gizmo.settings();
         int mode = static_cast<int>(settings.mode);
@@ -215,94 +196,98 @@ namespace CometEditor {
                 "World rotation needs uniform parent scale.\nUse Local for non-uniform parents.");
         if(changed)
             static_cast<void>(m_gizmo.set_settings(settings));
-        ImGui::EndPopup();
+        ImGui::EndCombo();
     }
 
     void ViewportPanel::render_projection_controls() {
         using Projection = Comet::RenderCamera::Projection;
-        const ImVec2 button_size(TOOLBAR_BUTTON_WIDTH, ImGui::GetFrameHeight());
-        for(const Projection projection : {Projection::Orthographic, Projection::Perspective}) {
-            if(projection == Projection::Perspective) {
-                ImGui::SameLine();
-            }
-            const bool selected = m_state.camera.projection == projection;
-            if(selected) {
-                ImGui::PushStyleColor(
-                    ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-            }
-            const char* label = projection == Projection::Orthographic ? "2D" : "3D";
-            if(ImGui::Button(label, button_size)) {
-                m_camera_projection_request = projection;
-            }
-            if(selected) {
-                ImGui::PopStyleColor();
-            }
+        const bool perspective = m_state.camera.projection == Projection::Perspective;
+        if(!begin_toolbar_menu("###Projection", perspective ? "3D" : "2D")) {
+            ImGui::SetItemTooltip("%s", Ui::text("Projection"));
+            return;
         }
+        for(const Projection projection : {Projection::Orthographic, Projection::Perspective}) {
+            const bool selected = m_state.camera.projection == projection;
+            const char* label = projection == Projection::Orthographic ? "2D" : "3D";
+            if(ImGui::Selectable(label, selected))
+                m_camera_projection_request = projection;
+        }
+        ImGui::EndCombo();
     }
 
-    void ViewportPanel::render_play_toolbar() {
+    void ViewportPanel::render_preview_settings() {
         using ResolutionMode = ViewportLayout::ResolutionPolicy::Mode;
-        const float dropdown_width = TOOLBAR_BUTTON_WIDTH + ImGui::GetFrameHeight();
         const Comet::Math::Vec2u hd_resolution(1280, 720);
         const Comet::Math::Vec2u full_hd_resolution(1920, 1080);
 
-        const char* resolution_label = "Free";
+        std::string resolution_label = Ui::text("Free");
         if(m_play_resolution_policy.mode == ResolutionMode::Aspect16By9) {
             resolution_label = "16:9";
         } else if(m_play_resolution_policy.mode == ResolutionMode::Fixed) {
-            if(m_play_resolution_policy.fixed_resolution == hd_resolution) {
-                resolution_label = "HD";
-            } else if(m_play_resolution_policy.fixed_resolution == full_hd_resolution) {
-                resolution_label = "FHD";
-            } else {
-                resolution_label = "User";
-            }
+            const auto size = m_play_resolution_policy.fixed_resolution;
+            resolution_label = std::to_string(size.x) + " x " + std::to_string(size.y);
+        }
+        const char* display_label = "1:1";
+        if(m_play_display_mode == ViewportLayout::DisplayMode::Fit)
+            display_label = Ui::text("Fit");
+        const std::string description = resolution_label + " / " + display_label;
+        const auto& style = ImGui::GetStyle();
+        const float menu_padding = ImGui::GetFrameHeight() + style.FramePadding.x * 2;
+        const float view_width =
+            ImGui::CalcTextSize(Ui::text("View")).x + menu_padding + style.ItemSpacing.x * 2;
+        const float width = ImGui::CalcTextSize(description.c_str()).x + menu_padding;
+        const char* label = description.c_str();
+        if(width + view_width > ImGui::GetContentRegionAvail().x)
+            label = Ui::text("Preview");
+        if(!begin_toolbar_menu("###Preview", label)) {
+            ImGui::SetItemTooltip("%s", description.c_str());
+            return;
         }
 
-        ImGui::SetNextItemWidth(dropdown_width);
-        if(ImGui::BeginCombo("##Resolution", Ui::text(resolution_label))) {
-            if(ImGui::Selectable(Ui::label("Free").c_str(),
-                   m_play_resolution_policy.mode == ResolutionMode::Free)) {
-                m_play_resolution_policy = {};
-            }
-            if(ImGui::Selectable(
-                   "16:9", m_play_resolution_policy.mode == ResolutionMode::Aspect16By9)) {
-                m_play_resolution_policy = {.mode = ResolutionMode::Aspect16By9};
-            }
-            if(ImGui::Selectable("1280 x 720",
-                   m_play_resolution_policy.mode == ResolutionMode::Fixed
-                       && m_play_resolution_policy.fixed_resolution == hd_resolution)) {
-                m_play_resolution_policy = {
-                    .mode = ResolutionMode::Fixed,
-                    .fixed_resolution = hd_resolution,
-                };
-            }
-            if(ImGui::Selectable("1920 x 1080",
-                   m_play_resolution_policy.mode == ResolutionMode::Fixed
-                       && m_play_resolution_policy.fixed_resolution == full_hd_resolution)) {
-                m_play_resolution_policy = {
-                    .mode = ResolutionMode::Fixed,
-                    .fixed_resolution = full_hd_resolution,
-                };
-            }
-            ImGui::EndCombo();
+        ImGui::TextDisabled("%s", Ui::text("Resolution"));
+        if(ImGui::Selectable(
+               Ui::label("Free").c_str(), m_play_resolution_policy.mode == ResolutionMode::Free))
+            m_play_resolution_policy = {};
+        if(ImGui::Selectable("16:9", m_play_resolution_policy.mode == ResolutionMode::Aspect16By9))
+            m_play_resolution_policy = {.mode = ResolutionMode::Aspect16By9};
+        if(ImGui::Selectable(
+               "1280 x 720", m_play_resolution_policy.mode == ResolutionMode::Fixed
+                                 && m_play_resolution_policy.fixed_resolution == hd_resolution)) {
+            m_play_resolution_policy = {
+                .mode = ResolutionMode::Fixed, .fixed_resolution = hd_resolution};
         }
+        if(ImGui::Selectable("1920 x 1080",
+               m_play_resolution_policy.mode == ResolutionMode::Fixed
+                   && m_play_resolution_policy.fixed_resolution == full_hd_resolution)) {
+            m_play_resolution_policy = {
+                .mode = ResolutionMode::Fixed, .fixed_resolution = full_hd_resolution};
+        }
+        ImGui::Separator();
+        ImGui::TextDisabled("%s", Ui::text("Display"));
+        if(ImGui::Selectable(
+               Ui::label("Fit").c_str(), m_play_display_mode == ViewportLayout::DisplayMode::Fit))
+            m_play_display_mode = ViewportLayout::DisplayMode::Fit;
+        if(ImGui::Selectable("1:1", m_play_display_mode == ViewportLayout::DisplayMode::OneToOne))
+            m_play_display_mode = ViewportLayout::DisplayMode::OneToOne;
+        ImGui::EndCombo();
+    }
 
-        ImGui::SameLine();
-        const char* display_label =
-            m_play_display_mode == ViewportLayout::DisplayMode::Fit ? "Fit" : "1x";
-        ImGui::SetNextItemWidth(dropdown_width);
-        if(ImGui::BeginCombo("##Display", Ui::text(display_label))) {
-            if(ImGui::Selectable(Ui::label("Fit").c_str(),
-                   m_play_display_mode == ViewportLayout::DisplayMode::Fit)) {
-                m_play_display_mode = ViewportLayout::DisplayMode::Fit;
-            }
-            if(ImGui::Selectable(
-                   "1x", m_play_display_mode == ViewportLayout::DisplayMode::OneToOne)) {
-                m_play_display_mode = ViewportLayout::DisplayMode::OneToOne;
-            }
-            ImGui::EndCombo();
+    void ViewportPanel::render_view_options() {
+        if(!begin_toolbar_menu("###View", Ui::text("View")))
+            return;
+        if(m_game_ui_available) {
+            ImGui::MenuItem(Ui::label("Game UI").c_str(), nullptr, &m_show_game_ui);
+            if(ImGui::MenuItem(Ui::label("Reload UI").c_str()))
+                m_game_ui_reload_requested = true;
         }
+        if(m_state.mode == EditorMode::Play) {
+            if(m_game_ui_available)
+                ImGui::Separator();
+            ImGui::TextDisabled("%s", Ui::text("Debug"));
+            if(ImGui::MenuItem(Ui::label("Input").c_str(), nullptr, false, m_runtime.is_active()))
+                m_play_command = PlayCommand::InputSettings;
+        }
+        ImGui::EndCombo();
     }
 
     void ViewportPanel::render_view_content() {

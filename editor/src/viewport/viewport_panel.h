@@ -89,7 +89,8 @@ namespace CometEditor {
         void render_runtime_controls();
         void render_projection_controls();
         void render_gizmo_settings();
-        void render_play_toolbar();
+        void render_preview_settings();
+        void render_view_options();
         void render_view_content();
         void update_view_interaction();
         void update_play_interaction();
