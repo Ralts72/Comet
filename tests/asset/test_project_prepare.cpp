@@ -115,6 +115,24 @@ namespace Comet::Tests {
         EXPECT_NE(prepared.error().find(std::to_string(mesh.value())), std::string::npos);
     }
 
+    TEST_F(ProjectPrepareTest, ChecksUiReferencesWithoutAWindowOrGraphicsDevice) {
+        ASSERT_TRUE(write_text_file_atomic(paths.root() / "project.json", R"({
+            "version":2,"id":"00000000-0000-4000-8000-000000000001",
+            "name":"UI preparation","startup_scene":"startup.scene",
+            "input_contexts":[],"input_actions":[],
+            "ui":{"document":"ui/menu.rml","controller":"ui/menu.ui.lua"}})"));
+        ASSERT_TRUE(write_text_file_atomic(paths.assets() / "ui/menu.ui.lua", "return {}"));
+        ASSERT_TRUE(write_text_file_atomic(paths.assets() / "ui/menu.rml", R"(
+            <rml><body><div style="display: none"><img src="hidden.png" /></div></body></rml>)"));
+        const auto project = Project::load(paths.root());
+        ASSERT_TRUE(project);
+        const auto prepared = prepare_project(project.value());
+        ASSERT_FALSE(prepared);
+        EXPECT_NE(prepared.error().find("hidden.png"), std::string::npos);
+        ASSERT_TRUE(write_text_file_atomic(paths.assets() / "ui/hidden.png", "image bytes"));
+        ASSERT_TRUE(prepare_project(project.value()));
+    }
+
     TEST(ProjectContentTest, PreservesPersistentSystemComponentsWithoutTheirBackends) {
         const auto components = create_scene_component_registry();
         const SceneSerializer serializer(components);

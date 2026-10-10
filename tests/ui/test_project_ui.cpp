@@ -750,6 +750,37 @@ return controller
             std::string::npos);
     }
 
+    TEST_F(ProjectUiGpuTest, ResourceReferencesPublishOnlyWithAValidCandidate) {
+        click("settings");
+        auto* live = &document();
+        const auto before = ui->resource_dependencies();
+        auto candidate = original_document;
+        const auto body_end = candidate.find("</body>");
+        ASSERT_NE(body_end, std::string::npos);
+        candidate.insert(body_end, R"(<div style="display: none"><img src="missing.png" /></div>)");
+        write("runtime.rml", candidate);
+        const auto missing = ui->reload();
+        ASSERT_FALSE(missing);
+        EXPECT_NE(missing.error().find("missing.png"), std::string::npos);
+        EXPECT_EQ(&document(), live);
+        EXPECT_EQ(ui->resource_dependencies(), before);
+        EXPECT_TRUE(ui->is_modal());
+        write("extra.rcss", "p { color: white; }");
+        candidate = original_document;
+        candidate.insert(
+            candidate.find("</head>"), R"(<link type="text/rcss" href="extra.rcss" />)");
+        write("runtime.rml", candidate);
+        ASSERT_TRUE(ui->reload());
+        EXPECT_NE(&document(), live);
+        EXPECT_TRUE(ui->is_modal());
+        EXPECT_TRUE(
+            std::ranges::find(ui->resource_dependencies(), std::filesystem::path("ui/extra.rcss"))
+            != ui->resource_dependencies().end());
+        write("runtime.rml", original_document);
+        ASSERT_TRUE(ui->reload());
+        EXPECT_EQ(ui->resource_dependencies(), before);
+    }
+
     TEST_F(ProjectUiGpuTest, CandidateFailuresPreservePageControllerAndInputDraft) {
         click("settings");
         ASSERT_TRUE(ui->is_modal());

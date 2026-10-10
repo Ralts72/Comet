@@ -1,6 +1,7 @@
 #include "ui/project_ui.h"
 
 #include "ui/lua_controller.h"
+#include "ui/resource_dependencies.h"
 #include "common/scope_exit.h"
 #include "core/window.h"
 #include "render/renderer.h"
@@ -28,16 +29,6 @@ namespace Comet::Ui {
         constexpr std::size_t max_text_bytes = 256 * 1024;
         constexpr const char* model_name = "ui";
 
-        Result<std::filesystem::path> resolve_entry(
-            const std::filesystem::path& root, const std::filesystem::path& entry) {
-            std::error_code error;
-            const auto path = std::filesystem::canonical(root / entry, error);
-            const auto relative = path.lexically_relative(root);
-            if(error || relative.empty() || relative.is_absolute() || *relative.begin() == "..")
-                return Result<std::filesystem::path>::failure(
-                    "UI source is missing or outside project assets: " + entry.generic_string());
-            return Result<std::filesystem::path>::success(path);
-        }
         bool eligible(const Rml::Element* element, const Rml::Element* root) {
             if(!element || !element->IsVisible(true) || element->HasAttribute("disabled")
                 || element->GetComputedValues().tab_index() != Rml::Style::TabIndex::Auto)
@@ -149,7 +140,7 @@ namespace Comet::Ui {
             m_controller.reset();
             m_runtime.reset();
         }
-        Result<void> initialize() {
+        Result<void> initialize(std::vector<std::filesystem::path> resources) {
             auto constructor = m_runtime->context().CreateDataModel(model_name);
             if(!constructor
                 || !constructor.BindEventCallback(
@@ -167,7 +158,7 @@ namespace Comet::Ui {
                     }))
                 return Result<void>::failure("Cannot create project UI data model");
             m_model = constructor.GetModelHandle();
-            return reload();
+            return reload(std::move(resources));
         }
         Result<void> call(const char* method, const Rml::VariantList& arguments = {}) {
             const ScopeExit finish([this] { m_calling = false; });
@@ -183,14 +174,14 @@ namespace Comet::Ui {
                 LOG_WARN("UI controller cleanup failed: {}", result.error());
         }
         Result<void> reload() {
-            const auto document = resolve_entry(m_resource_root, m_entry.document);
-            if(!document)
-                return Result<void>::failure(document.error());
-            const auto path = resolve_entry(m_resource_root, m_entry.controller);
-            if(!path)
-                return Result<void>::failure(path.error());
+            auto resources = collect_resource_dependencies(m_resource_root, m_entry);
+            if(!resources)
+                return Result<void>::failure(resources.error());
+            return reload(std::move(resources).value());
+        }
+        Result<void> reload(std::vector<std::filesystem::path> resources) {
             auto candidate = std::make_unique<Controller>(*this);
-            if(auto loaded = candidate->load(path.value()); !loaded)
+            if(auto loaded = candidate->load(m_resource_root / m_entry.controller); !loaded)
                 return loaded;
             if(m_controller) {
                 if(auto copied = candidate->copy_state(*m_controller); !copied)
@@ -230,6 +221,7 @@ namespace Comet::Ui {
                 return Result<void>::failure(replacement.error());
             retire();
             m_controller = std::move(candidate);
+            m_resource_dependencies = std::move(resources);
             m_controller->m_document = replacement.value();
             m_controller->m_preparing = false;
             m_edit.cancel_capture();
@@ -348,6 +340,7 @@ namespace Comet::Ui {
         std::unique_ptr<RmlContext> m_runtime;
         Project::UiEntry m_entry;
         std::filesystem::path m_resource_root;
+        std::vector<std::filesystem::path> m_resource_dependencies;
         Services m_services;
         std::unique_ptr<Controller> m_controller;
         Controller* m_presented = nullptr;
@@ -1011,25 +1004,20 @@ namespace Comet::Ui {
     Result<std::unique_ptr<ProjectUi>, Error> ProjectUi::create(Window& window, Renderer& renderer,
         const Project::UiEntry& entry, RmlContext::Options options, Services services) {
         using Creation = Result<std::unique_ptr<ProjectUi>, Error>;
-        if(entry.document.empty() || entry.document.is_absolute()
-            || entry.document.extension() != ".rml" || entry.controller.empty()
-            || entry.controller.is_absolute() || !entry.controller.string().ends_with(".ui.lua"))
-            return Creation::failure({"Invalid project UI entry"});
-        for(const auto& path : {entry.document, entry.controller}) {
-            if(std::ranges::any_of(path, [](const auto& part) { return part == ".."; }))
-                return Creation::failure({"UI entry must remain inside project assets"});
-        }
         std::error_code error;
         auto root = std::filesystem::canonical(options.resource_root, error);
         if(error)
             return Creation::failure(
                 {"Cannot resolve project UI resource root: " + error.message()});
+        auto resources = collect_resource_dependencies(root, entry);
+        if(!resources)
+            return Creation::failure({resources.error()});
         auto backend = RmlContext::create(window, renderer, std::move(options));
         if(!backend)
             return Creation::failure(backend.error());
         auto impl = std::make_unique<Impl>(window, renderer, std::move(backend).value(), entry,
             std::move(root), std::move(services));
-        if(auto result = impl->initialize(); !result)
+        if(auto result = impl->initialize(std::move(resources).value()); !result)
             return Creation::failure({result.error()});
         return Creation::success(std::unique_ptr<ProjectUi>(new ProjectUi(std::move(impl))));
     }
@@ -1042,6 +1030,9 @@ namespace Comet::Ui {
     }
     Result<void> ProjectUi::reload() {
         return m_impl->reload();
+    }
+    const std::vector<std::filesystem::path>& ProjectUi::resource_dependencies() const {
+        return m_impl->m_resource_dependencies;
     }
     void ProjectUi::deactivate() {
         m_impl->deactivate();

@@ -219,5 +219,6 @@ set(COMET_GAME_UI_SOURCES
     src/ui/rml_platform.cpp
     src/ui/rml_renderer.cpp
     src/ui/project_ui.cpp
+    src/ui/resource_dependencies.cpp
     src/ui/lua_controller.cpp
 )

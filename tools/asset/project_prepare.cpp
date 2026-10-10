@@ -7,6 +7,7 @@
 #include "scene/component_registry.h"
 #include "scene/scene.h"
 #include "scene/scene_serializer.h"
+#include "ui/resource_dependencies.h"
 
 #include <unordered_set>
 
@@ -69,6 +70,12 @@ namespace Comet {
     }
 
     Result<void> prepare_project(const Project& project, const AssetImportLimits limits) {
+        if(project.ui()) {
+            const auto resources =
+                Ui::collect_resource_dependencies(project.paths().assets(), *project.ui());
+            if(!resources)
+                return Result<void>::failure(resources.error());
+        }
         const auto components = create_scene_component_registry();
         auto path = project.paths().resolve_asset_path(project.startup_scene());
         if(!path)

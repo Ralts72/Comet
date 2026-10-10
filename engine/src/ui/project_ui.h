@@ -49,6 +49,8 @@ namespace Comet::Ui {
         [[nodiscard]] Result<FrameResult, Error> frame(const Input::Frame& input, FrameInfo info);
         [[nodiscard]] bool is_modal() const;
         [[nodiscard]] Result<void> reload();
+        // 当前已发布页面的静态依赖；成功重载后更新。
+        [[nodiscard]] const std::vector<std::filesystem::path>& resource_dependencies() const;
         // 场景重启等宿主状态变更；页面仍由项目控制器决定如何呈现。
         void deactivate();
         [[nodiscard]] Result<void, GraphicsError> render(
