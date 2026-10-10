@@ -13,6 +13,7 @@
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace Comet {
@@ -95,6 +96,17 @@ namespace Comet {
         if(!preparation) {
             discard_frame_requests();
             return Preparation::failure(preparation.error());
+        }
+        if(preparation.value() && m_pending_quality) {
+            const auto quality = std::exchange(m_pending_quality, std::nullopt);
+            auto applied = m_scene_renderer->configure_quality(
+                *m_render_resources, m_render_context->get_swapchain(), *quality);
+            if(!applied) {
+                m_quality_error = applied.error().message;
+                if(applied.error().is_device_lost())
+                    return Preparation::failure(applied.error());
+                LOG_WARN("Keeping previous render quality: {}", m_quality_error);
+            }
         }
         if(auto collected = m_diagnostics->collect_completed(); !collected)
             return Preparation::failure(collected.error());
@@ -231,6 +243,52 @@ namespace Comet {
 
     void Renderer::request_swapchain_recreation() {
         m_presentation->request_recreation();
+    }
+
+    Result<QualitySettings, GraphicsError> Renderer::resolve_quality_settings(
+        QualitySettings settings) const {
+        if(auto valid = settings.validate(); !valid)
+            return Result<QualitySettings, GraphicsError>::failure({valid.error()});
+        settings.max_anisotropy = std::min(settings.max_anisotropy, max_anisotropy());
+        if(auto valid = m_scene_renderer->validate_quality_settings(settings); !valid)
+            return Result<QualitySettings, GraphicsError>::failure(valid.error());
+        return Result<QualitySettings, GraphicsError>::success(settings);
+    }
+
+    Result<void, GraphicsError> Renderer::request_quality_settings(QualitySettings settings) {
+        if(m_shutdown_prepared)
+            return Result<void, GraphicsError>::failure({"Renderer is shutting down"});
+        auto resolved = resolve_quality_settings(settings);
+        if(!resolved)
+            return Result<void, GraphicsError>::failure(resolved.error());
+        m_quality_error.clear();
+        m_pending_quality.reset();
+        if(resolved.value() != get_quality_settings())
+            m_pending_quality = resolved.value();
+        return Result<void, GraphicsError>::success();
+    }
+
+    const QualitySettings& Renderer::get_quality_settings() const {
+        return m_scene_renderer->get_quality_settings();
+    }
+
+    Math::Vec2u Renderer::get_scene_size() const {
+        return m_scene_renderer->get_scene_size();
+    }
+
+    std::vector<uint32_t> Renderer::supported_msaa_samples() const {
+        std::vector<uint32_t> samples;
+        for(const uint32_t count : {1u, 2u, 4u, 8u}) {
+            auto settings = get_quality_settings();
+            settings.msaa_samples = count;
+            if(resolve_quality_settings(settings))
+                samples.push_back(count);
+        }
+        return samples;
+    }
+
+    float Renderer::max_anisotropy() const {
+        return m_render_context->get_device().get_capability().max_sampler_anisotropy;
     }
 
     void Renderer::wait_idle() {

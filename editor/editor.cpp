@@ -1,4 +1,5 @@
 #include "config/player_display_settings.h"
+#include "config/player_quality_settings.h"
 #include "runtime/application.h"
 #include "config/config_loader.h"
 #include "render/resource/render_resources.h"
@@ -217,6 +218,23 @@ namespace {
                                             static_cast<uint32_t>(candidate.height)});
                                     return Comet::Result<void>::success();
                                 });
+                        },
+                    .load_quality = [this] { return load_player_quality(); },
+                    .apply_quality =
+                        [this](Comet::QualitySettings settings) {
+                            if(!m_player_quality_settings)
+                                return Comet::Result<void>::failure(
+                                    "Player quality settings are unavailable");
+                            return m_player_quality_settings->save_and_apply(
+                                settings, [this](const auto& candidate) {
+                                    const auto applied =
+                                        get_engine().get_renderer().request_quality_settings(
+                                            candidate);
+                                    if(!applied)
+                                        return Comet::Result<void>::failure(
+                                            applied.error().message);
+                                    return Comet::Result<void>::success();
+                                });
                         }});
             renderer.set_overlay(
                 {.render =
@@ -417,6 +435,17 @@ namespace {
             return Comet::Result<Comet::DisplaySettings>::success(
                 m_player_display_settings->settings());
         }
+        Comet::Result<Comet::QualitySettings> load_player_quality() {
+            if(!m_player_quality_settings) {
+                auto loaded = Comet::PlayerQualitySettings::load(
+                    m_project.id(), m_project.quality_settings());
+                if(!loaded)
+                    return Comet::Result<Comet::QualitySettings>::failure(loaded.error());
+                m_player_quality_settings = std::move(loaded).value();
+            }
+            return Comet::Result<Comet::QualitySettings>::success(
+                m_player_quality_settings->settings());
+        }
         void process_diagnostics_requests() {
             auto& renderer = get_engine().get_renderer();
             if(const auto capture = m_render_stats->take_capture_request()) {
@@ -552,6 +581,9 @@ namespace {
                 case CometEditor::MenuBar::Command::ProjectDisplaySettings:
                     m_project_settings.request_display();
                     break;
+                case CometEditor::MenuBar::Command::ProjectQualitySettings:
+                    m_project_settings.request_quality();
+                    break;
                 case CometEditor::MenuBar::Command::KeyboardShortcuts:
                     m_shortcut_settings_dialog.request(m_shortcuts);
                     break;
@@ -680,6 +712,13 @@ namespace {
             }
             if(auto configured = get_engine().set_input_actions(std::move(actions)); !configured)
                 return configured;
+            auto quality = load_player_quality();
+            if(!quality)
+                return Comet::Result<void, Comet::Error>::failure({quality.error()});
+            if(auto requested =
+                    get_engine().get_renderer().request_quality_settings(quality.value());
+                !requested)
+                return Comet::Result<void, Comet::Error>::failure(requested.error().as_error());
             return get_engine().start_scene_runtime(state);
         }
 
@@ -858,7 +897,9 @@ namespace {
 
         Comet::Result<void, Comet::Error> process_editor_requests() {
             const auto settings = m_project_settings.update();
-            if(settings.input_changed || settings.display_changed)
+            if(settings.quality_changed)
+                m_player_quality_settings.reset();
+            if(settings.input_changed || settings.display_changed || settings.quality_changed)
                 m_game_ui->reset();
             if(settings.input_changed) {
                 if(auto configured = get_engine().set_input_actions(m_project.input_actions());
@@ -1171,6 +1212,7 @@ namespace {
         std::optional<Comet::Input::Frame> m_runtime_input;
         std::optional<Comet::PlayerInputSettings> m_player_input_settings;
         std::optional<Comet::PlayerDisplaySettings> m_player_display_settings;
+        std::optional<Comet::PlayerQualitySettings> m_player_quality_settings;
         std::string m_player_input_error;
         std::unique_ptr<CometEditor::Ui::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::GameUi> m_game_ui;

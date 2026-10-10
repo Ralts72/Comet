@@ -341,3 +341,9 @@
 "Fullscreen": "全屏"
 "Project defaults; existing players keep their saved choices.": "修改项目默认值；已有玩家选择保持不变，可在游戏菜单恢复默认。"
 "Window size uses logical units; fullscreen uses monitor size.": "窗口宽高使用逻辑单位，全屏使用显示器尺寸。"
+
+"Quality": "画质"
+"Project Settings - Quality": "项目设置 - 画质"
+"Anisotropy": "各向异性过滤"
+"Render Scale": "渲染比例"
+"Render scale affects the scene; UI keeps output resolution.": "渲染比例仅调整场景，UI 保持输出分辨率。"

@@ -23,6 +23,7 @@ namespace CometEditor {
             return;
         m_services.input_actions = m_project.input_actions();
         m_services.display_defaults = m_project.display_settings();
+        m_services.quality_defaults = m_project.quality_settings();
         auto created = Comet::Ui::ProjectUi::create(m_engine.get_window(), m_engine.get_renderer(),
             *m_project.ui(), {.resource_root = m_project.paths().assets()}, m_services);
         if(!created) {

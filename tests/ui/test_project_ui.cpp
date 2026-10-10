@@ -28,6 +28,9 @@ namespace Comet::Tests {
         std::optional<bool> vsync_active;
         DisplaySettings saved_display;
         unsigned display_applications = 0;
+        bool quality_services = false, fail_quality_save = false;
+        QualitySettings saved_quality;
+        unsigned quality_applications = 0;
 
         void SetUp() override {
             EngineTest::SetUp();
@@ -70,6 +73,21 @@ namespace Comet::Tests {
                         return Result<void>::failure("Simulated display save failure");
                     saved_display = value;
                     ++display_applications;
+                    return Result<void>::success();
+                };
+            }
+            if(quality_services) {
+                services.load_quality = [this] {
+                    return Result<QualitySettings>::success(saved_quality);
+                };
+                services.apply_quality = [this](QualitySettings value) {
+                    if(fail_quality_save)
+                        return Result<void>::failure("Simulated quality save failure");
+                    const auto requested = engine->get_renderer().request_quality_settings(value);
+                    if(!requested)
+                        return Result<void>::failure(requested.error().message);
+                    saved_quality = value;
+                    ++quality_applications;
                     return Result<void>::success();
                 };
             }
@@ -156,6 +174,43 @@ namespace Comet::Tests {
             EXPECT_EQ(input->GetAttribute("value", Rml::String{}), value);
         }
     };
+    TEST_F(ProjectUiGpuTest, QualityDraftSurvivesSaveFailureAndReloadAndReportsActiveRenderer) {
+        quality_services = true;
+        create_ui(InputActions{});
+        const auto window_size = engine->get_window().get_size();
+        const auto initial = engine->get_renderer().get_quality_settings();
+        click("settings");
+        click("quality-scale");
+        click("cancel");
+        EXPECT_EQ(quality_applications, 0u);
+        EXPECT_EQ(saved_quality.render_scale, 1);
+        click("settings");
+        click("quality-scale");
+        click("quality-msaa");
+        fail_quality_save = true;
+        click("quality-apply");
+        EXPECT_EQ(quality_applications, 0u);
+        EXPECT_EQ(engine->get_renderer().get_quality_settings(), initial);
+        EXPECT_NE(document().GetElementById("quality-error")->GetInnerRML().find("save failure"),
+            std::string::npos);
+        ASSERT_TRUE(ui->reload());
+        ASSERT_TRUE(submit_frame());
+        EXPECT_NE(document().GetElementById("quality-scale")->GetInnerRML().find("50%"),
+            std::string::npos);
+        fail_quality_save = false;
+        click("quality-apply");
+        EXPECT_EQ(quality_applications, 1u);
+        EXPECT_EQ(saved_quality.render_scale, 0.5f);
+        ASSERT_TRUE(submit_frame());
+        EXPECT_EQ(engine->get_renderer().get_quality_settings().render_scale, 0.5f);
+        EXPECT_NE(document().GetElementById("quality-active")->GetInnerRML().find("50%"),
+            std::string::npos);
+        EXPECT_EQ(engine->get_window().get_size(), window_size);
+        EXPECT_TRUE(ui->is_modal());
+        const auto& samples = engine->get_renderer().supported_msaa_samples();
+        EXPECT_NE(std::ranges::find(samples, saved_quality.msaa_samples), samples.end());
+    }
+
     TEST_F(ProjectUiGpuTest, DisplayDraftCancelsAndSaveFailurePreservesItAcrossReload) {
         display_services = true;
         create_ui(InputActions{});

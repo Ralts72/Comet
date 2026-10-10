@@ -36,6 +36,7 @@ set(UNIT_TEST_SOURCES
         common/test_scope_exit.cpp
         config/test_config.cpp
         config/test_display_settings.cpp
+        config/test_quality_settings.cpp
         core/test_geometry.cpp
         core/test_math_utils.cpp
         core/test_project.cpp
@@ -144,6 +145,7 @@ set(INTEGRATION_SOURCES
         render/test_material_rendering.cpp
         render/test_material_runtime.cpp
         render/test_offscreen_resize.cpp
+        render/test_quality_settings.cpp
         render/test_overlay_record_context.cpp
         render/test_rml_ui.cpp
         render/test_render_diagnostics.cpp
@@ -240,7 +242,7 @@ if(COMET_BUILD_EDITOR)
     add_test(NAME editor_ui_testing COMMAND editor_ui_testing)
     set_tests_properties(editor_ui_testing PROPERTIES LABELS "integration;ui")
 endif()
-set(SYNC_VALIDATION_FILTER "RenderGraphGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.*:ImGuiOverlayGpuTest.*:RmlUiGpuTest.*:RmlContextGpuTest.*:ProjectUiGpuTest.*:EditorGameUiGpuTest.*:OverlayRecordContextTest.*")
+set(SYNC_VALIDATION_FILTER "QualityGpuTest.*:RenderGraphGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.*:ImGuiOverlayGpuTest.*:RmlUiGpuTest.*:RmlContextGpuTest.*:ProjectUiGpuTest.*:EditorGameUiGpuTest.*:OverlayRecordContextTest.*")
 add_test(NAME integration_testing COMMAND integration_testing
         "--gtest_filter=-${SYNC_VALIDATION_FILTER}" ${TEST_PLATFORM_ARGS})
 set_tests_properties(integration_testing PROPERTIES LABELS "integration;gpu" RESOURCE_LOCK comet_gpu)

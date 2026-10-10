@@ -98,6 +98,51 @@ local function load_display(self, ui)
     display_labels(self, ui)
 end
 
+local function cycle(current, choices)
+    for i, value in ipairs(choices) do
+        if current == value then return choices[i % #choices + 1] end
+    end
+    return choices[1] or current
+end
+
+local function quality_labels(self, ui)
+    local state = self.state
+    ui.set("quality_available", state.quality_available)
+    if not state.quality_available then return end
+    ui.set("quality_msaa", tostring(state.quality_msaa) .. "×")
+    ui.set("quality_anisotropy", tostring(state.quality_anisotropy) .. "×")
+    ui.set("quality_scale", string.format("%.0f%%", state.quality_scale * 100))
+end
+
+local function load_quality(self, ui)
+    local settings, message = ui.quality_settings()
+    local state = self.state
+    state.quality_available = settings ~= nil
+    state.quality_waiting = false
+    state.quality_error = message or ""
+    if settings then
+        state.quality_msaa = settings.msaa_samples
+        state.quality_anisotropy = settings.max_anisotropy
+        state.quality_scale = settings.render_scale
+    end
+    quality_labels(self, ui)
+end
+
+local function quality_status(self, ui)
+    if not self.state.quality_available then return end
+    local settings = ui.quality_settings()
+    if not settings then return end
+    local active = settings.active
+    ui.set("quality_active", string.format("当前生效：MSAA %d× · 各向异性 %.0f× · 渲染比例 %.0f%%",
+        active.msaa_samples, active.max_anisotropy, active.render_scale * 100))
+    local status = "渲染比例仅调整场景画面，UI 保持输出分辨率。更改应用后保存。"
+    if settings.pending then status = "设置已保存，等待下一帧应用…" end
+    local message = self.state.quality_error
+    if message == "" then message = settings.error end
+    ui.set("quality_status", status)
+    ui.set("quality_error", message)
+end
+
 local function sync(self, ui)
     local status = ui.input_status()
     if self.state.open and self.state.revision ~= status.revision then
@@ -105,7 +150,7 @@ local function sync(self, ui)
         self.state.revision = status.revision
     end
     ui.set("display_waiting", self.state.display_waiting)
-    ui.set("waiting", status.waiting or self.state.display_waiting)
+    ui.set("waiting", status.waiting or self.state.display_waiting or self.state.quality_waiting)
     local error_text = self.state.error
     if error_text == "" then error_text = status.error end
     ui.set("error_text", error_text)
@@ -135,6 +180,8 @@ local function close(self, ui)
     self.state.revision = -1
     self.state.display_waiting = false
     self.state.display_available = false
+    self.state.quality_available = false
+    self.state.quality_waiting = false
     ui.input_end()
     sync(self, ui)
 end
@@ -156,6 +203,7 @@ local function open(self, ui)
     self.state.error_only = not ok
     self.state.error = message
     load_display(self, ui)
+    load_quality(self, ui)
     sync(self, ui)
     focus_menu(self, ui)
 end
@@ -168,10 +216,14 @@ return {
         display_size = "", display_mode = "", display_vsync = "",
         display_width = "960", display_height = "720", display_active_vsync = "",
         display_status = "", display_error = "",
+        quality_available = false, quality_msaa = "", quality_anisotropy = "", quality_scale = "",
+        quality_active = "", quality_status = "", quality_error = "",
     },
     state = {
         open = false, available = false, error_only = false, selected = 1,
         revision = -1, error = "", display_waiting = false,
+        quality_available = false, quality_waiting = false, quality_error = "",
+        quality_msaa = 4, quality_anisotropy = 8, quality_scale = 1,
         display_available = false, display_width = "960", display_height = "720",
         display_mode = "windowed", display_vsync = false, display_preview = false,
     },
@@ -180,11 +232,13 @@ return {
             "action-selector", "action-name", "previous", "next", "bindings", "status",
             "error", "footer", "restore", "cancel", "apply", "display",
             "display-size", "display-width", "display-height", "display-mode", "display-vsync",
-            "display-apply", "display-restore"}) do
+            "display-apply", "display-restore", "quality", "quality-msaa",
+            "quality-anisotropy", "quality-scale", "quality-apply", "quality-restore"}) do
             ui.require_element(id)
         end
         self.state.revision = -1
         display_labels(self, ui)
+        quality_labels(self, ui)
         ui.set("menu_available", self.state.available)
         sync(self, ui)
         -- 验证隐藏菜单的布局和纹理；on_present 在发布后的首帧恢复项目状态。
@@ -203,6 +257,7 @@ return {
             active_vsync = "Play 使用编辑器的呈现节奏。"
         end
         ui.set("display_active_vsync", active_vsync)
+        if self.state.open then quality_status(self, ui) end
         local status = ui.input_status()
         if not status.capturing and ui.pressed("key", "F6") then ui.reload() end
         if not self.state.open then
@@ -213,8 +268,35 @@ return {
     end,
     on_event = function(self, ui, operation, action, binding)
         if operation == "open" then open(self, ui); return end
-        if not self.state.open or ui.input_status().waiting or self.state.display_waiting then return end
-        if self.state.error_only and operation ~= "cancel" and not operation:match("^display_") then return end
+        if not self.state.open or ui.input_status().waiting or self.state.display_waiting or self.state.quality_waiting then return end
+        if self.state.error_only and operation ~= "cancel" and not operation:match("^display_") and not operation:match("^quality_") then return end
+        if operation:match("^quality_") and self.state.quality_available then
+            local draft = self.state
+            local settings = ui.quality_settings()
+            if not settings then return end
+            if operation == "quality_msaa" then
+                draft.quality_msaa = cycle(draft.quality_msaa, settings.supported_msaa)
+            elseif operation == "quality_anisotropy" then
+                local choices = {}
+                for _, value in ipairs({1, 2, 4, 8, 16}) do
+                    if value <= settings.max_anisotropy_supported then choices[#choices + 1] = value end
+                end
+                draft.quality_anisotropy = cycle(draft.quality_anisotropy, choices)
+            elseif operation == "quality_scale" then
+                draft.quality_scale = cycle(draft.quality_scale, {0.5, 0.75, 1})
+            elseif operation == "quality_restore" then
+                draft.quality_msaa = settings.defaults.msaa_samples
+                draft.quality_anisotropy = settings.defaults.max_anisotropy
+                draft.quality_scale = settings.defaults.render_scale
+            elseif operation == "quality_apply" then
+                draft.quality_error = ""
+                draft.quality_waiting = true
+                ui.quality_apply(draft.quality_msaa, draft.quality_anisotropy, draft.quality_scale)
+            end
+            quality_labels(self, ui)
+            sync(self, ui)
+            return
+        end
         if operation:match("^display_") and self.state.display_available then
             local draft = self.state
             if operation == "display_width" then
@@ -291,6 +373,12 @@ return {
         self.state.display_waiting = false
         ui.set("display_error", message)
         if success then ui.set("display_status", "显示设置已保存；更改在后续帧应用，实际状态见当前同步呈现。") end
+        sync(self, ui)
+    end,
+    on_quality_result = function(self, ui, success, message)
+        self.state.quality_waiting = false
+        self.state.quality_error = message
+        quality_status(self, ui)
         sync(self, ui)
     end,
     on_reload_error = function(self, ui, message)

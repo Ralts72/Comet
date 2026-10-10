@@ -21,14 +21,20 @@ namespace CometEditor {
         m_display_panel.request(m_project.display_settings());
     }
 
+    void ProjectSettings::request_quality() {
+        m_quality_panel.request(m_project.quality_settings());
+    }
+
     void ProjectSettings::render(const bool editing, const Comet::Input::Frame& input) {
         m_name_dialog.render();
         if(editing) {
             m_input_panel.render(input);
             m_display_panel.render();
+            m_quality_panel.render();
         } else {
             m_input_panel.close();
             m_display_panel.close();
+            m_quality_panel.close();
         }
     }
 
@@ -42,6 +48,15 @@ namespace CometEditor {
                 LOG_WARN("Cannot save project display settings: {}", saved.error());
             else
                 changes.display_changed = changed;
+        }
+        if(auto quality = m_quality_panel.take_request()) {
+            const bool changed = *quality != m_project.quality_settings();
+            const auto saved = m_project.save_quality_settings(*quality);
+            m_quality_panel.complete(saved);
+            if(!saved)
+                LOG_WARN("Cannot save project quality settings: {}", saved.error());
+            else
+                changes.quality_changed = changed;
         }
         if(auto actions = m_input_panel.take_request()) {
             const bool changed = *actions != m_project.input_actions();

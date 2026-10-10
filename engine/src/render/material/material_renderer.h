@@ -88,7 +88,7 @@ namespace Comet {
         static Result<std::unique_ptr<MaterialRenderer>, GraphicsError> create(Device& device,
             PipelineManager& pipelines, RenderResources& resources, uint32_t frame_slot_count,
             SampleCount samples, const MaterialShaders* shaders = nullptr,
-            MaterialPrograms* programs = nullptr);
+            MaterialPrograms* programs = nullptr, std::optional<float> max_anisotropy = {});
         // 帧边界提交任意完整顶点/片元程序对；所有候选成功后才替换。
         Result<ReloadReport, GraphicsError> reload_shaders(
             PipelineManager& pipelines, const MaterialShaders& shaders, SampleCount samples);
@@ -113,7 +113,7 @@ namespace Comet {
             MaterialPrograms* programs);
         Result<void, GraphicsError> initialize(PipelineManager& pipelines,
             RenderResources& resources, uint32_t frame_slot_count, SampleCount samples,
-            const MaterialShaders* shaders);
+            const MaterialShaders* shaders, std::optional<float> max_anisotropy);
 
         struct PipelineState {
             AssetHandle shader_program;

@@ -109,7 +109,10 @@ Editor 固定使用中文，`ui/text` 提供词表读取和短作用域借用；
 候选文档先解析、由调用方校验结构，再生成资源并验证绘制；失败恢复旧文档，成功才关闭旧文档。
 业务回调通过加载状态及当前文档身份忽略候选页事件，避免无效候选页修改应用状态。
 
-`Ui::ProjectUi` 装载清单中的页面与 `.ui.lua` 控制器；宿主注入个人设置读取、保存与 Runtime 换绑服务。
+`Ui::ProjectUi` 装载清单中的页面与 `.ui.lua` 控制器；宿主注入个人输入、显示与画质设置的读取／保存和运行时应用服务。
+Project 保存游戏默认值；`PlayerDisplaySettings`／`PlayerQualitySettings` 按项目 UUID 保存玩家选择，App 在创建设备前使用有效值，Editor 在进入 Play 时应用画质。
+Renderer 在帧准备阶段发布完整画质候选，失败保留旧 RenderState，在途帧继续持有旧资源；控制器可查询设备限制、待应用及实际值。
+渲染比例缩放 HDR 场景与 Bloom，OutputPass 放大后映射到完整输出分辨率，项目 UI 在完整输出上合成。
 控制器拥有模型、菜单状态、控件 ID、命令及快捷键，`PlayerInputEdit` 仍属于 Engine 输入模块。
 Window 发布与物理帧同序号的有界、有序 UI 事件；点击坐标沿用此前光标事件，避免重新采样系统位置破坏顺序。
 适配处理 DPI、Unicode、焦点、指针和手柄导航；

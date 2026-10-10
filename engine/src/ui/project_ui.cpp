@@ -3,6 +3,7 @@
 #include "ui/lua_controller.h"
 #include "common/scope_exit.h"
 #include "core/window.h"
+#include "render/renderer.h"
 #include "diagnostics/logger.h"
 #include "input/player_input_edit.h"
 
@@ -71,7 +72,9 @@ namespace Comet::Ui {
             InputCapture,
             InputApply,
             DisplaySettings,
-            DisplayApply
+            DisplayApply,
+            QualitySettings,
+            QualityApply
         };
         class Controller final {
         public:
@@ -98,7 +101,9 @@ namespace Comet::Ui {
                             {"input_capture", static_cast<int>(Api::InputCapture)},
                             {"input_apply", static_cast<int>(Api::InputApply)},
                             {"display_settings", static_cast<int>(Api::DisplaySettings)},
-                            {"display_apply", static_cast<int>(Api::DisplayApply)}},
+                            {"display_apply", static_cast<int>(Api::DisplayApply)},
+                            {"quality_settings", static_cast<int>(Api::QualitySettings)},
+                            {"quality_apply", static_cast<int>(Api::QualityApply)}},
                       [this](lua_State* state, int api) {
                           return m_host.api(*this, state, static_cast<Api>(api));
                       }) {}
@@ -123,10 +128,12 @@ namespace Comet::Ui {
             bool m_retired = false;
         };
 
-        Impl(Window& window, std::unique_ptr<RmlContext> runtime, Project::UiEntry entry,
-            std::filesystem::path root, Services services)
-            : m_window(window), m_runtime(std::move(runtime)), m_entry(std::move(entry)),
-              m_resource_root(std::move(root)), m_services(std::move(services)) {}
+        Impl(Window& window, Renderer& renderer, std::unique_ptr<RmlContext> runtime,
+            Project::UiEntry entry, std::filesystem::path root, Services services)
+            : m_window(window), m_renderer(renderer),
+              m_supported_msaa(renderer.supported_msaa_samples()), m_runtime(std::move(runtime)),
+              m_entry(std::move(entry)), m_resource_root(std::move(root)),
+              m_services(std::move(services)) {}
         ~Impl() {
             retire();
             m_controller.reset();
@@ -261,6 +268,7 @@ namespace Comet::Ui {
         int api(Controller& vm, lua_State* state, Api operation);
         int input_api(lua_State* state, Api operation);
         int display_api(lua_State* state, Api operation);
+        int quality_api(lua_State* state, Api operation);
         Result<FrameResult, Error> frame(const Input::Frame& input, FrameInfo info);
         void deactivate() {
             if(m_controller) {
@@ -274,6 +282,7 @@ namespace Comet::Ui {
             m_pending_capture.reset();
             m_events.clear();
             m_pending_display.reset();
+            m_pending_quality.reset();
             m_runtime->set_capture_active(false);
             m_runtime->cancel_input();
             (void)m_runtime->update();
@@ -322,6 +331,8 @@ namespace Comet::Ui {
         }
 
         Window& m_window;
+        Renderer& m_renderer;
+        const std::vector<uint32_t> m_supported_msaa;
         std::unique_ptr<RmlContext> m_runtime;
         Project::UiEntry m_entry;
         std::filesystem::path m_resource_root;
@@ -336,6 +347,7 @@ namespace Comet::Ui {
         std::vector<Input::GamepadButton> m_reserved_buttons;
         std::optional<PendingCapture> m_pending_capture;
         std::optional<Comet::DisplaySettings> m_pending_display;
+        std::optional<Comet::QualitySettings> m_pending_quality;
         std::string m_capture_focus, m_api_error, m_event_error;
         std::map<std::string, std::string> m_pending_markup;
         const Input::Frame* m_input = nullptr;
@@ -351,7 +363,8 @@ namespace Comet::Ui {
             return luaL_error(state, "UI controller has been retired");
         const bool presentation = operation <= Api::HasFocus || operation == Api::InputStatus
                                   || operation == Api::InputActions
-                                  || operation == Api::DisplaySettings;
+                                  || operation == Api::DisplaySettings
+                                  || operation == Api::QualitySettings;
         if(vm.m_preparing && !presentation)
             return luaL_error(state, "UI services are unavailable before controller publication");
         if(operation >= Api::InputRestore && operation <= Api::InputApply && !m_edit_active)
@@ -462,6 +475,9 @@ namespace Comet::Ui {
             case Api::DisplaySettings:
             case Api::DisplayApply:
                 return display_api(state, operation);
+            case Api::QualitySettings:
+            case Api::QualityApply:
+                return quality_api(state, operation);
             default:
                 return input_api(state, operation);
         }
@@ -517,6 +533,60 @@ namespace Comet::Ui {
             return luaL_error(state, "Display settings service is unavailable");
         m_pending_display = Comet::DisplaySettings{static_cast<int>(width),
             static_cast<int>(height), window_mode, bool(lua_toboolean(state, 4))};
+        return 0;
+    }
+
+    int ProjectUi::Impl::quality_api(lua_State* state, Api operation) {
+        if(operation == Api::QualitySettings) {
+            if(!m_services.load_quality) {
+                lua_pushnil(state);
+                return 1;
+            }
+            const auto loaded = m_services.load_quality();
+            if(!loaded) {
+                lua_pushnil(state);
+                lua_pushlstring(state, loaded.error().data(), loaded.error().size());
+                return 2;
+            }
+            const auto push_settings = [&](const Comet::QualitySettings& settings) {
+                lua_createtable(state, 0, 3);
+                lua_pushinteger(state, settings.msaa_samples);
+                lua_setfield(state, -2, "msaa_samples");
+                lua_pushnumber(state, settings.max_anisotropy);
+                lua_setfield(state, -2, "max_anisotropy");
+                lua_pushnumber(state, settings.render_scale);
+                lua_setfield(state, -2, "render_scale");
+            };
+            push_settings(loaded.value());
+            push_settings(m_services.quality_defaults);
+            lua_setfield(state, -2, "defaults");
+            push_settings(m_renderer.get_quality_settings());
+            lua_setfield(state, -2, "active");
+            const auto& samples = m_supported_msaa;
+            lua_createtable(state, static_cast<int>(samples.size()), 0);
+            for(std::size_t i = 0; i < samples.size(); ++i) {
+                lua_pushinteger(state, samples[i]);
+                lua_rawseti(state, -2, static_cast<lua_Integer>(i + 1));
+            }
+            lua_setfield(state, -2, "supported_msaa");
+            lua_pushnumber(state, m_renderer.max_anisotropy());
+            lua_setfield(state, -2, "max_anisotropy_supported");
+            lua_pushboolean(state, m_renderer.quality_pending());
+            lua_setfield(state, -2, "pending");
+            const auto& error = m_renderer.quality_error();
+            lua_pushlstring(state, error.data(), error.size());
+            lua_setfield(state, -2, "error");
+            return 1;
+        }
+        const auto samples = luaL_checkinteger(state, 1);
+        const auto anisotropy = luaL_checknumber(state, 2);
+        const auto scale = luaL_checknumber(state, 3);
+        if(samples < 1 || samples > 8)
+            return luaL_error(state, "Invalid MSAA sample count");
+        if(!m_services.apply_quality || !m_info.game_available)
+            return luaL_error(state, "Quality settings service is unavailable");
+        m_pending_quality = Comet::QualitySettings{static_cast<uint32_t>(samples),
+            static_cast<float>(anisotropy), static_cast<float>(scale)};
         return 0;
     }
 
@@ -742,6 +812,16 @@ namespace Comet::Ui {
                 !result)
                 return Frame::failure({result.error()});
         }
+        if(auto quality = std::exchange(m_pending_quality, {})) {
+            const auto resolved = m_renderer.resolve_quality_settings(*quality);
+            auto applied = resolved ? m_services.apply_quality(*quality)
+                                    : Result<void>::failure(resolved.error().message);
+            if(auto result = call("on_quality_result",
+                   {Rml::Variant(bool(applied)),
+                       Rml::Variant(applied ? std::string{} : applied.error())});
+                !result)
+                return Frame::failure({result.error()});
+        }
         if(auto request = m_edit.take_request()) {
             auto applied = m_services.apply_input
                                ? m_services.apply_input(std::move(*request))
@@ -801,8 +881,8 @@ namespace Comet::Ui {
         auto backend = RmlContext::create(window, renderer, std::move(options));
         if(!backend)
             return Creation::failure(backend.error());
-        auto impl = std::make_unique<Impl>(
-            window, std::move(backend).value(), entry, std::move(root), std::move(services));
+        auto impl = std::make_unique<Impl>(window, renderer, std::move(backend).value(), entry,
+            std::move(root), std::move(services));
         if(auto result = impl->initialize(); !result)
             return Creation::failure({result.error()});
         return Creation::success(std::unique_ptr<ProjectUi>(new ProjectUi(std::move(impl))));

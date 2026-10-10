@@ -23,6 +23,7 @@
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace Comet {
@@ -48,6 +49,7 @@ namespace Comet {
         RenderGraph::PassId output_pass_id;
         std::optional<BloomPass::Passes> bloom_passes;
         bool offscreen = false;
+        QualitySettings quality;
     };
 
     Result<std::unique_ptr<SceneRenderer>, GraphicsError> SceneRenderer::create(Device& device,
@@ -79,10 +81,14 @@ namespace Comet {
         const VulkanSettings& vulkan, const RenderSettings& render)
         : m_device(device), m_programs(programs), m_offscreen_format(vulkan.surface_format),
           m_hdr_headroom(render.hdr_headroom), m_depth_format(vulkan.depth_format),
-          m_msaa_samples(vulkan.msaa_samples), m_frame_slot_count(render.max_frames_in_flight) {}
+          m_quality{static_cast<uint32_t>(vulkan.msaa_samples),
+              std::min(render.max_anisotropy, device.get_capability().max_sampler_anisotropy),
+              render.render_scale},
+          m_frame_slot_count(render.max_frames_in_flight) {}
 
     Result<std::shared_ptr<SceneRenderer::RenderState>, GraphicsError> SceneRenderer::create_state(
-        RenderResources& resources, Swapchain* swapchain, Math::Vec2u size) {
+        RenderResources& resources, Swapchain* swapchain, Math::Vec2u size,
+        const QualitySettings& quality) {
         using Creation = Result<std::shared_ptr<RenderState>, GraphicsError>;
         if(m_frame_slot_count == 0)
             return Creation::failure({"Scene renderer requires at least one frame slot"});
@@ -90,25 +96,24 @@ namespace Comet {
             return Creation::failure({valid.error()});
         if(!swapchain && (size.x == 0 || size.y == 0))
             return Creation::failure({"Offscreen render target size must be greater than zero"});
-        if(auto supported = validate_color_target(m_device.get_capability().physical_device,
-               RenderSettings::SCENE_COLOR_FORMAT, m_msaa_samples);
-            !supported)
+        if(auto supported = validate_quality_settings(quality); !supported)
             return Creation::failure(supported.error());
+        const auto samples = static_cast<SampleCount>(quality.msaa_samples);
         auto next = std::make_shared<RenderState>();
+        next->quality = quality;
         next->offscreen = !swapchain;
-        auto color =
-            Attachment::get_color_attachment(RenderSettings::SCENE_COLOR_FORMAT, m_msaa_samples);
-        auto depth = Attachment::get_depth_attachment(m_depth_format, m_msaa_samples);
+        auto color = Attachment::get_color_attachment(RenderSettings::SCENE_COLOR_FORMAT, samples);
+        auto depth = Attachment::get_depth_attachment(m_depth_format, samples);
         color.description.initial_layout = ImageLayout::ColorAttachmentOptimal;
         color.description.final_layout = ImageLayout::ColorAttachmentOptimal;
         depth.description.initial_layout = ImageLayout::DepthStencilAttachmentOptimal;
-        if(m_msaa_samples == SampleCount::Count1) {
+        if(samples == SampleCount::Count1) {
             color.description.store_op = AttachmentStoreOp::Store;
             color.usage |= ImageUsage::Sampled;
         }
         RenderSubPass subpass{.color_attachments = {SubpassColorAttachment(0)},
             .depth_stencil_attachments = {SubpassDepthStencilAttachment(1)},
-            .sample_count = m_msaa_samples};
+            .sample_count = samples};
         subpass.resolve_initial_layout = ImageLayout::ColorAttachmentOptimal;
         subpass.resolve_final_layout = ImageLayout::ColorAttachmentOptimal;
         subpass.resolve_usage =
@@ -143,18 +148,17 @@ namespace Comet {
         if(auto targets = replace_targets(*next, swapchain, size); !targets)
             return Creation::failure(targets.error());
         next->pipelines = std::make_unique<PipelineManager>(m_device, *next->scene_pass);
-        auto skybox =
-            SkyboxPass::create(m_device, *next->pipelines, m_msaa_samples, m_frame_slot_count);
+        auto skybox = SkyboxPass::create(m_device, *next->pipelines, samples, m_frame_slot_count);
         if(!skybox)
             return Creation::failure(skybox.error());
         next->skybox_pass = std::move(skybox).value();
-        auto materials = MaterialRenderer::create(m_device, *next->pipelines, resources,
-            m_frame_slot_count, m_msaa_samples, m_programs.builtin_overrides(), &m_programs);
+        auto materials =
+            MaterialRenderer::create(m_device, *next->pipelines, resources, m_frame_slot_count,
+                samples, m_programs.builtin_overrides(), &m_programs, quality.max_anisotropy);
         if(!materials)
             return Creation::failure(materials.error());
         next->materials = std::move(materials).value();
-        auto debug =
-            DebugRenderer::create(m_device, *next->pipelines, m_frame_slot_count, m_msaa_samples);
+        auto debug = DebugRenderer::create(m_device, *next->pipelines, m_frame_slot_count, samples);
         if(!debug)
             return Creation::failure(debug.error());
         next->debug = std::move(debug).value();
@@ -268,7 +272,7 @@ namespace Comet {
                 candidate = std::move(created).value();
                 bloom = candidate.get();
             }
-            if(auto resized = bloom->resize(m_state->output_target->get_size()); !resized)
+            if(auto resized = bloom->resize(m_state->hdr_target->get_size()); !resized)
                 return resized;
         }
         if(auto graph = rebuild_graph(*m_state, enabled); !graph)
@@ -288,7 +292,7 @@ namespace Comet {
             size = {extent.width, extent.height};
         }
         auto hdr = RenderTarget::try_create_multi_target(
-            m_device, *state.scene_pass, size, m_frame_slot_count);
+            m_device, *state.scene_pass, state.quality.scene_size(size), m_frame_slot_count);
         if(!hdr)
             return Result<void, GraphicsError>::failure(hdr.error());
         std::shared_ptr<RenderTarget> output;
@@ -306,7 +310,7 @@ namespace Comet {
             output = std::move(candidate).value();
         }
         if(m_post_process.uses_bloom()) {
-            if(auto bloom = state.bloom->resize(size); !bloom)
+            if(auto bloom = state.bloom->resize(state.quality.scene_size(size)); !bloom)
                 return bloom;
         }
         // 所有候选均成功后再发布，不改变在途帧保留的旧目标。
@@ -317,7 +321,7 @@ namespace Comet {
 
     Result<void, GraphicsError> SceneRenderer::configure_presentation(
         RenderResources& resources, Swapchain& swapchain) {
-        auto next = create_state(resources, &swapchain, {});
+        auto next = create_state(resources, &swapchain, {}, m_quality);
         if(!next)
             return Result<void, GraphicsError>::failure(next.error());
         m_state = std::move(next).value();
@@ -328,7 +332,7 @@ namespace Comet {
 
     Result<void, GraphicsError> SceneRenderer::configure_offscreen(
         RenderResources& resources, Math::Vec2u size) {
-        auto next = create_state(resources, nullptr, size);
+        auto next = create_state(resources, nullptr, size, m_quality);
         if(!next)
             return Result<void, GraphicsError>::failure(next.error());
         m_state = std::move(next).value();
@@ -342,8 +346,8 @@ namespace Comet {
         if(!m_state)
             return Result<MaterialRenderer::ReloadReport, GraphicsError>::failure(
                 {"Scene pipelines are not initialized"});
-        auto result =
-            m_state->materials->reload_shaders(*m_state->pipelines, shaders, m_msaa_samples);
+        auto result = m_state->materials->reload_shaders(
+            *m_state->pipelines, shaders, static_cast<SampleCount>(m_quality.msaa_samples));
         if(result)
             m_programs.publish_builtin(std::move(shaders));
         return result;
@@ -355,6 +359,45 @@ namespace Comet {
             return Result<MaterialRenderer::MaterialUpdate, GraphicsError>::failure(
                 {"Scene renderer is not configured"});
         return m_state->materials->prepare_material_update(handle, material);
+    }
+
+    Result<void, GraphicsError> SceneRenderer::validate_quality_settings(
+        const QualitySettings& settings) const {
+        if(auto valid = settings.validate(); !valid)
+            return Result<void, GraphicsError>::failure({valid.error()});
+        const auto samples = static_cast<SampleCount>(settings.msaa_samples);
+        if(auto color = validate_color_target(m_device.get_capability().physical_device,
+               RenderSettings::SCENE_COLOR_FORMAT, samples);
+            !color)
+            return color;
+        vk::ImageFormatProperties depth;
+        const auto status = m_device.get_capability().physical_device.getImageFormatProperties(
+            Graphics::format_to_vk(m_depth_format), vk::ImageType::e2D, vk::ImageTiling::eOptimal,
+            vk::ImageUsageFlagBits::eDepthStencilAttachment, {}, &depth);
+        if(status != vk::Result::eSuccess)
+            return Result<void, GraphicsError>::failure(
+                {"Cannot query depth target support", status});
+        if(!(depth.sampleCounts & Graphics::sample_count_to_vk(samples)))
+            return Result<void, GraphicsError>::failure(
+                {"Depth target MSAA sample count is unsupported"});
+        return Result<void, GraphicsError>::success();
+    }
+
+    Result<void, GraphicsError> SceneRenderer::configure_quality(
+        RenderResources& resources, Swapchain& swapchain, const QualitySettings& settings) {
+        auto next = create_state(resources, is_offscreen() ? nullptr : &swapchain,
+            m_state->output_target->get_size(), settings);
+        if(!next)
+            return Result<void, GraphicsError>::failure(next.error());
+        m_state = std::move(next).value();
+        m_quality = settings;
+        m_resize_failure.reset();
+        m_post_process_failure.reset();
+        return Result<void, GraphicsError>::success();
+    }
+
+    Math::Vec2u SceneRenderer::get_scene_size() const {
+        return m_state->hdr_target->get_size();
     }
 
     std::vector<std::shared_ptr<const MaterialLayout>> SceneRenderer::get_material_layouts() const {

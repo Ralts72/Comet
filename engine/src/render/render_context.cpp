@@ -27,7 +27,8 @@ namespace Comet {
             .scene_color_format = RenderSettings::SCENE_COLOR_FORMAT,
             .depth_format = vulkan_config.depth_format,
             .sample_count = vulkan_config.msaa_samples,
-            .max_sampler_anisotropy = render_config.max_anisotropy};
+            // 在创建设备时启用可用能力；场景 Sampler 独立选择当前画质。
+            .max_sampler_anisotropy = 16};
         auto context = std::make_unique<Context>(window, vulkan_config, capability_request);
 
         LOG_INFO("create device");

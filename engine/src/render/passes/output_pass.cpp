@@ -90,7 +90,7 @@ namespace Comet {
         ShaderLayout layout;
         layout.descriptor_set_layouts = {descriptor_layout.value()};
         layout.push_constants.push_back(
-            std::make_shared<PushConstantRange>(ShaderStage::Fragment, 0, 16));
+            std::make_shared<PushConstantRange>(ShaderStage::Fragment, 0, 20));
         PipelineConfig config;
         config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
         PipelineManager pipelines(device, *pass.value());
@@ -152,11 +152,14 @@ namespace Comet {
             uint32_t encode_srgb;
             float headroom;
             float bloom_strength;
+            uint32_t upsample_hdr;
         };
-        static_assert(sizeof(Parameters) == 16);
+        static_assert(sizeof(Parameters) == 20);
         const float strength = settings.uses_bloom() ? settings.bloom_strength : 0.0f;
+        const auto source_size = hdr_color->get_image()->get_info().extent;
+        const bool upsample = source_size.x != size.x || source_size.y != size.y;
         const Parameters parameters{
-            settings.exposure, m_encode_srgb ? 1u : 0u, m_headroom, strength};
+            settings.exposure, m_encode_srgb ? 1u : 0u, m_headroom, strength, upsample ? 1u : 0u};
         command.push_constants(*m_pipeline->get_layout(), Flags<ShaderStage>(ShaderStage::Fragment),
             0, &parameters, sizeof(parameters));
         command.draw(3);

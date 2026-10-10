@@ -21,6 +21,7 @@ namespace CometEditor {
             RenameProject,
             ProjectInputSettings,
             ProjectDisplaySettings,
+            ProjectQualitySettings,
             NewScene,
             OpenScene,
             SaveScene,

@@ -1,4 +1,5 @@
 #include "config/player_display_settings.h"
+#include "config/player_quality_settings.h"
 #include "runtime/entry.h"
 #include "render/resource/render_resources.h"
 #include "diagnostics/logger.h"
@@ -72,12 +73,15 @@ namespace {
 
     class GameApp final: public Comet::Application {
     public:
-        GameApp(Comet::Project project, Comet::PlayerDisplaySettings display_settings)
+        GameApp(Comet::Project project, Comet::PlayerDisplaySettings display_settings,
+            Comet::PlayerQualitySettings quality_settings)
             : Application({.cache_directory = project.paths().cache(),
                   .log_directory = project.paths().logs(),
                   .window_title = project.name(),
-                  .display_settings = display_settings.settings()}),
-              m_project(std::move(project)), m_display_settings(std::move(display_settings)) {}
+                  .display_settings = display_settings.settings(),
+                  .quality_settings = quality_settings.settings()}),
+              m_project(std::move(project)), m_display_settings(std::move(display_settings)),
+              m_quality_settings(std::move(quality_settings)) {}
 
         Comet::Result<void, Comet::Error> on_init() override {
             using Init = Comet::Result<void, Comet::Error>;
@@ -153,6 +157,25 @@ namespace {
                                     if(!applied)
                                         return applied;
                                     engine.get_renderer().set_vsync_enabled(candidate.vsync);
+                                    return Comet::Result<void>::success();
+                                });
+                        },
+                    .quality_defaults = m_project.quality_settings(),
+                    .load_quality =
+                        [this] {
+                            return Comet::Result<Comet::QualitySettings>::success(
+                                m_quality_settings.settings());
+                        },
+                    .apply_quality =
+                        [this](Comet::QualitySettings settings) {
+                            return m_quality_settings.save_and_apply(
+                                settings, [this](const auto& candidate) {
+                                    const auto applied =
+                                        get_engine().get_renderer().request_quality_settings(
+                                            candidate);
+                                    if(!applied)
+                                        return Comet::Result<void>::failure(
+                                            applied.error().message);
                                     return Comet::Result<void>::success();
                                 });
                         }});
@@ -312,6 +335,7 @@ namespace {
 
         Comet::Project m_project;
         Comet::PlayerDisplaySettings m_display_settings;
+        Comet::PlayerQualitySettings m_quality_settings;
         Comet::Input::Gate m_input_gate;
         std::unique_ptr<Comet::Ui::ProjectUi> m_ui;
         std::optional<Comet::PlayerInputSettings> m_player_input_settings;
@@ -337,8 +361,13 @@ namespace {
             project.value().id(), project.value().display_settings());
         if(!display)
             return Comet::Result<std::unique_ptr<Comet::Application>>::failure(display.error());
+        auto quality = Comet::PlayerQualitySettings::load(
+            project.value().id(), project.value().quality_settings());
+        if(!quality)
+            return Comet::Result<std::unique_ptr<Comet::Application>>::failure(quality.error());
         return Comet::Result<std::unique_ptr<Comet::Application>>::success(
-            std::make_unique<GameApp>(std::move(project).value(), std::move(display).value()));
+            std::make_unique<GameApp>(std::move(project).value(), std::move(display).value(),
+                std::move(quality).value()));
     }
 }
 

@@ -2,6 +2,7 @@
 
 #include "graphics/vulkan_settings.h"
 #include "render/render_settings.h"
+#include "render/quality_settings.h"
 #include "common/export.h"
 #include "common/retry_backoff.h"
 #include "graphics/queue.h"
@@ -45,6 +46,8 @@ namespace Comet {
         [[nodiscard]] MaterialRenderer::Statistics get_material_statistics() const;
         [[nodiscard]] ShadowPass::Statistics get_shadow_statistics() const;
         [[nodiscard]] const PostProcessSettings& get_post_process_settings() const;
+        [[nodiscard]] const QualitySettings& get_quality_settings() const { return m_quality; }
+        [[nodiscard]] Math::Vec2u get_scene_size() const;
         [[nodiscard]] RenderTarget& get_render_target();
         [[nodiscard]] const RenderTarget& get_render_target() const;
         [[nodiscard]] bool is_offscreen() const;
@@ -71,6 +74,10 @@ namespace Comet {
         void skip_frame();
         void collect_removed_assets(const AssetRegistry& assets);
         Result<void, GraphicsError> configure_bloom(bool enabled);
+        Result<void, GraphicsError> validate_quality_settings(
+            const QualitySettings& settings) const;
+        Result<void, GraphicsError> configure_quality(
+            RenderResources& resources, Swapchain& swapchain, const QualitySettings& settings);
         [[nodiscard]] Result<MaterialRenderer::MaterialUpdate, GraphicsError>
         prepare_material_update(
             AssetHandle handle, const std::shared_ptr<const Material>& material);
@@ -90,8 +97,8 @@ namespace Comet {
             Math::Vec2u size;
             RetryBackoff retry;
         };
-        Result<std::shared_ptr<RenderState>, GraphicsError> create_state(
-            RenderResources& resources, Swapchain* swapchain, Math::Vec2u size);
+        Result<std::shared_ptr<RenderState>, GraphicsError> create_state(RenderResources& resources,
+            Swapchain* swapchain, Math::Vec2u size, const QualitySettings& quality);
         Result<void, GraphicsError> replace_targets(
             RenderState& state, Swapchain* swapchain, Math::Vec2u size);
         Result<void, GraphicsError> record_pass(std::size_t pass, FrameScheduler& frames,
@@ -106,7 +113,7 @@ namespace Comet {
         Format m_offscreen_format;
         float m_hdr_headroom;
         Format m_depth_format;
-        SampleCount m_msaa_samples;
+        QualitySettings m_quality;
         uint32_t m_frame_slot_count;
         PostProcessSettings m_post_process;
         std::shared_ptr<RenderState> m_state;

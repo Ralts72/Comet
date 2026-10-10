@@ -105,11 +105,13 @@ namespace {
             ASSERT_TRUE(constructor.Bind("menu_available", &available));
             ASSERT_TRUE(constructor.Bind("waiting", &waiting));
             ASSERT_TRUE(constructor.Bind("has_actions", &has_actions));
-            for(const auto* name : {"display_available", "display_preview", "display_waiting"})
-                ASSERT_TRUE(constructor.Bind(name, &display_flag));
             for(const auto* name :
-                {"display_size", "display_mode", "display_vsync", "display_status", "display_error",
-                    "display_width", "display_height", "display_active_vsync"})
+                {"display_available", "display_preview", "display_waiting", "quality_available"})
+                ASSERT_TRUE(constructor.Bind(name, &display_flag));
+            for(const auto* name : {"display_size", "display_mode", "display_vsync",
+                    "display_status", "display_error", "display_width", "display_height",
+                    "display_active_vsync", "quality_msaa", "quality_anisotropy", "quality_scale",
+                    "quality_active", "quality_status", "quality_error"})
                 ASSERT_TRUE(constructor.Bind(name, &display_text));
             ASSERT_TRUE(constructor.BindEventCallback(
                 "command", [this](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList& args) {

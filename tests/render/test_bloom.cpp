@@ -42,7 +42,7 @@ namespace Comet::Tests {
         ASSERT_EQ(bloom.value().get_push_constants().size(), 1u);
         ASSERT_EQ(display.value().get_push_constants().size(), 1u);
         EXPECT_EQ(bloom.value().get_push_constants()[0].size, 8u);
-        EXPECT_EQ(display.value().get_push_constants()[0].size, 16u);
+        EXPECT_EQ(display.value().get_push_constants()[0].size, 20u);
         EXPECT_EQ(bloom.value().get_bindings().size(), 1u);
         EXPECT_EQ(display.value().get_bindings().size(), 2u);
     }
@@ -256,6 +256,57 @@ namespace Comet::Tests {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    TEST_F(BloomGpuTest, UpsamplesSceneBeforeToneMappingAtFullOutputResolution) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        TextureData data{.width = 2, .height = 2, .format = Format::R16G16B16A16_SFLOAT};
+        const std::array<float, 4> values{0.125f, 0.5f, 1.0f, 2.0f};
+        data.pixels.resize(4 * 8);
+        for(std::size_t pixel = 0; pixel < values.size(); ++pixel) {
+            for(std::size_t channel = 0; channel < 4; ++channel) {
+                const auto value = glm::packHalf1x16(channel == 3 ? 1.0f : values[pixel]);
+                std::memcpy(data.pixels.data() + pixel * 8 + channel * 2, &value, 2);
+            }
+        }
+        auto source = engine->get_render_resources().try_create_texture(data);
+        ASSERT_TRUE(source);
+        source.value()->get_ready_completion().wait();
+        const Math::Vec2u size{5, 3};
+        auto display = OutputPass::create(device, Format::R8G8B8A8_UNORM, true, 2);
+        ASSERT_TRUE(display);
+        auto target = RenderTarget::try_create_multi_target(
+            device, display.value()->get_render_pass(), size, 2);
+        ASSERT_TRUE(target);
+        std::shared_ptr<RenderTarget> output = std::move(target).value();
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        begin_frame(frames);
+        const auto slot = frames.get_current_frame_slot_index();
+        ASSERT_TRUE(display.value()->render(frames, output, source.value()->get_image_view(), {}));
+        auto readback = std::make_shared<Readback>(
+            device, context.get_context().get_physical_device(), size.x * size.y * 4);
+        ASSERT_TRUE(readback->get());
+        copy_output(frames, output->get_color_view(slot)->get_image(), readback, size);
+        submit(device, frames);
+        frames.wait_for_all_slots();
+        const auto bytes = readback->read();
+        for(uint32_t y = 0; y < size.y; ++y) {
+            for(uint32_t x = 0; x < size.x; ++x) {
+                const double u = std::clamp((x + 0.5) * 2 / size.x - 0.5, 0.0, 1.0);
+                const double v = std::clamp((y + 0.5) * 2 / size.y - 0.5, 0.0, 1.0);
+                const double upper = values[0] * (1 - u) + values[1] * u;
+                const double lower = values[2] * (1 - u) + values[3] * u;
+                const double linear = upper * (1 - v) + lower * v;
+                const auto expected = std::lround(encode_srgb(1 - std::exp(-linear)) * 255);
+                const auto pixel = (y * size.x + x) * 4;
+                for(std::size_t channel = 0; channel < 3; ++channel)
+                    EXPECT_NEAR(std::to_integer<int>(bytes[pixel + channel]), expected, 2);
+                EXPECT_EQ(bytes[pixel + 3], std::byte{255});
             }
         }
     }

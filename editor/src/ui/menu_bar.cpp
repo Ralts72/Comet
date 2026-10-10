@@ -89,6 +89,8 @@ namespace CometEditor {
             if(ImGui::BeginMenu(Ui::label("Settings").c_str())) {
                 if(ImGui::MenuItem(Ui::label("Display").c_str()))
                     m_request = Request{Command::ProjectDisplaySettings, {}};
+                if(ImGui::MenuItem(Ui::label("Quality").c_str()))
+                    m_request = Request{Command::ProjectQualitySettings, {}};
                 if(ImGui::MenuItem(Ui::label("Input").c_str()))
                     m_request = Request{Command::ProjectInputSettings, {}};
                 ImGui::EndMenu();

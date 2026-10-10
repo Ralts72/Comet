@@ -3,6 +3,7 @@
 #include "graphics/result.h"
 #include "graphics/vulkan_settings.h"
 #include "render/render_settings.h"
+#include "render/quality_settings.h"
 #include "render/scene/render_scene.h"
 #include "render/scene/scene_resolver.h"
 #include "render/scene/scene_picking.h"
@@ -16,6 +17,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace Comet {
@@ -79,6 +81,16 @@ namespace Comet {
         // 修改请求在下一次 prepare_frame 的交换链重建中生效。
         void set_vsync_enabled(bool enabled);
         [[nodiscard]] bool is_vsync_enabled() const;
+        [[nodiscard]] Result<QualitySettings, GraphicsError> resolve_quality_settings(
+            QualitySettings settings) const;
+        [[nodiscard]] Result<void, GraphicsError> request_quality_settings(
+            QualitySettings settings);
+        [[nodiscard]] const QualitySettings& get_quality_settings() const;
+        [[nodiscard]] Math::Vec2u get_scene_size() const;
+        [[nodiscard]] std::vector<uint32_t> supported_msaa_samples() const;
+        [[nodiscard]] float max_anisotropy() const;
+        [[nodiscard]] bool quality_pending() const { return m_pending_quality.has_value(); }
+        [[nodiscard]] const std::string& quality_error() const { return m_quality_error; }
         void wait_idle();
         void prepare_shutdown() noexcept;
         // 同一集成方的绘制与交换链生命周期一起安装或解除。
@@ -134,5 +146,7 @@ namespace Comet {
         ViewportPickCallback m_viewport_pick_callback;
         LineDrawList m_line_draw_list;
         RenderSubmission m_submission;
+        std::optional<QualitySettings> m_pending_quality;
+        std::string m_quality_error;
     };
 }

@@ -262,7 +262,7 @@ namespace Comet {
                                              + "; expected " + std::to_string(FORMAT_VERSION)));
         if(auto valid = context.validate_keys(
                data, {"version", "id", "name", "startup_scene", "input_actions", "input_contexts",
-                         "ui", "display"});
+                         "ui", "display", "quality"});
             !valid)
             return Result<Project>::failure(valid.error());
 
@@ -277,6 +277,13 @@ namespace Comet {
             if(!settings)
                 return Result<Project>::failure(settings.error());
             project.m_display_settings = settings.value();
+        }
+        Json::Node quality;
+        if(!data["quality"].get(quality)) {
+            auto settings = QualitySettings::read(quality, context, "quality");
+            if(!settings)
+                return Result<Project>::failure(settings.error());
+            project.m_quality_settings = settings.value();
         }
         auto name = context.read_field<std::string>(data, "name", "a non-empty string");
         if(!name)
@@ -350,7 +357,7 @@ namespace Comet {
 
     Result<std::string> Project::serialize(const std::string& name,
         const std::filesystem::path& startup_scene, const InputActions& input_actions,
-        const DisplaySettings& display_settings) const {
+        const DisplaySettings& display_settings, const QualitySettings& quality_settings) const {
         Json::Writer writer;
         writer.begin_object();
         writer.field("version", std::uint64_t(FORMAT_VERSION));
@@ -359,6 +366,8 @@ namespace Comet {
         writer.field("startup_scene", startup_scene.generic_string());
         writer.key("display");
         display_settings.write(writer);
+        writer.key("quality");
+        quality_settings.write(writer);
         if(m_ui) {
             writer.key("ui");
             writer.begin_object();
@@ -389,13 +398,30 @@ namespace Comet {
             return valid;
         if(settings == m_display_settings)
             return Result<void>::success();
-        auto contents = serialize(m_name, m_startup_scene, m_input_actions, settings);
+        auto contents =
+            serialize(m_name, m_startup_scene, m_input_actions, settings, m_quality_settings);
         if(!contents)
             return Result<void>::failure(contents.error());
         if(auto saved = write_text_file_atomic(m_paths.root() / "project.json", contents.value());
             !saved)
             return saved;
         m_display_settings = settings;
+        return Result<void>::success();
+    }
+
+    Result<void> Project::save_quality_settings(QualitySettings settings) {
+        if(auto valid = settings.validate(); !valid)
+            return valid;
+        if(settings == m_quality_settings)
+            return Result<void>::success();
+        auto contents =
+            serialize(m_name, m_startup_scene, m_input_actions, m_display_settings, settings);
+        if(!contents)
+            return Result<void>::failure(contents.error());
+        if(auto saved = write_text_file_atomic(m_paths.root() / "project.json", contents.value());
+            !saved)
+            return saved;
+        m_quality_settings = settings;
         return Result<void>::success();
     }
 
@@ -415,7 +441,8 @@ namespace Comet {
         const auto manifest = m_paths.root() / "project.json";
         if(name == m_name && candidate == m_startup_scene && input_actions == m_input_actions)
             return Saved::success();
-        auto serialized = serialize(name, candidate, input_actions, m_display_settings);
+        auto serialized =
+            serialize(name, candidate, input_actions, m_display_settings, m_quality_settings);
         if(!serialized)
             return Saved::failure(serialized.error());
         if(auto saved = write_text_file_atomic(manifest, serialized.value()); !saved)

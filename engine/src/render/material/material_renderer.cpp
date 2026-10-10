@@ -106,11 +106,11 @@ namespace Comet {
     Result<std::unique_ptr<MaterialRenderer>, GraphicsError> MaterialRenderer::create(
         Device& device, PipelineManager& pipelines, RenderResources& resources,
         const uint32_t frame_slot_count, const SampleCount samples, const MaterialShaders* shaders,
-        MaterialPrograms* programs) {
+        MaterialPrograms* programs, std::optional<float> max_anisotropy) {
         auto candidate = std::unique_ptr<MaterialRenderer>(
             new MaterialRenderer(device, pipelines, samples, programs));
-        if(auto result =
-                candidate->initialize(pipelines, resources, frame_slot_count, samples, shaders);
+        if(auto result = candidate->initialize(
+               pipelines, resources, frame_slot_count, samples, shaders, max_anisotropy);
             !result)
             return Result<std::unique_ptr<MaterialRenderer>, GraphicsError>::failure(
                 result.error());
@@ -120,11 +120,12 @@ namespace Comet {
 
     Result<void, GraphicsError> MaterialRenderer::initialize(PipelineManager& pipelines,
         RenderResources& resources, const uint32_t frame_slot_count, const SampleCount samples,
-        const MaterialShaders* shaders) {
+        const MaterialShaders* shaders, std::optional<float> max_anisotropy) {
         if(frame_slot_count == 0)
             return Result<void, GraphicsError>::failure({"Material renderer requires frame slots"});
         auto& device = m_device;
-        auto sampler = resources.get_sampler_manager().get_linear_repeat();
+        auto sampler = resources.get_sampler_manager().get_linear_repeat(
+            max_anisotropy.value_or(device.get_capability().max_sampler_anisotropy));
         if(!sampler)
             return Result<void, GraphicsError>::failure(sampler.error());
         m_sampler = std::move(sampler).value();

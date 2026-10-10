@@ -19,6 +19,10 @@ namespace Comet {
             if(auto valid = m_options.display_settings->validate(); !valid)
                 return RunResult::failure({valid.error()});
         }
+        if(m_options.quality_settings) {
+            if(auto valid = m_options.quality_settings->validate(); !valid)
+                return RunResult::failure({valid.error()});
+        }
         if(!m_options.cache_directory.empty())
             config.vulkan.pipeline_cache_directory = m_options.cache_directory / "vulkan";
         if(!m_options.log_directory.empty())
@@ -40,6 +44,12 @@ namespace Comet {
             config.window.mode = display.mode;
             config.window.maximized = false;
             config.vulkan.present_mode = display.vsync ? PresentMode::Fifo : PresentMode::Immediate;
+        }
+        if(m_options.quality_settings) {
+            config.vulkan.msaa_samples =
+                static_cast<SampleCount>(m_options.quality_settings->msaa_samples);
+            config.render.max_anisotropy = m_options.quality_settings->max_anisotropy;
+            config.render.render_scale = m_options.quality_settings->render_scale;
         }
         m_config = std::move(config);
         auto engine = Engine::create(m_config);

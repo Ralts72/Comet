@@ -17,6 +17,9 @@ namespace Comet::Ui {
             DisplaySettings display_defaults;
             std::function<Result<DisplaySettings>()> load_display;
             std::function<Result<void>(DisplaySettings)> apply_display;
+            QualitySettings quality_defaults;
+            std::function<Result<QualitySettings>()> load_quality;
+            std::function<Result<void>(QualitySettings)> apply_quality;
         };
         struct FrameInfo {
             float fps = 0;
