@@ -85,11 +85,8 @@ namespace Comet {
     Result<void, GraphicsError> MaterialRenderer::prepare_draw_materials(
         const uint64_t frame_serial) {
         auto& candidates = m_draw_candidates;
-        const auto material_less = [](const auto* a, const auto* b) {
-            return DrawOrder::by_material(*a, *b);
-        };
-        if(!std::is_sorted(candidates.begin(), candidates.end(), material_less))
-            std::sort(candidates.begin(), candidates.end(), material_less);
+        DrawOrder::sort_if_needed(candidates,
+            [](const auto* a, const auto* b) { return DrawOrder::by_material(*a, *b); });
         for(size_t first = 0; first < candidates.size();) {
             const auto& input = candidates[first]->material;
             size_t end = first + 1;
@@ -129,8 +126,7 @@ namespace Comet {
                 return std::less<const Mesh*>{}(a_mesh, b_mesh);
             return std::less<const ResolvedRenderItem*>{}(a.item, b.item);
         };
-        if(!std::is_sorted(queue.begin(), queue.end(), draw_less))
-            std::sort(queue.begin(), queue.end(), draw_less);
+        DrawOrder::sort_if_needed(queue, draw_less);
         return Result<void, GraphicsError>::success();
     }
 
@@ -139,11 +135,8 @@ namespace Comet {
         const bool instanced = material->pipeline->instanced_pipeline != nullptr;
         // 有序 Mesh 组直接合批；项目顶点程序保持原提交顺序。
         if(instanced) {
-            const auto mesh_less = [](const auto* a, const auto* b) {
-                return DrawOrder::by_mesh(*a, *b);
-            };
-            if(!std::is_sorted(items.begin(), items.end(), mesh_less))
-                std::sort(items.begin(), items.end(), mesh_less);
+            DrawOrder::sort_if_needed(
+                items, [](const auto* a, const auto* b) { return DrawOrder::by_mesh(*a, *b); });
         }
         for(size_t first = 0; first < items.size();) {
             size_t end = first + 1;

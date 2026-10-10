@@ -4,9 +4,15 @@
 #include "render/scene/render_submission.h"
 #include "scene/material_parameters.h"
 
+#include <algorithm>
 #include <functional>
 
 namespace Comet::DrawOrder {
+    template<typename Range, typename Compare> void sort_if_needed(Range& items, Compare less) {
+        if(!std::is_sorted(items.begin(), items.end(), less))
+            std::sort(items.begin(), items.end(), less);
+    }
+
     inline MaterialInstanceKey material_key(const MaterialBinding& material) {
         return {material.material_handle, material.overrides ? material.overrides->instance_id : 0};
     }

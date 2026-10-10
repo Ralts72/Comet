@@ -97,11 +97,8 @@ namespace Comet {
                 if(item.world_bounds)
                     m_draw_queue.push_back(item.source);
             }
-            const auto mesh_less = [](const auto* a, const auto* b) {
-                return DrawOrder::by_mesh(*a, *b);
-            };
-            if(!std::is_sorted(m_draw_queue.begin(), m_draw_queue.end(), mesh_less))
-                std::sort(m_draw_queue.begin(), m_draw_queue.end(), mesh_less);
+            DrawOrder::sort_if_needed(m_draw_queue,
+                [](const auto* a, const auto* b) { return DrawOrder::by_mesh(*a, *b); });
             m_transforms.reserve(m_draw_queue.size());
             for(const auto* item : m_draw_queue)
                 m_transforms.push_back(lighting.shadow_view_projection * item->model_matrix);

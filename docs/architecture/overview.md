@@ -97,8 +97,8 @@ Engine／Renderer／设备等工厂先准备完整 owner，成功后交付；部
 1. Engine 处理事件与时间，宿主 `on_update` 消费上次 UI 请求、维护资产与切换模式。
 2. Renderer 回收上传并准备 slot／交换链；帧就绪时调用 `on_frame_ready`，收集 ImGui 请求、属性编辑、Gizmo 和输入授权。
 3. `on_runtime_input` 交付只读授权快照；Runtime 执行有界 Fixed Update，再执行一次普通 Update。
-4. SceneExtractor 更新世界变换并复制渲染值；SceneResolver 解析资源、裁剪／排序，生成 RenderSubmission。
-5. 场景、后处理与 Overlay 录制完成后提交并呈现。
+4. SceneExtractor 更新世界变换并复制渲染值；SceneResolver 解析资源，生成 RenderSubmission。
+5. SceneRenderer 准备几何与光照，各通道裁剪、分组并录制绘制；场景、后处理与 Overlay 完成后提交并呈现。
 
 数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
 RenderScene 是不借用组件的 CPU 快照，由 Engine 持有并复用容量；其头文件只依赖数学、资产身份和场景值契约，不传递包含组件或后端实现。
@@ -195,8 +195,10 @@ MaterialRenderer 负责具体 Pipeline、参数／纹理绑定与绘制；Shader
 
 ### 材质准备与寿命
 
-SceneResolver 先解析版本，再裁剪／排序；场景与阴影共享可复用几何准备，阴影按自己的可见范围处理。
+SceneResolver 解析资源版本；主材质通道负责视锥裁剪和材质分组，阴影按自己的可见范围处理。
 几何准备为每个物体计算一次世界包围盒，场景界限直接合并各包围盒的最小／最大值；移除物体后重新收缩，不保留上一帧的界限。
+主材质按材质身份、阴影按网格排序，实际准备结果再按布局和网格分组；各处共用有序检查，已满足顺序的输入直接使用。
+候选队列仅在本帧准备期间借用物体指针，用完清空；排序不拥有物体、资产或 GPU 资源。
 兼容物体按网格、材质版本和变换分组实例化；帧槽复用未变化矩阵，变化后上传。准备缓存保留实际版本，过期项按身份清理。
 材质参数／descriptor 不原地覆盖在途对象，新版本替换缓存，FrameSlot 保留旧资源直到 GPU 完成。
 编辑器材质手势先准备可绘制候选，预览不写磁盘；确认一次保存并提交依赖，取消恢复原版本。Editor 工作流协调文件和 GPU 发布。
