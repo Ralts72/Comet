@@ -9,6 +9,7 @@
 
 #include <optional>
 #include <memory>
+#include <cstddef>
 #include <vector>
 
 namespace Comet {
@@ -46,6 +47,16 @@ namespace Comet {
         std::shared_ptr<const MaterialOverrides> material_overrides;
     };
 
+    // revision 为 0 时逐项核对；局部批次只能接在 base_revision 对应的输出后。
+    struct COMET_API RenderItemChanges {
+        uint64_t revision = 0;
+        uint64_t base_revision = 0;
+        bool full_update = true;
+        std::vector<std::size_t> slots;
+
+        void begin_update(bool full);
+    };
+
     struct RenderScene {
         uint64_t scene_lifetime = 0;
         std::vector<RenderCamera> cameras;
@@ -53,6 +64,7 @@ namespace Comet {
         std::vector<RenderLight> lights;
         SceneEnvironment environment;
         PostProcessSettings post_process;
+        RenderItemChanges item_changes;
     };
 
     struct RenderView {

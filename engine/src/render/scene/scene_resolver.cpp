@@ -10,6 +10,20 @@
 #include <utility>
 
 namespace Comet {
+    namespace {
+        void update_item_values(
+            const RenderItem& item, const bool same_scene, ResolvedRenderItem& resolved) {
+            if(!same_scene || item.entity_id == INVALID_ENTITY_ID || item.transform_revision == 0
+                || resolved.entity_id != item.entity_id
+                || resolved.transform_revision != item.transform_revision)
+                resolved.model_matrix = item.model_matrix;
+            resolved.entity_id = item.entity_id;
+            resolved.transform_revision = item.transform_revision;
+            if(resolved.material.overrides != item.material_overrides)
+                resolved.material.overrides = item.material_overrides;
+        }
+    }
+
     SceneResolver::SceneResolver(const AssetRegistry& asset_registry)
         : m_asset_registry(asset_registry) {}
 
@@ -24,7 +38,7 @@ namespace Comet {
         const auto revision = m_asset_registry.get_revision();
         if(submission.asset_revision == revision)
             return;
-
+        bool changed_items = false;
         AssetHandle mesh_handle;
         uint64_t mesh_revision = 0;
         AssetHandle material_handle;
@@ -38,6 +52,7 @@ namespace Comet {
                 if(mesh_revision == 0 || item.mesh_revision != mesh_revision) {
                     item.mesh.reset();
                     item.mesh_revision = 0;
+                    changed_items = true;
                 }
             }
             if(item.material.resource) {
@@ -48,6 +63,7 @@ namespace Comet {
                 if(material_revision == 0 || item.material.asset_revision != material_revision) {
                     item.material.resource.reset();
                     item.material.asset_revision = 0;
+                    changed_items = true;
                 }
             }
         }
@@ -59,6 +75,10 @@ namespace Comet {
                 submission.environment_resource.reset();
                 submission.environment_revision = 0;
             }
+        }
+        if(changed_items) {
+            submission.scene_revision = 0;
+            submission.item_changes = {};
         }
         submission.asset_revision = revision;
     }
@@ -93,13 +113,55 @@ namespace Comet {
         const auto& items = render_scene.render_items;
         auto& slots = submission.render_items;
         slots.reserve(items.size());
+        const bool same_scene = render_scene.scene_lifetime != 0
+                                && submission.scene_lifetime == render_scene.scene_lifetime;
+        const auto resolve_changed_item = [&](const RenderItem& item,
+                                              ResolvedRenderItem& resolved) {
+            if(resolved.mesh_handle != item.mesh_handle) {
+                resolved.mesh =
+                    m_asset_registry.resolve<Mesh>(item.mesh_handle, &resolved.mesh_revision);
+                resolved.mesh_handle = item.mesh_handle;
+            }
+            if(!resolved.mesh)
+                return false;
+            if(resolved.material.material_handle != item.material_handle) {
+                resolved.material.resource = m_asset_registry.resolve<const Material>(
+                    item.material_handle, &resolved.material.asset_revision);
+                resolved.material.material_handle = item.material_handle;
+            }
+            if(!resolved.material.resource)
+                return false;
+            update_item_values(item, same_scene, resolved);
+            return true;
+        };
+        const auto& changes = render_scene.item_changes;
+        const bool tracked = same_scene && changes.revision != 0 && submission.scene_revision != 0
+                             && slots.size() == items.size();
+        if(tracked && submission.scene_revision == changes.revision)
+            return;
+        if(tracked && !changes.full_update && submission.scene_revision == changes.base_revision) {
+            bool complete = true;
+            for(const auto index : changes.slots) {
+                if(!resolve_changed_item(items[index], slots[index])) {
+                    complete = false;
+                    break;
+                }
+            }
+            if(complete) {
+                if(!changes.slots.empty()) {
+                    submission.item_changes.begin_update(false);
+                    submission.item_changes.slots = changes.slots;
+                }
+                submission.scene_revision = changes.revision;
+                return;
+            }
+        }
+        submission.item_changes.begin_update(true);
         for(auto& [handle, used] : m_missing_mesh_handles)
             used = false;
         for(auto& [handle, used] : m_missing_material_handles)
             used = false;
 
-        const bool same_scene = render_scene.scene_lifetime != 0
-                                && submission.scene_lifetime == render_scene.scene_lifetime;
         const auto previous_size = slots.size();
         // 单个增删只移动一次后缀；缺失资源导致的压缩仍由下方逐项解析处理。
         if(same_scene && (items.size() == previous_size + 1 || previous_size == items.size() + 1)) {
@@ -179,18 +241,12 @@ namespace Comet {
                     resolved.material.resource = material;
                 }
             }
-            if(!same_scene || item.entity_id == INVALID_ENTITY_ID || item.transform_revision == 0
-                || resolved.entity_id != item.entity_id
-                || resolved.transform_revision != item.transform_revision)
-                resolved.model_matrix = item.model_matrix;
-            resolved.entity_id = item.entity_id;
-            resolved.transform_revision = item.transform_revision;
-            if(resolved.material.overrides != item.material_overrides)
-                resolved.material.overrides = item.material_overrides;
+            update_item_values(item, same_scene, resolved);
             ++item_count;
         }
         slots.resize(item_count);
         submission.scene_lifetime = render_scene.scene_lifetime;
+        submission.scene_revision = changes.revision;
         std::erase_if(m_missing_mesh_handles, [](const auto& entry) { return !entry.second; });
         std::erase_if(m_missing_material_handles, [](const auto& entry) { return !entry.second; });
     }

@@ -33,6 +33,8 @@ namespace Comet {
         std::vector<Item> m_items;
         std::vector<CachedBounds> m_bounds;
         std::optional<BoundingBox> m_scene_bounds;
+        std::optional<BoundingBox> m_cached_scene_bounds;
         uint64_t m_scene_lifetime = 0;
+        uint64_t m_revision = 0;
     };
 }

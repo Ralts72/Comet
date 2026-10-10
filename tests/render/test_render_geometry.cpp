@@ -89,6 +89,156 @@ namespace Comet::Tests {
         EXPECT_FALSE(geometry.get_scene_bounds());
     }
 
+    TEST_F(RenderGeometryTest,
+        IncrementalPreparationMatchesFullResolutionAcrossEditsAndSkippedBatches) {
+        auto first = engine->get_render_resources().try_create_mesh(
+            {.vertices = {{{-1, -1, -1}}, {{1, -1, -1}}, {{0, 1, 1}}}, .indices = {0, 1, 2}});
+        auto second = engine->get_render_resources().try_create_mesh(
+            {.vertices = {{{-2, 0, 0}}, {{2, 0, 0}}, {{0, 2, 2}}}, .indices = {0, 1, 2}});
+        ASSERT_TRUE(first);
+        ASSERT_TRUE(second);
+        AssetRegistry assets;
+        ASSERT_TRUE(assets.register_asset(AssetHandle{10}, first.value()));
+        ASSERT_TRUE(assets.register_asset(AssetHandle{11}, second.value()));
+        for(const auto handle : {AssetHandle{20}, AssetHandle{21}, AssetHandle{22}})
+            ASSERT_TRUE(assets.register_asset(handle, std::make_shared<Material>("item", "pbr")));
+        Scene scene;
+        const auto create = [&](float x) {
+            auto entity = scene.create_entity();
+            entity.add_component<MeshRendererComponent>(AssetHandle{10}, AssetHandle{20});
+            entity.set_transform({.translation = {x, 0, 0}});
+            return entity;
+        };
+        std::vector<Entity> entities;
+        for(int index = 0; index < 32; ++index)
+            entities.push_back(create(float(index - 16)));
+        SceneExtractor extractor;
+        SceneResolver resolver(assets);
+        SceneResolver reference_resolver(assets);
+        RenderScene snapshot;
+        RenderSubmission submission;
+        RenderGeometry geometry;
+        const RenderView view{.render_size = {160, 120},
+            .camera_selection = RenderView::CameraSelection::Override,
+            .camera_override = RenderCamera{}};
+        const auto check = [&] {
+            resolver.resolve(snapshot, view, submission);
+            geometry.prepare(submission);
+            const auto fresh = reference_resolver.resolve(snapshot, view);
+            RenderGeometry reference;
+            reference.prepare(fresh);
+            ASSERT_EQ(submission.render_items.size(), fresh.render_items.size());
+            ASSERT_EQ(geometry.get_items().size(), fresh.render_items.size());
+            for(std::size_t index = 0; index < fresh.render_items.size(); ++index) {
+                const auto& actual = submission.render_items[index];
+                const auto& expected = fresh.render_items[index];
+                EXPECT_EQ(actual.entity_id, expected.entity_id);
+                EXPECT_EQ(actual.model_matrix, expected.model_matrix);
+                EXPECT_EQ(actual.mesh, expected.mesh);
+                EXPECT_EQ(actual.mesh_revision, expected.mesh_revision);
+                EXPECT_EQ(actual.material.resource, expected.material.resource);
+                EXPECT_EQ(actual.material.asset_revision, expected.material.asset_revision);
+                EXPECT_EQ(geometry.get_items()[index].source, &actual);
+                const auto& bounds = geometry.get_items()[index].world_bounds;
+                const auto& expected_bounds = reference.get_items()[index].world_bounds;
+                ASSERT_EQ(bounds.has_value(), expected_bounds.has_value());
+                if(bounds) {
+                    EXPECT_EQ(bounds->minimum, expected_bounds->minimum);
+                    EXPECT_EQ(bounds->maximum, expected_bounds->maximum);
+                }
+            }
+            ASSERT_EQ(
+                geometry.get_scene_bounds().has_value(), reference.get_scene_bounds().has_value());
+            if(reference.get_scene_bounds()) {
+                EXPECT_EQ(
+                    geometry.get_scene_bounds()->minimum, reference.get_scene_bounds()->minimum);
+                EXPECT_EQ(
+                    geometry.get_scene_bounds()->maximum, reference.get_scene_bounds()->maximum);
+            }
+            geometry.clear();
+            EXPECT_TRUE(geometry.get_items().empty());
+            EXPECT_FALSE(geometry.get_scene_bounds());
+        };
+        extractor.update(scene, snapshot);
+        check();
+        const auto frozen = submission;
+        const auto frozen_matrix = frozen.render_items.front().model_matrix;
+        for(int step = 0; step < 80; ++step) {
+            SCOPED_TRACE(step);
+            switch(step % 8) {
+                case 0:
+                    entities[16].edit_component<MeshRendererComponent>([&](auto& item) {
+                        item.material = AssetHandle{step % 16 == 0 ? 99u : 20u};
+                    });
+                    break;
+                case 1:
+                    entities[17].edit_transform([](auto& value) { value.rotation.y += 15; });
+                    break;
+                case 2:
+                    entities.front().edit_transform(
+                        [&](auto& value) { value.translation.x = step % 16 == 2 ? -30 : -5; });
+                    break;
+                case 3:
+                    entities[18].edit_component<MeshRendererComponent>([&](auto& item) {
+                        item.mesh = AssetHandle{step % 16 == 3 ? 11u : 10u};
+                        item.material = AssetHandle{step % 16 == 3 ? 21u : 20u};
+                    });
+                    break;
+                case 4:
+                    if(step % 16 == 4) {
+                        ASSERT_TRUE(assets.replace_asset(
+                            AssetHandle{10}, step % 32 == 4 ? second.value() : first.value()));
+                    } else {
+                        ASSERT_TRUE(assets.replace_asset(
+                            AssetHandle{22}, std::make_shared<Material>("unrelated", "pbr")));
+                    }
+                    resolver.refresh_assets(submission);
+                    break;
+                case 5:
+                    for(auto entity : entities)
+                        entity.edit_transform([](auto& value) { value.rotation.y += 1; });
+                    break;
+                case 6:
+                    // 解析与几何准备分别漏过一批，也必须得到完整的新结果。
+                    entities[19].edit_transform([](auto& value) { value.translation.z += 1; });
+                    extractor.update(scene, snapshot);
+                    resolver.resolve(snapshot, view, submission);
+                    entities[20].edit_transform([](auto& value) { value.translation.z += 1; });
+                    extractor.update(scene, snapshot);
+                    resolver.resolve(snapshot, view, submission);
+                    check();
+                    entities[21].edit_transform([](auto& value) { value.translation.z += 1; });
+                    extractor.update(scene, snapshot);
+                    entities[22].edit_transform([](auto& value) { value.translation.z += 1; });
+                    break;
+                case 7:
+                    scene.destroy_entity(entities.back());
+                    entities.back() = create(float(step));
+                    break;
+            }
+            extractor.update(scene, snapshot);
+            if(step % 17 == 0) {
+                SceneExtractor other;
+                RenderScene other_snapshot;
+                other.update(scene, other_snapshot);
+                resolver.resolve(other_snapshot, view, submission);
+                geometry.prepare(submission);
+                geometry.clear();
+            }
+            check();
+            check();
+        }
+        Scene replacement;
+        auto entity = replacement.create_entity();
+        entity.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{21});
+        entity.set_transform({.translation = {100, 0, 0}});
+        extractor.update(replacement, snapshot);
+        check();
+        extractor.update(scene, snapshot);
+        check();
+        EXPECT_EQ(frozen.render_items.front().model_matrix, frozen_matrix);
+    }
+
     TEST_F(RenderGeometryTest, StructuralEditsMatchFreshSnapshotsAndGeometry) {
         AssetRegistry assets;
         auto first_mesh = engine->get_render_resources().try_create_mesh(

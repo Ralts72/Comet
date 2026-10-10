@@ -3,6 +3,7 @@
 #include "asset/handle.h"
 #include "core/math_utils.h"
 #include "render/scene/render_types.h"
+#include "render/scene/render_scene.h"
 #include "scene/entity_id.h"
 #include "render/lighting.h"
 #include "scene/scene_settings.h"
@@ -44,5 +45,7 @@ namespace Comet {
         PostProcessSettings post_process;
         uint64_t environment_revision = 0;
         std::shared_ptr<Environment> environment_resource;
+        uint64_t scene_revision = 0;
+        RenderItemChanges item_changes;
     };
 }

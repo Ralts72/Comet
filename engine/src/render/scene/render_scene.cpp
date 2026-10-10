@@ -1,8 +1,18 @@
 #include "render/scene/render_scene.h"
 
 #include <cmath>
+#include <atomic>
 
 namespace Comet {
+    void RenderItemChanges::begin_update(const bool full) {
+        // 不同提取器、解析器和快照副本不能共用一个局部版本序列。
+        static std::atomic<uint64_t> next_revision{1};
+        base_revision = revision;
+        revision = next_revision.fetch_add(1, std::memory_order_relaxed);
+        full_update = full;
+        slots.clear();
+    }
+
     std::optional<RenderCamera::ProjectionIssue> RenderCamera::projection_issue(
         const float aspect) const {
         if(projection == Projection::Perspective) {

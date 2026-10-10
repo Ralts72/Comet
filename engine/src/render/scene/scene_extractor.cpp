@@ -67,6 +67,7 @@ namespace Comet {
     }
 
     void SceneExtractor::extract(Scene& scene, RenderScene& output) {
+        output.item_changes = {};
         extract_all(scene, output, nullptr);
     }
 
@@ -138,6 +139,8 @@ namespace Comet {
                 }
                 extract_item(scene, entity, entity.get_component<MeshRendererComponent>(),
                     entity.get_component<WorldTransformComponent>(), change.id, true, items[slot]);
+                if(!output.item_changes.full_update)
+                    output.item_changes.slots.push_back(slot);
             } else if(slot < items.size()) {
                 if(slot + 1 != items.size()) {
                     items[slot] = std::move(items.back());
@@ -158,6 +161,7 @@ namespace Comet {
         const bool full = m_scene_lifetime != scene.get_lifetime()
                           || m_revision != scene.m_render_changes_base
                           || scene.m_render_full_update;
+        output.item_changes.begin_update(full || scene.m_render_structure_changed);
         if(full) {
             const bool rebuild_slots =
                 !m_matches_storage_order || m_scene_lifetime != scene.get_lifetime()
