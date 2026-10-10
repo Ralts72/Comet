@@ -44,57 +44,23 @@ namespace CometEditor::Tests {
         EXPECT_FLOAT_EQ(gizmo.settings().translation_step, 0.25f);
         EXPECT_EQ(history.undo_size(), 0);
         EXPECT_FLOAT_EQ(x(), 0);
-        ImGui::ActivateItemByID(popup->GetID("Space"));
-        frame();
-        frame();
-        ASSERT_GE(GImGui->OpenPopupStack.Size, 2);
-        auto* options = GImGui->OpenPopupStack.back().Window;
-        ASSERT_NE(options, nullptr);
-        // ImGui 的数组式 Combo 为各选项追加索引 ID。
-        const int local_index = 1;
-        const auto local_id =
-            ImHashStr("Local", 0, ImHashData(&local_index, sizeof(local_index), options->ID));
-        ImGui::ActivateItemByID(local_id);
+        ImGui::ActivateItemByID(popup->GetID("局部###Local"));
         frame();
         EXPECT_EQ(gizmo.settings().space, TransformGizmo::Space::Local);
         EXPECT_EQ(history.undo_size(), 0);
-        ImGui::ActivateItemByID(popup->GetID("Mode"));
-        frame();
-        frame();
-        ASSERT_GE(GImGui->OpenPopupStack.Size, 2);
-        options = GImGui->OpenPopupStack.back().Window;
-        ASSERT_NE(options, nullptr);
-        const int rotate_index = 1;
-        ImGui::ActivateItemByID(
-            ImHashStr("Rotate", 0, ImHashData(&rotate_index, sizeof(rotate_index), options->ID)));
+        ImGui::ActivateItemByID(popup->GetID("旋转###Rotate"));
         frame();
         EXPECT_EQ(gizmo.settings().mode, TransformGizmo::Mode::Rotate);
         EXPECT_FLOAT_EQ(gizmo.settings().rotation_step_degrees, 15);
         EXPECT_EQ(history.undo_size(), 0);
         ASSERT_TRUE(gizmo.set_settings(
             {.mode = TransformGizmo::Mode::Rotate, .space = TransformGizmo::Space::World}));
-        ImGui::ActivateItemByID(popup->GetID("Mode"));
-        frame();
-        frame();
-        ASSERT_GE(GImGui->OpenPopupStack.Size, 2);
-        options = GImGui->OpenPopupStack.back().Window;
-        ASSERT_NE(options, nullptr);
-        const int scale_index = 2;
-        ImGui::ActivateItemByID(
-            ImHashStr("Scale", 0, ImHashData(&scale_index, sizeof(scale_index), options->ID)));
+        ImGui::ActivateItemByID(popup->GetID("缩放###Scale"));
         frame();
         EXPECT_EQ(gizmo.settings().mode, TransformGizmo::Mode::Scale);
         EXPECT_FLOAT_EQ(gizmo.settings().scale_step, 0.1f);
         EXPECT_EQ(gizmo.settings().space, TransformGizmo::Space::World);
-        ImGui::ActivateItemByID(popup->GetID("Mode"));
-        frame();
-        frame();
-        ASSERT_GE(GImGui->OpenPopupStack.Size, 2);
-        options = GImGui->OpenPopupStack.back().Window;
-        ASSERT_NE(options, nullptr);
-        const int move_index = 0;
-        ImGui::ActivateItemByID(
-            ImHashStr("Move", 0, ImHashData(&move_index, sizeof(move_index), options->ID)));
+        ImGui::ActivateItemByID(popup->GetID("移动###Move"));
         frame();
         EXPECT_EQ(gizmo.settings().mode, TransformGizmo::Mode::Translate);
         EXPECT_EQ(gizmo.settings().space, TransformGizmo::Space::World);

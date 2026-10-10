@@ -55,7 +55,7 @@ namespace CometEditor::Tests {
             frame();
         }
 
-        void frame() {
+        void frame(const ImVec2 viewport_size = {900, 700}) {
             ImGui::NewFrame();
             if(show_other_panel) {
                 ImGui::SetNextWindowPos(ImVec2(0, 0));
@@ -71,7 +71,7 @@ namespace CometEditor::Tests {
                 ImGui::EndDragDropSource();
             }
             ImGui::SetNextWindowPos(ImVec2(20, 40));
-            ImGui::SetNextWindowSize(ImVec2(900, 700));
+            ImGui::SetNextWindowSize(viewport_size);
             viewport.render();
             auto* window = ImGui::FindWindowByName("Viewport");
             const int before = window ? window->DrawList->VtxBuffer.Size : 0;

@@ -175,6 +175,46 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(viewport.take_play_command());
     }
 
+    TEST_F(ViewportPlayUiTest, NarrowToolbarKeepsPreviewChoicesAndViewMenuAvailable) {
+        viewport.set_game_ui_available(true);
+        activate_play_camera();
+        ASSERT_TRUE(runtime.set_state(Comet::SceneRuntime::State::Paused));
+        const auto tick = [&] { frame({300, 700}); };
+        tick();
+        auto* window = ImGui::FindWindowByName("Viewport");
+        ASSERT_NE(window, nullptr);
+        ImGui::ActivateItemByID(window->GetID("###Preview"));
+        tick();
+        tick();
+        ASSERT_EQ(GImGui->OpenPopupStack.Size, 1);
+        auto* popup = GImGui->OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID("1280 x 720"));
+        tick();
+        EXPECT_EQ(viewport.get_layout().render_resolution, Comet::Math::Vec2u(1280, 720));
+        ASSERT_EQ(GImGui->OpenPopupStack.Size, 1);
+        viewport.set_texture_id(static_cast<ImTextureID>(1), 1280, 720);
+        ImGui::ActivateItemByID(popup->GetID("1:1"));
+        tick();
+        EXPECT_EQ(viewport.get_layout().image_display_rect.size(), Comet::Math::Vec2(1280, 720));
+        EXPECT_GT(viewport.get_layout().image_visible_rect.min.y,
+            window->DC.CursorStartPos.y + ImGui::GetFrameHeightWithSpacing() * 2);
+        EXPECT_FALSE(runtime_accepting);
+        EXPECT_EQ(runtime.get_state(), Comet::SceneRuntime::State::Paused);
+
+        ImGui::ClosePopupToLevel(0, true);
+        ImGui::ActivateItemByID(window->GetID("###View"));
+        tick();
+        tick();
+        ASSERT_EQ(GImGui->OpenPopupStack.Size, 1);
+        popup = GImGui->OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID("游戏 UI###Game UI"));
+        tick();
+        EXPECT_FALSE(viewport.game_ui_view({1280, 720}));
+        EXPECT_FALSE(viewport.take_play_command());
+    }
+
     TEST_F(ViewportPlayUiTest, RuntimeUiBlocksEscapeAndClosingFrameWithoutReplayingHeldKeys) {
         activate_play_camera();
         runtime_ui_blocked = true;
@@ -207,7 +247,7 @@ namespace CometEditor::Tests {
         using State = Comet::SceneRuntime::State;
         auto* window = ImGui::FindWindowByName("Viewport");
         ASSERT_NE(window, nullptr);
-        ImGui::ActivateItemByID(window->GetID("||##Pause"));
+        ImGui::ActivateItemByID(window->GetID("暂停###Pause"));
         frame();
         EXPECT_FALSE(viewport.take_play_command());
         ImGui::ActivateItemByID(window->GetID("运行###Play"));
@@ -216,10 +256,10 @@ namespace CometEditor::Tests {
         EXPECT_EQ(state.mode, EditorMode::Edit);
 
         activate_play_camera();
-        ImGui::ActivateItemByID(window->GetID("|>##Step"));
+        ImGui::ActivateItemByID(window->GetID("单步###Step"));
         frame();
         EXPECT_FALSE(viewport.take_play_command());
-        ImGui::ActivateItemByID(window->GetID("||##Pause"));
+        ImGui::ActivateItemByID(window->GetID("暂停###Pause"));
         frame();
         EXPECT_EQ(viewport.take_play_command(), Command::Pause);
         EXPECT_FALSE(viewport.take_play_command());
@@ -228,7 +268,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(runtime.set_state(State::Paused));
         frame();
         const auto fixed_index = runtime.get_timing().fixed_index;
-        ImGui::ActivateItemByID(window->GetID("|>##Step"));
+        ImGui::ActivateItemByID(window->GetID("单步###Step"));
         frame();
         EXPECT_EQ(viewport.take_play_command(), Command::Step);
         EXPECT_EQ(runtime.get_timing().fixed_index, fixed_index);
@@ -238,16 +278,16 @@ namespace CometEditor::Tests {
         EXPECT_EQ(runtime.get_state(), State::Paused);
         frame();
         EXPECT_EQ(runtime.get_timing().fixed_index, fixed_index + 1);
-        ImGui::ActivateItemByID(window->GetID(">##Resume"));
+        ImGui::ActivateItemByID(window->GetID("继续###Resume"));
         frame();
         EXPECT_EQ(viewport.take_play_command(), Command::Resume);
         EXPECT_EQ(runtime.get_state(), State::Paused);
         ASSERT_TRUE(runtime.stop());
         frame();
-        ImGui::ActivateItemByID(window->GetID("|>##Step"));
+        ImGui::ActivateItemByID(window->GetID("单步###Step"));
         frame();
         EXPECT_FALSE(viewport.take_play_command());
-        ImGui::ActivateItemByID(window->GetID("||##Pause"));
+        ImGui::ActivateItemByID(window->GetID("暂停###Pause"));
         frame();
         EXPECT_FALSE(viewport.take_play_command());
         ImGui::ActivateItemByID(window->GetID("停止###Stop"));
