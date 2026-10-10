@@ -457,7 +457,6 @@ namespace Comet {
             world.pose_world_matrix = parent_world->pose_world_matrix * pose_local;
         }
         world.pose_world_matrix[3] = world.world_matrix[3];
-        m_dirty_transforms.erase(handle);
     }
 
     std::size_t Scene::sync_transform_chain(entt::entity handle) {
@@ -469,12 +468,21 @@ namespace Comet {
                 break;
             handle = m_entities_by_id.at(parent);
         }
-        for(auto it = m_transform_work.rbegin(); it != m_transform_work.rend(); ++it)
+        for(auto it = m_transform_work.rbegin(); it != m_transform_work.rend(); ++it) {
             update_world_transform(*it);
+            m_dirty_transforms.erase(*it);
+        }
         return m_transform_work.size();
     }
 
     std::size_t Scene::update_world_transforms() {
+        if(m_children_by_parent.empty()) {
+            const auto updated = m_dirty_transforms.size();
+            for(const auto handle : m_dirty_transforms)
+                update_world_transform(handle);
+            m_dirty_transforms.clear();
+            return updated;
+        }
         std::size_t updated = 0;
         while(!m_dirty_transforms.empty())
             updated += sync_transform_chain(*m_dirty_transforms.begin());

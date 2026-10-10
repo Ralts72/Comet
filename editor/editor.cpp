@@ -1319,9 +1319,8 @@ int main(int argc, char** argv) {
         }
         const std::filesystem::path config_directory = COMET_CONFIG_DIRECTORY;
         auto config = Comet::ConfigLoader{}.load(
-            std::vector<std::string>{(config_directory / "common.yaml").string(),
-                (config_directory / "profiles" / (std::string(COMET_CONFIG_PROFILE) + ".yaml"))
-                    .string()});
+            (config_directory / "profiles" / (std::string(COMET_CONFIG_PROFILE) + ".yaml"))
+                .string());
         if(!config) {
             std::cerr << "Application failed: " << config.error() << '\n';
             return 1;

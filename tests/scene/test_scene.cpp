@@ -326,6 +326,39 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(scene.get_world_matrix(child)[3].y, 3);
     }
 
+    TEST(SceneTest, BatchedTransformsRemainCorrectWhenEnteringAndLeavingAHierarchy) {
+        Scene scene;
+        auto parent = scene.create_entity();
+        auto child = scene.create_entity();
+        auto other = scene.create_entity();
+        parent.set_transform({.translation = {3, 0, 0}, .scale = {2, 1, 1}});
+        child.set_transform({.translation = {1, 2, 0}});
+        other.remove_component<TransformComponent>();
+        EXPECT_EQ(scene.update_world_transforms(), 3u);
+        EXPECT_EQ(scene.update_world_transforms(), 0u);
+        EXPECT_EQ(
+            child.get_component<WorldTransformComponent>().world_matrix[3], Math::Vec4(1, 2, 0, 1));
+        EXPECT_TRUE(TestUtils::IsIdentityMatrix(
+            other.get_component<WorldTransformComponent>().world_matrix));
+
+        ASSERT_TRUE(scene.set_parent(child, parent));
+        EXPECT_EQ(scene.update_world_transforms(), 1u);
+        EXPECT_EQ(
+            child.get_component<WorldTransformComponent>().world_matrix[3], Math::Vec4(5, 2, 0, 1));
+        parent.edit_transform([](auto& value) { value.translation.x = 7; });
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(child)[3].x, 9);
+        EXPECT_EQ(scene.update_world_transforms(), 0u);
+
+        ASSERT_TRUE(scene.clear_parent(child));
+        parent.edit_transform([](auto& value) { value.translation.x = 11; });
+        EXPECT_EQ(scene.update_world_transforms(), 2u);
+        EXPECT_EQ(
+            child.get_component<WorldTransformComponent>().world_matrix[3], Math::Vec4(1, 2, 0, 1));
+        parent.edit_transform([](auto& value) { value.translation.x = 13; });
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(parent)[3].x, 13);
+        EXPECT_EQ(scene.update_world_transforms(), 0u);
+    }
+
     TEST(SceneTest, RequiredTransformWritesCommitAndKeepNoOpSemantics) {
         Scene scene;
         auto entity = scene.create_entity();

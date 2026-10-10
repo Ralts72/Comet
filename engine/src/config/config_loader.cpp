@@ -1,7 +1,8 @@
 #include "config/config_loader.h"
 #include "common/file_io.h"
+#include <algorithm>
 #include <array>
-#include <cmath>
+#include <initializer_list>
 #include <limits>
 #include <sstream>
 #include <string_view>
@@ -15,14 +16,9 @@ namespace Comet {
             std::pair{"rgba8_unorm", Format::R8G8B8A8_UNORM}};
         constexpr std::array COLOR_SPACES = {
             std::pair{"srgb_nonlinear", ImageColorSpace::SrgbNonlinearKHR}};
-        constexpr std::array OUTPUT_MODES = {std::pair{"sdr", OutputMode::Sdr},
-            std::pair{"hdr", OutputMode::Hdr}, std::pair{"auto", OutputMode::Auto}};
         constexpr std::array DEPTH_FORMATS = {std::pair{"d32_float", Format::D32_SFLOAT},
             std::pair{"d24_unorm_s8_uint", Format::D24_UNORM_S8_UINT},
             std::pair{"d32_float_s8_uint", Format::D32_SFLOAT_S8_UINT}};
-        constexpr std::array PRESENT_MODES = {std::pair{"immediate", PresentMode::Immediate},
-            std::pair{"mailbox", PresentMode::Mailbox}, std::pair{"fifo", PresentMode::Fifo},
-            std::pair{"fifo_relaxed", PresentMode::FifoRelaxed}};
         std::string config_error(
             std::string_view path, std::string_view key, std::string_view detail) {
             return "Invalid config '" + std::string(path) + "' at '" + std::string(key)
@@ -32,6 +28,27 @@ namespace Comet {
         public:
             ConfigReader(const YAML::Node& root, const std::string& path)
                 : m_root(root), m_path(path) {}
+            bool keys(std::string_view section, std::initializer_list<std::string_view> allowed) {
+                YAML::Node node(YAML::NodeType::Undefined);
+                if(!find(section, node))
+                    return false;
+                if(!node.IsDefined() || (section.empty() && node.IsNull()))
+                    return true;
+                if(!node.IsMap())
+                    return fail(section.empty() ? "<root>" : section, "expected a mapping");
+                for(const auto& entry : node) {
+                    if(!entry.first.IsScalar())
+                        return fail(section, "expected a string key");
+                    const auto& key = entry.first.Scalar();
+                    if(std::find(allowed.begin(), allowed.end(), key) == allowed.end()) {
+                        auto location = std::string(section);
+                        if(!location.empty())
+                            location += '.';
+                        return fail(location + key, "unknown developer setting");
+                    }
+                }
+                return true;
+            }
             template<typename T>
             bool read(std::string_view key, T& value, std::string_view expected) {
                 YAML::Node node(YAML::NodeType::Undefined);
@@ -67,16 +84,6 @@ namespace Comet {
                     expected += label;
                 }
                 return fail(key, "unknown value '" + name + "'; expected one of: " + expected);
-            }
-            bool samples(SampleCount& value) {
-                std::uint32_t count = static_cast<std::uint32_t>(value);
-                if(!read("vulkan.msaa_samples", count, "one of 1, 2, 4, 8, 16, 32, or 64"))
-                    return false;
-                if(count == 0 || count > 64 || (count & (count - 1)) != 0)
-                    return fail(
-                        "vulkan.msaa_samples", "unsupported sample count " + std::to_string(count));
-                value = static_cast<SampleCount>(count);
-                return true;
             }
             bool megabytes(std::string_view key, std::size_t& bytes) {
                 return scaled_bytes(key, bytes, 1024 * 1024, "an integer number of MiB");
@@ -125,7 +132,7 @@ namespace Comet {
             const std::string& m_path;
             std::string m_error;
         };
-        Result<void> merge_config_file(Config& config, const std::string& path) {
+        Result<void> read_profile(Config& config, const std::string& path) {
             auto text = read_text_file(path);
             if(!text)
                 return Result<void>::failure(text.error());
@@ -135,16 +142,19 @@ namespace Comet {
             } catch(const YAML::Exception& error) {
                 return Result<void>::failure(config_error(path, "<root>", error.what()));
             }
-            if(root.IsDefined() && !root.IsNull() && !root.IsMap())
-                return Result<void>::failure(config_error(path, "<root>", "expected a mapping"));
-            if(root.IsMap()) {
-                const YAML::Node render = root["render"];
-                if(render.IsMap() && render["enable_vsync"].IsDefined())
-                    return Result<void>::failure(config_error(
-                        path, "render.enable_vsync", "use vulkan.present_mode instead"));
-            }
             ConfigReader reader(root, path);
-            bool fullscreen = config.window.mode == WindowMode::Fullscreen;
+            if(!reader.keys("", {"diagnostics", "vulkan", "render", "assets"})
+                || !reader.keys(
+                    "diagnostics", {"enable_file_logging", "log_level", "enable_profiler",
+                                       "enable_render_diagnostics", "enable_validation"})
+                || !reader.keys("vulkan",
+                    {"surface_format", "color_space", "depth_format", "swapchain_image_count"})
+                || !reader.keys("render", {"max_frames_in_flight"})
+                || !reader.keys("assets",
+                    {"async", "source_max_mib", "texture_working_mib", "mesh_working_mib",
+                        "mesh_owner_inspect_kib", "external_file_mib", "external_file_queue"})
+                || !reader.keys("assets.async", {"in_flight", "queued", "working_mib"}))
+                return Result<void>::failure(reader.error());
             if(!reader.read("diagnostics.enable_file_logging",
                    config.diagnostics.log.enable_file_logging, "a boolean")
                 || !reader.read("diagnostics.log_level", config.diagnostics.log.level, "a string")
@@ -152,26 +162,16 @@ namespace Comet {
                     "diagnostics.enable_profiler", config.diagnostics.enable_profiler, "a boolean")
                 || !reader.read("diagnostics.enable_render_diagnostics",
                     config.diagnostics.enable_render_diagnostics, "a boolean")
-                || !reader.read("window.width", config.window.width, "an integer")
-                || !reader.read("window.height", config.window.height, "an integer")
-                || !reader.read("window.fullscreen", fullscreen, "a boolean")
-                || !reader.read("window.resizable", config.window.resizable, "a boolean")
                 || !reader.named(
                     "vulkan.surface_format", config.vulkan.surface_format, SURFACE_FORMATS)
                 || !reader.named("vulkan.color_space", config.vulkan.color_space, COLOR_SPACES)
                 || !reader.named("vulkan.depth_format", config.vulkan.depth_format, DEPTH_FORMATS)
-                || !reader.named("vulkan.present_mode", config.vulkan.present_mode, PRESENT_MODES)
                 || !reader.read("vulkan.swapchain_image_count", config.vulkan.swapchain_image_count,
                     "a non-negative integer")
-                || !reader.samples(config.vulkan.msaa_samples)
                 || !reader.read(
                     "diagnostics.enable_validation", config.vulkan.enable_validation, "a boolean")
                 || !reader.read("render.max_frames_in_flight", config.render.max_frames_in_flight,
-                    "a non-negative integer")
-                || !reader.named("render.output_mode", config.render.output_mode, OUTPUT_MODES)
-                || !reader.read("render.hdr_headroom", config.render.hdr_headroom, "a number")
-                || !reader.read("render.hdr_white_level", config.render.hdr_white_level, "a number")
-                || !reader.read("render.max_anisotropy", config.render.max_anisotropy, "a number"))
+                    "a non-negative integer"))
                 return Result<void>::failure(reader.error());
             if(!reader.read(
                    "assets.async.in_flight", config.assets.async.in_flight, "a positive integer")
@@ -188,71 +188,42 @@ namespace Comet {
                 || !reader.read("assets.external_file_queue", config.assets.external_file_queue,
                     "a positive integer"))
                 return Result<void>::failure(reader.error());
-            config.window.mode = fullscreen ? WindowMode::Fullscreen : WindowMode::Windowed;
             return Result<void>::success();
         }
     }
     Result<Config> ConfigLoader::load(const std::string& path) const {
-        return load(std::vector{path});
-    }
-    Result<Config> ConfigLoader::load(const std::vector<std::string>& paths) const {
-        if(paths.empty())
-            return Result<Config>::failure("At least one config file is required");
         Config config;
-        std::string sources;
-        for(const auto& path : paths) {
-            if(auto result = merge_config_file(config, path); !result)
-                return Result<Config>::failure(result.error());
-            if(!sources.empty())
-                sources += ", ";
-            sources += path;
-        }
-        if(config.window.width <= 0)
-            return Result<Config>::failure(
-                config_error(sources, "window.width", "must be greater than zero"));
-        if(config.window.height <= 0)
-            return Result<Config>::failure(
-                config_error(sources, "window.height", "must be greater than zero"));
+        if(auto result = read_profile(config, path); !result)
+            return Result<Config>::failure(result.error());
         if(config.vulkan.swapchain_image_count == 0)
             return Result<Config>::failure(
-                config_error(sources, "vulkan.swapchain_image_count", "must be greater than zero"));
+                config_error(path, "vulkan.swapchain_image_count", "must be greater than zero"));
         if(config.render.max_frames_in_flight == 0)
             return Result<Config>::failure(
-                config_error(sources, "render.max_frames_in_flight", "must be greater than zero"));
-        if(!std::isfinite(config.render.max_anisotropy) || config.render.max_anisotropy < 1.0f)
-            return Result<Config>::failure(config_error(
-                sources, "render.max_anisotropy", "must be a finite number of at least 1.0"));
-        if(!std::isfinite(config.render.hdr_headroom) || config.render.hdr_headroom < 1.0f
-            || config.render.hdr_headroom > 16.0f)
-            return Result<Config>::failure(config_error(
-                sources, "render.hdr_headroom", "must be a finite number between 1 and 16"));
-        if(!std::isfinite(config.render.hdr_white_level) || config.render.hdr_white_level < 0.5f
-            || config.render.hdr_white_level > 2.0f)
-            return Result<Config>::failure(config_error(
-                sources, "render.hdr_white_level", "must be a finite number between 0.5 and 2"));
+                config_error(path, "render.max_frames_in_flight", "must be greater than zero"));
         if(config.assets.async.in_flight == 0 || config.assets.async.queued == 0
             || config.assets.external_file_queue == 0)
             return Result<Config>::failure(
-                config_error(sources, "assets", "queue counts must be positive"));
+                config_error(path, "assets", "queue counts must be positive"));
         if(config.assets.async.in_flight > 64 || config.assets.async.queued > 4096
             || config.assets.external_file_queue > 256)
             return Result<Config>::failure(
-                config_error(sources, "assets", "queue counts exceed supported limits"));
+                config_error(path, "assets", "queue counts exceed supported limits"));
         if(config.assets.source_bytes > 1024ull * 1024 * 1024)
             return Result<Config>::failure(
-                config_error(sources, "assets.source_max_mib", "must not exceed 1024 MiB"));
+                config_error(path, "assets.source_max_mib", "must not exceed 1024 MiB"));
         if(config.assets.texture_working_bytes > 4ull * 1024 * 1024 * 1024
             || config.assets.mesh_working_bytes > 4ull * 1024 * 1024 * 1024
             || config.assets.async.working_bytes > 16ull * 1024 * 1024 * 1024)
             return Result<Config>::failure(
-                config_error(sources, "assets", "working budgets exceed supported limits"));
+                config_error(path, "assets", "working budgets exceed supported limits"));
         if(config.assets.texture_working_bytes <= 16ull * 1024 * 1024
             || config.assets.mesh_working_bytes <= 16ull * 1024 * 1024)
             return Result<Config>::failure(config_error(
-                sources, "assets", "texture and mesh working budgets must exceed 16 MiB"));
+                path, "assets", "texture and mesh working budgets must exceed 16 MiB"));
         if(config.assets.mesh_owner_inspect_bytes > config.assets.source_bytes
             || config.assets.mesh_owner_inspect_bytes > 1024 * 1024)
-            return Result<Config>::failure(config_error(sources, "assets.mesh_owner_inspect_kib",
+            return Result<Config>::failure(config_error(path, "assets.mesh_owner_inspect_kib",
                 "must not exceed 1 MiB or the source limit"));
         return Result<Config>::success(std::move(config));
     }

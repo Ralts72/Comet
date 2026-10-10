@@ -14,6 +14,7 @@
 
 #include <limits>
 #include <algorithm>
+#include <array>
 #include <sstream>
 #include <spdlog/sinks/ostream_sink.h>
 
@@ -228,6 +229,7 @@ namespace Comet::Tests {
         EXPECT_EQ(submission.render_items[1].model_matrix, scene.render_items[2].model_matrix);
         for(const auto& item : submission.render_items)
             EXPECT_EQ(item.material.resource, material);
+        const auto frozen = submission;
 
         ASSERT_TRUE(registry.replace_asset(AssetHandle{10}, second.value()));
         ASSERT_TRUE(registry.register_asset(AssetHandle{99}, material));
@@ -236,6 +238,21 @@ namespace Comet::Tests {
         EXPECT_EQ(submission.render_items[0].mesh, second.value());
         EXPECT_EQ(submission.render_items[1].entity_id, 2u);
         EXPECT_EQ(submission.render_items[2].mesh, second.value());
+        EXPECT_EQ(frozen.render_items[0].mesh, first.value());
+        EXPECT_EQ(frozen.render_items[1].mesh, first.value());
+
+        std::ranges::reverse(scene.render_items);
+        resolver.resolve(scene, runtime_view({160, 120}), submission);
+        ASSERT_EQ(submission.render_items.size(), 5u);
+        constexpr std::array<EntityId, 5> reversed{6, 4, 3, 2, 1};
+        for(std::size_t index = 0; index < reversed.size(); ++index) {
+            EXPECT_EQ(submission.render_items[index].entity_id, reversed[index]);
+            EXPECT_EQ(submission.render_items[index].mesh, second.value());
+        }
+        scene.render_items.clear();
+        resolver.resolve(scene, runtime_view({160, 120}), submission);
+        EXPECT_TRUE(submission.render_items.empty());
+        EXPECT_EQ(frozen.render_items.size(), 4u);
     }
 
     TEST_F(SceneEnvironmentResolverTest, IncompatibleEnvironmentStillReportsOnceUntilRemoved) {

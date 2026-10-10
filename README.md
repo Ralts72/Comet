@@ -22,7 +22,7 @@ Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，
 | `demo/assets/` | 示例场景、源资产及相邻 `.meta`；可选大资源由脚本下载，不进入版本控制 |
 | `demo/assets/scripts/` | Lua 项目行为；默认字段由脚本声明，实体仅保存覆盖值 |
 | `demo/project.json` | 示例项目描述：版本、名称、启动场景和输入绑定 |
-| `config/` | `common.yaml` 与各运行 Profile；不保存项目内容或编辑器个人偏好 |
+| `config/` | 开发者启动 Profile，只覆盖诊断、底层设备参数与资源预算；基础默认值由 C++ 提供 |
 | `demo/.comet/` | 示例项目本机缓存、日志与编辑器状态，不进入版本控制 |
 | `tests/`、`3rdparty/` | GoogleTest 测试与第三方依赖 |
 
@@ -231,7 +231,7 @@ CPU 阶段明细另列场景提取、资产解析、材质程序、几何界限�
 普通文件日志与 Scope Profiler 日志统一保存到**当前项目**的 `.comet/logs/`，
 分别命名为 `comet_<时间戳>.log`、`profiler_<时间戳>.log`；app/editor 使用同一目录规则。
 例如默认 demo 的路径是 `demo/.comet/logs/`，打开外部项目则写到外部项目内，不依赖仓库根目录或工作目录。
-各 Profile 默认 `diagnostics.enable_file_logging: false`；在 `config/profiles/<Profile>.yaml` 中改为 `true`
+各 Profile 关闭文件日志；在 `config/profiles/<Profile>.yaml` 中将 `diagnostics.enable_file_logging` 改为 `true`
 后才创建目录与文件。Profiler 文件还需当前构建支持且启用 `diagnostics.enable_profiler`。
 排查资产监视卡顿时，可在 Profiler 输出中分别查看 `AssetSourceMonitor` 的后台局部文件检查／完整快照与主线程结果接纳，以及 `AssetDatabase` 的局部扫描／全量准备／发布（含发布前输入复核和源签名计算）和 `EditorAssets::accept_scan` 的结果处理耗时。
 路径由启动入口传入，不作为 YAML 中的机器路径配置。无日志路径时仅保留终端／自定义输出端，
@@ -248,17 +248,13 @@ RmlUi 使用 FreeType 解析字体、读取字形度量并栅格化文字，Come
 缺词显示原始标识；内置词表无法读取或格式无效时，启动会报告错误。中文标签保留稳定控件 ID，继续复用已有布局。
 
 App 的输出模式和 HDR 校准通过游戏「设置 → 显示设置」在运行中修改并保存，项目设置提供新玩家默认值。
-Editor 的 Play 固定使用 SDR 预览，保留独立 App 的输出选择。没有项目显示设置的宿主使用 YAML 启动默认值：
-
-```yaml
-render:
-  output_mode: sdr  # sdr / hdr / auto
-  hdr_headroom: 4  # 高光峰值相对于校准白色的倍数，范围 1..16
-  hdr_white_level: 1  # 相对于系统合成器白色的倍率，范围 0.5..2
-```
+Editor 的 Play 固定使用 SDR 预览，保留独立 App 的输出选择。窗口、VSync、帧率上限、画质、音量和改键
+通过编辑器项目设置或游戏菜单修改；项目默认值保存在 `project.json`，玩家选择保存在本地用户目录。
+Profile 不接收这些选项，也不接收 HDR 输出／校准字段；没有项目设置的宿主使用 C++ 基础默认值。
+开发者 Profile 在启动时读取，只需写入要覆盖的诊断、底层设备格式、在途帧或资源预算；无需复制完整默认值。
 
 `sdr` 强制普通输出；`hdr` / `auto` 在驱动提供 RGBA16F + 扩展线性 sRGB 时使用该组合，否则回退配置的 SDR 格式并记录原因。
-Editor 的启动呈现模式由 `vulkan.present_mode` 选择；App 使用项目／玩家显示设置的 VSync，运行中可切换。
+Editor 的启动呈现模式使用 C++ 默认的 `immediate`；App 使用项目／玩家显示设置的 VSync，运行中可切换。
 `fifo` 等待垂直同步，`immediate` 不等待；设备不支持所选模式时回退并记录原因。
 交换链获取、呈现或重建时发生内存不足会报告错误并退出；窗口尺寸变化仍正常重建。
 日志区分请求模式与实际模式。`auto` 检测的是 Vulkan 输出支持，不是显示器实测亮度，也不会切换系统 HDR 设置。
@@ -301,8 +297,8 @@ app 和 editor 可执行文件都接受同样的可选路径参数；相对路�
 `assets/scenes/main.scene`（含主相机），并沿用打开项目的未保存场景确认流程切换过去。已有目录不会被覆盖。
 ImGui 面板布局是跨项目的用户偏好，与最近项目列表保存在同一用户目录的 `imgui.ini`，不随项目重置。
 编辑器主窗口的普通逻辑尺寸与最大化状态保存到同目录的 `window.json`，正常退出或切换项目时写入，
-下次启动在创建窗口前恢复；首次启动或记录无效时使用 `config/` 中的宽高。最小化不会覆盖普通尺寸。
-删除 `window.json` 可恢复配置默认值；app 使用项目默认值或玩家保存的显示设置，不读写此编辑器状态。
+下次启动在创建窗口前恢复；首次启动或记录无效时使用 C++ 内置的 960×720。最小化不会覆盖普通尺寸。
+删除 `window.json` 可恢复内置尺寸；app 使用项目默认值或玩家保存的显示设置，不读写此编辑器状态。
 列表最多保留 10 项，存于用户目录的编辑器本地状态（macOS：`~/Library/Application Support/Comet/recent-projects.json`；
 Windows：`%APPDATA%/Comet/recent-projects.json`；Linux：`$XDG_STATE_HOME/comet/recent-projects.json`，未设置时使用 `~/.local/state/comet/`），不写入项目。
 候选项目校验通过后，
@@ -322,7 +318,8 @@ app 始终使用项目启动场景，不读取编辑器会话状态。
 项目描述 `project.json`（v2）同样使用 JSON；引擎运行配置及编辑器用户快捷键覆盖继续使用 YAML。
 JSON 解析直接依赖已有 simdjson。
 后台导入使用有界队列，合并同一资产的旧请求；队列满时暂存重试，内容错误等待新变更或 Reimport，失败保留旧资源。
-`config/common.yaml` 的 `assets` 控制源文件、预估工作集、队列与外部导入额度。发布默认每次最多 2 项、2 ms 非抢占软预算，均不代表整帧或进程内存上限。
+源文件、预估工作集、队列与外部导入额度由 `AssetImportLimits` 提供默认值，需要调试覆盖时在当前 Profile 中添加 `assets`。
+发布默认每次最多 2 项、2 ms 非抢占软预算，均不代表整帧或进程内存上限。
 任务与发布边界见[Owner 结构](docs/architecture/overview.md#owner-结构)。示例项目根目录是 `demo/`，可完整复制作为外部项目。
 旧仓库根 `.comet/` 不自动迁移；项目缓存缺失会重建。
 
@@ -389,7 +386,7 @@ demo 的首个标准手柄也可操作这些玩法，绑定仍来自 `project.js
 引擎私有链接 Lua 5.4.8；参数编辑与运行限制见下方“场景运行时”。
 两种入口遇到项目描述错误或缺少 assets 都会启动失败，不回退仓库项目；仅 editor 在启动场景缺失／损坏时
 记录错误并打开空场景，供用户修复，不覆盖原文件。
-引擎 Profile 读取开发构建自带的 `config/`；编辑器快捷键使用内置默认值及用户状态目录中的覆盖文件。
+引擎只读取 `config/profiles/` 中当前构建选择的开发者 Profile；编辑器快捷键使用内置默认值及用户状态目录中的覆盖文件。
 字体／图标／Shader 不需要复制到每个项目。
 当前支持在编辑器中创建、打开项目；切换通过重启编辑器进程完成，尚不支持原地切换或独立打包。
 
@@ -908,7 +905,7 @@ Finder 导入只支持独立组件脚本，暂不处理 Lua 多文件依赖包�
 - Finder／系统文件管理器可将 PNG/JPEG、HDR 环境图、glTF/GLB 拖入 Project，复制到落点目录。
   glTF 连同相对 buffer／图片复制，新建身份、不移动源文件、不沿用外部 .meta、不覆盖同名目标。
   暂不接收整目录、独立 .bin、网络或含 `..` 的依赖；整批失败回滚。复制和校验在后台准备，
-  单批源文件（含 glTF 依赖）合计默认上限 512 MiB，可在 `config/common.yaml` 调整；重复输入只计一次，编辑器主线程发布并更新索引。
+  单批源文件（含 glTF 依赖）合计默认上限 512 MiB，可在当前 Profile 的 `assets.source_max_mib` 调整；重复输入只计一次，编辑器主线程发布并更新索引。
   此上限约束暂存输入量，纹理校验另受解码工作集上限约束，都不是进程内存上限；大批量索引发布仍可能造成短时卡顿，暂不提供导入进度和取消。
 - Mesh 自动后台生成 Artifact；未加载模型只生成缓存，不创建 GPU 对象。删除缓存后用 Refresh 或重启补建。
   Edit 中将 Project Mesh 拖到视口，在相机关注平面创建实体并记录一次撤销；首次导入未完成时需等待后重试。

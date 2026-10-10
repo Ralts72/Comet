@@ -291,8 +291,13 @@ Finder 的 `.DS_Store` 与原子写临时文件不计入快照变化，
 ## 应用启动与失败清理
 
 Application::run(Config) 完整执行：创建 Diagnostics／Engine → on_init → 引擎循环 → 私有 end。
+Config 是宿主创建引擎时的内存参数聚合；基础默认值由所属模块的 C++ 设置结构提供。
+启动入口只读取当前开发者 Profile，覆盖诊断、设备格式、交换链图像数、在途帧和资源预算，不再叠加共享默认 YAML。
+Profile 拒绝窗口、呈现模式、MSAA、各向异性及输出校准等游戏设置字段，也拒绝未知字段，避免无效设置被静默忽略。
+项目默认值由 Editor 写入 project.json，App 的玩家选择保存在按项目 UUID 隔离的用户目录；Application 启动前将有效设置写入 Config。
 Editor 启动入口先加载 Profile 与用户目录的 `window.json`，将有效窗口尺寸与最大化状态应用到 Config 后再调用 run；
-退出时保存普通逻辑尺寸，切换项目沿用同一份用户状态。Window 只维护原生窗口与还原尺寸，不负责磁盘持久化。
+没有有效记录时使用内置 960×720；退出时保存普通逻辑尺寸，切换项目沿用同一份用户状态。
+Window 只维护原生窗口与还原尺寸，不负责磁盘持久化。
 Engine::create → Renderer::create → RenderContext::create 在局部准备 owner，全部成功才返回完整对象。
 SceneRenderer::create 的 Swapchain 入口按 scene_output 选择输出，离屏尺寸入口用于显式离屏创建；
 完整目标与管线准备成功后才返回对象；
@@ -596,12 +601,16 @@ Audio Source 音量采用该契约，编辑、恢复和保存共用 PropertyDesc
 创建、TRS／父级变化和组件增删标记受影响子树；重复标记跳过已脏子树，销毁清除对应脏节点。
 脏集合复用 EnTT sparse_set，保存带版本号的实体句柄并复用容量，避免逐次分配／释放哈希节点。
 传播队列只保存首次变脏的节点；没有父子关系时直接登记，无需查询子节点索引或准备遍历缓冲。
-`update_world_transforms` 只消费脏集合，按父先子后更新；无变化时不扫描实体或比较 TRS。
+`update_world_transforms` 只消费脏集合；无父子关系时直接批量更新并清空集合，
+有层级时按父先子后同步脏祖先链。无变化时不扫描实体或比较 TRS。
 `get_world_matrix` 是即时查询，仅同步该实体的脏祖先链；无关脏分支留给后续同步。
 SceneExtractor 同步后直接读取 WorldTransformComponent，不在每个渲染项中触发更新或分配遍历容器。
 WorldTransformComponent 是最近一次同步的只读缓存，不是独立冻结快照；需要跨修改保留时复制值，
-RenderScene 则拥有本次提取的矩阵副本。pose_world_matrix 继承层级位置／旋转而忽略缩放。
+RenderScene 则拥有本次提取的矩阵副本。重复提取复用渲染项槽位，过滤后收缩，覆盖快照变化时才替换引用；
+已经复制的 RenderScene 仍保留自己的值与覆盖快照。pose_world_matrix 继承层级位置／旋转而忽略缩放。
 SceneResolver 只解析 Camera、Mesh、Material 和 Environment 引用，不负责材质模板或参数合法性。
+Mesh／Material 查询分别在一次解析内复用相邻 Handle，每帧从 Registry 读取已发布版本。
+输出槽位复用未变的资源引用，遗漏项在解析结束时释放；输出不借用 Scene 或上次输入的指针。
 
 **渲染失败：** GraphicsError 沿 MaterialRenderer／DebugRenderer／SceneRenderer 返回。
 准备阶段的普通失败可保留兼容旧材质或跳过调试批次；DeviceLost 原样传播。
@@ -1341,7 +1350,7 @@ RmlRenderer 将 W 应用于 HDR 目标中的线性预乘 RGB，不改变 alpha�
 不支持 HDR10/PQ、自动曝光或动态后处理节点。
 世界空间辅助线与场景一起经过映射，ImGui 不经过场景色调映射。
 
-render.output_mode 默认 sdr；hdr / auto 在 surface 枚举中优先选择上述 HDR 格式与颜色空间组合，
+RenderSettings 的输出基础默认值为 SDR，App 采用项目／玩家显示设置；hdr / auto 在 surface 枚举中优先选择上述 HDR 格式与颜色空间组合，
 未提供时回退原配置的 SDR 组合并报告原因；不会挑选仅格式相同或仅颜色空间相同的条目。
 Context 可选启用 VK_EXT_swapchain_colorspace，未提供扩展时仍可启动 SDR。
 成功创建后 Swapchain 固定输出组合，resize / surface 恢复保持该组合；显式模式修改才重新选择。
@@ -1353,7 +1362,7 @@ Application 启动时合成输出设置，Renderer::request_output_settings 在 
 模式切换完成在途帧与呈现后重建交换链。实际格式变化时准备整组 RenderState，UI 复用 presentation dependent 重建协议。
 创建新交换链后仍遵循原有退休语义，不能把失败描述为可回滚到旧交换链。菜单查询实际 HDR 与待应用状态。
 不支持拖动跨屏或系统 HDR 热切换后的自动适配。auto 与 hdr 当前采用同一能力选择策略，日志保留不同请求值。
-Editor 在 Application 启动前通过构造参数固定 SDR；共享 YAML 无法将编辑器换成 HDR。
+Editor 在 Application 启动前通过构造参数固定 SDR；开发者 Profile 不接收显示输出设置。
 SceneRenderer 的离屏输出独立使用配置的 SDR 格式，呈现输出使用交换链实际格式和颜色空间。
 
 GPU 像素测试覆盖 RGBA/BGRA、sRGB/UNORM、曝光 1/0.25/0、高亮和暗部、上下方向及 alpha；

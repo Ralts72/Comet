@@ -21,7 +21,6 @@ namespace Comet {
 
     void SceneResolver::resolve(
         const RenderScene& render_scene, const RenderView& view, RenderSubmission& submission) {
-        submission.render_items.clear();
         submission.environment_resource.reset();
         submission.view_project_matrix = resolve_camera(render_scene, view);
         submission.lights = render_scene.lights;
@@ -49,14 +48,17 @@ namespace Comet {
         for(auto& [handle, used] : m_missing_material_handles)
             used = false;
 
-        // 成功提交的上一项可共享资源；引用仅在这次解析内有效。
-        const RenderItem* previous = nullptr;
+        // 资源查询只在本次解析内复用，每帧重新读取 Registry 的已发布版本。
+        AssetHandle mesh_handle;
+        AssetHandle material_handle;
+        std::shared_ptr<Mesh> mesh;
+        std::shared_ptr<const Material> material;
+        std::size_t item_count = 0;
         for(const RenderItem& item : render_scene.render_items) {
-            std::shared_ptr<Mesh> mesh;
-            if(previous && previous->mesh_handle == item.mesh_handle)
-                mesh = submission.render_items.back().mesh;
-            else
+            if(mesh_handle != item.mesh_handle) {
+                mesh_handle = item.mesh_handle;
                 mesh = m_asset_registry.resolve<Mesh>(item.mesh_handle);
+            }
             if(!mesh) {
                 const auto [entry, inserted] =
                     m_missing_mesh_handles.try_emplace(item.mesh_handle, true);
@@ -68,11 +70,10 @@ namespace Comet {
             }
             m_missing_mesh_handles.erase(item.mesh_handle);
 
-            std::shared_ptr<const Material> material;
-            if(previous && previous->material_handle == item.material_handle)
-                material = submission.render_items.back().material.resource;
-            else
+            if(material_handle != item.material_handle) {
+                material_handle = item.material_handle;
                 material = m_asset_registry.resolve<const Material>(item.material_handle);
+            }
             if(!material) {
                 const auto [entry, inserted] =
                     m_missing_material_handles.try_emplace(item.material_handle, true);
@@ -83,14 +84,20 @@ namespace Comet {
                 continue;
             }
             m_missing_material_handles.erase(item.material_handle);
-            submission.render_items.push_back({.entity_id = item.entity_id,
-                .model_matrix = item.model_matrix,
-                .mesh = std::move(mesh),
-                .material = {.material_handle = item.material_handle,
-                    .resource = std::move(material),
-                    .overrides = item.material_overrides}});
-            previous = &item;
+            if(item_count == submission.render_items.size())
+                submission.render_items.emplace_back();
+            auto& resolved = submission.render_items[item_count++];
+            resolved.entity_id = item.entity_id;
+            resolved.model_matrix = item.model_matrix;
+            if(resolved.mesh != mesh)
+                resolved.mesh = mesh;
+            resolved.material.material_handle = item.material_handle;
+            if(resolved.material.resource != material)
+                resolved.material.resource = material;
+            if(resolved.material.overrides != item.material_overrides)
+                resolved.material.overrides = item.material_overrides;
         }
+        submission.render_items.resize(item_count);
         std::erase_if(m_missing_mesh_handles, [](const auto& entry) { return !entry.second; });
         std::erase_if(m_missing_material_handles, [](const auto& entry) { return !entry.second; });
     }

@@ -140,6 +140,57 @@ namespace Comet::Tests {
         EXPECT_EQ(snapshot.post_process, next_scene.get_post_process());
     }
 
+    TEST(SceneExtractorTest, ReusedSnapshotRefreshesFilteredItemsAndRetainsCopiedOverrides) {
+        AssetRegistry assets;
+        const AssetHandle material{20};
+        ASSERT_TRUE(assets.register_asset(material, std::make_shared<Material>("shared", "pbr")));
+        MaterialPrograms materials(assets);
+        Scene scene;
+        auto first = scene.create_entity();
+        auto second = scene.create_entity();
+        first.add_component<MeshRendererComponent>(AssetHandle{10}, material);
+        second.add_component<MeshRendererComponent>(AssetHandle{11}, material);
+        second.remove_component<TransformComponent>();
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(scene.set_material_scalar(first, "roughness", 0.25f, materials));
+        RenderScene snapshot;
+        SceneExtractor::extract(scene, snapshot);
+        ASSERT_EQ(snapshot.render_items.size(), 1u);
+        const auto frozen = snapshot;
+        ASSERT_TRUE(frozen.render_items.front().material_overrides);
+
+        first.remove_component<TransformComponent>();
+        second.add_component<TransformComponent>();
+        second.set_transform({.translation = {2, 3, 4}});
+        SceneExtractor::extract(scene, snapshot);
+        ASSERT_EQ(snapshot.render_items.size(), 1u);
+        EXPECT_EQ(snapshot.render_items.front().entity_id, second.get_id());
+        EXPECT_EQ(snapshot.render_items.front().mesh_handle, AssetHandle{11});
+        EXPECT_EQ(snapshot.render_items.front().model_matrix[3], Math::Vec4(2, 3, 4, 1));
+        EXPECT_FALSE(snapshot.render_items.front().material_overrides);
+
+        first.add_component<TransformComponent>();
+        ASSERT_TRUE(scene.set_material_scalar(first, "roughness", 0.75f, materials));
+        SceneExtractor::extract(scene, snapshot);
+        ASSERT_EQ(snapshot.render_items.size(), 2u);
+        const auto updated =
+            std::ranges::find(snapshot.render_items, first.get_id(), &RenderItem::entity_id);
+        ASSERT_NE(updated, snapshot.render_items.end());
+        ASSERT_TRUE(updated->material_overrides);
+        EXPECT_FLOAT_EQ(updated->material_overrides->scalar_properties.at("roughness"), 0.75f);
+        EXPECT_FLOAT_EQ(
+            frozen.render_items.front().material_overrides->scalar_properties.at("roughness"),
+            0.25f);
+        ASSERT_TRUE(runtime.stop());
+        SceneExtractor::extract(scene, snapshot);
+        for(const auto& item : snapshot.render_items)
+            EXPECT_FALSE(item.material_overrides);
+        EXPECT_FLOAT_EQ(
+            frozen.render_items.front().material_overrides->scalar_properties.at("roughness"),
+            0.25f);
+    }
+
     TEST(SceneExtractorTest, ExtractsOnlyEntitiesWithRequiredComponents) {
         Scene scene;
 

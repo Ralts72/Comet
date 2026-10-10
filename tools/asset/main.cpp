@@ -5,7 +5,7 @@
 #include <chrono>
 #include <iostream>
 #include <string_view>
-#include <vector>
+#include <utility>
 
 int main(int argc, char** argv) {
     if(argc != 2 || std::string_view(argv[1]) == "--help") {
@@ -19,17 +19,18 @@ int main(int argc, char** argv) {
     }
     const auto start = std::chrono::steady_clock::now();
     const std::filesystem::path config_directory = COMET_CONFIG_DIRECTORY;
-    std::vector<std::string> files{(config_directory / "common.yaml").string()};
-    if(!std::string_view(COMET_CONFIG_PROFILE).empty())
-        files.push_back(
+    Comet::Config config;
+    if(!std::string_view(COMET_CONFIG_PROFILE).empty()) {
+        auto loaded = Comet::ConfigLoader{}.load(
             (config_directory / "profiles" / (std::string(COMET_CONFIG_PROFILE) + ".yaml"))
                 .string());
-    auto config = Comet::ConfigLoader{}.load(files);
-    if(!config) {
-        std::cerr << config.error() << '\n';
-        return 1;
+        if(!loaded) {
+            std::cerr << loaded.error() << '\n';
+            return 1;
+        }
+        config = std::move(loaded).value();
     }
-    if(auto prepared = Comet::prepare_project(project.value(), config.value().assets); !prepared) {
+    if(auto prepared = Comet::prepare_project(project.value(), config.assets); !prepared) {
         std::cerr << "Project preparation failed: " << prepared.error() << '\n';
         return 1;
     }

@@ -1,7 +1,6 @@
 string(RANDOM LENGTH 12 RANDOM_SUFFIX)
 set(ROOT "${TEST_ROOT}/${RANDOM_SUFFIX} cache")
 file(MAKE_DIRECTORY "${ROOT}/config/profiles")
-file(WRITE "${ROOT}/config/common.yaml" "vulkan: {msaa_samples: 1}\n")
 file(WRITE "${ROOT}/config/profiles/probe.yaml"
         "diagnostics: {enable_validation: true, enable_file_logging: false, log_level: info}\n")
 foreach(EXPECTED IN ITEMS missing restored)

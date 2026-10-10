@@ -3,4 +3,3 @@ diagnostics:
   # 最低日志级别：info、warn、error、critical 或 off。
   log_level: warn
   enable_file_logging: false
-  enable_validation: false

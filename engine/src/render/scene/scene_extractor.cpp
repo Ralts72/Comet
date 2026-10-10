@@ -13,7 +13,6 @@ namespace Comet {
     void SceneExtractor::extract(Scene& scene, RenderScene& render_scene) {
         scene.update_world_transforms();
         render_scene.cameras.clear();
-        render_scene.render_items.clear();
         render_scene.lights.clear();
         render_scene.environment = scene.get_environment();
         render_scene.post_process = scene.get_post_process();
@@ -36,17 +35,23 @@ namespace Comet {
                     .far_clip = camera.far_clip});
             });
 
-        render_scene.render_items.reserve(scene.component_count<MeshRendererComponent>());
+        // 复用已有快照槽位；查询过滤掉缺少 Transform 的实体后再收缩。
+        render_scene.render_items.resize(scene.component_count<MeshRendererComponent>());
+        std::size_t item_count = 0;
         scene.each<const MeshRendererComponent, const TransformComponent, WorldTransformComponent,
             IdComponent>(
             [&](Entity entity, const MeshRendererComponent& mesh, const TransformComponent&,
                 const WorldTransformComponent& world_transform, const IdComponent& id) {
-                render_scene.render_items.push_back({.entity_id = id.id,
-                    .model_matrix = world_transform.world_matrix,
-                    .mesh_handle = mesh.mesh,
-                    .material_handle = mesh.material,
-                    .material_overrides = scene.get_material_overrides(entity)});
+                auto& item = render_scene.render_items[item_count++];
+                item.entity_id = id.id;
+                item.model_matrix = world_transform.world_matrix;
+                item.mesh_handle = mesh.mesh;
+                item.material_handle = mesh.material;
+                const auto overrides = scene.get_material_overrides(entity);
+                if(item.material_overrides != overrides)
+                    item.material_overrides = overrides;
             });
+        render_scene.render_items.resize(item_count);
 
         render_scene.lights.reserve(scene.component_count<LightComponent>());
         scene.each<const LightComponent, WorldTransformComponent, IdComponent>(

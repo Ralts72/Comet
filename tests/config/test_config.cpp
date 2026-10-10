@@ -2,13 +2,11 @@
 
 #include "config/config.h"
 #include "config/config_loader.h"
-#include "core/math_utils.h"
 
 #include <array>
 #include <filesystem>
 #include <fstream>
 #include <random>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -54,9 +52,8 @@ TEST(ConfigTest, ProjectProfilesDefineExpectedDiagnosticsPolicy) {
         std::filesystem::path(std::string(PROJECT_ROOT_DIR)) / "config";
     for(const auto& expectation : expectations) {
         SCOPED_TRACE(expectation.name);
-        const auto loaded = ConfigLoader{}.load(std::vector<std::string>{
-            (config_directory / "common.yaml").string(),
-            (config_directory / "profiles" / (std::string(expectation.name) + ".yaml")).string()});
+        const auto loaded = ConfigLoader{}.load(
+            (config_directory / "profiles" / (std::string(expectation.name) + ".yaml")).string());
         ASSERT_TRUE(loaded) << loaded.error();
         const Config& config = loaded.value();
 
@@ -83,55 +80,15 @@ TEST(ConfigTest, RenderDiagnosticsIsIndependentAndValidatesBoolean) {
     EXPECT_NE(loaded.error().find("diagnostics.enable_render_diagnostics"), std::string::npos);
 }
 
-TEST(ConfigTest, ParsesStartupOutputModesAndValidatesCalibration) {
-    for(const auto& [name, mode] : std::array{std::pair{"sdr", OutputMode::Sdr},
-            std::pair{"hdr", OutputMode::Hdr}, std::pair{"auto", OutputMode::Auto}}) {
-        const TemporaryConfigFile file(std::string("render:\n  output_mode: ") + name
-                                       + "\n  hdr_headroom: 2.5\n  hdr_white_level: 1.25\n");
-        const auto loaded = ConfigLoader{}.load(file.path());
-        ASSERT_TRUE(loaded) << loaded.error();
-        EXPECT_EQ(loaded.value().render.output_mode, mode);
-        EXPECT_FLOAT_EQ(loaded.value().render.hdr_headroom, 2.5f);
-        EXPECT_FLOAT_EQ(loaded.value().render.hdr_white_level, 1.25f);
-    }
-    for(const auto value : {"0", "17", ".inf", ".nan", "wrong"}) {
-        const TemporaryConfigFile file(std::string("render:\n  hdr_headroom: ") + value);
-        const auto loaded = ConfigLoader{}.load(file.path());
-        ASSERT_FALSE(loaded);
-        EXPECT_NE(loaded.error().find("render.hdr_headroom"), std::string::npos);
-    }
-    for(const auto value : {"0.4", "2.1", ".inf", ".nan", "wrong"}) {
-        const TemporaryConfigFile file(std::string("render:\n  hdr_white_level: ") + value);
-        const auto loaded = ConfigLoader{}.load(file.path());
-        ASSERT_FALSE(loaded);
-        EXPECT_NE(loaded.error().find("render.hdr_white_level"), std::string::npos);
-    }
-    const TemporaryConfigFile invalid("render:\n  output_mode: wrong");
-    EXPECT_FALSE(ConfigLoader{}.load(invalid.path()));
-    const TemporaryConfigFile empty("{}");
-    const auto defaults = ConfigLoader{}.load(empty.path());
-    ASSERT_TRUE(defaults);
-    EXPECT_EQ(defaults.value().render.output_mode, OutputMode::Sdr);
-}
-
 TEST(ConfigTest, ParsesExplicitConfiguration) {
     const TemporaryConfigFile file(R"(
 vulkan:
   surface_format: rgba8_unorm
   color_space: srgb_nonlinear
   depth_format: d24_unorm_s8_uint
-  present_mode: mailbox
   swapchain_image_count: 4
-  msaa_samples: 8
 render:
   max_frames_in_flight: 3
-  max_anisotropy: 16
-window:
-  width: 901
-  height: 517
-  title: "Ignored YAML Title"
-  fullscreen: true
-  resizable: false
 diagnostics:
   log_level: warn
   enable_file_logging: true
@@ -147,35 +104,45 @@ diagnostics:
     EXPECT_TRUE(config.diagnostics.log.enable_file_logging);
     EXPECT_FALSE(config.diagnostics.enable_profiler);
 
-    EXPECT_EQ(config.window.width, 901);
-    EXPECT_EQ(config.window.height, 517);
-    EXPECT_EQ(config.window.title, Config::Window{}.title);
-    EXPECT_EQ(config.window.mode, WindowMode::Fullscreen);
-    EXPECT_FALSE(config.window.resizable);
-
     EXPECT_EQ(config.vulkan.surface_format, Format::R8G8B8A8_UNORM);
     EXPECT_EQ(config.vulkan.color_space, ImageColorSpace::SrgbNonlinearKHR);
     EXPECT_EQ(config.vulkan.depth_format, Format::D24_UNORM_S8_UINT);
-    EXPECT_EQ(config.vulkan.present_mode, PresentMode::Mailbox);
     EXPECT_EQ(config.vulkan.swapchain_image_count, 4u);
-    EXPECT_EQ(config.vulkan.msaa_samples, SampleCount::Count8);
     EXPECT_FALSE(config.vulkan.enable_validation);
 
     EXPECT_EQ(config.render.max_frames_in_flight, 3u);
-    EXPECT_FLOAT_EQ(config.render.max_anisotropy, 16.0f);
 }
 
 TEST(ConfigTest, UsesDefaultsForMissingFields) {
-    const TemporaryConfigFile file("window:\n  width: 960\n");
+    const TemporaryConfigFile file("diagnostics:\n  log_level: warn\n");
 
     const auto loaded = ConfigLoader{}.load(file.path());
     ASSERT_TRUE(loaded) << loaded.error();
     const Config& config = loaded.value();
 
-    EXPECT_EQ(config.window.width, 960);
+    EXPECT_EQ(config.window.width, Config::Window{}.width);
     EXPECT_EQ(config.window.height, Config::Window{}.height);
-    EXPECT_EQ(config.diagnostics.log.level, Config::Log{}.level);
+    EXPECT_EQ(config.diagnostics.log.level, "warn");
     EXPECT_FLOAT_EQ(config.render.max_anisotropy, Config::Render{}.max_anisotropy);
+    EXPECT_EQ(config.assets.async.working_bytes, AssetImportLimits{}.async.working_bytes);
+}
+
+TEST(ConfigTest, EmptyProfileUsesCppDefaults) {
+    for(const auto contents : {"{}", "# All defaults are built in.\n"}) {
+        SCOPED_TRACE(contents);
+        const TemporaryConfigFile file(contents);
+        const auto loaded = ConfigLoader{}.load(file.path());
+        ASSERT_TRUE(loaded) << loaded.error();
+        const auto& config = loaded.value();
+        EXPECT_EQ(config.window.width, 960);
+        EXPECT_EQ(config.window.height, 720);
+        EXPECT_EQ(config.vulkan.msaa_samples, SampleCount::Count4);
+        EXPECT_EQ(config.vulkan.present_mode, PresentMode::Immediate);
+        EXPECT_FLOAT_EQ(config.render.max_anisotropy, 8);
+        EXPECT_EQ(config.render.output_mode, OutputMode::Sdr);
+        EXPECT_EQ(config.diagnostics.log.level, Config::Log{}.level);
+        EXPECT_EQ(config.assets.source_bytes, AssetImportLimits{}.source_bytes);
+    }
 }
 
 TEST(ConfigTest, ParsesAssetImportBudgetsAndRejectsInvalidValues) {
@@ -228,45 +195,15 @@ TEST(ConfigTest, ExplicitValidationSettingOverridesDefault) {
     EXPECT_EQ(config.vulkan.enable_validation, expected);
 }
 
-TEST(ConfigTest, LaterLayersOverrideEarlierLayersBeforeValidation) {
-    const TemporaryConfigFile common(R"(
-window:
-  width: 0
-  height: 800
-render:
-  max_anisotropy: 4
-diagnostics:
-  log_level: info
-  enable_profiler: true
-)");
-    const TemporaryConfigFile profile(R"(
-window:
-  width: 1200
-diagnostics:
-  log_level: warn
-)");
-
-    const auto loaded =
-        ConfigLoader{}.load(std::vector<std::string>{common.path(), profile.path()});
-    ASSERT_TRUE(loaded) << loaded.error();
-    const Config& config = loaded.value();
-
-    EXPECT_EQ(config.window.width, 1200);
-    EXPECT_EQ(config.window.height, 800);
-    EXPECT_FLOAT_EQ(config.render.max_anisotropy, 4.0f);
-    EXPECT_EQ(config.diagnostics.log.level, "warn");
-    EXPECT_TRUE(config.diagnostics.enable_profiler);
-}
-
 TEST(ConfigTest, RejectsInvalidFieldTypeWithFieldAndFileContext) {
-    const TemporaryConfigFile file("window:\n  width: wide\n");
+    const TemporaryConfigFile file("render:\n  max_frames_in_flight: many\n");
 
     const auto result = ConfigLoader{}.load(file.path());
     ASSERT_FALSE(result);
     const auto& message = result.error();
     EXPECT_NE(message.find(file.path()), std::string::npos);
-    EXPECT_NE(message.find("window.width"), std::string::npos);
-    EXPECT_NE(message.find("expected an integer"), std::string::npos);
+    EXPECT_NE(message.find("render.max_frames_in_flight"), std::string::npos);
+    EXPECT_NE(message.find("expected a non-negative integer"), std::string::npos);
 }
 
 TEST(ConfigTest, ValidatesRequiredPositiveValues) {
@@ -275,40 +212,49 @@ TEST(ConfigTest, ValidatesRequiredPositiveValues) {
     EXPECT_FALSE(ConfigLoader{}.load(file.path()));
 }
 
-TEST(ConfigTest, RejectsInvalidAnisotropy) {
-    const TemporaryConfigFile file("render:\n  max_anisotropy: 0\n");
-
-    EXPECT_FALSE(ConfigLoader{}.load(file.path()));
-}
-
 TEST(ConfigTest, RejectsUnknownVulkanEnumName) {
-    const TemporaryConfigFile file("vulkan:\n  present_mode: fastest\n");
+    const TemporaryConfigFile file("vulkan:\n  depth_format: unknown\n");
 
     const auto result = ConfigLoader{}.load(file.path());
     ASSERT_FALSE(result);
     const auto& message = result.error();
-    EXPECT_NE(message.find("vulkan.present_mode"), std::string::npos);
-    EXPECT_NE(message.find("fastest"), std::string::npos);
+    EXPECT_NE(message.find("vulkan.depth_format"), std::string::npos);
+    EXPECT_NE(message.find("unknown"), std::string::npos);
 }
 
-TEST(ConfigTest, RejectsRemovedVsyncOverride) {
-    const TemporaryConfigFile file("render:\n  enable_vsync: true\n");
-    const auto result = ConfigLoader{}.load(file.path());
-    ASSERT_FALSE(result);
-    EXPECT_NE(result.error().find("render.enable_vsync"), std::string::npos);
-    EXPECT_NE(result.error().find("vulkan.present_mode"), std::string::npos);
+TEST(ConfigTest, RejectsPlayerSettingsAndUnknownDeveloperKeys) {
+    constexpr std::array cases = {std::pair{"window: {width: 1200}", "window"},
+        std::pair{"vulkan: {msaa_samples: 8}", "vulkan.msaa_samples"},
+        std::pair{"vulkan: {present_mode: fifo}", "vulkan.present_mode"},
+        std::pair{"render: {max_anisotropy: 16}", "render.max_anisotropy"},
+        std::pair{"render: {output_mode: auto}", "render.output_mode"},
+        std::pair{"render: {hdr_headroom: 8}", "render.hdr_headroom"},
+        std::pair{"render: {hdr_white_level: 1.25}", "render.hdr_white_level"},
+        std::pair{"render: {enable_vsync: true}", "render.enable_vsync"},
+        std::pair{"diagnostics: {log_levle: warn}", "diagnostics.log_levle"},
+        std::pair{"assets: {async: {unknown: 2}}", "assets.async.unknown"}};
+    for(const auto& [contents, key] : cases) {
+        SCOPED_TRACE(contents);
+        const TemporaryConfigFile file(contents);
+        const auto result = ConfigLoader{}.load(file.path());
+        ASSERT_FALSE(result);
+        EXPECT_NE(result.error().find(file.path()), std::string::npos);
+        EXPECT_NE(result.error().find(key), std::string::npos);
+        EXPECT_NE(result.error().find("unknown developer setting"), std::string::npos);
+    }
 }
 
-TEST(ConfigTest, RejectsUnsupportedMsaaSampleCount) {
-    const TemporaryConfigFile file("vulkan:\n  msaa_samples: 3\n");
-
-    EXPECT_FALSE(ConfigLoader{}.load(file.path()));
+TEST(ConfigTest, RejectsMalformedProfileAndSectionTypes) {
+    for(const auto contents : {"[diagnostics]", "diagnostics: true", "assets: null",
+            "assets: {async: []}", "diagnostics: {log_level: [warn]}", "diagnostics: ["}) {
+        SCOPED_TRACE(contents);
+        const TemporaryConfigFile file(contents);
+        const auto result = ConfigLoader{}.load(file.path());
+        ASSERT_FALSE(result);
+        EXPECT_NE(result.error().find(file.path()), std::string::npos);
+    }
 }
 
 TEST(ConfigTest, ReportsMissingFile) {
     EXPECT_FALSE(ConfigLoader{}.load("missing-config.yaml"));
-}
-
-TEST(ConfigTest, RejectsEmptyLayerList) {
-    EXPECT_FALSE(ConfigLoader{}.load(std::vector<std::string>{}));
 }

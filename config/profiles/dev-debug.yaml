@@ -1,7 +1,5 @@
 # Debug 运行时诊断配置。
 diagnostics:
-  # 最低日志级别：trace、debug、info、warn、error、critical 或 off。
-  log_level: trace
   enable_file_logging: false
   enable_profiler: true
   enable_render_diagnostics: true
