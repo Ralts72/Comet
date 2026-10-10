@@ -6,7 +6,7 @@
 #include "core/math_utils.h"
 #include "scene/entity_id.h"
 #include "scene/entity_uuid.h"
-#include "scene/light_type.h"
+#include "scene/scene_settings.h"
 
 #include <string>
 #include <type_traits>

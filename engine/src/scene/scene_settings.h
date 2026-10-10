@@ -6,6 +6,8 @@
 #include "common/result.h"
 
 namespace Comet {
+    enum class LightType { Directional = 0, Point = 1, Spot = 2 };
+
     struct COMET_API SceneEnvironment {
         static constexpr float MAX_INTENSITY = 64.0f;
         static constexpr float MAX_COLOR = 65504.0f;

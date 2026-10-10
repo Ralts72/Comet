@@ -6,6 +6,7 @@
 #include "render/resource/render_resources.h"
 #include "support/engine_fixture.h"
 
+#include <algorithm>
 #include <limits>
 
 namespace Comet::Tests {
@@ -53,6 +54,20 @@ namespace Comet::Tests {
             {.vertices = {{{-2, -2, -2}}, {{2, -2, -2}}, {{0, 2, 2}}}, .indices = {0, 1, 2}});
         ASSERT_TRUE(replacement);
         items[0].mesh = replacement.value();
+        geometry.prepare(items);
+        EXPECT_EQ(geometry.get_scene_bounds()->minimum, Math::Vec3(3, -2, -2));
+        EXPECT_EQ(geometry.get_scene_bounds()->maximum, Math::Vec3(7, 2, 2));
+
+        items.push_back(
+            {.model_matrix = Math::translate(Math::Mat4(1), {-20, 0, 0}), .mesh = mesh.value()});
+        geometry.prepare(items);
+        EXPECT_EQ(geometry.get_scene_bounds()->minimum, Math::Vec3(-20, -2, -2));
+        EXPECT_EQ(geometry.get_scene_bounds()->maximum, Math::Vec3(7, 2, 2));
+        std::reverse(items.begin(), items.end());
+        geometry.prepare(items);
+        EXPECT_EQ(geometry.get_scene_bounds()->minimum, Math::Vec3(-20, -2, -2));
+        EXPECT_EQ(geometry.get_scene_bounds()->maximum, Math::Vec3(7, 2, 2));
+        items.erase(items.begin());
         geometry.prepare(items);
         EXPECT_EQ(geometry.get_scene_bounds()->minimum, Math::Vec3(3, -2, -2));
         EXPECT_EQ(geometry.get_scene_bounds()->maximum, Math::Vec3(7, 2, 2));

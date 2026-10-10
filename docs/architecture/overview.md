@@ -102,7 +102,7 @@ Engine／Renderer／设备等工厂先准备完整 owner，成功后交付；部
 
 数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
 RenderScene 是不借用组件的 CPU 快照，由 Engine 持有并复用容量；其头文件只依赖数学、资产身份和场景值契约，不传递包含组件或后端实现。
-灯光类型由 `scene/light_type` 供组件与快照共用。RenderSubmission 保活本次实际资源，Scene 不持有 GPU 对象。
+RenderSubmission 保活本次实际资源，Scene 不持有 GPU 对象。
 Mesh／Texture 的公共头只声明上传数据类型，CPU 数据定义由需要读取或构造数据的实现显式包含；AssetLoader 的公共头同样只借用数据库声明。
 帧延期时跳过 UI／提取／绘制，Runtime 仍推进；最小化时等待并重置墙钟增量和待处理输入。
 Editor 先完成即时属性编辑再提取，拾取反馈在场景和 Overlay 录制前应用。场景切换统一结束旧交互、清理失效请求并重绑选择与引用。
@@ -195,6 +195,7 @@ MaterialRenderer 负责具体 Pipeline、参数／纹理绑定与绘制；Shader
 ### 材质准备与寿命
 
 SceneResolver 先解析版本，再裁剪／排序；场景与阴影共享可复用几何准备，阴影按自己的可见范围处理。
+几何准备为每个物体计算一次世界包围盒，场景界限直接合并各包围盒的最小／最大值；移除物体后重新收缩，不保留上一帧的界限。
 兼容物体按网格、材质版本和变换分组实例化；帧槽复用未变化矩阵，变化后上传。准备缓存保留实际版本，过期项按身份清理。
 材质参数／descriptor 不原地覆盖在途对象，新版本替换缓存，FrameSlot 保留旧资源直到 GPU 完成。
 编辑器材质手势先准备可绘制候选，预览不写磁盘；确认一次保存并提交依赖，取消恢复原版本。Editor 工作流协调文件和 GPU 发布。

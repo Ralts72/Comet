@@ -15,6 +15,7 @@ namespace Comet {
 
         [[nodiscard]] static BoundingBox from_point(Math::Vec3 point);
         void include(Math::Vec3 point);
+        void include(const BoundingBox& box);
         [[nodiscard]] bool is_valid() const;
         [[nodiscard]] Math::Vec3 center() const;
         [[nodiscard]] Math::Vec3 size() const;

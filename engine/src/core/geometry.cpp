@@ -40,6 +40,11 @@ namespace Comet {
         };
     }
 
+    void BoundingBox::include(const BoundingBox& box) {
+        minimum = glm::min(minimum, box.minimum);
+        maximum = glm::max(maximum, box.maximum);
+    }
+
     bool BoundingBox::is_valid() const {
         return Math::is_finite(minimum) && Math::is_finite(maximum) && minimum.x <= maximum.x
                && minimum.y <= maximum.y && minimum.z <= maximum.z;

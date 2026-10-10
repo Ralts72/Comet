@@ -15,10 +15,8 @@ namespace Comet {
                 continue;
             if(!m_scene_bounds)
                 m_scene_bounds = bounds;
-            else {
-                m_scene_bounds->include(bounds->minimum);
-                m_scene_bounds->include(bounds->maximum);
-            }
+            else
+                m_scene_bounds->include(*bounds);
         }
     }
 

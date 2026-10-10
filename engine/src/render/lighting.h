@@ -3,7 +3,7 @@
 #include "common/export.h"
 #include "core/geometry.h"
 #include "scene/entity_id.h"
-#include "scene/light_type.h"
+#include "scene/scene_settings.h"
 
 #include <array>
 #include <cstdint>
