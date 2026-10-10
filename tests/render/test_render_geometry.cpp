@@ -186,6 +186,69 @@ namespace Comet::Tests {
             EXPECT_EQ(item.model_matrix[3].x, float(item.entity_id - 1));
     }
 
+    TEST_F(RenderGeometryTest, SingleInsertionRemovalAndLateMovementRefreshSceneBounds) {
+        auto mesh = engine->get_render_resources().try_create_mesh(
+            {.vertices = {{{-1, -1, -1}}, {{1, -1, -1}}, {{0, 1, 1}}}, .indices = {0, 1, 2}});
+        ASSERT_TRUE(mesh);
+        AssetRegistry assets;
+        const AssetHandle handle{10};
+        ASSERT_TRUE(assets.register_asset(handle, mesh.value()));
+        const auto make_item = [&](EntityId id, float x) {
+            return ResolvedRenderItem{.entity_id = id,
+                .transform_revision = 1,
+                .model_matrix = Math::translate(Math::Mat4(1), {x, 0, 0}),
+                .mesh_handle = handle,
+                .mesh_revision = assets.get_revision(handle),
+                .mesh = mesh.value()};
+        };
+        RenderSubmission submission{.scene_lifetime = 1,
+            .render_items = {make_item(1, -10), make_item(2, 0), make_item(3, 10)}};
+        auto& items = submission.render_items;
+        RenderGeometry geometry;
+        const auto verify = [&](float minimum, float maximum) {
+            geometry.prepare(submission);
+            ASSERT_EQ(geometry.get_items().size(), items.size());
+            for(std::size_t index = 0; index < items.size(); ++index) {
+                const auto expected =
+                    transform_box(items[index].mesh->get_local_bounds(), items[index].model_matrix);
+                ASSERT_TRUE(expected);
+                ASSERT_TRUE(geometry.get_items()[index].world_bounds);
+                EXPECT_EQ(geometry.get_items()[index].source, &items[index]);
+                EXPECT_EQ(geometry.get_items()[index].world_bounds->minimum, expected->minimum);
+                EXPECT_EQ(geometry.get_items()[index].world_bounds->maximum, expected->maximum);
+            }
+            ASSERT_TRUE(geometry.get_scene_bounds());
+            EXPECT_EQ(geometry.get_scene_bounds()->minimum.x, minimum);
+            EXPECT_EQ(geometry.get_scene_bounds()->maximum.x, maximum);
+            geometry.clear();
+            EXPECT_TRUE(geometry.get_items().empty());
+            EXPECT_FALSE(geometry.get_scene_bounds());
+        };
+        verify(-11, 11);
+        verify(-11, 11);
+        items.erase(items.begin());
+        verify(-1, 11);
+        items.insert(items.begin(), make_item(4, -30));
+        verify(-31, 11);
+        items.erase(items.begin() + 1);
+        verify(-31, 11);
+        items.push_back(make_item(5, 40));
+        verify(-31, 41);
+        items.back().model_matrix = Math::translate(Math::Mat4(1), {-100, 0, 0});
+        ++items.back().transform_revision;
+        verify(-101, 11);
+        items.back().model_matrix[0][0] = std::numeric_limits<float>::quiet_NaN();
+        ++items.back().transform_revision;
+        geometry.prepare(submission);
+        EXPECT_FALSE(geometry.get_items().back().world_bounds);
+        ASSERT_TRUE(geometry.get_scene_bounds());
+        EXPECT_EQ(geometry.get_scene_bounds()->minimum.x, -31);
+        items.clear();
+        geometry.prepare(submission);
+        EXPECT_TRUE(geometry.get_items().empty());
+        EXPECT_FALSE(geometry.get_scene_bounds());
+    }
+
     TEST_F(RenderGeometryTest, VersionedSubmissionsRefreshMovementPublicationOrderAndSceneSwitch) {
         AssetRegistry assets;
         auto original = engine->get_render_resources().try_create_mesh(

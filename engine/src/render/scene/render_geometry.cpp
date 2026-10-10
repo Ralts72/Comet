@@ -2,12 +2,34 @@
 
 #include "render/resource/mesh.h"
 
+#include <algorithm>
+
 namespace Comet {
     void RenderGeometry::prepare(const RenderSubmission& submission) {
         clear();
         const auto& items = submission.render_items;
         const bool same_scene =
             submission.scene_lifetime != 0 && submission.scene_lifetime == m_scene_lifetime;
+        const auto previous_size = m_bounds.size();
+        // 单个增删确认相邻身份后移动一次后缀；其余重排仍逐槽核对。
+        if(same_scene && (items.size() == previous_size + 1 || previous_size == items.size() + 1)) {
+            std::size_t index = 0;
+            while(index < std::min(items.size(), previous_size)
+                  && items[index].entity_id == m_bounds[index].entity_id)
+                ++index;
+            if(items.size() > previous_size
+                && (index == previous_size
+                    || items[index + 1].entity_id == m_bounds[index].entity_id)) {
+                m_bounds.emplace_back();
+                std::move_backward(m_bounds.begin() + index, m_bounds.end() - 1, m_bounds.end());
+                m_bounds[index] = {};
+            } else if(previous_size > items.size()
+                      && (index == items.size()
+                          || items[index].entity_id == m_bounds[index + 1].entity_id)) {
+                std::move(m_bounds.begin() + index + 1, m_bounds.end(), m_bounds.begin() + index);
+                m_bounds.pop_back();
+            }
+        }
         m_items.reserve(items.size());
         m_bounds.resize(items.size());
         for(std::size_t index = 0; index < items.size(); ++index) {
