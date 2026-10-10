@@ -47,6 +47,15 @@ button[disabled] {
     tab-index: none;
 }
 .primary { background-color: #2c698d; border-color: #52a8cc; }
+.icon {
+    width: 24dp;
+    height: 24dp;
+    margin-right: 4dp;
+    vertical-align: middle;
+    pointer-events: none;
+}
+.icon.trailing { margin-right: 0; margin-left: 4dp; }
+button[disabled] .icon { opacity: 0.45; }
 #menu {
     display: block;
     position: absolute;

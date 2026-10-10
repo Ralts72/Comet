@@ -1,4 +1,5 @@
 #include "input/player_input_edit.h"
+#include "asset/import/texture_importer.h"
 
 #include <RmlUi/Core.h>
 #include <RmlUi/Core/DataModelHandle.h>
@@ -32,7 +33,16 @@ namespace {
         void ReleaseGeometry(const Rml::CompiledGeometryHandle handle) override {
             EXPECT_EQ(geometry.erase(handle), 1u);
         }
-        Rml::TextureHandle LoadTexture(Rml::Vector2i&, const Rml::String&) override { return 0; }
+        Rml::TextureHandle LoadTexture(Rml::Vector2i& size, const Rml::String& source) override {
+            auto image = Comet::TextureImporter{}.import(source, {.flip_y = false});
+            EXPECT_TRUE(image) << image.error();
+            if(!image)
+                return 0;
+            size = {image.value().width, image.value().height};
+            const auto handle = ++m_next;
+            textures.emplace(handle, image.value().pixels.size());
+            return handle;
+        }
         Rml::TextureHandle GenerateTexture(
             const Rml::Span<const Rml::byte> source, const Rml::Vector2i size) override {
             EXPECT_GT(size.x, 0);
@@ -172,6 +182,23 @@ namespace {
         std::string display_text;
         bool initialized = false;
     };
+}
+
+TEST_F(DemoUiDocumentTest, ClickingTheSettingsIconActivatesItsButton) {
+    ASSERT_TRUE(context->Render());
+    auto* settings = document->GetElementById("settings");
+    ASSERT_NE(settings, nullptr);
+    auto* icon = settings->GetChild(0);
+    ASSERT_NE(icon, nullptr);
+    ASSERT_EQ(icon->GetTagName(), "img");
+    const auto position = icon->GetAbsoluteOffset(Rml::BoxArea::Content)
+                          + icon->GetBox().GetSize(Rml::BoxArea::Content) * 0.5f;
+    context->ProcessMouseMove(int(position.x), int(position.y), 0);
+    context->ProcessMouseButtonDown(0, 0);
+    context->ProcessMouseButtonUp(0, 0);
+    ASSERT_FALSE(commands.empty());
+    EXPECT_EQ(commands.back(), "open");
+    EXPECT_TRUE(system.diagnostics.empty());
 }
 
 TEST_F(DemoUiDocumentTest, AudioSliderHasVisibleGeometryAndSupportsKeyboardChanges) {

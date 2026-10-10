@@ -60,14 +60,15 @@ compile_shaders(
         SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/imgui_hdr.frag"
 )
 
-add_library(editor_imgui STATIC src/ui/imgui_context.cpp)
+add_library(editor_imgui STATIC src/ui/imgui_context.cpp src/ui/icons.cpp)
 add_dependencies(editor_imgui editor_imgui_shaders)
 target_include_directories(editor_imgui
         PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src"
         PRIVATE "${COMET_EDITOR_SHADER_DIRECTORY}/include")
 target_link_libraries(editor_imgui PUBLIC engine imgui)
 target_compile_definitions(editor_imgui PRIVATE
-        COMET_EDITOR_FONT_DIRECTORY="${CMAKE_SOURCE_DIR}/engine/resources/fonts")
+        COMET_EDITOR_FONT_DIRECTORY="${CMAKE_SOURCE_DIR}/engine/resources/fonts"
+        COMET_EDITOR_ICON_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/ui")
 target_compile_options(editor_imgui PUBLIC "$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
 
 add_library(editor_ui STATIC

@@ -2,6 +2,7 @@
 
 #include <imgui.h>
 #include "graphics/result.h"
+#include "ui/icons.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -82,6 +83,7 @@ namespace CometEditor::Ui {
         bool m_initialized = false;
         bool m_is_recreating = false;
         uint32_t m_backend_image_count = 0;
+        IconAtlas m_icons;
         // 后端借用上面的 GPU 资源；构造失败时必须先关闭后端。
         std::unique_ptr<::ImGuiContext, ContextDeleter> m_context;
     };

@@ -17,7 +17,7 @@ Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，
 | `editor/` | 编辑器入口，`src/` 按 scene、viewport、assets、inspector、project、render、ui 组织，`resources/` 保存私有图标和语言词表 |
 | `editor/src/ui/`、`editor/shaders/` | 编辑器 ImGui 控件与呈现适配；后端单独构建为 `editor_imgui`，设置面板属于 `editor/src/project/` |
 | `app/` | 通用项目 Runtime 入口与 `resources/` 私有图标 |
-| `demo/assets/ui/` | 示例项目的 RML 页面、RCSS 样式与 Lua UI 控制器 |
+| `demo/assets/ui/` | 示例项目的 RML 页面、RCSS 样式、Lua UI 控制器与菜单图标 |
 | `demo/` | 随仓库提供的完整示例项目，与引擎／编辑器源码分开 |
 | `demo/assets/` | 示例场景、源资产及相邻 `.meta`；可选大资源由脚本下载，不进入版本控制 |
 | `demo/assets/scripts/` | Lua 项目行为；默认字段由脚本声明，实体仅保存覆盖值 |
@@ -27,6 +27,11 @@ Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，
 | `tests/`、`3rdparty/` | GoogleTest 测试与第三方依赖 |
 
 类入口、依赖方向和资源所有权见[架构文档](docs/architecture/overview.md)。
+
+编辑器工具栏与 demo 菜单选用了“570+ 图标 v1.0.3”中的少量透明 PNG。
+编辑器图标合入 ImGui 字体图集；游戏图标由项目 RmlUi 页面引用。
+来源对应关系与原包许可分别保存在 `editor/resources/icons/ui/` 和 `demo/licenses/ui-icons/`。
+许可允许个人、商业使用，无需署名，禁止转售原图标包及修改后的图标包。
 
 ## 构建与运行
 

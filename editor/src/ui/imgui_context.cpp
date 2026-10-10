@@ -170,6 +170,9 @@ namespace CometEditor::Ui {
             return Comet::Result<void, Comet::GraphicsError>::failure(
                 {"Cannot load ImGui Chinese font"});
 
+        if(auto icons = m_icons.load(*io.Fonts, COMET_EDITOR_ICON_DIRECTORY); !icons)
+            return Comet::Result<void, Comet::GraphicsError>::failure({icons.error()});
+
         ImGui::StyleColorsDark();
 
         if(!ImGui_ImplGlfw_InitForVulkan(m_window.get(), true))

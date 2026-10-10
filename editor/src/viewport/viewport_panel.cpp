@@ -1,5 +1,6 @@
 #include "viewport/viewport_panel.h"
 #include "ui/shortcuts.h"
+#include "ui/icons.h"
 #include "scene/selection.h"
 #include "viewport/transform_gizmo.h"
 #include "scene/scene_runtime.h"
@@ -123,13 +124,13 @@ namespace CometEditor {
         ImGui::TextDisabled("%s", "|");
         ImGui::SameLine();
         ImGui::BeginDisabled(is_playing);
-        if(ImGui::Button(Ui::label("Play").c_str(), button_size)) {
+        if(Ui::icon_button(Ui::Icon::Play, Ui::label("Play").c_str(), button_size)) {
             m_play_command = PlayCommand::Play;
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::BeginDisabled(!is_playing);
-        if(ImGui::Button(Ui::label("Stop").c_str(), button_size)) {
+        if(Ui::icon_button(Ui::Icon::Stop, Ui::label("Stop").c_str(), button_size)) {
             m_play_command = PlayCommand::Stop;
         }
         ImGui::EndDisabled();
@@ -146,7 +147,7 @@ namespace CometEditor {
             ImGui::SameLine();
             ImGui::Checkbox(Ui::label("Game UI").c_str(), &m_show_game_ui);
             ImGui::SameLine();
-            if(ImGui::Button(Ui::label("Reload UI").c_str()))
+            if(Ui::icon_button(Ui::Icon::Reload, Ui::label("Reload UI").c_str()))
                 m_game_ui_reload_requested = true;
         }
         ImGui::Separator();
@@ -158,25 +159,25 @@ namespace CometEditor {
         ImGui::SameLine();
         ImGui::BeginDisabled(!m_runtime.is_active());
         if(paused) {
-            if(ImGui::Button(">##Resume", button_size))
+            if(Ui::icon_button(Ui::Icon::Play, "继续###>##Resume", button_size))
                 m_play_command = PlayCommand::Resume;
-        } else if(ImGui::Button("||##Pause", button_size)) {
+        } else if(Ui::icon_button(Ui::Icon::Pause, "暂停###||##Pause", button_size)) {
             m_play_command = PlayCommand::Pause;
         }
         ImGui::SameLine();
         ImGui::BeginDisabled(!paused);
-        if(ImGui::Button("|>##Step", button_size))
+        if(Ui::icon_button(Ui::Icon::Step, "单步###|>##Step", button_size))
             m_play_command = PlayCommand::Step;
         ImGui::EndDisabled();
         ImGui::SameLine();
-        if(ImGui::Button(Ui::label("Input").c_str(), button_size))
+        if(Ui::icon_button(Ui::Icon::Input, Ui::label("Input").c_str(), button_size))
             m_play_command = PlayCommand::InputSettings;
         ImGui::EndDisabled();
     }
 
     void ViewportPanel::render_gizmo_settings() {
-        if(ImGui::Button(
-               Ui::label("Tool").c_str(), ImVec2(TOOLBAR_BUTTON_WIDTH, ImGui::GetFrameHeight())))
+        if(Ui::icon_button(Ui::Icon::Settings, Ui::label("Tool").c_str(),
+               ImVec2(TOOLBAR_BUTTON_WIDTH, ImGui::GetFrameHeight())))
             ImGui::OpenPopup("Gizmo Settings");
         if(!ImGui::BeginPopup("Gizmo Settings"))
             return;

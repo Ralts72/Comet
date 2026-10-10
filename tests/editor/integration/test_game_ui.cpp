@@ -42,6 +42,8 @@ namespace CometEditor::Tests {
             for(const auto* file : {"runtime.rml", "runtime.rcss", "runtime.ui.lua"})
                 std::filesystem::copy_file(
                     demo / "assets/ui" / file, documents.path() / "assets/ui" / file);
+            std::filesystem::copy(demo / "assets/ui/icons", documents.path() / "assets/ui/icons",
+                std::filesystem::copy_options::recursive);
             auto loaded = Comet::Project::load(documents.path());
             ASSERT_TRUE(loaded) << loaded.error();
             project = std::move(loaded).value();

@@ -51,6 +51,8 @@ namespace Comet::Tests {
             for(const auto* name : {"runtime.rml", "runtime.rcss", "runtime.ui.lua"})
                 std::filesystem::copy_file(std::filesystem::path(COMET_TEST_UI_DIRECTORY) / name,
                     documents.path() / "ui" / name);
+            std::filesystem::copy(std::filesystem::path(COMET_TEST_UI_DIRECTORY) / "icons",
+                documents.path() / "ui/icons", std::filesystem::copy_options::recursive);
             original_document = read("runtime.rml");
             original_controller = read("runtime.ui.lua");
             const auto project = Project::load(std::filesystem::path(PROJECT_ROOT_DIR) / "demo");

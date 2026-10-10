@@ -6,7 +6,7 @@
 <body data-model="ui">
     <div id="hud">
         <span id="fps">{{ fps_text }}</span>
-        <button id="settings" data-event-click="command('open')" data-attrif-disabled="!menu_available">设置 / F1</button>
+        <button id="settings" data-event-click="command('open')" data-attrif-disabled="!menu_available"><img class="icon" src="icons/settings.png" />设置 / F1</button>
         <div id="notice">{{ error_text }}</div>
     </div>
     <div id="menu" style="display: none;">
@@ -14,7 +14,7 @@
             <div class="eyebrow">COMET · 游戏设置</div>
             <h1>游戏设置</h1>
             <div id="display" data-if="display_available">
-                <p>显示设置</p>
+                <p><img class="icon" src="icons/display.png" />显示设置</p>
                 <div class="display-dimensions">
                     <label for="display-width">宽</label>
                     <input id="display-width" type="text" maxlength="10" size="6" data-attr-value="display_width" data-event-change="command('display_width', ev.value)" data-attrif-disabled="waiting" />
@@ -49,7 +49,7 @@
             </div>
             <p id="display-error">{{ display_error }}</p>
             <div id="quality" data-if="quality_available">
-                <p>画质设置</p>
+                <p><img class="icon" src="icons/image.png" />画质设置</p>
                 <p id="quality-preset" class="hint">草稿档位：{{ quality_preset }}</p>
                 <button id="quality-performance" data-event-click="command('quality_preset', 'performance')" data-attrif-disabled="waiting">性能</button>
                 <button id="quality-balanced" data-event-click="command('quality_preset', 'balanced')" data-attrif-disabled="waiting">均衡</button>
@@ -65,7 +65,7 @@
                 <button id="quality-apply" data-event-click="command('quality_apply')" data-attrif-disabled="waiting">应用画质设置</button>
             </div>
             <div id="audio" data-if="audio_available">
-                <p>音量设置</p>
+                <p><img class="icon" src="icons/audio.png" />音量设置</p>
                 <label for="audio-master">主音量：{{ audio_master }}%</label>
                 <input id="audio-master" type="range" min="0" max="100" step="1" data-attr-value="audio_master" data-event-change="command('audio_master', ev.value)" data-attrif-disabled="waiting" />
                 <label for="audio-effects">音效：{{ audio_effects }}%</label>
@@ -78,19 +78,19 @@
                 <button id="audio-restore" data-event-click="command('audio_restore')" data-attrif-disabled="waiting">音量默认值</button>
                 <button id="audio-apply" data-event-click="command('audio_apply')" data-attrif-disabled="waiting">应用音量设置</button>
             </div>
-            <p class="muted">选择动作，录入新的按键或手柄按钮。取消不会保存草稿。</p>
+            <p class="muted"><img class="icon" src="icons/input.png" />选择动作，录入新的按键或手柄按钮。取消不会保存草稿。</p>
             <div id="action-selector">
-                <button id="previous" data-event-click="command('previous')" data-attrif-disabled="waiting || !has_actions">上一个</button>
+                <button id="previous" data-event-click="command('previous')" data-attrif-disabled="waiting || !has_actions"><img class="icon" src="icons/previous.png" />上一个</button>
                 <span id="action-name">{{ action_name }}</span>
-                <button id="next" data-event-click="command('next')" data-attrif-disabled="waiting || !has_actions">下一个</button>
+                <button id="next" data-event-click="command('next')" data-attrif-disabled="waiting || !has_actions">下一个<img class="icon trailing" src="icons/next.png" /></button>
             </div>
             <div id="bindings"></div>
             <p id="status">{{ status_text }}</p>
             <p id="error">{{ error_text }}</p>
             <div id="footer">
-                <button id="restore" data-event-click="command('restore')" data-attrif-disabled="waiting">改键默认值</button>
-                <button id="cancel" data-event-click="command('cancel')" data-attrif-disabled="waiting">取消</button>
-                <button id="apply" class="primary" data-event-click="command('apply')" data-attrif-disabled="waiting || !has_actions">应用改键并返回</button>
+                <button id="restore" data-event-click="command('restore')" data-attrif-disabled="waiting"><img class="icon" src="icons/restore.png" />改键默认值</button>
+                <button id="cancel" data-event-click="command('cancel')" data-attrif-disabled="waiting"><img class="icon" src="icons/close.png" />取消</button>
+                <button id="apply" class="primary" data-event-click="command('apply')" data-attrif-disabled="waiting || !has_actions"><img class="icon" src="icons/confirm.png" />应用改键并返回</button>
             </div>
             <p class="hint">键鼠：Tab / 方向键选择，Enter 确认，Esc 返回 · 手柄：方向键选择，A 确认，B 返回</p>
         </div>
