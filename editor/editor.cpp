@@ -209,9 +209,10 @@ namespace {
                                 return Comet::Result<void>::failure(
                                     "Player display settings are unavailable");
                             const auto current = m_player_display_settings->settings();
-                            if(settings.mode != current.mode || settings.vsync != current.vsync)
+                            if(settings.mode != current.mode || settings.vsync != current.vsync
+                                || settings.output != current.output)
                                 return Comet::Result<void>::failure(
-                                    "Window mode and VSync apply only in the standalone App");
+                                    "Window mode, VSync and HDR apply only in the standalone App");
                             return m_player_display_settings->save_and_apply(
                                 settings, [this](const auto& candidate) {
                                     m_viewport->panel().set_play_resolution(

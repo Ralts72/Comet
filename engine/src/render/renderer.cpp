@@ -22,6 +22,10 @@ namespace Comet {
         using Creation = Result<std::unique_ptr<Renderer>, GraphicsError>;
         if(settings.render.max_frames_in_flight == 0)
             return Creation::failure({"Renderer requires at least one frame slot"});
+        const OutputSettings output{settings.render.output_mode, settings.render.hdr_headroom,
+            settings.render.hdr_white_level};
+        if(auto valid = output.validate(); !valid)
+            return Creation::failure({valid.error()});
         auto context = RenderContext::create(window, settings.vulkan, settings.render);
         if(!context)
             return Creation::failure(context.error());
@@ -42,6 +46,7 @@ namespace Comet {
         if(auto enabled = renderer->m_diagnostics->set_enabled(settings.enable_diagnostics);
             !enabled)
             return Creation::failure({enabled.error()});
+        renderer->m_output = output;
         return Creation::success(std::move(renderer));
     }
 
@@ -57,7 +62,7 @@ namespace Comet {
             Presentation::Dependent{[this] { m_scene_renderer->release_presentation_target(); },
                 [this](const SwapchainCompatibility& compatibility) {
                     return m_scene_renderer->rebuild_presentation_target(
-                        m_render_context->get_swapchain(), compatibility);
+                        *m_render_resources, m_render_context->get_swapchain(), compatibility);
                 }});
     }
 
@@ -92,11 +97,25 @@ namespace Comet {
         m_programs->collect_removed();
         m_scene_renderer->collect_removed_assets(m_asset_registry);
 
+        if(m_pending_output) {
+            const auto output = std::exchange(m_pending_output, std::nullopt).value();
+            if(auto calibrated = m_scene_renderer->configure_output_calibration(
+                   output.hdr_headroom, output.hdr_white_level);
+                !calibrated)
+                return Preparation::failure(calibrated.error());
+            if(m_render_context->get_swapchain().request_output_mode(output.mode)) {
+                m_presentation->request_recreation();
+                m_output_recreating = true;
+            }
+            m_output = output;
+        }
         auto preparation = m_presentation->begin_frame();
         if(!preparation) {
             discard_frame_requests();
             return Preparation::failure(preparation.error());
         }
+        if(preparation.value())
+            m_output_recreating = false;
         if(preparation.value() && m_pending_quality) {
             const auto quality = std::exchange(m_pending_quality, std::nullopt);
             auto applied = m_scene_renderer->configure_quality(
@@ -239,6 +258,26 @@ namespace Comet {
     bool Renderer::is_vsync_enabled() const {
         return m_render_context->get_swapchain().get_active_generation()->get_config().present_mode
                != vk::PresentModeKHR::eImmediate;
+    }
+
+    Result<void, GraphicsError> Renderer::request_output_settings(OutputSettings settings) {
+        if(m_shutdown_prepared)
+            return Result<void, GraphicsError>::failure({"Renderer is shutting down"});
+        if(m_scene_renderer->is_offscreen())
+            return Result<void, GraphicsError>::failure(
+                {"Display output settings require a standalone presentation"});
+        if(auto valid = settings.validate(); !valid)
+            return Result<void, GraphicsError>::failure({valid.error()});
+        m_pending_output.reset();
+        if(settings != m_output)
+            m_pending_output = settings;
+        return Result<void, GraphicsError>::success();
+    }
+
+    bool Renderer::is_hdr_output() const {
+        const auto& config =
+            m_render_context->get_swapchain().get_active_generation()->get_config();
+        return config.surface_format.colorSpace == vk::ColorSpaceKHR::eExtendedSrgbLinearEXT;
     }
 
     void Renderer::request_swapchain_recreation() {

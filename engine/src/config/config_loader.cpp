@@ -170,6 +170,7 @@ namespace Comet {
                     "a non-negative integer")
                 || !reader.named("render.output_mode", config.render.output_mode, OUTPUT_MODES)
                 || !reader.read("render.hdr_headroom", config.render.hdr_headroom, "a number")
+                || !reader.read("render.hdr_white_level", config.render.hdr_white_level, "a number")
                 || !reader.read("render.max_anisotropy", config.render.max_anisotropy, "a number"))
                 return Result<void>::failure(reader.error());
             if(!reader.read(
@@ -225,6 +226,10 @@ namespace Comet {
             || config.render.hdr_headroom > 16.0f)
             return Result<Config>::failure(config_error(
                 sources, "render.hdr_headroom", "must be a finite number between 1 and 16"));
+        if(!std::isfinite(config.render.hdr_white_level) || config.render.hdr_white_level < 0.5f
+            || config.render.hdr_white_level > 2.0f)
+            return Result<Config>::failure(config_error(
+                sources, "render.hdr_white_level", "must be a finite number between 0.5 and 2"));
         if(config.assets.async.in_flight == 0 || config.assets.async.queued == 0
             || config.assets.external_file_queue == 0)
             return Result<Config>::failure(

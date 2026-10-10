@@ -95,7 +95,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(loaded);
         auto project = std::move(loaded).value();
         EXPECT_EQ(project.display_settings(), DisplaySettings{});
-        const DisplaySettings defaults{1920, 1080, WindowMode::Borderless, true};
+        const DisplaySettings defaults{
+            1920, 1080, WindowMode::Borderless, true, {OutputMode::Auto, 6, 1.25f}};
         ASSERT_TRUE(project.save_display_settings(defaults));
         ASSERT_TRUE(project.save_name("Renamed"));
         auto reopened = Project::load(root);

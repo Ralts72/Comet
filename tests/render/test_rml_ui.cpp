@@ -68,7 +68,7 @@ namespace Comet::Tests {
         }
 
         Math::Vec3 expected_pixel(const Math::Vec3 background, const Math::Vec3 straight_srgb,
-            const float alpha, const Format format) {
+            const float alpha, const Format format, const float white_level = 1) {
             Math::Vec3 value;
             for(int channel = 0; channel < 3; ++channel) {
                 if(format == Format::R8G8B8A8_UNORM || format == Format::B8G8R8A8_UNORM) {
@@ -77,8 +77,9 @@ namespace Comet::Tests {
                         straight_srgb[channel] * alpha + background[channel] * (1 - alpha);
                     continue;
                 }
-                value[channel] =
-                    decode_srgb(straight_srgb[channel]) * alpha + background[channel] * (1 - alpha);
+                const auto white = format == Format::R16G16B16A16_SFLOAT ? white_level : 1;
+                value[channel] = decode_srgb(straight_srgb[channel]) * alpha * white
+                                 + background[channel] * (1 - alpha);
                 if(format == Format::R8G8B8A8_SRGB || format == Format::B8G8R8A8_SRGB)
                     value[channel] = encode_srgb(value[channel]);
             }
@@ -243,6 +244,7 @@ namespace Comet::Tests {
 
     TEST_F(RmlUiGpuTest, PremultipliedAlphaScissorTransformAndReleaseMatchSdrHdrPixels) {
         auto& renderer = engine->get_renderer();
+        ASSERT_TRUE(renderer.request_output_settings({OutputMode::Sdr, 4, 1.5f}));
         auto& host = renderer.get_render_context();
         auto& interface = ui->interface();
         const Math::Vec2u size{32, 32};
@@ -297,7 +299,7 @@ namespace Comet::Tests {
             expect_color(pixels, size, {13, 12}, format, untouched);
             expect_color(pixels, size, {25, 12}, format, untouched);
             expect_color(pixels, size, {20, 12}, format,
-                expected_pixel(background, {1, 0.25f, 0}, 128.f / 255, format));
+                expected_pixel(background, {1, 0.25f, 0}, 128.f / 255, format, 1.5f));
             renderer.set_overlay({});
             probe->draw = {};
         }

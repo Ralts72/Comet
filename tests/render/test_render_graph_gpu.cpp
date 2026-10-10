@@ -348,17 +348,24 @@ namespace Comet::Tests {
         struct Output {
             Format format;
             float headroom;
+            float white = 1;
         };
-        for(const auto [format, headroom] : {Output{Format::R8G8B8A8_SRGB, 1},
+        for(const auto [format, headroom, white] : {Output{Format::R8G8B8A8_SRGB, 1},
                 Output{Format::R8G8B8A8_UNORM, 1}, Output{Format::B8G8R8A8_SRGB, 1},
                 Output{Format::B8G8R8A8_UNORM, 1}, Output{Format::R16G16B16A16_SFLOAT, 1},
-                Output{Format::R16G16B16A16_SFLOAT, 4}, Output{Format::R16G16B16A16_SFLOAT, 16}}) {
+                Output{Format::R16G16B16A16_SFLOAT, 4}, Output{Format::R16G16B16A16_SFLOAT, 16},
+                Output{Format::R16G16B16A16_SFLOAT, 4, 0.5f},
+                Output{Format::R16G16B16A16_SFLOAT, 4, 2.0f},
+                Output{Format::R8G8B8A8_UNORM, 4, 2.0f}}) {
             const bool linear_hdr = format == Format::R16G16B16A16_SFLOAT;
             auto color_space = ImageColorSpace::SrgbNonlinearKHR;
             if(linear_hdr)
                 color_space = ImageColorSpace::ExtendedSrgbLinearEXT;
-            auto output_pass = OutputPass::create(device, format, true, 2, color_space, headroom);
+            auto output_pass =
+                OutputPass::create(device, format, true, 2, color_space, headroom, white);
             ASSERT_TRUE(output_pass) << output_pass.error().message;
+            EXPECT_FALSE(output_pass.value()->configure_calibration(0, white));
+            EXPECT_FALSE(output_pass.value()->configure_calibration(headroom, 2.1f));
             auto color = Attachment::get_color_attachment(Format::R16G16B16A16_SFLOAT);
             color.description.initial_layout = color.description.final_layout =
                 ImageLayout::ColorAttachmentOptimal;
@@ -448,10 +455,11 @@ namespace Comet::Tests {
                                     &half, bytes.data() + ((y * 4 + x) * 4 + channel) * 2, 2);
                                 const float actual = glm::unpackHalf1x16(half);
                                 const float mapped =
-                                    headroom
+                                    white * headroom
                                     * (1.0f - std::exp(-expected[channel] * exposure / headroom));
                                 EXPECT_NEAR(actual, mapped, 0.005f);
-                                if(y < 2 && channel == 0 && headroom > 1 && exposure == 1)
+                                if(y < 2 && channel == 0 && headroom > 1 && white >= 1
+                                    && exposure == 1)
                                     EXPECT_GT(actual, 1.0f);
                                 continue;
                             }
@@ -672,7 +680,7 @@ namespace Comet::Tests {
             physical, Config::Render::SCENE_COLOR_FORMAT, static_cast<SampleCount>(3)));
     }
 
-    TEST_F(RenderGraphGpuTest, StartupOutputModesPresentAndKeepTheirFormatOnRebuild) {
+    TEST_F(RenderGraphGpuTest, OutputModesSwitchAtRuntimeAndKeepTheirFormatOnResize) {
         for(const auto mode : {OutputMode::Sdr, OutputMode::Hdr, OutputMode::Auto}) {
             engine.reset();
             Config config;
@@ -701,8 +709,32 @@ namespace Comet::Tests {
                 ASSERT_TRUE(renderer.render_frame({}));
                 EXPECT_EQ(swapchain.get_active_generation()->get_config().surface_format, selected);
             }
+            for(const auto next_mode :
+                {OutputMode::Sdr, OutputMode::Auto, OutputMode::Hdr, OutputMode::Sdr}) {
+                const OutputSettings requested{next_mode, 8, 1.25f};
+                ASSERT_TRUE(renderer.request_output_settings(requested));
+                auto invalid = requested;
+                invalid.hdr_white_level = 0;
+                EXPECT_FALSE(renderer.request_output_settings(invalid));
+                const auto ready = renderer.prepare_frame();
+                ASSERT_TRUE(ready) << ready.error().message;
+                ASSERT_EQ(ready.value(), Renderer::FramePreparation::Ready);
+                ASSERT_TRUE(renderer.render_frame({}));
+                EXPECT_EQ(renderer.get_output_settings(), requested);
+                EXPECT_FALSE(renderer.output_pending());
+                const auto active = swapchain.get_active_generation()->get_config().surface_format;
+                EXPECT_EQ(renderer.is_hdr_output(),
+                    active.colorSpace == vk::ColorSpaceKHR::eExtendedSrgbLinearEXT);
+                if(next_mode == OutputMode::Sdr)
+                    EXPECT_FALSE(renderer.is_hdr_output());
+                renderer.request_swapchain_recreation();
+                ASSERT_TRUE(renderer.prepare_frame());
+                ASSERT_TRUE(renderer.render_frame({}));
+                EXPECT_EQ(swapchain.get_active_generation()->get_config().surface_format, active);
+            }
             renderer.wait_idle();
             ASSERT_TRUE(renderer.enable_offscreen_rendering({4, 4}));
+            EXPECT_FALSE(renderer.request_output_settings({OutputMode::Hdr, 4, 1}));
             EXPECT_EQ(renderer.get_scene_renderer()
                           .get_offscreen_color_view(0)
                           ->get_image()

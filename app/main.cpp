@@ -162,6 +162,10 @@ namespace {
                                     if(!applied)
                                         return applied;
                                     engine.get_renderer().set_vsync_enabled(candidate.vsync);
+                                    auto output = engine.get_renderer().request_output_settings(
+                                        candidate.output);
+                                    if(!output)
+                                        return Comet::Result<void>::failure(output.error().message);
                                     return Comet::Result<void>::success();
                                 });
                         },

@@ -76,6 +76,12 @@ namespace Comet::Tests {
                 services.apply_display = [this](DisplaySettings value) {
                     if(fail_display_save)
                         return Result<void>::failure("Simulated display save failure");
+                    if(!preview) {
+                        const auto requested =
+                            engine->get_renderer().request_output_settings(value.output);
+                        if(!requested)
+                            return Result<void>::failure(requested.error().message);
+                    }
                     saved_display = value;
                     ++display_applications;
                     return Result<void>::success();
@@ -363,12 +369,14 @@ return controller
         click("settings");
         click("display-size");
         click("display-vsync");
+        click("display-output-mode");
         click("cancel");
         EXPECT_EQ(display_applications, 0U);
         EXPECT_EQ(saved_display, DisplaySettings{});
         click("settings");
         click("display-size");
         click("display-vsync");
+        click("display-output-mode");
         fail_display_save = true;
         click("display-apply");
         EXPECT_EQ(display_applications, 0U);
@@ -380,24 +388,36 @@ return controller
         fail_display_save = false;
         click("display-apply");
         EXPECT_EQ(display_applications, 1U);
-        EXPECT_EQ(saved_display, (DisplaySettings{1280, 720, WindowMode::Windowed, true}));
+        EXPECT_EQ(saved_display,
+            (DisplaySettings{1280, 720, WindowMode::Windowed, true, {OutputMode::Hdr, 4, 1}}));
+        EXPECT_EQ(engine->get_renderer().get_output_settings(), saved_display.output);
+        ASSERT_TRUE(submit_frame());
+        const auto actual_output =
+            document().GetElementById("display-output-active")->GetInnerRML();
+        EXPECT_NE(actual_output.find(engine->get_renderer().is_hdr_output() ? "HDR" : "SDR"),
+            std::string::npos);
         EXPECT_TRUE(ui->is_modal());
     }
 
-    TEST_F(ProjectUiGpuTest, PreviewDisplayControlsKeepStandaloneModeAndVsync) {
+    TEST_F(ProjectUiGpuTest, PreviewDisplayControlsKeepStandaloneModeVsyncAndHdr) {
         display_services = true;
         preview = true;
         saved_display.mode = WindowMode::Fullscreen;
+        saved_display.output = {OutputMode::Hdr, 8, 1.25f};
+        const auto standalone_output = saved_display.output;
         create_ui(InputActions{});
         const auto editor_size = engine->get_window().get_size();
         click("settings");
         EXPECT_TRUE(document().GetElementById("display-mode")->HasAttribute("disabled"));
         EXPECT_TRUE(document().GetElementById("display-vsync")->HasAttribute("disabled"));
+        for(const auto* id : {"display-output-mode", "display-hdr-headroom", "display-hdr-white"})
+            EXPECT_TRUE(document().GetElementById(id)->HasAttribute("disabled")) << id;
         click("display-restore");
         click("display-apply");
         EXPECT_EQ(saved_display.width, 1280);
         EXPECT_EQ(saved_display.mode, WindowMode::Fullscreen);
         EXPECT_FALSE(saved_display.vsync);
+        EXPECT_EQ(saved_display.output, standalone_output);
         EXPECT_EQ(engine->get_window().get_size(), editor_size);
     }
 

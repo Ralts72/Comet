@@ -125,7 +125,7 @@ namespace Comet {
             return Result<RecreateStatus, GraphicsError>::failure(
                 {"Cannot query present modes", modes});
         const auto framebuffer_size = m_window.get_framebuffer_size();
-        // 启动时选择一次；resize / surface 恢复不能悄悄改变输出编码。
+        // 启动或显式修改模式时选择；resize / surface 恢复保持已选输出编码。
         const auto selection = select_swapchain(capabilities, surface_formats, present_modes,
             vk::Extent2D{framebuffer_size.x, framebuffer_size.y}, m_request, m_output_format);
         const auto& [status, config, message] = selection;
@@ -174,6 +174,15 @@ namespace Comet {
         if(m_request.present_mode == mode)
             return false;
         m_request.present_mode = mode;
+        return true;
+    }
+
+    bool Swapchain::request_output_mode(OutputMode mode) {
+        if(m_request.output_mode == mode)
+            return false;
+        m_request.output_mode = mode;
+        // 只有显式请求重新选择输出；普通 resize 和 surface 恢复仍固定有效编码。
+        m_output_format.reset();
         return true;
     }
 

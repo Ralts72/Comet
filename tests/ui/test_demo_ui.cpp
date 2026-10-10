@@ -106,15 +106,16 @@ namespace {
             ASSERT_TRUE(constructor.Bind("waiting", &waiting));
             ASSERT_TRUE(constructor.Bind("has_actions", &has_actions));
             for(const auto* name : {"display_available", "display_preview", "display_waiting",
-                    "quality_available", "audio_available"})
+                    "quality_available", "audio_available", "display_hdr_disabled"})
                 ASSERT_TRUE(constructor.Bind(name, &display_flag));
-            for(const auto* name :
-                {"display_size", "display_mode", "display_vsync", "display_status", "display_error",
-                    "display_width", "display_height", "display_active_vsync", "quality_msaa",
-                    "quality_anisotropy", "quality_scale", "quality_active", "quality_status",
-                    "quality_error", "quality_preset", "audio_active", "audio_error"})
+            for(const auto* name : {"display_size", "display_mode", "display_vsync",
+                    "display_status", "display_error", "display_width", "display_height",
+                    "display_active_vsync", "quality_msaa", "quality_anisotropy", "quality_scale",
+                    "quality_active", "quality_status", "quality_error", "quality_preset",
+                    "audio_active", "audio_error", "display_output_mode", "display_output_active"})
                 ASSERT_TRUE(constructor.Bind(name, &display_text));
-            for(const auto* name : {"audio_master", "audio_effects", "audio_music"})
+            for(const auto* name : {"audio_master", "audio_effects", "audio_music",
+                    "display_hdr_headroom", "display_hdr_white"})
                 ASSERT_TRUE(constructor.Bind(name, &audio_volume));
             ASSERT_TRUE(constructor.BindEventCallback(
                 "command", [this](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList& args) {

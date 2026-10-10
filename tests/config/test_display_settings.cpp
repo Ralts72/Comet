@@ -4,6 +4,7 @@
 #include "support/temporary_directory.h"
 
 #include <gtest/gtest.h>
+#include <limits>
 
 namespace Comet::Tests {
     class PlayerDisplaySettingsTest: public testing::Test {
@@ -19,7 +20,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(loaded) << loaded.error();
         EXPECT_EQ(loaded.value().settings(), defaults);
         EXPECT_FALSE(std::filesystem::exists(path()));
-        const DisplaySettings candidate{960, 720, WindowMode::Borderless, false};
+        const DisplaySettings candidate{
+            960, 720, WindowMode::Borderless, false, {OutputMode::Auto, 6.0f, 1.25f}};
         bool applied = false;
         ASSERT_TRUE(loaded.value().save_and_apply(candidate, [&](const DisplaySettings& value) {
             EXPECT_EQ(value, candidate);
@@ -50,11 +52,37 @@ namespace Comet::Tests {
         EXPECT_FALSE(loaded.value().save_and_apply({0, 720}, apply));
         EXPECT_FALSE(loaded.value().save_and_apply({960, -1}, apply));
         EXPECT_FALSE(loaded.value().save_and_apply({960, 720, static_cast<WindowMode>(99)}, apply));
+        auto invalid_output = defaults;
+        invalid_output.output.mode = static_cast<OutputMode>(99);
+        EXPECT_FALSE(loaded.value().save_and_apply(invalid_output, apply));
+        invalid_output = defaults;
+        for(const float value : {0.0f, 17.0f, std::numeric_limits<float>::quiet_NaN()}) {
+            invalid_output.output.hdr_headroom = value;
+            EXPECT_FALSE(loaded.value().save_and_apply(invalid_output, apply));
+        }
+        invalid_output = defaults;
+        for(const float value : {0.4f, 2.1f, std::numeric_limits<float>::infinity()}) {
+            invalid_output.output.hdr_white_level = value;
+            EXPECT_FALSE(loaded.value().save_and_apply(invalid_output, apply));
+        }
         std::filesystem::create_directory(path());
         EXPECT_FALSE(loaded.value().save_and_apply({960, 720}, apply));
         EXPECT_EQ(applications, 0U);
         EXPECT_EQ(loaded.value().settings(), defaults);
         EXPECT_FALSE(loaded.value().save_and_apply(defaults, {}));
+    }
+
+    TEST_F(PlayerDisplaySettingsTest, OldWindowChoicesInheritProjectOutputDefaults) {
+        defaults.output = {OutputMode::Hdr, 8.0f, 0.75f};
+        const auto contents = std::string("{\"version\":1,\"project_id\":\"")
+                              + project_id.to_string()
+                              + "\",\"display\":{\"width\":960,\"height\":720,"
+                                "\"mode\":\"borderless\",\"vsync\":false}}";
+        ASSERT_TRUE(write_text_file_atomic(path(), contents));
+        const auto loaded = PlayerDisplaySettings::load(project_id, defaults, path());
+        ASSERT_TRUE(loaded) << loaded.error();
+        EXPECT_EQ(loaded.value().settings(),
+            (DisplaySettings{960, 720, WindowMode::Borderless, false, defaults.output}));
     }
 
     TEST_F(PlayerDisplaySettingsTest, ReportsPersistedButUnappliedStateAndRejectsMalformedFiles) {

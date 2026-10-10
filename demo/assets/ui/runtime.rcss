@@ -120,8 +120,8 @@ p { display: block; margin: 8dp 0; }
 .display-dimensions input:focus { border-color: #7dc4ff; }
 .display-dimensions input[disabled] { color: #7c8ca4; tab-index: none; }
 
-#audio label { display: block; margin-top: 8dp; }
-#audio input {
+#audio label, #display label[for="display-hdr-headroom"], #display label[for="display-hdr-white"] { display: block; margin-top: 8dp; }
+.calibration, #audio input {
     display: block;
     width: 90%;
     max-width: 520dp;
@@ -132,8 +132,8 @@ p { display: block; margin: 8dp 0; }
     nav-up: auto;
     nav-down: auto;
 }
-#audio input slidertrack { height: 8dp; margin-top: 10dp; background-color: #101c2d; }
-#audio input sliderbar { width: 18dp; height: 28dp; border-radius: 4dp; background-color: #7495b9; }
-#audio input:focus sliderbar, #audio input sliderbar:active { background-color: #8dc8e6; }
-#audio input sliderarrowdec, #audio input sliderarrowinc { width: 0; height: 0; }
-#audio input[disabled] { opacity: 0.5; pointer-events: none; tab-index: none; }
+.calibration slidertrack, #audio input slidertrack { height: 8dp; margin-top: 10dp; background-color: #101c2d; }
+.calibration sliderbar, #audio input sliderbar { width: 18dp; height: 28dp; border-radius: 4dp; background-color: #7495b9; }
+.calibration:focus sliderbar, #audio input:focus sliderbar, .calibration sliderbar:active, #audio input sliderbar:active { background-color: #8dc8e6; }
+.calibration sliderarrowdec, #audio input sliderarrowdec, .calibration sliderarrowinc, #audio input sliderarrowinc { width: 0; height: 0; }
+.calibration[disabled], #audio input[disabled] { opacity: 0.5; pointer-events: none; tab-index: none; }

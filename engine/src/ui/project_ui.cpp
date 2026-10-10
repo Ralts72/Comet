@@ -506,7 +506,7 @@ namespace Comet::Ui {
                 return 2;
             }
             const auto push_settings = [&](const Comet::DisplaySettings& settings) {
-                lua_createtable(state, 0, 4);
+                lua_createtable(state, 0, 7);
                 lua_pushinteger(state, settings.width);
                 lua_setfield(state, -2, "width");
                 lua_pushinteger(state, settings.height);
@@ -516,10 +516,21 @@ namespace Comet::Ui {
                 lua_setfield(state, -2, "mode");
                 lua_pushboolean(state, settings.vsync);
                 lua_setfield(state, -2, "vsync");
+                const auto output_mode = OutputSettings::mode_name(settings.output.mode);
+                lua_pushlstring(state, output_mode.data(), output_mode.size());
+                lua_setfield(state, -2, "output_mode");
+                lua_pushnumber(state, settings.output.hdr_headroom);
+                lua_setfield(state, -2, "hdr_headroom");
+                lua_pushnumber(state, settings.output.hdr_white_level);
+                lua_setfield(state, -2, "hdr_white_level");
             };
             push_settings(loaded.value());
             lua_pushboolean(state, m_info.display_preview);
             lua_setfield(state, -2, "preview");
+            lua_pushboolean(state, m_renderer.is_hdr_output());
+            lua_setfield(state, -2, "hdr_active");
+            lua_pushboolean(state, m_renderer.output_pending());
+            lua_setfield(state, -2, "output_pending");
             push_settings(m_services.display_defaults);
             lua_setfield(state, -2, "defaults");
             return 1;
@@ -541,8 +552,38 @@ namespace Comet::Ui {
             return luaL_error(state, "Invalid display settings");
         if(!m_services.apply_display || !m_info.game_available)
             return luaL_error(state, "Display settings service is unavailable");
+        OutputSettings output;
+        if(lua_isnoneornil(state, 5)) {
+            bool loaded = false;
+            if(m_services.load_display) {
+                const auto settings = m_services.load_display();
+                if(settings) {
+                    output = settings.value().output;
+                    loaded = true;
+                }
+            }
+            if(!loaded)
+                return luaL_error(state, "Display output settings are unavailable");
+        } else {
+            const auto* output_mode = luaL_checkstring(state, 5);
+            const auto headroom = luaL_checknumber(state, 6);
+            const auto white = luaL_checknumber(state, 7);
+            bool valid_output = false;
+            {
+                const auto parsed = OutputSettings::parse_mode(output_mode);
+                if(parsed) {
+                    output.mode = parsed.value();
+                    valid_output = true;
+                }
+            }
+            if(!valid_output || !std::isfinite(headroom) || headroom < 1 || headroom > 16
+                || !std::isfinite(white) || white < 0.5 || white > 2)
+                return luaL_error(state, "Invalid display output settings");
+            output.hdr_headroom = static_cast<float>(headroom);
+            output.hdr_white_level = static_cast<float>(white);
+        }
         m_pending_display = Comet::DisplaySettings{static_cast<int>(width),
-            static_cast<int>(height), window_mode, bool(lua_toboolean(state, 4))};
+            static_cast<int>(height), window_mode, bool(lua_toboolean(state, 4)), output};
         return 0;
     }
 

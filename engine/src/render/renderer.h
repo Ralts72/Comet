@@ -4,6 +4,7 @@
 #include "graphics/vulkan_settings.h"
 #include "render/render_settings.h"
 #include "render/quality_settings.h"
+#include "render/output_settings.h"
 #include "render/scene/render_scene.h"
 #include "render/scene/scene_resolver.h"
 #include "render/scene/scene_picking.h"
@@ -81,6 +82,12 @@ namespace Comet {
         // 修改请求在下一次 prepare_frame 的交换链重建中生效。
         void set_vsync_enabled(bool enabled);
         [[nodiscard]] bool is_vsync_enabled() const;
+        [[nodiscard]] Result<void, GraphicsError> request_output_settings(OutputSettings settings);
+        [[nodiscard]] const OutputSettings& get_output_settings() const { return m_output; }
+        [[nodiscard]] bool is_hdr_output() const;
+        [[nodiscard]] bool output_pending() const {
+            return m_pending_output.has_value() || m_output_recreating;
+        }
         [[nodiscard]] Result<QualitySettings, GraphicsError> resolve_quality_settings(
             QualitySettings settings) const;
         [[nodiscard]] Result<void, GraphicsError> request_quality_settings(
@@ -148,5 +155,8 @@ namespace Comet {
         RenderSubmission m_submission;
         std::optional<QualitySettings> m_pending_quality;
         std::string m_quality_error;
+        OutputSettings m_output;
+        std::optional<OutputSettings> m_pending_output;
+        bool m_output_recreating = false;
     };
 }

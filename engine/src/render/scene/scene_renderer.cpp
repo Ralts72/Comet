@@ -80,7 +80,8 @@ namespace Comet {
     SceneRenderer::SceneRenderer(Device& device, MaterialPrograms& programs,
         const VulkanSettings& vulkan, const RenderSettings& render)
         : m_device(device), m_programs(programs), m_offscreen_format(vulkan.surface_format),
-          m_hdr_headroom(render.hdr_headroom), m_depth_format(vulkan.depth_format),
+          m_hdr_headroom(render.hdr_headroom), m_hdr_white_level(render.hdr_white_level),
+          m_depth_format(vulkan.depth_format),
           m_quality{static_cast<uint32_t>(vulkan.msaa_samples),
               std::min(render.max_anisotropy, device.get_capability().max_sampler_anisotropy),
               render.render_scale},
@@ -131,7 +132,8 @@ namespace Comet {
                 Graphics::format_to_vk(m_offscreen_format), vk::ColorSpaceKHR::eSrgbNonlinear};
         auto output_pass = OutputPass::create(m_device,
             Graphics::vk_to_format(surface_output.format), next->offscreen, m_frame_slot_count,
-            Graphics::vk_to_image_color_space(surface_output.colorSpace), m_hdr_headroom);
+            Graphics::vk_to_image_color_space(surface_output.colorSpace), m_hdr_headroom,
+            m_hdr_white_level);
         if(!output_pass)
             return Creation::failure(output_pass.error());
         next->output_pass = std::move(output_pass).value();
@@ -596,12 +598,27 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> SceneRenderer::rebuild_presentation_target(
-        Swapchain& swapchain, const SwapchainCompatibility& compatibility) {
+        RenderResources& resources, Swapchain& swapchain,
+        const SwapchainCompatibility& compatibility) {
         if(m_state->offscreen)
             return Result<void, GraphicsError>::success();
-        if(compatibility.format_changed)
-            return Result<void, GraphicsError>::failure(
-                {"Runtime swapchain format changed; RenderPass/Pipeline generation rebuild is not implemented yet"});
+        if(compatibility.format_changed) {
+            auto candidate = create_state(resources, &swapchain, {}, m_quality);
+            if(!candidate)
+                return Result<void, GraphicsError>::failure(candidate.error());
+            m_state = std::move(candidate).value();
+            return Result<void, GraphicsError>::success();
+        }
         return replace_targets(*m_state, &swapchain, {});
+    }
+
+    Result<void, GraphicsError> SceneRenderer::configure_output_calibration(
+        float headroom, float white_level) {
+        if(auto applied = m_state->output_pass->configure_calibration(headroom, white_level);
+            !applied)
+            return applied;
+        m_hdr_headroom = headroom;
+        m_hdr_white_level = white_level;
+        return Result<void, GraphicsError>::success();
     }
 }

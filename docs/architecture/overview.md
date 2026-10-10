@@ -1317,26 +1317,34 @@ replace_targets 先准备 HDR 和输出目标，再准备启用中的 Bloom 双�
 输入 Binding 最多按 slot 保留旧 HDR view，直到该 slot 换用新 view 或绘制器销毁。
 
 fullscreen triangle 不需要顶点缓冲，正高度 viewport 保持纹理方向。
-色调映射为 H * (1 - exp(-max(color, 0) * exposure / H))，SDR 的 H=1，HDR 的 H=render.hdr_headroom；
-H 表示相对白色的输出峰值（1..16，默认 4），不是显示器查询结果；曝光来自 PostProcessSettings，缺省为 1。
+色调映射为 W * H * (1 - exp(-max(color, 0) * exposure / H))，SDR 的 H=W=1；
+HDR 的 H 为 hdr_headroom（1..16，默认 4），W 为 hdr_white_level（0.5..2，默认 1）。
+H 表示相对于校准白色的高光峰值，W 是系统合成器白色的倍率，二者不是显示器查询结果；曝光来自 PostProcessSettings，缺省为 1。
 场景数据与渲染输入共用 PostProcessSettings::validate，拒绝非有限数和越界参数。sRGB 附件由硬件编码，UNORM 附件由 Shader 执行分段 sRGB 编码。
 扩展线性 HDR 输出必须是 RGBA16F + ExtendedSrgbLinearEXT，不做 gamma 编码，不再将高亮压进 0..1。
 白色基准 1 由系统合成器解释，不假定跨平台固定 nits；实际显示亮度仍由系统和屏幕决定。
+RmlRenderer 将 W 应用于 HDR 目标中的线性预乘 RGB，不改变 alpha；SDR 游戏 UI 和 ImGui 保持原有亮度。
 不支持 HDR10/PQ、自动曝光或动态后处理节点。
 世界空间辅助线与场景一起经过映射，ImGui 不经过场景色调映射。
 
 render.output_mode 默认 sdr；hdr / auto 在 surface 枚举中优先选择上述 HDR 格式与颜色空间组合，
 未提供时回退原配置的 SDR 组合并报告原因；不会挑选仅格式相同或仅颜色空间相同的条目。
 Context 可选启用 VK_EXT_swapchain_colorspace，未提供扩展时仍可启动 SDR。
-首次成功创建后 Swapchain 固定输出组合，resize / surface 恢复不重新切换模式；固定组合消失则按原有 Result 失败路径退出。
+成功创建后 Swapchain 固定输出组合，resize / surface 恢复保持该组合；显式模式修改才重新选择。
+固定组合消失则按原有 Result 失败路径退出。
 select_swapchain 通过独立的可选 fixed_output 接收该组合，优先严格校验；不修改请求的 OutputMode，
 也不再使用 Sdr 表示“跳过自动选择”。
-这是启动策略，不支持拖动跨屏或系统 HDR 热切换后的重新适配。auto 与 hdr 当前采用同一能力选择策略，日志保留不同请求值。
+DisplaySettings.output 持有 OutputSettings，项目默认值与玩家选择复用既有显示存储；旧窗口配置缺少 output 时继承项目输出默认值。
+Application 启动时合成输出设置，Renderer::request_output_settings 在 prepare_frame 消费请求；校准只改变后续录制的常量，
+模式切换完成在途帧与呈现后重建交换链。实际格式变化时准备整组 RenderState，UI 复用 presentation dependent 重建协议。
+创建新交换链后仍遵循原有退休语义，不能把失败描述为可回滚到旧交换链。菜单查询实际 HDR 与待应用状态。
+不支持拖动跨屏或系统 HDR 热切换后的自动适配。auto 与 hdr 当前采用同一能力选择策略，日志保留不同请求值。
 Editor 在 Application 启动前通过构造参数固定 SDR；共享 YAML 无法将编辑器换成 HDR。
 SceneRenderer 的离屏输出独立使用配置的 SDR 格式，呈现输出使用交换链实际格式和颜色空间。
 
 GPU 像素测试覆盖 RGBA/BGRA、sRGB/UNORM、曝光 1/0.25/0、高亮和暗部、上下方向及 alpha；
-还覆盖浮点 HDR 的 H=1/4/16、大于 1 的像素和无 gamma 编码，以及三种启动模式的真实呈现和重建。
+还覆盖浮点 HDR 的 H=1/4/16、W=0.5/1/2、大于 1 的像素和无 gamma 编码、SDR 忽略校准，
+以及三种启动模式和运行时往返切换的真实呈现、重建和游戏 UI 相对白色合成。
 生产场景覆盖 MSAA 1/4、resize 和旧输出的在途保活，并验证输出绘制器提前销毁后的帧资源寿命。
 双目标第二次分配的 OOM 尚无专项故障注入，不能把尺寸拒绝测试当成该失败路径已验证。
 

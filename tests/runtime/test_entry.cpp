@@ -146,26 +146,39 @@ namespace Comet::Tests {
         }
     }
 
-    TEST(ApplicationCreationTest, OutputOverrideWinsBeforeGraphicsInitialization) {
+    TEST(ApplicationCreationTest, DisplayOutputAppliesAndHostOverrideWinsBeforeInitialization) {
         class App final: public Application {
         public:
             using Application::Application;
+            OutputSettings expected;
             RunResult on_init() override {
+                EXPECT_EQ(get_engine().get_renderer().get_output_settings(), expected);
                 const auto& swapchain =
                     get_engine().get_renderer().get_render_context().get_swapchain();
-                EXPECT_EQ(swapchain.get_active_generation()->get_config().surface_format.colorSpace,
-                    vk::ColorSpaceKHR::eSrgbNonlinear);
+                if(expected.mode == OutputMode::Sdr)
+                    EXPECT_EQ(
+                        swapchain.get_active_generation()->get_config().surface_format.colorSpace,
+                        vk::ColorSpaceKHR::eSrgbNonlinear);
                 get_engine().get_window().request_close();
                 return RunResult::success();
             }
             void on_shutdown() override {}
-        } app({.output_mode = OutputMode::Sdr});
+        };
         Config config;
-        config.render.output_mode = OutputMode::Hdr;
+        config.render.hdr_headroom = 2;
+        config.render.hdr_white_level = 0.75f;
         config.window.width = 160;
         config.window.height = 120;
         config.diagnostics.log.enable_file_logging = false;
-        ASSERT_TRUE(app.run(config));
+        const DisplaySettings display{
+            160, 120, WindowMode::Windowed, false, {OutputMode::Hdr, 8, 1.25f}};
+        for(const auto mode : {std::optional<OutputMode>{}, std::optional{OutputMode::Sdr}}) {
+            App app({.output_mode = mode, .display_settings = display});
+            app.expected = display.output;
+            if(mode)
+                app.expected.mode = *mode;
+            ASSERT_TRUE(app.run(config));
+        }
     }
 
     TEST(ApplicationCreationTest, SceneOutputUsesConfigUnlessHostExplicitlyOverridesIt) {

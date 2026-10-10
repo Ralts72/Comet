@@ -332,6 +332,11 @@
 "Use script default": "使用脚本默认值"
 
 "Project Settings - Display": "项目设置 - 显示"
+"Output Mode": "输出模式"
+"Automatic": "自动"
+"HDR Headroom": "HDR 高光范围"
+"HDR White Level": "HDR 相对白色"
+"HDR calibration is relative; Play previews in SDR.": "HDR 使用相对校准，不代表固定 nit 值；Play 使用 SDR 预览。"
 "Display": "显示"
 "Window Width": "窗口宽度"
 "Window Height": "窗口高度"

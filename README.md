@@ -241,12 +241,14 @@ RmlUi 使用 FreeType 解析字体、读取字形度量并栅格化文字，Come
 词表为 `editor/resources/locales/zh-CN.yaml`，修改后重启生效；键和值须为字符串，格式占位符与英文键一致。
 缺词显示原始标识；内置词表无法读取或格式无效时，启动会报告错误。中文标签保留稳定控件 ID，继续复用已有布局。
 
-启动时的显示输出在 `config/common.yaml` 的 `render` 下设置，也可由当前 Profile 覆盖：
+App 的输出模式和 HDR 校准通过游戏「设置 → 显示设置」在运行中修改并保存，项目设置提供新玩家默认值。
+Editor 的 Play 固定使用 SDR 预览，保留独立 App 的输出选择。没有项目显示设置的宿主使用 YAML 启动默认值：
 
 ```yaml
 render:
-  output_mode: sdr  # sdr / hdr / auto，修改后重启
-  hdr_headroom: 4  # HDR 峰值相对于 SDR 白色的倍数，范围 1..16
+  output_mode: sdr  # sdr / hdr / auto
+  hdr_headroom: 4  # 高光峰值相对于校准白色的倍数，范围 1..16
+  hdr_white_level: 1  # 相对于系统合成器白色的倍率，范围 0.5..2
 ```
 
 `sdr` 强制普通输出；`hdr` / `auto` 在驱动提供 RGBA16F + 扩展线性 sRGB 时使用该组合，否则回退配置的 SDR 格式并记录原因。
@@ -255,7 +257,9 @@ Editor 的启动呈现模式由 `vulkan.present_mode` 选择；App 使用项目�
 交换链获取、呈现或重建时发生内存不足会报告错误并退出；窗口尺寸变化仍正常重建。
 日志区分请求模式与实际模式。`auto` 检测的是 Vulkan 输出支持，不是显示器实测亮度，也不会切换系统 HDR 设置。
 macOS 由 MoltenVK 配置 EDR layer；实际高亮受屏幕与系统亮度限制。编辑器启动策略暂时强制 SDR，避免 UI 和视口混用编码。
-HDR 使用相对白色的线性输出，不承诺固定 nits；暂不支持 HDR10/PQ、运行时切换、跨屏模式适配或自动亮度校准。
+HDR 使用相对白色的线性输出，不承诺固定 nits；相对白色同时影响场景和游戏 UI，高光范围只影响场景映射。
+SDR 忽略 HDR 校准，菜单显示实际输出及回退状态。输出模式切换在帧边界完成交换链、场景和 UI 重建。
+暂不支持 HDR10/PQ、跨屏模式适配或自动亮度校准。
 SDR/HDR 指显示输出；内部场景目前始终使用浮点 HDR 目标与最终输出 Pass，关闭 Bloom 不会切换成 LDR 管线。
 
 Bloom（泛光）和曝光属于场景内容，不在引擎 YAML 中配置。点击「层级 / Hierarchy」中的「场景 / Scene」，

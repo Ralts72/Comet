@@ -78,6 +78,7 @@ namespace Comet {
             const QualitySettings& settings) const;
         Result<void, GraphicsError> configure_quality(
             RenderResources& resources, Swapchain& swapchain, const QualitySettings& settings);
+        Result<void, GraphicsError> configure_output_calibration(float headroom, float white_level);
         [[nodiscard]] Result<MaterialRenderer::MaterialUpdate, GraphicsError>
         prepare_material_update(
             AssetHandle handle, const std::shared_ptr<const Material>& material);
@@ -88,7 +89,7 @@ namespace Comet {
         Result<MaterialRenderer::ReloadReport, GraphicsError> reload_material_shaders(
             MaterialShaders shaders);
         void release_presentation_target();
-        Result<void, GraphicsError> rebuild_presentation_target(
+        Result<void, GraphicsError> rebuild_presentation_target(RenderResources& resources,
             Swapchain& swapchain, const SwapchainCompatibility& compatibility);
 
         struct RenderState;
@@ -112,6 +113,7 @@ namespace Comet {
         MaterialPrograms& m_programs;
         Format m_offscreen_format;
         float m_hdr_headroom;
+        float m_hdr_white_level;
         Format m_depth_format;
         QualitySettings m_quality;
         uint32_t m_frame_slot_count;

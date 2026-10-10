@@ -25,12 +25,14 @@ namespace Comet {
         static Result<std::unique_ptr<OutputPass>, GraphicsError> create(Device& device,
             Format output_format, bool offscreen, uint32_t frame_slots,
             ImageColorSpace color_space = ImageColorSpace::SrgbNonlinearKHR,
-            float hdr_headroom = 4.0f);
+            float hdr_headroom = 4.0f, float hdr_white_level = 1.0f);
         ~OutputPass() = default;
         OutputPass(const OutputPass&) = delete;
         OutputPass& operator=(const OutputPass&) = delete;
 
         [[nodiscard]] RenderPass& get_render_pass() const { return *m_render_pass; }
+        [[nodiscard]] Result<void, GraphicsError> configure_calibration(
+            float headroom, float white_level);
         // 输入须为单采样 SampledRead；output 由本 pass 创建，Device 存活至 GPU 完成。
         [[nodiscard]] Result<void, GraphicsError> render(FrameScheduler& frames,
             const std::shared_ptr<RenderTarget>& output,
@@ -41,7 +43,7 @@ namespace Comet {
         OutputPass(Device& device, std::shared_ptr<RenderPass> pass,
             std::shared_ptr<DescriptorSetLayout> layout, std::shared_ptr<Sampler> sampler,
             std::shared_ptr<Pipeline> pipeline, uint32_t frame_slots, bool encode_srgb,
-            bool offscreen, float headroom);
+            bool offscreen, bool hdr);
 
         Device& m_device;
         std::shared_ptr<RenderPass> m_render_pass;
@@ -51,6 +53,8 @@ namespace Comet {
         std::vector<std::shared_ptr<SampledImageBinding>> m_bindings;
         bool m_encode_srgb;
         bool m_offscreen;
-        float m_headroom;
+        bool m_hdr;
+        float m_headroom = 1;
+        float m_white_level = 1;
     };
 }

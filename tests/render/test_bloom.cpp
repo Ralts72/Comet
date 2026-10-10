@@ -42,7 +42,7 @@ namespace Comet::Tests {
         ASSERT_EQ(bloom.value().get_push_constants().size(), 1u);
         ASSERT_EQ(display.value().get_push_constants().size(), 1u);
         EXPECT_EQ(bloom.value().get_push_constants()[0].size, 8u);
-        EXPECT_EQ(display.value().get_push_constants()[0].size, 20u);
+        EXPECT_EQ(display.value().get_push_constants()[0].size, 24u);
         EXPECT_EQ(bloom.value().get_bindings().size(), 1u);
         EXPECT_EQ(display.value().get_bindings().size(), 2u);
     }

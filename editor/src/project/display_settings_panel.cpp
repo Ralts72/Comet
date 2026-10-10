@@ -55,6 +55,29 @@ namespace CometEditor {
                 ImGui::EndCombo();
             }
             ImGui::Checkbox("VSync", &m_draft.vsync);
+            const auto output_label = [](Comet::OutputMode mode) {
+                if(mode == Comet::OutputMode::Auto)
+                    return Ui::text("Automatic");
+                return mode == Comet::OutputMode::Hdr ? "HDR" : "SDR";
+            };
+            ImGui::SetNextItemWidth(160);
+            if(ImGui::BeginCombo(
+                   Ui::label("Output Mode").c_str(), output_label(m_draft.output.mode))) {
+                for(const auto mode :
+                    {Comet::OutputMode::Sdr, Comet::OutputMode::Hdr, Comet::OutputMode::Auto}) {
+                    if(ImGui::Selectable(output_label(mode), m_draft.output.mode == mode))
+                        m_draft.output.mode = mode;
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SetNextItemWidth(160);
+            ImGui::DragFloat(Ui::label("HDR Headroom").c_str(), &m_draft.output.hdr_headroom, 0.1f,
+                1.0f, 16.0f, "%.2f");
+            ImGui::SetNextItemWidth(160);
+            ImGui::DragFloat(Ui::label("HDR White Level").c_str(), &m_draft.output.hdr_white_level,
+                0.05f, 0.5f, 2.0f, "%.2f");
+            ImGui::TextWrapped(
+                "%s", Ui::text("HDR calibration is relative; Play previews in SDR."));
             if(!m_error.empty()) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.25f, 0.2f, 1.0f));
                 ImGui::TextWrapped("%s", m_error.c_str());

@@ -10,6 +10,7 @@
 #include "graphics/resource/sampler.h"
 #include "render/frame_scheduler.h"
 #include "render/render_target.h"
+#include "render/output_settings.h"
 #include "render/resource/sampled_image_binding.h"
 #include "display_vert.h"
 #include "display_frag.h"
@@ -21,21 +22,22 @@ namespace Comet {
     OutputPass::OutputPass(Device& device, std::shared_ptr<RenderPass> pass,
         std::shared_ptr<DescriptorSetLayout> layout, std::shared_ptr<Sampler> sampler,
         std::shared_ptr<Pipeline> pipeline, const uint32_t frame_slots, const bool encode_srgb,
-        const bool offscreen, const float headroom)
+        const bool offscreen, const bool hdr)
         : m_device(device), m_render_pass(std::move(pass)), m_layout(std::move(layout)),
           m_sampler(std::move(sampler)), m_pipeline(std::move(pipeline)), m_bindings(frame_slots),
-          m_encode_srgb(encode_srgb), m_offscreen(offscreen), m_headroom(headroom) {}
+          m_encode_srgb(encode_srgb), m_offscreen(offscreen), m_hdr(hdr) {}
 
     Result<std::unique_ptr<OutputPass>, GraphicsError> OutputPass::create(Device& device,
         const Format output_format, const bool offscreen, const uint32_t frame_slots,
-        const ImageColorSpace color_space, const float hdr_headroom) {
+        const ImageColorSpace color_space, const float hdr_headroom, const float hdr_white_level) {
         using Creation = Result<std::unique_ptr<OutputPass>, GraphicsError>;
         const bool hdr = color_space == ImageColorSpace::ExtendedSrgbLinearEXT;
         if((hdr && output_format != Format::R16G16B16A16_SFLOAT)
             || (!hdr && color_space != ImageColorSpace::SrgbNonlinearKHR))
             return Creation::failure({"Unsupported output format / color space pair"});
-        if(!std::isfinite(hdr_headroom) || hdr_headroom < 1.0f || hdr_headroom > 16.0f)
-            return Creation::failure({"HDR headroom must be finite and between 1 and 16"});
+        const OutputSettings calibration{OutputMode::Sdr, hdr_headroom, hdr_white_level};
+        if(auto valid = calibration.validate(); !valid)
+            return Creation::failure({valid.error()});
         bool encode_srgb = false;
         switch(output_format) {
             case Format::R16G16B16A16_SFLOAT:
@@ -90,7 +92,7 @@ namespace Comet {
         ShaderLayout layout;
         layout.descriptor_set_layouts = {descriptor_layout.value()};
         layout.push_constants.push_back(
-            std::make_shared<PushConstantRange>(ShaderStage::Fragment, 0, 20));
+            std::make_shared<PushConstantRange>(ShaderStage::Fragment, 0, 24));
         PipelineConfig config;
         config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
         PipelineManager pipelines(device, *pass.value());
@@ -98,10 +100,21 @@ namespace Comet {
             pipelines.create_pipeline("tone_map", layout, config, vertex.value(), fragment.value());
         if(!pipeline)
             return Creation::failure(pipeline.error());
-        return Creation::success(std::unique_ptr<OutputPass>(
-            new OutputPass(device, std::move(pass).value(), std::move(descriptor_layout).value(),
-                std::move(sampler).value(), std::move(pipeline).value(), frame_slots, encode_srgb,
-                offscreen, hdr ? hdr_headroom : 1.0f)));
+        auto result = std::unique_ptr<OutputPass>(new OutputPass(device, std::move(pass).value(),
+            std::move(descriptor_layout).value(), std::move(sampler).value(),
+            std::move(pipeline).value(), frame_slots, encode_srgb, offscreen, hdr));
+        (void)result->configure_calibration(hdr_headroom, hdr_white_level);
+        return Creation::success(std::move(result));
+    }
+
+    Result<void, GraphicsError> OutputPass::configure_calibration(
+        float headroom, float white_level) {
+        const OutputSettings calibration{OutputMode::Sdr, headroom, white_level};
+        if(auto valid = calibration.validate(); !valid)
+            return Result<void, GraphicsError>::failure({valid.error()});
+        m_headroom = m_hdr ? headroom : 1;
+        m_white_level = m_hdr ? white_level : 1;
+        return Result<void, GraphicsError>::success();
     }
 
     Result<void, GraphicsError> OutputPass::render(FrameScheduler& frames,
@@ -153,13 +166,14 @@ namespace Comet {
             float headroom;
             float bloom_strength;
             uint32_t upsample_hdr;
+            float white_level;
         };
-        static_assert(sizeof(Parameters) == 20);
+        static_assert(sizeof(Parameters) == 24);
         const float strength = settings.uses_bloom() ? settings.bloom_strength : 0.0f;
         const auto source_size = hdr_color->get_image()->get_info().extent;
         const bool upsample = source_size.x != size.x || source_size.y != size.y;
-        const Parameters parameters{
-            settings.exposure, m_encode_srgb ? 1u : 0u, m_headroom, strength, upsample ? 1u : 0u};
+        const Parameters parameters{settings.exposure, m_encode_srgb ? 1u : 0u, m_headroom,
+            strength, upsample ? 1u : 0u, m_white_level};
         command.push_constants(*m_pipeline->get_layout(), Flags<ShaderStage>(ShaderStage::Fragment),
             0, &parameters, sizeof(parameters));
         command.draw(3);

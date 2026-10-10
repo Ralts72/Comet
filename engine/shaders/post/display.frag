@@ -8,6 +8,7 @@ layout(push_constant) uniform Parameters {
     float headroom;
     float bloom_strength;
     uint upsample_hdr;
+    float white_level;
 } parameters;
 layout(location = 0) in vec2 uv;
 layout(location = 0) out vec4 color;
@@ -34,7 +35,7 @@ void main() {
     hdr = clamp(hdr, 0.0, 65504.0);
     if(parameters.bloom_strength > 0.0)
         hdr = clamp(hdr + sample_bilinear(bloom_color, uv) * parameters.bloom_strength, 0.0, 65504.0);
-    vec3 mapped = parameters.headroom
+    vec3 mapped = parameters.white_level * parameters.headroom
         * (vec3(1.0) - exp(-hdr * parameters.exposure / parameters.headroom));
     if(parameters.encode_srgb != 0) {
         mapped = mix(1.055 * pow(mapped, vec3(1.0 / 2.4)) - 0.055,

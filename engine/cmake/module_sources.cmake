@@ -209,6 +209,7 @@ set(COMET_RENDER_SOURCES
     src/render/material/material_draw_queue.cpp
     src/render/render_settings.h
     src/render/quality_settings.cpp
+    src/render/output_settings.cpp
 )
 
 set(COMET_GAME_UI_SOURCES

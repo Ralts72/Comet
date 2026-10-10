@@ -44,6 +44,9 @@ namespace Comet {
             config.window.mode = display.mode;
             config.window.maximized = false;
             config.vulkan.present_mode = display.vsync ? PresentMode::Fifo : PresentMode::Immediate;
+            config.render.output_mode = m_options.output_mode.value_or(display.output.mode);
+            config.render.hdr_headroom = display.output.hdr_headroom;
+            config.render.hdr_white_level = display.output.hdr_white_level;
         }
         if(m_options.quality_settings) {
             config.vulkan.msaa_samples =

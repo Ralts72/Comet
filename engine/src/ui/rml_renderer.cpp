@@ -508,10 +508,17 @@ namespace Comet::Ui {
             const Comet::ScopeExit end_pass([&] { target.target->end_render_target(command); });
             command.set_viewport(vk::Viewport(0, 0, float(size.x), float(size.y), 0, 1));
             command.bind_pipeline(*m_active_pipeline->pipeline);
-            const std::uint32_t encoding = m_active_pipeline->encode_srgb ? 1 : 0;
+            struct OutputParameters {
+                std::uint32_t encoding;
+                float white_level;
+            };
+            static_assert(sizeof(OutputParameters) == 8);
+            const bool hdr = target.color_space == Comet::ImageColorSpace::ExtendedSrgbLinearEXT;
+            const OutputParameters parameters{m_active_pipeline->encode_srgb ? 1u : 0u,
+                hdr ? m_renderer.get_output_settings().hdr_white_level : 1.0f};
             command.push_constants(*m_active_pipeline->pipeline->get_layout(),
-                Comet::Flags<Comet::ShaderStage>(Comet::ShaderStage::Fragment), 80, &encoding,
-                sizeof(encoding));
+                Comet::Flags<Comet::ShaderStage>(Comet::ShaderStage::Fragment), 80, &parameters,
+                sizeof(parameters));
             if(!context.Render() && !m_error)
                 fail({"RmlUi context rendering failed"});
             if(auto pending = take_error())
@@ -671,7 +678,7 @@ namespace Comet::Ui {
             shader_layout.descriptor_set_layouts = {m_layout};
             shader_layout.push_constants = {
                 std::make_shared<Comet::PushConstantRange>(Comet::ShaderStage::Vertex, 0, 80),
-                std::make_shared<Comet::PushConstantRange>(Comet::ShaderStage::Fragment, 80, 4)};
+                std::make_shared<Comet::PushConstantRange>(Comet::ShaderStage::Fragment, 80, 8)};
             Comet::PipelineConfig config;
             config.vertex_input_state.vertex_bindings = {
                 {0, sizeof(GpuVertex), vk::VertexInputRate::eVertex}};

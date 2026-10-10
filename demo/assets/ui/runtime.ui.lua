@@ -55,6 +55,8 @@ end
 local sizes = {{960, 720}, {1280, 720}, {1920, 1080}}
 local modes = {"windowed", "borderless", "fullscreen"}
 local mode_labels = {windowed = "窗口", borderless = "无边框", fullscreen = "全屏"}
+local output_modes = {"sdr", "hdr", "auto"}
+local output_labels = {sdr = "SDR", hdr = "HDR", auto = "自动"}
 -- 档位是 demo 的画质策略；引擎只接收实际参数。
 local quality_presets = {
     performance = {name = "性能", msaa_samples = 1, max_anisotropy = 2, render_scale = 0.75},
@@ -116,6 +118,10 @@ local function display_labels(self, ui)
     if state.display_vsync then vsync = "开启" end
     ui.set("display_vsync", vsync)
     ui.set("display_preview", state.display_preview)
+    ui.set("display_output_mode", output_labels[state.display_output_mode])
+    ui.set("display_hdr_headroom", state.display_hdr_headroom)
+    ui.set("display_hdr_white", state.display_hdr_white)
+    ui.set("display_hdr_disabled", state.display_preview or state.display_output_mode == "sdr")
 end
 
 local function load_display(self, ui)
@@ -129,11 +135,31 @@ local function load_display(self, ui)
         display_size(state, settings.width, settings.height)
         state.display_mode, state.display_vsync = settings.mode, settings.vsync
         state.display_preview = settings.preview
+        state.display_output_mode = settings.output_mode
+        state.display_hdr_headroom = settings.hdr_headroom
+        state.display_hdr_white = settings.hdr_white_level * 100
         if settings.preview then
-            ui.set("display_status", "Play 将尺寸用于固定分辨率预览；窗口模式和 VSync 请在独立 App 中设置。")
+            ui.set("display_status", "Play 将尺寸用于固定分辨率预览；窗口模式、VSync 和 HDR 请在独立 App 中设置。")
         end
     end
     display_labels(self, ui)
+end
+
+local function display_output_status(self, ui)
+    if not self.state.display_available then return end
+    local settings = ui.display_settings()
+    if not settings then return end
+    local status = "当前输出：SDR"
+    if settings.preview then
+        status = "当前输出：编辑器 SDR 预览；保留独立 App 的 HDR 选择。"
+    elseif settings.output_pending then
+        status = "输出设置已保存，等待下一帧应用…"
+    elseif settings.hdr_active then
+        status = "当前输出：HDR（扩展线性）"
+    elseif settings.output_mode ~= "sdr" then
+        status = "当前输出：SDR；当前设备或系统未提供 HDR 输出。"
+    end
+    ui.set("display_output_active", status)
 end
 
 local function cycle(current, choices)
@@ -289,6 +315,8 @@ return {
         display_size = "", display_mode = "", display_vsync = "",
         display_width = "960", display_height = "720", display_active_vsync = "",
         display_status = "", display_error = "",
+        display_output_mode = "SDR", display_hdr_headroom = 4, display_hdr_white = 100,
+        display_hdr_disabled = true, display_output_active = "",
         quality_available = false, quality_msaa = "", quality_anisotropy = "", quality_scale = "",
         quality_active = "", quality_status = "", quality_error = "",
         quality_preset = "",
@@ -304,13 +332,15 @@ return {
         audio_master = 100, audio_effects = 100, audio_music = 100,
         display_available = false, display_width = "960", display_height = "720",
         display_mode = "windowed", display_vsync = false, display_preview = false,
+        display_output_mode = "sdr", display_hdr_headroom = 4, display_hdr_white = 100,
     },
     on_mount = function(self, ui)
         for _, id in ipairs({"hud", "fps", "settings", "notice", "menu", "panel",
             "action-selector", "action-name", "previous", "next", "bindings", "status",
             "error", "footer", "restore", "cancel", "apply", "display",
             "display-size", "display-width", "display-height", "display-mode", "display-vsync",
-            "display-apply", "display-restore", "quality", "quality-msaa",
+            "display-apply", "display-restore", "display-output-mode", "display-hdr-headroom",
+            "display-hdr-white", "display-output-active", "quality", "quality-msaa",
             "quality-anisotropy", "quality-scale", "quality-apply", "quality-restore",
             "quality-preset", "quality-performance", "quality-balanced", "quality-quality",
             "audio", "audio-master", "audio-effects", "audio-music", "audio-restore", "audio-apply"}) do
@@ -339,6 +369,7 @@ return {
         end
         ui.set("display_active_vsync", active_vsync)
         if self.state.open then
+            display_output_status(self, ui)
             quality_status(self, ui)
             audio_status(self, ui)
         end
@@ -418,12 +449,24 @@ return {
                 end
             elseif operation == "display_vsync" and not draft.display_preview then
                 draft.display_vsync = not draft.display_vsync
+            elseif operation == "display_output_mode" and not draft.display_preview then
+                draft.display_output_mode = cycle(draft.display_output_mode, output_modes)
+            elseif operation == "display_hdr_headroom" or operation == "display_hdr_white" then
+                if draft.display_preview or draft.display_output_mode == "sdr" then return end
+                local value = tonumber(action)
+                local minimum, maximum = 1, 16
+                if operation == "display_hdr_white" then minimum, maximum = 50, 200 end
+                if not value or value ~= value or value < minimum or value > maximum then return end
+                draft[operation] = value
             elseif operation == "display_restore" then
                 local current = ui.display_settings()
                 if current then
                     display_size(draft, current.defaults.width, current.defaults.height)
                     if not draft.display_preview then
                         draft.display_mode, draft.display_vsync = current.defaults.mode, current.defaults.vsync
+                        draft.display_output_mode = current.defaults.output_mode
+                        draft.display_hdr_headroom = current.defaults.hdr_headroom
+                        draft.display_hdr_white = current.defaults.hdr_white_level * 100
                     end
                 end
             elseif operation == "display_apply" then
@@ -434,7 +477,8 @@ return {
                 end
                 display_size(draft, width, height)
                 self.state.display_waiting = true
-                ui.display_apply(width, height, draft.display_mode, draft.display_vsync)
+                ui.display_apply(width, height, draft.display_mode, draft.display_vsync,
+                    draft.display_output_mode, draft.display_hdr_headroom, draft.display_hdr_white / 100)
             end
             display_labels(self, ui)
         elseif operation == "cancel" then
