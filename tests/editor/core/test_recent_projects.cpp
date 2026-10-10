@@ -23,6 +23,7 @@ namespace CometEditor::Tests {
         const auto state = directory.path() / "editor/recent-projects.json";
         auto loaded = RecentProjects::load(state);
         ASSERT_TRUE(loaded) << loaded.error();
+        EXPECT_FALSE(std::filesystem::exists(state));
         auto recent = std::move(loaded).value();
         for(int index = 0; index < 12; ++index) {
             const auto root = directory.path() / ("project-" + std::to_string(index));
@@ -46,9 +47,15 @@ namespace CometEditor::Tests {
         Comet::Tests::TemporaryDirectory directory;
         const auto state = directory.path() / "recent-projects.json";
         for(const std::string content : {"{", R"({"version":2,"projects":[]})",
-                 R"({"version":1,"projects":["relative/project"]})"}) {
+                R"({"version":1,"projects":["relative/project"]})",
+                R"({"version":1,"projects":[42]})",
+                R"({"version":1,"projects":[],"projects":[]})"}) {
+            SCOPED_TRACE(content);
             ASSERT_TRUE(Comet::write_text_file_atomic(state, content));
-            EXPECT_FALSE(RecentProjects::load(state));
+            const auto loaded = RecentProjects::load(state);
+            ASSERT_FALSE(loaded);
+            EXPECT_NE(loaded.error().find(state.string()), std::string::npos);
+            EXPECT_NE(loaded.error().find("recent projects"), std::string::npos);
             EXPECT_EQ(Comet::read_text_file(state).value(), content);
         }
     }

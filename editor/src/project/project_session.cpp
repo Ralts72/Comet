@@ -5,7 +5,6 @@
 
 #include <cstdint>
 #include <string>
-#include <system_error>
 #include <utility>
 
 namespace CometEditor {
@@ -32,36 +31,28 @@ namespace CometEditor {
         using Result = Comet::Result<void>;
         m_last_scene.reset();
         m_save_pending = false;
-        std::error_code error;
-        const bool exists = std::filesystem::exists(m_file, error);
-        if(error)
-            return Result::failure("Cannot inspect editor session: " + error.message());
-        if(!exists)
-            return Result::success();
-
-        auto contents = Comet::read_text_file(m_file);
-        if(!contents)
-            return Result::failure(contents.error());
-        const Comet::Json::Context context("editor session", m_file.string());
-        simdjson::dom::parser parser;
-        auto parsed = context.parse(parser, contents.value());
-        if(!parsed)
-            return Result::failure(parsed.error());
-        const auto root = parsed.value();
-        if(auto valid = context.validate_keys(root, {"version", "scene"}); !valid)
-            return Result::failure(valid.error());
-        auto version = context.read_field<std::uint32_t>(root, "version", "an unsigned integer");
-        if(!version)
-            return Result::failure(version.error());
-        if(version.value() != FORMAT_VERSION)
-            return Result::failure(context.error("version", "unsupported version"));
-        auto scene = context.read_field<std::string>(root, "scene", "a path string");
-        if(!scene)
-            return Result::failure(scene.error());
-        auto validated = validate_scene(std::filesystem::path(scene.value()));
-        if(!validated)
-            return Result::failure(context.error("scene", validated.error()));
-        m_last_scene = std::move(validated).value();
+        auto loaded = Comet::Json::load_optional<std::filesystem::path>("editor session", m_file,
+            [this](Comet::Json::Node root, const Comet::Json::Context& context) {
+                using ScenePath = Comet::Result<std::filesystem::path>;
+                if(auto valid = context.validate_keys(root, {"version", "scene"}); !valid)
+                    return ScenePath::failure(valid.error());
+                auto version =
+                    context.read_field<std::uint32_t>(root, "version", "an unsigned integer");
+                if(!version)
+                    return ScenePath::failure(version.error());
+                if(version.value() != FORMAT_VERSION)
+                    return ScenePath::failure(context.error("version", "unsupported version"));
+                auto scene = context.read_field<std::string>(root, "scene", "a path string");
+                if(!scene)
+                    return ScenePath::failure(scene.error());
+                auto validated = validate_scene(std::filesystem::path(scene.value()));
+                if(!validated)
+                    return ScenePath::failure(context.error("scene", validated.error()));
+                return validated;
+            });
+        if(!loaded)
+            return Result::failure(loaded.error());
+        m_last_scene = std::move(loaded).value();
         return Result::success();
     }
 

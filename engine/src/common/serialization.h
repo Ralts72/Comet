@@ -9,6 +9,7 @@
 namespace Comet::Serialization {
     class Context {
     public:
+        // 借用来源描述；kind 和 source 须存活到本次编解码结束。
         Context(std::string_view kind, std::string_view source) : m_kind(kind), m_source(source) {}
 
         std::string error(std::string_view location, std::string_view detail) const {

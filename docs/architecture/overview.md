@@ -131,10 +131,12 @@ App 的显示试用由 DisplaySettingsPreview 保存前态和 15 秒期限；确
 | `common/file_io` | 文本读取、有大小上限的二进制读取、原子文本／二进制分块写入 | 文件是否可缺失、预算和业务提交顺序 |
 | `common/binary` | 小端整数／浮点数、带长度的字符串读写、分块 FNV-1a 哈希 | Magic、版本、长度前缀宽度、字段限制与领域校验 |
 | `common/serialization` | 来源／字段错误定位、Serializer 文件加载／保存流程 | 格式选择和领域编解码 |
-| `common/json` | simdjson 解析、对象／数组／标量检查、键校验、可选路径查找、Writer、编解码入口 | 项目、场景、材质等 Schema 与版本 |
+| `common/json` | simdjson 解析、对象／数组／标量检查、键校验、可选路径查找、可缺失文件读取、Writer、编解码入口 | 项目、场景、材质等 Schema 与版本 |
 
 项目、资产、开发者 Profile 与快捷键共用 JSON 工具。JSON DOM 借用 parser；`Json::deserialize` 的回调必须返回拥有数据的结果。
 快捷键冲突、资产身份、范围等属于具体功能，不放入通用 Reader。
+Editor 的窗口、最近项目与项目会话共用可缺失 JSON 文件的读取入口：缺失返回空值，已有文件的错误正常上报，不改写原文件。
+各工作流决定默认值、保存时机与内存提交规则，解码结果拥有数据，错误来源字符串覆盖整个解析寿命。
 资产 Serializer 不再拥有通用 JSON 文件工具。场景描述符共用于保存、恢复、编辑与内容复制；内容 clone 直接走内存快照，不通过 JSON 往返。
 Mesh、ShaderProgram、Environment Artifact 与导入指纹共用二进制基础工具；各资产保留独立头部、版本与校验规则。
 Environment 按纹理读取，发布时将头部和四份纹理存储分块原子写入，避免再复制一份完整像素 payload。

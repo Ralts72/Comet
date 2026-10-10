@@ -12,6 +12,7 @@ namespace CometEditor::Tests {
         const auto missing = WindowState::load(path);
         ASSERT_TRUE(missing) << missing.error();
         EXPECT_FALSE(missing.value());
+        EXPECT_FALSE(std::filesystem::exists(path));
 
         const WindowState state{1120, 840, true};
         ASSERT_TRUE(state.save(path));
@@ -43,14 +44,23 @@ namespace CometEditor::Tests {
         for(const std::string contents : {"{", R"({"width":0,"height":720,"maximized":false})",
                 R"({"width":960,"height":-1,"maximized":false})",
                 R"({"width":2147483648,"height":720,"maximized":false})",
-                R"({"width":960,"height":720,"maximized":1})"}) {
+                R"({"width":960,"height":720,"maximized":1})",
+                R"({"width":960,"width":1120,"height":720,"maximized":false})"}) {
             SCOPED_TRACE(contents);
             ASSERT_TRUE(Comet::write_text_file_atomic(path, contents));
-            EXPECT_FALSE(WindowState::load(path));
+            const auto loaded = WindowState::load(path);
+            ASSERT_FALSE(loaded);
+            EXPECT_NE(loaded.error().find(path.string()), std::string::npos);
+            EXPECT_NE(loaded.error().find("editor window state"), std::string::npos);
             EXPECT_EQ(Comet::read_text_file(path).value(), contents);
         }
         EXPECT_FALSE((WindowState{0, 720, false}.save(path)));
-        EXPECT_EQ(
-            Comet::read_text_file(path).value(), R"({"width":960,"height":720,"maximized":1})");
+        EXPECT_EQ(Comet::read_text_file(path).value(),
+            R"({"width":960,"width":1120,"height":720,"maximized":false})");
+        ASSERT_TRUE(std::filesystem::remove(path));
+        ASSERT_TRUE(std::filesystem::create_directory(path));
+        const auto directory_state = WindowState::load(path);
+        ASSERT_FALSE(directory_state);
+        EXPECT_NE(directory_state.error().find(path.string()), std::string::npos);
     }
 }

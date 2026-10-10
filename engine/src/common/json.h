@@ -12,6 +12,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <type_traits>
 #include <vector>
 
@@ -154,5 +155,27 @@ namespace Comet::Json {
         if(!root)
             return Result<T>::failure(root.error());
         return decode(root.value(), context);
+    }
+
+    // 缺失文件返回 nullopt；已有文件的读取或解析错误仍须报告给调用方。
+    template<typename T, typename Decode>
+    Result<std::optional<T>> load_optional(
+        std::string_view kind, const std::filesystem::path& path, Decode decode) {
+        using Loaded = Result<std::optional<T>>;
+        std::error_code error;
+        const bool exists = std::filesystem::exists(path, error);
+        if(error)
+            return Loaded::failure("Cannot inspect " + std::string(kind) + " '" + path.string()
+                                   + "': " + error.message());
+        if(!exists)
+            return Loaded::success(std::nullopt);
+        auto contents = read_text_file(path);
+        if(!contents)
+            return Loaded::failure(contents.error());
+        const auto source = path.string();
+        auto decoded = deserialize<T>(kind, contents.value(), source, std::move(decode));
+        if(!decoded)
+            return Loaded::failure(decoded.error());
+        return Loaded::success(std::move(decoded).value());
     }
 }

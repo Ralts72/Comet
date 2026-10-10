@@ -14,6 +14,42 @@ namespace CometEditor {
     namespace {
         constexpr std::uint32_t FORMAT_VERSION = 1;
         constexpr std::size_t MAX_RECENT_PROJECTS = 10;
+
+        Comet::Result<std::vector<std::filesystem::path>> read_recent_projects(
+            Comet::Json::Node root, const Comet::Json::Context& context) {
+            using Result = Comet::Result<std::vector<std::filesystem::path>>;
+            if(auto valid = context.validate_keys(root, {"version", "projects"}); !valid)
+                return Result::failure(valid.error());
+            auto version =
+                context.read_field<std::uint32_t>(root, "version", "an unsigned integer");
+            if(!version)
+                return Result::failure(version.error());
+            if(version.value() != FORMAT_VERSION)
+                return Result::failure(context.error("version", "unsupported version"));
+            auto child = context.required_child(root, "projects");
+            if(!child)
+                return Result::failure(child.error());
+            auto projects = context.array(child.value(), "projects");
+            if(!projects)
+                return Result::failure(projects.error());
+            std::vector<std::filesystem::path> entries;
+            entries.reserve(std::min(projects.value().size(), MAX_RECENT_PROJECTS));
+            for(const auto entry : projects.value()) {
+                auto text = context.read_scalar<std::string>(entry, "projects[]", "a path string");
+                if(!text)
+                    return Result::failure(text.error());
+                std::filesystem::path path(std::move(text).value());
+                if(!path.is_absolute())
+                    return Result::failure(
+                        context.error("projects[]", "expected an absolute path"));
+                path = path.lexically_normal();
+                if(std::ranges::find(entries, path) == entries.end())
+                    entries.push_back(std::move(path));
+                if(entries.size() == MAX_RECENT_PROJECTS)
+                    break;
+            }
+            return Result::success(std::move(entries));
+        }
     }
 
     Comet::Result<std::filesystem::path> RecentProjects::default_storage_path() {
@@ -28,49 +64,13 @@ namespace CometEditor {
         using Result = Comet::Result<RecentProjects>;
         if(file.empty())
             return Result::failure("Recent projects path cannot be empty");
+        auto loaded = Comet::Json::load_optional<std::vector<std::filesystem::path>>(
+            "recent projects", file, read_recent_projects);
+        if(!loaded)
+            return Result::failure(loaded.error());
         RecentProjects recent(std::move(file));
-        std::error_code error;
-        const bool exists = std::filesystem::exists(recent.m_file, error);
-        if(error)
-            return Result::failure("Cannot inspect recent projects: " + error.message());
-        if(!exists)
-            return Result::success(std::move(recent));
-
-        auto contents = Comet::read_text_file(recent.m_file);
-        if(!contents)
-            return Result::failure(contents.error());
-        const Comet::Json::Context context("recent projects", recent.m_file.string());
-        simdjson::dom::parser parser;
-        auto parsed = context.parse(parser, contents.value());
-        if(!parsed)
-            return Result::failure(parsed.error());
-        const auto root = parsed.value();
-        if(auto valid = context.validate_keys(root, {"version", "projects"}); !valid)
-            return Result::failure(valid.error());
-        auto version = context.read_field<std::uint32_t>(root, "version", "an unsigned integer");
-        if(!version)
-            return Result::failure(version.error());
-        if(version.value() != FORMAT_VERSION)
-            return Result::failure(context.error("version", "unsupported version"));
-        auto child = context.required_child(root, "projects");
-        if(!child)
-            return Result::failure(child.error());
-        auto projects = context.array(child.value(), "projects");
-        if(!projects)
-            return Result::failure(projects.error());
-        for(const auto entry : projects.value()) {
-            auto text = context.read_scalar<std::string>(entry, "projects[]", "a path string");
-            if(!text)
-                return Result::failure(text.error());
-            std::filesystem::path path(std::move(text).value());
-            if(!path.is_absolute())
-                return Result::failure(context.error("projects[]", "expected an absolute path"));
-            path = path.lexically_normal();
-            if(std::ranges::find(recent.m_entries, path) == recent.m_entries.end())
-                recent.m_entries.push_back(std::move(path));
-            if(recent.m_entries.size() == MAX_RECENT_PROJECTS)
-                break;
-        }
+        if(loaded.value())
+            recent.m_entries = std::move(*loaded.value());
         return Result::success(std::move(recent));
     }
 
@@ -79,8 +79,8 @@ namespace CometEditor {
         std::error_code error;
         auto canonical = std::filesystem::canonical(root, error);
         if(error || !std::filesystem::is_directory(canonical, error))
-            return Result::failure("Cannot record project directory: "
-                                   + (error ? error.message() : root.string()));
+            return Result::failure(
+                "Cannot record project directory: " + (error ? error.message() : root.string()));
         if(!m_entries.empty() && m_entries.front() == canonical)
             return Result::success();
         std::vector<std::filesystem::path> candidate;

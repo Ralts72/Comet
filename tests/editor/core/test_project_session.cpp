@@ -14,6 +14,7 @@ namespace CometEditor::Tests {
         ProjectSession session(paths);
         ASSERT_TRUE(session.load());
         EXPECT_FALSE(session.last_scene());
+        EXPECT_FALSE(std::filesystem::exists(paths.editor_state() / "session.json"));
 
         ASSERT_TRUE(session.record_scene("scenes/edited.scene"));
         ASSERT_TRUE(session.last_scene());
@@ -43,11 +44,18 @@ namespace CometEditor::Tests {
             EXPECT_FALSE(session.record_scene(path));
             EXPECT_EQ(Comet::read_text_file(file).value(), original);
         }
-        ASSERT_TRUE(Comet::write_text_file_atomic(file, "{"));
-        ProjectSession malformed(paths);
-        EXPECT_FALSE(malformed.load());
-        EXPECT_FALSE(malformed.last_scene());
-        EXPECT_EQ(Comet::read_text_file(file).value(), "{");
+        for(const std::string contents : {"{", R"({"version":2,"scene":"scenes/current.scene"})",
+                R"({"version":1,"scene":"../outside.scene"})", R"({"version":1,"scene":42})",
+                R"({"version":1,"scene":"a.scene","scene":"b.scene"})"}) {
+            SCOPED_TRACE(contents);
+            ASSERT_TRUE(Comet::write_text_file_atomic(file, contents));
+            const auto loaded = session.load();
+            ASSERT_FALSE(loaded);
+            EXPECT_FALSE(session.last_scene());
+            EXPECT_NE(loaded.error().find(file.string()), std::string::npos);
+            EXPECT_NE(loaded.error().find("editor session"), std::string::npos);
+            EXPECT_EQ(Comet::read_text_file(file).value(), contents);
+        }
     }
 
     TEST(ProjectSessionTest, FailedSaveRetainsMemoryAndRetriesTheSameScene) {
