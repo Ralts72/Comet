@@ -20,6 +20,7 @@ set(COMET_FOUNDATION_SOURCES
 
 set(COMET_SERIALIZATION_SOURCES
     src/common/json.cpp
+    src/common/yaml.cpp
 )
 
 set(COMET_SHADER_CONTRACTS_SOURCES

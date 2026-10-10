@@ -9,9 +9,7 @@ set(SOURCES
     src/config/config_loader.cpp
     src/config/display_settings.cpp
     src/config/display_settings_preview.cpp
-    src/config/player_display_settings.cpp
-    src/config/player_quality_settings.cpp
-    src/config/player_audio_settings.cpp
+    src/config/player_settings.cpp
     src/diagnostics/diagnostics.cpp
     src/runtime/entry.cpp
     src/runtime/application.cpp
@@ -33,7 +31,6 @@ target_link_libraries(engine
         GPUOpen::VulkanMemoryAllocator
         PRIVATE
         ${COMET_ENGINE_MODULES}
-        yaml-cpp
 )
 target_include_directories(engine
         PUBLIC

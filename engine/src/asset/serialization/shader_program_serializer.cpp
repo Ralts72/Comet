@@ -1,5 +1,5 @@
 #include "asset/serialization/shader_program_serializer.h"
-#include "asset/serialization/json_serialization.h"
+#include "common/json.h"
 
 #include <algorithm>
 #include <cmath>
@@ -335,23 +335,22 @@ namespace Comet {
     }
 
     Result<std::string> ShaderProgramSerializer::serialize(const ShaderProgramData& data) const {
-        return AssetSerialization::serialize_json("shader program", data, encode);
+        return Json::serialize("shader program", data, encode);
     }
 
     Result<ShaderProgramData> ShaderProgramSerializer::deserialize(
         const std::string_view contents, const std::string_view source) const {
-        return AssetSerialization::deserialize_json<ShaderProgramData>(
-            "shader program", contents, source, decode);
+        return Json::deserialize<ShaderProgramData>("shader program", contents, source, decode);
     }
 
     Result<void> ShaderProgramSerializer::save(
         const ShaderProgramData& data, const std::filesystem::path& path) const {
-        return AssetSerialization::save(*this, data, path);
+        return Serialization::save(*this, data, path);
     }
 
     Result<ShaderProgramData> ShaderProgramSerializer::load(
         const std::filesystem::path& path) const {
-        return AssetSerialization::load(*this, path);
+        return Serialization::load(*this, path);
     }
 
     Result<std::string> ShaderProgramSerializer::serialize_material(

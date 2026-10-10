@@ -1,6 +1,4 @@
-#include "config/player_display_settings.h"
-#include "config/player_quality_settings.h"
-#include "config/player_audio_settings.h"
+#include "config/player_settings.h"
 #include "runtime/application.h"
 #include "config/config_loader.h"
 #include "render/resource/render_resources.h"
@@ -1319,8 +1317,7 @@ int main(int argc, char** argv) {
         }
         const std::filesystem::path config_directory = COMET_CONFIG_DIRECTORY;
         auto config = Comet::ConfigLoader{}.load(
-            (config_directory / "profiles" / (std::string(COMET_CONFIG_PROFILE) + ".yaml"))
-                .string());
+            (config_directory / (std::string(COMET_CONFIG_PROFILE) + ".yaml")).string());
         if(!config) {
             std::cerr << "Application failed: " << config.error() << '\n';
             return 1;

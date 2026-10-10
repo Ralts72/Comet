@@ -1,12 +1,11 @@
 #include "config/config_loader.h"
 #include "common/file_io.h"
+#include "common/yaml.h"
 #include <algorithm>
 #include <array>
 #include <initializer_list>
 #include <limits>
-#include <sstream>
 #include <string_view>
-#include <yaml-cpp/yaml.h>
 
 namespace Comet {
     namespace {
@@ -21,24 +20,24 @@ namespace Comet {
             std::pair{"d32_float_s8_uint", Format::D32_SFLOAT_S8_UINT}};
         std::string config_error(
             std::string_view path, std::string_view key, std::string_view detail) {
-            return "Invalid config '" + std::string(path) + "' at '" + std::string(key)
-                   + "': " + std::string(detail);
+            return Yaml::Context("config", path).error(key, detail);
         }
         class ConfigReader {
         public:
-            ConfigReader(const YAML::Node& root, const std::string& path)
-                : m_root(root), m_path(path) {}
+            ConfigReader(const YAML::Node& root, const Yaml::Context& context)
+                : m_root(root), m_context(context) {}
             bool keys(std::string_view section, std::initializer_list<std::string_view> allowed) {
                 YAML::Node node(YAML::NodeType::Undefined);
                 if(!find(section, node))
                     return false;
                 if(!node.IsDefined() || (section.empty() && node.IsNull()))
                     return true;
-                if(!node.IsMap())
-                    return fail(section.empty() ? "<root>" : section, "expected a mapping");
+                if(auto valid = m_context.mapping(node, section.empty() ? "<root>" : section);
+                    !valid) {
+                    m_error = valid.error();
+                    return false;
+                }
                 for(const auto& entry : node) {
-                    if(!entry.first.IsScalar())
-                        return fail(section, "expected a string key");
                     const auto& key = entry.first.Scalar();
                     if(std::find(allowed.begin(), allowed.end(), key) == allowed.end()) {
                         auto location = std::string(section);
@@ -56,10 +55,12 @@ namespace Comet {
                     return false;
                 if(!node.IsDefined())
                     return true;
-                T candidate{};
-                if(!node.IsScalar() || !YAML::convert<T>::decode(node, candidate))
-                    return fail(key, "expected " + std::string(expected));
-                value = std::move(candidate);
+                auto candidate = m_context.read_scalar<T>(node, key, expected);
+                if(!candidate) {
+                    m_error = candidate.error();
+                    return false;
+                }
+                value = std::move(candidate).value();
                 return true;
             }
             template<typename T, std::size_t Size>
@@ -105,44 +106,31 @@ namespace Comet {
                 return true;
             }
             bool fail(std::string_view key, std::string_view detail) {
-                m_error = config_error(m_path, key, detail);
+                m_error = m_context.error(key, detail);
                 return false;
             }
             bool find(std::string_view key, YAML::Node& output) {
-                if(!m_root.IsDefined() || m_root.IsNull())
-                    return true;
-                YAML::Node node = m_root;
-                std::stringstream stream{std::string(key)};
-                std::string segment, parent;
-                while(std::getline(stream, segment, '.')) {
-                    if(!node.IsMap())
-                        return fail(parent.empty() ? "<root>" : parent, "expected a mapping");
-                    const auto child = static_cast<const YAML::Node&>(node)[segment];
-                    if(!child.IsDefined())
-                        return true;
-                    node.reset(child);
-                    if(!parent.empty())
-                        parent += '.';
-                    parent += segment;
+                auto node = m_context.find(m_root, key);
+                if(!node) {
+                    m_error = node.error();
+                    return false;
                 }
-                output.reset(node);
+                output.reset(node.value());
                 return true;
             }
             const YAML::Node& m_root;
-            const std::string& m_path;
+            const Yaml::Context& m_context;
             std::string m_error;
         };
         Result<void> read_profile(Config& config, const std::string& path) {
             auto text = read_text_file(path);
             if(!text)
                 return Result<void>::failure(text.error());
-            YAML::Node root;
-            try {
-                root = YAML::Load(text.value());
-            } catch(const YAML::Exception& error) {
-                return Result<void>::failure(config_error(path, "<root>", error.what()));
-            }
-            ConfigReader reader(root, path);
+            const Yaml::Context context("config", path);
+            auto root = context.parse(text.value());
+            if(!root)
+                return Result<void>::failure(root.error());
+            ConfigReader reader(root.value(), context);
             if(!reader.keys("", {"diagnostics", "vulkan", "render", "assets"})
                 || !reader.keys(
                     "diagnostics", {"enable_file_logging", "log_level", "enable_profiler",

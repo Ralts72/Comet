@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common/export.h"
-#include "common/result.h"
+#include "common/serialization.h"
 #include <simdjson.h>
 
 #include <algorithm>
@@ -17,11 +17,10 @@
 namespace Comet::Json {
     using Node = simdjson::dom::element;
 
-    class COMET_API Context final {
+    class COMET_API Context final: public Serialization::Context {
     public:
-        Context(std::string_view kind, std::string_view source) : m_kind(kind), m_source(source) {}
+        using Serialization::Context::Context;
 
-        std::string error(std::string_view location, std::string_view detail) const;
         Result<Node> parse(simdjson::dom::parser& parser, std::string_view contents) const;
         Result<simdjson::dom::object> object(Node node, std::string_view location) const;
         Result<simdjson::dom::array> array(Node node, std::string_view location) const;
@@ -92,10 +91,6 @@ namespace Comet::Json {
             field_location += key;
             return read_scalar<T>(child.value(), field_location, expected);
         }
-
-    private:
-        std::string_view m_kind;
-        std::string_view m_source;
     };
 
     // simdjson 的 DOM 只读且依赖 parser；写入不持有这些借用节点。
@@ -136,4 +131,25 @@ namespace Comet::Json {
         std::vector<Scope> m_scopes;
         std::string m_error;
     };
+
+    template<typename Data, typename Encode>
+    Result<std::string> serialize(std::string_view kind, const Data& data, Encode encode) {
+        const Context context(kind, "<memory>");
+        Writer writer;
+        if(auto result = encode(data, context, writer); !result)
+            return Result<std::string>::failure(result.error());
+        return std::move(writer).finish();
+    }
+
+    // decode 必须返回拥有数据的结果，不能让借用节点逃出 parser 的寿命。
+    template<typename T, typename Decode>
+    Result<T> deserialize(
+        std::string_view kind, std::string_view contents, std::string_view source, Decode decode) {
+        const Context context(kind, source);
+        simdjson::dom::parser parser;
+        auto root = context.parse(parser, contents);
+        if(!root)
+            return Result<T>::failure(root.error());
+        return decode(root.value(), context);
+    }
 }

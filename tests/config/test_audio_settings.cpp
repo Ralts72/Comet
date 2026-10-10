@@ -1,4 +1,4 @@
-#include "config/player_audio_settings.h"
+#include "config/player_settings.h"
 #include "common/file_io.h"
 #include "support/temporary_directory.h"
 

@@ -1,7 +1,5 @@
-#include "config/player_display_settings.h"
+#include "config/player_settings.h"
 #include "config/display_settings_preview.h"
-#include "config/player_quality_settings.h"
-#include "config/player_audio_settings.h"
 #include "runtime/entry.h"
 #include "render/resource/render_resources.h"
 #include "diagnostics/logger.h"

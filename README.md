@@ -28,10 +28,11 @@ Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，
 
 类入口、依赖方向和资源所有权见[架构文档](docs/architecture/overview.md)。
 
+`engine/src/common/` 提供共享文件读写、JSON／YAML 格式工具和错误定位；各模块负责自身的数据结构与字段校验。
+显示、画质和音量选择共用 `config/player_settings` 存储流程，具体设置类型仍归所属功能模块。
+
 编辑器工具栏与 demo 菜单选用了“570+ 图标 v1.0.3”中的少量透明 PNG。
 编辑器图标合入 ImGui 字体图集；游戏图标由项目 RmlUi 页面引用。
-来源对应关系与原包许可分别保存在 `editor/resources/icons/ui/` 和 `demo/licenses/ui-icons/`。
-许可允许个人、商业使用，无需署名，禁止转售原图标包及修改后的图标包。
 
 ## 构建与运行
 
@@ -208,7 +209,7 @@ VMA 分配量不等于系统总显存；各分段百分位不能直接相加。C
 退出时会清理临时副本；若清理失败，工具会打印残留路径。Debug 构建只用于验证工具，性能判断应使用 Release 与实际规模的项目。
 `--synthetic` 会在临时项目生成指定数量的简单 Lua 资产及扫描产生的 `.meta`，用于观察文件数量扩大时的开销；它不代表真实项目的资产类型、依赖或存储条件。
 
-若要观察扫描对编辑器帧的影响，可在 `config/profiles/editor-dev.yaml` 临时启用 `diagnostics.enable_profiler`，
+若要观察扫描对编辑器帧的影响，可在 `config/editor-dev.yaml` 临时启用 `diagnostics.enable_profiler`，
 再用 `./editor.sh /path/to/project` 打开项目并触发资产变化。退出时的 Profiler 日志包含 `Engine::Frame`、
 `Editor::on_update`、`EditorAssets::update`、`SceneAssetReferences::restore` 和数据库扫描分段。
 这些是各自的累计／最大耗时，最大值不保证来自同一帧，不能直接相加；编辑器「渲染统计」可另行采集帧时间趋势。
@@ -231,7 +232,7 @@ CPU 阶段明细另列场景提取、资产解析、材质程序、几何界限�
 普通文件日志与 Scope Profiler 日志统一保存到**当前项目**的 `.comet/logs/`，
 分别命名为 `comet_<时间戳>.log`、`profiler_<时间戳>.log`；app/editor 使用同一目录规则。
 例如默认 demo 的路径是 `demo/.comet/logs/`，打开外部项目则写到外部项目内，不依赖仓库根目录或工作目录。
-各 Profile 关闭文件日志；在 `config/profiles/<Profile>.yaml` 中将 `diagnostics.enable_file_logging` 改为 `true`
+各 Profile 关闭文件日志；在 `config/<Profile>.yaml` 中将 `diagnostics.enable_file_logging` 改为 `true`
 后才创建目录与文件。Profiler 文件还需当前构建支持且启用 `diagnostics.enable_profiler`。
 排查资产监视卡顿时，可在 Profiler 输出中分别查看 `AssetSourceMonitor` 的后台局部文件检查／完整快照与主线程结果接纳，以及 `AssetDatabase` 的局部扫描／全量准备／发布（含发布前输入复核和源签名计算）和 `EditorAssets::accept_scan` 的结果处理耗时。
 路径由启动入口传入，不作为 YAML 中的机器路径配置。无日志路径时仅保留终端／自定义输出端，
@@ -386,7 +387,7 @@ demo 的首个标准手柄也可操作这些玩法，绑定仍来自 `project.js
 引擎私有链接 Lua 5.4.8；参数编辑与运行限制见下方“场景运行时”。
 两种入口遇到项目描述错误或缺少 assets 都会启动失败，不回退仓库项目；仅 editor 在启动场景缺失／损坏时
 记录错误并打开空场景，供用户修复，不覆盖原文件。
-引擎只读取 `config/profiles/` 中当前构建选择的开发者 Profile；编辑器快捷键使用内置默认值及用户状态目录中的覆盖文件。
+引擎只读取 `config/` 中当前构建选择的开发者 Profile；编辑器快捷键使用内置默认值及用户状态目录中的覆盖文件。
 字体／图标／Shader 不需要复制到每个项目。
 当前支持在编辑器中创建、打开项目；切换通过重启编辑器进程完成，尚不支持原地切换或独立打包。
 

@@ -5,7 +5,7 @@
 #include "asset/database.h"
 #include "common/file_io.h"
 #include "core/project.h"
-#include "config/player_display_settings.h"
+#include "config/player_settings.h"
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
 #include "support/imgui_context.h"

@@ -30,7 +30,8 @@ namespace CometEditor {
 
         EditorShortcuts();
         [[nodiscard]] static Comet::Result<EditorShortcuts> load(const std::filesystem::path& path);
-        [[nodiscard]] static Comet::Result<EditorShortcuts> parse(std::string_view yaml);
+        [[nodiscard]] static Comet::Result<EditorShortcuts> parse(
+            std::string_view yaml, std::string_view source = "<memory>");
         [[nodiscard]] static Comet::Result<EditorShortcuts> from_texts(BindingTexts texts);
         [[nodiscard]] Comet::Result<void> save_overrides(const std::filesystem::path& path) const;
         [[nodiscard]] BindingTexts binding_texts() const;

@@ -22,8 +22,7 @@ int main(int argc, char** argv) {
     Comet::Config config;
     if(!std::string_view(COMET_CONFIG_PROFILE).empty()) {
         auto loaded = Comet::ConfigLoader{}.load(
-            (config_directory / "profiles" / (std::string(COMET_CONFIG_PROFILE) + ".yaml"))
-                .string());
+            (config_directory / (std::string(COMET_CONFIG_PROFILE) + ".yaml")).string());
         if(!loaded) {
             std::cerr << loaded.error() << '\n';
             return 1;

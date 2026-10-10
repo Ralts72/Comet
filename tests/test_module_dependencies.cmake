@@ -35,6 +35,8 @@ function(probe_dependency source header expected)
 endfunction()
 probe_dependency("src/core/task_scheduler.cpp" "\"config/config.h\""
     "Foundation violates module dependencies")
+probe_dependency("src/core/task_scheduler.cpp" "\"common/yaml.h\""
+    "Foundation must not depend on Serialization")
 probe_dependency("src/asset/database.cpp" "<vulkan/vulkan_core.h>"
     "AssetPipeline includes a runtime backend")
 probe_dependency("src/input/input.cpp" "\"scene/scene.h\""

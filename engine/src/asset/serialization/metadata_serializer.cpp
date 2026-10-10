@@ -1,5 +1,5 @@
 #include "asset/serialization/metadata_serializer.h"
-#include "asset/serialization/json_serialization.h"
+#include "common/json.h"
 
 #include <utility>
 
@@ -121,21 +121,21 @@ namespace Comet {
     }
 
     Result<std::string> MetadataSerializer::serialize(const AssetMetadata& metadata) const {
-        return AssetSerialization::serialize_json("asset metadata", metadata, encode_metadata);
+        return Json::serialize("asset metadata", metadata, encode_metadata);
     }
 
     Result<AssetMetadata> MetadataSerializer::deserialize(
         const std::string_view contents, const std::string_view source) const {
-        return AssetSerialization::deserialize_json<AssetMetadata>(
+        return Json::deserialize<AssetMetadata>(
             "asset metadata", contents, source, decode_metadata);
     }
 
     Result<void> MetadataSerializer::save(
         const AssetMetadata& metadata, const std::filesystem::path& path) const {
-        return AssetSerialization::save(*this, metadata, path);
+        return Serialization::save(*this, metadata, path);
     }
 
     Result<AssetMetadata> MetadataSerializer::load(const std::filesystem::path& path) const {
-        return AssetSerialization::load(*this, path);
+        return Serialization::load(*this, path);
     }
 }

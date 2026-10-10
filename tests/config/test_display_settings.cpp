@@ -1,4 +1,4 @@
-#include "config/player_display_settings.h"
+#include "config/player_settings.h"
 #include "common/file_io.h"
 #include "common/player_settings_path.h"
 #include "support/temporary_directory.h"

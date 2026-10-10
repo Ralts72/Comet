@@ -1,18 +1,16 @@
 #include "ui/shortcuts.h"
 #include "common/file_io.h"
+#include "common/yaml.h"
 
 #include <algorithm>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
-#include <yaml-cpp/yaml.h>
 
 namespace CometEditor {
     namespace {
         constexpr std::array<std::string_view, EditorShortcuts::ACTION_COUNT> ACTION_NAMES{
-            "scene.new", "scene.open", "scene.save", "edit.undo", "edit.redo",
-            "edit.copy_entity", "edit.paste_entity", "edit.delete_selection",
-            "viewport.focus_selection"};
+            "scene.new", "scene.open", "scene.save", "edit.undo", "edit.redo", "edit.copy_entity",
+            "edit.paste_entity", "edit.delete_selection", "viewport.focus_selection"};
 
         ImGuiKey parse_key(const std::string_view name) {
             if(name.size() == 1 && name[0] >= 'A' && name[0] <= 'Z')
@@ -84,62 +82,49 @@ namespace CometEditor {
         auto text = Comet::read_text_file(path);
         if(!text)
             return Result::failure(text.error());
-        auto result = parse(text.value());
-        if(!result)
-            return Result::failure(
-                "Invalid shortcut config '" + path.string() + "': " + result.error());
-        return result;
+        return parse(text.value(), path.string());
     }
 
-    Comet::Result<EditorShortcuts> EditorShortcuts::parse(const std::string_view yaml) {
+    Comet::Result<EditorShortcuts> EditorShortcuts::parse(
+        const std::string_view yaml, const std::string_view source) {
         using Result = Comet::Result<EditorShortcuts>;
         EditorShortcuts result;
-        YAML::Node root;
-        try {
-            root = YAML::Load(std::string(yaml));
-        } catch(const YAML::Exception& error) {
-            return Result::failure(error.what());
-        }
-        if(!root || root.IsNull())
-            return Result::success(std::move(result));
-        if(!root.IsMap())
-            return Result::failure("Expected a config mapping");
-        const YAML::Node editor = root["editor"];
-        if(!editor)
-            return Result::success(std::move(result));
-        if(!editor.IsMap())
-            return Result::failure("editor must be a mapping");
-        const YAML::Node shortcuts = editor["shortcuts"];
+        const Comet::Yaml::Context context("shortcut config", source);
+        auto root = context.parse(yaml);
+        if(!root)
+            return Result::failure(root.error());
+        auto shortcuts = context.find(root.value(), "editor.shortcuts");
         if(!shortcuts)
+            return Result::failure(shortcuts.error());
+        if(!shortcuts.value().IsDefined())
             return Result::success(std::move(result));
-        if(!shortcuts.IsMap())
-            return Result::failure("editor.shortcuts must be a mapping");
+        if(auto valid = context.mapping(shortcuts.value(), "editor.shortcuts"); !valid)
+            return Result::failure(valid.error());
 
-        std::unordered_set<std::string> configured;
-        for(const auto& entry : shortcuts) {
-            if(!entry.first.IsScalar())
-                return Result::failure("Shortcut action must be a string");
+        for(const auto& entry : shortcuts.value()) {
             const std::string name = entry.first.Scalar();
             const auto action = std::ranges::find(ACTION_NAMES, name);
-            if(action == ACTION_NAMES.end() || !configured.insert(name).second)
-                return Result::failure("Unknown or duplicate shortcut action: " + name);
+            if(action == ACTION_NAMES.end())
+                return Result::failure(
+                    context.error("editor.shortcuts", "Unknown shortcut action: " + name));
             if(!entry.second.IsSequence())
-                return Result::failure("editor.shortcuts." + name + " must be a list");
+                return Result::failure(
+                    context.error("editor.shortcuts." + name, "expected a list"));
             auto& bindings = result.m_bindings[action - ACTION_NAMES.begin()];
             bindings.clear();
             for(const auto& chord : entry.second) {
-                const auto location = "editor.shortcuts." + name + ": ";
+                const auto location = "editor.shortcuts." + name;
                 if(!chord.IsScalar())
-                    return Result::failure(location + "binding must be a string");
+                    return Result::failure(context.error(location, "binding must be a string"));
                 auto binding = parse_binding(chord.Scalar());
                 if(!binding)
-                    return Result::failure(location + binding.error());
+                    return Result::failure(context.error(location, binding.error()));
                 bindings.push_back(std::move(binding).value());
             }
         }
 
         if(auto valid = validate_conflicts(result); !valid)
-            return Result::failure(valid.error());
+            return Result::failure(context.error("editor.shortcuts", valid.error()));
         return Result::success(std::move(result));
     }
 

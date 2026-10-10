@@ -5,11 +5,6 @@
 #include <utility>
 
 namespace Comet::Json {
-    std::string Context::error(std::string_view location, std::string_view detail) const {
-        return "Invalid " + std::string(m_kind) + " '" + std::string(m_source) + "' at '"
-               + std::string(location) + "': " + std::string(detail);
-    }
-
     Result<Node> Context::parse(simdjson::dom::parser& parser, std::string_view contents) const {
         Node root;
         if(const auto result = parser.parse(contents.data(), contents.size()).get(root))

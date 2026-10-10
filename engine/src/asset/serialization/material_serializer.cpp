@@ -1,5 +1,5 @@
 #include "asset/serialization/material_serializer.h"
-#include "asset/serialization/json_serialization.h"
+#include "common/json.h"
 
 #include <cmath>
 #include <unordered_set>
@@ -214,21 +214,20 @@ namespace Comet {
     }
 
     Result<std::string> MaterialSerializer::serialize(const MaterialData& data) const {
-        return AssetSerialization::serialize_json("material", data, encode_material);
+        return Json::serialize("material", data, encode_material);
     }
 
     Result<MaterialData> MaterialSerializer::deserialize(
         const std::string_view contents, const std::string_view source) const {
-        return AssetSerialization::deserialize_json<MaterialData>(
-            "material", contents, source, decode_material);
+        return Json::deserialize<MaterialData>("material", contents, source, decode_material);
     }
 
     Result<void> MaterialSerializer::save(
         const MaterialData& data, const std::filesystem::path& path) const {
-        return AssetSerialization::save(*this, data, path);
+        return Serialization::save(*this, data, path);
     }
 
     Result<MaterialData> MaterialSerializer::load(const std::filesystem::path& path) const {
-        return AssetSerialization::load(*this, path);
+        return Serialization::load(*this, path);
     }
 }

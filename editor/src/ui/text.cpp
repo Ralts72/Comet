@@ -1,27 +1,14 @@
 #include "ui/text.h"
 #include "common/file_io.h"
+#include "common/yaml.h"
 
 #include <optional>
 #include <utility>
 #include <vector>
-#include <yaml-cpp/yaml.h>
 
 namespace CometEditor::Ui {
     namespace {
         thread_local const Translations* current_translations = nullptr;
-
-        bool is_string(const YAML::Node& node) {
-            if(!node.IsScalar())
-                return false;
-            if(node.Tag() == "!" || node.Tag() == "tag:yaml.org,2002:str")
-                return true;
-            if(node.Tag() != "?")
-                return false;
-            bool boolean = false;
-            double number = 0;
-            return !YAML::convert<bool>::decode(node, boolean)
-                   && !YAML::convert<double>::decode(node, number);
-        }
 
         // 保留完整 printf 占位符，不允许翻译改变参数类型、顺序或动态宽度参数。
         std::optional<std::vector<std::string_view>> format_tokens(std::string_view text) {
@@ -67,33 +54,32 @@ namespace CometEditor::Ui {
         }
     }
 
-    Comet::Result<Translations> parse_translations(std::string_view yaml) {
+    Comet::Result<Translations> parse_translations(std::string_view yaml, std::string_view source) {
         using Result = Comet::Result<Translations>;
-        YAML::Node root;
-        try {
-            root = YAML::Load(std::string(yaml));
-        } catch(const YAML::Exception& error) {
-            return Result::failure(error.what());
-        }
-        if(!root.IsMap())
-            return Result::failure("Expected a translation mapping");
+        const Comet::Yaml::Context context("translations", source);
+        auto root = context.parse(yaml);
+        if(!root)
+            return Result::failure(root.error());
+        if(auto valid = context.mapping(root.value(), "<root>"); !valid)
+            return Result::failure(valid.error());
 
         Translations translations;
-        for(const auto& entry : root) {
-            if(!is_string(entry.first) || !is_string(entry.second))
-                return Result::failure("Translation keys and values must be strings");
+        for(const auto& entry : root.value()) {
+            if(!Comet::Yaml::is_string(entry.first) || !Comet::Yaml::is_string(entry.second))
+                return Result::failure(
+                    context.error("<root>", "Translation keys and values must be strings"));
             const auto& key = entry.first.Scalar();
             const auto& value = entry.second.Scalar();
             if(key.empty() || value.empty() || key.find('\0') != std::string::npos
                 || value.find('\0') != std::string::npos)
-                return Result::failure(
-                    "Translation keys and values must be nonempty and contain no NUL");
+                return Result::failure(context.error(
+                    key, "Translation keys and values must be nonempty and contain no NUL"));
             const auto source_tokens = format_tokens(key);
             const auto translated_tokens = format_tokens(value);
             if(!source_tokens || !translated_tokens || *source_tokens != *translated_tokens)
-                return Result::failure("Translation format placeholders must match: " + key);
-            if(!translations.emplace(key, value).second)
-                return Result::failure("Duplicate translation key: " + key);
+                return Result::failure(
+                    context.error(key, "Translation format placeholders must match"));
+            translations.emplace(key, value);
         }
         return Result::success(std::move(translations));
     }
@@ -105,11 +91,7 @@ namespace CometEditor::Ui {
         auto contents = Comet::read_text_file(path);
         if(!contents)
             return Result::failure(contents.error());
-        auto translations = parse_translations(contents.value());
-        if(!translations)
-            return Result::failure(
-                "Invalid translation file '" + path.string() + "': " + translations.error());
-        return translations;
+        return parse_translations(contents.value(), path.string());
     }
 
     const Translations& translations() {

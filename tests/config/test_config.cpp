@@ -53,7 +53,7 @@ TEST(ConfigTest, ProjectProfilesDefineExpectedDiagnosticsPolicy) {
     for(const auto& expectation : expectations) {
         SCOPED_TRACE(expectation.name);
         const auto loaded = ConfigLoader{}.load(
-            (config_directory / "profiles" / (std::string(expectation.name) + ".yaml")).string());
+            (config_directory / (std::string(expectation.name) + ".yaml")).string());
         ASSERT_TRUE(loaded) << loaded.error();
         const Config& config = loaded.value();
 
@@ -246,7 +246,9 @@ TEST(ConfigTest, RejectsPlayerSettingsAndUnknownDeveloperKeys) {
 
 TEST(ConfigTest, RejectsMalformedProfileAndSectionTypes) {
     for(const auto contents : {"[diagnostics]", "diagnostics: true", "assets: null",
-            "assets: {async: []}", "diagnostics: {log_level: [warn]}", "diagnostics: ["}) {
+            "assets: {async: []}", "diagnostics: {log_level: [warn]}", "diagnostics: [",
+            "diagnostics: {log_level: info, log_level: warn}",
+            "diagnostics: {}\ndiagnostics: {log_level: warn}"}) {
         SCOPED_TRACE(contents);
         const TemporaryConfigFile file(contents);
         const auto result = ConfigLoader{}.load(file.path());

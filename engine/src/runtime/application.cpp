@@ -83,8 +83,8 @@ namespace Comet {
 
     int run(Application* app, const LaunchOptions& options) {
         const auto& directory = options.config_directory;
-        auto config = ConfigLoader{}.load(
-            (directory / "profiles" / (options.config_profile + ".yaml")).string());
+        auto config =
+            ConfigLoader{}.load((directory / (options.config_profile + ".yaml")).string());
         if(!config) {
             std::cerr << "Application failed: " << config.error() << '\n';
             return 1;
