@@ -6,6 +6,7 @@
 #include "render/resource/mesh.h"
 #include "render/resource/environment.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace Comet {
@@ -89,7 +90,9 @@ namespace Comet {
         }
         submission.environment = render_scene.environment;
         m_invalid_environment = invalid_environment;
-        submission.render_items.reserve(render_scene.render_items.size());
+        const auto& items = render_scene.render_items;
+        auto& slots = submission.render_items;
+        slots.reserve(items.size());
         for(auto& [handle, used] : m_missing_mesh_handles)
             used = false;
         for(auto& [handle, used] : m_missing_material_handles)
@@ -97,6 +100,26 @@ namespace Comet {
 
         const bool same_scene = render_scene.scene_lifetime != 0
                                 && submission.scene_lifetime == render_scene.scene_lifetime;
+        const auto previous_size = slots.size();
+        // 单个增删只移动一次后缀；缺失资源导致的压缩仍由下方逐项解析处理。
+        if(same_scene && (items.size() == previous_size + 1 || previous_size == items.size() + 1)) {
+            std::size_t index = 0;
+            while(index < std::min(items.size(), previous_size)
+                  && items[index].entity_id == slots[index].entity_id)
+                ++index;
+            if(items.size() > previous_size
+                && (index == previous_size
+                    || items[index + 1].entity_id == slots[index].entity_id)) {
+                slots.emplace_back();
+                std::move_backward(slots.begin() + index, slots.end() - 1, slots.end());
+                slots[index] = {};
+            } else if(previous_size > items.size()
+                      && (index == items.size()
+                          || items[index].entity_id == slots[index + 1].entity_id)) {
+                std::move(slots.begin() + index + 1, slots.end(), slots.begin() + index);
+                slots.pop_back();
+            }
+        }
         // 分别复用 Mesh 与材质；新增或重排的输入仍共用帧内查询。
         AssetHandle mesh_handle;
         AssetHandle material_handle;
@@ -105,10 +128,10 @@ namespace Comet {
         std::shared_ptr<const Material> material;
         uint64_t material_revision = 0;
         std::size_t item_count = 0;
-        for(const RenderItem& item : render_scene.render_items) {
-            if(item_count == submission.render_items.size())
-                submission.render_items.emplace_back();
-            auto& resolved = submission.render_items[item_count];
+        for(const RenderItem& item : items) {
+            if(item_count == slots.size())
+                slots.emplace_back();
+            auto& resolved = slots[item_count];
             const bool same_mesh = resolved.mesh && resolved.mesh_handle == item.mesh_handle;
             const bool same_material = resolved.material.resource
                                        && resolved.material.material_handle == item.material_handle;
@@ -166,7 +189,7 @@ namespace Comet {
                 resolved.material.overrides = item.material_overrides;
             ++item_count;
         }
-        submission.render_items.resize(item_count);
+        slots.resize(item_count);
         submission.scene_lifetime = render_scene.scene_lifetime;
         std::erase_if(m_missing_mesh_handles, [](const auto& entry) { return !entry.second; });
         std::erase_if(m_missing_material_handles, [](const auto& entry) { return !entry.second; });

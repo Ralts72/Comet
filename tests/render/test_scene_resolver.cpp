@@ -9,6 +9,7 @@
 #include "render/resource/environment.h"
 #include "render/resource/mesh.h"
 #include "render/scene/scene_resolver.h"
+#include "scene/material_parameters.h"
 #include "support/engine_fixture.h"
 #include "support/math_assertions.h"
 #include "support/render_resource_factory.h"
@@ -109,6 +110,100 @@ namespace Comet::Tests {
     }
 
     using SceneEnvironmentResolverTest = EngineTest;
+
+    TEST(SceneResolverTest, StructuralEditsPreserveResourcesTransformsAndFrozenCopies) {
+        AssetRegistry registry;
+        FakeRenderResourceFactory resources;
+        for(const auto handle : {AssetHandle{10}, AssetHandle{11}})
+            ASSERT_TRUE(registry.register_asset(handle, resources.try_create_mesh({}).value()));
+        for(const auto handle : {AssetHandle{20}, AssetHandle{21}, AssetHandle{22}})
+            ASSERT_TRUE(registry.register_asset(handle, std::make_shared<Material>("item", "pbr")));
+        const auto make_item = [](EntityId id) {
+            auto overrides = std::make_shared<MaterialOverrides>();
+            overrides->scalar_properties["roughness"] = float(id) / 100;
+            return RenderItem{.entity_id = id,
+                .transform_revision = 1,
+                .model_matrix = Math::translate(Math::Mat4(1), {float(id), 0, 0}),
+                .mesh_handle = AssetHandle{10 + id % 2},
+                .material_handle = AssetHandle{20 + id % 3},
+                .material_overrides = std::move(overrides)};
+        };
+        SceneResolver resolver(registry);
+        RenderScene scene;
+        scene.scene_lifetime = 1;
+        scene.cameras.push_back({.primary = true});
+        scene.render_items = {make_item(1), make_item(2), make_item(3), make_item(4)};
+        RenderSubmission submission;
+        const auto view = runtime_view({160, 120});
+        const auto check = [&] {
+            resolver.resolve(scene, view, submission);
+            const auto fresh = resolver.resolve(scene, view);
+            ASSERT_EQ(submission.render_items.size(), fresh.render_items.size());
+            for(std::size_t index = 0; index < fresh.render_items.size(); ++index) {
+                const auto& item = submission.render_items[index];
+                const auto& expected = fresh.render_items[index];
+                EXPECT_EQ(item.entity_id, expected.entity_id);
+                EXPECT_EQ(item.transform_revision, expected.transform_revision);
+                EXPECT_EQ(item.model_matrix, expected.model_matrix);
+                EXPECT_EQ(item.mesh_handle, expected.mesh_handle);
+                EXPECT_EQ(item.mesh_revision, expected.mesh_revision);
+                EXPECT_EQ(item.mesh, expected.mesh);
+                EXPECT_EQ(item.material.material_handle, expected.material.material_handle);
+                EXPECT_EQ(item.material.asset_revision, expected.material.asset_revision);
+                EXPECT_EQ(item.material.resource, expected.material.resource);
+                EXPECT_EQ(item.material.overrides, expected.material.overrides);
+            }
+        };
+        check();
+        ASSERT_EQ(submission.render_items.size(), 4u);
+        const auto frozen = submission;
+        for(const auto index : {0u, 2u, 4u}) {
+            SCOPED_TRACE(index);
+            scene.render_items.insert(scene.render_items.begin() + index, make_item(10 + index));
+            check();
+            scene.render_items.erase(scene.render_items.begin() + index);
+            check();
+        }
+        scene.render_items.insert(scene.render_items.begin() + 1, make_item(20));
+        scene.render_items[1].mesh_handle = AssetHandle{99};
+        check();
+        scene.render_items[1].mesh_handle = AssetHandle{10};
+        check();
+        ASSERT_TRUE(registry.unregister_asset(AssetHandle{21}));
+        check();
+        scene.render_items.erase(scene.render_items.begin());
+        check();
+        ASSERT_TRUE(registry.register_asset(
+            AssetHandle{21}, std::make_shared<Material>("replacement", "unlit_color")));
+        check();
+        scene.render_items.insert(scene.render_items.begin(), make_item(30));
+        std::ranges::reverse(scene.render_items);
+        check();
+        auto& moved = scene.render_items.back();
+        ++moved.transform_revision;
+        moved.model_matrix = Math::translate(Math::Mat4(1), {100, 0, 0});
+        moved.material_handle = AssetHandle{22};
+        moved.material_overrides.reset();
+        check();
+        ++scene.scene_lifetime;
+        moved.model_matrix = Math::Mat4(1);
+        check();
+        scene.render_items.clear();
+        check();
+        scene.render_items.push_back(make_item(40));
+        check();
+        scene.render_items.front().transform_revision = 0;
+        check();
+        scene.render_items.front().model_matrix = Math::Mat4(1);
+        check();
+        scene.render_items.clear();
+        check();
+        EXPECT_EQ(frozen.render_items.front().model_matrix[3], Math::Vec4(1, 0, 0, 1));
+        EXPECT_EQ(frozen.render_items.front().material.resource->get_name(), "item");
+        EXPECT_FLOAT_EQ(
+            frozen.render_items.front().material.overrides->scalar_properties.at("roughness"),
+            0.01f);
+    }
 
     TEST(SceneResolverTest, PublicationRefreshReleasesOnlyChangedResourcesBeforeResolution) {
         AssetRegistry registry;
