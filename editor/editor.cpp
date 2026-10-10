@@ -1,5 +1,6 @@
 #include "config/player_display_settings.h"
 #include "config/player_quality_settings.h"
+#include "config/player_audio_settings.h"
 #include "runtime/application.h"
 #include "config/config_loader.h"
 #include "render/resource/render_resources.h"
@@ -235,6 +236,23 @@ namespace {
                                             applied.error().message);
                                     return Comet::Result<void>::success();
                                 });
+                        },
+                    .load_audio = [this] { return load_player_audio(); },
+                    .active_audio = [this] { return get_engine().get_audio_settings(); },
+                    .apply_audio =
+                        [this](Comet::AudioSettings settings) {
+                            if(!m_player_audio_settings)
+                                return Comet::Result<void>::failure(
+                                    "Player audio settings are unavailable");
+                            return m_player_audio_settings->save_and_apply(
+                                settings, [this](const auto& candidate) {
+                                    const auto applied =
+                                        get_engine().apply_audio_settings(candidate);
+                                    if(!applied)
+                                        return Comet::Result<void>::failure(
+                                            applied.error().message);
+                                    return Comet::Result<void>::success();
+                                });
                         }});
             renderer.set_overlay(
                 {.render =
@@ -435,6 +453,17 @@ namespace {
             return Comet::Result<Comet::DisplaySettings>::success(
                 m_player_display_settings->settings());
         }
+        Comet::Result<Comet::AudioSettings> load_player_audio() {
+            if(!m_player_audio_settings) {
+                auto loaded =
+                    Comet::PlayerAudioSettings::load(m_project.id(), m_project.audio_settings());
+                if(!loaded)
+                    return Comet::Result<Comet::AudioSettings>::failure(loaded.error());
+                m_player_audio_settings = std::move(loaded).value();
+            }
+            return Comet::Result<Comet::AudioSettings>::success(
+                m_player_audio_settings->settings());
+        }
         Comet::Result<Comet::QualitySettings> load_player_quality() {
             if(!m_player_quality_settings) {
                 auto loaded = Comet::PlayerQualitySettings::load(
@@ -581,6 +610,9 @@ namespace {
                 case CometEditor::MenuBar::Command::ProjectDisplaySettings:
                     m_project_settings.request_display();
                     break;
+                case CometEditor::MenuBar::Command::ProjectAudioSettings:
+                    m_project_settings.request_audio();
+                    break;
                 case CometEditor::MenuBar::Command::ProjectQualitySettings:
                     m_project_settings.request_quality();
                     break;
@@ -719,6 +751,11 @@ namespace {
                     get_engine().get_renderer().request_quality_settings(quality.value());
                 !requested)
                 return Comet::Result<void, Comet::Error>::failure(requested.error().as_error());
+            auto audio = load_player_audio();
+            if(!audio)
+                return Comet::Result<void, Comet::Error>::failure({audio.error()});
+            if(auto applied = get_engine().apply_audio_settings(audio.value()); !applied)
+                return applied;
             return get_engine().start_scene_runtime(state);
         }
 
@@ -899,7 +936,10 @@ namespace {
             const auto settings = m_project_settings.update();
             if(settings.quality_changed)
                 m_player_quality_settings.reset();
-            if(settings.input_changed || settings.display_changed || settings.quality_changed)
+            if(settings.audio_changed)
+                m_player_audio_settings.reset();
+            if(settings.input_changed || settings.display_changed || settings.quality_changed
+                || settings.audio_changed)
                 m_game_ui->reset();
             if(settings.input_changed) {
                 if(auto configured = get_engine().set_input_actions(m_project.input_actions());
@@ -1213,6 +1253,7 @@ namespace {
         std::optional<Comet::PlayerInputSettings> m_player_input_settings;
         std::optional<Comet::PlayerDisplaySettings> m_player_display_settings;
         std::optional<Comet::PlayerQualitySettings> m_player_quality_settings;
+        std::optional<Comet::PlayerAudioSettings> m_player_audio_settings;
         std::string m_player_input_error;
         std::unique_ptr<CometEditor::Ui::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::GameUi> m_game_ui;

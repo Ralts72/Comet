@@ -10,6 +10,7 @@ set(SOURCES
     src/config/display_settings.cpp
     src/config/player_display_settings.cpp
     src/config/player_quality_settings.cpp
+    src/config/player_audio_settings.cpp
     src/diagnostics/diagnostics.cpp
     src/runtime/entry.cpp
     src/runtime/application.cpp

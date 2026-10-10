@@ -74,7 +74,9 @@ namespace Comet::Ui {
             DisplaySettings,
             DisplayApply,
             QualitySettings,
-            QualityApply
+            QualityApply,
+            AudioSettings,
+            AudioApply
         };
         class Controller final {
         public:
@@ -103,7 +105,9 @@ namespace Comet::Ui {
                             {"display_settings", static_cast<int>(Api::DisplaySettings)},
                             {"display_apply", static_cast<int>(Api::DisplayApply)},
                             {"quality_settings", static_cast<int>(Api::QualitySettings)},
-                            {"quality_apply", static_cast<int>(Api::QualityApply)}},
+                            {"quality_apply", static_cast<int>(Api::QualityApply)},
+                            {"audio_settings", static_cast<int>(Api::AudioSettings)},
+                            {"audio_apply", static_cast<int>(Api::AudioApply)}},
                       [this](lua_State* state, int api) {
                           return m_host.api(*this, state, static_cast<Api>(api));
                       }) {}
@@ -269,6 +273,7 @@ namespace Comet::Ui {
         int input_api(lua_State* state, Api operation);
         int display_api(lua_State* state, Api operation);
         int quality_api(lua_State* state, Api operation);
+        int audio_api(lua_State* state, Api operation);
         Result<FrameResult, Error> frame(const Input::Frame& input, FrameInfo info);
         void deactivate() {
             if(m_controller) {
@@ -283,6 +288,7 @@ namespace Comet::Ui {
             m_events.clear();
             m_pending_display.reset();
             m_pending_quality.reset();
+            m_pending_audio.reset();
             m_runtime->set_capture_active(false);
             m_runtime->cancel_input();
             (void)m_runtime->update();
@@ -348,6 +354,7 @@ namespace Comet::Ui {
         std::optional<PendingCapture> m_pending_capture;
         std::optional<Comet::DisplaySettings> m_pending_display;
         std::optional<Comet::QualitySettings> m_pending_quality;
+        std::optional<Comet::AudioSettings> m_pending_audio;
         std::string m_capture_focus, m_api_error, m_event_error;
         std::map<std::string, std::string> m_pending_markup;
         const Input::Frame* m_input = nullptr;
@@ -478,6 +485,9 @@ namespace Comet::Ui {
             case Api::QualitySettings:
             case Api::QualityApply:
                 return quality_api(state, operation);
+            case Api::AudioSettings:
+            case Api::AudioApply:
+                return audio_api(state, operation);
             default:
                 return input_api(state, operation);
         }
@@ -587,6 +597,48 @@ namespace Comet::Ui {
             return luaL_error(state, "Quality settings service is unavailable");
         m_pending_quality = Comet::QualitySettings{static_cast<uint32_t>(samples),
             static_cast<float>(anisotropy), static_cast<float>(scale)};
+        return 0;
+    }
+
+    int ProjectUi::Impl::audio_api(lua_State* state, Api operation) {
+        if(operation == Api::AudioSettings) {
+            if(!m_services.load_audio || !m_services.active_audio) {
+                lua_pushnil(state);
+                return 1;
+            }
+            auto loaded = m_services.load_audio();
+            if(!loaded) {
+                lua_pushnil(state);
+                lua_pushlstring(state, loaded.error().data(), loaded.error().size());
+                return 2;
+            }
+            const auto push_settings = [&](const Comet::AudioSettings& settings) {
+                lua_createtable(state, 0, 3);
+                lua_pushnumber(state, settings.master_volume);
+                lua_setfield(state, -2, "master_volume");
+                lua_pushnumber(state, settings.effects_volume);
+                lua_setfield(state, -2, "effects_volume");
+                lua_pushnumber(state, settings.music_volume);
+                lua_setfield(state, -2, "music_volume");
+            };
+            push_settings(loaded.value());
+            push_settings(m_services.audio_defaults);
+            lua_setfield(state, -2, "defaults");
+            push_settings(m_services.active_audio());
+            lua_setfield(state, -2, "active");
+            return 1;
+        }
+        const auto master = luaL_checknumber(state, 1);
+        const auto effects = luaL_checknumber(state, 2);
+        const auto music = luaL_checknumber(state, 3);
+        for(const auto volume : {master, effects, music}) {
+            if(!std::isfinite(volume) || volume < 0 || volume > 1)
+                return luaL_error(state, "Audio volumes must be finite values in [0, 1]");
+        }
+        if(!m_services.apply_audio || !m_info.game_available)
+            return luaL_error(state, "Audio settings service is unavailable");
+        m_pending_audio = Comet::AudioSettings{
+            static_cast<float>(master), static_cast<float>(effects), static_cast<float>(music)};
         return 0;
     }
 
@@ -819,6 +871,14 @@ namespace Comet::Ui {
             if(auto result = call("on_quality_result",
                    {Rml::Variant(bool(applied)),
                        Rml::Variant(applied ? std::string{} : applied.error())});
+                !result)
+                return Frame::failure({result.error()});
+        }
+        if(auto audio = std::exchange(m_pending_audio, {})) {
+            const auto applied = m_services.apply_audio(*audio);
+            if(auto result = call(
+                   "on_audio_result", {Rml::Variant(bool(applied)),
+                                          Rml::Variant(applied ? std::string{} : applied.error())});
                 !result)
                 return Frame::failure({result.error()});
         }

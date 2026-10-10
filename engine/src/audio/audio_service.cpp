@@ -40,11 +40,23 @@ namespace Comet {
         m_one_shot_limit_reported = false;
     }
 
-    bool AudioService::request_one_shot(const AssetHandle clip, const float volume) {
+    Result<void, Error> AudioService::apply_settings(const AudioSettings settings) {
+        if(auto valid = settings.validate(); !valid)
+            return Result<void, Error>::failure({valid.error()});
+        if(m_playback) {
+            if(auto applied = m_playback->apply_settings(settings); !applied)
+                return applied;
+        }
+        m_settings = settings;
+        return Result<void, Error>::success();
+    }
+
+    bool AudioService::request_one_shot(
+        const AssetHandle clip, const float volume, const AudioCategory category) {
         if(!m_scene || !clip || !std::isfinite(volume) || volume < 0 || volume > 1
-            || m_requests.size() >= MAX_REQUESTS)
+            || !valid_audio_category(category) || m_requests.size() >= MAX_REQUESTS)
             return false;
-        m_requests.push_back({clip, volume});
+        m_requests.push_back({clip, volume, category});
         return true;
     }
 
@@ -64,16 +76,19 @@ namespace Comet {
             m_playback = std::move(playback).value();
             if(!m_playback)
                 return Result<void, Error>::failure({"Audio playback factory returned no output"});
+            if(auto applied = m_playback->apply_settings(m_settings); !applied)
+                return applied;
         }
         return Result<void, Error>::success();
     }
 
     Result<std::unique_ptr<AudioPlayback::Voice>, Error> AudioService::prepare_voice(
-        const AssetHandle handle, const float volume, const bool looping) {
+        const AssetHandle handle, const float volume, const bool looping,
+        const AudioCategory category) {
         using Prepared = Result<std::unique_ptr<AudioPlayback::Voice>, Error>;
         if(!m_scene)
             return Prepared::failure({"Audio service is inactive"});
-        if(!std::isfinite(volume) || volume < 0 || volume > 1)
+        if(!std::isfinite(volume) || volume < 0 || volume > 1 || !valid_audio_category(category))
             return Prepared::failure({"Audio source volume must be in [0, 1]"});
         auto clip = m_assets.resolve<AudioClip>(handle);
         if(!clip)
@@ -83,7 +98,7 @@ namespace Comet {
             return Prepared::failure(ready.error());
         if(m_device_unavailable)
             return Prepared::success(nullptr);
-        auto voice = m_playback->create_voice(std::move(clip), volume, looping);
+        auto voice = m_playback->create_voice(std::move(clip), volume, looping, category);
         if(!voice)
             return voice;
         if(auto started = voice.value()->start(); !started)
@@ -91,12 +106,12 @@ namespace Comet {
         return voice;
     }
 
-    Result<AudioService::VoiceId, Error> AudioService::start_voice(
-        const AssetHandle clip, const float volume, const bool looping) {
+    Result<AudioService::VoiceId, Error> AudioService::start_voice(const AssetHandle clip,
+        const float volume, const bool looping, const AudioCategory category) {
         using Started = Result<VoiceId, Error>;
         if(m_next_voice == std::numeric_limits<VoiceId>::max())
             return Started::failure({"Audio voice identifiers exhausted"});
-        auto voice = prepare_voice(clip, volume, looping);
+        auto voice = prepare_voice(clip, volume, looping, category);
         if(!voice)
             return Started::failure(voice.error());
         if(!voice.value())
@@ -111,12 +126,14 @@ namespace Comet {
     }
 
     Result<void, Error> AudioService::update_voice(
-        const VoiceId voice, const float volume, const bool looping) {
+        const VoiceId voice, const float volume, const bool looping, const AudioCategory category) {
         if(!std::isfinite(volume) || volume < 0 || volume > 1)
             return Result<void, Error>::failure({"Audio source volume must be in [0, 1]"});
         const auto found = m_voices.find(voice);
         if(found == m_voices.end())
             return Result<void, Error>::failure({"Audio voice is unavailable"});
+        if(auto routed = found->second->set_category(category); !routed)
+            return routed;
         found->second->set_volume(volume);
         found->second->set_looping(looping);
         return Result<void, Error>::success();
@@ -161,7 +178,7 @@ namespace Comet {
                 }
                 continue;
             }
-            auto voice = prepare_voice(request.clip, request.volume, false);
+            auto voice = prepare_voice(request.clip, request.volume, false, request.category);
             if(!voice)
                 return Result<void, Error>::failure(voice.error());
             if(voice.value())

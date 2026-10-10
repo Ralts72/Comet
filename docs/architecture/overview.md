@@ -109,8 +109,8 @@ Editor 固定使用中文，`ui/text` 提供词表读取和短作用域借用；
 候选文档先解析、由调用方校验结构，再生成资源并验证绘制；失败恢复旧文档，成功才关闭旧文档。
 业务回调通过加载状态及当前文档身份忽略候选页事件，避免无效候选页修改应用状态。
 
-`Ui::ProjectUi` 装载清单中的页面与 `.ui.lua` 控制器；宿主注入个人输入、显示与画质设置的读取／保存和运行时应用服务。
-Project 保存游戏默认值；`PlayerDisplaySettings`／`PlayerQualitySettings` 按项目 UUID 保存玩家选择，App 在创建设备前使用有效值，Editor 在进入 Play 时应用画质。
+`Ui::ProjectUi` 装载清单中的页面与 `.ui.lua` 控制器；宿主注入个人输入、显示、画质与音量设置的读取／保存和运行时应用服务。
+Project 保存游戏默认值；`PlayerDisplaySettings`／`PlayerQualitySettings`／`PlayerAudioSettings` 按项目 UUID 保存玩家选择，App 在创建设备前使用有效值，Editor 在进入 Play 时应用画质与音量。
 Renderer 在帧准备阶段发布完整画质候选，失败保留旧 RenderState，在途帧继续持有旧资源；控制器可查询设备限制、待应用及实际值。
 渲染比例缩放 HDR 场景与 Bloom，OutputPass 放大后映射到完整输出分辨率，项目 UI 在完整输出上合成。
 控制器拥有模型、菜单状态、控件 ID、命令及快捷键，`PlayerInputEdit` 仍属于 Engine 输入模块。
@@ -541,7 +541,12 @@ Engine 拥有 AudioService，通过 RuntimeServices 装配无后端的 AudioComm
 SceneRuntime 在所有 System 启动前绑定音频服务，逆序停止 System 后释放全部声音与请求；启动／更新失败走相同清理。
 活动服务不能绑定第二个运行域，失败尝试不干扰原运行域；服务只能在 Runtime 停止后替换。
 ScriptSystem 显式传递音频权限，Instance 拒绝跨场景或失效服务，每次调用后撤销绑定；on_stop 不保留音频权限。
-`comet.play_one_shot()` 在启动或更新中提交片段 Handle／音量快照，实体随后删除或配置更改不改变已提交请求。
+`comet.play_one_shot()` 在启动或更新中提交片段 Handle／音量／分类快照，实体随后删除或配置更改不改变已提交请求。
+
+AudioSettings 保存主音量／音效／音乐增益，范围均为 0..1；项目默认与玩家选择分离。
+Engine 应用音量，AudioService 保留有效值并在设备首次创建时应用；场景停止清理 Voice 和设备，不清除玩家音量。
+AudioPlayback 用 miniaudio 的音效／音乐 group 混音再乘主增益；音源保留自身音量，分类更改重新接线但不重置播放位置。
+Scene 只保存音源分类，World 与命令接口不接触混音节点；Lua one-shot 沿用当前音源分类。
 
 AudioService 由 SceneRuntime 通知暂停，停止 AudioPlayback 的设备回调，保留 Voice 播放状态；单步期间主线程独占混音推进，
 按 Context::delta_time 读取并丢弃采样。先推进原有声音，再清理结束实例、同步组件和接收本步末的新请求，

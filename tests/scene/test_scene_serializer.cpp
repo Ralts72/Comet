@@ -103,6 +103,45 @@ namespace Comet::Tests {
         EXPECT_FALSE(serializer.deserialize(invalid));
     }
 
+    TEST(SceneSerializerTest, AudioCategoryPersistsClonesAndDefaultsWhenOmitted) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        Scene scene;
+        auto sound = scene.create_entity("Music");
+        sound.add_component<AudioSourceComponent>().category = AudioCategory::Music;
+        auto serialized = serializer.serialize(scene);
+        ASSERT_TRUE(serialized) << serialized.error();
+        auto restored = serializer.deserialize(serialized.value());
+        ASSERT_TRUE(restored) << restored.error();
+        EXPECT_EQ(restored.value()
+                      ->find_entity(sound.get_uuid())
+                      .get_component<AudioSourceComponent>()
+                      .category,
+            AudioCategory::Music);
+        auto clone = serializer.clone(scene);
+        ASSERT_TRUE(clone) << clone.error();
+        EXPECT_EQ(clone.value()
+                      ->find_entity(sound.get_uuid())
+                      .get_component<AudioSourceComponent>()
+                      .category,
+            AudioCategory::Music);
+        const auto field = std::string(R"("category": "music",)");
+        auto omitted = serialized.value();
+        const auto position = omitted.find(field);
+        ASSERT_NE(position, std::string::npos);
+        omitted.erase(position, field.size());
+        auto defaults = serializer.deserialize(omitted);
+        ASSERT_TRUE(defaults) << defaults.error();
+        EXPECT_EQ(defaults.value()
+                      ->find_entity(sound.get_uuid())
+                      .get_component<AudioSourceComponent>()
+                      .category,
+            AudioCategory::Effects);
+        auto invalid = serialized.value();
+        invalid.replace(position, field.size(), R"("category": "unknown",)");
+        EXPECT_FALSE(serializer.deserialize(invalid));
+    }
+
     TEST(SceneSerializerTest, RejectsAudioVolumeOutsideDataBoundsOnLoadAndSave) {
         const auto registry = create_scene_component_registry();
         const SceneSerializer serializer(registry);

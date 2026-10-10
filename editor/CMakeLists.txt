@@ -77,6 +77,7 @@ add_library(editor_ui STATIC
         src/project/project_name_dialog.cpp
         src/project/display_settings_panel.cpp
         src/project/quality_settings_panel.cpp
+        src/project/audio_settings_panel.cpp
         src/project/input_settings_panel.cpp
         src/project/project_settings.cpp
         src/assets/asset_reference.cpp

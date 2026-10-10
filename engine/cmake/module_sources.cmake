@@ -75,6 +75,9 @@ set(COMET_RUNTIME_SOURCES
 )
 
 set(COMET_AUDIO_SOURCES
+    src/audio/audio_category.h
+    src/audio/audio_settings.cpp
+    src/audio/audio_settings.h
     src/audio/audio.cpp
     src/audio/audio.h
     src/audio/audio_commands.h

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "audio/audio_settings.h"
 #include "common/error.h"
 #include "common/export.h"
 #include "common/result.h"
@@ -47,7 +48,9 @@ namespace Comet {
         AudioPlayback& operator=(const AudioPlayback&) = delete;
 
         [[nodiscard]] Result<std::unique_ptr<Voice>, Error> create_voice(
-            std::shared_ptr<const AudioClip> clip, float volume, bool looping);
+            std::shared_ptr<const AudioClip> clip, float volume, bool looping,
+            AudioCategory category = AudioCategory::Effects);
+        [[nodiscard]] Result<void, Error> apply_settings(AudioSettings settings);
         // 暂停设备回调，保留各 Voice 的播放位置和启停状态。
         [[nodiscard]] Result<void, Error> set_paused(bool paused);
         // 仅暂停时：静默推进最多一秒，保留不足一个采样帧的时间余量。
@@ -71,6 +74,7 @@ namespace Comet {
         void stop() noexcept;
         void set_volume(float volume);
         void set_looping(bool looping);
+        [[nodiscard]] Result<void, Error> set_category(AudioCategory category);
         [[nodiscard]] bool is_playing() const;
 
     private:

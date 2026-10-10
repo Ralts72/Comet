@@ -1,5 +1,6 @@
 #pragma once
 #include "common/export.h"
+#include "audio/audio_settings.h"
 #include "render/scene/render_scene.h"
 #include "common/error.h"
 #include "common/result.h"
@@ -59,6 +60,8 @@ namespace Comet {
 
         [[nodiscard]] Result<void, Error> add_system(std::unique_ptr<System> system);
         [[nodiscard]] Result<void, Error> add_default_scene_systems();
+        [[nodiscard]] Result<void, Error> apply_audio_settings(AudioSettings settings);
+        [[nodiscard]] const AudioSettings& get_audio_settings() const { return m_audio_settings; }
         [[nodiscard]] Result<void, Error> set_runtime_settings(SceneRuntime::Settings settings);
         [[nodiscard]] Result<void, Error> set_input_actions(InputActions actions);
         [[nodiscard]] Result<void, Error> rebind_input_actions(InputActions actions);
@@ -97,6 +100,7 @@ namespace Comet {
         std::unique_ptr<Scene> m_scene;
         std::unique_ptr<Renderer> m_renderer;
         std::unique_ptr<AudioService> m_audio_service;
+        AudioSettings m_audio_settings;
         std::unique_ptr<PhysicsService> m_physics_service;
         SceneRuntime m_scene_runtime;
         FrameDiagnostics m_frame_diagnostics;

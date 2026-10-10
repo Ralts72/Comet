@@ -15,7 +15,7 @@ namespace Comet {
 
     AudioSourceComponent::AudioSourceComponent(const AudioSourceComponent& other)
         : clip(other.clip), play_on_start(other.play_on_start), loop(other.loop),
-          volume(other.volume), m_lifetime(new_lifetime()) {}
+          volume(other.volume), category(other.category), m_lifetime(new_lifetime()) {}
 
     AudioSourceComponent& AudioSourceComponent::operator=(const AudioSourceComponent& other) {
         if(this != &other) {
@@ -23,6 +23,7 @@ namespace Comet {
             play_on_start = other.play_on_start;
             loop = other.loop;
             volume = other.volume;
+            category = other.category;
             m_lifetime = new_lifetime();
         }
         return *this;

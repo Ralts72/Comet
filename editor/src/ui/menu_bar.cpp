@@ -91,6 +91,8 @@ namespace CometEditor {
                     m_request = Request{Command::ProjectDisplaySettings, {}};
                 if(ImGui::MenuItem(Ui::label("Quality").c_str()))
                     m_request = Request{Command::ProjectQualitySettings, {}};
+                if(ImGui::MenuItem(Ui::label("Audio").c_str()))
+                    m_request = Request{Command::ProjectAudioSettings, {}};
                 if(ImGui::MenuItem(Ui::label("Input").c_str()))
                     m_request = Request{Command::ProjectInputSettings, {}};
                 ImGui::EndMenu();

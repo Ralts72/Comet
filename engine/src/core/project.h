@@ -2,6 +2,7 @@
 
 #include "core/project_paths.h"
 #include "config/display_settings.h"
+#include "audio/audio_settings.h"
 #include "render/quality_settings.h"
 #include "input/input_actions.h"
 #include "common/result.h"
@@ -28,6 +29,7 @@ namespace Comet {
         [[nodiscard]] Result<void> save_input_actions(InputActions actions);
         [[nodiscard]] Result<void> save_display_settings(DisplaySettings settings);
         [[nodiscard]] Result<void> save_quality_settings(QualitySettings settings);
+        [[nodiscard]] Result<void> save_audio_settings(AudioSettings settings);
 
         [[nodiscard]] const ProjectPaths& paths() const { return m_paths; }
         [[nodiscard]] Uuid id() const { return m_id; }
@@ -36,13 +38,15 @@ namespace Comet {
         [[nodiscard]] const InputActions& input_actions() const { return m_input_actions; }
         [[nodiscard]] const DisplaySettings& display_settings() const { return m_display_settings; }
         [[nodiscard]] const QualitySettings& quality_settings() const { return m_quality_settings; }
+        [[nodiscard]] const AudioSettings& audio_settings() const { return m_audio_settings; }
         [[nodiscard]] const std::optional<UiEntry>& ui() const { return m_ui; }
 
     private:
         explicit Project(ProjectPaths paths);
         [[nodiscard]] Result<std::string> serialize(const std::string& name,
             const std::filesystem::path& startup_scene, const InputActions& input_actions,
-            const DisplaySettings& display_settings, const QualitySettings& quality_settings) const;
+            const DisplaySettings& display_settings, const QualitySettings& quality_settings,
+            const AudioSettings& audio_settings) const;
         [[nodiscard]] Result<void> save_settings(std::string name,
             const std::filesystem::path& startup_scene, InputActions input_actions);
 
@@ -53,6 +57,7 @@ namespace Comet {
         InputActions m_input_actions;
         DisplaySettings m_display_settings;
         QualitySettings m_quality_settings;
+        AudioSettings m_audio_settings;
         std::optional<UiEntry> m_ui;
     };
 }

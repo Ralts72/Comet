@@ -3,6 +3,7 @@
 #include "common/result.h"
 #include "project/display_settings_panel.h"
 #include "project/quality_settings_panel.h"
+#include "project/audio_settings_panel.h"
 #include "project/input_settings_panel.h"
 #include "project/project_name_dialog.h"
 
@@ -21,6 +22,7 @@ namespace CometEditor {
             bool input_changed = false;
             bool display_changed = false;
             bool quality_changed = false;
+            bool audio_changed = false;
         };
         explicit ProjectSettings(Comet::Project& project) : m_project(project) {}
 
@@ -28,6 +30,7 @@ namespace CometEditor {
         void request_input();
         void request_display();
         void request_quality();
+        void request_audio();
         void render(bool editing, const Comet::Input::Frame& input);
         [[nodiscard]] Update update();
         [[nodiscard]] Comet::Result<void> set_startup_scene(const std::filesystem::path& path,
@@ -40,5 +43,6 @@ namespace CometEditor {
         InputSettingsPanel m_input_panel;
         DisplaySettingsPanel m_display_panel;
         QualitySettingsPanel m_quality_panel;
+        AudioSettingsPanel m_audio_panel;
     };
 }

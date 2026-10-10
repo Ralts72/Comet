@@ -204,6 +204,11 @@ namespace Comet {
                     make_property_descriptor(
                         "play_on_start", "Play On Start", &AudioSourceComponent::play_on_start),
                     make_property_descriptor("loop", "Loop", &AudioSourceComponent::loop),
+                    make_enum_property_descriptor<AudioSourceComponent, AudioCategory>("category",
+                        "Audio Category", &AudioSourceComponent::category,
+                        {{AudioCategory::Effects, {"effects", "Sound Effects"}},
+                            {AudioCategory::Music, {"music", "Music"}}},
+                        {.required = false}),
                     make_property_descriptor("volume", "Volume", &AudioSourceComponent::volume,
                         {.numeric = {.speed = 0.01f,
                              .minimum = 0.0f,

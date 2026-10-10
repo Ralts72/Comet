@@ -60,12 +60,16 @@ namespace Comet {
 
     struct AudioPlayback::Impl {
         ma_engine engine{};
+        std::array<ma_sound_group, 2> groups{};
+        std::size_t initialized_groups = 0;
         Mode mode = Mode::Realtime;
         double silent_frame_remainder = 0;
         bool paused = false;
         bool initialized = false;
 
         ~Impl() {
+            while(initialized_groups > 0)
+                ma_sound_group_uninit(&groups[--initialized_groups]);
             if(initialized)
                 ma_engine_uninit(&engine);
         }
@@ -76,6 +80,7 @@ namespace Comet {
         std::shared_ptr<const AudioClip> clip;
         ma_audio_buffer buffer{};
         ma_sound sound{};
+        AudioCategory category = AudioCategory::Effects;
         bool buffer_initialized = false;
         bool sound_initialized = false;
 
@@ -107,18 +112,30 @@ namespace Comet {
         if(result != MA_SUCCESS)
             return Creation::failure(audio_error("Cannot initialize audio playback", result));
         impl->initialized = true;
+        // 分类通道只调增益；关闭变调，避免额外重采样及换路时的采样延迟。
+        for(auto& group : impl->groups) {
+            const auto grouped = ma_sound_group_init(&impl->engine,
+                MA_SOUND_FLAG_NO_SPATIALIZATION | MA_SOUND_FLAG_NO_PITCH, nullptr, &group);
+            if(grouped != MA_SUCCESS)
+                return Creation::failure(audio_error("Cannot create audio mix group", grouped));
+            ++impl->initialized_groups;
+        }
         return Creation::success(
             std::unique_ptr<AudioPlayback>(new AudioPlayback(std::move(impl))));
     }
 
     Result<std::unique_ptr<AudioPlayback::Voice>, Error> AudioPlayback::create_voice(
-        std::shared_ptr<const AudioClip> clip, const float volume, const bool looping) {
+        std::shared_ptr<const AudioClip> clip, const float volume, const bool looping,
+        const AudioCategory category) {
         using Creation = Result<std::unique_ptr<Voice>, Error>;
-        if(!clip || !std::isfinite(volume) || volume < 0 || volume > 1)
-            return Creation::failure({"Audio voice requires a clip and volume in [0, 1]"});
+        if(!clip || !std::isfinite(volume) || volume < 0 || volume > 1
+            || !valid_audio_category(category))
+            return Creation::failure(
+                {"Audio voice requires a clip, volume in [0, 1] and category"});
         auto impl = std::make_unique<Voice::Impl>();
         impl->playback = m_impl;
         impl->clip = std::move(clip);
+        impl->category = category;
         auto buffer_config = ma_audio_buffer_config_init(ma_format_f32, impl->clip->channels(),
             impl->clip->frame_count(), impl->clip->samples().data(), nullptr);
         buffer_config.sampleRate = impl->clip->sample_rate();
@@ -126,14 +143,42 @@ namespace Comet {
         if(buffered != MA_SUCCESS)
             return Creation::failure(audio_error("Cannot create audio buffer", buffered));
         impl->buffer_initialized = true;
-        const auto created = ma_sound_init_from_data_source(
-            &m_impl->engine, &impl->buffer, MA_SOUND_FLAG_NO_SPATIALIZATION, nullptr, &impl->sound);
+        const auto created = ma_sound_init_from_data_source(&m_impl->engine, &impl->buffer,
+            MA_SOUND_FLAG_NO_SPATIALIZATION, &m_impl->groups[static_cast<std::size_t>(category)],
+            &impl->sound);
         if(created != MA_SUCCESS)
             return Creation::failure(audio_error("Cannot create audio voice", created));
         impl->sound_initialized = true;
         ma_sound_set_volume(&impl->sound, volume);
         ma_sound_set_looping(&impl->sound, looping ? MA_TRUE : MA_FALSE);
         return Creation::success(std::unique_ptr<Voice>(new Voice(std::move(impl))));
+    }
+
+    Result<void, Error> AudioPlayback::apply_settings(const AudioSettings settings) {
+        if(auto valid = settings.validate(); !valid)
+            return Result<void, Error>::failure({valid.error()});
+        const auto applied = ma_engine_set_volume(&m_impl->engine, settings.master_volume);
+        if(applied != MA_SUCCESS)
+            return Result<void, Error>::failure(audio_error("Cannot apply master volume", applied));
+        ma_sound_group_set_volume(&m_impl->groups[static_cast<std::size_t>(AudioCategory::Effects)],
+            settings.effects_volume);
+        ma_sound_group_set_volume(
+            &m_impl->groups[static_cast<std::size_t>(AudioCategory::Music)], settings.music_volume);
+        return Result<void, Error>::success();
+    }
+
+    Result<void, Error> AudioPlayback::Voice::set_category(const AudioCategory category) {
+        if(!valid_audio_category(category))
+            return Result<void, Error>::failure({"Invalid audio category"});
+        if(category == m_impl->category)
+            return Result<void, Error>::success();
+        const auto attached = ma_node_attach_output_bus(
+            &m_impl->sound, 0, &m_impl->playback->groups[static_cast<std::size_t>(category)], 0);
+        if(attached != MA_SUCCESS)
+            return Result<void, Error>::failure(
+                audio_error("Cannot change audio category", attached));
+        m_impl->category = category;
+        return Result<void, Error>::success();
     }
 
     Result<void, Error> AudioPlayback::set_paused(const bool paused) {

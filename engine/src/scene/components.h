@@ -1,6 +1,7 @@
 #pragma once
 
 #include "asset/handle.h"
+#include "audio/audio_category.h"
 #include "common/export.h"
 #include "core/math_utils.h"
 #include "scene/entity_id.h"
@@ -112,6 +113,7 @@ namespace Comet {
         bool play_on_start = true;
         bool loop = false;
         float volume = 0.5f;
+        AudioCategory category = AudioCategory::Effects;
         [[nodiscard]] uint64_t lifetime() const noexcept { return m_lifetime; }
 
     private:

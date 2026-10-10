@@ -92,11 +92,27 @@ namespace Comet {
         return m_scene_runtime.add_system(std::move(system));
     }
 
+    Result<void, Error> Engine::apply_audio_settings(const AudioSettings settings) {
+        if(m_shutdown_prepared)
+            return Result<void, Error>::failure({"Engine is shutting down"});
+        if(auto valid = settings.validate(); !valid)
+            return Result<void, Error>::failure({valid.error()});
+        if(m_audio_service) {
+            if(auto applied = m_audio_service->apply_settings(settings); !applied)
+                return applied;
+        }
+        m_audio_settings = settings;
+        return Result<void, Error>::success();
+    }
+
     Result<void, Error> Engine::add_default_scene_systems() {
         if(m_shutdown_prepared)
             return Result<void, Error>::failure({"Engine is shutting down"});
-        if(!m_audio_service)
+        if(!m_audio_service) {
             m_audio_service = std::make_unique<AudioService>(*m_asset_registry);
+            if(auto applied = m_audio_service->apply_settings(m_audio_settings); !applied)
+                return applied;
+        }
         if(!m_physics_service)
             m_physics_service = std::make_unique<PhysicsService>();
         if(auto configured = m_scene_runtime.set_services(

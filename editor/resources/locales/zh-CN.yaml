@@ -347,3 +347,10 @@
 "Anisotropy": "各向异性过滤"
 "Render Scale": "渲染比例"
 "Render scale affects the scene; UI keeps output resolution.": "渲染比例仅调整场景，UI 保持输出分辨率。"
+
+"Audio": "音频"
+"Project Settings - Audio": "项目设置 - 音频"
+"Audio Category": "音频分类"
+"Master Volume": "主音量"
+"Sound Effects": "音效"
+"Music": "音乐"

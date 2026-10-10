@@ -1,5 +1,6 @@
 #include "config/player_display_settings.h"
 #include "config/player_quality_settings.h"
+#include "config/player_audio_settings.h"
 #include "runtime/entry.h"
 #include "render/resource/render_resources.h"
 #include "diagnostics/logger.h"
@@ -74,14 +75,16 @@ namespace {
     class GameApp final: public Comet::Application {
     public:
         GameApp(Comet::Project project, Comet::PlayerDisplaySettings display_settings,
-            Comet::PlayerQualitySettings quality_settings)
+            Comet::PlayerQualitySettings quality_settings,
+            Comet::PlayerAudioSettings audio_settings)
             : Application({.cache_directory = project.paths().cache(),
                   .log_directory = project.paths().logs(),
                   .window_title = project.name(),
                   .display_settings = display_settings.settings(),
                   .quality_settings = quality_settings.settings()}),
               m_project(std::move(project)), m_display_settings(std::move(display_settings)),
-              m_quality_settings(std::move(quality_settings)) {}
+              m_quality_settings(std::move(quality_settings)),
+              m_audio_settings(std::move(audio_settings)) {}
 
         Comet::Result<void, Comet::Error> on_init() override {
             using Init = Comet::Result<void, Comet::Error>;
@@ -127,6 +130,8 @@ namespace {
             engine.get_window().set_title(m_project.name() + " | Loading assets");
             if(auto configured = configure_player_input(); !configured)
                 return configured;
+            if(auto applied = engine.apply_audio_settings(m_audio_settings.settings()); !applied)
+                return applied;
             if(auto added = engine.add_default_scene_systems(); !added)
                 return added;
             if(!m_project.ui())
@@ -173,6 +178,25 @@ namespace {
                                     const auto applied =
                                         get_engine().get_renderer().request_quality_settings(
                                             candidate);
+                                    if(!applied)
+                                        return Comet::Result<void>::failure(
+                                            applied.error().message);
+                                    return Comet::Result<void>::success();
+                                });
+                        },
+                    .audio_defaults = m_project.audio_settings(),
+                    .load_audio =
+                        [this] {
+                            return Comet::Result<Comet::AudioSettings>::success(
+                                m_audio_settings.settings());
+                        },
+                    .active_audio = [this] { return get_engine().get_audio_settings(); },
+                    .apply_audio =
+                        [this](Comet::AudioSettings settings) {
+                            return m_audio_settings.save_and_apply(
+                                settings, [this](const auto& candidate) {
+                                    const auto applied =
+                                        get_engine().apply_audio_settings(candidate);
                                     if(!applied)
                                         return Comet::Result<void>::failure(
                                             applied.error().message);
@@ -336,6 +360,7 @@ namespace {
         Comet::Project m_project;
         Comet::PlayerDisplaySettings m_display_settings;
         Comet::PlayerQualitySettings m_quality_settings;
+        Comet::PlayerAudioSettings m_audio_settings;
         Comet::Input::Gate m_input_gate;
         std::unique_ptr<Comet::Ui::ProjectUi> m_ui;
         std::optional<Comet::PlayerInputSettings> m_player_input_settings;
@@ -365,9 +390,13 @@ namespace {
             project.value().id(), project.value().quality_settings());
         if(!quality)
             return Comet::Result<std::unique_ptr<Comet::Application>>::failure(quality.error());
+        auto audio = Comet::PlayerAudioSettings::load(
+            project.value().id(), project.value().audio_settings());
+        if(!audio)
+            return Comet::Result<std::unique_ptr<Comet::Application>>::failure(audio.error());
         return Comet::Result<std::unique_ptr<Comet::Application>>::success(
             std::make_unique<GameApp>(std::move(project).value(), std::move(display).value(),
-                std::move(quality).value()));
+                std::move(quality).value(), std::move(audio).value()));
     }
 }
 

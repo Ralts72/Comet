@@ -105,14 +105,17 @@ namespace {
             ASSERT_TRUE(constructor.Bind("menu_available", &available));
             ASSERT_TRUE(constructor.Bind("waiting", &waiting));
             ASSERT_TRUE(constructor.Bind("has_actions", &has_actions));
-            for(const auto* name :
-                {"display_available", "display_preview", "display_waiting", "quality_available"})
+            for(const auto* name : {"display_available", "display_preview", "display_waiting",
+                    "quality_available", "audio_available"})
                 ASSERT_TRUE(constructor.Bind(name, &display_flag));
-            for(const auto* name : {"display_size", "display_mode", "display_vsync",
-                    "display_status", "display_error", "display_width", "display_height",
-                    "display_active_vsync", "quality_msaa", "quality_anisotropy", "quality_scale",
-                    "quality_active", "quality_status", "quality_error"})
+            for(const auto* name :
+                {"display_size", "display_mode", "display_vsync", "display_status", "display_error",
+                    "display_width", "display_height", "display_active_vsync", "quality_msaa",
+                    "quality_anisotropy", "quality_scale", "quality_active", "quality_status",
+                    "quality_error", "audio_active", "audio_error"})
                 ASSERT_TRUE(constructor.Bind(name, &display_text));
+            for(const auto* name : {"audio_master", "audio_effects", "audio_music"})
+                ASSERT_TRUE(constructor.Bind(name, &audio_volume));
             ASSERT_TRUE(constructor.BindEventCallback(
                 "command", [this](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList& args) {
                     commands.push_back(args[0].Get<Rml::String>());
@@ -127,6 +130,7 @@ namespace {
             ASSERT_NE(document, nullptr);
             document->Show(Rml::ModalFlag::None, Rml::FocusFlag::None);
             ASSERT_TRUE(context->Update());
+            commands.clear();
         }
         void TearDown() override {
             if(initialized) {
@@ -159,9 +163,36 @@ namespace {
         bool waiting = false;
         bool has_actions = true;
         bool display_flag = false;
+        float audio_volume = 100;
         std::string display_text;
         bool initialized = false;
     };
+}
+
+TEST_F(DemoUiDocumentTest, AudioSliderHasVisibleGeometryAndSupportsKeyboardChanges) {
+    display_flag = true;
+    model.DirtyVariable("audio_available");
+    show_menu();
+    auto* slider = document->GetElementById("audio-master");
+    ASSERT_NE(slider, nullptr);
+    EXPECT_GT(slider->GetClientWidth(), 0);
+    Rml::Element* bar = nullptr;
+    for(int index = 0; index < slider->GetNumChildren(true); ++index) {
+        auto* child = slider->GetChild(index);
+        if(child->GetTagName() == "sliderbar")
+            bar = child;
+    }
+    ASSERT_NE(bar, nullptr);
+    EXPECT_GT(bar->GetClientWidth(), 0);
+    ASSERT_TRUE(slider->Focus(true));
+    context->ProcessKeyDown(Rml::Input::KI_LEFT, 0);
+    context->ProcessKeyUp(Rml::Input::KI_LEFT, 0);
+    ASSERT_FALSE(commands.empty());
+    EXPECT_EQ(commands.back(), "audio_master");
+    EXPECT_EQ(slider->GetAttribute("value", 0.0f), 99);
+    ASSERT_TRUE(context->Render());
+    EXPECT_FALSE(renderer.unsupported);
+    EXPECT_TRUE(system.diagnostics.empty());
 }
 
 TEST_F(DemoUiDocumentTest, WaitingDisablesControlsAndFailureRestoresKeyboardFocus) {

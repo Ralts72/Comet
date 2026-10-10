@@ -23,10 +23,10 @@ local function rows(self, ui)
     ui.set("action_name", action.name)
     local contents = {}
     if action.disabled then
-        contents[#contents + 1] = '<p class="muted">此动作已禁用；恢复全部默认可重新启用。</p>'
+        contents[#contents + 1] = '<p class="muted">此动作已禁用；恢复改键默认可重新启用。</p>'
     end
     if not action.compatible then
-        contents[#contents + 1] = '<p class="muted">覆盖配置与项目动作类型不一致；恢复全部默认后再编辑。</p>'
+        contents[#contents + 1] = '<p class="muted">覆盖配置与项目动作类型不一致；恢复改键默认后再编辑。</p>'
     end
     for _, binding in ipairs(action.bindings) do
         local label = binding.control
@@ -143,6 +143,40 @@ local function quality_status(self, ui)
     ui.set("quality_error", message)
 end
 
+local function audio_labels(self, ui)
+    local state = self.state
+    ui.set("audio_available", state.audio_available)
+    ui.set("audio_master", state.audio_master)
+    ui.set("audio_effects", state.audio_effects)
+    ui.set("audio_music", state.audio_music)
+    ui.set("audio_error", state.audio_error)
+end
+
+local function audio_draft(state, settings)
+    state.audio_master = settings.master_volume * 100
+    state.audio_effects = settings.effects_volume * 100
+    state.audio_music = settings.music_volume * 100
+end
+
+local function load_audio(self, ui)
+    local settings, message = ui.audio_settings()
+    local state = self.state
+    state.audio_available = settings ~= nil
+    state.audio_waiting = false
+    state.audio_error = message or ""
+    if settings then audio_draft(state, settings) end
+    audio_labels(self, ui)
+end
+
+local function audio_status(self, ui)
+    if not self.state.audio_available then return end
+    local settings = ui.audio_settings()
+    if not settings then return end
+    local active = settings.active
+    ui.set("audio_active", string.format("当前音量：主音量 %.0f%% · 音效 %.0f%% · 音乐 %.0f%%",
+        active.master_volume * 100, active.effects_volume * 100, active.music_volume * 100))
+end
+
 local function sync(self, ui)
     local status = ui.input_status()
     if self.state.open and self.state.revision ~= status.revision then
@@ -150,7 +184,7 @@ local function sync(self, ui)
         self.state.revision = status.revision
     end
     ui.set("display_waiting", self.state.display_waiting)
-    ui.set("waiting", status.waiting or self.state.display_waiting or self.state.quality_waiting)
+    ui.set("waiting", status.waiting or self.state.display_waiting or self.state.quality_waiting or self.state.audio_waiting)
     local error_text = self.state.error
     if error_text == "" then error_text = status.error end
     ui.set("error_text", error_text)
@@ -160,7 +194,7 @@ local function sync(self, ui)
     elseif status.capturing then
         text = "等待输入；Esc 取消本次录入。录入按钮需要先释放。"
     elseif not status.compatible then
-        text = "当前覆盖配置不兼容；恢复全部默认后再编辑。"
+        text = "当前覆盖配置不兼容；恢复改键默认后再编辑。"
     elseif status.has_issues then
         text = "部分旧覆盖配置已回退到项目默认；有效草稿仍会保留。"
     end
@@ -182,6 +216,8 @@ local function close(self, ui)
     self.state.display_available = false
     self.state.quality_available = false
     self.state.quality_waiting = false
+    self.state.audio_available = false
+    self.state.audio_waiting = false
     ui.input_end()
     sync(self, ui)
 end
@@ -204,6 +240,7 @@ local function open(self, ui)
     self.state.error = message
     load_display(self, ui)
     load_quality(self, ui)
+    load_audio(self, ui)
     sync(self, ui)
     focus_menu(self, ui)
 end
@@ -218,12 +255,16 @@ return {
         display_status = "", display_error = "",
         quality_available = false, quality_msaa = "", quality_anisotropy = "", quality_scale = "",
         quality_active = "", quality_status = "", quality_error = "",
+        audio_available = false, audio_master = 100, audio_effects = 100, audio_music = 100,
+        audio_active = "", audio_error = "",
     },
     state = {
         open = false, available = false, error_only = false, selected = 1,
         revision = -1, error = "", display_waiting = false,
         quality_available = false, quality_waiting = false, quality_error = "",
         quality_msaa = 4, quality_anisotropy = 8, quality_scale = 1,
+        audio_available = false, audio_waiting = false, audio_error = "",
+        audio_master = 100, audio_effects = 100, audio_music = 100,
         display_available = false, display_width = "960", display_height = "720",
         display_mode = "windowed", display_vsync = false, display_preview = false,
     },
@@ -233,12 +274,14 @@ return {
             "error", "footer", "restore", "cancel", "apply", "display",
             "display-size", "display-width", "display-height", "display-mode", "display-vsync",
             "display-apply", "display-restore", "quality", "quality-msaa",
-            "quality-anisotropy", "quality-scale", "quality-apply", "quality-restore"}) do
+            "quality-anisotropy", "quality-scale", "quality-apply", "quality-restore",
+            "audio", "audio-master", "audio-effects", "audio-music", "audio-restore", "audio-apply"}) do
             ui.require_element(id)
         end
         self.state.revision = -1
         display_labels(self, ui)
         quality_labels(self, ui)
+        audio_labels(self, ui)
         ui.set("menu_available", self.state.available)
         sync(self, ui)
         -- 验证隐藏菜单的布局和纹理；on_present 在发布后的首帧恢复项目状态。
@@ -257,7 +300,10 @@ return {
             active_vsync = "Play 使用编辑器的呈现节奏。"
         end
         ui.set("display_active_vsync", active_vsync)
-        if self.state.open then quality_status(self, ui) end
+        if self.state.open then
+            quality_status(self, ui)
+            audio_status(self, ui)
+        end
         local status = ui.input_status()
         if not status.capturing and ui.pressed("key", "F6") then ui.reload() end
         if not self.state.open then
@@ -268,8 +314,26 @@ return {
     end,
     on_event = function(self, ui, operation, action, binding)
         if operation == "open" then open(self, ui); return end
-        if not self.state.open or ui.input_status().waiting or self.state.display_waiting or self.state.quality_waiting then return end
-        if self.state.error_only and operation ~= "cancel" and not operation:match("^display_") and not operation:match("^quality_") then return end
+        if not self.state.open or ui.input_status().waiting or self.state.display_waiting or self.state.quality_waiting or self.state.audio_waiting then return end
+        if self.state.error_only and operation ~= "cancel" and not operation:match("^display_") and not operation:match("^quality_") and not operation:match("^audio_") then return end
+        if operation:match("^audio_") and self.state.audio_available then
+            local draft = self.state
+            if operation == "audio_master" or operation == "audio_effects" or operation == "audio_music" then
+                local value = tonumber(action)
+                if not value or value ~= value or value < 0 or value > 100 then return end
+                draft[operation] = value
+            elseif operation == "audio_restore" then
+                local settings = ui.audio_settings()
+                if settings then audio_draft(draft, settings.defaults) end
+            elseif operation == "audio_apply" then
+                draft.audio_waiting = true
+                ui.audio_apply(draft.audio_master / 100, draft.audio_effects / 100, draft.audio_music / 100)
+            end
+            draft.audio_error = ""
+            audio_labels(self, ui)
+            sync(self, ui)
+            return
+        end
         if operation:match("^quality_") and self.state.quality_available then
             local draft = self.state
             local settings = ui.quality_settings()
@@ -379,6 +443,13 @@ return {
         self.state.quality_waiting = false
         self.state.quality_error = message
         quality_status(self, ui)
+        sync(self, ui)
+    end,
+    on_audio_result = function(self, ui, success, message)
+        self.state.audio_waiting = false
+        self.state.audio_error = message
+        audio_labels(self, ui)
+        audio_status(self, ui)
         sync(self, ui)
     end,
     on_reload_error = function(self, ui, message)

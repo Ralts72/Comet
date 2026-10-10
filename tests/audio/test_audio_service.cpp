@@ -73,6 +73,50 @@ namespace Comet::Tests {
         }
     };
 
+    TEST_F(AudioServiceTest, CategoryGainsAffectLiveVoicesAndOneShotsWithoutResettingPosition) {
+        auto entity = scene.create_entity("Music");
+        auto& source = entity.add_component<AudioSourceComponent>();
+        source.clip = cue_handle;
+        source.volume = 0.4f;
+        source.loop = true;
+        source.category = AudioCategory::Music;
+        ASSERT_TRUE(audio.apply_settings({0.5f, 0, 0.5f}));
+        add_audio_system();
+        ASSERT_TRUE(runtime.start(scene));
+        auto reference = AudioPlayback::create(AudioPlayback::Mode::Offline);
+        ASSERT_TRUE(reference);
+        auto voice = reference.value()->create_voice(load_cue(), 0.4f, true);
+        ASSERT_TRUE(voice);
+        ASSERT_TRUE(voice.value()->start());
+        Samples expected{}, actual{};
+        const auto compare = [&](float gain) {
+            ASSERT_TRUE(reference.value()->read_frames(expected));
+            ASSERT_TRUE(audio.read_frames(actual));
+            for(std::size_t index = 0; index < actual.size(); ++index)
+                EXPECT_NEAR(actual[index], expected[index] * gain, 1e-6f) << index;
+        };
+        compare(0.25f);
+        ASSERT_TRUE(audio.request_one_shot(cue_handle, 1)); // Effects 通道已静音。
+        ASSERT_TRUE(runtime.advance(0));
+        compare(0.25f);
+        ASSERT_TRUE(audio.apply_settings({0, 1, 1}));
+        compare(0);
+        ASSERT_TRUE(audio.apply_settings({1, 0, 1}));
+        compare(1); // 恢复音量继续同一播放位置。
+        source.category = AudioCategory::Effects;
+        ASSERT_TRUE(runtime.advance(0));
+        compare(0);
+        source.category = AudioCategory::Music;
+        ASSERT_TRUE(runtime.advance(0));
+        compare(1);
+        EXPECT_FALSE(audio.apply_settings({1, -1, 1}));
+        EXPECT_EQ(audio.settings(), (AudioSettings{1, 0, 1}));
+        EXPECT_FALSE(audio.request_one_shot(cue_handle, 1, static_cast<AudioCategory>(99)));
+        ASSERT_TRUE(runtime.stop());
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_EQ(audio.settings(), (AudioSettings{1, 0, 1}));
+    }
+
     TEST_F(AudioServiceTest, LuaCanPlayDuringStartupBeforeAudioSystemStartsAndEntityIsDestroyed) {
         auto script = Script::create(R"(
             return {on_start = function()
@@ -88,12 +132,14 @@ namespace Comet::Tests {
         auto& source = entity.add_component<AudioSourceComponent>();
         source.clip = cue_handle;
         source.volume = 0.25f;
+        source.category = AudioCategory::Music;
         source.play_on_start = false;
+        ASSERT_TRUE(audio.apply_settings({0.5f, 0, 0.5f}));
         ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
         add_audio_system();
         ASSERT_TRUE(runtime.start(scene));
         EXPECT_FALSE(entity);
-        expect_cue_volume(0.25f);
+        expect_cue_volume(0.0625f);
     }
 
     TEST_F(AudioServiceTest, RequestsKeepTheSubmittedClipAndVolumeSnapshot) {

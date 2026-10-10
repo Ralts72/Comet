@@ -25,16 +25,22 @@ namespace CometEditor {
         m_quality_panel.request(m_project.quality_settings());
     }
 
+    void ProjectSettings::request_audio() {
+        m_audio_panel.request(m_project.audio_settings());
+    }
+
     void ProjectSettings::render(const bool editing, const Comet::Input::Frame& input) {
         m_name_dialog.render();
         if(editing) {
             m_input_panel.render(input);
             m_display_panel.render();
             m_quality_panel.render();
+            m_audio_panel.render();
         } else {
             m_input_panel.close();
             m_display_panel.close();
             m_quality_panel.close();
+            m_audio_panel.close();
         }
     }
 
@@ -57,6 +63,15 @@ namespace CometEditor {
                 LOG_WARN("Cannot save project quality settings: {}", saved.error());
             else
                 changes.quality_changed = changed;
+        }
+        if(auto audio = m_audio_panel.take_request()) {
+            const bool changed = *audio != m_project.audio_settings();
+            const auto saved = m_project.save_audio_settings(*audio);
+            m_audio_panel.complete(saved);
+            if(!saved)
+                LOG_WARN("Cannot save project audio settings: {}", saved.error());
+            else
+                changes.audio_changed = changed;
         }
         if(auto actions = m_input_panel.take_request()) {
             const bool changed = *actions != m_project.input_actions();

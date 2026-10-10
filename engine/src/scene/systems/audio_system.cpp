@@ -45,7 +45,8 @@ namespace Comet {
             });
         for(const auto& [uuid, entity] : pending) {
             const auto& source = entity.get_component<AudioSourceComponent>();
-            auto voice = m_audio.start_voice(source.clip, source.volume, source.loop);
+            auto voice =
+                m_audio.start_voice(source.clip, source.volume, source.loop, source.category);
             if(!voice)
                 return Result<void, Error>::failure(voice.error());
             if(voice.value())
@@ -54,7 +55,8 @@ namespace Comet {
         }
         for(const auto& [uuid, entry] : m_entries) {
             const auto& source = entry.entity.get_component<AudioSourceComponent>();
-            if(auto updated = m_audio.update_voice(entry.voice, source.volume, source.loop);
+            if(auto updated =
+                    m_audio.update_voice(entry.voice, source.volume, source.loop, source.category);
                 !updated)
                 return updated;
         }

@@ -20,6 +20,10 @@ namespace Comet::Ui {
             QualitySettings quality_defaults;
             std::function<Result<QualitySettings>()> load_quality;
             std::function<Result<void>(QualitySettings)> apply_quality;
+            AudioSettings audio_defaults;
+            std::function<Result<AudioSettings>()> load_audio;
+            std::function<AudioSettings()> active_audio;
+            std::function<Result<void>(AudioSettings)> apply_audio;
         };
         struct FrameInfo {
             float fps = 0;

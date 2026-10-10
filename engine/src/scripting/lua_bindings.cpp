@@ -262,7 +262,7 @@ namespace Comet::LuaBindings {
             if(!context.audio)
                 return luaL_error(state, "Audio service is unavailable in this runtime");
             const auto& source = context.entity.get_component<AudioSourceComponent>();
-            if(!context.audio->request_one_shot(source.clip, source.volume))
+            if(!context.audio->request_one_shot(source.clip, source.volume, source.category))
                 return luaL_error(
                     state, "Cannot queue one-shot: invalid source or audio request limit reached");
             return 0;

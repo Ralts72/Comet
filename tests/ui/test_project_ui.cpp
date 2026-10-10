@@ -31,6 +31,9 @@ namespace Comet::Tests {
         bool quality_services = false, fail_quality_save = false;
         QualitySettings saved_quality;
         unsigned quality_applications = 0;
+        bool audio_services = false, fail_audio_save = false;
+        AudioSettings saved_audio;
+        unsigned audio_applications = 0;
 
         void SetUp() override {
             EngineTest::SetUp();
@@ -88,6 +91,23 @@ namespace Comet::Tests {
                         return Result<void>::failure(requested.error().message);
                     saved_quality = value;
                     ++quality_applications;
+                    return Result<void>::success();
+                };
+            }
+            if(audio_services) {
+                services.audio_defaults = {0.7f, 0.6f, 0.5f};
+                services.load_audio = [this] {
+                    return Result<AudioSettings>::success(saved_audio);
+                };
+                services.active_audio = [this] { return engine->get_audio_settings(); };
+                services.apply_audio = [this](AudioSettings value) {
+                    if(fail_audio_save)
+                        return Result<void>::failure("Simulated audio save failure");
+                    const auto applied = engine->apply_audio_settings(value);
+                    if(!applied)
+                        return Result<void>::failure(applied.error().message);
+                    saved_audio = value;
+                    ++audio_applications;
                     return Result<void>::success();
                 };
             }
@@ -174,6 +194,50 @@ namespace Comet::Tests {
             EXPECT_EQ(input->GetAttribute("value", Rml::String{}), value);
         }
     };
+    TEST_F(ProjectUiGpuTest, AudioDraftCancelsAndFailedSavePreservesSliderValuesAcrossReload) {
+        audio_services = true;
+        create_ui(InputActions{});
+        const auto change = [&](const char* id, int value) {
+            auto* slider = document().GetElementById(id);
+            ASSERT_NE(slider, nullptr);
+            Rml::Dictionary parameters;
+            parameters["value"] = value;
+            slider->DispatchEvent("change", parameters);
+            ASSERT_TRUE(submit_frame());
+        };
+        click("settings");
+        change("audio-master", 25);
+        change("audio-effects", 0);
+        click("cancel");
+        EXPECT_EQ(audio_applications, 0u);
+        EXPECT_EQ(engine->get_audio_settings(), AudioSettings{});
+        click("settings");
+        change("audio-master", 25);
+        change("audio-effects", 0);
+        change("audio-music", 50);
+        fail_audio_save = true;
+        click("audio-apply");
+        EXPECT_EQ(audio_applications, 0u);
+        EXPECT_EQ(engine->get_audio_settings(), AudioSettings{});
+        EXPECT_NE(document().GetElementById("audio-error")->GetInnerRML().find("save failure"),
+            std::string::npos);
+        ASSERT_TRUE(ui->reload());
+        ASSERT_TRUE(submit_frame());
+        EXPECT_EQ(document().GetElementById("audio-master")->GetAttribute("value", 0.0f), 25);
+        fail_audio_save = false;
+        click("audio-apply");
+        EXPECT_EQ(audio_applications, 1u);
+        EXPECT_EQ(saved_audio, (AudioSettings{0.25f, 0, 0.5f}));
+        EXPECT_EQ(engine->get_audio_settings(), saved_audio);
+        EXPECT_NE(document().GetElementById("audio-active")->GetInnerRML().find("25%"),
+            std::string::npos);
+        click("audio-restore");
+        EXPECT_EQ(audio_applications, 1u);
+        click("audio-apply");
+        EXPECT_EQ(saved_audio, (AudioSettings{0.7f, 0.6f, 0.5f}));
+        EXPECT_TRUE(ui->is_modal());
+    }
+
     TEST_F(ProjectUiGpuTest, QualityDraftSurvivesSaveFailureAndReloadAndReportsActiveRenderer) {
         quality_services = true;
         create_ui(InputActions{});

@@ -132,6 +132,32 @@ namespace Comet::Tests {
         EXPECT_EQ(project.quality_settings(), defaults);
     }
 
+    TEST_F(ProjectTest, AudioDefaultsPersistAlongsideDisplayQualityAndName) {
+        write(manifest());
+        auto loaded = Project::load(root);
+        ASSERT_TRUE(loaded);
+        auto project = std::move(loaded).value();
+        EXPECT_EQ(project.audio_settings(), AudioSettings{});
+        const AudioSettings defaults{0.7f, 0.6f, 0.5f};
+        ASSERT_TRUE(project.save_audio_settings(defaults));
+        ASSERT_TRUE(project.save_quality_settings({1, 2, 0.75f}));
+        ASSERT_TRUE(project.save_display_settings({1280, 720}));
+        ASSERT_TRUE(project.save_name("Renamed"));
+        auto reopened = Project::load(root);
+        ASSERT_TRUE(reopened) << reopened.error();
+        EXPECT_EQ(reopened.value().audio_settings(), defaults);
+        EXPECT_EQ(reopened.value().quality_settings(), (QualitySettings{1, 2, 0.75f}));
+        const auto contents = read_text_file(root / "project.json");
+        ASSERT_TRUE(contents);
+        ASSERT_TRUE(project.save_audio_settings(defaults));
+        EXPECT_EQ(read_text_file(root / "project.json").value(), contents.value());
+        EXPECT_FALSE(project.save_audio_settings({1, -1, 1}));
+        std::filesystem::remove(root / "project.json");
+        std::filesystem::create_directory(root / "project.json");
+        EXPECT_FALSE(project.save_audio_settings(AudioSettings{}));
+        EXPECT_EQ(project.audio_settings(), defaults);
+    }
+
     TEST_F(ProjectTest, SavesStartupSceneAtomicallyAndPreservesInputActions) {
         write(
             R"({"version":2,"id":"11111111-1111-4111-8111-111111111111","name":"Game","startup_scene":"levels/old.scene",
