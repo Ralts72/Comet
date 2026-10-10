@@ -17,16 +17,32 @@ namespace CometEditor {
         m_input_panel.request(m_project.input_actions());
     }
 
+    void ProjectSettings::request_display() {
+        m_display_panel.request(m_project.display_settings());
+    }
+
     void ProjectSettings::render(const bool editing, const Comet::Input::Frame& input) {
         m_name_dialog.render();
-        if(editing)
+        if(editing) {
             m_input_panel.render(input);
-        else
+            m_display_panel.render();
+        } else {
             m_input_panel.close();
+            m_display_panel.close();
+        }
     }
 
     ProjectSettings::Update ProjectSettings::update() {
         Update changes;
+        if(auto display = m_display_panel.take_request()) {
+            const bool changed = *display != m_project.display_settings();
+            const auto saved = m_project.save_display_settings(*display);
+            m_display_panel.complete(saved);
+            if(!saved)
+                LOG_WARN("Cannot save project display settings: {}", saved.error());
+            else
+                changes.display_changed = changed;
+        }
         if(auto actions = m_input_panel.take_request()) {
             const bool changed = *actions != m_project.input_actions();
             const auto saved = m_project.save_input_actions(std::move(*actions));

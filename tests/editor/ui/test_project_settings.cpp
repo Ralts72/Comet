@@ -5,6 +5,7 @@
 #include "asset/database.h"
 #include "common/file_io.h"
 #include "core/project.h"
+#include "config/player_display_settings.h"
 #include "scene/component_registry.h"
 #include "scene/scene_serializer.h"
 #include "support/imgui_context.h"
@@ -964,6 +965,103 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(settings.update().input_changed);
         EXPECT_EQ(project.input_actions().actions().size(), 2);
         EXPECT_EQ(Comet::Project::load(root).value().input_actions(), project.input_actions());
+    }
+
+    TEST(ProjectSettingsUiTest, DisplayDefaultsValidateRetrySaveAndPreservePlayerChoices) {
+        Comet::Tests::ImGuiTestContext imgui{{1200, 800}};
+        Comet::Tests::TemporaryDirectory directory;
+        const auto root = directory.path() / "Project";
+        ASSERT_TRUE(create_project(root));
+        auto loaded = Comet::Project::load(root);
+        ASSERT_TRUE(loaded);
+        auto project = std::move(loaded).value();
+        const auto original = project.display_settings();
+        const auto startup = project.startup_scene();
+        auto player = Comet::PlayerDisplaySettings::load(
+            project.id(), original, directory.path() / "player.json");
+        ASSERT_TRUE(player);
+        ASSERT_TRUE(player.value().save({1024, 768, Comet::WindowMode::Windowed, false}));
+        const auto player_contents = Comet::read_text_file(player.value().path()).value();
+        ProjectSettings settings(project);
+        Comet::Input input;
+        input.focus_event(true);
+        const auto frame = [&](bool editing = true) {
+            ImGui::NewFrame();
+            settings.render(editing, input.publish_frame());
+            ImGui::Render();
+        };
+        settings.request_display();
+        frame();
+        frame();
+        auto* window = ImGui::FindWindowByName("Project Settings - Display");
+        ASSERT_NE(window, nullptr);
+        EXPECT_FALSE(window->Flags & (ImGuiWindowFlags_Modal | ImGuiWindowFlags_Popup));
+        const auto button = [&](const char* label) {
+            ImGui::ActivateItemByID(window->GetID(label));
+            frame();
+        };
+        const auto press = [&](ImGuiKey key) {
+            ImGui::GetIO().AddKeyEvent(key, true);
+            frame();
+            ImGui::GetIO().AddKeyEvent(key, false);
+            frame();
+        };
+        const auto edit = [&](const char* label, const char* value) {
+            ImGui::FocusWindow(window);
+            ImGui::ActivateItemByID(window->GetID(label));
+            frame();
+            auto& io = ImGui::GetIO();
+            const auto modifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+            io.AddKeyEvent(modifier, true);
+            press(ImGuiKey_A);
+            io.AddKeyEvent(modifier, false);
+            io.AddInputCharactersUTF8(value);
+            frame();
+            press(ImGuiKey_Enter);
+        };
+        button("Save");
+        EXPECT_FALSE(settings.update().display_changed);
+        settings.request_display();
+        frame();
+        frame();
+        edit("Window Width", "0");
+        button("Save");
+        EXPECT_FALSE(settings.update().display_changed);
+        EXPECT_EQ(project.display_settings(), original);
+        edit("Window Width", "1440");
+        edit("Window Height", "900");
+        button("VSync");
+        button("Window Mode");
+        auto* combo = ImGui::FindWindowByName("##Combo_00");
+        ASSERT_NE(combo, nullptr);
+        ImGui::ActivateItemByID(combo->GetID("Borderless"));
+        frame();
+        const auto manifest = root / "project.json";
+        const auto backup = root / "saved.json";
+        std::filesystem::rename(manifest, backup);
+        ASSERT_TRUE(std::filesystem::create_directory(manifest));
+        button("Save");
+        EXPECT_FALSE(settings.update().display_changed);
+        EXPECT_EQ(project.display_settings(), original);
+        ASSERT_TRUE(std::filesystem::remove(manifest));
+        std::filesystem::rename(backup, manifest);
+        button("Save");
+        EXPECT_TRUE(settings.update().display_changed);
+        EXPECT_FALSE(settings.update().display_changed);
+        EXPECT_EQ(project.display_settings(),
+            (Comet::DisplaySettings{1440, 900, Comet::WindowMode::Borderless, true}));
+        EXPECT_EQ(
+            Comet::Project::load(root).value().display_settings(), project.display_settings());
+        EXPECT_EQ(project.startup_scene(), startup);
+        EXPECT_EQ(Comet::read_text_file(player.value().path()).value(), player_contents);
+        settings.request_display();
+        frame();
+        frame();
+        edit("Window Width", "800");
+        button("Save");
+        frame(false);
+        EXPECT_FALSE(settings.update().display_changed);
+        EXPECT_EQ(project.display_settings().width, 1440);
     }
 
     TEST(ProjectSettingsTest, StartupSceneRequiresKnownOrSavedSceneAndReadableContents) {

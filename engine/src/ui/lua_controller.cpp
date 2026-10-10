@@ -256,6 +256,10 @@ namespace Comet::Ui::Detail {
                 lua_setfield(state, -2, "game_available");
                 lua_pushboolean(state, vm.m_frame.focused);
                 lua_setfield(state, -2, "focused");
+                if(vm.m_frame.vsync_active) {
+                    lua_pushboolean(state, *vm.m_frame.vsync_active);
+                    lua_setfield(state, -2, "vsync_active");
+                }
                 lua_call(state, 3, 0);
             } else {
                 for(const auto& value : *vm.m_arguments)

@@ -23,6 +23,7 @@ namespace Comet::Ui {
             bool game_available = true;
             std::optional<View> view;
             bool display_preview = false;
+            std::optional<bool> vsync_active;
         };
         struct FrameResult {
             bool blocked = false;

@@ -110,7 +110,7 @@ namespace Comet::Ui {
             Result<void> call(const char* method, const Rml::VariantList& arguments = {}) {
                 if(std::string_view(method) == "on_frame")
                     return m_lua.frame({m_host.m_info.fps, m_host.m_info.game_available,
-                        m_host.m_input && m_host.m_input->focused});
+                        m_host.m_input && m_host.m_input->focused, m_host.m_info.vsync_active});
                 return m_lua.call(method, arguments);
             }
             Impl& m_host;

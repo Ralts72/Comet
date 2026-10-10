@@ -102,3 +102,20 @@ p { display: block; margin: 8dp 0; }
 
 #display { display: block; margin-bottom: 16dp; padding-bottom: 12dp; border-bottom: 1dp #40526c; }
 #display-error { color: #ffa79c; }
+.display-dimensions { display: block; }
+.display-dimensions label { display: inline-block; vertical-align: middle; }
+.display-dimensions input {
+    display: inline-block;
+    box-sizing: border-box;
+    width: 104dp;
+    padding: 8dp;
+    margin: 4dp 12dp 4dp 4dp;
+    border: 1dp #42536e;
+    background-color: #101c2d;
+    color: #eef2f8;
+    vertical-align: middle;
+    pointer-events: auto;
+    tab-index: auto;
+}
+.display-dimensions input:focus { border-color: #7dc4ff; }
+.display-dimensions input[disabled] { color: #7c8ca4; tab-index: none; }

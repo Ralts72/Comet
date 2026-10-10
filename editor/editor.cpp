@@ -200,7 +200,6 @@ namespace {
                         [this](Comet::InputOverrides overrides) {
                             return apply_player_input(std::move(overrides));
                         },
-                    .display_defaults = m_project.display_settings(),
                     .load_display = [this] { return load_player_display(); },
                     .apply_display =
                         [this](Comet::DisplaySettings settings) {
@@ -550,6 +549,9 @@ namespace {
                 case CometEditor::MenuBar::Command::ProjectInputSettings:
                     m_project_settings.request_input();
                     break;
+                case CometEditor::MenuBar::Command::ProjectDisplaySettings:
+                    m_project_settings.request_display();
+                    break;
                 case CometEditor::MenuBar::Command::KeyboardShortcuts:
                     m_shortcut_settings_dialog.request(m_shortcuts);
                     break;
@@ -856,8 +858,9 @@ namespace {
 
         Comet::Result<void, Comet::Error> process_editor_requests() {
             const auto settings = m_project_settings.update();
-            if(settings.input_changed) {
+            if(settings.input_changed || settings.display_changed)
                 m_game_ui->reset();
+            if(settings.input_changed) {
                 if(auto configured = get_engine().set_input_actions(m_project.input_actions());
                     !configured)
                     LOG_WARN("Project input actions were saved; restart the editor to apply: {}",

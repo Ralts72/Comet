@@ -7,6 +7,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <vector>
 
 struct lua_State;
@@ -22,6 +23,7 @@ namespace Comet::Ui::Detail {
             float fps;
             bool game_available;
             bool focused;
+            std::optional<bool> vsync_active;
         };
         LuaController(Functions functions, Callback callback);
         ~LuaController();

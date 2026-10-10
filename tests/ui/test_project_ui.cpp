@@ -25,6 +25,7 @@ namespace Comet::Tests {
         bool display_services = false;
         bool fail_display_save = false;
         bool preview = false;
+        std::optional<bool> vsync_active;
         DisplaySettings saved_display;
         unsigned display_applications = 0;
 
@@ -118,8 +119,8 @@ namespace Comet::Tests {
             auto& renderer = engine->get_renderer();
             for(unsigned attempt = 0; attempt < 12; ++attempt) {
                 window.poll_events();
-                auto result = ui->frame(
-                    window.publish_input_frame(), {.fps = 60, .display_preview = preview});
+                auto result = ui->frame(window.publish_input_frame(),
+                    {.fps = 60, .display_preview = preview, .vsync_active = vsync_active});
                 if(!result)
                     return Result<void, GraphicsError>::failure({result.error().message});
                 input_blocked = result.value().blocked;
@@ -139,6 +140,20 @@ namespace Comet::Tests {
             ASSERT_NE(callback, nullptr);
             callback(window, key, 0, GLFW_PRESS, 0);
             callback(window, key, 0, GLFW_RELEASE, 0);
+        }
+        void type_display_size(const char* id, const std::string& value) {
+            auto* input = document().GetElementById(id);
+            ASSERT_NE(input, nullptr);
+            ASSERT_TRUE(input->Focus(true));
+            auto& context = *Rml::GetContext(0);
+            context.ProcessKeyDown(Rml::Input::KI_A, Rml::Input::KM_CTRL);
+            context.ProcessKeyUp(Rml::Input::KI_A, Rml::Input::KM_CTRL);
+            context.ProcessKeyDown(Rml::Input::KI_BACK, 0);
+            context.ProcessKeyUp(Rml::Input::KI_BACK, 0);
+            if(!value.empty())
+                context.ProcessTextInput(value);
+            ASSERT_TRUE(submit_frame());
+            EXPECT_EQ(input->GetAttribute("value", Rml::String{}), value);
         }
     };
     TEST_F(ProjectUiGpuTest, DisplayDraftCancelsAndSaveFailurePreservesItAcrossReload) {
@@ -183,6 +198,59 @@ namespace Comet::Tests {
         EXPECT_EQ(saved_display.mode, WindowMode::Fullscreen);
         EXPECT_FALSE(saved_display.vsync);
         EXPECT_EQ(engine->get_window().get_size(), editor_size);
+    }
+
+    TEST_F(ProjectUiGpuTest, CustomDisplaySizeValidatesWithoutLosingTheMenuOrReloadDraft) {
+        display_services = true;
+        create_ui(InputActions{});
+        click("settings");
+        type_display_size("display-width", "1377");
+        type_display_size("display-height", "811");
+        click("cancel");
+        EXPECT_EQ(display_applications, 0U);
+        click("settings");
+        EXPECT_EQ(document().GetElementById("display-width")->GetAttribute("value", Rml::String{}),
+            "960");
+        type_display_size("display-height", "811");
+        for(const auto* value : {"", "0", "-1", "12.5", "1e3", "2147483648"}) {
+            SCOPED_TRACE(value);
+            type_display_size("display-width", value);
+            click("display-apply");
+            EXPECT_EQ(display_applications, 0U);
+            EXPECT_TRUE(ui->is_modal());
+            EXPECT_FALSE(document().GetElementById("display-error")->GetInnerRML().empty());
+        }
+        type_display_size("display-width", "1377");
+        ASSERT_TRUE(ui->reload());
+        ASSERT_TRUE(submit_frame());
+        EXPECT_EQ(document().GetElementById("display-width")->GetAttribute("value", Rml::String{}),
+            "1377");
+        EXPECT_EQ(document().GetElementById("display-height")->GetAttribute("value", Rml::String{}),
+            "811");
+        click("display-apply");
+        EXPECT_EQ(display_applications, 1U);
+        EXPECT_EQ(saved_display, (DisplaySettings{1377, 811, WindowMode::Windowed, false}));
+    }
+
+    TEST_F(ProjectUiGpuTest, ActiveVsyncFeedbackDoesNotFollowAnUnappliedDraft) {
+        display_services = true;
+        vsync_active = false;
+        create_ui(InputActions{});
+        click("settings");
+        click("display-vsync");
+        EXPECT_FALSE(saved_display.vsync);
+        EXPECT_NE(document().GetElementById("display-vsync")->GetInnerRML().find("开启"),
+            std::string::npos);
+        EXPECT_NE(document().GetElementById("display-active-vsync")->GetInnerRML().find("关闭"),
+            std::string::npos);
+        click("display-apply");
+        EXPECT_TRUE(saved_display.vsync);
+        EXPECT_NE(document().GetElementById("display-active-vsync")->GetInnerRML().find("关闭"),
+            std::string::npos);
+        vsync_active = true;
+        ASSERT_TRUE(submit_frame());
+        EXPECT_NE(document().GetElementById("display-active-vsync")->GetInnerRML().find("开启"),
+            std::string::npos);
     }
     TEST_F(ProjectUiGpuTest, DemoMenuLayoutFitsAfterOpeningFromSettings) {
         auto project = Project::load(std::filesystem::path(PROJECT_ROOT_DIR) / "demo");

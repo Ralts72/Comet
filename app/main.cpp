@@ -199,7 +199,8 @@ namespace {
             if(m_ui) {
                 const auto result = m_ui->frame(frame.physical_input,
                     {.fps = frame.update.fps,
-                        .game_available = get_engine().get_scene_runtime().is_active()});
+                        .game_available = get_engine().get_scene_runtime().is_active(),
+                        .vsync_active = get_engine().get_renderer().is_vsync_enabled()});
                 if(!result)
                     return Comet::Result<void, Comet::Error>::failure(result.error());
                 m_ui_blocked = result.value().blocked;

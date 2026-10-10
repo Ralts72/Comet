@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/result.h"
+#include "project/display_settings_panel.h"
 #include "project/input_settings_panel.h"
 #include "project/project_name_dialog.h"
 
@@ -17,11 +18,13 @@ namespace CometEditor {
     public:
         struct Update {
             bool input_changed = false;
+            bool display_changed = false;
         };
         explicit ProjectSettings(Comet::Project& project) : m_project(project) {}
 
         void request_rename();
         void request_input();
+        void request_display();
         void render(bool editing, const Comet::Input::Frame& input);
         [[nodiscard]] Update update();
         [[nodiscard]] Comet::Result<void> set_startup_scene(const std::filesystem::path& path,
@@ -32,5 +35,6 @@ namespace CometEditor {
         Comet::Project& m_project;
         ProjectNameDialog m_name_dialog;
         InputSettingsPanel m_input_panel;
+        DisplaySettingsPanel m_display_panel;
     };
 }

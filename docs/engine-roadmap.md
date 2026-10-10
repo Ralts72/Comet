@@ -1037,8 +1037,8 @@ Editor 预览已核对 UI 显示大小。完整 App／Play 验收仍保留下面
   HDR 输出及 HDR headroom／白点随输出校准完善，不当作场景曝光；显示模式切换按实际风险加入确认／还原。
   验收：App 修改后无需重启、关闭重开恢复玩家选择、两个项目不串设置、保存失败保持草稿、非法值明确报错；
   Play 只调整预览且不影响 Editor 窗口状态，呈现模式修改走既有交换链生命周期并通过同步验证。
-  窗口尺寸／模式、VSync、玩家保存恢复及 Play 固定尺寸预览首轮已接通；项目默认显示设置的 Editor UI、
-  任意尺寸输入、实际呈现状态的页面反馈及真实全屏交互验收继续推进。
+  窗口尺寸／模式、VSync、玩家保存恢复、Play 固定尺寸预览、项目默认显示设置的 Editor UI、
+  任意尺寸输入及实际同步呈现反馈已接通；真实全屏交互由使用者验收，后续接通运行时画质设置。
   参考 [Unreal GameUserSettings](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/UGameUserSettings)
   的应用／保存分层及 [Godot 项目设置](https://docs.godotengine.org/en/stable/tutorials/editor/project_settings.html)的启动值／运行时接口边界。
 - 项目、场景、材质和 `.meta` 已使用确定性 JSON；运行 Profile 与编辑器配置仍用 YAML。
