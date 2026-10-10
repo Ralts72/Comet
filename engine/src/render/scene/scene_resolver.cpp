@@ -56,6 +56,7 @@ namespace Comet {
         AssetHandle mesh_handle;
         AssetHandle material_handle;
         std::shared_ptr<Mesh> mesh;
+        uint64_t mesh_revision = 0;
         std::shared_ptr<const Material> material;
         std::size_t item_count = 0;
         for(const RenderItem& item : render_scene.render_items) {
@@ -70,6 +71,7 @@ namespace Comet {
                 if(mesh_handle != item.mesh_handle) {
                     mesh_handle = item.mesh_handle;
                     mesh = m_asset_registry.resolve<Mesh>(item.mesh_handle);
+                    mesh_revision = m_asset_registry.get_revision(item.mesh_handle);
                 }
                 if(!mesh) {
                     const auto [entry, inserted] =
@@ -97,6 +99,7 @@ namespace Comet {
                 }
                 m_missing_material_handles.erase(item.material_handle);
                 resolved.mesh_handle = item.mesh_handle;
+                resolved.mesh_revision = mesh_revision;
                 if(resolved.mesh != mesh)
                     resolved.mesh = mesh;
                 resolved.material.material_handle = item.material_handle;

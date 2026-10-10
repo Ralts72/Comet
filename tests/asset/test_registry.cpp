@@ -117,27 +117,54 @@ namespace Comet::Tests {
         const auto initial = registry.get_revision();
         const AssetHandle handle{42};
         const auto mesh = std::make_shared<TestMesh>();
+        EXPECT_EQ(registry.get_revision(handle), 0u);
+        EXPECT_EQ(registry.get_revision(INVALID_ASSET_HANDLE), 0u);
         EXPECT_FALSE(registry.register_asset(INVALID_ASSET_HANDLE, mesh));
         EXPECT_FALSE(registry.unregister_asset(handle));
         EXPECT_EQ(registry.get_revision(), initial);
 
         ASSERT_TRUE(registry.register_asset(handle, mesh));
         const auto published = registry.get_revision();
+        EXPECT_EQ(registry.get_revision(handle), published);
         EXPECT_NE(published, initial);
         EXPECT_FALSE(registry.register_asset(handle, mesh));
         EXPECT_FALSE(registry.replace_asset(handle, std::make_shared<TestMaterial>()));
         EXPECT_EQ(registry.get_revision(), published);
+        EXPECT_EQ(registry.get_revision(handle), published);
         ASSERT_TRUE(registry.replace_asset(handle, std::make_shared<TestMesh>()));
         const auto replaced = registry.get_revision();
+        EXPECT_EQ(registry.get_revision(handle), replaced);
         EXPECT_NE(replaced, published);
         ASSERT_TRUE(registry.unregister_asset(handle));
+        EXPECT_EQ(registry.get_revision(handle), 0u);
         EXPECT_NE(registry.get_revision(), replaced);
         const auto removed = registry.get_revision();
         ASSERT_TRUE(registry.register_asset(handle, mesh));
         EXPECT_NE(registry.get_revision(), removed);
         const auto restored = registry.get_revision();
+        EXPECT_NE(registry.get_revision(handle), replaced);
         registry.clear();
+        EXPECT_EQ(registry.get_revision(handle), 0u);
         EXPECT_NE(registry.get_revision(), restored);
+    }
+
+    TEST(AssetRegistryTest, PublishingOtherAssetsPreservesResourceRevision) {
+        AssetRegistry registry;
+        const AssetHandle mesh{10}, material{20};
+        ASSERT_TRUE(registry.register_asset(mesh, std::make_shared<TestMesh>()));
+        const auto mesh_revision = registry.get_revision(mesh);
+        ASSERT_TRUE(registry.register_asset(material, std::make_shared<TestMaterial>()));
+        EXPECT_EQ(registry.get_revision(mesh), mesh_revision);
+        const auto material_revision = registry.get_revision(material);
+        EXPECT_NE(material_revision, mesh_revision);
+        ASSERT_TRUE(registry.replace_asset(material, std::make_shared<TestMaterial>()));
+        EXPECT_NE(registry.get_revision(material), material_revision);
+        EXPECT_EQ(registry.get_revision(mesh), mesh_revision);
+        ASSERT_TRUE(registry.unregister_asset(material));
+        EXPECT_EQ(registry.get_revision(mesh), mesh_revision);
+        AssetRegistry other;
+        ASSERT_TRUE(other.register_asset(mesh, std::make_shared<TestMesh>()));
+        EXPECT_NE(other.get_revision(mesh), mesh_revision);
     }
 
     TEST(AssetRegistryTest, MovingRegistriesInvalidatesBothPublishedStates) {
@@ -146,9 +173,12 @@ namespace Comet::Tests {
         const auto mesh = std::make_shared<TestMesh>();
         ASSERT_TRUE(source.register_asset(handle, mesh));
         const auto before = source.get_revision();
+        const auto resource_revision = source.get_revision(handle);
         AssetRegistry target(std::move(source));
         EXPECT_EQ(target.resolve<TestMesh>(handle), mesh);
         EXPECT_EQ(source.size(), 0u);
+        EXPECT_EQ(source.get_revision(handle), 0u);
+        EXPECT_EQ(target.get_revision(handle), resource_revision);
         EXPECT_NE(source.get_revision(), before);
         EXPECT_NE(target.get_revision(), before);
         const auto moved = target.get_revision();
@@ -156,6 +186,8 @@ namespace Comet::Tests {
         source = std::move(target);
         EXPECT_EQ(source.resolve<TestMesh>(handle), mesh);
         EXPECT_EQ(target.size(), 0u);
+        EXPECT_EQ(target.get_revision(handle), 0u);
+        EXPECT_EQ(source.get_revision(handle), resource_revision);
         EXPECT_NE(source.get_revision(), cleared);
         EXPECT_NE(target.get_revision(), moved);
     }

@@ -40,14 +40,14 @@ namespace Comet {
             return false;
         }
 
-        const bool inserted =
-            m_assets.emplace(handle, AssetEntry{.asset = std::move(asset), .type = type}).second;
+        const auto [entry, inserted] = m_assets.emplace(handle,
+            AssetEntry{.asset = std::move(asset), .type = type, .revision = next_revision()});
         if(!inserted) {
             LOG_ERROR("Asset handle {} is already registered", handle.value());
             return false;
         }
 
-        m_revision = next_revision();
+        m_revision = entry->second.revision;
         return true;
     }
 
@@ -74,6 +74,7 @@ namespace Comet {
 
         existing->second.asset = std::move(asset);
         m_revision = next_revision();
+        existing->second.revision = m_revision;
         return true;
     }
 
@@ -97,6 +98,11 @@ namespace Comet {
 
     bool AssetRegistry::contains(const AssetHandle handle) const {
         return handle && m_assets.contains(handle);
+    }
+
+    uint64_t AssetRegistry::get_revision(const AssetHandle handle) const {
+        const auto found = m_assets.find(handle);
+        return found != m_assets.end() ? found->second.revision : 0;
     }
 
     bool AssetRegistry::contains_impl(const AssetHandle handle, const std::type_index type) const {

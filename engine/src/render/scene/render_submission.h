@@ -28,6 +28,7 @@ namespace Comet {
         uint64_t transform_revision = 0;
         Math::Mat4 model_matrix = Math::Mat4(1.0f);
         AssetHandle mesh_handle = INVALID_ASSET_HANDLE;
+        uint64_t mesh_revision = 0;
         std::shared_ptr<Mesh> mesh;
         MaterialBinding material;
     };

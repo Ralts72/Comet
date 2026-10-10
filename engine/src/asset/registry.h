@@ -45,11 +45,14 @@ namespace Comet {
 
         // 成功发布或移除资源后改变；不同注册表不会共用版本。
         [[nodiscard]] uint64_t get_revision() const noexcept { return m_revision; }
+        // 当前资源的发布版本；未注册的 Handle 返回 0。
+        [[nodiscard]] uint64_t get_revision(AssetHandle handle) const;
 
     private:
         struct AssetEntry {
             std::shared_ptr<void> asset;
             std::type_index type;
+            uint64_t revision;
         };
 
         [[nodiscard]] bool register_asset_impl(

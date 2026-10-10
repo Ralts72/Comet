@@ -89,6 +89,103 @@ namespace Comet::Tests {
         EXPECT_FALSE(geometry.get_scene_bounds());
     }
 
+    TEST_F(RenderGeometryTest, StructuralEditsMatchFreshSnapshotsAndGeometry) {
+        AssetRegistry assets;
+        auto first_mesh = engine->get_render_resources().try_create_mesh(
+            {.vertices = {{{-1, -1, -1}}, {{1, -1, -1}}, {{0, 1, 1}}}, .indices = {0, 1, 2}});
+        auto second_mesh = engine->get_render_resources().try_create_mesh(
+            {.vertices = {{{-2, 0, 0}}, {{2, 0, 0}}, {{0, 2, 2}}}, .indices = {0, 1, 2}});
+        ASSERT_TRUE(first_mesh);
+        ASSERT_TRUE(second_mesh);
+        ASSERT_TRUE(assets.register_asset(AssetHandle{10}, first_mesh.value()));
+        ASSERT_TRUE(assets.register_asset(AssetHandle{11}, second_mesh.value()));
+        for(uint64_t index = 0; index < 4; ++index)
+            ASSERT_TRUE(assets.register_asset(
+                AssetHandle{20 + index}, std::make_shared<Material>("shared", "pbr")));
+        Scene scene;
+        std::vector<Entity> entities;
+        const auto create = [&](uint64_t index) {
+            auto entity = scene.create_entity();
+            entity.add_component<MeshRendererComponent>(
+                AssetHandle{10 + index % 2}, AssetHandle{20 + index % 4});
+            entity.set_transform({.translation = {float(index), 0, 0}});
+            return entity;
+        };
+        for(uint64_t index = 0; index < 32; ++index)
+            entities.push_back(create(index));
+        RenderScene snapshot;
+        RenderSubmission submission;
+        SceneResolver resolver(assets);
+        RenderGeometry geometry;
+        const RenderView view{.render_size = {160, 120},
+            .camera_selection = RenderView::CameraSelection::Override,
+            .camera_override = RenderCamera{}};
+        SceneExtractor::extract(scene, snapshot);
+        const auto frozen = snapshot;
+        for(uint64_t step = 0; step < 64; ++step) {
+            SCOPED_TRACE(step);
+            const auto index = step % entities.size();
+            scene.destroy_entity(entities[index]);
+            entities[index] = create(step + 32);
+            const auto filtered = (index + 1) % entities.size();
+            entities[filtered].remove_component<TransformComponent>();
+            auto& mesh =
+                entities[(index + 2) % entities.size()].get_component<MeshRendererComponent>();
+            mesh.mesh = AssetHandle{10 + step % 2};
+            mesh.material = AssetHandle{20 + step % 4};
+            if(step % 5 == 0)
+                mesh.material = AssetHandle{99};
+            SceneExtractor::extract(scene, snapshot);
+            const auto fresh = SceneExtractor::extract(scene);
+            ASSERT_EQ(snapshot.render_items.size(), fresh.render_items.size());
+            for(std::size_t item = 0; item < fresh.render_items.size(); ++item) {
+                EXPECT_EQ(
+                    snapshot.render_items[item].entity_id, fresh.render_items[item].entity_id);
+                EXPECT_EQ(snapshot.render_items[item].model_matrix,
+                    fresh.render_items[item].model_matrix);
+                EXPECT_EQ(
+                    snapshot.render_items[item].mesh_handle, fresh.render_items[item].mesh_handle);
+                EXPECT_EQ(snapshot.render_items[item].material_handle,
+                    fresh.render_items[item].material_handle);
+            }
+            if(step % 2 == 0)
+                std::ranges::reverse(snapshot.render_items);
+            else
+                std::rotate(snapshot.render_items.begin(), snapshot.render_items.begin() + 1,
+                    snapshot.render_items.end());
+            resolver.resolve(snapshot, view, submission);
+            const auto expected = resolver.resolve(snapshot, view);
+            ASSERT_EQ(submission.render_items.size(), expected.render_items.size());
+            geometry.prepare(submission);
+            RenderGeometry reference;
+            reference.prepare(expected);
+            for(std::size_t item = 0; item < expected.render_items.size(); ++item) {
+                EXPECT_EQ(
+                    submission.render_items[item].entity_id, expected.render_items[item].entity_id);
+                EXPECT_EQ(submission.render_items[item].model_matrix,
+                    expected.render_items[item].model_matrix);
+                EXPECT_EQ(submission.render_items[item].mesh, expected.render_items[item].mesh);
+                EXPECT_EQ(submission.render_items[item].material.resource,
+                    expected.render_items[item].material.resource);
+                ASSERT_TRUE(geometry.get_items()[item].world_bounds);
+                ASSERT_TRUE(reference.get_items()[item].world_bounds);
+                EXPECT_EQ(geometry.get_items()[item].world_bounds->minimum,
+                    reference.get_items()[item].world_bounds->minimum);
+                EXPECT_EQ(geometry.get_items()[item].world_bounds->maximum,
+                    reference.get_items()[item].world_bounds->maximum);
+            }
+            ASSERT_TRUE(geometry.get_scene_bounds());
+            ASSERT_TRUE(reference.get_scene_bounds());
+            EXPECT_EQ(geometry.get_scene_bounds()->minimum, reference.get_scene_bounds()->minimum);
+            EXPECT_EQ(geometry.get_scene_bounds()->maximum, reference.get_scene_bounds()->maximum);
+            geometry.clear();
+            entities[filtered].add_component<TransformComponent>();
+        }
+        ASSERT_EQ(frozen.render_items.size(), 32u);
+        for(const auto& item : frozen.render_items)
+            EXPECT_EQ(item.model_matrix[3].x, float(item.entity_id - 1));
+    }
+
     TEST_F(RenderGeometryTest, VersionedSubmissionsRefreshMovementPublicationOrderAndSceneSwitch) {
         AssetRegistry assets;
         auto original = engine->get_render_resources().try_create_mesh(
@@ -142,6 +239,8 @@ namespace Comet::Tests {
         SceneExtractor::extract(scene, extracted);
         resolve();
         const auto frozen = submission;
+        for(const auto& item : frozen.render_items)
+            EXPECT_EQ(item.mesh_revision, assets.get_revision(mesh));
         geometry.clear();
         EXPECT_TRUE(geometry.get_items().empty());
         resolve();
@@ -151,11 +250,17 @@ namespace Comet::Tests {
         EXPECT_EQ(geometry.get_scene_bounds()->maximum, Math::Vec3(16, 1, 1));
         std::ranges::reverse(extracted.render_items);
         resolve();
-        ASSERT_TRUE(assets.replace_asset(mesh, larger.value()));
         auto next_material = std::make_shared<Material>("next", "pbr");
         ASSERT_TRUE(assets.replace_asset(material, next_material));
         resolve();
         for(const auto& item : submission.render_items) {
+            EXPECT_EQ(item.mesh_revision, frozen.render_items.front().mesh_revision);
+            EXPECT_EQ(item.material.resource, next_material);
+        }
+        ASSERT_TRUE(assets.replace_asset(mesh, larger.value()));
+        resolve();
+        for(const auto& item : submission.render_items) {
+            EXPECT_NE(item.mesh_revision, frozen.render_items.front().mesh_revision);
             EXPECT_EQ(item.mesh, larger.value());
             EXPECT_EQ(item.material.resource, next_material);
         }

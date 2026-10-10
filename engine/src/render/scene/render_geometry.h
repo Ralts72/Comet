@@ -26,7 +26,7 @@ namespace Comet {
         struct CachedBounds {
             EntityId entity_id = INVALID_ENTITY_ID;
             uint64_t transform_revision = 0;
-            AssetHandle mesh_handle = INVALID_ASSET_HANDLE;
+            uint64_t mesh_revision = 0;
             std::optional<BoundingBox> bounds;
         };
 
@@ -34,6 +34,5 @@ namespace Comet {
         std::vector<CachedBounds> m_bounds;
         std::optional<BoundingBox> m_scene_bounds;
         uint64_t m_scene_lifetime = 0;
-        uint64_t m_asset_revision = 0;
     };
 }
