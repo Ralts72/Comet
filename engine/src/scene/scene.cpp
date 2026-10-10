@@ -7,7 +7,6 @@
 #include <atomic>
 #include <cmath>
 #include "common/scope_exit.h"
-#include <unordered_set>
 
 namespace Comet {
     namespace {
@@ -83,27 +82,23 @@ namespace Comet {
             return;
         }
 
-        std::unordered_set<EntityId> destroying;
-        std::vector<Entity> pending{entity};
-        std::vector<Entity> subtree;
-        for(std::size_t i = 0; i < pending.size(); ++i) {
-            const auto current = pending[i];
-            if(!is_valid(current) || !destroying.insert(current.get_id()).second)
-                continue;
-            subtree.push_back(current);
-            const auto children = get_children(current);
-            pending.insert(pending.end(), children.begin(), children.end());
+        std::vector<entt::entity> subtree{entity.m_handle};
+        for(std::size_t i = 0; i < subtree.size(); ++i) {
+            const auto id = m_registry.get<IdComponent>(subtree[i]).id;
+            const auto children = m_children_by_parent.find(id);
+            if(children != m_children_by_parent.end())
+                subtree.insert(subtree.end(), children->second.begin(), children->second.end());
         }
         // 所有遍历分配在删除前完成，避免半途分配失败留下半棵树。
         remove_child_index(entity.get_component<RelationshipComponent>().parent, entity.m_handle);
         for(auto it = subtree.rbegin(); it != subtree.rend(); ++it) {
-            const EntityId id = it->get_id();
-            const EntityUuid uuid = it->get_uuid();
+            const EntityId id = m_registry.get<IdComponent>(*it).id;
+            const EntityUuid uuid = m_registry.get<UuidComponent>(*it).uuid;
             m_children_by_parent.erase(id);
             m_entities_by_id.erase(id);
             m_entities_by_uuid.erase(uuid);
-            m_dirty_transforms.remove(it->m_handle);
-            m_registry.destroy(it->m_handle);
+            m_dirty_transforms.remove(*it);
+            m_registry.destroy(*it);
         }
     }
 
@@ -326,14 +321,16 @@ namespace Comet {
     }
 
     bool Scene::set_parent(const Entity child, const Entity parent) {
-        if(!is_valid(child) || !is_valid(parent) || child == parent || has_cycle(child, parent)) {
+        if(!is_valid(child) || !is_valid(parent) || child == parent) {
             return false;
         }
 
-        auto& relationship = m_registry.get_or_emplace<RelationshipComponent>(child.m_handle);
+        auto& relationship = m_registry.get<RelationshipComponent>(child.m_handle);
         if(relationship.parent == parent.get_id()) {
             return true;
         }
+        if(has_cycle(child, parent))
+            return false;
 
         const EntityId previous_parent = relationship.parent;
         const EntityId new_parent = parent.get_id();
@@ -354,7 +351,7 @@ namespace Comet {
             return false;
         }
 
-        auto& relationship = m_registry.get_or_emplace<RelationshipComponent>(child.m_handle);
+        auto& relationship = m_registry.get<RelationshipComponent>(child.m_handle);
         if(relationship.parent == INVALID_ENTITY_ID) {
             return true;
         }
@@ -404,10 +401,10 @@ namespace Comet {
     }
 
     bool Scene::has_cycle(const Entity child, const Entity parent) {
-        std::unordered_set<EntityId> visited;
+        // 关系只由 Scene 修改，已有层级始终无环。
         Entity ancestor = parent;
         while(ancestor) {
-            if(ancestor == child || !visited.insert(ancestor.get_id()).second) {
+            if(ancestor == child) {
                 return true;
             }
             ancestor = get_parent(ancestor);

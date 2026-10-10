@@ -243,6 +243,20 @@ namespace Comet::Tests {
         EXPECT_FALSE(scene.set_parent(child, foreign));
         EXPECT_EQ(scene.get_parent(child), parent);
         EXPECT_EQ(scene.get_parent(grandchild), child);
+
+        auto deepest = grandchild;
+        for(int i = 0; i < 64; ++i) {
+            auto descendant = scene.create_entity();
+            ASSERT_TRUE(scene.set_parent(descendant, deepest));
+            deepest = descendant;
+        }
+        scene.update_world_transforms();
+        EXPECT_FALSE(scene.set_parent(parent, deepest));
+        EXPECT_FALSE(scene.set_parent(child, deepest));
+        const auto previous_parent = scene.get_parent(deepest);
+        EXPECT_TRUE(scene.set_parent(deepest, previous_parent));
+        EXPECT_EQ(scene.get_children(previous_parent), std::vector{deepest});
+        EXPECT_EQ(scene.update_world_transforms(), 0u);
     }
 
     TEST(SceneTest, ReparentUpdatesIndexedChildren) {
@@ -579,21 +593,35 @@ namespace Comet::Tests {
 
     TEST(SceneTest, DestroyingParentDestroysEntireSubtree) {
         Scene scene;
+        Entity root = scene.create_entity("Root");
         Entity parent = scene.create_entity("Parent");
         Entity child = scene.create_entity("Child");
         Entity grandchild = scene.create_entity("Grandchild");
         Entity survivor = scene.create_entity("Survivor");
 
+        ASSERT_TRUE(scene.set_parent(survivor, root));
+        ASSERT_TRUE(scene.set_parent(parent, root));
         ASSERT_TRUE(scene.set_parent(child, parent));
         ASSERT_TRUE(scene.set_parent(grandchild, child));
+        scene.update_world_transforms();
+        root.edit_transform([](auto& transform) { transform.translation.x = 3; });
+        const auto child_id = child.get_id();
+        const auto grandchild_uuid = grandchild.get_uuid();
 
         scene.destroy_entity(parent);
 
         EXPECT_FALSE(parent);
         EXPECT_FALSE(child);
         EXPECT_FALSE(grandchild);
+        EXPECT_TRUE(root);
         EXPECT_TRUE(survivor);
-        EXPECT_EQ(scene.entity_count(), 1u);
+        EXPECT_FALSE(scene.find_entity(child_id));
+        EXPECT_FALSE(scene.find_entity(grandchild_uuid));
+        EXPECT_EQ(scene.get_children(root), std::vector{survivor});
+        EXPECT_EQ(scene.get_parent(survivor), root);
+        EXPECT_EQ(scene.entity_count(), 2u);
+        EXPECT_EQ(scene.update_world_transforms(), 2u);
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(survivor)[3].x, 3);
     }
 
     TEST(SceneTest, EntityManagesCustomComponents) {
