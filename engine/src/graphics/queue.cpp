@@ -6,6 +6,8 @@
 #include "swapchain.h"
 
 #include <algorithm>
+#include <array>
+#include <memory_resource>
 
 namespace Comet {
     namespace {
@@ -57,14 +59,16 @@ namespace Comet {
         const std::span<const QueueSemaphoreSubmit> waits,
         const std::span<const CommandBuffer> command_buffers,
         const std::span<const QueueSemaphoreSubmit> signals, const Fence* fence) {
-        std::vector<vk::SemaphoreSubmitInfo> wait_infos;
+        std::array<std::byte, 512> storage;
+        std::pmr::monotonic_buffer_resource scratch(storage.data(), storage.size());
+        std::pmr::vector<vk::SemaphoreSubmitInfo> wait_infos(&scratch);
         wait_infos.reserve(waits.size());
         for(const auto& wait : waits) {
             wait_infos.push_back(
                 make_semaphore_submit_info(*wait.semaphore, wait.value, wait.stage_mask));
         }
 
-        std::vector<vk::CommandBufferSubmitInfo> command_infos;
+        std::pmr::vector<vk::CommandBufferSubmitInfo> command_infos(&scratch);
         command_infos.reserve(command_buffers.size());
         for(const auto& command_buffer : command_buffers) {
             vk::CommandBufferSubmitInfo info{};
@@ -72,7 +76,7 @@ namespace Comet {
             command_infos.push_back(info);
         }
 
-        std::vector<vk::SemaphoreSubmitInfo> signal_infos;
+        std::pmr::vector<vk::SemaphoreSubmitInfo> signal_infos(&scratch);
         signal_infos.reserve(signals.size() + 1);
         for(const auto& signal : signals) {
             signal_infos.push_back(
@@ -109,7 +113,10 @@ namespace Comet {
         using PresentationResult = Result<PresentStatus, GraphicsError>;
         if(!swapchain.get_active_generation())
             return PresentationResult::failure({"Cannot present an inactive swapchain"});
-        std::vector<vk::Semaphore> vk_wait_semaphores;
+        std::array<std::byte, 64> storage;
+        std::pmr::monotonic_buffer_resource scratch(storage.data(), storage.size());
+        std::pmr::vector<vk::Semaphore> vk_wait_semaphores(&scratch);
+        vk_wait_semaphores.reserve(wait_semaphores.size());
         for(const auto& wait_sem : wait_semaphores) {
             vk_wait_semaphores.emplace_back(wait_sem.get());
         }

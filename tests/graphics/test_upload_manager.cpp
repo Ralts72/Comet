@@ -232,6 +232,45 @@ namespace Comet::Tests {
         EXPECT_FALSE(timeline.has_reached(13));
     }
 
+    TEST_F(UploadBatchGpuTest, QueueBatchPreservesWaitsSignalsAndCompletionAcrossSubmissions) {
+        auto& queue = m_device->get_graphics_queue();
+        for(const auto count : {1u, 16u, 1u}) {
+            SCOPED_TRACE(count);
+            std::vector<Semaphore> semaphores;
+            semaphores.reserve(count);
+            for(unsigned index = 0; index < count; ++index)
+                semaphores.emplace_back(*m_device, Semaphore::Type::Timeline);
+            std::vector<QueueSemaphoreSubmit> waits, signals;
+            for(const auto& semaphore : semaphores) {
+                waits.emplace_back(semaphore, Flags<PipelineStage>(PipelineStage::AllCommands), 1);
+                signals.emplace_back(
+                    semaphore, Flags<PipelineStage>(PipelineStage::AllCommands), 2);
+            }
+            const auto release_waits = [&] {
+                for(const auto& semaphore : semaphores) {
+                    if(semaphore.has_reached(1))
+                        continue;
+                    vk::SemaphoreSignalInfo info{};
+                    info.semaphore = semaphore.get();
+                    info.value = 1;
+                    m_device->get().signalSemaphore(info);
+                }
+            };
+            ScopeExit drain([&] {
+                release_waits();
+                queue.wait_idle();
+            });
+            const auto submitted = queue.submit2(waits, {}, signals, nullptr);
+            ASSERT_TRUE(submitted) << submitted.error();
+            EXPECT_FALSE(submitted.value().is_complete());
+            release_waits();
+            submitted.value().wait();
+            EXPECT_TRUE(submitted.value().is_complete());
+            for(const auto& semaphore : semaphores)
+                EXPECT_EQ(semaphore.get_counter_value(), 2u);
+        }
+    }
+
     TEST_F(UploadBatchGpuTest, MovingTimelineReplacesPreviousCompletionHistory) {
         Semaphore source(*m_device, Semaphore::Type::Timeline, 7);
         EXPECT_TRUE(source.has_reached(7));
