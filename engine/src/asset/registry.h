@@ -32,7 +32,10 @@ namespace Comet {
         template<typename T>
         [[nodiscard]] bool replace_asset(AssetHandle handle, std::shared_ptr<T> asset);
 
-        template<typename T> [[nodiscard]] std::shared_ptr<T> resolve(AssetHandle handle) const;
+        // 可选返回同一资源的发布版本；缺失或类型不匹配时为 0。
+        template<typename T>
+        [[nodiscard]] std::shared_ptr<T> resolve(
+            AssetHandle handle, uint64_t* revision = nullptr) const;
 
         [[nodiscard]] bool contains(AssetHandle handle) const;
         template<typename T> [[nodiscard]] bool contains(AssetHandle handle) const;
@@ -62,7 +65,7 @@ namespace Comet {
             AssetHandle handle, std::shared_ptr<void> asset, std::type_index type);
 
         [[nodiscard]] std::shared_ptr<void> resolve_impl(
-            AssetHandle handle, std::type_index type) const;
+            AssetHandle handle, std::type_index type, uint64_t* revision) const;
         [[nodiscard]] bool contains_impl(AssetHandle handle, std::type_index type) const;
 
         std::unordered_map<AssetHandle, AssetEntry> m_assets;
@@ -85,11 +88,12 @@ namespace Comet {
             handle, std::shared_ptr<void>(std::move(asset)), std::type_index(typeid(T)));
     }
 
-    template<typename T> std::shared_ptr<T> AssetRegistry::resolve(const AssetHandle handle) const {
+    template<typename T>
+    std::shared_ptr<T> AssetRegistry::resolve(const AssetHandle handle, uint64_t* revision) const {
         static_assert(!std::is_void_v<T>, "AssetRegistry requires a concrete asset type");
 
         return std::static_pointer_cast<T>(
-            resolve_impl(handle, std::type_index(typeid(std::remove_cv_t<T>))));
+            resolve_impl(handle, std::type_index(typeid(std::remove_cv_t<T>)), revision));
     }
 
     template<typename T> bool AssetRegistry::contains(const AssetHandle handle) const {

@@ -110,6 +110,124 @@ namespace Comet::Tests {
 
     using SceneEnvironmentResolverTest = EngineTest;
 
+    TEST(SceneResolverTest, PublicationRefreshReleasesOnlyChangedResourcesBeforeResolution) {
+        AssetRegistry registry;
+        FakeRenderResourceFactory resources;
+        auto mesh = resources.try_create_mesh({}).value();
+        const auto other_mesh = resources.try_create_mesh({}).value();
+        auto material = std::make_shared<Material>("original", "unlit_color");
+        const auto other_material = std::make_shared<Material>("unchanged", "unlit_color");
+        const std::weak_ptr original_mesh = mesh;
+        const std::weak_ptr original_material = material;
+        ASSERT_TRUE(registry.register_asset(AssetHandle{10}, mesh));
+        ASSERT_TRUE(registry.register_asset(AssetHandle{11}, other_mesh));
+        ASSERT_TRUE(registry.register_asset(AssetHandle{20}, material));
+        ASSERT_TRUE(registry.register_asset(AssetHandle{21}, other_material));
+        SceneResolver resolver(registry);
+        RenderScene scene;
+        scene.scene_lifetime = 1;
+        scene.cameras.push_back({.primary = true});
+        scene.render_items = {{.entity_id = 1,
+                                  .transform_revision = 1,
+                                  .model_matrix = Math::translate(Math::Mat4(1), {2, 0, 0}),
+                                  .mesh_handle = AssetHandle{10},
+                                  .material_handle = AssetHandle{20}},
+            {.entity_id = 2, .mesh_handle = AssetHandle{11}, .material_handle = AssetHandle{21}},
+            {.entity_id = 3, .mesh_handle = AssetHandle{10}, .material_handle = AssetHandle{20}}};
+        RenderSubmission submission;
+        const auto view = runtime_view({160, 120});
+        resolver.resolve(scene, view, submission);
+        ASSERT_EQ(submission.render_items.size(), 3u);
+        const auto* slots = submission.render_items.data();
+        const auto replacement = std::make_shared<Material>("replacement", "pbr");
+        ASSERT_TRUE(registry.replace_asset(AssetHandle{20}, replacement));
+        material.reset();
+        ASSERT_FALSE(original_material.expired());
+
+        resolver.refresh_assets(submission);
+        EXPECT_TRUE(original_material.expired());
+        ASSERT_EQ(submission.render_items.size(), 3u);
+        EXPECT_EQ(submission.render_items.data(), slots);
+        EXPECT_FALSE(submission.render_items[0].material.resource);
+        EXPECT_FALSE(submission.render_items[2].material.resource);
+        EXPECT_EQ(submission.render_items[0].mesh, mesh);
+        EXPECT_EQ(submission.render_items[1].mesh, other_mesh);
+        EXPECT_EQ(submission.render_items[1].material.resource, other_material);
+        EXPECT_EQ(submission.render_items[0].model_matrix, scene.render_items[0].model_matrix);
+        resolver.resolve(scene, view, submission);
+        EXPECT_EQ(submission.render_items[0].material.resource, replacement);
+        EXPECT_EQ(submission.render_items[2].material.resource, replacement);
+
+        ASSERT_TRUE(registry.unregister_asset(AssetHandle{10}));
+        mesh.reset();
+        ASSERT_FALSE(original_mesh.expired());
+        resolver.refresh_assets(submission);
+        EXPECT_TRUE(original_mesh.expired());
+        EXPECT_FALSE(submission.render_items[0].mesh);
+        EXPECT_FALSE(submission.render_items[2].mesh);
+        EXPECT_EQ(submission.render_items[0].material.resource, replacement);
+        ASSERT_TRUE(registry.register_asset(AssetHandle{10}, other_mesh));
+        resolver.resolve(scene, view, submission);
+        const auto fresh = resolver.resolve(scene, view);
+        ASSERT_EQ(submission.render_items.size(), fresh.render_items.size());
+        for(std::size_t index = 0; index < fresh.render_items.size(); ++index) {
+            EXPECT_EQ(submission.render_items[index].mesh, fresh.render_items[index].mesh);
+            EXPECT_EQ(submission.render_items[index].mesh_revision,
+                fresh.render_items[index].mesh_revision);
+            EXPECT_EQ(submission.render_items[index].material.resource,
+                fresh.render_items[index].material.resource);
+            EXPECT_EQ(submission.render_items[index].model_matrix,
+                fresh.render_items[index].model_matrix);
+        }
+        const auto previous_revision = submission.render_items[0].mesh_revision;
+        ASSERT_TRUE(registry.replace_asset(AssetHandle{10}, other_mesh));
+        resolver.refresh_assets(submission);
+        EXPECT_FALSE(submission.render_items[0].mesh);
+        resolver.resolve(scene, view, submission);
+        EXPECT_EQ(submission.render_items[0].mesh, other_mesh);
+        EXPECT_NE(submission.render_items[0].mesh_revision, previous_revision);
+    }
+
+    TEST(SceneResolverTest, EnvironmentRefreshPreservesSettingsAndIgnoresUnrelatedPublication) {
+        AssetRegistry registry;
+        auto environment = std::make_shared<Environment>();
+        const std::weak_ptr original = environment;
+        ASSERT_TRUE(registry.register_asset(AssetHandle{17}, environment));
+        SceneResolver resolver(registry);
+        RenderScene scene;
+        scene.cameras.push_back({.primary = true});
+        scene.environment = {AssetHandle{17}, true, 2, 90};
+        RenderSubmission submission;
+        const auto view = runtime_view({160, 120});
+        resolver.resolve(scene, view, submission);
+        const auto revision = submission.environment_revision;
+        ASSERT_TRUE(registry.register_asset(
+            AssetHandle{20}, std::make_shared<Material>("unrelated", "unlit_color")));
+        resolver.refresh_assets(submission);
+        EXPECT_EQ(submission.environment_resource, environment);
+        EXPECT_EQ(submission.environment_revision, revision);
+        scene.environment.intensity = 4;
+        resolver.resolve(scene, view, submission);
+        EXPECT_EQ(submission.environment_resource, environment);
+        EXPECT_EQ(submission.environment, scene.environment);
+
+        const auto replacement = std::make_shared<Environment>();
+        ASSERT_TRUE(registry.replace_asset(AssetHandle{17}, replacement));
+        environment.reset();
+        ASSERT_FALSE(original.expired());
+        resolver.refresh_assets(submission);
+        EXPECT_TRUE(original.expired());
+        EXPECT_FALSE(submission.environment_resource);
+        EXPECT_EQ(submission.environment, scene.environment);
+        resolver.resolve(scene, view, submission);
+        EXPECT_EQ(submission.environment_resource, replacement);
+        EXPECT_NE(submission.environment_revision, revision);
+        scene.environment.background = false;
+        resolver.resolve(scene, view, submission);
+        EXPECT_FALSE(submission.environment_resource);
+        EXPECT_EQ(submission.environment_revision, 0u);
+    }
+
     TEST_F(
         SceneEnvironmentResolverTest, UnpublishedEnvironmentResolvesAfterPublicationWithoutError) {
         AssetRegistry registry;

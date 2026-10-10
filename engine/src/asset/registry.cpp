@@ -79,20 +79,16 @@ namespace Comet {
     }
 
     std::shared_ptr<void> AssetRegistry::resolve_impl(
-        const AssetHandle handle, const std::type_index type) const {
-        if(!handle) {
-            return nullptr;
-        }
-
+        const AssetHandle handle, const std::type_index type, uint64_t* revision) const {
         const auto asset_it = m_assets.find(handle);
-        if(asset_it == m_assets.end()) {
+        if(asset_it == m_assets.end() || asset_it->second.type != type) {
+            if(revision)
+                *revision = 0;
             return nullptr;
         }
 
-        if(asset_it->second.type != type) {
-            return nullptr;
-        }
-
+        if(revision)
+            *revision = asset_it->second.revision;
         return asset_it->second.asset;
     }
 

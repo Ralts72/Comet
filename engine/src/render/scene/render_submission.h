@@ -21,6 +21,7 @@ namespace Comet {
         AssetHandle material_handle = INVALID_ASSET_HANDLE;
         std::shared_ptr<const Material> resource;
         std::shared_ptr<const MaterialOverrides> overrides;
+        uint64_t asset_revision = 0;
     };
 
     struct ResolvedRenderItem {
@@ -41,6 +42,7 @@ namespace Comet {
         std::vector<RenderLight> lights;
         SceneEnvironment environment;
         PostProcessSettings post_process;
+        uint64_t environment_revision = 0;
         std::shared_ptr<Environment> environment_resource;
     };
 }

@@ -19,6 +19,8 @@ namespace Comet {
             const RenderScene& render_scene, const RenderView& view);
         void resolve(
             const RenderScene& render_scene, const RenderView& view, RenderSubmission& output);
+        // 在帧边界释放已替换或移除的资源；新资源由 resolve 获取。
+        void refresh_assets(RenderSubmission& submission) const;
 
     private:
         struct CameraDiagnostic {

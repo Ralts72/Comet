@@ -19,28 +19,75 @@ namespace Comet {
         return submission;
     }
 
+    void SceneResolver::refresh_assets(RenderSubmission& submission) const {
+        const auto revision = m_asset_registry.get_revision();
+        if(submission.asset_revision == revision)
+            return;
+
+        AssetHandle mesh_handle;
+        uint64_t mesh_revision = 0;
+        AssetHandle material_handle;
+        uint64_t material_revision = 0;
+        for(auto& item : submission.render_items) {
+            if(item.mesh) {
+                if(mesh_handle != item.mesh_handle) {
+                    mesh_handle = item.mesh_handle;
+                    mesh_revision = m_asset_registry.get_revision(mesh_handle);
+                }
+                if(mesh_revision == 0 || item.mesh_revision != mesh_revision) {
+                    item.mesh.reset();
+                    item.mesh_revision = 0;
+                }
+            }
+            if(item.material.resource) {
+                if(material_handle != item.material.material_handle) {
+                    material_handle = item.material.material_handle;
+                    material_revision = m_asset_registry.get_revision(material_handle);
+                }
+                if(material_revision == 0 || item.material.asset_revision != material_revision) {
+                    item.material.resource.reset();
+                    item.material.asset_revision = 0;
+                }
+            }
+        }
+        if(submission.environment_resource) {
+            const auto environment_revision =
+                m_asset_registry.get_revision(submission.environment.asset);
+            if(environment_revision == 0
+                || submission.environment_revision != environment_revision) {
+                submission.environment_resource.reset();
+                submission.environment_revision = 0;
+            }
+        }
+        submission.asset_revision = revision;
+    }
+
     void SceneResolver::resolve(
         const RenderScene& render_scene, const RenderView& view, RenderSubmission& submission) {
-        submission.environment_resource.reset();
+        refresh_assets(submission);
         submission.view_project_matrix = resolve_camera(render_scene, view);
         submission.lights = render_scene.lights;
-        submission.environment = render_scene.environment;
         submission.post_process = render_scene.post_process;
         const auto handle = render_scene.environment.asset;
         AssetHandle invalid_environment;
         // 未发布的环境资源可能仍在加载；加载失败由资产层报告。
         if(handle && (render_scene.environment.background || render_scene.environment.lighting)) {
-            auto environment = m_asset_registry.resolve<Environment>(handle);
-            if(environment) {
-                submission.environment_resource = std::move(environment);
-            } else if(m_asset_registry.contains(handle)) {
+            if(!submission.environment_resource || submission.environment.asset != handle) {
+                submission.environment_resource =
+                    m_asset_registry.resolve<Environment>(handle, &submission.environment_revision);
+            }
+            if(!submission.environment_resource && m_asset_registry.contains(handle)) {
                 invalid_environment = handle;
                 if(m_invalid_environment != handle)
                     LOG_ERROR("Scene references incompatible environment asset handle {} "
                               "(expected environment resource)",
                         handle.value());
             }
+        } else {
+            submission.environment_resource.reset();
+            submission.environment_revision = 0;
         }
+        submission.environment = render_scene.environment;
         m_invalid_environment = invalid_environment;
         submission.render_items.reserve(render_scene.render_items.size());
         for(auto& [handle, used] : m_missing_mesh_handles)
@@ -48,32 +95,30 @@ namespace Comet {
         for(auto& [handle, used] : m_missing_material_handles)
             used = false;
 
-        const auto asset_revision = m_asset_registry.get_revision();
-        const bool same_assets = submission.asset_revision == asset_revision;
         const bool same_scene = render_scene.scene_lifetime != 0
                                 && submission.scene_lifetime == render_scene.scene_lifetime;
-        // 发布版本未变时复用槽位资源；新增或重排的输入仍共用帧内查询。
+        // 分别复用 Mesh 与材质；新增或重排的输入仍共用帧内查询。
         AssetHandle mesh_handle;
         AssetHandle material_handle;
         std::shared_ptr<Mesh> mesh;
         uint64_t mesh_revision = 0;
         std::shared_ptr<const Material> material;
+        uint64_t material_revision = 0;
         std::size_t item_count = 0;
         for(const RenderItem& item : render_scene.render_items) {
             if(item_count == submission.render_items.size())
                 submission.render_items.emplace_back();
             auto& resolved = submission.render_items[item_count];
-            const bool same_resources =
-                same_assets && resolved.mesh && resolved.material.resource
-                && resolved.mesh_handle == item.mesh_handle
-                && resolved.material.material_handle == item.material_handle;
-            if(!same_resources) {
-                if(mesh_handle != item.mesh_handle) {
+            const bool same_mesh = resolved.mesh && resolved.mesh_handle == item.mesh_handle;
+            const bool same_material = resolved.material.resource
+                                       && resolved.material.material_handle == item.material_handle;
+            if(!same_mesh || !same_material) {
+                if(!same_mesh && mesh_handle != item.mesh_handle) {
                     mesh_handle = item.mesh_handle;
-                    mesh = m_asset_registry.resolve<Mesh>(item.mesh_handle);
-                    mesh_revision = m_asset_registry.get_revision(item.mesh_handle);
+                    mesh = m_asset_registry.resolve<Mesh>(item.mesh_handle, &mesh_revision);
                 }
-                if(!mesh) {
+                const auto& item_mesh = same_mesh ? resolved.mesh : mesh;
+                if(!item_mesh) {
                     const auto [entry, inserted] =
                         m_missing_mesh_handles.try_emplace(item.mesh_handle, true);
                     entry->second = true;
@@ -84,11 +129,13 @@ namespace Comet {
                 }
                 m_missing_mesh_handles.erase(item.mesh_handle);
 
-                if(material_handle != item.material_handle) {
+                if(!same_material && material_handle != item.material_handle) {
                     material_handle = item.material_handle;
-                    material = m_asset_registry.resolve<const Material>(item.material_handle);
+                    material = m_asset_registry.resolve<const Material>(
+                        item.material_handle, &material_revision);
                 }
-                if(!material) {
+                const auto& item_material = same_material ? resolved.material.resource : material;
+                if(!item_material) {
                     const auto [entry, inserted] =
                         m_missing_material_handles.try_emplace(item.material_handle, true);
                     entry->second = true;
@@ -98,13 +145,16 @@ namespace Comet {
                     continue;
                 }
                 m_missing_material_handles.erase(item.material_handle);
-                resolved.mesh_handle = item.mesh_handle;
-                resolved.mesh_revision = mesh_revision;
-                if(resolved.mesh != mesh)
+                if(!same_mesh) {
+                    resolved.mesh_handle = item.mesh_handle;
+                    resolved.mesh_revision = mesh_revision;
                     resolved.mesh = mesh;
-                resolved.material.material_handle = item.material_handle;
-                if(resolved.material.resource != material)
+                }
+                if(!same_material) {
+                    resolved.material.material_handle = item.material_handle;
+                    resolved.material.asset_revision = material_revision;
                     resolved.material.resource = material;
+                }
             }
             if(!same_scene || item.entity_id == INVALID_ENTITY_ID || item.transform_revision == 0
                 || resolved.entity_id != item.entity_id
@@ -118,7 +168,6 @@ namespace Comet {
         }
         submission.render_items.resize(item_count);
         submission.scene_lifetime = render_scene.scene_lifetime;
-        submission.asset_revision = asset_revision;
         std::erase_if(m_missing_mesh_handles, [](const auto& entry) { return !entry.second; });
         std::erase_if(m_missing_material_handles, [](const auto& entry) { return !entry.second; });
     }

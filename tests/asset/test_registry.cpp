@@ -60,6 +60,27 @@ namespace Comet::Tests {
         EXPECT_EQ(registry.resolve<TestMesh>(AssetHandle(99)), nullptr);
     }
 
+    TEST(AssetRegistryTest, ResolutionReturnsTheMatchingResourcePublicationRevision) {
+        AssetRegistry registry;
+        const AssetHandle handle{10};
+        const auto mesh = std::make_shared<TestMesh>();
+        ASSERT_TRUE(registry.register_asset(handle, mesh));
+        uint64_t revision = 0;
+        EXPECT_EQ(registry.resolve<const TestMesh>(handle, &revision), mesh);
+        EXPECT_EQ(revision, registry.get_revision(handle));
+        const auto previous = revision;
+        ASSERT_TRUE(registry.replace_asset(handle, mesh));
+        EXPECT_EQ(registry.resolve<TestMesh>(handle, &revision), mesh);
+        EXPECT_NE(revision, previous);
+        EXPECT_EQ(revision, registry.get_revision(handle));
+
+        for(const auto invalid : {INVALID_ASSET_HANDLE, AssetHandle{99}, handle}) {
+            revision = previous;
+            EXPECT_FALSE(registry.resolve<TestMaterial>(invalid, &revision));
+            EXPECT_EQ(revision, 0u);
+        }
+    }
+
     TEST(AssetRegistryTest, OwnsRegisteredAssetUntilItIsUnregistered) {
         AssetRegistry registry;
         const AssetHandle handle(3);

@@ -100,10 +100,7 @@ namespace Comet {
         m_render_resources->collect_completed_uploads();
         m_programs->collect_removed();
         m_scene_renderer->collect_removed_assets(m_asset_registry);
-        if(m_submission.asset_revision != m_asset_registry.get_revision()) {
-            m_submission.render_items.clear();
-            m_submission.environment_resource.reset();
-        }
+        m_scene_resolver.refresh_assets(m_submission);
 
         if(m_pending_output) {
             const auto output = std::exchange(m_pending_output, std::nullopt).value();
@@ -184,6 +181,7 @@ namespace Comet {
         else {
             submission.render_items.clear();
             submission.environment_resource.reset();
+            submission.environment_revision = 0;
             submission.scene_lifetime = 0;
             submission.asset_revision = 0;
             submission.view_project_matrix.reset();
@@ -392,6 +390,7 @@ namespace Comet {
         m_line_draw_list.clear();
         m_submission.render_items.clear();
         m_submission.environment_resource.reset();
+        m_submission.environment_revision = 0;
     }
 
     void Renderer::prepare_shutdown() noexcept {
@@ -400,6 +399,7 @@ namespace Comet {
         m_render_context->get_device().wait_idle_for_shutdown();
         m_submission.render_items.clear();
         m_submission.environment_resource.reset();
+        m_submission.environment_revision = 0;
     }
 
     Renderer::~Renderer() {
