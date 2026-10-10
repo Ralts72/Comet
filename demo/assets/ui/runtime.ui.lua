@@ -55,6 +55,44 @@ end
 local sizes = {{960, 720}, {1280, 720}, {1920, 1080}}
 local modes = {"windowed", "borderless", "fullscreen"}
 local mode_labels = {windowed = "窗口", borderless = "无边框", fullscreen = "全屏"}
+-- 档位是 demo 的画质策略；引擎只接收实际参数。
+local quality_presets = {
+    performance = {name = "性能", msaa_samples = 1, max_anisotropy = 2, render_scale = 0.75},
+    balanced = {name = "均衡", msaa_samples = 2, max_anisotropy = 4, render_scale = 1},
+    quality = {name = "质量", msaa_samples = 4, max_anisotropy = 8, render_scale = 1},
+}
+local quality_preset_order = {"performance", "balanced", "quality"}
+
+local function resolve_preset(preset, settings)
+    local samples = 1
+    for _, supported in ipairs(settings.supported_msaa) do
+        if supported <= preset.msaa_samples then samples = math.max(samples, supported) end
+    end
+    return {msaa_samples = samples,
+        max_anisotropy = math.min(preset.max_anisotropy, settings.max_anisotropy_supported),
+        render_scale = preset.render_scale}
+end
+
+local function quality_draft(state, settings)
+    state.quality_msaa = settings.msaa_samples
+    state.quality_anisotropy = settings.max_anisotropy
+    state.quality_scale = settings.render_scale
+end
+
+local function quality_preset_label(state, settings)
+    local names = {}
+    for _, key in ipairs(quality_preset_order) do
+        local preset = quality_presets[key]
+        local resolved = resolve_preset(preset, settings)
+        if state.quality_msaa == resolved.msaa_samples
+            and math.abs(state.quality_anisotropy - resolved.max_anisotropy) < 0.000001
+            and math.abs(state.quality_scale - resolved.render_scale) < 0.000001 then
+            names[#names + 1] = preset.name
+        end
+    end
+    if #names == 0 then return "自定义" end
+    return table.concat(names, " / ")
+end
 
 local function display_size(state, width, height)
     state.display_width, state.display_height = tostring(width), tostring(height)
@@ -105,13 +143,15 @@ local function cycle(current, choices)
     return choices[1] or current
 end
 
-local function quality_labels(self, ui)
+local function quality_labels(self, ui, settings)
     local state = self.state
     ui.set("quality_available", state.quality_available)
     if not state.quality_available then return end
     ui.set("quality_msaa", tostring(state.quality_msaa) .. "×")
     ui.set("quality_anisotropy", tostring(state.quality_anisotropy) .. "×")
     ui.set("quality_scale", string.format("%.0f%%", state.quality_scale * 100))
+    settings = settings or ui.quality_settings()
+    if settings then ui.set("quality_preset", quality_preset_label(state, settings)) end
 end
 
 local function load_quality(self, ui)
@@ -120,12 +160,8 @@ local function load_quality(self, ui)
     state.quality_available = settings ~= nil
     state.quality_waiting = false
     state.quality_error = message or ""
-    if settings then
-        state.quality_msaa = settings.msaa_samples
-        state.quality_anisotropy = settings.max_anisotropy
-        state.quality_scale = settings.render_scale
-    end
-    quality_labels(self, ui)
+    if settings then quality_draft(state, settings) end
+    quality_labels(self, ui, settings)
 end
 
 local function quality_status(self, ui)
@@ -255,6 +291,7 @@ return {
         display_status = "", display_error = "",
         quality_available = false, quality_msaa = "", quality_anisotropy = "", quality_scale = "",
         quality_active = "", quality_status = "", quality_error = "",
+        quality_preset = "",
         audio_available = false, audio_master = 100, audio_effects = 100, audio_music = 100,
         audio_active = "", audio_error = "",
     },
@@ -275,6 +312,7 @@ return {
             "display-size", "display-width", "display-height", "display-mode", "display-vsync",
             "display-apply", "display-restore", "quality", "quality-msaa",
             "quality-anisotropy", "quality-scale", "quality-apply", "quality-restore",
+            "quality-preset", "quality-performance", "quality-balanced", "quality-quality",
             "audio", "audio-master", "audio-effects", "audio-music", "audio-restore", "audio-apply"}) do
             ui.require_element(id)
         end
@@ -338,7 +376,9 @@ return {
             local draft = self.state
             local settings = ui.quality_settings()
             if not settings then return end
-            if operation == "quality_msaa" then
+            if quality_presets[action] and operation == "quality_preset" then
+                quality_draft(draft, resolve_preset(quality_presets[action], settings))
+            elseif operation == "quality_msaa" then
                 draft.quality_msaa = cycle(draft.quality_msaa, settings.supported_msaa)
             elseif operation == "quality_anisotropy" then
                 local choices = {}
@@ -349,15 +389,13 @@ return {
             elseif operation == "quality_scale" then
                 draft.quality_scale = cycle(draft.quality_scale, {0.5, 0.75, 1})
             elseif operation == "quality_restore" then
-                draft.quality_msaa = settings.defaults.msaa_samples
-                draft.quality_anisotropy = settings.defaults.max_anisotropy
-                draft.quality_scale = settings.defaults.render_scale
+                quality_draft(draft, settings.defaults)
             elseif operation == "quality_apply" then
                 draft.quality_error = ""
                 draft.quality_waiting = true
                 ui.quality_apply(draft.quality_msaa, draft.quality_anisotropy, draft.quality_scale)
             end
-            quality_labels(self, ui)
+            quality_labels(self, ui, settings)
             sync(self, ui)
             return
         end

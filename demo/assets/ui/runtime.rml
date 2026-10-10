@@ -32,6 +32,11 @@
             <p id="display-error">{{ display_error }}</p>
             <div id="quality" data-if="quality_available">
                 <p>画质设置</p>
+                <p id="quality-preset" class="hint">草稿档位：{{ quality_preset }}</p>
+                <button id="quality-performance" data-event-click="command('quality_preset', 'performance')" data-attrif-disabled="waiting">性能</button>
+                <button id="quality-balanced" data-event-click="command('quality_preset', 'balanced')" data-attrif-disabled="waiting">均衡</button>
+                <button id="quality-quality" data-event-click="command('quality_preset', 'quality')" data-attrif-disabled="waiting">质量</button>
+                <p class="hint">档位只修改草稿；MSAA 和各向异性按设备能力降低，仍可逐项调整。</p>
                 <button id="quality-msaa" data-event-click="command('quality_msaa')" data-attrif-disabled="waiting">MSAA：{{ quality_msaa }}</button>
                 <button id="quality-anisotropy" data-event-click="command('quality_anisotropy')" data-attrif-disabled="waiting">各向异性：{{ quality_anisotropy }}</button>
                 <button id="quality-scale" data-event-click="command('quality_scale')" data-attrif-disabled="waiting">渲染比例：{{ quality_scale }}</button>

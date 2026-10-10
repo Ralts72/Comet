@@ -112,7 +112,7 @@ namespace {
                 {"display_size", "display_mode", "display_vsync", "display_status", "display_error",
                     "display_width", "display_height", "display_active_vsync", "quality_msaa",
                     "quality_anisotropy", "quality_scale", "quality_active", "quality_status",
-                    "quality_error", "audio_active", "audio_error"})
+                    "quality_error", "quality_preset", "audio_active", "audio_error"})
                 ASSERT_TRUE(constructor.Bind(name, &display_text));
             for(const auto* name : {"audio_master", "audio_effects", "audio_music"})
                 ASSERT_TRUE(constructor.Bind(name, &audio_volume));

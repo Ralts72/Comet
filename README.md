@@ -133,6 +133,7 @@ World 保存场景内容，不依赖 Input 或 Runtime；运行输入和本局�
 ./tools/render_benchmark/run.sh /tmp/comet-culling.csv 2048 640 360 240 0 64 culling
 ./tools/render_benchmark/run.sh /tmp/comet-active.csv 512 640 360 240 0 32 physics-active
 ./tools/render_benchmark/run.sh /tmp/comet-sleeping.csv 512 640 360 240 0 32 physics-sleeping
+./tools/render_benchmark/run.sh /tmp/comet-scaled.csv 256 960 540 480 1 8 static 1 2 0.75
 ./tools/render_benchmark/run.sh --help
 ```
 
@@ -157,8 +158,9 @@ ctest --preset dev-debug -R '^render_benchmark_smoke$'
 
 参数依次为 CSV 路径、物体数（1..4096）、逻辑窗口宽高（64..4096）、采样帧数（8..10000）、Bloom（0/1）。
 末尾可追加材质数（1..256，不能超过物体数）及场景类型（`static`、`moving`、`culling`、`project-shader`、`physics-active`、`physics-sleeping`），默认单材质、静态场景。
+场景类型后可一起追加 MSAA、各向异性和渲染比例，范围与游戏画质设置相同；省略时仍为 4／1／1。
 macOS 可在末尾追加 `-NSAutomaticWindowAnimationsEnabled NO` 关闭该进程的窗口动画；报告以实际 framebuffer 像素为准。
-固定场景使用 PBR 材质、共享立方体网格与地面、三类光源、方向光阴影、4×MSAA 和 SDR 输出；IBL 关闭，
+固定场景使用 PBR 材质、共享立方体网格与地面、三类光源、方向光阴影和 SDR 输出；IBL 关闭，
 不依赖可选 HDR 下载。资产复制到临时目录后走生产扫描／导入／加载，结束清理，不修改 demo 的资源和缓存。
 多材质参数在临时项目中生成稳定身份的 PBR 变体，按网格顺序交错分配，实体身份固定。
 `moving` 每帧将所有立方体绕自身 Y 轴旋转 0.5°，走真实 Transform 更新、场景提取与实例上传；不启用物理，便于与 `static` 比较持续变换的成本。
@@ -173,12 +175,14 @@ macOS 可在末尾追加 `-NSAutomaticWindowAnimationsEnabled NO` 关闭该进�
 采样逐帧检查实际活动刚体数、姿态回写数和固定步数；状态不符则拒绝报告。
 预热 32 帧（休眠场景额外沉降 300 帧）后输出 CPU 整帧及分段、CPU/GPU 图和各 pass 的样本数、P50/P95/P99，
 以及设备、呈现模式、实际材质／刚体计数和 VMA 分配量。`cpu_runtime_update` 是 `cpu_update` 内的 Runtime 部分，不重复相加；它包含默认系统开销，不是纯 Jolt 模拟时间。
+报告分别记录请求画质、实际生效画质、输出与内部场景尺寸；设备可能限制各向异性，不把请求值当成实测值。
 `cpu_scene_extract` 以及资产解析、材质程序、几何界限、光源准备均是 `cpu_render_submit` 内的子阶段，不重复计入整帧；后四项位于渲染图录制之前。
 GPU 样本按提交序号去重；`gpu_status` 区分完整、部分、不支持和降级，不把缺样本写成零耗时。
 窗口／呈现变化、少画物体或提前退出会拒绝报告；成功报告原子替换指定文件。
 
 测量请求关闭 validation，外部强制 layer 仍需自行排除；应在同机 Release、设备保持唤醒、无并行构建或其他 GPU 测试时重复比较。
-可分别提高物体数、提高实际分辨率、关闭 Bloom，避免一次改变所有变量。物体数增加时会缩小立方体，
+可分别提高物体数、提高实际分辨率、关闭 Bloom，避免一次改变所有变量，也可固定场景只修改画质参数。
+当前材质没有纹理，适合比较 MSAA／渲染比例；各向异性的纹理采样成本需用实际纹理场景测量。物体数增加时会缩小立方体，
 它不是纯 CPU 实验，也不代表透明物体、IBL 或编辑器开销；活动物理场景包含周期性传送的更新成本。CPU 墙钟包含等待，GPU 图不含呈现完成，
 VMA 分配量不等于系统总显存；各分段百分位不能直接相加。CI smoke 只验证测量契约，不设置绝对耗时门槛。
 
@@ -496,6 +500,16 @@ Editor 主窗口尺寸与最大化仍保存为独立本地状态。HDR 输出按
 省略时使用上述默认值；MSAA 为 1／2／4／8，各向异性为 1～16，渲染比例为 0.5～1。
 App 启动使用玩家选择或项目默认值；Editor 在进入 Play 时应用同一份设置。
 demo 的“设置 / F1”提供设备支持的 MSAA、各向异性选项和 50%／75%／100% 渲染比例。
+另提供三个草稿档位；档位策略由 demo 的 Lua 控制器定义，Engine 只应用参数，不保存平行的档位编号。
+
+| 档位 | MSAA | 各向异性 | 渲染比例 |
+| --- | --- | --- | --- |
+| 性能 | 1× | 2× | 75% |
+| 均衡 | 2× | 4× | 100% |
+| 质量 | 4× | 8× | 100% |
+
+MSAA 选不超过目标的最高支持值，各向异性限制到设备上限；设备限制使多个档位相同时，菜单并列显示匹配名称。
+仍可逐项修改，未匹配档位时显示“自定义”；恢复默认取项目值，不固定为某个档位。档位名称不承诺目标帧率。
 “应用画质设置”单独提交并保存到玩家目录的 `quality.json`；取消保留已应用值，丢弃未应用草稿。
 更改在下一帧准备时生效，旧资源保留至在途 GPU 帧结束；失败保持原画质并显示原因，可以再次应用。
 菜单显示实际生效值，各向异性按设备上限限制。画质切换会重建目标和 Pipeline，可能产生一次短暂停顿。

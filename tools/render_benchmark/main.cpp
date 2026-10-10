@@ -15,6 +15,7 @@
 #include "physics/physics_service.h"
 #include "render/render_context.h"
 #include "render/render_diagnostics.h"
+#include "render/quality_settings.h"
 #include "render/renderer.h"
 #include "render/material/material.h"
 #include "render/material/material_shader.h"
@@ -51,7 +52,8 @@ namespace {
     constexpr unsigned MAX_PHYSICS_OBJECTS = 512;
     constexpr std::string_view USAGE =
         "Usage: render_benchmark OUTPUT.csv OBJECTS WIDTH HEIGHT FRAMES BLOOM(0/1) "
-        "[MATERIALS [static|moving|culling|project-shader|physics-active|physics-sleeping]]";
+        "[MATERIALS [static|moving|culling|project-shader|physics-active|physics-sleeping "
+        "[MSAA ANISOTROPY RENDER_SCALE]]]";
 
     enum class Workload { Static, Moving, Culling, ProjectShader, PhysicsActive, PhysicsSleeping };
 
@@ -82,6 +84,7 @@ namespace {
         bool bloom;
         unsigned materials = 1;
         Workload workload = Workload::Static;
+        Comet::QualitySettings quality{4, 1, 1};
     };
 
     Result<Options> parse_options(int argc, char** argv) {
@@ -90,7 +93,7 @@ namespace {
             && std::string_view(argv[argc - 1]) == "NO")
             argc -= 2;
 #endif
-        if(argc < 7 || argc > 9 || std::string_view(argv[1]).empty())
+        if(argc < 7 || (argc > 9 && argc != 12) || std::string_view(argv[1]).empty())
             return Result<Options>::failure(std::string(USAGE));
         const std::array<unsigned, 6> minimum{1, 64, 64, 8, 0, 1};
         const std::array<unsigned, 6> maximum{4096, 4096, 4096, 10000, 1, 256};
@@ -105,7 +108,7 @@ namespace {
                 return Result<Options>::failure("Invalid benchmark argument: " + std::string(text));
         }
         Workload workload = Workload::Static;
-        if(argc == 9) {
+        if(argc >= 9) {
             const std::string_view name(argv[8]);
             if(name == "culling")
                 workload = Workload::Culling;
@@ -125,8 +128,23 @@ namespace {
         if(uses_physics(workload) && values[0] > MAX_PHYSICS_OBJECTS)
             return Result<Options>::failure(
                 "Physics workloads support at most 512 objects plus ground");
+        Comet::QualitySettings quality{4, 1, 1};
+        if(argc == 12) {
+            // 与 JSON 相同的数值范围；采用固定 locale，不受系统小数分隔符影响。
+            const auto number = [](const char* text, auto& value) {
+                std::istringstream input(text);
+                input.imbue(std::locale::classic());
+                input >> std::noskipws >> value;
+                return input && input.eof();
+            };
+            if(!number(argv[9], quality.msaa_samples) || !number(argv[10], quality.max_anisotropy)
+                || !number(argv[11], quality.render_scale))
+                return Result<Options>::failure("Invalid benchmark quality arguments");
+            if(auto valid = quality.validate(); !valid)
+                return Result<Options>::failure("Invalid benchmark quality: " + valid.error());
+        }
         return Result<Options>::success({argv[1], values[0], values[1], values[2], values[3],
-            values[4] != 0, values[5], workload});
+            values[4] != 0, values[5], workload, quality});
     }
 
     Result<std::filesystem::path> create_temporary_project() {
@@ -329,6 +347,8 @@ namespace {
               m_warmup(WARMUP_FRAMES
                        + (options.workload == Workload::PhysicsSleeping ? SETTLE_STEPS : 0)),
               m_size(engine.get_renderer().get_scene_renderer().get_render_target().get_size()),
+              m_scene_size(engine.get_renderer().get_scene_size()),
+              m_quality(engine.get_renderer().get_quality_settings()),
               m_generation(engine.get_renderer()
                       .get_render_context()
                       .get_swapchain()
@@ -365,6 +385,8 @@ namespace {
                     || !snapshot.cpu || snapshot.cpu->serial != uint64_t(frame->frame_index)
                     || !snapshot.preparation || snapshot.preparation->serial != snapshot.cpu->serial
                     || renderer.get_scene_renderer().get_render_target().get_size() != m_size
+                    || renderer.get_scene_size() != m_scene_size
+                    || renderer.get_quality_settings() != m_quality || renderer.quality_pending()
                     || renderer.get_render_context().get_swapchain().get_active_generation()
                            != m_generation)
                     return Result<void, Comet::Error>::failure(
@@ -441,8 +463,14 @@ namespace {
                    << "# device=" << properties.deviceName.data()
                    << " driver=" << properties.driverVersion << '\n'
                    << "# objects=" << m_options.objects << " scene_draws=" << stats.draw_calls
-                   << " lights=" << stats.light_count << " msaa=4 bloom=" << m_options.bloom
-                   << " ibl=off output=sdr\n"
+                   << " lights=" << stats.light_count << " msaa=" << m_quality.msaa_samples
+                   << " bloom=" << m_options.bloom << " ibl=off output=sdr\n"
+                   << "# anisotropy=" << m_quality.max_anisotropy
+                   << " render_scale=" << m_quality.render_scale << " scene=" << m_scene_size.x
+                   << 'x' << m_scene_size.y << '\n'
+                   << "# requested_msaa=" << m_options.quality.msaa_samples
+                   << " requested_anisotropy=" << m_options.quality.max_anisotropy
+                   << " requested_render_scale=" << m_options.quality.render_scale << '\n'
                    << "# render_items=" << stats.render_items
                    << " culled_items=" << stats.culled_items << '\n'
                    << "# workload=" << workload_name(m_options.workload)
@@ -577,6 +605,8 @@ namespace {
         const Comet::PhysicsSystem* m_physics;
         unsigned m_warmup;
         Comet::Math::Vec2u m_size;
+        Comet::Math::Vec2u m_scene_size;
+        Comet::QualitySettings m_quality;
         std::shared_ptr<Comet::Swapchain::Generation> m_generation;
         std::vector<std::string> m_passes;
         std::map<std::string, std::vector<double>> m_samples;
@@ -604,7 +634,9 @@ namespace {
         config.window.height = static_cast<int>(options.height);
         config.window.resizable = false;
         config.window.title = "Comet Forward Benchmark";
-        config.vulkan.msaa_samples = Comet::SampleCount::Count4;
+        config.vulkan.msaa_samples = static_cast<Comet::SampleCount>(options.quality.msaa_samples);
+        config.render.max_anisotropy = options.quality.max_anisotropy;
+        config.render.render_scale = options.quality.render_scale;
         config.vulkan.enable_validation = false;
         config.diagnostics.log.level = "warn";
         config.diagnostics.log.enable_file_logging = false;

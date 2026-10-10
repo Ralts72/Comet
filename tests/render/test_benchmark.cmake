@@ -8,7 +8,7 @@ if(NOT result STREQUAL "0" OR NOT help MATCHES "Usage: render_benchmark OUTPUT.c
     message(FATAL_ERROR "Invalid benchmark help: ${result} ${help} ${error}")
 endif()
 file(MAKE_DIRECTORY "${OUTPUT_DIRECTORY}")
-foreach(case static-0 static-1 multi moving moving-singles active sleeping culling project-shader)
+foreach(case static-0 static-1 scaled multi moving moving-singles active sleeping culling project-shader)
     set(bloom 0)
     set(materials 1)
     set(workload static)
@@ -16,8 +16,15 @@ foreach(case static-0 static-1 multi moving moving-singles active sleeping culli
     set(culled 0)
     set(draws)
     set(workload_args)
+    set(msaa 4)
+    set(render_scale 1)
     if(case STREQUAL "static-1")
         set(bloom 1)
+    elseif(case STREQUAL "scaled")
+        set(msaa 1)
+        set(render_scale 0.75)
+        set(bloom 1)
+        list(APPEND workload_args 1 static ${msaa} 1 ${render_scale})
     elseif(case STREQUAL "multi")
         set(materials 8)
         set(pipelines 2)
@@ -63,13 +70,26 @@ foreach(case static-0 static-1 multi moving moving-singles active sleeping culli
             message(FATAL_ERROR "Missing complete metric: ${metric}\n${csv}")
         endif()
     endforeach()
-    if(NOT csv MATCHES "scene_draws=${draws} lights=3 msaa=4 bloom=${bloom}"
+    if(NOT csv MATCHES "scene_draws=${draws} lights=3 msaa=${msaa} bloom=${bloom}"
             OR NOT csv MATCHES "render_items=9 culled_items=${culled}"
             OR NOT csv MATCHES "pipeline_binds=${pipelines} material_binds=${materials} cached_material_versions=${materials}"
             OR NOT csv MATCHES "workload=${workload} materials=${materials}"
             OR NOT csv MATCHES "metric,samples,p50_ms,p95_ms,p99_ms"
             OR NOT csv MATCHES "gpu_samples=[0-9]+ gpu_status=(complete|partial|unsupported|degraded)")
         message(FATAL_ERROR "Invalid scene or GPU coverage metadata\n${csv}")
+    endif()
+    if(NOT csv MATCHES "framebuffer=([0-9]+)x([0-9]+)")
+        message(FATAL_ERROR "Missing output size\n${csv}")
+    endif()
+    set(scene_width ${CMAKE_MATCH_1})
+    set(scene_height ${CMAKE_MATCH_2})
+    if(case STREQUAL "scaled")
+        math(EXPR scene_width "${scene_width} * 3 / 4")
+        math(EXPR scene_height "${scene_height} * 3 / 4")
+    endif()
+    if(NOT csv MATCHES "anisotropy=1 render_scale=${render_scale} scene=${scene_width}x${scene_height}"
+            OR NOT csv MATCHES "requested_msaa=${msaa} requested_anisotropy=1 requested_render_scale=${render_scale}")
+        message(FATAL_ERROR "Invalid quality or scaled scene size\n${csv}")
     endif()
     if(NOT csv MATCHES "mesh_binds=1 material_preparations=${materials}")
         message(FATAL_ERROR "Invalid preparation or mesh binding counts\n${csv}")
@@ -147,6 +167,14 @@ execute_process(COMMAND "${BENCHMARK}" "${output}" 513 160 120 16 0 4 physics-ac
 if(NOT result STREQUAL "2")
     message(FATAL_ERROR "Physics workload limit was not checked before startup")
 endif()
+foreach(quality "3;4;1" "1;0;1" "1;17;1" "1;4;0.49" "1;4;1.01"
+        "1;4;nan" "1;4;inf" "1;4;0.75x" "1;4" "1;4;1;extra")
+    execute_process(COMMAND "${BENCHMARK}" "${output}" 8 160 120 16 1 1 static ${quality}
+            RESULT_VARIABLE result OUTPUT_QUIET ERROR_QUIET TIMEOUT 5)
+    if(NOT result STREQUAL "2")
+        message(FATAL_ERROR "Invalid quality parameters were accepted: ${quality}: ${result}")
+    endif()
+endforeach()
 
 # 临时目录不可用时在启动引擎前失败，不覆盖已有报告。
 execute_process(COMMAND "${CMAKE_COMMAND}" -E env

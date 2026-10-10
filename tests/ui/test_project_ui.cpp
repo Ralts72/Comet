@@ -7,6 +7,7 @@
 #include <GLFW/glfw3.h>
 #include <RmlUi/Core.h>
 
+#include <algorithm>
 #include <array>
 #include <fstream>
 #include <string>
@@ -30,6 +31,7 @@ namespace Comet::Tests {
         unsigned display_applications = 0;
         bool quality_services = false, fail_quality_save = false;
         QualitySettings saved_quality;
+        QualitySettings default_quality;
         unsigned quality_applications = 0;
         bool audio_services = false, fail_audio_save = false;
         AudioSettings saved_audio;
@@ -80,6 +82,7 @@ namespace Comet::Tests {
                 };
             }
             if(quality_services) {
+                services.quality_defaults = default_quality;
                 services.load_quality = [this] {
                     return Result<QualitySettings>::success(saved_quality);
                 };
@@ -124,7 +127,8 @@ namespace Comet::Tests {
                         [this](const SwapchainCompatibility& compatibility) {
                             return ui->rebuild_swapchain_resources(compatibility);
                         }});
-            ASSERT_TRUE(submit_frame());
+            const auto result = submit_frame();
+            ASSERT_TRUE(result) << result.error().message;
         }
         void TearDown() override {
             if(engine) {
@@ -150,7 +154,8 @@ namespace Comet::Tests {
             auto* element = document().GetElementById(id);
             ASSERT_NE(element, nullptr) << id;
             element->Click();
-            ASSERT_TRUE(submit_frame());
+            const auto result = submit_frame();
+            ASSERT_TRUE(result) << result.error().message;
         }
         Result<void, GraphicsError> submit_frame() {
             auto& window = engine->get_window();
@@ -273,6 +278,83 @@ namespace Comet::Tests {
         EXPECT_TRUE(ui->is_modal());
         const auto& samples = engine->get_renderer().supported_msaa_samples();
         EXPECT_NE(std::ranges::find(samples, saved_quality.msaa_samples), samples.end());
+    }
+
+    TEST_F(ProjectUiGpuTest, QualityPresetsStageValuesAndKeepCustomDefaultsAndSavedParameters) {
+        quality_services = true;
+        saved_quality = {1, 1, 0.6f};
+        default_quality = {1, 1, 0.9f};
+        create_ui(InputActions{});
+        click("settings");
+        EXPECT_NE(document().GetElementById("quality-preset")->GetInnerRML().find("自定义"),
+            std::string::npos);
+        click("quality-performance");
+        EXPECT_NE(document().GetElementById("quality-preset")->GetInnerRML().find("性能"),
+            std::string::npos);
+        EXPECT_EQ(quality_applications, 0u);
+        click("cancel");
+        click("settings");
+        EXPECT_NE(document().GetElementById("quality-scale")->GetInnerRML().find("60%"),
+            std::string::npos);
+        click("quality-balanced");
+        ASSERT_TRUE(ui->reload());
+        ASSERT_TRUE(submit_frame());
+        EXPECT_NE(document().GetElementById("quality-preset")->GetInnerRML().find("均衡"),
+            std::string::npos);
+        click("quality-quality");
+        click("quality-scale");
+        EXPECT_NE(document().GetElementById("quality-preset")->GetInnerRML().find("自定义"),
+            std::string::npos);
+        click("quality-restore");
+        EXPECT_NE(document().GetElementById("quality-scale")->GetInnerRML().find("90%"),
+            std::string::npos);
+        EXPECT_NE(document().GetElementById("quality-preset")->GetInnerRML().find("自定义"),
+            std::string::npos);
+        EXPECT_EQ(saved_quality, (QualitySettings{1, 1, 0.6f}));
+        click("quality-performance");
+        click("quality-apply");
+        ASSERT_EQ(quality_applications, 1u);
+        EXPECT_EQ(saved_quality,
+            (QualitySettings{1, std::min(2.0f, engine->get_renderer().max_anisotropy()), 0.75f}));
+        ASSERT_TRUE(submit_frame());
+        EXPECT_EQ(engine->get_renderer().get_quality_settings(), saved_quality);
+        click("cancel");
+        click("settings");
+        EXPECT_NE(document().GetElementById("quality-preset")->GetInnerRML().find("性能"),
+            std::string::npos);
+    }
+
+    TEST_F(ProjectUiGpuTest, QualityPresetsRespectSparseSampleCountsAndCollapsedDeviceLimits) {
+        // 用受限设备报告驱动同一个 demo 控制器，实际渲染器仍校验最终的 1× 参数。
+        write("runtime.ui.lua", "local controller = (function()\n" + original_controller + R"lua(
+end)()
+local event = controller.on_event
+controller.on_event = function(self, ui, ...)
+    local limited = {}
+    for name, callback in pairs(ui) do limited[name] = callback end
+    limited.quality_settings = function()
+        local settings = ui.quality_settings()
+        settings.supported_msaa = {1}
+        settings.max_anisotropy_supported = 1
+        return settings
+    end
+    return event(self, limited, ...)
+end
+return controller
+)lua");
+        quality_services = true;
+        create_ui(InputActions{});
+        click("settings");
+        for(const auto* preset : {"quality-balanced", "quality-quality"}) {
+            click(preset);
+            const auto label = document().GetElementById("quality-preset")->GetInnerRML();
+            EXPECT_NE(label.find("均衡 / 质量"), std::string::npos);
+            click("quality-apply");
+            EXPECT_EQ(saved_quality, (QualitySettings{1, 1, 1}));
+        }
+        click("quality-performance");
+        click("quality-apply");
+        EXPECT_EQ(saved_quality, (QualitySettings{1, 1, 0.75f}));
     }
 
     TEST_F(ProjectUiGpuTest, DisplayDraftCancelsAndSaveFailurePreservesItAcrossReload) {

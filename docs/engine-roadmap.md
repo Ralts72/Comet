@@ -1032,7 +1032,9 @@ Editor 预览已核对 UI 显示大小。完整 App／Play 验收仍保留下面
   窗口逻辑尺寸、framebuffer 像素和内部渲染分辨率分别表达；全屏使用显示器模式，内部渲染比例不改变 UI 的逻辑大小。
   Editor 主窗口沿用自己的本地状态；Play 尺寸修改复用离屏预览，独立窗口模式和 VSync 明确标示仅适用于 App，
   游戏菜单不修改编辑器主窗口或编辑器的呈现节奏。
-  MSAA／各向异性、渲染比例已接通；后续根据场景成本提供少量画质档位。帧准备阶段重建必要目标、Sampler 和 Pipeline，
+  MSAA／各向异性、渲染比例与 demo 的性能／均衡／质量档位已接通；项目控制器定义档位，Engine 只应用具体参数。
+  固定场景基准支持指定画质并记录实际值与内部尺寸；档位成本在同机 Release 重复比较，后续用纹理、IBL 等实际内容继续校准。
+  帧准备阶段重建必要目标、Sampler 和 Pipeline，
   遵守后续渲染线程的资源所有权。提供实际应用状态与设备限制，未接通的切换明确提示重启，不承诺全部实时生效。
   音量已接入主音量／音效／音乐分类混音通道、项目默认 UI 与玩家保存恢复；
   改键复用既有玩家覆盖流程，场景曝光和内容参数保持各自归属。
@@ -1042,7 +1044,7 @@ Editor 预览已核对 UI 显示大小。完整 App／Play 验收仍保留下面
   窗口尺寸／模式、VSync、玩家保存恢复、Play 固定尺寸预览、项目默认显示设置的 Editor UI、
   任意尺寸输入及实际同步呈现反馈已接通；运行时画质、玩家保存恢复、项目默认画质 UI 和实际生效／失败反馈也已接通。
   渲染比例只调整场景 HDR／Bloom，输出和 UI 保持原分辨率；真实 App／Play 交互由使用者验收。
-  音量菜单与分类混音也已接通；后续推进实测画质档位与 HDR 校准。
+  音量菜单与分类混音也已接通；后续推进 HDR 输出及白点／headroom 校准，画质策略随实际内容完善。
   参考 [Unreal GameUserSettings](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/UGameUserSettings)
   的应用／保存分层及 [Godot 项目设置](https://docs.godotengine.org/en/stable/tutorials/editor/project_settings.html)的启动值／运行时接口边界。
 - 项目、场景、材质和 `.meta` 已使用确定性 JSON；运行 Profile 与编辑器配置仍用 YAML。
