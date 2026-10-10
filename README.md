@@ -197,8 +197,9 @@ Engine 按场景实例与渲染版本复用未变快照；少量修改按对象�
 以及设备、呈现模式、实际材质／刚体计数和 VMA 分配量。`cpu_runtime_update` 是 `cpu_update` 内的 Runtime 部分，不重复相加；它包含默认系统开销，不是纯 Jolt 模拟时间。
 报告分别记录请求画质、实际生效画质、输出与内部场景尺寸；设备可能限制各向异性，不把请求值当成实测值。
 `cpu_scene_extract` 以及资产解析、材质程序、几何界限、光源准备均是 `cpu_render_submit` 内的子阶段，不重复计入整帧；后四项位于渲染图录制之前。
-`cpu_queue_submit` 包含命令结束及队列提交，`cpu_present` 单独记录呈现调用；两者可能包含驱动／窗口系统等待。
-`cpu_render_record` 从渲染／提交中扣除场景提取、队列提交和呈现，包含场景准备与所有录制，不等同于 CPU 渲染图。
+`cpu_submission_prep` 记录命令结束和提交参数准备，`cpu_queue_submit` 记录 fence 重置与队列提交，`cpu_present` 记录呈现调用。
+队列提交和呈现可能包含驱动／窗口系统等待；macOS 的 MoltenVK 可在提交期间等待 drawable，即使报告为 Immediate 也不能视为纯 CPU 计算。
+`cpu_render_record` 从渲染／提交中扣除场景提取及以上三段，包含场景准备与所有录制，不等同于 CPU 渲染图。
 GPU 样本按提交序号去重；`gpu_status` 区分完整、部分、不支持和降级，不把缺样本写成零耗时。
 窗口／呈现变化、少画物体或提前退出会拒绝报告；成功报告原子替换指定文件。
 

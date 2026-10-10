@@ -23,6 +23,7 @@ namespace CometEditor {
                 {"Material prep", "材质程序准备"},
                 {"Geometry bounds", "世界界限计算"},
                 {"Lighting prep", "光源与阴影准备"},
+                {"Submission prep", "提交准备"},
                 {"Queue submit", "队列提交"},
                 {"Present", "呈现调用"},
             };
@@ -197,7 +198,8 @@ namespace CometEditor {
             ImGui::TextWrapped("%s", "准备阶段已计入渲染 / 提交，不属于渲染图录制耗时。");
             show_summary("CPU 提交与呈现（包含等待）", m_display.submission);
             show_details("submission", m_display.submission);
-            ImGui::TextWrapped("%s", "提交与呈现已计入渲染 / 提交；驱动和窗口系统可能在此等待。");
+            ImGui::TextWrapped("%s",
+                "提交准备包含命令结束；队列提交与呈现可能等待驱动或窗口系统，均已计入渲染 / 提交。");
         }
         if(ImGui::CollapsingHeader("渲染阶段明细###Render pass details")) {
             show_summary("CPU 渲染图录制", m_display.cpu);

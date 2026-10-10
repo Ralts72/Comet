@@ -279,7 +279,7 @@ Editor 源监控与 CPU 编译交付完整阶段候选；主线程复核请求�
 slot 数与交换链 image 数独立；image-available 属于 slot，render-finished 属于 image。循环索引不能代替提交 serial。
 提交成功才登记 serial／image 关联；失败不等待未提交 fence，也不呈现部分录制结果。
 UploadManager 保活 staging、命令与目标 owner，提交完成才回收；绘制按实际资源汇总上传等待，已完成资源不重复等待。
-Queue 的提交／呈现参数转换使用调用内的 PMR 临时缓冲，普通帧使用栈内存，较大批次由标准分配器扩展。
+Presentation 的等待列表与 Queue 的提交／呈现参数转换使用调用内的 PMR 临时缓冲，普通帧使用栈内存，较大批次由标准分配器扩展。
 资源版本、图像状态和完成身份分别管理；仅持有 shared_ptr 不能代替同步，barrier 也不能代替队列完成。
 
 ## 有序 RenderGraph
@@ -324,7 +324,7 @@ Viewport 使用 Renderer 的离屏帧快照，不访问 SceneRenderer 的目标 
 ## 渲染诊断
 
 诊断提供 CPU 阶段、GPU pass、负载计数、内存预算及报告，消费者读取快照，不控制 Renderer 内部生命周期。
-Presentation 在成功提交／呈现时将 CPU 时间交给 RenderDiagnostics，与同帧场景图的 serial 配对；隐藏／失败帧不产生提交样本。
-队列提交与呈现包含后端等待，不计入渲染图录制或 GPU 图；关闭诊断时不读取分段时钟，也不增加 GPU 等待。
+Presentation 将命令结束与参数准备、队列提交、呈现三段 CPU 时间交给 RenderDiagnostics，成功提交后与同帧场景图的 serial 配对；隐藏／失败帧不产生提交样本。
+队列提交与呈现可能包含后端等待，不能视为纯计算；不计入渲染图录制或 GPU 图，关闭诊断时不读取分段时钟，也不增加 GPU 等待。
 性能对比使用相同优化构建、设备、场景和采样范围，检查实际负载；等待、录制、模拟和 GPU 成本分别判断。
 当前实现边界与后续功能分别维护；具体回归由现有测试承担，架构文档不累计逐轮完成记录。

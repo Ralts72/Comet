@@ -143,15 +143,18 @@ namespace Comet {
                 slot->pending.reset();
     }
 
-    void RenderDiagnostics::record_submission(const double submit_ms, const double present_ms) {
-        if(!m_enabled || !m_frames.is_frame_active() || !m_snapshot.cpu)
+    void RenderDiagnostics::record_submission(
+        const double finalize_ms, const double submit_ms, const double present_ms) {
+        if(!m_enabled || !m_frames.is_frame_active() || m_frames.is_recording_frame()
+            || !m_snapshot.cpu)
             return;
         const auto serial = m_frames.get_current_frame_serial();
         if(m_snapshot.cpu->serial != serial)
             return;
-        m_snapshot.submission = SubmissionTiming{serial, submit_ms, present_ms};
-        const TimingHistory::Entry phases[]{{"Queue submit", submit_ms}, {"Present", present_ms}};
-        m_submission_history.record(submit_ms + present_ms, phases);
+        m_snapshot.submission = SubmissionTiming{serial, finalize_ms, submit_ms, present_ms};
+        const TimingHistory::Entry phases[]{
+            {"Submission prep", finalize_ms}, {"Queue submit", submit_ms}, {"Present", present_ms}};
+        m_submission_history.record(finalize_ms + submit_ms + present_ms, phases);
     }
 
     Result<void, GraphicsError> RenderDiagnostics::record(const RenderGraph::Plan& plan,

@@ -384,11 +384,11 @@ namespace {
                 m_passes.insert(
                     m_passes.end(), {"bloom extract", "bloom horizontal", "bloom vertical"});
             m_passes.push_back("display");
-            for(const auto* name :
-                {"cpu_wall", "cpu_events", "cpu_update", "cpu_prepare", "cpu_runtime_update",
-                    "cpu_render_submit", "cpu_scene_extract", "cpu_asset_resolution",
-                    "cpu_material_programs", "cpu_geometry", "cpu_lighting", "cpu_queue_submit",
-                    "cpu_present", "cpu_render_record", "cpu_graph", "gpu_graph"})
+            for(const auto* name : {"cpu_wall", "cpu_events", "cpu_update", "cpu_prepare",
+                    "cpu_runtime_update", "cpu_render_submit", "cpu_scene_extract",
+                    "cpu_asset_resolution", "cpu_material_programs", "cpu_geometry", "cpu_lighting",
+                    "cpu_submission_prep", "cpu_queue_submit", "cpu_present", "cpu_render_record",
+                    "cpu_graph", "gpu_graph"})
                 m_samples[name].reserve(options.frames);
             for(const auto& pass : m_passes)
                 for(const auto* prefix : {"cpu_", "gpu_"})
@@ -443,11 +443,13 @@ namespace {
                         snapshot.preparation->material_programs_ms);
                     m_samples["cpu_geometry"].push_back(snapshot.preparation->geometry_ms);
                     m_samples["cpu_lighting"].push_back(snapshot.preparation->lighting_ms);
+                    m_samples["cpu_submission_prep"].push_back(snapshot.submission->finalize_ms);
                     m_samples["cpu_queue_submit"].push_back(snapshot.submission->submit_ms);
                     m_samples["cpu_present"].push_back(snapshot.submission->present_ms);
                     m_samples["cpu_render_record"].push_back(
                         frame->render_submit_ms - frame->scene_extract_ms
-                        - snapshot.submission->submit_ms - snapshot.submission->present_ms);
+                        - snapshot.submission->finalize_ms - snapshot.submission->submit_ms
+                        - snapshot.submission->present_ms);
                     append_graph("cpu_", *snapshot.cpu);
                 }
             }

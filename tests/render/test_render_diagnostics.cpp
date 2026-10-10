@@ -246,9 +246,10 @@ namespace Comet::Tests {
         const auto& submission = diagnostics.get_snapshot().submission;
         ASSERT_TRUE(submission);
         EXPECT_EQ(submission->serial, diagnostics.get_snapshot().cpu->serial);
+        EXPECT_GE(submission->finalize_ms, 0);
         EXPECT_GE(submission->submit_ms, 0);
         EXPECT_GE(submission->present_ms, 0);
-        EXPECT_LE(submission->submit_ms + submission->present_ms,
+        EXPECT_LE(submission->finalize_ms + submission->submit_ms + submission->present_ms,
             timing.render_submit_ms - timing.scene_extract_ms);
         EXPECT_EQ(diagnostics.get_snapshot().cpu->passes.size(), 3);
         if(diagnostics.get_snapshot().gpu_supported) {
@@ -258,7 +259,7 @@ namespace Comet::Tests {
         }
     }
 
-    TEST_F(RenderDiagnosticsGpuTest, PreparationPublishesWithItsGraphAndDoesNotCarryAcrossFrames) {
+    TEST_F(RenderDiagnosticsGpuTest, FramePhasesPublishWithTheirGraphAndConfirmedSubmission) {
         auto& device = engine->get_renderer().get_render_context().get_device();
         FrameScheduler frames(device, 1);
         frames.initialize_swapchain_images(1);
@@ -292,12 +293,18 @@ namespace Comet::Tests {
             }
             ASSERT_TRUE(diagnostics.record(plan.value(), {},
                 [](size_t, CommandBuffer&) { return Result<void, GraphicsError>::success(); }));
+            diagnostics.record_submission(0.05, 0.1, 0.2);
             EXPECT_FALSE(diagnostics.get_snapshot().submission);
-            diagnostics.record_submission(0.1, 0.2);
+            frames.get_current_command_buffer().end();
+            ASSERT_TRUE(frames.submit({}, {}));
+            diagnostics.record_submission(0.05, 0.1, 0.2);
             if(index < 2) {
                 ASSERT_TRUE(diagnostics.get_snapshot().submission);
                 EXPECT_EQ(diagnostics.get_snapshot().submission->serial,
                     frames.get_current_frame_serial());
+                EXPECT_DOUBLE_EQ(diagnostics.get_snapshot().submission->finalize_ms, 0.05);
+                EXPECT_DOUBLE_EQ(diagnostics.get_snapshot().submission->submit_ms, 0.1);
+                EXPECT_DOUBLE_EQ(diagnostics.get_snapshot().submission->present_ms, 0.2);
             } else {
                 EXPECT_FALSE(diagnostics.get_snapshot().submission);
             }
@@ -311,7 +318,10 @@ namespace Comet::Tests {
             } else {
                 EXPECT_FALSE(preparation);
             }
-            submit(device, frames);
+            frames.end_frame();
+            diagnostics.record_submission(1, 2, 3);
+            if(index < 2)
+                EXPECT_DOUBLE_EQ(diagnostics.get_snapshot().submission->finalize_ms, 0.05);
         }
         EXPECT_EQ(calls, 2);
         diagnostics.skip_frame();

@@ -35,6 +35,7 @@ namespace Comet {
         };
         struct SubmissionTiming {
             uint64_t serial = 0;
+            double finalize_ms = 0;
             double submit_ms = 0;
             double present_ms = 0;
         };
@@ -72,8 +73,8 @@ namespace Comet {
         void poll_memory(Clock::time_point now = Clock::now());
         [[nodiscard]] Result<void, GraphicsError> collect_completed();
         void skip_frame();
-        // 与同帧成功录制的场景图配对；不把呈现等待计入图录制或 GPU 耗时。
-        void record_submission(double submit_ms, double present_ms);
+        // 仅在成功提交后与同帧场景图配对；分开命令结束、提交和呈现。
+        void record_submission(double finalize_ms, double submit_ms, double present_ms);
 
         // 同步执行既有准备步骤；只随成功的场景图发布，关闭诊断时不读取时钟。
         template<typename Function>

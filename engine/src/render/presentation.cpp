@@ -7,6 +7,8 @@
 #include "diagnostics/profiler.h"
 #include "diagnostics/logger.h"
 
+#include <array>
+#include <memory_resource>
 #include <utility>
 
 namespace Comet {
@@ -67,13 +69,17 @@ namespace Comet {
 
         frame_slot.command_buffer.end();
 
-        std::vector<QueueSemaphoreSubmit> waits;
+        std::array<std::byte, 256> storage;
+        std::pmr::monotonic_buffer_resource scratch(storage.data(), storage.size());
+        std::pmr::vector<QueueSemaphoreSubmit> waits(&scratch);
         waits.reserve(1 + resource_waits.size());
         waits.emplace_back(QueueSemaphoreSubmit{frame_slot.image_available_semaphore,
             Flags<PipelineStage>(PipelineStage::ColorAttachmentOutput)});
         waits.insert(waits.end(), resource_waits.begin(), resource_waits.end());
         const QueueSemaphoreSubmit render_finished_signal{image_state.render_finished_semaphore,
             Flags<PipelineStage>(PipelineStage::AllCommands)};
+        const auto finalized =
+            measured ? RenderDiagnostics::Clock::now() : RenderDiagnostics::Clock::time_point{};
         const auto submission = m_frames.submit(waits, std::span(&render_finished_signal, 1));
         if(!submission)
             return Result<void, GraphicsError>::failure(submission.error());
@@ -86,7 +92,8 @@ namespace Comet {
         if(measured && result) {
             const auto presented = RenderDiagnostics::Clock::now();
             diagnostics->record_submission(
-                std::chrono::duration<double, std::milli>(submitted - start).count(),
+                std::chrono::duration<double, std::milli>(finalized - start).count(),
+                std::chrono::duration<double, std::milli>(submitted - finalized).count(),
                 std::chrono::duration<double, std::milli>(presented - submitted).count());
         }
         m_frames.end_frame();
