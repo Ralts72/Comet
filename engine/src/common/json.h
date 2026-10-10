@@ -83,18 +83,37 @@ namespace Comet::Json {
         }
 
         template<typename T>
-        Result<T> read_field(Node object, std::string_view key, std::string_view expected,
-            std::string_view location = "<root>") const {
-            auto child = required_child(object, key, location);
-            if(!child)
-                return Result<T>::failure(child.error());
+        Result<std::optional<T>> read_optional_field(Node object, std::string_view key,
+            std::string_view expected, std::string_view location = "<root>") const {
+            using Read = Result<std::optional<T>>;
+            Node child;
+            const auto status = object[key].get(child);
+            if(status == simdjson::NO_SUCH_FIELD)
+                return Read::success(std::nullopt);
+            if(status)
+                return Read::failure(error(location, simdjson::error_message(status)));
             std::string field_location;
             if(location != "<root>") {
                 field_location = location;
                 field_location += '.';
             }
             field_location += key;
-            return read_scalar<T>(child.value(), field_location, expected);
+            auto value = read_scalar<T>(child, field_location, expected);
+            if(!value)
+                return Read::failure(value.error());
+            return Read::success(std::move(value).value());
+        }
+
+        template<typename T>
+        Result<T> read_field(Node object, std::string_view key, std::string_view expected,
+            std::string_view location = "<root>") const {
+            auto child = read_optional_field<T>(object, key, expected, location);
+            if(!child)
+                return Result<T>::failure(child.error());
+            if(!child.value())
+                return Result<T>::failure(
+                    error(location, "missing required field '" + std::string(key) + "'"));
+            return Result<T>::success(std::move(child).value().value());
         }
     };
 

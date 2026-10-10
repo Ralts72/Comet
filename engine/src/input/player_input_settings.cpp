@@ -43,14 +43,6 @@ namespace Comet {
             return Result<Type>::failure(context.error(location, "unknown action type"));
         }
 
-        Result<bool> read_disabled(
-            Json::Node node, const Json::Context& context, const std::string& location) {
-            Json::Node disabled;
-            if(node["disabled"].get(disabled))
-                return Result<bool>::success(false);
-            return context.read_scalar<bool>(disabled, location + ".disabled", "a boolean");
-        }
-
         Result<InputOverrides::Binding> read_binding(
             Json::Node node, const Json::Context& context, const std::string& location) {
             using Read = Result<InputOverrides::Binding>;
@@ -61,10 +53,12 @@ namespace Comet {
             const auto id = read_id(node, "id", context, location);
             if(!id)
                 return Read::failure(id.error());
-            const auto disabled = read_disabled(node, context, location);
+            const auto disabled =
+                context.read_optional_field<bool>(node, "disabled", "a boolean", location);
             if(!disabled)
                 return Read::failure(disabled.error());
-            InputOverrides::Binding binding{.id = id.value(), .disabled = disabled.value()};
+            InputOverrides::Binding binding{
+                .id = id.value(), .disabled = disabled.value().value_or(false)};
             Json::Node source;
             Json::Node control;
             const bool has_source = !node["source"].get(source);
@@ -89,11 +83,8 @@ namespace Comet {
             }
             for(const auto& [key, target] :
                 {std::pair{"scale", &binding.scale}, std::pair{"deadzone", &binding.deadzone}}) {
-                Json::Node field;
-                if(node[key].get(field))
-                    continue;
                 const auto value =
-                    context.read_scalar<float>(field, location + "." + key, "a finite number");
+                    context.read_optional_field<float>(node, key, "a finite number", location);
                 if(!value)
                     return Read::failure(value.error());
                 *target = value.value();
@@ -117,14 +108,16 @@ namespace Comet {
                     return Result<InputOverrides>::failure(valid.error());
                 const auto id = read_id(entry, "id", context, location);
                 const auto type = read_type(entry, context, location);
-                const auto disabled = read_disabled(entry, context, location);
+                const auto disabled =
+                    context.read_optional_field<bool>(entry, "disabled", "a boolean", location);
                 if(!id)
                     return Result<InputOverrides>::failure(id.error());
                 if(!type)
                     return Result<InputOverrides>::failure(type.error());
                 if(!disabled)
                     return Result<InputOverrides>::failure(disabled.error());
-                InputOverrides::Action action{id.value(), type.value(), disabled.value(), {}};
+                InputOverrides::Action action{
+                    id.value(), type.value(), disabled.value().value_or(false), {}};
                 Json::Node bindings;
                 if(!entry["bindings"].get(bindings)) {
                     const auto items = context.array(bindings, location + ".bindings");

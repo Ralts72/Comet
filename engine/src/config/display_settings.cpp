@@ -63,15 +63,11 @@ namespace Comet {
             return Read::failure(context.error(location, parsed_mode.error()));
         DisplaySettings result{width.value(), height.value(), parsed_mode.value(), vsync.value()};
         result.output = defaults.output;
-        result.frame_rate_limit = defaults.frame_rate_limit;
-        Json::Node limit;
-        if(!node["frame_rate_limit"].get(limit)) {
-            auto loaded = context.read_scalar<int>(
-                limit, std::string(location) + ".frame_rate_limit", "an integer from 0 to 1000");
-            if(!loaded)
-                return Read::failure(loaded.error());
-            result.frame_rate_limit = loaded.value();
-        }
+        const auto limit = context.read_optional_field<int>(
+            node, "frame_rate_limit", "an integer from 0 to 1000", location);
+        if(!limit)
+            return Read::failure(limit.error());
+        result.frame_rate_limit = limit.value().value_or(defaults.frame_rate_limit);
         Json::Node output;
         if(!node["output"].get(output)) {
             auto loaded = OutputSettings::read(output, context, std::string(location) + ".output");

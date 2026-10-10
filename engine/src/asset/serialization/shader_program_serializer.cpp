@@ -93,19 +93,6 @@ namespace Comet {
             writer.end_object();
         }
 
-        Result<void> read_display(Json::Node item, std::string& display,
-            const std::string& location, const Json::Context& context) {
-            Json::Node value;
-            if(item["display"].get(value))
-                return Result<void>::success();
-            auto parsed =
-                context.read_scalar<std::string>(value, location + ".display", "a string");
-            if(!parsed)
-                return Result<void>::failure(parsed.error());
-            display = std::move(parsed).value();
-            return Result<void>::success();
-        }
-
         Result<ShaderMaterialTexture> read_texture(Json::Node item, const Json::Context& context) {
             constexpr std::string_view location = "material.textures[]";
             if(auto valid = context.validate_keys(item, {"name", "display", "optional"}, location);
@@ -116,32 +103,17 @@ namespace Comet {
                 return Result<ShaderMaterialTexture>::failure(name.error());
             ShaderMaterialTexture texture;
             texture.name = std::move(name).value();
-            if(auto display =
-                    read_display(item, texture.display_name, std::string(location), context);
-                !display)
+            auto display =
+                context.read_optional_field<std::string>(item, "display", "a string", location);
+            if(!display)
                 return Result<ShaderMaterialTexture>::failure(display.error());
-            Json::Node optional;
-            if(!item["optional"].get(optional)) {
-                auto value = context.read_scalar<bool>(
-                    optional, "material.textures[].optional", "a boolean");
-                if(!value)
-                    return Result<ShaderMaterialTexture>::failure(value.error());
-                texture.optional = value.value();
-            }
+            texture.display_name = std::move(display).value().value_or(texture.display_name);
+            const auto optional =
+                context.read_optional_field<bool>(item, "optional", "a boolean", location);
+            if(!optional)
+                return Result<ShaderMaterialTexture>::failure(optional.error());
+            texture.optional = optional.value().value_or(texture.optional);
             return Result<ShaderMaterialTexture>::success(std::move(texture));
-        }
-
-        Result<void> read_optional_float(Json::Node item, std::string_view field, float& target,
-            std::string_view location, const Json::Context& context) {
-            Json::Node value;
-            if(item[field].get(value))
-                return Result<void>::success();
-            auto parsed = context.read_scalar<float>(
-                value, std::string(location) + "." + std::string(field), "a finite number");
-            if(!parsed)
-                return Result<void>::failure(parsed.error());
-            target = parsed.value();
-            return Result<void>::success();
         }
 
         Result<ShaderMaterialScalar> read_scalar(Json::Node item, const Json::Context& context) {
@@ -159,16 +131,20 @@ namespace Comet {
             ShaderMaterialScalar scalar;
             scalar.name = std::move(name).value();
             scalar.default_value = initial.value();
-            if(auto display =
-                    read_display(item, scalar.display_name, std::string(location), context);
-                !display)
+            auto display =
+                context.read_optional_field<std::string>(item, "display", "a string", location);
+            if(!display)
                 return Result<ShaderMaterialScalar>::failure(display.error());
+            scalar.display_name = std::move(display).value().value_or(scalar.display_name);
             for(const auto& [field, target] :
                 {std::pair<std::string_view, float*>{"min", &scalar.min_value},
-                    {"max", &scalar.max_value}, {"step", &scalar.step}})
-                if(auto valid = read_optional_float(item, field, *target, location, context);
-                    !valid)
-                    return Result<ShaderMaterialScalar>::failure(valid.error());
+                    {"max", &scalar.max_value}, {"step", &scalar.step}}) {
+                const auto value =
+                    context.read_optional_field<float>(item, field, "a finite number", location);
+                if(!value)
+                    return Result<ShaderMaterialScalar>::failure(value.error());
+                *target = value.value().value_or(*target);
+            }
             return Result<ShaderMaterialScalar>::success(std::move(scalar));
         }
 
@@ -191,18 +167,16 @@ namespace Comet {
             ShaderMaterialVector vector;
             vector.name = std::move(name).value();
             vector.default_value = initial.value();
-            if(auto display =
-                    read_display(item, vector.display_name, std::string(location), context);
-                !display)
+            auto display =
+                context.read_optional_field<std::string>(item, "display", "a string", location);
+            if(!display)
                 return Result<ShaderMaterialVector>::failure(display.error());
-            Json::Node color;
-            if(!item["color"].get(color)) {
-                auto value =
-                    context.read_scalar<bool>(color, "material.vectors[].color", "a boolean");
-                if(!value)
-                    return Result<ShaderMaterialVector>::failure(value.error());
-                vector.color = value.value();
-            }
+            vector.display_name = std::move(display).value().value_or(vector.display_name);
+            const auto color =
+                context.read_optional_field<bool>(item, "color", "a boolean", location);
+            if(!color)
+                return Result<ShaderMaterialVector>::failure(color.error());
+            vector.color = color.value().value_or(vector.color);
             return Result<ShaderMaterialVector>::success(std::move(vector));
         }
 

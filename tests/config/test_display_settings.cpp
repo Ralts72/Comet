@@ -72,18 +72,22 @@ namespace Comet::Tests {
         EXPECT_FALSE(loaded.value().save_and_apply(defaults, {}));
     }
 
-    TEST_F(PlayerDisplaySettingsTest, OldWindowChoicesInheritProjectOutputDefaults) {
+    TEST_F(PlayerDisplaySettingsTest, MissingFieldsInheritDefaultsAndExplicitZeroOverridesThem) {
         defaults.output = {OutputMode::Hdr, 8.0f, 0.75f};
         defaults.frame_rate_limit = 240;
-        const auto contents = std::string("{\"version\":1,\"project_id\":\"")
-                              + project_id.to_string()
-                              + "\",\"display\":{\"width\":960,\"height\":720,"
-                                "\"mode\":\"borderless\",\"vsync\":false}}";
-        ASSERT_TRUE(write_text_file_atomic(path(), contents));
-        const auto loaded = PlayerDisplaySettings::load(project_id, defaults, path());
-        ASSERT_TRUE(loaded) << loaded.error();
-        EXPECT_EQ(loaded.value().settings(),
-            (DisplaySettings{960, 720, WindowMode::Borderless, false, defaults.output, 240}));
+        for(const auto& [field, expected] : {std::pair{"", 240}, {",\"frame_rate_limit\":0", 0}}) {
+            SCOPED_TRACE(field);
+            const auto contents = std::string("{\"version\":1,\"project_id\":\"")
+                                  + project_id.to_string()
+                                  + "\",\"display\":{\"width\":960,\"height\":720,"
+                                    "\"mode\":\"borderless\",\"vsync\":false"
+                                  + field + "}}";
+            ASSERT_TRUE(write_text_file_atomic(path(), contents));
+            const auto loaded = PlayerDisplaySettings::load(project_id, defaults, path());
+            ASSERT_TRUE(loaded) << loaded.error();
+            EXPECT_EQ(loaded.value().settings(), (DisplaySettings{960, 720, WindowMode::Borderless,
+                                                     false, defaults.output, expected}));
+        }
     }
 
     TEST_F(PlayerDisplaySettingsTest, RejectsInvalidFrameRateLimitsBeforeSavingOrLoading) {

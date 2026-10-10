@@ -125,6 +125,19 @@ namespace Comet::Tests {
             1);
     }
 
+    TEST_F(PlayerInputSettingsTest, MissingFieldsStaySparseAndExplicitZeroIsRetained) {
+        write(document("["
+                       + action("\"bindings\":["
+                                + binding(R"("source":"key","control":"K","deadzone":0)") + "]")
+                       + "]"));
+        const auto loaded = PlayerInputSettings::load(project_id, file);
+        const auto expected = InputOverrides::create({{action_id, InputActions::Type::Axis, false,
+            {{.id = binding_id, .control = Input::Key::K, .deadzone = 0.0f}}}});
+        ASSERT_TRUE(loaded) << loaded.error();
+        ASSERT_TRUE(expected) << expected.error();
+        EXPECT_EQ(loaded.value().overrides(), expected.value());
+    }
+
     TEST_F(PlayerInputSettingsTest, SameOverridesKeepOriginalFormattingAndTimestamp) {
         const auto original =
             document("["

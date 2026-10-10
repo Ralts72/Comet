@@ -200,12 +200,53 @@ namespace CometEditor::Tests {
             R"({"version":1,"vertex":{"source":0,"entry":"main"},"fragment":{"source":2,"entry":"main"}})"));
     }
 
+    TEST(ShaderProgramSerializerTest, MaterialMetadataDefaultsAndExplicitValuesRoundTrip) {
+        const Comet::ShaderProgramSerializer serializer;
+        for(const auto& [contents, explicit_metadata] :
+            {std::pair{
+                 R"({"material":{"textures":[{"name":"albedo"}],"scalars":[{"name":"power","default":0.5}],"vectors":[{"name":"tint","default":[1,1,1,1]}]}})",
+                 false},
+                {R"({"material":{"textures":[{"name":"albedo","display":"颜色","optional":true}],"scalars":[{"name":"power","default":0,"max":0}],"vectors":[{"name":"tint","default":[1,1,1,1],"color":true}]}})",
+                    true}}) {
+            SCOPED_TRACE(contents);
+            const auto decoded = serializer.deserialize_material(contents);
+            ASSERT_TRUE(decoded) << decoded.error();
+            const auto& material = decoded.value();
+            ASSERT_EQ(material.textures.size(), 1u);
+            ASSERT_EQ(material.scalars.size(), 1u);
+            ASSERT_EQ(material.vectors.size(), 1u);
+            EXPECT_FLOAT_EQ(material.scalars[0].min_value, 0.0f);
+            EXPECT_FLOAT_EQ(material.scalars[0].step, Comet::ShaderMaterialScalar{}.step);
+            EXPECT_EQ(material.textures[0].optional, explicit_metadata);
+            EXPECT_EQ(material.textures[0].display_name, explicit_metadata ? "颜色" : "");
+            EXPECT_FLOAT_EQ(material.scalars[0].max_value, explicit_metadata ? 0.0f : 1.0f);
+            EXPECT_EQ(material.vectors[0].color, explicit_metadata);
+            const auto encoded = serializer.serialize_material(material);
+            ASSERT_TRUE(encoded) << encoded.error();
+            const auto restored = serializer.deserialize_material(encoded.value());
+            ASSERT_TRUE(restored) << restored.error();
+            EXPECT_EQ(restored.value(), material);
+        }
+    }
+
     TEST(ShaderProgramSerializerTest, RejectsInvalidMaterialPropertyMetadata) {
         const Comet::ShaderProgramSerializer serializer;
         EXPECT_FALSE(serializer.deserialize_material(
             R"({"material":{"textures":[{"name":"value"}],"scalars":[{"name":"value","default":1}]}})"));
         EXPECT_FALSE(serializer.deserialize_material(
             R"({"material":{"scalars":[{"name":"value","default":1,"min":2,"max":1}]}})"));
+        for(const auto* material : {R"({"textures":[{"name":"albedo","display":null}]})",
+                R"({"textures":[{"name":"albedo","optional":0}]})",
+                R"({"scalars":[{"name":"power","default":1,"min":null}]})",
+                R"({"scalars":[{"name":"power","default":1,"max":"1"}]})",
+                R"({"scalars":[{"name":"power","default":1,"step":true}]})",
+                R"({"vectors":[{"name":"tint","default":[1,1,1,1],"color":null}]})"}) {
+            SCOPED_TRACE(material);
+            const auto result =
+                serializer.deserialize_material(std::string("{\"material\":") + material + "}");
+            ASSERT_FALSE(result);
+            EXPECT_NE(result.error().find("material."), std::string::npos);
+        }
         for(const std::string value : {"null", "{}", "[]", "[1,2,3]", "[1,2,3,4,5]", "[1,2,3,null]",
                 "[1,2,3,true]", "[1,2,3,\"4\"]", "[1,2,3,1e100]"}) {
             SCOPED_TRACE(value);
