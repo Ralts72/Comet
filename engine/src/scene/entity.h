@@ -59,6 +59,7 @@ namespace Comet {
         friend class Scene;
         friend class SceneSerializer;
         friend class ComponentRegistry;
+        friend class SceneExtractor;
 
         Entity(entt::entity handle, Scene* scene);
         static void require_transform_write(bool accepted);

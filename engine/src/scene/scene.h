@@ -140,6 +140,7 @@ namespace Comet {
         friend class PhysicsSystem;
         friend class ScriptSystem;
         friend class ComponentRegistry;
+        friend class SceneExtractor;
 
         static constexpr std::size_t MAX_ENTITY_REQUESTS = 1024;
         static constexpr std::size_t MAX_EVENTS = 1024;
@@ -173,9 +174,21 @@ namespace Comet {
         void update_world_transform(entt::entity handle);
         std::size_t sync_transform_chain(entt::entity handle);
         void mark_render_dirty() { ++m_render_revision; }
+        void record_render_change(entt::entity handle);
+
+        struct RenderChange {
+            entt::entity handle;
+            EntityId id;
+        };
 
         const uint64_t m_lifetime;
         uint64_t m_render_revision = 1;
+        uint64_t m_render_changes_base = 0;
+        std::size_t m_render_change_limit = 0;
+        bool m_render_full_update = true;
+        bool m_render_structure_changed = false;
+        std::vector<RenderChange> m_render_changes;
+        entt::sparse_set m_dirty_render_entities;
         EntityId m_next_entity_id = 1;
         std::vector<EntityRequest> m_entity_requests;
         std::vector<ContactEvent> m_contact_events;
@@ -198,10 +211,17 @@ namespace Comet {
     decltype(auto) Entity::add_component(Args&&... args) {
         if constexpr(std::is_same_v<T, TransformComponent>) {
             m_scene->mark_transform_dirty(m_handle);
+            m_scene->m_render_structure_changed = true;
             return std::as_const(
                 m_scene->m_registry.emplace<T>(m_handle, std::forward<Args>(args)...));
         } else {
             auto& component = m_scene->m_registry.emplace<T>(m_handle, std::forward<Args>(args)...);
+            if constexpr(is_scene_render_component_v<T>) {
+                m_scene->mark_render_dirty();
+                m_scene->record_render_change(m_handle);
+                if constexpr(std::is_same_v<T, MeshRendererComponent>)
+                    m_scene->m_render_structure_changed = true;
+            }
             if constexpr(is_scene_read_only_component_v<T>)
                 return std::as_const(component);
             else
@@ -223,6 +243,7 @@ namespace Comet {
         }
         current = component;
         m_scene->mark_render_dirty();
+        m_scene->record_render_change(m_handle);
         return true;
     }
 
@@ -265,8 +286,17 @@ namespace Comet {
         requires(!is_scene_managed_component_v<T>)
     void Entity::remove_component() const {
         if constexpr(std::is_same_v<T, TransformComponent>) {
-            if(has_component<T>())
+            if(has_component<T>()) {
                 m_scene->mark_transform_dirty(m_handle);
+                m_scene->m_render_structure_changed = true;
+            }
+        } else if constexpr(is_scene_render_component_v<T>) {
+            if(has_component<T>()) {
+                m_scene->mark_render_dirty();
+                m_scene->record_render_change(m_handle);
+                if constexpr(std::is_same_v<T, MeshRendererComponent>)
+                    m_scene->m_render_structure_changed = true;
+            }
         }
         m_scene->m_registry.remove<T>(m_handle);
     }

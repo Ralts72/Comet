@@ -17,12 +17,6 @@ namespace Comet {
     Scene::Scene() : m_lifetime(next_scene_lifetime.fetch_add(1, std::memory_order_relaxed) + 1) {
         m_registry.on_destroy<MeshRendererComponent>().connect<&Scene::clear_material_overrides>(
             *this);
-        m_registry.on_construct<MeshRendererComponent>().connect<&Scene::mark_render_dirty>(*this);
-        m_registry.on_destroy<MeshRendererComponent>().connect<&Scene::mark_render_dirty>(*this);
-        m_registry.on_construct<CameraComponent>().connect<&Scene::mark_render_dirty>(*this);
-        m_registry.on_destroy<CameraComponent>().connect<&Scene::mark_render_dirty>(*this);
-        m_registry.on_construct<LightComponent>().connect<&Scene::mark_render_dirty>(*this);
-        m_registry.on_destroy<LightComponent>().connect<&Scene::mark_render_dirty>(*this);
     }
 
     bool Scene::set_post_process(const PostProcessSettings& settings) {
@@ -72,6 +66,7 @@ namespace Comet {
             if(uuid_indexed)
                 m_entities_by_uuid.erase(uuid);
             m_dirty_transforms.remove(handle);
+            m_dirty_render_entities.remove(handle);
             m_registry.destroy(handle);
         });
         m_registry.emplace<IdComponent>(handle, id);
@@ -86,6 +81,7 @@ namespace Comet {
             LOG_FATAL("Scene entity index is inconsistent");
         }
         mark_transform_dirty(handle);
+        m_render_structure_changed = true;
         rollback.release();
         ++m_next_entity_id;
         return entity;
@@ -108,10 +104,14 @@ namespace Comet {
         for(auto it = subtree.rbegin(); it != subtree.rend(); ++it) {
             const EntityId id = m_registry.get<IdComponent>(*it).id;
             const EntityUuid uuid = m_registry.get<UuidComponent>(*it).uuid;
+            mark_render_dirty();
+            record_render_change(*it);
+            m_render_structure_changed = true;
             m_children_by_parent.erase(id);
             m_entities_by_id.erase(id);
             m_entities_by_uuid.erase(uuid);
             m_dirty_transforms.remove(*it);
+            m_dirty_render_entities.remove(*it);
             m_registry.destroy(*it);
         }
     }
@@ -200,6 +200,7 @@ namespace Comet {
                         m_entities_by_id.erase(id);
                         m_entities_by_uuid.erase(request.uuid);
                         m_dirty_transforms.remove(entity.m_handle);
+                        m_dirty_render_entities.remove(entity.m_handle);
                         m_registry.destroy(entity.m_handle);
                     });
                     if(!entity.try_set_transform(request.creation.transform))
@@ -236,8 +237,10 @@ namespace Comet {
         m_entity_requests.clear();
         m_contact_events.clear();
         m_events.clear();
-        if(!m_material_overrides.empty())
+        if(!m_material_overrides.empty()) {
             mark_render_dirty();
+            m_render_full_update = true;
+        }
         m_material_overrides.clear();
     }
 
@@ -318,6 +321,7 @@ namespace Comet {
         m_material_overrides.insert_or_assign(
             entity.m_handle, std::make_shared<const MaterialOverrides>(std::move(candidate)));
         mark_render_dirty();
+        record_render_change(entity.m_handle);
         return Result<void>::success();
     }
 
@@ -424,10 +428,23 @@ namespace Comet {
         return false;
     }
 
+    void Scene::record_render_change(const entt::entity handle) {
+        if(m_render_full_update || m_dirty_render_entities.contains(handle))
+            return;
+        // 大批变化改走顺序提取，队列也不会随离线增删持续增长。
+        if(m_render_changes.size() >= m_render_change_limit) {
+            m_render_full_update = true;
+            return;
+        }
+        m_render_changes.push_back({handle, m_registry.get<IdComponent>(handle).id});
+        m_dirty_render_entities.push(handle);
+    }
+
     void Scene::mark_transform_dirty(const entt::entity handle) {
         if(m_dirty_transforms.contains(handle))
             return;
         mark_render_dirty();
+        record_render_change(handle);
         m_dirty_transforms.push(handle);
         if(m_children_by_parent.empty())
             return;
@@ -443,6 +460,7 @@ namespace Comet {
                 if(m_dirty_transforms.contains(child))
                     continue;
                 m_dirty_transforms.push(child);
+                record_render_change(child);
                 m_transform_work.push_back(child);
             }
         }

@@ -102,8 +102,13 @@ Engine／Renderer／设备等工厂先准备完整 owner，成功后交付；部
 
 数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
 RenderScene 是不借用组件的 CPU 快照，由 Engine 持有并复用容量；其头文件只依赖数学、资产身份和场景值契约，不传递包含组件或后端实现。
-Scene 记录渲染版本；Engine 在实例与版本未变时复用快照，有变更时仍完整提取。清空或更换场景同时使 Engine 的版本记录失效，
-重新安装同一实例也不会复用被清空的快照。资产发布由 Resolver 独立检查，不要求 Scene 修改才能获取新资源。
+Engine 持有 SceneExtractor，为自己的 RenderScene 维护对象槽位；实例与渲染版本未变时直接复用快照。
+Scene 的有界变更批次在受控写入处去重，包含增删、局部属性和脏节点的后代；提取前即使已查询世界矩阵，也不会丢失这些变化。
+少量修改只更新对应 Mesh 快照；移除时交换末项并修正索引，添加时追加，不维持 ECS 的遍历顺序。
+槽位索引按 EnTT 实体索引访问，再核对 EntityId，排除实体槽位回收复用；快照仍只包含值和稳定身份。
+累计修改较多时使用完整顺序提取；首次提取或变更批次已被其他提取器消费时同样重建。Camera／Light 与视图设置目前仍完整提取。
+静态 `SceneExtractor::extract` 保留无缓存提取，不消费变更批次；增量 `update` 独占自己的输出，清空或更换输出时同时 reset。
+更换场景与重新安装同一实例都重置提取器。资产发布由 Resolver 独立检查，不要求 Scene 修改才能获取新资源。
 Mesh Renderer、Camera、Light 的访问与查询只读，添加组件时传入初值；`try_set_component`／`edit_component` 通过副本提交属性。
 属性面板先校验副本再提交，拒绝值和相同值不增加版本。Transform 沿已有写入入口标记脏节点；结构、场景设置和运行时材质覆盖变化也使快照失效。
 材质改绑在提交时清除该实体的运行时覆盖，移除组件与停止 Runtime 同样清理；覆盖读取不再重复查询 Mesh 组件验证绑定。

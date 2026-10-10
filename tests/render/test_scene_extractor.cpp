@@ -12,6 +12,158 @@
 #include <algorithm>
 
 namespace Comet::Tests {
+    namespace {
+        void expect_same_render_items(const RenderScene& actual, const RenderScene& expected) {
+            ASSERT_EQ(actual.render_items.size(), expected.render_items.size());
+            for(const auto& item : expected.render_items) {
+                const auto found =
+                    std::ranges::find(actual.render_items, item.entity_id, &RenderItem::entity_id);
+                ASSERT_NE(found, actual.render_items.end()) << item.entity_id;
+                EXPECT_EQ(found->mesh_handle, item.mesh_handle);
+                EXPECT_EQ(found->material_handle, item.material_handle);
+                EXPECT_EQ(found->transform_revision, item.transform_revision);
+                EXPECT_EQ(found->material_overrides, item.material_overrides);
+                EXPECT_TRUE(TestUtils::Mat4Equal(found->model_matrix, item.model_matrix));
+            }
+        }
+    }
+
+    TEST(SceneExtractorTest, IncrementalSnapshotsMatchFullExtractionAfterMixedEdits) {
+        AssetRegistry assets;
+        for(const auto handle : {AssetHandle{20}, AssetHandle{30}})
+            ASSERT_TRUE(assets.register_asset(handle, std::make_shared<Material>("shared", "pbr")));
+        MaterialPrograms materials(assets);
+        Scene scene;
+        auto parent = scene.create_entity("Parent");
+        std::vector<Entity> entities;
+        const auto create = [&] {
+            auto entity = scene.create_entity();
+            entity.add_component<MeshRendererComponent>(AssetHandle{10}, AssetHandle{20});
+            return entity;
+        };
+        for(int i = 0; i < 32; ++i)
+            entities.push_back(create());
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.start(scene));
+        SceneExtractor extractor;
+        RenderScene snapshot;
+        extractor.update(scene, snapshot);
+        const auto original = snapshot;
+        for(int iteration = 0; iteration < 140; ++iteration) {
+            SCOPED_TRACE(iteration);
+            auto& entity = entities[iteration % entities.size()];
+            switch(iteration % 7) {
+                case 0:
+                    if(entity.has_component<TransformComponent>())
+                        entity.edit_transform(
+                            [&](auto& value) { value.translation.x = float(iteration); });
+                    break;
+                case 1:
+                    if(entity.has_component<MeshRendererComponent>())
+                        entity.remove_component<MeshRendererComponent>();
+                    else
+                        entity.add_component<MeshRendererComponent>(
+                            AssetHandle{11}, AssetHandle{20});
+                    break;
+                case 2:
+                    if(entity.has_component<TransformComponent>())
+                        entity.remove_component<TransformComponent>();
+                    else
+                        entity.add_component<TransformComponent>();
+                    break;
+                case 3:
+                    scene.destroy_entity(entity);
+                    entity = create();
+                    // 同一帧再次销毁，覆盖 EnTT 索引连续复用的情况。
+                    scene.destroy_entity(entity);
+                    entity = create();
+                    break;
+                case 4:
+                    ASSERT_TRUE(scene.set_parent(entity, parent));
+                    parent.edit_transform([](auto& value) { value.translation.y += 1; });
+                    static_cast<void>(scene.get_world_matrix(entity));
+                    break;
+                case 5:
+                    if(entity.has_component<MeshRendererComponent>()) {
+                        ASSERT_TRUE(
+                            scene.set_material_scalar(entity, "roughness", 0.25f, materials));
+                        entity.edit_component<MeshRendererComponent>(
+                            [](auto& value) { value.material = AssetHandle{30}; });
+                    }
+                    break;
+                case 6:
+                    for(auto changed : entities)
+                        if(changed.has_component<TransformComponent>())
+                            changed.edit_transform([](auto& value) { value.rotation.y += 2; });
+                    break;
+            }
+            extractor.update(scene, snapshot);
+            expect_same_render_items(snapshot, SceneExtractor::extract(scene));
+        }
+        ASSERT_TRUE(runtime.stop());
+        extractor.update(scene, snapshot);
+        expect_same_render_items(snapshot, SceneExtractor::extract(scene));
+        for(const auto& item : original.render_items) {
+            EXPECT_EQ(item.model_matrix, Math::Mat4(1));
+            EXPECT_FALSE(item.material_overrides);
+        }
+    }
+
+    TEST(SceneExtractorTest, NonRenderableStructureChangesRefreshSlotsBeforeBulkExtraction) {
+        Scene scene;
+        std::vector<Entity> entities;
+        for(int i = 0; i < 32; ++i) {
+            auto entity = scene.create_entity();
+            entity.add_component<MeshRendererComponent>(AssetHandle{10}, AssetHandle{20});
+            entities.push_back(entity);
+        }
+        entities[0].remove_component<TransformComponent>();
+        entities[1].remove_component<TransformComponent>();
+        SceneExtractor extractor;
+        RenderScene snapshot;
+        extractor.update(scene, snapshot);
+        // Transform 数量跨过 Mesh 数量后，ECS 查询的驱动存储与遍历顺序可能变化。
+        for(int i = 0; i < 3; ++i)
+            scene.create_entity("Nonrenderable");
+        extractor.update(scene, snapshot);
+        for(std::size_t i = 2; i < entities.size(); ++i)
+            entities[i].edit_transform([](auto& value) { value.translation.y = 2; });
+        extractor.update(scene, snapshot);
+        entities[2].edit_component<MeshRendererComponent>(
+            [](auto& value) { value.material = AssetHandle{30}; });
+        extractor.update(scene, snapshot);
+        expect_same_render_items(snapshot, SceneExtractor::extract(scene));
+    }
+
+    TEST(SceneExtractorTest, IndependentProducersRefreshAfterAnotherConsumesChangesAndReset) {
+        Scene scene;
+        auto entity = scene.create_entity();
+        entity.add_component<MeshRendererComponent>(AssetHandle{10}, AssetHandle{20});
+        SceneExtractor first, second;
+        RenderScene first_output, second_output;
+        first.update(scene, first_output);
+        second.update(scene, second_output);
+        entity.edit_transform([](auto& value) { value.translation.x = 4; });
+        first.update(scene, first_output);
+        entity.edit_component<MeshRendererComponent>(
+            [](auto& value) { value.material = AssetHandle{30}; });
+        second.update(scene, second_output);
+        first.update(scene, first_output);
+        expect_same_render_items(first_output, second_output);
+        EXPECT_EQ(first_output.render_items.front().model_matrix[3], Math::Vec4(4, 0, 0, 1));
+        EXPECT_EQ(first_output.render_items.front().material_handle, AssetHandle{30});
+        first_output.render_items.clear();
+        first.reset();
+        first.update(scene, first_output);
+        expect_same_render_items(first_output, second_output);
+        Scene replacement;
+        auto reused_id = replacement.create_entity();
+        reused_id.add_component<MeshRendererComponent>(AssetHandle{40}, AssetHandle{50});
+        first.update(replacement, first_output);
+        expect_same_render_items(first_output, SceneExtractor::extract(replacement));
+        EXPECT_EQ(first_output.scene_lifetime, replacement.get_lifetime());
+    }
+
     TEST(SceneExtractorTest, EmptySceneProducesNoRenderItems) {
         Scene scene;
 
