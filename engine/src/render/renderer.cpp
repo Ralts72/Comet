@@ -218,7 +218,7 @@ namespace Comet {
         if(auto recorded = record_overlay(resource_waits.value()); !recorded)
             return recorded;
 
-        auto submitted = m_presentation->end_frame(resource_waits.value());
+        auto submitted = m_presentation->end_frame(resource_waits.value(), m_diagnostics.get());
         if(submitted)
             failed.release();
         return submitted;

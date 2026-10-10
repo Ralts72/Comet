@@ -42,6 +42,7 @@ namespace Comet {
         std::shared_ptr<RenderTarget> m_target;
         std::shared_ptr<Pipeline> m_pipeline;
         std::vector<InstanceBuffer> m_instances;
+        std::vector<size_t> m_mesh_order;
         std::vector<const ResolvedRenderItem*> m_draw_queue;
         std::vector<Math::Mat4> m_transforms;
         Statistics m_statistics;

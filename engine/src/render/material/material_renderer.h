@@ -241,6 +241,7 @@ namespace Comet {
         MaterialRuntimeCache m_prepared;
         std::map<MaterialInstanceKey, CachedMaterial> m_materials;
         std::unordered_map<AssetHandle, uint64_t> m_unsupported;
+        std::vector<size_t> m_material_order;
         std::vector<const ResolvedRenderItem*> m_draw_candidates;
         std::vector<DrawItem> m_draw_queue;
         std::vector<Math::Mat4> m_instance_transforms;

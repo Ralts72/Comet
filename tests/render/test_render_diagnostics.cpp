@@ -243,6 +243,13 @@ namespace Comet::Tests {
         ASSERT_TRUE(diagnostics.get_snapshot().preparation);
         EXPECT_EQ(
             diagnostics.get_snapshot().preparation->serial, diagnostics.get_snapshot().cpu->serial);
+        const auto& submission = diagnostics.get_snapshot().submission;
+        ASSERT_TRUE(submission);
+        EXPECT_EQ(submission->serial, diagnostics.get_snapshot().cpu->serial);
+        EXPECT_GE(submission->submit_ms, 0);
+        EXPECT_GE(submission->present_ms, 0);
+        EXPECT_LE(submission->submit_ms + submission->present_ms,
+            timing.render_submit_ms - timing.scene_extract_ms);
         EXPECT_EQ(diagnostics.get_snapshot().cpu->passes.size(), 3);
         if(diagnostics.get_snapshot().gpu_supported) {
             ASSERT_TRUE(diagnostics.get_snapshot().gpu) << diagnostics.get_snapshot().gpu_error;
@@ -285,6 +292,15 @@ namespace Comet::Tests {
             }
             ASSERT_TRUE(diagnostics.record(plan.value(), {},
                 [](size_t, CommandBuffer&) { return Result<void, GraphicsError>::success(); }));
+            EXPECT_FALSE(diagnostics.get_snapshot().submission);
+            diagnostics.record_submission(0.1, 0.2);
+            if(index < 2) {
+                ASSERT_TRUE(diagnostics.get_snapshot().submission);
+                EXPECT_EQ(diagnostics.get_snapshot().submission->serial,
+                    frames.get_current_frame_serial());
+            } else {
+                EXPECT_FALSE(diagnostics.get_snapshot().submission);
+            }
             const auto& preparation = diagnostics.get_snapshot().preparation;
             if(index == 0) {
                 ASSERT_TRUE(preparation);
@@ -300,6 +316,7 @@ namespace Comet::Tests {
         EXPECT_EQ(calls, 2);
         diagnostics.skip_frame();
         EXPECT_FALSE(diagnostics.get_snapshot().preparation);
+        EXPECT_FALSE(diagnostics.get_snapshot().submission);
     }
 
 #ifdef COMET_TEST_EDITOR_UI

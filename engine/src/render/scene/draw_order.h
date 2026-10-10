@@ -6,11 +6,23 @@
 
 #include <algorithm>
 #include <functional>
+#include <numeric>
 
 namespace Comet::DrawOrder {
     template<typename Range, typename Compare> void sort_if_needed(Range& items, Compare less) {
         if(!std::is_sorted(items.begin(), items.end(), less))
             std::sort(items.begin(), items.end(), less);
+    }
+
+    // 只保留槽位索引；每帧以当前输入校验，增删、重排与资源替换无需额外失效协议。
+    template<typename Range, typename Compare>
+    void sort_indices(std::vector<size_t>& indices, const Range& items, Compare less) {
+        if(indices.size() != items.size()) {
+            indices.resize(items.size());
+            std::iota(indices.begin(), indices.end(), size_t{0});
+        }
+        sort_if_needed(
+            indices, [&](const size_t a, const size_t b) { return less(items[a], items[b]); });
     }
 
     inline MaterialInstanceKey material_key(const MaterialBinding& material) {

@@ -1,6 +1,7 @@
 #include "render/presentation.h"
 #include "render/render_context.h"
 #include "render/frame_scheduler.h"
+#include "render/render_diagnostics.h"
 #include "graphics/device.h"
 #include "graphics/swapchain.h"
 #include "diagnostics/profiler.h"
@@ -51,8 +52,12 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> Presentation::end_frame(
-        const std::span<const QueueSemaphoreSubmit> resource_waits) {
+        const std::span<const QueueSemaphoreSubmit> resource_waits,
+        RenderDiagnostics* diagnostics) {
         PROFILE_SCOPE("Presentation::end_frame");
+        const bool measured = diagnostics && diagnostics->is_enabled();
+        const auto start =
+            measured ? RenderDiagnostics::Clock::now() : RenderDiagnostics::Clock::time_point{};
 
         auto& device = m_context.get_device();
         auto& swapchain = m_context.get_swapchain();
@@ -72,10 +77,18 @@ namespace Comet {
         const auto submission = m_frames.submit(waits, std::span(&render_finished_signal, 1));
         if(!submission)
             return Result<void, GraphicsError>::failure(submission.error());
+        const auto submitted =
+            measured ? RenderDiagnostics::Clock::now() : RenderDiagnostics::Clock::time_point{};
 
         auto& present_queue = device.get_present_queue(0);
         const auto result = present_queue.present(
             swapchain, std::span(&image_state.render_finished_semaphore, 1), image_index);
+        if(measured && result) {
+            const auto presented = RenderDiagnostics::Clock::now();
+            diagnostics->record_submission(
+                std::chrono::duration<double, std::milli>(submitted - start).count(),
+                std::chrono::duration<double, std::milli>(presented - submitted).count());
+        }
         m_frames.end_frame();
         if(!result) {
             m_recovery = RecoveryStage::Swapchain;

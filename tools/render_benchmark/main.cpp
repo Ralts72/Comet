@@ -44,6 +44,11 @@
 #include <utility>
 #include <vector>
 
+#ifdef __APPLE__
+#include <pthread.h>
+#include <pthread/qos.h>
+#endif
+
 namespace {
     using Comet::Result;
     constexpr unsigned WARMUP_FRAMES = 32;
@@ -358,7 +363,7 @@ namespace {
         Measurement(Comet::Engine& engine, const Options& options)
             : m_engine(engine), m_options(options),
               m_physics(engine.get_scene_runtime().find_system<Comet::PhysicsSystem>()),
-              m_warmup(WARMUP_FRAMES
+              m_warmup(std::max(WARMUP_FRAMES, options.frames / 4)
                        + (options.workload == Workload::PhysicsSleeping ? SETTLE_STEPS : 0)),
               m_size(engine.get_renderer().get_scene_renderer().get_render_target().get_size()),
               m_scene_size(engine.get_renderer().get_scene_size()),
@@ -379,10 +384,11 @@ namespace {
                 m_passes.insert(
                     m_passes.end(), {"bloom extract", "bloom horizontal", "bloom vertical"});
             m_passes.push_back("display");
-            for(const auto* name : {"cpu_wall", "cpu_events", "cpu_update", "cpu_prepare",
-                    "cpu_runtime_update", "cpu_render_submit", "cpu_scene_extract",
-                    "cpu_asset_resolution", "cpu_material_programs", "cpu_geometry", "cpu_lighting",
-                    "cpu_graph", "gpu_graph"})
+            for(const auto* name :
+                {"cpu_wall", "cpu_events", "cpu_update", "cpu_prepare", "cpu_runtime_update",
+                    "cpu_render_submit", "cpu_scene_extract", "cpu_asset_resolution",
+                    "cpu_material_programs", "cpu_geometry", "cpu_lighting", "cpu_queue_submit",
+                    "cpu_present", "cpu_render_record", "cpu_graph", "gpu_graph"})
                 m_samples[name].reserve(options.frames);
             for(const auto& pass : m_passes)
                 for(const auto* prefix : {"cpu_", "gpu_"})
@@ -390,6 +396,15 @@ namespace {
         }
 
         Result<void, Comet::Error> sample(Comet::UpdateContext update) {
+#ifdef __APPLE__
+            if(in_range(update.frame_index)) {
+                size_t cpu;
+                if(const auto error = pthread_cpu_number_np(&cpu); error != 0)
+                    return Result<void, Comet::Error>::failure(
+                        {"Cannot sample benchmark CPU: " + std::to_string(error)});
+                ++m_cpu_samples[cpu];
+            }
+#endif
             auto& renderer = m_engine.get_renderer();
             const auto& snapshot = renderer.get_diagnostics().get_snapshot();
             const auto& frame = m_engine.frame_diagnostics().current();
@@ -398,6 +413,7 @@ namespace {
                 if(!frame || !frame->rendered || frame->frame_index != update.frame_index - 1
                     || !snapshot.cpu || snapshot.cpu->serial != uint64_t(frame->frame_index)
                     || !snapshot.preparation || snapshot.preparation->serial != snapshot.cpu->serial
+                    || !snapshot.submission || snapshot.submission->serial != snapshot.cpu->serial
                     || renderer.get_scene_renderer().get_render_target().get_size() != m_size
                     || renderer.get_scene_size() != m_scene_size
                     || renderer.get_quality_settings() != m_quality || renderer.quality_pending()
@@ -427,6 +443,11 @@ namespace {
                         snapshot.preparation->material_programs_ms);
                     m_samples["cpu_geometry"].push_back(snapshot.preparation->geometry_ms);
                     m_samples["cpu_lighting"].push_back(snapshot.preparation->lighting_ms);
+                    m_samples["cpu_queue_submit"].push_back(snapshot.submission->submit_ms);
+                    m_samples["cpu_present"].push_back(snapshot.submission->present_ms);
+                    m_samples["cpu_render_record"].push_back(
+                        frame->render_submit_ms - frame->scene_extract_ms
+                        - snapshot.submission->submit_ms - snapshot.submission->present_ms);
                     append_graph("cpu_", *snapshot.cpu);
                 }
             }
@@ -473,8 +494,15 @@ namespace {
                 allocated += heap.allocation_bytes;
             std::ostringstream report;
             report.imbue(std::locale::classic());
-            report << "# build=" << COMET_BENCHMARK_BUILD_TYPE << " validation_request=off\n"
-                   << "# device=" << properties.deviceName.data()
+            report << "# build=" << COMET_BENCHMARK_BUILD_TYPE << " validation_request=off\n";
+#ifdef __APPLE__
+            report << "# cpu_qos_request=user_interactive\n";
+            report << "# cpu_samples=";
+            for(const auto& [cpu, samples] : m_cpu_samples)
+                report << cpu << ':' << samples << ' ';
+            report << '\n';
+#endif
+            report << "# device=" << properties.deviceName.data()
                    << " driver=" << properties.driverVersion << '\n'
                    << "# objects=" << m_options.objects << " scene_draws=" << stats.draw_calls
                    << " lights=" << stats.light_count << " msaa=" << m_quality.msaa_samples
@@ -630,6 +658,9 @@ namespace {
         std::shared_ptr<Comet::Swapchain::Generation> m_generation;
         std::vector<std::string> m_passes;
         std::map<std::string, std::vector<double>> m_samples;
+#ifdef __APPLE__
+        std::map<size_t, unsigned> m_cpu_samples;
+#endif
         std::size_t m_expected_instance_bytes = 0;
         uint64_t m_last_gpu = 0;
         std::size_t m_active_min = std::numeric_limits<std::size_t>::max();
@@ -640,6 +671,12 @@ namespace {
     };
 
     Result<void> measure(const Options& options) {
+#ifdef __APPLE__
+        if(const auto error = pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+            error != 0)
+            return Result<void>::failure(
+                "Cannot set benchmark thread QoS: " + std::to_string(error));
+#endif
         const auto project = create_temporary_project();
         if(!project)
             return Result<void>::failure(project.error());

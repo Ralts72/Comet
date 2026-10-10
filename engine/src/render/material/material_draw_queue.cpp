@@ -52,11 +52,16 @@ namespace Comet {
         const RenderGeometry& geometry, const Frustum* frustum) {
         auto& candidates = m_draw_candidates;
         candidates.clear();
-        candidates.reserve(geometry.get_items().size());
+        const auto items = geometry.get_items();
+        candidates.reserve(items.size());
+        DrawOrder::sort_indices(m_material_order, items, [](const auto& a, const auto& b) {
+            return DrawOrder::by_material(*a.source, *b.source);
+        });
         const MaterialBinding* previous_material = nullptr;
         bool cull = false;
         bool marked_hidden = false;
-        for(const auto& prepared : geometry.get_items()) {
+        for(const auto index : m_material_order) {
+            const auto& prepared = items[index];
             const auto& item = *prepared.source;
             ++m_statistics.render_items;
             if(frustum
@@ -85,8 +90,6 @@ namespace Comet {
     Result<void, GraphicsError> MaterialRenderer::prepare_draw_materials(
         const uint64_t frame_serial) {
         auto& candidates = m_draw_candidates;
-        DrawOrder::sort_if_needed(candidates,
-            [](const auto* a, const auto* b) { return DrawOrder::by_material(*a, *b); });
         for(size_t first = 0; first < candidates.size();) {
             const auto& input = candidates[first]->material;
             size_t end = first + 1;

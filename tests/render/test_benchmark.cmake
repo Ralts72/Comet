@@ -67,8 +67,23 @@ foreach(case static-0 static-1 scaled multi moving moving-singles light-moving a
         message(FATAL_ERROR "Benchmark failed: ${result}\n${report}\n${error}")
     endif()
     file(READ "${output}" csv)
+    if(APPLE)
+        if(NOT csv MATCHES "# cpu_samples=([^\n]+)\n")
+            message(FATAL_ERROR "Missing CPU sampling metadata\n${csv}")
+        endif()
+        string(REGEX MATCHALL "[0-9]+:[0-9]+" cpu_samples "${CMAKE_MATCH_1}")
+        set(cpu_sample_count 0)
+        foreach(sample IN LISTS cpu_samples)
+            string(REGEX REPLACE "^[0-9]+:" "" count "${sample}")
+            math(EXPR cpu_sample_count "${cpu_sample_count} + ${count}")
+        endforeach()
+        if(NOT cpu_sample_count EQUAL 16)
+            message(FATAL_ERROR "Incomplete CPU sampling metadata\n${csv}")
+        endif()
+    endif()
     foreach(metric cpu_wall cpu_events cpu_update cpu_prepare cpu_runtime_update cpu_render_submit
-            cpu_scene_extract cpu_asset_resolution cpu_material_programs cpu_geometry cpu_lighting cpu_graph
+            cpu_scene_extract cpu_asset_resolution cpu_material_programs cpu_geometry cpu_lighting
+            cpu_queue_submit cpu_present cpu_render_record cpu_graph
             "cpu_directional shadow" cpu_scene cpu_display)
         if(NOT csv MATCHES "\n${metric},16,[0-9.eE+-]+,[0-9.eE+-]+,[0-9.eE+-]+\n")
             message(FATAL_ERROR "Missing complete metric: ${metric}\n${csv}")

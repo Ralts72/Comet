@@ -92,13 +92,16 @@ namespace Comet {
         m_draw_queue.clear();
         m_transforms.clear();
         if(lighting.shadow_light_index >= 0) {
-            m_draw_queue.reserve(geometry.get_items().size());
-            for(const auto& item : geometry.get_items()) {
+            const auto items = geometry.get_items();
+            m_draw_queue.reserve(items.size());
+            DrawOrder::sort_indices(m_mesh_order, items, [](const auto& a, const auto& b) {
+                return DrawOrder::by_mesh(*a.source, *b.source);
+            });
+            for(const auto index : m_mesh_order) {
+                const auto& item = items[index];
                 if(item.world_bounds)
                     m_draw_queue.push_back(item.source);
             }
-            DrawOrder::sort_if_needed(m_draw_queue,
-                [](const auto* a, const auto* b) { return DrawOrder::by_mesh(*a, *b); });
             m_transforms.reserve(m_draw_queue.size());
             for(const auto* item : m_draw_queue)
                 m_transforms.push_back(lighting.shadow_view_projection * item->model_matrix);

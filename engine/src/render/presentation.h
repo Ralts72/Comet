@@ -12,6 +12,7 @@
 namespace Comet {
     class RenderContext;
     class FrameScheduler;
+    class RenderDiagnostics;
     struct SwapchainCompatibility;
 
     class COMET_API Presentation {
@@ -26,7 +27,8 @@ namespace Comet {
         // 成功值 false 表示延期；错误保留原生状态码。
         [[nodiscard]] Result<bool, GraphicsError> begin_frame();
         [[nodiscard]] Result<void, GraphicsError> end_frame(
-            std::span<const QueueSemaphoreSubmit> resource_waits);
+            std::span<const QueueSemaphoreSubmit> resource_waits,
+            RenderDiagnostics* diagnostics = nullptr);
         void request_recreation();
 
     private:

@@ -31,9 +31,11 @@ namespace Comet {
             m_cpu_history.clear();
             m_gpu_history.clear();
             m_preparation_history.clear();
+            m_submission_history.clear();
             m_snapshot.cpu.reset();
             m_snapshot.gpu.reset();
             m_snapshot.preparation.reset();
+            m_snapshot.submission.reset();
             for(const auto& slot : m_slots)
                 if(slot)
                     slot->pending.reset();
@@ -133,6 +135,7 @@ namespace Comet {
         m_snapshot.cpu.reset();
         m_snapshot.gpu.reset();
         m_snapshot.preparation.reset();
+        m_snapshot.submission.reset();
         m_pending_preparation = {};
         // 保留历史窗口，但不把隐藏前的在途采样发布为当前场景数据。
         for(const auto& slot : m_slots)
@@ -140,10 +143,22 @@ namespace Comet {
                 slot->pending.reset();
     }
 
+    void RenderDiagnostics::record_submission(const double submit_ms, const double present_ms) {
+        if(!m_enabled || !m_frames.is_frame_active() || !m_snapshot.cpu)
+            return;
+        const auto serial = m_frames.get_current_frame_serial();
+        if(m_snapshot.cpu->serial != serial)
+            return;
+        m_snapshot.submission = SubmissionTiming{serial, submit_ms, present_ms};
+        const TimingHistory::Entry phases[]{{"Queue submit", submit_ms}, {"Present", present_ms}};
+        m_submission_history.record(submit_ms + present_ms, phases);
+    }
+
     Result<void, GraphicsError> RenderDiagnostics::record(const RenderGraph::Plan& plan,
         std::span<const RenderGraph::Binding> bindings, const RenderGraph::RecordPass& callback) {
         if(m_recording || !m_frames.is_recording_frame() || !callback)
             return Result<void, GraphicsError>::failure({"Invalid diagnostics recording context"});
+        m_snapshot.submission.reset();
         if(!m_enabled) {
             m_recording = true;
             const ScopeExit finish([&] { m_recording = false; });
