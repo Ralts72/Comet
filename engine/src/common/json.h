@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
@@ -135,6 +136,35 @@ namespace Comet::Json {
         std::vector<Scope> m_scopes;
         std::string m_error;
     };
+
+    // 固定长度浮点向量；范围和颜色含义仍由领域模块校验。
+    template<typename Vector>
+    Result<Vector> read_vector(Node node, const Context& context, std::string_view location) {
+        const auto elements = context.array(node, location);
+        if(!elements)
+            return Result<Vector>::failure(elements.error());
+        constexpr auto component_count = static_cast<std::size_t>(Vector::length());
+        if(elements.value().size() != component_count)
+            return Result<Vector>::failure(context.error(
+                location, "expected exactly " + std::to_string(component_count) + " numbers"));
+        Vector value{};
+        typename Vector::length_type index = 0;
+        for(const auto element : elements.value()) {
+            const auto scalar = context.read_scalar<float>(element,
+                std::string(location) + "[" + std::to_string(index) + "]", "a finite number");
+            if(!scalar)
+                return Result<Vector>::failure(scalar.error());
+            value[index++] = scalar.value();
+        }
+        return Result<Vector>::success(value);
+    }
+
+    template<typename Vector> void write_vector(Writer& writer, const Vector& value) {
+        writer.begin_array();
+        for(typename Vector::length_type index = 0; index < Vector::length(); ++index)
+            writer.value(value[index]);
+        writer.end_array();
+    }
 
     template<typename Data, typename Encode>
     Result<std::string> serialize(std::string_view kind, const Data& data, Encode encode) {

@@ -85,10 +85,7 @@ namespace Comet {
                 writer.field("name", vector.name);
                 writer.field("display", vector.display_name);
                 writer.key("default");
-                writer.begin_array();
-                for(int component = 0; component < 4; ++component)
-                    writer.value(vector.default_value[component]);
-                writer.end_array();
+                Json::write_vector(writer, vector.default_value);
                 writer.field("color", vector.color);
                 writer.end_object();
             }
@@ -187,22 +184,13 @@ namespace Comet {
             auto initial_node = context.required_child(item, "default", location);
             if(!initial_node)
                 return Result<ShaderMaterialVector>::failure(initial_node.error());
-            auto elements = context.array(initial_node.value(), "material.vectors[].default");
-            if(!elements)
-                return Result<ShaderMaterialVector>::failure(elements.error());
-            if(elements.value().size() != 4)
-                return Result<ShaderMaterialVector>::failure(
-                    context.error("material.vectors[].default", "expected four numbers"));
+            auto initial = Json::read_vector<Math::Vec4>(
+                initial_node.value(), context, "material.vectors[].default");
+            if(!initial)
+                return Result<ShaderMaterialVector>::failure(initial.error());
             ShaderMaterialVector vector;
             vector.name = std::move(name).value();
-            int index = 0;
-            for(const auto element : elements.value()) {
-                auto value = context.read_scalar<float>(element,
-                    "material.vectors[].default[" + std::to_string(index) + "]", "a finite number");
-                if(!value)
-                    return Result<ShaderMaterialVector>::failure(value.error());
-                vector.default_value[index++] = value.value();
-            }
+            vector.default_value = initial.value();
             if(auto display =
                     read_display(item, vector.display_name, std::string(location), context);
                 !display)

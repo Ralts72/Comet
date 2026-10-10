@@ -35,38 +35,6 @@ namespace Comet {
             std::vector<ComponentRecord> components;
         };
 
-        template<typename Vector>
-        Result<Vector> read_vector(
-            const Json::Node& node, const Json::Context& context, const std::string_view location) {
-            const auto elements = context.array(node, location);
-            if(!elements)
-                return Result<Vector>::failure(elements.error());
-            constexpr auto component_count = static_cast<std::size_t>(Vector::length());
-            if(elements.value().size() != component_count) {
-                return Result<Vector>::failure(context.error(
-                    location, "expected exactly " + std::to_string(component_count) + " numbers"));
-            }
-
-            Vector value;
-            std::size_t index = 0;
-            for(const auto element : elements.value()) {
-                const auto scalar = context.read_scalar<float>(element,
-                    std::string(location) + "[" + std::to_string(index) + "]", "a finite number");
-                if(!scalar)
-                    return Result<Vector>::failure(scalar.error());
-                value[index] = scalar.value();
-                ++index;
-            }
-            return Result<Vector>::success(value);
-        }
-
-        template<typename Vector> void write_vector(Json::Writer& writer, const Vector& value) {
-            writer.begin_array();
-            for(int component = 0; component < Vector::length(); ++component)
-                writer.value(value[component]);
-            writer.end_array();
-        }
-
         void write_entity_reference(Json::Writer& writer, const EntityUuid value) {
             writer.begin_object();
             writer.field("entity", value.to_string());
@@ -154,7 +122,7 @@ namespace Comet {
                     return Result<PropertyValue>::success(std::move(value).value());
                 }
                 case PropertyType::Vec3: {
-                    auto value = read_vector<Math::Vec3>(node, context, location);
+                    auto value = Json::read_vector<Math::Vec3>(node, context, location);
                     if(!value)
                         return Result<PropertyValue>::failure(value.error());
                     if(!property.accepts_value(value.value()))
@@ -163,7 +131,7 @@ namespace Comet {
                     return Result<PropertyValue>::success(value.value());
                 }
                 case PropertyType::Vec4: {
-                    auto value = read_vector<Math::Vec4>(node, context, location);
+                    auto value = Json::read_vector<Math::Vec4>(node, context, location);
                     if(!value)
                         return Result<PropertyValue>::failure(value.error());
                     if(!property.accepts_value(value.value()))
@@ -235,7 +203,7 @@ namespace Comet {
                 [&writer](const auto& value) {
                     using T = std::remove_cvref_t<decltype(value)>;
                     if constexpr(std::is_same_v<T, Math::Vec3> || std::is_same_v<T, Math::Vec4>)
-                        write_vector(writer, value);
+                        Json::write_vector(writer, value);
                     else if constexpr(std::is_same_v<T, AssetHandle>)
                         writer.value(value.value());
                     else if constexpr(std::is_same_v<T, EntityUuid>)
@@ -249,7 +217,7 @@ namespace Comet {
                                     using T = std::remove_cvref_t<decltype(item)>;
                                     if constexpr(std::is_same_v<T, Math::Vec3>
                                                  || std::is_same_v<T, Math::Vec4>)
-                                        write_vector(writer, item);
+                                        Json::write_vector(writer, item);
                                     else if constexpr(std::is_same_v<
                                                           std::remove_cvref_t<decltype(item)>,
                                                           EntityUuid>)
@@ -638,7 +606,7 @@ namespace Comet {
         writer.field("lighting", environment.lighting);
         writer.field("lighting_intensity", environment.lighting_intensity);
         writer.key("background_color");
-        write_vector(writer, environment.background_color);
+        Json::write_vector(writer, environment.background_color);
         writer.end_object();
         const auto& post_process = content.post_process;
         writer.key("post_process");
@@ -751,8 +719,8 @@ namespace Comet {
                 if(error)
                     return LoadResult::failure(
                         context.error("environment.background_color", "invalid color"));
-                auto color =
-                    read_vector<Math::Vec3>(color_node, context, "environment.background_color");
+                auto color = Json::read_vector<Math::Vec3>(
+                    color_node, context, "environment.background_color");
                 if(!color)
                     return LoadResult::failure(color.error());
                 environment.background_color = color.value();

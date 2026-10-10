@@ -206,8 +206,17 @@ namespace CometEditor::Tests {
             R"({"material":{"textures":[{"name":"value"}],"scalars":[{"name":"value","default":1}]}})"));
         EXPECT_FALSE(serializer.deserialize_material(
             R"({"material":{"scalars":[{"name":"value","default":1,"min":2,"max":1}]}})"));
-        EXPECT_FALSE(serializer.deserialize_material(
-            R"({"material":{"vectors":[{"name":"tint","default":[1,2,3]}]}})"));
+        for(const std::string value : {"null", "{}", "[]", "[1,2,3]", "[1,2,3,4,5]", "[1,2,3,null]",
+                "[1,2,3,true]", "[1,2,3,\"4\"]", "[1,2,3,1e100]"}) {
+            SCOPED_TRACE(value);
+            const auto result = serializer.deserialize(
+                R"({"version":1,"vertex":{"source":1,"entry":"main"},"fragment":{"source":2,"entry":"main"},"material":{"vectors":[{"name":"tint","default":)"
+                    + value + "}]}}",
+                "invalid-vector.shader");
+            ASSERT_FALSE(result);
+            EXPECT_NE(result.error().find("invalid-vector.shader"), std::string::npos);
+            EXPECT_NE(result.error().find("material.vectors[].default"), std::string::npos);
+        }
         EXPECT_FALSE(serializer.deserialize_material(R"({"material":{},"unexpected":1})"));
     }
 

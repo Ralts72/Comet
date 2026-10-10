@@ -79,10 +79,7 @@ namespace Comet {
                 writer.begin_object();
                 writer.field("type", "vector");
                 writer.key("value");
-                writer.begin_array();
-                for(int component = 0; component < 4; ++component)
-                    writer.value(value[component]);
-                writer.end_array();
+                Json::write_vector(writer, value);
                 writer.end_object();
             }
             writer.end_object();
@@ -164,23 +161,11 @@ namespace Comet {
                             return Result<MaterialData>::failure(scalar.error());
                         data.scalar_properties.emplace(property_name, scalar.value());
                     } else {
-                        const auto elements = context.array(value.value(), location);
-                        if(!elements)
-                            return Result<MaterialData>::failure(elements.error());
-                        if(elements.value().size() != 4)
-                            return Result<MaterialData>::failure(
-                                context.error(location, "expected four finite numbers"));
-                        Math::Vec4 vector(0.0f);
-                        int index = 0;
-                        for(const auto element : elements.value()) {
-                            const auto scalar = context.read_scalar<float>(element,
-                                location + "[" + std::to_string(index) + "]", "a finite number");
-                            if(!scalar)
-                                return Result<MaterialData>::failure(scalar.error());
-                            vector[index] = scalar.value();
-                            ++index;
-                        }
-                        data.vector_properties.emplace(property_name, vector);
+                        const auto vector =
+                            Json::read_vector<Math::Vec4>(value.value(), context, location);
+                        if(!vector)
+                            return Result<MaterialData>::failure(vector.error());
+                        data.vector_properties.emplace(property_name, vector.value());
                     }
                     continue;
                 }
