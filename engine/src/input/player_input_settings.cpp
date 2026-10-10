@@ -5,7 +5,6 @@
 #include "common/player_settings_path.h"
 
 #include <cstdint>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -15,21 +14,6 @@
 namespace Comet {
     namespace {
         constexpr std::uint32_t FORMAT_VERSION = 2;
-
-        Result<std::optional<std::string>> read_optional_file(const std::filesystem::path& path) {
-            using Read = Result<std::optional<std::string>>;
-            std::error_code error;
-            const bool exists = std::filesystem::exists(path, error);
-            if(error)
-                return Read::failure("Cannot inspect player input settings '" + path.string()
-                                     + "': " + error.message());
-            if(!exists)
-                return Read::success(std::nullopt);
-            auto contents = read_text_file(path);
-            if(!contents)
-                return Read::failure(contents.error());
-            return Read::success(std::move(contents).value());
-        }
 
         Result<Uuid> read_id(Json::Node node, std::string_view key, const Json::Context& context,
             std::string_view location) {
@@ -252,35 +236,29 @@ namespace Comet {
         if(error)
             return Loaded::failure("Cannot resolve player input settings path: " + error.message());
         PlayerInputSettings settings(project_id, std::move(absolute));
-        auto contents = read_optional_file(settings.m_path);
-        if(!contents)
-            return Loaded::failure(contents.error());
-        if(!contents.value())
-            return Loaded::success(std::move(settings));
-        const auto source = settings.m_path.string();
-        const Json::Context context("player input settings", source);
-        simdjson::dom::parser parser;
-        const auto parsed = context.parse(parser, *contents.value());
-        if(!parsed)
-            return Loaded::failure(parsed.error());
-        const auto root = parsed.value();
-        if(auto valid = context.validate_keys(root, {"version", "project_id", "actions"}); !valid)
-            return Loaded::failure(valid.error());
-        const auto version =
-            context.read_field<std::uint32_t>(root, "version", "an unsigned integer");
-        if(!version)
-            return Loaded::failure(version.error());
-        if(version.value() != FORMAT_VERSION)
-            return Loaded::failure(context.error("version", "unsupported version"));
-        const auto id = read_id(root, "project_id", context, "<root>");
-        if(!id)
-            return Loaded::failure(id.error());
-        if(id.value() != project_id)
-            return Loaded::failure(context.error("project_id", "does not match the project"));
-        auto overrides = read_overrides(root, context);
-        if(!overrides)
-            return Loaded::failure(overrides.error());
-        settings.m_overrides = std::move(overrides).value();
+        auto loaded = Json::load_optional<InputOverrides>("player input settings", settings.m_path,
+            [&](Json::Node root, const Json::Context& context) {
+                using Read = Result<InputOverrides>;
+                if(auto valid = context.validate_keys(root, {"version", "project_id", "actions"});
+                    !valid)
+                    return Read::failure(valid.error());
+                const auto version =
+                    context.read_field<std::uint32_t>(root, "version", "an unsigned integer");
+                if(!version)
+                    return Read::failure(version.error());
+                if(version.value() != FORMAT_VERSION)
+                    return Read::failure(context.error("version", "unsupported version"));
+                const auto id = read_id(root, "project_id", context, "<root>");
+                if(!id)
+                    return Read::failure(id.error());
+                if(id.value() != project_id)
+                    return Read::failure(context.error("project_id", "does not match the project"));
+                return read_overrides(root, context);
+            });
+        if(!loaded)
+            return Loaded::failure(loaded.error());
+        if(loaded.value())
+            settings.m_overrides = std::move(*loaded.value());
         return Loaded::success(std::move(settings));
     }
 

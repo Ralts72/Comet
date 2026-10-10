@@ -42,18 +42,8 @@ namespace Comet {
         settings.m_project_id = project_id;
         settings.m_settings = defaults;
         settings.m_path = path;
-        std::error_code error;
-        const bool exists = std::filesystem::exists(path, error);
-        if(error)
-            return Loaded::failure(
-                "Cannot inspect " + std::string(names.key) + " settings: " + error.message());
-        if(!exists)
-            return Loaded::success(std::move(settings));
-        auto contents = read_text_file(path);
-        if(!contents)
-            return Loaded::failure(contents.error());
-        auto loaded = Json::deserialize<T>("player " + std::string(names.key) + " settings",
-            contents.value(), path.string(), [&](Json::Node root, const Json::Context& context) {
+        auto loaded = Json::load_optional<T>("player " + std::string(names.key) + " settings", path,
+            [&](Json::Node root, const Json::Context& context) {
                 if(auto valid = context.validate_keys(root, {"version", "project_id", names.key});
                     !valid)
                     return Result<T>::failure(valid.error());
@@ -77,7 +67,8 @@ namespace Comet {
             });
         if(!loaded)
             return Loaded::failure(loaded.error());
-        settings.m_settings = std::move(loaded).value();
+        if(loaded.value())
+            settings.m_settings = std::move(*loaded.value());
         return Loaded::success(std::move(settings));
     }
 
