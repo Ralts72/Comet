@@ -553,6 +553,10 @@ namespace Comet::Tests {
             EXPECT_TRUE(observed->contacts.empty());
             EXPECT_FLOAT_EQ(rod.get_component<TransformComponent>().rotation.y, 90);
         }
+        rod.edit_transform([](TransformComponent& transform) { transform.translation.x = 0.1f; });
+        ASSERT_TRUE(runtime.advance(0.02));
+        EXPECT_TRUE(observed->contacts.empty());
+        EXPECT_FLOAT_EQ(rod.get_component<TransformComponent>().rotation.y, 90);
         rod.edit_transform([](TransformComponent& transform) { transform.rotation.y = 180; });
         ASSERT_TRUE(runtime.advance(0.02));
         ASSERT_EQ(observed->contacts.size(), 1u);
@@ -585,6 +589,7 @@ namespace Comet::Tests {
         for(const bool missing_transform : {false, true}) {
             Scene scene;
             PhysicsService physics;
+            add_body(scene, "Valid body", BodyMotion::Static, {10, 0, 0});
             auto body = add_body(scene, "Body", BodyMotion::Dynamic, {0, 2, 0});
             const auto remove_required = [&] {
                 if(missing_transform)
@@ -638,7 +643,59 @@ namespace Comet::Tests {
         EXPECT_NE(started.error().message.find("Parented"), std::string::npos);
         ASSERT_TRUE(scene.clear_parent(child));
         ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(1.0 / 60.0));
+        ASSERT_TRUE(scene.set_parent(child, parent));
+        const auto advanced = runtime.advance(1.0 / 60.0);
+        ASSERT_FALSE(advanced);
+        EXPECT_NE(advanced.error().message.find("Parented"), std::string::npos);
+        EXPECT_FALSE(runtime.is_active());
+        EXPECT_EQ(physics.get_statistics().bodies, 0u);
         ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(PhysicsSystemTest, DirectConfigurationEditsAreValidatedAfterStableSynchronization) {
+        enum class Invalid { BoxSize, SphereRadius, Shape, Motion, Scale };
+        for(const auto invalid : {Invalid::BoxSize, Invalid::SphereRadius, Invalid::Shape,
+                Invalid::Motion, Invalid::Scale}) {
+            SCOPED_TRACE(static_cast<int>(invalid));
+            Scene scene;
+            PhysicsService physics;
+            auto body = add_body(scene, "Body", BodyMotion::Static, {0, 2, 0});
+            auto& collider = body.get_component<ColliderComponent>();
+            if(invalid == Invalid::SphereRadius)
+                collider.shape = ColliderShape::Sphere;
+            SceneRuntime runtime;
+            ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+            ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+            ASSERT_TRUE(runtime.start(scene));
+            for(int step = 0; step < 4; ++step)
+                ASSERT_TRUE(runtime.advance(1.0 / 60.0));
+            switch(invalid) {
+                case Invalid::BoxSize:
+                    collider.half_extents.x = std::numeric_limits<float>::quiet_NaN();
+                    break;
+                case Invalid::SphereRadius:
+                    collider.radius = std::numeric_limits<float>::infinity();
+                    break;
+                case Invalid::Shape:
+                    collider.shape = static_cast<ColliderShape>(-1);
+                    break;
+                case Invalid::Motion:
+                    body.get_component<RigidBodyComponent>().motion = static_cast<BodyMotion>(-1);
+                    break;
+                case Invalid::Scale:
+                    body.edit_transform(
+                        [](TransformComponent& transform) { transform.scale.x = -1; });
+                    break;
+            }
+            const auto advanced = runtime.advance(1.0 / 60.0);
+            ASSERT_FALSE(advanced);
+            EXPECT_NE(
+                advanced.error().message.find(body.get_uuid().to_string()), std::string::npos);
+            EXPECT_FALSE(runtime.is_active());
+            EXPECT_EQ(physics.get_statistics().bodies, 0u);
+            ASSERT_TRUE(runtime.stop());
+        }
     }
 
     TEST(PhysicsSystemTest, RejectsSphereRadiusOverflowAndUnderflowAndCleansRuntime) {

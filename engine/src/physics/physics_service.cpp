@@ -89,6 +89,42 @@ namespace Comet {
                    && a.radius == b.radius && a.is_trigger == b.is_trigger;
         }
 
+        Result<void, Error> validate_body(const EntityUuid uuid,
+            const TransformComponent& transform, const ColliderComponent& collider,
+            const RigidBodyComponent& rigid) {
+            const auto motion = rigid.motion;
+            if(motion != BodyMotion::Static && motion != BodyMotion::Dynamic
+                && motion != BodyMotion::Kinematic)
+                return Result<void, Error>::failure(
+                    {"Unknown rigid body motion: " + uuid.to_string()});
+            if(!std::isfinite(rigid.mass) || rigid.mass < RigidBodyComponent::MIN_MASS)
+                return Result<void, Error>::failure(
+                    {"Invalid rigid body mass: " + uuid.to_string()});
+            const auto valid_scale = Math::is_finite(transform.scale)
+                                     && glm::all(glm::greaterThan(transform.scale, Math::Vec3(0)));
+            if(!Math::is_finite(transform.translation) || !Math::is_finite(transform.rotation)
+                || !valid_scale)
+                return Result<void, Error>::failure(
+                    {"Invalid rigid body transform: " + uuid.to_string()});
+            if(collider.shape == ColliderShape::Box) {
+                const auto size = collider.half_extents * transform.scale;
+                if(!Math::is_finite(size) || !glm::all(glm::greaterThan(size, Math::Vec3(0))))
+                    return Result<void, Error>::failure(
+                        {"Invalid box collider: " + uuid.to_string()});
+            } else if(collider.shape == ColliderShape::Sphere) {
+                const auto radius = collider.radius * transform.scale.x;
+                if(!std::isfinite(radius) || radius <= 0 || transform.scale.x != transform.scale.y
+                    || transform.scale.x != transform.scale.z)
+                    return Result<void, Error>::failure(
+                        {"Sphere collider requires a finite positive scaled radius and uniform scale: "
+                            + uuid.to_string()});
+            } else {
+                return Result<void, Error>::failure(
+                    {"Unknown collider shape: " + uuid.to_string()});
+            }
+            return Result<void, Error>::success();
+        }
+
         bool valid_inverse(const float value) {
             return std::isfinite(value) && value > 0 && std::isfinite(1.0f / value)
                    && 1.0f / value > 0;
@@ -291,28 +327,37 @@ namespace Comet {
             const auto& rigid = definition.rigid;
             auto it = bodies.find(definition.entity);
             const bool added = it == bodies.end();
-            if(!added
+            const bool rebuild =
+                !added
                 && (it->second.uuid != definition.uuid || it->second.motion != rigid.motion
                     || !same_shape(it->second.collider, collider)
-                    || !glm::all(glm::equal(it->second.last_transform.scale, transform.scale)))) {
-                remove_body(it);
-                it = bodies.end();
+                    || !glm::all(glm::equal(it->second.last_transform.scale, transform.scale)));
+            const bool mass_changed = !added && it->second.mass != rigid.mass;
+            const bool pose_changed = !added && !same_pose(it->second.last_transform, transform);
+            if(added || rebuild || mass_changed || pose_changed) {
+                if(auto valid = validate_body(definition.uuid, transform, collider, rigid); !valid)
+                    return Result<bool, Error>::failure(valid.error());
             }
-            if(it == bodies.end()) {
+            if(added || rebuild) {
+                if(rebuild)
+                    remove_body(it);
                 if(auto created = add_body(definition); !created)
                     return Result<bool, Error>::failure(created.error());
                 return Result<bool, Error>::success(added);
             }
             auto& body = it->second;
-            if(body.mass != rigid.mass)
+            if(mass_changed) {
                 if(auto updated = update_mass(body, rigid.mass); !updated)
                     return Result<bool, Error>::failure(updated.error());
+            }
             if(rigid.motion == BodyMotion::Kinematic && delta_time > 0) {
                 // 目标未变也要更新速度，避免沿用上一固定步的运动。
+                if(!glm::all(glm::equal(body.last_transform.rotation, transform.rotation)))
+                    body.last_physics_rotation = to_rotation(transform.rotation);
                 world.GetBodyInterface().MoveKinematic(body.id, to_position(transform.translation),
-                    to_rotation(transform.rotation), delta_time);
+                    body.last_physics_rotation, delta_time);
                 body.last_transform = transform;
-            } else if(!same_pose(body.last_transform, transform)) {
+            } else if(pose_changed) {
                 if(rigid.motion == BodyMotion::Static)
                     wake_nearby_bodies(body.id);
                 auto activation = JPH::EActivation::DontActivate;
