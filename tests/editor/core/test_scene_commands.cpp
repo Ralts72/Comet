@@ -300,9 +300,8 @@ namespace CometEditor::Tests {
     TEST_F(SceneCommandsTest, DuplicateKeepsEmptyNamesMissingTransformAndCameraValues) {
         entity.get_component<Comet::NameComponent>().name.clear();
         entity.remove_component<Comet::TransformComponent>();
-        auto& camera = entity.add_component<Comet::CameraComponent>();
-        camera.primary = true;
-        camera.fov = 71;
+        entity.add_component<Comet::CameraComponent>(
+            Comet::CameraComponent{.primary = true, .fov = 71});
         const auto uuid = SceneCommands::duplicate_entity(history, registry, entity.get_uuid());
         ASSERT_TRUE(uuid);
         auto copy = scene.find_entity(uuid);
@@ -433,7 +432,7 @@ namespace CometEditor::Tests {
         auto child = scene.create_entity("Child");
         child.get_component<Comet::NameComponent>().name.clear();
         child.remove_component<Comet::TransformComponent>();
-        child.add_component<Comet::CameraComponent>().fov = 82;
+        child.add_component<Comet::CameraComponent>(Comet::CameraComponent{.fov = 82});
         entity.add_component<Comet::MeshRendererComponent>(
             Comet::AssetHandle(1), Comet::AssetHandle(2));
         ASSERT_TRUE(scene.set_parent(entity, parent));
@@ -630,7 +629,7 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(SceneCommandsTest, ResolvesUuidAfterEntityRestorationAndDoesNotCrossScenes) {
-        entity.add_component<Comet::CameraComponent>().fov = 71;
+        entity.add_component<Comet::CameraComponent>(Comet::CameraComponent{.fov = 71});
         ASSERT_TRUE(remove("camera"));
         const auto uuid = entity.get_uuid();
         scene.destroy_entity(entity);

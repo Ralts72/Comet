@@ -343,15 +343,18 @@ namespace Comet::Tests {
             EXPECT_FALSE(scene.get_material_overrides(entity));
         };
         expect_failure();
-        auto& renderer = entity.add_component<MeshRendererComponent>();
+        entity.add_component<MeshRendererComponent>();
         expect_failure();
-        renderer.material = AssetHandle{77};
+        entity.edit_component<MeshRendererComponent>(
+            [](auto& component) { component.material = AssetHandle{77}; });
         expect_failure();
-        renderer.material = handle;
+        entity.edit_component<MeshRendererComponent>(
+            [&](auto& component) { component.material = handle; });
         expect_failure();
-        renderer.material = AssetHandle{77};
-        ASSERT_TRUE(assets.register_asset(
-            renderer.material, std::make_shared<Material>("unknown", "unknown")));
+        entity.edit_component<MeshRendererComponent>(
+            [](auto& component) { component.material = AssetHandle{77}; });
+        ASSERT_TRUE(assets.register_asset(entity.get_component<MeshRendererComponent>().material,
+            std::make_shared<Material>("unknown", "unknown")));
         expect_failure();
     }
 

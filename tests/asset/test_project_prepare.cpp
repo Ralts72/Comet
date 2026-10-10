@@ -43,8 +43,8 @@ namespace Comet::Tests {
             mesh = mesh_record->handle;
             program = program_record->handle;
             Scene scene;
-            scene.create_entity("Cube").add_component<MeshRendererComponent>() = {
-                .mesh = mesh, .material = material_record->handle};
+            scene.create_entity("Cube").add_component<MeshRendererComponent>(
+                MeshRendererComponent{.mesh = mesh, .material = material_record->handle});
             ASSERT_TRUE(SceneSerializer(components).save(scene, paths.assets() / "startup.scene"));
             ASSERT_TRUE(write_text_file_atomic(paths.root() / "project.json", R"({
                 "version":2,"id":"00000000-0000-4000-8000-000000000001",

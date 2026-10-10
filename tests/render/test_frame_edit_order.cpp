@@ -52,7 +52,7 @@ namespace Comet::Tests {
             auto scene = std::make_unique<Scene>();
             auto camera = scene->create_entity("Camera");
             EXPECT_TRUE(camera.try_edit_transform([&](auto& value) { value.translation.z = 3; }));
-            camera.add_component<CameraComponent>().primary = true;
+            camera.add_component<CameraComponent>(CameraComponent{.primary = true});
             auto object = scene->create_entity("Object");
             EXPECT_TRUE(object.try_edit_transform([&](auto& value) { value.translation.x = x; }));
             object.add_component<MeshRendererComponent>(AssetHandle(1), AssetHandle(2));

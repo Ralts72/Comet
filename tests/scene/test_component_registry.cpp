@@ -77,6 +77,27 @@ namespace {
         EXPECT_FALSE(registry.register_component(std::move(unknown)));
     }
 
+    TEST(ComponentRegistryTest, RenderPropertyWritesInvalidateAfterValidationAndRestore) {
+        const auto registry = Comet::create_scene_component_registry();
+        const auto& camera = *registry.find_component("camera");
+        Comet::Scene scene;
+        auto entity = scene.create_entity();
+        entity.add_component<Comet::CameraComponent>();
+        const auto original = camera.capture_component(entity);
+        auto revision = scene.get_render_revision();
+        EXPECT_FALSE(camera.assign_property(entity, "fov", std::numeric_limits<float>::infinity()));
+        EXPECT_EQ(scene.get_render_revision(), revision);
+        ASSERT_TRUE(camera.assign_property(entity, "fov", 45.0f));
+        EXPECT_EQ(scene.get_render_revision(), revision);
+        ASSERT_TRUE(camera.assign_property(entity, "fov", 60.0f));
+        EXPECT_GT(scene.get_render_revision(), revision);
+        revision = scene.get_render_revision();
+        ASSERT_TRUE(camera.remove_component(entity));
+        ASSERT_TRUE(camera.restore_component(entity, original));
+        EXPECT_GT(scene.get_render_revision(), revision);
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::CameraComponent>().fov, 45.0f);
+    }
+
     TEST(ComponentRegistryTest, AudioVolumeHasDataBoundsNotJustEditorDragBounds) {
         const auto registry = Comet::create_scene_component_registry();
         const auto& descriptor = *registry.find_component("audio_source");
@@ -154,7 +175,8 @@ namespace {
         EXPECT_EQ(references,
             (std::vector<Comet::AssetReference>{{Comet::AssetHandle(42), Comet::AssetType::Mesh},
                 {Comet::AssetHandle(43), Comet::AssetType::Material}}));
-        first.get_component<Comet::MeshRendererComponent>().material = Comet::AssetHandle(42);
+        first.edit_component<Comet::MeshRendererComponent>(
+            [&](auto& component) { component.material = Comet::AssetHandle(42); });
         EXPECT_EQ(registry.collect_asset_references(scene).size(), 3);
         scene.destroy_entity(first);
         scene.destroy_entity(second);
@@ -283,12 +305,12 @@ namespace {
     TEST(ComponentRegistryTest, ComponentSnapshotIsOwnedAndRejectsInvalidRestore) {
         Comet::Scene scene;
         auto entity = scene.create_entity();
-        entity.add_component<Comet::CameraComponent>().fov = 73;
+        entity.add_component<Comet::CameraComponent>(Comet::CameraComponent{.fov = 73});
         const auto registry = Comet::create_scene_component_registry();
         const auto& camera = *registry.find_component("camera");
         const auto snapshot = camera.capture_component(entity);
         EXPECT_FALSE(camera.restore_component(entity, snapshot));
-        entity.get_component<Comet::CameraComponent>().fov = 91;
+        entity.edit_component<Comet::CameraComponent>([&](auto& component) { component.fov = 91; });
         ASSERT_TRUE(camera.remove_component(entity));
         EXPECT_FALSE(camera.capture_component(entity).has_value());
         EXPECT_FALSE(camera.restore_component(entity, std::any(12)));

@@ -1765,7 +1765,8 @@ return group
         ASSERT_TRUE(instance.value()->invoke(
             ScriptInstance::Phase::Start, actor, parameters.value(), {.scene = &scene}));
         EXPECT_EQ(scene.entity_count(), 1u);
-        actor.get_component<MeshRendererComponent>().material = AssetHandle{13};
+        actor.edit_component<MeshRendererComponent>(
+            [&](auto& component) { component.material = AssetHandle{13}; });
         ASSERT_TRUE(runtime.advance(0));
         ASSERT_EQ(scene.entity_count(), 6u);
         ASSERT_TRUE(instance.value()->invoke(
@@ -1850,7 +1851,8 @@ return group
             if(configuration == 1)
                 actor.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{});
             if(configuration == 2)
-                actor.get_component<MeshRendererComponent>() = {AssetHandle{}, AssetHandle{12}};
+                actor.edit_component<MeshRendererComponent>(
+                    [](auto& renderer) { renderer = {AssetHandle{}, AssetHandle{12}}; });
             const auto result = instance.value()->invoke(
                 ScriptInstance::Phase::Update, actor, {}, {.scene = &scene});
             ASSERT_FALSE(result);

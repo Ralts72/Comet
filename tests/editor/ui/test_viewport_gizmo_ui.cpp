@@ -11,7 +11,8 @@ namespace CometEditor::Tests {
         show_other_panel = true;
         for(const auto type :
             {Comet::LightType::Directional, Comet::LightType::Point, Comet::LightType::Spot}) {
-            entity.get_component<Comet::LightComponent>().type = type;
+            entity.edit_component<Comet::LightComponent>(
+                [&](auto& component) { component.type = type; });
             frame();
             ImGui::FocusWindow(ImGui::FindWindowByName("Other Panel"));
             frame();

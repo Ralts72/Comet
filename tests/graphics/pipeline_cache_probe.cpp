@@ -23,7 +23,8 @@ namespace {
             status = cache.get_load_status();
             path = cache.get_path();
             auto scene = std::make_unique<Comet::Scene>();
-            scene->create_entity("Camera").add_component<Comet::CameraComponent>().primary = true;
+            scene->create_entity("Camera").add_component<Comet::CameraComponent>(
+                Comet::CameraComponent{.primary = true});
             get_engine().set_scene(std::move(scene));
             return Comet::Result<void, Comet::Error>::success();
         }

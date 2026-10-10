@@ -52,6 +52,11 @@ namespace Comet::Tests {
     static_assert(!CanRemoveComponent<WorldTransformComponent>);
     static_assert(HasMutableComponentAccess<NameComponent>);
     static_assert(!HasMutableComponentAccess<TransformComponent>);
+    static_assert(!HasMutableComponentAccess<MeshRendererComponent>);
+    static_assert(!HasMutableComponentAccess<CameraComponent>);
+    static_assert(!HasMutableComponentAccess<LightComponent>);
+    static_assert(std::is_same_v<decltype(std::declval<Entity>().add_component<CameraComponent>()),
+        const CameraComponent&>);
     static_assert(
         std::is_same_v<decltype(std::declval<Entity>().add_component<TransformComponent>()),
             const TransformComponent&>);
@@ -62,12 +67,12 @@ namespace Comet::Tests {
         Scene scene;
         EXPECT_EQ(scene.component_count<CameraComponent>(), 0u);
         int visited = 0;
-        scene.each<CameraComponent>([&](Entity, CameraComponent&) { ++visited; });
+        scene.each<CameraComponent>([&](Entity, const CameraComponent&) { ++visited; });
         EXPECT_EQ(visited, 0);
 
         const auto ordinary = scene.create_entity("Ordinary");
         auto camera = scene.create_entity("Camera");
-        camera.add_component<CameraComponent>().primary = true;
+        camera.add_component<CameraComponent>(CameraComponent{.primary = true});
         scene.each<const CameraComponent, TransformComponent, IdComponent, UuidComponent,
             RelationshipComponent, WorldTransformComponent>(
             [&](Entity entity, auto& lens, auto& transform, auto& id, auto& uuid,
@@ -90,7 +95,7 @@ namespace Comet::Tests {
         EXPECT_EQ(camera.get_component<TransformComponent>().translation.x, 3);
         EXPECT_EQ(ordinary.get_component<TransformComponent>().translation.x, 0);
         camera.remove_component<CameraComponent>();
-        scene.each<CameraComponent>([&](Entity, CameraComponent&) { ++visited; });
+        scene.each<CameraComponent>([&](Entity, const CameraComponent&) { ++visited; });
         EXPECT_EQ(visited, 1);
         EXPECT_EQ(scene.component_count<CameraComponent>(), 0u);
     }
@@ -114,6 +119,72 @@ namespace Comet::Tests {
         EXPECT_NE(entity.get_id(), INVALID_ENTITY_ID);
         EXPECT_TRUE(entity.get_uuid());
         EXPECT_EQ(scene.entity_count(), 1u);
+    }
+
+    TEST(SceneTest, RenderRevisionTracksCommittedValuesAndComponentStructure) {
+        Scene scene;
+        auto entity = scene.create_entity();
+        scene.update_world_transforms();
+        auto revision = scene.get_render_revision();
+        entity.add_component<MeshRendererComponent>(AssetHandle{10}, AssetHandle{20});
+        EXPECT_GT(scene.get_render_revision(), revision);
+        revision = scene.get_render_revision();
+        ASSERT_TRUE(entity.try_set_component(entity.get_component<MeshRendererComponent>()));
+        EXPECT_EQ(scene.get_render_revision(), revision);
+        entity.edit_component<MeshRendererComponent>(
+            [](auto& value) { value.mesh = AssetHandle{11}; });
+        EXPECT_GT(scene.get_render_revision(), revision);
+
+        entity.add_component<CameraComponent>();
+        entity.add_component<LightComponent>();
+        revision = scene.get_render_revision();
+        entity.edit_component<CameraComponent>([](auto& value) { value.fov = 60; });
+        EXPECT_GT(scene.get_render_revision(), revision);
+        revision = scene.get_render_revision();
+        entity.edit_component<LightComponent>([](auto& value) { value.enabled = false; });
+        EXPECT_GT(scene.get_render_revision(), revision);
+        revision = scene.get_render_revision();
+        entity.edit_component<LightComponent>([](auto& value) { value.enabled = false; });
+        EXPECT_EQ(scene.get_render_revision(), revision);
+
+        entity.edit_transform([](auto& value) { value.translation.x = 2; });
+        EXPECT_GT(scene.get_render_revision(), revision);
+        const auto world = scene.get_world_matrix(entity);
+        EXPECT_EQ(world[3], Math::Vec4(2, 0, 0, 1));
+        revision = scene.get_render_revision();
+        entity.edit_transform([](auto& value) { value.translation.x = 2; });
+        EXPECT_EQ(scene.get_render_revision(), revision);
+        entity.remove_component<TransformComponent>();
+        EXPECT_GT(scene.get_render_revision(), revision);
+        scene.update_world_transforms();
+        revision = scene.get_render_revision();
+        entity.add_component<TransformComponent>();
+        EXPECT_GT(scene.get_render_revision(), revision);
+        revision = scene.get_render_revision();
+        entity.remove_component<MeshRendererComponent>();
+        EXPECT_GT(scene.get_render_revision(), revision);
+        revision = scene.get_render_revision();
+        EXPECT_FALSE(entity.try_set_component(MeshRendererComponent{}));
+        EXPECT_EQ(scene.get_render_revision(), revision);
+        scene.destroy_entity(entity);
+        EXPECT_GT(scene.get_render_revision(), revision);
+    }
+
+    TEST(SceneTest, RenderSettingsInvalidateOnlyOnSuccessfulValueChanges) {
+        Scene scene;
+        auto revision = scene.get_render_revision();
+        ASSERT_TRUE(scene.set_environment(scene.get_environment()));
+        ASSERT_TRUE(scene.set_post_process(scene.get_post_process()));
+        EXPECT_EQ(scene.get_render_revision(), revision);
+        ASSERT_TRUE(scene.set_environment({.asset = AssetHandle{10}, .rotation = 45}));
+        EXPECT_GT(scene.get_render_revision(), revision);
+        revision = scene.get_render_revision();
+        ASSERT_TRUE(scene.set_environment({.asset = AssetHandle{10}, .rotation = 405}));
+        EXPECT_EQ(scene.get_render_revision(), revision);
+        EXPECT_FALSE(scene.set_post_process({.exposure = -1}));
+        EXPECT_EQ(scene.get_render_revision(), revision);
+        ASSERT_TRUE(scene.set_post_process({.exposure = 2}));
+        EXPECT_GT(scene.get_render_revision(), revision);
     }
 
     TEST(SceneTest, CreatesAndFindsEntityByUuid) {
@@ -668,7 +739,7 @@ namespace Comet::Tests {
 
         auto& mesh_renderer =
             entity.add_component<MeshRendererComponent>(mesh_handle, material_handle);
-        auto& camera = entity.add_component<CameraComponent>();
+        const auto& camera = entity.add_component<CameraComponent>();
 
         EXPECT_EQ(mesh_renderer.mesh, mesh_handle);
         EXPECT_EQ(mesh_renderer.material, material_handle);

@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -120,6 +121,7 @@ namespace Comet {
 
         // 仅用于进程内区分场景实例，不写入场景文件。
         [[nodiscard]] uint64_t get_lifetime() const noexcept { return m_lifetime; }
+        [[nodiscard]] uint64_t get_render_revision() const noexcept { return m_render_revision; }
 
         // 固定步产生；System::update 可只读，当前帧结束后清空。
         [[nodiscard]] const std::vector<ContactEvent>& get_contact_events() const {
@@ -170,8 +172,10 @@ namespace Comet {
         void mark_transform_dirty(entt::entity handle);
         void update_world_transform(entt::entity handle);
         std::size_t sync_transform_chain(entt::entity handle);
+        void mark_render_dirty() { ++m_render_revision; }
 
         const uint64_t m_lifetime;
+        uint64_t m_render_revision = 1;
         EntityId m_next_entity_id = 1;
         std::vector<EntityRequest> m_entity_requests;
         std::vector<ContactEvent> m_contact_events;
@@ -197,8 +201,38 @@ namespace Comet {
             return std::as_const(
                 m_scene->m_registry.emplace<T>(m_handle, std::forward<Args>(args)...));
         } else {
-            return m_scene->m_registry.emplace<T>(m_handle, std::forward<Args>(args)...);
+            auto& component = m_scene->m_registry.emplace<T>(m_handle, std::forward<Args>(args)...);
+            if constexpr(is_scene_read_only_component_v<T>)
+                return std::as_const(component);
+            else
+                return component;
         }
+    }
+
+    template<typename T>
+        requires(is_scene_render_component_v<T>)
+    bool Entity::try_set_component(const T& component) const {
+        if(!has_component<T>())
+            return false;
+        auto& current = m_scene->m_registry.get<T>(m_handle);
+        if(current == component)
+            return true;
+        if constexpr(std::is_same_v<T, MeshRendererComponent>) {
+            if(current.material != component.material)
+                m_scene->clear_material_overrides(m_scene->m_registry, m_handle);
+        }
+        current = component;
+        m_scene->mark_render_dirty();
+        return true;
+    }
+
+    template<typename T, typename Function>
+        requires(is_scene_render_component_v<T>)
+    void Entity::edit_component(Function&& edit) const {
+        require_component_write(has_component<T>());
+        auto candidate = get_component<T>();
+        std::forward<Function>(edit)(candidate);
+        require_component_write(try_set_component(candidate));
     }
 
     template<typename T>

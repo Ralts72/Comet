@@ -224,7 +224,8 @@ namespace Comet::Tests {
             .bloom_strength = 0.5f,
             .bloom_threshold = 2.0f};
         ASSERT_TRUE(scene.set_post_process(settings));
-        scene.create_entity("Camera").add_component<CameraComponent>().primary = true;
+        scene.create_entity("Camera").add_component<CameraComponent>(
+            CameraComponent{.primary = true});
         const auto registry = create_scene_component_registry();
         const SceneSerializer serializer(registry);
         TemporaryDirectory directory;
@@ -474,13 +475,12 @@ namespace Comet::Tests {
         EXPECT_TRUE(child.try_edit_transform(
             [&](auto& value) { value.scale = Math::Vec3(0.5f, 1.5f, 2.0f); }));
         child.add_component<MeshRendererComponent>(AssetHandle(101), AssetHandle(202));
-        auto& camera = root.add_component<CameraComponent>();
-        camera.primary = true;
-        camera.projection = CameraComponent::Projection::Orthographic;
-        camera.fov = 60.0f;
-        camera.orthographic_height = 14.0f;
-        camera.near_clip = 0.25f;
-        camera.far_clip = 2500.0f;
+        root.add_component<CameraComponent>(CameraComponent{.primary = true,
+            .projection = CameraComponent::Projection::Orthographic,
+            .fov = 60.0f,
+            .orthographic_height = 14.0f,
+            .near_clip = 0.25f,
+            .far_clip = 2500.0f});
         ASSERT_TRUE(scene.set_parent(child, root));
 
         const SceneSerializer serializer = make_scene_serializer();
@@ -680,14 +680,18 @@ namespace Comet::Tests {
     TEST(SceneSerializerTest, CloneRejectsInvalidContentWithoutTextRoundTrip) {
         Scene scene;
         auto actor = scene.create_entity("Actor");
-        auto& camera = actor.add_component<CameraComponent>();
+        actor.add_component<CameraComponent>();
         const auto serializer = make_scene_serializer();
-        camera.fov = std::numeric_limits<float>::infinity();
+        actor.edit_component<CameraComponent>(
+            [](auto& camera) { camera.fov = std::numeric_limits<float>::infinity(); });
         EXPECT_FALSE(serializer.clone(scene));
-        camera.fov = 60.0f;
-        camera.projection = static_cast<CameraComponent::Projection>(99);
+        actor.edit_component<CameraComponent>([](auto& camera) {
+            camera.fov = 60.0f;
+            camera.projection = static_cast<CameraComponent::Projection>(99);
+        });
         EXPECT_FALSE(serializer.clone(scene));
-        camera.projection = CameraComponent::Projection::Perspective;
+        actor.edit_component<CameraComponent>(
+            [](auto& camera) { camera.projection = CameraComponent::Projection::Perspective; });
         actor.get_component<NameComponent>().name = std::string(1, static_cast<char>(0xff));
         const auto invalid_name = serializer.clone(scene);
         ASSERT_FALSE(invalid_name);
@@ -950,7 +954,8 @@ namespace Comet::Tests {
 
         Scene scene;
         Entity entity = scene.create_entity("Invalid");
-        entity.add_component<CameraComponent>().fov = std::numeric_limits<float>::infinity();
+        entity.add_component<CameraComponent>(
+            CameraComponent{.fov = std::numeric_limits<float>::infinity()});
         const auto result = make_scene_serializer().serialize(scene);
         ASSERT_FALSE(result);
         EXPECT_NE(result.error().find("finite"), std::string::npos);

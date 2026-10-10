@@ -1334,7 +1334,7 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(EditingUiTest, ComponentHeaderContextMenuRemovesAndRestoresCamera) {
-        entity.add_component<Comet::CameraComponent>().fov = 63;
+        entity.add_component<Comet::CameraComponent>(Comet::CameraComponent{.fov = 63});
         ASSERT_TRUE(edit.begin({entity.get_uuid(), "camera", "fov"}));
         ASSERT_TRUE(edit.preview(72.0f));
         frame();

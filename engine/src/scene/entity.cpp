@@ -48,4 +48,9 @@ namespace Comet {
     void Entity::set_transform(const TransformComponent& transform) const {
         require_transform_write(try_set_transform(transform));
     }
+
+    void Entity::require_component_write(bool accepted) {
+        if(!accepted)
+            LOG_FATAL("Cannot write component: invalid entity or missing component");
+    }
 }

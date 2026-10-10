@@ -21,8 +21,9 @@ namespace Comet::Tests {
         EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.rotation = {0, 90, 0}; }));
         EXPECT_TRUE(parent.try_edit_transform([&](auto& value) { value.scale = {2, -3, -4}; }));
         auto light = scene.create_entity("light");
-        light.add_component<LightComponent>().type = LightType::Spot;
-        light.get_component<LightComponent>().casts_shadow = true;
+        light.add_component<LightComponent>(LightComponent{.type = LightType::Spot});
+        light.edit_component<LightComponent>(
+            [&](auto& component) { component.casts_shadow = true; });
         const auto& child = light.get_component<TransformComponent>();
         EXPECT_TRUE(light.try_edit_transform([&](auto& value) { value.translation = {0, 0, 2}; }));
         EXPECT_TRUE(light.try_edit_transform([&](auto& value) { value.scale = {0, -10, 0}; }));
@@ -34,7 +35,7 @@ namespace Comet::Tests {
         EXPECT_LT(
             Math::length(Math::normalize(extracted.lights[0].direction) - Math::Vec3(-1, 0, 0)),
             1e-5f);
-        light.get_component<LightComponent>().enabled = false;
+        light.edit_component<LightComponent>([&](auto& component) { component.enabled = false; });
         EXPECT_TRUE(SceneExtractor::extract(scene).lights.empty());
         EXPECT_EQ(extracted.lights[0].type, LightType::Spot);
         AssetRegistry assets;
@@ -312,7 +313,9 @@ namespace Comet::Tests {
         auto clone = std::move(cloned).value();
         EXPECT_EQ(clone->find_entity(light.get_uuid()).get_component<LightComponent>().type,
             LightType::Spot);
-        clone->find_entity(light.get_uuid()).get_component<LightComponent>().intensity = 100;
+        clone->find_entity(light.get_uuid()).edit_component<LightComponent>([&](auto& component) {
+            component.intensity = 100;
+        });
         EXPECT_EQ(light.get_component<LightComponent>().intensity, 1);
         auto serialized = serializer.serialize(scene);
         ASSERT_TRUE(serialized) << serialized.error();
@@ -321,7 +324,8 @@ namespace Comet::Tests {
         ASSERT_NE(offset, std::string::npos);
         text.replace(offset, std::string("\"spot\"").size(), "\"invalid\"");
         EXPECT_FALSE(serializer.deserialize(text));
-        light.get_component<LightComponent>().type = static_cast<LightType>(100);
+        light.edit_component<LightComponent>(
+            [&](auto& component) { component.type = static_cast<LightType>(100); });
         EXPECT_FALSE(type->copy_value(descriptor->get_component(light)));
         EXPECT_FALSE(serializer.serialize(scene));
     }

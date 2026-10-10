@@ -129,12 +129,13 @@ namespace Comet::Tests {
             entities[index] = create(step + 32);
             const auto filtered = (index + 1) % entities.size();
             entities[filtered].remove_component<TransformComponent>();
-            auto& mesh =
-                entities[(index + 2) % entities.size()].get_component<MeshRendererComponent>();
-            mesh.mesh = AssetHandle{10 + step % 2};
-            mesh.material = AssetHandle{20 + step % 4};
-            if(step % 5 == 0)
-                mesh.material = AssetHandle{99};
+            entities[(index + 2) % entities.size()].edit_component<MeshRendererComponent>(
+                [&](auto& mesh) {
+                    mesh.mesh = AssetHandle{10 + step % 2};
+                    mesh.material = AssetHandle{20 + step % 4};
+                    if(step % 5 == 0)
+                        mesh.material = AssetHandle{99};
+                });
             SceneExtractor::extract(scene, snapshot);
             const auto fresh = SceneExtractor::extract(scene);
             ASSERT_EQ(snapshot.render_items.size(), fresh.render_items.size());

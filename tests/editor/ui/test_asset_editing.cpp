@@ -897,8 +897,9 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(AssetEditingUiTest, PickerPreservesMissingReferenceAndClearCanBeUndone) {
-        auto& renderer = entity.get_component<Comet::MeshRendererComponent>();
-        renderer.mesh = Comet::AssetHandle(999);
+        const auto& renderer = entity.get_component<Comet::MeshRendererComponent>();
+        entity.edit_component<Comet::MeshRendererComponent>(
+            [](auto& component) { component.mesh = Comet::AssetHandle(999); });
         frame();
         frame();
         EXPECT_EQ(renderer.mesh, Comet::AssetHandle(999));
@@ -910,7 +911,8 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(renderer.mesh);
         ASSERT_TRUE(history.undo());
         EXPECT_EQ(renderer.mesh, Comet::AssetHandle(999));
-        renderer.mesh = mesh;
+        entity.edit_component<Comet::MeshRendererComponent>(
+            [&](auto& component) { component.mesh = mesh; });
         EXPECT_FALSE(choose(0, 1));
     }
 
@@ -977,7 +979,7 @@ namespace CometEditor::Tests {
             ASSERT_TRUE(edit.apply(request->target, request->asset.handle));
             EXPECT_EQ(history.undo_size(), 1);
             ASSERT_TRUE(history.undo());
-            auto& renderer = entity.get_component<Comet::MeshRendererComponent>();
+            const auto& renderer = entity.get_component<Comet::MeshRendererComponent>();
             EXPECT_FALSE(renderer.mesh);
             EXPECT_FALSE(renderer.material);
             ASSERT_TRUE(history.redo());

@@ -132,7 +132,7 @@ namespace CometEditor::Tests {
 
         void activate_play_camera() {
             state.mode = EditorMode::Play;
-            entity.add_component<Comet::CameraComponent>().primary = true;
+            entity.add_component<Comet::CameraComponent>(Comet::CameraComponent{.primary = true});
             entity.add_component<Comet::CameraControllerComponent>();
             ASSERT_TRUE(runtime.start(scene));
             frame();

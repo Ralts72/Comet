@@ -25,7 +25,7 @@ namespace Comet::Tests {
             actions = project.value().input_actions();
             input.focus_event(true);
             input.cursor_event({0, 0});
-            entity.add_component<CameraComponent>().primary = true;
+            entity.add_component<CameraComponent>(CameraComponent{.primary = true});
             entity.add_component<CameraControllerComponent>();
         }
 
@@ -210,7 +210,7 @@ namespace Comet::Tests {
     TEST_F(CameraControllerTest, CaptureUsesCurrentPrimaryControllerAndParentValidity) {
         CameraControllerSystem system;
         auto other = scene.create_entity("Other camera");
-        other.add_component<CameraComponent>().primary = true;
+        other.add_component<CameraComponent>(CameraComponent{.primary = true});
         other.add_component<CameraControllerComponent>();
         input.mouse_button_event(Input::MouseButton::Right, true);
         update();
@@ -230,7 +230,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(system.wants_cursor_capture(scene, input_state));
         entity.remove_component<CameraControllerComponent>();
         EXPECT_FALSE(system.wants_cursor_capture(scene, input_state));
-        entity.get_component<CameraComponent>().primary = false;
+        entity.edit_component<CameraComponent>([&](auto& component) { component.primary = false; });
         EXPECT_TRUE(system.wants_cursor_capture(scene, input_state));
         scene.destroy_entity(other);
         EXPECT_FALSE(system.wants_cursor_capture(scene, input_state));
@@ -326,7 +326,7 @@ namespace Comet::Tests {
 
     TEST_F(CameraControllerTest, OptInSettingsAndPrimarySelectionDoNotAffectOtherCameras) {
         auto other = scene.create_entity("Other Camera");
-        other.add_component<CameraComponent>().primary = true;
+        other.add_component<CameraComponent>(CameraComponent{.primary = true});
         other.add_component<CameraControllerComponent>();
         input.key_event(Input::Key::W, true);
         auto& controller = entity.get_component<CameraControllerComponent>();
@@ -352,7 +352,7 @@ namespace Comet::Tests {
         update();
         EXPECT_EQ(camera.translation, before);
         EXPECT_EQ(other.get_component<TransformComponent>().translation, Math::Vec3(0));
-        entity.get_component<CameraComponent>().primary = false;
+        entity.edit_component<CameraComponent>([&](auto& component) { component.primary = false; });
         update();
         EXPECT_NE(other.get_component<TransformComponent>().translation, Math::Vec3(0));
         const auto after = other.get_component<TransformComponent>().translation;

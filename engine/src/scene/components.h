@@ -56,17 +56,10 @@ namespace Comet {
         || std::is_same_v<std::remove_cvref_t<T>, RelationshipComponent>
         || std::is_same_v<std::remove_cvref_t<T>, WorldTransformComponent>;
 
-    template<typename T>
-    inline constexpr bool is_scene_read_only_component_v =
-        std::is_same_v<std::remove_cvref_t<T>, TransformComponent>
-        || std::is_same_v<std::remove_cvref_t<T>, IdComponent>
-        || std::is_same_v<std::remove_cvref_t<T>, UuidComponent>
-        || std::is_same_v<std::remove_cvref_t<T>, RelationshipComponent>
-        || std::is_same_v<std::remove_cvref_t<T>, WorldTransformComponent>;
-
     struct COMET_API MeshRendererComponent {
         AssetHandle mesh;
         AssetHandle material;
+        bool operator==(const MeshRendererComponent&) const = default;
     };
 
     struct COMET_API LightComponent {
@@ -79,6 +72,7 @@ namespace Comet {
         float inner_angle = 20.0f;
         float outer_angle = 30.0f;
         bool casts_shadow = false;
+        bool operator==(const LightComponent&) const = default;
     };
 
     struct COMET_API CameraComponent {
@@ -91,7 +85,22 @@ namespace Comet {
         float orthographic_height = 10.0f;
         float near_clip = 0.1f;
         float far_clip = 1000.0f;
+        bool operator==(const CameraComponent&) const = default;
     };
+
+    template<typename T>
+    inline constexpr bool is_scene_render_component_v =
+        std::is_same_v<std::remove_cvref_t<T>, MeshRendererComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, CameraComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, LightComponent>;
+
+    template<typename T>
+    inline constexpr bool is_scene_read_only_component_v =
+        is_scene_render_component_v<T> || std::is_same_v<std::remove_cvref_t<T>, TransformComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, IdComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, UuidComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, RelationshipComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, WorldTransformComponent>;
 
     struct COMET_API CameraControllerComponent {
         bool enabled = true;

@@ -46,7 +46,8 @@ namespace CometEditor {
 
         const auto components = Comet::create_scene_component_registry();
         Comet::Scene scene;
-        scene.create_entity("MainCamera").add_component<Comet::CameraComponent>().primary = true;
+        scene.create_entity("MainCamera")
+            .add_component<Comet::CameraComponent>(Comet::CameraComponent{.primary = true});
         if(auto saved = Comet::SceneSerializer(components).save(scene, scene_file.string());
             !saved) {
             cleanup();

@@ -83,9 +83,15 @@ namespace Comet::Tests {
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(scene.set_material_scalar(target, "roughness", 0.25f, materials));
+        const auto revision = scene.get_render_revision();
+        ASSERT_TRUE(scene.set_material_scalar(target, "roughness", 0.25f, materials));
+        EXPECT_EQ(scene.get_render_revision(), revision);
         const auto before_rebind = scene.get_material_overrides(target);
         ASSERT_TRUE(before_rebind);
-        target.get_component<MeshRendererComponent>().material = AssetHandle{30};
+        target.edit_component<MeshRendererComponent>(
+            [&](auto& component) { component.material = AssetHandle{30}; });
+        EXPECT_GT(scene.get_render_revision(), revision);
+        EXPECT_FALSE(scene.get_material_overrides(target));
         const auto rebound = SceneExtractor::extract(scene);
         ASSERT_EQ(rebound.render_items.size(), 1u);
         EXPECT_EQ(rebound.render_items.front().material_handle, AssetHandle{30});
@@ -111,7 +117,7 @@ namespace Comet::Tests {
         auto mesh = scene.create_entity("Mesh");
         mesh.add_component<MeshRendererComponent>(AssetHandle{10}, AssetHandle{20});
         auto camera = scene.create_entity("Camera");
-        camera.add_component<CameraComponent>().primary = true;
+        camera.add_component<CameraComponent>(CameraComponent{.primary = true});
         auto light = scene.create_entity("Light");
         light.add_component<LightComponent>();
         ASSERT_TRUE(scene.set_environment({AssetHandle{30}, true, 2, 90}));
@@ -125,7 +131,7 @@ namespace Comet::Tests {
 
         mesh.remove_component<MeshRendererComponent>();
         camera.remove_component<CameraComponent>();
-        light.get_component<LightComponent>().enabled = false;
+        light.edit_component<LightComponent>([&](auto& component) { component.enabled = false; });
         SceneExtractor::extract(scene, snapshot);
         EXPECT_TRUE(snapshot.render_items.empty());
         EXPECT_TRUE(snapshot.cameras.empty());
@@ -314,14 +320,11 @@ namespace Comet::Tests {
             [&](auto& value) { value.rotation = Math::Vec3(10.0f, 20.0f, 30.0f); }));
         EXPECT_TRUE(camera_entity.try_edit_transform(
             [&](auto& value) { value.scale = Math::Vec3(2.0f, 3.0f, 4.0f); }));
-        auto& camera = camera_entity.add_component<CameraComponent>();
-        camera.primary = true;
-        camera.fov = 60.0f;
-        camera.near_clip = 0.2f;
-        camera.far_clip = 500.0f;
+        camera_entity.add_component<CameraComponent>(
+            CameraComponent{.primary = true, .fov = 60.0f, .near_clip = 0.2f, .far_clip = 500.0f});
 
         Entity missing_transform = scene.create_entity("Missing Transform");
-        missing_transform.add_component<CameraComponent>().primary = true;
+        missing_transform.add_component<CameraComponent>(CameraComponent{.primary = true});
         missing_transform.remove_component<TransformComponent>();
 
         Entity camera_parent = scene.create_entity("Camera Parent");
@@ -353,12 +356,11 @@ namespace Comet::Tests {
     TEST(SceneExtractorTest, ExtractsSceneCameraOrthographicProjection) {
         Scene scene;
         auto camera_entity = scene.create_entity("Camera");
-        auto& camera = camera_entity.add_component<CameraComponent>();
-        camera.primary = true;
-        camera.projection = CameraComponent::Projection::Orthographic;
-        camera.orthographic_height = 8.0f;
-        camera.near_clip = 0.2f;
-        camera.far_clip = 50.0f;
+        camera_entity.add_component<CameraComponent>(CameraComponent{.primary = true,
+            .projection = CameraComponent::Projection::Orthographic,
+            .orthographic_height = 8.0f,
+            .near_clip = 0.2f,
+            .far_clip = 50.0f});
 
         const auto snapshot = SceneExtractor::extract(scene);
         ASSERT_EQ(snapshot.cameras.size(), 1u);

@@ -290,7 +290,7 @@ namespace {
         if(!scene->set_post_process({.bloom_enabled = options.bloom}))
             return Result<void>::failure("Invalid benchmark post processing settings");
         auto camera = create_entity("Camera");
-        camera.add_component<Comet::CameraComponent>().primary = true;
+        camera.add_component<Comet::CameraComponent>(Comet::CameraComponent{.primary = true});
         camera.set_transform({.translation = {0, 10, 16}, .rotation = {-30, 0, 0}});
         const auto columns = static_cast<unsigned>(std::ceil(std::sqrt(options.objects)));
         const float spacing = 10.0f / columns;
@@ -330,25 +330,24 @@ namespace {
         }
         auto key = create_entity("Directional");
         key.set_transform({.rotation = {-30, -35, 0}});
-        auto& directional = key.add_component<Comet::LightComponent>();
-        directional.intensity = 4;
-        directional.casts_shadow = true;
+        key.add_component<Comet::LightComponent>(
+            Comet::LightComponent{.intensity = 4, .casts_shadow = true});
         if(options.workload == Workload::LightMoving)
             initial_poses.push_back({key, key.get_component<Comet::TransformComponent>()});
         auto point = create_entity("Point");
         point.set_transform({.translation = {-3, 2, 0}});
-        auto& point_light = point.add_component<Comet::LightComponent>();
-        point_light.type = Comet::LightType::Point;
-        point_light.color = {1, 0.2f, 0.1f};
-        point_light.intensity = 20;
-        point_light.range = 8;
+        point.add_component<Comet::LightComponent>(
+            Comet::LightComponent{.type = Comet::LightType::Point,
+                .color = {1, 0.2f, 0.1f},
+                .intensity = 20,
+                .range = 8});
         auto spot = create_entity("Spot");
         spot.set_transform({.translation = {3, 4, 3}, .rotation = {-50, 30, 0}});
-        auto& spot_light = spot.add_component<Comet::LightComponent>();
-        spot_light.type = Comet::LightType::Spot;
-        spot_light.color = {0.1f, 0.2f, 1};
-        spot_light.intensity = 20;
-        spot_light.range = 12;
+        spot.add_component<Comet::LightComponent>(
+            Comet::LightComponent{.type = Comet::LightType::Spot,
+                .color = {0.1f, 0.2f, 1},
+                .intensity = 20,
+                .range = 12});
         engine.set_scene(std::move(scene));
         return Result<void>::success();
     }

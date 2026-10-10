@@ -197,7 +197,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(actions);
         ASSERT_TRUE(runtime.set_input_actions(actions.value()));
         auto camera = scene.create_entity("Camera");
-        camera.add_component<CameraComponent>().primary = true;
+        camera.add_component<CameraComponent>(CameraComponent{.primary = true});
         camera.add_component<CameraControllerComponent>();
         ASSERT_TRUE(runtime.add_system(std::make_unique<CameraControllerSystem>()));
         auto* destroyer = add();
@@ -1389,7 +1389,7 @@ namespace Comet::Tests {
 
     TEST_F(SceneRuntimeTest, CameraRunsOncePerFrameNotOncePerFixedStep) {
         auto camera = scene.create_entity("Camera");
-        camera.add_component<CameraComponent>().primary = true;
+        camera.add_component<CameraComponent>(CameraComponent{.primary = true});
         camera.add_component<CameraControllerComponent>();
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
         auto actions = InputActions::create(
@@ -1422,7 +1422,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(actions);
         ASSERT_TRUE(runtime.set_input_actions(actions.value()));
         auto camera = scene.create_entity("Camera");
-        camera.add_component<CameraComponent>().primary = true;
+        camera.add_component<CameraComponent>(CameraComponent{.primary = true});
         camera.add_component<CameraControllerComponent>();
         const auto& transform = camera.get_component<TransformComponent>();
         ASSERT_TRUE(runtime.add_system(std::make_unique<CameraControllerSystem>()));

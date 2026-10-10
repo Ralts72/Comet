@@ -102,12 +102,17 @@ Engine／Renderer／设备等工厂先准备完整 owner，成功后交付；部
 
 数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
 RenderScene 是不借用组件的 CPU 快照，由 Engine 持有并复用容量；其头文件只依赖数学、资产身份和场景值契约，不传递包含组件或后端实现。
+Scene 记录渲染版本；Engine 在实例与版本未变时复用快照，有变更时仍完整提取。清空或更换场景同时使 Engine 的版本记录失效，
+重新安装同一实例也不会复用被清空的快照。资产发布由 Resolver 独立检查，不要求 Scene 修改才能获取新资源。
+Mesh Renderer、Camera、Light 的访问与查询只读，添加组件时传入初值；`try_set_component`／`edit_component` 通过副本提交属性。
+属性面板先校验副本再提交，拒绝值和相同值不增加版本。Transform 沿已有写入入口标记脏节点；结构、场景设置和运行时材质覆盖变化也使快照失效。
+材质改绑在提交时清除该实体的运行时覆盖，移除组件与停止 Runtime 同样清理；覆盖读取不再重复查询 Mesh 组件验证绑定。
 RenderSubmission 保活当前实际资源，Scene 不持有 GPU 对象。Renderer 复用当前提交的槽位；帧边界按资源发布版本
 释放已替换或移除的引用，SceneResolver 在下一次解析时获取新资源。空场景、隐藏／延期帧和关闭时清空当前引用，
 在途 slot 仍独立保活已使用的 GPU 版本。
 
 Scene 的进程内实例代号与实体 ID 共同识别对象，WorldTransform 的版本只在脏节点同步时增加。
-提取与解析按身份／版本省去未变矩阵的重复复制；Registry 的成功注册、替换、移除和清空改变总发布版本，
+发生场景修改后，提取与解析按身份／版本省去未变矩阵的重复复制；Registry 的成功注册、替换、移除和清空改变总发布版本，
 总版本未变时直接复用资源；变化时核对实际 Mesh、材质与环境的条目版本，分别保留未变引用和矩阵，不清空整个提交。
 资源与发布版本在同一次解析查询中取得，避免新增、重排或改绑材质时重复查表。
 同场景单个对象增删确认相邻实体身份后，只移动一次提交后缀，保留未变资源和矩阵；

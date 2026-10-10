@@ -501,7 +501,7 @@ namespace CometEditor::Tests {
         ASSERT_EQ(viewport.take_play_command(), PlayCommand::Play);
         EXPECT_FALSE(runtime_accepting);
 
-        entity.add_component<Comet::CameraComponent>().primary = true;
+        entity.add_component<Comet::CameraComponent>(Comet::CameraComponent{.primary = true});
         entity.add_component<Comet::CameraControllerComponent>();
         ASSERT_TRUE(runtime.start(scene));
         state.mode = EditorMode::Play;

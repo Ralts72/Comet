@@ -11,6 +11,7 @@
 #include "frame_pacer.h"
 
 #include <functional>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -111,5 +112,6 @@ namespace Comet {
         bool m_running = false;
         bool m_shutdown_prepared = false;
         RenderScene m_render_scene;
+        uint64_t m_render_scene_revision = 0;
     };
 }

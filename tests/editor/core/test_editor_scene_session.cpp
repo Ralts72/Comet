@@ -120,7 +120,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(active_scene->set_post_process(post_process));
         Comet::Scene* original_edit_scene = active_scene.get();
         Comet::Entity edit_entity = active_scene->create_entity("Edit Entity");
-        edit_entity.add_component<Comet::CameraComponent>().primary = true;
+        edit_entity.add_component<Comet::CameraComponent>(Comet::CameraComponent{.primary = true});
         edit_entity.add_component<Comet::CameraControllerComponent>().move_speed = 5;
         const Comet::EntityUuid entity_uuid = edit_entity.get_uuid();
         CommandHistory history;

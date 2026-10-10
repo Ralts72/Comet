@@ -13,6 +13,11 @@
 #include "asset/script.h"
 #include "scene/systems/script_system.h"
 #include "asset/registry.h"
+#include "asset/data/mesh_data.h"
+#include "render/material/material.h"
+#include "render/resource/render_resources.h"
+#include "render/resource/mesh.h"
+#include "render/scene/scene_renderer.h"
 
 #include <gtest/gtest.h>
 #include <GLFW/glfw3.h>
@@ -24,6 +29,83 @@ namespace Comet::Tests {
         std::is_same_v<decltype(std::declval<Engine&>().get_scene_runtime()), const SceneRuntime&>);
 
     using EngineSceneActivationTest = EngineTest;
+
+    TEST_F(EngineSceneActivationTest, CachedExtractionRefreshesEditsAndReinstalledScene) {
+        auto mesh = engine->get_render_resources().try_create_mesh(
+            {.vertices = {{{-0.5f, -0.5f, -2}}, {{0.5f, -0.5f, -2}}, {{0, 0.5f, -2}}},
+                .indices = {0, 1, 2}});
+        ASSERT_TRUE(mesh);
+        ASSERT_TRUE(engine->get_asset_registry().register_asset(AssetHandle{10}, mesh.value()));
+        ASSERT_TRUE(engine->get_asset_registry().register_asset(
+            AssetHandle{20}, std::make_shared<Material>("item", "unlit_color")));
+        auto scene = std::make_unique<Scene>();
+        auto camera = scene->create_entity("Camera");
+        camera.add_component<CameraComponent>(CameraComponent{.primary = true});
+        auto object = scene->create_entity("Object");
+        object.add_component<MeshRendererComponent>(AssetHandle{10}, AssetHandle{20});
+        engine->set_scene(std::move(scene));
+        int frames = 0;
+        int updates = 0;
+        engine->get_renderer().set_overlay({.render = [&](OverlayRecordContext&) {
+            const auto& renderer = engine->get_renderer().get_scene_renderer();
+            const bool visible =
+                frames == 1 || frames == 2 || frames == 4 || frames == 5 || frames == 8;
+            EXPECT_EQ(renderer.get_material_statistics().render_items, visible ? 1u : 0u);
+            EXPECT_FLOAT_EQ(renderer.get_post_process_settings().exposure, frames >= 4 ? 2 : 1);
+            if(frames == 8)
+                engine->get_window().request_close();
+            return Result<void, GraphicsError>::success();
+        }});
+        const auto result = engine->run({.update =
+                                             [&](const Engine::FrameContext&) {
+                                                 if(++updates > 20)
+                                                     engine->get_window().request_close();
+                                                 return Result<void, Error>::success();
+                                             },
+            .frame_ready =
+                [&](const Engine::FrameContext&) {
+                    ++frames;
+                    switch(frames) {
+                        case 3:
+                            camera.edit_component<CameraComponent>(
+                                [](auto& value) { value.fov = 0; });
+                            break;
+                        case 4:
+                            camera.edit_component<CameraComponent>(
+                                [](auto& value) { value.fov = 60; });
+                            EXPECT_TRUE(engine->get_scene()->set_post_process({.exposure = 2}));
+                            break;
+                        case 5: {
+                            const auto revision = engine->get_scene()->get_render_revision();
+                            auto retained = engine->replace_scene(nullptr);
+                            engine->set_scene(std::move(retained));
+                            EXPECT_EQ(engine->get_scene()->get_render_revision(), revision);
+                            break;
+                        }
+                        case 6:
+                            object.edit_component<MeshRendererComponent>(
+                                [](auto& value) { value.mesh = AssetHandle{99}; });
+                            break;
+                        case 7:
+                            object.edit_component<MeshRendererComponent>(
+                                [](auto& value) { value.mesh = AssetHandle{10}; });
+                            camera.remove_component<CameraComponent>();
+                            break;
+                        case 8:
+                            camera.add_component<CameraComponent>(CameraComponent{.primary = true});
+                            break;
+                        default:
+                            break;
+                    }
+                    return Result<void, Error>::success();
+                }});
+        engine->get_renderer().set_overlay({});
+        ASSERT_TRUE(result) << result.error().message;
+        EXPECT_EQ(frames, 8);
+        EXPECT_NE(messages.str().find("invalid projection/view parameters"), std::string::npos);
+        EXPECT_NE(messages.str().find("missing mesh handle 99"), std::string::npos);
+        EXPECT_NE(messages.str().find("no primary camera"), std::string::npos);
+    }
 
     TEST_F(EngineSceneActivationTest, FrameRateLimitChangesDuringRunAndWaitsBetweenLoopStarts) {
         ASSERT_TRUE(engine->set_frame_rate_limit(20));
@@ -61,7 +143,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(engine->set_input_actions(std::move(actions).value()));
         auto scene = std::make_unique<Scene>();
         auto camera = scene->create_entity();
-        camera.add_component<CameraComponent>().primary = true;
+        camera.add_component<CameraComponent>(CameraComponent{.primary = true});
         camera.add_component<CameraControllerComponent>();
         engine->set_scene(std::move(scene));
         ASSERT_TRUE(engine->add_system(std::make_unique<CameraControllerSystem>()));
@@ -128,7 +210,7 @@ namespace Comet::Tests {
                         engine->set_scene(std::make_unique<Scene>());
                     if(draws == 3) {
                         auto camera = engine->get_scene()->create_entity("Camera");
-                        camera.add_component<CameraComponent>().primary = true;
+                        camera.add_component<CameraComponent>(CameraComponent{.primary = true});
                     }
                     return Result<void, Error>::success();
                 },

@@ -17,20 +17,33 @@ namespace Comet {
     Scene::Scene() : m_lifetime(next_scene_lifetime.fetch_add(1, std::memory_order_relaxed) + 1) {
         m_registry.on_destroy<MeshRendererComponent>().connect<&Scene::clear_material_overrides>(
             *this);
+        m_registry.on_construct<MeshRendererComponent>().connect<&Scene::mark_render_dirty>(*this);
+        m_registry.on_destroy<MeshRendererComponent>().connect<&Scene::mark_render_dirty>(*this);
+        m_registry.on_construct<CameraComponent>().connect<&Scene::mark_render_dirty>(*this);
+        m_registry.on_destroy<CameraComponent>().connect<&Scene::mark_render_dirty>(*this);
+        m_registry.on_construct<LightComponent>().connect<&Scene::mark_render_dirty>(*this);
+        m_registry.on_destroy<LightComponent>().connect<&Scene::mark_render_dirty>(*this);
     }
 
     bool Scene::set_post_process(const PostProcessSettings& settings) {
         if(!settings.validate())
             return false;
-        m_post_process = settings;
+        if(m_post_process != settings) {
+            m_post_process = settings;
+            mark_render_dirty();
+        }
         return true;
     }
 
     bool Scene::set_environment(const SceneEnvironment& environment) {
         if(!environment.validate())
             return false;
-        m_environment = environment;
-        m_environment.rotation = Math::wrap_degrees(environment.rotation);
+        auto candidate = environment;
+        candidate.rotation = Math::wrap_degrees(candidate.rotation);
+        if(m_environment != candidate) {
+            m_environment = candidate;
+            mark_render_dirty();
+        }
         return true;
     }
 
@@ -223,6 +236,8 @@ namespace Comet {
         m_entity_requests.clear();
         m_contact_events.clear();
         m_events.clear();
+        if(!m_material_overrides.empty())
+            mark_render_dirty();
         m_material_overrides.clear();
     }
 
@@ -251,11 +266,6 @@ namespace Comet {
         const auto found = m_material_overrides.find(entity.m_handle);
         if(found == m_material_overrides.end())
             return nullptr;
-        if(!entity.has_component<MeshRendererComponent>()
-            || entity.get_component<MeshRendererComponent>().material != found->second->material) {
-            m_material_overrides.erase(found);
-            return nullptr;
-        }
         return found->second;
     }
 
@@ -307,6 +317,7 @@ namespace Comet {
             return Result<void>::success();
         m_material_overrides.insert_or_assign(
             entity.m_handle, std::make_shared<const MaterialOverrides>(std::move(candidate)));
+        mark_render_dirty();
         return Result<void>::success();
     }
 
@@ -416,6 +427,7 @@ namespace Comet {
     void Scene::mark_transform_dirty(const entt::entity handle) {
         if(m_dirty_transforms.contains(handle))
             return;
+        mark_render_dirty();
         m_dirty_transforms.push(handle);
         if(m_children_by_parent.empty())
             return;

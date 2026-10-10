@@ -27,6 +27,14 @@ namespace Comet {
         template<typename Function> [[nodiscard]] bool try_edit_transform(Function&& edit) const;
         template<typename Function> void edit_transform(Function&& edit) const;
 
+        // 渲染属性通过副本提交；相同值不改变场景版本。
+        template<typename T>
+            requires(is_scene_render_component_v<T>)
+        [[nodiscard]] bool try_set_component(const T& component) const;
+        template<typename T, typename Function>
+            requires(is_scene_render_component_v<T>)
+        void edit_component(Function&& edit) const;
+
         template<typename T>
             requires(!is_scene_read_only_component_v<T>)
         T& get_component();
@@ -54,6 +62,7 @@ namespace Comet {
 
         Entity(entt::entity handle, Scene* scene);
         static void require_transform_write(bool accepted);
+        static void require_component_write(bool accepted);
 
         entt::entity m_handle = entt::null;
         Scene* m_scene = nullptr;
