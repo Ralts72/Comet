@@ -42,6 +42,7 @@ namespace Comet {
     };
 
     struct COMET_API WorldTransformComponent {
+        uint64_t revision = 0;
         Math::Mat4 world_matrix = Math::Mat4(1.0f);
         // 世界位置与层级旋转，不含本地或祖先缩放；供相机和灯光共用。
         Math::Mat4 pose_world_matrix = Math::Mat4(1.0f);

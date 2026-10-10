@@ -25,12 +25,16 @@ namespace Comet {
 
     struct ResolvedRenderItem {
         EntityId entity_id = INVALID_ENTITY_ID;
+        uint64_t transform_revision = 0;
         Math::Mat4 model_matrix = Math::Mat4(1.0f);
+        AssetHandle mesh_handle = INVALID_ASSET_HANDLE;
         std::shared_ptr<Mesh> mesh;
         MaterialBinding material;
     };
 
     struct RenderSubmission {
+        uint64_t scene_lifetime = 0;
+        uint64_t asset_revision = 0;
         std::optional<ViewProjectMatrix> view_project_matrix;
         std::vector<ResolvedRenderItem> render_items;
         std::vector<RenderLight> lights;

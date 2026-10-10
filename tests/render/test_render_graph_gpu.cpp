@@ -542,7 +542,7 @@ namespace Comet::Tests {
                 if(scenario == Scenario::TiltedLight)
                     submission.lights.front().direction = {1, 0, -1};
                 RenderGeometry geometry;
-                geometry.prepare(submission.render_items);
+                geometry.prepare(submission);
                 const auto lighting = ShadowPass::prepare(submission, geometry);
                 const bool shadow_enabled =
                     scenario != Scenario::ShadowsDisabled && scenario != Scenario::NoLights;
@@ -633,7 +633,7 @@ namespace Comet::Tests {
             .render_items = {{.mesh = lit_quad()}},
             .lights = {{.casts_shadow = true}}};
         RenderGeometry geometry;
-        geometry.prepare(submission.render_items);
+        geometry.prepare(submission);
         const auto lighting = ShadowPass::prepare(submission, geometry);
         ASSERT_EQ(lighting.shadow_light_index, 0);
         RenderGraph graph;

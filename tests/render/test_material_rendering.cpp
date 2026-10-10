@@ -4,6 +4,7 @@
 #include "scene/material_parameters.h"
 #include "core/math_utils.h"
 #include "support/engine_fixture.h"
+#include "support/render_gpu_test.h"
 #include "render/renderer.h"
 #include "render/render_context.h"
 #include "render/render_target.h"
@@ -234,6 +235,44 @@ namespace Comet::Tests {
         ASSERT_TRUE(draw(scene));
         EXPECT_EQ(
             renderer.get_scene_renderer().get_material_statistics().cached_material_versions, 1u);
+    }
+
+    TEST_F(RenderGpuTest, PublicationRemovalReleasesCurrentSubmissionWithAHiddenView) {
+        constexpr AssetHandle mesh_handle{9210}, material_handle{9211};
+        auto& assets = engine->get_asset_registry();
+        const auto mesh = engine->get_render_resources().try_create_mesh(
+            {.vertices = {{{-0.5f, -0.5f, -2}}, {{0.5f, -0.5f, -2}}, {{0, 0.5f, -2}}},
+                .indices = {0, 1, 2}});
+        ASSERT_TRUE(mesh);
+        ASSERT_TRUE(assets.register_asset(mesh_handle, mesh.value()));
+        auto& renderer = engine->get_renderer();
+        ASSERT_TRUE(prepare_offscreen_host({64, 64}));
+        RenderScene scene;
+        scene.cameras.push_back({.primary = true});
+        scene.render_items.push_back(
+            {.mesh_handle = mesh_handle, .material_handle = material_handle});
+        for(const bool hidden : {false, true}) {
+            SCOPED_TRACE(hidden);
+            ASSERT_TRUE(renderer.set_render_view({}));
+            auto material = std::make_shared<Material>("retired", "unlit_color");
+            const std::weak_ptr retired = material;
+            ASSERT_TRUE(assets.register_asset(material_handle, material));
+            for(int frame = 0; frame < 2; ++frame) {
+                const auto prepared = renderer.prepare_frame();
+                ASSERT_TRUE(prepared);
+                ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
+                ASSERT_TRUE(renderer.render_frame(scene));
+            }
+            ASSERT_TRUE(assets.unregister_asset(material_handle));
+            material.reset();
+            EXPECT_FALSE(retired.expired());
+            ASSERT_TRUE(renderer.set_render_view({.visible = !hidden}));
+            const auto prepared = renderer.prepare_frame();
+            ASSERT_TRUE(prepared);
+            EXPECT_TRUE(retired.expired());
+            if(prepared.value() == Renderer::FramePreparation::Ready)
+                ASSERT_TRUE(renderer.render_frame());
+        }
     }
 
     TEST_F(MaterialRenderingTest, CullingFollowsPublishedVertexCodeAcrossReloadFailureAndRestore) {
@@ -1185,7 +1224,7 @@ namespace Comet::Tests {
                     ViewProjectMatrix{.view = Math::Mat4(1), .projection = Math::Mat4(1)},
                 .render_items = std::move(instances)};
             RenderGeometry geometry;
-            geometry.prepare(draw_submission.render_items);
+            geometry.prepare(draw_submission);
             const auto waits = materials->render(frames, draw_submission, geometry, lighting,
                 shadow_input.value()->get_image_view());
             ASSERT_TRUE(waits) << waits.error();

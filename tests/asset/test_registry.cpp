@@ -109,4 +109,54 @@ namespace Comet::Tests {
         EXPECT_FALSE(registry.replace_asset(AssetHandle(73), std::make_shared<TestMesh>()));
         EXPECT_FALSE(registry.replace_asset(handle, std::make_shared<TestMaterial>()));
     }
+
+    TEST(AssetRegistryTest, PublicationRevisionInvalidatesResolvedSnapshotsOnlyOnSuccess) {
+        AssetRegistry registry;
+        AssetRegistry other;
+        EXPECT_NE(registry.get_revision(), other.get_revision());
+        const auto initial = registry.get_revision();
+        const AssetHandle handle{42};
+        const auto mesh = std::make_shared<TestMesh>();
+        EXPECT_FALSE(registry.register_asset(INVALID_ASSET_HANDLE, mesh));
+        EXPECT_FALSE(registry.unregister_asset(handle));
+        EXPECT_EQ(registry.get_revision(), initial);
+
+        ASSERT_TRUE(registry.register_asset(handle, mesh));
+        const auto published = registry.get_revision();
+        EXPECT_NE(published, initial);
+        EXPECT_FALSE(registry.register_asset(handle, mesh));
+        EXPECT_FALSE(registry.replace_asset(handle, std::make_shared<TestMaterial>()));
+        EXPECT_EQ(registry.get_revision(), published);
+        ASSERT_TRUE(registry.replace_asset(handle, std::make_shared<TestMesh>()));
+        const auto replaced = registry.get_revision();
+        EXPECT_NE(replaced, published);
+        ASSERT_TRUE(registry.unregister_asset(handle));
+        EXPECT_NE(registry.get_revision(), replaced);
+        const auto removed = registry.get_revision();
+        ASSERT_TRUE(registry.register_asset(handle, mesh));
+        EXPECT_NE(registry.get_revision(), removed);
+        const auto restored = registry.get_revision();
+        registry.clear();
+        EXPECT_NE(registry.get_revision(), restored);
+    }
+
+    TEST(AssetRegistryTest, MovingRegistriesInvalidatesBothPublishedStates) {
+        AssetRegistry source;
+        const AssetHandle handle{1};
+        const auto mesh = std::make_shared<TestMesh>();
+        ASSERT_TRUE(source.register_asset(handle, mesh));
+        const auto before = source.get_revision();
+        AssetRegistry target(std::move(source));
+        EXPECT_EQ(target.resolve<TestMesh>(handle), mesh);
+        EXPECT_EQ(source.size(), 0u);
+        EXPECT_NE(source.get_revision(), before);
+        EXPECT_NE(target.get_revision(), before);
+        const auto moved = target.get_revision();
+        const auto cleared = source.get_revision();
+        source = std::move(target);
+        EXPECT_EQ(source.resolve<TestMesh>(handle), mesh);
+        EXPECT_EQ(target.size(), 0u);
+        EXPECT_NE(source.get_revision(), cleared);
+        EXPECT_NE(target.get_revision(), moved);
+    }
 }

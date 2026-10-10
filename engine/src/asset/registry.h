@@ -4,6 +4,7 @@
 #include "common/export.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <typeindex>
 #include <type_traits>
@@ -13,7 +14,7 @@
 namespace Comet {
     class COMET_API AssetRegistry {
     public:
-        AssetRegistry() = default;
+        AssetRegistry();
 
         ~AssetRegistry() = default;
 
@@ -21,9 +22,9 @@ namespace Comet {
 
         AssetRegistry& operator=(const AssetRegistry&) = delete;
 
-        AssetRegistry(AssetRegistry&&) noexcept = default;
+        AssetRegistry(AssetRegistry&& other) noexcept;
 
-        AssetRegistry& operator=(AssetRegistry&&) noexcept = default;
+        AssetRegistry& operator=(AssetRegistry&& other) noexcept;
 
         template<typename T>
         [[nodiscard]] bool register_asset(AssetHandle handle, std::shared_ptr<T> asset);
@@ -42,6 +43,9 @@ namespace Comet {
 
         void clear();
 
+        // 成功发布或移除资源后改变；不同注册表不会共用版本。
+        [[nodiscard]] uint64_t get_revision() const noexcept { return m_revision; }
+
     private:
         struct AssetEntry {
             std::shared_ptr<void> asset;
@@ -59,6 +63,7 @@ namespace Comet {
         [[nodiscard]] bool contains_impl(AssetHandle handle, std::type_index type) const;
 
         std::unordered_map<AssetHandle, AssetEntry> m_assets;
+        uint64_t m_revision;
     };
 
     template<typename T>

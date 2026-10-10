@@ -2,7 +2,32 @@
 
 #include "diagnostics/logger.h"
 
+#include <atomic>
+
 namespace Comet {
+    namespace {
+        uint64_t next_revision() noexcept {
+            static std::atomic<uint64_t> revision{0};
+            return revision.fetch_add(1, std::memory_order_relaxed) + 1;
+        }
+    }
+
+    AssetRegistry::AssetRegistry() : m_revision(next_revision()) {}
+
+    AssetRegistry::AssetRegistry(AssetRegistry&& other) noexcept
+        : m_assets(std::move(other.m_assets)), m_revision(next_revision()) {
+        other.clear();
+    }
+
+    AssetRegistry& AssetRegistry::operator=(AssetRegistry&& other) noexcept {
+        if(this != &other) {
+            m_assets = std::move(other.m_assets);
+            m_revision = next_revision();
+            other.clear();
+        }
+        return *this;
+    }
+
     bool AssetRegistry::register_asset_impl(
         const AssetHandle handle, std::shared_ptr<void> asset, const std::type_index type) {
         if(!handle) {
@@ -22,6 +47,7 @@ namespace Comet {
             return false;
         }
 
+        m_revision = next_revision();
         return true;
     }
 
@@ -47,6 +73,7 @@ namespace Comet {
         }
 
         existing->second.asset = std::move(asset);
+        m_revision = next_revision();
         return true;
     }
 
@@ -80,7 +107,10 @@ namespace Comet {
     }
 
     bool AssetRegistry::unregister_asset(const AssetHandle handle) {
-        return handle && m_assets.erase(handle) > 0;
+        if(!handle || m_assets.erase(handle) == 0)
+            return false;
+        m_revision = next_revision();
+        return true;
     }
 
     std::size_t AssetRegistry::size() const {
@@ -89,5 +119,6 @@ namespace Comet {
 
     void AssetRegistry::clear() {
         m_assets.clear();
+        m_revision = next_revision();
     }
 }

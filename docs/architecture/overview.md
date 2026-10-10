@@ -102,7 +102,17 @@ Engine／Renderer／设备等工厂先准备完整 owner，成功后交付；部
 
 数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
 RenderScene 是不借用组件的 CPU 快照，由 Engine 持有并复用容量；其头文件只依赖数学、资产身份和场景值契约，不传递包含组件或后端实现。
-RenderSubmission 保活本次实际资源，Scene 不持有 GPU 对象。
+RenderSubmission 保活当前实际资源，Scene 不持有 GPU 对象。Renderer 复用当前提交的槽位；资产发布变化、
+空场景、隐藏／延期帧和关闭时释放当前引用，在途 slot 仍独立保活已使用的 GPU 版本。
+
+Scene 的进程内实例代号与实体 ID 共同识别对象，WorldTransform 的版本只在脏节点同步时增加。
+提取与解析按身份／版本省去未变矩阵的重复复制；Registry 的成功注册、替换、移除和清空改变发布版本，
+解析器只在发布版本与输入 Handle 均未变时复用资源。注册／替换失败不改变 Registry 版本，运行时材质参数继续使用材质自身版本。
+这些身份不写入场景文件，复制场景获得新的实例代号；没有实例／变换版本的手工渲染数据每次重新计算矩阵和界限。
+
+RenderGeometry 保留按槽位核对身份、变换与资产版本的界限值；重排、增删、场景切换和 Mesh 发布会重新计算相关槽位。
+当前使用整个 Registry 的发布版本使界限缓存失效；后续再按真实发布成本细化到 Mesh。主视图与阴影共用界限，
+场景界限每帧合并有效物体，删除物体后也能收缩。借用本帧提交的指针在录制结束时清空，界限缓存不保活 Mesh 或组件。
 Mesh／Texture 的公共头只声明上传数据类型，CPU 数据定义由需要读取或构造数据的实现显式包含；AssetLoader 的公共头同样只借用数据库声明。
 帧延期时跳过 UI／提取／绘制，Runtime 仍推进；最小化时等待并重置墙钟增量和待处理输入。
 Editor 先完成即时属性编辑再提取，拾取反馈在场景和 Overlay 录制前应用。场景切换统一结束旧交互、清理失效请求并重绑选择与引用。

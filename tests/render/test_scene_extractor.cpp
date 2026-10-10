@@ -118,6 +118,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(scene.set_post_process({.exposure = 2}));
         RenderScene snapshot;
         SceneExtractor::extract(scene, snapshot);
+        EXPECT_EQ(snapshot.scene_lifetime, scene.get_lifetime());
         ASSERT_EQ(snapshot.render_items.size(), 1u);
         ASSERT_EQ(snapshot.cameras.size(), 1u);
         ASSERT_EQ(snapshot.lights.size(), 1u);
@@ -132,9 +133,14 @@ namespace Comet::Tests {
 
         Scene next_scene;
         auto replacement = next_scene.create_entity();
+        replacement.set_transform({.translation = {2, 3, 4}});
         replacement.add_component<MeshRendererComponent>(AssetHandle{40}, AssetHandle{50});
         SceneExtractor::extract(next_scene, snapshot);
         ASSERT_EQ(snapshot.render_items.size(), 1u);
+        EXPECT_NE(next_scene.get_lifetime(), scene.get_lifetime());
+        EXPECT_EQ(snapshot.scene_lifetime, next_scene.get_lifetime());
+        EXPECT_EQ(snapshot.render_items.front().entity_id, mesh.get_id());
+        EXPECT_EQ(snapshot.render_items.front().model_matrix[3], Math::Vec4(2, 3, 4, 1));
         EXPECT_EQ(snapshot.render_items.front().mesh_handle, AssetHandle{40});
         EXPECT_EQ(snapshot.environment, next_scene.get_environment());
         EXPECT_EQ(snapshot.post_process, next_scene.get_post_process());
@@ -262,6 +268,40 @@ namespace Comet::Tests {
         ASSERT_EQ(render_scene.render_items.size(), 1u);
         EXPECT_EQ(render_scene.render_items.front().entity_id, child.get_id());
         EXPECT_TRUE(TestUtils::Mat4Equal(render_scene.render_items.front().model_matrix, expected));
+    }
+
+    TEST(SceneExtractorTest, TransformRevisionTracksDirtyAncestorsAndComponentRecreation) {
+        Scene scene;
+        auto parent = scene.create_entity();
+        auto child = scene.create_entity();
+        child.add_component<MeshRendererComponent>(AssetHandle{10}, AssetHandle{20});
+        ASSERT_TRUE(scene.set_parent(child, parent));
+        RenderScene snapshot;
+        SceneExtractor::extract(scene, snapshot);
+        const auto original = snapshot;
+        ASSERT_EQ(snapshot.render_items.size(), 1u);
+        const auto revision = snapshot.render_items.front().transform_revision;
+        EXPECT_NE(revision, 0u);
+        SceneExtractor::extract(scene, snapshot);
+        EXPECT_EQ(snapshot.render_items.front().transform_revision, revision);
+        parent.set_transform({.translation = {5, 0, 0}});
+        SceneExtractor::extract(scene, snapshot);
+        const auto moved = snapshot.render_items.front().transform_revision;
+        EXPECT_NE(moved, revision);
+        EXPECT_EQ(snapshot.render_items.front().model_matrix[3], Math::Vec4(5, 0, 0, 1));
+        EXPECT_EQ(original.render_items.front().model_matrix, Math::Mat4(1));
+        parent.set_transform({.translation = {5, 0, 0}});
+        SceneExtractor::extract(scene, snapshot);
+        EXPECT_EQ(snapshot.render_items.front().transform_revision, moved);
+        child.remove_component<TransformComponent>();
+        SceneExtractor::extract(scene, snapshot);
+        EXPECT_TRUE(snapshot.render_items.empty());
+        child.add_component<TransformComponent>();
+        child.set_transform({.translation = {0, 2, 0}});
+        SceneExtractor::extract(scene, snapshot);
+        ASSERT_EQ(snapshot.render_items.size(), 1u);
+        EXPECT_NE(snapshot.render_items.front().transform_revision, moved);
+        EXPECT_EQ(snapshot.render_items.front().model_matrix[3], Math::Vec4(5, 2, 0, 1));
     }
 
     TEST(SceneExtractorTest, ExtractsCameraViewWithoutTransformScale) {

@@ -452,7 +452,7 @@ namespace Comet {
         RenderDiagnostics::measure_preparation(
             diagnostics, RenderDiagnostics::PreparationPhase::Geometry, [&] {
                 if(submission.view_project_matrix)
-                    m_geometry.prepare(submission.render_items);
+                    m_geometry.prepare(submission);
             });
         const ScopeExit release_geometry([&] { m_geometry.clear(); });
         const auto lighting = RenderDiagnostics::measure_preparation(diagnostics,

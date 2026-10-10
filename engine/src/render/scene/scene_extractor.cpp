@@ -12,6 +12,8 @@ namespace Comet {
 
     void SceneExtractor::extract(Scene& scene, RenderScene& render_scene) {
         scene.update_world_transforms();
+        const bool same_scene = render_scene.scene_lifetime == scene.get_lifetime();
+        render_scene.scene_lifetime = scene.get_lifetime();
         render_scene.cameras.clear();
         render_scene.lights.clear();
         render_scene.environment = scene.get_environment();
@@ -43,8 +45,11 @@ namespace Comet {
             [&](Entity entity, const MeshRendererComponent& mesh, const TransformComponent&,
                 const WorldTransformComponent& world_transform, const IdComponent& id) {
                 auto& item = render_scene.render_items[item_count++];
+                if(!same_scene || item.entity_id != id.id
+                    || item.transform_revision != world_transform.revision)
+                    item.model_matrix = world_transform.world_matrix;
                 item.entity_id = id.id;
-                item.model_matrix = world_transform.world_matrix;
+                item.transform_revision = world_transform.revision;
                 item.mesh_handle = mesh.mesh;
                 item.material_handle = mesh.material;
                 const auto overrides = scene.get_material_overrides(entity);

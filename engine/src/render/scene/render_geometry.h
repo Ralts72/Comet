@@ -7,7 +7,7 @@
 #include <span>
 
 namespace Comet {
-    // 只借用本帧提交；主材质与阴影共用一次世界界限计算。
+    // 只借用本帧提交；未变界限按场景、实体和版本复用，不保留组件指针。
     class COMET_API RenderGeometry {
     public:
         struct Item {
@@ -15,7 +15,7 @@ namespace Comet {
             std::optional<BoundingBox> world_bounds;
         };
 
-        void prepare(std::span<const ResolvedRenderItem> items);
+        void prepare(const RenderSubmission& submission);
         void clear();
         [[nodiscard]] std::span<const Item> get_items() const { return m_items; }
         [[nodiscard]] const std::optional<BoundingBox>& get_scene_bounds() const {
@@ -23,7 +23,17 @@ namespace Comet {
         }
 
     private:
+        struct CachedBounds {
+            EntityId entity_id = INVALID_ENTITY_ID;
+            uint64_t transform_revision = 0;
+            AssetHandle mesh_handle = INVALID_ASSET_HANDLE;
+            std::optional<BoundingBox> bounds;
+        };
+
         std::vector<Item> m_items;
+        std::vector<CachedBounds> m_bounds;
         std::optional<BoundingBox> m_scene_bounds;
+        uint64_t m_scene_lifetime = 0;
+        uint64_t m_asset_revision = 0;
     };
 }

@@ -48,56 +48,74 @@ namespace Comet {
         for(auto& [handle, used] : m_missing_material_handles)
             used = false;
 
-        // 资源查询只在本次解析内复用，每帧重新读取 Registry 的已发布版本。
+        const auto asset_revision = m_asset_registry.get_revision();
+        const bool same_assets = submission.asset_revision == asset_revision;
+        const bool same_scene = render_scene.scene_lifetime != 0
+                                && submission.scene_lifetime == render_scene.scene_lifetime;
+        // 发布版本未变时复用槽位资源；新增或重排的输入仍共用帧内查询。
         AssetHandle mesh_handle;
         AssetHandle material_handle;
         std::shared_ptr<Mesh> mesh;
         std::shared_ptr<const Material> material;
         std::size_t item_count = 0;
         for(const RenderItem& item : render_scene.render_items) {
-            if(mesh_handle != item.mesh_handle) {
-                mesh_handle = item.mesh_handle;
-                mesh = m_asset_registry.resolve<Mesh>(item.mesh_handle);
-            }
-            if(!mesh) {
-                const auto [entry, inserted] =
-                    m_missing_mesh_handles.try_emplace(item.mesh_handle, true);
-                entry->second = true;
-                if(inserted)
-                    LOG_ERROR(
-                        "Render item references missing mesh handle {}", item.mesh_handle.value());
-                continue;
-            }
-            m_missing_mesh_handles.erase(item.mesh_handle);
-
-            if(material_handle != item.material_handle) {
-                material_handle = item.material_handle;
-                material = m_asset_registry.resolve<const Material>(item.material_handle);
-            }
-            if(!material) {
-                const auto [entry, inserted] =
-                    m_missing_material_handles.try_emplace(item.material_handle, true);
-                entry->second = true;
-                if(inserted)
-                    LOG_ERROR("Render item references missing material handle {}",
-                        item.material_handle.value());
-                continue;
-            }
-            m_missing_material_handles.erase(item.material_handle);
             if(item_count == submission.render_items.size())
                 submission.render_items.emplace_back();
-            auto& resolved = submission.render_items[item_count++];
+            auto& resolved = submission.render_items[item_count];
+            const bool same_resources =
+                same_assets && resolved.mesh && resolved.material.resource
+                && resolved.mesh_handle == item.mesh_handle
+                && resolved.material.material_handle == item.material_handle;
+            if(!same_resources) {
+                if(mesh_handle != item.mesh_handle) {
+                    mesh_handle = item.mesh_handle;
+                    mesh = m_asset_registry.resolve<Mesh>(item.mesh_handle);
+                }
+                if(!mesh) {
+                    const auto [entry, inserted] =
+                        m_missing_mesh_handles.try_emplace(item.mesh_handle, true);
+                    entry->second = true;
+                    if(inserted)
+                        LOG_ERROR("Render item references missing mesh handle {}",
+                            item.mesh_handle.value());
+                    continue;
+                }
+                m_missing_mesh_handles.erase(item.mesh_handle);
+
+                if(material_handle != item.material_handle) {
+                    material_handle = item.material_handle;
+                    material = m_asset_registry.resolve<const Material>(item.material_handle);
+                }
+                if(!material) {
+                    const auto [entry, inserted] =
+                        m_missing_material_handles.try_emplace(item.material_handle, true);
+                    entry->second = true;
+                    if(inserted)
+                        LOG_ERROR("Render item references missing material handle {}",
+                            item.material_handle.value());
+                    continue;
+                }
+                m_missing_material_handles.erase(item.material_handle);
+                resolved.mesh_handle = item.mesh_handle;
+                if(resolved.mesh != mesh)
+                    resolved.mesh = mesh;
+                resolved.material.material_handle = item.material_handle;
+                if(resolved.material.resource != material)
+                    resolved.material.resource = material;
+            }
+            if(!same_scene || item.entity_id == INVALID_ENTITY_ID || item.transform_revision == 0
+                || resolved.entity_id != item.entity_id
+                || resolved.transform_revision != item.transform_revision)
+                resolved.model_matrix = item.model_matrix;
             resolved.entity_id = item.entity_id;
-            resolved.model_matrix = item.model_matrix;
-            if(resolved.mesh != mesh)
-                resolved.mesh = mesh;
-            resolved.material.material_handle = item.material_handle;
-            if(resolved.material.resource != material)
-                resolved.material.resource = material;
+            resolved.transform_revision = item.transform_revision;
             if(resolved.material.overrides != item.material_overrides)
                 resolved.material.overrides = item.material_overrides;
+            ++item_count;
         }
         submission.render_items.resize(item_count);
+        submission.scene_lifetime = render_scene.scene_lifetime;
+        submission.asset_revision = asset_revision;
         std::erase_if(m_missing_mesh_handles, [](const auto& entry) { return !entry.second; });
         std::erase_if(m_missing_material_handles, [](const auto& entry) { return !entry.second; });
     }

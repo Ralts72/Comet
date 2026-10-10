@@ -39,6 +39,7 @@ namespace Comet {
 
     struct RenderItem {
         EntityId entity_id = INVALID_ENTITY_ID;
+        uint64_t transform_revision = 0;
         Math::Mat4 model_matrix = Math::Mat4(1.0f);
         AssetHandle mesh_handle = INVALID_ASSET_HANDLE;
         AssetHandle material_handle = INVALID_ASSET_HANDLE;
@@ -46,6 +47,7 @@ namespace Comet {
     };
 
     struct RenderScene {
+        uint64_t scene_lifetime = 0;
         std::vector<RenderCamera> cameras;
         std::vector<RenderItem> render_items;
         std::vector<RenderLight> lights;

@@ -11,9 +11,10 @@
 namespace Comet {
     namespace {
         std::atomic<uint64_t> next_material_instance{0};
+        std::atomic<uint64_t> next_scene_lifetime{0};
     }
 
-    Scene::Scene() {
+    Scene::Scene() : m_lifetime(next_scene_lifetime.fetch_add(1, std::memory_order_relaxed) + 1) {
         m_registry.on_destroy<MeshRendererComponent>().connect<&Scene::clear_material_overrides>(
             *this);
     }
@@ -454,6 +455,7 @@ namespace Comet {
             world.pose_world_matrix = parent_world->pose_world_matrix * pose_local;
         }
         world.pose_world_matrix[3] = world.world_matrix[3];
+        ++world.revision;
     }
 
     std::size_t Scene::sync_transform_chain(entt::entity handle) {

@@ -118,6 +118,9 @@ namespace Comet {
 
         [[nodiscard]] std::size_t entity_count() const;
 
+        // 仅用于进程内区分场景实例，不写入场景文件。
+        [[nodiscard]] uint64_t get_lifetime() const noexcept { return m_lifetime; }
+
         // 固定步产生；System::update 可只读，当前帧结束后清空。
         [[nodiscard]] const std::vector<ContactEvent>& get_contact_events() const {
             return m_contact_events;
@@ -168,6 +171,7 @@ namespace Comet {
         void update_world_transform(entt::entity handle);
         std::size_t sync_transform_chain(entt::entity handle);
 
+        const uint64_t m_lifetime;
         EntityId m_next_entity_id = 1;
         std::vector<EntityRequest> m_entity_requests;
         std::vector<ContactEvent> m_contact_events;

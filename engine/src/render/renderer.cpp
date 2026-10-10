@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "asset/registry.h"
 #include "common/scope_exit.h"
 #include "render/render_context.h"
 #include "render/frame_scheduler.h"
@@ -99,6 +100,10 @@ namespace Comet {
         m_render_resources->collect_completed_uploads();
         m_programs->collect_removed();
         m_scene_renderer->collect_removed_assets(m_asset_registry);
+        if(m_submission.asset_revision != m_asset_registry.get_revision()) {
+            m_submission.render_items.clear();
+            m_submission.environment_resource.reset();
+        }
 
         if(m_pending_output) {
             const auto output = std::exchange(m_pending_output, std::nullopt).value();
@@ -172,15 +177,15 @@ namespace Comet {
         RenderView frame_view = m_render_view;
         frame_view.render_size = m_scene_renderer->get_render_target().get_size();
         auto& submission = m_submission;
-        const ScopeExit release_submission([&] {
-            submission.render_items.clear();
-            submission.environment_resource.reset();
-        });
         if(render_scene)
             RenderDiagnostics::measure_preparation(m_diagnostics.get(),
                 RenderDiagnostics::PreparationPhase::Assets,
                 [&] { m_scene_resolver.resolve(*render_scene, frame_view, submission); });
         else {
+            submission.render_items.clear();
+            submission.environment_resource.reset();
+            submission.scene_lifetime = 0;
+            submission.asset_revision = 0;
             submission.view_project_matrix.reset();
             submission.lights.clear();
             submission.environment = {};
@@ -385,12 +390,16 @@ namespace Comet {
     void Renderer::discard_frame_requests() {
         m_viewport_pick_request.reset();
         m_line_draw_list.clear();
+        m_submission.render_items.clear();
+        m_submission.environment_resource.reset();
     }
 
     void Renderer::prepare_shutdown() noexcept {
         if(std::exchange(m_shutdown_prepared, true))
             return;
         m_render_context->get_device().wait_idle_for_shutdown();
+        m_submission.render_items.clear();
+        m_submission.environment_resource.reset();
     }
 
     Renderer::~Renderer() {
