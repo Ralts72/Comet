@@ -5,6 +5,7 @@
 #include "render/material/material.h"
 #include "render/resource/render_resources.h"
 #include "render/resource/texture.h"
+#include "asset/data/texture_data.h"
 #include "render/resource/environment.h"
 #include "render/resource/mesh.h"
 #include "render/scene/scene_resolver.h"

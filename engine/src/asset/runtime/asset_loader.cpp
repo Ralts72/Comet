@@ -2,6 +2,7 @@
 
 #include "asset/artifact/mesh_artifact.h"
 #include "asset/artifact/shader_program_artifact.h"
+#include "asset/database.h"
 #include "asset/import/import_service.h"
 #include "asset/registry.h"
 #include "asset/runtime/render_asset_publisher.h"

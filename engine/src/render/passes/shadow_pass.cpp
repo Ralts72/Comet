@@ -1,5 +1,6 @@
 #include "render/passes/shadow_pass.h"
 
+#include "asset/data/mesh_data.h"
 #include "graphics/device.h"
 #include "graphics/frame_buffer.h"
 #include "graphics/pipeline/pipeline.h"

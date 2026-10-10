@@ -1,5 +1,7 @@
 #include "asset/data/environment_data.h"
 #include "asset/data/material_data.h"
+#include "asset/data/mesh_data.h"
+#include "asset/data/texture_data.h"
 #include "asset/registry.h"
 #include "asset/runtime/render_asset_publisher.h"
 #include "graphics/error.h"

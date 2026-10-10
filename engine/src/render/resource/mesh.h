@@ -2,8 +2,9 @@
 #include "common/export.h"
 #include "graphics/result.h"
 #include "graphics/synchronization/gpu_completion_point.h"
-#include "asset/data/mesh_data.h"
+#include "core/geometry.h"
 
+#include <cstdint>
 #include <memory>
 
 namespace Comet {
@@ -11,6 +12,7 @@ namespace Comet {
     class CommandBuffer;
     class Device;
     class UploadManager;
+    struct MeshData;
 
     class COMET_API Mesh {
     public:

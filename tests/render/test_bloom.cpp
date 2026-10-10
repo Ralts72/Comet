@@ -1,4 +1,5 @@
 #include "support/render_gpu_test.h"
+#include "asset/data/texture_data.h"
 #include "render/passes/bloom_pass.h"
 #include "render/passes/output_pass.h"
 #include "render/resource/render_resources.h"

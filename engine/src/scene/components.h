@@ -6,6 +6,7 @@
 #include "core/math_utils.h"
 #include "scene/entity_id.h"
 #include "scene/entity_uuid.h"
+#include "scene/light_type.h"
 
 #include <string>
 #include <type_traits>
@@ -66,8 +67,6 @@ namespace Comet {
         AssetHandle mesh;
         AssetHandle material;
     };
-
-    enum class LightType { Directional = 0, Point = 1, Spot = 2 };
 
     struct COMET_API LightComponent {
         LightType type = LightType::Directional;

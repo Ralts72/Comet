@@ -101,7 +101,9 @@ Engine／Renderer／设备等工厂先准备完整 owner，成功后交付；部
 5. 场景、后处理与 Overlay 录制完成后提交并呈现。
 
 数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
-RenderScene 是不借用组件的 CPU 快照，由 Engine 持有并复用容量；RenderSubmission 保活本次实际资源，Scene 不持有 GPU 对象。
+RenderScene 是不借用组件的 CPU 快照，由 Engine 持有并复用容量；其头文件只依赖数学、资产身份和场景值契约，不传递包含组件或后端实现。
+灯光类型由 `scene/light_type` 供组件与快照共用。RenderSubmission 保活本次实际资源，Scene 不持有 GPU 对象。
+Mesh／Texture 的公共头只声明上传数据类型，CPU 数据定义由需要读取或构造数据的实现显式包含；AssetLoader 的公共头同样只借用数据库声明。
 帧延期时跳过 UI／提取／绘制，Runtime 仍推进；最小化时等待并重置墙钟增量和待处理输入。
 Editor 先完成即时属性编辑再提取，拾取反馈在场景和 Overlay 录制前应用。场景切换统一结束旧交互、清理失效请求并重绑选择与引用。
 

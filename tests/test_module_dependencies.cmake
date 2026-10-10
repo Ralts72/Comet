@@ -127,6 +127,10 @@ probe_dependency("src/render/renderer.h" "\"config/config.h\""
     "Render violates module dependencies")
 probe_dependency("src/render/renderer.cpp" "\"asset/asset_manager.h\""
     "Render violates module dependencies")
+probe_dependency("src/render/lighting.h" "\"scene/components.h\""
+    "RenderSnapshot violates module dependencies")
+probe_dependency("src/render/scene/render_scene.h" "<vulkan/vulkan_core.h>"
+    "RenderSnapshot includes a runtime backend")
 probe_dependency("src/ui/rml_context.cpp" "<GLFW/glfw3.h>"
     "GameUi includes a runtime backend")
 probe_dependency("src/ui/project_ui.cpp" "\"core/engine.h\""

@@ -1,12 +1,14 @@
 #pragma once
 
-#include "asset/database.h"
+#include "asset/handle.h"
 #include "common/error.h"
 #include "common/result.h"
 
+#include <cstddef>
 #include <memory>
 
 namespace Comet {
+    class AssetDatabase;
     class AssetRegistry;
     class ImportService;
     class RenderAssetPublisher;
@@ -17,6 +19,8 @@ namespace Comet {
     class AudioClip;
     struct Environment;
     struct MaterialData;
+    struct AssetRecord;
+    struct TextureImportSettings;
 
     // CPU reads and dependency loading; uses the same index and Registry as AssetManager.
     class AssetLoader final {

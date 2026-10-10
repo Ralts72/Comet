@@ -2,6 +2,7 @@
 #include "core/task_scheduler.h"
 #include "config/config.h"
 #include "asset/data/mesh_data.h"
+#include "asset/data/texture_data.h"
 #include "render/renderer.h"
 #include "render/frame_scheduler.h"
 #include "render/scene/scene_renderer.h"

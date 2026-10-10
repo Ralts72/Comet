@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "asset/data/mesh_data.h"
 #include "render/scene/render_geometry.h"
 #include "render/resource/mesh.h"
 #include "render/resource/render_resources.h"

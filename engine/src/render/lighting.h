@@ -1,8 +1,12 @@
 #pragma once
 
-#include "scene/components.h"
+#include "common/export.h"
 #include "core/geometry.h"
+#include "scene/entity_id.h"
+#include "scene/light_type.h"
+
 #include <array>
+#include <cstdint>
 #include <span>
 
 namespace Comet {
