@@ -53,15 +53,25 @@ namespace {
     constexpr unsigned MAX_PHYSICS_OBJECTS = 512;
     constexpr std::string_view USAGE =
         "Usage: render_benchmark OUTPUT.csv OBJECTS WIDTH HEIGHT FRAMES BLOOM(0/1) "
-        "[MATERIALS [static|moving|culling|project-shader|physics-active|physics-sleeping "
+        "[MATERIALS [static|moving|light-moving|culling|project-shader|physics-active|physics-sleeping "
         "[MSAA ANISOTROPY RENDER_SCALE]]]";
 
-    enum class Workload { Static, Moving, Culling, ProjectShader, PhysicsActive, PhysicsSleeping };
+    enum class Workload {
+        Static,
+        Moving,
+        LightMoving,
+        Culling,
+        ProjectShader,
+        PhysicsActive,
+        PhysicsSleeping
+    };
 
     std::string_view workload_name(Workload workload) {
         switch(workload) {
             case Workload::Moving:
                 return "moving";
+            case Workload::LightMoving:
+                return "light-moving";
             case Workload::Culling:
                 return "culling";
             case Workload::ProjectShader:
@@ -115,6 +125,8 @@ namespace {
                 workload = Workload::Culling;
             else if(name == "moving")
                 workload = Workload::Moving;
+            else if(name == "light-moving")
+                workload = Workload::LightMoving;
             else if(name == "physics-active")
                 workload = Workload::PhysicsActive;
             else if(name == "physics-sleeping")
@@ -321,6 +333,8 @@ namespace {
         auto& directional = key.add_component<Comet::LightComponent>();
         directional.intensity = 4;
         directional.casts_shadow = true;
+        if(options.workload == Workload::LightMoving)
+            initial_poses.push_back({key, key.get_component<Comet::TransformComponent>()});
         auto point = create_entity("Point");
         point.set_transform({.translation = {-3, 2, 0}});
         auto& point_light = point.add_component<Comet::LightComponent>();
@@ -480,6 +494,8 @@ namespace {
                    << " stable_ids=on\n"
                    << "# moving_rotation_degrees_per_frame="
                    << (m_options.workload == Workload::Moving ? 0.5 : 0.0) << '\n'
+                   << "# light_rotation_degrees_per_frame="
+                   << (m_options.workload == Workload::LightMoving ? 0.5 : 0.0) << '\n'
                    << "# physics_bodies=" << physics_statistics().bodies
                    << " active_bodies_min=" << m_active_min << " active_bodies_max=" << m_active_max
                    << " pose_updates_min=" << m_pose_min << " pose_updates_max=" << m_pose_max
@@ -573,8 +589,8 @@ namespace {
             if(!uses_physics(m_options.workload)) {
                 if(physics.bodies != 0)
                     return Result<void>::failure("Non-physics benchmark unexpectedly ran physics");
+                const auto& renderer = m_engine.get_renderer().get_scene_renderer();
                 if(m_options.workload == Workload::Moving) {
-                    const auto& renderer = m_engine.get_renderer().get_scene_renderer();
                     const auto bytes = (m_options.objects + 1) * sizeof(Comet::Math::Mat4);
                     if(renderer.get_material_statistics().instance_upload_bytes
                             != m_expected_instance_bytes
@@ -582,6 +598,10 @@ namespace {
                         return Result<void>::failure(
                             "Moving benchmark did not upload changed transforms");
                 }
+                if(m_options.workload == Workload::LightMoving
+                    && renderer.get_material_statistics().instance_upload_bytes != 0)
+                    return Result<void>::failure(
+                        "Light-moving benchmark unexpectedly uploaded object transforms");
                 return Result<void>::success();
             }
             const auto& timing = m_engine.get_scene_runtime().get_timing();
@@ -670,7 +690,8 @@ namespace {
                 [&](const Comet::Engine::FrameContext& frame) {
                     if(auto sampled = measurement.sample(frame.update); !sampled)
                         return sampled;
-                    if(options.workload == Workload::Moving) {
+                    if(options.workload == Workload::Moving
+                        || options.workload == Workload::LightMoving) {
                         const auto angle = std::fmod(frame.update.frame_index * 0.5f, 360.0f);
                         for(const auto& pose : initial_poses) {
                             auto transform = pose.transform;

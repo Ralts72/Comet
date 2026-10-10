@@ -165,13 +165,14 @@ ctest --preset dev-debug -R '^render_benchmark_smoke$'
 `app-release`／`editor-dev` 默认不构建基准；再次使用这些 preset 配置会恢复该默认，不删除已编译产物。
 
 参数依次为 CSV 路径、物体数（1..4096）、逻辑窗口宽高（64..4096）、采样帧数（8..10000）、Bloom（0/1）。
-末尾可追加材质数（1..256，不能超过物体数）及场景类型（`static`、`moving`、`culling`、`project-shader`、`physics-active`、`physics-sleeping`），默认单材质、静态场景。
+末尾可追加材质数（1..256，不能超过物体数）及场景类型（`static`、`moving`、`light-moving`、`culling`、`project-shader`、`physics-active`、`physics-sleeping`），默认单材质、静态场景。
 场景类型后可一起追加 MSAA、各向异性和渲染比例，范围与游戏画质设置相同；省略时仍为 4／1／1。
 macOS 可在末尾追加 `-NSAutomaticWindowAnimationsEnabled NO` 关闭该进程的窗口动画；报告以实际 framebuffer 像素为准。
 固定场景使用 PBR 材质、共享立方体网格与地面、三类光源、方向光阴影和 SDR 输出；IBL 关闭，
 不依赖可选 HDR 下载。资产复制到临时目录后走生产扫描／导入／加载，结束清理，不修改 demo 的资源和缓存。
 多材质参数在临时项目中生成稳定身份的 PBR 变体，按网格顺序交错分配，实体身份固定。
 `moving` 每帧将所有立方体绕自身 Y 轴旋转 0.5°，走真实 Transform 更新、场景提取与实例上传；不启用物理，便于与 `static` 比较持续变换的成本。
+`light-moving` 保持网格静止，仅将方向光绕 Y 轴每帧旋转 0.5°，测量阴影视图更新及实例上传成本。
 `culling` 将后 3/4 立方体移到屏外，保留它们的阴影提交；报告记录主材质的候选数、裁剪数和实际 draw 数。
 `project-shader` 使用与内置 PBR 相同代码的项目程序，测量项目材质输入同步及逐物体绘制，便于与内置材质区分比较。
 内置不透明材质按同一 Mesh 和实际材质版本自动实例化，阴影按 Mesh 合批；项目 Shader 和内置顶点源码覆盖继续逐物体绘制。

@@ -348,7 +348,8 @@ namespace Comet::Tests {
         }
     }
 
-    TEST_F(RenderGraphGpuTest, PbrReceivesDirectionalShadowWithoutMaterialRebinding) {
+    TEST_F(
+        RenderGraphGpuTest, DirectionalShadowsFollowLightAndMeshChangesWithoutMaterialRebinding) {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
         auto& device = context.get_device();
@@ -358,20 +359,35 @@ namespace Comet::Tests {
         auto& scene = *scene_owner.value();
         const auto mesh = lit_quad();
         auto material = std::make_shared<Material>("pbr", "pbr");
-        const auto occluder =
-            Math::scale(Math::translate(Math::Mat4(1), {-0.5f, 0, 0.875f}), {0.25f, 0.25f, 0.25f});
         RenderSubmission submission{
             .view_project_matrix = ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
                 Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
             .render_items = {{.mesh = mesh, .material = {AssetHandle(780), material}},
-                {.model_matrix = occluder, .mesh = mesh, .material = {AssetHandle(780), material}}},
+                {.mesh = mesh, .material = {AssetHandle(780), material}}},
             .lights = {{.direction = {1, 0, -1}, .intensity = 4}}};
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
-        std::array<std::vector<std::byte>, 2> pixels;
-        for(unsigned index = 0; index < 2; ++index) {
-            submission.lights[0].casts_shadow = index == 1;
+        struct Sample {
+            bool casts_shadow;
+            float direction_x, occluder_x;
+            bool center_shadowed;
+            uint64_t upload_bytes;
+        };
+        const std::array samples{Sample{false, 1, -0.5f, false, 0},
+            Sample{true, 1, -0.5f, true, 128}, Sample{true, 1, -0.5f, true, 128},
+            Sample{true, -1, -0.5f, false, 128}, Sample{true, 1, -0.5f, true, 0},
+            Sample{true, -1, 0.5f, true, 128}, Sample{true, 1, 0.5f, false, 128},
+            Sample{true, -1, 0.5f, true, 0}};
+        std::array<std::vector<std::byte>, samples.size()> pixels;
+        for(size_t index = 0; index < samples.size(); ++index) {
+            SCOPED_TRACE(index);
+            const auto& sample = samples[index];
+            submission.lights[0].casts_shadow = sample.casts_shadow;
+            submission.lights[0].direction.x = sample.direction_x;
+            submission.render_items[1].model_matrix =
+                Math::scale(Math::translate(Math::Mat4(1), {sample.occluder_x, 0, 0.875f}),
+                    {0.25f, 0.25f, 0.25f});
             begin_frame(frames);
             const auto drawn = scene.render(frames, submission);
             ASSERT_TRUE(drawn) << drawn.error();
@@ -379,21 +395,29 @@ namespace Comet::Tests {
                 scene.get_material_statistics().material_bindings_created, index == 0 ? 1 : 0);
             EXPECT_EQ(scene.get_material_statistics().draw_calls, 1u);
             EXPECT_EQ(scene.get_material_statistics().drawn_instances, 2u);
-            EXPECT_EQ(scene.get_shadow_statistics().draw_calls, index == 1 ? 1u : 0u);
-            EXPECT_EQ(scene.get_shadow_statistics().drawn_instances, index == 1 ? 2u : 0u);
+            EXPECT_EQ(scene.get_shadow_statistics().draw_calls, sample.casts_shadow ? 1u : 0u);
+            EXPECT_EQ(scene.get_shadow_statistics().drawn_instances, sample.casts_shadow ? 2u : 0u);
+            EXPECT_EQ(scene.get_shadow_statistics().instance_upload_bytes, sample.upload_bytes);
             auto output = std::make_shared<Readback>(
                 device, context.get_context().get_physical_device(), 33 * 33 * 4);
             ASSERT_NO_FATAL_FAILURE(
                 finish_readback(scene, frames, output, {33, 33}, drawn.value()));
             pixels[index] = output->read();
         }
-        for(unsigned channel = 0; channel < 3; ++channel) {
-            const unsigned center = (16 * 33 + 16) * 4 + channel;
-            const unsigned lit = (16 * 33 + 28) * 4 + channel;
-            EXPECT_GT(std::to_integer<int>(pixels[0][center]), 50);
-            EXPECT_LE(std::to_integer<int>(pixels[1][center]), 3);
-            EXPECT_NEAR(
-                std::to_integer<int>(pixels[0][lit]), std::to_integer<int>(pixels[1][lit]), 2);
+        for(size_t index = 0; index < samples.size(); ++index) {
+            SCOPED_TRACE(index);
+            for(unsigned channel = 0; channel < 3; ++channel) {
+                const unsigned center = (16 * 33 + 16) * 4 + channel;
+                const unsigned lit = (4 * 33 + 16) * 4 + channel;
+                EXPECT_GT(std::to_integer<int>(pixels[0][center]), 50);
+                if(samples[index].center_shadowed)
+                    EXPECT_LE(std::to_integer<int>(pixels[index][center]), 3);
+                else
+                    EXPECT_NEAR(std::to_integer<int>(pixels[0][center]),
+                        std::to_integer<int>(pixels[index][center]), 2);
+                EXPECT_NEAR(std::to_integer<int>(pixels[0][lit]),
+                    std::to_integer<int>(pixels[index][lit]), 2);
+            }
         }
     }
 
