@@ -24,6 +24,31 @@ namespace Comet::Tests {
 
     using EngineSceneActivationTest = EngineTest;
 
+    TEST_F(EngineSceneActivationTest, FrameRateLimitChangesDuringRunAndWaitsBetweenLoopStarts) {
+        ASSERT_TRUE(engine->set_frame_rate_limit(20));
+        unsigned updates = 0;
+        const auto start = FramePacer::Clock::now();
+        const auto result = engine->run({.update = [&](const Engine::FrameContext& frame) {
+            ++updates;
+            const auto elapsed = FramePacer::Clock::now() - start;
+            EXPECT_GT(frame.update.delta_time, 0);
+            if(updates == 2) {
+                EXPECT_GE(elapsed, std::chrono::milliseconds(45));
+                EXPECT_TRUE(engine->set_frame_rate_limit(60));
+            }
+            if(updates == 3) {
+                EXPECT_GE(elapsed, std::chrono::milliseconds(60));
+                engine->get_window().request_close();
+            }
+            return Result<void, Error>::success();
+        }});
+        ASSERT_TRUE(result) << result.error().message;
+        EXPECT_EQ(updates, 3u);
+        EXPECT_EQ(engine->frame_rate_limit(), 60);
+        engine->prepare_shutdown();
+        EXPECT_FALSE(engine->set_frame_rate_limit(0));
+    }
+
     TEST_F(EngineSceneActivationTest, CameraIntentLocksWindowAndUiRejectionReleasesIt) {
         auto& window = engine->get_window();
         window.poll_events();

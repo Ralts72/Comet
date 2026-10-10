@@ -232,6 +232,8 @@ namespace Comet::Tests {
                 const auto requested = engine->get_renderer().request_output_settings(value.output);
                 if(!requested)
                     return Result<void>::failure(requested.error().message);
+                if(auto limit = engine->set_frame_rate_limit(value.frame_rate_limit); !limit)
+                    return Result<void>::failure(limit.error().message);
             }
             active_display = value;
             ++display_applications;
@@ -513,17 +515,61 @@ return controller
         EXPECT_TRUE(ui->is_modal());
     }
 
+    TEST_F(ProjectUiGpuTest, FrameRateDraftValidatesCancelsAndSurvivesSaveFailureAndReload) {
+        display_services = true;
+        saved_display.frame_rate_limit = 75;
+        create_ui(InputActions{});
+        click("settings");
+        EXPECT_EQ(
+            document().GetElementById("display-limit")->GetAttribute("value", Rml::String{}), "75");
+        for(const auto* value : {"0", "30", "60", "120", "144", "240", "0"}) {
+            click("display-limit-preset");
+            EXPECT_EQ(
+                document().GetElementById("display-limit")->GetAttribute("value", Rml::String{}),
+                value);
+        }
+        click("cancel");
+        EXPECT_EQ(display_applications, 0u);
+        click("settings");
+        for(const auto* value : {"", "-1", "12.5", "1e2", "1001"}) {
+            type_display_size("display-limit", value);
+            click("display-apply");
+            EXPECT_EQ(display_applications, 0u);
+            EXPECT_FALSE(document().GetElementById("display-error")->GetInnerRML().empty());
+        }
+        type_display_size("display-limit", "120");
+        ASSERT_TRUE(ui->reload());
+        ASSERT_TRUE(submit_frame());
+        EXPECT_EQ(document().GetElementById("display-limit")->GetAttribute("value", Rml::String{}),
+            "120");
+        fail_display_save = true;
+        click("display-apply");
+        EXPECT_EQ(saved_display.frame_rate_limit, 75);
+        EXPECT_EQ(engine->frame_rate_limit(), 0);
+        fail_display_save = false;
+        click("display-apply");
+        EXPECT_EQ(saved_display.frame_rate_limit, 120);
+        EXPECT_EQ(engine->frame_rate_limit(), 120);
+        click("display-restore");
+        click("display-apply");
+        EXPECT_EQ(saved_display.frame_rate_limit, 0);
+        EXPECT_EQ(engine->frame_rate_limit(), 0);
+    }
+
     TEST_F(ProjectUiGpuTest, PreviewDisplayControlsKeepStandaloneModeVsyncAndHdr) {
         display_services = true;
         preview = true;
         saved_display.mode = WindowMode::Fullscreen;
         saved_display.output = {OutputMode::Hdr, 8, 1.25f};
+        saved_display.frame_rate_limit = 144;
         const auto standalone_output = saved_display.output;
         create_ui(InputActions{});
         const auto editor_size = engine->get_window().get_size();
         click("settings");
         EXPECT_TRUE(document().GetElementById("display-mode")->HasAttribute("disabled"));
         EXPECT_TRUE(document().GetElementById("display-vsync")->HasAttribute("disabled"));
+        EXPECT_TRUE(document().GetElementById("display-limit")->HasAttribute("disabled"));
+        EXPECT_TRUE(document().GetElementById("display-limit-preset")->HasAttribute("disabled"));
         for(const auto* id : {"display-output-mode", "display-hdr-headroom", "display-hdr-white"})
             EXPECT_TRUE(document().GetElementById(id)->HasAttribute("disabled")) << id;
         click("display-restore");
@@ -532,6 +578,8 @@ return controller
         EXPECT_EQ(saved_display.mode, WindowMode::Fullscreen);
         EXPECT_FALSE(saved_display.vsync);
         EXPECT_EQ(saved_display.output, standalone_output);
+        EXPECT_EQ(saved_display.frame_rate_limit, 144);
+        EXPECT_EQ(engine->frame_rate_limit(), 0);
         EXPECT_EQ(engine->get_window().get_size(), editor_size);
     }
 

@@ -27,7 +27,7 @@ set(ENGINE_SOURCE "${COMET_SOURCE_ROOT}/engine/src")
 # Check each internal module's transitive engine-owned includes.
 include("${COMET_SOURCE_ROOT}/engine/cmake/module_sources.cmake")
 set(FOUNDATION_HEADERS
-    "common/|core/(frame_timer|geometry|math_utils|project_paths|task_scheduler)\\.h$|diagnostics/(frame_diagnostics|log_settings|logger|profiler|timing_history)\\.h$")
+    "common/|core/(frame_timer|frame_pacer|geometry|math_utils|project_paths|task_scheduler)\\.h$|diagnostics/(frame_diagnostics|log_settings|logger|profiler|timing_history)\\.h$")
 set(SERIALIZATION_HEADERS "${FOUNDATION_HEADERS}")
 set(SHADER_HEADERS "${FOUNDATION_HEADERS}|graphics/(enums|pipeline/shader_interface)\\.h$")
 set(ASSET_HEADERS

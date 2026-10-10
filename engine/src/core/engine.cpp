@@ -19,6 +19,8 @@
 #include "scene/systems/physics_system.h"
 #include "scene/systems/script_system.h"
 
+#include <thread>
+
 namespace Comet {
     Result<std::unique_ptr<Engine>, Error> Engine::create(const Config& config) {
         PROFILE_SCOPE("Engine::Constructor");
@@ -200,9 +202,22 @@ namespace Comet {
         LOG_INFO("running engine...");
 
         while(!m_window->should_close()) {
+            const auto frame_start = FramePacer::Clock::now();
             if(auto frame = tick(callbacks); !frame)
                 return frame;
+            if(!m_window->should_close()) {
+                if(auto deadline = m_frame_pacer.deadline(frame_start))
+                    std::this_thread::sleep_until(*deadline);
+            }
         }
+        return Result<void, Error>::success();
+    }
+
+    Result<void, Error> Engine::set_frame_rate_limit(int limit) {
+        if(m_shutdown_prepared)
+            return Result<void, Error>::failure({"Engine is shutting down"});
+        if(auto valid = m_frame_pacer.set_limit(limit); !valid)
+            return Result<void, Error>::failure({valid.error()});
         return Result<void, Error>::success();
     }
 

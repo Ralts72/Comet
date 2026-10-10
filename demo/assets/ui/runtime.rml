@@ -24,6 +24,12 @@
                 <button id="display-size" data-event-click="command('display_size')" data-attrif-disabled="waiting">预设尺寸：{{ display_size }}</button>
                 <button id="display-mode" data-event-click="command('display_mode')" data-attrif-disabled="waiting || display_preview">{{ display_mode }}</button>
                 <button id="display-vsync" data-event-click="command('display_vsync')" data-attrif-disabled="waiting || display_preview">VSync 请求：{{ display_vsync }}</button>
+                <div class="display-dimensions">
+                    <label for="display-limit">帧率上限</label>
+                    <input id="display-limit" type="text" maxlength="4" size="4" data-attr-value="display_limit" data-event-change="command('display_limit', ev.value)" data-attrif-disabled="waiting || display_preview" />
+                    <button id="display-limit-preset" data-event-click="command('display_limit_preset')" data-attrif-disabled="waiting || display_preview">{{ display_frame_rate }}</button>
+                </div>
+                <p class="hint">0 表示无上限；VSync、设备性能和系统调度可能使实际 FPS 更低。Play 不限制编辑器帧率。</p>
                 <button id="display-output-mode" data-event-click="command('display_output_mode')" data-attrif-disabled="waiting || display_preview">输出请求：{{ display_output_mode }}</button>
                 <label for="display-hdr-headroom">HDR 高光范围：{{ display_hdr_headroom }}×</label>
                 <input id="display-hdr-headroom" class="calibration" type="range" min="1" max="16" step="0.5" data-attr-value="display_hdr_headroom" data-event-change="command('display_hdr_headroom', ev.value)" data-attrif-disabled="waiting || display_hdr_disabled" />

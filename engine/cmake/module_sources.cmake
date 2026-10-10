@@ -8,6 +8,7 @@ set(COMET_FOUNDATION_SOURCES
     src/common/retry_backoff.cpp
     src/common/uuid.cpp
     src/core/frame_timer.cpp
+    src/core/frame_pacer.cpp
     src/core/geometry.cpp
     src/core/task_scheduler.cpp
     src/core/project_paths.cpp

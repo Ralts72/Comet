@@ -1030,6 +1030,11 @@ namespace CometEditor::Tests {
         EXPECT_EQ(project.display_settings(), original);
         edit("Window Width", "1440");
         edit("Window Height", "900");
+        edit("Frame Rate Limit", "1001");
+        button("Save");
+        EXPECT_FALSE(settings.update().display_changed);
+        EXPECT_EQ(project.display_settings(), original);
+        edit("Frame Rate Limit", "120");
         button("VSync");
         button("Window Mode");
         auto* combo = ImGui::FindWindowByName("##Combo_00");
@@ -1049,7 +1054,7 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(settings.update().display_changed);
         EXPECT_FALSE(settings.update().display_changed);
         EXPECT_EQ(project.display_settings(),
-            (Comet::DisplaySettings{1440, 900, Comet::WindowMode::Borderless, true}));
+            (Comet::DisplaySettings{1440, 900, Comet::WindowMode::Borderless, true, {}, 120}));
         EXPECT_EQ(
             Comet::Project::load(root).value().display_settings(), project.display_settings());
         EXPECT_EQ(project.startup_scene(), startup);

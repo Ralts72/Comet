@@ -12,11 +12,14 @@ namespace Comet {
         WindowMode mode = WindowMode::Windowed;
         bool vsync = false;
         OutputSettings output;
+        int frame_rate_limit = 0;
 
         [[nodiscard]] Result<void> validate() const;
+        [[nodiscard]] static Result<DisplaySettings> read(
+            Json::Node node, const Json::Context& context, std::string_view location);
         [[nodiscard]] static Result<DisplaySettings> read(Json::Node node,
             const Json::Context& context, std::string_view location,
-            const OutputSettings& output_defaults = {});
+            const DisplaySettings& defaults);
         void write(Json::Writer& writer) const;
         [[nodiscard]] static Result<WindowMode> parse_mode(std::string_view name);
         [[nodiscard]] static std::string_view mode_name(WindowMode mode);

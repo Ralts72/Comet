@@ -55,6 +55,10 @@ namespace CometEditor {
                 ImGui::EndCombo();
             }
             ImGui::Checkbox("VSync", &m_draft.vsync);
+            ImGui::SetNextItemWidth(160);
+            ImGui::InputInt(Ui::label("Frame Rate Limit").c_str(), &m_draft.frame_rate_limit, 0, 0);
+            ImGui::TextWrapped(
+                "%s", Ui::text("0 disables the limit; VSync may further reduce FPS."));
             const auto output_label = [](Comet::OutputMode mode) {
                 if(mode == Comet::OutputMode::Auto)
                     return Ui::text("Automatic");

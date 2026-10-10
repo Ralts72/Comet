@@ -52,7 +52,7 @@ namespace Comet {
         auto display = context.required_child(root, "display");
         if(!display)
             return Loaded::failure(display.error());
-        auto loaded = DisplaySettings::read(display.value(), context, "display", defaults.output);
+        auto loaded = DisplaySettings::read(display.value(), context, "display", defaults);
         if(!loaded)
             return Loaded::failure(loaded.error());
         settings.m_settings = loaded.value();

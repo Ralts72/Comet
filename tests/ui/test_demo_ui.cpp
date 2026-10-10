@@ -110,12 +110,12 @@ namespace {
                 ASSERT_TRUE(constructor.Bind(name, &display_flag));
             for(const auto* name : {"display_confirming", "display_output_pending"})
                 ASSERT_TRUE(constructor.Bind(name, &confirmation_flag));
-            for(const auto* name :
-                {"display_size", "display_mode", "display_vsync", "display_status", "display_error",
-                    "display_width", "display_height", "display_active_vsync", "quality_msaa",
-                    "quality_anisotropy", "quality_scale", "quality_active", "quality_status",
-                    "quality_error", "quality_preset", "audio_active", "audio_error",
-                    "display_output_mode", "display_output_active", "display_confirmation_text"})
+            for(const auto* name : {"display_size", "display_mode", "display_vsync",
+                    "display_status", "display_error", "display_width", "display_height",
+                    "display_active_vsync", "quality_msaa", "quality_anisotropy", "quality_scale",
+                    "quality_active", "quality_status", "quality_error", "quality_preset",
+                    "audio_active", "audio_error", "display_output_mode", "display_output_active",
+                    "display_confirmation_text", "display_limit", "display_frame_rate"})
                 ASSERT_TRUE(constructor.Bind(name, &display_text));
             for(const auto* name : {"audio_master", "audio_effects", "audio_music",
                     "display_hdr_headroom", "display_hdr_white"})

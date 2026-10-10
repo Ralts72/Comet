@@ -8,6 +8,7 @@
 #include "diagnostics/frame_diagnostics.h"
 #include "scene/scene_runtime.h"
 #include "frame_timer.h"
+#include "frame_pacer.h"
 
 #include <functional>
 #include <memory>
@@ -50,6 +51,8 @@ namespace Comet {
 
         // 同步运行；帧上下文仅在当前 tick 存活，不跨帧保存授权输入。
         [[nodiscard]] Result<void, Error> run(const Callbacks& callbacks = {});
+        [[nodiscard]] Result<void, Error> set_frame_rate_limit(int limit);
+        [[nodiscard]] int frame_rate_limit() const { return m_frame_pacer.limit(); }
 
         void set_scene(std::unique_ptr<Scene> scene);
 
@@ -94,6 +97,7 @@ namespace Comet {
             std::unique_ptr<Renderer> renderer, std::unique_ptr<TaskScheduler> scheduler);
         [[nodiscard]] Result<void, Error> tick(const Callbacks& callbacks);
         std::unique_ptr<FrameTimer> m_frame_timer;
+        FramePacer m_frame_pacer;
         std::unique_ptr<TaskScheduler> m_task_scheduler;
         std::unique_ptr<Window> m_window;
         std::unique_ptr<AssetRegistry> m_asset_registry;

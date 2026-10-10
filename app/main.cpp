@@ -303,6 +303,9 @@ namespace {
             auto output = engine.get_renderer().request_output_settings(settings.output);
             if(!output)
                 return Comet::Result<void>::failure(output.error().message);
+            auto limit = engine.set_frame_rate_limit(settings.frame_rate_limit);
+            if(!limit)
+                return Comet::Result<void>::failure(limit.error().message);
             return Comet::Result<void>::success();
         }
         Comet::DisplaySettings current_display_settings() const {

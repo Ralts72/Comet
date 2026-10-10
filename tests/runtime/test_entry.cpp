@@ -146,13 +146,15 @@ namespace Comet::Tests {
         }
     }
 
-    TEST(ApplicationCreationTest, DisplayOutputAppliesAndHostOverrideWinsBeforeInitialization) {
+    TEST(ApplicationCreationTest,
+        DisplaySettingsApplyBeforeInitializationAndHostOutputOverrideWins) {
         class App final: public Application {
         public:
             using Application::Application;
             OutputSettings expected;
             RunResult on_init() override {
                 EXPECT_EQ(get_engine().get_renderer().get_output_settings(), expected);
+                EXPECT_EQ(get_engine().frame_rate_limit(), 144);
                 const auto& swapchain =
                     get_engine().get_renderer().get_render_context().get_swapchain();
                 if(expected.mode == OutputMode::Sdr)
@@ -171,7 +173,7 @@ namespace Comet::Tests {
         config.window.height = 120;
         config.diagnostics.log.enable_file_logging = false;
         const DisplaySettings display{
-            160, 120, WindowMode::Windowed, false, {OutputMode::Hdr, 8, 1.25f}};
+            160, 120, WindowMode::Windowed, false, {OutputMode::Hdr, 8, 1.25f}, 144};
         for(const auto mode : {std::optional<OutputMode>{}, std::optional{OutputMode::Sdr}}) {
             App app({.output_mode = mode, .display_settings = display});
             app.expected = display.output;

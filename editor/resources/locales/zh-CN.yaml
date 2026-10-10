@@ -339,6 +339,8 @@
 "HDR calibration is relative; Play previews in SDR.": "HDR 使用相对校准，不代表固定 nit 值；Play 使用 SDR 预览。"
 "Display": "显示"
 "Window Width": "窗口宽度"
+"Frame Rate Limit": "帧率上限"
+"0 disables the limit; VSync may further reduce FPS.": "0 表示无上限；VSync 可能进一步降低实际 FPS。"
 "Window Height": "窗口高度"
 "Window Mode": "窗口模式"
 "Windowed": "窗口"

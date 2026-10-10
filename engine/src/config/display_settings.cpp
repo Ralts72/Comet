@@ -1,4 +1,5 @@
 #include "config/display_settings.h"
+#include "core/frame_pacer.h"
 
 namespace Comet {
     Result<void> DisplaySettings::validate() const {
@@ -6,6 +7,8 @@ namespace Comet {
             return Result<void>::failure("Window dimensions must be positive integers");
         if(mode_name(mode).empty())
             return Result<void>::failure("Unknown window mode");
+        if(auto valid = FramePacer::validate_limit(frame_rate_limit); !valid)
+            return valid;
         return output.validate();
     }
 
@@ -31,11 +34,16 @@ namespace Comet {
         return {};
     }
 
+    Result<DisplaySettings> DisplaySettings::read(
+        Json::Node node, const Json::Context& context, std::string_view location) {
+        return read(node, context, location, DisplaySettings{});
+    }
+
     Result<DisplaySettings> DisplaySettings::read(Json::Node node, const Json::Context& context,
-        std::string_view location, const OutputSettings& output_defaults) {
+        std::string_view location, const DisplaySettings& defaults) {
         using Read = Result<DisplaySettings>;
         if(auto valid = context.validate_keys(
-               node, {"width", "height", "mode", "vsync", "output"}, location);
+               node, {"width", "height", "mode", "vsync", "output", "frame_rate_limit"}, location);
             !valid)
             return Read::failure(valid.error());
         auto width = context.read_field<int>(node, "width", "a positive integer", location);
@@ -54,7 +62,16 @@ namespace Comet {
         if(!parsed_mode)
             return Read::failure(context.error(location, parsed_mode.error()));
         DisplaySettings result{width.value(), height.value(), parsed_mode.value(), vsync.value()};
-        result.output = output_defaults;
+        result.output = defaults.output;
+        result.frame_rate_limit = defaults.frame_rate_limit;
+        Json::Node limit;
+        if(!node["frame_rate_limit"].get(limit)) {
+            auto loaded = context.read_scalar<int>(
+                limit, std::string(location) + ".frame_rate_limit", "an integer from 0 to 1000");
+            if(!loaded)
+                return Read::failure(loaded.error());
+            result.frame_rate_limit = loaded.value();
+        }
         Json::Node output;
         if(!node["output"].get(output)) {
             auto loaded = OutputSettings::read(output, context, std::string(location) + ".output");
@@ -73,6 +90,7 @@ namespace Comet {
         writer.field("height", static_cast<std::int64_t>(height));
         writer.field("mode", mode_name(mode));
         writer.field("vsync", vsync);
+        writer.field("frame_rate_limit", static_cast<std::int64_t>(frame_rate_limit));
         writer.key("output");
         output.write(writer);
         writer.end_object();

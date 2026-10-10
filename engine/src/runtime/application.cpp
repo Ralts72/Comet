@@ -61,7 +61,11 @@ namespace Comet {
             return RunResult::failure(engine.error());
         }
         m_engine = std::move(engine).value();
-        auto result = on_init();
+        auto result = RunResult::success();
+        if(m_options.display_settings)
+            result = m_engine->set_frame_rate_limit(m_options.display_settings->frame_rate_limit);
+        if(result)
+            result = on_init();
         if(result)
             result = m_engine->run({
                 .update = [this](const Engine::FrameContext& frame) { return on_update(frame); },

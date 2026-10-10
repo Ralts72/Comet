@@ -297,14 +297,14 @@ Application::Options 提供具名宿主选项：缓存／日志目录，以及�
 未指定覆盖时保留 run(Config) 的值；Editor 显式要求 SDR 和 Offscreen。
 scene_output 不从 YAML 读取，也不代表 HDR／SDR 颜色模式。
 
-Project 的 DisplaySettings 保存游戏默认逻辑尺寸、模式、VSync 与输出校准；PlayerDisplaySettings 在既有玩家目录读写
+Project 的 DisplaySettings 保存游戏默认逻辑尺寸、模式、VSync、帧率上限与输出校准；PlayerDisplaySettings 在既有玩家目录读写
 `display.json`，App 在创建窗口前通过 Options 应用有效设置。普通窗口拖动后的尺寸在退出时保存，
 WindowMode 与还原尺寸由 Window 维护，磁盘读写由宿主和玩家设置实例负责。
 Editor 的项目显示面板只通过 Project 保存默认值；成功修改后重建项目 UI 服务快照，让“恢复默认”读取新值，
 不写玩家文件或改变主窗口。面板在 Play 中关闭，取消和保存失败不会发布默认值变化。
 项目 UI 通过 load_display／apply_display 服务读取设置、提交草稿；显示请求在输入事件分发后消费，
 DisplaySettingsPreview 在 Engine 中持有试用前快照、候选和 15 秒单调时钟期限，App 更新时处理超时；
-尺寸、窗口模式或输出模式变化先应用后确认保存，VSync 与校准单独变化仍保存后应用。
+尺寸、窗口模式或输出模式变化先应用后确认保存，VSync、帧率上限与校准单独变化仍保存后应用。
 确认保存失败保留原期限；还原完整快照不写文件，未确认退出跳过窗口状态保存。最小化期间不更新，恢复后按原期限处理。
 宿主注入 display_confirmation／confirm_display／revert_display，demo 控制器负责倒计时与按钮，Editor Play 不启用确认服务。
 Lua 热重载只迁移标量 state 和草稿，不持有或重置引擎期限；还原设置重新走现有交换链生命周期，不承诺恢复已退休的交换链。
@@ -312,6 +312,11 @@ Renderer::set_vsync_enabled 只更新交换链请求并排队重建，prepare_fr
 输出格式保持固定，is_vsync_enabled 查询实际呈现状态，设备不支持的模式沿用既有协商与日志。
 App 把实际 VSync 状态随 UI 呈现帧传给 Lua；菜单将实际状态与未应用的请求草稿分开显示。
 Editor 的显示服务只应用 Play 固定分辨率；App 窗口模式／VSync 偏好不用于 Editor 主窗口及其交换链。
+FramePacer 属于 Foundation，只校验上限并计算当前帧期限；Engine::run 在 tick 结束后用 sleep_until 等待剩余预算。
+上限为 0 时不等待，已耗尽预算时不追加等待，每帧重新以实际起点计算，避免慢帧后的追赶或重复 VSync 等待。
+等待计入下一帧真实 delta_time，不计入当前 CPU 工作阶段；SceneRuntime 继续按自己的固定步与时间预算推进。
+Application 在 on_init 前安装玩家上限，运行中通过 Engine::set_frame_rate_limit 修改；项目 UI 的帧率草稿随原显示事务保存。
+Play 禁用帧率控件并保留 App 选择，Editor 主循环保持独立；旧玩家文件缺少该字段时继承项目值。
 
 - Engine 创建失败：释放 Diagnostics，不调用应用钩子，允许重试启动。
 - on_init 一旦开始：预期失败沿 Result 返回，run 先做 Engine 关闭准备，再且仅一次调用 void on_shutdown。

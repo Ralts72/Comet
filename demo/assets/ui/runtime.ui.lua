@@ -100,10 +100,15 @@ local function display_size(state, width, height)
     state.display_width, state.display_height = tostring(width), tostring(height)
 end
 
-local function dimension(text)
+local function unsigned_integer(text, maximum)
     local digits = text:match("^%s*(%d+)%s*$")
     local value = digits and tonumber(digits)
-    if value and value > 0 and value <= 2147483647 then return value end
+    if value and value <= maximum then return value end
+end
+
+local function dimension(text)
+    local value = unsigned_integer(text, 2147483647)
+    if value and value > 0 then return value end
 end
 
 local function display_labels(self, ui)
@@ -118,6 +123,12 @@ local function display_labels(self, ui)
     if state.display_vsync then vsync = "开启" end
     ui.set("display_vsync", vsync)
     ui.set("display_preview", state.display_preview)
+    ui.set("display_limit", state.display_limit)
+    local limit = "自定义"
+    local number = unsigned_integer(state.display_limit, 1000)
+    if number == 0 then limit = "无上限"
+    elseif number then limit = tostring(number) .. " FPS" end
+    ui.set("display_frame_rate", limit)
     ui.set("display_output_mode", output_labels[state.display_output_mode])
     ui.set("display_hdr_headroom", state.display_hdr_headroom)
     ui.set("display_hdr_white", state.display_hdr_white)
@@ -143,13 +154,14 @@ local function load_display(self, ui)
     if settings then
         display_size(state, settings.width, settings.height)
         state.display_mode, state.display_vsync = settings.mode, settings.vsync
+        state.display_limit = tostring(settings.frame_rate_limit)
         state.display_preview = settings.preview
         state.display_output_mode = settings.output_mode
         state.display_hdr_headroom = settings.hdr_headroom
         state.display_hdr_white = settings.hdr_white_level * 100
         display_confirmation(self, ui, settings)
         if settings.preview then
-            ui.set("display_status", "Play 将尺寸用于固定分辨率预览；窗口模式、VSync 和 HDR 请在独立 App 中设置。")
+            ui.set("display_status", "Play 将尺寸用于固定分辨率预览；窗口模式、VSync、帧率上限和 HDR 请在独立 App 中设置。")
         end
     end
     display_labels(self, ui)
@@ -344,6 +356,7 @@ return {
         display_available = false, display_preview = false, display_waiting = false,
         display_size = "", display_mode = "", display_vsync = "",
         display_width = "960", display_height = "720", display_active_vsync = "",
+        display_limit = "0", display_frame_rate = "",
         display_status = "", display_error = "",
         display_confirming = false, display_output_pending = false, display_confirmation_text = "",
         display_output_mode = "SDR", display_hdr_headroom = 4, display_hdr_white = 100,
@@ -364,6 +377,7 @@ return {
         audio_master = 100, audio_effects = 100, audio_music = 100,
         display_available = false, display_width = "960", display_height = "720",
         display_mode = "windowed", display_vsync = false, display_preview = false,
+        display_limit = "0",
         display_output_mode = "sdr", display_hdr_headroom = 4, display_hdr_white = 100,
     },
     on_mount = function(self, ui)
@@ -371,6 +385,7 @@ return {
             "action-selector", "action-name", "previous", "next", "bindings", "status",
             "error", "footer", "restore", "cancel", "apply", "display",
             "display-size", "display-width", "display-height", "display-mode", "display-vsync",
+            "display-limit", "display-limit-preset",
             "display-apply", "display-restore", "display-output-mode", "display-hdr-headroom",
             "display-hdr-white", "display-output-active", "display-confirm", "display-revert",
             "quality", "quality-msaa",
@@ -487,6 +502,11 @@ return {
                 end
             elseif operation == "display_vsync" and not draft.display_preview then
                 draft.display_vsync = not draft.display_vsync
+            elseif operation == "display_limit" and not draft.display_preview then
+                draft.display_limit = action
+            elseif operation == "display_limit_preset" and not draft.display_preview then
+                local limit = unsigned_integer(draft.display_limit, 1000)
+                draft.display_limit = tostring(cycle(limit, {0, 30, 60, 120, 144, 240}))
             elseif operation == "display_output_mode" and not draft.display_preview then
                 draft.display_output_mode = cycle(draft.display_output_mode, output_modes)
             elseif operation == "display_hdr_headroom" or operation == "display_hdr_white" then
@@ -502,6 +522,7 @@ return {
                     display_size(draft, current.defaults.width, current.defaults.height)
                     if not draft.display_preview then
                         draft.display_mode, draft.display_vsync = current.defaults.mode, current.defaults.vsync
+                        draft.display_limit = tostring(current.defaults.frame_rate_limit)
                         draft.display_output_mode = current.defaults.output_mode
                         draft.display_hdr_headroom = current.defaults.hdr_headroom
                         draft.display_hdr_white = current.defaults.hdr_white_level * 100
@@ -513,10 +534,15 @@ return {
                     ui.set("display_error", "宽高必须是 1 到 2147483647 之间的整数。")
                     return
                 end
+                local limit = unsigned_integer(draft.display_limit, 1000)
+                if not limit then
+                    ui.set("display_error", "帧率上限必须是 0 到 1000 之间的整数，0 表示无上限。")
+                    return
+                end
                 display_size(draft, width, height)
                 self.state.display_waiting = true
                 ui.display_apply(width, height, draft.display_mode, draft.display_vsync,
-                    draft.display_output_mode, draft.display_hdr_headroom, draft.display_hdr_white / 100)
+                    draft.display_output_mode, draft.display_hdr_headroom, draft.display_hdr_white / 100, limit)
             end
             display_labels(self, ui)
         elseif operation == "cancel" then

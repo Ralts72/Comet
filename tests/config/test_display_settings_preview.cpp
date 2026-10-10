@@ -61,10 +61,10 @@ namespace Comet::Tests {
 
     TEST_F(DisplaySettingsPreviewTest, ExpiryAndManualRevertRestoreActualStateWithoutSaving) {
         const DisplaySettings previous{
-            1377, 811, WindowMode::Windowed, true, {OutputMode::Auto, 6, 0.75f}};
+            1377, 811, WindowMode::Windowed, true, {OutputMode::Auto, 6, 0.75f}, 30};
         active = previous;
         const DisplaySettings candidate{
-            1920, 1080, WindowMode::Fullscreen, false, {OutputMode::Hdr, 12, 1.5f}};
+            1920, 1080, WindowMode::Fullscreen, false, {OutputMode::Hdr, 12, 1.5f}, 120};
         ASSERT_TRUE(preview->apply(candidate, active, application(), now));
         ASSERT_TRUE(preview->expire(application(), now + std::chrono::seconds(14)));
         EXPECT_EQ(active, candidate);
@@ -105,9 +105,10 @@ namespace Comet::Tests {
         EXPECT_EQ(active, candidate);
     }
 
-    TEST_F(DisplaySettingsPreviewTest, VsyncAndCalibrationSaveDirectlyAndSaveFailureDoesNotApply) {
+    TEST_F(DisplaySettingsPreviewTest, TimingAndCalibrationSaveDirectlyAndSaveFailureDoesNotApply) {
         auto candidate = defaults;
         candidate.vsync = false;
+        candidate.frame_rate_limit = 75;
         candidate.output.hdr_headroom = 8;
         candidate.output.hdr_white_level = 1.5f;
         ASSERT_TRUE(preview->apply(candidate, active, application(), now));

@@ -20,6 +20,7 @@ extern "C" {
 #include <set>
 #include <utility>
 #include <variant>
+#include "core/frame_pacer.h"
 
 namespace Comet::Ui {
     namespace {
@@ -514,7 +515,7 @@ namespace Comet::Ui {
                 return 2;
             }
             const auto push_settings = [&](const Comet::DisplaySettings& settings) {
-                lua_createtable(state, 0, 7);
+                lua_createtable(state, 0, 8);
                 lua_pushinteger(state, settings.width);
                 lua_setfield(state, -2, "width");
                 lua_pushinteger(state, settings.height);
@@ -524,6 +525,8 @@ namespace Comet::Ui {
                 lua_setfield(state, -2, "mode");
                 lua_pushboolean(state, settings.vsync);
                 lua_setfield(state, -2, "vsync");
+                lua_pushinteger(state, settings.frame_rate_limit);
+                lua_setfield(state, -2, "frame_rate_limit");
                 const auto output_mode = OutputSettings::mode_name(settings.output.mode);
                 lua_pushlstring(state, output_mode.data(), output_mode.size());
                 lua_setfield(state, -2, "output_mode");
@@ -577,18 +580,23 @@ namespace Comet::Ui {
         if(!m_services.apply_display || !m_info.game_available)
             return luaL_error(state, "Display settings service is unavailable");
         OutputSettings output;
-        if(lua_isnoneornil(state, 5)) {
+        int frame_rate_limit = 0;
+        const bool keep_output = lua_isnoneornil(state, 5);
+        const bool keep_limit = lua_isnoneornil(state, 8);
+        if(keep_output || keep_limit) {
             bool loaded = false;
             if(m_services.load_display) {
                 const auto settings = m_services.load_display();
                 if(settings) {
                     output = settings.value().output;
+                    frame_rate_limit = settings.value().frame_rate_limit;
                     loaded = true;
                 }
             }
             if(!loaded)
-                return luaL_error(state, "Display output settings are unavailable");
-        } else {
+                return luaL_error(state, "Display settings are unavailable");
+        }
+        if(!keep_output) {
             const auto* output_mode = luaL_checkstring(state, 5);
             const auto headroom = luaL_checknumber(state, 6);
             const auto white = luaL_checknumber(state, 7);
@@ -606,8 +614,15 @@ namespace Comet::Ui {
             output.hdr_headroom = static_cast<float>(headroom);
             output.hdr_white_level = static_cast<float>(white);
         }
-        m_pending_display = Comet::DisplaySettings{static_cast<int>(width),
-            static_cast<int>(height), window_mode, bool(lua_toboolean(state, 4)), output};
+        if(!keep_limit) {
+            const auto limit = luaL_checkinteger(state, 8);
+            if(limit < 0 || limit > FramePacer::MAX_LIMIT)
+                return luaL_error(state, "Frame rate limit must be an integer from 0 to 1000");
+            frame_rate_limit = static_cast<int>(limit);
+        }
+        m_pending_display =
+            Comet::DisplaySettings{static_cast<int>(width), static_cast<int>(height), window_mode,
+                bool(lua_toboolean(state, 4)), output, frame_rate_limit};
         return 0;
     }
 
