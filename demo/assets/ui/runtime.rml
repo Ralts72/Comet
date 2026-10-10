@@ -35,6 +35,11 @@
                 <p id="display-active-vsync" class="hint">{{ display_active_vsync }}</p>
                 <button id="display-restore" data-event-click="command('display_restore')" data-attrif-disabled="waiting">显示默认值</button>
                 <button id="display-apply" data-event-click="command('display_apply')" data-attrif-disabled="waiting">应用显示设置</button>
+                <div id="display-confirmation" data-if="display_confirming">
+                    <p>{{ display_confirmation_text }}</p>
+                    <button id="display-confirm" class="primary" data-event-click="command('display_confirm')" data-attrif-disabled="display_waiting || display_output_pending">确认保留</button>
+                    <button id="display-revert" data-event-click="command('display_revert')" data-attrif-disabled="display_waiting">还原 / Esc</button>
+                </div>
             </div>
             <p id="display-error">{{ display_error }}</p>
             <div id="quality" data-if="quality_available">

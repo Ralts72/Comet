@@ -8,6 +8,7 @@ set(SOURCES
     src/core/project.cpp
     src/config/config_loader.cpp
     src/config/display_settings.cpp
+    src/config/display_settings_preview.cpp
     src/config/player_display_settings.cpp
     src/config/player_quality_settings.cpp
     src/config/player_audio_settings.cpp

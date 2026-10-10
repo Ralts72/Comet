@@ -17,6 +17,9 @@ namespace Comet::Ui {
             DisplaySettings display_defaults;
             std::function<Result<DisplaySettings>()> load_display;
             std::function<Result<void>(DisplaySettings)> apply_display;
+            std::function<std::optional<float>()> display_confirmation;
+            std::function<Result<void>()> confirm_display;
+            std::function<Result<void>()> revert_display;
             QualitySettings quality_defaults;
             std::function<Result<QualitySettings>()> load_quality;
             std::function<Result<void>(QualitySettings)> apply_quality;

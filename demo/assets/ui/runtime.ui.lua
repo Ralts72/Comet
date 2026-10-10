@@ -124,6 +124,15 @@ local function display_labels(self, ui)
     ui.set("display_hdr_disabled", state.display_preview or state.display_output_mode == "sdr")
 end
 
+local function display_confirmation(self, ui, settings)
+    self.state.display_confirming = settings.confirmation_pending
+    self.state.display_output_pending = settings.output_pending
+    ui.set("display_confirming", settings.confirmation_pending)
+    ui.set("display_output_pending", settings.output_pending)
+    ui.set("display_confirmation_text", string.format("请在 %d 秒内确认保留，否则自动还原。",
+        math.ceil(settings.confirmation_seconds)))
+end
+
 local function load_display(self, ui)
     local settings, message = ui.display_settings()
     local state = self.state
@@ -138,6 +147,7 @@ local function load_display(self, ui)
         state.display_output_mode = settings.output_mode
         state.display_hdr_headroom = settings.hdr_headroom
         state.display_hdr_white = settings.hdr_white_level * 100
+        display_confirmation(self, ui, settings)
         if settings.preview then
             ui.set("display_status", "Play 将尺寸用于固定分辨率预览；窗口模式、VSync 和 HDR 请在独立 App 中设置。")
         end
@@ -149,11 +159,17 @@ local function display_output_status(self, ui)
     if not self.state.display_available then return end
     local settings = ui.display_settings()
     if not settings then return end
+    if self.state.display_confirming and not settings.confirmation_pending then
+        load_display(self, ui)
+        ui.set("display_status", "显示试用已还原。")
+    else
+        display_confirmation(self, ui, settings)
+    end
     local status = "当前输出：SDR"
     if settings.preview then
         status = "当前输出：编辑器 SDR 预览；保留独立 App 的 HDR 选择。"
     elseif settings.output_pending then
-        status = "输出设置已保存，等待下一帧应用…"
+        status = "等待下一帧应用输出设置…"
     elseif settings.hdr_active then
         status = "当前输出：HDR（扩展线性）"
     elseif settings.output_mode ~= "sdr" then
@@ -246,11 +262,11 @@ local function sync(self, ui)
         self.state.revision = status.revision
     end
     ui.set("display_waiting", self.state.display_waiting)
-    ui.set("waiting", status.waiting or self.state.display_waiting or self.state.quality_waiting or self.state.audio_waiting)
+    ui.set("waiting", status.waiting or self.state.display_waiting or self.state.display_confirming or self.state.quality_waiting or self.state.audio_waiting)
     local error_text = self.state.error
     if error_text == "" then error_text = status.error end
     ui.set("error_text", error_text)
-    local text = "更改会在应用后保存到当前玩家目录，不修改项目默认配置。"
+    local text = "更改保存到当前玩家目录，不修改项目默认配置；显示尺寸或模式变化需确认保留。"
     if status.waiting then
         text = "正在保存…"
     elseif status.capturing then
@@ -268,8 +284,20 @@ local function sync(self, ui)
     ui.modal(self.state.open)
 end
 
+local function display_decision(self, ui, confirm)
+    if self.state.display_waiting then return end
+    if confirm and self.state.display_output_pending then return end
+    self.state.display_waiting = true
+    if confirm then ui.display_confirm() else ui.display_revert() end
+    sync(self, ui)
+end
+
 local function close(self, ui)
     if ui.input_status().waiting then return end
+    if self.state.display_confirming then
+        display_decision(self, ui, false)
+        return
+    end
     self.state.open = false
     self.state.error = ""
     self.state.error_only = false
@@ -285,7 +313,9 @@ local function close(self, ui)
 end
 
 local function focus_menu(self, ui)
-    if self.state.error_only or #ui.input_actions() == 0 then
+    if self.state.display_confirming then
+        ui.focus("display-confirm")
+    elseif self.state.error_only or #ui.input_actions() == 0 then
         ui.focus("cancel")
     else
         ui.focus_first("bindings")
@@ -315,6 +345,7 @@ return {
         display_size = "", display_mode = "", display_vsync = "",
         display_width = "960", display_height = "720", display_active_vsync = "",
         display_status = "", display_error = "",
+        display_confirming = false, display_output_pending = false, display_confirmation_text = "",
         display_output_mode = "SDR", display_hdr_headroom = 4, display_hdr_white = 100,
         display_hdr_disabled = true, display_output_active = "",
         quality_available = false, quality_msaa = "", quality_anisotropy = "", quality_scale = "",
@@ -326,6 +357,7 @@ return {
     state = {
         open = false, available = false, error_only = false, selected = 1,
         revision = -1, error = "", display_waiting = false,
+        display_confirming = false, display_output_pending = false,
         quality_available = false, quality_waiting = false, quality_error = "",
         quality_msaa = 4, quality_anisotropy = 8, quality_scale = 1,
         audio_available = false, audio_waiting = false, audio_error = "",
@@ -340,7 +372,8 @@ return {
             "error", "footer", "restore", "cancel", "apply", "display",
             "display-size", "display-width", "display-height", "display-mode", "display-vsync",
             "display-apply", "display-restore", "display-output-mode", "display-hdr-headroom",
-            "display-hdr-white", "display-output-active", "quality", "quality-msaa",
+            "display-hdr-white", "display-output-active", "display-confirm", "display-revert",
+            "quality", "quality-msaa",
             "quality-anisotropy", "quality-scale", "quality-apply", "quality-restore",
             "quality-preset", "quality-performance", "quality-balanced", "quality-quality",
             "audio", "audio-master", "audio-effects", "audio-music", "audio-restore", "audio-apply"}) do
@@ -384,6 +417,11 @@ return {
     on_event = function(self, ui, operation, action, binding)
         if operation == "open" then open(self, ui); return end
         if not self.state.open or ui.input_status().waiting or self.state.display_waiting or self.state.quality_waiting or self.state.audio_waiting then return end
+        if self.state.display_confirming then
+            if operation == "display_confirm" then display_decision(self, ui, true)
+            elseif operation == "display_revert" or operation == "cancel" then display_decision(self, ui, false) end
+            return
+        end
         if self.state.error_only and operation ~= "cancel" and not operation:match("^display_") and not operation:match("^quality_") and not operation:match("^audio_") then return end
         if operation:match("^audio_") and self.state.audio_available then
             local draft = self.state
@@ -518,7 +556,12 @@ return {
     on_display_result = function(self, ui, success, message)
         self.state.display_waiting = false
         ui.set("display_error", message)
-        if success then ui.set("display_status", "显示设置已保存；更改在后续帧应用，实际状态见当前同步呈现。") end
+        if success then
+            load_display(self, ui)
+            local message = "显示设置已应用；确认保留后才会保存。"
+            if not self.state.display_confirming then message = "显示设置已应用。" end
+            ui.set("display_status", message)
+        end
         sync(self, ui)
     end,
     on_quality_result = function(self, ui, success, message)

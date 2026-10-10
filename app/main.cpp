@@ -1,4 +1,5 @@
 #include "config/player_display_settings.h"
+#include "config/display_settings_preview.h"
 #include "config/player_quality_settings.h"
 #include "config/player_audio_settings.h"
 #include "runtime/entry.h"
@@ -83,6 +84,7 @@ namespace {
                   .display_settings = display_settings.settings(),
                   .quality_settings = quality_settings.settings()}),
               m_project(std::move(project)), m_display_settings(std::move(display_settings)),
+              m_display_preview(m_display_settings),
               m_quality_settings(std::move(quality_settings)),
               m_audio_settings(std::move(audio_settings)) {}
 
@@ -152,22 +154,24 @@ namespace {
                         },
                     .apply_display =
                         [this](Comet::DisplaySettings settings) {
-                            return m_display_settings.save_and_apply(
-                                settings, [this](const auto& candidate) {
-                                    auto& engine = get_engine();
-                                    auto applied =
-                                        engine.get_window().set_display_settings(candidate.mode,
-                                            {static_cast<uint32_t>(candidate.width),
-                                                static_cast<uint32_t>(candidate.height)});
-                                    if(!applied)
-                                        return applied;
-                                    engine.get_renderer().set_vsync_enabled(candidate.vsync);
-                                    auto output = engine.get_renderer().request_output_settings(
-                                        candidate.output);
-                                    if(!output)
-                                        return Comet::Result<void>::failure(output.error().message);
-                                    return Comet::Result<void>::success();
+                            return m_display_preview.apply(settings, current_display_settings(),
+                                [this](const auto& candidate) {
+                                    return apply_display_settings(candidate);
                                 });
+                        },
+                    .display_confirmation = [this] { return m_display_preview.remaining(); },
+                    .confirm_display =
+                        [this] {
+                            if(get_engine().get_renderer().output_pending())
+                                return Comet::Result<void>::failure(
+                                    "Display output is still being applied");
+                            return m_display_preview.confirm();
+                        },
+                    .revert_display =
+                        [this] {
+                            return m_display_preview.revert([this](const auto& previous) {
+                                return apply_display_settings(previous);
+                            });
                         },
                     .quality_defaults = m_project.quality_settings(),
                     .load_quality =
@@ -223,6 +227,10 @@ namespace {
 
         Comet::Result<void, Comet::Error> on_update(
             const Comet::Engine::FrameContext& frame) override {
+            if(auto expired = m_display_preview.expire(
+                   [this](const auto& previous) { return apply_display_settings(previous); });
+                !expired)
+                return Comet::Result<void, Comet::Error>::failure({expired.error()});
             if((!m_ui || !m_ui->is_modal()) && !m_ui_blocked
                 && frame.physical_input.key(Comet::Input::Key::Escape).pressed) {
                 get_engine().get_window().request_close();
@@ -270,7 +278,7 @@ namespace {
         void on_shutdown() override {
             LOG_INFO("app shutdown");
             const auto display = current_display_settings();
-            if(display != m_display_settings.settings()) {
+            if(!m_display_preview.is_pending() && display != m_display_settings.settings()) {
                 if(auto saved = m_display_settings.save(display); !saved)
                     LOG_WARN("Cannot save game window state: {}", saved.error());
             }
@@ -285,8 +293,20 @@ namespace {
         }
 
     private:
+        Comet::Result<void> apply_display_settings(const Comet::DisplaySettings& settings) {
+            auto& engine = get_engine();
+            auto window = engine.get_window().set_display_settings(settings.mode,
+                {static_cast<uint32_t>(settings.width), static_cast<uint32_t>(settings.height)});
+            if(!window)
+                return window;
+            engine.get_renderer().set_vsync_enabled(settings.vsync);
+            auto output = engine.get_renderer().request_output_settings(settings.output);
+            if(!output)
+                return Comet::Result<void>::failure(output.error().message);
+            return Comet::Result<void>::success();
+        }
         Comet::DisplaySettings current_display_settings() const {
-            auto settings = m_display_settings.settings();
+            auto settings = m_display_preview.settings();
             const auto& window = get_engine().get_window();
             const auto size = window.get_restore_size();
             settings.width = static_cast<int>(size.x);
@@ -346,6 +366,10 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> restart_scene() {
+            if(auto reverted = m_display_preview.revert(
+                   [this](const auto& previous) { return apply_display_settings(previous); });
+                !reverted)
+                return Comet::Result<void, Comet::Error>::failure({reverted.error()});
             const auto components = Comet::create_scene_component_registry();
             auto candidate = Comet::SceneSerializer(components).clone(*m_initial_scene);
             if(!candidate) {
@@ -363,6 +387,7 @@ namespace {
 
         Comet::Project m_project;
         Comet::PlayerDisplaySettings m_display_settings;
+        Comet::DisplaySettingsPreview m_display_preview;
         Comet::PlayerQualitySettings m_quality_settings;
         Comet::PlayerAudioSettings m_audio_settings;
         Comet::Input::Gate m_input_gate;

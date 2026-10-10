@@ -1,4 +1,5 @@
 #include "ui/project_ui.h"
+#include "config/display_settings_preview.h"
 #include "support/engine_fixture.h"
 #include "support/temporary_directory.h"
 #include "core/window.h"
@@ -29,6 +30,12 @@ namespace Comet::Tests {
         std::optional<bool> vsync_active;
         DisplaySettings saved_display;
         unsigned display_applications = 0;
+        bool display_confirmation_services = false;
+        Uuid display_project_id = Uuid::generate();
+        std::optional<PlayerDisplaySettings> display_player;
+        std::unique_ptr<DisplaySettingsPreview> display_confirmation;
+        DisplaySettings active_display;
+        DisplaySettingsPreview::Clock::time_point display_time{};
         bool quality_services = false, fail_quality_save = false;
         QualitySettings saved_quality;
         QualitySettings default_quality;
@@ -71,21 +78,45 @@ namespace Comet::Tests {
             if(display_services) {
                 services.display_defaults = {1280, 720, WindowMode::Windowed, true};
                 services.load_display = [this] {
+                    if(display_confirmation)
+                        return Result<DisplaySettings>::success(display_confirmation->settings());
                     return Result<DisplaySettings>::success(saved_display);
                 };
                 services.apply_display = [this](DisplaySettings value) {
+                    if(display_confirmation)
+                        return display_confirmation->apply(
+                            value, active_display,
+                            [this](const auto& settings) { return apply_display(settings); },
+                            display_time);
                     if(fail_display_save)
                         return Result<void>::failure("Simulated display save failure");
-                    if(!preview) {
-                        const auto requested =
-                            engine->get_renderer().request_output_settings(value.output);
-                        if(!requested)
-                            return Result<void>::failure(requested.error().message);
-                    }
+                    if(auto result = apply_display(value); !result)
+                        return result;
                     saved_display = value;
-                    ++display_applications;
                     return Result<void>::success();
                 };
+                if(display_confirmation_services) {
+                    display_confirmation.reset();
+                    auto player = PlayerDisplaySettings::load(
+                        display_project_id, saved_display, documents.path() / "display.json");
+                    ASSERT_TRUE(player) << player.error();
+                    display_player.emplace(std::move(player).value());
+                    display_confirmation =
+                        std::make_unique<DisplaySettingsPreview>(*display_player);
+                    active_display = saved_display;
+                    services.display_confirmation = [this] {
+                        return display_confirmation->remaining(display_time);
+                    };
+                    services.confirm_display = [this] {
+                        if(engine->get_renderer().output_pending())
+                            return Result<void>::failure("Display output is still being applied");
+                        return display_confirmation->confirm(display_time);
+                    };
+                    services.revert_display = [this] {
+                        return display_confirmation->revert(
+                            [this](const auto& settings) { return apply_display(settings); });
+                    };
+                }
             }
             if(quality_services) {
                 services.quality_defaults = default_quality;
@@ -164,6 +195,12 @@ namespace Comet::Tests {
             ASSERT_TRUE(result) << result.error().message;
         }
         Result<void, GraphicsError> submit_frame() {
+            if(display_confirmation) {
+                auto expired = display_confirmation->expire(
+                    [this](const auto& settings) { return apply_display(settings); }, display_time);
+                if(!expired)
+                    return Result<void, GraphicsError>::failure({expired.error()});
+            }
             auto& window = engine->get_window();
             auto& renderer = engine->get_renderer();
             for(unsigned attempt = 0; attempt < 12; ++attempt) {
@@ -190,6 +227,16 @@ namespace Comet::Tests {
             callback(window, key, 0, GLFW_PRESS, 0);
             callback(window, key, 0, GLFW_RELEASE, 0);
         }
+        Result<void> apply_display(const DisplaySettings& value) {
+            if(!preview) {
+                const auto requested = engine->get_renderer().request_output_settings(value.output);
+                if(!requested)
+                    return Result<void>::failure(requested.error().message);
+            }
+            active_display = value;
+            ++display_applications;
+            return Result<void>::success();
+        }
         void type_display_size(const char* id, const std::string& value) {
             auto* input = document().GetElementById(id);
             ASSERT_NE(input, nullptr);
@@ -205,6 +252,73 @@ namespace Comet::Tests {
             EXPECT_EQ(input->GetAttribute("value", Rml::String{}), value);
         }
     };
+    TEST_F(ProjectUiGpuTest, DisplayTrialSurvivesReloadAndConfirmsOnlyAfterOutputIsApplied) {
+        display_services = true;
+        display_confirmation_services = true;
+        create_ui(InputActions{});
+        click("settings");
+        click("display-size");
+        click("display-output-mode");
+        click("display-apply");
+        ASSERT_TRUE(display_confirmation->is_pending());
+        EXPECT_FALSE(std::filesystem::exists(documents.path() / "display.json"));
+        EXPECT_TRUE(document().GetElementById("display-apply")->HasAttribute("disabled"));
+        EXPECT_TRUE(document().GetElementById("cancel")->HasAttribute("disabled"));
+        display_time += std::chrono::seconds(10);
+        ASSERT_TRUE(ui->reload());
+        ASSERT_TRUE(submit_frame());
+        EXPECT_EQ(display_confirmation->remaining(display_time), 5);
+        EXPECT_NE(document().GetElementById("display-confirmation")->GetInnerRML().find("5 秒"),
+            std::string::npos);
+        EXPECT_FALSE(document().GetElementById("display-confirm")->HasAttribute("disabled"));
+        EXPECT_EQ(
+            Rml::GetContext(0)->GetFocusElement(), document().GetElementById("display-confirm"));
+        queue_key(GLFW_KEY_ENTER);
+        ASSERT_TRUE(submit_frame());
+        EXPECT_FALSE(display_confirmation->is_pending());
+        EXPECT_EQ(display_applications, 1u);
+        const auto saved = PlayerDisplaySettings::load(
+            display_project_id, saved_display, documents.path() / "display.json");
+        ASSERT_TRUE(saved) << saved.error();
+        EXPECT_EQ(saved.value().settings(), active_display);
+        EXPECT_EQ(active_display.width, 1280);
+        EXPECT_EQ(active_display.output.mode, OutputMode::Hdr);
+        EXPECT_FALSE(document().GetElementById("cancel")->HasAttribute("disabled"));
+    }
+
+    TEST_F(ProjectUiGpuTest, DisplayTrialExpiresOrEscRevertsAndSaveFailureKeepsConfirmation) {
+        display_services = true;
+        display_confirmation_services = true;
+        create_ui(InputActions{});
+        const auto original = active_display;
+        click("settings");
+        type_display_size("display-width", "1377");
+        click("display-apply");
+        ASSERT_TRUE(display_confirmation->is_pending());
+        display_time += std::chrono::seconds(15);
+        ASSERT_TRUE(submit_frame());
+        EXPECT_FALSE(display_confirmation->is_pending());
+        EXPECT_EQ(active_display, original);
+        EXPECT_EQ(document().GetElementById("display-width")->GetAttribute("value", Rml::String{}),
+            "960");
+        EXPECT_TRUE(ui->is_modal());
+
+        click("display-size");
+        click("display-apply");
+        ASSERT_TRUE(display_confirmation->is_pending());
+        std::filesystem::create_directory(documents.path() / "display.json");
+        click("display-confirm");
+        EXPECT_TRUE(display_confirmation->is_pending());
+        EXPECT_FALSE(document().GetElementById("display-error")->GetInnerRML().empty());
+        EXPECT_FALSE(document().GetElementById("display-revert")->HasAttribute("disabled"));
+        queue_key(GLFW_KEY_ESCAPE);
+        ASSERT_TRUE(submit_frame());
+        EXPECT_FALSE(display_confirmation->is_pending());
+        EXPECT_EQ(active_display, original);
+        EXPECT_TRUE(ui->is_modal());
+        EXPECT_EQ(display_player->settings(), original);
+    }
+
     TEST_F(ProjectUiGpuTest, AudioDraftCancelsAndFailedSavePreservesSliderValuesAcrossReload) {
         audio_services = true;
         create_ui(InputActions{});

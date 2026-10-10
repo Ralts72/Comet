@@ -19,6 +19,7 @@ extern "C" {
 #include <limits>
 #include <set>
 #include <utility>
+#include <variant>
 
 namespace Comet::Ui {
     namespace {
@@ -73,6 +74,8 @@ namespace Comet::Ui {
             InputApply,
             DisplaySettings,
             DisplayApply,
+            DisplayConfirm,
+            DisplayRevert,
             QualitySettings,
             QualityApply,
             AudioSettings,
@@ -104,6 +107,8 @@ namespace Comet::Ui {
                             {"input_apply", static_cast<int>(Api::InputApply)},
                             {"display_settings", static_cast<int>(Api::DisplaySettings)},
                             {"display_apply", static_cast<int>(Api::DisplayApply)},
+                            {"display_confirm", static_cast<int>(Api::DisplayConfirm)},
+                            {"display_revert", static_cast<int>(Api::DisplayRevert)},
                             {"quality_settings", static_cast<int>(Api::QualitySettings)},
                             {"quality_apply", static_cast<int>(Api::QualityApply)},
                             {"audio_settings", static_cast<int>(Api::AudioSettings)},
@@ -352,7 +357,8 @@ namespace Comet::Ui {
         std::vector<ActionView> m_actions;
         std::vector<Input::GamepadButton> m_reserved_buttons;
         std::optional<PendingCapture> m_pending_capture;
-        std::optional<Comet::DisplaySettings> m_pending_display;
+        enum class DisplayDecision { Confirm, Revert };
+        std::optional<std::variant<Comet::DisplaySettings, DisplayDecision>> m_pending_display;
         std::optional<Comet::QualitySettings> m_pending_quality;
         std::optional<Comet::AudioSettings> m_pending_audio;
         std::string m_capture_focus, m_api_error, m_event_error;
@@ -481,6 +487,8 @@ namespace Comet::Ui {
                 return 0;
             case Api::DisplaySettings:
             case Api::DisplayApply:
+            case Api::DisplayConfirm:
+            case Api::DisplayRevert:
                 return display_api(state, operation);
             case Api::QualitySettings:
             case Api::QualityApply:
@@ -531,9 +539,25 @@ namespace Comet::Ui {
             lua_setfield(state, -2, "hdr_active");
             lua_pushboolean(state, m_renderer.output_pending());
             lua_setfield(state, -2, "output_pending");
+            const auto confirmation = m_services.display_confirmation
+                                          ? m_services.display_confirmation()
+                                          : std::optional<float>{};
+            lua_pushboolean(state, confirmation.has_value());
+            lua_setfield(state, -2, "confirmation_pending");
+            lua_pushnumber(state, confirmation.value_or(0));
+            lua_setfield(state, -2, "confirmation_seconds");
             push_settings(m_services.display_defaults);
             lua_setfield(state, -2, "defaults");
             return 1;
+        }
+        if(operation == Api::DisplayConfirm || operation == Api::DisplayRevert) {
+            const auto& service = operation == Api::DisplayConfirm ? m_services.confirm_display
+                                                                   : m_services.revert_display;
+            if(!service || !m_info.game_available)
+                return luaL_error(state, "Display confirmation service is unavailable");
+            m_pending_display = operation == Api::DisplayConfirm ? DisplayDecision::Confirm
+                                                                 : DisplayDecision::Revert;
+            return 0;
         }
         const auto width = luaL_checkinteger(state, 1);
         const auto height = luaL_checkinteger(state, 2);
@@ -898,7 +922,13 @@ namespace Comet::Ui {
         }
         m_runtime->set_capture_active(bool(m_edit.capture()));
         if(auto display = std::exchange(m_pending_display, {})) {
-            const auto applied = m_services.apply_display(*display);
+            auto applied = Result<void>::success();
+            if(const auto* settings = std::get_if<Comet::DisplaySettings>(&*display))
+                applied = m_services.apply_display(*settings);
+            else if(std::get<DisplayDecision>(*display) == DisplayDecision::Confirm)
+                applied = m_services.confirm_display();
+            else
+                applied = m_services.revert_display();
             if(auto result = call("on_display_result",
                    {Rml::Variant(bool(applied)),
                        Rml::Variant(applied ? std::string{} : applied.error())});

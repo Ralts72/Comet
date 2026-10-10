@@ -108,11 +108,14 @@ namespace {
             for(const auto* name : {"display_available", "display_preview", "display_waiting",
                     "quality_available", "audio_available", "display_hdr_disabled"})
                 ASSERT_TRUE(constructor.Bind(name, &display_flag));
-            for(const auto* name : {"display_size", "display_mode", "display_vsync",
-                    "display_status", "display_error", "display_width", "display_height",
-                    "display_active_vsync", "quality_msaa", "quality_anisotropy", "quality_scale",
-                    "quality_active", "quality_status", "quality_error", "quality_preset",
-                    "audio_active", "audio_error", "display_output_mode", "display_output_active"})
+            for(const auto* name : {"display_confirming", "display_output_pending"})
+                ASSERT_TRUE(constructor.Bind(name, &confirmation_flag));
+            for(const auto* name :
+                {"display_size", "display_mode", "display_vsync", "display_status", "display_error",
+                    "display_width", "display_height", "display_active_vsync", "quality_msaa",
+                    "quality_anisotropy", "quality_scale", "quality_active", "quality_status",
+                    "quality_error", "quality_preset", "audio_active", "audio_error",
+                    "display_output_mode", "display_output_active", "display_confirmation_text"})
                 ASSERT_TRUE(constructor.Bind(name, &display_text));
             for(const auto* name : {"audio_master", "audio_effects", "audio_music",
                     "display_hdr_headroom", "display_hdr_white"})
@@ -164,6 +167,7 @@ namespace {
         bool waiting = false;
         bool has_actions = true;
         bool display_flag = false;
+        bool confirmation_flag = false;
         float audio_volume = 100;
         std::string display_text;
         bool initialized = false;

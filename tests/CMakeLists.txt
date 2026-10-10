@@ -36,6 +36,7 @@ set(UNIT_TEST_SOURCES
         common/test_scope_exit.cpp
         config/test_config.cpp
         config/test_display_settings.cpp
+        config/test_display_settings_preview.cpp
         config/test_quality_settings.cpp
         config/test_audio_settings.cpp
         core/test_geometry.cpp
