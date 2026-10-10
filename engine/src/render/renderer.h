@@ -76,6 +76,9 @@ namespace Comet {
         prepare_material_update(
             AssetHandle handle, const std::shared_ptr<const Material>& material);
         void request_swapchain_recreation();
+        // 修改请求在下一次 prepare_frame 的交换链重建中生效。
+        void set_vsync_enabled(bool enabled);
+        [[nodiscard]] bool is_vsync_enabled() const;
         void wait_idle();
         void prepare_shutdown() noexcept;
         // 同一集成方的绘制与交换链生命周期一起安装或解除。

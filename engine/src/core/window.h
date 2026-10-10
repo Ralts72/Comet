@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "common/result.h"
 #include "core/window_settings.h"
 #include "core/math_utils.h"
 #include "input/input.h"
@@ -73,6 +74,8 @@ namespace Comet {
         void confirm_close_requests(bool enabled) { m_confirm_close = enabled; }
         [[nodiscard]] bool take_close_request();
         [[nodiscard]] bool is_minimized() const;
+        // 最小化时保留还原前的最大化状态。
+        [[nodiscard]] bool is_maximized() const;
 
         // 仅前台非最小化窗口可锁定；失焦后不自动恢复。
         void set_cursor_locked(bool locked);
@@ -81,7 +84,11 @@ namespace Comet {
 
         [[nodiscard]] Math::Vec2u get_framebuffer_size() const;
         [[nodiscard]] Math::Vec2u get_size() const;
+        // 普通窗口的逻辑尺寸；最大化、最小化和全屏不覆盖它。
+        [[nodiscard]] Math::Vec2u get_restore_size() const { return m_restore_size; }
         [[nodiscard]] Math::Vec2 get_content_scale() const;
+        [[nodiscard]] WindowMode get_mode() const { return m_mode; }
+        [[nodiscard]] Result<void> set_display_settings(WindowMode mode, Math::Vec2u windowed_size);
 
         void poll_events();
         // 事件采集不推进快照；由 Engine 在 Update 前发布一次。
@@ -100,6 +107,7 @@ namespace Comet {
     private:
         void install_input_callbacks();
         void append_ui_event(const UiEvent& event);
+        void update_restore_state();
 
         struct WindowDeleter {
             void operator()(GLFWwindow* window) const noexcept;
@@ -113,10 +121,14 @@ namespace Comet {
         size_t m_pending_ui_event_count = 0;
         size_t m_ui_event_count = 0;
         Math::Vec2 m_ui_cursor_position{};
+        Math::Vec2u m_restore_size{};
+        std::array<int, 2> m_windowed_position{};
+        WindowMode m_mode = WindowMode::Windowed;
         uint8_t m_ui_modifiers = 0;
         bool m_ui_focused = false;
         bool m_ui_events_overflowed = false;
         bool m_confirm_close = false;
         bool m_close_requested = false;
+        bool m_restore_maximized = false;
     };
 }

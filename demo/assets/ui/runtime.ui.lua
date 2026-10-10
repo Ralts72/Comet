@@ -52,13 +52,48 @@ local function rows(self, ui)
     ui.markup("bindings", table.concat(contents))
 end
 
+local sizes = {{960, 720}, {1280, 720}, {1920, 1080}}
+local modes = {"windowed", "borderless", "fullscreen"}
+local mode_labels = {windowed = "窗口", borderless = "无边框", fullscreen = "全屏"}
+
+local function display_labels(self, ui)
+    local state = self.state
+    ui.set("display_available", state.display_available)
+    if not state.display_available then return end
+    ui.set("display_size", tostring(state.display_width) .. " × " .. tostring(state.display_height))
+    ui.set("display_mode", mode_labels[state.display_mode])
+    local vsync = "关闭"
+    if state.display_vsync then vsync = "开启" end
+    ui.set("display_vsync", vsync)
+    ui.set("display_preview", state.display_preview)
+end
+
+local function load_display(self, ui)
+    local settings, message = ui.display_settings()
+    local state = self.state
+    state.display_available = settings ~= nil
+    state.display_waiting = false
+    ui.set("display_error", message or "")
+    ui.set("display_status", "窗口尺寸使用逻辑单位；全屏使用显示器尺寸。")
+    if settings then
+        state.display_width, state.display_height = settings.width, settings.height
+        state.display_mode, state.display_vsync = settings.mode, settings.vsync
+        state.display_preview = settings.preview
+        if settings.preview then
+            ui.set("display_status", "Play 将尺寸用于固定分辨率预览；窗口模式和 VSync 请在独立 App 中设置。")
+        end
+    end
+    display_labels(self, ui)
+end
+
 local function sync(self, ui)
     local status = ui.input_status()
     if self.state.open and self.state.revision ~= status.revision then
         rows(self, ui)
         self.state.revision = status.revision
     end
-    ui.set("waiting", status.waiting)
+    ui.set("display_waiting", self.state.display_waiting)
+    ui.set("waiting", status.waiting or self.state.display_waiting)
     local error_text = self.state.error
     if error_text == "" then error_text = status.error end
     ui.set("error_text", error_text)
@@ -86,6 +121,8 @@ local function close(self, ui)
     self.state.error = ""
     self.state.error_only = false
     self.state.revision = -1
+    self.state.display_waiting = false
+    self.state.display_available = false
     ui.input_end()
     sync(self, ui)
 end
@@ -106,6 +143,7 @@ local function open(self, ui)
     self.state.revision = -1
     self.state.error_only = not ok
     self.state.error = message
+    load_display(self, ui)
     sync(self, ui)
     focus_menu(self, ui)
 end
@@ -114,18 +152,25 @@ return {
     model = {
         fps_text = "0 FPS", action_name = "", status_text = "", error_text = "",
         menu_available = false, waiting = false, has_actions = false,
+        display_available = false, display_preview = false, display_waiting = false,
+        display_size = "", display_mode = "", display_vsync = "",
+        display_status = "", display_error = "",
     },
     state = {
         open = false, available = false, error_only = false, selected = 1,
-        revision = -1, error = "",
+        revision = -1, error = "", display_waiting = false,
+        display_available = false, display_width = 960, display_height = 720,
+        display_mode = "windowed", display_vsync = false, display_preview = false,
     },
     on_mount = function(self, ui)
         for _, id in ipairs({"hud", "fps", "settings", "notice", "menu", "panel",
             "action-selector", "action-name", "previous", "next", "bindings", "status",
-            "error", "footer", "restore", "cancel", "apply"}) do
+            "error", "footer", "restore", "cancel", "apply", "display",
+            "display-size", "display-mode", "display-vsync", "display-apply", "display-restore"}) do
             ui.require_element(id)
         end
         self.state.revision = -1
+        display_labels(self, ui)
         ui.set("menu_available", self.state.available)
         sync(self, ui)
         -- 验证隐藏菜单的布局和纹理；on_present 在发布后的首帧恢复项目状态。
@@ -146,9 +191,37 @@ return {
     end,
     on_event = function(self, ui, operation, action, binding)
         if operation == "open" then open(self, ui); return end
-        if not self.state.open or ui.input_status().waiting then return end
-        if self.state.error_only and operation ~= "cancel" then return end
-        if operation == "cancel" then
+        if not self.state.open or ui.input_status().waiting or self.state.display_waiting then return end
+        if self.state.error_only and operation ~= "cancel" and not operation:match("^display_") then return end
+        if operation:match("^display_") and self.state.display_available then
+            local draft = self.state
+            if operation == "display_size" then
+                local index = 0
+                for i, size in ipairs(sizes) do
+                    if draft.display_width == size[1] and draft.display_height == size[2] then index = i end
+                end
+                local size = sizes[index % #sizes + 1]
+                draft.display_width, draft.display_height = size[1], size[2]
+            elseif operation == "display_mode" and not draft.display_preview then
+                for i, mode in ipairs(modes) do
+                    if draft.display_mode == mode then draft.display_mode = modes[i % #modes + 1]; break end
+                end
+            elseif operation == "display_vsync" and not draft.display_preview then
+                draft.display_vsync = not draft.display_vsync
+            elseif operation == "display_restore" then
+                local current = ui.display_settings()
+                if current then
+                    draft.display_width, draft.display_height = current.defaults.width, current.defaults.height
+                    if not draft.display_preview then
+                        draft.display_mode, draft.display_vsync = current.defaults.mode, current.defaults.vsync
+                    end
+                end
+            elseif operation == "display_apply" then
+                self.state.display_waiting = true
+                ui.display_apply(draft.display_width, draft.display_height, draft.display_mode, draft.display_vsync)
+            end
+            display_labels(self, ui)
+        elseif operation == "cancel" then
             close(self, ui)
         elseif operation == "apply" then
             ui.input_apply()
@@ -181,6 +254,12 @@ return {
     end,
     on_input_result = function(self, ui, success)
         if success then close(self, ui) else sync(self, ui) end
+    end,
+    on_display_result = function(self, ui, success, message)
+        self.state.display_waiting = false
+        ui.set("display_error", message)
+        if success then ui.set("display_status", "显示设置已保存；更改在后续帧应用。") end
+        sync(self, ui)
     end,
     on_reload_error = function(self, ui, message)
         self.state.error = message

@@ -1,4 +1,6 @@
+#include "config/player_display_settings.h"
 #include "runtime/application.h"
+#include "config/config_loader.h"
 #include "render/resource/render_resources.h"
 #include "graphics/resource/sampler.h"
 #include "assets/editor_assets.h"
@@ -10,6 +12,7 @@
 #include "render/render_diagnostics.h"
 #include "common/file_io.h"
 #include "ui/path_dialog.h"
+#include "ui/window_state.h"
 #include "project/recent_projects.h"
 #include "project/project_settings.h"
 #include "project/project_creation.h"
@@ -67,13 +70,13 @@
 namespace {
     class Editor final: public Comet::Application {
     public:
-        explicit Editor(Comet::Project project)
+        Editor(Comet::Project project, std::filesystem::path window_state_path)
             : Application({.cache_directory = project.paths().cache(),
                   .log_directory = project.paths().logs(),
                   .output_mode = Comet::OutputMode::Sdr,
                   .scene_output = Comet::Config::Render::SceneOutput::Offscreen,
                   .window_title = "Comet Editor"}),
-              m_project(std::move(project)) {}
+              m_project(std::move(project)), m_window_state_path(std::move(window_state_path)) {}
 
         [[nodiscard]] std::optional<std::filesystem::path> take_next_project() {
             return std::exchange(m_next_project, std::nullopt);
@@ -184,11 +187,37 @@ namespace {
             m_project_panel->set_material_layouts(std::move(material_layouts));
 
             m_viewport->panel().set_game_ui_available(m_project.ui().has_value());
+            auto display = load_player_display();
+            if(display)
+                m_viewport->panel().set_play_resolution(
+                    {static_cast<uint32_t>(display.value().width),
+                        static_cast<uint32_t>(display.value().height)});
+            else
+                LOG_WARN("Player display settings unavailable: {}", display.error());
             m_game_ui = std::make_unique<CometEditor::GameUi>(engine, m_project,
                 Comet::Ui::ProjectUi::Services{.load_input = [this] { return load_player_input(); },
                     .apply_input =
                         [this](Comet::InputOverrides overrides) {
                             return apply_player_input(std::move(overrides));
+                        },
+                    .display_defaults = m_project.display_settings(),
+                    .load_display = [this] { return load_player_display(); },
+                    .apply_display =
+                        [this](Comet::DisplaySettings settings) {
+                            if(!m_player_display_settings)
+                                return Comet::Result<void>::failure(
+                                    "Player display settings are unavailable");
+                            const auto current = m_player_display_settings->settings();
+                            if(settings.mode != current.mode || settings.vsync != current.vsync)
+                                return Comet::Result<void>::failure(
+                                    "Window mode and VSync apply only in the standalone App");
+                            return m_player_display_settings->save_and_apply(
+                                settings, [this](const auto& candidate) {
+                                    m_viewport->panel().set_play_resolution(
+                                        {static_cast<uint32_t>(candidate.width),
+                                            static_cast<uint32_t>(candidate.height)});
+                                    return Comet::Result<void>::success();
+                                });
                         }});
             renderer.set_overlay(
                 {.render =
@@ -299,7 +328,8 @@ namespace {
                         {.fps = frame.update.fps,
                             .game_available = m_editor_state.mode == CometEditor::EditorMode::Play
                                               && get_engine().get_scene_runtime().is_active(),
-                            .view = panel.game_ui_view(output.size)});
+                            .view = panel.game_ui_view(output.size),
+                            .display_preview = true});
                 if(!ui)
                     return Comet::Result<void, Comet::Error>::failure(ui.error());
                 input_blocked |= ui.value().blocked;
@@ -329,6 +359,12 @@ namespace {
         }
 
         void on_shutdown() override {
+            if(get_config().window.mode == Comet::WindowMode::Windowed) {
+                if(auto saved = CometEditor::WindowState::capture(get_engine().get_window())
+                        .save(m_window_state_path);
+                    !saved)
+                    LOG_WARN("Cannot save editor window state: {}", saved.error());
+            }
             get_engine().get_window().confirm_close_requests(false);
             LOG_INFO("Editor shutting down...");
             get_engine().get_renderer().set_overlay({});
@@ -371,6 +407,17 @@ namespace {
         }
 
     private:
+        Comet::Result<Comet::DisplaySettings> load_player_display() {
+            if(!m_player_display_settings) {
+                auto loaded = Comet::PlayerDisplaySettings::load(
+                    m_project.id(), m_project.display_settings());
+                if(!loaded)
+                    return Comet::Result<Comet::DisplaySettings>::failure(loaded.error());
+                m_player_display_settings = std::move(loaded).value();
+            }
+            return Comet::Result<Comet::DisplaySettings>::success(
+                m_player_display_settings->settings());
+        }
         void process_diagnostics_requests() {
             auto& renderer = get_engine().get_renderer();
             if(const auto capture = m_render_stats->take_capture_request()) {
@@ -1115,10 +1162,12 @@ namespace {
 
         std::uint64_t m_reference_history_state = 0;
         Comet::Project m_project;
+        std::filesystem::path m_window_state_path;
         CometEditor::ProjectSettings m_project_settings{m_project};
         CometEditor::PlayerInputPanel m_player_input_panel;
         std::optional<Comet::Input::Frame> m_runtime_input;
         std::optional<Comet::PlayerInputSettings> m_player_input_settings;
+        std::optional<Comet::PlayerDisplaySettings> m_player_display_settings;
         std::string m_player_input_error;
         std::unique_ptr<CometEditor::Ui::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::GameUi> m_game_ui;
@@ -1168,15 +1217,37 @@ int main(int argc, char** argv) {
         return 1;
     }
     std::filesystem::path path = argc == 2 ? argv[1] : COMET_SAMPLE_PROJECT_DIRECTORY;
+    const auto state_directory = CometEditor::editor_user_state_directory();
+    if(!state_directory) {
+        std::cerr << "Application failed: " << state_directory.error() << '\n';
+        return 1;
+    }
+    const auto window_state_path = state_directory.value() / "window.json";
     while(true) {
         auto project = Comet::Project::load(path);
         if(!project) {
             std::cerr << "Application failed: " << project.error() << '\n';
             return 1;
         }
-        auto editor = std::make_unique<Editor>(std::move(project).value());
-        const int result = Comet::run(editor.get(),
-            {.config_directory = COMET_CONFIG_DIRECTORY, .config_profile = COMET_CONFIG_PROFILE});
+        const std::filesystem::path config_directory = COMET_CONFIG_DIRECTORY;
+        auto config = Comet::ConfigLoader{}.load(
+            std::vector<std::string>{(config_directory / "common.yaml").string(),
+                (config_directory / "profiles" / (std::string(COMET_CONFIG_PROFILE) + ".yaml"))
+                    .string()});
+        if(!config) {
+            std::cerr << "Application failed: " << config.error() << '\n';
+            return 1;
+        }
+        const auto window_state = CometEditor::WindowState::load(window_state_path);
+        if(!window_state)
+            std::cerr << "Cannot restore editor window state: " << window_state.error() << '\n';
+        else if(window_state.value())
+            window_state.value()->apply_to(config.value().window);
+        auto editor = std::make_unique<Editor>(std::move(project).value(), window_state_path);
+        const auto run = editor->run(std::move(config).value());
+        if(!run)
+            std::cerr << "Application failed: " << run.error().message << '\n';
+        const int result = run ? 0 : 1;
         const auto next = editor->take_next_project();
         editor.reset();
         if(result != 0 || !next)

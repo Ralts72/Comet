@@ -283,14 +283,25 @@ Finder 的 `.DS_Store` 与原子写临时文件不计入快照变化，
 ## 应用启动与失败清理
 
 Application::run(Config) 完整执行：创建 Diagnostics／Engine → on_init → 引擎循环 → 私有 end。
+Editor 启动入口先加载 Profile 与用户目录的 `window.json`，将有效窗口尺寸与最大化状态应用到 Config 后再调用 run；
+退出时保存普通逻辑尺寸，切换项目沿用同一份用户状态。Window 只维护原生窗口与还原尺寸，不负责磁盘持久化。
 Engine::create → Renderer::create → RenderContext::create 在局部准备 owner，全部成功才返回完整对象。
 SceneRenderer::create 的 Swapchain 入口按 scene_output 选择输出，离屏尺寸入口用于显式离屏创建；
 完整目标与管线准备成功后才返回对象；
 构造函数保持私有，Renderer 和底层测试共用该创建边界，没有测试专用 friend 或初始化开关。
 宿主以 `Config::Render::SceneOutput` 选择初始目标：app 直接呈现，Editor 离屏后由 ImGui 呈现，只创建一组场景资源。
-Application::Options 提供具名宿主选项：缓存／日志目录，以及可选的输出模式／场景目标覆盖。
+Application::Options 提供具名宿主选项：缓存／日志目录，以及可选的输出模式／场景目标、游戏显示设置覆盖。
 未指定覆盖时保留 run(Config) 的值；Editor 显式要求 SDR 和 Offscreen。
 scene_output 不从 YAML 读取，也不代表 HDR／SDR 颜色模式。
+
+Project 的 DisplaySettings 保存游戏默认逻辑尺寸、模式与 VSync；PlayerDisplaySettings 在既有玩家目录读写
+`display.json`，App 在创建窗口前通过 Options 应用有效设置。普通窗口拖动后的尺寸在退出时保存，
+WindowMode 与还原尺寸由 Window 维护，磁盘读写由宿主和玩家设置实例负责。
+项目 UI 通过 load_display／apply_display 服务读取设置、提交草稿；显示请求在输入事件分发后消费，
+保存失败不调用应用接口，已保存而应用失败明确报告。Lua 热重载继续只迁移标量 state，显示草稿也用标量表示。
+Renderer::set_vsync_enabled 只更新交换链请求并排队重建，prepare_frame 完成在途使用后复用 Presentation 的 dependent 生命周期；
+输出格式保持固定，is_vsync_enabled 查询实际呈现状态，设备不支持的模式沿用既有协商与日志。
+Editor 的显示服务只应用 Play 固定分辨率；App 窗口模式／VSync 偏好不用于 Editor 主窗口及其交换链。
 
 - Engine 创建失败：释放 Diagnostics，不调用应用钩子，允许重试启动。
 - on_init 一旦开始：预期失败沿 Result 返回，run 先做 Engine 关闭准备，再且仅一次调用 void on_shutdown。

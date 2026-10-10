@@ -169,6 +169,14 @@ namespace Comet {
         return m_context.recreate_surface(m_window);
     }
 
+    bool Swapchain::request_vsync(bool enabled) {
+        const auto mode = enabled ? PresentMode::Fifo : PresentMode::Immediate;
+        if(m_request.present_mode == mode)
+            return false;
+        m_request.present_mode = mode;
+        return true;
+    }
+
     Swapchain::GenerationResult Swapchain::try_create_generation(const SwapchainConfig& config) {
         vk::SharingMode image_sharing_mode;
         std::vector<uint32_t> queue_family_indices;

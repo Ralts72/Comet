@@ -143,7 +143,7 @@ diagnostics:
     EXPECT_EQ(config.window.width, 901);
     EXPECT_EQ(config.window.height, 517);
     EXPECT_EQ(config.window.title, Config::Window{}.title);
-    EXPECT_TRUE(config.window.fullscreen);
+    EXPECT_EQ(config.window.mode, WindowMode::Fullscreen);
     EXPECT_FALSE(config.window.resizable);
 
     EXPECT_EQ(config.vulkan.surface_format, Format::R8G8B8A8_UNORM);

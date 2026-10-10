@@ -144,6 +144,7 @@ namespace Comet {
                         path, "render.enable_vsync", "use vulkan.present_mode instead"));
             }
             ConfigReader reader(root, path);
+            bool fullscreen = config.window.mode == WindowMode::Fullscreen;
             if(!reader.read("diagnostics.enable_file_logging",
                    config.diagnostics.log.enable_file_logging, "a boolean")
                 || !reader.read("diagnostics.log_level", config.diagnostics.log.level, "a string")
@@ -153,7 +154,7 @@ namespace Comet {
                     config.diagnostics.enable_render_diagnostics, "a boolean")
                 || !reader.read("window.width", config.window.width, "an integer")
                 || !reader.read("window.height", config.window.height, "an integer")
-                || !reader.read("window.fullscreen", config.window.fullscreen, "a boolean")
+                || !reader.read("window.fullscreen", fullscreen, "a boolean")
                 || !reader.read("window.resizable", config.window.resizable, "a boolean")
                 || !reader.named(
                     "vulkan.surface_format", config.vulkan.surface_format, SURFACE_FORMATS)
@@ -186,6 +187,7 @@ namespace Comet {
                 || !reader.read("assets.external_file_queue", config.assets.external_file_queue,
                     "a positive integer"))
                 return Result<void>::failure(reader.error());
+            config.window.mode = fullscreen ? WindowMode::Fullscreen : WindowMode::Windowed;
             return Result<void>::success();
         }
     }

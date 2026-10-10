@@ -8,6 +8,7 @@ endif()
 
 add_library(editor_core STATIC
         src/editor_state.cpp
+        src/ui/window_state.cpp
         src/file_recheck_trigger.cpp
         src/project/recent_projects.cpp
         src/project/editor_paths.cpp

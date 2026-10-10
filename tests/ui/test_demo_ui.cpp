@@ -105,6 +105,11 @@ namespace {
             ASSERT_TRUE(constructor.Bind("menu_available", &available));
             ASSERT_TRUE(constructor.Bind("waiting", &waiting));
             ASSERT_TRUE(constructor.Bind("has_actions", &has_actions));
+            for(const auto* name : {"display_available", "display_preview", "display_waiting"})
+                ASSERT_TRUE(constructor.Bind(name, &display_flag));
+            for(const auto* name : {"display_size", "display_mode", "display_vsync",
+                    "display_status", "display_error"})
+                ASSERT_TRUE(constructor.Bind(name, &display_text));
             ASSERT_TRUE(constructor.BindEventCallback(
                 "command", [this](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList& args) {
                     commands.push_back(args[0].Get<Rml::String>());
@@ -150,6 +155,8 @@ namespace {
         bool available = true;
         bool waiting = false;
         bool has_actions = true;
+        bool display_flag = false;
+        std::string display_text;
         bool initialized = false;
     };
 }

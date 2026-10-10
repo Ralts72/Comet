@@ -195,8 +195,9 @@ namespace Comet::Ui::Detail {
             lua_call(state, 0, 1);
             if(!lua_istable(state, -1))
                 return luaL_error(state, "UI controller must return a table");
-            for(const auto* method : {"on_mount", "on_frame", "on_present", "on_event",
-                    "on_input_result", "on_reload_error", "on_deactivate", "on_destroy"}) {
+            for(const auto* method :
+                {"on_mount", "on_frame", "on_present", "on_event", "on_input_result",
+                    "on_display_result", "on_reload_error", "on_deactivate", "on_destroy"}) {
                 lua_getfield(state, -1, method);
                 const bool valid = lua_isnil(state, -1) || lua_isfunction(state, -1);
                 lua_pop(state, 1);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config/config.h"
+#include "config/display_settings.h"
 #include "diagnostics/diagnostics.h"
 #include "core/engine.h"
 
@@ -23,6 +24,7 @@ namespace Comet {
             std::optional<OutputMode> output_mode;
             std::optional<Config::Render::SceneOutput> scene_output;
             std::optional<std::string> window_title;
+            std::optional<DisplaySettings> display_settings;
         };
         explicit Application(Options options = {});
         virtual ~Application() = default;

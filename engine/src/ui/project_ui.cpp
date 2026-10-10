@@ -15,6 +15,7 @@ extern "C" {
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <limits>
 #include <set>
 #include <utility>
 
@@ -68,7 +69,9 @@ namespace Comet::Ui {
             InputRestoreBinding,
             InputToggleBinding,
             InputCapture,
-            InputApply
+            InputApply,
+            DisplaySettings,
+            DisplayApply
         };
         class Controller final {
         public:
@@ -93,7 +96,9 @@ namespace Comet::Ui {
                             {"input_restore_binding", static_cast<int>(Api::InputRestoreBinding)},
                             {"input_toggle_binding", static_cast<int>(Api::InputToggleBinding)},
                             {"input_capture", static_cast<int>(Api::InputCapture)},
-                            {"input_apply", static_cast<int>(Api::InputApply)}},
+                            {"input_apply", static_cast<int>(Api::InputApply)},
+                            {"display_settings", static_cast<int>(Api::DisplaySettings)},
+                            {"display_apply", static_cast<int>(Api::DisplayApply)}},
                       [this](lua_State* state, int api) {
                           return m_host.api(*this, state, static_cast<Api>(api));
                       }) {}
@@ -255,6 +260,7 @@ namespace Comet::Ui {
         }
         int api(Controller& vm, lua_State* state, Api operation);
         int input_api(lua_State* state, Api operation);
+        int display_api(lua_State* state, Api operation);
         Result<FrameResult, Error> frame(const Input::Frame& input, FrameInfo info);
         void deactivate() {
             if(m_controller) {
@@ -267,6 +273,7 @@ namespace Comet::Ui {
             ++m_edit_revision;
             m_pending_capture.reset();
             m_events.clear();
+            m_pending_display.reset();
             m_runtime->set_capture_active(false);
             m_runtime->cancel_input();
             (void)m_runtime->update();
@@ -328,6 +335,7 @@ namespace Comet::Ui {
         std::vector<ActionView> m_actions;
         std::vector<Input::GamepadButton> m_reserved_buttons;
         std::optional<PendingCapture> m_pending_capture;
+        std::optional<Comet::DisplaySettings> m_pending_display;
         std::string m_capture_focus, m_api_error, m_event_error;
         std::map<std::string, std::string> m_pending_markup;
         const Input::Frame* m_input = nullptr;
@@ -342,10 +350,11 @@ namespace Comet::Ui {
         if(vm.m_retired)
             return luaL_error(state, "UI controller has been retired");
         const bool presentation = operation <= Api::HasFocus || operation == Api::InputStatus
-                                  || operation == Api::InputActions;
+                                  || operation == Api::InputActions
+                                  || operation == Api::DisplaySettings;
         if(vm.m_preparing && !presentation)
             return luaL_error(state, "UI services are unavailable before controller publication");
-        if(operation >= Api::InputRestore && !m_edit_active)
+        if(operation >= Api::InputRestore && operation <= Api::InputApply && !m_edit_active)
             return luaL_error(state, "Player input transaction has not been opened");
         auto element = [&](const char* id) { return vm.m_document->GetElementById(id); };
         switch(operation) {
@@ -450,9 +459,65 @@ namespace Comet::Ui {
                 if(!m_edit.capture())
                     m_reload_requested = true;
                 return 0;
+            case Api::DisplaySettings:
+            case Api::DisplayApply:
+                return display_api(state, operation);
             default:
                 return input_api(state, operation);
         }
+    }
+
+    int ProjectUi::Impl::display_api(lua_State* state, Api operation) {
+        if(operation == Api::DisplaySettings) {
+            if(!m_services.load_display) {
+                lua_pushnil(state);
+                return 1;
+            }
+            auto loaded = m_services.load_display();
+            if(!loaded) {
+                lua_pushnil(state);
+                lua_pushlstring(state, loaded.error().data(), loaded.error().size());
+                return 2;
+            }
+            const auto push_settings = [&](const Comet::DisplaySettings& settings) {
+                lua_createtable(state, 0, 4);
+                lua_pushinteger(state, settings.width);
+                lua_setfield(state, -2, "width");
+                lua_pushinteger(state, settings.height);
+                lua_setfield(state, -2, "height");
+                const auto mode = Comet::DisplaySettings::mode_name(settings.mode);
+                lua_pushlstring(state, mode.data(), mode.size());
+                lua_setfield(state, -2, "mode");
+                lua_pushboolean(state, settings.vsync);
+                lua_setfield(state, -2, "vsync");
+            };
+            push_settings(loaded.value());
+            lua_pushboolean(state, m_info.display_preview);
+            lua_setfield(state, -2, "preview");
+            push_settings(m_services.display_defaults);
+            lua_setfield(state, -2, "defaults");
+            return 1;
+        }
+        const auto width = luaL_checkinteger(state, 1);
+        const auto height = luaL_checkinteger(state, 2);
+        const auto* mode = luaL_checkstring(state, 3);
+        luaL_checktype(state, 4, LUA_TBOOLEAN);
+        WindowMode window_mode = WindowMode::Windowed;
+        bool valid_mode = false;
+        {
+            const auto parsed = Comet::DisplaySettings::parse_mode(mode);
+            valid_mode = bool(parsed);
+            if(parsed)
+                window_mode = parsed.value();
+        }
+        if(width <= 0 || height <= 0 || width > std::numeric_limits<int>::max()
+            || height > std::numeric_limits<int>::max() || !valid_mode)
+            return luaL_error(state, "Invalid display settings");
+        if(!m_services.apply_display || !m_info.game_available)
+            return luaL_error(state, "Display settings service is unavailable");
+        m_pending_display = Comet::DisplaySettings{static_cast<int>(width),
+            static_cast<int>(height), window_mode, bool(lua_toboolean(state, 4))};
+        return 0;
     }
 
     int ProjectUi::Impl::input_api(lua_State* state, Api operation) {
@@ -669,6 +734,14 @@ namespace Comet::Ui {
             }
         }
         m_runtime->set_capture_active(bool(m_edit.capture()));
+        if(auto display = std::exchange(m_pending_display, {})) {
+            const auto applied = m_services.apply_display(*display);
+            if(auto result = call("on_display_result",
+                   {Rml::Variant(bool(applied)),
+                       Rml::Variant(applied ? std::string{} : applied.error())});
+                !result)
+                return Frame::failure({result.error()});
+        }
         if(auto request = m_edit.take_request()) {
             auto applied = m_services.apply_input
                                ? m_services.apply_input(std::move(*request))

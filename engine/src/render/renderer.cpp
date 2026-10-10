@@ -7,6 +7,7 @@
 #include "render/scene/scene_renderer.h"
 #include "core/window.h"
 #include "graphics/device.h"
+#include "graphics/swapchain.h"
 #include "graphics/convert.h"
 #include "render/render_target.h"
 #include "diagnostics/logger.h"
@@ -216,6 +217,16 @@ namespace Comet {
             return Result<MaterialRenderer::MaterialUpdate, GraphicsError>::failure(
                 {"Material preparation requires a frame boundary"});
         return m_scene_renderer->prepare_material_update(handle, material);
+    }
+
+    void Renderer::set_vsync_enabled(bool enabled) {
+        if(m_render_context->get_swapchain().request_vsync(enabled))
+            request_swapchain_recreation();
+    }
+
+    bool Renderer::is_vsync_enabled() const {
+        return m_render_context->get_swapchain().get_active_generation()->get_config().present_mode
+               != vk::PresentModeKHR::eImmediate;
     }
 
     void Renderer::request_swapchain_recreation() {

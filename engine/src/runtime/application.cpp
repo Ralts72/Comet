@@ -15,6 +15,10 @@ namespace Comet {
         using RunResult = Result<void, Error>;
         if(m_engine)
             return RunResult::failure({"Application is already started"});
+        if(m_options.display_settings) {
+            if(auto valid = m_options.display_settings->validate(); !valid)
+                return RunResult::failure({valid.error()});
+        }
         if(!m_options.cache_directory.empty())
             config.vulkan.pipeline_cache_directory = m_options.cache_directory / "vulkan";
         if(!m_options.log_directory.empty())
@@ -29,6 +33,14 @@ namespace Comet {
             config.render.scene_output = *m_options.scene_output;
         if(m_options.window_title)
             config.window.title = *m_options.window_title;
+        if(m_options.display_settings) {
+            const auto& display = *m_options.display_settings;
+            config.window.width = display.width;
+            config.window.height = display.height;
+            config.window.mode = display.mode;
+            config.window.maximized = false;
+            config.vulkan.present_mode = display.vsync ? PresentMode::Fifo : PresentMode::Immediate;
+        }
         m_config = std::move(config);
         auto engine = Engine::create(m_config);
         if(!engine) {

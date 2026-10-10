@@ -18,6 +18,42 @@ namespace Comet::Tests {
     static_assert(noexcept(std::declval<Device&>().wait_idle_for_shutdown()));
     using SwapchainLifecycleTest = EngineTest;
 
+    TEST_F(SwapchainLifecycleTest, VsyncChangeWaitsForFrameBoundaryAndKeepsOutputFormat) {
+        auto& renderer = engine->get_renderer();
+        auto& swapchain = renderer.get_render_context().get_swapchain();
+        auto generation = swapchain.get_active_generation();
+        const auto format = generation->get_config().surface_format;
+        auto prepared = renderer.prepare_frame();
+        ASSERT_TRUE(prepared);
+        ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
+        renderer.set_vsync_enabled(true);
+        EXPECT_EQ(swapchain.get_active_generation(), generation);
+        ASSERT_TRUE(renderer.render_frame());
+        prepared = renderer.prepare_frame();
+        ASSERT_TRUE(prepared);
+        ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
+        EXPECT_NE(swapchain.get_active_generation(), generation);
+        EXPECT_EQ(swapchain.get_active_generation()->get_config().surface_format, format);
+        EXPECT_TRUE(renderer.is_vsync_enabled());
+        EXPECT_EQ(swapchain.get_active_generation()->get_config().present_mode,
+            vk::PresentModeKHR::eFifo);
+        generation.reset();
+        ASSERT_TRUE(renderer.render_frame());
+        generation = swapchain.get_active_generation();
+        renderer.set_vsync_enabled(true);
+        prepared = renderer.prepare_frame();
+        ASSERT_TRUE(prepared);
+        EXPECT_EQ(swapchain.get_active_generation(), generation);
+        ASSERT_TRUE(renderer.render_frame());
+        renderer.set_vsync_enabled(false);
+        prepared = renderer.prepare_frame();
+        ASSERT_TRUE(prepared);
+        EXPECT_NE(swapchain.get_active_generation(), generation);
+        EXPECT_EQ(swapchain.get_active_generation()->get_config().surface_format, format);
+        generation.reset();
+        ASSERT_TRUE(renderer.render_frame());
+    }
+
     TEST_F(SwapchainLifecycleTest, InvalidCreationReturnsErrorWithoutChangingActivePresentation) {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();

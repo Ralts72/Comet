@@ -49,7 +49,7 @@ set(RENDER_ASSET_HEADERS "${FOUNDATION_HEADERS}|asset/(handle|registry)\\.h$|ass
 set(PLATFORM_HEADERS "${INPUT_HEADERS}|core/(window|window_settings)\\.h$")
 set(GRAPHICS_HEADERS "${FOUNDATION_HEADERS}|graphics/|${PLATFORM_HEADERS}")
 set(RENDER_HEADERS "${GRAPHICS_HEADERS}|${WORLD_HEADERS}|render/|asset/artifact/shader_program_artifact\\.h$|asset/runtime/render_asset_publisher\\.h$")
-set(GAME_UI_HEADERS "${RENDER_HEADERS}|ui/|core/project\\.h$")
+set(GAME_UI_HEADERS "${RENDER_HEADERS}|config/display_settings\\.h$|ui/|core/project\\.h$")
 
 function(check_module_closure module sources allowed)
     set(pending ${sources})

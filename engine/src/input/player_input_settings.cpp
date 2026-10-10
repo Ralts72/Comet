@@ -2,9 +2,9 @@
 
 #include "common/file_io.h"
 #include "common/json.h"
+#include "common/player_settings_path.h"
 
 #include <cstdint>
-#include <cstdlib>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -29,19 +29,6 @@ namespace Comet {
             if(!contents)
                 return Read::failure(contents.error());
             return Read::success(std::move(contents).value());
-        }
-
-        Result<std::filesystem::path> environment_directory(const char* name) {
-            using Directory = Result<std::filesystem::path>;
-            const char* value = std::getenv(name);
-            if(!value || !*value)
-                return Directory::failure(
-                    std::string(name) + " is not available for player input settings");
-            const std::filesystem::path path(value);
-            if(!path.is_absolute())
-                return Directory::failure(
-                    std::string(name) + " must be an absolute directory for player input settings");
-            return Directory::success(path);
         }
 
         Result<Uuid> read_id(Json::Node node, std::string_view key, const Json::Context& context,
@@ -240,30 +227,10 @@ namespace Comet {
         : m_project_id(project_id), m_path(std::move(path)) {}
 
     Result<std::filesystem::path> PlayerInputSettings::default_path(Uuid project_id) {
-        using Path = Result<std::filesystem::path>;
-        if(!project_id)
-            return Path::failure("Player input settings require a non-zero project ID");
-#ifdef _WIN32
-        auto directory = environment_directory("APPDATA");
+        auto directory = player_settings_directory(project_id);
         if(!directory)
             return directory;
-        const auto base = directory.value() / "Comet";
-#elif defined(__APPLE__)
-        auto directory = environment_directory("HOME");
-        if(!directory)
-            return directory;
-        const auto base = directory.value() / "Library/Application Support/Comet";
-#else
-        const char* config = std::getenv("XDG_CONFIG_HOME");
-        const bool configured = config && *config;
-        auto directory = environment_directory(configured ? "XDG_CONFIG_HOME" : "HOME");
-        if(!directory)
-            return directory;
-        auto base = directory.value() / ".config/comet";
-        if(configured)
-            base = directory.value() / "comet";
-#endif
-        return Path::success(base / "players" / project_id.to_string() / "default/input.json");
+        return Result<std::filesystem::path>::success(directory.value() / "input.json");
     }
 
     Result<PlayerInputSettings> PlayerInputSettings::load(Uuid project_id) {

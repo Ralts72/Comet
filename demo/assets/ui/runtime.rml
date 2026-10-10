@@ -11,8 +11,18 @@
     </div>
     <div id="menu" style="display: none;">
         <div id="panel">
-            <div class="eyebrow">COMET · 控制设置</div>
-            <h1>让操作适合你</h1>
+            <div class="eyebrow">COMET · 游戏设置</div>
+            <h1>游戏设置</h1>
+            <div id="display" data-if="display_available">
+                <p>显示设置</p>
+                <button id="display-size" data-event-click="command('display_size')" data-attrif-disabled="waiting">尺寸：{{ display_size }}</button>
+                <button id="display-mode" data-event-click="command('display_mode')" data-attrif-disabled="waiting || display_preview">{{ display_mode }}</button>
+                <button id="display-vsync" data-event-click="command('display_vsync')" data-attrif-disabled="waiting || display_preview">VSync 请求：{{ display_vsync }}</button>
+                <p class="hint">{{ display_status }}</p>
+                <button id="display-restore" data-event-click="command('display_restore')" data-attrif-disabled="waiting">显示默认值</button>
+                <button id="display-apply" data-event-click="command('display_apply')" data-attrif-disabled="waiting">应用显示设置</button>
+            </div>
+            <p id="display-error">{{ display_error }}</p>
             <p class="muted">选择动作，录入新的按键或手柄按钮。取消不会保存草稿。</p>
             <div id="action-selector">
                 <button id="previous" data-event-click="command('previous')" data-attrif-disabled="waiting || !has_actions">上一个</button>

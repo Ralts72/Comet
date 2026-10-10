@@ -1,3 +1,4 @@
+#include "config/player_display_settings.h"
 #include "runtime/entry.h"
 #include "render/resource/render_resources.h"
 #include "diagnostics/logger.h"
@@ -71,11 +72,12 @@ namespace {
 
     class GameApp final: public Comet::Application {
     public:
-        explicit GameApp(Comet::Project project)
+        GameApp(Comet::Project project, Comet::PlayerDisplaySettings display_settings)
             : Application({.cache_directory = project.paths().cache(),
                   .log_directory = project.paths().logs(),
-                  .window_title = project.name()}),
-              m_project(std::move(project)) {}
+                  .window_title = project.name(),
+                  .display_settings = display_settings.settings()}),
+              m_project(std::move(project)), m_display_settings(std::move(display_settings)) {}
 
         Comet::Result<void, Comet::Error> on_init() override {
             using Init = Comet::Result<void, Comet::Error>;
@@ -132,6 +134,27 @@ namespace {
                     .apply_input =
                         [this](Comet::InputOverrides overrides) {
                             return apply_player_input(std::move(overrides));
+                        },
+                    .display_defaults = m_project.display_settings(),
+                    .load_display =
+                        [this] {
+                            return Comet::Result<Comet::DisplaySettings>::success(
+                                current_display_settings());
+                        },
+                    .apply_display =
+                        [this](Comet::DisplaySettings settings) {
+                            return m_display_settings.save_and_apply(
+                                settings, [this](const auto& candidate) {
+                                    auto& engine = get_engine();
+                                    auto applied =
+                                        engine.get_window().set_display_settings(candidate.mode,
+                                            {static_cast<uint32_t>(candidate.width),
+                                                static_cast<uint32_t>(candidate.height)});
+                                    if(!applied)
+                                        return applied;
+                                    engine.get_renderer().set_vsync_enabled(candidate.vsync);
+                                    return Comet::Result<void>::success();
+                                });
                         }});
             if(!ui)
                 return Init::failure(ui.error());
@@ -194,6 +217,11 @@ namespace {
 
         void on_shutdown() override {
             LOG_INFO("app shutdown");
+            const auto display = current_display_settings();
+            if(display != m_display_settings.settings()) {
+                if(auto saved = m_display_settings.save(display); !saved)
+                    LOG_WARN("Cannot save game window state: {}", saved.error());
+            }
             get_engine().get_renderer().set_overlay({});
             if(m_ui)
                 m_ui->deactivate();
@@ -205,6 +233,15 @@ namespace {
         }
 
     private:
+        Comet::DisplaySettings current_display_settings() const {
+            auto settings = m_display_settings.settings();
+            const auto& window = get_engine().get_window();
+            const auto size = window.get_restore_size();
+            settings.width = static_cast<int>(size.x);
+            settings.height = static_cast<int>(size.y);
+            settings.mode = window.get_mode();
+            return settings;
+        }
         Comet::Result<void, Comet::Error> activate_pending_scene() {
             using Activation = Comet::Result<void, Comet::Error>;
             if(!m_pending_scene)
@@ -273,6 +310,7 @@ namespace {
         }
 
         Comet::Project m_project;
+        Comet::PlayerDisplaySettings m_display_settings;
         Comet::Input::Gate m_input_gate;
         std::unique_ptr<Comet::Ui::ProjectUi> m_ui;
         std::optional<Comet::PlayerInputSettings> m_player_input_settings;
@@ -294,8 +332,12 @@ namespace {
             arguments.empty() ? COMET_SAMPLE_PROJECT_DIRECTORY : arguments.front());
         if(!project)
             return Comet::Result<std::unique_ptr<Comet::Application>>::failure(project.error());
+        auto display = Comet::PlayerDisplaySettings::load(
+            project.value().id(), project.value().display_settings());
+        if(!display)
+            return Comet::Result<std::unique_ptr<Comet::Application>>::failure(display.error());
         return Comet::Result<std::unique_ptr<Comet::Application>>::success(
-            std::make_unique<GameApp>(std::move(project).value()));
+            std::make_unique<GameApp>(std::move(project).value(), std::move(display).value()));
     }
 }
 

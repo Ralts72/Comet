@@ -89,6 +89,25 @@ namespace Comet::Tests {
         EXPECT_TRUE(std::filesystem::is_empty(root / "assets"));
     }
 
+    TEST_F(ProjectTest, DisplayDefaultsSurviveOtherProjectEditsAndFailedSaves) {
+        write(manifest());
+        auto loaded = Project::load(root);
+        ASSERT_TRUE(loaded);
+        auto project = std::move(loaded).value();
+        EXPECT_EQ(project.display_settings(), DisplaySettings{});
+        const DisplaySettings defaults{1920, 1080, WindowMode::Borderless, true};
+        ASSERT_TRUE(project.save_display_settings(defaults));
+        ASSERT_TRUE(project.save_name("Renamed"));
+        auto reopened = Project::load(root);
+        ASSERT_TRUE(reopened) << reopened.error();
+        EXPECT_EQ(reopened.value().display_settings(), defaults);
+        EXPECT_FALSE(project.save_display_settings({0, 720}));
+        std::filesystem::remove(root / "project.json");
+        std::filesystem::create_directory(root / "project.json");
+        EXPECT_FALSE(project.save_display_settings(DisplaySettings{}));
+        EXPECT_EQ(project.display_settings(), defaults);
+    }
+
     TEST_F(ProjectTest, SavesStartupSceneAtomicallyAndPreservesInputActions) {
         write(
             R"({"version":2,"id":"11111111-1111-4111-8111-111111111111","name":"Game","startup_scene":"levels/old.scene",

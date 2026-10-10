@@ -7,6 +7,7 @@
 #include <array>
 #include <cstddef>
 #include <exception>
+#include <limits>
 #include <string_view>
 #include <utility>
 
@@ -96,6 +97,7 @@ namespace Comet {
 
     Window::Window(const WindowSettings& config) {
         PROFILE_SCOPE("Window::Constructor");
+        m_mode = config.mode;
         if(window_count == 0 && glfwInit() != GLFW_TRUE)
             LOG_FATAL("Failed to initialize GLFW.");
 
@@ -103,12 +105,16 @@ namespace Comet {
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
         glfwWindowHint(GLFW_RESIZABLE, config.resizable ? GLFW_TRUE : GLFW_FALSE);
+        glfwWindowHint(GLFW_MAXIMIZED,
+            config.maximized && config.mode == WindowMode::Windowed ? GLFW_TRUE : GLFW_FALSE);
+        m_restore_size = {
+            static_cast<uint32_t>(config.width), static_cast<uint32_t>(config.height)};
 
         GLFWmonitor* monitor = nullptr;
         int actual_width = config.width;
         int actual_height = config.height;
 
-        if(config.fullscreen) {
+        if(config.mode == WindowMode::Fullscreen) {
             monitor = glfwGetPrimaryMonitor();
             if(monitor) {
                 const GLFWvidmode* mode = glfwGetVideoMode(monitor);
@@ -126,6 +132,11 @@ namespace Comet {
         }
         ++window_count;
         glfwSetWindowUserPointer(m_window.get(), this);
+        glfwSetWindowMaximizeCallback(m_window.get(), [](GLFWwindow* window, int maximized) {
+            auto& owner = *static_cast<Window*>(glfwGetWindowUserPointer(window));
+            if(!owner.is_minimized())
+                owner.m_restore_maximized = maximized == GLFW_TRUE;
+        });
         glfwSetInputMode(m_window.get(), GLFW_LOCK_KEY_MODS, GLFW_TRUE);
         install_input_callbacks();
         glfwSetWindowCloseCallback(m_window.get(), [](GLFWwindow* window) {
@@ -150,7 +161,7 @@ namespace Comet {
                     ->m_file_drops.push_back(std::move(drop));
             });
 
-        if(!config.fullscreen) {
+        if(config.mode == WindowMode::Windowed && !config.maximized) {
             if(GLFWmonitor* primary_monitor = glfwGetPrimaryMonitor()) {
                 int x_pos, y_pos, work_width, work_height;
                 glfwGetMonitorWorkarea(primary_monitor, &x_pos, &y_pos, &work_width, &work_height);
@@ -159,7 +170,15 @@ namespace Comet {
             }
         }
 
+        glfwGetWindowPos(m_window.get(), &m_windowed_position[0], &m_windowed_position[1]);
+        if(config.mode == WindowMode::Borderless) {
+            m_mode = WindowMode::Windowed;
+            if(auto changed = set_display_settings(WindowMode::Borderless, m_restore_size);
+                !changed)
+                LOG_FATAL("Cannot initialize borderless window: {}", changed.error());
+        }
         glfwShowWindow(m_window.get());
+        update_restore_state();
         m_ui_focused = glfwGetWindowAttrib(m_window.get(), GLFW_FOCUSED) == GLFW_TRUE;
         m_input.focus_event(m_ui_focused);
         double cursor_x = 0;
@@ -203,6 +222,66 @@ namespace Comet {
 
     bool Window::is_minimized() const {
         return glfwGetWindowAttrib(m_window.get(), GLFW_ICONIFIED) == GLFW_TRUE;
+    }
+
+    bool Window::is_maximized() const {
+        if(is_minimized())
+            return m_restore_maximized;
+        return glfwGetWindowAttrib(m_window.get(), GLFW_MAXIMIZED) == GLFW_TRUE;
+    }
+
+    void Window::update_restore_state() {
+        if(is_minimized() || m_mode != WindowMode::Windowed)
+            return;
+        m_restore_maximized = glfwGetWindowAttrib(m_window.get(), GLFW_MAXIMIZED) == GLFW_TRUE;
+        if(m_restore_maximized)
+            return;
+        const auto size = get_size();
+        if(size.x > 0 && size.y > 0)
+            m_restore_size = size;
+    }
+
+    Result<void> Window::set_display_settings(WindowMode mode, Math::Vec2u windowed_size) {
+        if(windowed_size.x == 0 || windowed_size.y == 0
+            || windowed_size.x > static_cast<uint32_t>(std::numeric_limits<int>::max())
+            || windowed_size.y > static_cast<uint32_t>(std::numeric_limits<int>::max()))
+            return Result<void>::failure("Window dimensions are out of range");
+        if(mode != WindowMode::Windowed && mode != WindowMode::Borderless
+            && mode != WindowMode::Fullscreen)
+            return Result<void>::failure("Unknown window mode");
+        GLFWmonitor* monitor = nullptr;
+        const GLFWvidmode* video = nullptr;
+        if(mode != WindowMode::Windowed) {
+            monitor = glfwGetPrimaryMonitor();
+            if(monitor)
+                video = glfwGetVideoMode(monitor);
+            if(!video)
+                return Result<void>::failure("No display mode is available");
+        }
+        if(mode == m_mode && windowed_size == m_restore_size)
+            return Result<void>::success();
+        if(m_mode == WindowMode::Windowed && !is_maximized() && !is_minimized())
+            glfwGetWindowPos(m_window.get(), &m_windowed_position[0], &m_windowed_position[1]);
+        if(is_maximized() || is_minimized())
+            glfwRestoreWindow(m_window.get());
+        m_mode = mode;
+        m_restore_size = windowed_size;
+        m_restore_maximized = false;
+        set_cursor_locked(false);
+        if(mode == WindowMode::Windowed) {
+            glfwSetWindowAttrib(m_window.get(), GLFW_DECORATED, GLFW_TRUE);
+            glfwSetWindowMonitor(m_window.get(), nullptr, m_windowed_position[0],
+                m_windowed_position[1], static_cast<int>(windowed_size.x),
+                static_cast<int>(windowed_size.y), GLFW_DONT_CARE);
+        } else {
+            int x = 0, y = 0;
+            glfwGetMonitorPos(monitor, &x, &y);
+            glfwSetWindowAttrib(m_window.get(), GLFW_DECORATED,
+                mode == WindowMode::Borderless ? GLFW_FALSE : GLFW_TRUE);
+            glfwSetWindowMonitor(m_window.get(), mode == WindowMode::Fullscreen ? monitor : nullptr,
+                x, y, video->width, video->height, video->refreshRate);
+        }
+        return Result<void>::success();
     }
 
     void Window::set_cursor_locked(bool locked) {
@@ -275,7 +354,10 @@ namespace Comet {
 
     void Window::poll_events() {
         PROFILE_SCOPE("Window::PollEvents");
+        // 原生最大化动画的 resize 回调含过渡尺寸，只在事件泵边界采样。
+        update_restore_state();
         glfwPollEvents();
+        update_restore_state();
     }
 
     void Window::install_input_callbacks() {
@@ -397,12 +479,16 @@ namespace Comet {
     }
 
     void Window::wait_events(double timeout_seconds) {
+        update_restore_state();
         glfwWaitEventsTimeout(timeout_seconds);
+        update_restore_state();
     }
 
     void Window::wait_events() {
         PROFILE_SCOPE("Window::WaitEvents");
+        update_restore_state();
         glfwWaitEvents();
+        update_restore_state();
     }
 
     std::vector<Window::FileDrop> Window::take_file_drops() {

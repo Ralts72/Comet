@@ -4,6 +4,7 @@ set(COMET_FOUNDATION_SOURCES
     src/common/parameters.cpp
     src/common/parameters.h
     src/common/file_io.cpp
+    src/common/player_settings_path.cpp
     src/common/retry_backoff.cpp
     src/common/uuid.cpp
     src/core/frame_timer.cpp

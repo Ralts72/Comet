@@ -35,6 +35,7 @@ set(UNIT_TEST_SOURCES
         common/test_retry_backoff.cpp
         common/test_scope_exit.cpp
         config/test_config.cpp
+        config/test_display_settings.cpp
         core/test_geometry.cpp
         core/test_math_utils.cpp
         core/test_project.cpp
@@ -54,6 +55,7 @@ set(UNIT_TEST_SOURCES
         editor/core/test_material_editing.cpp
         editor/core/test_render_view.cpp
         editor/core/test_recent_projects.cpp
+        editor/core/test_window_state.cpp
         editor/core/test_project_session.cpp
         editor/core/test_project_creation.cpp
         editor/core/test_project_asset_operations.cpp

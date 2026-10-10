@@ -14,11 +14,15 @@ namespace Comet::Ui {
             InputActions input_actions;
             std::function<Result<InputOverrides>()> load_input;
             std::function<Result<void>(InputOverrides)> apply_input;
+            DisplaySettings display_defaults;
+            std::function<Result<DisplaySettings>()> load_display;
+            std::function<Result<void>(DisplaySettings)> apply_display;
         };
         struct FrameInfo {
             float fps = 0;
             bool game_available = true;
             std::optional<View> view;
+            bool display_preview = false;
         };
         struct FrameResult {
             bool blocked = false;

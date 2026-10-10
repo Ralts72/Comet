@@ -22,6 +22,11 @@ namespace Comet::Tests {
         bool fail_save = false;
         unsigned loads = 0;
         bool input_blocked = false;
+        bool display_services = false;
+        bool fail_display_save = false;
+        bool preview = false;
+        DisplaySettings saved_display;
+        unsigned display_applications = 0;
 
         void SetUp() override {
             EngineTest::SetUp();
@@ -41,23 +46,36 @@ namespace Comet::Tests {
             engine->get_renderer().set_overlay({});
             engine->get_renderer().wait_idle();
             ui.reset();
+            Ui::ProjectUi::Services services;
+            services.input_actions = actions;
+            services.load_input = [this] {
+                ++loads;
+                return Result<InputOverrides>::success(saved);
+            };
+            services.apply_input = [this](InputOverrides value) {
+                submitted.push_back(value);
+                if(fail_save)
+                    return Result<void>::failure("Simulated save failure");
+                saved = std::move(value);
+                return Result<void>::success();
+            };
+            if(display_services) {
+                services.display_defaults = {1280, 720, WindowMode::Windowed, true};
+                services.load_display = [this] {
+                    return Result<DisplaySettings>::success(saved_display);
+                };
+                services.apply_display = [this](DisplaySettings value) {
+                    if(fail_display_save)
+                        return Result<void>::failure("Simulated display save failure");
+                    saved_display = value;
+                    ++display_applications;
+                    return Result<void>::success();
+                };
+            }
             auto created = Ui::ProjectUi::create(engine->get_window(), engine->get_renderer(),
                 entry,
                 {.resource_root = documents.path(), .font_directory = COMET_TEST_UI_FONT_DIRECTORY},
-                {.input_actions = actions,
-                    .load_input =
-                        [this] {
-                            ++loads;
-                            return Result<InputOverrides>::success(saved);
-                        },
-                    .apply_input =
-                        [this](InputOverrides value) {
-                            submitted.push_back(value);
-                            if(fail_save)
-                                return Result<void>::failure("Simulated save failure");
-                            saved = std::move(value);
-                            return Result<void>::success();
-                        }});
+                std::move(services));
             ASSERT_TRUE(created) << created.error();
             ui = std::move(created).value();
             engine->get_renderer().set_overlay(
@@ -100,7 +118,8 @@ namespace Comet::Tests {
             auto& renderer = engine->get_renderer();
             for(unsigned attempt = 0; attempt < 12; ++attempt) {
                 window.poll_events();
-                auto result = ui->frame(window.publish_input_frame(), {.fps = 60});
+                auto result = ui->frame(
+                    window.publish_input_frame(), {.fps = 60, .display_preview = preview});
                 if(!result)
                     return Result<void, GraphicsError>::failure({result.error().message});
                 input_blocked = result.value().blocked;
@@ -122,6 +141,49 @@ namespace Comet::Tests {
             callback(window, key, 0, GLFW_RELEASE, 0);
         }
     };
+    TEST_F(ProjectUiGpuTest, DisplayDraftCancelsAndSaveFailurePreservesItAcrossReload) {
+        display_services = true;
+        create_ui(InputActions{});
+        click("settings");
+        click("display-size");
+        click("display-vsync");
+        click("cancel");
+        EXPECT_EQ(display_applications, 0U);
+        EXPECT_EQ(saved_display, DisplaySettings{});
+        click("settings");
+        click("display-size");
+        click("display-vsync");
+        fail_display_save = true;
+        click("display-apply");
+        EXPECT_EQ(display_applications, 0U);
+        EXPECT_FALSE(document().GetElementById("display-error")->GetInnerRML().empty());
+        ASSERT_TRUE(ui->reload());
+        ASSERT_TRUE(submit_frame());
+        EXPECT_NE(document().GetElementById("display-size")->GetInnerRML().find("1280"),
+            std::string::npos);
+        fail_display_save = false;
+        click("display-apply");
+        EXPECT_EQ(display_applications, 1U);
+        EXPECT_EQ(saved_display, (DisplaySettings{1280, 720, WindowMode::Windowed, true}));
+        EXPECT_TRUE(ui->is_modal());
+    }
+
+    TEST_F(ProjectUiGpuTest, PreviewDisplayControlsKeepStandaloneModeAndVsync) {
+        display_services = true;
+        preview = true;
+        saved_display.mode = WindowMode::Fullscreen;
+        create_ui(InputActions{});
+        const auto editor_size = engine->get_window().get_size();
+        click("settings");
+        EXPECT_TRUE(document().GetElementById("display-mode")->HasAttribute("disabled"));
+        EXPECT_TRUE(document().GetElementById("display-vsync")->HasAttribute("disabled"));
+        click("display-restore");
+        click("display-apply");
+        EXPECT_EQ(saved_display.width, 1280);
+        EXPECT_EQ(saved_display.mode, WindowMode::Fullscreen);
+        EXPECT_FALSE(saved_display.vsync);
+        EXPECT_EQ(engine->get_window().get_size(), editor_size);
+    }
     TEST_F(ProjectUiGpuTest, DemoMenuLayoutFitsAfterOpeningFromSettings) {
         auto project = Project::load(std::filesystem::path(PROJECT_ROOT_DIR) / "demo");
         ASSERT_TRUE(project) << project.error();

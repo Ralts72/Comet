@@ -246,7 +246,8 @@ render:
 ```
 
 `sdr` 强制普通输出；`hdr` / `auto` 在驱动提供 RGBA16F + 扩展线性 sRGB 时使用该组合，否则回退配置的 SDR 格式并记录原因。
-帧呈现只由 `vulkan.present_mode` 选择：`fifo` 等待垂直同步，`immediate` 不等待；设备不支持所选模式时回退并记录原因。
+Editor 的启动呈现模式由 `vulkan.present_mode` 选择；App 使用项目／玩家显示设置的 VSync，运行中可切换。
+`fifo` 等待垂直同步，`immediate` 不等待；设备不支持所选模式时回退并记录原因。
 交换链获取、呈现或重建时发生内存不足会报告错误并退出；窗口尺寸变化仍正常重建。
 日志区分请求模式与实际模式。`auto` 检测的是 Vulkan 输出支持，不是显示器实测亮度，也不会切换系统 HDR 设置。
 macOS 由 MoltenVK 配置 EDR layer；实际高亮受屏幕与系统亮度限制。编辑器启动策略暂时强制 SDR，避免 UI 和视口混用编码。
@@ -285,6 +286,9 @@ app 和 editor 可执行文件都接受同样的可选路径参数；相对路�
 “文件 → 新建项目”输入一个尚不存在的项目目录；编辑器会以目录名命名项目，生成 `project.json`、
 `assets/scenes/main.scene`（含主相机），并沿用打开项目的未保存场景确认流程切换过去。已有目录不会被覆盖。
 ImGui 面板布局是跨项目的用户偏好，与最近项目列表保存在同一用户目录的 `imgui.ini`，不随项目重置。
+编辑器主窗口的普通逻辑尺寸与最大化状态保存到同目录的 `window.json`，正常退出或切换项目时写入，
+下次启动在创建窗口前恢复；首次启动或记录无效时使用 `config/` 中的宽高。最小化不会覆盖普通尺寸。
+删除 `window.json` 可恢复配置默认值；app 继续使用配置尺寸，不读写此编辑器状态。
 列表最多保留 10 项，存于用户目录的编辑器本地状态（macOS：`~/Library/Application Support/Comet/recent-projects.json`；
 Windows：`%APPDATA%/Comet/recent-projects.json`；Linux：`$XDG_STATE_HOME/comet/recent-projects.json`，未设置时使用 `~/.local/state/comet/`），不写入项目。
 候选项目校验通过后，
@@ -315,11 +319,15 @@ JSON 解析直接依赖已有 simdjson。
   "version": 2,
   "id": "817a665a-34e6-422c-8d81-32b8e795087c",
   "name": "My Game",
-  "startup_scene": "scenes/main.scene"
+  "startup_scene": "scenes/main.scene",
+  "display": {"width": 960, "height": 720, "mode": "windowed", "vsync": false}
 }
 ```
 
 `startup_scene` 相对项目 `assets/`，必须填写非空 `.scene` 路径；项目描述不配置默认材质，场景保存自己的材质引用。
+`display` 是游戏显示默认值，省略时采用 960×720、窗口模式、关闭 VSync；出现时四项须完整填写。
+`mode` 支持 `windowed`、`borderless`、`fullscreen`。宽高是普通窗口逻辑尺寸，全屏／无边框使用显示器尺寸；
+framebuffer 像素由 DPI 决定，内部渲染比例另行管理。项目默认值与玩家选择在创建 App 窗口前合成，YAML 数值修改只需重启。
 `id` 是项目的持久 UUID，新建项目自动生成，改名或移动项目目录不改变它；复制目录并保留 ID 代表同一项目身份。
 创建独立项目应使用新项目入口，或显式赋予新的项目 ID。旧版项目描述只报版本错误，不自动转换或写回。
 在编辑器中可通过“项目 → 启动场景”选择项目中的场景；未保存的当前场景不能设为启动场景。
@@ -462,6 +470,16 @@ demo 得分后禁用 `gameplay` 组，方向键移动、空格切换与 J 冲量
 `on_stop` 可用 `comet.set_input_context("palette", false)` 释放组，不能开启组或操作 Scene／实体；
 完整 Stop 恢复项目默认状态。Lua 统一查询具名动作，不提供绕过动作组的原始字母键入口。
 这不是完整菜单或输入栈框架；切换基线与固定步规则见[运行链路](docs/architecture/overview.md#一帧经过哪里)。
+
+### 游戏显示设置
+
+demo 在“设置 / F1”中提供显示设置；点击尺寸在 960×720、1280×720、1920×1080 间切换，
+点击模式或 VSync 请求切换选项，再点“应用显示设置”。显示与改键分别提交，取消只丢弃尚未应用的草稿。
+“显示默认值”恢复项目默认草稿，仍需应用。VSync 在后续帧复用交换链重建，设备不支持关闭时会保留同步呈现并记录原因。
+App 退出时也记住普通窗口拖动后的尺寸，不用全屏或最大化尺寸覆盖它。
+玩家选择保存到改键文件旁的 `display.json`，按项目 UUID 隔离，不写回项目；改名／移动项目继续使用同一份设置。
+Editor Play 将尺寸用于固定像素分辨率预览，窗口模式与 VSync 控件禁用；恢复显示默认值也保留这两项 App 偏好。
+Editor 主窗口尺寸与最大化仍保存为独立本地状态。MSAA、各向异性、HDR 与音量菜单按路线图继续接入。
 
 ### 玩家改键与保存
 

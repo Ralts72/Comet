@@ -53,6 +53,22 @@ namespace Comet::Tests {
         }
     };
 
+    TEST_F(WindowInputTest, SwitchesBorderlessAndWindowedWithoutLosingRestoreSize) {
+        const Math::Vec2u size{320, 240};
+        ASSERT_TRUE(window.set_display_settings(WindowMode::Borderless, size));
+        window.poll_events();
+        EXPECT_EQ(window.get_mode(), WindowMode::Borderless);
+        EXPECT_EQ(window.get_restore_size(), size);
+        EXPECT_EQ(glfwGetWindowAttrib(window.get(), GLFW_DECORATED), GLFW_FALSE);
+        ASSERT_TRUE(window.set_display_settings(WindowMode::Windowed, size));
+        window.poll_events();
+        EXPECT_EQ(window.get_mode(), WindowMode::Windowed);
+        EXPECT_EQ(window.get_size(), size);
+        EXPECT_EQ(glfwGetWindowAttrib(window.get(), GLFW_DECORATED), GLFW_TRUE);
+        EXPECT_FALSE(window.set_display_settings(WindowMode::Windowed, {0, 240}));
+        EXPECT_EQ(window.get_size(), size);
+    }
+
     TEST_F(WindowInputTest, TranslatesNativeControlsOnlyWhenExplicitlyPublished) {
         const auto cursor = glfwSetCursorPosCallback(window.get(), nullptr);
         glfwSetCursorPosCallback(window.get(), cursor);
@@ -298,6 +314,27 @@ namespace Comet::Tests {
     }
 #endif
 
+    TEST_F(WindowInputTest, RestoreSizeUsesLogicalResizeAndSurvivesMaximizationAndMinimization) {
+        EXPECT_EQ(window.get_restore_size(), window.get_size());
+        glfwSetWindowSize(window.get(), 320, 240);
+        window.poll_events();
+        EXPECT_EQ(window.get_size(), Math::Vec2u(320, 240));
+        EXPECT_EQ(window.get_restore_size(), window.get_size());
+        glfwMaximizeWindow(window.get());
+        if(!wait_for_attribute(GLFW_MAXIMIZED, GLFW_TRUE))
+            GTEST_SKIP() << "The window system does not support maximizing this window.";
+        ASSERT_TRUE(window.is_maximized());
+        EXPECT_EQ(window.get_restore_size(), Math::Vec2u(320, 240));
+        glfwRestoreWindow(window.get());
+        ASSERT_TRUE(wait_for_attribute(GLFW_MAXIMIZED, GLFW_FALSE));
+        EXPECT_EQ(window.get_size(), Math::Vec2u(320, 240));
+        EXPECT_EQ(window.get_restore_size(), window.get_size());
+        glfwIconifyWindow(window.get());
+        if(!wait_for_attribute(GLFW_ICONIFIED, GLFW_TRUE))
+            GTEST_SKIP() << "The window system does not support iconifying this window.";
+        EXPECT_EQ(window.get_restore_size(), Math::Vec2u(320, 240));
+    }
+
     TEST(WindowTest, TitleStartsFromConfigurationAndCanBeReplaced) {
         Config::Window config;
         config.width = 64;
@@ -313,6 +350,23 @@ namespace Comet::Tests {
 
         window.set_title(config.title);
         EXPECT_EQ(window.get_title(), config.title);
+    }
+
+    TEST(WindowTest, StartsMaximizedWithNormalLogicalRestoreSize) {
+        Window window(
+            {.width = 320, .height = 240, .title = "Comet Restore Test", .maximized = true});
+        for(int attempt = 0; attempt < 50 && !window.is_maximized(); ++attempt)
+            window.wait_events(0.01);
+        if(!window.is_maximized())
+            GTEST_SKIP() << "The window system does not support maximizing this window.";
+        EXPECT_EQ(window.get_restore_size(), Math::Vec2u(320, 240));
+        glfwIconifyWindow(window.get());
+        for(int attempt = 0; attempt < 50 && !window.is_minimized(); ++attempt)
+            window.wait_events(0.01);
+        if(!window.is_minimized())
+            GTEST_SKIP() << "The window system does not support iconifying this window.";
+        EXPECT_TRUE(window.is_maximized());
+        EXPECT_EQ(window.get_restore_size(), Math::Vec2u(320, 240));
     }
 
     TEST(WindowTest, CloseConfirmationConsumesNativeRequestsWithoutStoppingTheLoop) {

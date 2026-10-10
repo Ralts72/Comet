@@ -7,6 +7,8 @@ add_subdirectory(shaders)
 set(SOURCES
     src/core/project.cpp
     src/config/config_loader.cpp
+    src/config/display_settings.cpp
+    src/config/player_display_settings.cpp
     src/diagnostics/diagnostics.cpp
     src/runtime/entry.cpp
     src/runtime/application.cpp

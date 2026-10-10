@@ -56,6 +56,10 @@ namespace CometEditor {
             bool pointer_blocked = false);
 
         void set_game_ui_available(bool available) { m_game_ui_available = available; }
+        void set_play_resolution(Comet::Math::Vec2u size) {
+            m_play_resolution_policy = {
+                .mode = ViewportLayout::ResolutionPolicy::Mode::Fixed, .fixed_resolution = size};
+        }
         [[nodiscard]] std::optional<Comet::Ui::View> game_ui_view(
             Comet::Math::Vec2u pixel_size) const;
         [[nodiscard]] const Comet::Input::Frame& route_game_ui_input(
