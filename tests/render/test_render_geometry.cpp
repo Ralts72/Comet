@@ -121,13 +121,13 @@ namespace Comet::Tests {
         SceneExtractor extractor;
         SceneResolver resolver(assets);
         SceneResolver reference_resolver(assets);
-        RenderScene snapshot;
+        std::shared_ptr<const RenderScene> snapshot;
         RenderWorld world;
         RenderGeometry geometry;
         const auto check = [&] {
-            resolver.resolve(snapshot, world);
+            resolver.resolve(*snapshot, world);
             geometry.prepare(world);
-            const auto fresh = reference_resolver.resolve(snapshot);
+            const auto fresh = reference_resolver.resolve(*snapshot);
             RenderGeometry reference;
             reference.prepare(fresh);
             ASSERT_NO_FATAL_FAILURE(
@@ -156,7 +156,7 @@ namespace Comet::Tests {
             EXPECT_TRUE(geometry.get_items().empty());
             EXPECT_FALSE(geometry.get_scene_bounds());
         };
-        extractor.update(scene, snapshot);
+        snapshot = extractor.update(scene);
         check();
         const auto frozen = world;
         const auto frozen_matrix = frozen.render_items.front().model_matrix;
@@ -198,14 +198,14 @@ namespace Comet::Tests {
                 case 6:
                     // 解析与几何准备分别漏过一批，也必须得到完整的新结果。
                     entities[19].edit_transform([](auto& value) { value.translation.z += 1; });
-                    extractor.update(scene, snapshot);
-                    resolver.resolve(snapshot, world);
+                    snapshot = extractor.update(scene);
+                    resolver.resolve(*snapshot, world);
                     entities[20].edit_transform([](auto& value) { value.translation.z += 1; });
-                    extractor.update(scene, snapshot);
-                    resolver.resolve(snapshot, world);
+                    snapshot = extractor.update(scene);
+                    resolver.resolve(*snapshot, world);
                     check();
                     entities[21].edit_transform([](auto& value) { value.translation.z += 1; });
-                    extractor.update(scene, snapshot);
+                    snapshot = extractor.update(scene);
                     entities[22].edit_transform([](auto& value) { value.translation.z += 1; });
                     break;
                 case 7: {
@@ -225,12 +225,11 @@ namespace Comet::Tests {
                     break;
                 }
             }
-            extractor.update(scene, snapshot);
+            snapshot = extractor.update(scene);
             if(step % 17 == 0) {
                 SceneExtractor other;
-                RenderScene other_snapshot;
-                other.update(scene, other_snapshot);
-                resolver.resolve(other_snapshot, world);
+                const auto other_snapshot = other.update(scene);
+                resolver.resolve(*other_snapshot, world);
                 geometry.prepare(world);
                 geometry.clear_frame();
             }
@@ -244,18 +243,18 @@ namespace Comet::Tests {
         }
         for(auto entity : entities)
             scene.destroy_entity(entity);
-        extractor.update(scene, snapshot);
+        snapshot = extractor.update(scene);
         check();
         EXPECT_TRUE(world.render_items.empty());
         auto only = create(-100);
-        extractor.update(scene, snapshot);
-        ASSERT_FALSE(snapshot.item_changes.full_update);
+        snapshot = extractor.update(scene);
+        ASSERT_FALSE(snapshot->item_changes.full_update);
         check();
         EXPECT_FALSE(world.item_changes.full_update);
         ASSERT_EQ(world.render_items.size(), 1u);
         scene.destroy_entity(only);
-        extractor.update(scene, snapshot);
-        ASSERT_FALSE(snapshot.item_changes.full_update);
+        snapshot = extractor.update(scene);
+        ASSERT_FALSE(snapshot->item_changes.full_update);
         check();
         EXPECT_FALSE(world.item_changes.full_update);
         EXPECT_TRUE(world.render_items.empty());
@@ -264,9 +263,9 @@ namespace Comet::Tests {
         auto entity = replacement.create_entity();
         entity.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{21});
         entity.set_transform({.translation = {100, 0, 0}});
-        extractor.update(replacement, snapshot);
+        snapshot = extractor.update(replacement);
         check();
-        extractor.update(scene, snapshot);
+        snapshot = extractor.update(scene);
         check();
         EXPECT_EQ(frozen.render_items.front().model_matrix, frozen_matrix);
     }

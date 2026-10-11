@@ -26,7 +26,7 @@ Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，
 | `demo/.comet/` | 示例项目本机缓存、日志与编辑器状态，不进入版本控制 |
 | `tests/`、`3rdparty/` | GoogleTest 测试与第三方依赖 |
 
-类入口、依赖方向和资源所有权见[架构文档](docs/architecture/overview.md)。
+场景更新交付只读 CPU 快照，Renderer 拥有解析后的世界、GPU 资源和各视图状态；类入口、依赖方向和资源所有权见[架构文档](docs/architecture/overview.md)。
 
 `engine/src/common/` 提供共享文件读写、JSON 与二进制基础工具和错误定位；各模块负责自身的数据结构与字段校验。
 显示、画质和音量选择共用 `config/player_settings` 存储流程，具体设置类型仍归所属功能模块。

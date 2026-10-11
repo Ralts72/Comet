@@ -595,17 +595,16 @@ namespace Comet::Tests {
         ASSERT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerEnter), 1u);
 
         SceneExtractor extractor;
-        RenderScene snapshot;
-        extractor.update(scene, snapshot);
+        static_cast<void>(extractor.update(scene));
         sensor.edit_transform([](auto& transform) { transform.translation.x = 10; });
-        extractor.update(scene, snapshot);
+        static_cast<void>(extractor.update(scene));
         // 变换已被渲染读取，固定步仍必须提交移动并发布退出事件。
         ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerExit), 1u);
         sensor.edit_transform([](auto& transform) { transform.translation.x = 0; });
         sensor.edit_component<ColliderComponent>(
             [](auto& collider) { collider.is_trigger = false; });
-        extractor.update(scene, snapshot);
+        static_cast<void>(extractor.update(scene));
         ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1u);
         ASSERT_TRUE(runtime.stop());

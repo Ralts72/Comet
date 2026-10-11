@@ -68,7 +68,6 @@ namespace Comet {
         m_audio_service.reset();
         m_physics_service.reset();
         m_task_scheduler->shutdown();
-        m_render_scene.render_items.clear();
         m_scene_extractor.reset();
         m_renderer->prepare_shutdown();
         m_shutdown_prepared = true;
@@ -188,7 +187,6 @@ namespace Comet {
         if(auto stopped = stop_scene_runtime(); !stopped)
             LOG_FATAL("Cannot replace Scene during System execution");
         m_scene.swap(scene);
-        m_render_scene.render_items.clear();
         m_scene_extractor.reset();
         return scene;
     }
@@ -313,11 +311,10 @@ namespace Comet {
         }
         auto rendered = Result<void, GraphicsError>::success();
         if(m_scene) {
-            m_scene_extractor.update(*m_scene, m_render_scene);
+            const auto render_scene = m_scene_extractor.update(*m_scene);
             m_frame_diagnostics.mark_scene_extract();
-            rendered = m_renderer->render_frame(m_render_scene);
+            rendered = m_renderer->render_frame(*render_scene);
         } else {
-            m_render_scene.render_items.clear();
             m_scene_extractor.reset();
             rendered = m_renderer->render_frame();
         }

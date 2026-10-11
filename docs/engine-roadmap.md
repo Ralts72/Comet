@@ -22,7 +22,8 @@
 1. **项目 UI／Gameplay 整体验收**：实际走通设置、改键、取消／应用、计分、声音、暂停／单步、重开和 Stop／再次 Play，检查高 DPI、resize、失焦与重载失败。
 2. **内容编辑与性能**：按真实需求扩展纹理等资产撤销；依据高对象／多材质、持续变换、活动／休眠刚体基线推进优化。
    当前增量数据、多视图、共享阴影和统一候选发布的职责见架构文档。
-   下一步推进渲染线程的帧数据所有权、队列与关闭时序；空间索引和多视图 GPU 统计按规模扩展，已有路径按新热点优化。
+   渲染线程准备已建立只读 Scene 快照所有权；下一步处理 UI／资源发布边界，再推进有界队列与关闭时序。
+   空间索引和多视图 GPU 统计按规模扩展，已有路径按新热点优化。
 3. **后续功能**：动画、粒子、GI、路径追踪按下方跨阶段计划推进；先后顺序依赖样例与技术前置条件，不因个人使用而取消，也不要求先完成通用工程框架。
 
 ### 工程简化原则
@@ -790,6 +791,7 @@ EXR、六面图片和更高背景分辨率按内容需求扩展。发布包只�
 ### 渲染线程与并行准备（计划优化）
 
 当前 Main 拥有 Scene、UI 和 GPU 可变状态；Worker 只产出 CPU 数据，独立 RenderThread 尚未实现。
+SceneExtractor 已交付可独立持有的只读 CPU 快照；同步帧复用存储，旧快照被保留且场景变化时才复制。
 渲染线程是保留的性能与架构学习目标：让更新与渲染可重叠，并使 GPU 状态归渲染线程唯一拥有。
 先建立代表场景和安全快照移交，再实施线程拆分；不要求先建设通用任务图，也不把它作为编辑功能的前置条件。
 
@@ -799,8 +801,9 @@ EXR、六面图片和更高背景分辨率按内容需求扩展。发布包只�
 | Worker | I/O、解码、编译、纯 CPU 工作 | 不访问 Scene/ImGui，不提交 Queue |
 | RenderThread（计划实现） | GPU cache、录制、submit/present、退休 | 不读取可变 EnTT/面板 |
 
-- Main 侧 RenderSystem 编排稳定时点 extraction，生成 owned RenderFramePacket（serial、views、资源 revision、UI draw data）。
-  不把借用 ImDrawData 指针直接排队；需要深拷贝或先保留 UI 主线程执行。
+- Main 在 Runtime 更新后提取快照，后续连同 serial、View 参数及资源发布版本组成帧移交数据。
+  优先处理现有 ImGui／RmlUi 后端、纹理寿命和拾取反馈；借用 ImDrawData 不能直接排队，需要拥有绘制数据或先保留 UI 主线程执行。
+- Scene 快照发生复制时包含完整值；引入更新／渲染重叠后测量复制与分配成本，再决定是否增加有界槽位复用或增量移交，不提前建设第二套变化协议。
 - 队列容量不超过允许的 frames-in-flight，拥塞用显式等待/淘汰过期 editor packet 等策略处理。
 - GPU 创建、替换、销毁在 owner 安全边界；队列外部同步、缓存与 completion owner 都必须明确。
 - 先 profile，再并行 culling/sorting/preparation 或 secondary command recording；每 worker 独立 CommandPool。

@@ -106,6 +106,7 @@ namespace Comet {
     }
 
     void SceneExtractor::reset() noexcept {
+        m_output.reset();
         m_scene_lifetime = 0;
         m_revision = 0;
         m_matches_storage_order = false;
@@ -166,9 +167,14 @@ namespace Comet {
         }
     }
 
-    void SceneExtractor::update(Scene& scene, RenderScene& output) {
+    std::shared_ptr<const RenderScene> SceneExtractor::update(Scene& scene) {
         if(m_scene_lifetime == scene.get_lifetime() && m_revision == scene.get_render_revision())
-            return;
+            return m_output;
+        if(!m_output || m_scene_lifetime != scene.get_lifetime())
+            m_output = std::make_shared<RenderScene>();
+        else if(m_output.use_count() != 1)
+            m_output = std::make_shared<RenderScene>(*m_output);
+        auto& output = *m_output;
         const auto batch = scene.render_changes();
         const bool full = m_scene_lifetime != scene.get_lifetime()
                           || m_revision != batch.base_revision || batch.full_update;
@@ -192,5 +198,6 @@ namespace Comet {
         m_revision = batch.revision;
         scene.acknowledge_render_changes(m_revision,
             std::clamp<std::size_t>(scene.component_count<MeshRendererComponent>() / 4, 8, 64));
+        return m_output;
     }
 }

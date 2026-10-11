@@ -97,7 +97,7 @@ Engine／Renderer／设备等工厂先准备完整 owner，成功后交付；部
 1. Engine 处理事件与时间，宿主 `on_update` 消费上次 UI 请求、维护资产与切换模式。
 2. Renderer 回收上传并准备 slot／交换链；帧就绪时调用 `on_frame_ready`，收集 ImGui 请求、属性编辑、Gizmo 和输入授权。
 3. `on_runtime_input` 交付只读授权快照；Runtime 执行有界 Fixed Update，再执行一次普通 Update。
-4. SceneExtractor 更新变换并提取 RenderScene；SceneResolver 把资源和值更新到 Renderer 的 RenderWorld。
+4. SceneExtractor 更新变换并交付只读 RenderScene 快照；Engine 保留它直到本次录制完成，SceneResolver 把资源和值更新到 Renderer 的 RenderWorld。
 5. 世界界限、光照和方向光阴影准备一次；所有 View 分别生成相机、裁剪、绘制和后处理，再合并等待、绘制 Overlay、提交并呈现一次。
 
 数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderWorld → RenderSubmission → SceneRenderer`。
@@ -105,7 +105,7 @@ Engine／Renderer／设备等工厂先准备完整 owner，成功后交付；部
 | 数据／状态 | Owner | 消费约束 |
 | --- | --- | --- |
 | 场景内容、变换与变化记录 | Scene | 受控写入记录变化；提取器和物理系统读取批次，成功后由 Scene 清理 |
-| CPU 快照与实体槽位 | Engine／SceneExtractor | 快照不借用组件；提取器维护自己的索引和局部更新阈值 |
+| CPU 快照与实体槽位 | SceneExtractor；消费者持有只读快照 | 快照不借用组件，可独立保留；提取器独占写入及自己的索引 |
 | 解析后的世界与资源引用 | Renderer／RenderWorld | ResolutionCache 随世界复制，记录输入批次和资产发布检查；与输出 item_changes 分开 |
 | 世界界限和本帧几何列表 | Renderer／RenderGeometry | 缓存界限值；列表借用世界和缓存，clear_frame 结束借用，reset 同时清空缓存 |
 | 光照与方向光深度图 | View 集合共享的 ShadowPass | 每个帧槽有一张深度图；本帧首次录制写入，其余 View 采样同一结果 |
@@ -118,12 +118,14 @@ App 使用默认 View；Editor 的游戏相机使用默认 View，编辑相机�
 增量更新沿提取、解析、几何准备传递同一套槽位和结构编辑规则。Scene 内容版本、输入／输出批次和资产发布版本有不同用途，不能互相代替。
 局部批次要求版本连续；跨生产者、漏过批次、大量修改或缺失资源造成压缩时完整核对。手工快照没有变化提示，逐项检查身份与版本。
 Registry 总版本变化时才检查持有引用的条目版本，未变资源和界限继续复用；失效位置属于各自世界，不被其他消费者或快照副本消费。
-相机、Light 和场景设置仍完整提取。静态 extract 不消费记录；增量 update 独占自己的输出，清空或更换输出时同时 reset 提取器。
+相机、Light 和场景设置仍完整提取。静态 extract 不消费记录；增量 update 返回 `shared_ptr<const RenderScene>`。
+未变场景共享同一快照；更新时没有旧读者就复用存储，仍有读者则复制后写入。换场景和 reset 释放生产者持有的状态，旧快照持续有效到最后一个读者退出。
+提取器及 Scene 的写入仍属于 Main；只读 CPU 快照可移交给其他线程，AssetHandle 的解析和 GPU 发布仍留在 Renderer 当前执行线程。
 
 渲染、物理组件只读访问，通过副本提交修改；同值或拒绝的写入不增加版本。物理姿态回写更新变换和渲染，避免再作为下一步物理输入。
 这些进程内身份不写入场景文件，复制 Scene 获得新的实例代号。材质改绑、移除组件和 Runtime 停止会清理对应运行覆盖。
 
-所有视图必须在下一次世界更新前完成同步录制；借用提交不能直接作为跨线程帧包。帧延期跳过 UI／提取／绘制，Runtime 仍推进；最小化等待并重置墙钟增量与待处理输入。
+当前所有视图同步消费 Renderer 的世界；借用 RenderSubmission 不能直接作为跨线程帧包。帧延期跳过 UI／提取／绘制，Runtime 仍推进；最小化等待并重置墙钟增量与待处理输入。
 Editor 在提取前完成属性编辑，拾取反馈在场景和 Overlay 录制前应用。切换 Scene 时结束旧交互、清理请求并重绑选择与引用。
 
 ### 输入主链与配置边界

@@ -3,6 +3,7 @@
 #include "common/export.h"
 #include "render/scene/render_scene.h"
 #include <entt.hpp>
+#include <memory>
 
 namespace Comet {
     class Scene;
@@ -16,14 +17,15 @@ namespace Comet {
         SceneExtractor(const SceneExtractor&) = delete;
         SceneExtractor& operator=(const SceneExtractor&) = delete;
 
-        // 增量更新独占的输出；输出被清空或更换时同时 reset。
-        void update(Scene& scene, RenderScene& output);
+        // 仅生产者线程更新；返回的只读快照可独立保留，旧读者退出后复用存储。
+        [[nodiscard]] std::shared_ptr<const RenderScene> update(Scene& scene);
         void reset() noexcept;
 
     private:
         static void extract_all(Scene& scene, RenderScene& output, SceneExtractor* slots);
         void update_items(Scene& scene, RenderScene& output);
 
+        std::shared_ptr<RenderScene> m_output;
         uint64_t m_scene_lifetime = 0;
         uint64_t m_revision = 0;
         bool m_matches_storage_order = false;

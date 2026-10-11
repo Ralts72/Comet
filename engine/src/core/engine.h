@@ -110,7 +110,6 @@ namespace Comet {
         FrameDiagnostics m_frame_diagnostics;
         bool m_running = false;
         bool m_shutdown_prepared = false;
-        RenderScene m_render_scene;
         SceneExtractor m_scene_extractor;
     };
 }
