@@ -1,6 +1,7 @@
 #include "render/scene/render_geometry.h"
 
 #include "render/resource/mesh.h"
+#include "render/scene/render_submission.h"
 
 #include <algorithm>
 
@@ -99,18 +100,19 @@ namespace Comet {
             for(std::size_t index = 0; index < items.size(); ++index) {
                 update_bounds(index);
                 const auto& bounds = m_bounds[index].bounds;
-                m_items.push_back({&items[index], bounds});
+                m_items.push_back({&items[index], bounds ? &*bounds : nullptr});
                 include_bounds(m_cached_scene_bounds, bounds);
             }
         }
-        // 指针只借用本帧提交；缓存只保存界限值。
+        // 结构更新完成后借用本帧提交和缓存界限，避免每帧复制界限值。
         if(unchanged || partial) {
             if(rebuild)
                 m_cached_scene_bounds.reset();
             for(std::size_t index = 0; index < items.size(); ++index) {
-                m_items.push_back({&items[index], m_bounds[index].bounds});
+                const auto& bounds = m_bounds[index].bounds;
+                m_items.push_back({&items[index], bounds ? &*bounds : nullptr});
                 if(rebuild)
-                    include_bounds(m_cached_scene_bounds, m_bounds[index].bounds);
+                    include_bounds(m_cached_scene_bounds, bounds);
             }
         }
         m_scene_bounds = m_cached_scene_bounds;

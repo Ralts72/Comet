@@ -2,21 +2,30 @@
 
 #include "common/export.h"
 #include "core/geometry.h"
-#include "render/scene/render_submission.h"
+#include "scene/entity_id.h"
 
 #include <span>
+#include <vector>
 
 namespace Comet {
+    struct ResolvedRenderItem;
+    struct RenderSubmission;
+
     // 只借用本帧提交；未变界限按场景、实体和版本复用，不保留组件指针。
     class COMET_API RenderGeometry {
     public:
         struct Item {
             const ResolvedRenderItem* source;
-            std::optional<BoundingBox> world_bounds;
+            const BoundingBox* world_bounds;
         };
+
+        RenderGeometry() = default;
+        RenderGeometry(const RenderGeometry&) = delete;
+        RenderGeometry& operator=(const RenderGeometry&) = delete;
 
         void prepare(const RenderSubmission& submission);
         void clear();
+        // 列表和界限只借用到下一次 prepare／clear。
         [[nodiscard]] std::span<const Item> get_items() const { return m_items; }
         [[nodiscard]] const std::optional<BoundingBox>& get_scene_bounds() const {
             return m_scene_bounds;

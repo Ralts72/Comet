@@ -146,7 +146,7 @@ namespace Comet::Tests {
                 EXPECT_EQ(geometry.get_items()[index].source, &actual);
                 const auto& bounds = geometry.get_items()[index].world_bounds;
                 const auto& expected_bounds = reference.get_items()[index].world_bounds;
-                ASSERT_EQ(bounds.has_value(), expected_bounds.has_value());
+                ASSERT_EQ(bounds != nullptr, expected_bounds != nullptr);
                 if(bounds) {
                     EXPECT_EQ(bounds->minimum, expected_bounds->minimum);
                     EXPECT_EQ(bounds->maximum, expected_bounds->maximum);
