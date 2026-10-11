@@ -7,6 +7,7 @@
 #include "render/resource/environment.h"
 
 #include <algorithm>
+#include <array>
 #include <utility>
 
 namespace Comet {
@@ -49,13 +50,31 @@ namespace Comet {
         uint64_t mesh_revision = 0;
         AssetHandle material_handle;
         uint64_t material_revision = 0;
+        // 只缓存本次检查的版本值；碰撞时重新查询，低命中率时停止使用缓存。
+        std::array<std::pair<AssetHandle, uint64_t>, 128> revisions{};
+        const auto miss_limit = revisions.size() * 2;
+        auto misses_remaining = miss_limit;
+        bool reuse_revisions = true;
+        const auto get_revision = [&](const AssetHandle handle) {
+            if(!reuse_revisions)
+                return m_asset_registry.get_revision(handle);
+            auto& cached = revisions[std::hash<AssetHandle>{}(handle) % revisions.size()];
+            if(cached.first == handle) {
+                misses_remaining = std::min(misses_remaining + 1, miss_limit);
+                return cached.second;
+            }
+            if(--misses_remaining == 0)
+                reuse_revisions = false;
+            cached = {handle, m_asset_registry.get_revision(handle)};
+            return cached.second;
+        };
         const auto* first = submission.render_items.data();
         for(auto& item : submission.render_items) {
             bool changed = false;
             if(item.mesh) {
                 if(mesh_handle != item.mesh_handle) {
                     mesh_handle = item.mesh_handle;
-                    mesh_revision = m_asset_registry.get_revision(mesh_handle);
+                    mesh_revision = get_revision(mesh_handle);
                 }
                 if(mesh_revision == 0 || item.mesh_revision != mesh_revision) {
                     item.mesh.reset();
@@ -66,7 +85,7 @@ namespace Comet {
             if(item.material.resource) {
                 if(material_handle != item.material.material_handle) {
                     material_handle = item.material.material_handle;
-                    material_revision = m_asset_registry.get_revision(material_handle);
+                    material_revision = get_revision(material_handle);
                 }
                 if(material_revision == 0 || item.material.asset_revision != material_revision) {
                     item.material.resource.reset();

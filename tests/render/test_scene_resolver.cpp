@@ -114,9 +114,10 @@ namespace Comet::Tests {
     TEST(SceneResolverTest, StructuralEditsPreserveResourcesTransformsAndFrozenCopies) {
         AssetRegistry registry;
         FakeRenderResourceFactory resources;
-        for(const auto handle : {AssetHandle{10}, AssetHandle{11}})
+        // 交错引用并让版本缓存发生碰撞，结果仍与无缓存的完整解析一致。
+        for(const auto handle : {AssetHandle{10}, AssetHandle{266}})
             ASSERT_TRUE(registry.register_asset(handle, resources.try_create_mesh({}).value()));
-        for(const auto handle : {AssetHandle{20}, AssetHandle{21}, AssetHandle{22}})
+        for(const auto handle : {AssetHandle{20}, AssetHandle{276}, AssetHandle{532}})
             ASSERT_TRUE(registry.register_asset(handle, std::make_shared<Material>("item", "pbr")));
         const auto make_item = [](EntityId id) {
             auto overrides = std::make_shared<MaterialOverrides>();
@@ -124,8 +125,8 @@ namespace Comet::Tests {
             return RenderItem{.entity_id = id,
                 .transform_revision = 1,
                 .model_matrix = Math::translate(Math::Mat4(1), {float(id), 0, 0}),
-                .mesh_handle = AssetHandle{10 + id % 2},
-                .material_handle = AssetHandle{20 + id % 3},
+                .mesh_handle = AssetHandle{10 + (id % 2) * 256},
+                .material_handle = AssetHandle{20 + (id % 3) * 256},
                 .material_overrides = std::move(overrides)};
         };
         SceneResolver resolver(registry);
@@ -133,6 +134,8 @@ namespace Comet::Tests {
         scene.scene_lifetime = 1;
         scene.cameras.push_back({.primary = true});
         scene.render_items = {make_item(1), make_item(2), make_item(3), make_item(4)};
+        for(EntityId id = 5; id <= 260; ++id)
+            scene.render_items.push_back(make_item(id));
         RenderSubmission submission;
         const auto view = runtime_view({160, 120});
         const auto check = [&] {
@@ -155,9 +158,9 @@ namespace Comet::Tests {
             }
         };
         check();
-        ASSERT_EQ(submission.render_items.size(), 4u);
+        ASSERT_EQ(submission.render_items.size(), 260u);
         const auto frozen = submission;
-        for(const auto index : {0u, 2u, 4u}) {
+        for(const auto index : {std::size_t{0}, std::size_t{2}, scene.render_items.size()}) {
             SCOPED_TRACE(index);
             scene.render_items.insert(scene.render_items.begin() + index, make_item(10 + index));
             check();
@@ -169,12 +172,12 @@ namespace Comet::Tests {
         check();
         scene.render_items[1].mesh_handle = AssetHandle{10};
         check();
-        ASSERT_TRUE(registry.unregister_asset(AssetHandle{21}));
+        ASSERT_TRUE(registry.unregister_asset(AssetHandle{276}));
         check();
         scene.render_items.erase(scene.render_items.begin());
         check();
         ASSERT_TRUE(registry.register_asset(
-            AssetHandle{21}, std::make_shared<Material>("replacement", "unlit_color")));
+            AssetHandle{276}, std::make_shared<Material>("replacement", "unlit_color")));
         check();
         scene.render_items.insert(scene.render_items.begin(), make_item(30));
         std::ranges::reverse(scene.render_items);
@@ -182,7 +185,7 @@ namespace Comet::Tests {
         auto& moved = scene.render_items.back();
         ++moved.transform_revision;
         moved.model_matrix = Math::translate(Math::Mat4(1), {100, 0, 0});
-        moved.material_handle = AssetHandle{22};
+        moved.material_handle = AssetHandle{532};
         moved.material_overrides.reset();
         check();
         ++scene.scene_lifetime;
