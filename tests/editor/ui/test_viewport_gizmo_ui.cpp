@@ -4,24 +4,6 @@
 namespace CometEditor::Tests {
     using ViewportGizmoUiTest = ViewportUiTest;
 
-    TEST_F(ViewportGizmoUiTest, HiddenGamePanelDoesNotCancelSceneGizmoDrag) {
-        GameViewportPanel game_view(state, runtime, 4096);
-        game_view.set_visible(false);
-        drag();
-        ASSERT_TRUE(gizmo.active());
-        const float preview = x();
-        ImGui::NewFrame();
-        game_view.render();
-        EXPECT_TRUE(gizmo.active());
-        EXPECT_FLOAT_EQ(x(), preview);
-        EXPECT_EQ(history.undo_size(), 0);
-        ImGui::Render();
-        ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Left, false);
-        frame();
-        EXPECT_FALSE(gizmo.active());
-        EXPECT_EQ(history.undo_size(), 1);
-    }
-
     TEST_F(ViewportGizmoUiTest, LightAxisDragFromAnotherPanelCommitsAndUndoes) {
         entity.add_component<Comet::LightComponent>();
         EXPECT_TRUE(

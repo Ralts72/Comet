@@ -2,6 +2,7 @@
 #include "viewport/viewport.h"
 #include "config/config.h"
 #include "render/renderer.h"
+#include "render/render_thread.h"
 #include "render/frame_scheduler.h"
 #include "render/overlay_record_context.h"
 #include "render/render_context.h"
@@ -254,15 +255,15 @@ namespace CometEditor::Tests {
         EditorShortcuts shortcuts;
         auto sampler = renderer.get_render_resources().get_sampler_manager().get_nearest_clamp();
         ASSERT_TRUE(sampler) << sampler.error();
-        auto scene_view = renderer.create_offscreen_view({320, 240});
-        ASSERT_TRUE(scene_view) << scene_view.error();
         Viewport viewport(state, engine.get_scene_runtime(), selection, history, components, edit,
-            shortcuts, renderer, engine.get_asset_registry(), ui, std::move(sampler).value(),
-            scene_view.value());
-        Comet::Tests::set_test_overlay(
-            renderer, {.render = [&](Comet::OverlayRecordContext& overlay) {
-                return Comet::Tests::record_draw_frame(overlay, std::move(ui_frame));
-            }});
+            shortcuts, renderer, engine.get_asset_registry(), ui, std::move(sampler).value());
+        Comet::RenderThread render_thread(renderer);
+        renderer.set_overlay({.capture = [&] {
+            Comet::OverlayDrawList draws;
+            if(ui_frame)
+                draws.push_back(std::move(ui_frame));
+            return draws;
+        }});
         const auto draw_frame = [&] {
             viewport.consume_pick(active_scene);
             engine.get_window().poll_events();
@@ -276,27 +277,38 @@ namespace CometEditor::Tests {
             EXPECT_EQ(frame.color_view,
                 renderer.get_scene_renderer().get_offscreen_color_view(frame.slot));
             viewport.update_texture();
-            const auto scene_texture = ui.get_viewport_texture_id(frame.slot, scene_view.value());
+            const auto texture = ui.get_viewport_texture_id(frame.slot);
             if(!ui.begin_frame())
                 return false;
             ImGui::SetNextWindowPos({0, 0});
             ImGui::SetNextWindowSize({500, 400});
             viewport.panel().render();
-            ImGui::SetNextWindowPos({520, 0});
-            ImGui::SetNextWindowSize({450, 400});
-            viewport.game_panel().render();
-            EXPECT_NE(ui.get_viewport_texture_id(frame.slot),
-                ui.get_viewport_texture_id(frame.slot, scene_view.value()));
             const auto updated = viewport.update(active_scene);
-            EXPECT_EQ(ui.get_viewport_texture_id(frame.slot, scene_view.value()), scene_texture);
+            EXPECT_EQ(ui.get_viewport_texture_id(frame.slot), texture);
             ui_frame = ui.end_frame();
             EXPECT_TRUE(updated);
             if(!updated)
                 return false;
             viewport.submit_feedback(active_scene);
-            EXPECT_TRUE(renderer.render_frame(Comet::SceneResolver(engine.get_asset_registry())
-                    .update(Comet::SceneExtractor::extract(*active_scene))));
-            return true;
+            auto captured = renderer.capture_frame();
+            EXPECT_EQ(captured.views.size(), 1);
+            if(captured.views.size() != 1)
+                return false;
+            const auto& view = captured.views.front();
+            EXPECT_EQ(view.id, Comet::Renderer::DEFAULT_VIEW);
+            EXPECT_EQ(view.draw, viewport.panel().is_visible());
+            EXPECT_EQ(view.parameters.camera_selection,
+                state.mode == EditorMode::Edit ? Comet::RenderView::CameraSelection::Override
+                                               : Comet::RenderView::CameraSelection::ScenePrimary);
+            captured.world = Comet::SceneResolver(engine.get_asset_registry())
+                                 .update(Comet::SceneExtractor::extract(*active_scene));
+            const auto submitted = render_thread.submit(std::move(captured));
+            EXPECT_TRUE(submitted) << submitted.error();
+            if(!submitted)
+                return false;
+            const auto completed = render_thread.complete();
+            EXPECT_TRUE(completed) << completed.error();
+            return bool(completed);
         };
         EXPECT_TRUE(draw_frame());
         EXPECT_TRUE(draw_frame());
@@ -330,12 +342,10 @@ namespace CometEditor::Tests {
             EXPECT_TRUE(prepared);
             if(!prepared || prepared.value() != Comet::Renderer::FramePreparation::Ready)
                 return false;
-            const auto view = renderer.set_render_view(
-                {.render_size = {64, 64},
-                    .camera_selection = Comet::RenderView::CameraSelection::Override,
-                    .camera_override = Comet::RenderCamera{.view_matrix = Comet::Math::look_at(
-                                                               {0, 0, 3}, {0, 0, 0}, {0, 1, 0})}},
-                scene_view.value());
+            const auto view = renderer.set_render_view({.render_size = {64, 64},
+                .camera_selection = Comet::RenderView::CameraSelection::Override,
+                .camera_override = Comet::RenderCamera{
+                    .view_matrix = Comet::Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0})}});
             EXPECT_TRUE(view);
             if(!view)
                 return false;
@@ -343,8 +353,7 @@ namespace CometEditor::Tests {
             if(!ui.begin_frame())
                 return false;
             ui_frame = ui.end_frame();
-            renderer.request_viewport_pick(
-                pixel, {64, 64}, scene.get_lifetime(), scene_view.value());
+            renderer.request_viewport_pick(pixel, {64, 64}, scene.get_lifetime());
             return bool(renderer.render_frame(Comet::SceneResolver(engine.get_asset_registry())
                     .update(Comet::SceneExtractor::extract(scene))));
         };
@@ -380,7 +389,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(selection.get_selected_entity(), other);
         ASSERT_TRUE(publish_pick(first_scene, {32, 32}));
         viewport.cancel_interaction();
-        EXPECT_FALSE(renderer.take_viewport_pick_result(scene_view.value()));
+        EXPECT_FALSE(renderer.take_viewport_pick_result());
         viewport.panel().set_visible(false);
         EXPECT_TRUE(draw_frame());
         EXPECT_FALSE(viewport.panel().is_visible());

@@ -19,15 +19,15 @@ namespace CometEditor::Tests {
                 state.camera.perspective.up)));
     }
 
-    TEST(RenderViewTest, PlayModeKeepsEditorCameraIndependentOfGameCamera) {
+    TEST(RenderViewTest, PlayModeUsesScenePrimaryCamera) {
         EditorState state;
         state.mode = EditorMode::Play;
 
         const Comet::RenderView view =
             make_render_view(state, true, Comet::Math::Vec2u(1920, 1080));
 
-        EXPECT_EQ(view.camera_selection, Comet::RenderView::CameraSelection::Override);
-        EXPECT_TRUE(view.camera_override);
+        EXPECT_EQ(view.camera_selection, Comet::RenderView::CameraSelection::ScenePrimary);
+        EXPECT_FALSE(view.camera_override);
     }
 
     TEST(RenderViewTest, OrthographicEditorCameraUsesFixedAxis) {

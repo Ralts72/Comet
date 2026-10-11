@@ -104,7 +104,7 @@ namespace CometEditor::Tests {
             RenderGpuTest::TearDown();
         }
 
-        void frame(GameViewportPanel* viewport = nullptr, std::optional<bool> mouse_down = {}) {
+        void frame(ViewportPanel* viewport = nullptr, std::optional<bool> mouse_down = {}) {
             auto& renderer = engine->get_renderer();
             auto& window = engine->get_window();
             for(unsigned attempt = 0; attempt < 12; ++attempt) {
@@ -216,7 +216,16 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(engine->start_scene_runtime());
         EditorState state;
         state.mode = EditorMode::Play;
-        GameViewportPanel viewport(state, engine->get_scene_runtime(), 4096);
+        auto& scene = *engine->get_scene();
+        SelectionService selection(scene);
+        CommandHistory history;
+        history.bind_scene(&scene);
+        auto components = Comet::create_scene_component_registry();
+        PropertyEditTransaction edit(history, components);
+        TransformGizmo gizmo(history, components);
+        EditorShortcuts shortcuts;
+        ViewportPanel viewport(
+            state, engine->get_scene_runtime(), selection, gizmo, edit, 4096, shortcuts);
         viewport.set_game_ui_available(true);
         struct Scenario {
             bool docked;

@@ -34,13 +34,11 @@ namespace CometEditor {
             return Ui::icon_button(icon, label);
         }
 
-        bool begin_toolbar_menu(const char* id, const char* label, const bool new_group = false,
-            const bool same_line = true) {
+        bool begin_toolbar_menu(const char* id, const char* label, const bool new_group = false) {
             const auto& style = ImGui::GetStyle();
             const float width = ImGui::CalcTextSize(label).x + ImGui::GetFontSize()
                                 + style.ItemInnerSpacing.x + style.FramePadding.x * 2;
-            if(same_line)
-                toolbar_next(width, new_group);
+            toolbar_next(width, new_group);
             ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0, 0.5f));
             const bool pressed = ImGui::Button((std::string(label) + id).c_str(), {width, 0});
             ImGui::PopStyleVar();
@@ -70,52 +68,37 @@ namespace CometEditor {
         }
     }
 
-    ViewportPanel::ViewportPanel(
-        const EditorState& state, const std::uint32_t max_render_dimension, const char* label)
-        : EditorPanel(label), m_state(state), m_max_render_dimension(max_render_dimension) {}
-
-    SceneViewportPanel::SceneViewportPanel(const EditorState& state, SelectionService& selection,
-        TransformGizmo& gizmo, PropertyEditTransaction& inspector_edit,
+    ViewportPanel::ViewportPanel(const EditorState& state, const Comet::SceneRuntime& runtime,
+        SelectionService& selection, TransformGizmo& gizmo, PropertyEditTransaction& inspector_edit,
         const std::uint32_t max_render_dimension, const EditorShortcuts& shortcuts)
-        : ViewportPanel(state, max_render_dimension, "场景###Viewport"), m_selection(selection),
-          m_gizmo(gizmo), m_inspector_edit(inspector_edit), m_shortcuts(shortcuts) {}
+        : EditorPanel("视口###Viewport"), m_state(state), m_runtime(runtime),
+          m_selection(selection), m_gizmo(gizmo), m_inspector_edit(inspector_edit),
+          m_shortcuts(shortcuts), m_max_render_dimension(max_render_dimension) {}
 
-    GameViewportPanel::GameViewportPanel(const EditorState& state,
-        const Comet::SceneRuntime& runtime, const std::uint32_t max_render_dimension)
-        : ViewportPanel(state, max_render_dimension, "游戏###GameViewport"), m_runtime(runtime) {}
-
-    void SceneViewportPanel::begin_frame() {
+    void ViewportPanel::render() {
+        m_actually_visible = false;
+        m_play_image_hovered = false;
         m_camera_input.reset();
         m_camera_projection_request.reset();
+        m_play_command.reset();
         m_pick_request.reset();
         m_focus_request = false;
         m_mesh_drop.reset();
         m_gizmo_draw_list = nullptr;
-    }
-
-    void GameViewportPanel::begin_frame() {
-        m_play_image_hovered = false;
-        m_play_command.reset();
         const bool running = m_state.mode == EditorMode::Play
                              && m_runtime.get_state() == Comet::SceneRuntime::State::Running;
-        if(m_user_visible && running && !m_runtime_was_running && !ui_blocks_runtime_input())
-            ImGui::SetNextWindowFocus();
+        const bool started = running && !m_runtime_was_running;
         m_runtime_was_running = running;
-    }
-
-    bool SceneViewportPanel::interaction_active() const {
-        return m_gizmo.active();
-    }
-
-    void ViewportPanel::render() {
-        m_actually_visible = false;
-        begin_frame();
 
         if(!m_user_visible) {
             reset_hidden_view();
             return;
         }
 
+        if(started && !ui_blocks_runtime_input())
+            ImGui::SetNextWindowFocus();
+        ImGui::SetNextWindowSizeConstraints(
+            {ImGui::GetStyle().WindowMinSize.x, 240}, {FLT_MAX, FLT_MAX});
         if(!ImGui::Begin(window_label().c_str(), &m_user_visible)) {
             reset_hidden_view();
             ImGui::End();
@@ -125,14 +108,13 @@ namespace CometEditor {
         m_actually_visible = true;
         m_window_id = ImGui::GetCurrentWindow()->RootWindow->ID;
         m_interaction_id = ImGui::GetID("TransformGizmo");
-        if(interaction_active()) {
+        if(m_gizmo.active()) {
             ImGui::KeepAliveID(m_interaction_id);
         }
 
-        ImGui::BeginDisabled(interaction_active());
+        ImGui::BeginDisabled(m_gizmo.active());
         render_toolbar();
         ImGui::EndDisabled();
-        ImGui::Separator();
 
         render_view_content();
 
@@ -147,27 +129,26 @@ namespace CometEditor {
         cancel_interaction();
     }
 
-    void SceneViewportPanel::render_toolbar() {
-        render_projection_controls();
-        ImGui::BeginDisabled(m_state.mode == EditorMode::Play);
-        render_gizmo_settings();
-        ImGui::EndDisabled();
-    }
-
-    void GameViewportPanel::render_toolbar() {
-        if(m_state.mode == EditorMode::Play) {
+    void ViewportPanel::render_toolbar() {
+        const bool is_playing = m_state.mode == EditorMode::Play;
+        if(is_playing) {
             if(toolbar_button(Ui::Icon::Stop, "停止###Stop"))
                 m_play_command = PlayCommand::Stop;
             ImGui::SetItemTooltip("停止 (Esc)");
             render_runtime_controls();
-        } else if(toolbar_button(Ui::Icon::Play, "运行###Play")) {
-            m_play_command = PlayCommand::Play;
+            render_preview_settings();
+        } else {
+            if(toolbar_button(Ui::Icon::Play, "运行###Play"))
+                m_play_command = PlayCommand::Play;
+            render_projection_controls();
+            render_gizmo_settings();
         }
-        render_preview_settings();
-        render_view_options();
+        if(is_playing || m_game_ui_available)
+            render_view_options();
+        ImGui::Separator();
     }
 
-    void GameViewportPanel::render_runtime_controls() {
+    void ViewportPanel::render_runtime_controls() {
         const bool paused = m_runtime.get_state() == Comet::SceneRuntime::State::Paused;
         ImGui::BeginDisabled(!m_runtime.is_active());
         if(paused) {
@@ -183,7 +164,7 @@ namespace CometEditor {
         ImGui::EndDisabled();
     }
 
-    void SceneViewportPanel::render_gizmo_settings() {
+    void ViewportPanel::render_gizmo_settings() {
         auto settings = m_gizmo.settings();
         constexpr const char* modes[]{"移动", "旋转", "缩放"};
         const std::string label = std::string("工具：") + modes[static_cast<int>(settings.mode)];
@@ -245,11 +226,10 @@ namespace CometEditor {
         ImGui::EndPopup();
     }
 
-    void SceneViewportPanel::render_projection_controls() {
+    void ViewportPanel::render_projection_controls() {
         using Projection = Comet::RenderCamera::Projection;
         const bool perspective = m_state.camera.projection == Projection::Perspective;
-        if(!begin_toolbar_menu(
-               "###Projection", perspective ? "投影：3D" : "投影：2D", false, false)) {
+        if(!begin_toolbar_menu("###Projection", perspective ? "投影：3D" : "投影：2D", true)) {
             return;
         }
         for(const Projection projection : {Projection::Orthographic, Projection::Perspective}) {
@@ -261,20 +241,20 @@ namespace CometEditor {
         ImGui::EndPopup();
     }
 
-    void GameViewportPanel::render_preview_settings() {
+    void ViewportPanel::render_preview_settings() {
         using ResolutionMode = ViewportLayout::ResolutionPolicy::Mode;
         const Comet::Math::Vec2u hd_resolution(1280, 720);
         const Comet::Math::Vec2u full_hd_resolution(1920, 1080);
 
         std::string resolution_label = "自由";
-        if(m_resolution_policy.mode == ResolutionMode::Aspect16By9) {
+        if(m_play_resolution_policy.mode == ResolutionMode::Aspect16By9) {
             resolution_label = "16:9";
-        } else if(m_resolution_policy.mode == ResolutionMode::Fixed) {
-            const auto size = m_resolution_policy.fixed_resolution;
+        } else if(m_play_resolution_policy.mode == ResolutionMode::Fixed) {
+            const auto size = m_play_resolution_policy.fixed_resolution;
             resolution_label = std::to_string(size.x) + " x " + std::to_string(size.y);
         }
         const char* display_label = "1:1";
-        if(m_display_mode == ViewportLayout::DisplayMode::Fit)
+        if(m_play_display_mode == ViewportLayout::DisplayMode::Fit)
             display_label = "适应";
         const std::string label = "预览：" + resolution_label + " / " + display_label;
         if(!begin_toolbar_menu("###Preview", label.c_str(), true)) {
@@ -284,34 +264,35 @@ namespace CometEditor {
         ImGui::PushItemFlag(ImGuiItemFlags_AutoClosePopups, false);
         ImGui::SeparatorText("渲染分辨率");
         if(ImGui::MenuItem(
-               "自由###Free", nullptr, m_resolution_policy.mode == ResolutionMode::Free))
-            m_resolution_policy = {};
+               "自由###Free", nullptr, m_play_resolution_policy.mode == ResolutionMode::Free))
+            m_play_resolution_policy = {};
         if(ImGui::MenuItem(
-               "16:9", nullptr, m_resolution_policy.mode == ResolutionMode::Aspect16By9))
-            m_resolution_policy = {.mode = ResolutionMode::Aspect16By9};
+               "16:9", nullptr, m_play_resolution_policy.mode == ResolutionMode::Aspect16By9))
+            m_play_resolution_policy = {.mode = ResolutionMode::Aspect16By9};
         if(ImGui::MenuItem("1280 x 720", nullptr,
-               m_resolution_policy.mode == ResolutionMode::Fixed
-                   && m_resolution_policy.fixed_resolution == hd_resolution)) {
-            m_resolution_policy = {
+               m_play_resolution_policy.mode == ResolutionMode::Fixed
+                   && m_play_resolution_policy.fixed_resolution == hd_resolution)) {
+            m_play_resolution_policy = {
                 .mode = ResolutionMode::Fixed, .fixed_resolution = hd_resolution};
         }
         if(ImGui::MenuItem("1920 x 1080", nullptr,
-               m_resolution_policy.mode == ResolutionMode::Fixed
-                   && m_resolution_policy.fixed_resolution == full_hd_resolution)) {
-            m_resolution_policy = {
+               m_play_resolution_policy.mode == ResolutionMode::Fixed
+                   && m_play_resolution_policy.fixed_resolution == full_hd_resolution)) {
+            m_play_resolution_policy = {
                 .mode = ResolutionMode::Fixed, .fixed_resolution = full_hd_resolution};
         }
         ImGui::SeparatorText("显示缩放");
         if(ImGui::MenuItem(
-               "适应###Fit", nullptr, m_display_mode == ViewportLayout::DisplayMode::Fit))
-            m_display_mode = ViewportLayout::DisplayMode::Fit;
-        if(ImGui::MenuItem("1:1", nullptr, m_display_mode == ViewportLayout::DisplayMode::OneToOne))
-            m_display_mode = ViewportLayout::DisplayMode::OneToOne;
+               "适应###Fit", nullptr, m_play_display_mode == ViewportLayout::DisplayMode::Fit))
+            m_play_display_mode = ViewportLayout::DisplayMode::Fit;
+        if(ImGui::MenuItem(
+               "1:1", nullptr, m_play_display_mode == ViewportLayout::DisplayMode::OneToOne))
+            m_play_display_mode = ViewportLayout::DisplayMode::OneToOne;
         ImGui::PopItemFlag();
         ImGui::EndPopup();
     }
 
-    void GameViewportPanel::render_view_options() {
+    void ViewportPanel::render_view_options() {
         if(!begin_toolbar_menu("###View", "视图"))
             return;
         if(m_game_ui_available) {
@@ -337,14 +318,20 @@ namespace CometEditor {
         const ImVec2 framebuffer_scale =
             window_viewport ? window_viewport->FramebufferScale : ImVec2(1.0f, 1.0f);
 
+        ViewportLayout::ResolutionPolicy resolution_policy;
+        ViewportLayout::DisplayMode display_mode = ViewportLayout::DisplayMode::Fit;
+        if(m_state.mode == EditorMode::Play) {
+            resolution_policy = m_play_resolution_policy;
+            display_mode = m_play_display_mode;
+        }
         m_layout = calculate_viewport_layout({
             .content_origin = {content_origin.x, content_origin.y},
             .content_size = {content_size.x, content_size.y},
             .framebuffer_scale = {framebuffer_scale.x, framebuffer_scale.y},
             .current_render_resolution = m_texture_resolution,
             .max_render_dimension = m_max_render_dimension,
-            .resolution_policy = m_resolution_policy,
-            .display_mode = m_display_mode,
+            .resolution_policy = resolution_policy,
+            .display_mode = display_mode,
         });
 
         if(m_layout.render_resolution != m_observed_render_resolution) {
@@ -371,11 +358,6 @@ namespace CometEditor {
         } else {
             ImGui::InvisibleButton("View", ImVec2(display_size.x, display_size.y));
         }
-        update_view_interaction();
-    }
-
-    void SceneViewportPanel::accept_mesh_drop() {
-        const auto display_size = m_layout.image_display_rect.size();
         m_gizmo_draw_list = ImGui::GetWindowDrawList();
         if(m_state.mode == EditorMode::Edit && m_texture_id != ImTextureID_Invalid
             && ImGui::BeginDragDropTarget()) {
@@ -395,20 +377,25 @@ namespace CometEditor {
             }
             ImGui::EndDragDropTarget();
         }
+        update_view_interaction();
     }
 
-    std::optional<SceneViewportPanel::MeshDrop> SceneViewportPanel::take_mesh_drop() {
+    std::optional<ViewportPanel::MeshDrop> ViewportPanel::take_mesh_drop() {
         return std::exchange(m_mesh_drop, std::nullopt);
     }
 
-    void SceneViewportPanel::update_view_interaction() {
-        accept_mesh_drop();
-        if(ImGui::IsDragDropActive()) {
+    void ViewportPanel::update_view_interaction() {
+        if(m_state.mode == EditorMode::Play) {
+            if(m_gizmo.active())
+                cancel_interaction();
+            reset_camera_interaction();
+            update_play_interaction();
+            return;
+        }
+        if(m_state.mode != EditorMode::Edit || ImGui::IsDragDropActive()) {
             cancel_interaction();
             return;
         }
-        if(m_state.mode != EditorMode::Edit && m_gizmo.active())
-            cancel_interaction();
 
         const ImGuiIO& io = ImGui::GetIO();
         const Comet::Math::Vec2 mouse_position(io.MousePos.x, io.MousePos.y);
@@ -424,8 +411,7 @@ namespace CometEditor {
         const bool navigation_input = m_camera_drag || io.KeyAlt
                                       || ImGui::IsMouseDown(ImGuiMouseButton_Right)
                                       || ImGui::IsMouseDown(ImGuiMouseButton_Middle);
-        const bool available = m_state.mode == EditorMode::Edit && pointer_over_image
-                               && !navigation_input && !ImGui::IsAnyItemActive()
+        const bool available = pointer_over_image && !navigation_input && !ImGui::IsAnyItemActive()
                                && !io.WantTextInput && m_texture_id != ImTextureID_Invalid;
         bool pressed = available && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
         if(pressed && !m_inspector_edit.commit()) {
@@ -459,8 +445,7 @@ namespace CometEditor {
             return;
         }
 
-        if(m_state.mode == EditorMode::Edit
-            && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !io.WantTextInput
+        if(ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !io.WantTextInput
             && !ImGui::IsAnyItemActive() && !m_camera_drag
             && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)
             && m_shortcuts.pressed(
@@ -526,24 +511,22 @@ namespace CometEditor {
         };
     }
 
-    void SceneViewportPanel::reset_camera_interaction() {
+    void ViewportPanel::reset_camera_interaction() {
         m_camera_drag.reset();
     }
 
-    void SceneViewportPanel::cancel_interaction() {
-        static_cast<void>(m_gizmo.cancel());
-        if(m_interaction_id != 0 && ImGui::GetActiveID() == m_interaction_id)
-            ImGui::ClearActiveID();
-        reset_camera_interaction();
-    }
-
-    void GameViewportPanel::cancel_interaction() {
+    void ViewportPanel::cancel_interaction() {
         m_play_image_hovered = false;
         m_runtime_input = {};
         m_game_ui_input = {};
+        static_cast<void>(m_gizmo.cancel());
+        if(m_interaction_id != 0 && ImGui::GetActiveID() == m_interaction_id) {
+            ImGui::ClearActiveID();
+        }
+        reset_camera_interaction();
     }
 
-    void GameViewportPanel::update_view_interaction() {
+    void ViewportPanel::update_play_interaction() {
         const auto& io = ImGui::GetIO();
         m_play_image_hovered =
             m_texture_id != ImTextureID_Invalid && ImGui::IsItemHovered()
@@ -558,7 +541,7 @@ namespace CometEditor {
         ImGui::SetKeyOwner(ImGuiKey_MouseWheelY, m_interaction_id);
     }
 
-    bool GameViewportPanel::accepts_runtime_input(const bool blocked) const {
+    bool ViewportPanel::accepts_runtime_input(const bool blocked) const {
         const auto* focused = GImGui->NavWindow;
         const auto image_size = m_layout.image_visible_rect.size();
         return m_state.mode == EditorMode::Play && m_runtime.is_active() && m_actually_visible
@@ -567,7 +550,7 @@ namespace CometEditor {
                && !ui_blocks_runtime_input();
     }
 
-    const Comet::Input::Frame& GameViewportPanel::route_runtime_input(
+    const Comet::Input::Frame& ViewportPanel::route_runtime_input(
         const Comet::Input::Frame& input, const bool ui_input_blocked, const bool pointer_blocked) {
         const bool blocked = ui_input_blocked || ui_blocks_runtime_input();
         if(!blocked && m_state.mode == EditorMode::Play && input.focused
@@ -579,7 +562,7 @@ namespace CometEditor {
         return m_runtime_input.read(input, accepting, pointer_enabled);
     }
 
-    std::optional<Comet::Ui::View> GameViewportPanel::game_ui_view(
+    std::optional<Comet::Ui::View> ViewportPanel::game_ui_view(
         const Comet::Math::Vec2u pixel_size) const {
         const auto display = m_layout.image_display_rect;
         const auto visible = m_layout.image_visible_rect;
@@ -597,21 +580,21 @@ namespace CometEditor {
             .clip = Comet::Ui::View::Clip{visible.min - origin, visible.size()}};
     }
 
-    const Comet::Input::Frame& GameViewportPanel::route_game_ui_input(
+    const Comet::Input::Frame& ViewportPanel::route_game_ui_input(
         const Comet::Input::Frame& input, const bool blocked) {
         return m_game_ui_input.read(input,
             m_game_ui_available && m_show_game_ui && accepts_runtime_input(blocked),
             m_play_image_hovered);
     }
 
-    bool GameViewportPanel::take_game_ui_reload_request() {
+    bool ViewportPanel::take_game_ui_reload_request() {
         return std::exchange(m_game_ui_reload_requested, false);
     }
 
-    void SceneViewportPanel::draw_gizmo() {
+    void ViewportPanel::draw_gizmo() {
         // draw list 仅在当前 UI 帧内有效。
         ImDrawList* draw_list = std::exchange(m_gizmo_draw_list, nullptr);
-        if(!draw_list || m_state.mode != EditorMode::Edit || m_pick_request
+        if(!draw_list || m_state.mode != EditorMode::Edit || m_pick_request || m_play_command
             || m_texture_id == ImTextureID_Invalid) {
             return;
         }
@@ -670,23 +653,23 @@ namespace CometEditor {
         draw_list->PopClipRect();
     }
 
-    std::optional<EditorCameraInput> SceneViewportPanel::take_camera_input() {
+    std::optional<EditorCameraInput> ViewportPanel::take_camera_input() {
         return std::exchange(m_camera_input, std::nullopt);
     }
 
-    std::optional<Comet::RenderCamera::Projection> SceneViewportPanel::take_projection_request() {
+    std::optional<Comet::RenderCamera::Projection> ViewportPanel::take_projection_request() {
         return std::exchange(m_camera_projection_request, std::nullopt);
     }
 
-    std::optional<PlayCommand> GameViewportPanel::take_play_command() {
+    std::optional<PlayCommand> ViewportPanel::take_play_command() {
         return std::exchange(m_play_command, std::nullopt);
     }
 
-    std::optional<Comet::Math::Vec2u> SceneViewportPanel::take_pick_request() {
+    std::optional<Comet::Math::Vec2u> ViewportPanel::take_pick_request() {
         return std::exchange(m_pick_request, std::nullopt);
     }
 
-    bool SceneViewportPanel::take_focus_request() {
+    bool ViewportPanel::take_focus_request() {
         return std::exchange(m_focus_request, false);
     }
 

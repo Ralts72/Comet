@@ -10,59 +10,47 @@
 #include <array>
 
 namespace CometEditor::Tests {
-    using ViewportPlayUiTest = GameViewportUiTest;
+    using ViewportPlayUiTest = ViewportUiTest;
 
-    TEST_F(ViewportPlayUiTest, SceneNavigationDoesNotShareGameInputOrModifyRuntimeCamera) {
-        activate_play_camera();
-        SceneViewportPanel scene_view(state, selection, gizmo, property_edit, 4096, shortcuts);
-        scene_view.set_texture_id(static_cast<ImTextureID>(2), 400, 300);
-        viewport.set_game_ui_available(true);
-        const auto tick = [&](const char* focus) {
-            ImGui::NewFrame();
-            ImGui::SetNextWindowPos({0, 0});
-            ImGui::SetNextWindowSize({450, 450});
-            scene_view.render();
-            ImGui::SetNextWindowPos({500, 0});
-            ImGui::SetNextWindowSize({450, 450});
-            viewport.render();
-            if(focus)
-                ImGui::FocusWindow(ImGui::FindWindowByName(focus));
-            const auto routed = viewport.route_runtime_input(runtime_input.publish_frame());
-            EXPECT_FALSE(scene_view.take_pick_request());
-            EXPECT_FALSE(gizmo.active());
-            ImGui::Render();
-            return routed;
-        };
-        tick("GameViewport");
-        runtime_input.key_event(Comet::Input::Key::W, true);
-        EXPECT_TRUE(tick("GameViewport").key(Comet::Input::Key::W).pressed);
-        const auto released = tick("Viewport");
-        EXPECT_FALSE(released.focused);
-        EXPECT_TRUE(released.key(Comet::Input::Key::W).released);
-        EXPECT_FALSE(tick("GameViewport").key(Comet::Input::Key::W).down);
-        runtime_input.key_event(Comet::Input::Key::W, false);
-        tick("GameViewport");
-        runtime_input.key_event(Comet::Input::Key::W, true);
-        EXPECT_TRUE(tick("GameViewport").key(Comet::Input::Key::W).pressed);
-        const auto rotation = entity.get_component<Comet::TransformComponent>().rotation;
-        const auto image = scene_view.get_layout().image_visible_rect;
-        const auto center = image.min + image.size() * 0.5f;
-        auto& io = ImGui::GetIO();
-        io.AddMousePosEvent(center.x, center.y);
-        tick("Viewport");
-        io.AddMouseButtonEvent(ImGuiMouseButton_Right, true);
-        tick(nullptr);
-        io.AddMousePosEvent(center.x + 40, center.y + 20);
-        tick(nullptr);
-        const auto camera_input = scene_view.take_camera_input();
-        ASSERT_TRUE(camera_input);
-        const auto before = state.camera.snapshot().view_matrix;
-        apply_editor_camera_input(state.camera, *camera_input);
-        EXPECT_NE(state.camera.snapshot().view_matrix, before);
-        EXPECT_EQ(entity.get_component<Comet::TransformComponent>().rotation, rotation);
-        EXPECT_FALSE(viewport.route_game_ui_input(runtime_input.get_frame(), false).focused);
-        io.AddMouseButtonEvent(ImGuiMouseButton_Right, false);
-        tick(nullptr);
+    TEST(ViewportWindowUiTest, ImageRemainsVisibleOnFirstOpenAndAfterRestoringSmallWindow) {
+        for(const auto* settings :
+            {"", "[Window][Viewport]\nPos=485,72\nSize=172,116\nCollapsed=0\n"}) {
+            SCOPED_TRACE(settings);
+            Comet::Tests::ImGuiTestContext imgui{{1000, 800}};
+            ImGui::LoadIniSettingsFromMemory(settings);
+            EditorState state;
+            Comet::SceneRuntime runtime;
+            Comet::Scene scene;
+            SelectionService selection(scene);
+            CommandHistory history;
+            history.bind_scene(&scene);
+            auto components = Comet::create_scene_component_registry();
+            PropertyEditTransaction edit(history, components);
+            TransformGizmo gizmo(history, components);
+            EditorShortcuts shortcuts;
+            ViewportPanel viewport(state, runtime, selection, gizmo, edit, 4096, shortcuts);
+            viewport.set_game_ui_available(true);
+            viewport.set_play_resolution({960, 720});
+            viewport.set_texture_id(static_cast<ImTextureID>(1), 960, 720);
+            for(const auto mode : {EditorMode::Edit, EditorMode::Play}) {
+                state.mode = mode;
+                for(unsigned frame = 0; frame < 4; ++frame) {
+                    ImGui::NewFrame();
+                    viewport.render();
+                    ImGui::Render();
+                }
+                const auto size = viewport.get_layout().image_visible_rect.size();
+                EXPECT_GT(size.x, 0);
+                EXPECT_GT(size.y, 0);
+                const auto* window = ImGui::FindWindowByName("Viewport");
+                ASSERT_NE(window, nullptr);
+                EXPECT_TRUE(std::any_of(window->DrawList->CmdBuffer.begin(),
+                    window->DrawList->CmdBuffer.end(), [](const ImDrawCmd& command) {
+                        return command.ElemCount > 0 && !command.TexRef._TexData
+                               && command.GetTexID() == static_cast<ImTextureID>(1);
+                    }));
+            }
+        }
     }
 
     TEST_F(ViewportPlayUiTest, MouseClickInsidePlayImageKeepsProjectUiInputUntilRelease) {
@@ -195,7 +183,7 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(ViewportPlayUiTest, PlayerInputMenuOnlyRequestsSettingsInActivePlay) {
-        auto* window = ImGui::FindWindowByName("GameViewport");
+        auto* window = ImGui::FindWindowByName("Viewport");
         ASSERT_NE(window, nullptr);
         const auto input_button = window->GetID("输入###Input");
         ImGui::ActivateItemByID(input_button);
@@ -234,7 +222,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(runtime.set_state(Comet::SceneRuntime::State::Paused));
         const auto tick = [&] { frame({300, 700}); };
         tick();
-        auto* window = ImGui::FindWindowByName("GameViewport");
+        auto* window = ImGui::FindWindowByName("Viewport");
         ASSERT_NE(window, nullptr);
         ImGui::ActivateItemByID(window->GetID("###Preview"));
         tick();
@@ -298,7 +286,7 @@ namespace CometEditor::Tests {
     TEST_F(ViewportPlayUiTest, PlayControlsReadRuntimeStateAndOnlyEmitOneCommand) {
         using Command = PlayCommand;
         using State = Comet::SceneRuntime::State;
-        auto* window = ImGui::FindWindowByName("GameViewport");
+        auto* window = ImGui::FindWindowByName("Viewport");
         ASSERT_NE(window, nullptr);
         ImGui::ActivateItemByID(window->GetID("暂停###Pause"));
         frame();
@@ -574,7 +562,7 @@ namespace CometEditor::Tests {
     TEST_F(ViewportPlayUiTest, PlayAndResumeFocusViewportWithoutMovingPointerOffToolbar) {
         show_other_panel = true;
         frame();
-        auto* window = ImGui::FindWindowByName("GameViewport");
+        auto* window = ImGui::FindWindowByName("Viewport");
         ASSERT_NE(window, nullptr);
         // 浮动面板保留键盘焦点，但不遮挡现在靠左的播放按钮。
         ImGui::BringWindowToDisplayFront(window);

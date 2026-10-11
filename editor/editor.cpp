@@ -259,7 +259,7 @@ namespace {
                 bool pointer_blocked = false;
                 if(auto viewport = m_viewport->update(get_engine().get_scene()); !viewport)
                     return viewport;
-                auto& panel = m_viewport->game_panel();
+                auto& panel = m_viewport->panel();
                 if(panel.take_game_ui_reload_request())
                     m_game_ui->reload();
                 const auto output = get_engine().get_renderer().get_offscreen_frame();
@@ -274,7 +274,7 @@ namespace {
                     return Comet::Result<void, Comet::Error>::failure(ui.error());
                 input_blocked |= ui.value().blocked;
                 pointer_blocked = ui.value().pointer_blocked;
-                m_runtime_input = m_viewport->game_panel().route_runtime_input(
+                m_runtime_input = m_viewport->panel().route_runtime_input(
                     frame.physical_input, input_blocked, pointer_blocked);
             }
             m_viewport->submit_feedback(get_engine().get_scene());
@@ -350,10 +350,10 @@ namespace {
         void setup_game_ui() {
             auto& engine = get_engine();
             auto& renderer = engine.get_renderer();
-            m_viewport->game_panel().set_game_ui_available(m_project.ui().has_value());
+            m_viewport->panel().set_game_ui_available(m_project.ui().has_value());
             auto display = load_player_display();
             if(display)
-                m_viewport->game_panel().set_play_resolution(
+                m_viewport->panel().set_play_resolution(
                     {static_cast<uint32_t>(display.value().width),
                         static_cast<uint32_t>(display.value().height)});
             else
@@ -379,7 +379,7 @@ namespace {
                                     "Window mode, VSync, HDR and frame rate limit apply only in the standalone App");
                             return m_player_display_settings->save_and_apply(
                                 settings, [this](const auto& candidate) {
-                                    m_viewport->game_panel().set_play_resolution(
+                                    m_viewport->panel().set_play_resolution(
                                         {static_cast<uint32_t>(candidate.width),
                                             static_cast<uint32_t>(candidate.height)});
                                     return Comet::Result<void>::success();
@@ -856,15 +856,10 @@ namespace {
 
             m_hierarchy_panel = std::make_unique<CometEditor::HierarchyPanel>(
                 *m_selection, m_command_history, m_editor_state, m_scene_editor->clipboard());
-            auto scene_view = get_engine().get_renderer().create_offscreen_view({640, 480});
-            if(!scene_view)
-                return Comet::Result<void, Comet::Error>::failure(scene_view.error().as_error());
-            m_scene_view = scene_view.value();
             m_viewport = std::make_unique<CometEditor::Viewport>(m_editor_state,
                 get_engine().get_scene_runtime(), *m_selection, m_command_history,
                 m_component_registry, m_property_edit, m_shortcuts, get_engine().get_renderer(),
-                get_engine().get_asset_registry(), *m_imgui_context, std::move(sampler).value(),
-                m_scene_view);
+                get_engine().get_asset_registry(), *m_imgui_context, std::move(sampler).value());
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(m_editor_state,
                 *m_selection, m_command_history, m_property_edit, m_component_registry,
                 m_property_editor_registry, m_assets->database(), get_engine().get_asset_registry(),
@@ -874,7 +869,6 @@ namespace {
                 m_command_history);
             m_menu_bar->register_panel(*m_hierarchy_panel);
             m_menu_bar->register_panel(m_viewport->panel());
-            m_menu_bar->register_panel(m_viewport->game_panel());
             m_menu_bar->register_panel(*m_inspector_panel);
             m_menu_bar->register_panel(*m_project_panel);
             m_menu_bar->register_panel(*m_console_panel);
@@ -895,8 +889,9 @@ namespace {
             update_undo_state();
             m_menu_bar->render(current_saved_scene(), m_project.startup_scene(), recent);
             m_hierarchy_panel->render();
+            if(m_viewport->panel().is_open())
+                ImGui::SetNextWindowSize({640, 480}, ImGuiCond_FirstUseEver);
             m_viewport->panel().render();
-            m_viewport->game_panel().render();
             m_inspector_panel->render();
             m_project_panel->render();
             ImGui::EndDisabled();
@@ -932,7 +927,7 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> handle_mesh_drop(
-            const CometEditor::SceneViewportPanel::MeshDrop& request) {
+            const CometEditor::ViewportPanel::MeshDrop& request) {
             if(!finish_active_edit())
                 return Comet::Result<void, Comet::Error>::success();
             const auto& asset = request.asset;
@@ -1124,7 +1119,7 @@ namespace {
             const auto menu_request = m_menu_bar->take_request();
             const auto mesh_drop = m_viewport->panel().take_mesh_drop();
             const auto asset_assignment = m_inspector_panel->take_asset_assignment();
-            const auto play_command = m_viewport->game_panel().take_play_command();
+            const auto play_command = m_viewport->panel().take_play_command();
             const auto file_request = m_path_dialog.take_request();
             const bool dialog_cancelled = m_path_dialog.take_cancelled();
             if(dialog_cancelled) {
@@ -1291,7 +1286,6 @@ namespace {
 
         std::unique_ptr<CometEditor::MenuBar> m_menu_bar;
         std::unique_ptr<CometEditor::HierarchyPanel> m_hierarchy_panel;
-        Comet::Renderer::ViewId m_scene_view = Comet::Renderer::DEFAULT_VIEW;
         std::unique_ptr<CometEditor::Viewport> m_viewport;
         std::unique_ptr<CometEditor::InspectorPanel> m_inspector_panel;
         std::unique_ptr<CometEditor::ProjectPanel> m_project_panel;
