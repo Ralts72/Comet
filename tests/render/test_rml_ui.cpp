@@ -6,6 +6,7 @@
 #include "graphics/command/command_buffer.h"
 #include "graphics/resource/image.h"
 #include "render/overlay_record_context.h"
+#include "render/resource/render_resources.h"
 
 #include <GLFW/glfw3.h>
 #include <RmlUi/Core.h>
@@ -240,7 +241,62 @@ namespace Comet::Tests {
                 EXPECT_NEAR(actual[channel], expected[channel], 0.012f) << channel;
             EXPECT_NEAR(actual.a, 1, 0.006f);
         }
+
+        uint64_t allocation_count() const {
+            uint64_t count = 0;
+            for(const auto& heap : engine->get_renderer()
+                    .get_render_context()
+                    .get_device()
+                    .query_memory_budget()
+                    .heaps)
+                count += heap.allocation_count;
+            return count;
+        }
     };
+
+    TEST_F(RmlUiGpuTest, CallbacksDeferGpuPreparationAndReleaseWaitsForFrameCompletion) {
+        auto& renderer = engine->get_renderer();
+        auto& resources = renderer.get_render_resources();
+        auto& interface = ui->interface();
+        renderer.wait_idle();
+        resources.collect_completed_uploads();
+        const auto before = allocation_count();
+        const auto vertices = quad({255, 255, 255, 255});
+        const auto geometry = interface.CompileGeometry(
+            {vertices.data(), vertices.size()}, {QUAD_INDICES.data(), QUAD_INDICES.size()});
+        const std::array<Rml::byte, 4> pixels{255, 255, 255, 255};
+        const auto texture = interface.GenerateTexture({pixels.data(), pixels.size()}, {1, 1});
+        ASSERT_NE(geometry, 0u);
+        ASSERT_NE(texture, 0u);
+        EXPECT_EQ(allocation_count(), before);
+        probe->draw = [&] { interface.RenderGeometry(geometry, {0, 0}, texture); };
+        ASSERT_TRUE(ui->validate(*context));
+        renderer.wait_idle();
+        resources.collect_completed_uploads();
+        const auto prepared = allocation_count();
+        EXPECT_GE(prepared, before + 3);
+        ASSERT_TRUE(ui->validate(*context));
+        EXPECT_EQ(allocation_count(), prepared);
+
+        uint64_t held = 0;
+        renderer.set_overlay({.render = [&](OverlayRecordContext& frame) {
+            if(auto rendered = ui->render(frame, *context); !rendered)
+                return rendered;
+            held = allocation_count();
+            interface.ReleaseGeometry(geometry);
+            interface.ReleaseTexture(texture);
+            EXPECT_EQ(allocation_count(), held);
+            probe->draw = {};
+            // 后端已清理缓存，本帧录制仍保活两个 buffer 和一张纹理。
+            auto validated = ui->validate(*context);
+            EXPECT_EQ(allocation_count(), held);
+            return validated;
+        }});
+        ASSERT_TRUE(presentation_frame());
+        renderer.wait_idle();
+        resources.collect_completed_uploads();
+        EXPECT_LE(allocation_count(), held - 3);
+    }
 
     TEST_F(RmlUiGpuTest, PremultipliedAlphaScissorTransformAndReleaseMatchSdrHdrPixels) {
         auto& renderer = engine->get_renderer();
@@ -260,13 +316,17 @@ namespace Comet::Tests {
             Math::Vec3 background{0.1f, 0.2f, 0.3f};
             if(format == Format::R16G16B16A16_SFLOAT)
                 background.r = 2;
-            const auto vertices = quad({128, 32, 0, 128});
+            auto vertices = quad({128, 32, 0, 128});
             const auto geometry = interface.CompileGeometry(
                 {vertices.data(), vertices.size()}, {QUAD_INDICES.data(), QUAD_INDICES.size()});
             ASSERT_NE(geometry, 0u);
-            const std::array<Rml::byte, 4> texels{255, 255, 255, 255};
+            std::array<Rml::byte, 4> texels{255, 255, 255, 255};
             const auto texture = interface.GenerateTexture({texels.data(), texels.size()}, {1, 1});
             ASSERT_NE(texture, 0u);
+            // 回调输入属于 RmlUi；延后准备必须使用独立保存的原始数据。
+            for(auto& vertex : vertices)
+                vertex.position.x += 100;
+            texels.fill(0);
             probe->draw = [&] {
                 const auto transform = Rml::Matrix4f::Translate(4, 0, 0);
                 interface.SetTransform(&transform);

@@ -52,6 +52,7 @@ namespace CometEditor::Ui {
         Comet::Result<void, Comet::GraphicsError> rebuild_swapchain_resources(
             const Comet::SwapchainCompatibility& compatibility);
 
+        // 调用前须等待该帧槽完成；录制前改绑保持 TextureID，已构建的 UI 引用仍有效。
         void set_viewport_image(uint32_t frame_slot_index,
             std::shared_ptr<Comet::ImageView> image_view, std::shared_ptr<Comet::Sampler> sampler,
             uint32_t view_id = 0);

@@ -159,7 +159,8 @@ namespace Comet::Ui {
                 return Status::failure(fragment_shader.error());
             m_fragment = std::move(fragment_shader).value();
             const std::array<Rml::byte, 4> white_pixels{255, 255, 255, 255};
-            auto created_white = create_texture({white_pixels.data(), white_pixels.size()}, {1, 1});
+            auto created_white =
+                prepare_texture_data({white_pixels.data(), white_pixels.size()}, {1, 1});
             if(!created_white)
                 return Status::failure(created_white.error());
             m_white = std::move(created_white).value();
@@ -194,24 +195,10 @@ namespace Comet::Ui {
                         value.colour.blue / 255.f, value.colour.alpha / 255.f},
                     {value.tex_coord.x, value.tex_coord.y}});
             }
-            auto vertex_buffer = Comet::Buffer::try_create_upload_buffer(m_device,
-                Comet::Flags<Comet::BufferUsage>(Comet::BufferUsage::Vertex),
-                converted.size() * sizeof(GpuVertex), true, converted.data(), "RmlUi vertices");
-            if(!vertex_buffer) {
-                fail(vertex_buffer.error());
-                return 0;
-            }
-            auto index_buffer = Comet::Buffer::try_create_upload_buffer(m_device,
-                Comet::Flags<Comet::BufferUsage>(Comet::BufferUsage::Index),
-                indices.size() * sizeof(int), true, indices.data(), "RmlUi indices");
-            if(!index_buffer) {
-                fail(index_buffer.error());
-                return 0;
-            }
             const auto handle = m_next_geometry++;
-            m_geometries.emplace(handle,
-                std::make_shared<Geometry>(Geometry{std::move(vertex_buffer).value(),
-                    std::move(index_buffer).value(), static_cast<std::uint32_t>(indices.size())}));
+            m_geometries.emplace(
+                handle, std::make_shared<GeometryData>(
+                            GeometryData{std::move(converted), {indices.begin(), indices.end()}}));
             return handle;
         }
 
@@ -219,7 +206,7 @@ namespace Comet::Ui {
             const Rml::Vector2f translation, const Rml::TextureHandle texture_handle) override {
             if(m_error)
                 return;
-            if(m_phase == Phase::Idle) {
+            if(!m_collecting) {
                 fail({"RmlUi geometry was drawn outside document preparation"});
                 return;
             }
@@ -241,8 +228,6 @@ namespace Comet::Ui {
                 fail({"RmlUi geometry translation is not finite"});
                 return;
             }
-            if(m_phase == Phase::Validating)
-                return;
             const auto bounds = scissor();
             if(bounds.extent.width == 0 || bounds.extent.height == 0)
                 return;
@@ -295,7 +280,7 @@ namespace Comet::Ui {
                 return 0;
             }
             auto candidate =
-                create_texture({pixels.get(), std::size_t(width) * std::size_t(height) * 4},
+                prepare_texture_data({pixels.get(), std::size_t(width) * std::size_t(height) * 4},
                     {width, height}, false);
             if(!candidate) {
                 fail(candidate.error());
@@ -309,7 +294,7 @@ namespace Comet::Ui {
 
         Rml::TextureHandle GenerateTexture(
             const Rml::Span<const Rml::byte> source, const Rml::Vector2i size) override {
-            auto candidate = create_texture(source, size);
+            auto candidate = prepare_texture_data(source, size);
             if(!candidate) {
                 fail(candidate.error());
                 return 0;
@@ -434,29 +419,21 @@ namespace Comet::Ui {
         }
 
         Status validate(Rml::Context& context) {
-            if(auto pending = take_error())
-                return Status::failure(std::move(*pending));
-            if(m_phase != Phase::Idle)
-                return Status::failure({"RmlUi cannot nest document validation or recording"});
             const auto size = context.GetDimensions();
             if(size.x <= 0 || size.y <= 0)
                 return Status::failure({"Invalid RmlUi context dimensions"});
-            m_phase = Phase::Validating;
-            m_transform = glm::mat4(1);
-            m_scissor_enabled = false;
-            const Comet::ScopeExit end_validation([&] { m_phase = Phase::Idle; });
-            if(!context.Render() && !m_error)
-                fail({"RmlUi context validation failed"});
-            if(auto pending = take_error())
-                return Status::failure(std::move(*pending));
-            return Status::success();
+            if(auto collected = collect_draws(context, {uint32_t(size.x), uint32_t(size.y)});
+                !collected)
+                return collected;
+            const Comet::ScopeExit clear_draws([&] { m_draws.clear(); });
+            return prepare_resources();
         }
 
         Status render(Comet::OverlayRecordContext& frame, Rml::Context& context,
             const Target& target, const bool swapchain, const uint32_t target_index) {
             if(auto pending = take_error())
                 return Status::failure(std::move(*pending));
-            if(m_phase != Phase::Idle)
+            if(m_collecting)
                 return Status::failure({"RmlUi cannot nest overlay recordings"});
             if(!target.pass || !target.target)
                 return Status::failure({"RmlUi render target is unavailable"});
@@ -471,22 +448,11 @@ namespace Comet::Ui {
                 || size.x > std::uint32_t(std::numeric_limits<int>::max())
                 || size.y > std::uint32_t(std::numeric_limits<int>::max()))
                 return Status::failure({"Invalid RmlUi render target or context dimensions"});
-            m_draws.clear();
-            m_phase = Phase::Collecting;
-            m_dimensions = {context_size.x, context_size.y};
-            m_framebuffer_size = size;
-            m_transform = glm::mat4(1);
-            m_scissor_enabled = false;
-            const Comet::ScopeExit clear_draws([&] {
-                m_phase = Phase::Idle;
-                m_draws.clear();
-            });
-            // RmlUi 只准备值和资源引用；GPU 录制不再回入 DOM 或读取它的可变状态。
-            if(!context.Render() && !m_error)
-                fail({"RmlUi context rendering failed"});
-            if(auto pending = take_error())
-                return Status::failure(std::move(*pending));
-            m_phase = Phase::Idle;
+            if(auto collected = collect_draws(context, size); !collected)
+                return collected;
+            const Comet::ScopeExit clear_draws([&] { m_draws.clear(); });
+            if(auto prepared = prepare_resources(); !prepared)
+                return prepared;
             auto candidate = pipeline_for(target);
             if(!candidate)
                 return Status::failure(candidate.error());
@@ -513,7 +479,9 @@ namespace Comet::Ui {
                 Comet::Flags<Comet::ShaderStage>(Comet::ShaderStage::Fragment), 80, &parameters,
                 sizeof(parameters));
             for(const auto& draw : m_draws)
-                record_draw(frame, *pipeline->pipeline, draw);
+                record_draw(frame, *pipeline->pipeline, draw,
+                    m_geometry_cache.at(draw.geometry.get()),
+                    m_texture_cache.at(draw.texture.get()));
             return Status::success();
         }
 
@@ -580,12 +548,23 @@ namespace Comet::Ui {
 
     private:
         std::vector<Target> m_offscreen_targets;
+        struct GeometryData {
+            std::vector<GpuVertex> vertices;
+            std::vector<int> indices;
+        };
+        struct TextureData {
+            Rml::Vector2i size;
+            std::vector<Rml::byte> pixels;
+            bool premultiplied;
+        };
         struct Geometry {
+            std::weak_ptr<const GeometryData> source;
             std::shared_ptr<Comet::CPUBuffer> vertices;
             std::shared_ptr<Comet::CPUBuffer> indices;
             std::uint32_t index_count;
         };
         struct Texture {
+            std::weak_ptr<const TextureData> source;
             std::shared_ptr<Comet::Texture> texture;
             std::shared_ptr<Comet::SampledImageBinding> binding;
         };
@@ -598,29 +577,73 @@ namespace Comet::Ui {
             std::weak_ptr<Comet::RenderTarget> target;
         };
         struct Draw {
-            std::shared_ptr<Geometry> geometry;
-            std::shared_ptr<Texture> texture;
+            std::shared_ptr<const GeometryData> geometry;
+            std::shared_ptr<const TextureData> texture;
             vk::Rect2D scissor;
             GeometryParameters parameters;
         };
-        enum class Phase { Idle, Validating, Collecting };
 
-        static void record_draw(
-            Comet::OverlayRecordContext& frame, const Comet::Pipeline& pipeline, const Draw& draw) {
-            frame.retain(draw.geometry);
-            frame.retain(draw.texture);
-            frame.wait_for(draw.texture->texture->get_ready_completion(),
+        Status collect_draws(Rml::Context& context, const Comet::Math::Vec2u framebuffer_size) {
+            if(auto pending = take_error())
+                return Status::failure(std::move(*pending));
+            if(m_collecting)
+                return Status::failure({"RmlUi cannot nest document preparation"});
+            m_draws.clear();
+            m_collecting = true;
+            m_dimensions = context.GetDimensions();
+            m_framebuffer_size = framebuffer_size;
+            m_transform = glm::mat4(1);
+            m_scissor_enabled = false;
+            const Comet::ScopeExit end_collection([&] { m_collecting = false; });
+            if(!context.Render() && !m_error)
+                fail({"RmlUi context rendering failed"});
+            if(auto pending = take_error()) {
+                m_draws.clear();
+                return Status::failure(std::move(*pending));
+            }
+            return Status::success();
+        }
+
+        Status prepare_resources() {
+            // 文档回调只释放 CPU Handle；GPU cache 在后端边界清理，在途帧继续保活。
+            std::erase_if(
+                m_geometry_cache, [](const auto& entry) { return entry.second->source.expired(); });
+            std::erase_if(
+                m_texture_cache, [](const auto& entry) { return entry.second->source.expired(); });
+            for(const auto& draw : m_draws) {
+                if(!m_geometry_cache.contains(draw.geometry.get())) {
+                    auto geometry = create_geometry(draw.geometry);
+                    if(!geometry)
+                        return Status::failure(geometry.error());
+                    m_geometry_cache.emplace(draw.geometry.get(), std::move(geometry).value());
+                }
+                if(!m_texture_cache.contains(draw.texture.get())) {
+                    auto texture = create_texture(draw.texture);
+                    if(!texture)
+                        return Status::failure(texture.error());
+                    m_texture_cache.emplace(draw.texture.get(), std::move(texture).value());
+                }
+            }
+            return Status::success();
+        }
+
+        static void record_draw(Comet::OverlayRecordContext& frame, const Comet::Pipeline& pipeline,
+            const Draw& draw, const std::shared_ptr<Geometry>& geometry,
+            const std::shared_ptr<Texture>& texture) {
+            frame.retain(geometry);
+            frame.retain(texture);
+            frame.wait_for(texture->texture->get_ready_completion(),
                 Comet::Flags<Comet::PipelineStage>(Comet::PipelineStage::FragmentShader));
             auto& command = frame.command_buffer();
             command.set_scissor(draw.scissor);
             command.bind_descriptor_sets(
-                *pipeline.get_layout(), std::span(&draw.texture->binding->descriptor, 1));
-            command.bind_vertex_buffer({*draw.geometry->vertices});
-            command.bind_index_buffer(*draw.geometry->indices, 0);
+                *pipeline.get_layout(), std::span(&texture->binding->descriptor, 1));
+            command.bind_vertex_buffer({*geometry->vertices});
+            command.bind_index_buffer(*geometry->indices, 0);
             command.push_constants(*pipeline.get_layout(),
                 Comet::Flags<Comet::ShaderStage>(Comet::ShaderStage::Vertex), 0, &draw.parameters,
                 sizeof(draw.parameters));
-            command.draw_indexed(draw.geometry->index_count);
+            command.draw_indexed(geometry->index_count);
         }
 
         void fail(Comet::GraphicsError failure) {
@@ -628,24 +651,52 @@ namespace Comet::Ui {
                 m_error = std::move(failure);
         }
 
-        Comet::Result<std::shared_ptr<Texture>, Comet::GraphicsError> create_texture(
-            const Rml::Span<const Rml::byte> source, const Rml::Vector2i size,
+        static Comet::Result<std::shared_ptr<const TextureData>, Comet::GraphicsError>
+        prepare_texture_data(const Rml::Span<const Rml::byte> source, const Rml::Vector2i size,
             const bool premultiplied = true) {
-            using Creation = Comet::Result<std::shared_ptr<Texture>, Comet::GraphicsError>;
+            using Creation =
+                Comet::Result<std::shared_ptr<const TextureData>, Comet::GraphicsError>;
             if(size.x <= 0 || size.y <= 0 || size.x > MAX_TEXTURE_DIMENSION
                 || size.y > MAX_TEXTURE_DIMENSION
                 || source.size() != std::size_t(size.x) * std::size_t(size.y) * 4)
                 return Creation::failure({"Invalid or oversized RmlUi texture data"});
-            Comet::TextureData data{
-                .width = size.x, .height = size.y, .format = Comet::Format::R16G16B16A16_SFLOAT};
-            data.pixels.resize(source.size() * 2);
-            for(std::size_t pixel = 0; pixel < source.size() / 4; ++pixel) {
-                const float alpha = float(source[pixel * 4 + 3]) / 255;
+            return Creation::success(std::make_shared<const TextureData>(
+                TextureData{size, {source.begin(), source.end()}, premultiplied}));
+        }
+
+        Comet::Result<std::shared_ptr<Geometry>, Comet::GraphicsError> create_geometry(
+            const std::shared_ptr<const GeometryData>& data) {
+            using Creation = Comet::Result<std::shared_ptr<Geometry>, Comet::GraphicsError>;
+            auto vertices = Comet::Buffer::try_create_upload_buffer(m_device,
+                Comet::Flags<Comet::BufferUsage>(Comet::BufferUsage::Vertex),
+                data->vertices.size() * sizeof(GpuVertex), true, data->vertices.data(),
+                "RmlUi vertices");
+            if(!vertices)
+                return Creation::failure(vertices.error());
+            auto indices = Comet::Buffer::try_create_upload_buffer(m_device,
+                Comet::Flags<Comet::BufferUsage>(Comet::BufferUsage::Index),
+                data->indices.size() * sizeof(int), true, data->indices.data(), "RmlUi indices");
+            if(!indices)
+                return Creation::failure(indices.error());
+            return Creation::success(
+                std::make_shared<Geometry>(Geometry{data, std::move(vertices).value(),
+                    std::move(indices).value(), uint32_t(data->indices.size())}));
+        }
+
+        Comet::Result<std::shared_ptr<Texture>, Comet::GraphicsError> create_texture(
+            const std::shared_ptr<const TextureData>& source) {
+            using Creation = Comet::Result<std::shared_ptr<Texture>, Comet::GraphicsError>;
+            Comet::TextureData data{.width = source->size.x,
+                .height = source->size.y,
+                .format = Comet::Format::R16G16B16A16_SFLOAT};
+            data.pixels.resize(source->pixels.size() * 2);
+            for(std::size_t pixel = 0; pixel < source->pixels.size() / 4; ++pixel) {
+                const float alpha = float(source->pixels[pixel * 4 + 3]) / 255;
                 for(std::size_t channel = 0; channel < 4; ++channel) {
                     float value = alpha;
                     if(channel < 3) {
-                        float straight = float(source[pixel * 4 + channel]) / 255;
-                        if(premultiplied)
+                        float straight = float(source->pixels[pixel * 4 + channel]) / 255;
+                        if(source->premultiplied)
                             straight = alpha > 0 ? std::min(straight / alpha, 1.f) : 0;
                         value = srgb_to_linear(straight) * alpha;
                     }
@@ -662,8 +713,8 @@ namespace Comet::Ui {
                 m_device, {texture->get_image_view()}, m_layout, m_sampler);
             if(!binding)
                 return Creation::failure(binding.error());
-            return Creation::success(
-                std::make_shared<Texture>(Texture{std::move(texture), std::move(binding).value()}));
+            return Creation::success(std::make_shared<Texture>(
+                Texture{source, std::move(texture), std::move(binding).value()}));
         }
 
         Comet::Result<std::shared_ptr<Pipeline>, Comet::GraphicsError> pipeline_for(
@@ -745,15 +796,17 @@ namespace Comet::Ui {
         std::shared_ptr<Comet::Sampler> m_sampler;
         std::shared_ptr<Comet::Shader> m_vertex;
         std::shared_ptr<Comet::Shader> m_fragment;
-        std::shared_ptr<Texture> m_white;
-        std::map<Rml::CompiledGeometryHandle, std::shared_ptr<Geometry>> m_geometries;
-        std::map<Rml::TextureHandle, std::shared_ptr<Texture>> m_textures;
+        std::shared_ptr<const TextureData> m_white;
+        std::map<Rml::CompiledGeometryHandle, std::shared_ptr<const GeometryData>> m_geometries;
+        std::map<Rml::TextureHandle, std::shared_ptr<const TextureData>> m_textures;
+        std::map<const GeometryData*, std::shared_ptr<Geometry>> m_geometry_cache;
+        std::map<const TextureData*, std::shared_ptr<Texture>> m_texture_cache;
         std::map<Comet::RenderPass*, std::shared_ptr<Pipeline>> m_pipeline_cache;
         Rml::CompiledGeometryHandle m_next_geometry = 1;
         Rml::TextureHandle m_next_texture = 1;
         std::optional<Comet::GraphicsError> m_error;
         std::vector<Draw> m_draws;
-        Phase m_phase = Phase::Idle;
+        bool m_collecting = false;
         glm::mat4 m_transform{1};
         Comet::Math::Vec2u m_framebuffer_size{};
         Rml::Vector2i m_dimensions{};

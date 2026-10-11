@@ -78,6 +78,19 @@ namespace CometEditor::Ui {
             return m_image_view == image_view && m_sampler == sampler;
         }
 
+        void update_image(
+            std::shared_ptr<Comet::ImageView> image_view, std::shared_ptr<Comet::Sampler> sampler) {
+            m_image_view = std::move(image_view);
+            m_sampler = std::move(sampler);
+            if(m_descriptor_set == VK_NULL_HANDLE)
+                return;
+            const vk::DescriptorImageInfo image{
+                m_sampler->get(), m_image_view->get(), vk::ImageLayout::eShaderReadOnlyOptimal};
+            const vk::WriteDescriptorSet write{vk::DescriptorSet(m_descriptor_set), 0, 0, 1,
+                vk::DescriptorType::eCombinedImageSampler, &image};
+            m_image_view->get_image()->get_device().get().updateDescriptorSets(write, {});
+        }
+
         void register_texture() {
             if(m_descriptor_set != VK_NULL_HANDLE) {
                 return;
@@ -434,10 +447,13 @@ namespace CometEditor::Ui {
             return;
         if(frame_slot_index >= textures.size())
             textures.resize(frame_slot_index + 1);
-        auto binding = std::make_unique<TextureBinding>(std::move(image_view), std::move(sampler));
+        auto& binding = textures[frame_slot_index];
+        if(binding)
+            binding->update_image(std::move(image_view), std::move(sampler));
+        else
+            binding = std::make_unique<TextureBinding>(std::move(image_view), std::move(sampler));
         if(m_initialized)
             binding->register_texture();
-        textures[frame_slot_index] = std::move(binding);
     }
 
     ImTextureID ImGuiContext::get_viewport_texture_id(

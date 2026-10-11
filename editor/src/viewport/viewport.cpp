@@ -59,6 +59,7 @@ namespace CometEditor {
                .render_size = m_game_panel.get_requested_render_size()});
             !view)
             return Comet::Result<void, Comet::Error>::failure(view.error().as_error());
+        update_texture();
         m_panel.draw_gizmo();
         return Comet::Result<void, Comet::Error>::success();
     }

@@ -18,6 +18,7 @@
 #include "render/scene/scene_extractor.h"
 #include "support/temporary_directory.h"
 #include "support/scene_motion_system.h"
+#include "support/engine_fixture.h"
 #include "common/scope_exit.h"
 #include "render/scene/scene_renderer.h"
 #include "render/render_target.h"
@@ -36,6 +37,7 @@
 #include <algorithm>
 
 namespace CometEditor::Tests {
+    using ViewportTest = Comet::Tests::VulkanValidationTest;
     namespace {
         CometEditor::Ui::ImGuiContext::Options editor_ui_options(
             const std::filesystem::path& ini_path) {
@@ -45,7 +47,7 @@ namespace CometEditor::Tests {
         }
     }
 
-    TEST(ViewportTest, HiddenOffscreenViewSkipsGraphButKeepsRuntimeAndUiAlive) {
+    TEST_F(ViewportTest, HiddenOffscreenViewSkipsGraphButKeepsRuntimeAndUiAlive) {
         Comet::Config config;
         config.window.width = 160;
         config.window.height = 120;
@@ -161,7 +163,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(published->source, program);
     }
 
-    TEST(ViewportTest, RebuildsAfterBackendsWereClosedDuringFailedRecreation) {
+    TEST_F(ViewportTest, RebuildsAfterBackendsWereClosedDuringFailedRecreation) {
         Comet::Config config;
         config.vulkan.enable_validation = true;
         auto engine_result = Comet::Engine::create(config);
@@ -198,7 +200,7 @@ namespace CometEditor::Tests {
         renderer.wait_idle();
     }
 
-    TEST(ViewportTest, RendersAcrossSceneChangesAndIgnoresPlayPicking) {
+    TEST_F(ViewportTest, RendersAcrossSceneChangesAndIgnoresPlayPicking) {
         Comet::Config config;
         config.window.width = 1000;
         config.window.height = 480;
@@ -252,6 +254,7 @@ namespace CometEditor::Tests {
             EXPECT_EQ(frame.color_view,
                 renderer.get_scene_renderer().get_offscreen_color_view(frame.slot));
             viewport.update_texture();
+            const auto scene_texture = ui.get_viewport_texture_id(frame.slot, scene_view.value());
             if(!ui.begin_frame())
                 return false;
             ImGui::SetNextWindowPos({0, 0});
@@ -263,6 +266,7 @@ namespace CometEditor::Tests {
             EXPECT_NE(ui.get_viewport_texture_id(frame.slot),
                 ui.get_viewport_texture_id(frame.slot, scene_view.value()));
             const auto updated = viewport.update(active_scene);
+            EXPECT_EQ(ui.get_viewport_texture_id(frame.slot, scene_view.value()), scene_texture);
             ui.end_frame();
             EXPECT_TRUE(updated);
             if(!updated)
@@ -312,6 +316,10 @@ namespace CometEditor::Tests {
             EXPECT_TRUE(view);
             if(!view)
                 return false;
+            // 拾取专用帧不重放上一帧的视口纹理与 descriptor。
+            if(!ui.begin_frame())
+                return false;
+            ui.end_frame();
             renderer.request_viewport_pick(
                 pixel, {64, 64}, scene.get_lifetime(), scene_view.value());
             return bool(renderer.render_frame(Comet::SceneExtractor::extract(scene)));
