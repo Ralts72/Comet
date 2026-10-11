@@ -110,6 +110,71 @@ namespace Comet::Tests {
         ::testing::Values(
             MaterialOperation::Load, MaterialOperation::Reload, MaterialOperation::PrepareUpdate));
 
+    enum class MaterialEditAction { Preview, Commit, Restore };
+    class MaterialEditPublicationTest: public ::testing::TestWithParam<MaterialEditAction> {
+    protected:
+        static constexpr AssetHandle handle{168};
+        TemporaryProject project;
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler{1};
+        AssetManager manager{project.paths(), registry, factory, scheduler};
+        std::filesystem::path path;
+        std::shared_ptr<Material> original;
+
+        void SetUp() override {
+            path = project.add_material(handle, "original");
+            ASSERT_TRUE(manager.scan().succeeded());
+            original = loaded_asset(manager.load_material(handle));
+            ASSERT_TRUE(original);
+        }
+    };
+
+    TEST_P(MaterialEditPublicationTest, RuntimeRepublishInvalidatesOlderEditWithoutWritingSource) {
+        auto update = manager.prepare_material_update(handle, {.template_name = "edited"});
+        ASSERT_TRUE(update);
+        if(GetParam() == MaterialEditAction::Restore)
+            ASSERT_TRUE(manager.preview_material_update(update.value()));
+        const auto current = registry.resolve<Material>(handle);
+        const auto source_revision = manager.get_database().get_revision(handle);
+        ASSERT_TRUE(registry.replace_asset(handle, current));
+        EXPECT_EQ(manager.get_database().get_revision(handle), source_revision);
+
+        switch(GetParam()) {
+            case MaterialEditAction::Preview:
+                EXPECT_FALSE(manager.preview_material_update(update.value()));
+                break;
+            case MaterialEditAction::Commit:
+                EXPECT_FALSE(manager.commit_material_update(update.value()));
+                break;
+            case MaterialEditAction::Restore:
+                EXPECT_FALSE(manager.restore_material_preview(update.value(), original));
+                break;
+        }
+        EXPECT_EQ(registry.resolve<Material>(handle), current);
+        const auto saved = MaterialSerializer{}.load(path);
+        ASSERT_TRUE(saved);
+        EXPECT_EQ(saved.value().template_name, "original");
+    }
+
+    TEST_F(MaterialEditPublicationTest, RuntimeRepublishDuringDependencyCreationRejectsEdit) {
+        constexpr AssetHandle texture{84};
+        project.add_texture(texture);
+        ASSERT_TRUE(manager.scan().succeeded());
+        factory.on_next_texture_creation(
+            [&] { ASSERT_TRUE(registry.replace_asset(handle, original)); });
+        EXPECT_FALSE(manager.prepare_material_update(
+            handle, {.template_name = "edited", .texture_properties = {{"albedo", texture}}}));
+        EXPECT_EQ(registry.resolve<Material>(handle), original);
+        const auto saved = MaterialSerializer{}.load(path);
+        ASSERT_TRUE(saved);
+        EXPECT_EQ(saved.value().template_name, "original");
+    }
+
+    INSTANTIATE_TEST_SUITE_P(AllEditActions, MaterialEditPublicationTest,
+        ::testing::Values(
+            MaterialEditAction::Preview, MaterialEditAction::Commit, MaterialEditAction::Restore));
+
     TEST(AssetManagerTest, KeepsPreviousTextureWhenRuntimeCreationFails) {
         const TemporaryProject project;
         constexpr AssetHandle handle(84);

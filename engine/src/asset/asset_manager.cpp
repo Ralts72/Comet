@@ -121,54 +121,30 @@ namespace Comet {
 
     Result<void, Error> AssetManager::ensure_loaded(
         const AssetHandle handle, const AssetType expected_type) {
+        const auto status = [](const auto& loaded) {
+            if(!loaded)
+                return Result<void, Error>::failure(loaded.error());
+            return Result<void, Error>::success();
+        };
         switch(expected_type) {
-            case AssetType::Audio: {
-                auto loaded = load_audio(handle);
-                if(!loaded)
-                    return Result<void, Error>::failure(loaded.error());
-                break;
-            }
-            case AssetType::Script: {
-                auto loaded = load_script(handle);
-                if(!loaded)
-                    return Result<void, Error>::failure(loaded.error());
-                break;
-            }
-            case AssetType::Environment: {
-                auto loaded = load_environment(handle);
-                if(!loaded)
-                    return Result<void, Error>::failure(loaded.error());
-                break;
-            }
-            case AssetType::Mesh: {
-                auto loaded = load_mesh(handle);
-                if(!loaded)
-                    return Result<void, Error>::failure(loaded.error());
-                break;
-            }
-            case AssetType::Material: {
-                auto loaded = load_material(handle);
-                if(!loaded)
-                    return Result<void, Error>::failure(loaded.error());
-                break;
-            }
-            case AssetType::Texture: {
-                auto loaded = load_texture(handle);
-                if(!loaded)
-                    return Result<void, Error>::failure(loaded.error());
-                break;
-            }
-            case AssetType::ShaderProgram: {
-                auto loaded = load_shader_program(handle);
-                if(!loaded)
-                    return Result<void, Error>::failure(loaded.error());
-                break;
-            }
+            case AssetType::Audio:
+                return status(load_audio(handle));
+            case AssetType::Script:
+                return status(load_script(handle));
+            case AssetType::Environment:
+                return status(load_environment(handle));
+            case AssetType::Mesh:
+                return status(load_mesh(handle));
+            case AssetType::Material:
+                return status(load_material(handle));
+            case AssetType::Texture:
+                return status(load_texture(handle));
+            case AssetType::ShaderProgram:
+                return status(load_shader_program(handle));
             default:
                 return Result<void, Error>::failure(
                     {"Runtime loading is not supported for this asset type"});
         }
-        return Result<void, Error>::success();
     }
 
     Result<AssetManager::EnvironmentState, Error> AssetManager::environment_state(
@@ -782,10 +758,12 @@ namespace Comet {
         const AssetRecord snapshot = *record;
         if(auto valid = MaterialSerializer{}.validate(data); !valid)
             return Preparation::failure({valid.error()});
+        const auto publication = m_registry.get_revision(handle);
         auto material = m_loader->prepare_material(snapshot, data);
         if(!material)
             return Preparation::failure(material.error());
-        if(!m_database.is_current(handle, revision)) {
+        if(!m_database.is_current(handle, revision)
+            || m_registry.get_revision(handle) != publication) {
             LOG_DEBUG("Discarded stale material update for asset handle {} (revision {})",
                 handle.value(), revision);
             return Preparation::failure({"Material changed during update"});
@@ -794,6 +772,7 @@ namespace Comet {
         update.m_owner = this;
         update.m_record = snapshot;
         update.m_revision = revision;
+        update.m_publication = publication;
         update.m_data = data;
         update.m_material = std::move(material).value();
         update.m_expected = runtime.asset;
@@ -803,11 +782,7 @@ namespace Comet {
     Result<std::shared_ptr<Material>, Error> AssetManager::commit_material_update(
         const MaterialUpdate& update) {
         const auto handle = update.handle();
-        const auto runtime =
-            find_runtime_asset(m_registry, handle, m_registry.resolve<Material>(handle));
-        if(update.m_owner != this || !update.m_material
-            || !m_database.is_current(handle, update.m_revision) || runtime.type_conflict
-            || runtime.asset != update.m_expected)
+        if(!material_update_is_current(update))
             return Result<std::shared_ptr<Material>, Error>::failure({"Material update is stale"});
         const auto serialized = MaterialSerializer{}.serialize(update.m_data);
         if(!serialized)
@@ -827,24 +802,29 @@ namespace Comet {
     }
 
     Result<void, Error> AssetManager::preview_material_update(MaterialUpdate& update) {
-        if(update.m_owner != this || !update.m_material
-            || !m_database.is_current(update.handle(), update.m_revision)
-            || m_registry.resolve<Material>(update.handle()) != update.m_expected)
+        if(!material_update_is_current(update))
             return Result<void, Error>::failure({"Material preview is stale"});
         if(!m_registry.replace_asset(update.handle(), update.m_material))
             return Result<void, Error>::failure({"Cannot publish material preview"});
         update.m_expected = update.m_material;
+        update.m_publication = m_registry.get_revision(update.handle());
         return Result<void, Error>::success();
     }
 
     Result<void, Error> AssetManager::restore_material_preview(
         const MaterialUpdate& update, const std::shared_ptr<Material>& previous) {
-        if(update.m_owner != this || !previous
-            || m_registry.resolve<Material>(update.handle()) != update.m_material)
+        if(!previous || !material_update_is_current(update)
+            || update.m_expected != update.m_material)
             return Result<void, Error>::failure({"Material preview was replaced"});
         if(!m_registry.replace_asset(update.handle(), previous))
             return Result<void, Error>::failure({"Cannot restore material preview"});
         return Result<void, Error>::success();
+    }
+
+    bool AssetManager::material_update_is_current(const MaterialUpdate& update) const {
+        return update.m_owner == this && update.m_material
+               && m_database.is_current(update.handle(), update.m_revision)
+               && m_registry.get_revision(update.handle()) == update.m_publication;
     }
 
     Result<void, Error> AssetManager::publish_material(const AssetHandle handle,

@@ -57,6 +57,7 @@ namespace Comet {
             const AssetManager* m_owner = nullptr;
             AssetRecord m_record;
             AssetRevision m_revision = 0;
+            uint64_t m_publication = 0;
             MaterialData m_data;
             std::shared_ptr<Material> m_material;
             std::shared_ptr<Material> m_expected;
@@ -141,6 +142,7 @@ namespace Comet {
         Result<void, Error> reload_loaded_material_dependents(AssetHandle texture_handle);
         Result<void, Error> publish_material(AssetHandle handle, const MaterialData& data,
             const std::shared_ptr<Material>& material, bool replace_existing);
+        [[nodiscard]] bool material_update_is_current(const MaterialUpdate& update) const;
         Result<void, Error> refresh_loaded_mesh(
             AssetHandle handle, AssetRevision revision, MeshData data);
         bool record_import_dependencies(
