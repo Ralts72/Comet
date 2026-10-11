@@ -100,6 +100,7 @@ namespace Comet::Tests {
         AssetRegistry assets;
         ASSERT_TRUE(assets.register_asset(AssetHandle{10}, first.value()));
         ASSERT_TRUE(assets.register_asset(AssetHandle{11}, second.value()));
+        ASSERT_TRUE(assets.register_asset(AssetHandle{12}, first.value()));
         for(const auto handle : {AssetHandle{20}, AssetHandle{21}, AssetHandle{22}})
             ASSERT_TRUE(assets.register_asset(handle, std::make_shared<Material>("item", "pbr")));
         Scene scene;
@@ -112,6 +113,10 @@ namespace Comet::Tests {
         std::vector<Entity> entities;
         for(int index = 0; index < 32; ++index)
             entities.push_back(create(float(index - 16)));
+        entities.front().edit_component<MeshRendererComponent>([](auto& item) {
+            item.mesh = AssetHandle{12};
+            item.material = AssetHandle{22};
+        });
         SceneExtractor extractor;
         SceneResolver resolver(assets);
         SceneResolver reference_resolver(assets);
@@ -212,9 +217,15 @@ namespace Comet::Tests {
                     entities[22].edit_transform([](auto& value) { value.translation.z += 1; });
                     break;
                 case 7: {
-                    // 追加后删除、交换末项、连续复用 Entity 槽位发生在同一批。
-                    auto temporary = create(float(step + 100));
+                    // 发布尚未解析时继续增删，失效位置随交换末项移动。
+                    ASSERT_TRUE(assets.replace_asset(
+                        AssetHandle{22}, std::make_shared<Material>("updated", "pbr")));
+                    resolver.refresh_assets(submission);
+                    ASSERT_TRUE(assets.replace_asset(
+                        AssetHandle{12}, step % 16 == 7 ? second.value() : first.value()));
+                    resolver.refresh_assets(submission);
                     scene.destroy_entity(entities[7]);
+                    auto temporary = create(float(step + 100));
                     entities[7] = create(float(step));
                     scene.destroy_entity(temporary);
                     scene.destroy_entity(entities[8]);
@@ -232,6 +243,11 @@ namespace Comet::Tests {
                 geometry.clear();
             }
             check();
+            if(step % 16 == 12) {
+                EXPECT_FALSE(submission.item_changes.full_update);
+                EXPECT_EQ(submission.item_changes.slots.size(), 1u);
+            }
+            EXPECT_TRUE(submission.pending_asset_slots.empty());
             check();
         }
         for(auto entity : entities)

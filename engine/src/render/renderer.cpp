@@ -180,6 +180,7 @@ namespace Comet {
                 [&] { m_scene_resolver.resolve(*render_scene, frame_view, submission); });
         else {
             submission.render_items.clear();
+            submission.pending_asset_slots.clear();
             submission.environment_resource.reset();
             submission.environment_revision = 0;
             submission.scene_lifetime = 0;
@@ -389,6 +390,7 @@ namespace Comet {
         m_viewport_pick_request.reset();
         m_line_draw_list.clear();
         m_submission.render_items.clear();
+        m_submission.pending_asset_slots.clear();
         m_submission.environment_resource.reset();
         m_submission.environment_revision = 0;
     }
@@ -398,6 +400,7 @@ namespace Comet {
             return;
         m_render_context->get_device().wait_idle_for_shutdown();
         m_submission.render_items.clear();
+        m_submission.pending_asset_slots.clear();
         m_submission.environment_resource.reset();
         m_submission.environment_revision = 0;
     }

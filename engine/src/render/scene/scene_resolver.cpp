@@ -38,12 +38,20 @@ namespace Comet {
         const auto revision = m_asset_registry.get_revision();
         if(submission.asset_revision == revision)
             return;
+        auto& pending = submission.pending_asset_slots;
+        const bool had_pending = !pending.empty();
+        const auto partial_limit =
+            std::clamp<std::size_t>(submission.render_items.size() / 4, 8, 64);
+        const auto collection_limit = partial_limit + pending.size();
+        bool collect_changes = submission.scene_revision != 0;
         bool changed_items = false;
         AssetHandle mesh_handle;
         uint64_t mesh_revision = 0;
         AssetHandle material_handle;
         uint64_t material_revision = 0;
+        const auto* first = submission.render_items.data();
         for(auto& item : submission.render_items) {
+            bool changed = false;
             if(item.mesh) {
                 if(mesh_handle != item.mesh_handle) {
                     mesh_handle = item.mesh_handle;
@@ -52,7 +60,7 @@ namespace Comet {
                 if(mesh_revision == 0 || item.mesh_revision != mesh_revision) {
                     item.mesh.reset();
                     item.mesh_revision = 0;
-                    changed_items = true;
+                    changed = true;
                 }
             }
             if(item.material.resource) {
@@ -63,7 +71,15 @@ namespace Comet {
                 if(material_revision == 0 || item.material.asset_revision != material_revision) {
                     item.material.resource.reset();
                     item.material.asset_revision = 0;
-                    changed_items = true;
+                    changed = true;
+                }
+            }
+            if(changed && collect_changes) {
+                pending.push_back(static_cast<std::size_t>(&item - first));
+                changed_items = true;
+                if(pending.size() > collection_limit) {
+                    collect_changes = false;
+                    pending.clear();
                 }
             }
         }
@@ -76,10 +92,16 @@ namespace Comet {
                 submission.environment_revision = 0;
             }
         }
-        if(changed_items) {
-            submission.scene_revision = 0;
-            submission.item_changes = {};
+        if(had_pending && changed_items) {
+            std::ranges::sort(pending);
+            pending.erase(std::unique(pending.begin(), pending.end()), pending.end());
         }
+        if(pending.size() > partial_limit) {
+            collect_changes = false;
+            pending.clear();
+        }
+        if(!collect_changes)
+            submission.scene_revision = 0;
         submission.asset_revision = revision;
     }
 
@@ -115,49 +137,93 @@ namespace Comet {
         slots.reserve(items.size());
         const bool same_scene = render_scene.scene_lifetime != 0
                                 && submission.scene_lifetime == render_scene.scene_lifetime;
-        const auto resolve_changed_item = [&](const RenderItem& item,
-                                              ResolvedRenderItem& resolved) {
-            if(resolved.mesh_handle != item.mesh_handle) {
-                resolved.mesh =
-                    m_asset_registry.resolve<Mesh>(item.mesh_handle, &resolved.mesh_revision);
+        // 完整与局部解析共用相邻 Handle 查询，避免共享资源逐物体重复查找。
+        AssetHandle mesh_handle;
+        AssetHandle material_handle;
+        std::shared_ptr<Mesh> mesh;
+        uint64_t mesh_revision = 0;
+        std::shared_ptr<const Material> material;
+        uint64_t material_revision = 0;
+        const auto resolve_item = [&](const RenderItem& item, ResolvedRenderItem& resolved) {
+            if(!resolved.mesh || resolved.mesh_handle != item.mesh_handle) {
+                if(mesh_handle != item.mesh_handle) {
+                    mesh_handle = item.mesh_handle;
+                    mesh = m_asset_registry.resolve<Mesh>(mesh_handle, &mesh_revision);
+                }
+                resolved.mesh = mesh;
                 resolved.mesh_handle = item.mesh_handle;
+                resolved.mesh_revision = mesh_revision;
             }
             if(!resolved.mesh)
                 return false;
-            if(resolved.material.material_handle != item.material_handle) {
-                resolved.material.resource = m_asset_registry.resolve<const Material>(
-                    item.material_handle, &resolved.material.asset_revision);
+            if(!resolved.material.resource
+                || resolved.material.material_handle != item.material_handle) {
+                if(material_handle != item.material_handle) {
+                    material_handle = item.material_handle;
+                    material = m_asset_registry.resolve<const Material>(
+                        material_handle, &material_revision);
+                }
+                resolved.material.resource = material;
                 resolved.material.material_handle = item.material_handle;
+                resolved.material.asset_revision = material_revision;
             }
             if(!resolved.material.resource)
                 return false;
-            update_item_values(item, same_scene, resolved);
             return true;
         };
         const auto& changes = render_scene.item_changes;
+        auto& pending = submission.pending_asset_slots;
         const bool tracked = same_scene && changes.revision != 0 && submission.scene_revision != 0;
-        if(tracked && submission.scene_revision == changes.revision && slots.size() == items.size())
+        const bool unchanged = tracked && submission.scene_revision == changes.revision
+                               && slots.size() == items.size();
+        if(unchanged && pending.empty())
             return;
-        if(tracked && changes.can_apply(submission.scene_revision, slots.size(), items.size())) {
-            changes.apply_structure(slots);
+        const auto partial_limit = std::clamp<std::size_t>(items.size() / 4, 8, 64);
+        if(tracked && pending.size() <= partial_limit
+            && (unchanged
+                || changes.can_apply(submission.scene_revision, slots.size(), items.size()))) {
+            if(!unchanged) {
+                const bool combine_assets = !pending.empty();
+                auto count = slots.size();
+                for(const auto& edit : changes.structure) {
+                    if(edit.type == RenderItemChanges::StructuralEdit::Type::Append) {
+                        ++count;
+                    } else {
+                        std::erase(pending, edit.slot);
+                        for(auto& index : pending)
+                            if(index + 1 == count)
+                                index = edit.slot;
+                        --count;
+                    }
+                }
+                changes.apply_structure(slots);
+                pending.insert(pending.end(), changes.slots.begin(), changes.slots.end());
+                if(combine_assets) {
+                    std::ranges::sort(pending);
+                    pending.erase(std::unique(pending.begin(), pending.end()), pending.end());
+                }
+            }
             bool complete = true;
-            for(const auto index : changes.slots) {
-                if(!resolve_changed_item(items[index], slots[index])) {
+            for(const auto index : pending) {
+                if(!resolve_item(items[index], slots[index])) {
                     complete = false;
                     break;
                 }
+                update_item_values(items[index], same_scene, slots[index]);
             }
             if(complete) {
-                if(!changes.slots.empty() || !changes.structure.empty()) {
+                if(!pending.empty() || (!unchanged && !changes.structure.empty())) {
                     submission.item_changes.begin_update(false);
-                    submission.item_changes.slots = changes.slots;
-                    submission.item_changes.structure = changes.structure;
+                    submission.item_changes.slots.swap(pending);
+                    if(!unchanged)
+                        submission.item_changes.structure = changes.structure;
                 }
                 submission.scene_revision = changes.revision;
                 return;
             }
         }
         submission.item_changes.begin_update(true);
+        pending.clear();
         for(auto& [handle, used] : m_missing_mesh_handles)
             used = false;
         for(auto& [handle, used] : m_missing_material_handles)
@@ -183,13 +249,6 @@ namespace Comet {
                 slots.pop_back();
             }
         }
-        // 分别复用 Mesh 与材质；新增或重排的输入仍共用帧内查询。
-        AssetHandle mesh_handle;
-        AssetHandle material_handle;
-        std::shared_ptr<Mesh> mesh;
-        uint64_t mesh_revision = 0;
-        std::shared_ptr<const Material> material;
-        uint64_t material_revision = 0;
         std::size_t item_count = 0;
         for(const RenderItem& item : items) {
             if(item_count == slots.size())
@@ -213,7 +272,6 @@ namespace Comet {
                             item.mesh_handle.value());
                     continue;
                 }
-                m_missing_mesh_handles.erase(item.mesh_handle);
 
                 if(!same_material && material_handle != item.material_handle) {
                     material_handle = item.material_handle;
@@ -230,7 +288,6 @@ namespace Comet {
                             item.material_handle.value());
                     continue;
                 }
-                m_missing_material_handles.erase(item.material_handle);
                 if(!same_mesh) {
                     resolved.mesh_handle = item.mesh_handle;
                     resolved.mesh_revision = mesh_revision;

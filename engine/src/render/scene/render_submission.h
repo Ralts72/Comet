@@ -47,5 +47,7 @@ namespace Comet {
         std::shared_ptr<Environment> environment_resource;
         uint64_t scene_revision = 0;
         RenderItemChanges item_changes;
+        // 帧边界释放资源后待解析的位置；随当前提交复制，不属于 Scene 变化。
+        std::vector<std::size_t> pending_asset_slots;
     };
 }

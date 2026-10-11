@@ -229,6 +229,7 @@ namespace Comet::Tests {
                                   .material_handle = AssetHandle{20}},
             {.entity_id = 2, .mesh_handle = AssetHandle{11}, .material_handle = AssetHandle{21}},
             {.entity_id = 3, .mesh_handle = AssetHandle{10}, .material_handle = AssetHandle{20}}};
+        scene.item_changes.begin_update(true);
         RenderSubmission submission;
         const auto view = runtime_view({160, 120});
         resolver.resolve(scene, view, submission);
@@ -249,9 +250,19 @@ namespace Comet::Tests {
         EXPECT_EQ(submission.render_items[1].mesh, other_mesh);
         EXPECT_EQ(submission.render_items[1].material.resource, other_material);
         EXPECT_EQ(submission.render_items[0].model_matrix, scene.render_items[0].model_matrix);
-        resolver.resolve(scene, view, submission);
-        EXPECT_EQ(submission.render_items[0].material.resource, replacement);
-        EXPECT_EQ(submission.render_items[2].material.resource, replacement);
+        {
+            auto pending_copy = submission;
+            resolver.resolve(scene, view, submission);
+            resolver.resolve(scene, view, pending_copy);
+            EXPECT_FALSE(submission.item_changes.full_update);
+            EXPECT_EQ(submission.item_changes.slots, (std::vector<std::size_t>{0, 2}));
+            EXPECT_TRUE(submission.pending_asset_slots.empty());
+            EXPECT_TRUE(pending_copy.pending_asset_slots.empty());
+            for(const auto* output : {&submission, &pending_copy}) {
+                EXPECT_EQ(output->render_items[0].material.resource, replacement);
+                EXPECT_EQ(output->render_items[2].material.resource, replacement);
+            }
+        }
 
         ASSERT_TRUE(registry.unregister_asset(AssetHandle{10}));
         mesh.reset();
