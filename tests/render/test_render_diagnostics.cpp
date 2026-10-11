@@ -232,11 +232,12 @@ namespace Comet::Tests {
         EXPECT_GE(timing.events_ms, 0);
         EXPECT_GE(timing.update_ms, 0);
         EXPECT_GE(timing.prepare_ms, 0);
-        EXPECT_GE(timing.render_submit_ms, 0);
+        EXPECT_GE(timing.frame_handoff_ms, 0);
         EXPECT_GE(timing.scene_extract_ms, 0);
-        EXPECT_LE(timing.scene_extract_ms, timing.render_submit_ms);
-        EXPECT_DOUBLE_EQ(timing.total_ms,
-            timing.events_ms + timing.update_ms + timing.prepare_ms + timing.render_submit_ms);
+        EXPECT_LE(timing.scene_extract_ms, timing.frame_handoff_ms);
+        EXPECT_DOUBLE_EQ(timing.total_ms, timing.events_ms + timing.render_wait_ms
+                                              + timing.update_ms + timing.prepare_ms
+                                              + timing.frame_handoff_ms);
         renderer.wait_idle();
         ASSERT_TRUE(diagnostics.collect_completed());
         ASSERT_TRUE(diagnostics.get_snapshot().cpu);
@@ -244,13 +245,16 @@ namespace Comet::Tests {
         EXPECT_EQ(
             diagnostics.get_snapshot().preparation->serial, diagnostics.get_snapshot().cpu->serial);
         const auto& submission = diagnostics.get_snapshot().submission;
+        const auto& render_frame = diagnostics.get_snapshot().frame;
+        ASSERT_TRUE(render_frame);
+        EXPECT_EQ(render_frame->serial, diagnostics.get_snapshot().cpu->serial);
         ASSERT_TRUE(submission);
         EXPECT_EQ(submission->serial, diagnostics.get_snapshot().cpu->serial);
         EXPECT_GE(submission->finalize_ms, 0);
         EXPECT_GE(submission->submit_ms, 0);
         EXPECT_GE(submission->present_ms, 0);
         EXPECT_LE(submission->finalize_ms + submission->submit_ms + submission->present_ms,
-            timing.render_submit_ms - timing.scene_extract_ms);
+            render_frame->milliseconds);
         EXPECT_EQ(diagnostics.get_snapshot().cpu->passes.size(), 3);
         if(diagnostics.get_snapshot().gpu_supported) {
             ASSERT_TRUE(diagnostics.get_snapshot().gpu) << diagnostics.get_snapshot().gpu_error;

@@ -1,6 +1,6 @@
 #include "asset/asset_manager.h"
 #include "asset/runtime/asset_loader.h"
-#include "asset/runtime/render_asset_publisher.h"
+#include "asset/runtime/render_asset_factory.h"
 #include "graphics/error.h"
 #include "asset/import/asset_task_queue.h"
 #include "asset/import/import_candidate.h"
@@ -81,9 +81,9 @@ namespace Comet {
           m_database(*m_owned_database),
           m_import_service(std::make_unique<ImportService>(m_database.paths(), m_limits)),
           m_registry(registry),
-          m_render_assets(std::make_unique<RenderAssetPublisher>(registry, resource_factory)),
+          m_render_factory(std::make_unique<RenderAssetFactory>(resource_factory)),
           m_loader(std::make_unique<AssetLoader>(m_database, registry, *m_import_service,
-              *m_render_assets, limits.mesh_working_bytes, limits.texture_working_bytes,
+              *m_render_factory, limits.mesh_working_bytes, limits.texture_working_bytes,
               limits.async.working_bytes)),
           m_task_queue(std::make_unique<AssetTaskQueue>(m_database, task_scheduler, limits.async)) {
     }
@@ -94,9 +94,9 @@ namespace Comet {
         : m_limits(limits), m_database(database),
           m_import_service(std::make_unique<ImportService>(m_database.paths(), m_limits)),
           m_registry(registry),
-          m_render_assets(std::make_unique<RenderAssetPublisher>(registry, resource_factory)),
+          m_render_factory(std::make_unique<RenderAssetFactory>(resource_factory)),
           m_loader(std::make_unique<AssetLoader>(m_database, registry, *m_import_service,
-              *m_render_assets, limits.mesh_working_bytes, limits.texture_working_bytes,
+              *m_render_factory, limits.mesh_working_bytes, limits.texture_working_bytes,
               limits.async.working_bytes)),
           m_task_queue(std::make_unique<AssetTaskQueue>(m_database, task_scheduler, limits.async)) {
     }
@@ -177,9 +177,9 @@ namespace Comet {
         if(!record || record->type != AssetType::Environment)
             return Result<EnvironmentState, Error>::failure(
                 {"Environment is not indexed: " + std::to_string(handle.value())});
-        const auto environment = m_render_assets->environment(handle);
+        const auto environment = m_registry.resolve<Environment>(handle);
         // 重载失败不影响已发布的完整版本；低清预览不算就绪。
-        if(m_render_assets->has_lighting(environment))
+        if(RenderAssetFactory::has_lighting(environment))
             return Result<EnvironmentState, Error>::success(EnvironmentState::Ready);
         if(!environment && m_registry.contains(handle))
             return Result<EnvironmentState, Error>::failure({"Runtime environment type conflict"});
@@ -376,7 +376,7 @@ namespace Comet {
 
         // Artifact 已发布；后续普通 GPU 创建失败不撤销这个事实。
         if(auto refreshed =
-                refresh_loaded_mesh(candidate.handle, candidate.revision, artifact.data);
+                refresh_loaded_mesh(candidate.handle, candidate.revision, std::move(artifact.data));
             !refreshed) {
             if(is_device_lost(refreshed.error()))
                 return ImportPublication::failure(refreshed.error());
@@ -398,9 +398,10 @@ namespace Comet {
             return ImportPublication::success(std::nullopt);
         }
         const auto runtime =
-            find_runtime_asset(m_registry, handle, m_render_assets->material(handle));
+            find_runtime_asset(m_registry, handle, m_registry.resolve<Material>(handle));
         if(!runtime.asset)
             return ImportPublication::success(std::nullopt);
+        const auto expected_publication = m_registry.get_revision(handle);
         auto material = m_loader->prepare_material(candidate.record, candidate.result.value());
         if(!material) {
             if(is_device_lost(material.error()))
@@ -409,7 +410,8 @@ namespace Comet {
                 "Failed to refresh material {}: {}", handle.value(), material.error().message);
             return ImportPublication::success(std::nullopt);
         }
-        if(!m_database.is_current(handle, candidate.revision))
+        if(!m_database.is_current(handle, candidate.revision)
+            || m_registry.get_revision(handle) != expected_publication)
             return ImportPublication::success(std::nullopt);
         if(auto publication =
                 publish_material(handle, candidate.result.value(), material.value(), true);
@@ -429,7 +431,8 @@ namespace Comet {
                 candidate.result.error());
             return ImportPublication::success(std::nullopt);
         }
-        auto texture_attempt = m_render_assets->prepare(candidate.result.value());
+        const auto publication = m_registry.get_revision(candidate.handle);
+        auto texture_attempt = m_render_factory->prepare(std::move(candidate.result).value());
         if(!texture_attempt) {
             if(is_device_lost(texture_attempt.error()))
                 return ImportPublication::failure(texture_attempt.error());
@@ -438,12 +441,13 @@ namespace Comet {
             return ImportPublication::success(std::nullopt);
         }
         auto texture = std::move(texture_attempt).value();
-        if(!m_database.is_current(candidate.handle, candidate.revision)) {
+        if(!m_database.is_current(candidate.handle, candidate.revision)
+            || m_registry.get_revision(candidate.handle) != publication) {
             LOG_DEBUG("Discarded stale runtime texture candidate for asset handle {} (revision {})",
                 candidate.handle.value(), candidate.revision);
             return ImportPublication::success(std::nullopt);
         }
-        const bool published = m_render_assets->publish(candidate.handle, texture, true);
+        const bool published = m_registry.replace_asset(candidate.handle, texture);
         if(!published) {
             LOG_ERROR("Failed to publish refreshed runtime texture for asset handle {}",
                 candidate.handle.value());
@@ -459,35 +463,41 @@ namespace Comet {
     AssetManager::ImportPublication AssetManager::publish_environment_candidate(
         EnvironmentImportCandidate& candidate) {
         m_environment_previews.erase(candidate.handle);
-        m_failed_environments[candidate.handle] = candidate.revision;
+        const auto publication = m_registry.get_revision(candidate.handle);
         // 失败时移除临时预览，不把它当成最后一个成功版本。
-        const auto discard_preview = [this, &candidate] {
-            const auto current = m_render_assets->environment(candidate.handle);
-            if(current && !m_render_assets->has_lighting(current))
+        const auto mark_failed = [this, &candidate] {
+            m_failed_environments[candidate.handle] = candidate.revision;
+            const auto current = m_registry.resolve<Environment>(candidate.handle);
+            if(current && !RenderAssetFactory::has_lighting(current))
                 static_cast<void>(m_registry.unregister_asset(candidate.handle));
         };
         if(!candidate.result) {
-            discard_preview();
+            mark_failed();
             LOG_ERROR("Failed to prepare environment '{}': {}",
                 candidate.relative_path.generic_string(), candidate.result.error());
             return ImportPublication::success(std::nullopt);
         }
-        auto environment = m_render_assets->prepare(candidate.result.value());
+        auto environment = m_render_factory->prepare(std::move(candidate.result).value());
+        const bool current = m_database.is_current(candidate.handle, candidate.revision)
+                             && m_registry.get_revision(candidate.handle) == publication;
         if(!environment) {
-            discard_preview();
+            if(current)
+                mark_failed();
             if(is_device_lost(environment.error()))
                 return ImportPublication::failure(environment.error());
+            if(!current)
+                return ImportPublication::success(std::nullopt);
             LOG_ERROR("Failed to create environment {}: {}", candidate.handle.value(),
                 environment.error().message);
             return ImportPublication::success(std::nullopt);
         }
-        if(!m_database.is_current(candidate.handle, candidate.revision))
+        if(!current)
             return ImportPublication::success(std::nullopt);
         bool published = false;
         if(m_registry.contains(candidate.handle))
-            published = m_render_assets->publish(candidate.handle, environment.value(), true);
+            published = m_registry.replace_asset(candidate.handle, environment.value());
         else
-            published = m_render_assets->publish(candidate.handle, environment.value(), false);
+            published = m_registry.register_asset(candidate.handle, environment.value());
         if(!published) {
             LOG_ERROR("Failed to publish environment {}", candidate.handle.value());
             return ImportPublication::success(std::nullopt);
@@ -543,7 +553,8 @@ namespace Comet {
         }
         complete_mesh_import(handle, revision, artifact.source_dependencies());
 
-        if(auto refreshed = refresh_loaded_mesh(handle, revision, artifact.data); !refreshed)
+        if(auto refreshed = refresh_loaded_mesh(handle, revision, std::move(artifact.data));
+            !refreshed)
             return Result<void, Error>::failure(refreshed.error());
 
         LOG_INFO("Imported mesh artifact '{}' (handle {})", snapshot.path.generic_string(),
@@ -552,22 +563,25 @@ namespace Comet {
     }
 
     Result<void, Error> AssetManager::refresh_loaded_mesh(
-        const AssetHandle handle, const AssetRevision revision, const MeshData& data) {
-        const auto runtime = find_runtime_asset(m_registry, handle, m_render_assets->mesh(handle));
+        const AssetHandle handle, const AssetRevision revision, MeshData data) {
+        const auto runtime =
+            find_runtime_asset(m_registry, handle, m_registry.resolve<Mesh>(handle));
         if(runtime.type_conflict)
             return Result<void, Error>::failure({"Runtime mesh type conflict"});
         if(!runtime.asset)
             return Result<void, Error>::success();
 
-        auto candidate = m_render_assets->prepare(data);
+        const auto publication = m_registry.get_revision(handle);
+        auto candidate = m_render_factory->prepare(std::move(data));
         if(!candidate)
             return Result<void, Error>::failure(candidate.error());
-        if(!m_database.is_current(handle, revision)) {
+        if(!m_database.is_current(handle, revision)
+            || m_registry.get_revision(handle) != publication) {
             LOG_DEBUG("Discarded stale runtime mesh candidate for asset handle {} (revision {})",
                 handle.value(), revision);
             return Result<void, Error>::failure({"Runtime mesh revision is stale"});
         }
-        if(!m_render_assets->publish(handle, candidate.value(), true))
+        if(!m_registry.replace_asset(handle, candidate.value()))
             return Result<void, Error>::failure({"Failed to publish runtime mesh"});
         return Result<void, Error>::success();
     }
@@ -629,7 +643,7 @@ namespace Comet {
         }
 
         const auto runtime =
-            find_runtime_asset(m_registry, handle, m_render_assets->texture(handle));
+            find_runtime_asset(m_registry, handle, m_registry.resolve<Texture>(handle));
         if(runtime.type_conflict) {
             return Result<std::shared_ptr<Texture>, Error>::failure(
                 {"Runtime texture type conflict"});
@@ -638,10 +652,12 @@ namespace Comet {
 
         const AssetRevision revision = m_database.get_revision(handle);
         const AssetRecord snapshot = *record;
+        const auto publication = m_registry.get_revision(handle);
         auto texture = m_loader->prepare_texture(snapshot, import_settings);
         if(!texture)
             return texture;
-        if(!m_database.is_current(handle, revision)) {
+        if(!m_database.is_current(handle, revision)
+            || m_registry.get_revision(handle) != publication) {
             LOG_DEBUG("Discarded stale texture reimport for asset handle {} (revision {})",
                 handle.value(), revision);
             return Result<std::shared_ptr<Texture>, Error>::failure(
@@ -654,9 +670,9 @@ namespace Comet {
 
         bool published;
         if(previous_texture)
-            published = m_render_assets->publish(handle, texture.value(), true);
+            published = m_registry.replace_asset(handle, texture.value());
         else
-            published = m_render_assets->publish(handle, texture.value(), false);
+            published = m_registry.register_asset(handle, texture.value());
         if(!published) {
             return Result<std::shared_ptr<Texture>, Error>::failure(
                 {"Failed to publish runtime texture"});
@@ -677,7 +693,8 @@ namespace Comet {
         const std::vector<AssetHandle> snapshot(dependents.begin(), dependents.end());
         for(const auto handle : snapshot) {
             const auto* record = m_database.find(handle);
-            if(!record || record->type != AssetType::Material || !m_render_assets->material(handle))
+            if(!record || record->type != AssetType::Material
+                || !m_registry.resolve<Material>(handle))
                 continue;
             if(auto refreshed = reload_material(handle); !refreshed) {
                 if(is_device_lost(refreshed.error()))
@@ -706,7 +723,7 @@ namespace Comet {
         }
 
         const auto runtime =
-            find_runtime_asset(m_registry, handle, m_render_assets->material(handle));
+            find_runtime_asset(m_registry, handle, m_registry.resolve<Material>(handle));
         if(runtime.type_conflict) {
             return Result<std::shared_ptr<Material>, Error>::failure(
                 {"Runtime material type conflict"});
@@ -714,6 +731,7 @@ namespace Comet {
         const bool has_runtime_asset = static_cast<bool>(runtime.asset);
 
         const AssetRevision revision = m_database.get_revision(handle);
+        const auto publication = m_registry.get_revision(handle);
         const AssetRecord snapshot = *record;
         const auto data = MaterialSerializer{}.load(m_database.paths().assets() / snapshot.path);
         if(!data) {
@@ -722,7 +740,8 @@ namespace Comet {
         auto material = m_loader->prepare_material(snapshot, data.value());
         if(!material)
             return material;
-        if(!m_database.is_current(handle, revision)) {
+        if(!m_database.is_current(handle, revision)
+            || m_registry.get_revision(handle) != publication) {
             LOG_DEBUG("Discarded stale material reload for asset handle {} (revision {})",
                 handle.value(), revision);
             return Result<std::shared_ptr<Material>, Error>::failure(
@@ -754,7 +773,7 @@ namespace Comet {
         }
 
         const auto runtime =
-            find_runtime_asset(m_registry, handle, m_render_assets->material(handle));
+            find_runtime_asset(m_registry, handle, m_registry.resolve<Material>(handle));
         if(runtime.type_conflict) {
             return Preparation::failure({"Runtime material type conflict"});
         }
@@ -785,7 +804,7 @@ namespace Comet {
         const MaterialUpdate& update) {
         const auto handle = update.handle();
         const auto runtime =
-            find_runtime_asset(m_registry, handle, m_render_assets->material(handle));
+            find_runtime_asset(m_registry, handle, m_registry.resolve<Material>(handle));
         if(update.m_owner != this || !update.m_material
             || !m_database.is_current(handle, update.m_revision) || runtime.type_conflict
             || runtime.asset != update.m_expected)
@@ -810,9 +829,9 @@ namespace Comet {
     Result<void, Error> AssetManager::preview_material_update(MaterialUpdate& update) {
         if(update.m_owner != this || !update.m_material
             || !m_database.is_current(update.handle(), update.m_revision)
-            || m_render_assets->material(update.handle()) != update.m_expected)
+            || m_registry.resolve<Material>(update.handle()) != update.m_expected)
             return Result<void, Error>::failure({"Material preview is stale"});
-        if(!m_render_assets->publish(update.handle(), update.m_material, true))
+        if(!m_registry.replace_asset(update.handle(), update.m_material))
             return Result<void, Error>::failure({"Cannot publish material preview"});
         update.m_expected = update.m_material;
         return Result<void, Error>::success();
@@ -821,9 +840,9 @@ namespace Comet {
     Result<void, Error> AssetManager::restore_material_preview(
         const MaterialUpdate& update, const std::shared_ptr<Material>& previous) {
         if(update.m_owner != this || !previous
-            || m_render_assets->material(update.handle()) != update.m_material)
+            || m_registry.resolve<Material>(update.handle()) != update.m_material)
             return Result<void, Error>::failure({"Material preview was replaced"});
-        if(!m_render_assets->publish(update.handle(), previous, true))
+        if(!m_registry.replace_asset(update.handle(), previous))
             return Result<void, Error>::failure({"Cannot restore material preview"});
         return Result<void, Error>::success();
     }
@@ -836,9 +855,9 @@ namespace Comet {
             return Result<void, Error>::failure({updated.error()});
         bool published;
         if(replace_existing)
-            published = m_render_assets->publish(handle, material, true);
+            published = m_registry.replace_asset(handle, material);
         else
-            published = m_render_assets->publish(handle, material, false);
+            published = m_registry.register_asset(handle, material);
         if(!published)
             return Result<void, Error>::failure({"Failed to publish material"});
         return Result<void, Error>::success();

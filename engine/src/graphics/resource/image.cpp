@@ -96,7 +96,7 @@ namespace Comet {
 
     OwnedImage::~OwnedImage() {
         if(m_image && m_allocation) {
-            m_device.get_allocator().destroy_image(m_image, m_allocation);
+            m_device.destroy_image(m_image, std::move(m_allocation));
         }
     }
 

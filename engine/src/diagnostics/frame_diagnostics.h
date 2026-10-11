@@ -12,11 +12,12 @@ namespace Comet {
         struct Timing {
             int frame_index = 0;
             double events_ms = 0;
+            double render_wait_ms = 0;
             double update_ms = 0;
             double runtime_update_ms = 0; // update_ms 中的 Runtime 部分，不能重复相加。
             double prepare_ms = 0;
-            double render_submit_ms = 0;
-            double scene_extract_ms = 0; // render_submit_ms 中的场景提取部分。
+            double frame_handoff_ms = 0; // 场景提取、资产解析及交付，不含 Worker 绘制。
+            double scene_extract_ms = 0; // frame_handoff_ms 中的场景提取部分。
             double total_ms = 0;
             bool rendered = false;
         };
@@ -24,12 +25,13 @@ namespace Comet {
         void begin_frame(bool enabled);
         void set_frame_index(int index);
         void mark_events();
+        void mark_render_wait();
         void mark_update();
         void mark_prepare();
         void mark_deferred_wait();
         void mark_runtime_update();
         void mark_scene_extract();
-        void mark_render_submit();
+        void mark_frame_handoff();
         void finish_frame(bool rendered, bool still_enabled);
         void cancel_pending_frame();
         void clear_current();

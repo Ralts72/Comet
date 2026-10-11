@@ -107,14 +107,16 @@ probe_dependency("src/asset/runtime/asset_loader.cpp" "<vulkan/vulkan_core.h>"
     "RuntimeAssets includes a runtime backend")
 probe_dependency("src/asset/asset_manager_async.cpp" "\"render/resource/environment.h\""
     "RuntimeAssets violates module dependencies")
-probe_dependency("src/asset/runtime/render_asset_publisher.h" "\"graphics/result.h\""
+probe_dependency("src/asset/runtime/render_asset_factory.h" "\"graphics/result.h\""
     "RuntimeAssets violates module dependencies")
-probe_dependency("src/asset/import/import_service.cpp" "\"asset/runtime/render_asset_publisher.h\""
+probe_dependency("src/asset/import/import_service.cpp" "\"asset/runtime/render_asset_factory.h\""
     "AssetPipeline violates module dependencies")
-probe_dependency("src/render/resource/render_asset_publisher.cpp" "\"asset/database.h\""
-    "RenderAssetPublication violates module dependencies")
-probe_dependency("src/render/resource/render_asset_publisher.cpp" "\"asset/import/import_service.h\""
-    "RenderAssetPublication violates module dependencies")
+probe_dependency("src/render/resource/render_asset_factory.cpp" "\"asset/database.h\""
+    "RenderAssetFactory violates module dependencies")
+probe_dependency("src/render/resource/render_asset_factory.cpp" "\"asset/registry.h\""
+    "RenderAssetFactory violates module dependencies")
+probe_dependency("src/render/resource/render_asset_factory.cpp" "\"asset/import/import_service.h\""
+    "RenderAssetFactory violates module dependencies")
 probe_dependency("src/core/window.h" "\"graphics/context.h\""
     "Platform violates module dependencies")
 probe_dependency("src/core/window.h" "\"config/config.h\""

@@ -27,7 +27,7 @@ namespace Comet {
     public:
         static Result<std::shared_ptr<Sampler>, GraphicsError> create(
             Device& device, const SamplerDesc& desc = {});
-        ~Sampler() = default;
+        ~Sampler();
 
         Sampler(const Sampler&) = delete;
         Sampler& operator=(const Sampler&) = delete;
@@ -38,7 +38,8 @@ namespace Comet {
         [[nodiscard]] const SamplerDesc& get_description() const { return m_description; }
 
     private:
-        Sampler(const SamplerDesc& description, vk::UniqueSampler sampler);
+        Sampler(Device& device, const SamplerDesc& description, vk::UniqueSampler sampler);
+        Device& m_device;
         SamplerDesc m_description;
         vk::UniqueSampler m_sampler;
     };

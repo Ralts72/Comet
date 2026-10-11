@@ -61,7 +61,7 @@ namespace Comet {
 
     ImageView::~ImageView() {
         if(m_image_view) {
-            m_device.get().destroyImageView(m_image_view);
+            m_device.destroy_image_view(m_image_view, std::move(m_image));
         }
     }
 }

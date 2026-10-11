@@ -4,6 +4,7 @@
 #include "core/window.h"
 #include "graphics/device.h"
 #include "render/renderer.h"
+#include "render/render_thread.h"
 #include "render/material/material_programs.h"
 #include "render/render_diagnostics.h"
 #include "render/render_context.h"
@@ -61,6 +62,8 @@ namespace Comet {
     void Engine::prepare_shutdown() {
         if(m_shutdown_prepared)
             return;
+        static_cast<void>(complete_render_frame());
+        m_render_thread.reset();
         if(auto stopped = stop_scene_runtime(); !stopped)
             LOG_FATAL("Cannot shut down Engine during System execution");
         if(auto cleared = m_scene_runtime.clear_systems(); !cleared)
@@ -201,19 +204,35 @@ namespace Comet {
             return Result<void, Error>::failure({"Engine update loop is already running"});
         m_running = true;
         const ScopeExit reset_running([&] {
+            m_render_thread.reset();
             m_window->set_cursor_locked(false);
             m_running = false;
         });
+        m_render_thread = std::make_unique<RenderThread>(*m_renderer);
         LOG_INFO("running engine...");
 
+        auto result = Result<void, Error>::success();
         while(!m_window->should_close()) {
             const auto frame_start = FramePacer::Clock::now();
-            if(auto frame = tick(callbacks); !frame)
-                return frame;
+            result = tick(callbacks);
+            if(!result)
+                break;
             if(!m_window->should_close()) {
                 if(auto deadline = m_frame_pacer.deadline(frame_start))
                     std::this_thread::sleep_until(*deadline);
             }
+        }
+        if(auto completed = complete_render_frame(); !completed) {
+            prepare_shutdown();
+            return completed;
+        }
+        return result;
+    }
+
+    Result<void, Error> Engine::complete_render_frame() {
+        if(m_render_thread) {
+            if(auto completed = m_render_thread->complete(); !completed)
+                return Result<void, Error>::failure(completed.error().as_error());
         }
         return Result<void, Error>::success();
     }
@@ -231,6 +250,12 @@ namespace Comet {
         m_frame_diagnostics.begin_frame(m_renderer->get_diagnostics().is_enabled());
         ScopeExit discard_unfinished_diagnostics([this] { m_frame_diagnostics.clear_current(); });
         m_window->poll_events();
+        m_frame_diagnostics.mark_events();
+        if(auto completed = complete_render_frame(); !completed) {
+            prepare_shutdown();
+            return completed;
+        }
+        m_frame_diagnostics.mark_render_wait();
         if(m_window->should_close()) {
             m_frame_diagnostics.cancel_pending_frame();
             discard_unfinished_diagnostics.release();
@@ -249,7 +274,6 @@ namespace Comet {
         }
 
         m_window->publish_input_frame();
-        m_frame_diagnostics.mark_events();
         m_frame_timer->tick();
         const FrameContext frame{m_frame_timer->get_update_context(), m_window->get_input_frame()};
         m_frame_diagnostics.set_frame_index(frame.update.frame_index);
@@ -294,9 +318,14 @@ namespace Comet {
             }
             // 不提取部分写入的场景；先完成已 acquire 的帧，再交给宿主恢复。
             if(frame_ready_to_render) {
-                if(auto drained = m_renderer->render_frame(); !drained) {
+                if(auto queued = m_render_thread->submit(m_renderer->resolve_scene(nullptr));
+                    !queued) {
                     prepare_shutdown();
-                    return Result<void, Error>::failure(drained.error().as_error());
+                    return Result<void, Error>::failure(queued.error().as_error());
+                }
+                if(auto drained = complete_render_frame(); !drained) {
+                    prepare_shutdown();
+                    return drained;
                 }
             }
             if(auto recovered = callbacks.runtime_failed(advanced.error()); !recovered) {
@@ -314,20 +343,21 @@ namespace Comet {
             discard_unfinished_diagnostics.release();
             return Result<void, Error>::success();
         }
-        auto rendered = Result<void, GraphicsError>::success();
+        std::shared_ptr<const RenderWorld> world;
         if(m_scene) {
             const auto render_scene = m_scene_extractor.update(*m_scene);
             m_frame_diagnostics.mark_scene_extract();
-            rendered = m_renderer->render_frame(*render_scene);
+            world = m_renderer->resolve_scene(&*render_scene);
         } else {
             m_scene_extractor.reset();
-            rendered = m_renderer->render_frame();
+            world = m_renderer->resolve_scene(nullptr);
         }
+        const auto rendered = m_render_thread->submit(std::move(world));
         if(!rendered) {
             prepare_shutdown();
             return Result<void, Error>::failure(rendered.error().as_error());
         }
-        m_frame_diagnostics.mark_render_submit();
+        m_frame_diagnostics.mark_frame_handoff();
         m_frame_diagnostics.finish_frame(true, m_renderer->get_diagnostics().is_enabled());
         discard_unfinished_diagnostics.release();
         return Result<void, Error>::success();

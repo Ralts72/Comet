@@ -28,6 +28,10 @@ namespace Comet {
         m_pending.events_ms = elapsed_phase_ms();
     }
 
+    void FrameDiagnostics::mark_render_wait() {
+        m_pending.render_wait_ms = elapsed_phase_ms();
+    }
+
     void FrameDiagnostics::mark_update() {
         m_pending.update_ms = elapsed_phase_ms();
     }
@@ -49,8 +53,8 @@ namespace Comet {
         m_pending.scene_extract_ms = elapsed_phase_ms();
     }
 
-    void FrameDiagnostics::mark_render_submit() {
-        m_pending.render_submit_ms = m_pending.scene_extract_ms + elapsed_phase_ms();
+    void FrameDiagnostics::mark_frame_handoff() {
+        m_pending.frame_handoff_ms = m_pending.scene_extract_ms + elapsed_phase_ms();
     }
 
     void FrameDiagnostics::finish_frame(bool rendered, bool still_enabled) {
@@ -59,13 +63,13 @@ namespace Comet {
             return;
         }
         m_pending.rendered = rendered;
-        m_pending.total_ms = m_pending.events_ms + m_pending.update_ms + m_pending.prepare_ms
-                             + m_pending.render_submit_ms;
+        m_pending.total_ms = m_pending.events_ms + m_pending.render_wait_ms + m_pending.update_ms
+                             + m_pending.prepare_ms + m_pending.frame_handoff_ms;
         if(!m_current)
             m_history.clear();
         const TimingHistory::Entry phases[]{{"Events", m_pending.events_ms},
-            {"Update", m_pending.update_ms}, {"Prepare / UI", m_pending.prepare_ms},
-            {"Render / submit", m_pending.render_submit_ms},
+            {"Render wait", m_pending.render_wait_ms}, {"Update", m_pending.update_ms},
+            {"Prepare / UI", m_pending.prepare_ms}, {"Frame handoff", m_pending.frame_handoff_ms},
             {"Scene extract", m_pending.scene_extract_ms}};
         m_history.record(m_pending.total_ms, phases);
         m_current = m_pending;

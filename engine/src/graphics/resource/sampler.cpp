@@ -10,8 +10,12 @@
 #include <utility>
 
 namespace Comet {
-    Sampler::Sampler(const SamplerDesc& description, vk::UniqueSampler sampler)
-        : m_description(description), m_sampler(std::move(sampler)) {}
+    Sampler::Sampler(Device& device, const SamplerDesc& description, vk::UniqueSampler sampler)
+        : m_device(device), m_description(description), m_sampler(std::move(sampler)) {}
+
+    Sampler::~Sampler() {
+        m_device.destroy_sampler(std::move(m_sampler));
+    }
 
     Result<std::shared_ptr<Sampler>, GraphicsError> Sampler::create(
         Device& device, const SamplerDesc& desc) {
@@ -65,7 +69,7 @@ namespace Comet {
         if(!handle)
             return Result<std::shared_ptr<Sampler>, GraphicsError>::failure(handle.error());
         return Result<std::shared_ptr<Sampler>, GraphicsError>::success(
-            std::shared_ptr<Sampler>(new Sampler(desc, std::move(handle).value())));
+            std::shared_ptr<Sampler>(new Sampler(device, desc, std::move(handle).value())));
     }
 
     Result<std::shared_ptr<Sampler>, GraphicsError> SamplerManager::get_linear_repeat() {

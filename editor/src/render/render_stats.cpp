@@ -15,9 +15,10 @@ namespace CometEditor {
         const char* phase_caption(const std::string& phase) {
             static constexpr std::pair<std::string_view, const char*> captions[]{
                 {"Events", "事件"},
+                {"Render wait", "等待渲染线程"},
                 {"Update", "更新"},
                 {"Prepare / UI", "等待 / 准备 / UI"},
-                {"Render / submit", "渲染 / 提交"},
+                {"Frame handoff", "场景提取 / 资产解析 / 帧交付"},
                 {"Scene extract", "场景提取"},
                 {"Asset resolve", "资产解析"},
                 {"Material prep", "材质程序准备"},
@@ -108,6 +109,7 @@ namespace CometEditor {
             return history.summarize(time);
         };
         m_display.frame = summarize(m_frame.history());
+        m_display.render_frame = summarize(m_render.frame_history());
         m_display.cpu = summarize(m_render.cpu_history());
         m_display.preparation = summarize(m_render.preparation_history());
         m_display.submission = summarize(m_render.submission_history());
@@ -153,7 +155,7 @@ namespace CometEditor {
 
         if(ImGui::BeginTable("timing_overview", 2, ImGuiTableFlags_SizingStretchSame)) {
             ImGui::TableNextColumn();
-            show_summary("CPU 整帧（包含等待）", m_display.frame);
+            show_summary("主线程整帧（包含等待）", m_display.frame);
             ImGui::TableNextColumn();
             show_summary("GPU 单视图渲染图（不含 UI）", m_display.gpu);
             ImGui::EndTable();
@@ -182,7 +184,7 @@ namespace CometEditor {
         if(ImGui::CollapsingHeader("耗时趋势（蓝线：均值 / 黄点：峰值）###Timing trends")) {
             if(ImGui::BeginTable("timing_trends", 2, ImGuiTableFlags_SizingStretchSame)) {
                 ImGui::TableNextColumn();
-                ImGui::TextUnformatted("CPU 整帧（包含等待）");
+                ImGui::TextUnformatted("主线程整帧（包含等待）");
                 show_trend(m_display.frame);
                 ImGui::TableNextColumn();
                 ImGui::TextUnformatted("GPU 单视图渲染图（不含 UI）");
@@ -194,14 +196,16 @@ namespace CometEditor {
 
         if(ImGui::CollapsingHeader("CPU 阶段明细###CPU phase details")) {
             show_details("frame_phases", m_display.frame);
-            ImGui::TextWrapped("%s", "场景提取已计入渲染 / 提交，不重复相加。");
+            ImGui::TextWrapped("%s", "场景提取已计入帧交付；等待渲染线程单独统计。");
+            show_summary("渲染线程整帧（含所有视图、UI、提交和呈现）", m_display.render_frame);
             show_summary("CPU 世界与单视图准备", m_display.preparation);
             show_details("scene_preparation", m_display.preparation);
-            ImGui::TextWrapped("%s", "准备阶段已计入渲染 / 提交，不属于渲染图录制耗时。");
+            ImGui::TextWrapped(
+                "%s", "资产解析已计入帧交付；其余准备由渲染线程统计，不与主循环耗时相加。");
             show_summary("CPU 提交与呈现（包含等待）", m_display.submission);
             show_details("submission", m_display.submission);
             ImGui::TextWrapped("%s",
-                "提交准备包含命令结束；队列提交与呈现可能等待驱动或窗口系统，均已计入渲染 / 提交。");
+                "提交准备包含命令结束；队列提交与呈现由渲染线程统计，可能等待驱动或窗口系统。");
         }
         if(ImGui::CollapsingHeader("渲染阶段明细###Render pass details")) {
             show_summary("CPU 单视图渲染图录制", m_display.cpu);

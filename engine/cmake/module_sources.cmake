@@ -128,7 +128,7 @@ set(COMET_RUNTIME_ASSETS_SOURCES
     src/asset/runtime/script_loader.cpp
     src/asset/runtime/asset_loader.cpp
     src/asset/runtime/asset_loader.h
-    src/asset/runtime/render_asset_publisher.h
+    src/asset/runtime/render_asset_factory.h
 )
 
 set(COMET_PLATFORM_SOURCES
@@ -181,6 +181,7 @@ set(COMET_RENDER_SOURCES
     src/render/passes/skybox_pass.cpp
     src/render/passes/shadow_pass.cpp
     src/render/renderer.cpp
+    src/render/render_thread.cpp
     src/render/overlay_record_context.cpp
     src/render/debug/line_draw_list.cpp
     src/render/lighting.cpp
@@ -190,7 +191,7 @@ set(COMET_RENDER_SOURCES
     src/render/resource/instance_buffer.cpp
     src/render/resource/texture.cpp
     src/render/resource/environment.cpp
-    src/render/resource/render_asset_publisher.cpp
+    src/render/resource/render_asset_factory.cpp
     src/render/resource/sampled_image_binding.cpp
     src/render/render_context.cpp
     src/render/scene/scene_resolver.cpp

@@ -65,11 +65,12 @@ namespace CometEditor::Ui {
         Comet::Result<void, Comet::GraphicsError> rebuild_swapchain_resources(
             const Comet::SwapchainCompatibility& compatibility);
 
-        // 调用前须等待该帧槽完成；录制前改绑保持 TextureID，已构建的 UI 引用仍有效。
+        // 前端只保存图片引用；同一 View／帧槽的标识稳定，end_frame 固定当时的图片版本。
         void set_viewport_image(uint32_t frame_slot_index,
             std::shared_ptr<Comet::ImageView> image_view, std::shared_ptr<Comet::Sampler> sampler,
             uint32_t view_id = 0);
 
+        // 仅用于本上下文的 ImGui 图片绘制；此标识不是 Vulkan descriptor。
         [[nodiscard]] ImTextureID get_viewport_texture_id(
             uint32_t frame_index, uint32_t view_id = 0) const;
 
@@ -77,6 +78,7 @@ namespace CometEditor::Ui {
         class TextureBinding;
         class FontTexture;
         struct FontPixels;
+        struct ViewportImage;
         struct ContextDeleter {
             void operator()(::ImGuiContext* context) const noexcept;
         };
@@ -88,8 +90,6 @@ namespace CometEditor::Ui {
         void shutdown_vulkan() noexcept;
         Comet::Result<void, Comet::GraphicsError> create_render_pass();
         void cleanup() noexcept;
-        void register_viewport_textures();
-        void unregister_viewport_textures();
 
         const Comet::Window& m_window;
         Comet::RenderContext& m_render_context;
@@ -98,11 +98,14 @@ namespace CometEditor::Ui {
         std::unique_ptr<Comet::RenderPass> m_render_pass;
         std::unique_ptr<Comet::RenderTarget> m_render_target;
         std::unique_ptr<Comet::DescriptorPool> m_descriptor_pool;
-        std::map<uint32_t, std::vector<std::shared_ptr<TextureBinding>>> m_viewport_textures;
+        std::map<uint32_t, std::vector<std::shared_ptr<const ViewportImage>>> m_viewport_images;
+        ImTextureID m_next_viewport_texture_id = 1;
         std::map<int, std::shared_ptr<const FontPixels>> m_font_pixels;
+        std::map<ImTextureID, std::shared_ptr<TextureBinding>> m_viewport_textures;
+        std::vector<std::weak_ptr<TextureBinding>> m_viewport_versions;
         std::map<int, std::shared_ptr<FontTexture>> m_font_textures;
         std::vector<std::weak_ptr<FontTexture>> m_font_versions;
-        std::uint64_t m_backend_generation = 0;
+        std::uint64_t m_presentation_generation = 0;
         bool m_initialized = false;
         bool m_is_recreating = false;
         uint32_t m_backend_image_count = 0;

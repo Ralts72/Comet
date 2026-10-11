@@ -73,54 +73,37 @@ namespace CometEditor::Ui {
         }
     }
 
+    struct ImGuiContext::ViewportImage {
+        ImTextureID id;
+        uint32_t frame_slot;
+        std::shared_ptr<Comet::ImageView> image_view;
+        std::shared_ptr<Comet::Sampler> sampler;
+    };
+
     class ImGuiContext::TextureBinding final {
     public:
-        TextureBinding(::ImGuiContext* context, std::shared_ptr<Comet::ImageView> image_view,
-            std::shared_ptr<Comet::Sampler> sampler)
-            : m_context(context), m_image_view(std::move(image_view)),
-              m_sampler(std::move(sampler)) {
-            if(!m_image_view || !m_sampler) {
-                LOG_FATAL("ImGui texture binding requires a valid image view and sampler");
-            }
-        }
-
-        ~TextureBinding() { unregister_texture(); }
-
-        TextureBinding(const TextureBinding&) = delete;
-        TextureBinding& operator=(const TextureBinding&) = delete;
-        TextureBinding(TextureBinding&&) noexcept = delete;
-        TextureBinding& operator=(TextureBinding&&) noexcept = delete;
-
-        [[nodiscard]] bool matches(const std::shared_ptr<Comet::ImageView>& image_view,
-            const std::shared_ptr<Comet::Sampler>& sampler) const {
-            return m_image_view == image_view && m_sampler == sampler;
-        }
-
-        void update_image(
-            std::shared_ptr<Comet::ImageView> image_view, std::shared_ptr<Comet::Sampler> sampler) {
-            m_image_view = std::move(image_view);
-            m_sampler = std::move(sampler);
-            if(m_descriptor_set == VK_NULL_HANDLE)
-                return;
-            const vk::DescriptorImageInfo image{
-                m_sampler->get(), m_image_view->get(), vk::ImageLayout::eShaderReadOnlyOptimal};
-            const vk::WriteDescriptorSet write{vk::DescriptorSet(m_descriptor_set), 0, 0, 1,
-                vk::DescriptorType::eCombinedImageSampler, &image};
-            m_image_view->get_image()->get_device().get().updateDescriptorSets(write, {});
-        }
-
-        void register_texture() {
-            if(m_descriptor_set != VK_NULL_HANDLE) {
-                return;
-            }
-
+        TextureBinding(::ImGuiContext* context, const std::shared_ptr<const ViewportImage>& source)
+            : m_context(context), m_source(source), m_image_view(source->image_view),
+              m_sampler(source->sampler) {
             const CurrentContext current(m_context);
             m_descriptor_set = ImGui_ImplVulkan_AddTexture(static_cast<VkSampler>(m_sampler->get()),
                 static_cast<VkImageView>(m_image_view->get()),
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         }
 
-        void unregister_texture() {
+        ~TextureBinding() { release(); }
+
+        TextureBinding(const TextureBinding&) = delete;
+        TextureBinding& operator=(const TextureBinding&) = delete;
+        TextureBinding(TextureBinding&&) noexcept = delete;
+        TextureBinding& operator=(TextureBinding&&) noexcept = delete;
+
+        [[nodiscard]] bool matches(const std::shared_ptr<const ViewportImage>& source) const {
+            return m_source.lock() == source;
+        }
+        [[nodiscard]] bool expired() const { return m_source.expired(); }
+
+        void release() {
             if(m_descriptor_set == VK_NULL_HANDLE) {
                 return;
             }
@@ -136,6 +119,7 @@ namespace CometEditor::Ui {
 
     private:
         ::ImGuiContext* m_context;
+        std::weak_ptr<const ViewportImage> m_source;
         std::shared_ptr<Comet::ImageView> m_image_view;
         std::shared_ptr<Comet::Sampler> m_sampler;
         VkDescriptorSet m_descriptor_set = VK_NULL_HANDLE;
@@ -191,8 +175,9 @@ namespace CometEditor::Ui {
         ImDrawData draw;
         std::map<int, std::shared_ptr<const FontPixels>> fonts;
         std::vector<std::pair<ImDrawCmd*, int>> font_commands;
-        std::vector<std::shared_ptr<TextureBinding>> viewport_bindings;
-        std::uint64_t backend_generation = 0;
+        std::map<ImTextureID, std::shared_ptr<const ViewportImage>> viewport_images;
+        std::vector<std::pair<ImDrawCmd*, ImTextureID>> viewport_commands;
+        std::uint64_t presentation_generation = 0;
         std::string error;
     };
 
@@ -381,7 +366,6 @@ namespace CometEditor::Ui {
         if(!ImGui_ImplVulkan_Init(&init_info))
             return Comet::Result<void, Comet::GraphicsError>::failure(
                 {"Cannot initialize ImGui Vulkan backend"});
-        ++m_backend_generation;
         return Comet::Result<void, Comet::GraphicsError>::success();
     }
 
@@ -391,7 +375,11 @@ namespace CometEditor::Ui {
         const CurrentContext current(m_backend_context.get());
         if(!ImGui::GetIO().BackendRendererUserData)
             return;
-        unregister_viewport_textures();
+        for(const auto& version : m_viewport_versions)
+            if(auto texture = version.lock())
+                texture->release();
+        m_viewport_textures.clear();
+        m_viewport_versions.clear();
         for(const auto& version : m_font_versions)
             if(auto texture = version.lock())
                 texture->release();
@@ -417,7 +405,7 @@ namespace CometEditor::Ui {
 
         m_render_target.reset();
         m_render_pass.reset();
-        m_viewport_textures.clear();
+        m_viewport_images.clear();
 
         m_initialized = false;
     }
@@ -451,7 +439,7 @@ namespace CometEditor::Ui {
         ImGui::Render();
         auto frame = std::unique_ptr<Frame>(new Frame);
         auto& captured = *frame->m_data;
-        captured.backend_generation = m_backend_generation;
+        captured.presentation_generation = m_presentation_generation;
         const auto& source = *ImGui::GetDrawData();
         captured.draw.Valid = source.Valid;
         captured.draw.CmdListsCount = source.CmdListsCount;
@@ -503,13 +491,14 @@ namespace CometEditor::Ui {
                     command.TexRef = ImTextureRef{};
                 } else {
                     viewport_ids.insert(command.GetTexID());
+                    captured.viewport_commands.emplace_back(&command, command.GetTexID());
                 }
             }
         }
-        for(const auto& [view, textures] : m_viewport_textures)
-            for(const auto& texture : textures)
-                if(texture && viewport_ids.contains(texture->get_texture_id()))
-                    captured.viewport_bindings.push_back(texture);
+        for(const auto& [view, images] : m_viewport_images)
+            for(const auto& image : images)
+                if(image && viewport_ids.contains(image->id))
+                    captured.viewport_images.emplace(image->id, image);
         return frame;
     }
 
@@ -521,7 +510,7 @@ namespace CometEditor::Ui {
         }
         const CurrentContext current(m_backend_context.get());
         const bool current_frame =
-            frame && frame->m_data->backend_generation == m_backend_generation;
+            frame && frame->m_data->presentation_generation == m_presentation_generation;
         if(current_frame && !frame->m_data->error.empty())
             return RenderResult::failure({frame->m_data->error});
         const bool has_draw_data = current_frame && frame->m_data->draw.CmdListsCount > 0;
@@ -530,6 +519,24 @@ namespace CometEditor::Ui {
 
         if(has_draw_data) {
             auto& captured = *frame->m_data;
+            for(const auto& [id, image] : captured.viewport_images)
+                if(image->frame_slot != overlay.frame_slot())
+                    return RenderResult::failure(
+                        {"ImGui viewport image belongs to another frame slot"});
+            std::erase_if(
+                m_viewport_textures, [](const auto& entry) { return entry.second->expired(); });
+            for(const auto& [id, image] : captured.viewport_images) {
+                auto& texture = m_viewport_textures[id];
+                if(!texture || !texture->matches(image)) {
+                    texture = std::make_shared<TextureBinding>(m_backend_context.get(), image);
+                    std::erase_if(
+                        m_viewport_versions, [](const auto& version) { return version.expired(); });
+                    m_viewport_versions.push_back(texture);
+                }
+            }
+            for(const auto& [command, id] : captured.viewport_commands)
+                if(captured.viewport_images.contains(id))
+                    command->TexRef = m_viewport_textures.at(id)->get_texture_id();
             std::erase_if(m_font_textures,
                 [&](const auto& entry) { return !captured.fonts.contains(entry.first); });
             for(const auto& [id, pixels] : captured.fonts) {
@@ -556,8 +563,8 @@ namespace CometEditor::Ui {
             ImGui_ImplVulkan_RenderDrawData(&frame->m_data->draw, command_buffer.get());
             for(const auto& [id, pixels] : frame->m_data->fonts)
                 overlay.retain(m_font_textures.at(id));
-            for(const auto& binding : frame->m_data->viewport_bindings)
-                overlay.retain(binding);
+            for(const auto& [id, image] : frame->m_data->viewport_images)
+                overlay.retain(m_viewport_textures.at(id));
         }
 
         m_render_target->end_render_target(command_buffer);
@@ -571,7 +578,7 @@ namespace CometEditor::Ui {
         }
         LOG_INFO("Releasing ImGui swapchain resources");
         m_is_recreating = true;
-        ++m_backend_generation;
+        ++m_presentation_generation;
         m_render_target.reset();
     }
 
@@ -611,7 +618,6 @@ namespace CometEditor::Ui {
         if(rebuild_backend) {
             if(auto result = init_vulkan(); !result)
                 return result;
-            register_viewport_textures();
         }
         m_is_recreating = false;
         LOG_INFO("ImGui swapchain resources rebuilt successfully");
@@ -623,46 +629,23 @@ namespace CometEditor::Ui {
         const uint32_t view_id) {
         if(!image_view || !sampler)
             LOG_FATAL("Viewport texture binding requires a valid image view and sampler");
-        auto& textures = m_viewport_textures[view_id];
-        if(frame_slot_index < textures.size() && textures[frame_slot_index]
-            && textures[frame_slot_index]->matches(image_view, sampler))
+        auto& images = m_viewport_images[view_id];
+        if(frame_slot_index >= images.size())
+            images.resize(frame_slot_index + 1);
+        auto& image = images[frame_slot_index];
+        if(image && image->image_view == image_view && image->sampler == sampler)
             return;
-        if(frame_slot_index >= textures.size())
-            textures.resize(frame_slot_index + 1);
-        auto& binding = textures[frame_slot_index];
-        if(binding)
-            binding->update_image(std::move(image_view), std::move(sampler));
-        else
-            binding = std::make_shared<TextureBinding>(
-                m_backend_context.get(), std::move(image_view), std::move(sampler));
-        if(m_initialized)
-            binding->register_texture();
+        const auto id = image ? image->id : m_next_viewport_texture_id++;
+        image = std::make_shared<const ViewportImage>(
+            ViewportImage{id, frame_slot_index, std::move(image_view), std::move(sampler)});
     }
 
     ImTextureID ImGuiContext::get_viewport_texture_id(
         const uint32_t frame_index, const uint32_t view_id) const {
-        const auto found = m_viewport_textures.find(view_id);
-        if(found == m_viewport_textures.end() || frame_index >= found->second.size())
+        const auto found = m_viewport_images.find(view_id);
+        if(found == m_viewport_images.end() || frame_index >= found->second.size())
             return ImTextureID_Invalid;
-        const auto& binding = found->second[frame_index];
-        return binding ? binding->get_texture_id() : ImTextureID_Invalid;
-    }
-
-    void ImGuiContext::register_viewport_textures() {
-        if(!m_initialized)
-            return;
-        for(const auto& [id, textures] : m_viewport_textures)
-            for(const auto& texture : textures)
-                if(texture)
-                    texture->register_texture();
-    }
-
-    void ImGuiContext::unregister_viewport_textures() {
-        if(!m_initialized)
-            return;
-        for(const auto& [id, textures] : m_viewport_textures)
-            for(const auto& texture : textures)
-                if(texture)
-                    texture->unregister_texture();
+        const auto& image = found->second[frame_index];
+        return image ? image->id : ImTextureID_Invalid;
     }
 }

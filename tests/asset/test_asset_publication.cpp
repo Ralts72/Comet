@@ -41,6 +41,34 @@ namespace Comet::Tests {
         EXPECT_TRUE(loaded_asset(manager.load_texture(handle)));
     }
 
+    TEST(
+        AssetManagerTest, RuntimeRepublishRejectsOlderTextureRefreshWithoutChangingSourceRevision) {
+        const TemporaryProject project;
+        constexpr AssetHandle handle{84};
+        const auto source = project.add_texture(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        const auto original = loaded_asset(manager.load_texture(handle));
+        ASSERT_TRUE(original);
+        TemporaryProject::replace_texture(source);
+        ASSERT_TRUE(manager.scan().succeeded());
+        scheduler.wait_idle();
+        const auto revision = manager.get_database().get_revision(handle);
+        const auto publication = registry.get_revision(handle);
+        factory.on_next_texture_creation([&] {
+            ASSERT_TRUE(registry.replace_asset(handle, original));
+            EXPECT_EQ(manager.get_database().get_revision(handle), revision);
+        });
+        EXPECT_TRUE(completed_handles(manager.process_completions()).empty());
+        EXPECT_EQ(registry.resolve<Texture>(handle), original);
+        EXPECT_NE(registry.get_revision(handle), publication);
+        EXPECT_EQ(factory.texture_creation_count(), 2);
+        EXPECT_EQ(manager.get_async_status().reserved_bytes, 0u);
+    }
+
     enum class MaterialOperation { Load, Reload, PrepareUpdate };
     class MaterialPublicationTest: public ::testing::TestWithParam<MaterialOperation> {};
 

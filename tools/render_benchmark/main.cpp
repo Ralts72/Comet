@@ -1,7 +1,7 @@
 #include "asset/asset_manager.h"
 #include "asset/artifact/shader_program_artifact.h"
 #include "asset/registry.h"
-#include "asset/runtime/render_asset_publisher.h"
+#include "asset/runtime/render_asset_factory.h"
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
 #include "common/file_io.h"
@@ -244,8 +244,6 @@ namespace {
         if(auto loaded = assets.ensure_loaded(mesh_handle, Comet::AssetType::Mesh); !loaded)
             return Result<void>::failure(loaded.error().message);
         std::vector<Comet::AssetHandle> materials;
-        Comet::RenderAssetPublisher publisher(
-            engine.get_asset_registry(), engine.get_render_resources());
         constexpr Comet::AssetHandle project_program(0xc0be700000000001ULL);
         if(options.workload == Workload::ProjectShader) {
             const auto code = Comet::default_material_shaders().at("pbr");
@@ -271,12 +269,13 @@ namespace {
                 data.value().shader_program = project_program;
                 std::map<std::string, std::shared_ptr<Comet::Texture>> textures;
                 for(const auto& [name, handle] : data.value().texture_properties)
-                    textures.emplace(name, publisher.texture(handle));
-                auto version = publisher.prepare_material(
+                    textures.emplace(
+                        name, engine.get_asset_registry().resolve<Comet::Texture>(handle));
+                auto version = Comet::RenderAssetFactory::prepare_material(
                     "benchmark project material", data.value(), textures);
                 if(!version)
                     return Result<void>::failure(version.error().message);
-                if(!publisher.publish(material->handle, version.value(), true))
+                if(!engine.get_asset_registry().replace_asset(material->handle, version.value()))
                     return Result<void>::failure("Cannot register benchmark project material");
             }
         }
@@ -385,11 +384,12 @@ namespace {
                 m_passes.insert(
                     m_passes.end(), {"bloom extract", "bloom horizontal", "bloom vertical"});
             m_passes.push_back("display");
-            for(const auto* name : {"cpu_wall", "cpu_events", "cpu_update", "cpu_prepare",
-                    "cpu_runtime_update", "cpu_render_submit", "cpu_scene_extract",
-                    "cpu_asset_resolution", "cpu_material_programs", "cpu_geometry", "cpu_lighting",
-                    "cpu_submission_prep", "cpu_queue_submit", "cpu_present", "cpu_render_record",
-                    "cpu_graph", "gpu_graph"})
+            for(const auto* name :
+                {"cpu_wall", "cpu_events", "cpu_update", "cpu_prepare", "cpu_runtime_update",
+                    "cpu_frame_handoff", "cpu_render_wait", "cpu_render_thread",
+                    "cpu_scene_extract", "cpu_asset_resolution", "cpu_material_programs",
+                    "cpu_geometry", "cpu_lighting", "cpu_submission_prep", "cpu_queue_submit",
+                    "cpu_present", "cpu_render_record", "cpu_graph", "gpu_graph"})
                 m_samples[name].reserve(options.frames);
             for(const auto& pass : m_passes)
                 for(const auto* prefix : {"cpu_", "gpu_"})
@@ -415,6 +415,7 @@ namespace {
                     || !snapshot.cpu || snapshot.cpu->serial != uint64_t(frame->frame_index)
                     || !snapshot.preparation || snapshot.preparation->serial != snapshot.cpu->serial
                     || !snapshot.submission || snapshot.submission->serial != snapshot.cpu->serial
+                    || !snapshot.frame || snapshot.frame->serial != snapshot.cpu->serial
                     || renderer.get_scene_renderer().get_render_target().get_size() != m_size
                     || renderer.get_scene_size() != m_scene_size
                     || renderer.get_quality_settings() != m_quality || renderer.quality_pending()
@@ -437,7 +438,9 @@ namespace {
                     m_samples["cpu_update"].push_back(frame->update_ms);
                     m_samples["cpu_prepare"].push_back(frame->prepare_ms);
                     m_samples["cpu_runtime_update"].push_back(frame->runtime_update_ms);
-                    m_samples["cpu_render_submit"].push_back(frame->render_submit_ms);
+                    m_samples["cpu_frame_handoff"].push_back(frame->frame_handoff_ms);
+                    m_samples["cpu_render_wait"].push_back(frame->render_wait_ms);
+                    m_samples["cpu_render_thread"].push_back(snapshot.frame->milliseconds);
                     m_samples["cpu_scene_extract"].push_back(frame->scene_extract_ms);
                     m_samples["cpu_asset_resolution"].push_back(snapshot.preparation->assets_ms);
                     m_samples["cpu_material_programs"].push_back(
@@ -448,9 +451,8 @@ namespace {
                     m_samples["cpu_queue_submit"].push_back(snapshot.submission->submit_ms);
                     m_samples["cpu_present"].push_back(snapshot.submission->present_ms);
                     m_samples["cpu_render_record"].push_back(
-                        frame->render_submit_ms - frame->scene_extract_ms
-                        - snapshot.submission->finalize_ms - snapshot.submission->submit_ms
-                        - snapshot.submission->present_ms);
+                        snapshot.frame->milliseconds - snapshot.submission->finalize_ms
+                        - snapshot.submission->submit_ms - snapshot.submission->present_ms);
                     append_graph("cpu_", *snapshot.cpu);
                 }
             }
@@ -498,6 +500,7 @@ namespace {
             std::ostringstream report;
             report.imbue(std::locale::classic());
             report << "# build=" << COMET_BENCHMARK_BUILD_TYPE << " validation_request=off\n";
+            report << "# timing_model=render-thread-v1\n";
 #ifdef __APPLE__
             report << "# cpu_qos_request=user_interactive\n";
             report << "# cpu_samples=";

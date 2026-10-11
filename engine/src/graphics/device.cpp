@@ -7,14 +7,73 @@
 #include "graphics/command/command_context.h"
 #include "diagnostics/profiler.h"
 #include "graphics/resource/allocator.h"
+#include "graphics/resource/image.h"
 #include "graphics/convert.h"
 
 #include <cstdio>
+#include <mutex>
+#include <thread>
+#include <variant>
 
 namespace Comet {
+    class Device::RetiredResources final {
+    public:
+        explicit RetiredResources(Device& device)
+            : m_device(device), m_owner(std::this_thread::get_id()) {}
+
+        struct ImageViewRelease {
+            vk::ImageView view;
+            std::shared_ptr<Image> image;
+        };
+
+        template<typename T> void release(T resource) {
+            if(std::this_thread::get_id() == m_owner) {
+                destroy(resource);
+                return;
+            }
+            std::scoped_lock lock(m_mutex);
+            m_pending.emplace_back(std::move(resource));
+        }
+
+        void collect() {
+            if(std::this_thread::get_id() != m_owner)
+                LOG_FATAL("GPU resource collection requires the Device owner thread");
+            {
+                std::scoped_lock lock(m_mutex);
+                m_pending.swap(m_collected);
+            }
+            // 不持锁销毁；ImageView 释放后可能连带释放 Image。
+            for(auto& resource : m_collected)
+                std::visit([this](auto& value) { destroy(value); }, resource);
+            m_collected.clear();
+        }
+
+    private:
+        void destroy(Allocator::BufferAllocation& resource) {
+            m_device.get_allocator().destroy_buffer(resource.buffer, resource.allocation);
+        }
+        void destroy(Allocator::ImageAllocation& resource) {
+            m_device.get_allocator().destroy_image(resource.image, resource.allocation);
+        }
+        void destroy(ImageViewRelease& resource) {
+            m_device.get().destroyImageView(resource.view);
+            resource.image.reset();
+        }
+        void destroy(vk::UniqueSampler& resource) { resource.reset(); }
+
+        using Resource = std::variant<Allocator::BufferAllocation, Allocator::ImageAllocation,
+            ImageViewRelease, vk::UniqueSampler>;
+        Device& m_device;
+        const std::thread::id m_owner;
+        std::mutex m_mutex;
+        std::vector<Resource> m_pending;
+        std::vector<Resource> m_collected;
+    };
+
     Device::Device(Context& context) : Device(context, CreateInfo{}) {}
 
-    Device::Device(Context& context, const CreateInfo create_info) : m_context(context) {
+    Device::Device(Context& context, const CreateInfo create_info)
+        : m_context(context), m_retired_resources(std::make_unique<RetiredResources>(*this)) {
         PROFILE_SCOPE("Device::Constructor");
         auto [graphics_queue_family_index, graphics_queue_counts] =
             context.get_graphics_queue_family();
@@ -98,10 +157,34 @@ namespace Comet {
         m_present_queues.clear();
         m_graphics_queues.clear();
         m_pipeline_cache.reset();
+        collect_retired_resources();
+        m_retired_resources.reset();
         m_allocator.reset();
         if(m_device) {
             m_device.destroy();
         }
+    }
+
+    void Device::collect_retired_resources() {
+        m_retired_resources->collect();
+    }
+
+    void Device::destroy_buffer(const vk::Buffer buffer, Allocation allocation) {
+        m_retired_resources->release(
+            Allocator::BufferAllocation{buffer, std::move(allocation), nullptr});
+    }
+
+    void Device::destroy_image(const vk::Image image, Allocation allocation) {
+        m_retired_resources->release(
+            Allocator::ImageAllocation{image, std::move(allocation), nullptr});
+    }
+
+    void Device::destroy_image_view(const vk::ImageView view, std::shared_ptr<Image> image) {
+        m_retired_resources->release(RetiredResources::ImageViewRelease{view, std::move(image)});
+    }
+
+    void Device::destroy_sampler(vk::UniqueSampler sampler) {
+        m_retired_resources->release(std::move(sampler));
     }
 
     void Device::create_allocator() {

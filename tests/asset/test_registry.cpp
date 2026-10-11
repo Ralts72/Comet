@@ -6,6 +6,9 @@
 
 namespace Comet::Tests {
     namespace {
+        struct OpaqueAsset;
+        struct OtherOpaqueAsset;
+
         struct TestMesh {
             int vertex_count = 0;
         };
@@ -13,6 +16,26 @@ namespace Comet::Tests {
         struct TestMaterial {
             int property_count = 0;
         };
+    }
+
+    TEST(AssetRegistryTest, RegistersAndReplacesForwardDeclaredResources) {
+        AssetRegistry registry;
+        const AssetHandle handle{7};
+        auto storage = std::make_shared<int>(1);
+        const std::shared_ptr<OpaqueAsset> original(
+            storage, reinterpret_cast<OpaqueAsset*>(storage.get()));
+        ASSERT_TRUE(registry.register_asset(handle, original));
+        EXPECT_TRUE(registry.contains<OpaqueAsset>(handle));
+        EXPECT_TRUE(registry.contains<const OpaqueAsset>(handle));
+        EXPECT_EQ(registry.resolve<const OpaqueAsset>(handle), original);
+        EXPECT_FALSE(registry.resolve<OtherOpaqueAsset>(handle));
+        storage = std::make_shared<int>(2);
+        const std::shared_ptr<OpaqueAsset> replacement(
+            storage, reinterpret_cast<OpaqueAsset*>(storage.get()));
+        ASSERT_TRUE(registry.replace_asset(handle, replacement));
+        EXPECT_EQ(registry.resolve<OpaqueAsset>(handle), replacement);
+        ASSERT_TRUE(registry.unregister_asset(handle));
+        EXPECT_FALSE(registry.contains<OpaqueAsset>(handle));
     }
 
     TEST(AssetRegistryTest, RegistersAndResolvesAssetByHandleAndType) {

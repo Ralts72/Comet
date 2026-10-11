@@ -3,10 +3,14 @@
 #include "imgui_hdr_frag.h"
 #include "support/render_gpu_test.h"
 #include "common/scope_exit.h"
+#include "render/render_thread.h"
 #include "core/window.h"
 #include "graphics/frame_buffer.h"
 #include "graphics/swapchain.h"
 #include "render/scene/render_submission.h"
+#include "asset/data/texture_data.h"
+#include "render/resource/texture.h"
+#include "graphics/resource/sampler.h"
 
 #include <GLFW/glfw3.h>
 #include <glm/gtc/packing.hpp>
@@ -17,6 +21,9 @@
 #include <cmath>
 #include <cstring>
 #include <atomic>
+#include <future>
+#include <latch>
+#include <thread>
 
 namespace Comet::Tests {
     namespace {
@@ -135,6 +142,36 @@ namespace Comet::Tests {
             }
             return pixel;
         }
+    }
+
+    TEST(ImGuiContextTest, CurrentContextIsLocalToEachThread) {
+        auto* previous = ImGui::GetCurrentContext();
+        auto* frontend = ImGui::CreateContext();
+        ImGui::SetCurrentContext(frontend);
+        const ScopeExit restore([&] {
+            ImGui::DestroyContext(frontend);
+            ImGui::SetCurrentContext(previous);
+        });
+        std::latch selected{1};
+        std::latch release{1};
+        std::jthread worker([&] {
+            EXPECT_EQ(ImGui::GetCurrentContext(), nullptr);
+            auto* backend = ImGui::CreateContext();
+            ImGui::SetCurrentContext(backend);
+            ImGui::GetStyle().Alpha = 0.25f;
+            selected.count_down();
+            release.wait();
+            EXPECT_EQ(ImGui::GetCurrentContext(), backend);
+            EXPECT_FLOAT_EQ(ImGui::GetStyle().Alpha, 0.25f);
+            ImGui::DestroyContext(backend);
+            EXPECT_EQ(ImGui::GetCurrentContext(), nullptr);
+        });
+        selected.wait();
+        EXPECT_EQ(ImGui::GetCurrentContext(), frontend);
+        EXPECT_FLOAT_EQ(ImGui::GetStyle().Alpha, 1.0f);
+        release.count_down();
+        worker.join();
+        EXPECT_EQ(ImGui::GetCurrentContext(), frontend);
     }
 
     class ImGuiOverlayGpuTest: public RenderGpuTest {
@@ -371,7 +408,118 @@ namespace Comet::Tests {
         EXPECT_FALSE(ui_frame);
     }
 
-    TEST_F(ImGuiOverlayGpuTest, BackendRebuildDiscardsCapturedDescriptorsAndAcceptsNewFrames) {
+    TEST_F(ImGuiOverlayGpuTest, MainBuildsANewUiFrameWhileWorkerRecordsCapturedInputs) {
+        create_ui();
+        ASSERT_TRUE(ui);
+        auto& renderer = engine->get_renderer();
+        const auto prepared = renderer.prepare_frame(renderer.take_asset_removals());
+        ASSERT_TRUE(prepared) << prepared.error();
+        ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
+        RenderScene scene;
+        scene.cameras.push_back(RenderCamera{.primary = true});
+        auto world = renderer.resolve_scene(&scene);
+        ASSERT_TRUE(world);
+        std::promise<void> entered;
+        auto recording_started = entered.get_future();
+        std::latch release{1};
+        struct CallbackInput {
+            std::promise<void>* entered;
+            std::latch* release;
+            ::ImGuiContext* frontend;
+        };
+        ASSERT_TRUE(ui->begin_frame());
+        auto* frontend = ImGui::GetCurrentContext();
+        CallbackInput input{&entered, &release, frontend};
+        ImGui::SetNextWindowPos({16, 16});
+        ImGui::SetNextWindowSize({120, 100});
+        ImGui::Begin("Captured worker frame");
+        ImGui::TextUnformatted("固定的 UI 输入");
+        ImGui::GetWindowDrawList()->AddCallback(
+            [](const ImDrawList*, const ImDrawCmd* command) {
+                const auto& input = *static_cast<const CallbackInput*>(command->UserCallbackData);
+                EXPECT_NE(ImGui::GetCurrentContext(), input.frontend);
+                EXPECT_NE(ImGui::GetIO().BackendRendererUserData, nullptr);
+                EXPECT_EQ(ImGui::GetIO().BackendPlatformUserData, nullptr);
+                input.entered->set_value();
+                input.release->wait();
+            },
+            &input, sizeof(input));
+        ImGui::End();
+        ui_frame = ui->end_frame();
+        renderer.set_overlay({.render = [&](OverlayRecordContext& overlay) {
+            return ui->render(overlay, std::move(ui_frame));
+        }});
+        RenderThread recording(renderer);
+        ASSERT_TRUE(recording.submit(std::move(world)));
+        ScopeExit unblock([&] { release.count_down(); });
+        const auto status = recording_started.wait_for(std::chrono::seconds(5));
+        EXPECT_EQ(status, std::future_status::ready);
+        EXPECT_EQ(ImGui::GetCurrentContext(), frontend);
+        if(status != std::future_status::ready || ImGui::GetCurrentContext() != frontend)
+            return;
+        EXPECT_FALSE(recording.submit({}));
+        ASSERT_TRUE(ui->begin_frame());
+        ImGui::Begin("New frontend frame");
+        ImGui::TextUnformatted("录制期间构建下一帧并添加新字形：渲染线程");
+        ImGui::End();
+        auto newer = ui->end_frame();
+        newer.reset();
+        release.count_down();
+        unblock.release();
+        const auto result = recording.complete();
+        ASSERT_TRUE(result) << result.error();
+        EXPECT_FALSE(ui_frame);
+        EXPECT_EQ(ImGui::GetCurrentContext(), frontend);
+    }
+
+    TEST_F(ImGuiOverlayGpuTest, HostBuildsUiOnMainAndWorkerDrawsAcrossSwapchainRecovery) {
+        create_ui();
+        ASSERT_TRUE(ui);
+        auto& renderer = engine->get_renderer();
+        const auto main_thread = std::this_thread::get_id();
+        unsigned ready = 0;
+        unsigned draws = 0;
+        unsigned rebuilds = 0;
+        renderer.set_overlay({.render =
+                                  [&](OverlayRecordContext& overlay) {
+                                      EXPECT_NE(std::this_thread::get_id(), main_thread);
+                                      ++draws;
+                                      return ui->render(overlay, std::move(ui_frame));
+                                  },
+            .release =
+                [&] {
+                    EXPECT_EQ(std::this_thread::get_id(), main_thread);
+                    ui->release_swapchain_resources();
+                },
+            .rebuild =
+                [&](const SwapchainCompatibility& compatibility) {
+                    EXPECT_EQ(std::this_thread::get_id(), main_thread);
+                    ++rebuilds;
+                    return ui->rebuild_swapchain_resources(compatibility);
+                }});
+        const auto result = engine->run({.frame_ready = [&](const Engine::FrameContext&) {
+            EXPECT_EQ(std::this_thread::get_id(), main_thread);
+            EXPECT_EQ(draws, ready);
+            ++ready;
+            if(ready == 2) {
+                glfwSetWindowSize(engine->get_window().get(), 240, 180);
+                renderer.request_swapchain_recreation();
+            }
+            if(!ui->begin_frame())
+                return Result<void, Error>::failure({"UI frame unavailable"});
+            transparent_window();
+            ui_frame = ui->end_frame();
+            if(ready == 4)
+                engine->get_window().request_close();
+            return Result<void, Error>::success();
+        }});
+        ASSERT_TRUE(result) << result.error();
+        EXPECT_EQ(draws, 4u);
+        EXPECT_GT(rebuilds, 0u);
+        EXPECT_FALSE(ui_frame);
+    }
+
+    TEST_F(ImGuiOverlayGpuTest, SwapchainRebuildDiscardsOldFramesAndAcceptsNewFrames) {
         create_ui();
         ASSERT_TRUE(ui);
         auto& renderer = engine->get_renderer();
@@ -410,6 +558,125 @@ namespace Comet::Tests {
         ui.reset();
         // 尚未录制的 CPU 帧也可在关闭前端后正常释放。
         unrecorded.reset();
+    }
+
+    TEST_F(ImGuiOverlayGpuTest, CapturedViewportPinsImageVersionsAndReusesUnchangedBindings) {
+        create_ui();
+        ASSERT_TRUE(ui);
+        auto& renderer = engine->get_renderer();
+        auto& resources = engine->get_render_resources();
+        auto old_result =
+            resources.try_create_texture({.width = 1, .height = 1, .pixels = {255, 0, 0, 255}});
+        auto next_result =
+            resources.try_create_texture({.width = 1, .height = 1, .pixels = {0, 0, 255, 255}});
+        auto sampler_result = resources.get_sampler_manager().get_nearest_clamp();
+        ASSERT_TRUE(old_result) << old_result.error();
+        ASSERT_TRUE(next_result) << next_result.error();
+        ASSERT_TRUE(sampler_result) << sampler_result.error();
+        auto old = std::move(old_result).value();
+        auto next = std::move(next_result).value();
+        auto sampler = std::move(sampler_result).value();
+        const auto old_ready = old->get_ready_completion();
+        const std::weak_ptr<ImageView> old_image = old->get_image_view();
+        ImTextureID descriptor = ImTextureID_Invalid;
+        struct Observation {
+            ImTextureID logical;
+            ImTextureID* descriptor;
+        };
+        const auto capture = [&](ImTextureID logical) {
+            EXPECT_TRUE(ui->begin_frame());
+            auto* list = ImGui::GetBackgroundDrawList();
+            list->AddImage(logical, {8, 8}, {100, 80});
+            Observation observation{logical, &descriptor};
+            list->AddCallback(
+                [](const ImDrawList* recorded, const ImDrawCmd* callback) {
+                    const auto& observed =
+                        *static_cast<const Observation*>(callback->UserCallbackData);
+                    ASSERT_GT(recorded->CmdBuffer.Size, 0);
+                    const auto actual = recorded->CmdBuffer.front().GetTexID();
+                    EXPECT_NE(actual, ImTextureID_Invalid);
+                    EXPECT_NE(actual, observed.logical);
+                    *observed.descriptor = actual;
+                },
+                &observation, sizeof(observation));
+            return ui->end_frame();
+        };
+        const auto prepared = renderer.prepare_frame();
+        ASSERT_TRUE(prepared) << prepared.error();
+        ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
+        const auto slot = renderer.get_frame_scheduler().get_current_frame_slot_index();
+        ui->set_viewport_image(slot, old->get_image_view(), sampler);
+        const auto logical = ui->get_viewport_texture_id(slot);
+        ASSERT_NE(logical, ImTextureID_Invalid);
+        ui_frame = capture(logical);
+        ui->set_viewport_image(slot, next->get_image_view(), sampler);
+        EXPECT_EQ(ui->get_viewport_texture_id(slot), logical);
+        auto newer = capture(logical);
+        newer.reset();
+        old.reset();
+        EXPECT_FALSE(old_image.expired());
+        renderer.set_overlay({.render = [&](OverlayRecordContext& overlay) {
+            overlay.wait_for(old_ready, Flags<PipelineStage>(PipelineStage::FragmentShader));
+            overlay.wait_for(
+                next->get_ready_completion(), Flags<PipelineStage>(PipelineStage::FragmentShader));
+            return ui->render(overlay, std::move(ui_frame));
+        }});
+        ASSERT_TRUE(renderer.render_frame({}));
+        EXPECT_NE(descriptor, ImTextureID_Invalid);
+        // CPU 帧已消费；旧图片仍由录制使用的 GPU 绑定保活。
+        EXPECT_FALSE(old_image.expired());
+        std::map<ImTextureID, ImTextureID> descriptors;
+        unsigned reused = 0;
+        const auto frame_count = renderer.get_frame_scheduler().get_frame_slot_count() * 2;
+        for(unsigned index = 0; index < frame_count; ++index) {
+            const auto ready = renderer.prepare_frame();
+            ASSERT_TRUE(ready) << ready.error();
+            ASSERT_EQ(ready.value(), Renderer::FramePreparation::Ready);
+            const auto frame_slot = renderer.get_frame_scheduler().get_current_frame_slot_index();
+            ui->set_viewport_image(frame_slot, next->get_image_view(), sampler);
+            const auto id = ui->get_viewport_texture_id(frame_slot);
+            ui_frame = capture(id);
+            descriptor = ImTextureID_Invalid;
+            ASSERT_TRUE(renderer.render_frame({}));
+            ASSERT_NE(descriptor, ImTextureID_Invalid);
+            const auto [found, inserted] = descriptors.emplace(id, descriptor);
+            if(!inserted) {
+                ++reused;
+                EXPECT_EQ(found->second, descriptor);
+            }
+        }
+        renderer.wait_idle();
+        EXPECT_TRUE(old_image.expired());
+        EXPECT_EQ(reused, renderer.get_frame_scheduler().get_frame_slot_count());
+    }
+
+    TEST_F(ImGuiOverlayGpuTest, ViewportPacketRejectsImagesFromAnotherFrameSlot) {
+        create_ui();
+        ASSERT_TRUE(ui);
+        auto& renderer = engine->get_renderer();
+        auto texture = engine->get_render_resources().try_create_texture(
+            {.width = 1, .height = 1, .pixels = {255, 255, 255, 255}});
+        auto sampler = engine->get_render_resources().get_sampler_manager().get_nearest_clamp();
+        ASSERT_TRUE(texture) << texture.error();
+        ASSERT_TRUE(sampler) << sampler.error();
+        const auto prepared = renderer.prepare_frame();
+        ASSERT_TRUE(prepared) << prepared.error();
+        ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
+        const auto slot = renderer.get_frame_scheduler().get_current_frame_slot_index() + 1;
+        ui->set_viewport_image(slot, texture.value()->get_image_view(), sampler.value());
+        ASSERT_TRUE(ui->begin_frame());
+        ImGui::GetBackgroundDrawList()->AddImage(
+            ui->get_viewport_texture_id(slot), {8, 8}, {100, 80});
+        ui_frame = ui->end_frame();
+        renderer.set_overlay({.render = [&](OverlayRecordContext& overlay) {
+            const auto recorded = ui->render(overlay, std::move(ui_frame));
+            EXPECT_FALSE(recorded);
+            if(!recorded)
+                EXPECT_NE(recorded.error().message.find("another frame slot"), std::string::npos);
+            return Result<void, GraphicsError>::success();
+        }});
+        ASSERT_TRUE(renderer.render_frame({}));
+        EXPECT_FALSE(ui_frame);
     }
 
     TEST_F(ImGuiOverlayGpuTest, CompatibleOffscreenBackendKeepsEmptyUiAndPixelsOutsideWindow) {

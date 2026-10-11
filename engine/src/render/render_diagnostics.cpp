@@ -29,10 +29,12 @@ namespace Comet {
             return Result<void>::failure("Diagnostics changes require a frame boundary");
         if(enabled && !m_enabled) {
             m_cpu_history.clear();
+            m_frame_history.clear();
             m_gpu_history.clear();
             m_preparation_history.clear();
             m_submission_history.clear();
             m_snapshot.cpu.reset();
+            m_snapshot.frame.reset();
             m_snapshot.gpu.reset();
             m_snapshot.preparation.reset();
             m_snapshot.submission.reset();
@@ -133,6 +135,7 @@ namespace Comet {
     void RenderDiagnostics::skip_frame() {
         m_snapshot.scene_rendered = false;
         m_snapshot.cpu.reset();
+        m_snapshot.frame.reset();
         m_snapshot.gpu.reset();
         m_snapshot.preparation.reset();
         m_snapshot.submission.reset();
@@ -155,6 +158,13 @@ namespace Comet {
         const TimingHistory::Entry phases[]{
             {"Submission prep", finalize_ms}, {"Queue submit", submit_ms}, {"Present", present_ms}};
         m_submission_history.record(finalize_ms + submit_ms + present_ms, phases);
+    }
+
+    void RenderDiagnostics::record_frame(const uint64_t serial, const double milliseconds) {
+        if(!m_enabled)
+            return;
+        m_snapshot.frame = FrameTiming{serial, milliseconds};
+        m_frame_history.record(milliseconds, {});
     }
 
     Result<void, GraphicsError> RenderDiagnostics::record(const RenderGraph::Plan& plan,

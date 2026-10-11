@@ -46,10 +46,10 @@ set(PHYSICS_HEADERS "${RUNTIME_HEADERS}|physics/|scene/systems/physics_system\\.
 set(PHYSICS_BACKEND_HEADERS "${ASSET_HEADERS}|audio/audio_category\\.h$|physics/|scene/(components|entity_id|entity_uuid|scene_settings)\\.h$")
 set(SCRIPTING_HEADERS "${RUNTIME_HEADERS}|scripting/|scene/systems/script_system\\.h$")
 set(RUNTIME_ASSET_HEADERS "${PIPELINE_HEADERS}|${AUDIO_DATA_HEADERS}|asset/(asset_manager\\.h$|runtime/)|scripting/script_compiler\\.h$|audio/audio\\.h$|graphics/error\\.h$")
-set(RENDER_ASSET_HEADERS "${FOUNDATION_HEADERS}|asset/(handle|registry)\\.h$|asset/data/|asset/runtime/render_asset_publisher\\.h$|graphics/|render/(resource/|material/material\\.h$)")
+set(RENDER_ASSET_HEADERS "${FOUNDATION_HEADERS}|asset/handle\\.h$|asset/data/|asset/runtime/render_asset_factory\\.h$|graphics/|render/(resource/|material/material\\.h$)")
 set(PLATFORM_HEADERS "${INPUT_HEADERS}|core/(window|window_settings)\\.h$")
 set(GRAPHICS_HEADERS "${FOUNDATION_HEADERS}|graphics/|${PLATFORM_HEADERS}")
-set(RENDER_HEADERS "${GRAPHICS_HEADERS}|${WORLD_HEADERS}|render/|asset/artifact/shader_program_artifact\\.h$|asset/runtime/render_asset_publisher\\.h$")
+set(RENDER_HEADERS "${GRAPHICS_HEADERS}|${WORLD_HEADERS}|render/|asset/artifact/shader_program_artifact\\.h$|asset/runtime/render_asset_factory\\.h$")
 set(RENDER_SNAPSHOT_HEADERS
     "${FOUNDATION_HEADERS}|asset/handle\\.h$|scene/(entity_id|scene_settings)\\.h$|render/(lighting|scene/render_scene)\\.h$")
 set(GAME_UI_HEADERS "${RENDER_HEADERS}|${AUDIO_DATA_HEADERS}|config/display_settings\\.h$|ui/|core/project\\.h$")
@@ -68,7 +68,7 @@ function(check_module_closure module sources allowed)
             REGEX "^[ \t]*#[ \t]*include[ \t]*[<\"]")
         foreach(line IN LISTS includes)
             if(line MATCHES "[<\"]([Vv]ulkan/|GLFW/|RmlUi/|imgui|(lua|lauxlib|lualib)\\.h|Jolt/|miniaudio\\.h)")
-                if(NOT ((module MATCHES "^(Graphics|Render|RenderAssetPublication|GameUi)$"
+                if(NOT ((module MATCHES "^(Graphics|Render|RenderAssetFactory|GameUi)$"
                     AND line MATCHES "[<\"][Vv]ulkan/") OR
                     (module MATCHES "^(Platform|Graphics|Render|GameUi)$"
                     AND path MATCHES "^(core/window|graphics/window_surface)\\.cpp$"
@@ -127,7 +127,7 @@ check_module_closure(AssetPipeline "${COMET_ASSET_PIPELINE_SOURCES}" "${PIPELINE
 check_module_closure(RuntimeAssets "${COMET_RUNTIME_ASSETS_SOURCES}" "${RUNTIME_ASSET_HEADERS}")
 check_module_closure(Platform "${COMET_PLATFORM_SOURCES}" "${PLATFORM_HEADERS}")
 check_module_closure(Graphics "${COMET_GRAPHICS_SOURCES}" "${GRAPHICS_HEADERS}")
-check_module_closure(RenderAssetPublication "src/render/resource/render_asset_publisher.cpp"
+check_module_closure(RenderAssetFactory "src/render/resource/render_asset_factory.cpp"
     "${RENDER_ASSET_HEADERS}")
 check_module_closure(Render "${COMET_RENDER_SOURCES}" "${RENDER_HEADERS}")
 check_module_closure(RenderSnapshot "src/render/scene/render_scene.h" "${RENDER_SNAPSHOT_HEADERS}")

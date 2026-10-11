@@ -133,7 +133,8 @@ namespace Comet::Tests {
                 second_size = {17, 23};
                 auto blue = std::make_shared<Material>("left", "unlit_color");
                 ASSERT_TRUE(blue->set_vector_property("color", {0, 0, 1, 1}));
-                auto candidate = renderer.prepare_material_update(left_material, blue);
+                auto candidate =
+                    renderer.prepare_material_update(left_material, blue->snapshot(), {});
                 ASSERT_TRUE(candidate) << candidate.error();
                 std::move(candidate).value().publish();
                 ASSERT_TRUE(registry.replace_asset(left_material, blue));
@@ -360,19 +361,19 @@ namespace Comet::Tests {
         for(size_t index = 0; index < outputs.size(); ++index) {
             if(index == 1) {
                 // 丢弃有效 GPU 候选，模拟后续保存文件失败而未发布。
-                auto abandoned = renderer.prepare_material_update(handle, pbr);
+                auto abandoned = renderer.prepare_material_update(handle, pbr->snapshot(), {});
                 ASSERT_TRUE(abandoned) << abandoned.error();
-                EXPECT_FALSE(renderer.prepare_material_update(
-                    handle, std::make_shared<Material>("invalid", "missing_template")));
+                EXPECT_FALSE(renderer.prepare_material_update(handle,
+                    std::make_shared<Material>("invalid", "missing_template")->snapshot(), {}));
             } else if(index == 2) {
-                auto update = renderer.prepare_material_update(handle, pbr);
+                auto update = renderer.prepare_material_update(handle, pbr->snapshot(), {});
                 ASSERT_TRUE(update) << update.error();
                 std::move(update).value().publish();
                 ASSERT_TRUE(registry.replace_asset(handle, pbr));
             } else if(index == 3) {
                 auto red = std::make_shared<Material>("authored", "unlit_color");
                 ASSERT_TRUE(red->set_vector_property("color", {1, 0, 0, 1}));
-                auto update = renderer.prepare_material_update(handle, red);
+                auto update = renderer.prepare_material_update(handle, red->snapshot(), {});
                 ASSERT_TRUE(update) << update.error();
                 std::move(update).value().publish();
                 ASSERT_TRUE(registry.replace_asset(handle, std::move(red)));

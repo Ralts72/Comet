@@ -1,6 +1,7 @@
 #include "assets/material_editing.h"
 #include "asset/database.h"
 #include "assets/editor_assets.h"
+#include "render/material/material.h"
 #include "render/renderer.h"
 
 #include <algorithm>
@@ -12,7 +13,9 @@ namespace CometEditor {
         auto update = assets.prepare_material_edit(edit);
         if(!update)
             return Comet::Result<void, Comet::Error>::failure(update.error());
-        auto bindings = renderer.prepare_material_update(edit.handle, update.value().material());
+        const auto snapshot = update.value().material()->snapshot();
+        const auto program = assets.compiled_shader_program(snapshot->get_shader_program());
+        auto bindings = renderer.prepare_material_update(edit.handle, snapshot, program);
         if(!bindings)
             return Comet::Result<void, Comet::Error>::failure(bindings.error().as_error());
         if(auto committed = assets.commit_material_edit(update.value()); !committed)

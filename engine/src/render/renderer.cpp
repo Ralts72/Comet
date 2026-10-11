@@ -1,7 +1,5 @@
 #include "renderer.h"
 #include "asset/registry.h"
-#include "asset/artifact/shader_program_artifact.h"
-#include "render/material/material.h"
 #include "common/scope_exit.h"
 #include "render/render_context.h"
 #include "render/frame_scheduler.h"
@@ -147,6 +145,27 @@ namespace Comet {
     }
 
     Result<Renderer::FramePreparation, GraphicsError> Renderer::prepare_frame() {
+        return prepare_frame(take_asset_removals());
+    }
+
+    AssetRegistry::Removals Renderer::take_asset_removals() {
+        m_scene_resolver.refresh_assets();
+        return m_asset_registry.take_removals();
+    }
+
+    std::shared_ptr<const RenderWorld> Renderer::resolve_scene(const RenderScene* scene) {
+        PROFILE_SCOPE("resolve render assets");
+        if(!scene || !has_visible_view()) {
+            m_scene_resolver.reset();
+            return {};
+        }
+        return RenderDiagnostics::measure_preparation(m_diagnostics.get(),
+            RenderDiagnostics::PreparationPhase::Assets,
+            [&] { return m_scene_resolver.update(*scene); });
+    }
+
+    Result<Renderer::FramePreparation, GraphicsError> Renderer::prepare_frame(
+        AssetRegistry::Removals removals) {
         using Preparation = Result<FramePreparation, GraphicsError>;
         if(m_shutdown_prepared)
             return Preparation::failure({"Renderer is shutting down"});
@@ -155,13 +174,12 @@ namespace Comet {
             return Preparation::failure({"A render frame is already active"});
         PROFILE_SCOPE("prepare frame");
         m_render_resources->collect_completed_uploads();
-        const auto removals = m_asset_registry.take_removals();
+        m_render_context->get_device().collect_retired_resources();
         m_programs->remove_assets(removals);
         for(auto& [id, view] : m_views)
             view.scene->remove_assets(removals);
         m_geometry.clear_frame();
         m_world.reset();
-        m_scene_resolver.refresh_assets();
 
         if(m_pending_output) {
             const auto output = std::exchange(m_pending_output, std::nullopt).value();
@@ -218,23 +236,46 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> Renderer::render_frame(const RenderScene& render_scene) {
-        return complete_frame(&render_scene);
+        return render_world(resolve_scene(&render_scene));
     }
 
     Result<void, GraphicsError> Renderer::render_frame() {
-        return complete_frame(nullptr);
+        return render_world(resolve_scene(nullptr));
     }
 
-    Result<void, GraphicsError> Renderer::complete_frame(const RenderScene* render_scene) {
+    Result<void, GraphicsError> Renderer::render_world(std::shared_ptr<const RenderWorld> frame) {
+        auto result = record_world(std::move(frame));
+        if(!result)
+            prepare_shutdown();
+        return result;
+    }
+
+    bool Renderer::has_visible_view() const {
+        return std::ranges::any_of(m_views, [](const auto& entry) {
+            return entry.second.view.visible || !entry.second.scene->is_offscreen();
+        });
+    }
+
+    Result<void, GraphicsError> Renderer::record_world(std::shared_ptr<const RenderWorld> frame) {
+        if(!m_diagnostics->is_enabled())
+            return draw_world(std::move(frame));
+        const auto serial = m_frames->get_current_frame_serial();
+        const auto start = RenderDiagnostics::Clock::now();
+        auto result = draw_world(std::move(frame));
+        if(result)
+            m_diagnostics->record_frame(serial,
+                std::chrono::duration<double, std::milli>(RenderDiagnostics::Clock::now() - start)
+                    .count());
+        return result;
+    }
+
+    Result<void, GraphicsError> Renderer::draw_world(std::shared_ptr<const RenderWorld> frame) {
         if(m_shutdown_prepared)
             return Result<void, GraphicsError>::failure({"Renderer is shutting down"});
-        ScopeExit failed([this] { prepare_shutdown(); });
         if(!m_frames->is_recording_frame())
             return Result<void, GraphicsError>::failure({"No prepared render frame"});
         PROFILE_SCOPE("render frame");
-        if(std::ranges::all_of(m_views, [](const auto& entry) {
-               return !entry.second.view.visible && entry.second.scene->is_offscreen();
-           })) {
+        if(!has_visible_view()) {
             discard_frame_requests();
             get_view(DEFAULT_VIEW).scene->get_shadow_pass()->reset_statistics();
             for(auto& [id, view] : m_views)
@@ -243,19 +284,9 @@ namespace Comet {
             std::vector<QueueSemaphoreSubmit> waits;
             if(auto recorded = record_overlay(waits); !recorded)
                 return recorded;
-            auto submitted = m_presentation->end_frame(waits);
-            if(submitted)
-                failed.release();
-            return submitted;
+            return m_presentation->end_frame(waits);
         }
-        if(render_scene)
-            RenderDiagnostics::measure_preparation(m_diagnostics.get(),
-                RenderDiagnostics::PreparationPhase::Assets,
-                [&] { m_world = m_scene_resolver.update(*render_scene); });
-        else {
-            m_world.reset();
-            m_scene_resolver.reset();
-        }
+        m_world = std::move(frame);
         const RenderWorld empty_world;
         const auto& world = m_world ? *m_world : empty_world;
         RenderDiagnostics::measure_preparation(m_diagnostics.get(),
@@ -282,7 +313,7 @@ namespace Comet {
             }
             auto* diagnostics = diagnosed ? nullptr : m_diagnostics.get();
             if(auto recorded =
-                    render_view(view, world, render_scene != nullptr, resource_waits, diagnostics);
+                    render_view(view, world, m_world != nullptr, resource_waits, diagnostics);
                 !recorded)
                 return recorded;
             diagnosed = true;
@@ -290,10 +321,7 @@ namespace Comet {
         if(auto recorded = record_overlay(resource_waits); !recorded)
             return recorded;
 
-        auto submitted = m_presentation->end_frame(resource_waits, m_diagnostics.get());
-        if(submitted)
-            failed.release();
-        return submitted;
+        return m_presentation->end_frame(resource_waits, m_diagnostics.get());
     }
 
     Result<void, GraphicsError> Renderer::render_view(ViewState& view, const RenderWorld& world,
@@ -386,7 +414,8 @@ namespace Comet {
     }
 
     Result<Renderer::MaterialUpdate, GraphicsError> Renderer::prepare_material_update(
-        const AssetHandle handle, const std::shared_ptr<const Material>& material) {
+        const AssetHandle handle, const std::shared_ptr<const Material>& snapshot,
+        const std::shared_ptr<const ShaderProgramArtifact>& program_source) {
         using Preparation = Result<MaterialUpdate, GraphicsError>;
         if(m_shutdown_prepared)
             return Preparation::failure({"Renderer is shutting down"});
@@ -397,12 +426,8 @@ namespace Comet {
         for(auto& [id, view] : m_views) {
             materials.push_back(&view.scene->get_material_renderer());
         }
-        const auto source = material ? material->snapshot() : nullptr;
-        std::shared_ptr<const ShaderProgramArtifact> program;
-        if(source && source->get_shader_program())
-            program = m_asset_registry.resolve<ShaderProgramArtifact>(source->get_shader_program());
-        auto candidates = MaterialRenderer::prepare_material_updates(
-            materials, handle, source, std::move(program));
+        auto candidates =
+            MaterialRenderer::prepare_material_updates(materials, handle, snapshot, program_source);
         if(!candidates)
             return Preparation::failure(candidates.error());
         MaterialUpdate update;
@@ -560,7 +585,6 @@ namespace Comet {
         }
         m_geometry.clear_frame();
         m_world.reset();
-        m_scene_resolver.reset();
     }
 
     void Renderer::prepare_shutdown() noexcept {
@@ -573,6 +597,7 @@ namespace Comet {
     Renderer::~Renderer() {
         LOG_INFO("destroy renderer");
         prepare_shutdown();
+        m_scene_resolver.reset();
 
         m_presentation.reset();
         m_diagnostics.reset();

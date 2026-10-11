@@ -26,7 +26,7 @@ namespace Comet {
 
     Buffer::~Buffer() {
         if(m_buffer && m_allocation) {
-            get_allocator().destroy_buffer(m_buffer, m_allocation);
+            m_device.destroy_buffer(m_buffer, std::move(m_allocation));
         }
     }
 

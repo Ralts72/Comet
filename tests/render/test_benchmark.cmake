@@ -81,7 +81,8 @@ foreach(case static-0 static-1 scaled multi moving moving-singles light-moving a
             message(FATAL_ERROR "Incomplete CPU sampling metadata\n${csv}")
         endif()
     endif()
-    foreach(metric cpu_wall cpu_events cpu_update cpu_prepare cpu_runtime_update cpu_render_submit
+    foreach(metric cpu_wall cpu_events cpu_update cpu_prepare cpu_runtime_update cpu_frame_handoff
+            cpu_render_wait cpu_render_thread
             cpu_scene_extract cpu_asset_resolution cpu_material_programs cpu_geometry cpu_lighting
             cpu_submission_prep cpu_queue_submit cpu_present cpu_render_record cpu_graph
             "cpu_directional shadow" cpu_scene cpu_display)
@@ -89,7 +90,8 @@ foreach(case static-0 static-1 scaled multi moving moving-singles light-moving a
             message(FATAL_ERROR "Missing complete metric: ${metric}\n${csv}")
         endif()
     endforeach()
-    if(NOT csv MATCHES "scene_draws=${draws} lights=3 msaa=${msaa} bloom=${bloom}"
+    if(NOT csv MATCHES "timing_model=render-thread-v1"
+            OR NOT csv MATCHES "scene_draws=${draws} lights=3 msaa=${msaa} bloom=${bloom}"
             OR NOT csv MATCHES "render_items=9 culled_items=${culled}"
             OR NOT csv MATCHES "pipeline_binds=${pipelines} material_binds=${materials} cached_material_versions=${materials}"
             OR NOT csv MATCHES "workload=${workload} materials=${materials}"

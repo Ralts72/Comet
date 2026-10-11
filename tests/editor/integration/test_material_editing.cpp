@@ -117,7 +117,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(saved(), initial);
         EXPECT_FALSE(editing->active());
         EXPECT_FALSE(editing->can_undo(handle));
-        EXPECT_TRUE(renderer.prepare_material_update(handle, original));
+        EXPECT_TRUE(renderer.prepare_material_update(handle, original->snapshot(), {}));
     }
 
     TEST_F(MaterialGestureTest, FailedSaveKeepsPreviewAndDraftForRetryWithoutPreparingAgain) {

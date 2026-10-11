@@ -1,5 +1,5 @@
 #include "asset/asset_manager.h"
-#include "asset/runtime/render_asset_publisher.h"
+#include "asset/runtime/render_asset_factory.h"
 #include "graphics/error.h"
 
 #include "asset/import/asset_task_queue.h"
@@ -65,8 +65,8 @@ namespace Comet {
                 continue;
             }
             if(preparing_environment) {
-                const auto current = m_render_assets->environment(handle);
-                if(current && !m_render_assets->has_lighting(current))
+                const auto current = m_registry.resolve<Environment>(handle);
+                if(current && !RenderAssetFactory::has_lighting(current))
                     static_cast<void>(m_registry.unregister_asset(handle));
                 m_environment_previews.erase(handle);
             }
@@ -99,7 +99,7 @@ namespace Comet {
                 accepted = schedule_material_refresh(record);
                 break;
             case AssetType::Texture:
-                if(!m_render_assets->texture(record.handle)
+                if(!m_registry.resolve<Texture>(record.handle)
                     || !std::holds_alternative<TextureImportSettings>(record.import_settings)) {
                     LOG_ERROR(
                         "Cannot refresh texture asset handle {}: incompatible runtime type or settings",
@@ -203,7 +203,7 @@ namespace Comet {
             auto background = pending->preview.take();
             if(!background)
                 continue;
-            auto environment = m_render_assets->prepare_preview(*background);
+            auto environment = m_render_factory->prepare_preview(std::move(*background));
             if(!environment) {
                 if(is_device_lost(environment.error()))
                     return Result<void, Error>::failure(environment.error());
@@ -212,7 +212,7 @@ namespace Comet {
             }
             if(!m_database.is_current(handle, pending->revision))
                 return Result<void, Error>::success();
-            static_cast<void>(m_render_assets->publish(handle, environment.value(), false));
+            static_cast<void>(m_registry.register_asset(handle, environment.value()));
             return Result<void, Error>::success();
         }
         return Result<void, Error>::success();
@@ -303,7 +303,7 @@ namespace Comet {
         const AssetRevision revision = m_database.get_revision(handle);
         if(m_task_queue->contains(handle, revision))
             return true;
-        const auto previous_texture = m_render_assets->texture(handle);
+        const auto previous_texture = m_registry.resolve<Texture>(handle);
         if(!previous_texture) {
             return !m_registry.contains(handle);
         }

@@ -17,6 +17,9 @@ namespace Comet {
     class Buffer;
     class Image;
     class OwnedImage;
+    class ImageView;
+    class Sampler;
+    class Allocation;
     class Allocator;
 
     class COMET_API Device {
@@ -53,6 +56,8 @@ namespace Comet {
 
         void wait_idle() const;
         void wait_idle_for_shutdown() const noexcept;
+        // 在 Device 创建线程回收跨线程释放的共享资源；GPU 完成仍由帧／上传保活保证。
+        void collect_retired_resources();
 
         void set_allocator_frame_index(uint64_t frame_serial) const;
 
@@ -95,6 +100,13 @@ namespace Comet {
         friend class Buffer;
         friend class Image;
         friend class OwnedImage;
+        friend class ImageView;
+        friend class Sampler;
+
+        void destroy_buffer(vk::Buffer buffer, Allocation allocation);
+        void destroy_image(vk::Image image, Allocation allocation);
+        void destroy_image_view(vk::ImageView view, std::shared_ptr<Image> image);
+        void destroy_sampler(vk::UniqueSampler sampler);
 
         [[nodiscard]] Allocator& get_allocator() const;
 
@@ -113,5 +125,7 @@ namespace Comet {
         DeviceCapability m_capability;
         std::unique_ptr<PipelineCache> m_pipeline_cache;
         std::unique_ptr<CommandPool> m_default_command_pool;
+        class RetiredResources;
+        std::unique_ptr<RetiredResources> m_retired_resources;
     };
 }

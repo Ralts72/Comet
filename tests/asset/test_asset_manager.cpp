@@ -258,6 +258,25 @@ namespace Comet::Tests {
         EXPECT_EQ(factory.mesh_creation_count(), 2);
     }
 
+    TEST_F(MeshAsyncImportTest, NewRuntimePublicationRejectsOldMeshButKeepsThePublishedArtifact) {
+        ASSERT_TRUE(manager.import_mesh(handle));
+        const auto original = loaded_asset(manager.load_mesh(handle));
+        ASSERT_TRUE(original);
+        const auto revision = database.get_revision(handle);
+        const auto publication = registry.get_revision(handle);
+        ASSERT_TRUE(manager.import_mesh_async(handle, Mode::Force));
+        factory.on_next_mesh_creation([&] {
+            ASSERT_TRUE(registry.replace_asset(handle, original));
+            EXPECT_EQ(database.get_revision(handle), revision);
+        });
+        EXPECT_EQ(complete(), std::vector{handle});
+        EXPECT_TRUE(MeshArtifact::load(artifact_path(), handle));
+        EXPECT_EQ(registry.resolve<Mesh>(handle), original);
+        EXPECT_NE(registry.get_revision(handle), publication);
+        EXPECT_EQ(factory.mesh_creation_count(), 2);
+        EXPECT_EQ(manager.get_async_status().reserved_bytes, 0u);
+    }
+
     TEST_F(MeshAsyncImportTest, ForceRequestDuringCacheCheckIsNotLost) {
         ASSERT_TRUE(manager.import_mesh(handle));
         ASSERT_TRUE(loaded_asset(manager.load_mesh(handle)));
@@ -715,6 +734,33 @@ namespace Comet::Tests {
             manager.references_ready(references, AssetManager::MissingAssetPolicy::FailRequired);
         ASSERT_TRUE(ready);
         EXPECT_TRUE(ready.value());
+    }
+
+    TEST(AssetManagerTest, StaleEnvironmentCreationCannotReplaceOrRemoveANewerPreview) {
+        for(const bool fail : {false, true}) {
+            SCOPED_TRACE(fail);
+            const TemporaryProject project;
+            write_hdr(project.paths().assets() / "studio.hdr");
+            AssetRegistry registry;
+            FakeRenderResourceFactory factory;
+            TaskScheduler scheduler(1);
+            AssetManager manager(project.paths(), registry, factory, scheduler);
+            ASSERT_TRUE(manager.scan().succeeded());
+            const auto handle = manager.get_database().find("studio.hdr")->handle;
+            const auto revision = manager.get_database().get_revision(handle);
+            ASSERT_TRUE(manager.request_load(handle, AssetType::Environment));
+            scheduler.wait_idle();
+            auto latest = std::make_shared<Environment>();
+            latest->background = factory.try_create_texture({}).value();
+            factory.on_next_texture_creation([&] {
+                ASSERT_TRUE(registry.register_asset(handle, latest));
+                factory.fail_texture_creation(fail);
+            });
+            EXPECT_TRUE(completed_handles(manager.process_completions()).empty());
+            EXPECT_EQ(registry.resolve<Environment>(handle), latest);
+            EXPECT_EQ(manager.get_database().get_revision(handle), revision);
+            EXPECT_EQ(manager.get_async_status().reserved_bytes, 0u);
+        }
     }
 
     TEST(AssetManagerTest, PreviewIsNotReadyAndFailedPreparationRemovesOnlyThePreview) {

@@ -1,5 +1,6 @@
 #pragma once
 #include "common/export.h"
+#include "asset/registry.h"
 #include "graphics/result.h"
 #include "graphics/vulkan_settings.h"
 #include "render/render_settings.h"
@@ -35,6 +36,7 @@ namespace Comet {
     class MaterialPrograms;
     class FrameScheduler;
     class Presentation;
+    class RenderThread;
     class OverlayRecordContext;
     struct SwapchainCompatibility;
     struct QueueSemaphoreSubmit;
@@ -82,6 +84,13 @@ namespace Comet {
 
         // Ready 才能提取并绘制；Deferred 不持有活动帧。
         [[nodiscard]] Result<FramePreparation, GraphicsError> prepare_frame();
+        // Main 取走删除批次并解析资源；GPU 入口只消费交付的独立值。
+        [[nodiscard]] AssetRegistry::Removals take_asset_removals();
+        [[nodiscard]] std::shared_ptr<const RenderWorld> resolve_scene(const RenderScene* scene);
+        [[nodiscard]] Result<FramePreparation, GraphicsError> prepare_frame(
+            AssetRegistry::Removals removals);
+        [[nodiscard]] Result<void, GraphicsError> render_world(
+            std::shared_ptr<const RenderWorld> world);
         // 消费场景快照，完成绘制、提交和呈现；帧错误终止本次 Renderer 生命周期。
         [[nodiscard]] Result<void, GraphicsError> render_frame(const RenderScene& render_scene);
         // 无活动场景时只清屏和绘制 UI，不诊断场景相机。
@@ -102,8 +111,10 @@ namespace Comet {
         [[nodiscard]] MaterialPrograms::Feedback get_material_program_feedback() const {
             return m_programs->feedback();
         }
+        // Main 先捕获材质快照和 Shader 版本；GPU 准备只消费这次输入。
         [[nodiscard]] Result<MaterialUpdate, GraphicsError> prepare_material_update(
-            AssetHandle handle, const std::shared_ptr<const Material>& material);
+            AssetHandle handle, const std::shared_ptr<const Material>& snapshot,
+            const std::shared_ptr<const ShaderProgramArtifact>& program_source);
         void request_swapchain_recreation();
         // 修改请求在下一次 prepare_frame 的交换链重建中生效。
         void set_vsync_enabled(bool enabled);
@@ -159,10 +170,15 @@ namespace Comet {
         [[nodiscard]] const RenderContext& get_render_context() const { return *m_render_context; }
 
     private:
+        friend class RenderThread;
+        [[nodiscard]] Result<void, GraphicsError> record_world(
+            std::shared_ptr<const RenderWorld> world);
+        [[nodiscard]] Result<void, GraphicsError> draw_world(
+            std::shared_ptr<const RenderWorld> world);
+        [[nodiscard]] bool has_visible_view() const;
         Renderer(std::unique_ptr<RenderContext> context, std::unique_ptr<RenderResources> resources,
             std::unique_ptr<FrameScheduler> frames, std::unique_ptr<MaterialPrograms> programs,
             std::unique_ptr<SceneRenderer> scene, AssetRegistry& assets, const Settings& settings);
-        Result<void, GraphicsError> complete_frame(const RenderScene* render_scene);
         Result<void, GraphicsError> record_overlay(std::vector<QueueSemaphoreSubmit>& waits);
         void discard_frame_requests();
         struct ViewportPickRequest {

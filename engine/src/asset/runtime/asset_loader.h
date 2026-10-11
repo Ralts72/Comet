@@ -2,6 +2,7 @@
 
 #include "asset/handle.h"
 #include "common/error.h"
+#include "common/export.h"
 #include "common/result.h"
 
 #include <cstddef>
@@ -11,13 +12,13 @@ namespace Comet {
     class AssetDatabase;
     class AssetRegistry;
     class ImportService;
-    class RenderAssetPublisher;
-    class Mesh;
-    class Texture;
-    class Material;
+    class RenderAssetFactory;
+    class COMET_API Mesh;
+    class COMET_API Texture;
+    class COMET_API Material;
     class ShaderProgramArtifact;
     class AudioClip;
-    struct Environment;
+    struct COMET_API Environment;
     struct MaterialData;
     struct AssetRecord;
     struct TextureImportSettings;
@@ -26,7 +27,7 @@ namespace Comet {
     class AssetLoader final {
     public:
         AssetLoader(AssetDatabase& database, AssetRegistry& registry, ImportService& imports,
-            RenderAssetPublisher& render_assets, std::size_t mesh_bytes, std::size_t texture_bytes,
+            RenderAssetFactory& render_factory, std::size_t mesh_bytes, std::size_t texture_bytes,
             std::size_t environment_bytes);
 
         Result<std::shared_ptr<Mesh>, Error> load_mesh(AssetHandle handle);
@@ -46,7 +47,7 @@ namespace Comet {
         AssetDatabase& m_database;
         AssetRegistry& m_registry;
         ImportService& m_imports;
-        RenderAssetPublisher& m_render_assets;
+        RenderAssetFactory& m_render_factory;
         std::size_t m_mesh_bytes;
         std::size_t m_texture_bytes;
         std::size_t m_environment_bytes;

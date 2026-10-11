@@ -112,14 +112,14 @@ namespace Comet {
             PipelineManager& pipelines, const MaterialShaders& shaders, SampleCount samples);
         [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
             const;
+        // 调用方先固定材质快照和 Shader 来源；GPU 准备不再复制编辑源或查询注册表。
         [[nodiscard]] Result<MaterialUpdate, GraphicsError> prepare_material_update(
-            AssetHandle handle, const std::shared_ptr<const Material>& material,
-            std::shared_ptr<const ShaderProgramArtifact> program_source = {});
-        // 调用方先固定材质值和 Shader 来源；GPU 准备不查询资产注册表。
+            AssetHandle handle, const std::shared_ptr<const Material>& snapshot,
+            const std::shared_ptr<const ShaderProgramArtifact>& program_source);
         [[nodiscard]] static Result<std::vector<MaterialUpdate>, GraphicsError>
         prepare_material_updates(std::span<MaterialRenderer* const> renderers, AssetHandle handle,
-            const std::shared_ptr<const Material>& material,
-            std::shared_ptr<const ShaderProgramArtifact> program_source = {});
+            const std::shared_ptr<const Material>& snapshot,
+            const std::shared_ptr<const ShaderProgramArtifact>& program_source);
         [[nodiscard]] Result<void, GraphicsError> prepare_programs(const RenderWorld& world);
         // 所有目标的候选准备完成后，才发布共享布局和各自的 Pipeline。
         [[nodiscard]] static Result<void, GraphicsError> prepare_programs(

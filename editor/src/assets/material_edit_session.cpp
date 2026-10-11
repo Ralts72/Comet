@@ -1,6 +1,7 @@
 #include "assets/material_edit_session.h"
 #include "assets/editor_assets.h"
 #include "assets/material_editing.h"
+#include "render/material/material.h"
 #include "render/renderer.h"
 
 #include <utility>
@@ -61,8 +62,9 @@ namespace CometEditor {
         if(!candidate)
             return Result::failure(candidate.error());
         auto original = candidate.value().expected_material();
-        auto bindings =
-            m_renderer.prepare_material_update(edit.handle, candidate.value().material());
+        const auto snapshot = candidate.value().material()->snapshot();
+        const auto program = m_assets.compiled_shader_program(snapshot->get_shader_program());
+        auto bindings = m_renderer.prepare_material_update(edit.handle, snapshot, program);
         if(!bindings)
             return Result::failure(bindings.error().as_error());
         if(auto published = m_assets.preview_material_edit(candidate.value()); !published)
@@ -95,8 +97,10 @@ namespace CometEditor {
     Comet::Result<void, Comet::Error> MaterialEditSession::cancel() {
         if(!m_active)
             return Comet::Result<void, Comet::Error>::success();
+        const auto snapshot = m_active->original->snapshot();
+        const auto program = m_assets.compiled_shader_program(snapshot->get_shader_program());
         auto bindings =
-            m_renderer.prepare_material_update(m_active->edit.handle, m_active->original);
+            m_renderer.prepare_material_update(m_active->edit.handle, snapshot, program);
         if(!bindings)
             return Comet::Result<void, Comet::Error>::failure(bindings.error().as_error());
         auto restored = m_assets.restore_material_preview(m_active->candidate, m_active->original);

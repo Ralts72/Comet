@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 #include <GLFW/glfw3.h>
 #include <type_traits>
+#include <thread>
 #include <vector>
 
 namespace Comet::Tests {
@@ -29,6 +30,76 @@ namespace Comet::Tests {
         std::is_same_v<decltype(std::declval<Engine&>().get_scene_runtime()), const SceneRuntime&>);
 
     using EngineSceneActivationTest = EngineTest;
+    using RenderThreadTest = EngineTest;
+
+    TEST_F(RenderThreadTest, DrawingUsesOneWorkerAndShutdownWaitsForTheLastFrame) {
+        const auto main_thread = std::this_thread::get_id();
+        std::thread::id render_thread;
+        unsigned draws = 0;
+        unsigned ready = 0;
+        engine->get_renderer().set_overlay({.render = [&](OverlayRecordContext&) {
+            const auto current = std::this_thread::get_id();
+            EXPECT_NE(current, main_thread);
+            if(draws == 0)
+                render_thread = current;
+            EXPECT_EQ(current, render_thread);
+            ++draws;
+            return Result<void, GraphicsError>::success();
+        }});
+        const auto result = engine->run({
+            .frame_ready =
+                [&](const Engine::FrameContext&) {
+                    EXPECT_EQ(std::this_thread::get_id(), main_thread);
+                    EXPECT_EQ(draws, ready);
+                    if(++ready == 3)
+                        engine->get_window().request_close();
+                    return Result<void, Error>::success();
+                },
+        });
+        ASSERT_TRUE(result) << result.error();
+        EXPECT_EQ(draws, 3u);
+        EXPECT_FALSE(engine->get_renderer().get_frame_scheduler().is_frame_active());
+        engine->get_renderer().set_overlay({});
+    }
+
+    TEST_F(RenderThreadTest, LastWorkerErrorSurvivesClosingTheWindow) {
+        const GraphicsError failure{"Worker device lost", vk::Result::eErrorDeviceLost};
+        const auto main_thread = std::this_thread::get_id();
+        engine->get_renderer().set_overlay({.render = [&](OverlayRecordContext&) {
+            EXPECT_NE(std::this_thread::get_id(), main_thread);
+            return Result<void, GraphicsError>::failure(failure);
+        }});
+        const auto result = engine->run({
+            .frame_ready =
+                [&](const Engine::FrameContext&) {
+                    engine->get_window().request_close();
+                    return Result<void, Error>::success();
+                },
+        });
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error().message, failure.as_error().message);
+        EXPECT_EQ(result.error().code, failure.as_error().code);
+        EXPECT_FALSE(engine->get_renderer().prepare_frame());
+        engine->get_renderer().set_overlay({});
+    }
+
+    TEST_F(RenderThreadTest, WorkerVulkanExceptionPreservesItsErrorCategory) {
+        engine->get_renderer().set_overlay(
+            {.render = [](OverlayRecordContext&) -> Result<void, GraphicsError> {
+                throw vk::SystemError(
+                    vk::make_error_code(vk::Result::eErrorOutOfDeviceMemory), "worker allocation");
+            }});
+        const auto result = engine->run({.frame_ready = [&](const Engine::FrameContext&) {
+            engine->get_window().request_close();
+            return Result<void, Error>::success();
+        }});
+        ASSERT_FALSE(result);
+        EXPECT_NE(result.error().message.find("worker allocation"), std::string::npos);
+        EXPECT_EQ(result.error().code,
+            (GraphicsError{"", vk::Result::eErrorOutOfDeviceMemory}.as_error().code));
+        EXPECT_FALSE(engine->get_renderer().prepare_frame());
+        engine->get_renderer().set_overlay({});
+    }
 
     TEST_F(EngineSceneActivationTest, CachedExtractionRefreshesEditsAndReinstalledScene) {
         auto mesh = engine->get_render_resources().try_create_mesh(
@@ -52,8 +123,6 @@ namespace Comet::Tests {
                 frames == 1 || frames == 2 || frames == 4 || frames == 5 || frames == 8;
             EXPECT_EQ(renderer.get_material_statistics().render_items, visible ? 1u : 0u);
             EXPECT_FLOAT_EQ(renderer.get_post_process_settings().exposure, frames >= 4 ? 2 : 1);
-            if(frames == 8)
-                engine->get_window().request_close();
             return Result<void, GraphicsError>::success();
         }});
         const auto result = engine->run({.update =
@@ -65,6 +134,8 @@ namespace Comet::Tests {
             .frame_ready =
                 [&](const Engine::FrameContext&) {
                     ++frames;
+                    if(frames == 8)
+                        engine->get_window().request_close();
                     switch(frames) {
                         case 3:
                             camera.edit_component<CameraComponent>(
@@ -153,15 +224,12 @@ namespace Comet::Tests {
         int ready_calls = 0;
         int updates = 0;
         engine->get_renderer().set_overlay({.render = [&](OverlayRecordContext&) {
-            EXPECT_EQ(window.is_cursor_locked(), ready_calls == 2);
-            if(ready_calls == 3)
-                window.request_close();
-
             return Result<void, GraphicsError>::success();
         }});
         const auto result = engine->run({
             .update =
                 [&](const Engine::FrameContext&) {
+                    EXPECT_EQ(window.is_cursor_locked(), ready_calls == 2);
                     if(++updates > 20)
                         window.request_close();
                     return Result<void, Error>::success();
@@ -170,6 +238,8 @@ namespace Comet::Tests {
                 [&](const Engine::FrameContext&) {
                     if(++ready_calls == 2)
                         input.key_event(Input::Key::Space, true);
+                    if(ready_calls == 3)
+                        window.request_close();
                     return Result<void, Error>::success();
                 },
             .runtime_input = [&](const Engine::FrameContext&) -> std::optional<Input::Frame> {
@@ -196,9 +266,6 @@ namespace Comet::Tests {
                 EXPECT_EQ(warning, std::string::npos);
             else
                 EXPECT_NE(warning, std::string::npos);
-            if(draws == 4)
-                engine->get_window().request_close();
-
             return Result<void, GraphicsError>::success();
         }});
         const auto result = engine->run({
@@ -212,6 +279,12 @@ namespace Comet::Tests {
                         auto camera = engine->get_scene()->create_entity("Camera");
                         camera.add_component<CameraComponent>(CameraComponent{.primary = true});
                     }
+                    return Result<void, Error>::success();
+                },
+            .frame_ready =
+                [&](const Engine::FrameContext&) {
+                    if(draws == 3)
+                        engine->get_window().request_close();
                     return Result<void, Error>::success();
                 },
         });
@@ -266,8 +339,7 @@ namespace Comet::Tests {
         int draws = 0;
         const Engine::FrameContext* current_frame = nullptr;
         engine.get_renderer().set_overlay({.render = [&](OverlayRecordContext&) {
-            if(++draws == 3)
-                engine.get_window().request_close();
+            ++draws;
 
             return Result<void, GraphicsError>::success();
         }});
@@ -283,7 +355,8 @@ namespace Comet::Tests {
             .frame_ready =
                 [&](const Engine::FrameContext& frame) {
                     EXPECT_EQ(&frame, current_frame);
-                    ++ready_calls;
+                    if(++ready_calls == 3)
+                        engine.get_window().request_close();
                     return Result<void, Error>::success();
                 },
             .runtime_input = [&](const Engine::FrameContext& frame) -> std::optional<Input::Frame> {
@@ -328,8 +401,7 @@ namespace Comet::Tests {
         int inputs = 0;
         int draws = 0;
         engine->get_renderer().set_overlay({.render = [&](OverlayRecordContext&) {
-            if(++draws == 5)
-                engine->get_window().request_close();
+            ++draws;
             return Result<void, GraphicsError>::success();
         }});
         const auto result = engine->run({
@@ -341,6 +413,8 @@ namespace Comet::Tests {
                 },
             .frame_ready =
                 [&](const Engine::FrameContext&) {
+                    if(draws == 4)
+                        engine->get_window().request_close();
                     ui_blocked = draws == 1;
                     if(draws == 1 || draws == 4)
                         physical.key_event(Input::Key::Space, true);
@@ -429,7 +503,6 @@ namespace Comet::Tests {
             } else {
                 EXPECT_EQ(calls->updates, 2);
                 EXPECT_EQ(engine.get_scene_runtime().get_state(), SceneRuntime::State::Running);
-                engine.get_window().request_close();
             }
 
             return Result<void, GraphicsError>::success();
@@ -448,7 +521,8 @@ namespace Comet::Tests {
                 },
             .frame_ready =
                 [&](const Engine::FrameContext&) {
-                    ++ui_frames;
+                    if(++ui_frames == 4)
+                        engine.get_window().request_close();
                     return Result<void, Error>::success();
                 },
         });

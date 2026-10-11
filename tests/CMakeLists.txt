@@ -92,7 +92,7 @@ set(UNIT_TEST_SOURCES
         render/test_material.cpp
         render/test_material_shader.cpp
         render/test_render_graph.cpp
-        render/test_render_asset_publisher.cpp
+        render/test_render_asset_factory.cpp
         render/test_scene_extractor.cpp
         render/test_scene_picking.cpp
         scene/test_audio_system.cpp
@@ -137,6 +137,7 @@ set(INTEGRATION_SOURCES
         graphics/test_pipeline_cache.cpp
         graphics/test_queue.cpp
         graphics/test_render_pass.cpp
+        graphics/test_resource_retirement.cpp
         graphics/test_sampler.cpp
         graphics/test_shader_interface.cpp
         graphics/test_swapchain.cpp
@@ -247,7 +248,7 @@ if(COMET_BUILD_EDITOR)
     add_test(NAME editor_ui_testing COMMAND editor_ui_testing)
     set_tests_properties(editor_ui_testing PROPERTIES LABELS "integration;ui")
 endif()
-set(SYNC_VALIDATION_FILTER "QualityGpuTest.*:RenderGraphGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.*:ImGuiOverlayGpuTest.*:RmlUiGpuTest.*:RmlContextGpuTest.*:ProjectUiGpuTest.*:EditorGameUiGpuTest.*:OverlayRecordContextTest.*")
+set(SYNC_VALIDATION_FILTER "QualityGpuTest.*:RenderGraphGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.*:ImGuiOverlayGpuTest.*:RmlUiGpuTest.*:RmlContextGpuTest.*:ProjectUiGpuTest.*:EditorGameUiGpuTest.*:OverlayRecordContextTest.*:ResourceRetirementTest.*:RenderThreadTest.*")
 add_test(NAME integration_testing COMMAND integration_testing
         "--gtest_filter=-${SYNC_VALIDATION_FILTER}" ${TEST_PLATFORM_ARGS})
 set_tests_properties(integration_testing PROPERTIES LABELS "integration;gpu" RESOURCE_LOCK comet_gpu)

@@ -22,6 +22,7 @@ namespace CometEditor {
     private:
         struct Display {
             Comet::TimingHistory::Summary frame;
+            Comet::TimingHistory::Summary render_frame;
             Comet::TimingHistory::Summary cpu;
             Comet::TimingHistory::Summary preparation;
             Comet::TimingHistory::Summary submission;

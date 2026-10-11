@@ -39,8 +39,13 @@ namespace Comet {
             double submit_ms = 0;
             double present_ms = 0;
         };
+        struct FrameTiming {
+            uint64_t serial = 0;
+            double milliseconds = 0;
+        };
         struct Snapshot {
             bool scene_rendered = false;
+            std::optional<FrameTiming> frame;
             std::optional<GraphTiming> cpu;
             std::optional<GraphTiming> gpu;
             std::optional<PreparationTiming> preparation;
@@ -60,6 +65,7 @@ namespace Comet {
         [[nodiscard]] bool is_enabled() const { return m_enabled; }
         [[nodiscard]] const Snapshot& get_snapshot() const { return m_snapshot; }
         [[nodiscard]] const TimingHistory& cpu_history() const { return m_cpu_history; }
+        [[nodiscard]] const TimingHistory& frame_history() const { return m_frame_history; }
         [[nodiscard]] const TimingHistory& gpu_history() const { return m_gpu_history; }
         [[nodiscard]] const TimingHistory& preparation_history() const {
             return m_preparation_history;
@@ -75,6 +81,8 @@ namespace Comet {
         void skip_frame();
         // 仅在成功提交后与同帧场景图配对；分开命令结束、提交和呈现。
         void record_submission(double finalize_ms, double submit_ms, double present_ms);
+        // 覆盖世界准备、全部 View、UI 和 submit/present；由成功绘制的所属线程发布。
+        void record_frame(uint64_t serial, double milliseconds);
 
         // 同步执行既有准备步骤；只随成功的场景图发布，关闭诊断时不读取时钟。
         template<typename Function>
@@ -98,6 +106,7 @@ namespace Comet {
         Snapshot m_snapshot;
         PreparationTiming m_pending_preparation;
         TimingHistory m_cpu_history;
+        TimingHistory m_frame_history;
         TimingHistory m_gpu_history;
         TimingHistory m_preparation_history;
         TimingHistory m_submission_history;

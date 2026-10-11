@@ -20,12 +20,12 @@ namespace Comet {
     class AssetRegistry;
     class ImportService;
     class AssetLoader;
-    class RenderAssetPublisher;
-    class Material;
-    class Mesh;
+    class RenderAssetFactory;
+    class COMET_API Material;
+    class COMET_API Mesh;
     class RenderResourceFactory;
     class TaskScheduler;
-    class Texture;
+    class COMET_API Texture;
     class Script;
     class AudioClip;
     struct MaterialData;
@@ -41,7 +41,7 @@ namespace Comet {
     struct ShaderProgramImportFailure;
     struct ShaderProgramImportCandidate;
     class ShaderProgramArtifact;
-    struct Environment;
+    struct COMET_API Environment;
 
     class COMET_API AssetManager final {
     public:
@@ -142,7 +142,7 @@ namespace Comet {
         Result<void, Error> publish_material(AssetHandle handle, const MaterialData& data,
             const std::shared_ptr<Material>& material, bool replace_existing);
         Result<void, Error> refresh_loaded_mesh(
-            AssetHandle handle, AssetRevision revision, const MeshData& data);
+            AssetHandle handle, AssetRevision revision, MeshData data);
         bool record_import_dependencies(
             AssetHandle handle, const std::vector<std::filesystem::path>& dependencies);
         void complete_mesh_import(AssetHandle handle, AssetRevision revision,
@@ -168,7 +168,7 @@ namespace Comet {
         AssetDatabase& m_database;
         std::unique_ptr<ImportService> m_import_service;
         AssetRegistry& m_registry;
-        std::unique_ptr<RenderAssetPublisher> m_render_assets;
+        std::unique_ptr<RenderAssetFactory> m_render_factory;
         std::unique_ptr<AssetLoader> m_loader;
         std::unique_ptr<AssetTaskQueue> m_task_queue;
         std::unordered_map<AssetHandle, AssetRevision> m_refresh_requests;

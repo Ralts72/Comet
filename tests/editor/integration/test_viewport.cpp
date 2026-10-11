@@ -70,7 +70,7 @@ namespace CometEditor::Tests {
         std::weak_ptr<Comet::Material> source = material;
         ASSERT_TRUE(engine.get_asset_registry().register_asset(handle, material));
         // 保留已发布候选，确认它不会继续保活稍后注销的源材质。
-        auto update = renderer.prepare_material_update(handle, material);
+        auto update = renderer.prepare_material_update(handle, material->snapshot(), program);
         ASSERT_TRUE(update) << update.error();
         std::move(update).value().publish();
         material.reset();

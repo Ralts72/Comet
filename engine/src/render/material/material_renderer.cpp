@@ -410,11 +410,11 @@ namespace Comet {
 
     Result<MaterialRenderer::MaterialUpdate, GraphicsError> MaterialRenderer::
         prepare_material_update(const AssetHandle handle,
-            const std::shared_ptr<const Material>& material,
-            std::shared_ptr<const ShaderProgramArtifact> program_source) {
+            const std::shared_ptr<const Material>& snapshot,
+            const std::shared_ptr<const ShaderProgramArtifact>& program_source) {
         MaterialRenderer* renderer = this;
-        auto updates = prepare_material_updates(std::span(&renderer, 1), handle,
-            material ? material->snapshot() : nullptr, std::move(program_source));
+        auto updates =
+            prepare_material_updates(std::span(&renderer, 1), handle, snapshot, program_source);
         if(!updates)
             return Result<MaterialUpdate, GraphicsError>::failure(updates.error());
         return Result<MaterialUpdate, GraphicsError>::success(std::move(updates.value().front()));
@@ -422,12 +422,12 @@ namespace Comet {
 
     Result<std::vector<MaterialRenderer::MaterialUpdate>, GraphicsError> MaterialRenderer::
         prepare_material_updates(const std::span<MaterialRenderer* const> renderers,
-            const AssetHandle handle, const std::shared_ptr<const Material>& material,
-            std::shared_ptr<const ShaderProgramArtifact> program_source) {
+            const AssetHandle handle, const std::shared_ptr<const Material>& snapshot,
+            const std::shared_ptr<const ShaderProgramArtifact>& program_source) {
         using Preparation = Result<std::vector<MaterialUpdate>, GraphicsError>;
-        if(!handle || !material)
+        if(!handle || !snapshot)
             return Preparation::failure({"Material update requires an identity and source"});
-        const auto& source = material;
+        const auto& source = snapshot;
         if(source->get_shader_program()) {
             if(auto refreshed = refresh_program(renderers, source->get_shader_program(),
                    source->get_template_name(), program_source);

@@ -5,7 +5,7 @@
 #include "asset/database.h"
 #include "asset/import/import_service.h"
 #include "asset/registry.h"
-#include "asset/runtime/render_asset_publisher.h"
+#include "asset/runtime/render_asset_factory.h"
 #include "asset/serialization/material_serializer.h"
 #include "audio/audio.h"
 #include "diagnostics/logger.h"
@@ -15,44 +15,45 @@
 
 namespace Comet {
     namespace {
-        template<typename T, typename Resolve, typename Create, typename Publish>
+        template<typename T, typename Create>
         Result<std::shared_ptr<T>, Error> load_runtime_asset(const AssetDatabase& database,
             AssetRegistry& registry, const AssetHandle handle, const AssetType type,
-            Resolve&& resolve, Create&& create, Publish&& publish) {
+            Create&& create) {
             using LoadResult = Result<std::shared_ptr<T>, Error>;
             const auto* record = database.find(handle);
             if(!record || record->type != type)
                 return LoadResult::failure({"Asset is not indexed with the expected type: "
                                             + std::to_string(handle.value())});
-            if(auto asset = resolve())
+            if(auto asset = registry.resolve<T>(handle))
                 return LoadResult::success(std::move(asset));
             if(registry.contains(handle))
                 return LoadResult::failure({"Runtime asset type conflict"});
             const AssetRevision revision = database.get_revision(handle);
+            const auto publication = registry.get_revision(handle);
             // 创建依赖前复制记录；借用不能跨越可能修改数据库的调用。
             const AssetRecord snapshot = *record;
             auto candidate = create(snapshot);
             if(!candidate)
                 return candidate;
-            if(!database.is_current(handle, revision))
+            // Main 接纳时复核源与运行发布版本；相同对象重新发布也使旧请求过期。
+            if(!database.is_current(handle, revision)
+                || registry.get_revision(handle) != publication)
                 return LoadResult::failure({"Asset changed during loading"});
-            if(!publish(candidate.value()))
+            if(!registry.register_asset(handle, candidate.value()))
                 return LoadResult::failure({"Failed to publish runtime asset"});
             return candidate;
         }
     }
 
     AssetLoader::AssetLoader(AssetDatabase& database, AssetRegistry& registry,
-        ImportService& imports, RenderAssetPublisher& render_assets, std::size_t mesh_bytes,
+        ImportService& imports, RenderAssetFactory& render_factory, std::size_t mesh_bytes,
         std::size_t texture_bytes, std::size_t environment_bytes)
         : m_database(database), m_registry(registry), m_imports(imports),
-          m_render_assets(render_assets), m_mesh_bytes(mesh_bytes), m_texture_bytes(texture_bytes),
-          m_environment_bytes(environment_bytes) {}
+          m_render_factory(render_factory), m_mesh_bytes(mesh_bytes),
+          m_texture_bytes(texture_bytes), m_environment_bytes(environment_bytes) {}
 
     Result<std::shared_ptr<Mesh>, Error> AssetLoader::load_mesh(const AssetHandle handle) {
-        return load_runtime_asset<Mesh>(
-            m_database, m_registry, handle, AssetType::Mesh,
-            [this, handle] { return m_render_assets.mesh(handle); },
+        return load_runtime_asset<Mesh>(m_database, m_registry, handle, AssetType::Mesh,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Mesh>, Error> {
                 auto artifact = MeshArtifact::load(
                     m_imports.mesh_artifact_path(record.handle), record.handle, m_mesh_bytes);
@@ -65,16 +66,12 @@ namespace Comet {
                     !updated)
                     LOG_WARN("Could not index import dependencies for asset handle {}: {}",
                         record.handle.value(), updated.error());
-                return m_render_assets.prepare(artifact->data);
-            },
-            [this, handle](
-                const auto& asset) { return m_render_assets.publish(handle, asset, false); });
+                return m_render_factory.prepare(std::move(artifact->data));
+            });
     }
 
     Result<std::shared_ptr<Texture>, Error> AssetLoader::load_texture(const AssetHandle handle) {
-        return load_runtime_asset<Texture>(
-            m_database, m_registry, handle, AssetType::Texture,
-            [this, handle] { return m_render_assets.texture(handle); },
+        return load_runtime_asset<Texture>(m_database, m_registry, handle, AssetType::Texture,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Texture>, Error> {
                 const auto* settings = std::get_if<TextureImportSettings>(&record.import_settings);
                 if(!settings) {
@@ -82,17 +79,13 @@ namespace Comet {
                         {"Texture asset has incompatible import settings"});
                 }
                 return prepare_texture(record, *settings);
-            },
-            [this, handle](
-                const auto& asset) { return m_render_assets.publish(handle, asset, false); });
+            });
     }
 
     Result<std::shared_ptr<ShaderProgramArtifact>, Error> AssetLoader::load_shader_program(
         const AssetHandle handle) {
-        return load_runtime_asset<ShaderProgramArtifact>(
-            m_database, m_registry, handle, AssetType::ShaderProgram,
-            [this, handle] { return m_registry.resolve<ShaderProgramArtifact>(handle); },
-            [this, handle](const AssetRecord&) {
+        return load_runtime_asset<ShaderProgramArtifact>(m_database, m_registry, handle,
+            AssetType::ShaderProgram, [this, handle](const AssetRecord&) {
                 auto artifact = ShaderProgramArtifact::load(
                     m_imports.shader_program_artifact_path(handle), handle);
                 if(!artifact
@@ -101,51 +94,40 @@ namespace Comet {
                         {"Current compiled Shader program artifact is unavailable"});
                 return Result<std::shared_ptr<ShaderProgramArtifact>, Error>::success(
                     std::make_shared<ShaderProgramArtifact>(std::move(*artifact)));
-            },
-            [this, handle](const auto& asset) { return m_registry.register_asset(handle, asset); });
+            });
     }
 
     Result<std::shared_ptr<AudioClip>, Error> AssetLoader::load_audio(const AssetHandle handle) {
-        return load_runtime_asset<AudioClip>(
-            m_database, m_registry, handle, AssetType::Audio,
-            [this, handle] { return m_registry.resolve<AudioClip>(handle); },
+        return load_runtime_asset<AudioClip>(m_database, m_registry, handle, AssetType::Audio,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<AudioClip>, Error> {
                 auto path = m_database.paths().resolve_asset_path(record.path);
                 if(!path)
                     return Result<std::shared_ptr<AudioClip>, Error>::failure({path.error()});
                 return AudioClip::load(path.value());
-            },
-            [this, handle](const auto& asset) { return m_registry.register_asset(handle, asset); });
+            });
     }
 
     Result<std::shared_ptr<Material>, Error> AssetLoader::load_material(const AssetHandle handle) {
-        return load_runtime_asset<Material>(
-            m_database, m_registry, handle, AssetType::Material,
-            [this, handle] { return m_render_assets.material(handle); },
+        return load_runtime_asset<Material>(m_database, m_registry, handle, AssetType::Material,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Material>, Error> {
                 const auto data =
                     MaterialSerializer{}.load(m_database.paths().assets() / record.path);
                 if(!data)
                     return Result<std::shared_ptr<Material>, Error>::failure({data.error()});
                 return prepare_material(record, data.value());
-            },
-            [this, handle](
-                const auto& asset) { return m_render_assets.publish(handle, asset, false); });
+            });
     }
 
     Result<std::shared_ptr<Environment>, Error> AssetLoader::load_environment(
         const AssetHandle handle) {
-        return load_runtime_asset<Environment>(
-            m_database, m_registry, handle, AssetType::Environment,
-            [this, handle] { return m_render_assets.environment(handle); },
+        return load_runtime_asset<Environment>(m_database, m_registry, handle,
+            AssetType::Environment,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Environment>, Error> {
                 auto prepared = m_imports.prepare_environment(record, m_environment_bytes);
                 if(!prepared)
                     return Result<std::shared_ptr<Environment>, Error>::failure({prepared.error()});
-                return m_render_assets.prepare(prepared.value().data);
-            },
-            [this, handle](
-                const auto& asset) { return m_render_assets.publish(handle, asset, false); });
+                return m_render_factory.prepare(std::move(prepared).value().data);
+            });
     }
 
     Result<std::shared_ptr<Texture>, Error> AssetLoader::prepare_texture(
@@ -153,7 +135,7 @@ namespace Comet {
         auto data = m_imports.prepare_texture(record, import_settings, m_texture_bytes);
         if(!data)
             return Result<std::shared_ptr<Texture>, Error>::failure({data.error()});
-        return m_render_assets.prepare(data.value());
+        return m_render_factory.prepare(std::move(data).value());
     }
 
     Result<std::shared_ptr<Material>, Error> AssetLoader::prepare_material(
@@ -180,6 +162,6 @@ namespace Comet {
             textures.emplace(property_name, std::move(texture).value());
         }
 
-        return m_render_assets.prepare_material(record.path.stem().string(), data, textures);
+        return RenderAssetFactory::prepare_material(record.path.stem().string(), data, textures);
     }
 }

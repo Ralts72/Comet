@@ -23,6 +23,7 @@ namespace Comet {
     class TaskScheduler;
     class Window;
     class Renderer;
+    class RenderThread;
     class RenderResources;
     class Config;
     class MaterialProgramValidator;
@@ -100,6 +101,7 @@ namespace Comet {
         Engine(std::unique_ptr<Window> window, std::unique_ptr<AssetRegistry> assets,
             std::unique_ptr<Renderer> renderer, std::unique_ptr<TaskScheduler> scheduler);
         [[nodiscard]] Result<void, Error> tick(const Callbacks& callbacks);
+        [[nodiscard]] Result<void, Error> complete_render_frame();
         std::unique_ptr<FrameTimer> m_frame_timer;
         FramePacer m_frame_pacer;
         std::unique_ptr<TaskScheduler> m_task_scheduler;
@@ -107,6 +109,7 @@ namespace Comet {
         std::unique_ptr<AssetRegistry> m_asset_registry;
         std::unique_ptr<Scene> m_scene;
         std::unique_ptr<Renderer> m_renderer;
+        std::unique_ptr<RenderThread> m_render_thread;
         std::unique_ptr<MaterialProgramValidator> m_material_parameters;
         std::unique_ptr<AudioService> m_audio_service;
         AudioSettings m_audio_settings;
