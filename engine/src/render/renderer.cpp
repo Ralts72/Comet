@@ -267,6 +267,7 @@ namespace Comet {
         for(auto& [id, view] : m_views) {
             if(!view.view.visible && view.scene->is_offscreen()) {
                 view.pick_request.reset();
+                view.pick_result.reset();
                 view.lines.clear();
                 view.scene->skip_frame();
                 continue;
@@ -296,10 +297,11 @@ namespace Comet {
         if(auto prepared = view.scene->prepare_post_process(m_world.post_process); !prepared)
             return prepared;
         const auto pick_request = std::exchange(view.pick_request, std::nullopt);
-        if(pick_request && frame_view.visible
-            && pick_request->image_resolution == frame_view.render_size && view.pick_callback)
-            view.pick_callback(
-                pick_render_submission(submission, pick_request->pixel, frame_view.render_size));
+        if(pick_request && has_scene && frame_view.visible
+            && pick_request->scene_lifetime == m_world.scene_lifetime
+            && pick_request->image_resolution == frame_view.render_size)
+            view.pick_result = ViewportPickResult{m_world.scene_lifetime,
+                pick_render_submission(submission, pick_request->pixel, frame_view.render_size)};
         if(!frame_view.visible)
             view.lines.clear();
         auto resource_waits =
@@ -496,15 +498,24 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
-    void Renderer::request_viewport_pick(
-        const Math::Vec2u pixel, const Math::Vec2u image_resolution, const ViewId id) {
-        get_view(id).pick_request = ViewportPickRequest{pixel, image_resolution};
+    void Renderer::request_viewport_pick(const Math::Vec2u pixel,
+        const Math::Vec2u image_resolution, const uint64_t scene_lifetime, const ViewId id) {
+        auto& view = get_view(id);
+        view.pick_result.reset();
+        view.pick_request = ViewportPickRequest{pixel, image_resolution, scene_lifetime};
     }
 
-    void Renderer::set_viewport_pick_callback(ViewportPickCallback callback, const ViewId id) {
+    std::optional<Renderer::ViewportPickResult> Renderer::take_viewport_pick_result(
+        const ViewId id) {
+        if(m_frames->is_frame_active())
+            return std::nullopt;
+        return std::exchange(get_view(id).pick_result, std::nullopt);
+    }
+
+    void Renderer::cancel_viewport_pick(const ViewId id) {
         auto& view = get_view(id);
-        view.pick_callback = std::move(callback);
         view.pick_request.reset();
+        view.pick_result.reset();
     }
 
     void Renderer::submit_lines(const LineDrawList& draw_list, const ViewId id) {
@@ -515,6 +526,7 @@ namespace Comet {
     void Renderer::discard_frame_requests() {
         for(auto& [id, view] : m_views) {
             view.pick_request.reset();
+            view.pick_result.reset();
             view.lines.clear();
         }
         m_geometry.clear_frame();
@@ -525,8 +537,7 @@ namespace Comet {
         if(std::exchange(m_shutdown_prepared, true))
             return;
         m_render_context->get_device().wait_idle_for_shutdown();
-        m_geometry.clear_frame();
-        m_world.clear();
+        discard_frame_requests();
     }
 
     Renderer::~Renderer() {

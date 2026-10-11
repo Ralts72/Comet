@@ -238,6 +238,7 @@ namespace {
             if(auto restored = m_assets->restore_references(); !restored)
                 return Comet::Result<void, Comet::Error>::failure(restored.error());
 
+            m_viewport->consume_pick(get_engine().get_scene());
             m_menu_bar->set_fps(frame.update.fps);
             return Comet::Result<void, Comet::Error>::success();
         }
@@ -309,7 +310,6 @@ namespace {
             if(m_game_ui)
                 m_game_ui->deactivate();
             m_game_ui.reset();
-            get_engine().get_renderer().set_viewport_pick_callback({}, m_scene_view);
             if(m_viewport)
                 m_viewport->cancel_interaction();
             if(m_inspector_panel)
@@ -442,12 +442,6 @@ namespace {
                                 return result;
                             return m_imgui_context->rebuild_swapchain_resources(compatibility);
                         }});
-
-            renderer.set_viewport_pick_callback(
-                [this](const std::optional<Comet::ScenePickHit> hit) {
-                    m_viewport->apply_pick(hit, get_engine().get_scene());
-                },
-                m_scene_view);
         }
 
         Comet::Result<Comet::DisplaySettings> load_player_display() {

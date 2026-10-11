@@ -128,12 +128,18 @@ namespace Comet {
 
         Result<void, GraphicsError> set_render_view(RenderView view, ViewId id = DEFAULT_VIEW);
 
-        using ViewportPickCallback = std::function<void(std::optional<ScenePickHit>)>;
-        void request_viewport_pick(
-            Math::Vec2u pixel, Math::Vec2u image_resolution, ViewId id = DEFAULT_VIEW);
-        void set_viewport_pick_callback(ViewportPickCallback callback, ViewId id = DEFAULT_VIEW);
+        struct ViewportPickResult {
+            uint64_t scene_lifetime;
+            std::optional<ScenePickHit> hit;
+        };
+        void request_viewport_pick(Math::Vec2u pixel, Math::Vec2u image_resolution,
+            uint64_t scene_lifetime, ViewId id = DEFAULT_VIEW);
+        // 帧提交后由宿主取回值；没有结果与命中空白分别表示为两层 optional。
+        [[nodiscard]] std::optional<ViewportPickResult> take_viewport_pick_result(
+            ViewId id = DEFAULT_VIEW);
+        void cancel_viewport_pick(ViewId id = DEFAULT_VIEW);
 
-        // 在场景 pass 录制前追加（update/prepare 或拾取回调），仅用于本帧。
+        // 在场景 pass 录制前追加（update/prepare），仅用于本帧。
         // 没有有效视图时也会消费并清空。
         void submit_lines(const LineDrawList& draw_list, ViewId id = DEFAULT_VIEW);
 
@@ -157,6 +163,7 @@ namespace Comet {
         struct ViewportPickRequest {
             Math::Vec2u pixel;
             Math::Vec2u image_resolution;
+            uint64_t scene_lifetime;
         };
 
         struct ViewState {
@@ -164,7 +171,7 @@ namespace Comet {
             RenderView view;
             RenderCameraResolver camera;
             std::optional<ViewportPickRequest> pick_request;
-            ViewportPickCallback pick_callback;
+            std::optional<ViewportPickResult> pick_result;
             LineDrawList lines;
         };
         [[nodiscard]] ViewState& get_view(ViewId id);

@@ -2,7 +2,6 @@
 
 #include "viewport/viewport_panel.h"
 #include "viewport/transform_gizmo.h"
-#include "render/scene/scene_picking.h"
 #include "common/error.h"
 #include "common/result.h"
 
@@ -36,10 +35,11 @@ namespace CometEditor {
         void cancel_interaction();
 
         void update_texture();
+        // 主线程在构建面板前消费上一帧结果；场景切换和失效实体不改变选择。
+        void consume_pick(Comet::Scene* scene);
         // 面板命令处理后、SceneExtractor 提取前调用。
         Comet::Result<void, Comet::Error> update(Comet::Scene* scene);
         void submit_feedback(Comet::Scene* scene);
-        void apply_pick(std::optional<Comet::ScenePickHit> hit, Comet::Scene* scene);
 
     private:
         void focus_selection(Comet::Scene* scene);

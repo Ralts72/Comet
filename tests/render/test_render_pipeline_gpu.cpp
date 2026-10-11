@@ -10,6 +10,64 @@
 #include <algorithm>
 
 namespace Comet::Tests {
+    TEST_F(RenderGraphGpuTest, PickResultsDiscardStaleRequestsCancellationAndFailedFrames) {
+        auto& renderer = engine->get_renderer();
+        ASSERT_TRUE(prepare_offscreen_host({32, 32}));
+        const AssetHandle mesh(795), material(796);
+        auto& assets = engine->get_asset_registry();
+        ASSERT_TRUE(assets.register_asset(mesh, lit_quad()));
+        ASSERT_TRUE(
+            assets.register_asset(material, std::make_shared<Material>("pick", "unlit_color")));
+        RenderScene scene{.scene_lifetime = 100,
+            .cameras = {{.primary = true,
+                .view_matrix = Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0})}},
+            .render_items = {
+                {.entity_id = EntityId(1), .mesh_handle = mesh, .material_handle = material}}};
+        const auto draw = [&](uint64_t lifetime, Math::Vec2u pixel, Math::Vec2u resolution,
+                              bool visible = true, bool cancelled = false) {
+            const auto prepared = renderer.prepare_frame();
+            EXPECT_TRUE(prepared);
+            if(!prepared || prepared.value() != Renderer::FramePreparation::Ready)
+                return false;
+            EXPECT_TRUE(renderer.set_render_view({.visible = visible}));
+            renderer.request_viewport_pick(pixel, resolution, lifetime);
+            if(cancelled)
+                renderer.cancel_viewport_pick();
+            EXPECT_FALSE(renderer.take_viewport_pick_result());
+            return bool(renderer.render_frame(scene));
+        };
+        ASSERT_TRUE(draw(100, {16, 16}, {32, 32}));
+        const auto hit = renderer.take_viewport_pick_result();
+        ASSERT_TRUE(hit);
+        EXPECT_EQ(hit->scene_lifetime, 100u);
+        ASSERT_TRUE(hit->hit);
+        EXPECT_EQ(hit->hit->entity_id, EntityId(1));
+        EXPECT_FALSE(renderer.take_viewport_pick_result());
+        ASSERT_TRUE(draw(100, {16, 16}, {32, 32}));
+        renderer.cancel_viewport_pick();
+        EXPECT_FALSE(renderer.take_viewport_pick_result());
+        ASSERT_TRUE(draw(100, {16, 16}, {32, 32}, true, true));
+        EXPECT_FALSE(renderer.take_viewport_pick_result());
+        scene.scene_lifetime = 200;
+        ASSERT_TRUE(draw(100, {16, 16}, {32, 32}));
+        EXPECT_FALSE(renderer.take_viewport_pick_result());
+        ASSERT_TRUE(draw(200, {16, 16}, {31, 32}));
+        EXPECT_FALSE(renderer.take_viewport_pick_result());
+        ASSERT_TRUE(draw(200, {16, 16}, {32, 32}, false));
+        EXPECT_FALSE(renderer.take_viewport_pick_result());
+        ASSERT_TRUE(draw(200, {0, 0}, {32, 32}));
+        const auto miss = renderer.take_viewport_pick_result();
+        ASSERT_TRUE(miss);
+        EXPECT_EQ(miss->scene_lifetime, 200u);
+        EXPECT_FALSE(miss->hit);
+        renderer.set_overlay({.render = [](OverlayRecordContext&) {
+            return Result<void, GraphicsError>::failure({"Rejected overlay"});
+        }});
+        EXPECT_FALSE(draw(200, {16, 16}, {32, 32}));
+        EXPECT_FALSE(renderer.take_viewport_pick_result());
+        renderer.set_overlay({});
+    }
+
     TEST_F(RenderGraphGpuTest, RendererViewsKeepOutputsAndPublicationIndependent) {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
@@ -44,21 +102,6 @@ namespace Comet::Tests {
                     .material_handle = right_material}}};
         world.lights = {{.casts_shadow = true}};
         unsigned left_picks = 0, right_picks = 0;
-        renderer.set_viewport_pick_callback([&](auto hit) {
-            ASSERT_TRUE(hit);
-            EXPECT_EQ(hit->entity_id, EntityId(1));
-            ++left_picks;
-        });
-        const auto bind_pick = [&] {
-            renderer.set_viewport_pick_callback(
-                [&](auto hit) {
-                    ASSERT_TRUE(hit);
-                    EXPECT_EQ(hit->entity_id, EntityId(2));
-                    ++right_picks;
-                },
-                second);
-        };
-        bind_pick();
         TemporaryDirectory temporary;
         const auto shader_path = temporary.path() / "dim.frag";
         ASSERT_TRUE(write_text_file_atomic(shader_path,
@@ -112,7 +155,6 @@ namespace Comet::Tests {
                 EXPECT_NE(replacement.value(), second);
                 second = replacement.value();
                 second_size = {11, 13};
-                bind_pick();
             }
             const auto prepared = renderer.prepare_frame();
             ASSERT_TRUE(prepared) << prepared.error();
@@ -125,12 +167,27 @@ namespace Comet::Tests {
                     .camera_selection = RenderView::CameraSelection::Override,
                     .camera_override = other_camera},
                 second));
-            renderer.request_viewport_pick({16, 16}, {33, 33});
-            renderer.request_viewport_pick(second_size / 2u, second_size, second);
+            renderer.request_viewport_pick({16, 16}, {33, 33}, world.scene_lifetime);
+            renderer.request_viewport_pick(
+                second_size / 2u, second_size, world.scene_lifetime, second);
             const auto first_output = renderer.get_offscreen_frame();
             const auto second_output = renderer.get_offscreen_frame(second);
             EXPECT_NE(first_output.color_view, second_output.color_view);
             ASSERT_TRUE(renderer.render_frame(world));
+            const auto left = renderer.take_viewport_pick_result();
+            EXPECT_EQ(left.has_value(), frame != 3);
+            if(left) {
+                ASSERT_TRUE(left->hit);
+                EXPECT_EQ(left->hit->entity_id, EntityId(1));
+                ++left_picks;
+            }
+            const auto right = renderer.take_viewport_pick_result(second);
+            ASSERT_TRUE(right);
+            ASSERT_TRUE(right->hit);
+            EXPECT_EQ(right->hit->entity_id, EntityId(2));
+            ++right_picks;
+            EXPECT_FALSE(renderer.take_viewport_pick_result());
+            EXPECT_FALSE(renderer.take_viewport_pick_result(second));
             const auto shadow = renderer.get_scene_renderer().get_shadow_statistics();
             EXPECT_EQ(shadow.draw_calls, 1u);
             EXPECT_EQ(shadow.drawn_instances, 2u);
@@ -159,8 +216,6 @@ namespace Comet::Tests {
         }
         readback_frames.wait_for_all_slots();
         renderer.wait_idle();
-        renderer.set_viewport_pick_callback({});
-        renderer.set_viewport_pick_callback({}, second);
         EXPECT_EQ(left_picks, 5u);
         EXPECT_EQ(right_picks, 6u);
         for(const auto& sample : samples) {

@@ -38,6 +38,7 @@ namespace Comet::Ui {
         [[nodiscard]] Rml::RenderInterface& interface();
         // 完整生成候选文档资源并验证绘制能力；不录制 GPU 命令。
         [[nodiscard]] Comet::Result<void, Comet::GraphicsError> validate(Rml::Context& context);
+        // 当前在宿主线程串行执行：先收集独立绘制状态和资源引用，再录制，不在 pass 内回入 DOM。
         [[nodiscard]] Comet::Result<void, Comet::GraphicsError> render(
             Comet::OverlayRecordContext& frame, Rml::Context& context);
         // 在场景最终输出后合成 UI，保留本帧离屏图像供视口采样。

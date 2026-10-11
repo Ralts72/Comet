@@ -883,7 +883,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(scene.is_offscreen());
         EXPECT_EQ(scene.get_material_statistics().cached_material_versions, 0u);
         renderer.set_overlay({});
-        renderer.set_viewport_pick_callback({});
+        renderer.cancel_viewport_pick();
         renderer.wait_idle();
         renderer.prepare_shutdown();
         renderer.wait_idle();

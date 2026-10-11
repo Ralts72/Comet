@@ -26,7 +26,7 @@
 namespace Comet::Tests {
     class FrameEditOrderTest: public ::testing::TestWithParam<bool> {};
 
-    TEST_P(FrameEditOrderTest, PickAndLinesConsumeSceneChangedDuringCurrentPreparation) {
+    TEST_P(FrameEditOrderTest, PickConsumesUpdatedSceneAndFeedbackReturnsAtNextUpdate) {
         Config config;
         config.window.width = 320;
         config.window.height = 240;
@@ -77,6 +77,21 @@ namespace Comet::Tests {
         };
         const auto frame_ready = [&](const Engine::FrameContext&) {
             ++preparations;
+            if(preparations == 2) {
+                EXPECT_TRUE(picked);
+                const auto entity = engine.get_scene()->find_entity(EntityId(2));
+                LineDrawList lines;
+                EXPECT_TRUE(lines.add_box(mesh.value()->get_local_bounds(),
+                    engine.get_scene()->get_world_matrix(entity)));
+                EXPECT_EQ(lines.line_count(), 12u);
+                for(const auto& vertex : lines.vertices()) {
+                    EXPECT_GE(vertex.position.x, -1.0f);
+                    EXPECT_LE(vertex.position.x, 1.0f);
+                }
+                allocations_before_lines = allocation_count();
+                renderer.submit_lines(lines);
+                return Result<void, Error>::success();
+            }
             EXPECT_EQ(updates, 1);
             EXPECT_EQ(calls->updates, 0);
             EXPECT_TRUE(renderer.get_frame_scheduler().is_frame_active());
@@ -96,46 +111,32 @@ namespace Comet::Tests {
                         .try_edit_transform([](auto& value) { value.translation.x = 10; }));
             }
             const auto size = renderer.get_scene_renderer().get_render_target().get_size();
-            renderer.request_viewport_pick(size / 2u, size);
+            renderer.request_viewport_pick(size / 2u, size, engine.get_scene()->get_lifetime());
             return Result<void, Error>::success();
         };
         renderer.set_overlay({.render = [&](Comet::OverlayRecordContext&) {
-            EXPECT_TRUE(picked);
-            EXPECT_EQ(calls->updates, 1);
-            // 结果回调提交的线段必须已在当前 scene pass 分配并录制。
+            EXPECT_FALSE(renderer.take_viewport_pick_result());
+            EXPECT_EQ(calls->updates, preparations);
             if(allocations_before_lines) {
                 const auto& materials = renderer.get_scene_renderer().get_material_statistics();
                 EXPECT_EQ(allocation_count(),
                     *allocations_before_lines + 1 + materials.material_bindings_created);
             }
-            engine.get_window().request_close();
+            if(preparations == 2)
+                engine.get_window().request_close();
 
             return Comet::Result<void, Comet::GraphicsError>::success();
         }});
-        renderer.set_viewport_pick_callback([&](std::optional<ScenePickHit> hit) {
-            EXPECT_EQ(preparations, 1);
-            EXPECT_EQ(calls->updates, 1);
-            EXPECT_TRUE(renderer.get_frame_scheduler().is_frame_active());
-            picked = hit && hit->entity_id == EntityId(2);
-            if(hit) {
-                auto& scene = *engine.get_scene();
-                const auto entity = scene.find_entity(hit->entity_id);
-                LineDrawList lines;
-                EXPECT_TRUE(lines.add_box(
-                    mesh.value()->get_local_bounds(), scene.get_world_matrix(entity)));
-                EXPECT_EQ(lines.line_count(), 12U);
-                // 场景修改/替换前对象在 x=20，本帧框应已回到原点附近。
-                for(const auto& vertex : lines.vertices()) {
-                    EXPECT_GE(vertex.position.x, -1.0f);
-                    EXPECT_LE(vertex.position.x, 1.0f);
-                }
-                allocations_before_lines = allocation_count();
-                renderer.submit_lines(lines);
-            }
-        });
         EXPECT_TRUE(engine.run({
             .update =
                 [&](const Engine::FrameContext&) {
+                    if(const auto result = renderer.take_viewport_pick_result()) {
+                        EXPECT_EQ(preparations, 1);
+                        EXPECT_EQ(calls->updates, 1);
+                        EXPECT_EQ(result->scene_lifetime, engine.get_scene()->get_lifetime());
+                        picked = result->hit && result->hit->entity_id == EntityId(2);
+                        EXPECT_FALSE(renderer.take_viewport_pick_result());
+                    }
                     if(++updates > 5)
                         engine.get_window().request_close();
                     return Result<void, Error>::success();
@@ -143,10 +144,9 @@ namespace Comet::Tests {
             .frame_ready = frame_ready,
         }));
         renderer.set_overlay({});
-        renderer.set_viewport_pick_callback({});
-        EXPECT_EQ(preparations, 1);
-        EXPECT_EQ(calls->updates, 1);
-        EXPECT_EQ(runtime.get_timing().frame_index, 1u);
+        EXPECT_EQ(preparations, 2);
+        EXPECT_EQ(calls->updates, 2);
+        EXPECT_EQ(runtime.get_timing().frame_index, 2u);
         EXPECT_TRUE(picked);
         EXPECT_TRUE(allocations_before_lines.has_value());
     }

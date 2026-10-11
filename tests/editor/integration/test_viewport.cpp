@@ -7,6 +7,7 @@
 #include "render/render_context.h"
 #include "graphics/device.h"
 #include "render/resource/render_resources.h"
+#include "render/resource/mesh.h"
 #include "core/window.h"
 #include "graphics/swapchain.h"
 #include "graphics/resource/sampler.h"
@@ -22,6 +23,7 @@
 #include "render/render_target.h"
 #include "render/render_diagnostics.h"
 #include "asset/registry.h"
+#include "asset/data/mesh_data.h"
 #include "asset/artifact/shader_program_artifact.h"
 #include "render/material/material.h"
 #include "render/material/material_programs.h"
@@ -83,14 +85,12 @@ namespace CometEditor::Tests {
         auto& ui = *ui_result.value();
         const Comet::ScopeExit cleanup([&] {
             renderer.set_overlay({});
-            renderer.set_viewport_pick_callback({});
+            renderer.cancel_viewport_pick();
             renderer.wait_idle();
         });
         unsigned overlays = 0;
-        unsigned picks = 0;
         unsigned prepared_frames = 0;
         bool visible = false;
-        renderer.set_viewport_pick_callback([&](auto) { ++picks; });
         renderer.set_overlay({.render = [&](Comet::OverlayRecordContext& overlay) {
             auto& command = overlay.command_buffer();
             ++overlays;
@@ -145,7 +145,8 @@ namespace CometEditor::Tests {
                     if(!view)
                         return Comet::Result<void, Comet::Error>::failure(view.error().as_error());
                     if(!visible) {
-                        renderer.request_viewport_pick({1, 1}, {160, 120});
+                        renderer.request_viewport_pick(
+                            {1, 1}, {160, 120}, engine.get_scene()->get_lifetime());
                         EXPECT_TRUE(engine.get_scene()->set_post_process({.exposure = 2}));
                     }
                     return Comet::Result<void, Comet::Error>::success();
@@ -153,7 +154,7 @@ namespace CometEditor::Tests {
         });
         ASSERT_TRUE(run) << run.error();
         EXPECT_EQ(overlays, 4);
-        EXPECT_EQ(picks, 0);
+        EXPECT_FALSE(renderer.take_viewport_pick_result());
         EXPECT_FLOAT_EQ(scene_renderer.get_post_process_settings().exposure, 2);
         const auto* published = renderer.get_material_programs().published(program_handle, "pbr");
         ASSERT_NE(published, nullptr);
@@ -239,6 +240,7 @@ namespace CometEditor::Tests {
             return Comet::Result<void, Comet::GraphicsError>::success();
         }});
         const auto draw_frame = [&] {
+            viewport.consume_pick(active_scene);
             engine.get_window().poll_events();
             const auto preparation = renderer.prepare_frame();
             EXPECT_TRUE(preparation);
@@ -287,21 +289,66 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(rebuilt) << rebuilt.error();
         EXPECT_TRUE(draw_frame());
 
+        const auto mesh = engine.get_render_resources().try_create_mesh(
+            {.vertices = {{{-1, -1, 0}}, {{1, -1, 0}}, {{0, 1, 0}}}, .indices = {0, 1, 2}});
+        ASSERT_TRUE(mesh);
+        const Comet::AssetHandle mesh_handle(911), material_handle(912);
+        ASSERT_TRUE(engine.get_asset_registry().register_asset(mesh_handle, mesh.value()));
+        ASSERT_TRUE(engine.get_asset_registry().register_asset(
+            material_handle, std::make_shared<Comet::Material>("pick", "unlit_color")));
+        auto old_entity = first_scene.create_entity();
+        old_entity.add_component<Comet::MeshRendererComponent>(mesh_handle, material_handle);
+        const auto publish_pick = [&](Comet::Scene& scene, Comet::Math::Vec2u pixel) {
+            const auto prepared = renderer.prepare_frame();
+            EXPECT_TRUE(prepared);
+            if(!prepared || prepared.value() != Comet::Renderer::FramePreparation::Ready)
+                return false;
+            const auto view = renderer.set_render_view(
+                {.render_size = {64, 64},
+                    .camera_selection = Comet::RenderView::CameraSelection::Override,
+                    .camera_override = Comet::RenderCamera{.view_matrix = Comet::Math::look_at(
+                                                               {0, 0, 3}, {0, 0, 0}, {0, 1, 0})}},
+                scene_view.value());
+            EXPECT_TRUE(view);
+            if(!view)
+                return false;
+            renderer.request_viewport_pick(
+                pixel, {64, 64}, scene.get_lifetime(), scene_view.value());
+            return bool(renderer.render_frame(Comet::SceneExtractor::extract(scene)));
+        };
+        ASSERT_TRUE(publish_pick(first_scene, {32, 32}));
         active_scene = &second_scene;
         selection.set_scene(second_scene);
         history.bind_scene(active_scene);
-        const auto selected = second_scene.create_entity();
-        viewport.apply_pick(Comet::ScenePickHit{.entity_id = selected.get_id()}, active_scene);
+        auto selected = second_scene.create_entity();
+        selected.add_component<Comet::MeshRendererComponent>(mesh_handle, material_handle);
+        EXPECT_EQ(selected.get_id(), old_entity.get_id());
+        const auto other = second_scene.create_entity();
+        selection.select_entity(other.get_id());
+        viewport.consume_pick(active_scene);
+        EXPECT_EQ(selection.get_selected_entity(), other);
+        ASSERT_TRUE(publish_pick(second_scene, {32, 32}));
+        viewport.consume_pick(active_scene);
         EXPECT_EQ(selection.get_selected_entity(), selected);
         EXPECT_TRUE(draw_frame());
 
         state.mode = EditorMode::Play;
-        viewport.apply_pick(std::nullopt, active_scene);
+        ASSERT_TRUE(publish_pick(second_scene, {0, 0}));
+        viewport.consume_pick(active_scene);
         EXPECT_EQ(selection.get_selected_entity(), selected);
         EXPECT_TRUE(draw_frame());
         state.mode = EditorMode::Edit;
-        viewport.apply_pick(std::nullopt, active_scene);
+        ASSERT_TRUE(publish_pick(second_scene, {0, 0}));
+        viewport.consume_pick(active_scene);
         EXPECT_FALSE(selection.get_selected_entity());
+        ASSERT_TRUE(publish_pick(second_scene, {32, 32}));
+        second_scene.destroy_entity(selected);
+        selection.select_entity(other.get_id());
+        viewport.consume_pick(active_scene);
+        EXPECT_EQ(selection.get_selected_entity(), other);
+        ASSERT_TRUE(publish_pick(first_scene, {32, 32}));
+        viewport.cancel_interaction();
+        EXPECT_FALSE(renderer.take_viewport_pick_result(scene_view.value()));
         viewport.panel().set_visible(false);
         EXPECT_TRUE(draw_frame());
         EXPECT_FALSE(viewport.panel().is_visible());

@@ -273,7 +273,10 @@ namespace Comet::Tests {
                 interface.EnableScissorRegion(true);
                 interface.SetScissorRegion(Rml::Rectanglei::FromCorners({16, 8}, {24, 24}));
                 interface.RenderGeometry(geometry, {0, 0}, texture);
-                // 在本帧 GPU 提交前释放；OverlayRecordContext 必须保留所有间接 owner。
+                interface.SetTransform(nullptr);
+                interface.SetScissorRegion(Rml::Rectanglei::FromCorners({8, 8}, {12, 24}));
+                interface.RenderGeometry(geometry, {-2, 0}, texture);
+                // 两次绘制各自保存状态；释放原 Handle 后仍须录制并保活到 GPU 完成。
                 interface.ReleaseGeometry(geometry);
                 interface.ReleaseTexture(texture);
                 interface.SetTransform(nullptr);
@@ -299,6 +302,8 @@ namespace Comet::Tests {
             expect_color(pixels, size, {13, 12}, format, untouched);
             expect_color(pixels, size, {25, 12}, format, untouched);
             expect_color(pixels, size, {20, 12}, format,
+                expected_pixel(background, {1, 0.25f, 0}, 128.f / 255, format, 1.5f));
+            expect_color(pixels, size, {9, 12}, format,
                 expected_pixel(background, {1, 0.25f, 0}, 128.f / 255, format, 1.5f));
             renderer.set_overlay({});
             probe->draw = {};

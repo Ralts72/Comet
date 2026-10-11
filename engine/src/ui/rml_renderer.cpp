@@ -219,8 +219,8 @@ namespace Comet::Ui {
             const Rml::Vector2f translation, const Rml::TextureHandle texture_handle) override {
             if(m_error)
                 return;
-            if(!m_validating && (!m_recording || !m_active_pipeline)) {
-                fail({"RmlUi geometry was drawn outside an overlay recording"});
+            if(m_phase == Phase::Idle) {
+                fail({"RmlUi geometry was drawn outside document preparation"});
                 return;
             }
             const auto found = m_geometries.find(handle);
@@ -241,28 +241,14 @@ namespace Comet::Ui {
                 fail({"RmlUi geometry translation is not finite"});
                 return;
             }
-            if(m_validating)
+            if(m_phase == Phase::Validating)
                 return;
             const auto bounds = scissor();
             if(bounds.extent.width == 0 || bounds.extent.height == 0)
                 return;
-            const auto& geometry = found->second;
-            m_recording->retain(geometry);
-            m_recording->retain(texture);
-            m_recording->wait_for(texture->texture->get_ready_completion(),
-                Comet::Flags<Comet::PipelineStage>(Comet::PipelineStage::FragmentShader));
-            auto& command = m_recording->command_buffer();
-            command.set_scissor(bounds);
-            command.bind_descriptor_sets(*m_active_pipeline->pipeline->get_layout(),
-                std::span(&texture->binding->descriptor, 1));
-            command.bind_vertex_buffer({*geometry->vertices});
-            command.bind_index_buffer(*geometry->indices, 0);
-            const GeometryParameters parameters{m_transform, {translation.x, translation.y},
-                {float(m_dimensions.x), float(m_dimensions.y)}};
-            command.push_constants(*m_active_pipeline->pipeline->get_layout(),
-                Comet::Flags<Comet::ShaderStage>(Comet::ShaderStage::Vertex), 0, &parameters,
-                sizeof(parameters));
-            command.draw_indexed(geometry->index_count);
+            m_draws.push_back({found->second, std::move(texture), bounds,
+                {m_transform, {translation.x, translation.y},
+                    {float(m_dimensions.x), float(m_dimensions.y)}}});
         }
 
         void ReleaseGeometry(const Rml::CompiledGeometryHandle geometry) override {
@@ -450,15 +436,15 @@ namespace Comet::Ui {
         Status validate(Rml::Context& context) {
             if(auto pending = take_error())
                 return Status::failure(std::move(*pending));
-            if(m_recording || m_validating)
+            if(m_phase != Phase::Idle)
                 return Status::failure({"RmlUi cannot nest document validation or recording"});
             const auto size = context.GetDimensions();
             if(size.x <= 0 || size.y <= 0)
                 return Status::failure({"Invalid RmlUi context dimensions"});
-            m_validating = true;
+            m_phase = Phase::Validating;
             m_transform = glm::mat4(1);
             m_scissor_enabled = false;
-            const Comet::ScopeExit end_validation([&] { m_validating = false; });
+            const Comet::ScopeExit end_validation([&] { m_phase = Phase::Idle; });
             if(!context.Render() && !m_error)
                 fail({"RmlUi context validation failed"});
             if(auto pending = take_error())
@@ -470,7 +456,7 @@ namespace Comet::Ui {
             const Target& target, const bool swapchain, const uint32_t target_index) {
             if(auto pending = take_error())
                 return Status::failure(std::move(*pending));
-            if(m_recording || m_validating)
+            if(m_phase != Phase::Idle)
                 return Status::failure({"RmlUi cannot nest overlay recordings"});
             if(!target.pass || !target.target)
                 return Status::failure({"RmlUi render target is unavailable"});
@@ -485,21 +471,28 @@ namespace Comet::Ui {
                 || size.x > std::uint32_t(std::numeric_limits<int>::max())
                 || size.y > std::uint32_t(std::numeric_limits<int>::max()))
                 return Status::failure({"Invalid RmlUi render target or context dimensions"});
-            auto candidate = pipeline_for(target);
-            if(!candidate)
-                return Status::failure(candidate.error());
-            m_active_pipeline = std::move(candidate).value();
-            frame.retain(m_active_pipeline);
-            frame.retain(target.target);
-            m_recording = &frame;
+            m_draws.clear();
+            m_phase = Phase::Collecting;
             m_dimensions = {context_size.x, context_size.y};
             m_framebuffer_size = size;
             m_transform = glm::mat4(1);
             m_scissor_enabled = false;
-            const Comet::ScopeExit clear_recording([&] {
-                m_recording = nullptr;
-                m_active_pipeline.reset();
+            const Comet::ScopeExit clear_draws([&] {
+                m_phase = Phase::Idle;
+                m_draws.clear();
             });
+            // RmlUi 只准备值和资源引用；GPU 录制不再回入 DOM 或读取它的可变状态。
+            if(!context.Render() && !m_error)
+                fail({"RmlUi context rendering failed"});
+            if(auto pending = take_error())
+                return Status::failure(std::move(*pending));
+            m_phase = Phase::Idle;
+            auto candidate = pipeline_for(target);
+            if(!candidate)
+                return Status::failure(candidate.error());
+            const auto pipeline = std::move(candidate).value();
+            frame.retain(pipeline);
+            frame.retain(target.target);
             auto& command = frame.command_buffer();
             if(swapchain)
                 target.target->begin_render_target(command);
@@ -507,22 +500,20 @@ namespace Comet::Ui {
                 target.target->begin_render_target(command, target_index);
             const Comet::ScopeExit end_pass([&] { target.target->end_render_target(command); });
             command.set_viewport(vk::Viewport(0, 0, float(size.x), float(size.y), 0, 1));
-            command.bind_pipeline(*m_active_pipeline->pipeline);
+            command.bind_pipeline(*pipeline->pipeline);
             struct OutputParameters {
                 std::uint32_t encoding;
                 float white_level;
             };
             static_assert(sizeof(OutputParameters) == 8);
             const bool hdr = target.color_space == Comet::ImageColorSpace::ExtendedSrgbLinearEXT;
-            const OutputParameters parameters{m_active_pipeline->encode_srgb ? 1u : 0u,
+            const OutputParameters parameters{pipeline->encode_srgb ? 1u : 0u,
                 hdr ? m_renderer.get_output_settings().hdr_white_level : 1.0f};
-            command.push_constants(*m_active_pipeline->pipeline->get_layout(),
+            command.push_constants(*pipeline->pipeline->get_layout(),
                 Comet::Flags<Comet::ShaderStage>(Comet::ShaderStage::Fragment), 80, &parameters,
                 sizeof(parameters));
-            if(!context.Render() && !m_error)
-                fail({"RmlUi context rendering failed"});
-            if(auto pending = take_error())
-                return Status::failure(std::move(*pending));
+            for(const auto& draw : m_draws)
+                record_draw(frame, *pipeline->pipeline, draw);
             return Status::success();
         }
 
@@ -606,6 +597,31 @@ namespace Comet::Ui {
             bool encode_srgb;
             std::weak_ptr<Comet::RenderTarget> target;
         };
+        struct Draw {
+            std::shared_ptr<Geometry> geometry;
+            std::shared_ptr<Texture> texture;
+            vk::Rect2D scissor;
+            GeometryParameters parameters;
+        };
+        enum class Phase { Idle, Validating, Collecting };
+
+        static void record_draw(
+            Comet::OverlayRecordContext& frame, const Comet::Pipeline& pipeline, const Draw& draw) {
+            frame.retain(draw.geometry);
+            frame.retain(draw.texture);
+            frame.wait_for(draw.texture->texture->get_ready_completion(),
+                Comet::Flags<Comet::PipelineStage>(Comet::PipelineStage::FragmentShader));
+            auto& command = frame.command_buffer();
+            command.set_scissor(draw.scissor);
+            command.bind_descriptor_sets(
+                *pipeline.get_layout(), std::span(&draw.texture->binding->descriptor, 1));
+            command.bind_vertex_buffer({*draw.geometry->vertices});
+            command.bind_index_buffer(*draw.geometry->indices, 0);
+            command.push_constants(*pipeline.get_layout(),
+                Comet::Flags<Comet::ShaderStage>(Comet::ShaderStage::Vertex), 0, &draw.parameters,
+                sizeof(draw.parameters));
+            command.draw_indexed(draw.geometry->index_count);
+        }
 
         void fail(Comet::GraphicsError failure) {
             if(!m_error)
@@ -736,14 +752,13 @@ namespace Comet::Ui {
         Rml::CompiledGeometryHandle m_next_geometry = 1;
         Rml::TextureHandle m_next_texture = 1;
         std::optional<Comet::GraphicsError> m_error;
-        Comet::OverlayRecordContext* m_recording = nullptr;
-        std::shared_ptr<Pipeline> m_active_pipeline;
+        std::vector<Draw> m_draws;
+        Phase m_phase = Phase::Idle;
         glm::mat4 m_transform{1};
         Comet::Math::Vec2u m_framebuffer_size{};
         Rml::Vector2i m_dimensions{};
         Rml::Rectanglei m_scissor_region;
         bool m_scissor_enabled = false;
-        bool m_validating = false;
     };
 
     Comet::Result<std::unique_ptr<RmlRenderer>, Comet::GraphicsError> RmlRenderer::create(

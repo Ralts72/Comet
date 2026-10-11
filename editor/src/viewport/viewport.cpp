@@ -38,6 +38,7 @@ namespace CometEditor {
     }
 
     void Viewport::cancel_interaction() {
+        m_renderer.cancel_viewport_pick(m_scene_view);
         m_panel.cancel_interaction();
         m_game_panel.cancel_interaction();
     }
@@ -97,24 +98,28 @@ namespace CometEditor {
     }
 
     void Viewport::submit_feedback(Comet::Scene* scene) {
-        if(m_state.mode != EditorMode::Edit || !m_panel.is_visible())
+        if(!scene || m_state.mode != EditorMode::Edit || !m_panel.is_visible()) {
+            m_renderer.cancel_viewport_pick(m_scene_view);
             return;
+        }
         if(const auto pixel = m_panel.take_pick_request()) {
             m_renderer.request_viewport_pick(
-                *pixel, m_panel.get_layout().image_resolution, m_scene_view);
-            // 本帧有拾取时，由结果回调提交新选择的框，不先画旧选择。
-            return;
+                *pixel, m_panel.get_layout().image_resolution, scene->get_lifetime(), m_scene_view);
         }
         submit_selection_bounds(scene);
     }
 
-    void Viewport::apply_pick(const std::optional<Comet::ScenePickHit> hit, Comet::Scene* scene) {
-        if(m_state.mode != EditorMode::Edit)
+    void Viewport::consume_pick(Comet::Scene* scene) {
+        const auto result = m_renderer.take_viewport_pick_result(m_scene_view);
+        if(!result || !scene || result->scene_lifetime != scene->get_lifetime()
+            || &m_selection.get_scene() != scene || m_state.mode != EditorMode::Edit
+            || !m_panel.is_visible())
             return;
-        if(hit)
-            m_selection.select_entity(hit->entity_id);
+        if(result->hit && !scene->find_entity(result->hit->entity_id))
+            return;
+        if(result->hit)
+            m_selection.select_entity(result->hit->entity_id);
         else
             m_selection.clear();
-        submit_selection_bounds(scene);
     }
 }
