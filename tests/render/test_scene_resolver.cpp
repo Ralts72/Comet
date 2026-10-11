@@ -199,6 +199,87 @@ namespace Comet::Tests {
         EXPECT_EQ(frozen.render_items[0].material.program_source, program);
     }
 
+    TEST(SceneResolverTest, OwnedWorldsRetainFrameValuesAcrossUpdatesRefreshAndReset) {
+        AssetRegistry assets;
+        FakeRenderResourceFactory resources;
+        const auto mesh = resources.try_create_mesh({}).value();
+        auto material = std::make_shared<Material>("item", "unlit_color");
+        ASSERT_TRUE(material->set_scalar_property("intensity", 0.25f));
+        ASSERT_TRUE(assets.register_asset(AssetHandle{10}, mesh));
+        ASSERT_TRUE(assets.register_asset(AssetHandle{20}, material));
+        SceneResolver resolver(assets);
+        RenderScene scene;
+        scene.scene_lifetime = 1;
+        scene.cameras.push_back({.primary = true});
+        scene.lights.push_back({.intensity = 2});
+        scene.render_items = {{.entity_id = 1,
+            .transform_revision = 1,
+            .model_matrix = Math::Mat4(1),
+            .mesh_handle = AssetHandle{10},
+            .material_handle = AssetHandle{20}}};
+        scene.item_changes.begin_update(true);
+        const auto old = resolver.update(scene);
+        ASSERT_EQ(old->render_items.size(), 1u);
+        scene.render_items[0].model_matrix = Math::translate(Math::Mat4(1), {3, 0, 0});
+        ++scene.render_items[0].transform_revision;
+        scene.item_changes.begin_update(false);
+        scene.item_changes.slots.push_back(0);
+        scene.cameras[0].view_matrix = Math::translate(Math::Mat4(1), {0, 0, 4});
+        scene.lights[0].intensity = 5;
+        ASSERT_TRUE(material->set_scalar_property("intensity", 0.75f));
+        const auto next = resolver.update(scene);
+        EXPECT_NE(old.get(), next.get());
+        EXPECT_EQ(next->render_items[0].model_matrix[3], Math::Vec4(3, 0, 0, 1));
+        EXPECT_EQ(next->cameras[0].view_matrix[3], Math::Vec4(0, 0, 4, 1));
+        EXPECT_EQ(next->lights[0].intensity, 5);
+        EXPECT_EQ(next->render_items[0].material.resource->get_scalar_property("intensity"), 0.75f);
+        EXPECT_FALSE(next->item_changes.full_update);
+        EXPECT_EQ(next->item_changes.slots, (std::vector<std::size_t>{0}));
+        ASSERT_TRUE(assets.unregister_asset(AssetHandle{10}));
+        resolver.refresh_assets();
+        resolver.reset();
+        ++scene.scene_lifetime;
+        const auto empty = resolver.update(scene);
+        EXPECT_TRUE(empty->render_items.empty());
+        EXPECT_EQ(old->scene_lifetime, 1u);
+        EXPECT_EQ(old->render_items[0].mesh, mesh);
+        EXPECT_EQ(old->render_items[0].model_matrix, Math::Mat4(1));
+        EXPECT_EQ(old->cameras[0].view_matrix, Math::Mat4(1));
+        EXPECT_EQ(old->lights[0].intensity, 2);
+        EXPECT_EQ(old->render_items[0].material.resource->get_scalar_property("intensity"), 0.25f);
+        EXPECT_EQ(next->render_items[0].mesh, mesh);
+    }
+
+    TEST(SceneResolverTest, ReleasedWorldSnapshotReusesSerialFrameStorage) {
+        AssetRegistry assets;
+        FakeRenderResourceFactory resources;
+        ASSERT_TRUE(assets.register_asset(AssetHandle{10}, resources.try_create_mesh({}).value()));
+        ASSERT_TRUE(
+            assets.register_asset(AssetHandle{20}, std::make_shared<Material>("item", "pbr")));
+        SceneResolver resolver(assets);
+        RenderScene scene;
+        scene.scene_lifetime = 1;
+        scene.item_changes.begin_update(true);
+        scene.render_items = {{.entity_id = 1,
+            .transform_revision = 1,
+            .model_matrix = Math::Mat4(1),
+            .mesh_handle = AssetHandle{10},
+            .material_handle = AssetHandle{20}}};
+        auto frame = resolver.update(scene);
+        ASSERT_EQ(frame->render_items.size(), 1u);
+        const auto* world = frame.get();
+        const auto* items = frame->render_items.data();
+        frame.reset();
+        scene.item_changes.begin_update(false);
+        scene.item_changes.slots.push_back(0);
+        ++scene.render_items[0].transform_revision;
+        scene.render_items[0].model_matrix = Math::translate(Math::Mat4(1), {2, 0, 0});
+        frame = resolver.update(scene);
+        EXPECT_EQ(frame.get(), world);
+        EXPECT_EQ(frame->render_items.data(), items);
+        EXPECT_EQ(frame->render_items[0].model_matrix[3], Math::Vec4(2, 0, 0, 1));
+    }
+
     TEST(SceneResolverTest, StructuralEditsPreserveResourcesTransformsAndFrozenCopies) {
         AssetRegistry registry;
         FakeRenderResourceFactory resources;

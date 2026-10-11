@@ -905,6 +905,8 @@ namespace Comet::Ui {
         // 同一物理帧内切换 modal 时同步平台基线；下一帧的新按键可以正常导航。
         if(dispatched_modal != m_controller->m_modal)
             m_runtime->process_input(input, m_controller->m_modal, m_info.view);
+        if(auto updated = m_runtime->update(); !updated)
+            return Frame::failure({updated.error()});
         m_blocked |= m_controller->m_modal;
         return Frame::success({m_blocked, m_runtime->pointer_blocked()});
     }
@@ -1010,10 +1012,11 @@ namespace Comet::Ui {
                 return Result<void>::failure("UI markup target no longer exists: " + id);
         }
         m_pending_markup.clear();
-        if(auto result = m_runtime->update(); !result)
-            return result;
-        if(std::exchange(m_focus_requested, false))
+        if(std::exchange(m_focus_requested, false)) {
+            if(!m_runtime->context().Update())
+                return Result<void>::failure("Cannot update UI context before focusing");
             focus(*m_controller);
+        }
         return Result<void>::success();
     }
 

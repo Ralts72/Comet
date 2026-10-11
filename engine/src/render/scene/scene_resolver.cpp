@@ -35,6 +35,31 @@ namespace Comet {
         return world;
     }
 
+    RenderWorld& SceneResolver::writable_output() {
+        if(!m_output)
+            m_output = std::make_shared<RenderWorld>();
+        else if(m_output.use_count() != 1)
+            m_output = std::make_shared<RenderWorld>(*m_output);
+        return *m_output;
+    }
+
+    std::shared_ptr<const RenderWorld> SceneResolver::update(const RenderScene& render_scene) {
+        resolve(render_scene, writable_output());
+        return m_output;
+    }
+
+    void SceneResolver::refresh_assets() {
+        if(m_output)
+            refresh_assets(writable_output());
+    }
+
+    void SceneResolver::reset() {
+        if(m_output && m_output.use_count() == 1)
+            m_output->clear();
+        else
+            m_output.reset();
+    }
+
     MaterialBinding SceneResolver::resolve_material(
         const AssetHandle handle, RenderWorld& world) const {
         MaterialBinding binding{.material_handle = handle};

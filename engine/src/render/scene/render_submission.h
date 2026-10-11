@@ -84,7 +84,7 @@ namespace Comet {
         }
     };
 
-    // 只在同步绘制期间借用世界；下一个世界更新前必须完成所有视图的录制。
+    // 录制期间借用帧拥有的只读世界；保留提交时必须同时保留世界快照。
     struct RenderSubmission {
         const RenderWorld& world;
         std::optional<ViewProjectMatrix> view_project_matrix;

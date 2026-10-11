@@ -231,6 +231,7 @@ namespace Comet::Ui {
             Rml::Factory::ClearTemplateCache();
             auto* candidate = m_context->LoadDocument((m_resource_root / file).string());
             std::string failure;
+            RmlRenderer::DrawSnapshot candidate_draws;
             bool old_hidden = false;
             if(!candidate)
                 failure = "Cannot load UI document: " + file.string();
@@ -248,6 +249,8 @@ namespace Comet::Ui {
                     failure = "Cannot update candidate UI document";
                 else if(const auto validated = m_renderer->validate(*m_context); !validated)
                     failure = "Cannot prepare UI resources: " + validated.error().message;
+                else
+                    candidate_draws = validated.value();
             }
             if(candidate && failure.empty() && finalize) {
                 if(auto result = finalize(*candidate); !result)
@@ -256,6 +259,8 @@ namespace Comet::Ui {
                     failure = "Cannot finalize candidate UI document";
                 else if(auto validated = m_renderer->validate(*m_context); !validated)
                     failure = "Cannot finalize UI resources: " + validated.error().message;
+                else
+                    candidate_draws = validated.value();
             }
             if(failure.empty()
                 && (m_system.m_errors != errors_before || m_system.m_warnings != warnings_before))
@@ -273,12 +278,14 @@ namespace Comet::Ui {
             }
             if(current)
                 current->Close();
+            m_draw_data = std::move(candidate_draws);
             return Replacement::success(candidate);
         }
 
         Window& m_window;
         Options m_options;
         std::unique_ptr<RmlRenderer> m_renderer;
+        RmlRenderer::DrawSnapshot m_draw_data;
         UiSystem m_system;
         std::unique_ptr<UiFiles> m_files;
         std::filesystem::path m_resource_root;
@@ -328,8 +335,13 @@ namespace Comet::Ui {
         return m_impl->m_context->IsMouseInteracting();
     }
     Result<void> RmlContext::update() {
+        m_impl->m_draw_data.reset();
         if(!m_impl->m_context->Update())
             return Result<void>::failure("Cannot update UI context");
+        auto collected = m_impl->m_renderer->collect(*m_impl->m_context);
+        if(!collected)
+            return Result<void>::failure(collected.error().message);
+        m_impl->m_draw_data = std::move(collected).value();
         return Result<void>::success();
     }
     Result<Rml::ElementDocument*> RmlContext::replace_document(Rml::ElementDocument* current,
@@ -342,9 +354,11 @@ namespace Comet::Ui {
     }
     Result<void, GraphicsError> RmlContext::render(
         OverlayRecordContext& frame, RenderOutput output) {
+        if(!m_impl->m_draw_data)
+            return Result<void, GraphicsError>::success();
         if(output == RenderOutput::Offscreen)
-            return m_impl->m_renderer->render_offscreen(frame, *m_impl->m_context);
-        return m_impl->m_renderer->render(frame, *m_impl->m_context);
+            return m_impl->m_renderer->render_offscreen(frame, *m_impl->m_draw_data);
+        return m_impl->m_renderer->render(frame, *m_impl->m_draw_data);
     }
     void RmlContext::release_swapchain_resources() {
         m_impl->m_renderer->release_swapchain_resources();

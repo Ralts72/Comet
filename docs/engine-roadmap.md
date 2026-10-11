@@ -22,7 +22,7 @@
 1. **项目 UI／Gameplay 整体验收**：实际走通设置、改键、取消／应用、计分、声音、暂停／单步、重开和 Stop／再次 Play，检查高 DPI、resize、失焦与重载失败。
 2. **内容编辑与性能**：按真实需求扩展纹理等资产撤销；依据高对象／多材质、持续变换、活动／休眠刚体基线推进优化。
    当前增量数据、多视图、共享阴影和统一候选发布的职责见架构文档。
-   渲染线程准备已有只读 Scene 快照、固定材质／Shader 输入、拾取值返回和 RmlUi 的 CPU／GPU 资源边界；下一步处理 GPU 发布、校验反馈与 ImGui 的实际线程所有权，再推进有界队列与关闭时序。
+   渲染线程准备已有独立持有的只读 Scene／RenderWorld、固定材质／Shader 输入、拾取值返回和 RmlUi 绘制快照；下一步处理 GPU 发布、校验反馈与 ImGui 的实际线程所有权，再推进有界队列与关闭时序。
    空间索引和多视图 GPU 统计按规模扩展，已有路径按新热点优化。
 3. **后续功能**：动画、粒子、GI、路径追踪按下方跨阶段计划推进；先后顺序依赖样例与技术前置条件，不因个人使用而取消，也不要求先完成通用工程框架。
 
@@ -792,8 +792,8 @@ EXR、六面图片和更高背景分辨率按内容需求扩展。发布包只�
 
 当前 Main 拥有 Scene、UI 和 GPU 可变状态；Worker 只产出 CPU 数据，独立 RenderThread 尚未实现。
 SceneExtractor 已交付可独立持有的只读 CPU 快照；同步帧复用存储，旧快照被保留且场景变化时才复制。
-SceneResolver 在 Main 固定材质值和 Shader 引用；同版本复用，局部编辑继续走已有失效槽位，不另设资产身份表。程序绘制不查询最新注册表，历史世界保持原输入。
-拾取结果已改为帧提交后由 Main 消费；RmlUi 文档回调只产出独立 CPU 数据，GPU 资源准备、缓存清理和录制集中在后端阶段，当前仍串行执行。
+SceneResolver 在 Main 固定材质值和 Shader 引用，交付可独立保留的只读 RenderWorld；串行帧复用世界存储，旧读者仍在时复制后更新。局部编辑继续走已有失效槽位，不另设资产身份表，GPU 不查询最新注册表。
+拾取结果已改为帧提交后由 Main 消费；RmlUi 在更新阶段交付只读绘制快照，保留几何／像素及当时尺寸。GPU 录制不读取文档，资源准备与清理集中在后端，当前仍串行执行。
 渲染线程是保留的性能与架构学习目标：让更新与渲染可重叠，并使 GPU 状态归渲染线程唯一拥有。
 先建立代表场景和安全快照移交，再实施线程拆分；不要求先建设通用任务图，也不把它作为编辑功能的前置条件。
 
@@ -805,10 +805,10 @@ SceneResolver 在 Main 固定材质值和 Shader 引用；同版本复用，局�
 
 - Main 在 Runtime 更新后提取并解析快照，后续连同 serial、View 参数及资源发布版本组成帧移交数据。
   ImGui Vulkan 后端还读取上下文、动态字体纹理与视口数据，不能只 CloneOutput 后并发调用；先保留 Main 串行执行，明确与场景录制的交接后再拆后端 owner。
-  RmlUi 已分开 CPU Handle 与 GPU cache，回调不再触碰 GPU 生命周期；后续移交本帧绘制值和只读 CPU 资源，由 GPU owner 准备、上传和回收，文档、字体生成与输入继续归 Main。
-  场景 Handle 解析已留在 Main，MaterialBinding 固定参数与 Shader 输入；后续需独立持有 RenderWorld，不能只排队包含 Handle 的 Scene 快照。
+  RmlUi 绘制快照可跨文档更新或关闭保留，裁剪按消费目标尺寸换算；后续把快照纳入帧包，由 GPU owner 准备、上传和回收，文档、字体生成与输入继续归 Main。
+  场景 Handle 解析留在 Main；帧包保留只读 RenderWorld，不能只排队包含 Handle 的 Scene 快照或借用 RenderSubmission。
   资源创建、删除清理、材质预览及 Published Layout 校验反馈当前仍串行访问 GPU owner；接入队列前明确发布顺序与反馈快照，保留实时预览、Shader 错误材质及在途帧保活。
-- Scene 快照发生复制时包含完整值；引入更新／渲染重叠后测量复制与分配成本，再决定是否增加有界槽位复用或增量移交，不提前建设第二套变化协议。
+- Scene／RenderWorld 快照发生复制时包含完整值；引入更新／渲染重叠后测量复制与分配成本，再决定是否增加有界槽位复用或增量移交，不提前建设第二套变化协议。
 - 队列容量不超过允许的 frames-in-flight，拥塞用显式等待/淘汰过期 editor packet 等策略处理。
 - GPU 创建、替换、销毁在 owner 安全边界；队列外部同步、缓存与 completion owner 都必须明确。
 - 先 profile，再并行 culling/sorting/preparation 或 secondary command recording；每 worker 独立 CommandPool。

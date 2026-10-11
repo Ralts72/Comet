@@ -270,6 +270,10 @@ namespace Comet::Tests {
         ASSERT_NE(texture, 0u);
         EXPECT_EQ(allocation_count(), before);
         probe->draw = [&] { interface.RenderGeometry(geometry, {0, 0}, texture); };
+        auto collected = ui->collect(*context);
+        ASSERT_TRUE(collected) << collected.error();
+        auto draws = std::move(collected).value();
+        EXPECT_EQ(allocation_count(), before);
         ASSERT_TRUE(ui->validate(*context));
         renderer.wait_idle();
         resources.collect_completed_uploads();
@@ -277,20 +281,22 @@ namespace Comet::Tests {
         EXPECT_GE(prepared, before + 3);
         ASSERT_TRUE(ui->validate(*context));
         EXPECT_EQ(allocation_count(), prepared);
+        interface.ReleaseGeometry(geometry);
+        interface.ReleaseTexture(texture);
+        probe->draw = {};
+        auto empty = ui->collect(*context);
+        ASSERT_TRUE(empty) << empty.error();
 
         uint64_t held = 0;
         renderer.set_overlay({.render = [&](OverlayRecordContext& frame) {
-            if(auto rendered = ui->render(frame, *context); !rendered)
+            if(auto rendered = ui->render(frame, *draws); !rendered)
                 return rendered;
             held = allocation_count();
-            interface.ReleaseGeometry(geometry);
-            interface.ReleaseTexture(texture);
+            draws.reset();
+            // 快照释放后清理缓存；本帧仍保活两个 buffer 和一张纹理。
+            auto rendered = ui->render(frame, *empty.value());
             EXPECT_EQ(allocation_count(), held);
-            probe->draw = {};
-            // 后端已清理缓存，本帧录制仍保活两个 buffer 和一张纹理。
-            auto validated = ui->validate(*context);
-            EXPECT_EQ(allocation_count(), held);
-            return validated;
+            return rendered;
         }});
         ASSERT_TRUE(presentation_frame());
         renderer.wait_idle();
@@ -342,10 +348,12 @@ namespace Comet::Tests {
                 interface.SetTransform(nullptr);
                 interface.EnableScissorRegion(false);
             };
+            auto draws = ui->collect(*context);
+            ASSERT_TRUE(draws) << draws.error();
             renderer.set_overlay({.render = [&](OverlayRecordContext& frame) {
                 const auto image = output.target->get_color_view(frame.frame_slot())->get_image();
                 clear_target(frame, image, background, vk::ImageLayout::eUndefined);
-                auto rendered = ui->render_to_target(frame, *context, output);
+                auto rendered = ui->render_to_target(frame, *draws.value(), output);
                 if(!rendered)
                     return rendered;
                 copy_target(frame, image, readback, size);
@@ -391,13 +399,15 @@ namespace Comet::Tests {
             ASSERT_TRUE(readback->get());
             bool draw_ui = false;
             Format format = Format::UNDEFINED;
+            auto draws = ui->collect(*context);
+            ASSERT_TRUE(draws) << draws.error();
             renderer.set_overlay({.render = [&](OverlayRecordContext& frame) {
                 const auto output = renderer.get_offscreen_frame();
                 EXPECT_EQ(output.size, size);
                 const auto image = output.color_view->get_image();
                 format = image->get_info().format;
                 if(draw_ui)
-                    if(auto rendered = ui->render_offscreen(frame, *context); !rendered)
+                    if(auto rendered = ui->render_offscreen(frame, *draws.value()); !rendered)
                         return rendered;
                 copy_target(frame, image, readback, size);
                 vk::ImageMemoryBarrier2 restore;
@@ -467,6 +477,8 @@ namespace Comet::Tests {
                 host.get_context().get_physical_device(), size.x * size.y * stride);
             ASSERT_TRUE(readback->get());
             std::vector<bool> used(renderer.get_frame_scheduler().get_frame_slot_count(), false);
+            auto draws = ui->collect(*context);
+            ASSERT_TRUE(draws) << draws.error();
             renderer.set_overlay({.render = [&](OverlayRecordContext& frame) {
                 const auto slot = frame.frame_slot();
                 const auto image = output.target->get_color_view(slot)->get_image();
@@ -474,7 +486,7 @@ namespace Comet::Tests {
                     used[slot] ? vk::ImageLayout::eTransferSrcOptimal
                                : vk::ImageLayout::eUndefined);
                 used[slot] = true;
-                auto rendered = ui->render_to_target(frame, *context, output);
+                auto rendered = ui->render_to_target(frame, *draws.value(), output);
                 if(!rendered)
                     return rendered;
                 copy_target(frame, image, readback, size);
@@ -495,6 +507,79 @@ namespace Comet::Tests {
             probe->draw = {};
             interface.ReleaseGeometry(geometry);
             interface.ReleaseTexture(texture);
+        }
+    }
+
+    TEST_F(RmlUiGpuTest, RetainedDrawsSurviveDocumentRemovalAndScaleToNewTargets) {
+        auto& renderer = engine->get_renderer();
+        auto& host = renderer.get_render_context();
+        auto& interface = ui->interface();
+        const auto vertices = quad({255, 255, 255, 255});
+        const auto geometry = interface.CompileGeometry(
+            {vertices.data(), vertices.size()}, {QUAD_INDICES.data(), QUAD_INDICES.size()});
+        ASSERT_NE(geometry, 0u);
+        std::array<Comet::Ui::RmlRenderer::DrawSnapshot, 2> snapshots;
+        unsigned callbacks = 0;
+        for(unsigned frame = 0; frame < snapshots.size(); ++frame) {
+            const std::array<Rml::byte, 4> texels = frame == 0
+                                                        ? std::array<Rml::byte, 4>{255, 0, 0, 255}
+                                                        : std::array<Rml::byte, 4>{0, 255, 0, 255};
+            const auto texture = interface.GenerateTexture({texels.data(), texels.size()}, {1, 1});
+            ASSERT_NE(texture, 0u);
+            probe->draw = [&] {
+                ++callbacks;
+                interface.EnableScissorRegion(true);
+                interface.SetScissorRegion(Rml::Rectanglei::FromCorners({16, 8}, {20, 24}));
+                interface.RenderGeometry(geometry, {0, 0}, texture);
+                interface.EnableScissorRegion(false);
+            };
+            auto collected = ui->collect(*context);
+            ASSERT_TRUE(collected) << collected.error();
+            snapshots[frame] = std::move(collected).value();
+            interface.ReleaseTexture(texture);
+        }
+        EXPECT_EQ(callbacks, 2u);
+        interface.ReleaseGeometry(geometry);
+        probe->draw = {};
+        document->Close();
+        ASSERT_TRUE(context->Update());
+        ASSERT_TRUE(ui->collect(*context));
+        Rml::RemoveContext("comet_gpu_test");
+        context = nullptr;
+        document = nullptr;
+        probe = nullptr;
+
+        const Math::Vec2u size{64, 48};
+        const auto format = Format::R8G8B8A8_UNORM;
+        auto output = target(format, size);
+        ASSERT_TRUE(output.target);
+        auto readback = std::make_shared<Readback>(
+            host.get_device(), host.get_context().get_physical_device(), size.x * size.y * 4);
+        ASSERT_TRUE(readback->get());
+        std::vector<bool> used(renderer.get_frame_scheduler().get_frame_slot_count(), false);
+        for(unsigned index = 0; index < snapshots.size(); ++index) {
+            renderer.set_overlay({.render = [&](OverlayRecordContext& frame) {
+                const auto slot = frame.frame_slot();
+                const auto image = output.target->get_color_view(slot)->get_image();
+                clear_target(frame, image, {0, 0, 0},
+                    used[slot] ? vk::ImageLayout::eTransferSrcOptimal
+                               : vk::ImageLayout::eUndefined);
+                used[slot] = true;
+                auto rendered = ui->render_to_target(frame, *snapshots[index], output);
+                if(!rendered)
+                    return rendered;
+                copy_target(frame, image, readback, size);
+                return Result<void, GraphicsError>::success();
+            }});
+            ASSERT_TRUE(presentation_frame());
+            renderer.wait_idle();
+            const auto pixels = readback->read();
+            expect_color(pixels, size, {35, 20}, format,
+                index == 0 ? Math::Vec3{1, 0, 0} : Math::Vec3{0, 1, 0});
+            for(const auto point : {Math::Vec2u{28, 20}, Math::Vec2u{45, 20}, Math::Vec2u{35, 38}})
+                expect_color(pixels, size, point, format, {0, 0, 0});
+            EXPECT_EQ(callbacks, 2u);
+            renderer.set_overlay({});
         }
     }
 
@@ -527,10 +612,12 @@ namespace Comet::Tests {
     TEST_F(RmlUiGpuTest, PreservingSwapchainOverlaySurvivesResizeAndResourceRebuild) {
         auto& renderer = engine->get_renderer();
         unsigned draws = 0, releases = 0, rebuilds = 0;
+        auto snapshot = ui->collect(*context);
+        ASSERT_TRUE(snapshot) << snapshot.error();
         renderer.set_overlay({.render =
                                   [&](OverlayRecordContext& frame) {
                                       ++draws;
-                                      return ui->render(frame, *context);
+                                      return ui->render(frame, *snapshot.value());
                                   },
             .release =
                 [&] {

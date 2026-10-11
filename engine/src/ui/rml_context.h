@@ -58,6 +58,7 @@ namespace Comet::Ui {
         void stop_dispatch_preserve_focus();
         [[nodiscard]] bool text_input_active() const;
         [[nodiscard]] bool pointer_blocked() const;
+        // 更新布局并收集本帧只读绘制数据；必须在 GPU 录制前调用。
         [[nodiscard]] Result<void> update();
 
         // prepare 校验和准备页面，finalize 恢复最终呈现；任一阶段失败均保留当前页面。
@@ -67,6 +68,7 @@ namespace Comet::Ui {
         // 候选页面会触发 RmlUi 事件；业务回调在发布前应忽略这些事件。
         [[nodiscard]] bool is_loading_document() const;
 
+        // 消费最近一次成功准备的快照，不读取或更新文档。
         [[nodiscard]] Result<void, GraphicsError> render(
             OverlayRecordContext& frame, RenderOutput output = RenderOutput::Presentation);
         void release_swapchain_resources();

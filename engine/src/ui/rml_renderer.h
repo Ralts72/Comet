@@ -36,17 +36,23 @@ namespace Comet::Ui {
         ~RmlRenderer();
 
         [[nodiscard]] Rml::RenderInterface& interface();
+        // 只读 CPU 绘制数据独立于文档与 Handle，保活几何和纹理像素。
+        struct DrawData;
+        using DrawSnapshot = std::shared_ptr<const DrawData>;
+        [[nodiscard]] Comet::Result<DrawSnapshot, Comet::GraphicsError> collect(
+            Rml::Context& context);
         // 收集候选文档、准备绘制资源并验证能力；不录制绘制命令。
-        [[nodiscard]] Comet::Result<void, Comet::GraphicsError> validate(Rml::Context& context);
-        // 当前在宿主线程串行执行：收集 CPU 数据、准备 GPU 资源，再录制，不在 pass 内回入 DOM。
+        [[nodiscard]] Comet::Result<DrawSnapshot, Comet::GraphicsError> validate(
+            Rml::Context& context);
+        // GPU 阶段只消费快照，不读取 RmlUi 上下文或回入 DOM。
         [[nodiscard]] Comet::Result<void, Comet::GraphicsError> render(
-            Comet::OverlayRecordContext& frame, Rml::Context& context);
+            Comet::OverlayRecordContext& frame, const DrawData& draws);
         // 在场景最终输出后合成 UI，保留本帧离屏图像供视口采样。
         [[nodiscard]] Comet::Result<void, Comet::GraphicsError> render_offscreen(
-            Comet::OverlayRecordContext& frame, Rml::Context& context);
+            Comet::OverlayRecordContext& frame, const DrawData& draws);
         // 离屏目标使用当前 frame slot；调用方负责目标的初始/最终图像状态。
         [[nodiscard]] Comet::Result<void, Comet::GraphicsError> render_to_target(
-            Comet::OverlayRecordContext& frame, Rml::Context& context, const Target& target);
+            Comet::OverlayRecordContext& frame, const DrawData& draws, const Target& target);
         // RmlUi 回调不能返回 GraphicsError；加载候选时也可立即检查错误。
         [[nodiscard]] std::optional<Comet::GraphicsError> take_error();
         void release_swapchain_resources();

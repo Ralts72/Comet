@@ -157,7 +157,8 @@ namespace Comet {
         for(auto& [id, view] : m_views)
             view.scene->collect_removed_assets(m_asset_registry);
         m_geometry.clear_frame();
-        m_scene_resolver.refresh_assets(m_world);
+        m_world.reset();
+        m_scene_resolver.refresh_assets();
 
         if(m_pending_output) {
             const auto output = std::exchange(m_pending_output, std::nullopt).value();
@@ -247,18 +248,22 @@ namespace Comet {
         if(render_scene)
             RenderDiagnostics::measure_preparation(m_diagnostics.get(),
                 RenderDiagnostics::PreparationPhase::Assets,
-                [&] { m_scene_resolver.resolve(*render_scene, m_world); });
-        else
-            m_world.clear();
+                [&] { m_world = m_scene_resolver.update(*render_scene); });
+        else {
+            m_world.reset();
+            m_scene_resolver.reset();
+        }
+        const RenderWorld empty_world;
+        const auto& world = m_world ? *m_world : empty_world;
         RenderDiagnostics::measure_preparation(m_diagnostics.get(),
-            RenderDiagnostics::PreparationPhase::Geometry, [&] { m_geometry.prepare(m_world); });
+            RenderDiagnostics::PreparationPhase::Geometry, [&] { m_geometry.prepare(world); });
         std::vector<MaterialRenderer*> materials;
         materials.reserve(m_views.size());
         for(auto& [id, view] : m_views)
             materials.push_back(&view.scene->get_material_renderer());
         if(auto programs = RenderDiagnostics::measure_preparation(m_diagnostics.get(),
                RenderDiagnostics::PreparationPhase::MaterialPrograms,
-               [&] { return MaterialRenderer::prepare_programs(materials, m_world); });
+               [&] { return MaterialRenderer::prepare_programs(materials, world); });
             !programs)
             return programs;
         std::vector<QueueSemaphoreSubmit> resource_waits;
@@ -274,7 +279,7 @@ namespace Comet {
             }
             auto* diagnostics = diagnosed ? nullptr : m_diagnostics.get();
             if(auto recorded =
-                    render_view(view, render_scene != nullptr, resource_waits, diagnostics);
+                    render_view(view, world, render_scene != nullptr, resource_waits, diagnostics);
                 !recorded)
                 return recorded;
             diagnosed = true;
@@ -288,19 +293,20 @@ namespace Comet {
         return submitted;
     }
 
-    Result<void, GraphicsError> Renderer::render_view(ViewState& view, const bool has_scene,
-        std::vector<QueueSemaphoreSubmit>& waits, RenderDiagnostics* diagnostics) {
+    Result<void, GraphicsError> Renderer::render_view(ViewState& view, const RenderWorld& world,
+        const bool has_scene, std::vector<QueueSemaphoreSubmit>& waits,
+        RenderDiagnostics* diagnostics) {
         RenderView frame_view = view.view;
         frame_view.render_size = view.scene->get_render_target().get_size();
         const RenderSubmission submission{
-            m_world, has_scene ? view.camera.resolve(m_world, frame_view) : std::nullopt};
-        if(auto prepared = view.scene->prepare_post_process(m_world.post_process); !prepared)
+            world, has_scene ? view.camera.resolve(world, frame_view) : std::nullopt};
+        if(auto prepared = view.scene->prepare_post_process(world.post_process); !prepared)
             return prepared;
         const auto pick_request = std::exchange(view.pick_request, std::nullopt);
         if(pick_request && has_scene && frame_view.visible
-            && pick_request->scene_lifetime == m_world.scene_lifetime
+            && pick_request->scene_lifetime == world.scene_lifetime
             && pick_request->image_resolution == frame_view.render_size)
-            view.pick_result = ViewportPickResult{m_world.scene_lifetime,
+            view.pick_result = ViewportPickResult{world.scene_lifetime,
                 pick_render_submission(submission, pick_request->pixel, frame_view.render_size)};
         if(!frame_view.visible)
             view.lines.clear();
@@ -545,7 +551,8 @@ namespace Comet {
             view.lines.clear();
         }
         m_geometry.clear_frame();
-        m_world.clear();
+        m_world.reset();
+        m_scene_resolver.reset();
     }
 
     void Renderer::prepare_shutdown() noexcept {

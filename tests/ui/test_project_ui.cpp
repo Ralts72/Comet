@@ -281,6 +281,46 @@ namespace Comet::Tests {
             EXPECT_EQ(input->GetAttribute("value", Rml::String{}), value);
         }
     };
+    TEST_F(ProjectUiGpuTest, MenuFocusIsCapturedBeforeGpuRecording) {
+        class FocusProbe final: public Rml::Element {
+        public:
+            FocusProbe() : Rml::Element("div") {}
+            Rml::Element* observed = nullptr;
+            unsigned calls = 0;
+
+        protected:
+            void OnRender() override {
+                observed = GetContext()->GetFocusElement();
+                ++calls;
+            }
+        };
+        Rml::ElementPtr owned(new FocusProbe());
+        auto* probe = static_cast<FocusProbe*>(owned.get());
+        ASSERT_TRUE(probe->SetProperty("position", "absolute"));
+        ASSERT_TRUE(probe->SetProperty("left", "0px"));
+        ASSERT_TRUE(probe->SetProperty("top", "0px"));
+        ASSERT_TRUE(probe->SetProperty("width", "4px"));
+        ASSERT_TRUE(probe->SetProperty("height", "4px"));
+        document().AppendChild(std::move(owned));
+        document().GetElementById("settings")->Click();
+        Input::Frame input;
+        input.serial = 100;
+        input.focused = true;
+        auto updated = ui->frame(input, {.fps = 60});
+        ASSERT_TRUE(updated) << updated.error();
+        ASSERT_TRUE(ui->is_modal());
+        auto* focused = Rml::GetContext(0)->GetFocusElement();
+        ASSERT_NE(focused, nullptr);
+        EXPECT_EQ(probe->observed, focused);
+        EXPECT_EQ(probe->calls, 1u);
+        auto& renderer = engine->get_renderer();
+        auto prepared = renderer.prepare_frame();
+        ASSERT_TRUE(prepared) << prepared.error();
+        ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
+        ASSERT_TRUE(renderer.render_frame());
+        EXPECT_EQ(probe->calls, 1u);
+    }
+
     TEST_F(ProjectUiGpuTest, DisplayTrialSurvivesReloadAndConfirmsOnlyAfterOutputIsApplied) {
         display_services = true;
         display_confirmation_services = true;

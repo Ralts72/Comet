@@ -179,8 +179,9 @@ namespace Comet {
         };
         [[nodiscard]] ViewState& get_view(ViewId id);
         [[nodiscard]] const ViewState& get_view(ViewId id) const;
-        [[nodiscard]] Result<void, GraphicsError> render_view(ViewState& view, bool has_scene,
-            std::vector<QueueSemaphoreSubmit>& waits, RenderDiagnostics* diagnostics);
+        [[nodiscard]] Result<void, GraphicsError> render_view(ViewState& view,
+            const RenderWorld& world, bool has_scene, std::vector<QueueSemaphoreSubmit>& waits,
+            RenderDiagnostics* diagnostics);
 
         std::unique_ptr<RenderContext> m_render_context;
         std::unique_ptr<RenderResources> m_render_resources;
@@ -195,7 +196,7 @@ namespace Comet {
         const AssetRegistry& m_asset_registry;
         std::function<Result<void, GraphicsError>(OverlayRecordContext&)> m_render_overlay;
         bool m_shutdown_prepared = false;
-        RenderWorld m_world;
+        std::shared_ptr<const RenderWorld> m_world;
         RenderGeometry m_geometry;
         std::optional<QualitySettings> m_pending_quality;
         std::string m_quality_error;

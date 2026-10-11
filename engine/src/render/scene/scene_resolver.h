@@ -18,14 +18,20 @@ namespace Comet {
 
         [[nodiscard]] RenderWorld resolve(const RenderScene& render_scene);
         void resolve(const RenderScene& render_scene, RenderWorld& output);
+        // 串行消费者复用存储；保留旧快照时，后续更新复制完整世界。
+        [[nodiscard]] std::shared_ptr<const RenderWorld> update(const RenderScene& render_scene);
+        void reset();
+        void refresh_assets();
         // 在帧边界释放已替换或移除的资源；新资源由 resolve 获取。
         void refresh_assets(RenderWorld& world) const;
 
     private:
+        RenderWorld& writable_output();
         void resolve_environment(const RenderScene& scene, RenderWorld& world);
         [[nodiscard]] MaterialBinding resolve_material(
             AssetHandle handle, RenderWorld& world) const;
         const AssetRegistry& m_asset_registry;
+        std::shared_ptr<RenderWorld> m_output;
         std::unordered_map<AssetHandle, bool> m_missing_mesh_handles;
         std::unordered_map<AssetHandle, bool> m_missing_material_handles;
         AssetHandle m_invalid_environment;
