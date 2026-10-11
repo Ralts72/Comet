@@ -214,7 +214,7 @@ namespace Comet::Tests {
                     world.render_items.push_back({.entity_id = group * counts[frame] + index + 1,
                         .model_matrix = model,
                         .mesh = frame >= 10 && index % 2 ? other_mesh : mesh,
-                        .material = {material_handle, material, overrides}});
+                        .material = {material_handle, material->snapshot(), overrides}});
                 }
             }
             // 同一内容覆盖材质有序、Mesh 有序、倒序与循环移位提交。
@@ -259,8 +259,10 @@ namespace Comet::Tests {
             if(frame == 5 || frame == 9 || frame >= 12)
                 expected_upload = 0;
             EXPECT_EQ(stats.instance_upload_bytes, expected_upload);
-            for(auto& item : world.render_items)
-                item.material.resource = reference;
+            for(auto& item : world.render_items) {
+                item.material.resource = reference->snapshot();
+                item.material.program_source = program;
+            }
             ASSERT_NO_FATAL_FAILURE(draw(*individual.value(), reference_frames, expected));
             EXPECT_EQ(individual.value()->get_material_statistics().draw_calls, 3 * counts[frame]);
             EXPECT_EQ(individual.value()->get_material_statistics().instance_upload_bytes, 0u);
@@ -308,7 +310,7 @@ namespace Comet::Tests {
                         {0.25f, 0.25f, 1});
                 world.render_items.push_back({.model_matrix = model,
                     .mesh = mesh,
-                    .material = {AssetHandle{9832}, material}});
+                    .material = {AssetHandle{9832}, material->snapshot()}});
             }
         }
         FrameScheduler frames(device, 2);
@@ -354,7 +356,7 @@ namespace Comet::Tests {
         }
     }
 
-    TEST_F(RenderGraphGpuTest, ProjectShaderProgramKeepsTwoMaterialsAfterRejectedVersion) {
+    TEST_F(RenderGraphGpuTest, ProjectShaderProgramShowsErrorUntilFixedVersionIsPublished) {
         constexpr AssetHandle program_handle(9811);
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
@@ -417,7 +419,7 @@ namespace Comet::Tests {
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
-        std::array<std::shared_ptr<Readback>, 3> outputs;
+        std::array<std::shared_ptr<Readback>, 5> outputs;
         std::shared_ptr<const ShaderProgramArtifact> accepted;
         for(std::size_t index = 0; index < outputs.size(); ++index) {
             if(index == 1) {
@@ -426,11 +428,20 @@ namespace Comet::Tests {
                 auto broken = compile_program(1.0f);
                 broken->material->scalars[1].name = "missing";
                 ASSERT_TRUE(registry.replace_asset(program_handle, std::move(broken)));
+            } else if(index == 3) {
+                ASSERT_TRUE(registry.unregister_asset(program_handle));
+            } else if(index == 4) {
+                ASSERT_TRUE(registry.register_asset(program_handle, compile_program(0.75f)));
+            }
+            for(auto& item : world.render_items) {
+                item.material.resource = item.material.resource->snapshot();
+                item.material.program_source = programs.latest(program_handle);
             }
             ASSERT_TRUE(scene.prepare_material_programs(world));
             const auto* published = programs.published(program_handle, "unlit_color");
             ASSERT_NE(published, nullptr);
-            if(index == 2) {
+            const bool failed = index == 2 || index == 3;
+            if(failed) {
                 EXPECT_EQ(published->source, accepted);
                 EXPECT_EQ(published->layout->get_scalars()[1].name, "frequency");
             } else {
@@ -441,9 +452,9 @@ namespace Comet::Tests {
             geometry.prepare(world);
             auto drawn = scene.render(frames, submission, geometry);
             ASSERT_TRUE(drawn) << drawn.error();
-            EXPECT_EQ(scene.get_material_statistics().cached_material_versions, 2u);
+            EXPECT_EQ(scene.get_material_statistics().cached_material_versions, failed ? 0u : 2u);
             EXPECT_EQ(scene.get_material_statistics().culled_items, 0u);
-            EXPECT_EQ(scene.get_material_statistics().draw_calls, 3u);
+            EXPECT_EQ(scene.get_material_statistics().draw_calls, failed ? 2u : 3u);
             outputs[index] =
                 std::make_shared<Readback>(device, context.get_context().get_physical_device(), 64);
             copy_output(frames,
@@ -456,26 +467,119 @@ namespace Comet::Tests {
         const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
         for(std::size_t index = 0; index < outputs.size(); ++index) {
             const auto bytes = outputs[index]->read();
-            const float scale = index == 0 ? 0.25f : 0.5f;
+            const bool failed = index == 2 || index == 3;
+            const float scale = index == 0 ? 0.25f : (index == 4 ? 0.75f : 0.5f);
             for(std::size_t side = 0; side < 2; ++side) {
                 const auto pixel = (2 * 4 + (side == 0 ? 0 : 3)) * 4;
-                const std::array<float, 3> base =
-                    side == 0 ? std::array{0.6f, 0.3f, 0.1f} : std::array{0.1f, 0.3f, 0.6f};
+                auto color =
+                    side == 0 ? Math::Vec3{0.6f, 0.3f, 0.1f} : Math::Vec3{0.1f, 0.3f, 0.6f};
                 const float frequency = side == 0 ? 1.0f : 2.0f;
-                for(std::size_t channel = 0; channel < base.size(); ++channel) {
+                color *= frequency * scale;
+                if(failed)
+                    color = {1, 0, 1};
+                for(std::size_t channel = 0; channel < 3; ++channel) {
                     const auto component = bgra ? 2 - channel : channel;
                     EXPECT_NEAR(std::to_integer<int>(bytes[pixel + component]),
-                        mapped_byte(base[channel] * frequency * scale), 3);
+                        mapped_byte(color[channel]), 3);
                 }
             }
         }
         const auto diagnostics = messages.str();
         EXPECT_NE(diagnostics.find("Missing or incompatible material parameter: missing"),
             std::string::npos);
-        EXPECT_EQ(std::count(diagnostics.begin(), diagnostics.end(), '\n'), 1);
+        const auto failure = diagnostics.find("Cannot publish project Shader program");
+        ASSERT_NE(failure, std::string::npos);
+        EXPECT_EQ(diagnostics.find("Cannot publish project Shader program", failure + 1),
+            std::string::npos);
         EXPECT_EQ(diagnostics.find("VUID-"), std::string::npos);
         EXPECT_EQ(diagnostics.find("Validation Error"), std::string::npos);
         messages.str(std::string{});
         messages.clear();
+    }
+
+    TEST_F(RenderGraphGpuTest, BuiltinShaderErrorSurvivesNewViewAndRecoversAfterSuccessfulReload) {
+        auto& renderer = engine->get_renderer();
+        auto& context = renderer.get_render_context();
+        auto& device = context.get_device();
+        auto& assets = engine->get_asset_registry();
+        ASSERT_TRUE(prepare_offscreen_host({4, 4}));
+        const RenderView view{.render_size = {4, 4},
+            .camera_selection = RenderView::CameraSelection::Override,
+            .camera_override =
+                RenderCamera{.view_matrix = Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                    .projection = RenderCamera::Projection::Orthographic,
+                    .orthographic_height = 2,
+                    .far_clip = 10}};
+        ASSERT_TRUE(renderer.set_render_view(view));
+        const auto mesh = lit_quad();
+        ASSERT_TRUE(mesh);
+        auto material = std::make_shared<Material>("color", "unlit_color");
+        ASSERT_TRUE(material->set_vector_property("color", {0, 1, 0, 1}));
+        ASSERT_TRUE(assets.register_asset(AssetHandle{9860}, mesh));
+        ASSERT_TRUE(assets.register_asset(AssetHandle{9861}, material));
+        RenderScene scene{.scene_lifetime = 1,
+            .render_items = {{.entity_id = 1,
+                .mesh_handle = AssetHandle{9860},
+                .material_handle = AssetHandle{9861}}}};
+        FrameScheduler readback_frames(device, 2);
+        readback_frames.initialize_swapchain_images(2);
+        FrameWait wait{device, readback_frames};
+        const std::array failed_programs{std::string("unlit_color")};
+        std::array<std::shared_ptr<Readback>, 6> outputs;
+        Renderer::ViewId extra = Renderer::DEFAULT_VIEW;
+        std::shared_ptr<Readback> rebuilt;
+        Format format{};
+        for(size_t index = 0; index < outputs.size(); ++index) {
+            SCOPED_TRACE(index);
+            if(index == 1) {
+                renderer.invalidate_material_shaders(failed_programs);
+            } else if(index == 2) {
+                auto created = renderer.create_offscreen_view({4, 4});
+                ASSERT_TRUE(created) << created.error();
+                extra = created.value();
+                ASSERT_TRUE(renderer.set_render_view(view, extra));
+            } else if(index == 3 || index == 5) {
+                ASSERT_TRUE(renderer.reload_material_shaders(default_material_shaders()));
+            } else if(index == 4) {
+                auto broken = default_material_shaders();
+                broken.at("unlit_color").fragment.clear();
+                broken.erase("pbr");
+                EXPECT_FALSE(renderer.reload_material_shaders(std::move(broken)));
+            }
+            outputs[index] =
+                std::make_shared<Readback>(device, context.get_context().get_physical_device(), 64);
+            auto prepared = renderer.prepare_frame();
+            ASSERT_TRUE(prepared) << prepared.error();
+            ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
+            const auto output = renderer.get_offscreen_frame();
+            const auto extra_output = renderer.get_offscreen_frame(extra);
+            format = output.color_view->get_image()->get_info().format;
+            ASSERT_TRUE(renderer.render_frame(scene));
+            begin_frame(readback_frames);
+            copy_output(readback_frames, output.color_view->get_image(), outputs[index], {4, 4});
+            if(index == 2) {
+                rebuilt = std::make_shared<Readback>(
+                    device, context.get_context().get_physical_device(), 64);
+                copy_output(readback_frames, extra_output.color_view->get_image(), rebuilt, {4, 4});
+            }
+            submit(device, readback_frames);
+        }
+        readback_frames.wait_for_all_slots();
+        const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+        const auto check = [&](const Readback& output, const Math::Vec3 color) {
+            const auto pixels = output.read();
+            for(size_t channel = 0; channel < 3; ++channel) {
+                const auto component = bgra ? 2 - channel : channel;
+                EXPECT_NEAR(std::to_integer<int>(pixels[(2 * 4 + 2) * 4 + component]),
+                    mapped_byte(color[channel]), 3);
+            }
+        };
+        for(size_t index = 0; index < outputs.size(); ++index) {
+            SCOPED_TRACE(index);
+            const bool failed = index == 1 || index == 2 || index == 4;
+            check(*outputs[index], failed ? Math::Vec3(1, 0, 1) : Math::Vec3(0, 1, 0));
+        }
+        ASSERT_TRUE(rebuilt);
+        check(*rebuilt, {1, 0, 1});
     }
 }

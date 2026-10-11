@@ -29,6 +29,7 @@ namespace Comet {
             const auto program = std::pair{
                 material.resource->get_shader_program(), material.resource->get_template_name()};
             auto& active = m_project_pipelines[program];
+            active.requested_source = material.program_source;
             // 借用本次提交的最后一个输入；同步后不保留提交指针。
             active.materials[key].requested_input = &material;
         }
@@ -52,7 +53,9 @@ namespace Comet {
         for(const auto& [key, requested] : renderers.front()->m_project_pipelines) {
             if(requested.materials.empty())
                 continue;
-            if(auto prepared = refresh_program(renderers, key.first, key.second); !prepared)
+            if(auto prepared =
+                    refresh_program(renderers, key.first, key.second, requested.requested_source);
+                !prepared)
                 return prepared;
         }
         return Result<void, GraphicsError>::success();
@@ -60,7 +63,8 @@ namespace Comet {
 
     Result<void, GraphicsError> MaterialRenderer::refresh_program(
         const std::span<MaterialRenderer* const> renderers, const AssetHandle handle,
-        const std::string& template_name) {
+        const std::string& template_name,
+        const std::shared_ptr<const ShaderProgramArtifact>& source) {
         using Preparation = Result<void, GraphicsError>;
         if(renderers.empty())
             return Preparation::success();
@@ -69,8 +73,7 @@ namespace Comet {
             return Preparation::success();
         const auto key = std::pair{handle, template_name};
         for(auto* renderer : renderers)
-            renderer->m_project_pipelines.try_emplace(key);
-        const auto source = programs->latest(handle);
+            renderer->m_project_pipelines[key].requested_source = source;
         const auto publish =
             [&](const std::shared_ptr<const ShaderProgramArtifact>& version) -> Preparation {
             struct Candidate {
@@ -102,7 +105,7 @@ namespace Comet {
                         state.failure_cause = cause;
                     }
                     LOG_ERROR(
-                        "Cannot publish project Shader program {} for '{}': {}; keeping all view pipelines",
+                        "Cannot publish project Shader program {} for '{}': {}; showing error material",
                         handle.value(), template_name, prepared.error().message);
                     return Preparation::failure(prepared.error());
                 }

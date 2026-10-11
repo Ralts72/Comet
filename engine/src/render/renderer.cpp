@@ -336,9 +336,20 @@ namespace Comet {
         MaterialRenderer::ReloadReport report;
         for(auto& [id, view] : m_views) {
             auto candidate = view.scene->prepare_material_shaders(shaders);
-            if(!candidate)
+            if(!candidate) {
+                auto previous = default_material_shaders();
+                if(const auto* overrides = m_programs->builtin_overrides())
+                    merge_material_shaders(previous, *overrides);
+                std::vector<std::string> failed;
+                for(const auto& [name, code] : shaders) {
+                    const auto prior = previous.find(name);
+                    if(prior == previous.end() || prior->second != code)
+                        failed.push_back(name);
+                }
+                invalidate_material_shaders(failed);
                 return Result<MaterialRenderer::ReloadReport, GraphicsError>::failure(
                     candidate.error());
+            }
             const auto& prepared = candidate.value().report();
             report.pipelines += prepared.pipelines;
             report.material_versions += prepared.material_versions;
@@ -353,6 +364,10 @@ namespace Comet {
             std::move(candidate).publish();
         m_programs->publish_builtin(std::move(shaders));
         return Result<MaterialRenderer::ReloadReport, GraphicsError>::success(report);
+    }
+
+    void Renderer::invalidate_material_shaders(const std::span<const std::string> programs) {
+        m_programs->invalidate_builtin(programs);
     }
 
     void Renderer::MaterialUpdate::publish() && {

@@ -17,6 +17,7 @@
 #include <memory>
 #include <map>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -93,6 +94,8 @@ namespace Comet {
         [[nodiscard]] uint32_t max_render_target_dimension() const;
         Result<MaterialRenderer::ReloadReport, GraphicsError> reload_material_shaders(
             MaterialShaders shaders);
+        // 编译失败的内置程序在所有视图中显示错误材质，成功发布后恢复。
+        void invalidate_material_shaders(std::span<const std::string> programs);
         [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
             const;
         [[nodiscard]] const MaterialPrograms& get_material_programs() const { return *m_programs; }

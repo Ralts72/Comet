@@ -34,15 +34,19 @@ namespace Comet::Tests {
         auto material = std::make_shared<Material>("pbr", "pbr");
         const auto layout = MaterialLayout::find_builtin("pbr");
         const AssetHandle handle(782);
-        const auto empty = cache.prepare(handle, material, layout);
+        const auto original = material->snapshot();
+        const auto empty = cache.prepare(handle, original, layout);
         ASSERT_TRUE(empty);
         const auto assigned = texture();
         material->set_texture_property("base_color_texture", assigned);
-        const auto textured = cache.prepare(handle, material, layout);
+        const auto textured_source = material->snapshot();
+        const auto textured = cache.prepare(handle, textured_source, layout);
         ASSERT_TRUE(textured);
         EXPECT_EQ(textured.value()->textures[0].texture, assigned);
         EXPECT_EQ(empty.value()->textures[0].texture, nullptr);
         material->set_texture_property("base_color_texture", nullptr);
+        EXPECT_EQ(textured_source->get_texture_property("base_color_texture"), assigned);
+        EXPECT_EQ(original->get_texture_property("base_color_texture"), nullptr);
         const auto cleared = cache.prepare(handle, material, layout);
         ASSERT_TRUE(cleared);
         EXPECT_EQ(cleared.value()->textures[0].texture, nullptr);
@@ -157,7 +161,7 @@ namespace Comet::Tests {
         draw(1);
         draw(1);
         scene.render_items.front().material_handle = AssetHandle(13);
-        draw(0);
+        draw(1); // 未知模板也绘制错误材质。
         scene.render_items.front().material_handle = AssetHandle(12);
         draw(1);
         material->set_texture_property("base_color_texture", image);
@@ -225,7 +229,7 @@ namespace Comet::Tests {
         auto world = resolver.resolve(scene);
         ASSERT_EQ(world.render_items.size(), 1u);
         EXPECT_EQ(world.render_items.front().entity_id, 7u);
-        EXPECT_TRUE(world.render_items.front().material.resource == material);
+        EXPECT_EQ(world.render_items.front().material.resource, material->snapshot());
         EXPECT_EQ(world.render_items.front().material.material_handle, AssetHandle(12));
         EXPECT_TRUE(world.render_items.front().mesh == mesh);
         engine->get_renderer().get_render_context().wait_idle();

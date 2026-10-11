@@ -109,6 +109,22 @@ namespace Comet {
     }
 
     void MaterialPrograms::publish_builtin(MaterialShaders shaders) {
+        for(const auto& [name, code] : shaders)
+            m_failed_builtins.erase(name);
         merge_material_shaders(m_builtin_overrides, std::move(shaders));
+    }
+
+    void MaterialPrograms::invalidate_builtin(const std::span<const std::string> programs) {
+        for(const auto& name : programs)
+            m_failed_builtins.insert(name);
+    }
+
+    bool MaterialPrograms::builtin_failed(const std::string& material) const {
+        if(m_failed_builtins.empty())
+            return false;
+        for(const auto& definition : builtin_material_shaders())
+            if(definition.material == material && m_failed_builtins.contains(definition.name))
+                return true;
+        return false;
     }
 }

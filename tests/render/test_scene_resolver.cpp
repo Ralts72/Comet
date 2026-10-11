@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "asset/registry.h"
+#include "asset/artifact/shader_program_artifact.h"
 #include "common/scope_exit.h"
 #include "render/material/material.h"
 #include "render/resource/render_resources.h"
@@ -136,6 +137,68 @@ namespace Comet::Tests {
 
     using SceneEnvironmentResolverTest = EngineTest;
 
+    TEST(SceneResolverTest, MaterialEditsAndProgramPublicationKeepOlderWorldInputsFrozen) {
+        AssetRegistry assets;
+        FakeRenderResourceFactory resources;
+        ASSERT_TRUE(assets.register_asset(AssetHandle{10}, resources.try_create_mesh({}).value()));
+        auto material = std::make_shared<Material>("edited", "unlit_color", AssetHandle{30});
+        ASSERT_TRUE(material->set_scalar_property("intensity", 0.25f));
+        auto other = std::make_shared<Material>("unchanged", "unlit_color");
+        auto program = std::make_shared<ShaderProgramArtifact>();
+        program->handle = AssetHandle{30};
+        ASSERT_TRUE(assets.register_asset(AssetHandle{20}, material));
+        ASSERT_TRUE(assets.register_asset(AssetHandle{21}, other));
+        ASSERT_TRUE(assets.register_asset(program->handle, program));
+        SceneResolver resolver(assets);
+        RenderScene scene;
+        scene.scene_lifetime = 1;
+        scene.item_changes.begin_update(true);
+        scene.render_items = {
+            {.entity_id = 1, .mesh_handle = AssetHandle{10}, .material_handle = AssetHandle{20}},
+            {.entity_id = 2, .mesh_handle = AssetHandle{10}, .material_handle = AssetHandle{21}},
+            {.entity_id = 3, .mesh_handle = AssetHandle{10}, .material_handle = AssetHandle{20}}};
+        RenderWorld world;
+        resolver.resolve(scene, world);
+        const auto frozen = world;
+        auto second_consumer = world;
+        const auto publication = assets.get_revision();
+        ASSERT_TRUE(material->set_scalar_property("intensity", 0.75f));
+        EXPECT_EQ(assets.get_revision(), publication);
+        EXPECT_EQ(
+            frozen.render_items[0].material.resource->get_scalar_property("intensity"), 0.25f);
+        resolver.refresh_assets(world);
+        EXPECT_FALSE(world.render_items[0].material.resource);
+        EXPECT_FALSE(world.render_items[2].material.resource);
+        EXPECT_EQ(
+            world.render_items[1].material.resource, frozen.render_items[1].material.resource);
+        resolver.resolve(scene, world);
+        SceneResolver other_resolver(assets);
+        other_resolver.resolve(scene, second_consumer);
+        ASSERT_FALSE(world.item_changes.full_update);
+        EXPECT_EQ(world.item_changes.slots, (std::vector<std::size_t>{0, 2}));
+        ASSERT_NO_FATAL_FAILURE(
+            expect_render_items_equal(world.render_items, second_consumer.render_items));
+        EXPECT_EQ(world.render_items[0].material.resource->get_scalar_property("intensity"), 0.75f);
+        const auto updated = world.render_items[0].material.resource;
+        const auto resolved_revision = world.item_changes.revision;
+        resolver.resolve(scene, world);
+        EXPECT_EQ(world.render_items[0].material.resource, updated);
+        EXPECT_EQ(world.item_changes.revision, resolved_revision);
+
+        auto replacement = std::make_shared<ShaderProgramArtifact>();
+        replacement->handle = program->handle;
+        ASSERT_TRUE(assets.replace_asset(program->handle, replacement));
+        resolver.resolve(scene, world);
+        EXPECT_EQ(world.render_items[0].material.resource, updated);
+        EXPECT_EQ(world.render_items[0].material.program_source, replacement);
+        EXPECT_EQ(world.item_changes.revision, resolved_revision);
+        EXPECT_EQ(frozen.render_items[0].material.program_source, program);
+        ASSERT_TRUE(assets.unregister_asset(program->handle));
+        resolver.resolve(scene, world);
+        EXPECT_FALSE(world.render_items[0].material.program_source);
+        EXPECT_EQ(frozen.render_items[0].material.program_source, program);
+    }
+
     TEST(SceneResolverTest, StructuralEditsPreserveResourcesTransformsAndFrozenCopies) {
         AssetRegistry registry;
         FakeRenderResourceFactory resources;
@@ -227,7 +290,6 @@ namespace Comet::Tests {
         auto material = std::make_shared<Material>("original", "unlit_color");
         const auto other_material = std::make_shared<Material>("unchanged", "unlit_color");
         const std::weak_ptr original_mesh = mesh;
-        const std::weak_ptr original_material = material;
         ASSERT_TRUE(registry.register_asset(AssetHandle{10}, mesh));
         ASSERT_TRUE(registry.register_asset(AssetHandle{11}, other_mesh));
         ASSERT_TRUE(registry.register_asset(AssetHandle{20}, material));
@@ -247,6 +309,7 @@ namespace Comet::Tests {
         RenderWorld world;
         resolver.resolve(scene, world);
         ASSERT_EQ(world.render_items.size(), 3u);
+        const std::weak_ptr original_material = world.render_items[0].material.resource;
         const auto* slots = world.render_items.data();
         const auto replacement = std::make_shared<Material>("replacement", "pbr");
         ASSERT_TRUE(registry.replace_asset(AssetHandle{20}, replacement));
@@ -261,7 +324,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(world.render_items[2].material.resource);
         EXPECT_EQ(world.render_items[0].mesh, mesh);
         EXPECT_EQ(world.render_items[1].mesh, other_mesh);
-        EXPECT_EQ(world.render_items[1].material.resource, other_material);
+        EXPECT_EQ(world.render_items[1].material.resource, other_material->snapshot());
         EXPECT_EQ(world.render_items[0].model_matrix, scene.render_items[0].model_matrix);
         {
             auto pending_copy = world;
@@ -272,8 +335,8 @@ namespace Comet::Tests {
             EXPECT_TRUE(world.resolution.pending_asset_slots.empty());
             EXPECT_TRUE(pending_copy.resolution.pending_asset_slots.empty());
             for(const auto* output : {&world, &pending_copy}) {
-                EXPECT_EQ(output->render_items[0].material.resource, replacement);
-                EXPECT_EQ(output->render_items[2].material.resource, replacement);
+                EXPECT_EQ(output->render_items[0].material.resource, replacement->snapshot());
+                EXPECT_EQ(output->render_items[2].material.resource, replacement->snapshot());
             }
         }
 
@@ -284,7 +347,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(original_mesh.expired());
         EXPECT_FALSE(world.render_items[0].mesh);
         EXPECT_FALSE(world.render_items[2].mesh);
-        EXPECT_EQ(world.render_items[0].material.resource, replacement);
+        EXPECT_EQ(world.render_items[0].material.resource, replacement->snapshot());
         ASSERT_TRUE(registry.register_asset(AssetHandle{10}, other_mesh));
         resolver.resolve(scene, world);
         const auto fresh = resolver.resolve(scene);
@@ -385,7 +448,6 @@ namespace Comet::Tests {
         ASSERT_TRUE(mesh);
         ASSERT_TRUE(registry.register_asset(AssetHandle{10}, mesh.value()));
         auto material = std::make_shared<Material>("original", "unlit_color");
-        const std::weak_ptr original = material;
         ASSERT_TRUE(registry.register_asset(AssetHandle{20}, material));
         RenderScene scene;
         scene.cameras.push_back({.primary = true});
@@ -395,7 +457,8 @@ namespace Comet::Tests {
         RenderWorld world;
         resolver.resolve(scene, world);
         ASSERT_EQ(world.render_items.size(), 1u);
-        EXPECT_EQ(world.render_items.front().material.resource, material);
+        EXPECT_EQ(world.render_items.front().material.resource, material->snapshot());
+        const std::weak_ptr original = world.render_items.front().material.resource;
 
         auto replacement = std::make_shared<Material>("replacement", "pbr");
         ASSERT_TRUE(registry.replace_asset(AssetHandle{20}, replacement));
@@ -403,7 +466,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(original.expired());
         resolver.resolve(scene, world);
         ASSERT_EQ(world.render_items.size(), 1u);
-        EXPECT_EQ(world.render_items.front().material.resource, replacement);
+        EXPECT_EQ(world.render_items.front().material.resource, replacement->snapshot());
         EXPECT_TRUE(original.expired());
 
         ASSERT_TRUE(registry.unregister_asset(AssetHandle{10}));
@@ -455,7 +518,7 @@ namespace Comet::Tests {
         EXPECT_EQ(world.render_items[3].mesh, second.value());
         EXPECT_EQ(world.render_items[1].model_matrix, scene.render_items[2].model_matrix);
         for(const auto& item : world.render_items)
-            EXPECT_EQ(item.material.resource, material);
+            EXPECT_EQ(item.material.resource, material->snapshot());
         const auto frozen = world;
 
         ASSERT_TRUE(registry.replace_asset(AssetHandle{10}, second.value()));

@@ -283,6 +283,15 @@ namespace Comet {
         ShaderProgramImportCandidate& candidate) {
         const auto& request = candidate.request;
         const auto handle = request.handle;
+        const auto* program = m_database.find(handle);
+        const auto* vertex = m_database.find(request.vertex.handle);
+        const auto* fragment = m_database.find(request.fragment.handle);
+        if(!program || program->type != AssetType::ShaderProgram || !vertex
+            || vertex->type != AssetType::Shader || !fragment || fragment->type != AssetType::Shader
+            || !m_database.is_current(handle, request.revision)
+            || !m_database.is_current(request.vertex.handle, request.vertex.revision)
+            || !m_database.is_current(request.fragment.handle, request.fragment.revision))
+            return ImportPublication::success(std::nullopt);
         if(!candidate.result) {
             std::vector<std::filesystem::path> dependencies(
                 m_database.get_import_dependencies(handle).begin(),
@@ -291,18 +300,10 @@ namespace Comet {
                 candidate.result.error().dependencies.end());
             if(auto indexed = update_import_dependencies(handle, std::move(dependencies)); !indexed)
                 LOG_WARN("Shader program {} dependencies: {}", handle.value(), indexed.error());
-            LOG_WARN("Shader program {}: {}", handle.value(), candidate.result.error().message);
+            LOG_ERROR("Shader program {}: {}", handle.value(), candidate.result.error().message);
+            invalidate_shader_program(handle);
             return ImportPublication::success(std::nullopt);
         }
-
-        const auto* program = m_database.find(handle);
-        const auto* vertex = m_database.find(request.vertex.handle);
-        const auto* fragment = m_database.find(request.fragment.handle);
-        if(!program || program->type != AssetType::ShaderProgram || !vertex
-            || vertex->type != AssetType::Shader || !fragment || fragment->type != AssetType::Shader
-            || !m_database.is_current(request.vertex.handle, request.vertex.revision)
-            || !m_database.is_current(request.fragment.handle, request.fragment.revision))
-            return ImportPublication::success(std::nullopt);
 
         auto& prepared = candidate.result.value();
         auto& artifact = prepared.artifact;
@@ -342,6 +343,11 @@ namespace Comet {
             return ImportPublication::success(std::nullopt);
         }
         return ImportPublication::success(handle);
+    }
+
+    void AssetManager::invalidate_shader_program(const AssetHandle handle) {
+        if(m_registry.contains<ShaderProgramArtifact>(handle))
+            static_cast<void>(m_registry.unregister_asset(handle));
     }
 
     AssetManager::ImportPublication AssetManager::publish_mesh_candidate(

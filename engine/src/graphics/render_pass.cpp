@@ -201,15 +201,26 @@ namespace Comet {
             std::ranges::any_of(actual_attachments, [](const Attachment& attachment) {
                 return attachment.description.final_layout == ImageLayout::ShaderReadOnlyOptimal;
             });
-        if(has_sampled_output) {
+        const bool has_transfer_output =
+            std::ranges::any_of(actual_attachments, [](const Attachment& attachment) {
+                return attachment.description.final_layout == ImageLayout::TransferSrcOptimal;
+            });
+        if(has_sampled_output || has_transfer_output) {
             vk::SubpassDependency dependency{};
             dependency.srcSubpass = static_cast<uint32_t>(actual_sub_passes.size() - 1);
             dependency.dstSubpass = VK_SUBPASS_EXTERNAL;
             dependency.srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-            dependency.dstStageMask = vk::PipelineStageFlagBits::eFragmentShader;
             dependency.srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
-            dependency.dstAccessMask = vk::AccessFlagBits::eShaderRead;
-            dependency.dependencyFlags = vk::DependencyFlagBits::eByRegion;
+            if(has_sampled_output) {
+                dependency.dstStageMask |= vk::PipelineStageFlagBits::eFragmentShader;
+                dependency.dstAccessMask |= vk::AccessFlagBits::eShaderRead;
+            }
+            if(has_transfer_output) {
+                dependency.dstStageMask |= vk::PipelineStageFlagBits::eTransfer;
+                dependency.dstAccessMask |= vk::AccessFlagBits::eTransferRead;
+            } else {
+                dependency.dependencyFlags = vk::DependencyFlagBits::eByRegion;
+            }
             dependencies.push_back(dependency);
         }
         std::vector<vk::AttachmentDescription> attachment_descriptions;

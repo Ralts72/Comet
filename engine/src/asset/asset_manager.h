@@ -104,6 +104,8 @@ namespace Comet {
             ShaderProgramImportRequest request, ShaderProgramPrepare prepare);
         [[nodiscard]] std::shared_ptr<const ShaderProgramArtifact> compiled_shader_program(
             AssetHandle handle) const;
+        // 编译失败后停止解析旧产物；已提交的帧仍持有自己的引用。
+        void invalidate_shader_program(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<ShaderProgramArtifact>, Error> load_shader_program(
             AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Mesh>, Error> load_mesh(AssetHandle handle);

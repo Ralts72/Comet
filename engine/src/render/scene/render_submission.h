@@ -10,11 +10,13 @@
 
 #include <memory>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 namespace Comet {
     class Mesh;
     class Material;
+    class ShaderProgramArtifact;
     struct MaterialOverrides;
     struct Environment;
 
@@ -23,6 +25,7 @@ namespace Comet {
         std::shared_ptr<const Material> resource;
         std::shared_ptr<const MaterialOverrides> overrides;
         uint64_t asset_revision = 0;
+        std::shared_ptr<const ShaderProgramArtifact> program_source;
     };
 
     struct ResolvedRenderItem {
@@ -51,12 +54,19 @@ namespace Comet {
             uint64_t asset_revision = 0;
             uint64_t input_revision = 0;
             std::vector<std::size_t> pending_asset_slots;
+            struct MaterialSource {
+                std::weak_ptr<const Material> source;
+                uint64_t revision;
+            };
+            // 仅 Main 检查编辑源；GPU 阶段只读取 MaterialBinding 中的独立快照。
+            std::unordered_map<AssetHandle, MaterialSource> material_sources;
         } resolution;
 
         // 清空当前世界，保留容器容量供场景切换或延期帧后复用。
         void clear() {
             scene_lifetime = 0;
             resolution.asset_revision = 0;
+            resolution.material_sources.clear();
             cameras.clear();
             render_items.clear();
             lights.clear();

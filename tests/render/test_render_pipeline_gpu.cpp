@@ -145,6 +145,7 @@ namespace Comet::Tests {
                 auto invalid = shader;
                 invalid.fragment = {0};
                 EXPECT_FALSE(renderer.reload_material_shaders({{"unlit_color", invalid}}));
+                ASSERT_TRUE(renderer.reload_material_shaders({{"unlit_color", shader}}));
             }
             if(frame == 5) {
                 ASSERT_TRUE(renderer.remove_offscreen_view(second));
@@ -479,7 +480,7 @@ namespace Comet::Tests {
         }
     }
 
-    TEST_F(RenderGraphGpuTest, PbrReloadRetainsOldFramesAndSurvivesTargetRebuild) {
+    TEST_F(RenderGraphGpuTest, PbrReloadShowsErrorPreservesSubmittedFramesAndRecoversAfterRebuild) {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
         auto& device = context.get_device();
@@ -517,7 +518,7 @@ namespace Comet::Tests {
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
-        std::array<std::shared_ptr<Readback>, 3> outputs;
+        std::array<std::shared_ptr<Readback>, 4> outputs;
         for(size_t index = 0; index < outputs.size(); ++index) {
             if(index == 1) {
                 const auto published = renderer.reload_material_shaders(candidate);
@@ -550,12 +551,14 @@ namespace Comet::Tests {
                 EXPECT_FALSE(renderer.reload_material_shaders(broken));
             }
             if(index == 2) {
-                // 更新其他程序及重建目标不能恢复旧的 PBR 字节码。
+                // 更新其他程序及重建目标不能隐藏 PBR 的错误状态。
                 const auto builtin = default_material_shaders();
                 ASSERT_TRUE(
                     renderer.reload_material_shaders({{"unlit_color", builtin.at("unlit_color")}}));
                 ASSERT_TRUE(renderer.enable_offscreen_rendering({4, 4}));
             }
+            if(index == 3)
+                ASSERT_TRUE(renderer.reload_material_shaders(candidate));
 
             outputs[index] =
                 std::make_shared<Readback>(device, context.get_context().get_physical_device(), 64);
@@ -564,10 +567,13 @@ namespace Comet::Tests {
         frames.wait_for_all_slots();
         for(size_t index = 0; index < outputs.size(); ++index) {
             const auto bytes = outputs[index]->read();
-            const auto expected = mapped_byte(index == 0 ? 0.49f : 0.245f);
+            Math::Vec3 color(index == 0 ? 0.49f : 0.245f);
+            if(index == 1 || index == 2)
+                color = {1, 0, 1};
             for(size_t pixel = 0; pixel < 16; ++pixel)
                 for(size_t channel = 0; channel < 3; ++channel)
-                    EXPECT_NEAR(std::to_integer<int>(bytes[pixel * 4 + channel]), expected, 2);
+                    EXPECT_NEAR(std::to_integer<int>(bytes[pixel * 4 + channel]),
+                        mapped_byte(color[channel]), 2);
         }
     }
 

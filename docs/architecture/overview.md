@@ -97,7 +97,7 @@ Engine／Renderer／设备等工厂先准备完整 owner，成功后交付；部
 1. Engine 处理事件与时间，宿主 `on_update` 消费上次 UI 请求、维护资产与切换模式。
 2. Renderer 回收上传并准备 slot／交换链；帧就绪时调用 `on_frame_ready`，收集 ImGui 请求、属性编辑、Gizmo 和输入授权。
 3. `on_runtime_input` 交付只读授权快照；Runtime 执行有界 Fixed Update，再执行一次普通 Update。
-4. SceneExtractor 更新变换并交付只读 RenderScene 快照；Engine 保留它直到本次录制完成，SceneResolver 把资源和值更新到 Renderer 的 RenderWorld。
+4. SceneExtractor 更新变换并交付只读 RenderScene 快照；Engine 保留它直到本次录制完成，Main 的 SceneResolver 把资源、材质值快照及选定 Shader 引用更新到 Renderer 的 RenderWorld。
 5. 世界界限、光照和方向光阴影准备一次；所有 View 分别生成相机、裁剪、绘制和后处理，再合并等待、绘制 Overlay、提交并呈现一次。
 
 数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderWorld → RenderSubmission → SceneRenderer`。
@@ -117,10 +117,10 @@ App 使用默认 View；Editor 的游戏相机使用默认 View，编辑相机�
 
 增量更新沿提取、解析、几何准备传递同一套槽位和结构编辑规则。Scene 内容版本、输入／输出批次和资产发布版本有不同用途，不能互相代替。
 局部批次要求版本连续；跨生产者、漏过批次、大量修改或缺失资源造成压缩时完整核对。手工快照没有变化提示，逐项检查身份与版本。
-Registry 总版本变化时才检查持有引用的条目版本，未变资源和界限继续复用；失效位置属于各自世界，不被其他消费者或快照副本消费。
+Registry 总版本变化时检查持有引用的条目版本；已解析材质的参数版本按唯一身份检查，变化后才扫描受影响物体并重新捕获快照。未变资源和界限继续复用，失效位置属于各自世界，不被其他消费者或快照副本消费。
 相机、Light 和场景设置仍完整提取。静态 extract 不消费记录；增量 update 返回 `shared_ptr<const RenderScene>`。
 未变场景共享同一快照；更新时没有旧读者就复用存储，仍有读者则复制后写入。换场景和 reset 释放生产者持有的状态，旧快照持续有效到最后一个读者退出。
-提取器及 Scene 的写入仍属于 Main；只读 CPU 快照可移交给其他线程，AssetHandle 的解析和 GPU 发布仍留在 Renderer 当前执行线程。
+提取、AssetHandle 解析和材质值捕获属于 Main；解析后的世界引用可以独立保留，GPU 准备不重新查询最新 Shader。当前所有阶段仍串行执行，跨线程移交及 GPU 发布 owner 尚未接入。
 
 渲染、物理组件只读访问，通过副本提交修改；同值或拒绝的写入不增加版本。物理姿态回写更新变换和渲染，避免再作为下一步物理输入。
 这些进程内身份不写入场景文件，复制 Scene 获得新的实例代号。材质改绑、移除组件和 Runtime 停止会清理对应运行覆盖。
@@ -226,7 +226,8 @@ MaterialRenderer 负责具体 Pipeline、参数／纹理绑定与绘制；Shader
 
 ### 材质准备与寿命
 
-SceneResolver 解析资源版本；主材质通道负责视锥裁剪和材质分组，阴影按自己的可见范围处理。
+SceneResolver 解析资源版本，MaterialBinding 持有独立材质值快照和当时选定的 ShaderProgramArtifact；后者发布后不再原地修改。Material 同版本复用快照，标量、向量或纹理引用变化时才生成新副本，旧世界不跟随源材质改变。
+MaterialRenderer 从本帧绑定的程序引用准备各 View，编辑器显式材质候选也先固定参数；重载失败时后续绘制显示固定内置的洋红色错误材质，已提交帧保留自己的 GPU 版本。主材质通道负责视锥裁剪和材质分组，阴影按自己的可见范围处理。
 各通道复用 RenderGeometry 的世界界限与场景界限。主材质按材质身份、阴影按网格排序，实际准备结果再按布局和网格分组。
 材质与阴影共用槽位索引排序：保留上一帧顺序，每帧用当前输入核对，顺序失效或数量变化时重新排序；不另外维护资产失效标记。
 材质在有序输入上裁剪，同一连续材质输入共用裁剪策略检查。候选队列只借用本帧物体指针，用完清空；跨帧索引不拥有物体或资源。
@@ -256,7 +257,8 @@ Artifact 和依赖文件分别原子写入，单文件成功不代表跨文件�
 
 Editor 源监控与 CPU 编译交付完整阶段候选；主线程复核请求、输入和运行版本，准备完整 GPU 程序后发布。
 内置与项目 Shader 均先为所有 View 准备候选，全部成功后共同发布 Pipeline 和共享 MaterialPrograms 布局。
-项目程序失败按产物或实际材质／覆盖变化决定重试；一个 View 失败时所有目标保留旧版。隐藏 View 也参与候选准备。
+项目程序失败按产物或实际材质／覆盖变化决定重试；一个 View 失败时所有目标显示错误材质。隐藏 View 也参与候选准备。
+项目编译失败后撤销旧 CPU 产物的注册，旧帧仍持有此前捕获的引用；内置程序失败状态由共享 MaterialPrograms 保存，目标重建不清除错误，成功发布才恢复。
 旧 RenderState、材质和在途帧持有旧 Pipeline；编译 Worker 不调用 Renderer。
 内置材质请求装配／发布与 ShaderReload 的文件／编译职责分开，项目程序则沿资产导入链处理。
 

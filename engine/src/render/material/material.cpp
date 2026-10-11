@@ -4,10 +4,23 @@
 #include <utility>
 
 namespace Comet {
-    Material::Material(std::string name, std::string template_name,
-        const AssetHandle shader_program)
+    Material::Material(
+        std::string name, std::string template_name, const AssetHandle shader_program)
         : m_name(std::move(name)), m_template_name(std::move(template_name)),
           m_shader_program(shader_program) {}
+
+    std::shared_ptr<const Material> Material::snapshot() const {
+        if(auto copy = m_snapshot.lock())
+            return copy;
+        auto copy = std::make_shared<Material>(m_name, m_template_name, m_shader_program);
+        copy->m_revision = m_revision;
+        copy->m_texture_properties = m_texture_properties;
+        copy->m_scalar_properties = m_scalar_properties;
+        copy->m_vector_properties = m_vector_properties;
+        copy->m_snapshot = copy;
+        m_snapshot = copy;
+        return copy;
+    }
 
     void Material::set_texture_property(const std::string& name, std::shared_ptr<Texture> texture) {
         const auto found = m_texture_properties.find(name);
@@ -16,6 +29,7 @@ namespace Comet {
         }
         m_texture_properties[name] = std::move(texture);
         ++m_revision;
+        m_snapshot.reset();
     }
 
     std::shared_ptr<Texture> Material::get_texture_property(const std::string& name) const {
@@ -32,6 +46,7 @@ namespace Comet {
             return true;
         m_scalar_properties[name] = value;
         ++m_revision;
+        m_snapshot.reset();
         return true;
     }
 
@@ -44,6 +59,7 @@ namespace Comet {
             return true;
         m_vector_properties[name] = value;
         ++m_revision;
+        m_snapshot.reset();
         return true;
     }
 

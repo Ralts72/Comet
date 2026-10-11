@@ -26,7 +26,7 @@ Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，
 | `demo/.comet/` | 示例项目本机缓存、日志与编辑器状态，不进入版本控制 |
 | `tests/`、`3rdparty/` | GoogleTest 测试与第三方依赖 |
 
-场景更新交付只读 CPU 快照，Renderer 拥有解析后的世界、GPU 资源和各视图状态；类入口、依赖方向和资源所有权见[架构文档](docs/architecture/overview.md)。
+场景更新交付只读 CPU 快照，主线程解析时固定材质值及对应 Shader 引用；Renderer 拥有解析后的世界、GPU 资源和各视图状态。类入口、依赖方向和资源所有权见[架构文档](docs/architecture/overview.md)。
 
 `engine/src/common/` 提供共享文件读写、JSON 与二进制基础工具和错误定位；各模块负责自身的数据结构与字段校验。
 显示、画质和音量选择共用 `config/player_settings` 存储流程，具体设置类型仍归所属功能模块。
@@ -923,6 +923,7 @@ Project 中右键项目的 `.vert`、`.frag`、`.comp`、`.geom` 阶段源码、
 `.shader` 程序描述文件，选择“打开源码”即可用外部编辑器修改；macOS 同样优先使用 VS Code。
 正在使用的项目材质程序及其依赖保存后沿用既有的 Shader 热重载流程；
 仅打开文件不会触发编译，语法错误也不妨碍打开修复。
+编译或接口校验失败时，相关物体显示洋红色错误材质并输出诊断；修正并成功重载后恢复正常效果，已提交帧继续使用各自持有的版本。
 编辑器热重载已登记的材质程序及其公共 include；调试线、阴影、天空盒与显示输出修改需重新构建。
 macOS 的内置 Shader 热重载由目录通知唤醒，其他平台暂用 500 ms 输入复核；真正编译前仍校验输入快照。
 固定接口采用 Frame set 0、Material set 1 和 Object push constant；新增或修改布局需同步 C++／GLSL 与契约测试。

@@ -414,18 +414,37 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(manager.compiled_shader_program(program));
     }
 
-    TEST_F(ShaderProgramImportTest, FailedCompilationDoesNotReplacePublishedArtifact) {
-        ASSERT_TRUE(publish_with_editor());
+    TEST_F(ShaderProgramImportTest, FailedCompilationInvalidatesRuntimeAndRecoversAfterSourceFix) {
+        Comet::Tests::FakeRenderResourceFactory factory;
+        Comet::AssetRegistry registry;
+        Comet::TaskScheduler scheduler(1);
+        EditorAssets assets(paths, registry, factory, scheduler);
+        const auto update = [&] {
+            ASSERT_TRUE(assets.refresh().succeeded());
+            ASSERT_TRUE(assets.update());
+            scheduler.wait_idle();
+            ASSERT_TRUE(assets.update());
+        };
+        ASSERT_NO_FATAL_FAILURE(update());
+        const auto frozen = assets.compiled_shader_program(program);
+        ASSERT_TRUE(frozen);
         const auto original = Comet::ShaderProgramArtifact::load(artifact_path(), program);
         ASSERT_TRUE(original);
+        const auto revision = registry.get_revision();
         ASSERT_TRUE(Comet::write_text_file_atomic(
             paths.assets() / "shaders/test.frag", "#version 450\ninvalid source\n"));
-        ASSERT_TRUE(database.scan().succeeded());
-        auto failed = ShaderProgramImport::prepare(paths, request());
-        EXPECT_FALSE(failed);
+        ASSERT_NO_FATAL_FAILURE(update());
+        EXPECT_FALSE(assets.compiled_shader_program(program));
+        EXPECT_GT(registry.get_revision(), revision);
+        EXPECT_EQ(frozen->fragment_words, original->fragment_words);
         const auto retained = Comet::ShaderProgramArtifact::load(artifact_path(), program);
         ASSERT_TRUE(retained);
         EXPECT_EQ(retained->fragment_words, original->fragment_words);
+        ASSERT_TRUE(Comet::write_text_file_atomic(paths.assets() / "shaders/test.frag", FRAGMENT));
+        ASSERT_NO_FATAL_FAILURE(update());
+        const auto recovered = assets.compiled_shader_program(program);
+        ASSERT_TRUE(recovered);
+        EXPECT_EQ(recovered->fragment_words, original->fragment_words);
     }
 
     TEST_F(ShaderProgramImportTest, RejectsStaleCandidateAfterIncludeChanges) {
@@ -527,7 +546,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(assets.update());
         scheduler.wait_idle();
         ASSERT_TRUE(assets.update());
-        EXPECT_EQ(assets.compiled_shader_program(program), second);
+        EXPECT_FALSE(assets.compiled_shader_program(program));
     }
 
     TEST_F(ShaderProgramImportTest, FileNotificationDefersProgramImportUntilQuietPeriod) {
@@ -586,7 +605,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(assets.update());
         scheduler.wait_idle();
         ASSERT_TRUE(assets.update());
-        EXPECT_EQ(assets.compiled_shader_program(program), first);
+        EXPECT_FALSE(assets.compiled_shader_program(program));
 
         ASSERT_TRUE(Comet::write_text_file_atomic(paths.assets() / "shaders/new_color.glsl",
             "#define NEW_COLOR vec4(0.2,0.3,0.4,1.0)\n"));
@@ -596,10 +615,12 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(assets.update());
         scheduler.wait_idle();
         ASSERT_TRUE(assets.update());
-        EXPECT_NE(assets.compiled_shader_program(program), first);
+        const auto recovered = assets.compiled_shader_program(program);
+        ASSERT_TRUE(recovered);
+        EXPECT_NE(recovered, first);
     }
 
-    TEST_F(ShaderProgramImportTest, MissingSourceRetainsVersionUntilProgramIsRemoved) {
+    TEST_F(ShaderProgramImportTest, MissingSourceInvalidatesRuntimeUntilRestored) {
         Comet::Tests::FakeRenderResourceFactory factory;
         Comet::AssetRegistry registry;
         Comet::TaskScheduler scheduler(1);
@@ -614,7 +635,14 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(std::filesystem::remove(paths.assets() / "shaders/test.frag"));
         ASSERT_TRUE(assets.refresh().snapshot_updated);
         ASSERT_TRUE(assets.update());
-        EXPECT_EQ(assets.compiled_shader_program(program), first);
+        EXPECT_FALSE(assets.compiled_shader_program(program));
+
+        ASSERT_TRUE(Comet::write_text_file_atomic(paths.assets() / "shaders/test.frag", FRAGMENT));
+        ASSERT_TRUE(assets.refresh().succeeded());
+        ASSERT_TRUE(assets.update());
+        scheduler.wait_idle();
+        ASSERT_TRUE(assets.update());
+        ASSERT_TRUE(assets.compiled_shader_program(program));
 
         ASSERT_TRUE(std::filesystem::remove(paths.assets() / "shaders/test.shader"));
         ASSERT_TRUE(assets.refresh().snapshot_updated);

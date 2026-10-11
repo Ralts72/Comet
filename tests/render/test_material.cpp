@@ -16,6 +16,36 @@
 #include <type_traits>
 
 namespace Comet::Tests {
+    TEST(MaterialRuntimeTest, ValueSnapshotsReuseUnchangedDataAndKeepIndependentParameters) {
+        Material source("sample", "pbr", AssetHandle{42});
+        ASSERT_TRUE(source.set_scalar_property("roughness", 0.2f));
+        ASSERT_TRUE(source.set_vector_property("base_color", {0.3f, 0.4f, 0.5f, 1}));
+        source.set_texture_property("base_color_texture", nullptr);
+        const auto first = source.snapshot();
+        EXPECT_EQ(first, source.snapshot());
+        EXPECT_EQ(first, first->snapshot());
+        EXPECT_EQ(first->get_name(), "sample");
+        EXPECT_EQ(first->get_shader_program(), AssetHandle{42});
+        const auto revision = first->get_revision();
+        ASSERT_TRUE(source.set_scalar_property("roughness", 0.2f));
+        source.set_texture_property("base_color_texture", nullptr);
+        EXPECT_FALSE(
+            source.set_scalar_property("roughness", std::numeric_limits<float>::quiet_NaN()));
+        EXPECT_EQ(source.get_revision(), revision);
+        EXPECT_EQ(first, source.snapshot());
+
+        ASSERT_TRUE(source.set_scalar_property("roughness", 0.8f));
+        ASSERT_TRUE(source.set_vector_property("base_color", {1, 0, 0, 1}));
+        const auto changed = source.snapshot();
+        EXPECT_NE(first, changed);
+        EXPECT_EQ(changed, source.snapshot());
+        EXPECT_EQ(first->get_revision(), revision);
+        EXPECT_EQ(first->get_scalar_property("roughness"), 0.2f);
+        EXPECT_EQ(first->get_vector_property("base_color"), Math::Vec4(0.3f, 0.4f, 0.5f, 1));
+        EXPECT_EQ(changed->get_scalar_property("roughness"), 0.8f);
+        EXPECT_EQ(changed->get_vector_property("base_color"), Math::Vec4(1, 0, 0, 1));
+    }
+
     TEST(MaterialRuntimeTest, PbrLayoutMatchesShaderAndPreservesOldParameterSnapshots) {
         const auto layout = MaterialLayout::find_builtin("pbr");
         ASSERT_TRUE(layout);

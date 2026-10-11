@@ -21,6 +21,7 @@ namespace Comet::Tests {
             EXPECT_EQ(item.material.asset_revision, reference.material.asset_revision);
             EXPECT_EQ(item.material.resource, reference.material.resource);
             EXPECT_EQ(item.material.overrides, reference.material.overrides);
+            EXPECT_EQ(item.material.program_source, reference.material.program_source);
         }
     }
 }

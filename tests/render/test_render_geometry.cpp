@@ -494,17 +494,17 @@ namespace Comet::Tests {
         resolve();
         for(const auto& item : world.render_items) {
             EXPECT_EQ(item.mesh_revision, frozen.render_items.front().mesh_revision);
-            EXPECT_EQ(item.material.resource, next_material);
+            EXPECT_EQ(item.material.resource, next_material->snapshot());
         }
         ASSERT_TRUE(assets.replace_asset(mesh, larger.value()));
         resolve();
         for(const auto& item : world.render_items) {
             EXPECT_NE(item.mesh_revision, frozen.render_items.front().mesh_revision);
             EXPECT_EQ(item.mesh, larger.value());
-            EXPECT_EQ(item.material.resource, next_material);
+            EXPECT_EQ(item.material.resource, next_material->snapshot());
         }
         EXPECT_EQ(frozen.render_items.front().mesh, original.value());
-        EXPECT_EQ(frozen.render_items.front().material.resource, first_material);
+        EXPECT_EQ(frozen.render_items.front().material.resource, first_material->snapshot());
         scene.destroy_entity(child);
         SceneExtractor::extract(scene, extracted);
         resolve();

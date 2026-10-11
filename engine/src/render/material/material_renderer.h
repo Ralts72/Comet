@@ -157,6 +157,7 @@ namespace Comet {
 
             std::shared_ptr<const ShaderProgramArtifact> source;
             std::shared_ptr<const ShaderProgramArtifact> failed_source;
+            std::shared_ptr<const ShaderProgramArtifact> requested_source;
             std::shared_ptr<const PipelineState> pipeline;
             MaterialInputs materials;
             FailureCause failure_cause = FailureCause::Shader;
@@ -244,7 +245,8 @@ namespace Comet {
             ReloadReport& report);
         static Result<void, GraphicsError> refresh_program(
             std::span<MaterialRenderer* const> renderers, AssetHandle handle,
-            const std::string& template_name);
+            const std::string& template_name,
+            const std::shared_ptr<const ShaderProgramArtifact>& source);
         Result<MaterialUpdate, GraphicsError> prepare_material_bindings(
             AssetHandle handle, const std::shared_ptr<const Material>& material);
         Result<ProjectUpdate, GraphicsError> prepare_project_pipeline(AssetHandle handle,
@@ -268,6 +270,7 @@ namespace Comet {
         std::shared_ptr<DescriptorSetLayout> m_frame_layout;
         std::vector<std::shared_ptr<FrameResources>> m_frames;
         std::unordered_map<std::string, std::shared_ptr<const PipelineState>> m_pipelines;
+        std::shared_ptr<MaterialResources> m_error_material;
         std::map<std::pair<AssetHandle, std::string>, ProjectPipeline> m_project_pipelines;
         MaterialRuntimeCache m_prepared;
         std::map<MaterialInstanceKey, CachedMaterial> m_materials;

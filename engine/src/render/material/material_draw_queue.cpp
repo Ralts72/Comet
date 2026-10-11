@@ -1,6 +1,7 @@
 #include "render/material/material_renderer.h"
 
 #include "render/material/material.h"
+#include "render/material/material_programs.h"
 #include "render/material/material_layout.h"
 #include "render/scene/draw_order.h"
 #include "render/scene/render_geometry.h"
@@ -16,11 +17,13 @@ namespace Comet {
         if(material.get_shader_program()) {
             const auto found = m_project_pipelines.find(
                 {material.get_shader_program(), material.get_template_name()});
-            if(found != m_project_pipelines.end())
+            if(found != m_project_pipelines.end() && found->second.requested_source
+                && found->second.failed_source != found->second.requested_source)
                 return found->second.pipeline;
         } else {
             const auto found = m_pipelines.find(material.get_template_name());
-            if(found != m_pipelines.end())
+            if(found != m_pipelines.end()
+                && (!m_programs || !m_programs->builtin_failed(material.get_template_name())))
                 return found->second;
         }
         static const std::shared_ptr<const PipelineState> unavailable;
@@ -34,7 +37,7 @@ namespace Comet {
         if(!pipeline || !pipeline->static_mesh_bounds)
             return false;
         const auto cached = m_materials.find(DrawOrder::material_key(material));
-        // 准备失败可能沿用旧管线；候选与回退都必须适用静态界限。
+        // 缓存中的完整版本也必须适用静态界限。
         return cached == m_materials.end() || !cached->second.resources
                || cached->second.resources->pipeline->static_mesh_bounds;
     }

@@ -115,9 +115,12 @@ namespace Comet {
             new MaterialRenderer(device, pipelines, samples, programs));
         if(auto result = candidate->initialize(
                pipelines, resources, frame_slot_count, samples, shaders, max_anisotropy);
-            !result)
+            !result) {
+            candidate.reset();
+            pipelines.collect_unused();
             return Result<std::unique_ptr<MaterialRenderer>, GraphicsError>::failure(
                 result.error());
+        }
         return Result<std::unique_ptr<MaterialRenderer>, GraphicsError>::success(
             std::move(candidate));
     }
@@ -210,12 +213,32 @@ namespace Comet {
             frame->descriptor->update(device, writes);
             m_frames.push_back(std::move(frame));
         }
-        auto initial = default_material_shaders();
+        const auto defaults = default_material_shaders();
+        auto initial = defaults;
         if(shaders) {
             if(auto checked = validate_material_shaders(*shaders); !checked)
                 return Result<void, GraphicsError>::failure({checked.error()});
             merge_material_shaders(initial, *shaders);
         }
+        // 固定内嵌程序，不受开发中的 Shader 覆盖影响。
+        std::unordered_map<std::string, std::shared_ptr<const PipelineState>> error_pipelines;
+        ReloadReport error_report;
+        if(auto result = prepare_builtin_pipeline(pipelines, {"unlit_color", "unlit_color"},
+               defaults.at("unlit_color"), samples, error_pipelines, error_report);
+            !result)
+            return result;
+        const auto& error_pipeline = error_pipelines.at("unlit_color");
+        auto error_source = std::make_shared<Material>("Shader error", "unlit_color");
+        static_cast<void>(error_source->set_vector_property("color", {1, 0, 1, 1}));
+        MaterialRuntimeCache error_cache;
+        auto prepared_error =
+            error_cache.prepare(INVALID_ASSET_HANDLE, error_source, error_pipeline->layout);
+        if(!prepared_error)
+            return Result<void, GraphicsError>::failure({prepared_error.error()});
+        auto error_material = create_material(prepared_error.value(), error_pipeline, nullptr);
+        if(!error_material)
+            return Result<void, GraphicsError>::failure(error_material.error());
+        m_error_material = std::move(error_material).value();
         auto loaded = reload_shaders(pipelines, initial, samples);
         if(!loaded)
             return Result<void, GraphicsError>::failure(loaded.error());
@@ -399,16 +422,21 @@ namespace Comet {
         using Preparation = Result<std::vector<MaterialUpdate>, GraphicsError>;
         if(!handle || !material)
             return Preparation::failure({"Material update requires an identity and source"});
-        if(material->get_shader_program()) {
-            if(auto refreshed = refresh_program(
-                   renderers, material->get_shader_program(), material->get_template_name());
+        const auto source = material->snapshot();
+        if(source->get_shader_program()) {
+            std::shared_ptr<const ShaderProgramArtifact> program_source;
+            if(!renderers.empty() && renderers.front()->m_programs)
+                program_source =
+                    renderers.front()->m_programs->latest(source->get_shader_program());
+            if(auto refreshed = refresh_program(renderers, source->get_shader_program(),
+                   source->get_template_name(), program_source);
                 !refreshed)
                 return Preparation::failure(refreshed.error());
         }
         std::vector<MaterialUpdate> updates;
         updates.reserve(renderers.size());
         for(auto* renderer : renderers) {
-            auto candidate = renderer->prepare_material_bindings(handle, material);
+            auto candidate = renderer->prepare_material_bindings(handle, source);
             if(!candidate)
                 return Preparation::failure(candidate.error());
             updates.push_back(std::move(candidate).value());
@@ -420,7 +448,15 @@ namespace Comet {
         prepare_material_bindings(
             const AssetHandle handle, const std::shared_ptr<const Material>& material) {
         using Preparation = Result<MaterialUpdate, GraphicsError>;
-        const auto& pipeline = find_pipeline(*material);
+        auto pipeline = find_pipeline(*material);
+        if(!pipeline && material->get_shader_program()) {
+            const auto program = m_project_pipelines.find(
+                {material->get_shader_program(), material->get_template_name()});
+            // 编辑缺失贴图等材质输入时可以沿用布局准备修正，绘制仍显示错误材质。
+            if(program != m_project_pipelines.end() && program->second.requested_source
+                && program->second.failure_cause == ProjectPipeline::FailureCause::Materials)
+                pipeline = program->second.pipeline;
+        }
         if(!pipeline)
             return Preparation::failure({"Material Shader program is not available"});
         MaterialUpdate update;
@@ -534,11 +570,13 @@ namespace Comet {
             const auto [entry, inserted] =
                 m_unsupported.try_emplace(material.material_handle, frame_serial);
             entry->second = frame_serial;
-            if(inserted) {
+            if(inserted && !material.program_source
+                && (!m_programs
+                    || !m_programs->builtin_failed(material.resource->get_template_name()))) {
                 LOG_ERROR("Unavailable Shader program for material handle {} and template '{}'",
                     material.material_handle.value(), material.resource->get_template_name());
             }
-            return Preparation::success(nullptr);
+            return Preparation::success(m_error_material);
         }
         m_unsupported.erase(material.material_handle);
         const auto key = DrawOrder::material_key(material);

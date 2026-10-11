@@ -11,6 +11,7 @@
 namespace Comet {
     class AssetRegistry;
 
+    // Main 解析 Handle 并固定材质／Shader 版本，GPU 准备只消费解析后的资源引用。
     class COMET_API SceneResolver {
     public:
         explicit SceneResolver(const AssetRegistry& asset_registry);
@@ -22,6 +23,8 @@ namespace Comet {
 
     private:
         void resolve_environment(const RenderScene& scene, RenderWorld& world);
+        [[nodiscard]] MaterialBinding resolve_material(
+            AssetHandle handle, RenderWorld& world) const;
         const AssetRegistry& m_asset_registry;
         std::unordered_map<AssetHandle, bool> m_missing_mesh_handles;
         std::unordered_map<AssetHandle, bool> m_missing_material_handles;

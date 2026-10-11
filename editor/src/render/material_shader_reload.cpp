@@ -5,6 +5,7 @@
 #include "render/renderer.h"
 
 #include <utility>
+#include <vector>
 
 namespace CometEditor {
     namespace {
@@ -38,7 +39,15 @@ namespace CometEditor {
         if(!compilation)
             return Result::success(false);
         if(!compilation->succeeded) {
-            LOG_ERROR("Material Shader compilation failed; previous version retained: {}",
+            std::vector<std::string> failed;
+            for(const auto& program : Comet::builtin_material_shaders()) {
+                const auto name = std::string(program.name);
+                if(!compilation->stages.at(name + ".vert").succeeded()
+                    || !compilation->stages.at(name + ".frag").succeeded())
+                    failed.push_back(name);
+            }
+            renderer.invalidate_material_shaders(failed);
+            LOG_ERROR("Material Shader compilation failed; showing error material: {}",
                 compilation->diagnostics);
             return Result::success(false);
         }
@@ -56,16 +65,16 @@ namespace CometEditor {
             if(result.error().is_out_of_memory()) {
                 if(!m_reload.retry_delivery(compilation->revision)) {
                     LOG_ERROR(
-                        "Material Shader publication retries exhausted; previous version retained, waiting for a new request: {}",
+                        "Material Shader publication retries exhausted; showing error material, waiting for a new request: {}",
                         result.error().message);
                 } else if(m_reported_retry != compilation->revision) {
                     LOG_WARN(
-                        "Material Shader publication ran out of memory; previous version retained, retrying: {}",
+                        "Material Shader publication ran out of memory; showing error material, retrying: {}",
                         result.error().message);
                     m_reported_retry = compilation->revision;
                 }
             } else {
-                LOG_ERROR("Material Shader publication failed; previous version retained: {}",
+                LOG_ERROR("Material Shader publication failed; showing error material: {}",
                     result.error().message);
             }
             return Result::success(false);

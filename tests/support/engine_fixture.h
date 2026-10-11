@@ -25,6 +25,7 @@ namespace Comet::Tests {
                 std::erase(logger->sinks(), m_sink);
             EXPECT_EQ(messages.str().find("VUID-"), std::string::npos) << messages.str();
             EXPECT_EQ(messages.str().find("Validation Error"), std::string::npos) << messages.str();
+            EXPECT_EQ(messages.str().find("hazard detected"), std::string::npos) << messages.str();
         }
 
         std::ostringstream messages;

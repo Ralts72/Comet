@@ -25,6 +25,9 @@ namespace Comet {
         [[nodiscard]] const std::string& get_template_name() const { return m_template_name; }
         [[nodiscard]] AssetHandle get_shader_program() const { return m_shader_program; }
 
+        // Main 捕获独立参数版本；同版本复用，之后修改不影响旧快照。
+        [[nodiscard]] std::shared_ptr<const Material> snapshot() const;
+
         void set_texture_property(const std::string& name, std::shared_ptr<Texture> texture);
         // 非有限值被拒绝；相同值成功但不改变版本。
         [[nodiscard]] bool set_scalar_property(const std::string& name, float value);
@@ -42,5 +45,6 @@ namespace Comet {
         std::map<std::string, std::shared_ptr<Texture>> m_texture_properties;
         std::map<std::string, float> m_scalar_properties;
         std::map<std::string, Math::Vec4> m_vector_properties;
+        mutable std::weak_ptr<const Material> m_snapshot;
     };
 }

@@ -1,6 +1,7 @@
 #include "render/scene/scene_resolver.h"
 
 #include "asset/registry.h"
+#include "asset/artifact/shader_program_artifact.h"
 #include "diagnostics/logger.h"
 #include "render/material/material.h"
 #include "render/resource/mesh.h"
@@ -34,9 +35,41 @@ namespace Comet {
         return world;
     }
 
+    MaterialBinding SceneResolver::resolve_material(
+        const AssetHandle handle, RenderWorld& world) const {
+        MaterialBinding binding{.material_handle = handle};
+        const auto source =
+            m_asset_registry.resolve<const Material>(handle, &binding.asset_revision);
+        if(!source)
+            return binding;
+        world.resolution.material_sources.insert_or_assign(
+            handle, RenderWorld::ResolutionCache::MaterialSource{source, source->get_revision()});
+        binding.resource = source->snapshot();
+        if(const auto program = source->get_shader_program())
+            binding.program_source = m_asset_registry.resolve<const ShaderProgramArtifact>(program);
+        return binding;
+    }
+
     void SceneResolver::refresh_assets(RenderWorld& world) const {
         const auto revision = m_asset_registry.get_revision();
-        if(world.resolution.asset_revision == revision)
+        const bool published = world.resolution.asset_revision != revision;
+        auto& materials = world.resolution.material_sources;
+        bool edited = false;
+        // 每个材质身份只检查一次；参数没变时不扫描物体或复制参数。
+        for(auto entry = materials.begin(); entry != materials.end();) {
+            const auto source = entry->second.source.lock();
+            if(!source || (published && !m_asset_registry.contains<Material>(entry->first))) {
+                entry = materials.erase(entry);
+                edited = true;
+                continue;
+            }
+            if(entry->second.revision != source->get_revision()) {
+                entry->second.revision = source->get_revision();
+                edited = true;
+            }
+            ++entry;
+        }
+        if(!published && !edited)
             return;
         auto& pending = world.resolution.pending_asset_slots;
         const bool had_pending = !pending.empty();
@@ -48,6 +81,8 @@ namespace Comet {
         uint64_t mesh_revision = 0;
         AssetHandle material_handle;
         uint64_t material_revision = 0;
+        AssetHandle program_handle;
+        std::shared_ptr<const ShaderProgramArtifact> program_source;
         // 只缓存本次检查的版本值；碰撞时重新查询，低命中率时停止使用缓存。
         std::array<std::pair<AssetHandle, uint64_t>, 128> revisions{};
         const auto miss_limit = revisions.size() * 2;
@@ -85,10 +120,24 @@ namespace Comet {
                     material_handle = item.material.material_handle;
                     material_revision = get_revision(material_handle);
                 }
-                if(material_revision == 0 || item.material.asset_revision != material_revision) {
+                const auto source = materials.find(item.material.material_handle);
+                const bool parameters_changed =
+                    edited && source != materials.end()
+                    && item.material.resource->get_revision() != source->second.revision;
+                if(material_revision == 0 || item.material.asset_revision != material_revision
+                    || parameters_changed) {
                     item.material.resource.reset();
                     item.material.asset_revision = 0;
+                    item.material.program_source.reset();
                     changed = true;
+                } else if(published && item.material.resource->get_shader_program()) {
+                    const auto handle = item.material.resource->get_shader_program();
+                    if(program_handle != handle) {
+                        program_handle = handle;
+                        program_source =
+                            m_asset_registry.resolve<const ShaderProgramArtifact>(handle);
+                    }
+                    item.material.program_source = program_source;
                 }
             }
             if(changed && collect_changes) {
@@ -161,8 +210,7 @@ namespace Comet {
         AssetHandle material_handle;
         std::shared_ptr<Mesh> mesh;
         uint64_t mesh_revision = 0;
-        std::shared_ptr<const Material> material;
-        uint64_t material_revision = 0;
+        MaterialBinding material;
         const auto resolve_item = [&](const RenderItem& item, ResolvedRenderItem& resolved) {
             if(!resolved.mesh || resolved.mesh_handle != item.mesh_handle) {
                 if(mesh_handle != item.mesh_handle) {
@@ -179,12 +227,9 @@ namespace Comet {
                 || resolved.material.material_handle != item.material_handle) {
                 if(material_handle != item.material_handle) {
                     material_handle = item.material_handle;
-                    material = m_asset_registry.resolve<const Material>(
-                        material_handle, &material_revision);
+                    material = resolve_material(material_handle, world);
                 }
-                resolved.material.resource = material;
-                resolved.material.material_handle = item.material_handle;
-                resolved.material.asset_revision = material_revision;
+                resolved.material = material;
             }
             if(!resolved.material.resource)
                 return false;
@@ -278,10 +323,10 @@ namespace Comet {
 
                 if(!same_material && material_handle != item.material_handle) {
                     material_handle = item.material_handle;
-                    material = m_asset_registry.resolve<const Material>(
-                        item.material_handle, &material_revision);
+                    material = resolve_material(item.material_handle, world);
                 }
-                const auto& item_material = same_material ? resolved.material.resource : material;
+                const auto& item_material =
+                    same_material ? resolved.material.resource : material.resource;
                 if(!item_material) {
                     const auto [entry, inserted] =
                         m_missing_material_handles.try_emplace(item.material_handle, true);
@@ -297,9 +342,7 @@ namespace Comet {
                     resolved.mesh = mesh;
                 }
                 if(!same_material) {
-                    resolved.material.material_handle = item.material_handle;
-                    resolved.material.asset_revision = material_revision;
-                    resolved.material.resource = material;
+                    resolved.material = material;
                 }
             }
             update_item_values(item, same_scene, resolved);

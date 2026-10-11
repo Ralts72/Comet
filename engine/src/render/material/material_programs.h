@@ -8,6 +8,7 @@
 
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 
 namespace Comet {
@@ -41,11 +42,14 @@ namespace Comet {
         void collect_removed();
         [[nodiscard]] const MaterialShaders* builtin_overrides() const;
         void publish_builtin(MaterialShaders shaders);
+        void invalidate_builtin(std::span<const std::string> programs);
+        [[nodiscard]] bool builtin_failed(const std::string& material) const;
 
     private:
         const AssetRegistry& m_assets;
         std::map<std::pair<AssetHandle, std::string>, Published> m_published;
         MaterialShaders m_builtin_overrides;
+        std::set<std::string, std::less<>> m_failed_builtins;
         uint64_t m_collected_asset_revision = 0;
     };
 }
