@@ -97,7 +97,21 @@ namespace Comet::Tests {
                             changed.edit_transform([](auto& value) { value.rotation.y += 2; });
                     break;
             }
+            auto previous = snapshot;
             extractor.update(scene, snapshot);
+            if(!snapshot.item_changes.full_update
+                && snapshot.item_changes.revision != previous.item_changes.revision) {
+                const auto& changes = snapshot.item_changes;
+                ASSERT_TRUE(changes.can_apply(previous.item_changes.revision,
+                    previous.render_items.size(), snapshot.render_items.size()));
+                changes.apply_structure(previous.render_items);
+                for(const auto slot : changes.slots)
+                    previous.render_items[slot] = snapshot.render_items[slot];
+                expect_same_render_items(previous, SceneExtractor::extract(scene));
+                for(std::size_t slot = 0; slot < snapshot.render_items.size(); ++slot)
+                    EXPECT_EQ(previous.render_items[slot].entity_id,
+                        snapshot.render_items[slot].entity_id);
+            }
             expect_same_render_items(snapshot, SceneExtractor::extract(scene));
         }
         ASSERT_TRUE(runtime.stop());

@@ -115,6 +115,7 @@ namespace Comet {
 
     void SceneExtractor::update_items(Scene& scene, RenderScene& output) {
         auto& items = output.render_items;
+        auto& changes = output.item_changes;
         for(const auto& change : scene.m_render_changes) {
             const auto index = entt::to_entity(change.handle);
             auto slot = items.size();
@@ -135,23 +136,33 @@ namespace Comet {
                     m_slots_by_entity[index] = slot;
                     m_entities_by_slot.push_back(change.handle);
                     items.emplace_back();
+                    changes.structure.push_back(
+                        {RenderItemChanges::StructuralEdit::Type::Append, slot});
                     m_matches_storage_order = false;
                 }
                 extract_item(scene, entity, entity.get_component<MeshRendererComponent>(),
                     entity.get_component<WorldTransformComponent>(), change.id, true, items[slot]);
-                if(!output.item_changes.full_update)
-                    output.item_changes.slots.push_back(slot);
+                changes.slots.push_back(slot);
             } else if(slot < items.size()) {
+                changes.structure.push_back(
+                    {RenderItemChanges::StructuralEdit::Type::Remove, slot});
                 if(slot + 1 != items.size()) {
                     items[slot] = std::move(items.back());
                     const auto moved = m_entities_by_slot.back();
                     m_entities_by_slot[slot] = moved;
                     m_slots_by_entity[entt::to_entity(moved)] = slot;
+                    changes.slots.push_back(slot);
                 }
                 items.pop_back();
                 m_entities_by_slot.pop_back();
                 m_matches_storage_order = false;
             }
+        }
+        if(!changes.structure.empty()) {
+            auto& changed = changes.slots;
+            std::erase_if(changed, [&](const auto slot) { return slot >= items.size(); });
+            std::ranges::sort(changed);
+            changed.erase(std::unique(changed.begin(), changed.end()), changed.end());
         }
     }
 
@@ -161,7 +172,7 @@ namespace Comet {
         const bool full = m_scene_lifetime != scene.get_lifetime()
                           || m_revision != scene.m_render_changes_base
                           || scene.m_render_full_update;
-        output.item_changes.begin_update(full || scene.m_render_structure_changed);
+        output.item_changes.begin_update(full);
         if(full) {
             const bool rebuild_slots =
                 !m_matches_storage_order || m_scene_lifetime != scene.get_lifetime()

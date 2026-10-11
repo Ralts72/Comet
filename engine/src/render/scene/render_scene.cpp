@@ -11,6 +11,30 @@ namespace Comet {
         revision = next_revision.fetch_add(1, std::memory_order_relaxed);
         full_update = full;
         slots.clear();
+        structure.clear();
+    }
+
+    bool RenderItemChanges::can_apply(const uint64_t previous_revision, std::size_t previous_size,
+        const std::size_t current_size) const {
+        if(full_update || previous_revision == 0 || base_revision != previous_revision)
+            return false;
+        for(const auto& edit : structure) {
+            if(edit.type == StructuralEdit::Type::Append) {
+                if(edit.slot != previous_size)
+                    return false;
+                ++previous_size;
+            } else {
+                if(edit.slot >= previous_size)
+                    return false;
+                --previous_size;
+            }
+        }
+        if(previous_size != current_size)
+            return false;
+        for(const auto slot : slots)
+            if(slot >= current_size)
+                return false;
+        return true;
     }
 
     std::optional<RenderCamera::ProjectionIssue> RenderCamera::projection_issue(

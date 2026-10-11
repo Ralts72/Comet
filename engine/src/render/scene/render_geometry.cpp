@@ -24,9 +24,11 @@ namespace Comet {
         m_items.reserve(items.size());
         const bool same_scene =
             submission.scene_lifetime != 0 && submission.scene_lifetime == m_scene_lifetime;
-        const bool tracked = same_scene && changes.revision != 0 && m_bounds.size() == items.size();
-        const bool unchanged = tracked && m_revision == changes.revision;
-        const bool partial = tracked && !changes.full_update && m_revision == changes.base_revision;
+        const bool tracked = same_scene && changes.revision != 0;
+        const bool unchanged =
+            tracked && m_revision == changes.revision && m_bounds.size() == items.size();
+        const bool partial =
+            tracked && changes.can_apply(m_revision, m_bounds.size(), items.size());
         const auto update_bounds = [&](const std::size_t index) {
             const auto& item = items[index];
             auto& cached = m_bounds[index];
@@ -46,6 +48,11 @@ namespace Comet {
         };
         bool rebuild = false;
         if(!unchanged && partial) {
+            changes.apply_structure(m_bounds);
+            // 删除可能收缩场景总界限；在填充本帧借用列表时重新汇总。
+            rebuild = std::ranges::any_of(changes.structure, [](const auto& edit) {
+                return edit.type == RenderItemChanges::StructuralEdit::Type::Remove;
+            });
             const auto previous_bounds = m_cached_scene_bounds;
             for(const auto index : changes.slots) {
                 const auto old = m_bounds[index].bounds;

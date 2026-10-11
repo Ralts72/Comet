@@ -211,10 +211,16 @@ namespace Comet::Tests {
                     extractor.update(scene, snapshot);
                     entities[22].edit_transform([](auto& value) { value.translation.z += 1; });
                     break;
-                case 7:
-                    scene.destroy_entity(entities.back());
-                    entities.back() = create(float(step));
+                case 7: {
+                    // 追加后删除、交换末项、连续复用 Entity 槽位发生在同一批。
+                    auto temporary = create(float(step + 100));
+                    scene.destroy_entity(entities[7]);
+                    entities[7] = create(float(step));
+                    scene.destroy_entity(temporary);
+                    scene.destroy_entity(entities[8]);
+                    entities[8] = create(float(-step));
                     break;
+                }
             }
             extractor.update(scene, snapshot);
             if(step % 17 == 0) {
@@ -228,6 +234,24 @@ namespace Comet::Tests {
             check();
             check();
         }
+        for(auto entity : entities)
+            scene.destroy_entity(entity);
+        extractor.update(scene, snapshot);
+        check();
+        EXPECT_TRUE(submission.render_items.empty());
+        auto only = create(-100);
+        extractor.update(scene, snapshot);
+        ASSERT_FALSE(snapshot.item_changes.full_update);
+        check();
+        EXPECT_FALSE(submission.item_changes.full_update);
+        ASSERT_EQ(submission.render_items.size(), 1u);
+        scene.destroy_entity(only);
+        extractor.update(scene, snapshot);
+        ASSERT_FALSE(snapshot.item_changes.full_update);
+        check();
+        EXPECT_FALSE(submission.item_changes.full_update);
+        EXPECT_TRUE(submission.render_items.empty());
+        EXPECT_FALSE(geometry.get_scene_bounds());
         Scene replacement;
         auto entity = replacement.create_entity();
         entity.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{21});

@@ -135,11 +135,11 @@ namespace Comet {
             return true;
         };
         const auto& changes = render_scene.item_changes;
-        const bool tracked = same_scene && changes.revision != 0 && submission.scene_revision != 0
-                             && slots.size() == items.size();
-        if(tracked && submission.scene_revision == changes.revision)
+        const bool tracked = same_scene && changes.revision != 0 && submission.scene_revision != 0;
+        if(tracked && submission.scene_revision == changes.revision && slots.size() == items.size())
             return;
-        if(tracked && !changes.full_update && submission.scene_revision == changes.base_revision) {
+        if(tracked && changes.can_apply(submission.scene_revision, slots.size(), items.size())) {
+            changes.apply_structure(slots);
             bool complete = true;
             for(const auto index : changes.slots) {
                 if(!resolve_changed_item(items[index], slots[index])) {
@@ -148,9 +148,10 @@ namespace Comet {
                 }
             }
             if(complete) {
-                if(!changes.slots.empty()) {
+                if(!changes.slots.empty() || !changes.structure.empty()) {
                     submission.item_changes.begin_update(false);
                     submission.item_changes.slots = changes.slots;
+                    submission.item_changes.structure = changes.structure;
                 }
                 submission.scene_revision = changes.revision;
                 return;

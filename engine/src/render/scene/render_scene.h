@@ -10,6 +10,7 @@
 #include <optional>
 #include <memory>
 #include <cstddef>
+#include <utility>
 #include <vector>
 
 namespace Comet {
@@ -49,12 +50,34 @@ namespace Comet {
 
     // revision 为 0 时逐项核对；局部批次只能接在 base_revision 对应的输出后。
     struct COMET_API RenderItemChanges {
+        struct StructuralEdit {
+            enum class Type { Append, Remove } type;
+            std::size_t slot;
+        };
+
         uint64_t revision = 0;
         uint64_t base_revision = 0;
         bool full_update = true;
         std::vector<std::size_t> slots;
+        // 按提取顺序追加或交换末项删除；slots 指向编辑完成后的变化位置。
+        std::vector<StructuralEdit> structure;
 
         void begin_update(bool full);
+        [[nodiscard]] bool can_apply(
+            uint64_t previous_revision, std::size_t previous_size, std::size_t current_size) const;
+
+        // can_apply 确认批次连续且槽位完整后，共用相同的缓存移动规则。
+        template<typename T> void apply_structure(std::vector<T>& items) const {
+            for(const auto& edit : structure) {
+                if(edit.type == StructuralEdit::Type::Append) {
+                    items.emplace_back();
+                } else {
+                    if(edit.slot + 1 != items.size())
+                        items[edit.slot] = std::move(items.back());
+                    items.pop_back();
+                }
+            }
+        }
     };
 
     struct RenderScene {
