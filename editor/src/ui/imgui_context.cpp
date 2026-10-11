@@ -75,9 +75,10 @@ namespace CometEditor::Ui {
 
     class ImGuiContext::TextureBinding final {
     public:
-        TextureBinding(
-            std::shared_ptr<Comet::ImageView> image_view, std::shared_ptr<Comet::Sampler> sampler)
-            : m_image_view(std::move(image_view)), m_sampler(std::move(sampler)) {
+        TextureBinding(::ImGuiContext* context, std::shared_ptr<Comet::ImageView> image_view,
+            std::shared_ptr<Comet::Sampler> sampler)
+            : m_context(context), m_image_view(std::move(image_view)),
+              m_sampler(std::move(sampler)) {
             if(!m_image_view || !m_sampler) {
                 LOG_FATAL("ImGui texture binding requires a valid image view and sampler");
             }
@@ -113,6 +114,7 @@ namespace CometEditor::Ui {
                 return;
             }
 
+            const CurrentContext current(m_context);
             m_descriptor_set = ImGui_ImplVulkan_AddTexture(static_cast<VkSampler>(m_sampler->get()),
                 static_cast<VkImageView>(m_image_view->get()),
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -123,6 +125,7 @@ namespace CometEditor::Ui {
                 return;
             }
 
+            const CurrentContext current(m_context);
             ImGui_ImplVulkan_RemoveTexture(m_descriptor_set);
             m_descriptor_set = VK_NULL_HANDLE;
         }
@@ -132,6 +135,7 @@ namespace CometEditor::Ui {
         }
 
     private:
+        ::ImGuiContext* m_context;
         std::shared_ptr<Comet::ImageView> m_image_view;
         std::shared_ptr<Comet::Sampler> m_sampler;
         VkDescriptorSet m_descriptor_set = VK_NULL_HANDLE;
@@ -148,6 +152,7 @@ namespace CometEditor::Ui {
     public:
         FontTexture(::ImGuiContext* context, std::shared_ptr<const FontPixels> source)
             : m_context(context), m_source(source) {
+            const CurrentContext current(m_context);
             m_texture.Create(source->format, source->width, source->height);
             std::memcpy(m_texture.Pixels, source->pixels.data(), source->pixels.size());
             ImGui_ImplVulkan_UpdateTexture(&m_texture);
@@ -226,9 +231,13 @@ namespace CometEditor::Ui {
         LOG_INFO("Initializing ImGui layer");
 
         IMGUI_CHECKVERSION();
-        m_context.reset(ImGui::CreateContext());
-        ImGui::SetCurrentContext(m_context.get());
+        m_frontend_context.reset(ImGui::CreateContext());
+        ImGui::SetCurrentContext(m_frontend_context.get());
         ImGuiIO& io = ImGui::GetIO();
+        // 前端把纹理请求写入 Frame，原生 Vulkan 后端不访问此上下文。
+        io.BackendRendererName = "comet_imgui_frame";
+        io.BackendFlags |=
+            ImGuiBackendFlags_RendererHasVtxOffset | ImGuiBackendFlags_RendererHasTextures;
         if(m_options.docking)
             io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
@@ -265,6 +274,12 @@ namespace CometEditor::Ui {
         if(!ImGui_ImplGlfw_InitForVulkan(m_window.get(), true))
             return Comet::Result<void, Comet::GraphicsError>::failure(
                 {"Cannot initialize ImGui GLFW backend"});
+
+        m_backend_context.reset(ImGui::CreateContext());
+        {
+            const CurrentContext current(m_backend_context.get());
+            ImGui::GetIO().IniFilename = nullptr;
+        }
 
         auto& swapchain = m_render_context.get_swapchain();
 
@@ -319,6 +334,7 @@ namespace CometEditor::Ui {
     }
 
     Comet::Result<void, Comet::GraphicsError> ImGuiContext::init_vulkan() {
+        const CurrentContext current(m_backend_context.get());
         const auto& context = m_render_context.get_context();
         auto& device = m_render_context.get_device();
         const auto& swapchain = m_render_context.get_swapchain();
@@ -369,40 +385,39 @@ namespace CometEditor::Ui {
         return Comet::Result<void, Comet::GraphicsError>::success();
     }
 
+    void ImGuiContext::shutdown_vulkan() noexcept {
+        if(!m_backend_context)
+            return;
+        const CurrentContext current(m_backend_context.get());
+        if(!ImGui::GetIO().BackendRendererUserData)
+            return;
+        unregister_viewport_textures();
+        for(const auto& version : m_font_versions)
+            if(auto texture = version.lock())
+                texture->release();
+        m_font_textures.clear();
+        m_font_versions.clear();
+        ImGui_ImplVulkan_Shutdown();
+    }
+
     ImGuiContext::~ImGuiContext() {
         cleanup();
     }
 
     void ImGuiContext::cleanup() noexcept {
-        if(!m_context) {
-            return;
-        }
-        auto* previous = ImGui::GetCurrentContext();
-        auto* context = m_context.get();
-        ImGui::SetCurrentContext(context);
         if(m_initialized) {
             m_render_context.get_device().wait_idle_for_shutdown();
         }
-        // 后端可能尚未初始化，或者已在 swapchain 重建中关闭。
-        if(ImGui::GetIO().BackendRendererUserData) {
-            unregister_viewport_textures();
-            for(const auto& version : m_font_versions)
-                if(auto texture = version.lock())
-                    texture->release();
-        }
-        m_font_textures.clear();
-        m_font_versions.clear();
+        shutdown_vulkan();
+        m_backend_context.reset();
         m_font_pixels.clear();
-        m_context.reset();
+        m_frontend_context.reset();
 
         m_descriptor_pool.reset();
 
         m_render_target.reset();
         m_render_pass.reset();
         m_viewport_textures.clear();
-
-        if(previous != context)
-            ImGui::SetCurrentContext(previous);
 
         m_initialized = false;
     }
@@ -422,7 +437,8 @@ namespace CometEditor::Ui {
             return false;
         }
 
-        ImGui_ImplVulkan_NewFrame();
+        // 控件构建期间保持前端为当前上下文；录制会临时切换并恢复。
+        ImGui::SetCurrentContext(m_frontend_context.get());
         if(!m_window.is_minimized())
             ImGui_ImplGlfw_NewFrame();
         prepare_mouse_input(m_window);
@@ -503,7 +519,7 @@ namespace CometEditor::Ui {
         if(!m_initialized) {
             return RenderResult::failure({"ImGuiContext not initialized"});
         }
-        const CurrentContext current(m_context.get());
+        const CurrentContext current(m_backend_context.get());
         const bool current_frame =
             frame && frame->m_data->backend_generation == m_backend_generation;
         if(current_frame && !frame->m_data->error.empty())
@@ -519,7 +535,7 @@ namespace CometEditor::Ui {
             for(const auto& [id, pixels] : captured.fonts) {
                 auto& texture = m_font_textures[id];
                 if(!texture || !texture->matches(pixels)) {
-                    texture = std::make_shared<FontTexture>(m_context.get(), pixels);
+                    texture = std::make_shared<FontTexture>(m_backend_context.get(), pixels);
                     std::erase_if(
                         m_font_versions, [](const auto& version) { return version.expired(); });
                     m_font_versions.push_back(texture);
@@ -571,24 +587,14 @@ namespace CometEditor::Ui {
         }
 
         LOG_INFO("Rebuilding ImGui swapchain resources");
+        const CurrentContext current(m_backend_context.get());
         auto& device = m_render_context.get_device();
         auto& swapchain = m_render_context.get_swapchain();
         const bool rebuild_backend = compatibility.format_changed
                                      || compatibility.image_count_changed
                                      || !ImGui::GetIO().BackendRendererUserData;
         if(rebuild_backend) {
-            if(ImGui::GetIO().BackendRendererUserData) {
-                unregister_viewport_textures();
-                for(const auto& version : m_font_versions)
-                    if(auto texture = version.lock())
-                        texture->release();
-                m_font_textures.clear();
-                m_font_versions.clear();
-                ImGui_ImplVulkan_Shutdown();
-            }
-            // Vulkan 后端关闭时也会清除主视口的平台数据。
-            if(ImGui::GetIO().BackendPlatformUserData)
-                ImGui_ImplGlfw_Shutdown();
+            shutdown_vulkan();
             m_descriptor_pool.reset();
         }
         if(compatibility.format_changed) {
@@ -603,9 +609,6 @@ namespace CometEditor::Ui {
         m_render_target = std::move(target).value();
         m_render_target->set_clear_value(Comet::ClearValue(Comet::Math::Vec4(0.0f)), 0);
         if(rebuild_backend) {
-            if(!ImGui_ImplGlfw_InitForVulkan(m_window.get(), true))
-                return Comet::Result<void, Comet::GraphicsError>::failure(
-                    {"Cannot reinitialize ImGui GLFW backend"});
             if(auto result = init_vulkan(); !result)
                 return result;
             register_viewport_textures();
@@ -630,7 +633,8 @@ namespace CometEditor::Ui {
         if(binding)
             binding->update_image(std::move(image_view), std::move(sampler));
         else
-            binding = std::make_shared<TextureBinding>(std::move(image_view), std::move(sampler));
+            binding = std::make_shared<TextureBinding>(
+                m_backend_context.get(), std::move(image_view), std::move(sampler));
         if(m_initialized)
             binding->register_texture();
     }

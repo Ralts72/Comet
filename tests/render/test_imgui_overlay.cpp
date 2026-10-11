@@ -20,6 +20,58 @@
 
 namespace Comet::Tests {
     namespace {
+        // 原生后端的像素回读测试独立拥有上下文，不借用编辑器内部 GPU 状态。
+        class NativeImGuiBackend {
+        public:
+            explicit NativeImGuiBackend(RenderContext& context)
+                : m_render_context(context), m_previous(ImGui::GetCurrentContext()),
+                  m_context(ImGui::CreateContext()) {
+                ImGui::SetCurrentContext(m_context);
+                ImGui::GetIO().IniFilename = nullptr;
+            }
+            ~NativeImGuiBackend() {
+                m_render_context.get_device().wait_idle_for_shutdown();
+                ImGui::SetCurrentContext(m_context);
+                if(ImGui::GetIO().BackendRendererUserData)
+                    ImGui_ImplVulkan_Shutdown();
+                ImGui::DestroyContext(m_context);
+                ImGui::SetCurrentContext(m_previous);
+            }
+            NativeImGuiBackend(const NativeImGuiBackend&) = delete;
+            NativeImGuiBackend& operator=(const NativeImGuiBackend&) = delete;
+
+            bool initialize(const RenderPass& pass, Math::Vec2u size, bool hdr = false) {
+                auto& io = ImGui::GetIO();
+                io.DisplaySize = {float(size.x), float(size.y)};
+                io.DeltaTime = 1.0f / 60;
+                auto& context = m_render_context.get_context();
+                auto& device = m_render_context.get_device();
+                ImGui_ImplVulkan_InitInfo info{};
+                info.ApiVersion = VK_API_VERSION_1_0;
+                info.Instance = context.instance();
+                info.PhysicalDevice = context.get_physical_device();
+                info.Device = device.get();
+                info.QueueFamily = context.get_graphics_queue_family().queue_family_index.value();
+                info.Queue = device.get_graphics_queue().get();
+                info.DescriptorPoolSize = 16;
+                info.MinImageCount = info.ImageCount = 2;
+                info.PipelineInfoMain.RenderPass = pass.get();
+                info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+                if(hdr) {
+                    auto& shader = info.CustomShaderFragCreateInfo;
+                    shader.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+                    shader.codeSize = IMGUI_HDR_FRAG.size() * sizeof(std::uint32_t);
+                    shader.pCode = IMGUI_HDR_FRAG.data();
+                }
+                return ImGui_ImplVulkan_Init(&info);
+            }
+
+        private:
+            RenderContext& m_render_context;
+            ::ImGuiContext* m_previous;
+            ::ImGuiContext* m_context;
+        };
+
         Result<std::unique_ptr<RenderPass>, GraphicsError> load_pass(
             Device& device, Format format) {
             auto color = Attachment::get_color_attachment(format);
@@ -272,9 +324,10 @@ namespace Comet::Tests {
         struct Payload {
             std::atomic<int>* output;
             int value;
+            ::ImGuiContext* frontend;
         };
         const auto draw = [&](const int value) {
-            Payload payload{&recorded, value};
+            Payload payload{&recorded, value, ImGui::GetCurrentContext()};
             ImGui::SetNextWindowPos({16, 16});
             ImGui::SetNextWindowSize({120, 100});
             ImGui::Begin("Captured UI");
@@ -283,6 +336,10 @@ namespace Comet::Tests {
                 [](const ImDrawList* list, const ImDrawCmd* command) {
                     const auto& owned = *static_cast<const Payload*>(command->UserCallbackData);
                     EXPECT_GT(list->VtxBuffer.Size, 0);
+                    EXPECT_NE(ImGui::GetCurrentContext(), owned.frontend);
+                    EXPECT_NE(ImGui::GetIO().BackendRendererUserData, nullptr);
+                    EXPECT_EQ(ImGui::GetIO().BackendPlatformUserData, nullptr);
+                    EXPECT_NE(ImGui::GetMainViewport()->RendererUserData, nullptr);
                     owned.output->store(owned.value);
                 },
                 &payload, sizeof(payload));
@@ -356,8 +413,6 @@ namespace Comet::Tests {
     }
 
     TEST_F(ImGuiOverlayGpuTest, CompatibleOffscreenBackendKeepsEmptyUiAndPixelsOutsideWindow) {
-        create_ui();
-        ASSERT_TRUE(ui);
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
         auto& device = context.get_device();
@@ -375,11 +430,8 @@ namespace Comet::Tests {
         auto overlay_owner = load_pass(device, format);
         ASSERT_TRUE(overlay_owner) << overlay_owner.error();
         std::shared_ptr<RenderPass> overlay = std::move(overlay_owner).value();
-        // 离屏 pass 的依赖与呈现 pass 不同，管线也须按实际测试 pass 创建。
-        ImGui_ImplVulkan_PipelineInfo pipeline{};
-        pipeline.RenderPass = overlay->get();
-        pipeline.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-        ImGui_ImplVulkan_CreateMainPipeline(&pipeline);
+        NativeImGuiBackend backend(context);
+        ASSERT_TRUE(backend.initialize(*overlay, size));
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
@@ -389,7 +441,8 @@ namespace Comet::Tests {
         std::array<std::shared_ptr<Readback>, 3> outputs;
         Math::Vec2u inside{};
         for(std::size_t index = 0; index < outputs.size(); ++index) {
-            ASSERT_TRUE(ui->begin_frame());
+            ImGui_ImplVulkan_NewFrame();
+            ImGui::NewFrame();
             if(index == 2)
                 transparent_window();
             const auto scale = ImGui::GetIO().DisplayFramebufferScale;
@@ -471,33 +524,8 @@ namespace Comet::Tests {
         auto overlay = load_pass(device, Format::R16G16B16A16_SFLOAT);
         ASSERT_TRUE(overlay) << overlay.error();
 
-        auto* imgui = ImGui::CreateContext();
-        const ScopeExit cleanup([&] {
-            device.wait_idle_for_shutdown();
-            if(ImGui::GetIO().BackendRendererUserData)
-                ImGui_ImplVulkan_Shutdown();
-            ImGui::DestroyContext(imgui);
-        });
-        auto& io = ImGui::GetIO();
-        io.IniFilename = nullptr;
-        io.DisplaySize = {float(size.x), float(size.y)};
-        io.DeltaTime = 1.0f / 60;
-        ImGui_ImplVulkan_InitInfo info{};
-        info.ApiVersion = VK_API_VERSION_1_0;
-        info.Instance = context.get_context().instance();
-        info.PhysicalDevice = context.get_context().get_physical_device();
-        info.Device = device.get();
-        info.QueueFamily =
-            context.get_context().get_graphics_queue_family().queue_family_index.value();
-        info.Queue = device.get_graphics_queue().get();
-        info.DescriptorPoolSize = 16;
-        info.MinImageCount = info.ImageCount = 2;
-        info.PipelineInfoMain.RenderPass = overlay.value()->get();
-        info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-        info.CustomShaderFragCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        info.CustomShaderFragCreateInfo.codeSize = IMGUI_HDR_FRAG.size() * sizeof(std::uint32_t);
-        info.CustomShaderFragCreateInfo.pCode = IMGUI_HDR_FRAG.data();
-        ASSERT_TRUE(ImGui_ImplVulkan_Init(&info));
+        NativeImGuiBackend backend(context);
+        ASSERT_TRUE(backend.initialize(*overlay.value(), size, true));
         ImGui_ImplVulkan_NewFrame();
         ImGui::NewFrame();
         ImGui::GetBackgroundDrawList()->AddRectFilled(

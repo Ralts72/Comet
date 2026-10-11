@@ -14,9 +14,7 @@
 namespace Comet {
     class RenderContext;
     class RenderPass;
-    class CommandBuffer;
     class Window;
-    class FrameBuffer;
     class DescriptorPool;
     class RenderTarget;
     class Sampler;
@@ -87,6 +85,7 @@ namespace CometEditor::Ui {
             const Comet::Window& window, Comet::RenderContext& render_context, Options options);
         Comet::Result<void, Comet::GraphicsError> initialize();
         Comet::Result<void, Comet::GraphicsError> init_vulkan();
+        void shutdown_vulkan() noexcept;
         Comet::Result<void, Comet::GraphicsError> create_render_pass();
         void cleanup() noexcept;
         void register_viewport_textures();
@@ -108,7 +107,9 @@ namespace CometEditor::Ui {
         bool m_is_recreating = false;
         uint32_t m_backend_image_count = 0;
         IconAtlas m_icons;
+        // 前端只持有输入、布局和字体；GPU 上下文只持有 Vulkan 后端及录制视口。
+        std::unique_ptr<::ImGuiContext, ContextDeleter> m_frontend_context;
         // 后端借用上面的 GPU 资源；构造失败时必须先关闭后端。
-        std::unique_ptr<::ImGuiContext, ContextDeleter> m_context;
+        std::unique_ptr<::ImGuiContext, ContextDeleter> m_backend_context;
     };
 }

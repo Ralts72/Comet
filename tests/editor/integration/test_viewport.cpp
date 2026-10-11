@@ -32,8 +32,6 @@
 #include "pbr_frag.h"
 
 #include <gtest/gtest.h>
-#include <imgui_impl_glfw.h>
-#include <imgui_impl_vulkan.h>
 #include <algorithm>
 
 namespace CometEditor::Tests {
@@ -165,7 +163,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(published->source, program);
     }
 
-    TEST_F(ViewportTest, RebuildsAfterBackendsWereClosedDuringFailedRecreation) {
+    TEST_F(ViewportTest, BackendRebuildPreservesFrontendPlatformState) {
         Comet::Config config;
         config.vulkan.enable_validation = true;
         auto engine_result = Comet::Engine::create(config);
@@ -178,14 +176,27 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(result) << result.error();
         auto& ui = *result.value();
         std::unique_ptr<CometEditor::Ui::ImGuiContext::Frame> ui_frame;
+        auto* frontend = ImGui::GetCurrentContext();
+        auto* platform = ImGui::GetIO().BackendPlatformUserData;
+        auto* viewport = ImGui::GetMainViewport();
+        const auto native_window = viewport->PlatformHandle;
+        auto* fonts = ImGui::GetIO().Fonts;
+        ASSERT_NE(platform, nullptr);
+        EXPECT_EQ(ImGui::GetIO().BackendRendererUserData, nullptr);
+        EXPECT_EQ(viewport->RendererUserData, nullptr);
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_A, true);
         renderer.wait_idle();
         ui.release_swapchain_resources();
-        // 模拟重建中后端已关闭，但后续 GPU 候选创建失败的状态。
-        ImGui_ImplVulkan_Shutdown();
-        ImGui_ImplGlfw_Shutdown();
         ui.release_swapchain_resources();
         auto rebuilt = ui.rebuild_swapchain_resources({.image_count_changed = true});
         ASSERT_TRUE(rebuilt) << rebuilt.error();
+        EXPECT_EQ(ImGui::GetCurrentContext(), frontend);
+        EXPECT_EQ(ImGui::GetIO().BackendPlatformUserData, platform);
+        EXPECT_EQ(ImGui::GetMainViewport(), viewport);
+        EXPECT_EQ(viewport->PlatformHandle, native_window);
+        EXPECT_EQ(viewport->RendererUserData, nullptr);
+        EXPECT_EQ(ImGui::GetIO().Fonts, fonts);
+        EXPECT_TRUE(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_DockingEnable);
         renderer.set_overlay({.render = [&](Comet::OverlayRecordContext& overlay) {
             const auto recorded = ui.render(overlay, std::move(ui_frame));
             EXPECT_TRUE(recorded) << recorded.error();
@@ -197,6 +208,12 @@ namespace CometEditor::Tests {
             ASSERT_EQ(preparation.value(), Comet::Renderer::FramePreparation::Ready);
         }
         ASSERT_TRUE(ui.begin_frame());
+        EXPECT_TRUE(ImGui::IsKeyDown(ImGuiKey_A));
+        ImGui::SetNextWindowPos({16, 16});
+        ImGui::SetNextWindowSize({160, 100});
+        ImGui::Begin("重建后前端");
+        ImGui::TextUnformatted("字体和输入仍然有效");
+        ImGui::End();
         ui_frame = ui.end_frame();
         EXPECT_TRUE(renderer.render_frame({}));
         renderer.set_overlay({});
