@@ -40,7 +40,7 @@ namespace Comet::Tests {
         auto world = resolver.resolve(scene);
         RenderGeometry geometry;
         geometry.prepare(world);
-        MaterialPrograms programs(assets);
+        MaterialPrograms programs;
         auto left = create_scene(programs, {33, 33});
         auto right = create_scene(programs, {33, 17});
         ASSERT_TRUE(left);
@@ -157,7 +157,7 @@ namespace Comet::Tests {
         program->vertex_words.assign(PBR_VERT.begin(), PBR_VERT.end());
         program->fragment_words.assign(PBR_FRAG.begin(), PBR_FRAG.end());
         ASSERT_TRUE(engine->get_asset_registry().register_asset(program_handle, program));
-        MaterialPrograms programs(engine->get_asset_registry());
+        MaterialPrograms programs;
         auto batched = create_scene(programs, {65, 65});
         auto individual = create_scene(programs, {65, 65});
         ASSERT_TRUE(batched);
@@ -289,7 +289,7 @@ namespace Comet::Tests {
     TEST_F(RenderGraphGpuTest, SameHandleWithDistinctMaterialSnapshotsKeepsEachColor) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();
-        MaterialPrograms programs(engine->get_asset_registry());
+        MaterialPrograms programs;
         auto scene = create_scene(programs, {65, 65});
         ASSERT_TRUE(scene);
         const auto mesh = lit_quad();
@@ -361,7 +361,7 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
         auto& device = context.get_device();
-        MaterialPrograms programs(engine->get_asset_registry());
+        MaterialPrograms programs;
         auto scene_owner = create_scene(programs, {4, 4});
         ASSERT_TRUE(scene_owner) << scene_owner.error();
         auto& scene = *scene_owner.value();
@@ -435,7 +435,8 @@ namespace Comet::Tests {
             }
             for(auto& item : world.render_items) {
                 item.material.resource = item.material.resource->snapshot();
-                item.material.program_source = programs.latest(program_handle);
+                item.material.program_source =
+                    registry.resolve<ShaderProgramArtifact>(program_handle);
             }
             ASSERT_TRUE(scene.prepare_material_programs(world));
             const auto* published = programs.published(program_handle, "unlit_color");

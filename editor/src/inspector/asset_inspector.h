@@ -11,7 +11,7 @@
 #include <vector>
 
 namespace Comet {
-    class MaterialPrograms;
+    class MaterialProgramValidator;
     class ShaderProgramArtifact;
 }
 
@@ -20,7 +20,7 @@ namespace CometEditor {
     class AssetInspector {
     public:
         AssetInspector(
-            const Comet::AssetDatabase& database, const Comet::MaterialPrograms& programs);
+            const Comet::AssetDatabase& database, const Comet::MaterialProgramValidator& programs);
         void select(Comet::AssetHandle handle);
         void render(std::uint64_t generation, bool allow_drop);
         void set_material_layouts(
@@ -49,7 +49,7 @@ namespace CometEditor {
             Comet::AssetHandle program, const std::string& template_name) const;
 
         const Comet::AssetDatabase& m_asset_database;
-        const Comet::MaterialPrograms& m_programs;
+        const Comet::MaterialProgramValidator& m_material_parameters;
         Comet::AssetHandle m_selected_asset;
         Comet::AssetHandle m_loaded_asset;
         Comet::AssetRevision m_loaded_revision = 0;

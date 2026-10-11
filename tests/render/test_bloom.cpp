@@ -402,7 +402,7 @@ namespace Comet::Tests {
         EXPECT_EQ(
             renderer.get_scene_renderer().get_post_process_settings(), initial_scene.post_process);
         renderer.wait_idle();
-        MaterialPrograms programs(engine->get_asset_registry());
+        MaterialPrograms programs;
         auto scene_owner = create_scene(programs, {17, 9}, config.vulkan.msaa_samples);
         ASSERT_TRUE(scene_owner) << scene_owner.error();
         auto& scene = *scene_owner.value();

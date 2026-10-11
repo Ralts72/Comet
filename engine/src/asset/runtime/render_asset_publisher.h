@@ -21,8 +21,8 @@ namespace Comet {
     struct EnvironmentData;
     struct MaterialData;
 
-    // Render implements this boundary without reading source files or borrowing the asset index.
-    // Preparation never mutates Registry; the asset owner validates revisions before publication.
+    // Main 的资产发布桥接；GPU 工厂只接收数据，不读取源文件、索引或注册表。
+    // 候选创建不修改 Registry，资产 owner 复核版本后注册；当前仍串行调用。
     class COMET_API RenderAssetPublisher final {
     public:
         RenderAssetPublisher(AssetRegistry& registry, RenderResourceFactory& resources);

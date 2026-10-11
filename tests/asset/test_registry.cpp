@@ -202,6 +202,8 @@ namespace Comet::Tests {
         EXPECT_EQ(target.get_revision(handle), resource_revision);
         EXPECT_NE(source.get_revision(), before);
         EXPECT_NE(target.get_revision(), before);
+        EXPECT_TRUE(source.take_removals().all);
+        EXPECT_TRUE(target.take_removals().empty());
         const auto moved = target.get_revision();
         const auto cleared = source.get_revision();
         source = std::move(target);
@@ -211,5 +213,52 @@ namespace Comet::Tests {
         EXPECT_EQ(source.get_revision(handle), resource_revision);
         EXPECT_NE(source.get_revision(), cleared);
         EXPECT_NE(target.get_revision(), moved);
+        EXPECT_TRUE(source.take_removals().all);
+        EXPECT_TRUE(target.take_removals().all);
+    }
+
+    TEST(AssetRegistryTest, RemovalBatchCapturesIdentitiesAndCancelsSameTypeReregistration) {
+        AssetRegistry registry;
+        constexpr AssetHandle removed(10), restored(20), changed_type(30);
+        const auto mesh = std::make_shared<TestMesh>();
+        for(const auto handle : {removed, restored, changed_type})
+            ASSERT_TRUE(registry.register_asset(handle, mesh));
+        ASSERT_TRUE(registry.replace_asset(removed, std::make_shared<TestMesh>()));
+        EXPECT_TRUE(registry.take_removals().empty());
+
+        ASSERT_TRUE(registry.unregister_asset(changed_type));
+        ASSERT_TRUE(registry.register_asset(changed_type, std::make_shared<TestMaterial>()));
+        ASSERT_TRUE(registry.unregister_asset(restored));
+        ASSERT_TRUE(registry.register_asset(restored, mesh));
+        for(int repeat = 0; repeat < 2; ++repeat) {
+            ASSERT_TRUE(registry.unregister_asset(removed));
+            if(repeat == 0)
+                ASSERT_TRUE(registry.register_asset(removed, mesh));
+        }
+        EXPECT_FALSE(registry.unregister_asset(removed));
+        EXPECT_FALSE(registry.unregister_asset(INVALID_ASSET_HANDLE));
+        const auto batch = registry.take_removals();
+        EXPECT_FALSE(batch.all);
+        EXPECT_EQ(batch.handles, (std::vector<AssetHandle>{removed, changed_type}));
+        EXPECT_FALSE(batch.contains(restored));
+
+        ASSERT_TRUE(registry.register_asset(removed, mesh));
+        EXPECT_TRUE(batch.contains(removed));
+        EXPECT_TRUE(registry.take_removals().empty());
+    }
+
+    TEST(AssetRegistryTest, ClearRequestsOneResetIndependentOfLaterPublications) {
+        AssetRegistry registry;
+        constexpr AssetHandle handle(40);
+        ASSERT_TRUE(registry.register_asset(handle, std::make_shared<TestMesh>()));
+        ASSERT_TRUE(registry.unregister_asset(handle));
+        registry.clear();
+        ASSERT_TRUE(registry.register_asset(handle, std::make_shared<TestMesh>()));
+        const auto reset = registry.take_removals();
+        EXPECT_TRUE(reset.all);
+        EXPECT_TRUE(reset.handles.empty());
+        EXPECT_TRUE(reset.contains(handle));
+        EXPECT_TRUE(reset.contains(AssetHandle(99)));
+        EXPECT_TRUE(registry.take_removals().empty());
     }
 }

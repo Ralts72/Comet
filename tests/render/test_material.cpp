@@ -393,49 +393,98 @@ namespace Comet::Tests {
 
     TEST(MaterialProgramsTest, RuntimeValidationPrefersPublishedContractAfterStartup) {
         AssetRegistry assets;
-        MaterialPrograms programs(assets);
+        MaterialPrograms programs;
+        MaterialProgramValidator parameters(assets);
         const AssetHandle material_handle(71), program_handle(72);
         MaterialOverrides overrides{.material = material_handle};
         overrides.vector_properties["base_color"] = Math::Vec4(1);
-        EXPECT_FALSE(programs.validate(overrides));
+        EXPECT_FALSE(parameters.validate(overrides));
         auto material = std::make_shared<Material>("example", "pbr");
         ASSERT_TRUE(assets.register_asset(material_handle, material));
-        EXPECT_TRUE(programs.validate(overrides));
+        EXPECT_TRUE(parameters.validate(overrides));
         ASSERT_TRUE(assets.replace_asset(
             material_handle, std::make_shared<Material>("example", "pbr", program_handle)));
-        EXPECT_FALSE(programs.validate(overrides));
+        EXPECT_FALSE(parameters.validate(overrides));
         auto source = std::make_shared<ShaderProgramArtifact>();
         source->handle = program_handle;
         ASSERT_TRUE(assets.register_asset(program_handle, source));
-        EXPECT_FALSE(programs.validate(overrides));
+        EXPECT_FALSE(parameters.validate(overrides));
         EXPECT_EQ(programs.published(program_handle, "pbr"), nullptr);
         source = std::make_shared<ShaderProgramArtifact>();
         source->handle = program_handle;
         source->vertex_words.assign(PBR_VERT.begin(), PBR_VERT.end());
         source->fragment_words.assign(PBR_FRAG.begin(), PBR_FRAG.end());
         ASSERT_TRUE(assets.replace_asset(program_handle, source));
-        EXPECT_TRUE(programs.validate(overrides));
+        EXPECT_TRUE(parameters.validate(overrides));
         EXPECT_EQ(programs.published(program_handle, "pbr"), nullptr);
         overrides.scalar_properties["roughness"] = 2;
-        EXPECT_FALSE(programs.validate(overrides));
+        EXPECT_FALSE(parameters.validate(overrides));
         EXPECT_EQ(programs.published(program_handle, "pbr"), nullptr);
         overrides.scalar_properties.clear();
         programs.publish(program_handle, "pbr", source, MaterialLayout::find_builtin("pbr"));
-        EXPECT_TRUE(programs.validate(overrides));
+        parameters.accept(programs.feedback());
+        EXPECT_TRUE(parameters.validate(overrides));
         auto next = std::make_shared<ShaderProgramArtifact>();
         next->handle = program_handle;
         ASSERT_TRUE(assets.replace_asset(program_handle, next));
-        EXPECT_TRUE(programs.validate(overrides));
+        EXPECT_TRUE(parameters.validate(overrides));
         const auto candidate = MaterialLayout::create("pbr", {}, 16, {{"custom", 0, 1}});
         ASSERT_TRUE(candidate);
         programs.publish(
             program_handle, "pbr", next, std::make_shared<MaterialLayout>(candidate.value()));
-        EXPECT_FALSE(programs.validate(overrides));
+        EXPECT_TRUE(parameters.validate(overrides));
+        parameters.accept(programs.feedback());
+        EXPECT_FALSE(parameters.validate(overrides));
         overrides.vector_properties.clear();
         overrides.scalar_properties["custom"] = 2;
-        EXPECT_TRUE(programs.validate(overrides));
+        EXPECT_TRUE(parameters.validate(overrides));
         ASSERT_TRUE(assets.unregister_asset(material_handle));
-        EXPECT_FALSE(programs.validate(overrides));
+        EXPECT_FALSE(parameters.validate(overrides));
+    }
+
+    TEST(
+        MaterialProgramsTest, FeedbackOwnsContractsAcrossReplacementRemovalAndProducerDestruction) {
+        AssetRegistry assets;
+        constexpr AssetHandle handle(73), unrelated(74);
+        const auto initial = std::make_shared<ShaderProgramArtifact>();
+        const auto replacement = std::make_shared<ShaderProgramArtifact>();
+        const auto initial_layout = MaterialLayout::find_builtin("pbr");
+        const auto described = MaterialLayout::create("pbr", {}, 16, {{"custom", 0, 1}});
+        ASSERT_TRUE(described);
+        const auto replacement_layout = std::make_shared<MaterialLayout>(described.value());
+        MaterialPrograms::Feedback prior, next, removed;
+        {
+            MaterialPrograms programs;
+            ASSERT_TRUE(assets.register_asset(handle, initial));
+            programs.publish(handle, "pbr", initial, initial_layout);
+            prior = programs.feedback();
+            programs.publish(handle, "pbr", initial, initial_layout);
+            EXPECT_EQ(programs.feedback(), prior);
+            ASSERT_TRUE(
+                assets.register_asset(unrelated, std::make_shared<Material>("unrelated", "pbr")));
+            programs.remove_assets(assets.take_removals());
+            EXPECT_EQ(programs.feedback(), prior);
+
+            ASSERT_TRUE(assets.replace_asset(handle, replacement));
+            programs.publish(handle, "pbr", replacement, replacement_layout);
+            next = programs.feedback();
+            EXPECT_NE(next, prior);
+            ASSERT_TRUE(assets.unregister_asset(handle));
+            programs.remove_assets(assets.take_removals());
+            removed = programs.feedback();
+            EXPECT_EQ(removed->published(handle, "pbr"), nullptr);
+            programs.remove_assets(assets.take_removals());
+            EXPECT_EQ(programs.feedback(), removed);
+        }
+        const auto* old_contract = prior->published(handle, "pbr");
+        const auto* new_contract = next->published(handle, "pbr");
+        ASSERT_NE(old_contract, nullptr);
+        ASSERT_NE(new_contract, nullptr);
+        EXPECT_EQ(old_contract->source, initial);
+        EXPECT_EQ(old_contract->layout, initial_layout);
+        EXPECT_EQ(new_contract->source, replacement);
+        EXPECT_EQ(new_contract->layout, replacement_layout);
+        EXPECT_EQ(removed->published(handle, "pbr"), nullptr);
     }
 
     TEST(MaterialTest, AdvancesRevisionOnlyForChangedValidProperties) {

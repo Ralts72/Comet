@@ -44,8 +44,8 @@ namespace CometEditor {
     }
 
     AssetInspector::AssetInspector(
-        const Comet::AssetDatabase& database, const Comet::MaterialPrograms& programs)
-        : m_asset_database(database), m_programs(programs) {
+        const Comet::AssetDatabase& database, const Comet::MaterialProgramValidator& programs)
+        : m_asset_database(database), m_material_parameters(programs) {
         const auto builtins = Comet::MaterialLayout::builtins();
         m_material_layouts.assign(builtins.begin(), builtins.end());
     }
@@ -103,9 +103,9 @@ namespace CometEditor {
         }
         if(!program)
             return builtin;
-        if(const auto* active = m_programs.published(program, template_name))
+        if(const auto* active = m_material_parameters.published(program, template_name))
             return active->layout;
-        const auto source = m_programs.latest(program);
+        const auto source = m_material_parameters.latest(program);
         if(!source) {
             m_program_layout_error = "Shader program is not compiled yet";
             return nullptr;
@@ -116,7 +116,7 @@ namespace CometEditor {
         m_program_layout_template = template_name;
         m_program_layout.reset();
         m_program_layout_error.clear();
-        auto described = m_programs.describe(*source, template_name, builtin);
+        auto described = Comet::MaterialPrograms::describe(*source, template_name, builtin);
         if(!described) {
             m_program_layout_error = described.error();
             return nullptr;
@@ -236,7 +236,7 @@ namespace CometEditor {
         const auto select_program = [&](const Comet::AssetHandle program) {
             if(program == m_material_data->shader_program)
                 return;
-            if(program && !m_programs.latest(program)) {
+            if(program && !m_material_parameters.latest(program)) {
                 m_asset_error = "Shader program is not compiled yet";
                 return;
             }

@@ -272,7 +272,7 @@ namespace Comet::Tests {
         Config config;
         config.vulkan.surface_format = format;
         config.vulkan.msaa_samples = SampleCount::Count1;
-        MaterialPrograms programs(engine->get_asset_registry());
+        MaterialPrograms programs;
         auto scene_owner = SceneRenderer::create(
             device, programs, engine->get_render_resources(), config.vulkan, config.render, size);
         ASSERT_TRUE(scene_owner) << scene_owner.error();

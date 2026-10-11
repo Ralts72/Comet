@@ -11,7 +11,7 @@
 #include <utility>
 
 namespace Comet {
-    Result<void> MaterialPrograms::validate(const MaterialOverrides& overrides) const {
+    Result<void> MaterialProgramValidator::validate(const MaterialOverrides& overrides) const {
         const auto material = m_assets.resolve<Material>(overrides.material);
         if(!material)
             return Result<void>::failure(
@@ -27,7 +27,8 @@ namespace Comet {
                 const auto source = latest(material->get_shader_program());
                 if(!source)
                     return Result<void>::failure("Material Shader program is unavailable");
-                auto described = describe(*source, material->get_template_name(), layout);
+                auto described =
+                    MaterialPrograms::describe(*source, material->get_template_name(), layout);
                 if(!described)
                     return Result<void>::failure(described.error());
                 layout = std::move(described).value();
@@ -39,22 +40,32 @@ namespace Comet {
         return layout->validate_parameters(overrides);
     }
 
-    std::shared_ptr<const ShaderProgramArtifact> MaterialPrograms::latest(
+    std::shared_ptr<const ShaderProgramArtifact> MaterialProgramValidator::latest(
         const AssetHandle handle) const {
         return m_assets.resolve<ShaderProgramArtifact>(handle);
     }
 
-    const MaterialPrograms::Published* MaterialPrograms::published(
+    const MaterialPrograms::Published* MaterialPrograms::Publications::published(
         const AssetHandle handle, const std::string& template_name) const {
-        const auto found = m_published.find({handle, template_name});
-        if(found == m_published.end())
+        const auto found = programs.find({handle, template_name});
+        if(found == programs.end())
             return nullptr;
         return &found->second;
     }
 
+    const MaterialPrograms::Published* MaterialPrograms::published(
+        const AssetHandle handle, const std::string& template_name) const {
+        return m_published->published(handle, template_name);
+    }
+
+    const MaterialPrograms::Published* MaterialProgramValidator::published(
+        const AssetHandle handle, const std::string& template_name) const {
+        return m_feedback ? m_feedback->published(handle, template_name) : nullptr;
+    }
+
     Result<std::shared_ptr<const MaterialLayout>> MaterialPrograms::describe(
         const ShaderProgramArtifact& source, const std::string& template_name,
-        const std::shared_ptr<const MaterialLayout>& builtin) const {
+        const std::shared_ptr<const MaterialLayout>& builtin) {
         using Layout = Result<std::shared_ptr<const MaterialLayout>>;
         if(!builtin || builtin->get_name() != template_name)
             return Layout::failure("Unknown material rendering template: " + template_name);
@@ -88,18 +99,27 @@ namespace Comet {
     void MaterialPrograms::publish(const AssetHandle handle, std::string template_name,
         std::shared_ptr<const ShaderProgramArtifact> source,
         std::shared_ptr<const MaterialLayout> layout) {
-        m_published.insert_or_assign(
+        const auto* prior = published(handle, template_name);
+        if(prior && prior->source == source && prior->layout == layout)
+            return;
+        writable_publications().programs.insert_or_assign(
             {handle, std::move(template_name)}, Published{std::move(source), std::move(layout)});
     }
 
-    void MaterialPrograms::collect_removed() {
-        const auto revision = m_assets.get_revision();
-        if(m_collected_asset_revision == revision)
+    MaterialPrograms::Publications& MaterialPrograms::writable_publications() {
+        if(m_published.use_count() != 1)
+            m_published = std::make_shared<Publications>(*m_published);
+        return *m_published;
+    }
+
+    void MaterialPrograms::remove_assets(const AssetRegistry::Removals& removals) {
+        if(removals.empty())
             return;
-        m_collected_asset_revision = revision;
-        std::erase_if(m_published, [&](const auto& entry) {
-            return !m_assets.contains<ShaderProgramArtifact>(entry.first.first);
-        });
+        const auto removed = [&](const auto& entry) {
+            return removals.contains(entry.first.first);
+        };
+        if(std::ranges::any_of(m_published->programs, removed))
+            std::erase_if(writable_publications().programs, removed);
     }
 
     const MaterialShaders* MaterialPrograms::builtin_overrides() const {

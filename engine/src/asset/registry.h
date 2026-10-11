@@ -10,10 +10,19 @@
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace Comet {
     class COMET_API AssetRegistry {
     public:
+        struct Removals {
+            bool all = false;
+            // take_removals 生成有序且不重复的身份；批次不借用注册表或资源。
+            std::vector<AssetHandle> handles;
+            [[nodiscard]] bool empty() const { return !all && handles.empty(); }
+            [[nodiscard]] bool contains(AssetHandle handle) const;
+        };
+
         AssetRegistry();
 
         ~AssetRegistry() = default;
@@ -46,6 +55,9 @@ namespace Comet {
 
         void clear();
 
+        // Main 取走一次并交付所有消费者；同类型重新注册抵消尚未交付的删除请求。
+        [[nodiscard]] Removals take_removals();
+
         // 成功发布或移除资源后改变；不同注册表不会共用版本。
         [[nodiscard]] uint64_t get_revision() const noexcept { return m_revision; }
         // 当前资源的发布版本；未注册的 Handle 返回 0。
@@ -70,6 +82,8 @@ namespace Comet {
 
         std::unordered_map<AssetHandle, AssetEntry> m_assets;
         uint64_t m_revision;
+        std::vector<std::pair<AssetHandle, std::type_index>> m_removed;
+        bool m_removed_all = false;
     };
 
     template<typename T>

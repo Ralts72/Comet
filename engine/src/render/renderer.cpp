@@ -1,5 +1,7 @@
 #include "renderer.h"
 #include "asset/registry.h"
+#include "asset/artifact/shader_program_artifact.h"
+#include "render/material/material.h"
 #include "common/scope_exit.h"
 #include "render/render_context.h"
 #include "render/frame_scheduler.h"
@@ -22,7 +24,7 @@
 
 namespace Comet {
     Result<std::unique_ptr<Renderer>, GraphicsError> Renderer::create(
-        const Window& window, const Settings& settings, const AssetRegistry& asset_registry) {
+        const Window& window, const Settings& settings, AssetRegistry& asset_registry) {
         using Creation = Result<std::unique_ptr<Renderer>, GraphicsError>;
         if(settings.render.max_frames_in_flight == 0)
             return Creation::failure({"Renderer requires at least one frame slot"});
@@ -37,7 +39,7 @@ namespace Comet {
         auto resources = std::make_unique<RenderResources>(device);
         auto frames =
             std::make_unique<FrameScheduler>(device, settings.render.max_frames_in_flight);
-        auto programs = std::make_unique<MaterialPrograms>(asset_registry);
+        auto programs = std::make_unique<MaterialPrograms>();
         auto& swapchain = context.value()->get_swapchain();
         frames->initialize_swapchain_images(static_cast<uint32_t>(swapchain.get_images().size()));
         auto scene = SceneRenderer::create(
@@ -57,7 +59,7 @@ namespace Comet {
     Renderer::Renderer(std::unique_ptr<RenderContext> context,
         std::unique_ptr<RenderResources> resources, std::unique_ptr<FrameScheduler> frames,
         std::unique_ptr<MaterialPrograms> programs, std::unique_ptr<SceneRenderer> scene,
-        const AssetRegistry& assets, const Settings& settings)
+        AssetRegistry& assets, const Settings& settings)
         : m_render_context(std::move(context)), m_render_resources(std::move(resources)),
           m_frames(std::move(frames)), m_programs(std::move(programs)), m_settings(settings),
           m_scene_resolver(assets), m_asset_registry(assets) {
@@ -153,9 +155,10 @@ namespace Comet {
             return Preparation::failure({"A render frame is already active"});
         PROFILE_SCOPE("prepare frame");
         m_render_resources->collect_completed_uploads();
-        m_programs->collect_removed();
+        const auto removals = m_asset_registry.take_removals();
+        m_programs->remove_assets(removals);
         for(auto& [id, view] : m_views)
-            view.scene->collect_removed_assets(m_asset_registry);
+            view.scene->remove_assets(removals);
         m_geometry.clear_frame();
         m_world.reset();
         m_scene_resolver.refresh_assets();
@@ -394,7 +397,12 @@ namespace Comet {
         for(auto& [id, view] : m_views) {
             materials.push_back(&view.scene->get_material_renderer());
         }
-        auto candidates = MaterialRenderer::prepare_material_updates(materials, handle, material);
+        const auto source = material ? material->snapshot() : nullptr;
+        std::shared_ptr<const ShaderProgramArtifact> program;
+        if(source && source->get_shader_program())
+            program = m_asset_registry.resolve<ShaderProgramArtifact>(source->get_shader_program());
+        auto candidates = MaterialRenderer::prepare_material_updates(
+            materials, handle, source, std::move(program));
         if(!candidates)
             return Preparation::failure(candidates.error());
         MaterialUpdate update;

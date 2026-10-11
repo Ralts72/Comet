@@ -111,6 +111,7 @@ Engine／Renderer／设备等工厂先准备完整 owner，成功后交付；部
 | 光照与方向光深度图 | View 集合共享的 ShadowPass | 每个帧槽有一张深度图；本帧首次录制写入，其余 View 采样同一结果 |
 | 相机与诊断、目标、拾取、调试线 | Renderer 的 ViewState／SceneRenderer | 每个 View 独立；隐藏保留目标并消费自身的临时请求 |
 | 可见列表、材质帧资源和绘制队列 | SceneRenderer／MaterialRenderer | 同步消费 RenderSubmission；实际使用的 GPU 版本由 FrameSlot 保活 |
+| 资产注销与缓存淘汰 | Main 取走 Registry 删除批次；各 GPU 缓存消费同一批次 | 批次只保存注销身份或全量重置，不借用注册表；隐藏 View 也清理，旧反馈与在途帧继续保活 |
 
 App 使用默认 View；Editor 的游戏相机使用默认 View，编辑相机使用另一个 View。Play 中两者观察同一个运行副本。
 创建／移除 View 在帧边界完成，场景切换不交换目标；画质重建与热发布不能释放在途帧的旧资源。
@@ -222,7 +223,8 @@ CPU 数据随 Handle 或绘制快照保留，纹理保存 RGBA8 原像素，首�
 
 ## 材质、Shader 与 Pipeline
 
-MaterialData 保存后端无关参数，ShaderProgramData 保存程序契约，MaterialPrograms 保存已发布程序／布局。
+MaterialData 保存后端无关参数，ShaderProgramData 保存程序契约，MaterialPrograms 由 Renderer 保存已发布程序／布局。
+Engine 持有 Main 的 MaterialProgramValidator；脚本参数校验与 Inspector 接纳只读布局反馈，后续 GPU 发布／清理不修改旧反馈。首次绘制前只反射 CPU 产物校验，不提前发布 GPU 版本。
 MaterialRenderer 负责具体 Pipeline、参数／纹理绑定与绘制；ShaderInterface 由 SPIR-V 反射，不把 Vk 对象写入资产字段。
 内置不透明材质采用 Forward PBR、方向／点／聚光灯和单方向光阴影；Skybox、IBL 与辅助线共用场景输出。
 
@@ -235,7 +237,7 @@ MaterialRenderer 从本帧绑定的程序引用准备各 View，编辑器显式�
 材质在有序输入上裁剪，同一连续材质输入共用裁剪策略检查。候选队列只借用本帧物体指针，用完清空；跨帧索引不拥有物体或资源。
 兼容物体按网格、材质版本和变换分组实例化；帧槽复用未变化矩阵，变化后上传。准备缓存保留实际版本，过期项按身份清理。
 材质参数／descriptor 不原地覆盖在途对象，新版本替换缓存，FrameSlot 保留旧资源直到 GPU 完成。
-编辑器材质手势保存原始 CPU 材质，预览准备全部 View 的绑定但不写磁盘；确认保存一次，取消时按当前 View 和布局重新准备原材质。
+编辑器材质手势保存原始 CPU 材质；预览入口先固定材质值与 Shader 产物，再准备全部 View 的绑定，不在 GPU 准备中查询最新资产。确认保存一次，取消时按当前 View 和布局重新准备原材质。
 GPU 候选只用于一次提交，不跨帧保存回退候选；Editor 工作流协调文件和 GPU 发布。
 
 ### 场景环境与 IBL
@@ -268,6 +270,8 @@ Editor 源监控与 CPU 编译交付完整阶段候选；主线程复核请求�
 
 底层工厂报告 GraphicsError；资产／渲染组合层决定候选替换与旧版保留，低层不认识资产工作流。
 创建或提交失败不返回空对象成功，错误保留原生类别；OOM／DeviceLost 不扩展为全设备自动恢复。
+RenderAssetPublisher 是 Main 的桥接：GPU 工厂只接收 CPU 数据，返回完整候选，再由资产 owner 复核并注册。资源创建与最后引用释放目前仍串行调用，跨线程请求／反馈与退休交接尚未接入。
+AssetRegistry::take_removals 由 Main 在帧边界取走一次；批次拥有有序注销身份，clear／移动覆盖请求重置旧缓存。同类型重新注册只抵消尚未交付的删除，普通 replace 不产生删除请求。各 View 和 MaterialPrograms 只消费批次，不查询注册表；Shader 注销同时清掉依赖它的材质准备和 GPU 绑定，隐藏 View 不保留这些驻留缓存。在途帧仍持有自己的资源；材质依赖删除只解除相关失败的重试阻塞。
 
 ### 驱动 PipelineCache 持久化
 

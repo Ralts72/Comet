@@ -158,7 +158,8 @@ namespace CometEditor::Tests {
         EXPECT_EQ(overlays, 4);
         EXPECT_FALSE(renderer.take_viewport_pick_result());
         EXPECT_FLOAT_EQ(scene_renderer.get_post_process_settings().exposure, 2);
-        const auto* published = renderer.get_material_programs().published(program_handle, "pbr");
+        const auto* published =
+            renderer.get_material_program_feedback()->published(program_handle, "pbr");
         ASSERT_NE(published, nullptr);
         EXPECT_EQ(published->source, program);
     }

@@ -11,6 +11,7 @@
 #include "render/scene/scene_picking.h"
 #include "render/debug/line_draw_list.h"
 #include "render/material/material_renderer.h"
+#include "render/material/material_programs.h"
 
 #include <cstdint>
 #include <functional>
@@ -75,7 +76,7 @@ namespace Comet {
         };
 
         static Result<std::unique_ptr<Renderer>, GraphicsError> create(
-            const Window& window, const Settings& settings, const AssetRegistry& asset_registry);
+            const Window& window, const Settings& settings, AssetRegistry& asset_registry);
 
         ~Renderer();
 
@@ -98,7 +99,9 @@ namespace Comet {
         void invalidate_material_shaders(std::span<const std::string> programs);
         [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
             const;
-        [[nodiscard]] const MaterialPrograms& get_material_programs() const { return *m_programs; }
+        [[nodiscard]] MaterialPrograms::Feedback get_material_program_feedback() const {
+            return m_programs->feedback();
+        }
         [[nodiscard]] Result<MaterialUpdate, GraphicsError> prepare_material_update(
             AssetHandle handle, const std::shared_ptr<const Material>& material);
         void request_swapchain_recreation();
@@ -158,8 +161,7 @@ namespace Comet {
     private:
         Renderer(std::unique_ptr<RenderContext> context, std::unique_ptr<RenderResources> resources,
             std::unique_ptr<FrameScheduler> frames, std::unique_ptr<MaterialPrograms> programs,
-            std::unique_ptr<SceneRenderer> scene, const AssetRegistry& assets,
-            const Settings& settings);
+            std::unique_ptr<SceneRenderer> scene, AssetRegistry& assets, const Settings& settings);
         Result<void, GraphicsError> complete_frame(const RenderScene* render_scene);
         Result<void, GraphicsError> record_overlay(std::vector<QueueSemaphoreSubmit>& waits);
         void discard_frame_requests();
@@ -193,7 +195,7 @@ namespace Comet {
         ViewId m_next_view_id = 1;
         Settings m_settings;
         SceneResolver m_scene_resolver;
-        const AssetRegistry& m_asset_registry;
+        AssetRegistry& m_asset_registry;
         std::function<Result<void, GraphicsError>(OverlayRecordContext&)> m_render_overlay;
         bool m_shutdown_prepared = false;
         std::shared_ptr<const RenderWorld> m_world;

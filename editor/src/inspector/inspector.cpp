@@ -91,7 +91,7 @@ namespace CometEditor {
         const Comet::ComponentRegistry& component_registry,
         const PropertyEditorRegistry& property_editor_registry,
         const Comet::AssetDatabase& asset_database, const Comet::AssetRegistry& runtime_assets,
-        const Comet::MaterialPrograms& programs, const Comet::SceneRuntime* runtime)
+        const Comet::MaterialProgramValidator& programs, const Comet::SceneRuntime* runtime)
         : EditorPanel("属性###Inspector"), m_state(state), m_selection(selection),
           m_history(history), m_property_edit(property_edit),
           m_component_registry(component_registry),

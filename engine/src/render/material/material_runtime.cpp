@@ -109,6 +109,15 @@ namespace Comet {
             m_entries, [&](const auto& entry) { return entry.first.material_handle == handle; });
     }
 
+    void MaterialRuntimeCache::remove_assets(const AssetRegistry::Removals& removals) {
+        if(removals.empty())
+            return;
+        std::erase_if(m_entries, [&](const auto& entry) {
+            return removals.contains(entry.first.material_handle)
+                   || removals.contains(entry.second.source->get_shader_program());
+        });
+    }
+
     void MaterialRuntimeCache::mark_used(const MaterialInstanceKey key) {
         if(const auto found = m_entries.find(key); found != m_entries.end())
             found->second.used = true;

@@ -14,7 +14,7 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
         auto& device = context.get_device();
-        MaterialPrograms programs(engine->get_asset_registry());
+        MaterialPrograms programs;
         auto scene_owner = create_scene(programs, {9, 9});
         ASSERT_TRUE(scene_owner) << scene_owner.error();
         auto& scene = *scene_owner.value();
@@ -124,7 +124,7 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
         auto& device = context.get_device();
-        MaterialPrograms programs(engine->get_asset_registry());
+        MaterialPrograms programs;
         auto scene_owner = create_scene(programs, {9, 9});
         ASSERT_TRUE(scene_owner) << scene_owner.error();
         auto& scene = *scene_owner.value();
@@ -182,7 +182,7 @@ namespace Comet::Tests {
         auto& context = renderer.get_render_context();
         auto& device = context.get_device();
         const Math::Vec2u size(9, 9);
-        MaterialPrograms programs(engine->get_asset_registry());
+        MaterialPrograms programs;
         auto scene_owner = create_scene(programs, size);
         ASSERT_TRUE(scene_owner) << scene_owner.error();
         auto& scene = *scene_owner.value();
@@ -309,7 +309,7 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();
         auto& device = context.get_device();
-        MaterialPrograms programs(engine->get_asset_registry());
+        MaterialPrograms programs;
         auto scene_owner = create_scene(programs, {2, 2}, SampleCount::Count4);
         ASSERT_TRUE(scene_owner) << scene_owner.error();
         auto& scene = *scene_owner.value();

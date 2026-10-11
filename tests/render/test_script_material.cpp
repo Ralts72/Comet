@@ -36,7 +36,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(material->set_scalar_property("roughness", 1));
         ASSERT_TRUE(assets.register_asset(material_handle, material));
         const auto revision = material->get_revision();
-        MaterialPrograms materials(assets);
+        MaterialProgramValidator materials(assets);
 
         Scene scene;
         ASSERT_TRUE(scene.set_environment({.background = false, .lighting = false}));

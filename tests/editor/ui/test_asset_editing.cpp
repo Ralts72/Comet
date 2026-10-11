@@ -36,7 +36,7 @@ namespace CometEditor::Tests {
         Comet::ProjectPaths paths{root};
         Comet::AssetDatabase database{paths};
         Comet::AssetRegistry runtime_assets;
-        Comet::MaterialPrograms programs{runtime_assets};
+        Comet::MaterialProgramValidator programs{runtime_assets};
         Comet::Scene scene;
         Comet::Entity entity = scene.create_entity();
         Comet::ComponentRegistry registry;
@@ -1299,10 +1299,12 @@ namespace CometEditor::Tests {
         program->fragment_words = std::move(fragment.words);
         program->material = data.material;
         ASSERT_TRUE(runtime_assets.register_asset(program_handle, program));
-        auto layout = programs.describe(
+        auto layout = Comet::MaterialPrograms::describe(
             *program, "unlit_color", Comet::MaterialLayout::find_builtin("unlit_color"));
         ASSERT_TRUE(layout) << layout.error();
-        programs.publish(program_handle, "unlit_color", program, layout.value());
+        Comet::MaterialPrograms gpu_programs;
+        gpu_programs.publish(program_handle, "unlit_color", program, layout.value());
+        programs.accept(gpu_programs.feedback());
         ASSERT_TRUE(Comet::MaterialSerializer{}.save(
             {.template_name = "unlit_color",
                 .shader_program = program_handle,

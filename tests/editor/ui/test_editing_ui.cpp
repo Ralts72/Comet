@@ -35,7 +35,7 @@ namespace CometEditor::Tests {
         Comet::ComponentRegistry components = Comet::create_scene_component_registry();
         Comet::AssetDatabase assets{Comet::ProjectPaths(COMET_SAMPLE_PROJECT_DIRECTORY)};
         Comet::AssetRegistry runtime_assets;
-        Comet::MaterialPrograms programs{runtime_assets};
+        Comet::MaterialProgramValidator programs{runtime_assets};
         CommandHistory history;
         PropertyEditTransaction edit{history, components};
         SelectionService selection{scene};

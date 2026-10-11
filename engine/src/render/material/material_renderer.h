@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "asset/registry.h"
 #include "graphics/result.h"
 #include "graphics/pipeline/descriptor_set.h"
 #include "graphics/queue.h"
@@ -112,10 +113,13 @@ namespace Comet {
         [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
             const;
         [[nodiscard]] Result<MaterialUpdate, GraphicsError> prepare_material_update(
-            AssetHandle handle, const std::shared_ptr<const Material>& material);
+            AssetHandle handle, const std::shared_ptr<const Material>& material,
+            std::shared_ptr<const ShaderProgramArtifact> program_source = {});
+        // 调用方先固定材质值和 Shader 来源；GPU 准备不查询资产注册表。
         [[nodiscard]] static Result<std::vector<MaterialUpdate>, GraphicsError>
         prepare_material_updates(std::span<MaterialRenderer* const> renderers, AssetHandle handle,
-            const std::shared_ptr<const Material>& material);
+            const std::shared_ptr<const Material>& material,
+            std::shared_ptr<const ShaderProgramArtifact> program_source = {});
         [[nodiscard]] Result<void, GraphicsError> prepare_programs(const RenderWorld& world);
         // 所有目标的候选准备完成后，才发布共享布局和各自的 Pipeline。
         [[nodiscard]] static Result<void, GraphicsError> prepare_programs(
@@ -128,7 +132,7 @@ namespace Comet {
             const std::shared_ptr<ImageView>& shadow_map);
         [[nodiscard]] Statistics get_statistics() const;
         void reset_statistics() { m_statistics = {}; }
-        void collect_removed_assets(const AssetRegistry& assets);
+        void remove_assets(const AssetRegistry::Removals& removals);
 
     private:
         MaterialRenderer(Device& device, PipelineManager& pipelines, SampleCount samples,
@@ -281,6 +285,5 @@ namespace Comet {
         std::vector<Math::Mat4> m_instance_transforms;
         Statistics m_statistics;
         bool m_has_runtime_instances = false;
-        uint64_t m_collected_asset_revision = 0;
     };
 }

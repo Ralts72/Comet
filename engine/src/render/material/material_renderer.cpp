@@ -74,27 +74,29 @@ namespace Comet {
         return statistics;
     }
 
-    void MaterialRenderer::collect_removed_assets(const AssetRegistry& assets) {
-        const auto revision = assets.get_revision();
-        if(m_collected_asset_revision == revision)
+    void MaterialRenderer::remove_assets(const AssetRegistry::Removals& removals) {
+        if(removals.empty())
             return;
-        m_collected_asset_revision = revision;
-        // 仅淘汰已注销身份；同 Handle 的旧版本仍可作为准备失败时的回退。
+        // 注销材质或程序时清理依赖缓存；普通版本替换仍保留失败回退。
+        m_prepared.remove_assets(removals);
         std::erase_if(m_materials, [&](const auto& entry) {
-            if(assets.contains<Material>(entry.first.material_handle))
-                return false;
-            m_prepared.erase(entry.first.material_handle);
-            return true;
+            return removals.contains(entry.first.material_handle)
+                   || (entry.second.resources
+                       && removals.contains(entry.second.resources->pipeline->shader_program));
         });
-        std::erase_if(m_unsupported,
-            [&](const auto& entry) { return !assets.contains<Material>(entry.first); });
+        std::erase_if(
+            m_unsupported, [&](const auto& entry) { return removals.contains(entry.first); });
         std::erase_if(m_project_pipelines, [&](const auto& entry) {
-            return !assets.contains<ShaderProgramArtifact>(entry.first.first);
+            if(!removals.contains(entry.first.first))
+                return false;
+            for(const auto& [key, material] : entry.second.materials)
+                m_materials.erase(key);
+            return true;
         });
         for(auto& [program, active] : m_project_pipelines) {
             bool invalidates_failure = false;
             std::erase_if(active.materials, [&](const auto& entry) {
-                if(assets.contains<Material>(entry.first.material_handle))
+                if(!removals.contains(entry.first.material_handle))
                     return false;
                 if(active.failure_cause == ProjectPipeline::FailureCause::Materials
                     || (active.failure_cause == ProjectPipeline::FailureCause::Overrides
@@ -407,10 +409,12 @@ namespace Comet {
     }
 
     Result<MaterialRenderer::MaterialUpdate, GraphicsError> MaterialRenderer::
-        prepare_material_update(
-            const AssetHandle handle, const std::shared_ptr<const Material>& material) {
+        prepare_material_update(const AssetHandle handle,
+            const std::shared_ptr<const Material>& material,
+            std::shared_ptr<const ShaderProgramArtifact> program_source) {
         MaterialRenderer* renderer = this;
-        auto updates = prepare_material_updates(std::span(&renderer, 1), handle, material);
+        auto updates = prepare_material_updates(std::span(&renderer, 1), handle,
+            material ? material->snapshot() : nullptr, std::move(program_source));
         if(!updates)
             return Result<MaterialUpdate, GraphicsError>::failure(updates.error());
         return Result<MaterialUpdate, GraphicsError>::success(std::move(updates.value().front()));
@@ -418,16 +422,13 @@ namespace Comet {
 
     Result<std::vector<MaterialRenderer::MaterialUpdate>, GraphicsError> MaterialRenderer::
         prepare_material_updates(const std::span<MaterialRenderer* const> renderers,
-            const AssetHandle handle, const std::shared_ptr<const Material>& material) {
+            const AssetHandle handle, const std::shared_ptr<const Material>& material,
+            std::shared_ptr<const ShaderProgramArtifact> program_source) {
         using Preparation = Result<std::vector<MaterialUpdate>, GraphicsError>;
         if(!handle || !material)
             return Preparation::failure({"Material update requires an identity and source"});
-        const auto source = material->snapshot();
+        const auto& source = material;
         if(source->get_shader_program()) {
-            std::shared_ptr<const ShaderProgramArtifact> program_source;
-            if(!renderers.empty() && renderers.front()->m_programs)
-                program_source =
-                    renderers.front()->m_programs->latest(source->get_shader_program());
             if(auto refreshed = refresh_program(renderers, source->get_shader_program(),
                    source->get_template_name(), program_source);
                 !refreshed)

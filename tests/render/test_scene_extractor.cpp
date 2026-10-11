@@ -34,7 +34,7 @@ namespace Comet::Tests {
         AssetRegistry assets;
         for(const auto handle : {AssetHandle{20}, AssetHandle{30}})
             ASSERT_TRUE(assets.register_asset(handle, std::make_shared<Material>("shared", "pbr")));
-        MaterialPrograms materials(assets);
+        MaterialProgramValidator materials(assets);
         Scene scene;
         auto parent = scene.create_entity("Parent");
         std::vector<Entity> entities;
@@ -210,7 +210,7 @@ namespace Comet::Tests {
             AssetRegistry assets;
             ASSERT_TRUE(assets.register_asset(
                 AssetHandle{20}, std::make_shared<Material>("shared", "pbr")));
-            MaterialPrograms materials(assets);
+            MaterialProgramValidator materials(assets);
             Scene scene;
             auto mesh = scene.create_entity();
             mesh.add_component<MeshRendererComponent>(AssetHandle{10}, AssetHandle{20});
@@ -303,7 +303,7 @@ namespace Comet::Tests {
         const AssetHandle material_handle{20};
         ASSERT_TRUE(
             assets.register_asset(material_handle, std::make_shared<Material>("shared", "pbr")));
-        MaterialPrograms materials(assets);
+        MaterialProgramValidator materials(assets);
         Scene scene;
         auto target = scene.create_entity("Target");
         auto peer = scene.create_entity("Peer");
@@ -354,7 +354,7 @@ namespace Comet::Tests {
         AssetRegistry assets;
         for(const auto handle : {AssetHandle{20}, AssetHandle{30}})
             ASSERT_TRUE(assets.register_asset(handle, std::make_shared<Material>("shared", "pbr")));
-        MaterialPrograms materials(assets);
+        MaterialProgramValidator materials(assets);
         Scene scene;
         auto target = scene.create_entity();
         target.add_component<MeshRendererComponent>(AssetHandle{10}, AssetHandle{20});
@@ -434,7 +434,7 @@ namespace Comet::Tests {
         AssetRegistry assets;
         const AssetHandle material{20};
         ASSERT_TRUE(assets.register_asset(material, std::make_shared<Material>("shared", "pbr")));
-        MaterialPrograms materials(assets);
+        MaterialProgramValidator materials(assets);
         Scene scene;
         auto first = scene.create_entity();
         auto second = scene.create_entity();

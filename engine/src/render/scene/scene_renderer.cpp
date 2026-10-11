@@ -452,8 +452,8 @@ namespace Comet {
         m_state->materials->reset_statistics();
     }
 
-    void SceneRenderer::collect_removed_assets(const AssetRegistry& assets) {
-        m_state->materials->collect_removed_assets(assets);
+    void SceneRenderer::remove_assets(const AssetRegistry::Removals& removals) {
+        m_state->materials->remove_assets(removals);
     }
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> SceneRenderer::render(

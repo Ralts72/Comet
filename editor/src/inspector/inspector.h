@@ -15,7 +15,7 @@
 
 namespace Comet {
     class AssetRegistry;
-    class MaterialPrograms;
+    class MaterialProgramValidator;
     class Entity;
     class Script;
     class SceneRuntime;
@@ -37,7 +37,8 @@ namespace CometEditor {
             const Comet::ComponentRegistry& component_registry,
             const PropertyEditorRegistry& property_editor_registry,
             const Comet::AssetDatabase& asset_database, const Comet::AssetRegistry& runtime_assets,
-            const Comet::MaterialPrograms& programs, const Comet::SceneRuntime* runtime = nullptr);
+            const Comet::MaterialProgramValidator& programs,
+            const Comet::SceneRuntime* runtime = nullptr);
 
         void render() override;
         [[nodiscard]] bool finish_edit(bool cancel = false);

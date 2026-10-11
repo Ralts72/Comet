@@ -43,12 +43,14 @@ namespace Comet {
         std::unique_ptr<Renderer> renderer, std::unique_ptr<TaskScheduler> scheduler)
         : m_frame_timer(std::make_unique<FrameTimer>()), m_task_scheduler(std::move(scheduler)),
           m_window(std::move(window)), m_asset_registry(std::move(assets)),
-          m_renderer(std::move(renderer)) {}
+          m_renderer(std::move(renderer)),
+          m_material_parameters(std::make_unique<MaterialProgramValidator>(*m_asset_registry)) {}
 
     Engine::~Engine() {
         LOG_INFO("shutting down engine...");
         prepare_shutdown();
         m_asset_registry->clear();
+        m_material_parameters.reset();
         m_renderer.reset();
         m_asset_registry.reset();
         m_scene.reset();
@@ -125,8 +127,8 @@ namespace Comet {
         // 注册顺序也是各更新阶段的执行顺序；SceneRuntime 停止时按逆序清理。
         if(auto added = add_system(std::make_unique<CameraControllerSystem>()); !added)
             return added;
-        if(auto added = add_system(std::make_unique<ScriptSystem>(
-               *m_asset_registry, &m_renderer->get_material_programs()));
+        if(auto added = add_system(
+               std::make_unique<ScriptSystem>(*m_asset_registry, m_material_parameters.get()));
             !added)
             return added;
         if(auto added = add_system(std::make_unique<PhysicsSystem>(*m_physics_service)); !added)
@@ -145,6 +147,7 @@ namespace Comet {
             return Result<void, Error>::failure({"Engine is shutting down"});
         if(!m_scene)
             return Result<void, Error>::failure({"Cannot start runtime without an active scene"});
+        m_material_parameters->accept(m_renderer->get_material_program_feedback());
         return m_scene_runtime.start(*m_scene, state, SceneRuntime::InputStart::Rebase);
     }
 
@@ -250,6 +253,7 @@ namespace Comet {
         m_frame_timer->tick();
         const FrameContext frame{m_frame_timer->get_update_context(), m_window->get_input_frame()};
         m_frame_diagnostics.set_frame_index(frame.update.frame_index);
+        m_material_parameters->accept(m_renderer->get_material_program_feedback());
         if(callbacks.update) {
             if(auto result = callbacks.update(frame); !result)
                 return result;
@@ -267,6 +271,7 @@ namespace Comet {
             return Result<void, Error>::failure(preparation.error().as_error());
         }
         const bool frame_ready_to_render = preparation.value() == Renderer::FramePreparation::Ready;
+        m_material_parameters->accept(m_renderer->get_material_program_feedback());
         if(frame_ready_to_render && callbacks.frame_ready) {
             if(auto edited = callbacks.frame_ready(frame); !edited) {
                 // 已获取的帧不再重用；交互失败终止本次引擎生命周期。

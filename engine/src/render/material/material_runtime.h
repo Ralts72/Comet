@@ -1,6 +1,7 @@
 #pragma once
 
 #include "asset/handle.h"
+#include "asset/registry.h"
 #include "common/export.h"
 #include "common/result.h"
 
@@ -50,6 +51,7 @@ namespace Comet {
         void mark_used(MaterialInstanceKey key);
         void erase(AssetHandle handle);
         void erase(MaterialInstanceKey key) { m_entries.erase(key); }
+        void remove_assets(const AssetRegistry::Removals& removals);
         Result<std::shared_ptr<const PreparedMaterial>> rebind(
             MaterialInstanceKey key, const std::shared_ptr<const MaterialLayout>& layout);
         Result<std::shared_ptr<const PreparedMaterial>> rebind(

@@ -36,7 +36,7 @@ TEST(PostProcessRecoveryTest, SceneBoundsRetriesAndPropagatesDeviceLoss) {
     auto context = RenderContext::create(window, config.vulkan, config.render);
     ASSERT_TRUE(context) << context.error();
     auto& device = context.value()->get_device();
-    MaterialPrograms programs(assets);
+    MaterialPrograms programs;
     RenderResources resources(device);
     auto created = SceneRenderer::create(
         device, programs, resources, config.vulkan, config.render, Math::Vec2u{96, 64});

@@ -494,7 +494,7 @@ namespace Comet::Tests {
     TEST_F(RenderGraphGpuTest, DirectionalShadowsMoveToggleAndKeepInFlightFramesIndependent) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();
-        MaterialPrograms programs(engine->get_asset_registry());
+        MaterialPrograms programs;
         auto scene_owner = create_scene(programs, {33, 33});
         ASSERT_TRUE(scene_owner) << scene_owner.error();
         auto mesh = lit_quad();
@@ -755,7 +755,7 @@ namespace Comet::Tests {
             ASSERT_TRUE(created) << created.error().message;
             engine = std::move(created).value();
             auto& renderer = engine->get_renderer();
-            MaterialPrograms programs(engine->get_asset_registry());
+            MaterialPrograms programs;
             auto scene_owner = create_scene(programs, {4, 4}, samples);
             ASSERT_TRUE(scene_owner) << scene_owner.error();
             auto& scene = *scene_owner.value();

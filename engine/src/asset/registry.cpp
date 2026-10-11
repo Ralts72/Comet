@@ -3,6 +3,7 @@
 #include "diagnostics/logger.h"
 
 #include <atomic>
+#include <algorithm>
 
 namespace Comet {
     namespace {
@@ -15,12 +16,14 @@ namespace Comet {
     AssetRegistry::AssetRegistry() : m_revision(next_revision()) {}
 
     AssetRegistry::AssetRegistry(AssetRegistry&& other) noexcept
-        : m_assets(std::move(other.m_assets)), m_revision(next_revision()) {
+        : m_assets(std::move(other.m_assets)), m_revision(next_revision()),
+          m_removed(std::move(other.m_removed)), m_removed_all(other.m_removed_all) {
         other.clear();
     }
 
     AssetRegistry& AssetRegistry::operator=(AssetRegistry&& other) noexcept {
         if(this != &other) {
+            clear();
             m_assets = std::move(other.m_assets);
             m_revision = next_revision();
             other.clear();
@@ -109,8 +112,12 @@ namespace Comet {
     }
 
     bool AssetRegistry::unregister_asset(const AssetHandle handle) {
-        if(!handle || m_assets.erase(handle) == 0)
+        const auto found = m_assets.find(handle);
+        if(!handle || found == m_assets.end())
             return false;
+        if(!m_removed_all)
+            m_removed.emplace_back(handle, found->second.type);
+        m_assets.erase(found);
         m_revision = next_revision();
         return true;
     }
@@ -122,5 +129,26 @@ namespace Comet {
     void AssetRegistry::clear() {
         m_assets.clear();
         m_revision = next_revision();
+        m_removed.clear();
+        m_removed_all = true;
+    }
+
+    bool AssetRegistry::Removals::contains(const AssetHandle handle) const {
+        return all || std::ranges::binary_search(handles, handle);
+    }
+
+    AssetRegistry::Removals AssetRegistry::take_removals() {
+        Removals result{.all = std::exchange(m_removed_all, false)};
+        if(!result.all) {
+            for(const auto& [handle, type] : m_removed) {
+                if(!contains_impl(handle, type))
+                    result.handles.push_back(handle);
+            }
+            std::ranges::sort(result.handles);
+            result.handles.erase(
+                std::unique(result.handles.begin(), result.handles.end()), result.handles.end());
+        }
+        m_removed.clear();
+        return result;
     }
 }

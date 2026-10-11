@@ -37,7 +37,7 @@ namespace Comet::Tests {
     protected:
         const AssetHandle handle{42};
         AssetRegistry assets;
-        MaterialPrograms materials{assets};
+        MaterialProgramValidator materials{assets};
         Scene scene;
         PhysicsService physics;
         SceneRuntime runtime;

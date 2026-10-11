@@ -1555,7 +1555,7 @@ namespace CometEditor::Ui::Tests {
         const auto scripts = Script::load_group(project.value().paths().assets(), roots);
         ASSERT_TRUE(scripts) << scripts.error().message;
         AssetRegistry assets;
-        MaterialPrograms materials(assets);
+        MaterialProgramValidator materials(assets);
         const AssetHandle spin_handle{42}, move_handle{43}, material_handle{77};
         ASSERT_TRUE(assets.register_asset(spin_handle, scripts.value()[0]));
         ASSERT_TRUE(assets.register_asset(move_handle, scripts.value()[1]));

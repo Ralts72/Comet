@@ -24,6 +24,9 @@
 #include "render/material/material_renderer.h"
 #include "asset/artifact/shader_program_artifact.h"
 #include "asset/registry.h"
+#include "asset/script.h"
+#include "scene/scene.h"
+#include "scene/script_component.h"
 #include "render/debug/debug_renderer.h"
 #include "render/scene/scene_renderer.h"
 #include "render/scene/scene_resolver.h"
@@ -247,6 +250,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(assets.register_asset(mesh_handle, mesh.value()));
         auto& renderer = engine->get_renderer();
         ASSERT_TRUE(prepare_offscreen_host({64, 64}));
+        const auto secondary = renderer.create_offscreen_view({32, 32});
+        ASSERT_TRUE(secondary);
         RenderScene scene;
         scene.cameras.push_back({.primary = true});
         scene.render_items.push_back(
@@ -254,6 +259,7 @@ namespace Comet::Tests {
         for(const bool hidden : {false, true}) {
             SCOPED_TRACE(hidden);
             ASSERT_TRUE(renderer.set_render_view({}));
+            ASSERT_TRUE(renderer.set_render_view({}, secondary.value()));
             auto material = std::make_shared<Material>("retired", "unlit_color");
             ASSERT_TRUE(assets.register_asset(material_handle, material));
             auto snapshot = material->snapshot();
@@ -264,14 +270,29 @@ namespace Comet::Tests {
                 ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
                 ASSERT_TRUE(renderer.render_frame(scene));
             }
+            EXPECT_EQ(
+                renderer.get_scene_renderer().get_material_statistics().cached_material_versions,
+                1u);
+            EXPECT_EQ(renderer.get_scene_renderer(secondary.value())
+                          .get_material_statistics()
+                          .cached_material_versions,
+                1u);
             ASSERT_TRUE(assets.unregister_asset(material_handle));
             snapshot.reset();
             material.reset();
             EXPECT_FALSE(retired.expired());
             ASSERT_TRUE(renderer.set_render_view({.visible = !hidden}));
+            ASSERT_TRUE(renderer.set_render_view({.visible = !hidden}, secondary.value()));
             const auto prepared = renderer.prepare_frame();
             ASSERT_TRUE(prepared);
             EXPECT_TRUE(retired.expired());
+            EXPECT_EQ(
+                renderer.get_scene_renderer().get_material_statistics().cached_material_versions,
+                0u);
+            EXPECT_EQ(renderer.get_scene_renderer(secondary.value())
+                          .get_material_statistics()
+                          .cached_material_versions,
+                0u);
             if(prepared.value() == Renderer::FramePreparation::Ready)
                 ASSERT_TRUE(renderer.render_frame());
         }
@@ -419,8 +440,8 @@ namespace Comet::Tests {
         auto prepared = engine->get_renderer().prepare_material_update(material_handle, material);
         ASSERT_TRUE(prepared) << prepared.error();
         std::move(prepared).value().publish();
-        const auto* published =
-            engine->get_renderer().get_material_programs().published(program_handle, "unlit_color");
+        const auto* published = engine->get_renderer().get_material_program_feedback()->published(
+            program_handle, "unlit_color");
         ASSERT_NE(published, nullptr);
         EXPECT_EQ(published->source, program);
         const auto first_layout = published->layout;
@@ -428,8 +449,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(engine->get_asset_registry().replace_asset(program_handle, duplicate));
         auto unchanged = engine->get_renderer().prepare_material_update(material_handle, material);
         ASSERT_TRUE(unchanged) << unchanged.error();
-        published =
-            engine->get_renderer().get_material_programs().published(program_handle, "unlit_color");
+        published = engine->get_renderer().get_material_program_feedback()->published(
+            program_handle, "unlit_color");
         ASSERT_NE(published, nullptr);
         EXPECT_EQ(published->source, duplicate);
         EXPECT_EQ(published->layout, first_layout);
@@ -438,8 +459,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(engine->get_asset_registry().replace_asset(program_handle, incompatible));
         auto rejected = engine->get_renderer().prepare_material_update(material_handle, material);
         ASSERT_FALSE(rejected);
-        published =
-            engine->get_renderer().get_material_programs().published(program_handle, "unlit_color");
+        published = engine->get_renderer().get_material_program_feedback()->published(
+            program_handle, "unlit_color");
         ASSERT_NE(published, nullptr);
         EXPECT_EQ(published->source, duplicate);
         EXPECT_EQ(published->layout->get_scalars()[1].name, "frequency");
@@ -449,8 +470,8 @@ namespace Comet::Tests {
         auto rebuilt = engine->get_renderer().prepare_material_update(material_handle, material);
         ASSERT_TRUE(rebuilt) << rebuilt.error();
         std::move(rebuilt).value().publish();
-        published =
-            engine->get_renderer().get_material_programs().published(program_handle, "unlit_color");
+        published = engine->get_renderer().get_material_program_feedback()->published(
+            program_handle, "unlit_color");
         ASSERT_NE(published, nullptr);
         EXPECT_EQ(published->source, duplicate);
         EXPECT_EQ(engine->get_renderer()
@@ -506,7 +527,7 @@ namespace Comet::Tests {
         };
         const auto published = [&] {
             const auto* active =
-                renderer.get_material_programs().published(program_handle, "unlit_color");
+                renderer.get_material_program_feedback()->published(program_handle, "unlit_color");
             return active ? active->source : nullptr;
         };
         ASSERT_TRUE(draw());
@@ -581,7 +602,7 @@ namespace Comet::Tests {
             .material_handle = material_handle,
             .material_overrides = overrides(91, 0.75f)});
         auto& device = engine->get_renderer().get_render_context().get_device();
-        MaterialPrograms programs(assets);
+        MaterialPrograms programs;
         auto owner = SceneRenderer::create(device, programs, engine->get_render_resources(),
             {.msaa_samples = SampleCount::Count1}, {}, {64, 32});
         ASSERT_TRUE(owner);
@@ -625,6 +646,48 @@ namespace Comet::Tests {
         EXPECT_EQ(scene_renderer.get_material_statistics().cached_material_versions, 0u);
     }
 
+    TEST_F(MaterialRenderingTest, PlayStartupAcceptsPublishedLayoutBeforeScriptValidation) {
+        constexpr AssetHandle program_handle(9230), material_handle(9231), script_handle(9232);
+        TemporaryDirectory sources;
+        const auto program =
+            scalar_program(sources.path() / "startup.frag", program_handle, "custom", 1);
+        ASSERT_TRUE(program);
+        auto& assets = engine->get_asset_registry();
+        ASSERT_TRUE(assets.register_asset(program_handle, program));
+        const auto material = std::make_shared<Material>("startup", "unlit_color", program_handle);
+        ASSERT_TRUE(assets.register_asset(material_handle, material));
+        auto preview = engine->get_renderer().prepare_material_update(material_handle, material);
+        ASSERT_TRUE(preview) << preview.error();
+        std::move(preview).value().publish();
+        const auto unavailable = std::make_shared<ShaderProgramArtifact>();
+        unavailable->handle = program_handle;
+        ASSERT_TRUE(assets.replace_asset(program_handle, unavailable));
+        MaterialOverrides values{
+            .material = material_handle, .scalar_properties = {{"custom", 0.5f}}};
+        EXPECT_FALSE(engine->get_material_parameters().validate(values));
+
+        const auto script = Script::create(R"(
+            return { on_start = function()
+                comet.set_material_scalar("custom", 0.5)
+            end }
+        )");
+        ASSERT_TRUE(script) << script.error().message;
+        ASSERT_TRUE(assets.register_asset(script_handle, script.value()));
+        auto scene = std::make_unique<Scene>();
+        auto entity = scene->create_entity();
+        entity.add_component<MeshRendererComponent>(INVALID_ASSET_HANDLE, material_handle);
+        entity.add_component<ScriptComponent>().asset = script_handle;
+        engine->set_scene(std::move(scene));
+        ASSERT_TRUE(engine->add_default_scene_systems());
+        ASSERT_TRUE(engine->start_scene_runtime());
+        EXPECT_TRUE(engine->get_material_parameters().validate(values));
+        const auto overrides = engine->get_scene()->get_material_overrides(entity);
+        ASSERT_TRUE(overrides);
+        EXPECT_EQ(overrides->scalar_properties.at("custom"), 0.5f);
+        ASSERT_TRUE(engine->stop_scene_runtime());
+        EXPECT_FALSE(engine->get_scene()->get_material_overrides(entity));
+    }
+
     class ProjectMaterialPublicationTest: public MaterialRenderingTest {
     protected:
         void SetUp() override {
@@ -641,7 +704,7 @@ namespace Comet::Tests {
             ASSERT_TRUE(created_pass) << created_pass.error();
             pass = std::move(created_pass).value();
             pipelines = std::make_unique<PipelineManager>(device, *pass);
-            programs = std::make_unique<MaterialPrograms>(engine->get_asset_registry());
+            programs = std::make_unique<MaterialPrograms>();
             auto created_materials = MaterialRenderer::create(device, *pipelines,
                 engine->get_render_resources(), 2, SampleCount::Count1, nullptr, programs.get());
             ASSERT_TRUE(created_materials) << created_materials.error();
@@ -670,7 +733,9 @@ namespace Comet::Tests {
         }
 
         void publish_material(AssetHandle handle, const std::shared_ptr<Material>& source) {
-            auto update = materials->prepare_material_update(handle, source);
+            auto update = materials->prepare_material_update(handle, source,
+                engine->get_asset_registry().resolve<ShaderProgramArtifact>(
+                    source->get_shader_program()));
             ASSERT_TRUE(update) << update.error();
             std::move(update).value().publish();
         }
@@ -689,7 +754,9 @@ namespace Comet::Tests {
                 if(!source)
                     source = binding.resource;
                 binding.resource = source->snapshot();
-                binding.program_source = programs->latest(source->get_shader_program());
+                binding.program_source =
+                    engine->get_asset_registry().resolve<ShaderProgramArtifact>(
+                        source->get_shader_program());
             }
             if(views.empty())
                 return materials->prepare_programs(world);
@@ -729,6 +796,102 @@ namespace Comet::Tests {
         EXPECT_EQ(messages.str(), rejected);
     }
 
+    TEST_F(ProjectMaterialPublicationTest, CapturedRemovalsReleaseEveryViewAfterReregistration) {
+        auto& assets = engine->get_asset_registry();
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        const auto shader = program(true);
+        const auto source = std::make_shared<Material>("removed", "pbr", program_handle);
+        ASSERT_TRUE(assets.register_asset(program_handle, shader));
+        ASSERT_TRUE(assets.register_asset(first_handle, source));
+        PipelineManager second_pipelines(device, *pass);
+        auto created = MaterialRenderer::create(device, second_pipelines,
+            engine->get_render_resources(), 2, SampleCount::Count1, nullptr, programs.get());
+        ASSERT_TRUE(created) << created.error();
+        const auto views = std::array{materials.get(), created.value().get()};
+        auto candidates = MaterialRenderer::prepare_material_updates(
+            views, first_handle, source->snapshot(), shader);
+        ASSERT_TRUE(candidates) << candidates.error();
+        for(auto& update : candidates.value())
+            std::move(update).publish();
+        const auto feedback = programs->feedback();
+        for(const auto* view : views)
+            EXPECT_EQ(view->get_statistics().cached_material_versions, 1u);
+
+        const std::weak_ptr retired_source = source->snapshot();
+        EXPECT_FALSE(retired_source.expired());
+        ASSERT_TRUE(assets.unregister_asset(program_handle));
+        const auto shader_removed = assets.take_removals();
+        programs->remove_assets(shader_removed);
+        for(auto* view : views) {
+            view->remove_assets(shader_removed);
+            EXPECT_EQ(view->get_statistics().cached_material_versions, 0u);
+        }
+        EXPECT_TRUE(retired_source.expired());
+        EXPECT_TRUE(assets.contains<Material>(first_handle));
+        ASSERT_TRUE(assets.register_asset(program_handle, shader));
+        candidates = MaterialRenderer::prepare_material_updates(
+            views, first_handle, source->snapshot(), shader);
+        ASSERT_TRUE(candidates) << candidates.error();
+        for(auto& update : candidates.value())
+            std::move(update).publish();
+
+        ASSERT_TRUE(assets.unregister_asset(first_handle));
+        ASSERT_TRUE(assets.unregister_asset(program_handle));
+        const auto removals = assets.take_removals();
+        ASSERT_TRUE(assets.register_asset(first_handle, source));
+        ASSERT_TRUE(assets.register_asset(program_handle, shader));
+        programs->remove_assets(removals);
+        for(auto* view : views) {
+            view->remove_assets(removals);
+            EXPECT_EQ(view->get_statistics().cached_material_versions, 0u);
+        }
+        EXPECT_FALSE(published());
+        ASSERT_NE(feedback->published(program_handle, "pbr"), nullptr);
+        EXPECT_EQ(feedback->published(program_handle, "pbr")->source, shader);
+        EXPECT_TRUE(assets.take_removals().empty());
+        candidates = MaterialRenderer::prepare_material_updates(
+            views, first_handle, source->snapshot(), shader);
+        ASSERT_TRUE(candidates) << candidates.error();
+        for(auto& update : candidates.value())
+            std::move(update).publish();
+        for(const auto* view : views)
+            EXPECT_EQ(view->get_statistics().cached_material_versions, 1u);
+        EXPECT_EQ(published(), shader);
+        assets.clear();
+        const auto reset = assets.take_removals();
+        ASSERT_TRUE(reset.all);
+        programs->remove_assets(reset);
+        for(auto* view : views) {
+            view->remove_assets(reset);
+            EXPECT_EQ(view->get_statistics().cached_material_versions, 0u);
+        }
+        EXPECT_FALSE(published());
+        EXPECT_EQ(feedback->published(program_handle, "pbr")->source, shader);
+    }
+
+    TEST_F(ProjectMaterialPublicationTest, MaterialPreviewConsumesCapturedShaderSource) {
+        auto& assets = engine->get_asset_registry();
+        const auto captured = program(true);
+        ASSERT_TRUE(assets.register_asset(program_handle, captured));
+        auto source = std::make_shared<Material>("preview", "pbr", program_handle);
+        auto invalid = program(true);
+        invalid->material->textures.front().name = "unknown_texture";
+        ASSERT_TRUE(assets.replace_asset(program_handle, invalid));
+
+        auto update = materials->prepare_material_update(first_handle, source, captured);
+        ASSERT_TRUE(update) << update.error();
+        std::move(update).value().publish();
+        const auto feedback = programs->feedback();
+        EXPECT_EQ(published(), captured);
+        EXPECT_EQ(messages.str().find("Cannot publish project Shader"), std::string::npos);
+
+        const auto rejected = materials->prepare_material_update(first_handle, source, invalid);
+        EXPECT_FALSE(rejected);
+        EXPECT_EQ(programs->feedback(), feedback);
+        EXPECT_EQ(published(), captured);
+        EXPECT_NE(messages.str().find("Cannot publish project Shader"), std::string::npos);
+    }
+
     TEST_F(ProjectMaterialPublicationTest, ProjectProgramPublicationWaitsForEveryViewCandidate) {
         auto& assets = engine->get_asset_registry();
         auto& device = engine->get_renderer().get_render_context().get_device();
@@ -761,7 +924,8 @@ namespace Comet::Tests {
         const std::array views{materials.get(), second.get()};
         ASSERT_TRUE(prepare_current_programs(world, views));
         ASSERT_EQ(published(), prior);
-        auto keep_prior = materials->prepare_material_update(first_handle, source);
+        auto keep_prior = materials->prepare_material_update(first_handle, source,
+            assets.resolve<ShaderProgramArtifact>(source->get_shader_program()));
         ASSERT_TRUE(keep_prior) << keep_prior.error();
         pipelines->collect_unused();
         const auto initial_count = pipelines->get_cached_pipeline_count();
@@ -815,10 +979,11 @@ namespace Comet::Tests {
         EXPECT_EQ(messages.str(), failure);
 
         ASSERT_TRUE(assets.unregister_asset(second_handle));
-        materials->collect_removed_assets(assets);
+        materials->remove_assets(assets.take_removals());
         EXPECT_EQ(materials->get_statistics().cached_material_versions, 1u);
         EXPECT_EQ(published(), optional);
-        auto recovered = materials->prepare_material_update(first_handle, compatible);
+        auto recovered = materials->prepare_material_update(first_handle, compatible,
+            assets.resolve<ShaderProgramArtifact>(compatible->get_shader_program()));
         ASSERT_TRUE(recovered) << recovered.error();
         EXPECT_EQ(published(), required);
         std::move(recovered).value().publish();
@@ -845,8 +1010,9 @@ namespace Comet::Tests {
         EXPECT_EQ(published(), required);
         EXPECT_EQ(messages.str(), shader_failure);
         ASSERT_TRUE(assets.unregister_asset(first_handle));
-        materials->collect_removed_assets(assets);
-        auto retained = materials->prepare_material_update(first_handle, compatible);
+        materials->remove_assets(assets.take_removals());
+        auto retained = materials->prepare_material_update(first_handle, compatible,
+            assets.resolve<ShaderProgramArtifact>(compatible->get_shader_program()));
         EXPECT_FALSE(retained);
         EXPECT_EQ(published(), required);
         EXPECT_EQ(messages.str(), shader_failure);
@@ -878,12 +1044,14 @@ namespace Comet::Tests {
                 source = std::make_shared<Material>("replacement", "pbr", program_handle);
             source->set_texture_property("base_color_texture", image.value());
             if(change == 2) {
-                auto update = materials->prepare_material_update(first_handle, source);
+                auto update = materials->prepare_material_update(first_handle, source,
+                    assets.resolve<ShaderProgramArtifact>(source->get_shader_program()));
                 ASSERT_TRUE(update) << update.error();
                 EXPECT_EQ(published(), optional);
                 std::move(update).value().publish();
                 // 不依赖下一次场景提取，显式编辑发布也会更新待重试的源。
-                auto next = materials->prepare_material_update(first_handle, source);
+                auto next = materials->prepare_material_update(first_handle, source,
+                    assets.resolve<ShaderProgramArtifact>(source->get_shader_program()));
                 ASSERT_TRUE(next) << next.error();
                 EXPECT_EQ(published(), required);
             }
@@ -937,7 +1105,7 @@ namespace Comet::Tests {
     TEST_F(MaterialRenderingTest, RejectsMissingFrameSlotsAndCanCreateAfterFailure) {
         auto& device = engine->get_renderer().get_render_context().get_device();
         auto& resources = engine->get_render_resources();
-        MaterialPrograms programs(engine->get_asset_registry());
+        MaterialPrograms programs;
         Config config;
         config.render.max_frames_in_flight = 0;
         auto scene = SceneRenderer::create(

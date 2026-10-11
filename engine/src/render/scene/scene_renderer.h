@@ -77,7 +77,7 @@ namespace Comet {
         void skip_frame();
         MaterialRenderer& get_material_renderer();
         const std::shared_ptr<ShadowPass>& get_shadow_pass() const { return m_shadow; }
-        void collect_removed_assets(const AssetRegistry& assets);
+        void remove_assets(const AssetRegistry::Removals& removals);
         Result<void, GraphicsError> configure_bloom(bool enabled);
         Result<void, GraphicsError> validate_quality_settings(
             const QualitySettings& settings) const;

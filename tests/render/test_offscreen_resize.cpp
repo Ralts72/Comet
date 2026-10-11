@@ -57,7 +57,7 @@ namespace Comet::Tests {
     TEST_F(OffscreenResizeTest, RejectsRepeatedInvalidSizeAndPreservesActualTarget) {
         auto& renderer = engine->get_renderer();
         Config config;
-        MaterialPrograms programs(engine->get_asset_registry());
+        MaterialPrograms programs;
         auto created = SceneRenderer::create(renderer.get_render_context().get_device(), programs,
             engine->get_render_resources(), config.vulkan, config.render, Math::Vec2u{160, 120});
         ASSERT_TRUE(created) << created.error();

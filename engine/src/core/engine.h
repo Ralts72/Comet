@@ -25,6 +25,7 @@ namespace Comet {
     class Renderer;
     class RenderResources;
     class Config;
+    class MaterialProgramValidator;
 
     class COMET_API Engine {
     public:
@@ -79,6 +80,9 @@ namespace Comet {
         [[nodiscard]] const SceneRuntime& get_scene_runtime() const { return m_scene_runtime; }
         [[nodiscard]] AssetRegistry& get_asset_registry() { return *m_asset_registry; }
         [[nodiscard]] const AssetRegistry& get_asset_registry() const { return *m_asset_registry; }
+        [[nodiscard]] const MaterialProgramValidator& get_material_parameters() const {
+            return *m_material_parameters;
+        }
 
         [[nodiscard]] RenderResources& get_render_resources();
         [[nodiscard]] const RenderResources& get_render_resources() const;
@@ -103,6 +107,7 @@ namespace Comet {
         std::unique_ptr<AssetRegistry> m_asset_registry;
         std::unique_ptr<Scene> m_scene;
         std::unique_ptr<Renderer> m_renderer;
+        std::unique_ptr<MaterialProgramValidator> m_material_parameters;
         std::unique_ptr<AudioService> m_audio_service;
         AudioSettings m_audio_settings;
         std::unique_ptr<PhysicsService> m_physics_service;
