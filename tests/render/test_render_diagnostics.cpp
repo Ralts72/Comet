@@ -365,7 +365,7 @@ namespace Comet::Tests {
         ImGui::GetIO().DeltaTime = 0.3f;
         const auto sampled = frame();
         EXPECT_NE(sampled, before);
-        EXPECT_NE(sampled.find("CPU 渲染图录制"), std::string::npos);
+        EXPECT_NE(sampled.find("CPU 单视图渲染图录制"), std::string::npos);
 
         ImGui::ActivateItemByID(window->GetID("Pause display"));
         const auto paused = frame();

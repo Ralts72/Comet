@@ -46,5 +46,6 @@ namespace Comet {
         const AssetRegistry& m_assets;
         std::map<std::pair<AssetHandle, std::string>, Published> m_published;
         MaterialShaders m_builtin_overrides;
+        uint64_t m_collected_asset_revision = 0;
     };
 }

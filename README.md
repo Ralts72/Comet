@@ -1,6 +1,6 @@
 # Comet 引擎
 
-Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，使用 C++20、CMake 和 Vulkan。目前重点是场景编辑、资产导入和单视口交互。Play 与示例 app 还支持固定步刚体模拟和基础音频播放；两者共用 RmlUi 项目游戏界面。动画、粒子、GI、路径追踪、渲染线程及内容导出继续按路线图推进；工程实现围绕实际使用和实测性能收敛，不预建通用 SDK 或插件生态。
+Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，使用 C++20、CMake 和 Vulkan。目前重点是场景编辑、资产导入和场景／游戏双视图交互。Play 与示例 app 还支持固定步刚体模拟和基础音频播放；两者共用 RmlUi 项目游戏界面。动画、粒子、GI、路径追踪、渲染线程及内容导出继续按路线图推进；工程实现围绕实际使用和实测性能收敛，不预建通用 SDK 或插件生态。
 
 ## 项目结构
 
@@ -39,7 +39,7 @@ Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，
 需要 CMake 3.31+、C++20 编译器、Vulkan SDK、Git LFS 和 Submodule。
 SPIRV-Reflect、glslang、Jolt Physics、miniaudio、Lua、RmlUi 6.3 和 FreeType 2.14.3 由固定提交 submodule 提供。
 RmlUi 只链接 Core，FreeType 随源码静态构建，无需安装系统字体库。
-Engine 始终包含游戏 UI 能力；App 和 Editor 按项目的 `ui` 入口决定是否装载界面，视口的“游戏 UI”控制显示。
+Engine 始终包含游戏 UI 能力；App 和 Editor 按项目的 `ui` 入口决定是否装载界面，游戏面板的“游戏 UI”控制显示。
 构建会生成 `comet_shader_compiler`，无需安装 `glslangValidator`；engine／app 不链接源编译器。
 
 ```bash
@@ -98,22 +98,9 @@ macOS 的 CTest 仅在测试进程内关闭窗口动画，避免大量窗口创�
 保留 `build/`、`build-editor/`、`build-release/` 三个构建目录，CI 复用 `build/`。
 对外通过 `engine`／`Comet::Engine` 使用引擎；内部对象库按职责约束依赖，最终汇入同一个 engine 动态库，
 不增加独立构建配置或模块动态库。源码归属见 `engine/cmake/module_sources.cmake`，依赖见 `modules.cmake`。
-`comet_runtime` 负责 SceneRuntime、RuntimeSession 与 System 执行契约，只依赖 World／Input 和无后端的服务接口。
-`comet_audio` 拥有音频请求、设备和播放实例；Engine 装配 AudioService，Runtime 通过 RuntimeServices 借用命令接口。
-`comet_physics` 拥有 Jolt 世界、刚体和冲量队列；PhysicsSystem 同步场景配置并回写姿态，Runtime 借用 PhysicsCommands。
-`asset/script` 保存不可变脚本定义，`asset/runtime/script_loader` 准备源码并复用 Lua 校验；共用参数值归 `common/parameters`。
-`comet_scripting` 负责 Lua 实例、场景绑定与热重载；ScriptSystem 从同一 Registry 读取定义，Lua 依赖限于实现。
-所有场景系统由 SceneRuntime 拥有；Editor 通过只读 `find_system<T>()` 查询已注册系统，Engine 不为单个系统提供专用访问入口。
-`comet_runtime_assets` 负责加载、依赖与版本编排，不包含 Vulkan；ImportService 准备 CPU 数据，RenderAssetPublisher 在渲染层创建与发布对象，共用原 Registry。
-`comet_platform` 拥有窗口、事件和剪贴板；`comet_graphics` 拥有 Vulkan 后端，窗口 Surface 接线集中在私有适配中。
-`comet_render` 编排渲染与资产发布；各层使用自己的配置值，完整 Config 仅由宿主聚合。
-`comet_game_ui` 通过 `engine/cmake/game_ui.cmake` 作为对象模块汇入 engine，App 只链接 engine。
-RmlUi Core 与 FreeType 均静态编入 engine，不单独部署 UI 动态库。
-窗口、渲染和具体系统由 engine 组合。
-World 保存场景内容，不依赖 Input 或 Runtime；运行输入和本局状态归 Runtime。
-编辑器分为无 ImGui 的 `editor_core`、ImGui 呈现适配 `editor_imgui` 与功能界面 `editor_ui`；新增源码需维护所属库清单。
-Editor 宿主负责装配游戏 UI，适配器只借用窗口、Renderer、项目及设置服务。
-仅启用 tests 时仍构建 core；测试辅助代码位于 `tests/support/`。
+World、Runtime、Render、GameUi 等模块的职责与依赖见[架构文档](docs/architecture/overview.md#构建模块)。
+RmlUi Core 与 FreeType 静态编入 engine；Editor 的 `editor_core`、`editor_imgui`、`editor_ui` 分别负责业务、呈现适配和功能界面。
+新增源码维护所属 CMake 清单；测试辅助代码位于 `tests/support/`。
 测试按执行条件分组，源码只编译到所属入口，不重复运行：
 
 | 入口／目录 | 依赖 | CTest 标签 |
@@ -129,111 +116,45 @@ Editor 宿主负责装配游戏 UI，适配器只借用窗口、Renderer、项�
 
 ### 可复现渲染测量
 
-`render_benchmark` 是固定场景的渲染性能基准程序，用于比较引擎改动前后的性能。
-它自行创建场景、采样并退出，不监控其他进程，也不加载任意项目；app/editor 的实时观察使用下方渲染诊断。
-一键构建并测量，复用 `build-release/` 的 Release 引擎，不创建另一套专用构建目录：
+`render_benchmark` 创建固定场景、预热、采样并退出，用于比较引擎改动。脚本复用 `build-release/` 的 Release 引擎，只构建基准及其依赖：
 
 ```bash
 ./tools/render_benchmark/run.sh
-./tools/render_benchmark/run.sh /tmp/comet-benchmark.csv 64 640 360 240 1
 ./tools/render_benchmark/run.sh /tmp/comet-multi.csv 2048 640 360 240 0 64
 ./tools/render_benchmark/run.sh /tmp/comet-moving.csv 2048 640 360 240 0 64 moving
-./tools/render_benchmark/run.sh /tmp/comet-culling.csv 2048 640 360 240 0 64 culling
 ./tools/render_benchmark/run.sh /tmp/comet-active.csv 512 640 360 240 0 32 physics-active
-./tools/render_benchmark/run.sh /tmp/comet-sleeping.csv 512 640 360 240 0 32 physics-sleeping
-./tools/render_benchmark/run.sh /tmp/comet-scaled.csv 256 960 540 480 1 8 static 1 2 0.75
 ./tools/render_benchmark/run.sh --help
 ```
 
-无参数时使用第二条命令的场景参数，报告保存到 `build-release/reports/render-benchmark.csv`；成功时替换上一次报告。
-脚本仅构建基准目标及其依赖，不构建测试或编辑器、不启动 app；自定义相对报告路径以调用时的工作目录为准。
-macOS 测量期间临时阻止系统空闲睡眠，并关闭本进程窗口动画，退出后恢复。
-基准主线程请求 user-interactive QoS，让 macOS 比较使用相同调度优先级；请求值随报告记录，只作用于基准进程。
-`cpu_samples` 记录采样期间更新回调中观察到的 CPU 编号及次数；相同 QoS 不保证相同核心调度，比较时也需核对分布。
-这只是采样瞬间的位置，线程在同一帧内仍可能迁移，不代表整帧固定在该核心。
-这是工具输出，不是某个用户项目的日志；需要归档的报告可通过参数另存。
+默认报告为 `build-release/reports/render-benchmark.csv`，成功时原子替换。参数依次为报告路径、物体数、逻辑窗口宽高、采样帧数、Bloom；
+可追加材质数、场景类型，再一起追加 MSAA／各向异性／渲染比例，范围见 `--help`。
+支持 `static`、`moving`、`light-moving`、`culling`、`project-shader`、`physics-active` 和 `physics-sleeping`，覆盖静止、持续变换、光源变化、屏外裁剪、项目 Shader 及活动／休眠刚体。
+工具在临时项目中走生产资产链，不修改 demo 或依赖可选 HDR，结束清理临时数据。macOS 测量期间阻止空闲睡眠并关闭本进程窗口动画。
 
-`COMET_BUILD_BENCHMARKS` 可独立开启；`dev-debug`／`ci-release` 默认开启，完整构建会生成工具，
-完整 CTest 会运行 `render_benchmark_smoke`，但只验证短场景和报告正确性，不比较耗时门槛。
-只想快速验证可运行以下命令，Debug 数据不作为正式性能基线：
+报告包含设备、CPU 采样分布、实际画质／分辨率、物体与刚体计数、draw／实例／绑定／上传字节数、内存分配量，以及 CPU／GPU 各阶段 P50/P95/P99。
+正式比较使用同机 Release、相同场景和负载，多次交替运行，避免并行构建或其他 GPU 任务。Debug 和 CI smoke 只验证工具与报告，不判断性能。
+CPU 墙钟包含等待，提交和呈现可能包含驱动等待；GPU 图不包含呈现完成。嵌套阶段不重复相加，各分段百分位也不能直接相加；缺少 GPU 样本不会写成零耗时。
+物理场景额外检查活动刚体和固定步；绘制、窗口或呈现负载变化会拒绝报告。当前固定材质没有纹理，各向异性成本需用真实纹理场景测量。
+
+`dev-debug`／`ci-release` 默认构建 benchmark；只构建工具可用 `cmake --preset app-release -DCOMET_BUILD_BENCHMARKS=ON`。
+快速验证：
 
 ```bash
-cmake --preset dev-debug
 cmake --build --preset dev-debug --target render_benchmark --parallel
 ctest --preset dev-debug -R '^render_benchmark_smoke$'
 ```
 
-无脚本时可用 `cmake --preset app-release -DCOMET_BUILD_BENCHMARKS=ON`，然后只构建 `render_benchmark`。
-工具位于 `<构建目录>/tools/render_benchmark/`；仅构建工具无需开启 `COMET_BUILD_TESTS`。
-`app-release`／`editor-dev` 默认不构建基准；再次使用这些 preset 配置会恢复该默认，不删除已编译产物。
-
-参数依次为 CSV 路径、物体数（1..4096）、逻辑窗口宽高（64..4096）、采样帧数（8..10000）、Bloom（0/1）。
-末尾可追加材质数（1..256，不能超过物体数）及场景类型（`static`、`moving`、`light-moving`、`culling`、`project-shader`、`physics-active`、`physics-sleeping`），默认单材质、静态场景。
-场景类型后可一起追加 MSAA、各向异性和渲染比例，范围与游戏画质设置相同；省略时仍为 4／1／1。
-macOS 可在末尾追加 `-NSAutomaticWindowAnimationsEnabled NO` 关闭该进程的窗口动画；报告以实际 framebuffer 像素为准。
-固定场景使用 PBR 材质、共享立方体网格与地面、三类光源、方向光阴影和 SDR 输出；IBL 关闭，
-不依赖可选 HDR 下载。资产复制到临时目录后走生产扫描／导入／加载，结束清理，不修改 demo 的资源和缓存。
-多材质参数在临时项目中生成稳定身份的 PBR 变体，按网格顺序交错分配，实体身份固定。
-`moving` 每帧将所有立方体绕自身 Y 轴旋转 0.5°，走真实 Transform 更新、场景提取与实例上传；不启用物理，便于与 `static` 比较持续变换的成本。
-`light-moving` 保持网格静止，仅将方向光绕 Y 轴每帧旋转 0.5°，测量阴影视图更新及实例上传成本。
-`culling` 将后 3/4 立方体移到屏外，保留它们的阴影提交；报告记录主材质的候选数、裁剪数和实际 draw 数。
-`project-shader` 使用与内置 PBR 相同代码的项目程序，测量项目材质输入同步及逐物体绘制，便于与内置材质区分比较。
-内置不透明材质按同一 Mesh 和实际材质版本自动实例化，阴影按 Mesh 合批；项目 Shader 和内置顶点源码覆盖继续逐物体绘制。
-各飞行帧槽位复用未变化的实例矩阵，变换或阴影矩阵改变时重新上传；缓存、排序和资源寿命契约见[架构文档](docs/architecture/overview.md#材质准备与寿命)。
-Mesh Renderer、Camera、Light 只读访问，通过 `try_set_component`／`edit_component` 提交修改；属性面板沿同一入口写入。
-Engine 按场景实例与渲染版本复用未变快照；少量修改按对象更新 Mesh 快照，批量修改走顺序提取。
-变化槽位及追加／交换末项删除的批次继续传入资源解析与界限计算，局部增删只移动缓存并更新变化位置，静止 Mesh 跳过逐项核对。
-批次不连续、大量修改、大量引用资源更新与资源缺失导致的压缩仍完整核对；提交按实体／变换版本复用矩阵。
-世界界限只跟随对象变换与 Mesh 发布版本更新；发布材质等其他资产不会使全部界限失效。
-Renderer 持有与视图无关的 RenderWorld 和一份世界界限；RenderSubmission 只借用世界并携带当前相机矩阵。
-主材质、阴影及多个离屏视图共用界限，各视图独立裁剪和绘制；借用在下一次世界更新前有效，当前 App／Editor 仍为单视口。
-资产发布时只释放版本变化的 Mesh、材质和环境引用，下一次解析获取新资源；少量失效位置与场景批次合并，局部更新提交和界限。
-发布检查仍核对当前持有引用的条目版本；同次检查复用交错共享 Handle 的查询结果，低命中率时直接查询，未受影响的资源与矩阵继续复用。
-场景切换、重排、增删及热重载会更新相应输入。
-删除对象后重新汇总场景总界限，未变对象不重新计算世界界限；手工快照的单个增删仍按相邻实体身份对齐缓存，其他重排逐项核对。
-报告同时记录实际 draw、绘制实例、材质准备、Mesh 绑定，以及主材质／阴影本帧实际上传字节数（稳定场景预热后为零），便于检查合批收益和上传成本。
-可见物体少于材质数时只准备可见材质；使用同参数的 `static` 场景观察全可见时的裁剪开销。
-物理场景走 Engine 默认系统，每个渲染帧单步推进 1/60 秒，基准限制为 512 个动态立方体加静态地面，为现有接触缓存保留余量；这不是引擎刚体容量上限。
-`physics-active` 每 24 步把立方体放回固定空中位置，保持活动；`physics-sleeping` 先沉降 300 步。
-采样逐帧检查实际活动刚体数、姿态回写数和固定步数；状态不符则拒绝报告。
-预热采样帧数的 1/4、至少 32 帧（休眠场景额外沉降 300 帧）后输出 CPU 整帧及分段、CPU/GPU 图和各 pass 的样本数、P50/P95/P99，
-以及设备、呈现模式、实际材质／刚体计数和 VMA 分配量。`cpu_runtime_update` 是 `cpu_update` 内的 Runtime 部分，不重复相加；它包含默认系统开销，不是纯 Jolt 模拟时间。
-报告分别记录请求画质、实际生效画质、输出与内部场景尺寸；设备可能限制各向异性，不把请求值当成实测值。
-`cpu_scene_extract` 以及资产解析、材质程序、几何界限、光源准备均是 `cpu_render_submit` 内的子阶段，不重复计入整帧；后四项位于渲染图录制之前。
-`cpu_submission_prep` 记录命令结束和提交参数准备，`cpu_queue_submit` 记录 fence 重置与队列提交，`cpu_present` 记录呈现调用。
-队列提交和呈现可能包含驱动／窗口系统等待；macOS 的 MoltenVK 可在提交期间等待 drawable，即使报告为 Immediate 也不能视为纯 CPU 计算。
-`cpu_render_record` 从渲染／提交中扣除场景提取及以上三段，包含场景准备与所有录制，不等同于 CPU 渲染图。
-GPU 样本按提交序号去重；`gpu_status` 区分完整、部分、不支持和降级，不把缺样本写成零耗时。
-窗口／呈现变化、少画物体或提前退出会拒绝报告；成功报告原子替换指定文件。
-
-测量请求关闭 validation，外部强制 layer 仍需自行排除；应在同机 Release、设备保持唤醒、无并行构建或其他 GPU 测试时重复比较。
-数百帧仅适合快速检查；性能对比建议采样数千帧并交替运行版本，先检查同一版本多次结果的波动。
-可分别提高物体数、提高实际分辨率、关闭 Bloom，避免一次改变所有变量，也可固定场景只修改画质参数。
-当前材质没有纹理，适合比较 MSAA／渲染比例；各向异性的纹理采样成本需用实际纹理场景测量。物体数增加时会缩小立方体，
-它不是纯 CPU 实验，也不代表透明物体、IBL 或编辑器开销；活动物理场景包含周期性传送的更新成本。CPU 墙钟包含等待，GPU 图不含呈现完成，
-VMA 分配量不等于系统总显存；各分段百分位不能直接相加。CI smoke 只验证测量契约，不设置绝对耗时门槛。
-
-资产扫描基准可接收任意包含 `assets/` 的项目目录。它先复制资产到临时项目并完成一次预热扫描，
-随后对输入不再变化的完整扫描分别输出只读准备和发布阶段的 p50／p95／最大耗时；不会给原项目生成 `.meta`。
-复制耗时不计入样本，项目越大越需要留意临时磁盘空间；这项 CPU 测量不等同于编辑器帧时间。
+资产扫描基准先复制项目并预热，再输出不变输入的准备／发布阶段 p50／p95／最大耗时，不为原项目生成 `.meta`：
 
 ```bash
-./tools/asset_scan_benchmark/run.sh
 ./tools/asset_scan_benchmark/run.sh /path/to/project 30
 ./tools/asset_scan_benchmark/run.sh --synthetic 1000 30
 ./tools/asset_scan_benchmark/run.sh --profile --synthetic 1000 30
 ```
 
-脚本复用 `build-release/` 并只构建所需目标，构建消息写到标准错误，标准输出为 CSV，可重定向保存。
-`--profile` 改用 `build-editor/` 的 RelWithDebInfo 构建，把扫描内部阶段的采样写到标准错误；其耗时不能直接与 Release 的 CSV 数值比较。
-退出时会清理临时副本；若清理失败，工具会打印残留路径。Debug 构建只用于验证工具，性能判断应使用 Release 与实际规模的项目。
-`--synthetic` 会在临时项目生成指定数量的简单 Lua 资产及扫描产生的 `.meta`，用于观察文件数量扩大时的开销；它不代表真实项目的资产类型、依赖或存储条件。
-
-若要观察扫描对编辑器帧的影响，可在 `config/profiles.json` 的 `editor-dev` 分组临时启用 `diagnostics.enable_profiler`，
-再用 `./editor.sh /path/to/project` 打开项目并触发资产变化。退出时的 Profiler 日志包含 `Engine::Frame`、
-`Editor::on_update`、`EditorAssets::update`、`SceneAssetReferences::restore` 和数据库扫描分段。
-这些是各自的累计／最大耗时，最大值不保证来自同一帧，不能直接相加；编辑器「渲染统计」可另行采集帧时间趋势。
-测量时保持窗口可见；最小化后的 `Engine::Frame` 可能包含等待窗口事件的时间，不代表扫描卡顿。
+默认测量复用 Release；`--profile` 使用 `build-editor/` 的 RelWithDebInfo，并把内部采样写到标准错误，其耗时不能直接与 Release 比较。
+标准输出为 CSV；复制时间不计入样本，临时副本会清理。合成 Lua 资产用于文件规模测量，不能代表所有资产和磁盘条件。
+观察编辑器扫描可临时启用 Profile 的 `diagnostics.enable_profiler`，通过日志和「渲染统计」比较更新与完整帧；最小化时的事件等待不算扫描计算成本。
 
 ### 交互式渲染诊断
 
@@ -243,7 +164,9 @@ VMA 分配量不等于系统总显存；各分段百分位不能直接相加。C
 面板区分包含等待的 CPU 整帧墙钟时间、场景图 CPU 录制和已完成帧的 GPU 时间；GPU 不包含 UI 绘制与呈现完成，
 CPU/GPU 分别统计，不保证来自同一帧。不支持 GPU 时间戳时仍可观察 CPU。
 面板每 250 毫秒刷新，显示近 1 秒均值／峰值及近 5 秒趋势；底层仍逐帧采集，峰值不会因 UI 降频而丢失。
-隐藏 Viewport 会跳过离屏场景绘制，Runtime、UI 和资源维护继续；诊断面板标明未绘制场景，不将历史图耗时当成新样本。
+隐藏一个面板只跳过它的离屏绘制；全部视图隐藏时不准备世界，Runtime、UI 和资源维护继续。
+诊断的 GPU pass 和绘制计数覆盖第一个可见视图（优先游戏，游戏隐藏时为场景），世界准备成本共用；整帧提交时间包括所有视图。
+不能把单视图 GPU 图耗时当作双视图总成本；全部隐藏时不把历史图耗时当成新样本。
 「暂停显示」只冻结面板，不停止采集；CPU 阶段、渲染阶段和显存堆明细可展开。日常观察无需保存报告。
 CPU 阶段明细另列场景提取、资产解析、材质程序、几何界限与光源准备，区分场景准备和图录制的成本；这些子阶段已计入渲染／提交，不能与整帧重复相加。
 显存预算至多每秒采样一次，并标明驱动报告或 VMA 估算。「保存显存分配报告」手动生成详细报告，
@@ -427,8 +350,8 @@ App 与 Editor Play 共用可选的 `CameraControllerComponent`：在 Edit 中�
 平台支持时自动使用原始鼠标位移；macOS 使用 GLFW 的相对位移。第一个标准手柄支持左摇杆移动、左右扳机升降和右摇杆转向。
 右摇杆无需按住转向按钮或锁定鼠标，满量程默认每秒转动 120°；可在绑定中调整死区和反向，组件中调整角速度。
 鼠标位移不乘时间，摇杆转向按运行时间推进；暂停不转向，单步只推进该步的时间。目前没有相机碰撞。
-Play 成功启动或从暂停继续时自动聚焦 Viewport，鼠标停在工具栏也能直接按键操作。
-键盘／手柄跟随 Viewport 焦点，鼠标进入画面可自动取得焦点；转向从画面内开始，捕获期间无需保持画面悬停。
+Play 成功启动或从暂停继续时自动聚焦游戏面板，鼠标停在工具栏也能直接按键操作。
+键盘／手柄跟随游戏面板焦点，鼠标进入游戏画面可自动取得焦点；转向从画面内开始，捕获期间无需保持画面悬停。
 未捕获时鼠标按钮／位移／滚轮只在画面内接收；捕获时 UI 暂停鼠标命中，松开转向即可操作面板。
 点击其他面板、窗口失焦、弹窗或编辑文字时停止接收；重新取得输入后原先按住的按钮需要松开重按。
 Ctrl／Option（Alt）／Cmd 本身可作为游戏绑定，不会中断其他按住的动作；Ctrl+Tab 实际切换编辑器窗口时仍阻断游戏输入。
@@ -568,10 +491,10 @@ Audio Source 的“音频分类”选择音效或音乐，缺省为音效；自�
 
 App 通过画面右上角“设置”、F1 或手柄 Start 打开 RmlUi 控制菜单，提供 FPS HUD、动作切换、
 按钮录入、禁用、恢复默认、应用和取消。Tab／方向键或手柄方向键导航，Enter／South 确认，Esc／East 返回。
-Editor 视口的“视图 → 游戏 UI”控制项目界面显示：Edit 预览 HUD，Play 使用同一页面与 Lua 控制器，暂停时菜单仍可操作。
+Editor 游戏面板的“视图 → 游戏 UI”控制项目界面显示：Edit 预览 HUD，Play 使用同一页面与 Lua 控制器，暂停时菜单仍可操作。
 “视图 → 重载 UI”重新装载页面和控制器；初次装载失败不影响编辑，修正源码后可重试。
 Play 中“视图”的调试分组保留“输入”，打开 ImGui 玩家面板；打开时关闭项目菜单，两者共用改键模型、宿主设置实例和提交策略，各自持有草稿。
-视口失焦、隐藏和 Stop 释放输入；菜单关闭当帧阻断游戏，Esc 在菜单内返回，菜单关闭后才用于 Stop。
+游戏面板失焦、隐藏和 Stop 释放输入；菜单关闭当帧阻断游戏，Esc 在菜单内返回，菜单关闭后才用于 Stop。
 app 首轮不提供来源、倍率和死区编辑，已有这些字段及未显示的覆盖记录仍保留。
 
 项目通过 `project.json` 的可选 `ui` 声明页面和 Lua 控制器，路径相对 assets：
@@ -857,14 +780,15 @@ Finder 导入只支持独立组件脚本，暂不处理 Lua 多文件依赖包�
 - File → Open/Save 操作当前项目 assets 内的 `.scene`，拒绝越界路径。
   编辑器优先恢复项目 Session 中上次明确打开／新建／保存的文档，恢复失败再尝试启动场景；
   app 始终使用项目启动场景。坏资源引用保留并记录 Log，后台导入完成后自动重试加载。
-- Edit 使用独立相机；Play 运行场景副本及其 primary Camera，Stop 不回写运行时修改。
-  Edit 工具栏的“投影：2D/3D”菜单切换编辑相机投影；选中场景相机可在 Inspector 设置 Play/app 使用的透视或正交投影及正交高度。
-  Play 的预览菜单合并分辨率与显示缩放：自由、16:9、1280×720、1920×1080，适应为等比缩放，1:1 为原尺寸裁切。
+- 场景和游戏面板可同时显示、分别停靠与调整尺寸；场景使用编辑相机，游戏使用场景 primary Camera。
+  Play 时两者观察同一个运行副本，场景面板仍可移动观察相机，拾取／Gizmo／资产拖入保持只在 Edit 开放；Stop 恢复编辑场景，不回写运行时修改。
+  场景工具栏的“投影：2D/3D”菜单切换编辑相机投影；选中场景相机可在 Inspector 设置 Play/app 使用的透视或正交投影及正交高度。
+  游戏面板的预览菜单合并分辨率与显示缩放：自由、16:9、1280×720、1920×1080，适应为等比缩放，1:1 为原尺寸裁切。
   工具栏菜单统一显示文字与下拉箭头，入口展示当前工具／投影／预览状态，菜单用勾选标记当前选项。
-  运行控制固定在左侧，按钮显示图标与文字；Edit 显示运行，Play 显示停止、暂停／继续，暂停时显示单步。
+  运行控制固定在游戏面板左侧，按钮显示图标与文字；Edit 显示运行，Play 显示停止、暂停／继续，暂停时显示单步。
   窄视口自动换行，保留文字；工具与预览菜单可连续调整，控制请求在下一次宿主更新执行。
-- Edit 视口右键或 Option/Alt+左键环绕，中键或 Option/Alt+Shift+左键平移，滚轮／双指滚动缩放。
-  左键按模型包围盒粗拾取，空白点击清空；视口获得键盘焦点后按 F 聚焦选中 Mesh。橙色选中框受场景遮挡。
+- 场景面板在 Edit／Play 都可右键或 Option/Alt+左键环绕，中键或 Option/Alt+Shift+左键平移，滚轮／双指滚动缩放。
+  Edit 时左键按模型包围盒粗拾取，空白点击清空；场景面板获得键盘焦点后按 F 聚焦选中 Mesh。橙色选中框受场景遮挡。
 - Edit 选中实体后，在工具菜单的“操作模式”选择移动／旋转／缩放，拖动轴、圆环或缩放方块。
   移动／旋转的“坐标空间”可选世界／局部；缩放固定局部，轴手柄调整单分量，中心手柄沿屏幕右上拖动等比放大。
   “启用吸附”相对拖动起点吸附，默认距离 0.25、角度 15°、缩放增量 0.1，设置只保留在会话中。

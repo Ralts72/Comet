@@ -181,101 +181,8 @@ namespace {
             m_inspector_panel->asset_inspector().set_material_layouts(material_layouts);
             m_project_panel->set_material_layouts(std::move(material_layouts));
 
-            m_viewport->panel().set_game_ui_available(m_project.ui().has_value());
-            auto display = load_player_display();
-            if(display)
-                m_viewport->panel().set_play_resolution(
-                    {static_cast<uint32_t>(display.value().width),
-                        static_cast<uint32_t>(display.value().height)});
-            else
-                LOG_WARN("Player display settings unavailable: {}", display.error());
-            m_game_ui = std::make_unique<CometEditor::GameUi>(engine.get_window(), renderer,
-                m_project,
-                Comet::Ui::ProjectUi::Services{.load_input = [this] { return load_player_input(); },
-                    .apply_input =
-                        [this](Comet::InputOverrides overrides) {
-                            return apply_player_input(std::move(overrides));
-                        },
-                    .load_display = [this] { return load_player_display(); },
-                    .apply_display =
-                        [this](Comet::DisplaySettings settings) {
-                            if(!m_player_display_settings)
-                                return Comet::Result<void>::failure(
-                                    "Player display settings are unavailable");
-                            const auto current = m_player_display_settings->settings();
-                            if(settings.mode != current.mode || settings.vsync != current.vsync
-                                || settings.output != current.output
-                                || settings.frame_rate_limit != current.frame_rate_limit)
-                                return Comet::Result<void>::failure(
-                                    "Window mode, VSync, HDR and frame rate limit apply only in the standalone App");
-                            return m_player_display_settings->save_and_apply(
-                                settings, [this](const auto& candidate) {
-                                    m_viewport->panel().set_play_resolution(
-                                        {static_cast<uint32_t>(candidate.width),
-                                            static_cast<uint32_t>(candidate.height)});
-                                    return Comet::Result<void>::success();
-                                });
-                        },
-                    .load_quality = [this] { return load_player_quality(); },
-                    .apply_quality =
-                        [this](Comet::QualitySettings settings) {
-                            if(!m_player_quality_settings)
-                                return Comet::Result<void>::failure(
-                                    "Player quality settings are unavailable");
-                            return m_player_quality_settings->save_and_apply(
-                                settings, [this](const auto& candidate) {
-                                    const auto applied =
-                                        get_engine().get_renderer().request_quality_settings(
-                                            candidate);
-                                    if(!applied)
-                                        return Comet::Result<void>::failure(
-                                            applied.error().message);
-                                    return Comet::Result<void>::success();
-                                });
-                        },
-                    .load_audio = [this] { return load_player_audio(); },
-                    .active_audio = [this] { return get_engine().get_audio_settings(); },
-                    .apply_audio =
-                        [this](Comet::AudioSettings settings) {
-                            if(!m_player_audio_settings)
-                                return Comet::Result<void>::failure(
-                                    "Player audio settings are unavailable");
-                            return m_player_audio_settings->save_and_apply(
-                                settings, [this](const auto& candidate) {
-                                    const auto applied =
-                                        get_engine().apply_audio_settings(candidate);
-                                    if(!applied)
-                                        return Comet::Result<void>::failure(
-                                            applied.error().message);
-                                    return Comet::Result<void>::success();
-                                });
-                        }});
-            renderer.set_overlay(
-                {.render =
-                        [this](Comet::OverlayRecordContext& overlay) {
-                            if(auto result = m_game_ui->render(overlay); !result)
-                                return result;
-                            auto& command_buffer = overlay.command_buffer();
-                            m_imgui_context->render(command_buffer);
-
-                            return Comet::Result<void, Comet::GraphicsError>::success();
-                        },
-                    .release =
-                        [this] {
-                            m_game_ui->release();
-                            m_imgui_context->release_swapchain_resources();
-                        },
-                    .rebuild =
-                        [this](const Comet::SwapchainCompatibility& compatibility) {
-                            if(auto result = m_game_ui->rebuild(compatibility); !result)
-                                return result;
-                            return m_imgui_context->rebuild_swapchain_resources(compatibility);
-                        }});
-
-            renderer.set_viewport_pick_callback(
-                [this](const std::optional<Comet::ScenePickHit> hit) {
-                    m_viewport->apply_pick(hit, get_engine().get_scene());
-                });
+            setup_game_ui();
+            setup_render_hooks();
 
             LOG_INFO("Editor initialized");
             if(m_recent_projects) {
@@ -339,7 +246,7 @@ namespace {
             const Comet::Engine::FrameContext& frame) override {
             m_viewport->update_texture();
             if(!m_imgui_context->begin_frame()) {
-                m_viewport->panel().cancel_interaction();
+                m_viewport->cancel_interaction();
                 m_game_ui->deactivate();
                 return Comet::Result<void, Comet::Error>::success();
             }
@@ -350,7 +257,7 @@ namespace {
                 bool pointer_blocked = false;
                 if(auto viewport = m_viewport->update(get_engine().get_scene()); !viewport)
                     return viewport;
-                auto& panel = m_viewport->panel();
+                auto& panel = m_viewport->game_panel();
                 if(panel.take_game_ui_reload_request())
                     m_game_ui->reload();
                 const auto output = get_engine().get_renderer().get_offscreen_frame();
@@ -365,7 +272,7 @@ namespace {
                     return Comet::Result<void, Comet::Error>::failure(ui.error());
                 input_blocked |= ui.value().blocked;
                 pointer_blocked = ui.value().pointer_blocked;
-                m_runtime_input = m_viewport->panel().route_runtime_input(
+                m_runtime_input = m_viewport->game_panel().route_runtime_input(
                     frame.physical_input, input_blocked, pointer_blocked);
             }
             m_viewport->submit_feedback(get_engine().get_scene());
@@ -402,9 +309,9 @@ namespace {
             if(m_game_ui)
                 m_game_ui->deactivate();
             m_game_ui.reset();
-            get_engine().get_renderer().set_viewport_pick_callback({});
+            get_engine().get_renderer().set_viewport_pick_callback({}, m_scene_view);
             if(m_viewport)
-                m_viewport->panel().cancel_interaction();
+                m_viewport->cancel_interaction();
             if(m_inspector_panel)
                 m_inspector_panel->reset_for_scene_change();
             else
@@ -438,6 +345,111 @@ namespace {
         }
 
     private:
+        void setup_game_ui() {
+            auto& engine = get_engine();
+            auto& renderer = engine.get_renderer();
+            m_viewport->game_panel().set_game_ui_available(m_project.ui().has_value());
+            auto display = load_player_display();
+            if(display)
+                m_viewport->game_panel().set_play_resolution(
+                    {static_cast<uint32_t>(display.value().width),
+                        static_cast<uint32_t>(display.value().height)});
+            else
+                LOG_WARN("Player display settings unavailable: {}", display.error());
+            m_game_ui = std::make_unique<CometEditor::GameUi>(engine.get_window(), renderer,
+                m_project,
+                Comet::Ui::ProjectUi::Services{.load_input = [this] { return load_player_input(); },
+                    .apply_input =
+                        [this](Comet::InputOverrides overrides) {
+                            return apply_player_input(std::move(overrides));
+                        },
+                    .load_display = [this] { return load_player_display(); },
+                    .apply_display =
+                        [this](Comet::DisplaySettings settings) {
+                            if(!m_player_display_settings)
+                                return Comet::Result<void>::failure(
+                                    "Player display settings are unavailable");
+                            const auto current = m_player_display_settings->settings();
+                            if(settings.mode != current.mode || settings.vsync != current.vsync
+                                || settings.output != current.output
+                                || settings.frame_rate_limit != current.frame_rate_limit)
+                                return Comet::Result<void>::failure(
+                                    "Window mode, VSync, HDR and frame rate limit apply only in the standalone App");
+                            return m_player_display_settings->save_and_apply(
+                                settings, [this](const auto& candidate) {
+                                    m_viewport->game_panel().set_play_resolution(
+                                        {static_cast<uint32_t>(candidate.width),
+                                            static_cast<uint32_t>(candidate.height)});
+                                    return Comet::Result<void>::success();
+                                });
+                        },
+                    .load_quality = [this] { return load_player_quality(); },
+                    .apply_quality =
+                        [this](Comet::QualitySettings settings) {
+                            if(!m_player_quality_settings)
+                                return Comet::Result<void>::failure(
+                                    "Player quality settings are unavailable");
+                            return m_player_quality_settings->save_and_apply(
+                                settings, [this](const auto& candidate) {
+                                    const auto applied =
+                                        get_engine().get_renderer().request_quality_settings(
+                                            candidate);
+                                    if(!applied)
+                                        return Comet::Result<void>::failure(
+                                            applied.error().message);
+                                    return Comet::Result<void>::success();
+                                });
+                        },
+                    .load_audio = [this] { return load_player_audio(); },
+                    .active_audio = [this] { return get_engine().get_audio_settings(); },
+                    .apply_audio =
+                        [this](Comet::AudioSettings settings) {
+                            if(!m_player_audio_settings)
+                                return Comet::Result<void>::failure(
+                                    "Player audio settings are unavailable");
+                            return m_player_audio_settings->save_and_apply(
+                                settings, [this](const auto& candidate) {
+                                    const auto applied =
+                                        get_engine().apply_audio_settings(candidate);
+                                    if(!applied)
+                                        return Comet::Result<void>::failure(
+                                            applied.error().message);
+                                    return Comet::Result<void>::success();
+                                });
+                        }});
+        }
+
+        void setup_render_hooks() {
+            auto& renderer = get_engine().get_renderer();
+            renderer.set_overlay(
+                {.render =
+                        [this](Comet::OverlayRecordContext& overlay) {
+                            if(auto result = m_game_ui->render(overlay); !result)
+                                return result;
+                            auto& command_buffer = overlay.command_buffer();
+                            m_imgui_context->render(command_buffer);
+
+                            return Comet::Result<void, Comet::GraphicsError>::success();
+                        },
+                    .release =
+                        [this] {
+                            m_game_ui->release();
+                            m_imgui_context->release_swapchain_resources();
+                        },
+                    .rebuild =
+                        [this](const Comet::SwapchainCompatibility& compatibility) {
+                            if(auto result = m_game_ui->rebuild(compatibility); !result)
+                                return result;
+                            return m_imgui_context->rebuild_swapchain_resources(compatibility);
+                        }});
+
+            renderer.set_viewport_pick_callback(
+                [this](const std::optional<Comet::ScenePickHit> hit) {
+                    m_viewport->apply_pick(hit, get_engine().get_scene());
+                },
+                m_scene_view);
+        }
+
         Comet::Result<Comet::DisplaySettings> load_player_display() {
             if(!m_player_display_settings) {
                 auto loaded = Comet::PlayerDisplaySettings::load(
@@ -492,7 +504,7 @@ namespace {
         }
 
         bool finish_active_edit() {
-            m_viewport->panel().cancel_interaction();
+            m_viewport->cancel_interaction();
             if(m_inspector_panel->finish_edit() && process_asset_edit())
                 return true;
             LOG_ERROR("Cannot finish active property edit; editor request rejected");
@@ -705,7 +717,7 @@ namespace {
             else
                 static_cast<void>(m_property_edit.cancel());
             if(m_viewport)
-                m_viewport->panel().cancel_interaction();
+                m_viewport->cancel_interaction();
             m_player_input_panel.close();
             if(m_game_ui)
                 m_game_ui->deactivate();
@@ -849,10 +861,15 @@ namespace {
 
             m_hierarchy_panel = std::make_unique<CometEditor::HierarchyPanel>(
                 *m_selection, m_command_history, m_editor_state, m_scene_editor->clipboard());
+            auto scene_view = get_engine().get_renderer().create_offscreen_view({640, 480});
+            if(!scene_view)
+                return Comet::Result<void, Comet::Error>::failure(scene_view.error().as_error());
+            m_scene_view = scene_view.value();
             m_viewport = std::make_unique<CometEditor::Viewport>(m_editor_state,
                 get_engine().get_scene_runtime(), *m_selection, m_command_history,
                 m_component_registry, m_property_edit, m_shortcuts, get_engine().get_renderer(),
-                get_engine().get_asset_registry(), *m_imgui_context, std::move(sampler).value());
+                get_engine().get_asset_registry(), *m_imgui_context, std::move(sampler).value(),
+                m_scene_view);
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(m_editor_state,
                 *m_selection, m_command_history, m_property_edit, m_component_registry,
                 m_property_editor_registry, m_assets->database(), get_engine().get_asset_registry(),
@@ -863,6 +880,7 @@ namespace {
                 m_command_history);
             m_menu_bar->register_panel(*m_hierarchy_panel);
             m_menu_bar->register_panel(m_viewport->panel());
+            m_menu_bar->register_panel(m_viewport->game_panel());
             m_menu_bar->register_panel(*m_inspector_panel);
             m_menu_bar->register_panel(*m_project_panel);
             m_menu_bar->register_panel(*m_console_panel);
@@ -884,6 +902,7 @@ namespace {
             m_menu_bar->render(current_saved_scene(), m_project.startup_scene(), recent);
             m_hierarchy_panel->render();
             m_viewport->panel().render();
+            m_viewport->game_panel().render();
             m_inspector_panel->render();
             m_project_panel->render();
             ImGui::EndDisabled();
@@ -919,7 +938,7 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> handle_mesh_drop(
-            const CometEditor::ViewportPanel::MeshDrop& request) {
+            const CometEditor::SceneViewportPanel::MeshDrop& request) {
             if(!finish_active_edit())
                 return Comet::Result<void, Comet::Error>::success();
             const auto& asset = request.asset;
@@ -1111,7 +1130,7 @@ namespace {
             const auto menu_request = m_menu_bar->take_request();
             const auto mesh_drop = m_viewport->panel().take_mesh_drop();
             const auto asset_assignment = m_inspector_panel->take_asset_assignment();
-            const auto play_command = m_viewport->panel().take_play_command();
+            const auto play_command = m_viewport->game_panel().take_play_command();
             const auto file_request = m_path_dialog.take_request();
             const bool dialog_cancelled = m_path_dialog.take_cancelled();
             if(dialog_cancelled) {
@@ -1277,6 +1296,7 @@ namespace {
 
         std::unique_ptr<CometEditor::MenuBar> m_menu_bar;
         std::unique_ptr<CometEditor::HierarchyPanel> m_hierarchy_panel;
+        Comet::Renderer::ViewId m_scene_view = Comet::Renderer::DEFAULT_VIEW;
         std::unique_ptr<CometEditor::Viewport> m_viewport;
         std::unique_ptr<CometEditor::InspectorPanel> m_inspector_panel;
         std::unique_ptr<CometEditor::ProjectPanel> m_project_panel;

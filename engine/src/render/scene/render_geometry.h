@@ -24,8 +24,9 @@ namespace Comet {
         RenderGeometry& operator=(const RenderGeometry&) = delete;
 
         void prepare(const RenderWorld& world);
-        void clear();
-        // 列表和界限只借用到下一次 prepare／clear。
+        void clear_frame();
+        void reset();
+        // 列表和界限只借用到下一次 prepare／clear_frame／reset。
         [[nodiscard]] std::span<const Item> get_items() const { return m_items; }
         [[nodiscard]] const std::optional<BoundingBox>& get_scene_bounds() const {
             return m_scene_bounds;

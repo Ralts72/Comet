@@ -36,7 +36,8 @@ namespace Comet {
         // 显式创建指定尺寸的离屏输出。
         static Result<std::unique_ptr<SceneRenderer>, GraphicsError> create(Device& device,
             MaterialPrograms& programs, RenderResources& resources, const VulkanSettings& vulkan,
-            const RenderSettings& render, Math::Vec2u size);
+            const RenderSettings& render, Math::Vec2u size,
+            std::shared_ptr<ShadowPass> shadow = {});
         // 按 scene_output 选择输出；离屏模式以交换链尺寸初始化。
         static Result<std::unique_ptr<SceneRenderer>, GraphicsError> create(Device& device,
             MaterialPrograms& programs, RenderResources& resources, const VulkanSettings& vulkan,
@@ -70,30 +71,30 @@ namespace Comet {
 
     private:
         friend class Renderer;
+        struct RenderState;
         SceneRenderer(Device& device, MaterialPrograms& programs, const VulkanSettings& vulkan,
-            const RenderSettings& render);
+            const RenderSettings& render, std::shared_ptr<ShadowPass> shadow = {});
         void skip_frame();
+        MaterialRenderer& get_material_renderer();
+        const std::shared_ptr<ShadowPass>& get_shadow_pass() const { return m_shadow; }
         void collect_removed_assets(const AssetRegistry& assets);
         Result<void, GraphicsError> configure_bloom(bool enabled);
         Result<void, GraphicsError> validate_quality_settings(
             const QualitySettings& settings) const;
-        Result<void, GraphicsError> configure_quality(
-            RenderResources& resources, Swapchain& swapchain, const QualitySettings& settings);
         Result<void, GraphicsError> configure_output_calibration(float headroom, float white_level);
-        [[nodiscard]] Result<MaterialRenderer::MaterialUpdate, GraphicsError>
-        prepare_material_update(
-            AssetHandle handle, const std::shared_ptr<const Material>& material);
         Result<void, GraphicsError> configure_presentation(
             RenderResources& resources, Swapchain& swapchain);
         Result<void, GraphicsError> configure_offscreen(
             RenderResources& resources, Math::Vec2u size);
-        Result<MaterialRenderer::ReloadReport, GraphicsError> reload_material_shaders(
-            MaterialShaders shaders);
+        Result<MaterialRenderer::ShaderUpdate, GraphicsError> prepare_material_shaders(
+            const MaterialShaders& shaders);
         void release_presentation_target();
         Result<void, GraphicsError> rebuild_presentation_target(RenderResources& resources,
             Swapchain& swapchain, const SwapchainCompatibility& compatibility);
 
-        struct RenderState;
+        Result<std::shared_ptr<RenderState>, GraphicsError> prepare_quality(
+            RenderResources& resources, Swapchain& swapchain, const QualitySettings& settings);
+        void install_quality(std::shared_ptr<RenderState> state, const QualitySettings& settings);
         Result<void, GraphicsError> rebuild_graph(RenderState& state, bool bloom_enabled);
         struct TargetRetry {
             Math::Vec2u size;
@@ -121,6 +122,7 @@ namespace Comet {
         QualitySettings m_quality;
         uint32_t m_frame_slot_count;
         PostProcessSettings m_post_process;
+        std::shared_ptr<ShadowPass> m_shadow;
         std::shared_ptr<RenderState> m_state;
         std::optional<TargetRetry> m_resize_failure;
         std::optional<TargetRetry> m_post_process_failure;

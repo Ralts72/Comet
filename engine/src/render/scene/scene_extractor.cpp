@@ -116,7 +116,7 @@ namespace Comet {
     void SceneExtractor::update_items(Scene& scene, RenderScene& output) {
         auto& items = output.render_items;
         auto& changes = output.item_changes;
-        for(const auto& change : scene.m_render_changes) {
+        for(const auto& change : scene.render_changes().entities) {
             const auto index = entt::to_entity(change.handle);
             auto slot = items.size();
             if(index < m_slots_by_entity.size()) {
@@ -169,14 +169,14 @@ namespace Comet {
     void SceneExtractor::update(Scene& scene, RenderScene& output) {
         if(m_scene_lifetime == scene.get_lifetime() && m_revision == scene.get_render_revision())
             return;
+        const auto batch = scene.render_changes();
         const bool full = m_scene_lifetime != scene.get_lifetime()
-                          || m_revision != scene.m_render_changes_base
-                          || scene.m_render_full_update;
+                          || m_revision != batch.base_revision || batch.full_update;
         output.item_changes.begin_update(full);
         if(full) {
             const bool rebuild_slots =
                 !m_matches_storage_order || m_scene_lifetime != scene.get_lifetime()
-                || m_revision != scene.m_render_changes_base || scene.m_render_structure_changed;
+                || m_revision != batch.base_revision || batch.structure_changed;
             SceneExtractor* slots = nullptr;
             if(rebuild_slots)
                 slots = this;
@@ -185,18 +185,12 @@ namespace Comet {
             scene.update_world_transforms();
             extract_views(scene, output);
             update_items(scene, output);
-            if(scene.m_render_structure_changed)
+            if(batch.structure_changed)
                 m_matches_storage_order = false;
         }
         m_scene_lifetime = scene.get_lifetime();
-        m_revision = scene.get_render_revision();
-        scene.m_render_changes_base = m_revision;
-        // 限制全量运动时的记录成本；小场景仍按对象数缩小局部批次。
-        scene.m_render_change_limit =
-            std::clamp<std::size_t>(scene.component_count<MeshRendererComponent>() / 4, 8, 64);
-        scene.m_render_full_update = false;
-        scene.m_render_structure_changed = false;
-        scene.m_render_changes.clear();
-        scene.m_dirty_render_entities.clear();
+        m_revision = batch.revision;
+        scene.acknowledge_render_changes(m_revision,
+            std::clamp<std::size_t>(scene.component_count<MeshRendererComponent>() / 4, 8, 64));
     }
 }

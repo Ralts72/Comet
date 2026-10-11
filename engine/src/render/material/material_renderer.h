@@ -43,7 +43,7 @@ namespace Comet {
         public:
             MaterialUpdate(MaterialUpdate&&) = default;
             MaterialUpdate& operator=(MaterialUpdate&&) = default;
-            // 帧边界发布；编辑器可保留回退候选，期间不可重建 renderer 或发布 Shader。
+            // 候选只用于一次帧边界提交；跨帧撤销保存 CPU 材质并重新准备。
             void publish() &&;
 
         private:
@@ -85,10 +85,27 @@ namespace Comet {
             double material_gpu_ms = 0;
         };
 
+        class COMET_API ShaderUpdate {
+        public:
+            ShaderUpdate(ShaderUpdate&&) noexcept;
+            ShaderUpdate& operator=(ShaderUpdate&&) noexcept;
+            ~ShaderUpdate();
+            [[nodiscard]] const ReloadReport& report() const;
+            void publish() &&;
+
+        private:
+            friend class MaterialRenderer;
+            struct State;
+            explicit ShaderUpdate(std::unique_ptr<State> state);
+            std::unique_ptr<State> m_state;
+        };
+
         static Result<std::unique_ptr<MaterialRenderer>, GraphicsError> create(Device& device,
             PipelineManager& pipelines, RenderResources& resources, uint32_t frame_slot_count,
             SampleCount samples, const MaterialShaders* shaders = nullptr,
             MaterialPrograms* programs = nullptr, std::optional<float> max_anisotropy = {});
+        [[nodiscard]] Result<ShaderUpdate, GraphicsError> prepare_shaders(
+            PipelineManager& pipelines, const MaterialShaders& shaders, SampleCount samples);
         // 帧边界提交任意完整顶点/片元程序对；所有候选成功后才替换。
         Result<ReloadReport, GraphicsError> reload_shaders(
             PipelineManager& pipelines, const MaterialShaders& shaders, SampleCount samples);
@@ -96,7 +113,13 @@ namespace Comet {
             const;
         [[nodiscard]] Result<MaterialUpdate, GraphicsError> prepare_material_update(
             AssetHandle handle, const std::shared_ptr<const Material>& material);
+        [[nodiscard]] static Result<std::vector<MaterialUpdate>, GraphicsError>
+        prepare_material_updates(std::span<MaterialRenderer* const> renderers, AssetHandle handle,
+            const std::shared_ptr<const Material>& material);
         [[nodiscard]] Result<void, GraphicsError> prepare_programs(const RenderWorld& world);
+        // 所有目标的候选准备完成后，才发布共享布局和各自的 Pipeline。
+        [[nodiscard]] static Result<void, GraphicsError> prepare_programs(
+            std::span<MaterialRenderer* const> renderers, const RenderWorld& world);
         // 调用方须先等待槽位、开启场景通道并设置视口与裁剪区域。
         // shadow_map 必须已处于片元 SampledRead；即使关闭阴影也需有效采样绑定。
         [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render(
@@ -175,6 +198,11 @@ namespace Comet {
             const ResolvedRenderItem* requested_input = nullptr; // 程序准备借用，同步时清空。
             bool used = false;
         };
+        struct ProjectUpdate {
+            std::shared_ptr<const PipelineState> pipeline;
+            MaterialRuntimeCache prepared;
+            std::map<MaterialInstanceKey, CachedMaterial> materials;
+        };
         struct DrawItem {
             const ResolvedRenderItem* item;
             std::shared_ptr<MaterialResources> material;
@@ -182,6 +210,7 @@ namespace Comet {
             uint32_t first_instance = 0;
         };
 
+        void sync_world_inputs(const RenderWorld& world);
         void sync_runtime_instances();
         void sync_program_inputs();
         void update_frame_resources(FrameScheduler& frames, const RenderSubmission& submission,
@@ -213,11 +242,14 @@ namespace Comet {
             SampleCount samples,
             std::unordered_map<std::string, std::shared_ptr<const PipelineState>>& candidates,
             ReloadReport& report);
-        Result<void, GraphicsError> install_project_pipeline(AssetHandle handle,
-            const std::string& template_name, const std::shared_ptr<const PipelineState>& builtin,
-            ProjectPipeline& active, const std::shared_ptr<const ShaderProgramArtifact>& version);
-        Result<std::shared_ptr<const PipelineState>, GraphicsError> project_pipeline(
-            AssetHandle handle, const std::string& template_name);
+        static Result<void, GraphicsError> refresh_program(
+            std::span<MaterialRenderer* const> renderers, AssetHandle handle,
+            const std::string& template_name);
+        Result<MaterialUpdate, GraphicsError> prepare_material_bindings(
+            AssetHandle handle, const std::shared_ptr<const Material>& material);
+        Result<ProjectUpdate, GraphicsError> prepare_project_pipeline(AssetHandle handle,
+            const std::string& template_name, ProjectPipeline& active,
+            const std::shared_ptr<const ShaderProgramArtifact>& version);
         // 成功空值表示本次无可绘制版本；失败表示不能继续当前帧。
         [[nodiscard]] Result<std::shared_ptr<MaterialResources>, GraphicsError> prepare_material(
             const MaterialBinding& material, uint64_t frame_serial);
@@ -246,5 +278,6 @@ namespace Comet {
         std::vector<Math::Mat4> m_instance_transforms;
         Statistics m_statistics;
         bool m_has_runtime_instances = false;
+        uint64_t m_collected_asset_revision = 0;
     };
 }

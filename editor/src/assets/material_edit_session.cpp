@@ -61,13 +61,6 @@ namespace CometEditor {
         if(!candidate)
             return Result::failure(candidate.error());
         auto original = candidate.value().expected_material();
-        std::optional<Comet::MaterialRenderer::MaterialUpdate> rollback;
-        if(!m_active) {
-            auto prepared = m_renderer.prepare_material_update(edit.handle, original);
-            if(!prepared)
-                return Result::failure(prepared.error().as_error());
-            rollback.emplace(std::move(prepared).value());
-        }
         auto bindings =
             m_renderer.prepare_material_update(edit.handle, candidate.value().material());
         if(!bindings)
@@ -79,8 +72,7 @@ namespace CometEditor {
             std::get<MaterialEdit>(m_active->edit.value).after = change->after;
             m_active->candidate = std::move(candidate).value();
         } else {
-            m_active.emplace(ActiveEdit{
-                edit, std::move(original), std::move(candidate).value(), std::move(*rollback)});
+            m_active.emplace(ActiveEdit{edit, std::move(original), std::move(candidate).value()});
         }
         return Result::success();
     }
@@ -103,9 +95,16 @@ namespace CometEditor {
     Comet::Result<void, Comet::Error> MaterialEditSession::cancel() {
         if(!m_active)
             return Comet::Result<void, Comet::Error>::success();
+        auto bindings =
+            m_renderer.prepare_material_update(m_active->edit.handle, m_active->original);
+        if(!bindings)
+            return Comet::Result<void, Comet::Error>::failure(bindings.error().as_error());
         auto restored = m_assets.restore_material_preview(m_active->candidate, m_active->original);
-        if(restored)
-            std::move(m_active->rollback).publish();
+        if(!restored) {
+            m_active.reset();
+            return restored;
+        }
+        std::move(bindings).value().publish();
         m_active.reset();
         return restored;
     }

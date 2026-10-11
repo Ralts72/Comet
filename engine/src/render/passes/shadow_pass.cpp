@@ -74,12 +74,20 @@ namespace Comet {
         return m_target->get_framebuffer(slot)->get_attachments().front();
     }
 
-    LightingData ShadowPass::prepare(
-        const RenderSubmission& submission, const RenderGeometry& geometry) {
-        auto lighting = LightingData::prepare(submission.world.lights);
-        if(submission.view_project_matrix && geometry.get_scene_bounds())
+    LightingData ShadowPass::prepare(const RenderWorld& world, const RenderGeometry& geometry) {
+        auto lighting = LightingData::prepare(world.lights);
+        if(geometry.get_scene_bounds())
             lighting.prepare_shadow(*geometry.get_scene_bounds(), RESOLUTION);
         return lighting;
+    }
+
+    const LightingData& ShadowPass::prepare_frame(
+        const uint64_t serial, const RenderWorld& world, const RenderGeometry& geometry) {
+        if(m_prepared_serial != serial) {
+            m_lighting = prepare(world, geometry);
+            m_prepared_serial = serial;
+        }
+        return m_lighting;
     }
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> ShadowPass::render(
@@ -147,6 +155,7 @@ namespace Comet {
         }
         m_target->end_render_target(command);
         m_draw_queue.clear();
+        m_rendered_serial = frames.get_current_frame_serial();
         return Draw::success(std::move(waits));
     }
 }

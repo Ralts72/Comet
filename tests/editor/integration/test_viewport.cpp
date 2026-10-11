@@ -199,7 +199,7 @@ namespace CometEditor::Tests {
 
     TEST(ViewportTest, RendersAcrossSceneChangesAndIgnoresPlayPicking) {
         Comet::Config config;
-        config.window.width = 640;
+        config.window.width = 1000;
         config.window.height = 480;
         config.vulkan.enable_validation = true;
         auto engine_result = Comet::Engine::create(config);
@@ -214,6 +214,10 @@ namespace CometEditor::Tests {
         auto& ui = *ui_result.value();
         Comet::Scene first_scene;
         Comet::Scene second_scene;
+        first_scene.create_entity().add_component<Comet::CameraComponent>(
+            Comet::CameraComponent{.primary = true});
+        second_scene.create_entity().add_component<Comet::CameraComponent>(
+            Comet::CameraComponent{.primary = true});
         auto* active_scene = &first_scene;
         SelectionService selection(first_scene);
         CommandHistory history;
@@ -224,8 +228,11 @@ namespace CometEditor::Tests {
         EditorShortcuts shortcuts;
         auto sampler = renderer.get_render_resources().get_sampler_manager().get_nearest_clamp();
         ASSERT_TRUE(sampler) << sampler.error();
+        auto scene_view = renderer.create_offscreen_view({320, 240});
+        ASSERT_TRUE(scene_view) << scene_view.error();
         Viewport viewport(state, engine.get_scene_runtime(), selection, history, components, edit,
-            shortcuts, renderer, engine.get_asset_registry(), ui, std::move(sampler).value());
+            shortcuts, renderer, engine.get_asset_registry(), ui, std::move(sampler).value(),
+            scene_view.value());
         renderer.set_overlay({.render = [&](Comet::OverlayRecordContext& overlay) {
             auto& command_buffer = overlay.command_buffer();
             ui.render(command_buffer);
@@ -246,8 +253,13 @@ namespace CometEditor::Tests {
             if(!ui.begin_frame())
                 return false;
             ImGui::SetNextWindowPos({0, 0});
-            ImGui::SetNextWindowSize({600, 400});
+            ImGui::SetNextWindowSize({500, 400});
             viewport.panel().render();
+            ImGui::SetNextWindowPos({520, 0});
+            ImGui::SetNextWindowSize({450, 400});
+            viewport.game_panel().render();
+            EXPECT_NE(ui.get_viewport_texture_id(frame.slot),
+                ui.get_viewport_texture_id(frame.slot, scene_view.value()));
             const auto updated = viewport.update(active_scene);
             ui.end_frame();
             EXPECT_TRUE(updated);
@@ -295,7 +307,7 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(viewport.panel().is_visible());
 
         renderer.set_overlay({});
-        viewport.panel().cancel_interaction();
+        viewport.cancel_interaction();
         renderer.get_render_context().wait_idle();
     }
 }

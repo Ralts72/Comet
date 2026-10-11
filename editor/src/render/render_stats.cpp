@@ -146,6 +146,8 @@ namespace CometEditor {
         else if(!capturing)
             ImGui::TextWrapped("%s", "已停止采集，显示最后的采样。");
         ImGui::TextWrapped("%s", "近 1 秒均值 / 峰值；显示每 250 毫秒刷新。");
+        ImGui::TextWrapped(
+            "%s", "渲染图统计优先采集游戏视图，游戏隐藏时采集场景视图；整帧时间包含所有视图。");
         if(capturing && !m_paused && !m_display.scene_rendered)
             ImGui::TextWrapped("%s", "当前未绘制场景；图耗时仅展示近期历史。");
 
@@ -153,7 +155,7 @@ namespace CometEditor {
             ImGui::TableNextColumn();
             show_summary("CPU 整帧（包含等待）", m_display.frame);
             ImGui::TableNextColumn();
-            show_summary("GPU 场景渲染图（不含 UI）", m_display.gpu);
+            show_summary("GPU 单视图渲染图（不含 UI）", m_display.gpu);
             ImGui::EndTable();
         }
         if(!m_display.gpu_supported)
@@ -183,7 +185,7 @@ namespace CometEditor {
                 ImGui::TextUnformatted("CPU 整帧（包含等待）");
                 show_trend(m_display.frame);
                 ImGui::TableNextColumn();
-                ImGui::TextUnformatted("GPU 场景渲染图（不含 UI）");
+                ImGui::TextUnformatted("GPU 单视图渲染图（不含 UI）");
                 show_trend(m_display.gpu);
                 ImGui::EndTable();
             }
@@ -193,7 +195,7 @@ namespace CometEditor {
         if(ImGui::CollapsingHeader("CPU 阶段明细###CPU phase details")) {
             show_details("frame_phases", m_display.frame);
             ImGui::TextWrapped("%s", "场景提取已计入渲染 / 提交，不重复相加。");
-            show_summary("CPU 场景准备（所列阶段）", m_display.preparation);
+            show_summary("CPU 世界与单视图准备", m_display.preparation);
             show_details("scene_preparation", m_display.preparation);
             ImGui::TextWrapped("%s", "准备阶段已计入渲染 / 提交，不属于渲染图录制耗时。");
             show_summary("CPU 提交与呈现（包含等待）", m_display.submission);
@@ -202,9 +204,9 @@ namespace CometEditor {
                 "提交准备包含命令结束；队列提交与呈现可能等待驱动或窗口系统，均已计入渲染 / 提交。");
         }
         if(ImGui::CollapsingHeader("渲染阶段明细###Render pass details")) {
-            show_summary("CPU 渲染图录制", m_display.cpu);
+            show_summary("CPU 单视图渲染图录制", m_display.cpu);
             show_details("cpu_passes", m_display.cpu);
-            ImGui::SeparatorText("GPU 场景渲染图（不含 UI）");
+            ImGui::SeparatorText("GPU 单视图渲染图（不含 UI）");
             show_details("gpu_passes", m_display.gpu);
             if(m_display.truncated)
                 ImGui::TextWrapped("%s", "渲染阶段明细已截断；本图不采集 GPU 耗时。");

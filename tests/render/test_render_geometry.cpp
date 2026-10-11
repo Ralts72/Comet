@@ -1,3 +1,4 @@
+#include "support/render_snapshot_assertions.h"
 #include <gtest/gtest.h>
 
 #include "asset/data/mesh_data.h"
@@ -80,7 +81,7 @@ namespace Comet::Tests {
         EXPECT_EQ(geometry.get_scene_bounds()->minimum, Math::Vec3(3, -2, -2));
         EXPECT_EQ(geometry.get_scene_bounds()->maximum, Math::Vec3(7, 2, 2));
 
-        geometry.clear();
+        geometry.clear_frame();
         EXPECT_TRUE(geometry.get_items().empty());
         EXPECT_FALSE(geometry.get_scene_bounds());
         items.clear();
@@ -129,17 +130,11 @@ namespace Comet::Tests {
             const auto fresh = reference_resolver.resolve(snapshot);
             RenderGeometry reference;
             reference.prepare(fresh);
-            ASSERT_EQ(world.render_items.size(), fresh.render_items.size());
+            ASSERT_NO_FATAL_FAILURE(
+                expect_render_items_equal(world.render_items, fresh.render_items));
             ASSERT_EQ(geometry.get_items().size(), fresh.render_items.size());
             for(std::size_t index = 0; index < fresh.render_items.size(); ++index) {
                 const auto& actual = world.render_items[index];
-                const auto& expected = fresh.render_items[index];
-                EXPECT_EQ(actual.entity_id, expected.entity_id);
-                EXPECT_EQ(actual.model_matrix, expected.model_matrix);
-                EXPECT_EQ(actual.mesh, expected.mesh);
-                EXPECT_EQ(actual.mesh_revision, expected.mesh_revision);
-                EXPECT_EQ(actual.material.resource, expected.material.resource);
-                EXPECT_EQ(actual.material.asset_revision, expected.material.asset_revision);
                 EXPECT_EQ(geometry.get_items()[index].source, &actual);
                 const auto& bounds = geometry.get_items()[index].world_bounds;
                 const auto& expected_bounds = reference.get_items()[index].world_bounds;
@@ -157,7 +152,7 @@ namespace Comet::Tests {
                 EXPECT_EQ(
                     geometry.get_scene_bounds()->maximum, reference.get_scene_bounds()->maximum);
             }
-            geometry.clear();
+            geometry.clear_frame();
             EXPECT_TRUE(geometry.get_items().empty());
             EXPECT_FALSE(geometry.get_scene_bounds());
         };
@@ -237,14 +232,14 @@ namespace Comet::Tests {
                 other.update(scene, other_snapshot);
                 resolver.resolve(other_snapshot, world);
                 geometry.prepare(world);
-                geometry.clear();
+                geometry.clear_frame();
             }
             check();
             if(step % 16 == 12) {
                 EXPECT_FALSE(world.item_changes.full_update);
                 EXPECT_EQ(world.item_changes.slots.size(), 1u);
             }
-            EXPECT_TRUE(world.pending_asset_slots.empty());
+            EXPECT_TRUE(world.resolution.pending_asset_slots.empty());
             check();
         }
         for(auto entity : entities)
@@ -363,7 +358,7 @@ namespace Comet::Tests {
             ASSERT_TRUE(reference.get_scene_bounds());
             EXPECT_EQ(geometry.get_scene_bounds()->minimum, reference.get_scene_bounds()->minimum);
             EXPECT_EQ(geometry.get_scene_bounds()->maximum, reference.get_scene_bounds()->maximum);
-            geometry.clear();
+            geometry.clear_frame();
             entities[filtered].add_component<TransformComponent>();
         }
         ASSERT_EQ(frozen.render_items.size(), 32u);
@@ -405,7 +400,7 @@ namespace Comet::Tests {
             ASSERT_TRUE(geometry.get_scene_bounds());
             EXPECT_EQ(geometry.get_scene_bounds()->minimum.x, minimum);
             EXPECT_EQ(geometry.get_scene_bounds()->maximum.x, maximum);
-            geometry.clear();
+            geometry.clear_frame();
             EXPECT_TRUE(geometry.get_items().empty());
             EXPECT_FALSE(geometry.get_scene_bounds());
         };
@@ -486,7 +481,7 @@ namespace Comet::Tests {
         const auto frozen = world;
         for(const auto& item : frozen.render_items)
             EXPECT_EQ(item.mesh_revision, assets.get_revision(mesh));
-        geometry.clear();
+        geometry.clear_frame();
         EXPECT_TRUE(geometry.get_items().empty());
         resolve();
         parent.set_transform({.translation = {5, 0, 0}});

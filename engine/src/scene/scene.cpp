@@ -435,6 +435,32 @@ namespace Comet {
         return false;
     }
 
+    Scene::RenderChanges Scene::render_changes() const {
+        return {m_render_revision, m_render_changes_base, m_render_full_update,
+            m_render_structure_changed, m_render_changes};
+    }
+
+    void Scene::acknowledge_render_changes(const uint64_t revision, const std::size_t next_limit) {
+        if(revision != m_render_revision)
+            return;
+        m_render_changes_base = revision;
+        m_render_change_limit = next_limit;
+        m_render_full_update = false;
+        m_render_structure_changed = false;
+        m_render_changes.clear();
+        m_dirty_render_entities.clear();
+    }
+
+    Scene::PhysicsChanges Scene::physics_changes() const {
+        return {m_physics_structure_changed,
+            {m_dirty_physics_entities.data(), m_dirty_physics_entities.size()}};
+    }
+
+    void Scene::acknowledge_physics_changes() {
+        m_dirty_physics_entities.clear();
+        m_physics_structure_changed = false;
+    }
+
     void Scene::record_render_change(const entt::entity handle) {
         if(m_render_full_update || m_dirty_render_entities.contains(handle))
             return;

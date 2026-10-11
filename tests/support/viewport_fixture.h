@@ -13,7 +13,7 @@
 #include <imgui_internal.h>
 
 namespace CometEditor::Tests {
-    class ViewportUiTest: public ::testing::Test {
+    template<typename Panel> class BasicViewportUiTest: public ::testing::Test {
     protected:
         Comet::Tests::ImGuiTestContext imgui{{1000, 800}};
         Comet::Scene scene;
@@ -26,7 +26,13 @@ namespace CometEditor::Tests {
         SelectionService selection{scene};
         EditorState state;
         EditorShortcuts shortcuts;
-        ViewportPanel viewport{state, runtime, selection, gizmo, property_edit, 4096, shortcuts};
+        static constexpr bool game = std::is_same_v<Panel, GameViewportPanel>;
+        Panel viewport = [&]() -> Panel {
+            if constexpr(game)
+                return Panel(state, runtime, 4096);
+            else
+                return Panel(state, selection, gizmo, property_edit, 4096, shortcuts);
+        }();
         int gizmo_vertices = 0;
         bool mesh_drag = false;
         bool show_other_panel = false;
@@ -73,9 +79,10 @@ namespace CometEditor::Tests {
             ImGui::SetNextWindowPos(ImVec2(20, 40));
             ImGui::SetNextWindowSize(viewport_size);
             viewport.render();
-            auto* window = ImGui::FindWindowByName("Viewport");
+            auto* window = ImGui::FindWindowByName(game ? "GameViewport" : "Viewport");
             const int before = window ? window->DrawList->VtxBuffer.Size : 0;
-            viewport.draw_gizmo();
+            if constexpr(!game)
+                viewport.draw_gizmo();
             gizmo_vertices = window ? window->DrawList->VtxBuffer.Size - before : 0;
             if(open_popup_after_viewport) {
                 ImGui::OpenPopup("Block runtime");
@@ -93,8 +100,13 @@ namespace CometEditor::Tests {
                 ImGui::InputText("Name", text, sizeof(text));
                 ImGui::End();
             }
-            const auto& routed =
-                viewport.route_runtime_input(runtime_input.publish_frame(), runtime_ui_blocked);
+            const auto routed = [&] {
+                const auto& input = runtime_input.publish_frame();
+                if constexpr(game)
+                    return viewport.route_runtime_input(input, runtime_ui_blocked);
+                else
+                    return Comet::Input::Frame{};
+            }();
             runtime_accepting = routed.focused;
             if(state.mode == EditorMode::Play) {
                 EXPECT_TRUE(runtime.advance(0.1, &routed));
@@ -142,4 +154,6 @@ namespace CometEditor::Tests {
         }
     };
 
+    using ViewportUiTest = BasicViewportUiTest<SceneViewportPanel>;
+    using GameViewportUiTest = BasicViewportUiTest<GameViewportPanel>;
 }

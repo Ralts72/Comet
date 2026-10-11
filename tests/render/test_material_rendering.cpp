@@ -583,9 +583,10 @@ namespace Comet::Tests {
         ASSERT_TRUE(owner);
         auto& scene_renderer = *owner.value();
         SceneResolver resolver(assets);
+        RenderCameraResolver camera_resolver;
         auto world = resolver.resolve(scene);
         const RenderSubmission submission{
-            world, resolver.resolve_camera(world, {.render_size = {64, 32}})};
+            world, camera_resolver.resolve(world, {.render_size = {64, 32}})};
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         frames.wait_for_current_slot();
@@ -682,6 +683,63 @@ namespace Comet::Tests {
         std::unique_ptr<MaterialPrograms> programs;
         std::unique_ptr<MaterialRenderer> materials;
     };
+
+    TEST_F(ProjectMaterialPublicationTest, ProjectProgramPublicationWaitsForEveryViewCandidate) {
+        auto& assets = engine->get_asset_registry();
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        TemporaryDirectory temporary;
+        const auto path = temporary.path() / "relocated.frag";
+        const auto shader_directory = std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders";
+        auto source_text = read_text_file(shader_directory / "material/pbr.frag");
+        ASSERT_TRUE(source_text) << source_text.error();
+        constexpr std::string_view binding = "layout(set = 1, binding = 1)";
+        const auto offset = source_text.value().find(binding);
+        ASSERT_NE(offset, std::string::npos);
+        source_text.value().replace(offset, binding.size(), "layout(set = 1, binding = 7)");
+        ASSERT_TRUE(write_text_file_atomic(path, source_text.value()));
+        const auto compiled = ShaderCompiler::compile({.source = path,
+            .stage = ShaderStage::Fragment,
+            .include_directories = {shader_directory / "material"}});
+        ASSERT_TRUE(compiled.succeeded()) << compiled.diagnostics;
+        PipelineManager second_pipelines(device, *pass);
+        const MaterialShaders relocated{
+            {"pbr", {default_material_shaders().at("pbr").vertex, compiled.words}}};
+        auto second_result = MaterialRenderer::create(device, second_pipelines,
+            engine->get_render_resources(), 2, SampleCount::Count1, &relocated, programs.get());
+        ASSERT_TRUE(second_result) << second_result.error();
+        auto second = std::move(second_result).value();
+        const auto prior = program(true);
+        ASSERT_TRUE(assets.register_asset(program_handle, prior));
+        auto source = std::make_shared<Material>("shared", "pbr", program_handle);
+        ASSERT_TRUE(assets.register_asset(first_handle, source));
+        RenderWorld world{.render_items = {{.material = {first_handle, source}}}};
+        const std::array views{materials.get(), second.get()};
+        ASSERT_TRUE(MaterialRenderer::prepare_programs(views, world));
+        ASSERT_EQ(published(), prior);
+        auto keep_prior = materials->prepare_material_update(first_handle, source);
+        ASSERT_TRUE(keep_prior) << keep_prior.error();
+        pipelines->collect_unused();
+        const auto initial_count = pipelines->get_cached_pipeline_count();
+
+        auto candidate = program(true);
+        candidate->material.reset();
+        ASSERT_TRUE(assets.replace_asset(program_handle, candidate));
+        ASSERT_TRUE(MaterialRenderer::prepare_programs(views, world));
+        EXPECT_EQ(published(), prior);
+        EXPECT_NE(messages.str().find("property layout"), std::string::npos);
+        pipelines->collect_unused();
+        EXPECT_EQ(pipelines->get_cached_pipeline_count(), initial_count);
+        const auto rejected = messages.str();
+        ASSERT_TRUE(MaterialRenderer::prepare_programs(views, world));
+        EXPECT_EQ(messages.str(), rejected);
+
+        // 新版本恢复共同布局后，两个目标再一起接受它。
+        const auto compatible = program(true);
+        compatible->material->scalars.front().display_name = "Updated";
+        ASSERT_TRUE(assets.replace_asset(program_handle, compatible));
+        ASSERT_TRUE(MaterialRenderer::prepare_programs(views, world));
+        EXPECT_EQ(published(), compatible);
+    }
 
     TEST_F(ProjectMaterialPublicationTest, RemovedDependencyRetriesOnceButShaderErrorsStayCached) {
         auto& assets = engine->get_asset_registry();

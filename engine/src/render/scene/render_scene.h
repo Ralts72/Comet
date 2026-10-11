@@ -7,6 +7,7 @@
 #include "scene/entity_id.h"
 #include "scene/scene_settings.h"
 
+#include <algorithm>
 #include <optional>
 #include <memory>
 #include <cstddef>
@@ -76,6 +77,31 @@ namespace Comet {
                         items[edit.slot] = std::move(items.back());
                     items.pop_back();
                 }
+            }
+        }
+
+        // 无连续批次时，仅优化单项增删；调用方仍须核对每个实体和版本。
+        template<typename Current, typename Cached>
+        static void align_single_edit(
+            const std::vector<Current>& items, std::vector<Cached>& cache) {
+            const auto previous_size = cache.size();
+            if(items.size() != previous_size + 1 && previous_size != items.size() + 1)
+                return;
+            std::size_t index = 0;
+            while(index < std::min(items.size(), previous_size)
+                  && items[index].entity_id == cache[index].entity_id)
+                ++index;
+            if(items.size() > previous_size
+                && (index == previous_size
+                    || items[index + 1].entity_id == cache[index].entity_id)) {
+                cache.emplace_back();
+                std::move_backward(cache.begin() + index, cache.end() - 1, cache.end());
+                cache[index] = {};
+            } else if(previous_size > items.size()
+                      && (index == items.size()
+                          || items[index].entity_id == cache[index + 1].entity_id)) {
+                std::move(cache.begin() + index + 1, cache.end(), cache.begin() + index);
+                cache.pop_back();
             }
         }
     };

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -185,6 +186,22 @@ namespace Comet {
             entt::entity handle;
             EntityId id;
         };
+
+        struct RenderChanges {
+            uint64_t revision;
+            uint64_t base_revision;
+            bool full_update;
+            bool structure_changed;
+            std::span<const RenderChange> entities;
+        };
+        [[nodiscard]] RenderChanges render_changes() const;
+        void acknowledge_render_changes(uint64_t revision, std::size_t next_limit);
+        struct PhysicsChanges {
+            bool structure_changed;
+            std::span<const entt::entity> entities;
+        };
+        [[nodiscard]] PhysicsChanges physics_changes() const;
+        void acknowledge_physics_changes();
 
         const uint64_t m_lifetime;
         uint64_t m_render_revision = 1;

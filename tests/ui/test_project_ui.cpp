@@ -11,7 +11,9 @@
 #include <algorithm>
 #include <array>
 #include <fstream>
+#include <functional>
 #include <string>
+#include <utility>
 
 namespace Comet::Tests {
     class ProjectUiGpuTest: public EngineTest {
@@ -24,6 +26,7 @@ namespace Comet::Tests {
         bool fail_save = false;
         unsigned loads = 0;
         bool input_blocked = false;
+        std::function<void(GLFWwindow*)> pending_input;
         bool display_services = false;
         bool fail_display_save = false;
         bool preview = false;
@@ -207,6 +210,15 @@ namespace Comet::Tests {
             auto& renderer = engine->get_renderer();
             for(unsigned attempt = 0; attempt < 12; ++attempt) {
                 window.poll_events();
+                if(pending_input) {
+                    // 在 poll 后交付模拟输入，避免系统焦点事件打断测试点击。
+                    const auto focus = glfwSetWindowFocusCallback(window.get(), nullptr);
+                    glfwSetWindowFocusCallback(window.get(), focus);
+                    if(!focus)
+                        return Result<void, GraphicsError>::failure({"Missing focus callback"});
+                    focus(window.get(), GLFW_TRUE);
+                    std::exchange(pending_input, {})(window.get());
+                }
                 auto result = ui->frame(window.publish_input_frame(),
                     {.fps = 60, .display_preview = preview, .vsync_active = vsync_active});
                 if(!result)
@@ -222,12 +234,25 @@ namespace Comet::Tests {
                 {"Project UI presentation remained deferred"});
         }
         void queue_key(int key) {
-            auto* window = engine->get_window().get();
-            const auto callback = glfwSetKeyCallback(window, nullptr);
-            glfwSetKeyCallback(window, callback);
-            ASSERT_NE(callback, nullptr);
-            callback(window, key, 0, GLFW_PRESS, 0);
-            callback(window, key, 0, GLFW_RELEASE, 0);
+            pending_input = [key](GLFWwindow* window) {
+                const auto callback = glfwSetKeyCallback(window, nullptr);
+                glfwSetKeyCallback(window, callback);
+                ASSERT_NE(callback, nullptr);
+                callback(window, key, 0, GLFW_PRESS, 0);
+                callback(window, key, 0, GLFW_RELEASE, 0);
+            };
+        }
+        void queue_mouse(Math::Vec2 position, bool pressed) {
+            pending_input = [position, pressed](GLFWwindow* window) {
+                const auto cursor = glfwSetCursorPosCallback(window, nullptr);
+                glfwSetCursorPosCallback(window, cursor);
+                ASSERT_NE(cursor, nullptr);
+                cursor(window, position.x, position.y);
+                const auto mouse = glfwSetMouseButtonCallback(window, nullptr);
+                glfwSetMouseButtonCallback(window, mouse);
+                ASSERT_NE(mouse, nullptr);
+                mouse(window, GLFW_MOUSE_BUTTON_LEFT, pressed ? GLFW_PRESS : GLFW_RELEASE, 0);
+            };
         }
         Result<void> apply_display(const DisplaySettings& value) {
             if(!preview) {
@@ -735,18 +760,12 @@ return controller
         const auto size = previous->GetBox().GetSize(Rml::BoxArea::Border);
         const auto dimensions = Rml::GetContext(0)->GetDimensions();
         const auto window_size = window.get_size();
-        const auto cursor = glfwSetCursorPosCallback(window.get(), nullptr);
-        glfwSetCursorPosCallback(window.get(), cursor);
-        ASSERT_NE(cursor, nullptr);
-        cursor(window.get(), (offset.x + size.x / 2) * window_size.x / dimensions.x,
-            (offset.y + size.y / 2) * window_size.y / dimensions.y);
-        const auto mouse = glfwSetMouseButtonCallback(window.get(), nullptr);
-        glfwSetMouseButtonCallback(window.get(), mouse);
-        ASSERT_NE(mouse, nullptr);
-        mouse(window.get(), GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, 0);
+        const Math::Vec2 position{(offset.x + size.x / 2) * window_size.x / dimensions.x,
+            (offset.y + size.y / 2) * window_size.y / dimensions.y};
+        queue_mouse(position, true);
         ASSERT_TRUE(submit_frame());
         EXPECT_EQ(Rml::GetContext(0)->GetFocusElement(), previous);
-        mouse(window.get(), GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, 0);
+        queue_mouse(position, false);
         ASSERT_TRUE(submit_frame());
         EXPECT_NE(document().GetElementById("action-name")->GetInnerRML().find("palette.confirm"),
             std::string::npos);

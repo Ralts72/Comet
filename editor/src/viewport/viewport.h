@@ -26,12 +26,14 @@ namespace CometEditor {
             const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
             const EditorShortcuts& shortcuts, Comet::Renderer& renderer,
             Comet::AssetRegistry& assets, Ui::ImGuiContext& ui,
-            std::shared_ptr<Comet::Sampler> sampler);
+            std::shared_ptr<Comet::Sampler> sampler, uint32_t scene_view);
 
         Viewport(const Viewport&) = delete;
         Viewport& operator=(const Viewport&) = delete;
 
-        [[nodiscard]] ViewportPanel& panel() { return m_panel; }
+        [[nodiscard]] SceneViewportPanel& panel() { return m_panel; }
+        [[nodiscard]] GameViewportPanel& game_panel() { return m_game_panel; }
+        void cancel_interaction();
 
         void update_texture();
         // 面板命令处理后、SceneExtractor 提取前调用。
@@ -49,7 +51,9 @@ namespace CometEditor {
         Comet::AssetRegistry& m_assets;
         Ui::ImGuiContext& m_ui;
         std::shared_ptr<Comet::Sampler> m_sampler;
+        uint32_t m_scene_view;
         TransformGizmo m_gizmo;
-        ViewportPanel m_panel;
+        SceneViewportPanel m_panel;
+        GameViewportPanel m_game_panel;
     };
 }

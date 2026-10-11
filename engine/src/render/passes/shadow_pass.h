@@ -26,7 +26,13 @@ namespace Comet {
         ShadowPass(const ShadowPass&) = delete;
         ShadowPass& operator=(const ShadowPass&) = delete;
         [[nodiscard]] static LightingData prepare(
-            const RenderSubmission& submission, const RenderGeometry& geometry);
+            const RenderWorld& world, const RenderGeometry& geometry);
+        // 同一世界帧共享准备结果和深度图；后续 View 只采样已完成的通道。
+        [[nodiscard]] const LightingData& prepare_frame(
+            uint64_t serial, const RenderWorld& world, const RenderGeometry& geometry);
+        [[nodiscard]] bool rendered_in_frame(uint64_t serial) const {
+            return m_rendered_serial == serial;
+        }
         [[nodiscard]] std::shared_ptr<ImageView> get_depth_view(uint32_t slot) const;
         [[nodiscard]] Statistics get_statistics() const { return m_statistics; }
         void reset_statistics() { m_statistics = {}; }
@@ -46,5 +52,8 @@ namespace Comet {
         std::vector<const ResolvedRenderItem*> m_draw_queue;
         std::vector<Math::Mat4> m_transforms;
         Statistics m_statistics;
+        LightingData m_lighting;
+        uint64_t m_prepared_serial = 0;
+        uint64_t m_rendered_serial = 0;
     };
 }

@@ -75,6 +75,10 @@ namespace Comet {
     }
 
     void MaterialRenderer::collect_removed_assets(const AssetRegistry& assets) {
+        const auto revision = assets.get_revision();
+        if(m_collected_asset_revision == revision)
+            return;
+        m_collected_asset_revision = revision;
         // 仅淘汰已注销身份；同 Handle 的旧版本仍可作为准备失败时的回退。
         std::erase_if(m_materials, [&](const auto& entry) {
             if(assets.contains<Material>(entry.first.material_handle))
@@ -272,9 +276,47 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
+    struct MaterialRenderer::ShaderUpdate::State {
+        MaterialRenderer* owner = nullptr;
+        ReloadReport report;
+        std::unordered_map<std::string, std::shared_ptr<const PipelineState>> pipelines;
+        MaterialRuntimeCache prepared;
+        std::map<MaterialInstanceKey, CachedMaterial> materials;
+    };
+
+    MaterialRenderer::ShaderUpdate::ShaderUpdate(std::unique_ptr<State> state)
+        : m_state(std::move(state)) {}
+    MaterialRenderer::ShaderUpdate::ShaderUpdate(ShaderUpdate&&) noexcept = default;
+    MaterialRenderer::ShaderUpdate& MaterialRenderer::ShaderUpdate::operator=(
+        ShaderUpdate&&) noexcept = default;
+    MaterialRenderer::ShaderUpdate::~ShaderUpdate() = default;
+
+    const MaterialRenderer::ReloadReport& MaterialRenderer::ShaderUpdate::report() const {
+        return m_state->report;
+    }
+
+    void MaterialRenderer::ShaderUpdate::publish() && {
+        auto state = std::move(m_state);
+        if(state->report.pipelines == 0)
+            return;
+        state->owner->m_pipelines.swap(state->pipelines);
+        state->owner->m_prepared.swap(state->prepared);
+        state->owner->m_materials.swap(state->materials);
+    }
+
     Result<MaterialRenderer::ReloadReport, GraphicsError> MaterialRenderer::reload_shaders(
         PipelineManager& pipelines, const MaterialShaders& shaders, SampleCount samples) {
-        using Reload = Result<ReloadReport, GraphicsError>;
+        auto candidate = prepare_shaders(pipelines, shaders, samples);
+        if(!candidate)
+            return Result<ReloadReport, GraphicsError>::failure(candidate.error());
+        const auto report = candidate.value().report();
+        std::move(candidate).value().publish();
+        return Result<ReloadReport, GraphicsError>::success(report);
+    }
+
+    Result<MaterialRenderer::ShaderUpdate, GraphicsError> MaterialRenderer::prepare_shaders(
+        PipelineManager& pipelines, const MaterialShaders& shaders, SampleCount samples) {
+        using Reload = Result<ShaderUpdate, GraphicsError>;
         using Clock = std::chrono::steady_clock;
         const auto start = Clock::now();
         const auto elapsed = [](Clock::time_point since) {
@@ -282,8 +324,11 @@ namespace Comet {
         };
         if(auto checked = validate_material_shaders(shaders); !checked)
             return Reload::failure({checked.error()});
-        ReloadReport report;
-        auto candidates = m_pipelines;
+        auto state = std::make_unique<ShaderUpdate::State>();
+        state->owner = this;
+        auto& report = state->report;
+        auto& candidates = state->pipelines;
+        candidates = m_pipelines;
         for(const auto& definition : builtin_material_shaders()) {
             const auto found = shaders.find(definition.name);
             if(found == shaders.end())
@@ -295,10 +340,12 @@ namespace Comet {
         }
         report.pipeline_preparation_ms = elapsed(start);
         if(report.pipelines == 0)
-            return Reload::success(report);
+            return Reload::success(ShaderUpdate(std::move(state)));
         const auto copy_start = Clock::now();
-        auto prepared_candidates = m_prepared;
-        auto material_candidates = m_materials;
+        auto& prepared_candidates = state->prepared;
+        auto& material_candidates = state->materials;
+        prepared_candidates = m_prepared;
+        material_candidates = m_materials;
         report.candidate_copy_ms = elapsed(copy_start);
         for(auto& [handle, cached] : material_candidates) {
             if(!cached.resources || cached.resources->pipeline->shader_program)
@@ -324,10 +371,7 @@ namespace Comet {
             cached.preparation_error.clear();
             ++report.material_versions;
         }
-        m_pipelines.swap(candidates);
-        m_prepared.swap(prepared_candidates);
-        m_materials.swap(material_candidates);
-        return Reload::success(report);
+        return Reload::success(ShaderUpdate(std::move(state)));
     }
 
     std::vector<std::shared_ptr<const MaterialLayout>> MaterialRenderer::get_material_layouts()
@@ -342,20 +386,41 @@ namespace Comet {
     Result<MaterialRenderer::MaterialUpdate, GraphicsError> MaterialRenderer::
         prepare_material_update(
             const AssetHandle handle, const std::shared_ptr<const Material>& material) {
-        using Preparation = Result<MaterialUpdate, GraphicsError>;
+        MaterialRenderer* renderer = this;
+        auto updates = prepare_material_updates(std::span(&renderer, 1), handle, material);
+        if(!updates)
+            return Result<MaterialUpdate, GraphicsError>::failure(updates.error());
+        return Result<MaterialUpdate, GraphicsError>::success(std::move(updates.value().front()));
+    }
+
+    Result<std::vector<MaterialRenderer::MaterialUpdate>, GraphicsError> MaterialRenderer::
+        prepare_material_updates(const std::span<MaterialRenderer* const> renderers,
+            const AssetHandle handle, const std::shared_ptr<const Material>& material) {
+        using Preparation = Result<std::vector<MaterialUpdate>, GraphicsError>;
         if(!handle || !material)
             return Preparation::failure({"Material update requires an identity and source"});
-        std::shared_ptr<const PipelineState> pipeline;
         if(material->get_shader_program()) {
-            auto project =
-                project_pipeline(material->get_shader_program(), material->get_template_name());
-            if(!project)
-                return Preparation::failure(project.error());
-            pipeline = std::move(project).value();
-        } else if(const auto builtin = m_pipelines.find(material->get_template_name());
-            builtin != m_pipelines.end()) {
-            pipeline = builtin->second;
+            if(auto refreshed = refresh_program(
+                   renderers, material->get_shader_program(), material->get_template_name());
+                !refreshed)
+                return Preparation::failure(refreshed.error());
         }
+        std::vector<MaterialUpdate> updates;
+        updates.reserve(renderers.size());
+        for(auto* renderer : renderers) {
+            auto candidate = renderer->prepare_material_bindings(handle, material);
+            if(!candidate)
+                return Preparation::failure(candidate.error());
+            updates.push_back(std::move(candidate).value());
+        }
+        return Preparation::success(std::move(updates));
+    }
+
+    Result<MaterialRenderer::MaterialUpdate, GraphicsError> MaterialRenderer::
+        prepare_material_bindings(
+            const AssetHandle handle, const std::shared_ptr<const Material>& material) {
+        using Preparation = Result<MaterialUpdate, GraphicsError>;
+        const auto& pipeline = find_pipeline(*material);
         if(!pipeline)
             return Preparation::failure({"Material Shader program is not available"});
         MaterialUpdate update;
@@ -394,209 +459,6 @@ namespace Comet {
                 MaterialInput{m_source, m_source->get_revision(), {}});
         }
         m_source.reset();
-    }
-
-    Result<void, GraphicsError> MaterialRenderer::prepare_programs(const RenderWorld& world) {
-        bool requested_instances = false;
-        for(const auto& item : world.render_items) {
-            const auto& material = item.material;
-            if(!material.resource)
-                continue;
-            const auto key = DrawOrder::material_key(material);
-            if(key.instance_id) {
-                requested_instances = true;
-                if(const auto cached = m_materials.find(key); cached != m_materials.end())
-                    cached->second.requested_input = &item;
-            }
-            if(!material.resource->get_shader_program())
-                continue;
-            const auto program = std::pair{
-                material.resource->get_shader_program(), material.resource->get_template_name()};
-            auto& active = m_project_pipelines[program];
-            // 借用本次提交的最后一个输入；同步后不保留提交指针。
-            active.materials[key].requested_input = &material;
-        }
-        if(requested_instances || m_has_runtime_instances)
-            sync_runtime_instances();
-        m_has_runtime_instances = requested_instances;
-        sync_program_inputs();
-        for(const auto& [program, active] : m_project_pipelines) {
-            if(active.materials.empty())
-                continue;
-            auto prepared = project_pipeline(program.first, program.second);
-            if(!prepared)
-                return Result<void, GraphicsError>::failure(prepared.error());
-        }
-        return Result<void, GraphicsError>::success();
-    }
-
-    void MaterialRenderer::sync_runtime_instances() {
-        // 只消费本次输入；移除项的在途资源仍由帧保活。
-        for(auto cached = m_materials.begin(); cached != m_materials.end();) {
-            const auto& key = cached->first;
-            if(!key.instance_id) {
-                ++cached;
-                continue;
-            }
-            auto& current = cached->second;
-            const auto* input = std::exchange(current.requested_input, nullptr);
-            if(!input) {
-                m_prepared.erase(key);
-                cached = m_materials.erase(cached);
-                continue;
-            }
-            const auto& material = input->material;
-            if(current.resources && current.overrides != material.overrides) {
-                // 事务重绑必须读取当前快照，而不是失败候选看到的旧覆盖。
-                if(auto refreshed = m_prepared.prepare(key.material_handle, material.resource,
-                       current.resources->pipeline->layout, material.overrides);
-                    refreshed)
-                    current.overrides = material.overrides;
-            }
-            ++cached;
-        }
-    }
-
-    void MaterialRenderer::sync_program_inputs() {
-        for(auto& [program, active] : m_project_pipelines) {
-            bool materials_changed = false;
-            bool overrides_changed = false;
-            for(auto entry = active.materials.begin(); entry != active.materials.end();) {
-                auto& input = entry->second;
-                const auto* requested = std::exchange(input.requested_input, nullptr);
-                if(!requested) {
-                    materials_changed = true;
-                    overrides_changed |= bool(input.overrides);
-                    entry = active.materials.erase(entry);
-                    continue;
-                }
-                const auto revision = requested->resource->get_revision();
-                materials_changed |=
-                    input.source != requested->resource || input.revision != revision;
-                overrides_changed |= input.overrides != requested->overrides;
-                if(input.source != requested->resource)
-                    input.source = requested->resource;
-                input.revision = revision;
-                if(input.overrides != requested->overrides)
-                    input.overrides = requested->overrides;
-                ++entry;
-            }
-            const bool retry = (active.failure_cause == ProjectPipeline::FailureCause::Materials
-                                   && materials_changed)
-                               || (active.failure_cause == ProjectPipeline::FailureCause::Overrides
-                                   && overrides_changed);
-            if(retry)
-                active.failed_source.reset();
-        }
-    }
-
-    Result<void, GraphicsError> MaterialRenderer::install_project_pipeline(AssetHandle handle,
-        const std::string& template_name, const std::shared_ptr<const PipelineState>& builtin,
-        ProjectPipeline& active, const std::shared_ptr<const ShaderProgramArtifact>& version) {
-        active.failure_cause = ProjectPipeline::FailureCause::Shader;
-        auto layout = m_programs->describe(*version, template_name, builtin->layout);
-        if(!layout)
-            return Result<void, GraphicsError>::failure({layout.error()});
-        for(const auto& [key, material] : active.materials) {
-            if(!material.overrides)
-                continue;
-            if(auto checked = layout.value()->validate_parameters(*material.overrides); !checked) {
-                active.failure_cause = ProjectPipeline::FailureCause::Overrides;
-                return Result<void, GraphicsError>::failure({checked.error()});
-            }
-        }
-        const auto name = "project Shader " + std::to_string(handle.value());
-        auto vertex = Shader::create(m_device, name, version->vertex_words, version->vertex_entry);
-        if(!vertex)
-            return Result<void, GraphicsError>::failure(vertex.error());
-        auto fragment =
-            Shader::create(m_device, name, version->fragment_words, version->fragment_entry);
-        if(!fragment)
-            return Result<void, GraphicsError>::failure(fragment.error());
-        auto candidate =
-            create_pipeline(m_pipeline_manager, vertex.value(), fragment.value(), layout.value(),
-                m_samples, version->material ? nullptr : builtin->material_layout, handle);
-        if(!candidate)
-            return Result<void, GraphicsError>::failure(candidate.error());
-        auto prepared = m_prepared;
-        auto materials = m_materials;
-        for(auto& [material_handle, cached] : materials) {
-            const auto input = active.materials.find(material_handle);
-            if(!cached.resources || cached.resources->pipeline->shader_program != handle
-                || cached.resources->pipeline->layout->get_name() != template_name
-                || input == active.materials.end())
-                continue;
-            const auto& material = input->second;
-            auto rebound = prepared.prepare(material_handle.material_handle, material.source,
-                candidate.value()->layout, material.overrides);
-            if(!rebound) {
-                active.failure_cause = ProjectPipeline::FailureCause::Materials;
-                return Result<void, GraphicsError>::failure({rebound.error()});
-            }
-            auto resources = create_material(rebound.value(), candidate.value(), cached.resources);
-            if(!resources)
-                return Result<void, GraphicsError>::failure(resources.error());
-            cached.resources = std::move(resources).value();
-            cached.failed_candidate.reset();
-            cached.failed_pipeline.reset();
-            cached.preparation_error.clear();
-        }
-        m_programs->publish(handle, template_name, version, candidate.value()->layout);
-        m_prepared.swap(prepared);
-        m_materials.swap(materials);
-        active.source = version;
-        active.failed_source.reset();
-        active.pipeline = std::move(candidate).value();
-        return Result<void, GraphicsError>::success();
-    }
-
-    Result<std::shared_ptr<const MaterialRenderer::PipelineState>, GraphicsError> MaterialRenderer::
-        project_pipeline(const AssetHandle handle, const std::string& template_name) {
-        using Selection = Result<std::shared_ptr<const PipelineState>, GraphicsError>;
-        if(!m_programs)
-            return Selection::success(nullptr);
-        const auto source = m_programs->latest(handle);
-        const auto builtin = m_pipelines.find(template_name);
-        if(builtin == m_pipelines.end())
-            return Selection::success(nullptr);
-        auto& active = m_project_pipelines[{handle, template_name}];
-        const auto reject =
-            [&](const GraphicsError& error,
-                const std::shared_ptr<const ShaderProgramArtifact>& failed) -> Selection {
-            if(error.is_device_lost())
-                return Selection::failure(error);
-            LOG_ERROR("Cannot publish project Shader program {} for '{}': {}; previous version {}",
-                handle.value(), template_name, error.message,
-                active.pipeline ? "retained" : "unavailable");
-            active.failed_source = failed;
-            return Selection::success(active.pipeline);
-        };
-        if(!active.pipeline) {
-            const auto* prior = m_programs->published(handle, template_name);
-            if(prior && prior->source != source) {
-                const auto old = prior->source;
-                if(auto restored = install_project_pipeline(
-                       handle, template_name, builtin->second, active, old);
-                    !restored) {
-                    auto fallback = reject(restored.error(), old);
-                    if(!fallback)
-                        return fallback;
-                }
-            }
-        }
-        if(!source || active.source == source || active.failed_source == source)
-            return Selection::success(active.pipeline);
-        if(active.source && MaterialPrograms::same_content(*active.source, *source)) {
-            m_programs->publish(handle, template_name, source, active.pipeline->layout);
-            active.source = source;
-            active.failed_source.reset();
-            return Selection::success(active.pipeline);
-        }
-        if(auto installed =
-                install_project_pipeline(handle, template_name, builtin->second, active, source);
-            !installed)
-            return reject(installed.error(), source);
-        return Selection::success(active.pipeline);
     }
 
     Result<std::shared_ptr<const MaterialRenderer::PipelineState>, GraphicsError> MaterialRenderer::

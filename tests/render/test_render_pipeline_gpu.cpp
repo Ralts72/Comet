@@ -10,6 +10,170 @@
 #include <algorithm>
 
 namespace Comet::Tests {
+    TEST_F(RenderGraphGpuTest, RendererViewsKeepOutputsAndPublicationIndependent) {
+        auto& renderer = engine->get_renderer();
+        auto& context = renderer.get_render_context();
+        auto& device = context.get_device();
+        ASSERT_TRUE(prepare_offscreen_host({33, 33}));
+        auto created = renderer.create_offscreen_view({33, 17});
+        ASSERT_TRUE(created) << created.error();
+        auto second = created.value();
+        auto& registry = engine->get_asset_registry();
+        constexpr AssetHandle mesh(798), left_material(799), right_material(800);
+        ASSERT_TRUE(registry.register_asset(mesh, lit_quad()));
+        auto red = std::make_shared<Material>("left", "unlit_color");
+        auto green = std::make_shared<Material>("right", "unlit_color");
+        ASSERT_TRUE(red->set_vector_property("color", {1, 0, 0, 1}));
+        ASSERT_TRUE(green->set_vector_property("color", {0, 1, 0, 1}));
+        ASSERT_TRUE(registry.register_asset(left_material, red));
+        ASSERT_TRUE(registry.register_asset(right_material, green));
+        RenderCamera camera{.primary = true,
+            .view_matrix = Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+            .projection = RenderCamera::Projection::Orthographic,
+            .orthographic_height = 2,
+            .near_clip = 0.1f,
+            .far_clip = 10};
+        auto other_camera = camera;
+        other_camera.view_matrix = Math::look_at({6, 0, 3}, {6, 0, 0}, {0, 1, 0});
+        RenderScene world{.cameras = {camera},
+            .render_items = {
+                {.entity_id = EntityId(1), .mesh_handle = mesh, .material_handle = left_material},
+                {.entity_id = EntityId(2),
+                    .model_matrix = Math::translate(Math::Mat4(1), {6, 0, 0}),
+                    .mesh_handle = mesh,
+                    .material_handle = right_material}}};
+        world.lights = {{.casts_shadow = true}};
+        unsigned left_picks = 0, right_picks = 0;
+        renderer.set_viewport_pick_callback([&](auto hit) {
+            ASSERT_TRUE(hit);
+            EXPECT_EQ(hit->entity_id, EntityId(1));
+            ++left_picks;
+        });
+        const auto bind_pick = [&] {
+            renderer.set_viewport_pick_callback(
+                [&](auto hit) {
+                    ASSERT_TRUE(hit);
+                    EXPECT_EQ(hit->entity_id, EntityId(2));
+                    ++right_picks;
+                },
+                second);
+        };
+        bind_pick();
+        TemporaryDirectory temporary;
+        const auto shader_path = temporary.path() / "dim.frag";
+        ASSERT_TRUE(write_text_file_atomic(shader_path,
+            "#version 450\nlayout(location=0) out vec4 color;\n"
+            "layout(set=1,binding=0,std140) uniform MaterialData {vec4 color; float intensity;} material;\n"
+            "void main(){color=vec4(material.color.rgb*material.intensity*0.5,material.color.a);}"));
+        auto compiled =
+            ShaderCompiler::compile({.source = shader_path, .stage = ShaderStage::Fragment});
+        ASSERT_TRUE(compiled.succeeded()) << compiled.diagnostics;
+        auto shader = default_material_shaders().at("unlit_color");
+        shader.fragment = compiled.words;
+        FrameScheduler readback_frames(device, 2);
+        readback_frames.initialize_swapchain_images(2);
+        FrameWait wait{device, readback_frames};
+        struct Sample {
+            std::shared_ptr<Readback> pixels;
+            Math::Vec2u size;
+            Format format;
+            Math::Vec3 color;
+        };
+        std::vector<Sample> samples;
+        Math::Vec2u second_size{33, 17};
+        for(unsigned frame = 0; frame < 6; ++frame) {
+            SCOPED_TRACE(frame);
+            if(frame == 1) {
+                auto quality = renderer.get_quality_settings();
+                quality.render_scale = 0.75f;
+                ASSERT_TRUE(renderer.request_quality_settings(quality));
+                second_size = {17, 23};
+                auto blue = std::make_shared<Material>("left", "unlit_color");
+                ASSERT_TRUE(blue->set_vector_property("color", {0, 0, 1, 1}));
+                auto candidate = renderer.prepare_material_update(left_material, blue);
+                ASSERT_TRUE(candidate) << candidate.error();
+                std::move(candidate).value().publish();
+                ASSERT_TRUE(registry.replace_asset(left_material, blue));
+            }
+            if(frame == 2) {
+                auto published = renderer.reload_material_shaders({{"unlit_color", shader}});
+                ASSERT_TRUE(published) << published.error();
+                EXPECT_EQ(published.value().pipelines, 2u);
+                auto invalid = shader;
+                invalid.fragment = {0};
+                EXPECT_FALSE(renderer.reload_material_shaders({{"unlit_color", invalid}}));
+            }
+            if(frame == 5) {
+                ASSERT_TRUE(renderer.remove_offscreen_view(second));
+                EXPECT_FALSE(renderer.set_render_view({}, second));
+                EXPECT_FALSE(renderer.remove_offscreen_view(Renderer::DEFAULT_VIEW));
+                auto replacement = renderer.create_offscreen_view({11, 13});
+                ASSERT_TRUE(replacement) << replacement.error();
+                EXPECT_NE(replacement.value(), second);
+                second = replacement.value();
+                second_size = {11, 13};
+                bind_pick();
+            }
+            const auto prepared = renderer.prepare_frame();
+            ASSERT_TRUE(prepared) << prepared.error();
+            ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
+            EXPECT_FALSE(renderer.create_offscreen_view({8, 8}));
+            EXPECT_FALSE(renderer.remove_offscreen_view(second));
+            ASSERT_TRUE(renderer.set_render_view({.visible = frame != 3}));
+            ASSERT_TRUE(renderer.set_render_view(
+                {.render_size = second_size,
+                    .camera_selection = RenderView::CameraSelection::Override,
+                    .camera_override = other_camera},
+                second));
+            renderer.request_viewport_pick({16, 16}, {33, 33});
+            renderer.request_viewport_pick(second_size / 2u, second_size, second);
+            const auto first_output = renderer.get_offscreen_frame();
+            const auto second_output = renderer.get_offscreen_frame(second);
+            EXPECT_NE(first_output.color_view, second_output.color_view);
+            ASSERT_TRUE(renderer.render_frame(world));
+            const auto shadow = renderer.get_scene_renderer().get_shadow_statistics();
+            EXPECT_EQ(shadow.draw_calls, 1u);
+            EXPECT_EQ(shadow.drawn_instances, 2u);
+            EXPECT_EQ(renderer.get_scene_renderer(second).get_shadow_statistics().drawn_instances,
+                shadow.drawn_instances);
+            if(frame == 3)
+                EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().draw_calls, 0u);
+            else
+                EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().culled_items, 1u);
+            EXPECT_EQ(renderer.get_scene_renderer(second).get_material_statistics().draw_calls, 1u);
+            EXPECT_FLOAT_EQ(renderer.get_scene_renderer(second).get_quality_settings().render_scale,
+                frame == 0 ? 1.0f : 0.75f);
+            begin_frame(readback_frames);
+            const auto copy = [&](const Renderer::OffscreenFrame& output, Math::Vec3 color) {
+                auto pixels = std::make_shared<Readback>(device,
+                    context.get_context().get_physical_device(), output.size.x * output.size.y * 4);
+                copy_output(readback_frames, output.color_view->get_image(), pixels, output.size);
+                samples.push_back({pixels, output.size,
+                    output.color_view->get_image()->get_info().format, color});
+            };
+            const float intensity = frame < 2 ? 1.0f : 0.5f;
+            if(frame != 3)
+                copy(first_output, frame == 0 ? Math::Vec3(1, 0, 0) : Math::Vec3(0, 0, intensity));
+            copy(second_output, {0, intensity, 0});
+            submit(device, readback_frames);
+        }
+        readback_frames.wait_for_all_slots();
+        renderer.wait_idle();
+        renderer.set_viewport_pick_callback({});
+        renderer.set_viewport_pick_callback({}, second);
+        EXPECT_EQ(left_picks, 5u);
+        EXPECT_EQ(right_picks, 6u);
+        for(const auto& sample : samples) {
+            const auto pixels = sample.pixels->read();
+            const auto offset = (sample.size.y / 2 * sample.size.x + sample.size.x / 2) * 4;
+            const bool bgra =
+                sample.format == Format::B8G8R8A8_SRGB || sample.format == Format::B8G8R8A8_UNORM;
+            for(unsigned channel = 0; channel < 3; ++channel)
+                EXPECT_NEAR(std::to_integer<int>(pixels[offset + (bgra ? 2 - channel : channel)]),
+                    mapped_byte(sample.color[channel]), 3);
+        }
+    }
+
     TEST_F(RenderGraphGpuTest, PbrParametersAndCameraProjectionMatchReferencePixels) {
         auto& renderer = engine->get_renderer();
         auto& context = renderer.get_render_context();

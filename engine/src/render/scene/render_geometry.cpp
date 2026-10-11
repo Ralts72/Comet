@@ -19,7 +19,7 @@ namespace Comet {
     }
 
     void RenderGeometry::prepare(const RenderWorld& world) {
-        clear();
+        clear_frame();
         const auto& items = world.render_items;
         const auto& changes = world.item_changes;
         m_items.reserve(items.size());
@@ -72,29 +72,8 @@ namespace Comet {
                 include_bounds(m_cached_scene_bounds, bounds);
             }
         } else if(!unchanged) {
-            const auto previous_size = m_bounds.size();
-            // 单个增删确认相邻身份后移动一次后缀；其余重排仍逐槽核对。
-            if(same_scene
-                && (items.size() == previous_size + 1 || previous_size == items.size() + 1)) {
-                std::size_t index = 0;
-                while(index < std::min(items.size(), previous_size)
-                      && items[index].entity_id == m_bounds[index].entity_id)
-                    ++index;
-                if(items.size() > previous_size
-                    && (index == previous_size
-                        || items[index + 1].entity_id == m_bounds[index].entity_id)) {
-                    m_bounds.emplace_back();
-                    std::move_backward(
-                        m_bounds.begin() + index, m_bounds.end() - 1, m_bounds.end());
-                    m_bounds[index] = {};
-                } else if(previous_size > items.size()
-                          && (index == items.size()
-                              || items[index].entity_id == m_bounds[index + 1].entity_id)) {
-                    std::move(
-                        m_bounds.begin() + index + 1, m_bounds.end(), m_bounds.begin() + index);
-                    m_bounds.pop_back();
-                }
-            }
+            if(same_scene)
+                RenderItemChanges::align_single_edit(items, m_bounds);
             m_bounds.resize(items.size());
             m_cached_scene_bounds.reset();
             for(std::size_t index = 0; index < items.size(); ++index) {
@@ -120,8 +99,16 @@ namespace Comet {
         m_revision = changes.revision;
     }
 
-    void RenderGeometry::clear() {
+    void RenderGeometry::clear_frame() {
         m_items.clear();
         m_scene_bounds.reset();
     }
+    void RenderGeometry::reset() {
+        clear_frame();
+        m_bounds.clear();
+        m_cached_scene_bounds.reset();
+        m_scene_lifetime = 0;
+        m_revision = 0;
+    }
+
 }

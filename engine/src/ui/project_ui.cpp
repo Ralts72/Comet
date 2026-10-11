@@ -273,6 +273,11 @@ namespace Comet::Ui {
         int quality_api(lua_State* state, Api operation);
         int audio_api(lua_State* state, Api operation);
         Result<FrameResult, Error> frame(const Input::Frame& input, FrameInfo info);
+        Result<void> dispatch_events();
+        void process_capture(const Input::Frame& input, bool was_capturing);
+        Result<void> apply_settings();
+        Result<void> present();
+        Result<void> report_result(const char* event, const Result<void>& result);
         void deactivate() {
             if(m_controller) {
                 if(auto result = call("on_deactivate"); !result)
@@ -890,13 +895,32 @@ namespace Comet::Ui {
         m_dispatching = false;
         if(!m_event_error.empty())
             return Frame::failure({std::exchange(m_event_error, {})});
+        if(auto dispatched = dispatch_events(); !dispatched)
+            return Frame::failure({dispatched.error()});
+        process_capture(input, was_capturing);
+        if(auto applied = apply_settings(); !applied)
+            return Frame::failure({applied.error()});
+        if(auto presented = present(); !presented)
+            return Frame::failure({presented.error()});
+        // 同一物理帧内切换 modal 时同步平台基线；下一帧的新按键可以正常导航。
+        if(dispatched_modal != m_controller->m_modal)
+            m_runtime->process_input(input, m_controller->m_modal, m_info.view);
+        m_blocked |= m_controller->m_modal;
+        return Frame::success({m_blocked, m_runtime->pointer_blocked()});
+    }
+
+    Result<void> ProjectUi::Impl::dispatch_events() {
         // UI 生命周期事件由验证阶段隔离，运行时事件在物理帧内顺序交付。
         auto events = std::move(m_events);
         m_events.clear();
         for(const auto& arguments : events) {
             if(auto result = call("on_event", arguments); !result)
-                return Frame::failure({result.error()});
+                return result;
         }
+        return Result<void>::success();
+    }
+
+    void ProjectUi::Impl::process_capture(const Input::Frame& input, const bool was_capturing) {
         if(was_capturing) {
             const auto* focused = m_runtime->context().GetFocusElement();
             const bool owns_focus = focused
@@ -929,6 +953,9 @@ namespace Comet::Ui {
             }
         }
         m_runtime->set_capture_active(bool(m_edit.capture()));
+    }
+
+    Result<void> ProjectUi::Impl::apply_settings() {
         if(auto display = std::exchange(m_pending_display, {})) {
             auto applied = Result<void>::success();
             if(const auto* settings = std::get_if<Comet::DisplaySettings>(&*display))
@@ -937,29 +964,23 @@ namespace Comet::Ui {
                 applied = m_services.confirm_display();
             else
                 applied = m_services.revert_display();
-            if(auto result = call("on_display_result",
-                   {Rml::Variant(bool(applied)),
-                       Rml::Variant(applied ? std::string{} : applied.error())});
-                !result)
-                return Frame::failure({result.error()});
+            if(auto result = report_result("on_display_result", applied); !result)
+                return result;
         }
         if(auto quality = std::exchange(m_pending_quality, {})) {
             const auto resolved = m_renderer.resolve_quality_settings(*quality);
-            auto applied = resolved ? m_services.apply_quality(*quality)
-                                    : Result<void>::failure(resolved.error().message);
-            if(auto result = call("on_quality_result",
-                   {Rml::Variant(bool(applied)),
-                       Rml::Variant(applied ? std::string{} : applied.error())});
-                !result)
-                return Frame::failure({result.error()});
+            auto applied = Result<void>::success();
+            if(!resolved)
+                applied = Result<void>::failure(resolved.error().message);
+            else
+                applied = m_services.apply_quality(*quality);
+            if(auto result = report_result("on_quality_result", applied); !result)
+                return result;
         }
         if(auto audio = std::exchange(m_pending_audio, {})) {
             const auto applied = m_services.apply_audio(*audio);
-            if(auto result = call(
-                   "on_audio_result", {Rml::Variant(bool(applied)),
-                                          Rml::Variant(applied ? std::string{} : applied.error())});
-                !result)
-                return Frame::failure({result.error()});
+            if(auto result = report_result("on_audio_result", applied); !result)
+                return result;
         }
         if(auto request = m_edit.take_request()) {
             auto applied = m_services.apply_input
@@ -967,36 +988,38 @@ namespace Comet::Ui {
                                : Result<void>::failure("Player input apply service is unavailable");
             (void)m_edit.complete(applied);
             ++m_edit_revision;
-            if(auto result = call(
-                   "on_input_result", {Rml::Variant(bool(applied)),
-                                          Rml::Variant(applied ? std::string{} : applied.error())});
-                !result)
-                return Frame::failure({result.error()});
+            if(auto result = report_result("on_input_result", applied); !result)
+                return result;
         }
+        return Result<void>::success();
+    }
+
+    Result<void> ProjectUi::Impl::present() {
         if(std::exchange(m_reload_requested, false)) {
             if(auto result = reload(); !result) {
                 LOG_WARN("Project UI reload failed: {}", result.error());
                 if(auto reported = call("on_reload_error", {Rml::Variant(result.error())});
                     !reported)
-                    return Frame::failure({reported.error()});
+                    return reported;
             }
         }
         if(auto result = call("on_present"); !result)
-            return Frame::failure({result.error()});
+            return result;
         for(const auto& [id, contents] : m_pending_markup) {
             if(!replace_markup(*m_controller, id, contents))
-                return Frame::failure({"UI markup target no longer exists: " + id});
+                return Result<void>::failure("UI markup target no longer exists: " + id);
         }
         m_pending_markup.clear();
         if(auto result = m_runtime->update(); !result)
-            return Frame::failure({result.error()});
+            return result;
         if(std::exchange(m_focus_requested, false))
             focus(*m_controller);
-        // 同一物理帧内切换 modal 时同步平台基线；下一帧的新按键可以正常导航。
-        if(dispatched_modal != m_controller->m_modal)
-            m_runtime->process_input(input, m_controller->m_modal, m_info.view);
-        m_blocked |= m_controller->m_modal;
-        return Frame::success({m_blocked, m_runtime->pointer_blocked()});
+        return Result<void>::success();
+    }
+
+    Result<void> ProjectUi::Impl::report_result(const char* event, const Result<void>& result) {
+        return call(event,
+            {Rml::Variant(bool(result)), Rml::Variant(result ? std::string{} : result.error())});
     }
 
     ProjectUi::ProjectUi(std::unique_ptr<Impl> impl) : m_impl(std::move(impl)) {}

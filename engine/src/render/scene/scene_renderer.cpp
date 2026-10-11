@@ -34,13 +34,14 @@ namespace Comet {
         std::unique_ptr<PipelineManager> pipelines;
         std::unique_ptr<OutputPass> output_pass;
         std::unique_ptr<BloomPass> bloom;
-        std::unique_ptr<ShadowPass> shadow_pass;
         std::unique_ptr<SkyboxPass> skybox_pass;
         std::shared_ptr<RenderTarget> hdr_target;
         std::shared_ptr<RenderTarget> output_target;
         std::unique_ptr<MaterialRenderer> materials;
         std::unique_ptr<DebugRenderer> debug;
         RenderGraph::Plan graph;
+        RenderGraph::Plan shared_shadow_graph;
+        bool record_shadow = true;
         std::vector<RenderGraph::Binding> bindings;
         RenderGraph::ResourceId shadow_resource;
         std::vector<RenderGraph::ResourceId> scene_attachments;
@@ -54,10 +55,10 @@ namespace Comet {
 
     Result<std::unique_ptr<SceneRenderer>, GraphicsError> SceneRenderer::create(Device& device,
         MaterialPrograms& programs, RenderResources& resources, const VulkanSettings& vulkan,
-        const RenderSettings& render, Math::Vec2u size) {
+        const RenderSettings& render, Math::Vec2u size, std::shared_ptr<ShadowPass> shadow) {
         using Creation = Result<std::unique_ptr<SceneRenderer>, GraphicsError>;
-        auto scene =
-            std::unique_ptr<SceneRenderer>(new SceneRenderer(device, programs, vulkan, render));
+        auto scene = std::unique_ptr<SceneRenderer>(
+            new SceneRenderer(device, programs, vulkan, render, std::move(shadow)));
         if(auto configured = scene->configure_offscreen(resources, size); !configured)
             return Creation::failure(configured.error());
         return Creation::success(std::move(scene));
@@ -78,14 +79,15 @@ namespace Comet {
     }
 
     SceneRenderer::SceneRenderer(Device& device, MaterialPrograms& programs,
-        const VulkanSettings& vulkan, const RenderSettings& render)
+        const VulkanSettings& vulkan, const RenderSettings& render,
+        std::shared_ptr<ShadowPass> shadow)
         : m_device(device), m_programs(programs), m_offscreen_format(vulkan.surface_format),
           m_hdr_headroom(render.hdr_headroom), m_hdr_white_level(render.hdr_white_level),
           m_depth_format(vulkan.depth_format),
           m_quality{static_cast<uint32_t>(vulkan.msaa_samples),
               std::min(render.max_anisotropy, device.get_capability().max_sampler_anisotropy),
               render.render_scale},
-          m_frame_slot_count(render.max_frames_in_flight) {}
+          m_frame_slot_count(render.max_frames_in_flight), m_shadow(std::move(shadow)) {}
 
     Result<std::shared_ptr<SceneRenderer::RenderState>, GraphicsError> SceneRenderer::create_state(
         RenderResources& resources, Swapchain* swapchain, Math::Vec2u size,
@@ -137,10 +139,12 @@ namespace Comet {
         if(!output_pass)
             return Creation::failure(output_pass.error());
         next->output_pass = std::move(output_pass).value();
-        auto shadow_pass = ShadowPass::create(m_device, m_frame_slot_count);
-        if(!shadow_pass)
-            return Creation::failure(shadow_pass.error());
-        next->shadow_pass = std::move(shadow_pass).value();
+        if(!m_shadow) {
+            auto shadow = ShadowPass::create(m_device, m_frame_slot_count);
+            if(!shadow)
+                return Creation::failure(shadow.error());
+            m_shadow = std::move(shadow).value();
+        }
         if(m_post_process.uses_bloom()) {
             auto bloom = BloomPass::create(m_device, m_frame_slot_count);
             if(!bloom)
@@ -171,53 +175,72 @@ namespace Comet {
 
     Result<void, GraphicsError> SceneRenderer::rebuild_graph(
         RenderState& state, const bool bloom_enabled) {
-        RenderGraph graph;
-        const auto shadow = graph.import_image(
-            "shadow depth", {.subresources = {.aspects = Flags<ImageAspect>(ImageAspect::Depth)}});
-        const auto shadow_pass_id = graph.add_pass(
-            {"directional shadow", {{shadow, ResourceUsage::DepthStencilAttachmentWrite, {}}}});
-        RenderGraph::Pass scene{"scene", {}};
-        std::vector<RenderGraph::ResourceId> scene_attachments;
-        RenderGraph::ResourceId output;
-        for(const auto& attachment : state.scene_pass->get_attachments()) {
-            const bool is_depth = Graphics::is_depth_stencil_format(attachment.description.format);
-            auto aspects = Flags<ImageAspect>(is_depth ? ImageAspect::Depth : ImageAspect::Color);
-            if(is_depth && !Graphics::is_depth_only_format(attachment.description.format))
-                aspects |= ImageAspect::Stencil;
-            const auto id = graph.import_image("attachment " + std::to_string(scene.uses.size()),
-                {.subresources = {.aspects = aspects}});
-            scene_attachments.push_back(id);
-            auto usage = ResourceUsage::ColorAttachmentWrite;
-            if(is_depth)
-                usage = ResourceUsage::DepthStencilAttachmentWrite;
-            scene.uses.push_back({id, usage, {}});
-            if(!is_depth)
-                output = id;
-        }
-        scene.uses.push_back({shadow, ResourceUsage::SampledRead,
-            Flags<PipelineStage>(PipelineStage::FragmentShader)});
-        const auto scene_pass_id = graph.add_pass(std::move(scene));
-        std::optional<BloomPass::Passes> bloom_passes;
-        RenderGraph::Pass display{
-            "display", {{output, ResourceUsage::SampledRead,
-                           Flags<PipelineStage>(PipelineStage::FragmentShader)}}};
-        if(bloom_enabled) {
-            bloom_passes = BloomPass::append_passes(graph, output);
-            display.uses.push_back({bloom_passes->output, ResourceUsage::SampledRead,
+        const auto build = [&](const bool shared_shadow) -> Result<void, GraphicsError> {
+            RenderGraph graph;
+            ImageState shadow_initial{
+                .subresources = {.aspects = Flags<ImageAspect>(ImageAspect::Depth)}};
+            if(shared_shadow)
+                shadow_initial =
+                    *resolve_image_state(ResourceUsage::SampledRead, shadow_initial.subresources,
+                        Flags<PipelineStage>(PipelineStage::FragmentShader));
+            const auto shadow = graph.import_image("shadow depth", shadow_initial);
+            RenderGraph::Pass shadow_pass{"directional shadow", {}};
+            if(!shared_shadow)
+                shadow_pass.uses.push_back(
+                    {shadow, ResourceUsage::DepthStencilAttachmentWrite, {}});
+            const auto shadow_pass_id = graph.add_pass(std::move(shadow_pass));
+            RenderGraph::Pass scene{"scene", {}};
+            std::vector<RenderGraph::ResourceId> scene_attachments;
+            RenderGraph::ResourceId output;
+            for(const auto& attachment : state.scene_pass->get_attachments()) {
+                const bool is_depth =
+                    Graphics::is_depth_stencil_format(attachment.description.format);
+                auto aspects =
+                    Flags<ImageAspect>(is_depth ? ImageAspect::Depth : ImageAspect::Color);
+                if(is_depth && !Graphics::is_depth_only_format(attachment.description.format))
+                    aspects |= ImageAspect::Stencil;
+                const auto id =
+                    graph.import_image("attachment " + std::to_string(scene.uses.size()),
+                        {.subresources = {.aspects = aspects}});
+                scene_attachments.push_back(id);
+                auto usage = ResourceUsage::ColorAttachmentWrite;
+                if(is_depth)
+                    usage = ResourceUsage::DepthStencilAttachmentWrite;
+                scene.uses.push_back({id, usage, {}});
+                if(!is_depth)
+                    output = id;
+            }
+            scene.uses.push_back({shadow, ResourceUsage::SampledRead,
                 Flags<PipelineStage>(PipelineStage::FragmentShader)});
-        }
-        const auto output_pass_id = graph.add_pass(std::move(display));
-        auto compiled = graph.compile();
-        if(!compiled)
-            return Result<void, GraphicsError>::failure({compiled.error()});
-        state.graph = std::move(compiled).value();
-        state.shadow_resource = shadow;
-        state.scene_attachments = std::move(scene_attachments);
-        state.shadow_pass_id = shadow_pass_id;
-        state.scene_pass_id = scene_pass_id;
-        state.output_pass_id = output_pass_id;
-        state.bloom_passes = bloom_passes;
-        return Result<void, GraphicsError>::success();
+            const auto scene_pass_id = graph.add_pass(std::move(scene));
+            std::optional<BloomPass::Passes> bloom_passes;
+            RenderGraph::Pass display{
+                "display", {{output, ResourceUsage::SampledRead,
+                               Flags<PipelineStage>(PipelineStage::FragmentShader)}}};
+            if(bloom_enabled) {
+                bloom_passes = BloomPass::append_passes(graph, output);
+                display.uses.push_back({bloom_passes->output, ResourceUsage::SampledRead,
+                    Flags<PipelineStage>(PipelineStage::FragmentShader)});
+            }
+            const auto output_pass_id = graph.add_pass(std::move(display));
+            auto compiled = graph.compile();
+            if(!compiled)
+                return Result<void, GraphicsError>::failure({compiled.error()});
+            if(shared_shadow)
+                state.shared_shadow_graph = std::move(compiled).value();
+            else
+                state.graph = std::move(compiled).value();
+            state.shadow_resource = shadow;
+            state.scene_attachments = std::move(scene_attachments);
+            state.shadow_pass_id = shadow_pass_id;
+            state.scene_pass_id = scene_pass_id;
+            state.output_pass_id = output_pass_id;
+            state.bloom_passes = bloom_passes;
+            return Result<void, GraphicsError>::success();
+        };
+        if(auto built = build(false); !built)
+            return built;
+        return build(true);
     }
 
     Result<void, GraphicsError> SceneRenderer::prepare_post_process(
@@ -342,24 +365,13 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
-    Result<MaterialRenderer::ReloadReport, GraphicsError> SceneRenderer::reload_material_shaders(
-        MaterialShaders shaders) {
+    Result<MaterialRenderer::ShaderUpdate, GraphicsError> SceneRenderer::prepare_material_shaders(
+        const MaterialShaders& shaders) {
         if(!m_state)
-            return Result<MaterialRenderer::ReloadReport, GraphicsError>::failure(
+            return Result<MaterialRenderer::ShaderUpdate, GraphicsError>::failure(
                 {"Scene pipelines are not initialized"});
-        auto result = m_state->materials->reload_shaders(
+        return m_state->materials->prepare_shaders(
             *m_state->pipelines, shaders, static_cast<SampleCount>(m_quality.msaa_samples));
-        if(result)
-            m_programs.publish_builtin(std::move(shaders));
-        return result;
-    }
-
-    Result<MaterialRenderer::MaterialUpdate, GraphicsError> SceneRenderer::prepare_material_update(
-        const AssetHandle handle, const std::shared_ptr<const Material>& material) {
-        if(!m_state)
-            return Result<MaterialRenderer::MaterialUpdate, GraphicsError>::failure(
-                {"Scene renderer is not configured"});
-        return m_state->materials->prepare_material_update(handle, material);
     }
 
     Result<void, GraphicsError> SceneRenderer::validate_quality_settings(
@@ -384,17 +396,19 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
-    Result<void, GraphicsError> SceneRenderer::configure_quality(
-        RenderResources& resources, Swapchain& swapchain, const QualitySettings& settings) {
-        auto next = create_state(resources, is_offscreen() ? nullptr : &swapchain,
+    Result<std::shared_ptr<SceneRenderer::RenderState>, GraphicsError> SceneRenderer::
+        prepare_quality(
+            RenderResources& resources, Swapchain& swapchain, const QualitySettings& settings) {
+        return create_state(resources, is_offscreen() ? nullptr : &swapchain,
             m_state->output_target->get_size(), settings);
-        if(!next)
-            return Result<void, GraphicsError>::failure(next.error());
-        m_state = std::move(next).value();
+    }
+
+    void SceneRenderer::install_quality(
+        std::shared_ptr<RenderState> state, const QualitySettings& settings) {
+        m_state = std::move(state);
         m_quality = settings;
         m_resize_failure.reset();
         m_post_process_failure.reset();
-        return Result<void, GraphicsError>::success();
     }
 
     Math::Vec2u SceneRenderer::get_scene_size() const {
@@ -412,7 +426,7 @@ namespace Comet {
     }
 
     ShadowPass::Statistics SceneRenderer::get_shadow_statistics() const {
-        return m_state->shadow_pass->get_statistics();
+        return m_shadow->get_statistics();
     }
 
     const PostProcessSettings& SceneRenderer::get_post_process_settings() const {
@@ -430,9 +444,12 @@ namespace Comet {
         return m_state && m_state->offscreen;
     }
 
+    MaterialRenderer& SceneRenderer::get_material_renderer() {
+        return *m_state->materials;
+    }
+
     void SceneRenderer::skip_frame() {
         m_state->materials->reset_statistics();
-        m_state->shadow_pass->reset_statistics();
     }
 
     void SceneRenderer::collect_removed_assets(const AssetRegistry& assets) {
@@ -448,14 +465,18 @@ namespace Comet {
         frames.retain_current_frame_resource(m_state->output_target);
         frames.retain_current_frame_resource(m_state->hdr_target);
         const auto image = frames.get_current_frame_slot_index();
-        const auto lighting = RenderDiagnostics::measure_preparation(diagnostics,
-            RenderDiagnostics::PreparationPhase::Lighting,
-            [&] { return ShadowPass::prepare(submission, geometry); });
+        const auto serial = frames.get_current_frame_serial();
+        frames.retain_current_frame_resource(m_shadow);
+        m_state->record_shadow = !m_shadow->rendered_in_frame(serial);
+        const auto& lighting = RenderDiagnostics::measure_preparation(diagnostics,
+            RenderDiagnostics::PreparationPhase::Lighting, [&]() -> const LightingData& {
+                return m_shadow->prepare_frame(serial, submission.world, geometry);
+            });
+        const auto& graph = m_state->record_shadow ? m_state->graph : m_state->shared_shadow_graph;
         auto& bindings = m_state->bindings;
-        bindings.resize(m_state->graph.resource_count());
+        bindings.resize(graph.resource_count());
         const ScopeExit release_bindings([&] { bindings.clear(); });
-        bindings[m_state->shadow_resource.index] =
-            m_state->shadow_pass->get_depth_view(image)->get_image();
+        bindings[m_state->shadow_resource.index] = m_shadow->get_depth_view(image)->get_image();
         const auto& attachments = m_state->hdr_target->get_framebuffer(image)->get_attachments();
         for(std::size_t index = 0; index < attachments.size(); ++index)
             bindings[m_state->scene_attachments[index].index] = attachments[index]->get_image();
@@ -468,9 +489,9 @@ namespace Comet {
         };
         auto recorded = Result<void, GraphicsError>::success();
         if(diagnostics)
-            recorded = diagnostics->record(m_state->graph, bindings, recorder);
+            recorded = diagnostics->record(graph, bindings, recorder);
         else
-            recorded = m_state->graph.record(frames, bindings, recorder);
+            recorded = graph.record(frames, bindings, recorder);
         if(!recorded)
             return RenderResult::failure(recorded.error());
         return RenderResult::success(std::move(waits));
@@ -490,9 +511,11 @@ namespace Comet {
                 frames, m_state->output_target, hdr, m_post_process, bloom);
         }
         auto drawn = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::success({});
-        if(pass == m_state->shadow_pass_id)
-            drawn = m_state->shadow_pass->render(frames, lighting, geometry);
-        else if(pass == m_state->scene_pass_id)
+        if(pass == m_state->shadow_pass_id) {
+            if(!m_state->record_shadow)
+                return Result<void, GraphicsError>::success();
+            drawn = m_shadow->render(frames, lighting, geometry);
+        } else if(pass == m_state->scene_pass_id)
             drawn = draw_scene(
                 frames, frames.get_current_command_buffer(), submission, geometry, lines, lighting);
         else if(m_state->bloom_passes)
@@ -522,7 +545,7 @@ namespace Comet {
         if(!skybox)
             return skybox;
         auto waits = m_state->materials->render(frames, submission, geometry, lighting,
-            m_state->shadow_pass->get_depth_view(frames.get_current_frame_slot_index()));
+            m_shadow->get_depth_view(frames.get_current_frame_slot_index()));
         if(!waits)
             return waits;
         for(const auto& wait : skybox.value())

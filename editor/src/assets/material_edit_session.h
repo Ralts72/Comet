@@ -2,7 +2,7 @@
 
 #include "asset/asset_manager.h"
 #include "assets/asset_edit.h"
-#include "render/material/material_renderer.h"
+#include "render/renderer.h"
 
 #include <map>
 #include <optional>
@@ -32,7 +32,6 @@ namespace CometEditor {
             AssetEdit edit;
             std::shared_ptr<Comet::Material> original;
             Comet::AssetManager::MaterialUpdate candidate;
-            Comet::MaterialRenderer::MaterialUpdate rollback;
         };
         struct History {
             History() { edits.reserve(128); }

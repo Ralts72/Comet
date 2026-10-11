@@ -36,13 +36,13 @@ namespace Comet {
 
     void SceneResolver::refresh_assets(RenderWorld& world) const {
         const auto revision = m_asset_registry.get_revision();
-        if(world.asset_revision == revision)
+        if(world.resolution.asset_revision == revision)
             return;
-        auto& pending = world.pending_asset_slots;
+        auto& pending = world.resolution.pending_asset_slots;
         const bool had_pending = !pending.empty();
         const auto partial_limit = std::clamp<std::size_t>(world.render_items.size() / 4, 8, 64);
         const auto collection_limit = partial_limit + pending.size();
-        bool collect_changes = world.scene_revision != 0;
+        bool collect_changes = world.resolution.input_revision != 0;
         bool changed_items = false;
         AssetHandle mesh_handle;
         uint64_t mesh_revision = 0;
@@ -117,15 +117,11 @@ namespace Comet {
             pending.clear();
         }
         if(!collect_changes)
-            world.scene_revision = 0;
-        world.asset_revision = revision;
+            world.resolution.input_revision = 0;
+        world.resolution.asset_revision = revision;
     }
 
-    void SceneResolver::resolve(const RenderScene& render_scene, RenderWorld& world) {
-        refresh_assets(world);
-        world.cameras = render_scene.cameras;
-        world.lights = render_scene.lights;
-        world.post_process = render_scene.post_process;
+    void SceneResolver::resolve_environment(const RenderScene& render_scene, RenderWorld& world) {
         const auto handle = render_scene.environment.asset;
         AssetHandle invalid_environment;
         // 未发布的环境资源可能仍在加载；加载失败由资产层报告。
@@ -147,6 +143,14 @@ namespace Comet {
         }
         world.environment = render_scene.environment;
         m_invalid_environment = invalid_environment;
+    }
+
+    void SceneResolver::resolve(const RenderScene& render_scene, RenderWorld& world) {
+        refresh_assets(world);
+        world.cameras = render_scene.cameras;
+        world.lights = render_scene.lights;
+        world.post_process = render_scene.post_process;
+        resolve_environment(render_scene, world);
         const auto& items = render_scene.render_items;
         auto& slots = world.render_items;
         slots.reserve(items.size());
@@ -187,15 +191,18 @@ namespace Comet {
             return true;
         };
         const auto& changes = render_scene.item_changes;
-        auto& pending = world.pending_asset_slots;
-        const bool tracked = same_scene && changes.revision != 0 && world.scene_revision != 0;
-        const bool unchanged =
-            tracked && world.scene_revision == changes.revision && slots.size() == items.size();
+        auto& pending = world.resolution.pending_asset_slots;
+        const bool tracked =
+            same_scene && changes.revision != 0 && world.resolution.input_revision != 0;
+        const bool unchanged = tracked && world.resolution.input_revision == changes.revision
+                               && slots.size() == items.size();
         if(unchanged && pending.empty())
             return;
         const auto partial_limit = std::clamp<std::size_t>(items.size() / 4, 8, 64);
         if(tracked && pending.size() <= partial_limit
-            && (unchanged || changes.can_apply(world.scene_revision, slots.size(), items.size()))) {
+            && (unchanged
+                || changes.can_apply(
+                    world.resolution.input_revision, slots.size(), items.size()))) {
             if(!unchanged) {
                 const bool combine_assets = !pending.empty();
                 auto count = slots.size();
@@ -232,7 +239,7 @@ namespace Comet {
                     if(!unchanged)
                         world.item_changes.structure = changes.structure;
                 }
-                world.scene_revision = changes.revision;
+                world.resolution.input_revision = changes.revision;
                 return;
             }
         }
@@ -243,26 +250,8 @@ namespace Comet {
         for(auto& [handle, used] : m_missing_material_handles)
             used = false;
 
-        const auto previous_size = slots.size();
-        // 单个增删只移动一次后缀；缺失资源导致的压缩仍由下方逐项解析处理。
-        if(same_scene && (items.size() == previous_size + 1 || previous_size == items.size() + 1)) {
-            std::size_t index = 0;
-            while(index < std::min(items.size(), previous_size)
-                  && items[index].entity_id == slots[index].entity_id)
-                ++index;
-            if(items.size() > previous_size
-                && (index == previous_size
-                    || items[index + 1].entity_id == slots[index].entity_id)) {
-                slots.emplace_back();
-                std::move_backward(slots.begin() + index, slots.end() - 1, slots.end());
-                slots[index] = {};
-            } else if(previous_size > items.size()
-                      && (index == items.size()
-                          || items[index].entity_id == slots[index + 1].entity_id)) {
-                std::move(slots.begin() + index + 1, slots.end(), slots.begin() + index);
-                slots.pop_back();
-            }
-        }
+        if(same_scene)
+            RenderItemChanges::align_single_edit(items, slots);
         std::size_t item_count = 0;
         for(const RenderItem& item : items) {
             if(item_count == slots.size())
@@ -318,12 +307,12 @@ namespace Comet {
         }
         slots.resize(item_count);
         world.scene_lifetime = render_scene.scene_lifetime;
-        world.scene_revision = changes.revision;
+        world.resolution.input_revision = changes.revision;
         std::erase_if(m_missing_mesh_handles, [](const auto& entry) { return !entry.second; });
         std::erase_if(m_missing_material_handles, [](const auto& entry) { return !entry.second; });
     }
 
-    std::optional<ViewProjectMatrix> SceneResolver::resolve_camera(
+    std::optional<ViewProjectMatrix> RenderCameraResolver::resolve(
         const RenderWorld& world, const RenderView& view) {
         if(!view.visible)
             return std::nullopt;

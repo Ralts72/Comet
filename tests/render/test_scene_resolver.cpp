@@ -12,6 +12,7 @@
 #include "scene/material_parameters.h"
 #include "support/engine_fixture.h"
 #include "support/math_assertions.h"
+#include "support/render_snapshot_assertions.h"
 #include "support/render_resource_factory.h"
 
 #include <limits>
@@ -39,6 +40,7 @@ namespace Comet::Tests {
     TEST(SceneResolverTest, ActiveEmptySceneStillReportsMissingPrimaryCameraOnce) {
         const AssetRegistry asset_registry;
         SceneResolver resolver(asset_registry);
+        RenderCameraResolver camera_resolver;
         const auto logger = Logger::get_console_logger();
         ASSERT_NE(logger, nullptr);
         std::ostringstream messages;
@@ -48,12 +50,39 @@ namespace Comet::Tests {
 
         const RenderWorld world = resolver.resolve(RenderScene{});
 
-        EXPECT_FALSE(resolver.resolve_camera(world, runtime_view({1280, 720})));
+        EXPECT_FALSE(camera_resolver.resolve(world, runtime_view({1280, 720})));
         EXPECT_TRUE(world.render_items.empty());
         const auto reported = messages.str();
         EXPECT_NE(reported.find("Render scene has no primary camera"), std::string::npos);
-        EXPECT_FALSE(resolver.resolve_camera(world, runtime_view({1280, 720})));
+        EXPECT_FALSE(camera_resolver.resolve(world, runtime_view({1280, 720})));
         EXPECT_EQ(messages.str(), reported);
+    }
+
+    TEST(SceneResolverTest, CameraDiagnosticsRemainIndependentAcrossViews) {
+        RenderWorld world;
+        RenderCameraResolver game, scene;
+        RenderView scene_view{.render_size = {1280, 720},
+            .camera_selection = RenderView::CameraSelection::Override,
+            .camera_override = RenderCamera{}};
+        const auto logger = Logger::get_console_logger();
+        ASSERT_TRUE(logger);
+        std::ostringstream messages;
+        const auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(messages);
+        Logger::add_custom_sink(sink);
+        const ScopeExit remove_sink([&] { std::erase(logger->sinks(), sink); });
+        EXPECT_FALSE(game.resolve(world, runtime_view({1280, 720})));
+        const auto first = messages.str();
+        ASSERT_NE(first.find("no primary camera"), std::string::npos);
+        for(int frame = 0; frame < 3; ++frame) {
+            EXPECT_TRUE(scene.resolve(world, scene_view));
+            EXPECT_FALSE(game.resolve(world, runtime_view({1280, 720})));
+        }
+        EXPECT_EQ(messages.str(), first);
+        world.cameras.push_back({.primary = true});
+        EXPECT_TRUE(game.resolve(world, runtime_view({1280, 720})));
+        world.cameras.clear();
+        EXPECT_FALSE(game.resolve(world, runtime_view({1280, 720})));
+        EXPECT_GT(messages.str().size(), first.size());
     }
 
     TEST(SceneResolverTest, SkipsItemsWithMissingResources) {
@@ -136,21 +165,8 @@ namespace Comet::Tests {
         const auto check = [&] {
             resolver.resolve(scene, world);
             const auto fresh = resolver.resolve(scene);
-            ASSERT_EQ(world.render_items.size(), fresh.render_items.size());
-            for(std::size_t index = 0; index < fresh.render_items.size(); ++index) {
-                const auto& item = world.render_items[index];
-                const auto& expected = fresh.render_items[index];
-                EXPECT_EQ(item.entity_id, expected.entity_id);
-                EXPECT_EQ(item.transform_revision, expected.transform_revision);
-                EXPECT_EQ(item.model_matrix, expected.model_matrix);
-                EXPECT_EQ(item.mesh_handle, expected.mesh_handle);
-                EXPECT_EQ(item.mesh_revision, expected.mesh_revision);
-                EXPECT_EQ(item.mesh, expected.mesh);
-                EXPECT_EQ(item.material.material_handle, expected.material.material_handle);
-                EXPECT_EQ(item.material.asset_revision, expected.material.asset_revision);
-                EXPECT_EQ(item.material.resource, expected.material.resource);
-                EXPECT_EQ(item.material.overrides, expected.material.overrides);
-            }
+            ASSERT_NO_FATAL_FAILURE(
+                expect_render_items_equal(world.render_items, fresh.render_items));
         };
         check();
         ASSERT_EQ(world.render_items.size(), 260u);
@@ -253,8 +269,8 @@ namespace Comet::Tests {
             resolver.resolve(scene, pending_copy);
             EXPECT_FALSE(world.item_changes.full_update);
             EXPECT_EQ(world.item_changes.slots, (std::vector<std::size_t>{0, 2}));
-            EXPECT_TRUE(world.pending_asset_slots.empty());
-            EXPECT_TRUE(pending_copy.pending_asset_slots.empty());
+            EXPECT_TRUE(world.resolution.pending_asset_slots.empty());
+            EXPECT_TRUE(pending_copy.resolution.pending_asset_slots.empty());
             for(const auto* output : {&world, &pending_copy}) {
                 EXPECT_EQ(output->render_items[0].material.resource, replacement);
                 EXPECT_EQ(output->render_items[2].material.resource, replacement);
@@ -272,16 +288,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(registry.register_asset(AssetHandle{10}, other_mesh));
         resolver.resolve(scene, world);
         const auto fresh = resolver.resolve(scene);
-        ASSERT_EQ(world.render_items.size(), fresh.render_items.size());
-        for(std::size_t index = 0; index < fresh.render_items.size(); ++index) {
-            EXPECT_EQ(world.render_items[index].mesh, fresh.render_items[index].mesh);
-            EXPECT_EQ(
-                world.render_items[index].mesh_revision, fresh.render_items[index].mesh_revision);
-            EXPECT_EQ(world.render_items[index].material.resource,
-                fresh.render_items[index].material.resource);
-            EXPECT_EQ(
-                world.render_items[index].model_matrix, fresh.render_items[index].model_matrix);
-        }
+        ASSERT_NO_FATAL_FAILURE(expect_render_items_equal(world.render_items, fresh.render_items));
         const auto previous_revision = world.render_items[0].mesh_revision;
         ASSERT_TRUE(registry.replace_asset(AssetHandle{10}, other_mesh));
         resolver.refresh_assets(world);
@@ -372,6 +379,7 @@ namespace Comet::Tests {
     TEST_F(SceneEnvironmentResolverTest, ReusedSubmissionSeesReplacementAndDropsMissingItems) {
         AssetRegistry registry;
         SceneResolver resolver(registry);
+        RenderCameraResolver camera_resolver;
         auto mesh = engine->get_render_resources().try_create_mesh(
             {.vertices = {{{0, 0, -2}}, {{1, 0, -2}}, {{0, 1, -2}}}, .indices = {0, 1, 2}});
         ASSERT_TRUE(mesh);
@@ -404,7 +412,7 @@ namespace Comet::Tests {
         scene.cameras.clear();
         scene.lights.clear();
         resolver.resolve(scene, world);
-        EXPECT_FALSE(resolver.resolve_camera(world, runtime_view({1280, 720})));
+        EXPECT_FALSE(camera_resolver.resolve(world, runtime_view({1280, 720})));
         EXPECT_TRUE(world.lights.empty());
     }
 
@@ -504,6 +512,7 @@ namespace Comet::Tests {
     TEST(SceneResolverTest, BuildsViewProjectionFromPrimaryCamera) {
         const AssetRegistry asset_registry;
         SceneResolver resolver(asset_registry);
+        RenderCameraResolver camera_resolver;
         const Math::Mat4 view_matrix =
             Math::translate(Math::Mat4(1.0f), Math::Vec3(0.0f, 0.0f, -3.0f));
         RenderWorld world;
@@ -514,7 +523,7 @@ namespace Comet::Tests {
             .near_clip = 0.2f,
             .far_clip = 500.0f});
 
-        const auto matrix = resolver.resolve_camera(world, runtime_view(Math::Vec2u(1600, 900)));
+        const auto matrix = camera_resolver.resolve(world, runtime_view(Math::Vec2u(1600, 900)));
 
         ASSERT_TRUE(matrix);
         EXPECT_TRUE(TestUtils::Mat4Equal(matrix->view, view_matrix));
@@ -525,6 +534,7 @@ namespace Comet::Tests {
     TEST(SceneResolverTest, CameraOverrideWinsOverScenePrimary) {
         const AssetRegistry asset_registry;
         SceneResolver resolver(asset_registry);
+        RenderCameraResolver camera_resolver;
         RenderWorld world;
         world.cameras.push_back({.entity_id = 7,
             .primary = true,
@@ -533,7 +543,7 @@ namespace Comet::Tests {
         const Math::Mat4 editor_view = Math::look_at(
             Math::Vec3(4.0f, 3.0f, 2.0f), Math::Vec3(0.0f), Math::Vec3(0.0f, 1.0f, 0.0f));
 
-        const auto matrix = resolver.resolve_camera(
+        const auto matrix = camera_resolver.resolve(
             world, RenderView{.render_size = Math::Vec2u(1600, 900),
                        .camera_selection = RenderView::CameraSelection::Override,
                        .camera_override = RenderCamera{.view_matrix = editor_view,
@@ -550,10 +560,11 @@ namespace Comet::Tests {
     TEST(SceneResolverTest, BuildsOrthographicProjectionFromCameraHeight) {
         const AssetRegistry asset_registry;
         SceneResolver resolver(asset_registry);
+        RenderCameraResolver camera_resolver;
         const Math::Mat4 editor_view = Math::look_at(
             Math::Vec3(0.0f, 0.0f, 3.0f), Math::Vec3(0.0f), Math::Vec3(0.0f, 1.0f, 0.0f));
 
-        const auto matrix = resolver.resolve_camera(
+        const auto matrix = camera_resolver.resolve(
             RenderWorld{}, RenderView{
                                .render_size = Math::Vec2u(1600, 800),
                                .camera_selection = RenderView::CameraSelection::Override,
@@ -576,10 +587,11 @@ namespace Comet::Tests {
     TEST(SceneResolverTest, MissingCameraOverrideDoesNotFallBackToScene) {
         const AssetRegistry asset_registry;
         SceneResolver resolver(asset_registry);
+        RenderCameraResolver camera_resolver;
         RenderWorld world;
         world.cameras.push_back({.entity_id = 7, .primary = true});
 
-        const auto matrix = resolver.resolve_camera(
+        const auto matrix = camera_resolver.resolve(
             world, RenderView{.render_size = Math::Vec2u(1280, 720),
                        .camera_selection = RenderView::CameraSelection::Override});
 
@@ -589,13 +601,14 @@ namespace Comet::Tests {
     TEST(SceneResolverTest, SelectsLowestEntityIdWhenMultipleCamerasArePrimary) {
         const AssetRegistry asset_registry;
         SceneResolver resolver(asset_registry);
+        RenderCameraResolver camera_resolver;
         const Math::Mat4 selected_view =
             Math::translate(Math::Mat4(1.0f), Math::Vec3(0.0f, 0.0f, -5.0f));
         RenderWorld world;
         world.cameras.push_back({.entity_id = 9, .primary = true, .view_matrix = Math::Mat4(1.0f)});
         world.cameras.push_back({.entity_id = 3, .primary = true, .view_matrix = selected_view});
 
-        const auto matrix = resolver.resolve_camera(world, runtime_view(Math::Vec2u(1280, 720)));
+        const auto matrix = camera_resolver.resolve(world, runtime_view(Math::Vec2u(1280, 720)));
 
         ASSERT_TRUE(matrix);
         EXPECT_TRUE(TestUtils::Mat4Equal(matrix->view, selected_view));
@@ -604,26 +617,27 @@ namespace Comet::Tests {
     TEST(SceneResolverTest, RejectsInvalidCameraParametersAndRenderSize) {
         const AssetRegistry asset_registry;
         SceneResolver resolver(asset_registry);
+        RenderCameraResolver camera_resolver;
         RenderWorld world;
         world.cameras.push_back({.entity_id = 7, .primary = true, .fov_degrees = 180.0f});
 
-        EXPECT_FALSE(resolver.resolve_camera(world, runtime_view(Math::Vec2u(1280, 720))));
+        EXPECT_FALSE(camera_resolver.resolve(world, runtime_view(Math::Vec2u(1280, 720))));
 
         world.cameras.front().fov_degrees = 45.0f;
         world.cameras.front().near_clip = 1.0f;
         world.cameras.front().far_clip = 0.5f;
-        EXPECT_FALSE(resolver.resolve_camera(world, runtime_view(Math::Vec2u(1280, 720))));
+        EXPECT_FALSE(camera_resolver.resolve(world, runtime_view(Math::Vec2u(1280, 720))));
 
         world.cameras.front().far_clip = 100.0f;
-        EXPECT_FALSE(resolver.resolve_camera(world, runtime_view(Math::Vec2u(0, 720))));
-        EXPECT_TRUE(resolver.resolve_camera(world, runtime_view(Math::Vec2u(1280, 720))));
+        EXPECT_FALSE(camera_resolver.resolve(world, runtime_view(Math::Vec2u(0, 720))));
+        EXPECT_TRUE(camera_resolver.resolve(world, runtime_view(Math::Vec2u(1280, 720))));
 
         world.cameras.front().projection = RenderCamera::Projection::Orthographic;
         world.cameras.front().orthographic_height = 0.0f;
-        EXPECT_FALSE(resolver.resolve_camera(world, runtime_view(Math::Vec2u(1280, 720))));
+        EXPECT_FALSE(camera_resolver.resolve(world, runtime_view(Math::Vec2u(1280, 720))));
         world.cameras.front().orthographic_height = std::numeric_limits<float>::quiet_NaN();
-        EXPECT_FALSE(resolver.resolve_camera(world, runtime_view(Math::Vec2u(1280, 720))));
+        EXPECT_FALSE(camera_resolver.resolve(world, runtime_view(Math::Vec2u(1280, 720))));
         world.cameras.front().orthographic_height = 10.0f;
-        EXPECT_TRUE(resolver.resolve_camera(world, runtime_view(Math::Vec2u(1280, 720))));
+        EXPECT_TRUE(camera_resolver.resolve(world, runtime_view(Math::Vec2u(1280, 720))));
     }
 }

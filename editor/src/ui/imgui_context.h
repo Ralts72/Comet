@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -52,9 +53,11 @@ namespace CometEditor::Ui {
             const Comet::SwapchainCompatibility& compatibility);
 
         void set_viewport_image(uint32_t frame_slot_index,
-            std::shared_ptr<Comet::ImageView> image_view, std::shared_ptr<Comet::Sampler> sampler);
+            std::shared_ptr<Comet::ImageView> image_view, std::shared_ptr<Comet::Sampler> sampler,
+            uint32_t view_id = 0);
 
-        [[nodiscard]] ImTextureID get_viewport_texture_id(uint32_t frame_index) const;
+        [[nodiscard]] ImTextureID get_viewport_texture_id(
+            uint32_t frame_index, uint32_t view_id = 0) const;
 
     private:
         class TextureBinding;
@@ -78,7 +81,7 @@ namespace CometEditor::Ui {
         std::unique_ptr<Comet::RenderPass> m_render_pass;
         std::unique_ptr<Comet::RenderTarget> m_render_target;
         std::unique_ptr<Comet::DescriptorPool> m_descriptor_pool;
-        std::vector<std::unique_ptr<TextureBinding>> m_viewport_textures;
+        std::map<uint32_t, std::vector<std::unique_ptr<TextureBinding>>> m_viewport_textures;
         bool m_draw_data_ready = false;
         bool m_initialized = false;
         bool m_is_recreating = false;

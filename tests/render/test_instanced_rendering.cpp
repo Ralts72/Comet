@@ -36,6 +36,7 @@ namespace Comet::Tests {
                     .material_handle = AssetHandle{9902}}}};
         scene.item_changes.begin_update(true);
         SceneResolver resolver(assets);
+        RenderCameraResolver camera_resolver;
         auto world = resolver.resolve(scene);
         RenderGeometry geometry;
         geometry.prepare(world);
@@ -65,7 +66,7 @@ namespace Comet::Tests {
         for(unsigned frame = 0; frame < left_pixels.size(); ++frame) {
             SCOPED_TRACE(frame);
             if(frame == 2) {
-                geometry.clear();
+                geometry.clear_frame();
                 ASSERT_TRUE(assets.replace_asset(AssetHandle{9901}, make_material({0, 0, 1, 1})));
                 resolver.refresh_assets(world);
                 resolver.resolve(scene, world);
@@ -78,8 +79,8 @@ namespace Comet::Tests {
                 ASSERT_TRUE(right);
             }
             right_view.visible = frame != 1;
-            const RenderSubmission a{world, resolver.resolve_camera(world, left_view)};
-            const RenderSubmission b{world, resolver.resolve_camera(world, right_view)};
+            const RenderSubmission a{world, camera_resolver.resolve(world, left_view)};
+            const RenderSubmission b{world, camera_resolver.resolve(world, right_view)};
             const auto* items = world.render_items.data();
             const auto* bounds = geometry.get_items().front().world_bounds;
             const auto left_pick = pick_render_submission(a, {16, 16}, left_view.render_size);

@@ -424,52 +424,46 @@ namespace CometEditor::Ui {
     }
 
     void ImGuiContext::set_viewport_image(const uint32_t frame_slot_index,
-        std::shared_ptr<Comet::ImageView> image_view, std::shared_ptr<Comet::Sampler> sampler) {
-        if(!image_view || !sampler) {
+        std::shared_ptr<Comet::ImageView> image_view, std::shared_ptr<Comet::Sampler> sampler,
+        const uint32_t view_id) {
+        if(!image_view || !sampler)
             LOG_FATAL("Viewport texture binding requires a valid image view and sampler");
-        }
-        if(frame_slot_index < m_viewport_textures.size() && m_viewport_textures[frame_slot_index]
-            && m_viewport_textures[frame_slot_index]->matches(image_view, sampler)) {
+        auto& textures = m_viewport_textures[view_id];
+        if(frame_slot_index < textures.size() && textures[frame_slot_index]
+            && textures[frame_slot_index]->matches(image_view, sampler))
             return;
-        }
-
-        if(frame_slot_index >= m_viewport_textures.size()) {
-            m_viewport_textures.resize(frame_slot_index + 1);
-        }
+        if(frame_slot_index >= textures.size())
+            textures.resize(frame_slot_index + 1);
         auto binding = std::make_unique<TextureBinding>(std::move(image_view), std::move(sampler));
-        if(m_initialized) {
+        if(m_initialized)
             binding->register_texture();
-        }
-        m_viewport_textures[frame_slot_index] = std::move(binding);
+        textures[frame_slot_index] = std::move(binding);
     }
 
-    ImTextureID ImGuiContext::get_viewport_texture_id(const uint32_t frame_index) const {
-        if(frame_index >= m_viewport_textures.size()) {
+    ImTextureID ImGuiContext::get_viewport_texture_id(
+        const uint32_t frame_index, const uint32_t view_id) const {
+        const auto found = m_viewport_textures.find(view_id);
+        if(found == m_viewport_textures.end() || frame_index >= found->second.size())
             return ImTextureID_Invalid;
-        }
-        const auto& binding = m_viewport_textures[frame_index];
+        const auto& binding = found->second[frame_index];
         return binding ? binding->get_texture_id() : ImTextureID_Invalid;
     }
 
     void ImGuiContext::register_viewport_textures() {
-        if(!m_initialized) {
+        if(!m_initialized)
             return;
-        }
-
-        for(const auto& texture : m_viewport_textures) {
-            if(texture) {
-                texture->register_texture();
-            }
-        }
+        for(const auto& [id, textures] : m_viewport_textures)
+            for(const auto& texture : textures)
+                if(texture)
+                    texture->register_texture();
     }
 
     void ImGuiContext::unregister_viewport_textures() {
-        if(m_initialized) {
-            for(const auto& texture : m_viewport_textures) {
-                if(texture) {
+        if(!m_initialized)
+            return;
+        for(const auto& [id, textures] : m_viewport_textures)
+            for(const auto& texture : textures)
+                if(texture)
                     texture->unregister_texture();
-                }
-            }
-        }
     }
 }

@@ -6,6 +6,7 @@
 #include "core/project_paths.h"
 #include "core/task_scheduler.h"
 #include "render/material/material.h"
+#include "render/renderer.h"
 #include "render/resource/render_resources.h"
 #include "support/engine_fixture.h"
 #include "support/temporary_directory.h"
@@ -100,6 +101,25 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(editing->can_undo(handle));
     }
 
+    TEST_F(MaterialGestureTest, CancelAfterViewRemovalAndQualityRebuildUsesCurrentBindings) {
+        auto& renderer = engine->get_renderer();
+        auto second = renderer.create_offscreen_view({16, 16});
+        ASSERT_TRUE(second) << second.error();
+        ASSERT_TRUE(editing->process(change(0.7f)));
+        ASSERT_TRUE(renderer.remove_offscreen_view(second.value()));
+        ASSERT_TRUE(renderer.request_quality_settings({1, 1, 1}));
+        const auto prepared = renderer.prepare_frame();
+        ASSERT_TRUE(prepared) << prepared.error();
+        ASSERT_EQ(prepared.value(), Comet::Renderer::FramePreparation::Ready);
+        ASSERT_TRUE(renderer.render_frame());
+        ASSERT_TRUE(editing->cancel());
+        EXPECT_EQ(engine->get_asset_registry().resolve<Comet::Material>(handle), original);
+        EXPECT_EQ(saved(), initial);
+        EXPECT_FALSE(editing->active());
+        EXPECT_FALSE(editing->can_undo(handle));
+        EXPECT_TRUE(renderer.prepare_material_update(handle, original));
+    }
+
     TEST_F(MaterialGestureTest, FailedSaveKeepsPreviewAndDraftForRetryWithoutPreparingAgain) {
         ASSERT_TRUE(editing->process(change(0.7f)));
         const auto preview = engine->get_asset_registry().resolve<Comet::Material>(handle);
@@ -143,6 +163,7 @@ namespace CometEditor::Tests {
         const auto replacement = engine->get_asset_registry().resolve<Comet::Material>(handle);
         EXPECT_FALSE(editing->commit());
         EXPECT_FALSE(editing->cancel());
+        EXPECT_FALSE(editing->active());
         EXPECT_EQ(engine->get_asset_registry().resolve<Comet::Material>(handle), replacement);
         EXPECT_EQ(saved().scalar_properties.at("roughness"), 0.9f);
     }

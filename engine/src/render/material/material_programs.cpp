@@ -93,6 +93,10 @@ namespace Comet {
     }
 
     void MaterialPrograms::collect_removed() {
+        const auto revision = m_assets.get_revision();
+        if(m_collected_asset_revision == revision)
+            return;
+        m_collected_asset_revision = revision;
         std::erase_if(m_published, [&](const auto& entry) {
             return !m_assets.contains<ShaderProgramArtifact>(entry.first.first);
         });

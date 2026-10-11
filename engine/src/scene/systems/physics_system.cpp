@@ -17,15 +17,14 @@ namespace Comet {
             if(result)
                 result = synchronize_body(scene, entity.m_handle);
         });
-        if(result) {
-            scene.m_dirty_physics_entities.clear();
-            scene.m_physics_structure_changed = false;
-        }
+        if(result)
+            scene.acknowledge_physics_changes();
         return result;
     }
 
     Result<void, Error> PhysicsSystem::synchronize(Scene& scene) {
-        if(scene.m_physics_structure_changed) {
+        const auto batch = scene.physics_changes();
+        if(batch.structure_changed) {
             std::erase_if(m_entries, [this](const Entry& entry) {
                 // has_component 已检查句柄寿命；必需组件在下方统一校验。
                 if(entry.entity.has_component<RigidBodyComponent>())
@@ -33,16 +32,15 @@ namespace Comet {
                 m_physics.remove_body(entry.uuid, entry.id);
                 return true;
             });
-            scene.m_physics_structure_changed = false;
         }
-        for(const auto handle : scene.m_dirty_physics_entities) {
+        for(const auto handle : batch.entities) {
             // 销毁会移除脏项；移除刚体的实体仍可能在本批中。
             if(!scene.m_registry.all_of<RigidBodyComponent>(handle))
                 continue;
             if(auto result = synchronize_body(scene, handle); !result)
                 return result;
         }
-        scene.m_dirty_physics_entities.clear();
+        scene.acknowledge_physics_changes();
         return Result<void, Error>::success();
     }
 

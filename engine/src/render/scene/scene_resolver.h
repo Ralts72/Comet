@@ -20,21 +20,26 @@ namespace Comet {
         // 在帧边界释放已替换或移除的资源；新资源由 resolve 获取。
         void refresh_assets(RenderWorld& world) const;
 
-        [[nodiscard]] std::optional<ViewProjectMatrix> resolve_camera(
+    private:
+        void resolve_environment(const RenderScene& scene, RenderWorld& world);
+        const AssetRegistry& m_asset_registry;
+        std::unordered_map<AssetHandle, bool> m_missing_mesh_handles;
+        std::unordered_map<AssetHandle, bool> m_missing_material_handles;
+        AssetHandle m_invalid_environment;
+    };
+
+    // 每个 View 独立保留相机诊断，世界解析不消费视图状态。
+    class COMET_API RenderCameraResolver {
+    public:
+        [[nodiscard]] std::optional<ViewProjectMatrix> resolve(
             const RenderWorld& world, const RenderView& view);
 
     private:
         struct CameraDiagnostic {
             EntityId entity_id;
             RenderCamera::ProjectionIssue issue;
-
             bool operator==(const CameraDiagnostic&) const = default;
         };
-
-        const AssetRegistry& m_asset_registry;
-        std::unordered_map<AssetHandle, bool> m_missing_mesh_handles;
-        std::unordered_map<AssetHandle, bool> m_missing_material_handles;
-        AssetHandle m_invalid_environment;
         std::optional<CameraDiagnostic> m_camera_diagnostic;
         bool m_missing_primary_camera = false;
         bool m_missing_camera_override = false;
