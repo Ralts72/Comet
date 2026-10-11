@@ -16,6 +16,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <atomic>
 
 namespace Comet::Tests {
     namespace {
@@ -87,6 +88,7 @@ namespace Comet::Tests {
     class ImGuiOverlayGpuTest: public RenderGpuTest {
     protected:
         std::unique_ptr<CometEditor::Ui::ImGuiContext> ui;
+        std::unique_ptr<CometEditor::Ui::ImGuiContext::Frame> ui_frame;
 
         void create_ui() {
             auto created = CometEditor::Ui::ImGuiContext::create(engine->get_window(),
@@ -101,6 +103,7 @@ namespace Comet::Tests {
                 engine->get_renderer().set_overlay({});
                 engine->get_renderer().wait_idle();
             }
+            ui_frame.reset();
             ui.reset();
             RenderGpuTest::TearDown();
         }
@@ -128,7 +131,7 @@ namespace Comet::Tests {
                                     ImGui::GetFont()->IsGlyphInFont(static_cast<ImWchar>(glyph)));
                         transparent_window();
                     }
-                    ui->end_frame();
+                    ui_frame = ui->end_frame();
                 }
                 RenderScene scene;
                 scene.environment.background_color = {0.3f, 0.1f, 0.05f};
@@ -152,11 +155,8 @@ namespace Comet::Tests {
         unsigned rebuilt = 0;
         renderer.set_overlay({.render =
                                   [&](Comet::OverlayRecordContext& overlay) {
-                                      auto& command = overlay.command_buffer();
                                       ++rendered;
-                                      ui->render(command);
-
-                                      return Comet::Result<void, Comet::GraphicsError>::success();
+                                      return ui->render(overlay, std::move(ui_frame));
                                   },
             .release =
                 [&] {
@@ -261,6 +261,100 @@ namespace Comet::Tests {
         ui->end_frame();
     }
 
+    TEST_F(ImGuiOverlayGpuTest, CapturedFrameOwnsFontsAndCallbackDataAcrossLaterUiFrames) {
+        create_ui();
+        ASSERT_TRUE(ui);
+        auto& renderer = engine->get_renderer();
+        const auto prepared = renderer.prepare_frame();
+        ASSERT_TRUE(prepared) << prepared.error();
+        ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
+        std::atomic<int> recorded = 0;
+        struct Payload {
+            std::atomic<int>* output;
+            int value;
+        };
+        const auto draw = [&](const int value) {
+            Payload payload{&recorded, value};
+            ImGui::SetNextWindowPos({16, 16});
+            ImGui::SetNextWindowSize({120, 100});
+            ImGui::Begin("Captured UI");
+            ImGui::TextUnformatted("独立字体快照");
+            ImGui::GetWindowDrawList()->AddCallback(
+                [](const ImDrawList* list, const ImDrawCmd* command) {
+                    const auto& owned = *static_cast<const Payload*>(command->UserCallbackData);
+                    EXPECT_GT(list->VtxBuffer.Size, 0);
+                    owned.output->store(owned.value);
+                },
+                &payload, sizeof(payload));
+            ImGui::GetWindowDrawList()->AddCallback(ImDrawCallback_ResetRenderState, nullptr);
+            ImGui::End();
+        };
+        ASSERT_TRUE(ui->begin_frame());
+        draw(41);
+        ui_frame = ui->end_frame();
+        // 删除源字体并复用同一窗口的绘制与回调存储，旧帧仍有自己的数据。
+        ImGui::GetIO().Fonts->Clear();
+        ASSERT_TRUE(ui->begin_frame());
+        draw(99);
+        auto newer = ui->end_frame();
+        newer.reset();
+        auto* original = ImGui::GetCurrentContext();
+        auto* other = ImGui::CreateContext();
+        ImGui::SetCurrentContext(other);
+        const ScopeExit restore_context([&] {
+            ImGui::DestroyContext(other);
+            ImGui::SetCurrentContext(original);
+        });
+        renderer.set_overlay({.render = [&](OverlayRecordContext& overlay) {
+            return ui->render(overlay, std::move(ui_frame));
+        }});
+        ASSERT_TRUE(renderer.render_frame({}));
+        EXPECT_EQ(recorded.load(), 41);
+        EXPECT_EQ(ImGui::GetCurrentContext(), other);
+        EXPECT_FALSE(ui_frame);
+    }
+
+    TEST_F(ImGuiOverlayGpuTest, BackendRebuildDiscardsCapturedDescriptorsAndAcceptsNewFrames) {
+        create_ui();
+        ASSERT_TRUE(ui);
+        auto& renderer = engine->get_renderer();
+        unsigned callbacks = 0;
+        ASSERT_TRUE(ui->begin_frame());
+        ImGui::SetNextWindowPos({16, 16});
+        ImGui::SetNextWindowSize({120, 100});
+        ImGui::Begin("Old backend");
+        ImGui::TextUnformatted("旧帧");
+        auto* output = &callbacks;
+        ImGui::GetWindowDrawList()->AddCallback(
+            [](const ImDrawList*, const ImDrawCmd* command) {
+                ++**static_cast<unsigned* const*>(command->UserCallbackData);
+            },
+            &output, sizeof(output));
+        ImGui::End();
+        ui_frame = ui->end_frame();
+        renderer.wait_idle();
+        ui->release_swapchain_resources();
+        ASSERT_TRUE(ui->rebuild_swapchain_resources({.image_count_changed = true}));
+        const auto prepared = renderer.prepare_frame();
+        ASSERT_TRUE(prepared) << prepared.error();
+        ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
+        renderer.set_overlay({.render = [&](OverlayRecordContext& overlay) {
+            return ui->render(overlay, std::move(ui_frame));
+        }});
+        ASSERT_TRUE(renderer.render_frame({}));
+        EXPECT_EQ(callbacks, 0);
+        ASSERT_TRUE(presentation_frame(true));
+        EXPECT_FALSE(ui_frame);
+        ASSERT_TRUE(ui->begin_frame());
+        transparent_window();
+        auto unrecorded = ui->end_frame();
+        renderer.set_overlay({});
+        renderer.wait_idle();
+        ui.reset();
+        // 尚未录制的 CPU 帧也可在关闭前端后正常释放。
+        unrecorded.reset();
+    }
+
     TEST_F(ImGuiOverlayGpuTest, CompatibleOffscreenBackendKeepsEmptyUiAndPixelsOutsideWindow) {
         create_ui();
         ASSERT_TRUE(ui);
@@ -300,7 +394,8 @@ namespace Comet::Tests {
                 transparent_window();
             const auto scale = ImGui::GetIO().DisplayFramebufferScale;
             inside = {static_cast<unsigned>(40 * scale.x), static_cast<unsigned>(40 * scale.y)};
-            ui->end_frame();
+            // 此例直接验证第三方后端的离屏混合；生产快照路径另有交接回归。
+            ImGui::Render();
             if(index == 1)
                 EXPECT_EQ(ImGui::GetDrawData()->CmdListsCount, 0);
             if(index == 2)

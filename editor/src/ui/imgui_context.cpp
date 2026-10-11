@@ -12,6 +12,7 @@
 #include "graphics/pipeline/descriptor_set.h"
 #include "render/render_context.h"
 #include "render/render_target.h"
+#include "render/overlay_record_context.h"
 #include "diagnostics/logger.h"
 #include "core/window.h"
 #include "imgui_hdr_frag.h"
@@ -26,9 +27,25 @@
 #include <system_error>
 #include <type_traits>
 #include <utility>
+#include <algorithm>
+#include <cstring>
+#include <limits>
+#include <set>
 
 namespace CometEditor::Ui {
     namespace {
+        class CurrentContext {
+        public:
+            explicit CurrentContext(::ImGuiContext* context)
+                : m_previous(ImGui::GetCurrentContext()) {
+                ImGui::SetCurrentContext(context);
+            }
+            ~CurrentContext() { ImGui::SetCurrentContext(m_previous); }
+
+        private:
+            ::ImGuiContext* m_previous;
+        };
+
         void prepare_mouse_input(const Comet::Window& window) {
             auto& io = ImGui::GetIO();
             if(window.is_cursor_locked()) {
@@ -119,6 +136,63 @@ namespace CometEditor::Ui {
         std::shared_ptr<Comet::Sampler> m_sampler;
         VkDescriptorSet m_descriptor_set = VK_NULL_HANDLE;
     };
+
+    struct ImGuiContext::FontPixels {
+        int width = 0;
+        int height = 0;
+        ImTextureFormat format = ImTextureFormat_RGBA32;
+        std::vector<unsigned char> pixels;
+    };
+
+    class ImGuiContext::FontTexture final {
+    public:
+        FontTexture(::ImGuiContext* context, std::shared_ptr<const FontPixels> source)
+            : m_context(context), m_source(source) {
+            m_texture.Create(source->format, source->width, source->height);
+            std::memcpy(m_texture.Pixels, source->pixels.data(), source->pixels.size());
+            ImGui_ImplVulkan_UpdateTexture(&m_texture);
+            m_texture.DestroyPixels();
+        }
+        ~FontTexture() { release(); }
+
+        void release() {
+            if(!m_texture.BackendUserData)
+                return;
+            const CurrentContext current(m_context);
+            m_texture.WantDestroyNextFrame = true;
+            m_texture.UnusedFrames = std::numeric_limits<int>::max();
+            m_texture.SetStatus(ImTextureStatus_WantDestroy);
+            ImGui_ImplVulkan_UpdateTexture(&m_texture);
+        }
+
+        [[nodiscard]] bool matches(const std::shared_ptr<const FontPixels>& source) const {
+            return m_source.lock() == source;
+        }
+        [[nodiscard]] ImTextureID id() const { return m_texture.GetTexID(); }
+
+    private:
+        ::ImGuiContext* m_context;
+        std::weak_ptr<const FontPixels> m_source;
+        ImTextureData m_texture;
+    };
+
+    class ImGuiContext::Frame::Data {
+    public:
+        ~Data() {
+            for(auto* list : draw.CmdLists)
+                IM_DELETE(list);
+        }
+
+        ImDrawData draw;
+        std::map<int, std::shared_ptr<const FontPixels>> fonts;
+        std::vector<std::pair<ImDrawCmd*, int>> font_commands;
+        std::vector<std::shared_ptr<TextureBinding>> viewport_bindings;
+        std::uint64_t backend_generation = 0;
+        std::string error;
+    };
+
+    ImGuiContext::Frame::Frame() : m_data(std::make_unique<Data>()) {}
+    ImGuiContext::Frame::~Frame() = default;
 
     void ImGuiContext::ContextDeleter::operator()(::ImGuiContext* context) const noexcept {
         auto* previous = ImGui::GetCurrentContext();
@@ -291,6 +365,7 @@ namespace CometEditor::Ui {
         if(!ImGui_ImplVulkan_Init(&init_info))
             return Comet::Result<void, Comet::GraphicsError>::failure(
                 {"Cannot initialize ImGui Vulkan backend"});
+        ++m_backend_generation;
         return Comet::Result<void, Comet::GraphicsError>::success();
     }
 
@@ -311,7 +386,13 @@ namespace CometEditor::Ui {
         // 后端可能尚未初始化，或者已在 swapchain 重建中关闭。
         if(ImGui::GetIO().BackendRendererUserData) {
             unregister_viewport_textures();
+            for(const auto& version : m_font_versions)
+                if(auto texture = version.lock())
+                    texture->release();
         }
+        m_font_textures.clear();
+        m_font_versions.clear();
+        m_font_pixels.clear();
         m_context.reset();
 
         m_descriptor_pool.reset();
@@ -327,7 +408,6 @@ namespace CometEditor::Ui {
     }
 
     bool ImGuiContext::begin_frame() {
-        m_draw_data_ready = false;
         if(!m_initialized) {
             LOG_ERROR("ImGuiContext not initialized, skipping begin_frame");
             return false;
@@ -351,28 +431,121 @@ namespace CometEditor::Ui {
         return true;
     }
 
-    void ImGuiContext::end_frame() {
+    std::unique_ptr<ImGuiContext::Frame> ImGuiContext::end_frame() {
         ImGui::Render();
-        m_draw_data_ready = true;
+        auto frame = std::unique_ptr<Frame>(new Frame);
+        auto& captured = *frame->m_data;
+        captured.backend_generation = m_backend_generation;
+        const auto& source = *ImGui::GetDrawData();
+        captured.draw.Valid = source.Valid;
+        captured.draw.CmdListsCount = source.CmdListsCount;
+        captured.draw.TotalVtxCount = source.TotalVtxCount;
+        captured.draw.TotalIdxCount = source.TotalIdxCount;
+        captured.draw.DisplayPos = source.DisplayPos;
+        captured.draw.DisplaySize = source.DisplaySize;
+        captured.draw.FramebufferScale = source.FramebufferScale;
+        if(source.Textures) {
+            for(auto* texture : *source.Textures) {
+                if(texture->Status == ImTextureStatus_WantDestroy
+                    || texture->Status == ImTextureStatus_Destroyed)
+                    continue;
+                auto& pixels = m_font_pixels[texture->UniqueID];
+                if(!pixels || texture->Status == ImTextureStatus_WantCreate
+                    || texture->Status == ImTextureStatus_WantUpdates) {
+                    auto candidate = std::make_shared<FontPixels>();
+                    candidate->width = texture->Width;
+                    candidate->height = texture->Height;
+                    candidate->format = texture->Format;
+                    candidate->pixels.assign(
+                        texture->Pixels, texture->Pixels + texture->GetSizeInBytes());
+                    pixels = std::move(candidate);
+                    // Main 只确认像素已交给帧；GPU 不回写前端纹理句柄。
+                    texture->SetStatus(ImTextureStatus_OK);
+                }
+                captured.fonts.emplace(texture->UniqueID, pixels);
+            }
+        }
+        std::erase_if(m_font_pixels,
+            [&](const auto& entry) { return !captured.fonts.contains(entry.first); });
+        std::set<ImTextureID> viewport_ids;
+        for(const auto* list : source.CmdLists) {
+            auto* copy = list->CloneOutput();
+            captured.draw.CmdLists.push_back(copy);
+            copy->_CallbacksDataBuf = list->_CallbacksDataBuf;
+            for(auto& command : copy->CmdBuffer) {
+                if(command.UserCallback
+                    && command.UserCallback != ImDrawCallback_ResetRenderState) {
+                    if(command.UserCallbackDataSize > 0)
+                        command.UserCallbackData =
+                            copy->_CallbacksDataBuf.Data + command.UserCallbackDataOffset;
+                    else if(command.UserCallbackData)
+                        captured.error = "ImGui draw callbacks must own their payload";
+                }
+                if(command.TexRef._TexData) {
+                    captured.font_commands.emplace_back(
+                        &command, command.TexRef._TexData->UniqueID);
+                    command.TexRef = ImTextureRef{};
+                } else {
+                    viewport_ids.insert(command.GetTexID());
+                }
+            }
+        }
+        for(const auto& [view, textures] : m_viewport_textures)
+            for(const auto& texture : textures)
+                if(texture && viewport_ids.contains(texture->get_texture_id()))
+                    captured.viewport_bindings.push_back(texture);
+        return frame;
     }
 
-    void ImGuiContext::render(Comet::CommandBuffer& command_buffer) const {
+    Comet::Result<void, Comet::GraphicsError> ImGuiContext::render(
+        Comet::OverlayRecordContext& overlay, std::unique_ptr<Frame> frame) {
+        using RenderResult = Comet::Result<void, Comet::GraphicsError>;
         if(!m_initialized) {
-            LOG_ERROR("ImGuiContext not initialized");
-            return;
+            return RenderResult::failure({"ImGuiContext not initialized"});
+        }
+        const CurrentContext current(m_context.get());
+        const bool current_frame =
+            frame && frame->m_data->backend_generation == m_backend_generation;
+        if(current_frame && !frame->m_data->error.empty())
+            return RenderResult::failure({frame->m_data->error});
+        const bool has_draw_data = current_frame && frame->m_data->draw.CmdListsCount > 0;
+        if(m_options.composition == Composition::Preserve && !has_draw_data)
+            return RenderResult::success();
+
+        if(has_draw_data) {
+            auto& captured = *frame->m_data;
+            std::erase_if(m_font_textures,
+                [&](const auto& entry) { return !captured.fonts.contains(entry.first); });
+            for(const auto& [id, pixels] : captured.fonts) {
+                auto& texture = m_font_textures[id];
+                if(!texture || !texture->matches(pixels)) {
+                    texture = std::make_shared<FontTexture>(m_context.get(), pixels);
+                    std::erase_if(
+                        m_font_versions, [](const auto& version) { return version.expired(); });
+                    m_font_versions.push_back(texture);
+                }
+            }
+            for(const auto& [command, id] : captured.font_commands) {
+                const auto found = m_font_textures.find(id);
+                if(found == m_font_textures.end())
+                    return RenderResult::failure({"ImGui frame has no captured font texture"});
+                command->TexRef = found->second->id();
+            }
+            captured.draw.OwnerViewport = ImGui::GetMainViewport();
         }
 
-        ImDrawData* draw_data = ImGui::GetDrawData();
-        const bool has_draw_data = m_draw_data_ready && draw_data && draw_data->CmdListsCount > 0;
-        if(m_options.composition == Composition::Preserve && !has_draw_data)
-            return;
-
+        auto& command_buffer = overlay.command_buffer();
         m_render_target->begin_render_target(command_buffer);
         if(has_draw_data) {
-            ImGui_ImplVulkan_RenderDrawData(draw_data, command_buffer.get());
+            ImGui_ImplVulkan_RenderDrawData(&frame->m_data->draw, command_buffer.get());
+            for(const auto& [id, pixels] : frame->m_data->fonts)
+                overlay.retain(m_font_textures.at(id));
+            for(const auto& binding : frame->m_data->viewport_bindings)
+                overlay.retain(binding);
         }
 
         m_render_target->end_render_target(command_buffer);
+        return RenderResult::success();
     }
 
     void ImGuiContext::release_swapchain_resources() {
@@ -382,6 +555,7 @@ namespace CometEditor::Ui {
         }
         LOG_INFO("Releasing ImGui swapchain resources");
         m_is_recreating = true;
+        ++m_backend_generation;
         m_render_target.reset();
     }
 
@@ -405,6 +579,11 @@ namespace CometEditor::Ui {
         if(rebuild_backend) {
             if(ImGui::GetIO().BackendRendererUserData) {
                 unregister_viewport_textures();
+                for(const auto& version : m_font_versions)
+                    if(auto texture = version.lock())
+                        texture->release();
+                m_font_textures.clear();
+                m_font_versions.clear();
                 ImGui_ImplVulkan_Shutdown();
             }
             // Vulkan 后端关闭时也会清除主视口的平台数据。
@@ -451,7 +630,7 @@ namespace CometEditor::Ui {
         if(binding)
             binding->update_image(std::move(image_view), std::move(sampler));
         else
-            binding = std::make_unique<TextureBinding>(std::move(image_view), std::move(sampler));
+            binding = std::make_shared<TextureBinding>(std::move(image_view), std::move(sampler));
         if(m_initialized)
             binding->register_texture();
     }

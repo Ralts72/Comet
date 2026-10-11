@@ -252,7 +252,8 @@ namespace {
                 return Comet::Result<void, Comet::Error>::success();
             }
             {
-                const Comet::ScopeExit end_ui([this] { m_imgui_context->end_frame(); });
+                const Comet::ScopeExit end_ui(
+                    [this] { m_imgui_frame = m_imgui_context->end_frame(); });
                 draw_editor_ui(frame.physical_input);
                 bool input_blocked = render_player_input(frame.physical_input);
                 bool pointer_blocked = false;
@@ -327,6 +328,7 @@ namespace {
             m_inspector_panel.reset();
             m_viewport.reset();
             m_property_editor_registry = {};
+            m_imgui_frame.reset();
             m_imgui_context.reset();
             m_scene_editor.reset();
             m_selection.reset();
@@ -421,27 +423,24 @@ namespace {
 
         void setup_render_hooks() {
             auto& renderer = get_engine().get_renderer();
-            renderer.set_overlay(
-                {.render =
-                        [this](Comet::OverlayRecordContext& overlay) {
-                            if(auto result = m_game_ui->render(overlay); !result)
-                                return result;
-                            auto& command_buffer = overlay.command_buffer();
-                            m_imgui_context->render(command_buffer);
-
-                            return Comet::Result<void, Comet::GraphicsError>::success();
-                        },
-                    .release =
-                        [this] {
-                            m_game_ui->release();
-                            m_imgui_context->release_swapchain_resources();
-                        },
-                    .rebuild =
-                        [this](const Comet::SwapchainCompatibility& compatibility) {
-                            if(auto result = m_game_ui->rebuild(compatibility); !result)
-                                return result;
-                            return m_imgui_context->rebuild_swapchain_resources(compatibility);
-                        }});
+            renderer.set_overlay({.render =
+                                      [this](Comet::OverlayRecordContext& overlay) {
+                                          if(auto result = m_game_ui->render(overlay); !result)
+                                              return result;
+                                          return m_imgui_context->render(
+                                              overlay, std::move(m_imgui_frame));
+                                      },
+                .release =
+                    [this] {
+                        m_game_ui->release();
+                        m_imgui_context->release_swapchain_resources();
+                    },
+                .rebuild =
+                    [this](const Comet::SwapchainCompatibility& compatibility) {
+                        if(auto result = m_game_ui->rebuild(compatibility); !result)
+                            return result;
+                        return m_imgui_context->rebuild_swapchain_resources(compatibility);
+                    }});
         }
 
         Comet::Result<Comet::DisplaySettings> load_player_display() {
@@ -1262,6 +1261,7 @@ namespace {
         std::optional<Comet::PlayerQualitySettings> m_player_quality_settings;
         std::optional<Comet::PlayerAudioSettings> m_player_audio_settings;
         std::string m_player_input_error;
+        std::unique_ptr<CometEditor::Ui::ImGuiContext::Frame> m_imgui_frame;
         std::unique_ptr<CometEditor::Ui::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::GameUi> m_game_ui;
         std::unique_ptr<CometEditor::EditorAssets> m_assets;

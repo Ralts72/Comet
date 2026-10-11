@@ -112,6 +112,7 @@ Engine／Renderer／设备等工厂先准备完整 owner，成功后交付；部
 | 相机与诊断、目标、拾取、调试线 | Renderer 的 ViewState／SceneRenderer | 每个 View 独立；隐藏保留目标并消费自身的临时请求 |
 | 可见列表、材质帧资源和绘制队列 | SceneRenderer／MaterialRenderer | 同步消费 RenderSubmission；实际使用的 GPU 版本由 FrameSlot 保活 |
 | 资产注销与缓存淘汰 | Main 取走 Registry 删除批次；各 GPU 缓存消费同一批次 | 批次只保存注销身份或全量重置，不借用注册表；隐藏 View 也清理，旧反馈与在途帧继续保活 |
+| 编辑器 UI 绘制帧 | Main 构建；ImGui 后端消费一次 | 顶点、索引、命令、回调内联数据和字体像素独立持有；GPU 版本由 FrameSlot 保活，后端重建丢弃旧 descriptor 帧 |
 
 App 使用默认 View；Editor 的游戏相机使用默认 View，编辑相机使用另一个 View。Play 中两者观察同一个运行副本。
 创建／移除 View 在帧边界完成，场景切换不交换目标；画质重建与热发布不能释放在途帧的旧资源。
@@ -130,6 +131,13 @@ SceneResolver::update 返回 `shared_ptr<const RenderWorld>`；资源刷新和 r
 当前所有视图同步消费同一只读世界；借用 RenderSubmission 只在持有世界快照期间有效，不能单独排队。帧延期跳过 UI／提取／绘制，Runtime 仍推进；最小化等待并重置墙钟增量与待处理输入。
 Editor 在提取前完成属性编辑；Renderer 只返回拾取值，Editor 在下一次 Main 更新消费结果，选择、Gizmo 和选中框一起更新。
 切换 Scene 时结束旧交互、清理请求并重绑选择与引用。
+
+ImGui 的 `end_frame` 返回独立帧；GPU 录制不再读取前端的 `GetDrawData` 或字体像素。
+字体像素只在图集变化时复制，未变帧共享同一份数据；Main 确认像素已由帧持有，GPU 单独解析字体标识、创建纹理版本并按帧槽退休。
+新字形产生新 GPU 纹理版本，在途帧继续使用旧版本；稳态复用纹理，录制后释放 CPU 绘制数据，只保活实际 GPU 绑定。
+回调数据使用 ImGui 的内联复制存储，禁止直接借用回调数据指针；回调自身及其数据中的引用须符合 GPU 录制寿命。
+视口 descriptor 仍按帧槽等待后改绑，保持已构建 UI 的 TextureID；交换链重建使未消费的旧帧失效。
+Vulkan 后端仍借用同一个 ImGui 上下文的 renderer／viewport 状态，当前串行执行；启用独立线程前还需分离后端上下文、视口绑定交接和全局上下文访问。
 
 ### 输入主链与配置边界
 

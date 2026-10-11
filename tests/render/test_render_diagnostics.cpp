@@ -399,13 +399,12 @@ namespace Comet::Tests {
                 .composition = CometEditor::Ui::ImGuiContext::Composition::Clear});
         ASSERT_TRUE(created) << created.error();
         auto& ui = *created.value();
+        std::unique_ptr<CometEditor::Ui::ImGuiContext::Frame> ui_frame;
         CometEditor::RenderStatsPanel panel(
             engine->frame_diagnostics(), renderer.get_diagnostics());
         panel.set_visible(true);
         renderer.set_overlay({.render = [&](Comet::OverlayRecordContext& overlay) {
-            auto& command = overlay.command_buffer();
-            ui.render(command);
-            return Comet::Result<void, Comet::GraphicsError>::success();
+            return ui.render(overlay, std::move(ui_frame));
         }});
         const ScopeExit finish([&] {
             renderer.set_overlay({});
@@ -421,7 +420,7 @@ namespace Comet::Tests {
                 if(glyph != 0)
                     EXPECT_TRUE(ImGui::GetFont()->IsGlyphInFont(static_cast<ImWchar>(glyph)));
             panel.render();
-            ui.end_frame();
+            ui_frame = ui.end_frame();
             auto rendered = renderer.render_frame({});
             ASSERT_TRUE(rendered) << rendered.error();
         }

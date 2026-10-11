@@ -85,6 +85,7 @@ namespace CometEditor::Tests {
             renderer.get_render_context(), editor_ui_options(directory.path() / "imgui.ini"));
         ASSERT_TRUE(ui_result) << ui_result.error();
         auto& ui = *ui_result.value();
+        std::unique_ptr<CometEditor::Ui::ImGuiContext::Frame> ui_frame;
         const Comet::ScopeExit cleanup([&] {
             renderer.set_overlay({});
             renderer.cancel_viewport_pick();
@@ -94,9 +95,9 @@ namespace CometEditor::Tests {
         unsigned prepared_frames = 0;
         bool visible = false;
         renderer.set_overlay({.render = [&](Comet::OverlayRecordContext& overlay) {
-            auto& command = overlay.command_buffer();
             ++overlays;
-            ui.render(command);
+            const auto recorded = ui.render(overlay, std::move(ui_frame));
+            EXPECT_TRUE(recorded) << recorded.error();
             const auto& snapshot = renderer.get_diagnostics().get_snapshot();
             EXPECT_EQ(snapshot.scene_rendered, visible);
             EXPECT_EQ(snapshot.cpu.has_value(), visible);
@@ -140,7 +141,7 @@ namespace CometEditor::Tests {
                     ImGui::Begin("UI stays active");
                     ImGui::TextUnformatted("Inspector");
                     ImGui::End();
-                    ui.end_frame();
+                    ui_frame = ui.end_frame();
                     auto view = renderer.set_render_view({.visible = visible,
                         .camera_selection = Comet::RenderView::CameraSelection::Override,
                         .camera_override = Comet::RenderCamera{}});
@@ -176,6 +177,7 @@ namespace CometEditor::Tests {
             renderer.get_render_context(), editor_ui_options(directory.path() / "imgui.ini"));
         ASSERT_TRUE(result) << result.error();
         auto& ui = *result.value();
+        std::unique_ptr<CometEditor::Ui::ImGuiContext::Frame> ui_frame;
         renderer.wait_idle();
         ui.release_swapchain_resources();
         // 模拟重建中后端已关闭，但后续 GPU 候选创建失败的状态。
@@ -185,8 +187,8 @@ namespace CometEditor::Tests {
         auto rebuilt = ui.rebuild_swapchain_resources({.image_count_changed = true});
         ASSERT_TRUE(rebuilt) << rebuilt.error();
         renderer.set_overlay({.render = [&](Comet::OverlayRecordContext& overlay) {
-            auto& command = overlay.command_buffer();
-            ui.render(command);
+            const auto recorded = ui.render(overlay, std::move(ui_frame));
+            EXPECT_TRUE(recorded) << recorded.error();
             return Comet::Result<void, Comet::GraphicsError>::success();
         }});
         {
@@ -195,7 +197,7 @@ namespace CometEditor::Tests {
             ASSERT_EQ(preparation.value(), Comet::Renderer::FramePreparation::Ready);
         }
         ASSERT_TRUE(ui.begin_frame());
-        ui.end_frame();
+        ui_frame = ui.end_frame();
         EXPECT_TRUE(renderer.render_frame({}));
         renderer.set_overlay({});
         renderer.wait_idle();
@@ -216,6 +218,7 @@ namespace CometEditor::Tests {
             renderer.get_render_context(), editor_ui_options(directory.path() / "imgui.ini"));
         ASSERT_TRUE(ui_result) << ui_result.error();
         auto& ui = *ui_result.value();
+        std::unique_ptr<CometEditor::Ui::ImGuiContext::Frame> ui_frame;
         Comet::Scene first_scene;
         Comet::Scene second_scene;
         first_scene.create_entity().add_component<Comet::CameraComponent>(
@@ -238,9 +241,7 @@ namespace CometEditor::Tests {
             shortcuts, renderer, engine.get_asset_registry(), ui, std::move(sampler).value(),
             scene_view.value());
         renderer.set_overlay({.render = [&](Comet::OverlayRecordContext& overlay) {
-            auto& command_buffer = overlay.command_buffer();
-            ui.render(command_buffer);
-            return Comet::Result<void, Comet::GraphicsError>::success();
+            return ui.render(overlay, std::move(ui_frame));
         }});
         const auto draw_frame = [&] {
             viewport.consume_pick(active_scene);
@@ -268,7 +269,7 @@ namespace CometEditor::Tests {
                 ui.get_viewport_texture_id(frame.slot, scene_view.value()));
             const auto updated = viewport.update(active_scene);
             EXPECT_EQ(ui.get_viewport_texture_id(frame.slot, scene_view.value()), scene_texture);
-            ui.end_frame();
+            ui_frame = ui.end_frame();
             EXPECT_TRUE(updated);
             if(!updated)
                 return false;
@@ -320,7 +321,7 @@ namespace CometEditor::Tests {
             // 拾取专用帧不重放上一帧的视口纹理与 descriptor。
             if(!ui.begin_frame())
                 return false;
-            ui.end_frame();
+            ui_frame = ui.end_frame();
             renderer.request_viewport_pick(
                 pixel, {64, 64}, scene.get_lifetime(), scene_view.value());
             return bool(renderer.render_frame(Comet::SceneExtractor::extract(scene)));

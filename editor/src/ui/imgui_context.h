@@ -22,11 +22,24 @@ namespace Comet {
     class Sampler;
     class ImageView;
     struct SwapchainCompatibility;
+    class OverlayRecordContext;
 }
 
 namespace CometEditor::Ui {
     class ImGuiContext {
     public:
+        class Frame {
+        public:
+            ~Frame();
+            Frame(const Frame&) = delete;
+            Frame& operator=(const Frame&) = delete;
+
+        private:
+            friend class ImGuiContext;
+            class Data;
+            Frame();
+            std::unique_ptr<Data> m_data;
+        };
         // Preserve 要求当前交换链图像已由场景 pass 写入并处于 PresentSrcKHR。
         enum class Composition { Clear, Preserve };
         struct Options {
@@ -45,8 +58,10 @@ namespace CometEditor::Ui {
         ImGuiContext& operator=(const ImGuiContext&) = delete;
 
         [[nodiscard]] bool begin_frame();
-        void end_frame();
-        void render(Comet::CommandBuffer& command_buffer) const;
+        // 交付独立持有的绘制数据和字体像素；录制消费一次并由帧槽保活 GPU 资源。
+        std::unique_ptr<Frame> end_frame();
+        Comet::Result<void, Comet::GraphicsError> render(
+            Comet::OverlayRecordContext& overlay, std::unique_ptr<Frame> frame);
 
         void release_swapchain_resources();
         Comet::Result<void, Comet::GraphicsError> rebuild_swapchain_resources(
@@ -62,6 +77,8 @@ namespace CometEditor::Ui {
 
     private:
         class TextureBinding;
+        class FontTexture;
+        struct FontPixels;
         struct ContextDeleter {
             void operator()(::ImGuiContext* context) const noexcept;
         };
@@ -82,8 +99,11 @@ namespace CometEditor::Ui {
         std::unique_ptr<Comet::RenderPass> m_render_pass;
         std::unique_ptr<Comet::RenderTarget> m_render_target;
         std::unique_ptr<Comet::DescriptorPool> m_descriptor_pool;
-        std::map<uint32_t, std::vector<std::unique_ptr<TextureBinding>>> m_viewport_textures;
-        bool m_draw_data_ready = false;
+        std::map<uint32_t, std::vector<std::shared_ptr<TextureBinding>>> m_viewport_textures;
+        std::map<int, std::shared_ptr<const FontPixels>> m_font_pixels;
+        std::map<int, std::shared_ptr<FontTexture>> m_font_textures;
+        std::vector<std::weak_ptr<FontTexture>> m_font_versions;
+        std::uint64_t m_backend_generation = 0;
         bool m_initialized = false;
         bool m_is_recreating = false;
         uint32_t m_backend_image_count = 0;

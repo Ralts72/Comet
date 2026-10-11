@@ -26,7 +26,7 @@ Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，
 | `demo/.comet/` | 示例项目本机缓存、日志与编辑器状态，不进入版本控制 |
 | `tests/`、`3rdparty/` | GoogleTest 测试与第三方依赖 |
 
-场景更新交付只读 CPU 快照，主线程解析时固定材质值及对应 Shader 引用，产出可独立保留的只读 RenderWorld。游戏 UI 在更新阶段收集绘制快照，GPU 录制只消费快照；Renderer 拥有 GPU 资源和各视图状态，材质参数校验与 Inspector 消费已发布布局的只读反馈，资产注销由主线程交付同一删除批次给各视图。当前仍串行执行，类入口、依赖方向和资源所有权见[架构文档](docs/architecture/overview.md)。
+场景更新交付只读 CPU 快照，主线程解析时固定材质值及对应 Shader 引用，产出可独立保留的只读 RenderWorld。游戏和编辑器 UI 交付独立持有的绘制数据与像素，GPU 录制消费这些输入，在途资源由帧槽保活；Renderer 拥有 GPU 资源和各视图状态，材质参数校验与 Inspector 消费已发布布局的只读反馈，资产注销由主线程交付同一删除批次给各视图。当前仍串行执行，类入口、依赖方向和资源所有权见[架构文档](docs/architecture/overview.md)。
 
 `engine/src/common/` 提供共享文件读写、JSON 与二进制基础工具和错误定位；各模块负责自身的数据结构与字段校验。
 显示、画质和音量选择共用 `config/player_settings` 存储流程，具体设置类型仍归所属功能模块。

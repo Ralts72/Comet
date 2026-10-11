@@ -26,6 +26,7 @@ namespace CometEditor::Tests {
         std::optional<Comet::PlayerInputSettings> player_input;
         std::unique_ptr<GameUi> game;
         std::unique_ptr<Ui::ImGuiContext> editor;
+        std::unique_ptr<Ui::ImGuiContext::Frame> editor_frame;
         std::shared_ptr<Comet::Sampler> sampler;
         bool visible = true;
         bool docked = false;
@@ -64,27 +65,25 @@ namespace CometEditor::Tests {
             game = std::make_unique<GameUi>(
                 engine->get_window(), renderer, *project, input_services());
             ASSERT_NE(Rml::GetContext(0), nullptr);
-            renderer.set_overlay(
-                {.render =
-                        [this](Comet::OverlayRecordContext& overlay) {
-                            auto result = game->render(overlay);
-                            if(!result)
-                                return result;
-                            editor->render(overlay.command_buffer());
-                            return Comet::Result<void, Comet::GraphicsError>::success();
-                        },
-                    .release =
-                        [this] {
-                            game->release();
-                            editor->release_swapchain_resources();
-                        },
-                    .rebuild =
-                        [this](const Comet::SwapchainCompatibility& compatibility) {
-                            auto result = game->rebuild(compatibility);
-                            if(!result)
-                                return result;
-                            return editor->rebuild_swapchain_resources(compatibility);
-                        }});
+            renderer.set_overlay({.render =
+                                      [this](Comet::OverlayRecordContext& overlay) {
+                                          auto result = game->render(overlay);
+                                          if(!result)
+                                              return result;
+                                          return editor->render(overlay, std::move(editor_frame));
+                                      },
+                .release =
+                    [this] {
+                        game->release();
+                        editor->release_swapchain_resources();
+                    },
+                .rebuild =
+                    [this](const Comet::SwapchainCompatibility& compatibility) {
+                        auto result = game->rebuild(compatibility);
+                        if(!result)
+                            return result;
+                        return editor->rebuild_swapchain_resources(compatibility);
+                    }});
             engine->set_scene(std::make_unique<Comet::Scene>());
             ASSERT_TRUE(engine->set_input_actions(project->input_actions()));
         }
@@ -97,6 +96,7 @@ namespace CometEditor::Tests {
             if(game)
                 game->deactivate();
             game.reset();
+            editor_frame.reset();
             editor.reset();
             sampler.reset();
             RenderGpuTest::TearDown();
@@ -170,7 +170,7 @@ namespace CometEditor::Tests {
                                .view = view});
                 ui_view = view;
                 ASSERT_TRUE(ui) << ui.error().message;
-                editor->end_frame();
+                editor_frame = editor->end_frame();
                 ASSERT_TRUE(renderer.render_frame());
                 return;
             }
@@ -304,8 +304,7 @@ namespace CometEditor::Tests {
             auto result = game->render(overlay);
             if(!result)
                 return result;
-            editor->render(overlay.command_buffer());
-            return Comet::Result<void, Comet::GraphicsError>::success();
+            return editor->render(overlay, std::move(editor_frame));
         }});
         frame();
         std::filesystem::copy_file(
