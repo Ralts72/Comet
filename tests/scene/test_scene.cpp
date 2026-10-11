@@ -55,6 +55,8 @@ namespace Comet::Tests {
     static_assert(!HasMutableComponentAccess<MeshRendererComponent>);
     static_assert(!HasMutableComponentAccess<CameraComponent>);
     static_assert(!HasMutableComponentAccess<LightComponent>);
+    static_assert(!HasMutableComponentAccess<RigidBodyComponent>);
+    static_assert(!HasMutableComponentAccess<ColliderComponent>);
     static_assert(std::is_same_v<decltype(std::declval<Entity>().add_component<CameraComponent>()),
         const CameraComponent&>);
     static_assert(
@@ -62,6 +64,12 @@ namespace Comet::Tests {
             const TransformComponent&>);
     static_assert(CanAddComponent<CameraComponent>);
     static_assert(CanRemoveComponent<CameraComponent>);
+    static_assert(
+        std::is_same_v<decltype(std::declval<Entity>().add_component<RigidBodyComponent>()),
+            const RigidBodyComponent&>);
+    static_assert(
+        std::is_same_v<decltype(std::declval<Entity>().add_component<ColliderComponent>()),
+            const ColliderComponent&>);
 
     TEST(SceneTest, TypedQueryFiltersComponentsAndProtectsSceneManagedValues) {
         Scene scene;

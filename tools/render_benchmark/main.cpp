@@ -330,7 +330,8 @@ namespace {
         ground.set_transform(
             {.translation = {0, -spacing * 0.325f - 0.1f, 0}, .scale = {12, 0.2f, 12}});
         if(uses_physics(options.workload)) {
-            ground.add_component<Comet::RigidBodyComponent>().motion = Comet::BodyMotion::Static;
+            ground.add_component<Comet::RigidBodyComponent>(
+                Comet::RigidBodyComponent{.motion = Comet::BodyMotion::Static});
             ground.add_component<Comet::ColliderComponent>();
         }
         auto key = create_entity("Directional");

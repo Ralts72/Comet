@@ -420,7 +420,8 @@ namespace Comet::Tests {
             return script
         )");
         auto entity = actor();
-        entity.add_component<RigidBodyComponent>().motion = BodyMotion::Kinematic;
+        entity.add_component<RigidBodyComponent>(
+            RigidBodyComponent{.motion = BodyMotion::Kinematic});
         entity.add_component<ColliderComponent>();
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(scene));
@@ -916,8 +917,8 @@ namespace Comet::Tests {
             end
         })");
         auto sensor = actor();
-        sensor.add_component<RigidBodyComponent>().motion = BodyMotion::Static;
-        sensor.add_component<ColliderComponent>().is_trigger = true;
+        sensor.add_component<RigidBodyComponent>(RigidBodyComponent{.motion = BodyMotion::Static});
+        sensor.add_component<ColliderComponent>(ColliderComponent{.is_trigger = true});
         auto unrelated = actor();
         unrelated.edit_transform(
             [](TransformComponent& transform) { transform.translation = {20, 0, 0}; });
@@ -953,7 +954,7 @@ namespace Comet::Tests {
             end
         })");
         auto floor = actor();
-        floor.add_component<RigidBodyComponent>().motion = BodyMotion::Static;
+        floor.add_component<RigidBodyComponent>(RigidBodyComponent{.motion = BodyMotion::Static});
         floor.add_component<ColliderComponent>();
         auto falling = scene.create_entity("Falling");
         falling.add_component<RigidBodyComponent>();
@@ -990,7 +991,7 @@ namespace Comet::Tests {
             end
         })");
         auto floor = actor();
-        floor.add_component<RigidBodyComponent>().motion = BodyMotion::Static;
+        floor.add_component<RigidBodyComponent>(RigidBodyComponent{.motion = BodyMotion::Static});
         floor.add_component<ColliderComponent>();
         auto falling = scene.create_entity("Falling");
         falling.add_component<RigidBodyComponent>();

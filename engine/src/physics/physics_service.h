@@ -58,7 +58,7 @@ namespace Comet {
         void reset() noexcept override;
         Result<void, Error> prepare_world();
         // 首次登记 EntityId 返回 true；同实体的刚体重建不重复登记。
-        Result<bool, Error> synchronize_body(const BodyDefinition& definition, float delta_time);
+        Result<bool, Error> synchronize_body(const BodyDefinition& definition);
         void remove_body(EntityUuid uuid, EntityId entity);
         Result<void, Error> step(float delta_time);
         [[nodiscard]] std::span<const Pose> poses() const;

@@ -114,7 +114,7 @@ namespace Comet {
                         auto candidate = entity.get_component<Component>();
                         return property.assign_value(&candidate, value, mode)
                                && entity.try_set_transform(candidate);
-                    } else if constexpr(is_scene_render_component_v<Component>) {
+                    } else if constexpr(is_scene_tracked_component_v<Component>) {
                         auto candidate = entity.get_component<Component>();
                         return property.assign_value(&candidate, value, mode)
                                && entity.try_set_component(candidate);

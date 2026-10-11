@@ -174,7 +174,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(defaults) << defaults.error();
         auto body = defaults.value()->get_entities().front();
         EXPECT_FLOAT_EQ(body.get_component<RigidBodyComponent>().mass, 1.0f);
-        body.get_component<RigidBodyComponent>().mass = 3.5f;
+        body.edit_component<RigidBodyComponent>([](auto& component) { component.mass = 3.5f; });
         TemporaryDirectory directory;
         const auto path = (directory.path() / "mass.scene").string();
         ASSERT_TRUE(serializer.save(*defaults.value(), path));
@@ -184,10 +184,11 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(loaded_body.get_component<RigidBodyComponent>().mass, 3.5f);
         auto clone = serializer.clone(*loaded.value());
         ASSERT_TRUE(clone) << clone.error();
-        auto& cloned_body =
-            clone.value()->find_entity(body.get_uuid()).get_component<RigidBodyComponent>();
+        const auto cloned_entity = clone.value()->find_entity(body.get_uuid());
+        const auto& cloned_body = cloned_entity.get_component<RigidBodyComponent>();
         EXPECT_FLOAT_EQ(cloned_body.mass, 3.5f);
-        cloned_body.mass = RigidBodyComponent::MIN_MASS;
+        cloned_entity.edit_component<RigidBodyComponent>(
+            [](auto& component) { component.mass = RigidBodyComponent::MIN_MASS; });
         EXPECT_TRUE(serializer.serialize(*clone.value()));
         EXPECT_FLOAT_EQ(loaded_body.get_component<RigidBodyComponent>().mass, 3.5f);
     }
@@ -206,11 +207,13 @@ namespace Comet::Tests {
             EXPECT_NE(loaded.error().find("mass"), std::string::npos);
         }
         Scene scene;
-        auto& body = scene.create_entity().add_component<RigidBodyComponent>();
+        auto entity = scene.create_entity();
+        entity.add_component<RigidBodyComponent>();
         for(const auto invalid : {0.0f, -1.0f, RigidBodyComponent::MIN_MASS * 0.5f,
                 std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()}) {
             SCOPED_TRACE(invalid);
-            body.mass = invalid;
+            entity.edit_component<RigidBodyComponent>(
+                [invalid](auto& component) { component.mass = invalid; });
             const auto serialized = serializer.serialize(scene);
             ASSERT_FALSE(serialized);
             EXPECT_NE(serialized.error().find("mass"), std::string::npos);

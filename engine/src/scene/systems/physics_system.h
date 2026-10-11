@@ -25,7 +25,8 @@ namespace Comet {
             EntityId id;
             EntityUuid uuid;
         };
-        Result<void, Error> synchronize(Scene& scene, float delta_time);
+        Result<void, Error> synchronize(Scene& scene);
+        Result<void, Error> synchronize_body(Scene& scene, entt::entity handle);
         PhysicsService& m_physics;
         std::vector<Entry> m_entries;
     };

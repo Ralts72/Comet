@@ -12,55 +12,58 @@ namespace Comet {
         if(auto ready = m_physics.prepare_world(); !ready)
             return ready;
         m_entries.reserve(scene.component_count<RigidBodyComponent>());
-        return synchronize(scene, 0);
+        Result<void, Error> result = Result<void, Error>::success();
+        scene.each<const RigidBodyComponent>([&](Entity entity, const RigidBodyComponent&) {
+            if(result)
+                result = synchronize_body(scene, entity.m_handle);
+        });
+        if(result) {
+            scene.m_dirty_physics_entities.clear();
+            scene.m_physics_structure_changed = false;
+        }
+        return result;
     }
 
-    Result<void, Error> PhysicsSystem::synchronize(Scene& scene, const float delta_time) {
-        std::erase_if(m_entries, [this](const Entry& entry) {
-            // has_component 已检查句柄寿命；必需组件在下方统一校验。
-            if(entry.entity.has_component<RigidBodyComponent>())
-                return false;
-            m_physics.remove_body(entry.uuid, entry.id);
-            return true;
-        });
-        Result<void, Error> result = Result<void, Error>::success();
-        std::size_t synchronized_count = 0;
-        scene.each<const RigidBodyComponent, const TransformComponent, const ColliderComponent,
-            const IdComponent, const UuidComponent, const RelationshipComponent>(
-            [&](Entity entity, const RigidBodyComponent& rigid, const TransformComponent& transform,
-                const ColliderComponent& collider, const IdComponent& id_component,
-                const UuidComponent& uuid_component, const RelationshipComponent& relationship) {
-                if(!result)
-                    return;
-                ++synchronized_count;
-                const auto uuid = uuid_component.uuid;
-                if(relationship.parent != INVALID_ENTITY_ID) {
-                    result = Result<void, Error>::failure(
-                        {"Parented rigid body is unsupported: " + uuid.to_string()});
-                    return;
-                }
-                const auto id = id_component.id;
-                const auto synchronized =
-                    m_physics.synchronize_body({uuid, id, transform, collider, rigid}, delta_time);
-                if(!synchronized) {
-                    result = Result<void, Error>::failure(synchronized.error());
-                    return;
-                }
-                if(synchronized.value())
-                    m_entries.push_back({entity, id, uuid});
+    Result<void, Error> PhysicsSystem::synchronize(Scene& scene) {
+        if(scene.m_physics_structure_changed) {
+            std::erase_if(m_entries, [this](const Entry& entry) {
+                // has_component 已检查句柄寿命；必需组件在下方统一校验。
+                if(entry.entity.has_component<RigidBodyComponent>())
+                    return false;
+                m_physics.remove_body(entry.uuid, entry.id);
+                return true;
             });
-        if(!result || synchronized_count == scene.component_count<RigidBodyComponent>())
-            return result;
-        // 完整查询不匹配时才定位缺失组件，不能静默跳过非法刚体。
-        scene.each<const RigidBodyComponent, const UuidComponent>(
-            [&](Entity entity, const RigidBodyComponent&, const UuidComponent& uuid) {
-                if(result
-                    && (!entity.has_component<TransformComponent>()
-                        || !entity.has_component<ColliderComponent>()))
-                    result = Result<void, Error>::failure(
-                        {"Rigid body requires Transform and Collider: " + uuid.uuid.to_string()});
-            });
-        return result;
+            scene.m_physics_structure_changed = false;
+        }
+        for(const auto handle : scene.m_dirty_physics_entities) {
+            // 销毁会移除脏项；移除刚体的实体仍可能在本批中。
+            if(!scene.m_registry.all_of<RigidBodyComponent>(handle))
+                continue;
+            if(auto result = synchronize_body(scene, handle); !result)
+                return result;
+        }
+        scene.m_dirty_physics_entities.clear();
+        return Result<void, Error>::success();
+    }
+
+    Result<void, Error> PhysicsSystem::synchronize_body(Scene& scene, const entt::entity handle) {
+        const auto& [id, uuid, relationship] =
+            scene.m_registry.get<IdComponent, UuidComponent, RelationshipComponent>(handle);
+        const auto [transform, collider] =
+            scene.m_registry.try_get<TransformComponent, ColliderComponent>(handle);
+        if(!transform || !collider)
+            return Result<void, Error>::failure(
+                {"Rigid body requires Transform and Collider: " + uuid.uuid.to_string()});
+        if(relationship.parent != INVALID_ENTITY_ID)
+            return Result<void, Error>::failure(
+                {"Parented rigid body is unsupported: " + uuid.uuid.to_string()});
+        const auto synchronized = m_physics.synchronize_body({uuid.uuid, id.id, *transform,
+            *collider, scene.m_registry.get<RigidBodyComponent>(handle)});
+        if(!synchronized)
+            return Result<void, Error>::failure(synchronized.error());
+        if(synchronized.value())
+            m_entries.push_back({Entity(handle, &scene), id.id, uuid.uuid});
+        return Result<void, Error>::success();
     }
 
     Result<void, Error> PhysicsSystem::fixed_update(Scene& scene, const Context& context) {
@@ -68,13 +71,14 @@ namespace Comet {
             return Result<void, Error>::failure(
                 {"Physics service is inactive or belongs to another scene"});
         const auto delta_time = static_cast<float>(context.delta_time);
-        if(auto synchronized = synchronize(scene, delta_time); !synchronized)
+        if(auto synchronized = synchronize(scene); !synchronized)
             return synchronized;
         if(auto stepped = m_physics.step(delta_time); !stepped)
             return stepped;
         for(const auto& pose : m_physics.poses()) {
             const auto entity = scene.find_entity(pose.entity);
-            if(!entity.try_set_transform(pose.transform))
+            // 后端刚生成的姿态只通知场景／渲染，不再排入下一步的输入同步。
+            if(!entity.try_set_transform(pose.transform, false))
                 return Result<void, Error>::failure({"Cannot write physics transform"});
         }
         for(const auto& contact : m_physics.contacts()) {

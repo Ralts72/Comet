@@ -27,6 +27,11 @@ namespace Comet {
     }
 
     bool Entity::try_set_transform(const TransformComponent& transform) const {
+        return try_set_transform(transform, true);
+    }
+
+    bool Entity::try_set_transform(
+        const TransformComponent& transform, const bool notify_physics) const {
         if(!has_component<TransformComponent>() || !Math::is_finite(transform.translation)
             || !Math::is_finite(transform.rotation) || !Math::is_finite(transform.scale))
             return false;
@@ -35,6 +40,8 @@ namespace Comet {
             && current.scale == transform.scale)
             return true;
         m_scene->mark_transform_dirty(m_handle);
+        if(notify_physics)
+            m_scene->mark_physics_dirty(m_handle);
         current = transform;
         return true;
     }

@@ -262,6 +262,8 @@ namespace Comet {
                 Body{definition.entity, definition.uuid, id, motion, rigid.mass, collider,
                     transform, world.GetBodyInterface().GetRotation(id)});
             body_lookup[id.GetIndex()] = &inserted.first->second;
+            if(motion == BodyMotion::Kinematic)
+                kinematic_bodies.push_back(&inserted.first->second);
             if(motion == BodyMotion::Static)
                 wake_nearby_bodies(id);
             return Result<void, Error>::success();
@@ -285,6 +287,8 @@ namespace Comet {
             auto& interface = world.GetBodyInterface();
             wake_nearby_bodies(it->second.id);
             body_lookup[it->second.id.GetIndex()] = nullptr;
+            if(it->second.motion == BodyMotion::Kinematic)
+                std::erase(kinematic_bodies, &it->second);
             interface.RemoveBody(it->second.id);
             interface.DestroyBody(it->second.id);
             bodies.erase(it);
@@ -320,8 +324,7 @@ namespace Comet {
             return Result<void, Error>::success();
         }
 
-        Result<bool, Error> synchronize_body(
-            const BodyDefinition& definition, const float delta_time) {
+        Result<bool, Error> synchronize_body(const BodyDefinition& definition) {
             const auto& transform = definition.transform;
             const auto& collider = definition.collider;
             const auto& rigid = definition.rigid;
@@ -350,12 +353,9 @@ namespace Comet {
                 if(auto updated = update_mass(body, rigid.mass); !updated)
                     return Result<bool, Error>::failure(updated.error());
             }
-            if(rigid.motion == BodyMotion::Kinematic && delta_time > 0) {
-                // 目标未变也要更新速度，避免沿用上一固定步的运动。
+            if(rigid.motion == BodyMotion::Kinematic) {
                 if(!glm::all(glm::equal(body.last_transform.rotation, transform.rotation)))
                     body.last_physics_rotation = to_rotation(transform.rotation);
-                world.GetBodyInterface().MoveKinematic(body.id, to_position(transform.translation),
-                    body.last_physics_rotation, delta_time);
                 body.last_transform = transform;
             } else if(pose_changed) {
                 if(rigid.motion == BodyMotion::Static)
@@ -398,6 +398,15 @@ namespace Comet {
                 world.GetBodyInterface().AddImpulse(id, impulse);
             }
             return Result<void, Error>::success();
+        }
+
+        void move_kinematic_bodies(const float delta_time) {
+            // 目标未变也更新速度，避免沿用上一固定步的运动。
+            for(const auto* body : kinematic_bodies) {
+                world.GetBodyInterface().MoveKinematic(body->id,
+                    to_position(body->last_transform.translation), body->last_physics_rotation,
+                    delta_time);
+            }
         }
 
         void capture_active_bodies() {
@@ -527,12 +536,15 @@ namespace Comet {
         std::vector<JPH::BodyID> step_active_bodies;
         std::vector<Pair> frame_contacts;
         std::map<Pair, Contact> tracked_contacts;
+        // unordered_map 的重哈希不移动 Body；移除时先从该列表摘除。
+        std::vector<Body*> kinematic_bodies;
     };
 
     Result<void, Error> PhysicsService::step(const float delta_time) {
         if(!m_impl)
             return Result<void, Error>::failure({"Physics world is not active"});
         const ScopeExit clear([this] { m_impulses.clear(); });
+        m_impl->move_kinematic_bodies(delta_time);
         if(auto applied = m_impl->apply_impulses(m_impulses); !applied)
             return applied;
         m_impl->poses.clear();
@@ -591,11 +603,10 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
-    Result<bool, Error> PhysicsService::synchronize_body(
-        const BodyDefinition& definition, const float delta_time) {
+    Result<bool, Error> PhysicsService::synchronize_body(const BodyDefinition& definition) {
         if(!m_impl)
             return Result<bool, Error>::failure({"Physics world is not active"});
-        return m_impl->synchronize_body(definition, delta_time);
+        return m_impl->synchronize_body(definition);
     }
 
     void PhysicsService::remove_body(const EntityUuid uuid, const EntityId entity) {

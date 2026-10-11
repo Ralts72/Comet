@@ -171,6 +171,11 @@ namespace Comet {
         [[nodiscard]] bool has_cycle(Entity child, Entity parent);
         void remove_child_index(EntityId parent, entt::entity child);
         void mark_transform_dirty(entt::entity handle);
+        void mark_physics_dirty(const entt::entity handle) {
+            if(m_runtime_active && m_registry.all_of<RigidBodyComponent>(handle)
+                && !m_dirty_physics_entities.contains(handle))
+                m_dirty_physics_entities.push(handle);
+        }
         void update_world_transform(entt::entity handle);
         std::size_t sync_transform_chain(entt::entity handle);
         void mark_render_dirty() { ++m_render_revision; }
@@ -194,6 +199,8 @@ namespace Comet {
         std::vector<ContactEvent> m_contact_events;
         std::vector<Event> m_events;
         bool m_runtime_active = false;
+        bool m_physics_structure_changed = false;
+        entt::sparse_set m_dirty_physics_entities;
         SceneEnvironment m_environment;
         PostProcessSettings m_post_process;
         std::unordered_map<entt::entity, std::shared_ptr<const MaterialOverrides>>
@@ -211,11 +218,17 @@ namespace Comet {
     decltype(auto) Entity::add_component(Args&&... args) {
         if constexpr(std::is_same_v<T, TransformComponent>) {
             m_scene->mark_transform_dirty(m_handle);
+            m_scene->mark_physics_dirty(m_handle);
             m_scene->m_render_structure_changed = true;
             return std::as_const(
                 m_scene->m_registry.emplace<T>(m_handle, std::forward<Args>(args)...));
         } else {
             auto& component = m_scene->m_registry.emplace<T>(m_handle, std::forward<Args>(args)...);
+            if constexpr(is_scene_physics_component_v<T>) {
+                m_scene->mark_physics_dirty(m_handle);
+                if constexpr(std::is_same_v<T, RigidBodyComponent>)
+                    m_scene->m_physics_structure_changed = true;
+            }
             if constexpr(is_scene_render_component_v<T>) {
                 m_scene->mark_render_dirty();
                 m_scene->record_render_change(m_handle);
@@ -230,7 +243,7 @@ namespace Comet {
     }
 
     template<typename T>
-        requires(is_scene_render_component_v<T>)
+        requires(is_scene_tracked_component_v<T>)
     bool Entity::try_set_component(const T& component) const {
         if(!has_component<T>())
             return false;
@@ -242,13 +255,17 @@ namespace Comet {
                 m_scene->clear_material_overrides(m_scene->m_registry, m_handle);
         }
         current = component;
-        m_scene->mark_render_dirty();
-        m_scene->record_render_change(m_handle);
+        if constexpr(is_scene_render_component_v<T>) {
+            m_scene->mark_render_dirty();
+            m_scene->record_render_change(m_handle);
+        } else {
+            m_scene->mark_physics_dirty(m_handle);
+        }
         return true;
     }
 
     template<typename T, typename Function>
-        requires(is_scene_render_component_v<T>)
+        requires(is_scene_tracked_component_v<T>)
     void Entity::edit_component(Function&& edit) const {
         require_component_write(has_component<T>());
         auto candidate = get_component<T>();
@@ -285,6 +302,13 @@ namespace Comet {
     template<typename T>
         requires(!is_scene_managed_component_v<T>)
     void Entity::remove_component() const {
+        if constexpr(is_scene_physics_component_v<T> || std::is_same_v<T, TransformComponent>) {
+            if(has_component<T>()) {
+                m_scene->mark_physics_dirty(m_handle);
+                if constexpr(std::is_same_v<T, RigidBodyComponent>)
+                    m_scene->m_physics_structure_changed = true;
+            }
+        }
         if constexpr(std::is_same_v<T, TransformComponent>) {
             if(has_component<T>()) {
                 m_scene->mark_transform_dirty(m_handle);

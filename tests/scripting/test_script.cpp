@@ -800,11 +800,13 @@ return group
         EXPECT_FALSE(instance.value()->invoke(
             ScriptInstance::Phase::Update, {}, {}, {.scene = &scene, .physics = &physics}));
         for(const auto motion : {BodyMotion::Static, BodyMotion::Kinematic}) {
-            actor.get_component<RigidBodyComponent>().motion = motion;
+            actor.edit_component<RigidBodyComponent>(
+                [motion](auto& component) { component.motion = motion; });
             EXPECT_FALSE(instance.value()->invoke(
                 ScriptInstance::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
         }
-        actor.get_component<RigidBodyComponent>().motion = BodyMotion::Dynamic;
+        actor.edit_component<RigidBodyComponent>(
+            [](auto& component) { component.motion = BodyMotion::Dynamic; });
         actor.remove_component<ColliderComponent>();
         EXPECT_FALSE(instance.value()->invoke(
             ScriptInstance::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
@@ -835,7 +837,7 @@ return group
         const auto actor = scene.create_entity("Actor");
         auto target = scene.create_entity("Target");
         target.add_component<RigidBodyComponent>();
-        target.add_component<ColliderComponent>().is_trigger = true;
+        target.add_component<ColliderComponent>(ColliderComponent{.is_trigger = true});
         target.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{12});
         const auto uuid = target.get_uuid();
         const auto id = target.get_id();
@@ -1766,7 +1768,7 @@ return group
             ScriptInstance::Phase::Start, actor, parameters.value(), {.scene = &scene}));
         EXPECT_EQ(scene.entity_count(), 1u);
         actor.edit_component<MeshRendererComponent>(
-            [&](auto& component) { component.material = AssetHandle{13}; });
+            [](auto& component) { component.material = AssetHandle{13}; });
         ASSERT_TRUE(runtime.advance(0));
         ASSERT_EQ(scene.entity_count(), 6u);
         ASSERT_TRUE(instance.value()->invoke(

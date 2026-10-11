@@ -53,6 +53,7 @@ namespace Comet {
         auto& candidates = m_draw_candidates;
         candidates.clear();
         const auto items = geometry.get_items();
+        m_statistics.render_items += static_cast<uint32_t>(items.size());
         candidates.reserve(items.size());
         DrawOrder::sort_indices(m_material_order, items, [](const auto& a, const auto& b) {
             return DrawOrder::by_material(*a.source, *b.source);
@@ -63,7 +64,6 @@ namespace Comet {
         for(const auto index : m_material_order) {
             const auto& prepared = items[index];
             const auto& item = *prepared.source;
-            ++m_statistics.render_items;
             if(frustum
                 && (!previous_material
                     || !DrawOrder::same_material_input(*previous_material, item.material))) {

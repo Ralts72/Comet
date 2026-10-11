@@ -125,7 +125,7 @@ namespace {
         EXPECT_FLOAT_EQ(mass.numeric.speed, 0.1f);
         Comet::Scene scene;
         auto entity = scene.create_entity();
-        auto& body = entity.add_component<Comet::RigidBodyComponent>();
+        const auto& body = entity.add_component<Comet::RigidBodyComponent>();
         EXPECT_FLOAT_EQ(body.mass, 1.0f);
         for(const auto mode : {Comet::PropertyDescriptor::WriteMode::Edit,
                 Comet::PropertyDescriptor::WriteMode::Restore}) {

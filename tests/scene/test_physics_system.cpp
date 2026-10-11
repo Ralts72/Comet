@@ -1,6 +1,7 @@
 #include "scene/component_registry.h"
 #include "scene/scene.h"
 #include "scene/scene_runtime.h"
+#include "render/scene/scene_extractor.h"
 #include "scene/scene_serializer.h"
 #include "scene/systems/physics_system.h"
 
@@ -32,7 +33,7 @@ namespace Comet::Tests {
             transform.translation = position;
             transform.scale = scale;
             entity.set_transform(transform);
-            entity.add_component<RigidBodyComponent>().motion = motion;
+            entity.add_component<RigidBodyComponent>(RigidBodyComponent{.motion = motion});
             entity.add_component<ColliderComponent>();
             return entity;
         }
@@ -43,7 +44,8 @@ namespace Comet::Tests {
             Scene scene;
             PhysicsService physics;
             auto floor = add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0});
-            floor.get_component<ColliderComponent>().is_trigger = trigger;
+            floor.edit_component<ColliderComponent>(
+                [trigger](auto& component) { component.is_trigger = trigger; });
             auto falling = add_body(scene, "Falling", BodyMotion::Dynamic, {0, 0.3f, 0});
             SceneRuntime runtime;
             ASSERT_TRUE(runtime.set_services({.physics = &physics}));
@@ -101,7 +103,8 @@ namespace Comet::Tests {
         ASSERT_EQ(observed->contacts.front().kind, Kind::CollisionEnter);
 
         for(const bool trigger : {true, false, true, false}) {
-            floor.get_component<ColliderComponent>().is_trigger = trigger;
+            floor.edit_component<ColliderComponent>(
+                [trigger](auto& component) { component.is_trigger = trigger; });
             ASSERT_TRUE(runtime.advance(0.01));
             ASSERT_EQ(observed->contacts.size(), 2u);
             EXPECT_EQ(
@@ -316,8 +319,10 @@ namespace Comet::Tests {
         EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1u);
         EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionExit), 0u);
 
-        added.back().get_component<ColliderComponent>().half_extents *= 0.5f;
-        added.back().get_component<RigidBodyComponent>().mass = 2;
+        added.back().edit_component<ColliderComponent>(
+            [](auto& component) { component.half_extents *= 0.5f; });
+        added.back().edit_component<RigidBodyComponent>(
+            [](auto& component) { component.mass = 2; });
         ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_EQ(physics.get_statistics().bodies, capacity);
 
@@ -409,7 +414,8 @@ namespace Comet::Tests {
         add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
         add_body(scene, "Resting", BodyMotion::Dynamic, {0, 0.5f, 0});
         auto sensor = add_body(scene, "Sensor", BodyMotion::Static, {10, 0.5f, 0});
-        sensor.get_component<ColliderComponent>().is_trigger = true;
+        sensor.edit_component<ColliderComponent>(
+            [](auto& component) { component.is_trigger = true; });
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
@@ -428,10 +434,12 @@ namespace Comet::Tests {
         EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerEnter), 1u);
         EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerExit), 0u);
 
-        sensor.get_component<ColliderComponent>().half_extents = Math::Vec3(0.1f);
+        sensor.edit_component<ColliderComponent>(
+            [](auto& component) { component.half_extents = Math::Vec3(0.1f); });
         ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerExit), 1u);
-        sensor.get_component<ColliderComponent>().half_extents = Math::Vec3(0.5f);
+        sensor.edit_component<ColliderComponent>(
+            [](auto& component) { component.half_extents = Math::Vec3(0.5f); });
         for(int step = 0; step < 200; ++step)
             ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerEnter), 2u);
@@ -459,7 +467,8 @@ namespace Comet::Tests {
         for(int step = 0; step < 200; ++step)
             ASSERT_TRUE(runtime.advance(0.01));
         auto sensor = add_body(scene, "Sensor", BodyMotion::Static, {0, 0.5f, 0});
-        sensor.get_component<ColliderComponent>().is_trigger = true;
+        sensor.edit_component<ColliderComponent>(
+            [](auto& component) { component.is_trigger = true; });
         ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerEnter), 1u);
         EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1u);
@@ -494,7 +503,8 @@ namespace Comet::Tests {
         Scene scene;
         PhysicsService physics;
         auto sensor = add_body(scene, "Sensor", BodyMotion::Static, {0, 0, 0});
-        sensor.get_component<ColliderComponent>().is_trigger = true;
+        sensor.edit_component<ColliderComponent>(
+            [](auto& component) { component.is_trigger = true; });
         auto mover = add_body(scene, "Mover", BodyMotion::Kinematic, {-2, 0, 0});
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.set_services({.physics = &physics}));
@@ -531,9 +541,11 @@ namespace Comet::Tests {
         Scene scene;
         PhysicsService physics;
         auto sensor = add_body(scene, "Sensor", BodyMotion::Static, {0, 0, 1.5f});
-        sensor.get_component<ColliderComponent>().is_trigger = true;
+        sensor.edit_component<ColliderComponent>(
+            [](auto& component) { component.is_trigger = true; });
         auto rod = add_body(scene, "Rod", BodyMotion::Kinematic, {0, 0, 0});
-        rod.get_component<ColliderComponent>().half_extents = {2, 0.2f, 0.2f};
+        rod.edit_component<ColliderComponent>(
+            [](auto& component) { component.half_extents = {2, 0.2f, 0.2f}; });
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
@@ -564,6 +576,41 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
+    TEST(PhysicsSystemTest, RenderExtractionDoesNotConsumePendingPhysicsChanges) {
+        Scene scene;
+        PhysicsService physics;
+        const auto sensor = add_body(scene, "Sensor", BodyMotion::Static, {0, 0, 0});
+        sensor.edit_component<ColliderComponent>(
+            [](auto& collider) { collider.is_trigger = true; });
+        add_body(scene, "Body", BodyMotion::Dynamic, {0, 0, 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        auto probe = std::make_unique<ContactProbe>();
+        auto* observed = probe.get();
+        ASSERT_TRUE(runtime.add_system(std::move(probe)));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.01));
+        ASSERT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerEnter), 1u);
+
+        SceneExtractor extractor;
+        RenderScene snapshot;
+        extractor.update(scene, snapshot);
+        sensor.edit_transform([](auto& transform) { transform.translation.x = 10; });
+        extractor.update(scene, snapshot);
+        // 变换已被渲染读取，固定步仍必须提交移动并发布退出事件。
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerExit), 1u);
+        sensor.edit_transform([](auto& transform) { transform.translation.x = 0; });
+        sensor.edit_component<ColliderComponent>(
+            [](auto& collider) { collider.is_trigger = false; });
+        extractor.update(scene, snapshot);
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1u);
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST(PhysicsSystemTest, SwitchingMotionRecreatesBodyWithTheNewPoseOwner) {
         Scene scene;
         PhysicsService physics;
@@ -574,10 +621,12 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(1.0 / 60.0));
         EXPECT_FLOAT_EQ(body.get_component<TransformComponent>().translation.y, 2);
-        body.get_component<RigidBodyComponent>().motion = BodyMotion::Dynamic;
+        body.edit_component<RigidBodyComponent>(
+            [](auto& component) { component.motion = BodyMotion::Dynamic; });
         ASSERT_TRUE(runtime.advance(1.0 / 60.0));
         EXPECT_LT(body.get_component<TransformComponent>().translation.y, 2);
-        body.get_component<RigidBodyComponent>().motion = BodyMotion::Kinematic;
+        body.edit_component<RigidBodyComponent>(
+            [](auto& component) { component.motion = BodyMotion::Kinematic; });
         const auto frozen = body.get_component<TransformComponent>().translation;
         for(int step = 0; step < 10; ++step)
             ASSERT_TRUE(runtime.advance(1.0 / 60.0));
@@ -653,7 +702,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
-    TEST(PhysicsSystemTest, DirectConfigurationEditsAreValidatedAfterStableSynchronization) {
+    TEST(PhysicsSystemTest, CommittedConfigurationEditsAreValidatedAfterStableSynchronization) {
         enum class Invalid { BoxSize, SphereRadius, Shape, Motion, Scale };
         for(const auto invalid : {Invalid::BoxSize, Invalid::SphereRadius, Invalid::Shape,
                 Invalid::Motion, Invalid::Scale}) {
@@ -661,9 +710,9 @@ namespace Comet::Tests {
             Scene scene;
             PhysicsService physics;
             auto body = add_body(scene, "Body", BodyMotion::Static, {0, 2, 0});
-            auto& collider = body.get_component<ColliderComponent>();
             if(invalid == Invalid::SphereRadius)
-                collider.shape = ColliderShape::Sphere;
+                body.edit_component<ColliderComponent>(
+                    [](auto& component) { component.shape = ColliderShape::Sphere; });
             SceneRuntime runtime;
             ASSERT_TRUE(runtime.set_services({.physics = &physics}));
             ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
@@ -672,16 +721,22 @@ namespace Comet::Tests {
                 ASSERT_TRUE(runtime.advance(1.0 / 60.0));
             switch(invalid) {
                 case Invalid::BoxSize:
-                    collider.half_extents.x = std::numeric_limits<float>::quiet_NaN();
+                    body.edit_component<ColliderComponent>([](auto& component) {
+                        component.half_extents.x = std::numeric_limits<float>::quiet_NaN();
+                    });
                     break;
                 case Invalid::SphereRadius:
-                    collider.radius = std::numeric_limits<float>::infinity();
+                    body.edit_component<ColliderComponent>([](auto& component) {
+                        component.radius = std::numeric_limits<float>::infinity();
+                    });
                     break;
                 case Invalid::Shape:
-                    collider.shape = static_cast<ColliderShape>(-1);
+                    body.edit_component<ColliderComponent>(
+                        [](auto& component) { component.shape = static_cast<ColliderShape>(-1); });
                     break;
                 case Invalid::Motion:
-                    body.get_component<RigidBodyComponent>().motion = static_cast<BodyMotion>(-1);
+                    body.edit_component<RigidBodyComponent>(
+                        [](auto& component) { component.motion = static_cast<BodyMotion>(-1); });
                     break;
                 case Invalid::Scale:
                     body.edit_transform(
@@ -706,9 +761,10 @@ namespace Comet::Tests {
             PhysicsService physics;
             add_body(scene, "Floor", BodyMotion::Static, {0, -1, 0});
             auto ball = add_body(scene, "Ball", BodyMotion::Dynamic, {0, 2, 0}, Math::Vec3(value));
-            auto& collider = ball.get_component<ColliderComponent>();
-            collider.shape = ColliderShape::Sphere;
-            collider.radius = value;
+            ball.edit_component<ColliderComponent>(
+                [](auto& component) { component.shape = ColliderShape::Sphere; });
+            ball.edit_component<ColliderComponent>(
+                [value](auto& component) { component.radius = value; });
             SceneRuntime runtime;
             ASSERT_TRUE(runtime.set_services({.physics = &physics}));
             ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
@@ -719,14 +775,16 @@ namespace Comet::Tests {
             EXPECT_FALSE(runtime.is_active());
             EXPECT_FALSE(runtime.get_session().request_restart());
 
-            collider.radius = 0.5f;
+            ball.edit_component<ColliderComponent>(
+                [](auto& component) { component.radius = 0.5f; });
             ball.edit_transform(
                 [](TransformComponent& transform) { transform.scale = Math::Vec3(1); });
             ASSERT_TRUE(runtime.start(scene));
             ASSERT_TRUE(runtime.advance(1.0 / 60.0));
             EXPECT_LT(ball.get_component<TransformComponent>().translation.y, 2);
 
-            collider.radius = value;
+            ball.edit_component<ColliderComponent>(
+                [value](auto& component) { component.radius = value; });
             ball.edit_transform(
                 [value](TransformComponent& transform) { transform.scale = Math::Vec3(value); });
             const auto advanced = runtime.advance(1.0 / 60.0);
@@ -735,7 +793,8 @@ namespace Comet::Tests {
             EXPECT_FALSE(runtime.is_active());
             EXPECT_FALSE(runtime.get_session().request_restart());
 
-            collider.radius = 0.5f;
+            ball.edit_component<ColliderComponent>(
+                [](auto& component) { component.radius = 0.5f; });
             ball.edit_transform(
                 [](TransformComponent& transform) { transform.scale = Math::Vec3(1); });
             ASSERT_TRUE(runtime.start(scene));
@@ -778,7 +837,8 @@ namespace Comet::Tests {
             Scene scene;
             PhysicsService physics;
             auto sensor = add_body(scene, "Sensor", BodyMotion::Static, {0, 0, 0});
-            sensor.get_component<ColliderComponent>().is_trigger = true;
+            sensor.edit_component<ColliderComponent>(
+                [](auto& component) { component.is_trigger = true; });
             const auto falling = add_body(scene, "Falling", BodyMotion::Dynamic, {0, 0.3f, 0});
             auto removed = remove_sensor ? sensor : falling;
             removed.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{12});
@@ -838,11 +898,12 @@ namespace Comet::Tests {
     TEST(PhysicsSystemTest, ComponentsSurviveSceneCloneWithoutRuntimeState) {
         Scene scene;
         auto entity = add_body(scene, "Ball", BodyMotion::Dynamic, {1, 2, 3});
-        entity.get_component<RigidBodyComponent>().mass = 7;
-        auto& collider = entity.get_component<ColliderComponent>();
-        collider.shape = ColliderShape::Sphere;
-        collider.radius = 0.25f;
-        collider.is_trigger = true;
+        entity.edit_component<RigidBodyComponent>([](auto& component) { component.mass = 7; });
+        entity.edit_component<ColliderComponent>(
+            [](auto& component) { component.shape = ColliderShape::Sphere; });
+        entity.edit_component<ColliderComponent>([](auto& component) { component.radius = 0.25f; });
+        entity.edit_component<ColliderComponent>(
+            [](auto& component) { component.is_trigger = true; });
         const auto registry = create_scene_component_registry();
         const SceneSerializer serializer(registry);
         auto clone = serializer.clone(scene);
@@ -969,14 +1030,17 @@ namespace Comet::Tests {
         const auto moved_x = replacement.get_component<TransformComponent>().translation.x;
         EXPECT_GT(moved_x, 0);
         for(const auto motion : {BodyMotion::Static, BodyMotion::Kinematic}) {
-            replacement.get_component<RigidBodyComponent>().motion = BodyMotion::Dynamic;
+            replacement.edit_component<RigidBodyComponent>(
+                [](auto& component) { component.motion = BodyMotion::Dynamic; });
             ASSERT_TRUE(physics.request_impulse(replacement, {10, 0, 0}));
-            replacement.get_component<RigidBodyComponent>().motion = motion;
+            replacement.edit_component<RigidBodyComponent>(
+                [motion](auto& component) { component.motion = motion; });
             ASSERT_TRUE(runtime.advance(0.01));
             EXPECT_FLOAT_EQ(replacement.get_component<TransformComponent>().translation.x, moved_x);
             EXPECT_EQ(physics.get_statistics().bodies, 1u);
         }
-        replacement.get_component<RigidBodyComponent>().motion = BodyMotion::Dynamic;
+        replacement.edit_component<RigidBodyComponent>(
+            [](auto& component) { component.motion = BodyMotion::Dynamic; });
         ASSERT_TRUE(physics.request_impulse(replacement, {10, 0, 0}));
         replacement.remove_component<RigidBodyComponent>();
         ASSERT_TRUE(runtime.advance(0.01));
@@ -1041,9 +1105,10 @@ namespace Comet::Tests {
             auto light = add_body(scene, "Light", BodyMotion::Dynamic, {0, 10, -10});
             auto heavy = add_body(scene, "Heavy", BodyMotion::Dynamic, {0, 10, 0});
             auto large = add_body(scene, "Large", BodyMotion::Dynamic, {0, 10, 10}, Math::Vec3(2));
-            heavy.get_component<RigidBodyComponent>().mass = 2;
+            heavy.edit_component<RigidBodyComponent>([](auto& component) { component.mass = 2; });
             for(auto entity : {light, heavy, large})
-                entity.get_component<ColliderComponent>().shape = shape;
+                entity.edit_component<ColliderComponent>(
+                    [shape](auto& component) { component.shape = shape; });
             SceneRuntime runtime;
             ASSERT_TRUE(runtime.set_services({.physics = &physics}));
             ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
@@ -1074,7 +1139,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.advance(0.01));
         const auto before_pause = body.get_component<TransformComponent>().translation.x;
         ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
-        body.get_component<RigidBodyComponent>().mass = 2;
+        body.edit_component<RigidBodyComponent>([](auto& component) { component.mass = 2; });
         ASSERT_TRUE(physics.request_impulse(body, {10, 0, 0}));
         ASSERT_TRUE(runtime.advance(0.1));
         EXPECT_FLOAT_EQ(body.get_component<TransformComponent>().translation.x, before_pause);
@@ -1082,7 +1147,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.advance(0));
         const auto after_step = body.get_component<TransformComponent>().translation.x;
         EXPECT_NEAR(after_step - before_pause, 0.15f, 0.002f);
-        body.get_component<RigidBodyComponent>().mass = 4;
+        body.edit_component<RigidBodyComponent>([](auto& component) { component.mass = 4; });
         ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Running));
         ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_NEAR(body.get_component<TransformComponent>().translation.x - after_step,
@@ -1106,7 +1171,7 @@ namespace Comet::Tests {
         for(int i = 0; i < 250; ++i)
             ASSERT_TRUE(runtime.advance(0.01));
         ASSERT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1);
-        resting.get_component<RigidBodyComponent>().mass = 2;
+        resting.edit_component<RigidBodyComponent>([](auto& component) { component.mass = 2; });
         ASSERT_TRUE(runtime.advance(0.01));
         EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1);
         EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionExit), 0);
@@ -1123,8 +1188,8 @@ namespace Comet::Tests {
                 Scene scene;
                 PhysicsService physics;
                 auto body = add_body(scene, "Body", motion, {0, 10, 0});
-                auto& rigid = body.get_component<RigidBodyComponent>();
-                rigid.mass = mass;
+                body.edit_component<RigidBodyComponent>(
+                    [mass](auto& component) { component.mass = mass; });
                 SceneRuntime runtime;
                 ASSERT_TRUE(runtime.set_services({.physics = &physics}));
                 ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
@@ -1132,16 +1197,19 @@ namespace Comet::Tests {
                 ASSERT_FALSE(result);
                 EXPECT_NE(result.error().message.find("mass"), std::string::npos);
                 EXPECT_FALSE(runtime.is_active());
-                rigid.mass = RigidBodyComponent::MIN_MASS;
+                body.edit_component<RigidBodyComponent>(
+                    [](auto& component) { component.mass = RigidBodyComponent::MIN_MASS; });
                 ASSERT_TRUE(runtime.start(scene));
                 ASSERT_TRUE(runtime.advance(1.0 / 60.0));
-                rigid.mass = mass;
+                body.edit_component<RigidBodyComponent>(
+                    [mass](auto& component) { component.mass = mass; });
                 result = runtime.advance(1.0 / 60.0);
                 ASSERT_FALSE(result);
                 EXPECT_NE(result.error().message.find("mass"), std::string::npos);
                 EXPECT_FALSE(runtime.is_active());
                 EXPECT_FALSE(runtime.get_session().request_restart());
-                rigid.mass = 1;
+                body.edit_component<RigidBodyComponent>(
+                    [](auto& component) { component.mass = 1; });
                 ASSERT_TRUE(runtime.start(scene));
                 ASSERT_TRUE(runtime.stop());
             }
@@ -1152,8 +1220,7 @@ namespace Comet::Tests {
         Scene scene;
         PhysicsService physics;
         auto body = add_body(scene, "Body", BodyMotion::Dynamic, {0, 10, 0}, Math::Vec3(100));
-        auto& rigid = body.get_component<RigidBodyComponent>();
-        rigid.mass = 1e36f;
+        body.edit_component<RigidBodyComponent>([](auto& component) { component.mass = 1e36f; });
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
@@ -1161,15 +1228,15 @@ namespace Comet::Tests {
         ASSERT_FALSE(result);
         EXPECT_NE(result.error().message.find("inertia"), std::string::npos);
         EXPECT_FALSE(runtime.is_active());
-        rigid.mass = 1;
+        body.edit_component<RigidBodyComponent>([](auto& component) { component.mass = 1; });
         ASSERT_TRUE(runtime.start(scene));
-        rigid.mass = 1e36f;
+        body.edit_component<RigidBodyComponent>([](auto& component) { component.mass = 1e36f; });
         result = runtime.advance(1.0 / 60.0);
         ASSERT_FALSE(result);
         EXPECT_NE(result.error().message.find("inertia"), std::string::npos);
         EXPECT_FALSE(runtime.is_active());
         EXPECT_TRUE(Math::is_finite(body.get_component<TransformComponent>().translation));
-        rigid.mass = 1;
+        body.edit_component<RigidBodyComponent>([](auto& component) { component.mass = 1; });
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(1.0 / 60.0));
         ASSERT_TRUE(runtime.stop());

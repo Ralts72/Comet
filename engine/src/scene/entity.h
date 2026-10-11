@@ -27,12 +27,12 @@ namespace Comet {
         template<typename Function> [[nodiscard]] bool try_edit_transform(Function&& edit) const;
         template<typename Function> void edit_transform(Function&& edit) const;
 
-        // 渲染属性通过副本提交；相同值不改变场景版本。
+        // 渲染与物理属性通过副本提交；相同值不产生更新。
         template<typename T>
-            requires(is_scene_render_component_v<T>)
+            requires(is_scene_tracked_component_v<T>)
         [[nodiscard]] bool try_set_component(const T& component) const;
         template<typename T, typename Function>
-            requires(is_scene_render_component_v<T>)
+            requires(is_scene_tracked_component_v<T>)
         void edit_component(Function&& edit) const;
 
         template<typename T>
@@ -60,8 +60,11 @@ namespace Comet {
         friend class SceneSerializer;
         friend class ComponentRegistry;
         friend class SceneExtractor;
+        friend class PhysicsSystem;
 
         Entity(entt::entity handle, Scene* scene);
+        [[nodiscard]] bool try_set_transform(
+            const TransformComponent& transform, bool notify_physics) const;
         static void require_transform_write(bool accepted);
         static void require_component_write(bool accepted);
 

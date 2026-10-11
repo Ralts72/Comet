@@ -94,14 +94,6 @@ namespace Comet {
         || std::is_same_v<std::remove_cvref_t<T>, CameraComponent>
         || std::is_same_v<std::remove_cvref_t<T>, LightComponent>;
 
-    template<typename T>
-    inline constexpr bool is_scene_read_only_component_v =
-        is_scene_render_component_v<T> || std::is_same_v<std::remove_cvref_t<T>, TransformComponent>
-        || std::is_same_v<std::remove_cvref_t<T>, IdComponent>
-        || std::is_same_v<std::remove_cvref_t<T>, UuidComponent>
-        || std::is_same_v<std::remove_cvref_t<T>, RelationshipComponent>
-        || std::is_same_v<std::remove_cvref_t<T>, WorldTransformComponent>;
-
     struct COMET_API CameraControllerComponent {
         bool enabled = true;
         float move_speed = 3.0f;
@@ -136,6 +128,7 @@ namespace Comet {
         BodyMotion motion = BodyMotion::Dynamic;
         // kg；仅动态刚体参与质量响应，缩放只改变碰撞形状与惯性。
         float mass = 1.0f;
+        bool operator==(const RigidBodyComponent&) const = default;
     };
 
     enum class ColliderShape { Box, Sphere };
@@ -145,5 +138,24 @@ namespace Comet {
         Math::Vec3 half_extents{0.5f};
         float radius = 0.5f;
         bool is_trigger = false;
+        bool operator==(const ColliderComponent&) const = default;
     };
+
+    template<typename T>
+    inline constexpr bool is_scene_physics_component_v =
+        std::is_same_v<std::remove_cvref_t<T>, RigidBodyComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, ColliderComponent>;
+
+    template<typename T>
+    inline constexpr bool is_scene_tracked_component_v =
+        is_scene_render_component_v<T> || is_scene_physics_component_v<T>;
+
+    template<typename T>
+    inline constexpr bool is_scene_read_only_component_v =
+        is_scene_tracked_component_v<T>
+        || std::is_same_v<std::remove_cvref_t<T>, TransformComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, IdComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, UuidComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, RelationshipComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, WorldTransformComponent>;
 }

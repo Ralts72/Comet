@@ -94,17 +94,18 @@ namespace Comet {
         if(lighting.shadow_light_index >= 0) {
             const auto items = geometry.get_items();
             m_draw_queue.reserve(items.size());
+            m_transforms.reserve(items.size());
             DrawOrder::sort_indices(m_mesh_order, items, [](const auto& a, const auto& b) {
                 return DrawOrder::by_mesh(*a.source, *b.source);
             });
             for(const auto index : m_mesh_order) {
                 const auto& item = items[index];
-                if(item.world_bounds)
+                if(item.world_bounds) {
                     m_draw_queue.push_back(item.source);
+                    m_transforms.push_back(
+                        lighting.shadow_view_projection * item.source->model_matrix);
+                }
             }
-            m_transforms.reserve(m_draw_queue.size());
-            for(const auto* item : m_draw_queue)
-                m_transforms.push_back(lighting.shadow_view_projection * item->model_matrix);
         }
         auto& instances = m_instances.at(frames.get_current_frame_slot_index());
         auto uploaded = instances.upload(m_device, m_transforms);

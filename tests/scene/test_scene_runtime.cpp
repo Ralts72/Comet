@@ -660,7 +660,7 @@ namespace Comet::Tests {
         auto updated = scene.create_entity("Update");
         for(auto entity : {startup, fixed, updated})
             entity.add_component<RigidBodyComponent>();
-        fixed.add_component<ColliderComponent>().is_trigger = true;
+        fixed.add_component<ColliderComponent>(ColliderComponent{.is_trigger = true});
         fixed.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{22});
         fixed.add_component<AudioSourceComponent>().clip = AssetHandle{33};
         fixed.set_transform({.translation = {1, 2, 3}});

@@ -142,8 +142,8 @@ namespace Comet::Tests {
         actor.get_component<ScriptComponent>().parameters = {{"speed", 2.0f}};
         actor.add_component<AudioSourceComponent>().clip = AssetHandle(102);
         actor.get_component<AudioSourceComponent>().loop = true;
-        actor.add_component<RigidBodyComponent>().mass = 3.0f;
-        actor.add_component<ColliderComponent>().radius = 0.75f;
+        actor.add_component<RigidBodyComponent>(RigidBodyComponent{.mass = 3.0f});
+        actor.add_component<ColliderComponent>(ColliderComponent{.radius = 0.75f});
         const auto serialized = serializer.serialize(scene);
         ASSERT_TRUE(serialized) << serialized.error();
         const auto loaded = serializer.deserialize(serialized.value());

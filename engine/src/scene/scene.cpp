@@ -112,6 +112,9 @@ namespace Comet {
             m_entities_by_uuid.erase(uuid);
             m_dirty_transforms.remove(*it);
             m_dirty_render_entities.remove(*it);
+            m_dirty_physics_entities.remove(*it);
+            if(m_registry.all_of<RigidBodyComponent>(*it))
+                m_physics_structure_changed = true;
             m_registry.destroy(*it);
         }
     }
@@ -237,6 +240,8 @@ namespace Comet {
         m_entity_requests.clear();
         m_contact_events.clear();
         m_events.clear();
+        m_dirty_physics_entities.clear();
+        m_physics_structure_changed = false;
         if(!m_material_overrides.empty()) {
             mark_render_dirty();
             m_render_full_update = true;
@@ -359,6 +364,7 @@ namespace Comet {
         relationship.parent = new_parent;
         remove_child_index(previous_parent, child.m_handle);
         mark_transform_dirty(child.m_handle);
+        mark_physics_dirty(child.m_handle);
         return true;
     }
 
@@ -376,6 +382,7 @@ namespace Comet {
         relationship.parent = INVALID_ENTITY_ID;
         remove_child_index(previous_parent, child.m_handle);
         mark_transform_dirty(child.m_handle);
+        mark_physics_dirty(child.m_handle);
         return true;
     }
 
