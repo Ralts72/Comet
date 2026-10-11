@@ -407,9 +407,10 @@ namespace Comet::Tests {
         CometEditor::RenderStatsPanel panel(
             engine->frame_diagnostics(), renderer.get_diagnostics());
         panel.set_visible(true);
-        renderer.set_overlay({.render = [&](Comet::OverlayRecordContext& overlay) {
-            return ui.render(overlay, std::move(ui_frame));
-        }});
+        Comet::Tests::set_test_overlay(
+            renderer, {.render = [&](Comet::OverlayRecordContext& overlay) {
+                return Comet::Tests::record_draw_frame(overlay, std::move(ui_frame));
+            }});
         const ScopeExit finish([&] {
             renderer.set_overlay({});
             renderer.wait_idle();

@@ -5,6 +5,7 @@
 #include "diagnostics/logger.h"
 #include "render/render_context.h"
 #include "render/renderer.h"
+#include "render/render_diagnostics.h"
 
 #include <gtest/gtest.h>
 #include <spdlog/sinks/ostream_sink.h>
@@ -13,6 +14,66 @@
 #include <sstream>
 
 namespace Comet::Tests {
+    // 直接录制 GPU 测试仍在 Main 解析资产，与 Engine 的帧循环保持相同边界。
+    class RenderTestFrontend {
+    public:
+        explicit RenderTestFrontend(Engine& engine)
+            : m_engine(engine), m_resolver(engine.get_asset_registry()) {}
+        Result<Renderer::FramePreparation, GraphicsError> prepare_frame() {
+            m_resolver.refresh_assets();
+            return m_engine.get_renderer().prepare_frame(
+                m_engine.get_asset_registry().take_removals());
+        }
+        std::shared_ptr<const RenderWorld> resolve(const RenderScene& scene) {
+            return RenderDiagnostics::measure_preparation(
+                &m_engine.get_renderer().get_diagnostics(),
+                RenderDiagnostics::PreparationPhase::Assets,
+                [&] { return m_resolver.update(scene); });
+        }
+        Result<void, GraphicsError> render(const RenderScene& scene) {
+            return m_engine.get_renderer().render_frame(resolve(scene));
+        }
+
+    private:
+        Engine& m_engine;
+        SceneResolver m_resolver;
+    };
+
+    // 故障注入与原生后端测试的录制动作；生产宿主交付具体的 UI 帧对象。
+    class CallbackOverlayDraw final: public OverlayDraw {
+    public:
+        using Record = std::function<Result<void, GraphicsError>(OverlayRecordContext&)>;
+        explicit CallbackOverlayDraw(Record record) : m_record(std::move(record)) {}
+        Result<void, GraphicsError> record(OverlayRecordContext& frame) override {
+            return m_record(frame);
+        }
+
+    private:
+        Record m_record;
+    };
+    struct TestOverlay {
+        CallbackOverlayDraw::Record render;
+        std::function<void()> release;
+        std::function<Result<void, GraphicsError>(const SwapchainCompatibility&)> rebuild;
+    };
+    inline void set_test_overlay(Renderer& renderer, TestOverlay overlay) {
+        renderer.set_overlay({.capture =
+                                  [record = std::move(overlay.render)] {
+                                      OverlayDrawList draws;
+                                      draws.push_back(
+                                          std::make_unique<CallbackOverlayDraw>(record));
+                                      return draws;
+                                  },
+            .release = std::move(overlay.release),
+            .rebuild = std::move(overlay.rebuild)});
+    }
+    inline Result<void, GraphicsError> record_draw_frame(
+        OverlayRecordContext& frame, std::unique_ptr<OverlayDraw> draw) {
+        if(draw)
+            return draw->record(frame);
+        return Result<void, GraphicsError>::success();
+    }
+
     class VulkanValidationTest: public testing::Test {
     protected:
         void SetUp() override {
@@ -45,15 +106,18 @@ namespace Comet::Tests {
             auto created = Engine::create(config);
             ASSERT_TRUE(created) << created.error().message;
             engine = std::move(created).value();
+            render_frontend = std::make_unique<RenderTestFrontend>(*engine);
         }
 
         void TearDown() override {
             if(engine)
                 engine->get_renderer().get_render_context().wait_idle();
+            render_frontend.reset();
             engine.reset();
             VulkanValidationTest::TearDown();
         }
 
         std::unique_ptr<Engine> engine;
+        std::unique_ptr<RenderTestFrontend> render_frontend;
     };
 }

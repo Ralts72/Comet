@@ -71,7 +71,7 @@ TEST(PostProcessRecoveryTest, RendererKeepsDrawingOnOomWithoutChangingAuthoredSe
     config.window.height = 64;
     Window window(config.window);
     AssetRegistry assets;
-    auto created = Renderer::create(window, {config.vulkan, config.render}, assets);
+    auto created = Renderer::create(window, {config.vulkan, config.render});
     ASSERT_TRUE(created) << created.error();
     auto& renderer = *created.value();
     creations = 0;
@@ -83,7 +83,7 @@ TEST(PostProcessRecoveryTest, RendererKeepsDrawingOnOomWithoutChangingAuthoredSe
         const auto prepared = renderer.prepare_frame();
         ASSERT_TRUE(prepared) << prepared.error();
         ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
-        ASSERT_TRUE(renderer.render_frame(scene));
+        ASSERT_TRUE(renderer.render_frame(SceneResolver(assets).update(scene)));
         EXPECT_EQ(scene.post_process, authored);
         EXPECT_FALSE(renderer.get_scene_renderer().get_post_process_settings().uses_bloom());
     }

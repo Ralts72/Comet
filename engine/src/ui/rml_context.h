@@ -5,6 +5,7 @@
 #include "common/error.h"
 #include "common/result.h"
 #include "graphics/result.h"
+#include "render/overlay_record_context.h"
 #include "input/input.h"
 #include "ui/view.h"
 
@@ -68,9 +69,9 @@ namespace Comet::Ui {
         // 候选页面会触发 RmlUi 事件；业务回调在发布前应忽略这些事件。
         [[nodiscard]] bool is_loading_document() const;
 
-        // 消费最近一次成功准备的快照，不读取或更新文档。
-        [[nodiscard]] Result<void, GraphicsError> render(
-            OverlayRecordContext& frame, RenderOutput output = RenderOutput::Presentation);
+        // Main 取走最近一次成功准备的快照；录制只访问快照与 GPU 后端。
+        [[nodiscard]] std::unique_ptr<OverlayDraw> take_draw_frame(
+            RenderOutput output = RenderOutput::Presentation);
         void release_swapchain_resources();
         [[nodiscard]] Result<void, GraphicsError> rebuild_swapchain_resources(
             const SwapchainCompatibility& compatibility);

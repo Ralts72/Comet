@@ -2,6 +2,7 @@
 
 #include <imgui.h>
 #include "graphics/result.h"
+#include "render/overlay_record_context.h"
 #include "ui/icons.h"
 
 #include <cstdint>
@@ -26,16 +27,19 @@ namespace Comet {
 namespace CometEditor::Ui {
     class ImGuiContext {
     public:
-        class Frame {
+        class Frame final: public Comet::OverlayDraw {
         public:
-            ~Frame();
+            ~Frame() override;
+            Comet::Result<void, Comet::GraphicsError> record(
+                Comet::OverlayRecordContext& overlay) override;
             Frame(const Frame&) = delete;
             Frame& operator=(const Frame&) = delete;
 
         private:
             friend class ImGuiContext;
             class Data;
-            Frame();
+            explicit Frame(ImGuiContext& backend);
+            ImGuiContext& m_backend;
             std::unique_ptr<Data> m_data;
         };
         // Preserve 要求当前交换链图像已由场景 pass 写入并处于 PresentSrcKHR。
@@ -58,8 +62,6 @@ namespace CometEditor::Ui {
         [[nodiscard]] bool begin_frame();
         // 交付独立持有的绘制数据和字体像素；录制消费一次并由帧槽保活 GPU 资源。
         std::unique_ptr<Frame> end_frame();
-        Comet::Result<void, Comet::GraphicsError> render(
-            Comet::OverlayRecordContext& overlay, std::unique_ptr<Frame> frame);
 
         void release_swapchain_resources();
         Comet::Result<void, Comet::GraphicsError> rebuild_swapchain_resources(
@@ -75,6 +77,8 @@ namespace CometEditor::Ui {
             uint32_t frame_index, uint32_t view_id = 0) const;
 
     private:
+        Comet::Result<void, Comet::GraphicsError> render(
+            Comet::OverlayRecordContext& overlay, const Frame& frame);
         class TextureBinding;
         class FontTexture;
         struct FontPixels;

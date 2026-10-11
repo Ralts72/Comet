@@ -1,3 +1,4 @@
+#include "support/engine_fixture.h"
 #include "support/render_graph_gpu_fixture.h"
 
 namespace Comet::Tests {
@@ -302,27 +303,29 @@ namespace Comet::Tests {
                 RenderContext& context;
                 ~Wait() { context.wait_idle(); }
             } wait{context};
-            renderer.set_overlay({.render = [&](Comet::OverlayRecordContext& overlay) {
-                auto& commands = overlay.command_buffer();
-                auto view = scene_renderer.get_offscreen_color_view(
-                    renderer.get_frame_scheduler().get_current_frame_slot_index());
-                // 作为外部消费者声明已导出的 layout，让 validation 核对实际状态。
-                vk::ImageMemoryBarrier2 barrier;
-                barrier.srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
-                barrier.srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
-                barrier.dstStageMask = vk::PipelineStageFlagBits2::eFragmentShader;
-                barrier.dstAccessMask = vk::AccessFlagBits2::eShaderRead;
-                barrier.oldLayout = barrier.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-                barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                barrier.image = view->get_image()->get();
-                barrier.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
-                commands.get().pipelineBarrier2(
-                    vk::DependencyInfo{}.setImageMemoryBarriers(barrier));
-                target->begin_render_target(commands);
-                target->end_render_target(commands);
+            Comet::Tests::set_test_overlay(
+                renderer, {.render = [&](Comet::OverlayRecordContext& overlay) {
+                    auto& commands = overlay.command_buffer();
+                    auto view = scene_renderer.get_offscreen_color_view(
+                        renderer.get_frame_scheduler().get_current_frame_slot_index());
+                    // 作为外部消费者声明已导出的 layout，让 validation 核对实际状态。
+                    vk::ImageMemoryBarrier2 barrier;
+                    barrier.srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
+                    barrier.srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
+                    barrier.dstStageMask = vk::PipelineStageFlagBits2::eFragmentShader;
+                    barrier.dstAccessMask = vk::AccessFlagBits2::eShaderRead;
+                    barrier.oldLayout = barrier.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+                    barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex =
+                        VK_QUEUE_FAMILY_IGNORED;
+                    barrier.image = view->get_image()->get();
+                    barrier.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+                    commands.get().pipelineBarrier2(
+                        vk::DependencyInfo{}.setImageMemoryBarriers(barrier));
+                    target->begin_render_target(commands);
+                    target->end_render_target(commands);
 
-                return Comet::Result<void, Comet::GraphicsError>::success();
-            }});
+                    return Comet::Result<void, Comet::GraphicsError>::success();
+                }});
             RenderScene scene;
             scene.cameras.push_back(RenderCamera{.primary = true});
             for(unsigned frame = 0; frame < 4; ++frame) {
@@ -332,10 +335,10 @@ namespace Comet::Tests {
                 LineDrawList lines;
                 ASSERT_TRUE(lines.add_line({-0.5f, 0, -2}, {0.5f, 0, -2}, {1, 0, 0, 1}));
                 renderer.submit_lines(lines);
-                const auto prepared = renderer.prepare_frame();
+                const auto prepared = render_frontend->prepare_frame();
                 ASSERT_TRUE(prepared);
                 ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
-                ASSERT_TRUE(renderer.render_frame(scene));
+                ASSERT_TRUE(render_frontend->render(scene));
             }
             context.wait_idle();
             renderer.set_overlay({});
@@ -701,7 +704,7 @@ namespace Comet::Tests {
             for(unsigned frame = 0; frame < 3; ++frame) {
                 if(frame == 1)
                     renderer.request_swapchain_recreation();
-                const auto ready = renderer.prepare_frame();
+                const auto ready = render_frontend->prepare_frame();
                 ASSERT_TRUE(ready) << ready.error().message;
                 ASSERT_EQ(ready.value(), Renderer::FramePreparation::Ready);
                 ASSERT_TRUE(renderer.render_frame({}));
@@ -714,7 +717,7 @@ namespace Comet::Tests {
                 auto invalid = requested;
                 invalid.hdr_white_level = 0;
                 EXPECT_FALSE(renderer.request_output_settings(invalid));
-                const auto ready = renderer.prepare_frame();
+                const auto ready = render_frontend->prepare_frame();
                 ASSERT_TRUE(ready) << ready.error().message;
                 ASSERT_EQ(ready.value(), Renderer::FramePreparation::Ready);
                 ASSERT_TRUE(renderer.render_frame({}));
@@ -726,7 +729,7 @@ namespace Comet::Tests {
                 if(next_mode == OutputMode::Sdr)
                     EXPECT_FALSE(renderer.is_hdr_output());
                 renderer.request_swapchain_recreation();
-                ASSERT_TRUE(renderer.prepare_frame());
+                ASSERT_TRUE(render_frontend->prepare_frame());
                 ASSERT_TRUE(renderer.render_frame({}));
                 EXPECT_EQ(swapchain.get_active_generation()->get_config().surface_format, active);
             }

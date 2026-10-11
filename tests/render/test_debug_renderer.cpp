@@ -1,3 +1,4 @@
+#include "support/engine_fixture.h"
 #include "core/engine.h"
 #include "config/config.h"
 #include "render/renderer.h"
@@ -39,6 +40,7 @@ namespace Comet::Tests {
             auto created = Engine::create(config);
             ASSERT_TRUE(created) << created.error().message;
             engine = std::move(created).value();
+            render_frontend = std::make_unique<RenderTestFrontend>(*engine);
             if(std::get<0>(GetParam())) {
                 auto& renderer = engine->get_renderer();
                 auto& context = renderer.get_render_context();
@@ -53,11 +55,12 @@ namespace Comet::Tests {
                     context.get_device(), *presentation_pass, swapchain);
                 ASSERT_TRUE(target) << target.error();
                 presentation_target = std::move(target).value();
-                renderer.set_overlay({.render = [this](Comet::OverlayRecordContext& overlay) {
-                    auto& command_buffer = overlay.command_buffer();
-                    present(command_buffer);
-                    return Comet::Result<void, Comet::GraphicsError>::success();
-                }});
+                Comet::Tests::set_test_overlay(
+                    renderer, {.render = [this](Comet::OverlayRecordContext& overlay) {
+                        auto& command_buffer = overlay.command_buffer();
+                        present(command_buffer);
+                        return Comet::Result<void, Comet::GraphicsError>::success();
+                    }});
             }
             scene.cameras.push_back(RenderCamera{.primary = true});
             // 分配统计只比较调试线 buffer，不计初始化纹理上传的临时 staging。
@@ -71,6 +74,7 @@ namespace Comet::Tests {
             }
             presentation_target.reset();
             presentation_pass.reset();
+            render_frontend.reset();
             engine.reset();
             if(auto logger = Logger::get_console_logger()) {
                 std::erase(logger->sinks(), log_sink);
@@ -116,19 +120,20 @@ namespace Comet::Tests {
             auto& renderer = engine->get_renderer();
             engine->get_window().poll_events();
             renderer.submit_lines(list);
-            const auto preparation = renderer.prepare_frame();
+            const auto preparation = render_frontend->prepare_frame();
             EXPECT_TRUE(preparation);
             if(!preparation || preparation.value() != Renderer::FramePreparation::Ready) {
                 return false;
             }
             renderer.submit_lines(ready_lines);
-            EXPECT_TRUE(renderer.render_frame(scene));
+            EXPECT_TRUE(render_frontend->render(scene));
             return true;
         }
 
         std::ostringstream errors;
         std::shared_ptr<spdlog::sinks::ostream_sink_mt> log_sink;
         std::unique_ptr<Engine> engine;
+        std::unique_ptr<RenderTestFrontend> render_frontend;
         std::unique_ptr<RenderPass> presentation_pass;
         std::unique_ptr<RenderTarget> presentation_target;
         RenderScene scene;
@@ -203,12 +208,12 @@ namespace Comet::Tests {
         EXPECT_EQ(&scene_renderer.get_render_target(), previous);
         EXPECT_EQ(scene_renderer.get_material_layouts(), layouts);
         {
-            const auto preparation = renderer.prepare_frame();
+            const auto preparation = render_frontend->prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
             ASSERT_EQ(preparation.value(), Renderer::FramePreparation::Ready);
         }
         EXPECT_FALSE(renderer.enable_offscreen_rendering({192, 128}));
-        EXPECT_TRUE(renderer.render_frame(scene));
+        EXPECT_TRUE(render_frontend->render(scene));
         if(!std::get<0>(GetParam()))
             return;
         const std::weak_ptr<ImageView> old_view = scene_renderer.get_offscreen_color_view(0);

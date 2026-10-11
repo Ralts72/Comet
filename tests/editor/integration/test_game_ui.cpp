@@ -65,12 +65,14 @@ namespace CometEditor::Tests {
             game = std::make_unique<GameUi>(
                 engine->get_window(), renderer, *project, input_services());
             ASSERT_NE(Rml::GetContext(0), nullptr);
-            renderer.set_overlay({.render =
-                                      [this](Comet::OverlayRecordContext& overlay) {
-                                          auto result = game->render(overlay);
-                                          if(!result)
-                                              return result;
-                                          return editor->render(overlay, std::move(editor_frame));
+            renderer.set_overlay({.capture =
+                                      [this] {
+                                          Comet::OverlayDrawList draws;
+                                          if(auto frame = game->take_draw_frame())
+                                              draws.push_back(std::move(frame));
+                                          if(editor_frame)
+                                              draws.push_back(std::move(editor_frame));
+                                          return draws;
                                       },
                 .release =
                     [this] {
@@ -300,11 +302,13 @@ namespace CometEditor::Tests {
         game = std::make_unique<GameUi>(
             engine->get_window(), engine->get_renderer(), *project, input_services());
         EXPECT_FALSE(game->is_modal());
-        engine->get_renderer().set_overlay({.render = [this](Comet::OverlayRecordContext& overlay) {
-            auto result = game->render(overlay);
-            if(!result)
-                return result;
-            return editor->render(overlay, std::move(editor_frame));
+        engine->get_renderer().set_overlay({.capture = [this] {
+            Comet::OverlayDrawList draws;
+            if(auto frame = game->take_draw_frame())
+                draws.push_back(std::move(frame));
+            if(editor_frame)
+                draws.push_back(std::move(editor_frame));
+            return draws;
         }});
         frame();
         std::filesystem::copy_file(

@@ -19,8 +19,7 @@ namespace CometEditor {
         [[nodiscard]] bool is_modal() const;
         [[nodiscard]] Comet::Result<Comet::Ui::ProjectUi::FrameResult, Comet::Error> frame(
             const Comet::Input::Frame& input, Comet::Ui::ProjectUi::FrameInfo info);
-        [[nodiscard]] Comet::Result<void, Comet::GraphicsError> render(
-            Comet::OverlayRecordContext& frame);
+        [[nodiscard]] std::unique_ptr<Comet::OverlayDraw> take_draw_frame();
         void release();
         [[nodiscard]] Comet::Result<void, Comet::GraphicsError> rebuild(
             const Comet::SwapchainCompatibility& compatibility);

@@ -83,7 +83,7 @@ namespace Comet::Tests {
         int frames = 0;
         for(int attempt = 0; attempt < 20 && frames < 8; ++attempt) {
             engine->get_window().poll_events();
-            const auto preparation = renderer.prepare_frame();
+            const auto preparation = render_frontend->prepare_frame();
             EXPECT_TRUE(preparation);
             if(!preparation || preparation.value() != Renderer::FramePreparation::Ready) {
                 continue;
@@ -105,7 +105,7 @@ namespace Comet::Tests {
                 EXPECT_TRUE(registry.replace_asset(AssetHandle(12), material));
                 first.reset();
             }
-            EXPECT_TRUE(renderer.render_frame(scene));
+            EXPECT_TRUE(render_frontend->render(scene));
             const auto& stats = renderer.get_scene_renderer().get_material_statistics();
             EXPECT_EQ(stats.frame_set_count, 2u);
             EXPECT_EQ(stats.draw_calls, 2u);
@@ -149,11 +149,11 @@ namespace Comet::Tests {
             {.entity_id = 1, .mesh_handle = AssetHandle(11), .material_handle = AssetHandle(12)});
         const auto draw = [&](uint32_t expected) {
             {
-                const auto preparation = renderer.prepare_frame();
+                const auto preparation = render_frontend->prepare_frame();
                 ASSERT_TRUE(preparation) << preparation.error();
                 ASSERT_EQ(preparation.value(), Renderer::FramePreparation::Ready);
             }
-            EXPECT_TRUE(renderer.render_frame(scene));
+            EXPECT_TRUE(render_frontend->render(scene));
             EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().draw_calls, expected);
         };
         draw(1);

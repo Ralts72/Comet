@@ -22,7 +22,7 @@
 
 namespace Comet {
     Result<std::unique_ptr<Renderer>, GraphicsError> Renderer::create(
-        const Window& window, const Settings& settings, AssetRegistry& asset_registry) {
+        const Window& window, const Settings& settings) {
         using Creation = Result<std::unique_ptr<Renderer>, GraphicsError>;
         if(settings.render.max_frames_in_flight == 0)
             return Creation::failure({"Renderer requires at least one frame slot"});
@@ -44,9 +44,9 @@ namespace Comet {
             device, *programs, *resources, settings.vulkan, settings.render, swapchain);
         if(!scene)
             return Creation::failure(scene.error());
-        auto renderer = std::unique_ptr<Renderer>(
-            new Renderer(std::move(context).value(), std::move(resources), std::move(frames),
-                std::move(programs), std::move(scene).value(), asset_registry, settings));
+        auto renderer =
+            std::unique_ptr<Renderer>(new Renderer(std::move(context).value(), std::move(resources),
+                std::move(frames), std::move(programs), std::move(scene).value(), settings));
         if(auto enabled = renderer->m_diagnostics->set_enabled(settings.enable_diagnostics);
             !enabled)
             return Creation::failure({enabled.error()});
@@ -57,10 +57,9 @@ namespace Comet {
     Renderer::Renderer(std::unique_ptr<RenderContext> context,
         std::unique_ptr<RenderResources> resources, std::unique_ptr<FrameScheduler> frames,
         std::unique_ptr<MaterialPrograms> programs, std::unique_ptr<SceneRenderer> scene,
-        AssetRegistry& assets, const Settings& settings)
+        const Settings& settings)
         : m_render_context(std::move(context)), m_render_resources(std::move(resources)),
-          m_frames(std::move(frames)), m_programs(std::move(programs)), m_settings(settings),
-          m_scene_resolver(assets), m_asset_registry(assets) {
+          m_frames(std::move(frames)), m_programs(std::move(programs)), m_settings(settings) {
         m_views.emplace(DEFAULT_VIEW, ViewState{.scene = std::move(scene)});
         m_diagnostics = std::make_unique<RenderDiagnostics>(*m_frames);
         m_presentation = std::make_unique<Presentation>(*m_render_context, *m_frames,
@@ -144,26 +143,6 @@ namespace Comet {
         return get_view(DEFAULT_VIEW).scene->get_material_layouts();
     }
 
-    Result<Renderer::FramePreparation, GraphicsError> Renderer::prepare_frame() {
-        return prepare_frame(take_asset_removals());
-    }
-
-    AssetRegistry::Removals Renderer::take_asset_removals() {
-        m_scene_resolver.refresh_assets();
-        return m_asset_registry.take_removals();
-    }
-
-    std::shared_ptr<const RenderWorld> Renderer::resolve_scene(const RenderScene* scene) {
-        PROFILE_SCOPE("resolve render assets");
-        if(!scene || !has_visible_view()) {
-            m_scene_resolver.reset();
-            return {};
-        }
-        return RenderDiagnostics::measure_preparation(m_diagnostics.get(),
-            RenderDiagnostics::PreparationPhase::Assets,
-            [&] { return m_scene_resolver.update(*scene); });
-    }
-
     Result<Renderer::FramePreparation, GraphicsError> Renderer::prepare_frame(
         AssetRegistry::Removals removals) {
         using Preparation = Result<FramePreparation, GraphicsError>;
@@ -235,58 +214,67 @@ namespace Comet {
         return Preparation::success(status);
     }
 
-    Result<void, GraphicsError> Renderer::render_frame(const RenderScene& render_scene) {
-        return render_world(resolve_scene(&render_scene));
+    RenderFrame Renderer::capture_frame() {
+        RenderFrame frame;
+        if(!m_frames->is_recording_frame())
+            return frame;
+        frame.serial = m_frames->get_current_frame_serial();
+        frame.views.reserve(m_views.size());
+        for(auto& [id, view] : m_views) {
+            auto parameters = view.view;
+            parameters.render_size = view.scene->get_render_target().get_size();
+            const bool draw = parameters.visible || !view.scene->is_offscreen();
+            frame.views.push_back({id, std::move(parameters), draw,
+                std::exchange(view.pick_request, std::nullopt), std::move(view.lines)});
+            view.lines = {};
+        }
+        if(m_capture_overlay)
+            frame.overlays = m_capture_overlay();
+        return frame;
     }
 
-    Result<void, GraphicsError> Renderer::render_frame() {
-        return render_world(resolve_scene(nullptr));
-    }
-
-    Result<void, GraphicsError> Renderer::render_world(std::shared_ptr<const RenderWorld> frame) {
-        auto result = record_world(std::move(frame));
+    Result<void, GraphicsError> Renderer::render_frame(std::shared_ptr<const RenderWorld> world) {
+        auto frame = capture_frame();
+        frame.world = std::move(world);
+        auto result = record_frame(std::move(frame));
         if(!result)
             prepare_shutdown();
         return result;
     }
 
-    bool Renderer::has_visible_view() const {
-        return std::ranges::any_of(m_views, [](const auto& entry) {
-            return entry.second.view.visible || !entry.second.scene->is_offscreen();
-        });
-    }
-
-    Result<void, GraphicsError> Renderer::record_world(std::shared_ptr<const RenderWorld> frame) {
+    Result<void, GraphicsError> Renderer::record_frame(RenderFrame frame) {
         if(!m_diagnostics->is_enabled())
-            return draw_world(std::move(frame));
-        const auto serial = m_frames->get_current_frame_serial();
+            return draw_frame(frame);
         const auto start = RenderDiagnostics::Clock::now();
-        auto result = draw_world(std::move(frame));
+        auto result = draw_frame(frame);
         if(result)
-            m_diagnostics->record_frame(serial,
+            m_diagnostics->record_frame(frame.serial,
                 std::chrono::duration<double, std::milli>(RenderDiagnostics::Clock::now() - start)
                     .count());
         return result;
     }
 
-    Result<void, GraphicsError> Renderer::draw_world(std::shared_ptr<const RenderWorld> frame) {
+    Result<void, GraphicsError> Renderer::draw_frame(RenderFrame& frame) {
         if(m_shutdown_prepared)
             return Result<void, GraphicsError>::failure({"Renderer is shutting down"});
-        if(!m_frames->is_recording_frame())
-            return Result<void, GraphicsError>::failure({"No prepared render frame"});
+        if(!m_frames->is_recording_frame() || frame.serial != m_frames->get_current_frame_serial())
+            return Result<void, GraphicsError>::failure({"No matching prepared render frame"});
         PROFILE_SCOPE("render frame");
-        if(!has_visible_view()) {
-            discard_frame_requests();
+        if(!frame.has_visible_view()) {
+            m_geometry.clear_frame();
+            m_world.reset();
             get_view(DEFAULT_VIEW).scene->get_shadow_pass()->reset_statistics();
-            for(auto& [id, view] : m_views)
+            for(auto& [id, view] : m_views) {
+                view.pick_result.reset();
                 view.scene->skip_frame();
+            }
             m_diagnostics->skip_frame();
             std::vector<QueueSemaphoreSubmit> waits;
-            if(auto recorded = record_overlay(waits); !recorded)
+            if(auto recorded = record_overlay(frame.overlays, waits); !recorded)
                 return recorded;
             return m_presentation->end_frame(waits);
         }
-        m_world = std::move(frame);
+        m_world = std::move(frame.world);
         const RenderWorld empty_world;
         const auto& world = m_world ? *m_world : empty_world;
         RenderDiagnostics::measure_preparation(m_diagnostics.get(),
@@ -303,47 +291,44 @@ namespace Comet {
         std::vector<QueueSemaphoreSubmit> resource_waits;
         // 诊断查询覆盖第一个可见 View；其他 View 不重复开启同一组 GPU 查询。
         bool diagnosed = false;
-        for(auto& [id, view] : m_views) {
-            if(!view.view.visible && view.scene->is_offscreen()) {
-                view.pick_request.reset();
+        for(const auto& input : frame.views) {
+            auto& view = get_view(input.id);
+            if(!input.draw) {
                 view.pick_result.reset();
-                view.lines.clear();
                 view.scene->skip_frame();
                 continue;
             }
             auto* diagnostics = diagnosed ? nullptr : m_diagnostics.get();
-            if(auto recorded =
-                    render_view(view, world, m_world != nullptr, resource_waits, diagnostics);
+            if(auto recorded = render_view(
+                   view, input, world, m_world != nullptr, resource_waits, diagnostics);
                 !recorded)
                 return recorded;
             diagnosed = true;
         }
-        if(auto recorded = record_overlay(resource_waits); !recorded)
+        if(auto recorded = record_overlay(frame.overlays, resource_waits); !recorded)
             return recorded;
 
         return m_presentation->end_frame(resource_waits, m_diagnostics.get());
     }
 
-    Result<void, GraphicsError> Renderer::render_view(ViewState& view, const RenderWorld& world,
-        const bool has_scene, std::vector<QueueSemaphoreSubmit>& waits,
-        RenderDiagnostics* diagnostics) {
-        RenderView frame_view = view.view;
-        frame_view.render_size = view.scene->get_render_target().get_size();
+    Result<void, GraphicsError> Renderer::render_view(ViewState& view,
+        const RenderFrame::View& input, const RenderWorld& world, const bool has_scene,
+        std::vector<QueueSemaphoreSubmit>& waits, RenderDiagnostics* diagnostics) {
+        const auto& frame_view = input.parameters;
         const RenderSubmission submission{
             world, has_scene ? view.camera.resolve(world, frame_view) : std::nullopt};
         if(auto prepared = view.scene->prepare_post_process(world.post_process); !prepared)
             return prepared;
-        const auto pick_request = std::exchange(view.pick_request, std::nullopt);
+        const auto& pick_request = input.pick;
         if(pick_request && has_scene && frame_view.visible
             && pick_request->scene_lifetime == world.scene_lifetime
             && pick_request->image_resolution == frame_view.render_size)
             view.pick_result = ViewportPickResult{world.scene_lifetime,
                 pick_render_submission(submission, pick_request->pixel, frame_view.render_size)};
-        if(!frame_view.visible)
-            view.lines.clear();
+        const LineDrawList empty_lines;
+        const auto& lines = frame_view.visible ? input.lines : empty_lines;
         auto resource_waits =
-            view.scene->render(*m_frames, submission, m_geometry, view.lines, diagnostics);
-        view.lines.clear();
+            view.scene->render(*m_frames, submission, m_geometry, lines, diagnostics);
         if(!resource_waits)
             return Result<void, GraphicsError>::failure(resource_waits.error());
         for(const auto& wait : resource_waits.value())
@@ -524,15 +509,17 @@ namespace Comet {
     }
 
     void Renderer::set_overlay(Overlay overlay) {
-        m_render_overlay = std::move(overlay.render);
+        m_capture_overlay = std::move(overlay.capture);
         m_presentation->set_overlay({std::move(overlay.release), std::move(overlay.rebuild)});
     }
 
-    Result<void, GraphicsError> Renderer::record_overlay(std::vector<QueueSemaphoreSubmit>& waits) {
-        if(!m_render_overlay)
-            return Result<void, GraphicsError>::success();
+    Result<void, GraphicsError> Renderer::record_overlay(
+        const OverlayDrawList& draws, std::vector<QueueSemaphoreSubmit>& waits) {
         OverlayRecordContext context(*m_frames, waits);
-        return m_render_overlay(context);
+        for(const auto& draw : draws)
+            if(auto recorded = draw->record(context); !recorded)
+                return recorded;
+        return Result<void, GraphicsError>::success();
     }
 
     Result<void, GraphicsError> Renderer::set_render_view(RenderView view, const ViewId id) {
@@ -556,7 +543,7 @@ namespace Comet {
         const Math::Vec2u image_resolution, const uint64_t scene_lifetime, const ViewId id) {
         auto& view = get_view(id);
         view.pick_result.reset();
-        view.pick_request = ViewportPickRequest{pixel, image_resolution, scene_lifetime};
+        view.pick_request = RenderFrame::Pick{pixel, image_resolution, scene_lifetime};
     }
 
     std::optional<Renderer::ViewportPickResult> Renderer::take_viewport_pick_result(
@@ -597,7 +584,6 @@ namespace Comet {
     Renderer::~Renderer() {
         LOG_INFO("destroy renderer");
         prepare_shutdown();
-        m_scene_resolver.reset();
 
         m_presentation.reset();
         m_diagnostics.reset();

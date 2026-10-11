@@ -13,7 +13,7 @@ namespace Comet::Tests {
         auto owner = std::make_shared<int>(42);
         const std::weak_ptr<int> retained = owner;
         uint32_t calls = 0;
-        renderer.set_overlay({.render = [&](OverlayRecordContext& context) {
+        Comet::Tests::set_test_overlay(renderer, {.render = [&](OverlayRecordContext& context) {
             EXPECT_EQ(context.frame_serial(), calls + 1);
             EXPECT_EQ(context.frame_slot(), calls % slots);
             EXPECT_EQ(&context.command_buffer(),
@@ -41,7 +41,7 @@ namespace Comet::Tests {
 
     TEST_F(OverlayRecordContextTest, RecordingFailureStopsSubmissionAndFurtherFrames) {
         auto& renderer = engine->get_renderer();
-        renderer.set_overlay({.render = [](OverlayRecordContext&) {
+        Comet::Tests::set_test_overlay(renderer, {.render = [](OverlayRecordContext&) {
             return Result<void, GraphicsError>::failure({"overlay recording failed"});
         }});
         const auto prepared = renderer.prepare_frame();

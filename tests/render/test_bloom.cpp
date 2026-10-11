@@ -391,14 +391,14 @@ namespace Comet::Tests {
         ASSERT_TRUE(created) << created.error().message;
         engine = std::move(created).value();
         auto& renderer = engine->get_renderer();
-        const auto prepared = renderer.prepare_frame();
+        const auto prepared = render_frontend->prepare_frame();
         ASSERT_TRUE(prepared);
         ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
         RenderScene initial_scene;
         initial_scene.environment.background_color = {4, 2, 0.5f};
         initial_scene.post_process = {.bloom_enabled = true, .bloom_strength = 0.5f};
         initial_scene.cameras.push_back(RenderCamera{.primary = true});
-        ASSERT_TRUE(renderer.render_frame(initial_scene));
+        ASSERT_TRUE(render_frontend->render(initial_scene));
         EXPECT_EQ(
             renderer.get_scene_renderer().get_post_process_settings(), initial_scene.post_process);
         renderer.wait_idle();

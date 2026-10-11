@@ -154,7 +154,7 @@ check_includes("${ENGINE_SOURCE}" "${LOW_LEVEL_FILES}" "render/|graphics/|[Vv]ul
 
 file(GLOB_RECURSE ASSET_FILES RELATIVE "${ENGINE_SOURCE}"
     "${ENGINE_SOURCE}/asset/*.h" "${ENGINE_SOURCE}/asset/*.cpp")
-# 资产代码只使用 CPU 数据和不含后端头的渲染发布契约。
+# 资产代码只使用 CPU 数据和不含后端头的 GPU 候选创建契约。
 check_includes("${ENGINE_SOURCE}" "${ASSET_FILES}" "render/|graphics/|[Vv]ulkan|GLFW/"
     "CPU asset code must not include rendering or platform backends" "graphics/(enums|error)\\.h")
 

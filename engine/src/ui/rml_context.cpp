@@ -19,6 +19,23 @@
 
 namespace Comet::Ui {
     namespace {
+        class RmlDrawFrame final: public OverlayDraw {
+        public:
+            RmlDrawFrame(
+                RmlRenderer& renderer, RmlRenderer::DrawSnapshot draws, RenderOutput output)
+                : m_renderer(renderer), m_draws(std::move(draws)), m_output(output) {}
+            Result<void, GraphicsError> record(OverlayRecordContext& frame) override {
+                if(m_output == RenderOutput::Offscreen)
+                    return m_renderer.render_offscreen(frame, *m_draws);
+                return m_renderer.render(frame, *m_draws);
+            }
+
+        private:
+            RmlRenderer& m_renderer;
+            RmlRenderer::DrawSnapshot m_draws;
+            RenderOutput m_output;
+        };
+
         std::atomic_bool runtime_active = false;
         constexpr std::size_t max_file_bytes = 32 * 1024 * 1024;
         constexpr const char* context_name = "CometUi";
@@ -352,13 +369,11 @@ namespace Comet::Ui {
     bool RmlContext::is_loading_document() const {
         return m_impl->m_loading_document;
     }
-    Result<void, GraphicsError> RmlContext::render(
-        OverlayRecordContext& frame, RenderOutput output) {
-        if(!m_impl->m_draw_data)
-            return Result<void, GraphicsError>::success();
-        if(output == RenderOutput::Offscreen)
-            return m_impl->m_renderer->render_offscreen(frame, *m_impl->m_draw_data);
-        return m_impl->m_renderer->render(frame, *m_impl->m_draw_data);
+    std::unique_ptr<OverlayDraw> RmlContext::take_draw_frame(RenderOutput output) {
+        auto draws = std::exchange(m_impl->m_draw_data, {});
+        if(!draws)
+            return {};
+        return std::make_unique<RmlDrawFrame>(*m_impl->m_renderer, std::move(draws), output);
     }
     void RmlContext::release_swapchain_resources() {
         m_impl->m_renderer->release_swapchain_resources();

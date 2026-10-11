@@ -64,10 +64,10 @@ namespace CometEditor {
         return m_ui->frame(input, std::move(info));
     }
 
-    Comet::Result<void, Comet::GraphicsError> GameUi::render(Comet::OverlayRecordContext& frame) {
+    std::unique_ptr<Comet::OverlayDraw> GameUi::take_draw_frame() {
         if(m_render && m_ui)
-            return m_ui->render(frame, Comet::Ui::RenderOutput::Offscreen);
-        return Comet::Result<void, Comet::GraphicsError>::success();
+            return m_ui->take_draw_frame(Comet::Ui::RenderOutput::Offscreen);
+        return {};
     }
 
     void GameUi::release() {

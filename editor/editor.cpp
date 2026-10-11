@@ -423,12 +423,14 @@ namespace {
 
         void setup_render_hooks() {
             auto& renderer = get_engine().get_renderer();
-            renderer.set_overlay({.render =
-                                      [this](Comet::OverlayRecordContext& overlay) {
-                                          if(auto result = m_game_ui->render(overlay); !result)
-                                              return result;
-                                          return m_imgui_context->render(
-                                              overlay, std::move(m_imgui_frame));
+            renderer.set_overlay({.capture =
+                                      [this] {
+                                          Comet::OverlayDrawList draws;
+                                          if(auto frame = m_game_ui->take_draw_frame())
+                                              draws.push_back(std::move(frame));
+                                          if(m_imgui_frame)
+                                              draws.push_back(std::move(m_imgui_frame));
+                                          return draws;
                                       },
                 .release =
                     [this] {

@@ -12,7 +12,8 @@
 #include <utility>
 
 namespace Comet {
-    // 只观察既有帧生命周期，不额外等待 GPU；由渲染所属线程访问。
+    // 只观察既有帧生命周期，不额外等待 GPU。
+    // Main 在帧边界采集／读取，Worker 录制／发布；双方不并发访问。
     class COMET_API RenderDiagnostics {
     public:
         using Clock = std::chrono::steady_clock;

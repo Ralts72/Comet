@@ -124,8 +124,8 @@ endif()
 # imgui
 if (COMET_BUILD_EDITOR)
     add_subdirectory(imgui EXCLUDE_FROM_ALL)
-    target_include_directories(imgui PUBLIC "${CMAKE_SOURCE_DIR}/editor/src")
-    target_compile_definitions(imgui PUBLIC IMGUI_USER_CONFIG="ui/imgui_config.h")
+    target_include_directories(imgui PUBLIC "${CMAKE_SOURCE_DIR}/editor/src/ui")
+    target_compile_definitions(imgui PUBLIC IMGUI_USER_CONFIG="imgui_config.h")
 endif ()
 
 # 游戏 UI 仅使用 Core 和固定版本的 FreeType，不发现系统字体库或启用上游窗口后端。

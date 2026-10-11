@@ -25,7 +25,7 @@ namespace Comet::Tests {
             {.mesh_handle = mesh_handle, .material_handle = material_handle});
         const auto original = renderer.get_quality_settings();
         const auto prepare = [&] {
-            const auto prepared = renderer.prepare_frame();
+            const auto prepared = render_frontend->prepare_frame();
             ASSERT_TRUE(prepared) << prepared.error().message;
             ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
         };
@@ -36,7 +36,7 @@ namespace Comet::Tests {
             QualitySettings candidate{samples, renderer.max_anisotropy(), 0.5f};
             ASSERT_TRUE(renderer.request_quality_settings(candidate));
             EXPECT_EQ(renderer.get_quality_settings(), before);
-            ASSERT_TRUE(renderer.render_frame(scene));
+            ASSERT_TRUE(render_frontend->render(scene));
             prepare();
             ASSERT_FALSE(HasFatalFailure());
             EXPECT_EQ(renderer.get_quality_settings(), candidate);
@@ -45,7 +45,7 @@ namespace Comet::Tests {
             EXPECT_EQ(renderer.get_scene_size(), Math::Vec2u(51, 27));
             EXPECT_EQ(renderer.get_offscreen_frame().size, output_size);
             scene.post_process.bloom_enabled = true;
-            ASSERT_TRUE(renderer.render_frame(scene));
+            ASSERT_TRUE(render_frontend->render(scene));
             EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().draw_calls, 1u);
         }
         ASSERT_TRUE(renderer.request_quality_settings(original));
@@ -53,7 +53,7 @@ namespace Comet::Tests {
         ASSERT_FALSE(HasFatalFailure());
         EXPECT_EQ(renderer.get_quality_settings(), original);
         EXPECT_EQ(renderer.get_scene_size(), output_size);
-        ASSERT_TRUE(renderer.render_frame(scene));
+        ASSERT_TRUE(render_frontend->render(scene));
         const auto view = renderer.get_scene_renderer().get_offscreen_color_view(0);
         EXPECT_FALSE(renderer.request_quality_settings({3, 8, 1}));
         EXPECT_FALSE(renderer.request_quality_settings({1, 8, 0}));
@@ -70,7 +70,7 @@ namespace Comet::Tests {
         prepare();
         ASSERT_FALSE(HasFatalFailure());
         EXPECT_EQ(renderer.get_scene_renderer().get_offscreen_color_view(0), view);
-        ASSERT_TRUE(renderer.render_frame(scene));
+        ASSERT_TRUE(render_frontend->render(scene));
         renderer.prepare_shutdown();
         EXPECT_FALSE(renderer.request_quality_settings(original));
     }

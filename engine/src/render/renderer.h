@@ -4,6 +4,7 @@
 #include "graphics/result.h"
 #include "graphics/vulkan_settings.h"
 #include "render/render_settings.h"
+#include "render/render_frame.h"
 #include "render/quality_settings.h"
 #include "render/output_settings.h"
 #include "render/scene/render_scene.h"
@@ -24,7 +25,6 @@
 #include <vector>
 
 namespace Comet {
-    class AssetRegistry;
     class Window;
     class CommandBuffer;
     class RenderContext;
@@ -41,6 +41,8 @@ namespace Comet {
     struct SwapchainCompatibility;
     struct QueueSemaphoreSubmit;
 
+    // Main 在帧边界准备资源、修改视图和读取反馈；RenderThread 独占录制与提交。
+    // submit 到 complete 之间，宿主不能访问这里的可变状态，包括诊断快照。
     class COMET_API Renderer {
     public:
         class COMET_API MaterialUpdate {
@@ -72,29 +74,23 @@ namespace Comet {
         };
 
         struct Overlay {
-            std::function<Result<void, GraphicsError>(OverlayRecordContext&)> render;
+            std::function<OverlayDrawList()> capture;
             std::function<void()> release;
             std::function<Result<void, GraphicsError>(const SwapchainCompatibility&)> rebuild;
         };
 
         static Result<std::unique_ptr<Renderer>, GraphicsError> create(
-            const Window& window, const Settings& settings, AssetRegistry& asset_registry);
+            const Window& window, const Settings& settings);
 
         ~Renderer();
 
-        // Ready 才能提取并绘制；Deferred 不持有活动帧。
-        [[nodiscard]] Result<FramePreparation, GraphicsError> prepare_frame();
-        // Main 取走删除批次并解析资源；GPU 入口只消费交付的独立值。
-        [[nodiscard]] AssetRegistry::Removals take_asset_removals();
-        [[nodiscard]] std::shared_ptr<const RenderWorld> resolve_scene(const RenderScene* scene);
+        // Ready 才能捕获帧；删除批次由 Main 的资产管理层交付。
         [[nodiscard]] Result<FramePreparation, GraphicsError> prepare_frame(
-            AssetRegistry::Removals removals);
-        [[nodiscard]] Result<void, GraphicsError> render_world(
-            std::shared_ptr<const RenderWorld> world);
-        // 消费场景快照，完成绘制、提交和呈现；帧错误终止本次 Renderer 生命周期。
-        [[nodiscard]] Result<void, GraphicsError> render_frame(const RenderScene& render_scene);
-        // 无活动场景时只清屏和绘制 UI，不诊断场景相机。
-        [[nodiscard]] Result<void, GraphicsError> render_frame();
+            AssetRegistry::Removals removals = {});
+        [[nodiscard]] RenderFrame capture_frame();
+        // 同步消费已解析的世界；Engine 使用捕获的帧交给 RenderThread。
+        [[nodiscard]] Result<void, GraphicsError> render_frame(
+            std::shared_ptr<const RenderWorld> world = {});
 
         Result<void, GraphicsError> enable_offscreen_rendering(Math::Vec2u initial_size);
         // View 在帧边界创建／移除；隐藏只跳过绘制，保留相机与目标。
@@ -137,7 +133,7 @@ namespace Comet {
         [[nodiscard]] const std::string& quality_error() const { return m_quality_error; }
         void wait_idle();
         void prepare_shutdown() noexcept;
-        // 同一集成方的绘制与交换链生命周期一起安装或解除。
+        // Main 捕获绘制对象；同一集成方的交换链生命周期一起安装或解除。
         void set_overlay(Overlay overlay);
         [[nodiscard]] const FrameScheduler& get_frame_scheduler() const { return *m_frames; }
         [[nodiscard]] RenderDiagnostics& get_diagnostics() { return *m_diagnostics; }
@@ -171,35 +167,28 @@ namespace Comet {
 
     private:
         friend class RenderThread;
-        [[nodiscard]] Result<void, GraphicsError> record_world(
-            std::shared_ptr<const RenderWorld> world);
-        [[nodiscard]] Result<void, GraphicsError> draw_world(
-            std::shared_ptr<const RenderWorld> world);
-        [[nodiscard]] bool has_visible_view() const;
+        [[nodiscard]] Result<void, GraphicsError> record_frame(RenderFrame frame);
+        [[nodiscard]] Result<void, GraphicsError> draw_frame(RenderFrame& frame);
         Renderer(std::unique_ptr<RenderContext> context, std::unique_ptr<RenderResources> resources,
             std::unique_ptr<FrameScheduler> frames, std::unique_ptr<MaterialPrograms> programs,
-            std::unique_ptr<SceneRenderer> scene, AssetRegistry& assets, const Settings& settings);
-        Result<void, GraphicsError> record_overlay(std::vector<QueueSemaphoreSubmit>& waits);
+            std::unique_ptr<SceneRenderer> scene, const Settings& settings);
+        Result<void, GraphicsError> record_overlay(
+            const OverlayDrawList& draws, std::vector<QueueSemaphoreSubmit>& waits);
         void discard_frame_requests();
-        struct ViewportPickRequest {
-            Math::Vec2u pixel;
-            Math::Vec2u image_resolution;
-            uint64_t scene_lifetime;
-        };
 
         struct ViewState {
             std::unique_ptr<SceneRenderer> scene;
             RenderView view;
             RenderCameraResolver camera;
-            std::optional<ViewportPickRequest> pick_request;
+            std::optional<RenderFrame::Pick> pick_request;
             std::optional<ViewportPickResult> pick_result;
             LineDrawList lines;
         };
         [[nodiscard]] ViewState& get_view(ViewId id);
         [[nodiscard]] const ViewState& get_view(ViewId id) const;
         [[nodiscard]] Result<void, GraphicsError> render_view(ViewState& view,
-            const RenderWorld& world, bool has_scene, std::vector<QueueSemaphoreSubmit>& waits,
-            RenderDiagnostics* diagnostics);
+            const RenderFrame::View& input, const RenderWorld& world, bool has_scene,
+            std::vector<QueueSemaphoreSubmit>& waits, RenderDiagnostics* diagnostics);
 
         std::unique_ptr<RenderContext> m_render_context;
         std::unique_ptr<RenderResources> m_render_resources;
@@ -210,9 +199,7 @@ namespace Comet {
         std::map<ViewId, ViewState> m_views;
         ViewId m_next_view_id = 1;
         Settings m_settings;
-        SceneResolver m_scene_resolver;
-        AssetRegistry& m_asset_registry;
-        std::function<Result<void, GraphicsError>(OverlayRecordContext&)> m_render_overlay;
+        std::function<OverlayDrawList()> m_capture_overlay;
         bool m_shutdown_prepared = false;
         std::shared_ptr<const RenderWorld> m_world;
         RenderGeometry m_geometry;

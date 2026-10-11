@@ -162,13 +162,18 @@ namespace Comet::Tests {
                 std::move(services));
             ASSERT_TRUE(created) << created.error();
             ui = std::move(created).value();
-            engine->get_renderer().set_overlay(
-                {.render = [this](OverlayRecordContext& frame) { return ui->render(frame); },
-                    .release = [this] { ui->release_swapchain_resources(); },
-                    .rebuild =
-                        [this](const SwapchainCompatibility& compatibility) {
-                            return ui->rebuild_swapchain_resources(compatibility);
-                        }});
+            engine->get_renderer().set_overlay({.capture =
+                                                    [this] {
+                                                        OverlayDrawList draws;
+                                                        if(auto frame = ui->take_draw_frame())
+                                                            draws.push_back(std::move(frame));
+                                                        return draws;
+                                                    },
+                .release = [this] { ui->release_swapchain_resources(); },
+                .rebuild =
+                    [this](const SwapchainCompatibility& compatibility) {
+                        return ui->rebuild_swapchain_resources(compatibility);
+                    }});
             const auto result = submit_frame();
             ASSERT_TRUE(result) << result.error().message;
         }

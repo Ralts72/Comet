@@ -118,7 +118,8 @@ namespace Comet::Tests {
             ASSERT_EQ(frame.value(), Renderer::FramePreparation::Ready);
             RenderScene scene;
             scene.cameras.push_back(RenderCamera{.primary = true});
-            ASSERT_TRUE(renderer.render_frame(scene));
+            ASSERT_TRUE(
+                renderer.render_frame(SceneResolver(engine->get_asset_registry()).update(scene)));
         }
     };
 
@@ -142,8 +143,11 @@ namespace Comet::Tests {
         start(directory.path());
         ASSERT_TRUE(engine);
         const auto path = cache().get_path();
-        const auto properties = engine->get_renderer().get_render_context().get_context()
-                                    .get_physical_device().getProperties();
+        const auto properties = engine->get_renderer()
+                                    .get_render_context()
+                                    .get_context()
+                                    .get_physical_device()
+                                    .getProperties();
         engine.reset();
         const auto valid = read(path);
         auto original = PipelineCache::decode(valid, properties);
@@ -167,8 +171,8 @@ namespace Comet::Tests {
         }
     }
 
-    TEST_F(PipelineCacheRenderingTest,
-        SaveFailurePreservesDestinationAndDisabledCacheWritesNothing) {
+    TEST_F(
+        PipelineCacheRenderingTest, SaveFailurePreservesDestinationAndDisabledCacheWritesNothing) {
         start(directory.path());
         ASSERT_TRUE(engine);
         const auto path = cache().get_path();
@@ -180,7 +184,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(sentinel);
         EXPECT_EQ(sentinel.value(), "keep");
         EXPECT_EQ(std::distance(std::filesystem::directory_iterator(directory.path()),
-                      std::filesystem::directory_iterator{}), 1);
+                      std::filesystem::directory_iterator{}),
+            1);
         start({});
         ASSERT_TRUE(engine);
         EXPECT_EQ(cache().get_load_status(), PipelineCache::LoadStatus::Disabled);

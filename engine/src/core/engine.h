@@ -2,6 +2,7 @@
 #include "common/export.h"
 #include "audio/audio_settings.h"
 #include "render/scene/scene_extractor.h"
+#include "render/scene/scene_resolver.h"
 #include "common/error.h"
 #include "common/result.h"
 #include "input/input.h"
@@ -119,5 +120,6 @@ namespace Comet {
         bool m_running = false;
         bool m_shutdown_prepared = false;
         SceneExtractor m_scene_extractor;
+        SceneResolver m_scene_resolver;
     };
 }

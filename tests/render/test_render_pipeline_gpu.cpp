@@ -1,3 +1,5 @@
+#include "support/engine_fixture.h"
+#include "render/render_thread.h"
 #include "support/render_graph_gpu_fixture.h"
 #include "asset/artifact/shader_program_artifact.h"
 #include "asset/registry.h"
@@ -10,6 +12,38 @@
 #include <algorithm>
 
 namespace Comet::Tests {
+    TEST_F(RenderGraphGpuTest, CapturedFrameKeepsViewAndPickWhenMainChangesPendingInput) {
+        auto& renderer = engine->get_renderer();
+        ASSERT_TRUE(prepare_offscreen_host({32, 32}));
+        const AssetHandle mesh(797), material(798);
+        auto& assets = engine->get_asset_registry();
+        ASSERT_TRUE(assets.register_asset(mesh, lit_quad()));
+        ASSERT_TRUE(
+            assets.register_asset(material, std::make_shared<Material>("pick", "unlit_color")));
+        const RenderScene scene{.scene_lifetime = 100,
+            .cameras = {{.primary = true,
+                .view_matrix = Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0})}},
+            .render_items = {
+                {.entity_id = EntityId(1), .mesh_handle = mesh, .material_handle = material}}};
+        const auto prepared = render_frontend->prepare_frame();
+        ASSERT_TRUE(prepared) << prepared.error();
+        ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
+        renderer.request_viewport_pick({16, 16}, {32, 32}, 100);
+        auto captured = renderer.capture_frame();
+        captured.world = render_frontend->resolve(scene);
+        ASSERT_TRUE(renderer.set_render_view({.visible = false}));
+        renderer.cancel_viewport_pick();
+        RenderThread recording(renderer);
+        ASSERT_TRUE(recording.submit(std::move(captured)));
+        const auto completed = recording.complete();
+        ASSERT_TRUE(completed) << completed.error();
+        const auto pick = renderer.take_viewport_pick_result();
+        ASSERT_TRUE(pick);
+        ASSERT_TRUE(pick->hit);
+        EXPECT_EQ(pick->hit->entity_id, EntityId(1));
+        EXPECT_EQ(pick->scene_lifetime, 100u);
+    }
+
     TEST_F(RenderGraphGpuTest, PickResultsDiscardStaleRequestsCancellationAndFailedFrames) {
         auto& renderer = engine->get_renderer();
         ASSERT_TRUE(prepare_offscreen_host({32, 32}));
@@ -25,7 +59,7 @@ namespace Comet::Tests {
                 {.entity_id = EntityId(1), .mesh_handle = mesh, .material_handle = material}}};
         const auto draw = [&](uint64_t lifetime, Math::Vec2u pixel, Math::Vec2u resolution,
                               bool visible = true, bool cancelled = false) {
-            const auto prepared = renderer.prepare_frame();
+            const auto prepared = render_frontend->prepare_frame();
             EXPECT_TRUE(prepared);
             if(!prepared || prepared.value() != Renderer::FramePreparation::Ready)
                 return false;
@@ -34,7 +68,7 @@ namespace Comet::Tests {
             if(cancelled)
                 renderer.cancel_viewport_pick();
             EXPECT_FALSE(renderer.take_viewport_pick_result());
-            return bool(renderer.render_frame(scene));
+            return bool(render_frontend->render(scene));
         };
         ASSERT_TRUE(draw(100, {16, 16}, {32, 32}));
         const auto hit = renderer.take_viewport_pick_result();
@@ -60,7 +94,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(miss);
         EXPECT_EQ(miss->scene_lifetime, 200u);
         EXPECT_FALSE(miss->hit);
-        renderer.set_overlay({.render = [](OverlayRecordContext&) {
+        Comet::Tests::set_test_overlay(renderer, {.render = [](OverlayRecordContext&) {
             return Result<void, GraphicsError>::failure({"Rejected overlay"});
         }});
         EXPECT_FALSE(draw(200, {16, 16}, {32, 32}));
@@ -158,7 +192,7 @@ namespace Comet::Tests {
                 second = replacement.value();
                 second_size = {11, 13};
             }
-            const auto prepared = renderer.prepare_frame();
+            const auto prepared = render_frontend->prepare_frame();
             ASSERT_TRUE(prepared) << prepared.error();
             ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
             EXPECT_FALSE(renderer.create_offscreen_view({8, 8}));
@@ -175,7 +209,7 @@ namespace Comet::Tests {
             const auto first_output = renderer.get_offscreen_frame();
             const auto second_output = renderer.get_offscreen_frame(second);
             EXPECT_NE(first_output.color_view, second_output.color_view);
-            ASSERT_TRUE(renderer.render_frame(world));
+            ASSERT_TRUE(render_frontend->render(world));
             const auto left = renderer.take_viewport_pick_result();
             EXPECT_EQ(left.has_value(), frame != 3);
             if(left) {

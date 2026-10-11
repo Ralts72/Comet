@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/engine.h"
+#include "support/engine_fixture.h"
 #include "config/config.h"
 #include "graphics/context.h"
 #include "graphics/device.h"
@@ -72,6 +73,7 @@ namespace Comet::Tests {
             vk::UniqueBuffer native;
         };
         std::unique_ptr<Engine> engine;
+        std::unique_ptr<RenderTestFrontend> render_frontend;
         std::ostringstream messages;
         std::shared_ptr<spdlog::sinks::ostream_sink_mt> sink;
         std::shared_ptr<RenderPass> presentation_pass;
@@ -88,6 +90,7 @@ namespace Comet::Tests {
             auto created = Engine::create(config);
             ASSERT_TRUE(created) << created.error().message;
             engine = std::move(created).value();
+            render_frontend = std::make_unique<RenderTestFrontend>(*engine);
         }
         void TearDown() override {
             if(presentation_target) {
@@ -96,6 +99,7 @@ namespace Comet::Tests {
                 presentation_target.reset();
                 presentation_pass.reset();
             }
+            render_frontend.reset();
             engine.reset();
             if(auto logger = Logger::get_console_logger())
                 std::erase(logger->sinks(), sink);
@@ -128,12 +132,13 @@ namespace Comet::Tests {
                 return Result<void, GraphicsError>::failure(target.error());
             presentation_pass = std::move(pass).value();
             presentation_target = std::move(target).value();
-            renderer.set_overlay({.render = [this](OverlayRecordContext& overlay) {
-                auto& command = overlay.command_buffer();
-                presentation_target->begin_render_target(command);
-                presentation_target->end_render_target(command);
-                return Result<void, GraphicsError>::success();
-            }});
+            Comet::Tests::set_test_overlay(
+                renderer, {.render = [this](OverlayRecordContext& overlay) {
+                    auto& command = overlay.command_buffer();
+                    presentation_target->begin_render_target(command);
+                    presentation_target->end_render_target(command);
+                    return Result<void, GraphicsError>::success();
+                }});
             return Result<void, GraphicsError>::success();
         }
         static void begin_frame(FrameScheduler& frames) {
@@ -196,14 +201,14 @@ namespace Comet::Tests {
             if(!HasFatalFailure())
                 frames.wait_for_all_slots();
         }
-        static void render_and_copy(Renderer& renderer, const RenderScene& scene,
+        void render_and_copy(Renderer& renderer, const RenderScene& scene,
             FrameScheduler& readback_frames, const std::shared_ptr<Readback>& readback) {
-            auto prepared = renderer.prepare_frame();
+            auto prepared = render_frontend->prepare_frame();
             ASSERT_TRUE(prepared) << prepared.error();
             ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
             const auto output = renderer.get_offscreen_frame();
             ASSERT_TRUE(output.color_view);
-            ASSERT_TRUE(renderer.render_frame(scene));
+            ASSERT_TRUE(render_frontend->render(scene));
             begin_frame(readback_frames);
             copy_output(readback_frames, output.color_view->get_image(), readback, output.size);
             submit(readback_frames.get_device(), readback_frames);

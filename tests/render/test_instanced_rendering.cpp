@@ -549,13 +549,13 @@ namespace Comet::Tests {
             }
             outputs[index] =
                 std::make_shared<Readback>(device, context.get_context().get_physical_device(), 64);
-            auto prepared = renderer.prepare_frame();
+            auto prepared = render_frontend->prepare_frame();
             ASSERT_TRUE(prepared) << prepared.error();
             ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
             const auto output = renderer.get_offscreen_frame();
             const auto extra_output = renderer.get_offscreen_frame(extra);
             format = output.color_view->get_image()->get_info().format;
-            ASSERT_TRUE(renderer.render_frame(scene));
+            ASSERT_TRUE(render_frontend->render(scene));
             begin_frame(readback_frames);
             copy_output(readback_frames, output.color_view->get_image(), outputs[index], {4, 4});
             if(index == 2) {

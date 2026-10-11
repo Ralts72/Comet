@@ -53,8 +53,8 @@ namespace Comet::Ui {
         [[nodiscard]] const std::vector<std::filesystem::path>& resource_dependencies() const;
         // 场景重启等宿主状态变更；页面仍由项目控制器决定如何呈现。
         void deactivate();
-        [[nodiscard]] Result<void, GraphicsError> render(
-            OverlayRecordContext& frame, RenderOutput output = RenderOutput::Presentation);
+        [[nodiscard]] std::unique_ptr<OverlayDraw> take_draw_frame(
+            RenderOutput output = RenderOutput::Presentation);
         void release_swapchain_resources();
         [[nodiscard]] Result<void, GraphicsError> rebuild_swapchain_resources(
             const SwapchainCompatibility& compatibility);

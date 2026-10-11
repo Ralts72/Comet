@@ -1,4 +1,5 @@
 #include "ui/imgui_context.h"
+#include "common/scope_exit.h"
 #include "graphics/context.h"
 #include "graphics/device.h"
 #include "graphics/render_pass.h"
@@ -181,8 +182,18 @@ namespace CometEditor::Ui {
         std::string error;
     };
 
-    ImGuiContext::Frame::Frame() : m_data(std::make_unique<Data>()) {}
+    ImGuiContext::Frame::Frame(ImGuiContext& backend)
+        : m_backend(backend), m_data(std::make_unique<Data>()) {}
     ImGuiContext::Frame::~Frame() = default;
+
+    Comet::Result<void, Comet::GraphicsError> ImGuiContext::Frame::record(
+        Comet::OverlayRecordContext& overlay) {
+        if(!m_data)
+            return Comet::Result<void, Comet::GraphicsError>::failure(
+                {"ImGui frame already recorded"});
+        const Comet::ScopeExit consumed([this] { m_data.reset(); });
+        return m_backend.render(overlay, *this);
+    }
 
     void ImGuiContext::ContextDeleter::operator()(::ImGuiContext* context) const noexcept {
         auto* previous = ImGui::GetCurrentContext();
@@ -437,7 +448,7 @@ namespace CometEditor::Ui {
 
     std::unique_ptr<ImGuiContext::Frame> ImGuiContext::end_frame() {
         ImGui::Render();
-        auto frame = std::unique_ptr<Frame>(new Frame);
+        auto frame = std::unique_ptr<Frame>(new Frame(*this));
         auto& captured = *frame->m_data;
         captured.presentation_generation = m_presentation_generation;
         const auto& source = *ImGui::GetDrawData();
@@ -503,22 +514,22 @@ namespace CometEditor::Ui {
     }
 
     Comet::Result<void, Comet::GraphicsError> ImGuiContext::render(
-        Comet::OverlayRecordContext& overlay, std::unique_ptr<Frame> frame) {
+        Comet::OverlayRecordContext& overlay, const Frame& frame) {
         using RenderResult = Comet::Result<void, Comet::GraphicsError>;
         if(!m_initialized) {
             return RenderResult::failure({"ImGuiContext not initialized"});
         }
         const CurrentContext current(m_backend_context.get());
         const bool current_frame =
-            frame && frame->m_data->presentation_generation == m_presentation_generation;
-        if(current_frame && !frame->m_data->error.empty())
-            return RenderResult::failure({frame->m_data->error});
-        const bool has_draw_data = current_frame && frame->m_data->draw.CmdListsCount > 0;
+            frame.m_data->presentation_generation == m_presentation_generation;
+        if(current_frame && !frame.m_data->error.empty())
+            return RenderResult::failure({frame.m_data->error});
+        const bool has_draw_data = current_frame && frame.m_data->draw.CmdListsCount > 0;
         if(m_options.composition == Composition::Preserve && !has_draw_data)
             return RenderResult::success();
 
         if(has_draw_data) {
-            auto& captured = *frame->m_data;
+            auto& captured = *frame.m_data;
             for(const auto& [id, image] : captured.viewport_images)
                 if(image->frame_slot != overlay.frame_slot())
                     return RenderResult::failure(
@@ -560,10 +571,10 @@ namespace CometEditor::Ui {
         auto& command_buffer = overlay.command_buffer();
         m_render_target->begin_render_target(command_buffer);
         if(has_draw_data) {
-            ImGui_ImplVulkan_RenderDrawData(&frame->m_data->draw, command_buffer.get());
-            for(const auto& [id, pixels] : frame->m_data->fonts)
+            ImGui_ImplVulkan_RenderDrawData(&frame.m_data->draw, command_buffer.get());
+            for(const auto& [id, pixels] : frame.m_data->fonts)
                 overlay.retain(m_font_textures.at(id));
-            for(const auto& [id, image] : frame->m_data->viewport_images)
+            for(const auto& [id, image] : frame.m_data->viewport_images)
                 overlay.retain(m_viewport_textures.at(id));
         }
 

@@ -57,8 +57,12 @@ namespace Comet::Tests {
             renderer.wait_idle();
             renderer.set_overlay({});
         });
-        renderer.set_overlay(
-            {.render = [&](OverlayRecordContext& frame) { return ui->render(frame); }});
+        renderer.set_overlay({.capture = [&] {
+            OverlayDrawList draws;
+            if(auto frame = ui->take_draw_frame())
+                draws.push_back(std::move(frame));
+            return draws;
+        }});
         bool rendered = false;
         for(unsigned attempt = 0; attempt < 12 && !rendered; ++attempt) {
             engine->get_window().poll_events();

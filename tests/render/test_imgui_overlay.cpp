@@ -201,7 +201,7 @@ namespace Comet::Tests {
             auto& renderer = engine->get_renderer();
             for(unsigned attempt = 0; attempt < 12; ++attempt) {
                 engine->get_window().poll_events();
-                auto prepared = renderer.prepare_frame();
+                auto prepared = render_frontend->prepare_frame();
                 if(!prepared)
                     return Result<void, GraphicsError>::failure(prepared.error());
                 if(prepared.value() != Renderer::FramePreparation::Ready)
@@ -225,7 +225,7 @@ namespace Comet::Tests {
                 RenderScene scene;
                 scene.environment.background_color = {0.3f, 0.1f, 0.05f};
                 scene.cameras.push_back(RenderCamera{.primary = true});
-                return renderer.render_frame(scene);
+                return render_frontend->render(scene);
             }
             return Result<void, GraphicsError>::failure({"Presentation remained deferred"});
         }
@@ -242,21 +242,22 @@ namespace Comet::Tests {
         unsigned rendered = 0;
         unsigned released = 0;
         unsigned rebuilt = 0;
-        renderer.set_overlay({.render =
-                                  [&](Comet::OverlayRecordContext& overlay) {
-                                      ++rendered;
-                                      return ui->render(overlay, std::move(ui_frame));
-                                  },
-            .release =
-                [&] {
-                    ++released;
-                    ui->release_swapchain_resources();
-                },
-            .rebuild =
-                [&](const SwapchainCompatibility& compatibility) {
-                    ++rebuilt;
-                    return ui->rebuild_swapchain_resources(compatibility);
-                }});
+        Comet::Tests::set_test_overlay(renderer,
+            {.render =
+                    [&](Comet::OverlayRecordContext& overlay) {
+                        ++rendered;
+                        return Comet::Tests::record_draw_frame(overlay, std::move(ui_frame));
+                    },
+                .release =
+                    [&] {
+                        ++released;
+                        ui->release_swapchain_resources();
+                    },
+                .rebuild =
+                    [&](const SwapchainCompatibility& compatibility) {
+                        ++rebuilt;
+                        return ui->rebuild_swapchain_resources(compatibility);
+                    }});
         ASSERT_TRUE(presentation_frame(false));
         ASSERT_TRUE(presentation_frame(true));
         const auto old_size = engine->get_window().get_framebuffer_size();
@@ -354,7 +355,7 @@ namespace Comet::Tests {
         create_ui();
         ASSERT_TRUE(ui);
         auto& renderer = engine->get_renderer();
-        const auto prepared = renderer.prepare_frame();
+        const auto prepared = render_frontend->prepare_frame();
         ASSERT_TRUE(prepared) << prepared.error();
         ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
         std::atomic<int> recorded = 0;
@@ -399,8 +400,8 @@ namespace Comet::Tests {
             ImGui::DestroyContext(other);
             ImGui::SetCurrentContext(original);
         });
-        renderer.set_overlay({.render = [&](OverlayRecordContext& overlay) {
-            return ui->render(overlay, std::move(ui_frame));
+        Comet::Tests::set_test_overlay(renderer, {.render = [&](OverlayRecordContext& overlay) {
+            return Comet::Tests::record_draw_frame(overlay, std::move(ui_frame));
         }});
         ASSERT_TRUE(renderer.render_frame({}));
         EXPECT_EQ(recorded.load(), 41);
@@ -412,12 +413,12 @@ namespace Comet::Tests {
         create_ui();
         ASSERT_TRUE(ui);
         auto& renderer = engine->get_renderer();
-        const auto prepared = renderer.prepare_frame(renderer.take_asset_removals());
+        const auto prepared = render_frontend->prepare_frame();
         ASSERT_TRUE(prepared) << prepared.error();
         ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
         RenderScene scene;
         scene.cameras.push_back(RenderCamera{.primary = true});
-        auto world = renderer.resolve_scene(&scene);
+        auto world = render_frontend->resolve(scene);
         ASSERT_TRUE(world);
         std::promise<void> entered;
         auto recording_started = entered.get_future();
@@ -446,11 +447,15 @@ namespace Comet::Tests {
             &input, sizeof(input));
         ImGui::End();
         ui_frame = ui->end_frame();
-        renderer.set_overlay({.render = [&](OverlayRecordContext& overlay) {
-            return ui->render(overlay, std::move(ui_frame));
+        renderer.set_overlay({.capture = [&] {
+            OverlayDrawList draws;
+            draws.push_back(std::move(ui_frame));
+            return draws;
         }});
         RenderThread recording(renderer);
-        ASSERT_TRUE(recording.submit(std::move(world)));
+        auto captured = renderer.capture_frame();
+        captured.world = std::move(world);
+        ASSERT_TRUE(recording.submit(std::move(captured)));
         ScopeExit unblock([&] { release.count_down(); });
         const auto status = recording_started.wait_for(std::chrono::seconds(5));
         EXPECT_EQ(status, std::future_status::ready);
@@ -480,11 +485,12 @@ namespace Comet::Tests {
         unsigned ready = 0;
         unsigned draws = 0;
         unsigned rebuilds = 0;
-        renderer.set_overlay({.render =
-                                  [&](OverlayRecordContext& overlay) {
-                                      EXPECT_NE(std::this_thread::get_id(), main_thread);
-                                      ++draws;
-                                      return ui->render(overlay, std::move(ui_frame));
+        renderer.set_overlay({.capture =
+                                  [&] {
+                                      EXPECT_EQ(std::this_thread::get_id(), main_thread);
+                                      OverlayDrawList captured;
+                                      captured.push_back(std::move(ui_frame));
+                                      return captured;
                                   },
             .release =
                 [&] {
@@ -508,6 +514,19 @@ namespace Comet::Tests {
             if(!ui->begin_frame())
                 return Result<void, Error>::failure({"UI frame unavailable"});
             transparent_window();
+            struct Observation {
+                std::thread::id main;
+                unsigned* draws;
+            };
+            Observation observation{main_thread, &draws};
+            ImGui::GetForegroundDrawList()->AddCallback(
+                [](const ImDrawList*, const ImDrawCmd* command) {
+                    const auto& observation =
+                        *static_cast<const Observation*>(command->UserCallbackData);
+                    EXPECT_NE(std::this_thread::get_id(), observation.main);
+                    ++*observation.draws;
+                },
+                &observation, sizeof(observation));
             ui_frame = ui->end_frame();
             if(ready == 4)
                 engine->get_window().request_close();
@@ -540,11 +559,11 @@ namespace Comet::Tests {
         renderer.wait_idle();
         ui->release_swapchain_resources();
         ASSERT_TRUE(ui->rebuild_swapchain_resources({.image_count_changed = true}));
-        const auto prepared = renderer.prepare_frame();
+        const auto prepared = render_frontend->prepare_frame();
         ASSERT_TRUE(prepared) << prepared.error();
         ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
-        renderer.set_overlay({.render = [&](OverlayRecordContext& overlay) {
-            return ui->render(overlay, std::move(ui_frame));
+        Comet::Tests::set_test_overlay(renderer, {.render = [&](OverlayRecordContext& overlay) {
+            return Comet::Tests::record_draw_frame(overlay, std::move(ui_frame));
         }});
         ASSERT_TRUE(renderer.render_frame({}));
         EXPECT_EQ(callbacks, 0);
@@ -601,7 +620,7 @@ namespace Comet::Tests {
                 &observation, sizeof(observation));
             return ui->end_frame();
         };
-        const auto prepared = renderer.prepare_frame();
+        const auto prepared = render_frontend->prepare_frame();
         ASSERT_TRUE(prepared) << prepared.error();
         ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
         const auto slot = renderer.get_frame_scheduler().get_current_frame_slot_index();
@@ -615,11 +634,11 @@ namespace Comet::Tests {
         newer.reset();
         old.reset();
         EXPECT_FALSE(old_image.expired());
-        renderer.set_overlay({.render = [&](OverlayRecordContext& overlay) {
+        Comet::Tests::set_test_overlay(renderer, {.render = [&](OverlayRecordContext& overlay) {
             overlay.wait_for(old_ready, Flags<PipelineStage>(PipelineStage::FragmentShader));
             overlay.wait_for(
                 next->get_ready_completion(), Flags<PipelineStage>(PipelineStage::FragmentShader));
-            return ui->render(overlay, std::move(ui_frame));
+            return Comet::Tests::record_draw_frame(overlay, std::move(ui_frame));
         }});
         ASSERT_TRUE(renderer.render_frame({}));
         EXPECT_NE(descriptor, ImTextureID_Invalid);
@@ -629,7 +648,7 @@ namespace Comet::Tests {
         unsigned reused = 0;
         const auto frame_count = renderer.get_frame_scheduler().get_frame_slot_count() * 2;
         for(unsigned index = 0; index < frame_count; ++index) {
-            const auto ready = renderer.prepare_frame();
+            const auto ready = render_frontend->prepare_frame();
             ASSERT_TRUE(ready) << ready.error();
             ASSERT_EQ(ready.value(), Renderer::FramePreparation::Ready);
             const auto frame_slot = renderer.get_frame_scheduler().get_current_frame_slot_index();
@@ -659,7 +678,7 @@ namespace Comet::Tests {
         auto sampler = engine->get_render_resources().get_sampler_manager().get_nearest_clamp();
         ASSERT_TRUE(texture) << texture.error();
         ASSERT_TRUE(sampler) << sampler.error();
-        const auto prepared = renderer.prepare_frame();
+        const auto prepared = render_frontend->prepare_frame();
         ASSERT_TRUE(prepared) << prepared.error();
         ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
         const auto slot = renderer.get_frame_scheduler().get_current_frame_slot_index() + 1;
@@ -668,8 +687,8 @@ namespace Comet::Tests {
         ImGui::GetBackgroundDrawList()->AddImage(
             ui->get_viewport_texture_id(slot), {8, 8}, {100, 80});
         ui_frame = ui->end_frame();
-        renderer.set_overlay({.render = [&](OverlayRecordContext& overlay) {
-            const auto recorded = ui->render(overlay, std::move(ui_frame));
+        Comet::Tests::set_test_overlay(renderer, {.render = [&](OverlayRecordContext& overlay) {
+            const auto recorded = Comet::Tests::record_draw_frame(overlay, std::move(ui_frame));
             EXPECT_FALSE(recorded);
             if(!recorded)
                 EXPECT_NE(recorded.error().message.find("another frame slot"), std::string::npos);

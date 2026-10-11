@@ -1,3 +1,4 @@
+#include "support/engine_fixture.h"
 #include "core/engine.h"
 #include "core/task_scheduler.h"
 #include "config/config.h"
@@ -114,7 +115,7 @@ namespace Comet::Tests {
             renderer.request_viewport_pick(size / 2u, size, engine.get_scene()->get_lifetime());
             return Result<void, Error>::success();
         };
-        renderer.set_overlay({.render = [&](Comet::OverlayRecordContext&) {
+        Comet::Tests::set_test_overlay(renderer, {.render = [&](Comet::OverlayRecordContext&) {
             EXPECT_FALSE(renderer.take_viewport_pick_result());
             EXPECT_EQ(calls->updates, preparations);
             if(allocations_before_lines) {

@@ -92,31 +92,32 @@ namespace CometEditor::Tests {
         unsigned overlays = 0;
         unsigned prepared_frames = 0;
         bool visible = false;
-        renderer.set_overlay({.render = [&](Comet::OverlayRecordContext& overlay) {
-            ++overlays;
-            const auto recorded = ui.render(overlay, std::move(ui_frame));
-            EXPECT_TRUE(recorded) << recorded.error();
-            const auto& snapshot = renderer.get_diagnostics().get_snapshot();
-            EXPECT_EQ(snapshot.scene_rendered, visible);
-            EXPECT_EQ(snapshot.cpu.has_value(), visible);
-            const auto statistics = scene_renderer.get_material_statistics();
-            EXPECT_EQ(statistics.frame_set_count, config.render.max_frames_in_flight);
-            EXPECT_EQ(statistics.cached_material_versions, overlays < 3 ? 1u : 0u);
-            EXPECT_EQ(source.expired(), overlays >= 3);
-            if(!visible) {
-                EXPECT_FALSE(snapshot.gpu);
-                EXPECT_EQ(scene_renderer.get_material_statistics().draw_calls, 0);
-                EXPECT_FLOAT_EQ(scene_renderer.get_post_process_settings().exposure, 1);
-            }
-            EXPECT_EQ(overlays, prepared_frames);
-            EXPECT_GE(calls->updates, prepared_frames);
-            EXPECT_EQ(calls->starts, 1);
-            EXPECT_EQ(calls->stops, 0);
-            if(overlays == 4)
-                engine.get_window().request_close();
+        Comet::Tests::set_test_overlay(
+            renderer, {.render = [&](Comet::OverlayRecordContext& overlay) {
+                ++overlays;
+                const auto recorded = Comet::Tests::record_draw_frame(overlay, std::move(ui_frame));
+                EXPECT_TRUE(recorded) << recorded.error();
+                const auto& snapshot = renderer.get_diagnostics().get_snapshot();
+                EXPECT_EQ(snapshot.scene_rendered, visible);
+                EXPECT_EQ(snapshot.cpu.has_value(), visible);
+                const auto statistics = scene_renderer.get_material_statistics();
+                EXPECT_EQ(statistics.frame_set_count, config.render.max_frames_in_flight);
+                EXPECT_EQ(statistics.cached_material_versions, overlays < 3 ? 1u : 0u);
+                EXPECT_EQ(source.expired(), overlays >= 3);
+                if(!visible) {
+                    EXPECT_FALSE(snapshot.gpu);
+                    EXPECT_EQ(scene_renderer.get_material_statistics().draw_calls, 0);
+                    EXPECT_FLOAT_EQ(scene_renderer.get_post_process_settings().exposure, 1);
+                }
+                EXPECT_EQ(overlays, prepared_frames);
+                EXPECT_GE(calls->updates, prepared_frames);
+                EXPECT_EQ(calls->starts, 1);
+                EXPECT_EQ(calls->stops, 0);
+                if(overlays == 4)
+                    engine.get_window().request_close();
 
-            return Comet::Result<void, Comet::GraphicsError>::success();
-        }});
+                return Comet::Result<void, Comet::GraphicsError>::success();
+            }});
         unsigned attempts = 0;
         bool removed = false;
         const auto run = engine.run({
@@ -197,11 +198,12 @@ namespace CometEditor::Tests {
         EXPECT_EQ(viewport->RendererUserData, nullptr);
         EXPECT_EQ(ImGui::GetIO().Fonts, fonts);
         EXPECT_TRUE(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_DockingEnable);
-        renderer.set_overlay({.render = [&](Comet::OverlayRecordContext& overlay) {
-            const auto recorded = ui.render(overlay, std::move(ui_frame));
-            EXPECT_TRUE(recorded) << recorded.error();
-            return Comet::Result<void, Comet::GraphicsError>::success();
-        }});
+        Comet::Tests::set_test_overlay(
+            renderer, {.render = [&](Comet::OverlayRecordContext& overlay) {
+                const auto recorded = Comet::Tests::record_draw_frame(overlay, std::move(ui_frame));
+                EXPECT_TRUE(recorded) << recorded.error();
+                return Comet::Result<void, Comet::GraphicsError>::success();
+            }});
         {
             const auto preparation = renderer.prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
@@ -257,9 +259,10 @@ namespace CometEditor::Tests {
         Viewport viewport(state, engine.get_scene_runtime(), selection, history, components, edit,
             shortcuts, renderer, engine.get_asset_registry(), ui, std::move(sampler).value(),
             scene_view.value());
-        renderer.set_overlay({.render = [&](Comet::OverlayRecordContext& overlay) {
-            return ui.render(overlay, std::move(ui_frame));
-        }});
+        Comet::Tests::set_test_overlay(
+            renderer, {.render = [&](Comet::OverlayRecordContext& overlay) {
+                return Comet::Tests::record_draw_frame(overlay, std::move(ui_frame));
+            }});
         const auto draw_frame = [&] {
             viewport.consume_pick(active_scene);
             engine.get_window().poll_events();
@@ -291,7 +294,8 @@ namespace CometEditor::Tests {
             if(!updated)
                 return false;
             viewport.submit_feedback(active_scene);
-            EXPECT_TRUE(renderer.render_frame(Comet::SceneExtractor::extract(*active_scene)));
+            EXPECT_TRUE(renderer.render_frame(Comet::SceneResolver(engine.get_asset_registry())
+                    .update(Comet::SceneExtractor::extract(*active_scene))));
             return true;
         };
         EXPECT_TRUE(draw_frame());
@@ -341,7 +345,8 @@ namespace CometEditor::Tests {
             ui_frame = ui.end_frame();
             renderer.request_viewport_pick(
                 pixel, {64, 64}, scene.get_lifetime(), scene_view.value());
-            return bool(renderer.render_frame(Comet::SceneExtractor::extract(scene)));
+            return bool(renderer.render_frame(Comet::SceneResolver(engine.get_asset_registry())
+                    .update(Comet::SceneExtractor::extract(scene))));
         };
         ASSERT_TRUE(publish_pick(first_scene, {32, 32}));
         active_scene = &second_scene;

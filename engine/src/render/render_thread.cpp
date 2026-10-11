@@ -19,7 +19,7 @@ namespace Comet {
         m_worker.join();
     }
 
-    Result<void, GraphicsError> RenderThread::submit(std::shared_ptr<const RenderWorld> world) {
+    Result<void, GraphicsError> RenderThread::submit(RenderFrame frame) {
         {
             const std::scoped_lock lock(m_mutex);
             if(m_stopping)
@@ -27,7 +27,7 @@ namespace Comet {
             if(m_pending)
                 return Result<void, GraphicsError>::failure(
                     {"Previous render frame is not completed"});
-            m_frame.emplace(std::move(world));
+            m_frame.emplace(std::move(frame));
             m_pending = true;
         }
         m_available.notify_one();
@@ -56,7 +56,7 @@ namespace Comet {
                 return;
             auto result = [&] {
                 try {
-                    return m_renderer.record_world(std::move(*frame));
+                    return m_renderer.record_frame(std::move(*frame));
                 } catch(const std::system_error& error) {
                     // 跨动态库使用标准基类；Vulkan-Hpp 的具体异常类型可能不共享 RTTI。
                     GraphicsError failure{"Render thread failed: " + std::string(error.what())};

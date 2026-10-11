@@ -288,7 +288,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(empty) << empty.error();
 
         uint64_t held = 0;
-        renderer.set_overlay({.render = [&](OverlayRecordContext& frame) {
+        Comet::Tests::set_test_overlay(renderer, {.render = [&](OverlayRecordContext& frame) {
             if(auto rendered = ui->render(frame, *draws); !rendered)
                 return rendered;
             held = allocation_count();
@@ -350,7 +350,7 @@ namespace Comet::Tests {
             };
             auto draws = ui->collect(*context);
             ASSERT_TRUE(draws) << draws.error();
-            renderer.set_overlay({.render = [&](OverlayRecordContext& frame) {
+            Comet::Tests::set_test_overlay(renderer, {.render = [&](OverlayRecordContext& frame) {
                 const auto image = output.target->get_color_view(frame.frame_slot())->get_image();
                 clear_target(frame, image, background, vk::ImageLayout::eUndefined);
                 auto rendered = ui->render_to_target(frame, *draws.value(), output);
@@ -401,7 +401,7 @@ namespace Comet::Tests {
             Format format = Format::UNDEFINED;
             auto draws = ui->collect(*context);
             ASSERT_TRUE(draws) << draws.error();
-            renderer.set_overlay({.render = [&](OverlayRecordContext& frame) {
+            Comet::Tests::set_test_overlay(renderer, {.render = [&](OverlayRecordContext& frame) {
                 const auto output = renderer.get_offscreen_frame();
                 EXPECT_EQ(output.size, size);
                 const auto image = output.color_view->get_image();
@@ -479,7 +479,7 @@ namespace Comet::Tests {
             std::vector<bool> used(renderer.get_frame_scheduler().get_frame_slot_count(), false);
             auto draws = ui->collect(*context);
             ASSERT_TRUE(draws) << draws.error();
-            renderer.set_overlay({.render = [&](OverlayRecordContext& frame) {
+            Comet::Tests::set_test_overlay(renderer, {.render = [&](OverlayRecordContext& frame) {
                 const auto slot = frame.frame_slot();
                 const auto image = output.target->get_color_view(slot)->get_image();
                 clear_target(frame, image, background,
@@ -558,7 +558,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(readback->get());
         std::vector<bool> used(renderer.get_frame_scheduler().get_frame_slot_count(), false);
         for(unsigned index = 0; index < snapshots.size(); ++index) {
-            renderer.set_overlay({.render = [&](OverlayRecordContext& frame) {
+            Comet::Tests::set_test_overlay(renderer, {.render = [&](OverlayRecordContext& frame) {
                 const auto slot = frame.frame_slot();
                 const auto image = output.target->get_color_view(slot)->get_image();
                 clear_target(frame, image, {0, 0, 0},
@@ -614,21 +614,22 @@ namespace Comet::Tests {
         unsigned draws = 0, releases = 0, rebuilds = 0;
         auto snapshot = ui->collect(*context);
         ASSERT_TRUE(snapshot) << snapshot.error();
-        renderer.set_overlay({.render =
-                                  [&](OverlayRecordContext& frame) {
-                                      ++draws;
-                                      return ui->render(frame, *snapshot.value());
-                                  },
-            .release =
-                [&] {
-                    ++releases;
-                    ui->release_swapchain_resources();
-                },
-            .rebuild =
-                [&](const SwapchainCompatibility& compatibility) {
-                    ++rebuilds;
-                    return ui->rebuild_swapchain_resources(compatibility);
-                }});
+        Comet::Tests::set_test_overlay(
+            renderer, {.render =
+                              [&](OverlayRecordContext& frame) {
+                                  ++draws;
+                                  return ui->render(frame, *snapshot.value());
+                              },
+                          .release =
+                              [&] {
+                                  ++releases;
+                                  ui->release_swapchain_resources();
+                              },
+                          .rebuild =
+                              [&](const SwapchainCompatibility& compatibility) {
+                                  ++rebuilds;
+                                  return ui->rebuild_swapchain_resources(compatibility);
+                              }});
         ASSERT_TRUE(presentation_frame());
         const auto size = engine->get_window().get_framebuffer_size();
         glfwSetWindowSize(engine->get_window().get(), 240, 180);

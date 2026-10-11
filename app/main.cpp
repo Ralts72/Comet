@@ -212,14 +212,18 @@ namespace {
             if(!ui)
                 return Init::failure(ui.error());
             m_ui = std::move(ui).value();
-            engine.get_renderer().set_overlay(
-                {.render = [this](
-                               Comet::OverlayRecordContext& frame) { return m_ui->render(frame); },
-                    .release = [this] { m_ui->release_swapchain_resources(); },
-                    .rebuild =
-                        [this](const Comet::SwapchainCompatibility& compatibility) {
-                            return m_ui->rebuild_swapchain_resources(compatibility);
-                        }});
+            engine.get_renderer().set_overlay({.capture =
+                                                   [this] {
+                                                       Comet::OverlayDrawList draws;
+                                                       if(auto frame = m_ui->take_draw_frame())
+                                                           draws.push_back(std::move(frame));
+                                                       return draws;
+                                                   },
+                .release = [this] { m_ui->release_swapchain_resources(); },
+                .rebuild =
+                    [this](const Comet::SwapchainCompatibility& compatibility) {
+                        return m_ui->rebuild_swapchain_resources(compatibility);
+                    }});
             return Init::success();
         }
 

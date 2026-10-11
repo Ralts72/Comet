@@ -52,11 +52,11 @@ namespace Comet::Tests {
     protected:
         bool draw(const RenderScene& scene) {
             auto& renderer = engine->get_renderer();
-            const auto prepared = renderer.prepare_frame();
+            const auto prepared = render_frontend->prepare_frame();
             EXPECT_TRUE(prepared);
             if(!prepared || prepared.value() != Renderer::FramePreparation::Ready)
                 return false;
-            const auto rendered = renderer.render_frame(scene);
+            const auto rendered = render_frontend->render(scene);
             EXPECT_TRUE(rendered);
             return bool(rendered);
         }
@@ -164,10 +164,10 @@ namespace Comet::Tests {
                         .material_handle = material_handle,
                         .material_overrides = std::move(overrides)});
             }
-            const auto prepared = renderer.prepare_frame();
+            const auto prepared = render_frontend->prepare_frame();
             ASSERT_TRUE(prepared);
             ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
-            const auto rendered = renderer.render_frame(scene);
+            const auto rendered = render_frontend->render(scene);
             ASSERT_TRUE(rendered) << rendered.error();
             const auto stats = renderer.get_scene_renderer().get_material_statistics();
             uint32_t expected_draws = 3;
@@ -273,10 +273,10 @@ namespace Comet::Tests {
             auto snapshot = material->snapshot();
             const std::weak_ptr retired = snapshot;
             for(int frame = 0; frame < 2; ++frame) {
-                const auto prepared = renderer.prepare_frame();
+                const auto prepared = render_frontend->prepare_frame();
                 ASSERT_TRUE(prepared);
                 ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
-                ASSERT_TRUE(renderer.render_frame(scene));
+                ASSERT_TRUE(render_frontend->render(scene));
             }
             EXPECT_EQ(
                 renderer.get_scene_renderer().get_material_statistics().cached_material_versions,
@@ -291,7 +291,7 @@ namespace Comet::Tests {
             EXPECT_FALSE(retired.expired());
             ASSERT_TRUE(renderer.set_render_view({.visible = !hidden}));
             ASSERT_TRUE(renderer.set_render_view({.visible = !hidden}, secondary.value()));
-            const auto prepared = renderer.prepare_frame();
+            const auto prepared = render_frontend->prepare_frame();
             ASSERT_TRUE(prepared);
             EXPECT_TRUE(retired.expired());
             EXPECT_EQ(
@@ -522,11 +522,11 @@ namespace Comet::Tests {
                     .scalar_properties = {{"intensity", 0.75f}}})});
         auto& renderer = engine->get_renderer();
         const auto draw = [&] {
-            const auto prepared = renderer.prepare_frame();
+            const auto prepared = render_frontend->prepare_frame();
             EXPECT_TRUE(prepared);
             if(!prepared || prepared.value() != Renderer::FramePreparation::Ready)
                 return false;
-            const auto rendered = renderer.render_frame(scene);
+            const auto rendered = render_frontend->render(scene);
             EXPECT_TRUE(rendered);
             if(!rendered)
                 return false;
@@ -1117,18 +1117,18 @@ namespace Comet::Tests {
 
     TEST_F(MaterialRenderingTest, FailedFramePreparationCannotReuseAcquiredFrame) {
         auto& renderer = engine->get_renderer();
-        auto prepared = renderer.prepare_frame();
+        auto prepared = render_frontend->prepare_frame();
         ASSERT_TRUE(prepared);
         ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
         RenderScene scene;
         scene.post_process.exposure = -1;
-        const auto result = renderer.render_frame(scene);
+        const auto result = render_frontend->render(scene);
         ASSERT_FALSE(result);
         ASSERT_TRUE(renderer.get_frame_scheduler().is_recording_frame());
         renderer.wait_idle();
         renderer.prepare_shutdown();
         renderer.wait_idle();
-        EXPECT_FALSE(renderer.prepare_frame());
+        EXPECT_FALSE(render_frontend->prepare_frame());
         EXPECT_FALSE(renderer.render_frame({}));
     }
 
@@ -1215,7 +1215,7 @@ namespace Comet::Tests {
             auto candidate = prepare_material_update(AssetHandle(1), material);
             ASSERT_TRUE(candidate) << candidate.error();
         }
-        auto frame = renderer.prepare_frame();
+        auto frame = render_frontend->prepare_frame();
         ASSERT_TRUE(frame);
         ASSERT_EQ(frame.value(), Renderer::FramePreparation::Ready);
         auto rejected = prepare_material_update(AssetHandle(1), material);
@@ -1233,7 +1233,7 @@ namespace Comet::Tests {
         EXPECT_EQ(&renderer.get_scene_renderer().get_render_target(), previous);
         EXPECT_EQ(previous->get_size(), size);
         {
-            const auto preparation = renderer.prepare_frame();
+            const auto preparation = render_frontend->prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
             ASSERT_EQ(preparation.value(), Renderer::FramePreparation::Ready);
         }
@@ -1293,7 +1293,7 @@ namespace Comet::Tests {
         }
         ASSERT_TRUE(renderer.reload_material_shaders(original));
         {
-            const auto preparation = renderer.prepare_frame();
+            const auto preparation = render_frontend->prepare_frame();
             ASSERT_TRUE(preparation) << preparation.error();
             ASSERT_EQ(preparation.value(), Renderer::FramePreparation::Ready);
         }
@@ -1318,7 +1318,7 @@ namespace Comet::Tests {
                 }});
         renderer.request_swapchain_recreation();
         EXPECT_FALSE(released);
-        const auto preparation = renderer.prepare_frame();
+        const auto preparation = render_frontend->prepare_frame();
         ASSERT_FALSE(preparation);
         EXPECT_EQ(preparation.error().message, "overlay rebuild failed");
         renderer.set_overlay({});

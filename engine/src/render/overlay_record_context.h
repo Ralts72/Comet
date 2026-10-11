@@ -1,11 +1,24 @@
 #pragma once
 
 #include "common/export.h"
+#include "graphics/result.h"
 #include "graphics/queue.h"
 
 #include <memory>
+#include <vector>
 
 namespace Comet {
+    class OverlayRecordContext;
+
+    // Main 捕获的独立绘制数据；后端须存活到录制完成。
+    class COMET_API OverlayDraw {
+    public:
+        virtual ~OverlayDraw() = default;
+        [[nodiscard]] virtual Result<void, GraphicsError> record(OverlayRecordContext& frame) = 0;
+    };
+
+    using OverlayDrawList = std::vector<std::unique_ptr<OverlayDraw>>;
+
     class CommandBuffer;
     class FrameScheduler;
     class Renderer;

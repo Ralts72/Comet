@@ -31,7 +31,7 @@ namespace Comet {
         LOG_INFO("init renderer");
         const Renderer::Settings renderer_settings{
             config.vulkan, config.render, config.diagnostics.enable_render_diagnostics};
-        auto renderer = Renderer::create(*window, renderer_settings, *assets);
+        auto renderer = Renderer::create(*window, renderer_settings);
         if(!renderer)
             return Result<std::unique_ptr<Engine>, Error>::failure(renderer.error().as_error());
         auto scheduler = std::make_unique<TaskScheduler>();
@@ -45,7 +45,8 @@ namespace Comet {
         : m_frame_timer(std::make_unique<FrameTimer>()), m_task_scheduler(std::move(scheduler)),
           m_window(std::move(window)), m_asset_registry(std::move(assets)),
           m_renderer(std::move(renderer)),
-          m_material_parameters(std::make_unique<MaterialProgramValidator>(*m_asset_registry)) {}
+          m_material_parameters(std::make_unique<MaterialProgramValidator>(*m_asset_registry)),
+          m_scene_resolver(*m_asset_registry) {}
 
     Engine::~Engine() {
         LOG_INFO("shutting down engine...");
@@ -74,6 +75,7 @@ namespace Comet {
         m_physics_service.reset();
         m_task_scheduler->shutdown();
         m_scene_extractor.reset();
+        m_scene_resolver.reset();
         m_renderer->prepare_shutdown();
         m_shutdown_prepared = true;
     }
@@ -289,7 +291,8 @@ namespace Comet {
         }
 
         m_frame_diagnostics.mark_update();
-        const auto preparation = m_renderer->prepare_frame();
+        m_scene_resolver.refresh_assets();
+        const auto preparation = m_renderer->prepare_frame(m_asset_registry->take_removals());
         if(!preparation) {
             prepare_shutdown();
             return Result<void, Error>::failure(preparation.error().as_error());
@@ -316,10 +319,10 @@ namespace Comet {
                 prepare_shutdown();
                 return advanced;
             }
+            m_scene_resolver.reset();
             // 不提取部分写入的场景；先完成已 acquire 的帧，再交给宿主恢复。
             if(frame_ready_to_render) {
-                if(auto queued = m_render_thread->submit(m_renderer->resolve_scene(nullptr));
-                    !queued) {
+                if(auto queued = m_render_thread->submit(m_renderer->capture_frame()); !queued) {
                     prepare_shutdown();
                     return Result<void, Error>::failure(queued.error().as_error());
                 }
@@ -343,16 +346,22 @@ namespace Comet {
             discard_unfinished_diagnostics.release();
             return Result<void, Error>::success();
         }
-        std::shared_ptr<const RenderWorld> world;
+        auto render_frame = m_renderer->capture_frame();
         if(m_scene) {
             const auto render_scene = m_scene_extractor.update(*m_scene);
             m_frame_diagnostics.mark_scene_extract();
-            world = m_renderer->resolve_scene(&*render_scene);
+            if(render_frame.has_visible_view()) {
+                render_frame.world = RenderDiagnostics::measure_preparation(
+                    &m_renderer->get_diagnostics(), RenderDiagnostics::PreparationPhase::Assets,
+                    [&] { return m_scene_resolver.update(*render_scene); });
+            } else {
+                m_scene_resolver.reset();
+            }
         } else {
             m_scene_extractor.reset();
-            world = m_renderer->resolve_scene(nullptr);
+            m_scene_resolver.reset();
         }
-        const auto rendered = m_render_thread->submit(std::move(world));
+        const auto rendered = m_render_thread->submit(std::move(render_frame));
         if(!rendered) {
             prepare_shutdown();
             return Result<void, Error>::failure(rendered.error().as_error());

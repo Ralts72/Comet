@@ -1063,9 +1063,8 @@ namespace Comet::Ui {
     void ProjectUi::deactivate() {
         m_impl->deactivate();
     }
-    Result<void, GraphicsError> ProjectUi::render(
-        OverlayRecordContext& frame, RenderOutput output) {
-        return m_impl->m_runtime->render(frame, output);
+    std::unique_ptr<OverlayDraw> ProjectUi::take_draw_frame(RenderOutput output) {
+        return m_impl->m_runtime->take_draw_frame(output);
     }
     void ProjectUi::release_swapchain_resources() {
         m_impl->m_runtime->release_swapchain_resources();
