@@ -94,8 +94,8 @@ namespace Comet {
         }
 
         std::vector<ScenePickCandidate> candidates;
-        candidates.reserve(submission.render_items.size());
-        for(const ResolvedRenderItem& item : submission.render_items) {
+        candidates.reserve(submission.world.render_items.size());
+        for(const ResolvedRenderItem& item : submission.world.render_items) {
             if(!item.mesh) {
                 continue;
             }

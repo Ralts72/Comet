@@ -28,23 +28,21 @@ namespace Comet {
     SceneResolver::SceneResolver(const AssetRegistry& asset_registry)
         : m_asset_registry(asset_registry) {}
 
-    RenderSubmission SceneResolver::resolve(
-        const RenderScene& render_scene, const RenderView& view) {
-        RenderSubmission submission;
-        resolve(render_scene, view, submission);
-        return submission;
+    RenderWorld SceneResolver::resolve(const RenderScene& render_scene) {
+        RenderWorld world;
+        resolve(render_scene, world);
+        return world;
     }
 
-    void SceneResolver::refresh_assets(RenderSubmission& submission) const {
+    void SceneResolver::refresh_assets(RenderWorld& world) const {
         const auto revision = m_asset_registry.get_revision();
-        if(submission.asset_revision == revision)
+        if(world.asset_revision == revision)
             return;
-        auto& pending = submission.pending_asset_slots;
+        auto& pending = world.pending_asset_slots;
         const bool had_pending = !pending.empty();
-        const auto partial_limit =
-            std::clamp<std::size_t>(submission.render_items.size() / 4, 8, 64);
+        const auto partial_limit = std::clamp<std::size_t>(world.render_items.size() / 4, 8, 64);
         const auto collection_limit = partial_limit + pending.size();
-        bool collect_changes = submission.scene_revision != 0;
+        bool collect_changes = world.scene_revision != 0;
         bool changed_items = false;
         AssetHandle mesh_handle;
         uint64_t mesh_revision = 0;
@@ -68,8 +66,8 @@ namespace Comet {
             cached = {handle, m_asset_registry.get_revision(handle)};
             return cached.second;
         };
-        const auto* first = submission.render_items.data();
-        for(auto& item : submission.render_items) {
+        const auto* first = world.render_items.data();
+        for(auto& item : world.render_items) {
             bool changed = false;
             if(item.mesh) {
                 if(mesh_handle != item.mesh_handle) {
@@ -102,13 +100,12 @@ namespace Comet {
                 }
             }
         }
-        if(submission.environment_resource) {
+        if(world.environment_resource) {
             const auto environment_revision =
-                m_asset_registry.get_revision(submission.environment.asset);
-            if(environment_revision == 0
-                || submission.environment_revision != environment_revision) {
-                submission.environment_resource.reset();
-                submission.environment_revision = 0;
+                m_asset_registry.get_revision(world.environment.asset);
+            if(environment_revision == 0 || world.environment_revision != environment_revision) {
+                world.environment_resource.reset();
+                world.environment_revision = 0;
             }
         }
         if(had_pending && changed_items) {
@@ -120,25 +117,24 @@ namespace Comet {
             pending.clear();
         }
         if(!collect_changes)
-            submission.scene_revision = 0;
-        submission.asset_revision = revision;
+            world.scene_revision = 0;
+        world.asset_revision = revision;
     }
 
-    void SceneResolver::resolve(
-        const RenderScene& render_scene, const RenderView& view, RenderSubmission& submission) {
-        refresh_assets(submission);
-        submission.view_project_matrix = resolve_camera(render_scene, view);
-        submission.lights = render_scene.lights;
-        submission.post_process = render_scene.post_process;
+    void SceneResolver::resolve(const RenderScene& render_scene, RenderWorld& world) {
+        refresh_assets(world);
+        world.cameras = render_scene.cameras;
+        world.lights = render_scene.lights;
+        world.post_process = render_scene.post_process;
         const auto handle = render_scene.environment.asset;
         AssetHandle invalid_environment;
         // 未发布的环境资源可能仍在加载；加载失败由资产层报告。
         if(handle && (render_scene.environment.background || render_scene.environment.lighting)) {
-            if(!submission.environment_resource || submission.environment.asset != handle) {
-                submission.environment_resource =
-                    m_asset_registry.resolve<Environment>(handle, &submission.environment_revision);
+            if(!world.environment_resource || world.environment.asset != handle) {
+                world.environment_resource =
+                    m_asset_registry.resolve<Environment>(handle, &world.environment_revision);
             }
-            if(!submission.environment_resource && m_asset_registry.contains(handle)) {
+            if(!world.environment_resource && m_asset_registry.contains(handle)) {
                 invalid_environment = handle;
                 if(m_invalid_environment != handle)
                     LOG_ERROR("Scene references incompatible environment asset handle {} "
@@ -146,16 +142,16 @@ namespace Comet {
                         handle.value());
             }
         } else {
-            submission.environment_resource.reset();
-            submission.environment_revision = 0;
+            world.environment_resource.reset();
+            world.environment_revision = 0;
         }
-        submission.environment = render_scene.environment;
+        world.environment = render_scene.environment;
         m_invalid_environment = invalid_environment;
         const auto& items = render_scene.render_items;
-        auto& slots = submission.render_items;
+        auto& slots = world.render_items;
         slots.reserve(items.size());
-        const bool same_scene = render_scene.scene_lifetime != 0
-                                && submission.scene_lifetime == render_scene.scene_lifetime;
+        const bool same_scene =
+            render_scene.scene_lifetime != 0 && world.scene_lifetime == render_scene.scene_lifetime;
         // 完整与局部解析共用相邻 Handle 查询，避免共享资源逐物体重复查找。
         AssetHandle mesh_handle;
         AssetHandle material_handle;
@@ -191,16 +187,15 @@ namespace Comet {
             return true;
         };
         const auto& changes = render_scene.item_changes;
-        auto& pending = submission.pending_asset_slots;
-        const bool tracked = same_scene && changes.revision != 0 && submission.scene_revision != 0;
-        const bool unchanged = tracked && submission.scene_revision == changes.revision
-                               && slots.size() == items.size();
+        auto& pending = world.pending_asset_slots;
+        const bool tracked = same_scene && changes.revision != 0 && world.scene_revision != 0;
+        const bool unchanged =
+            tracked && world.scene_revision == changes.revision && slots.size() == items.size();
         if(unchanged && pending.empty())
             return;
         const auto partial_limit = std::clamp<std::size_t>(items.size() / 4, 8, 64);
         if(tracked && pending.size() <= partial_limit
-            && (unchanged
-                || changes.can_apply(submission.scene_revision, slots.size(), items.size()))) {
+            && (unchanged || changes.can_apply(world.scene_revision, slots.size(), items.size()))) {
             if(!unchanged) {
                 const bool combine_assets = !pending.empty();
                 auto count = slots.size();
@@ -232,16 +227,16 @@ namespace Comet {
             }
             if(complete) {
                 if(!pending.empty() || (!unchanged && !changes.structure.empty())) {
-                    submission.item_changes.begin_update(false);
-                    submission.item_changes.slots.swap(pending);
+                    world.item_changes.begin_update(false);
+                    world.item_changes.slots.swap(pending);
                     if(!unchanged)
-                        submission.item_changes.structure = changes.structure;
+                        world.item_changes.structure = changes.structure;
                 }
-                submission.scene_revision = changes.revision;
+                world.scene_revision = changes.revision;
                 return;
             }
         }
-        submission.item_changes.begin_update(true);
+        world.item_changes.begin_update(true);
         pending.clear();
         for(auto& [handle, used] : m_missing_mesh_handles)
             used = false;
@@ -322,14 +317,16 @@ namespace Comet {
             ++item_count;
         }
         slots.resize(item_count);
-        submission.scene_lifetime = render_scene.scene_lifetime;
-        submission.scene_revision = changes.revision;
+        world.scene_lifetime = render_scene.scene_lifetime;
+        world.scene_revision = changes.revision;
         std::erase_if(m_missing_mesh_handles, [](const auto& entry) { return !entry.second; });
         std::erase_if(m_missing_material_handles, [](const auto& entry) { return !entry.second; });
     }
 
     std::optional<ViewProjectMatrix> SceneResolver::resolve_camera(
-        const RenderScene& render_scene, const RenderView& view) {
+        const RenderWorld& world, const RenderView& view) {
+        if(!view.visible)
+            return std::nullopt;
         const RenderCamera* camera = nullptr;
         std::size_t primary_camera_count = 0;
         if(view.camera_selection == RenderView::CameraSelection::Override) {
@@ -345,7 +342,7 @@ namespace Comet {
             m_multiple_primary_cameras = false;
         } else {
             m_missing_camera_override = false;
-            for(const RenderCamera& scene_camera : render_scene.cameras) {
+            for(const RenderCamera& scene_camera : world.cameras) {
                 if(!scene_camera.primary)
                     continue;
 

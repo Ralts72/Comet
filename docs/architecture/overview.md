@@ -97,10 +97,14 @@ Engine／Renderer／设备等工厂先准备完整 owner，成功后交付；部
 1. Engine 处理事件与时间，宿主 `on_update` 消费上次 UI 请求、维护资产与切换模式。
 2. Renderer 回收上传并准备 slot／交换链；帧就绪时调用 `on_frame_ready`，收集 ImGui 请求、属性编辑、Gizmo 和输入授权。
 3. `on_runtime_input` 交付只读授权快照；Runtime 执行有界 Fixed Update，再执行一次普通 Update。
-4. SceneExtractor 更新世界变换并复制渲染值；SceneResolver 解析资源，生成 RenderSubmission。
-5. SceneRenderer 准备几何与光照，各通道裁剪、分组并录制绘制；场景、后处理与 Overlay 完成后提交并呈现。
+4. SceneExtractor 更新世界变换并复制渲染值；SceneResolver 将资源与渲染值更新到 Renderer 持有的 RenderWorld。
+5. Renderer 为世界准备一份 RenderGeometry，并按 View 生成相机矩阵；SceneRenderer 借用它们准备光照、裁剪、分组和录制，完成后处理与 Overlay 后提交并呈现。
 
-数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderSubmission → SceneRenderer`。
+数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderWorld → RenderSubmission → SceneRenderer`。
+RenderWorld 拥有解析后的资源、对象变换、相机值、光源与场景设置；RenderSubmission 只借用世界并持有当前 View 的相机矩阵。
+Renderer 持有世界与对应的几何缓存，世界更新后准备一次界限；SceneRenderer 只借用，不再为每个视图重复准备或清空世界界限。
+同一世界可供多个 SceneRenderer 使用，各自的目标、帧资源、裁剪结果与绘制队列独立；当前 App／Editor 仍只安装一个活动 View。
+所有视图必须在下一次世界更新前完成同步录制。借用提交不能作为跨线程帧包；GPU 实际使用的资源继续由 FrameSlot 保活。
 RenderScene 是不借用组件的 CPU 快照，由 Engine 持有并复用容量；其头文件只依赖数学、资产身份和场景值契约，不传递包含组件或后端实现。
 Engine 持有 SceneExtractor，为自己的 RenderScene 维护对象槽位；实例与渲染版本未变时直接复用快照。
 Scene 的有界变更批次在受控写入处去重，包含增删、局部属性和脏节点的后代；提取前即使已查询世界矩阵，也不会丢失这些变化。
@@ -109,7 +113,7 @@ Scene 的有界变更批次在受控写入处去重，包含增删、局部属�
 累计修改较多时使用完整顺序提取；首次提取或变更批次已被其他提取器消费时同样重建。Camera／Light 与视图设置目前仍完整提取。
 静态 `SceneExtractor::extract` 保留无缓存提取，不消费变更批次；增量 `update` 独占自己的输出，清空或更换输出时同时 reset。
 更换场景与重新安装同一实例都重置提取器。资产发布由 Resolver 独立检查，不要求 Scene 修改才能获取新资源。
-RenderScene 与 RenderSubmission 共用 RenderItemChanges：版本标记由生产阶段生成，base_revision 约束局部批次的接续，
+RenderScene 与 RenderWorld 共用 RenderItemChanges：版本标记由生产阶段生成，base_revision 约束局部批次的接续，
 变化槽位与按顺序追加／交换末项删除的编辑沿提取、解析和几何准备传递，共用缓存移动规则，不在下游重建对象身份表。
 局部批次先核对版本连续性及编辑前后数量；资源齐全时，只解析变化位置。不同生产者使用不同版本，漏过批次时完整核对。
 静止 Mesh 直接复用提交，Camera／Light／环境与视图设置仍照常更新。
@@ -118,7 +122,7 @@ RenderScene 与 RenderSubmission 共用 RenderItemChanges：版本标记由生�
 Mesh Renderer、Camera、Light、Rigid Body、Collider 的访问与查询只读，添加组件时传入初值；`try_set_component`／`edit_component` 通过副本提交属性。
 属性面板先校验副本再提交，拒绝值和相同值不增加版本。Transform 沿已有写入入口标记脏节点；结构、场景设置和运行时材质覆盖变化也使快照失效。
 材质改绑在提交时清除该实体的运行时覆盖，移除组件与停止 Runtime 同样清理；覆盖读取不再重复查询 Mesh 组件验证绑定。
-RenderSubmission 保活当前实际资源，Scene 不持有 GPU 对象。Renderer 复用当前提交的槽位；帧边界按资源发布版本
+RenderWorld 保活当前实际资源，Scene 不持有 GPU 对象。Renderer 复用世界数据的槽位；帧边界按资源发布版本
 释放已替换或移除的引用，SceneResolver 在下一次解析时获取新资源。空场景、隐藏／延期帧和关闭时清空当前引用，
 在途 slot 仍独立保活已使用的 GPU 版本。
 
@@ -126,7 +130,7 @@ Scene 的进程内实例代号与实体 ID 共同识别对象，WorldTransform �
 发生场景修改后，提取与解析按身份／版本省去未变矩阵的重复复制；Registry 的成功注册、替换、移除和清空改变总发布版本，
 总版本未变时直接复用资源；变化时核对实际 Mesh、材质与环境的条目版本，分别保留未变引用和矩阵，不清空整个提交。
 帧边界释放引用时记录待解析位置；连续发布去重，随后发生增删时按结构批次移动这些位置，避免失效落到其他对象。
-待解析位置由各自提交持有，独立输出与快照副本互不消费；解析后清空，隐藏／延期帧和关闭时随当前引用一并清理。
+待解析位置由各自世界持有，独立输出与快照副本互不消费；解析后清空，隐藏／延期帧和关闭时随当前引用一并清理。
 资源与发布版本在同一次查询中取得，相邻共享 Handle 复用查询结果。
 发布检查另用固定容量的本地缓存复用交错共享 Handle 的版本查询；碰撞核对完整 Handle，命中不足时停止使用缓存。
 缓存只保存本次检查的 Handle 与版本值，不持有资源或注册表条目，也不跨帧保留；总版本未变时仍直接返回。
@@ -135,14 +139,14 @@ Scene 的进程内实例代号与实体 ID 共同识别对象，WorldTransform �
 注册／替换失败不改变 Registry 版本，运行时材质参数继续使用材质自身版本。环境强度、旋转等设置变化也不重复解析资源。
 这些身份不写入场景文件，复制场景获得新的实例代号；没有实例／变换版本的手工渲染数据每次重新计算矩阵和界限。
 
-Registry 的既有资源条目同时记录各自的发布版本，解析器把实际 Mesh 版本复制到提交；移除后重新注册获得新版本，移动注册表保留资源版本。
+Registry 的既有资源条目同时记录各自的发布版本，解析器把实际 Mesh 版本复制到世界数据；移除后重新注册获得新版本，移动注册表保留资源版本。
 RenderGeometry 缓存世界界限与场景总界限的值，主视图与阴影共用；局部批次只核对变化槽位，不逐帧重建身份索引。
 局部增删按批次移动缓存，只核对变化位置；删除时随本帧借用列表填充重新汇总场景总界限，未变对象不重新计算世界界限。
 手工快照的单个增删仍确认相邻身份后移动缓存后缀；重排、场景切换和 Mesh 发布核对错位或版本变化的槽位。
 材质、纹理或 Shader 发布不使其他 Mesh 界限失效。没有 Mesh 版本的手工提交每次重算，不依赖裸资源地址判断身份。
 总界限向外扩张时直接合并，旧极值收缩或删除时重新汇总；静止帧复用总界限，删除物体后也能收缩。
-绘制列表仍每帧顺序填充，只借用本帧提交与缓存内的界限值，不另存一份包围盒；结构更新完成后才建立这些借用。
-列表及其中指针只在下次 prepare／clear 前有效，几何缓存不复制；录制结束时 clear 清空对外结果，缓存不持有提交、Mesh 或组件指针。
+绘制列表在世界准备时顺序填充，所有视图只借用同一份世界数据与缓存内的界限值，不另存一份包围盒；结构更新完成后才建立这些借用。
+列表及其中指针只在下次世界更新或 prepare／clear 前有效，几何缓存不复制；帧边界更新世界前先 clear 清空借用列表，缓存不持有 Mesh 或组件指针。
 Mesh／Texture 的公共头只声明上传数据类型，CPU 数据定义由需要读取或构造数据的实现显式包含；AssetLoader 的公共头同样只借用数据库声明。
 帧延期时跳过 UI／提取／绘制，Runtime 仍推进；最小化时等待并重置墙钟增量和待处理输入。
 Editor 先完成即时属性编辑再提取，拾取反馈在场景和 Overlay 录制前应用。场景切换统一结束旧交互、清理失效请求并重绑选择与引用。

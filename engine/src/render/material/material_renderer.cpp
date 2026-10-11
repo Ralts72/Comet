@@ -396,10 +396,9 @@ namespace Comet {
         m_source.reset();
     }
 
-    Result<void, GraphicsError> MaterialRenderer::prepare_programs(
-        const RenderSubmission& submission) {
+    Result<void, GraphicsError> MaterialRenderer::prepare_programs(const RenderWorld& world) {
         bool requested_instances = false;
-        for(const auto& item : submission.render_items) {
+        for(const auto& item : world.render_items) {
             const auto& material = item.material;
             if(!material.resource)
                 continue;
@@ -850,12 +849,12 @@ namespace Comet {
         frame->buffer->write(&camera);
         auto environment = m_empty_environment;
         auto frame_lighting = lighting;
-        if(submission.environment.lighting && submission.environment_resource
-            && submission.environment_resource->has_lighting()) {
-            environment = submission.environment_resource;
-            const float rotation = Math::radians(submission.environment.rotation);
+        if(submission.world.environment.lighting && submission.world.environment_resource
+            && submission.world.environment_resource->has_lighting()) {
+            environment = submission.world.environment_resource;
+            const float rotation = Math::radians(submission.world.environment.rotation);
             const auto& image = environment->specular->get_image_view()->get_image();
-            frame_lighting.environment = {submission.environment.lighting_intensity,
+            frame_lighting.environment = {submission.world.environment.lighting_intensity,
                 float(image->get_info().mip_levels - 1), std::sin(rotation), std::cos(rotation)};
         }
         frame->lighting->write(&frame_lighting);

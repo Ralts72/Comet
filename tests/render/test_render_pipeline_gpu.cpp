@@ -67,17 +67,18 @@ namespace Comet::Tests {
                 .position = {0, 0, 2.5f},
                 .direction = sample.light_direction,
                 .intensity = sample.intensity};
-            RenderSubmission submission{
-                .view_project_matrix =
-                    ViewProjectMatrix{
-                        Math::look_at(sample.camera, {0, 0, 0.5f}, {0, 1, 0}), projection},
-                .render_items = {{.mesh = lit_quad(sample.normal),
-                    .material = {AssetHandle(781), material}}},
+            RenderWorld world{.render_items = {{.mesh = lit_quad(sample.normal),
+                                  .material = {AssetHandle(781), material}}},
                 .lights = {light}};
+            RenderSubmission submission{
+                world, ViewProjectMatrix{
+                           Math::look_at(sample.camera, {0, 0, 0.5f}, {0, 1, 0}), projection}};
             if(!sample.has_light)
-                submission.lights.clear();
+                world.lights.clear();
             begin_frame(frames);
-            const auto drawn = scene.render(frames, submission);
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            const auto drawn = scene.render(frames, submission, geometry);
             ASSERT_TRUE(drawn) << drawn.error();
             auto output = std::make_shared<Readback>(
                 device, context.get_context().get_physical_device(), 33 * 33 * 4);
@@ -192,11 +193,12 @@ namespace Comet::Tests {
         const Math::Vec3 tint{0.8f, 0.4f, 0.2f};
         ASSERT_TRUE(material->set_vector_property("base_color", Math::Vec4(tint, 1)));
         ASSERT_TRUE(material->set_scalar_property("roughness", 1));
-        RenderSubmission submission{
-            .view_project_matrix = ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
-                Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
+        RenderWorld world{
             .render_items = {{.mesh = lit_quad(), .material = {AssetHandle(785), material}}},
             .lights = {{.intensity = Math::PI}}};
+        RenderSubmission submission{
+            world, ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                       Math::ortho(-1, 1, -1, 1, 0.1f, 10)}};
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
@@ -217,7 +219,9 @@ namespace Comet::Tests {
                 material->set_texture_property("base_color_texture", nullptr);
             }
             begin_frame(frames);
-            const auto drawn = scene.render(frames, submission);
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            const auto drawn = scene.render(frames, submission, geometry);
             ASSERT_TRUE(drawn) << drawn.error();
             EXPECT_EQ(scene.get_material_statistics().draw_calls, 1);
             outputs[index] =
@@ -359,12 +363,12 @@ namespace Comet::Tests {
         auto& scene = *scene_owner.value();
         const auto mesh = lit_quad();
         auto material = std::make_shared<Material>("pbr", "pbr");
-        RenderSubmission submission{
-            .view_project_matrix = ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
-                Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
-            .render_items = {{.mesh = mesh, .material = {AssetHandle(780), material}},
-                {.mesh = mesh, .material = {AssetHandle(780), material}}},
+        RenderWorld world{.render_items = {{.mesh = mesh, .material = {AssetHandle(780), material}},
+                              {.mesh = mesh, .material = {AssetHandle(780), material}}},
             .lights = {{.direction = {1, 0, -1}, .intensity = 4}}};
+        RenderSubmission submission{
+            world, ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                       Math::ortho(-1, 1, -1, 1, 0.1f, 10)}};
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
@@ -383,13 +387,15 @@ namespace Comet::Tests {
         for(size_t index = 0; index < samples.size(); ++index) {
             SCOPED_TRACE(index);
             const auto& sample = samples[index];
-            submission.lights[0].casts_shadow = sample.casts_shadow;
-            submission.lights[0].direction.x = sample.direction_x;
-            submission.render_items[1].model_matrix =
+            world.lights[0].casts_shadow = sample.casts_shadow;
+            world.lights[0].direction.x = sample.direction_x;
+            world.render_items[1].model_matrix =
                 Math::scale(Math::translate(Math::Mat4(1), {sample.occluder_x, 0, 0.875f}),
                     {0.25f, 0.25f, 0.25f});
             begin_frame(frames);
-            const auto drawn = scene.render(frames, submission);
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            const auto drawn = scene.render(frames, submission, geometry);
             ASSERT_TRUE(drawn) << drawn.error();
             EXPECT_EQ(
                 scene.get_material_statistics().material_bindings_created, index == 0 ? 1 : 0);
@@ -488,16 +494,17 @@ namespace Comet::Tests {
                 model = Math::scale(model, {2, 1, 1});
             if(scenario == Scenario::SingularScale)
                 model = Math::scale(model, {1, 1, 0});
-            RenderSubmission submission{
-                .view_project_matrix = ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)},
-                .render_items = {{.model_matrix = model,
-                    .mesh = scenario == Scenario::NonuniformScale ? tilted : mesh,
-                    .material = {AssetHandle(555), material}}},
+            RenderWorld world{.render_items = {{.model_matrix = model,
+                                  .mesh = scenario == Scenario::NonuniformScale ? tilted : mesh,
+                                  .material = {AssetHandle(555), material}}},
                 .lights = {light}};
+            RenderSubmission submission{world, ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)}};
             if(scenario == Scenario::NoLights)
-                submission.lights.clear();
+                world.lights.clear();
             begin_frame(frames);
-            const auto rendered = scene.render(frames, submission, {});
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            const auto rendered = scene.render(frames, submission, geometry, {});
             ASSERT_TRUE(rendered) << rendered.error().message;
             const auto& statistics = scene.get_material_statistics();
             EXPECT_EQ(statistics.draw_calls, 1);

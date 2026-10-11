@@ -96,8 +96,7 @@ namespace Comet {
             const;
         [[nodiscard]] Result<MaterialUpdate, GraphicsError> prepare_material_update(
             AssetHandle handle, const std::shared_ptr<const Material>& material);
-        [[nodiscard]] Result<void, GraphicsError> prepare_programs(
-            const RenderSubmission& submission);
+        [[nodiscard]] Result<void, GraphicsError> prepare_programs(const RenderWorld& world);
         // 调用方须先等待槽位、开启场景通道并设置视口与裁剪区域。
         // shadow_map 必须已处于片元 SampledRead；即使关闭阴影也需有效采样绑定。
         [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render(

@@ -243,20 +243,16 @@ namespace Comet::Tests {
         EXPECT_EQ(snapshot.post_process, settings);
         const AssetRegistry assets;
         SceneResolver resolver(assets);
-        RenderView view{.render_size = {160, 120}};
-        EXPECT_EQ(resolver.resolve(snapshot, view).post_process, settings);
-        view.camera_selection = RenderView::CameraSelection::Override;
-        view.camera_override = RenderCamera{};
-        EXPECT_EQ(resolver.resolve(snapshot, view).post_process, settings);
+        EXPECT_EQ(resolver.resolve(snapshot).post_process, settings);
 
         auto disabled = settings;
         disabled.bloom_enabled = false;
         ASSERT_TRUE(cloned.value()->set_post_process(disabled));
         EXPECT_FALSE(cloned.value()->get_post_process().uses_bloom());
         EXPECT_EQ(scene.get_post_process(), settings);
-        EXPECT_EQ(resolver.resolve(SceneExtractor::extract(*cloned.value()), view).post_process,
-            disabled);
-        EXPECT_EQ(resolver.resolve(RenderScene{}, view).post_process, PostProcessSettings{});
+        EXPECT_EQ(
+            resolver.resolve(SceneExtractor::extract(*cloned.value())).post_process, disabled);
+        EXPECT_EQ(resolver.resolve(RenderScene{}).post_process, PostProcessSettings{});
     }
 
     TEST(ScenePostProcessTest, DefaultsOffAndRejectsMalformedOrOutOfRangeSettings) {
@@ -306,14 +302,8 @@ namespace Comet::Tests {
         EXPECT_EQ(SceneExtractor::extract(scene).environment, scene.get_environment());
         AssetRegistry assets;
         SceneResolver resolver(assets);
-        RenderView view;
-        EXPECT_EQ(resolver.resolve(SceneExtractor::extract(scene), view).environment,
-            scene.get_environment());
-        view.camera_selection = RenderView::CameraSelection::Override;
-        view.camera_override = RenderCamera{};
-        view.render_size = {64, 64};
-        EXPECT_EQ(resolver.resolve(SceneExtractor::extract(scene), view).environment,
-            scene.get_environment());
+        EXPECT_EQ(
+            resolver.resolve(SceneExtractor::extract(scene)).environment, scene.get_environment());
         const SceneSerializer serializer(registry);
         auto cloned = serializer.clone(scene);
         ASSERT_TRUE(cloned) << cloned.error();

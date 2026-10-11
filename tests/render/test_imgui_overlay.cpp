@@ -289,8 +289,9 @@ namespace Comet::Tests {
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
-        RenderSubmission submission;
-        submission.environment.background_color = {0.2f, 0.4f, 0.8f};
+        RenderWorld world;
+        RenderSubmission submission{world};
+        world.environment.background_color = {0.2f, 0.4f, 0.8f};
         std::array<std::shared_ptr<Readback>, 3> outputs;
         Math::Vec2u inside{};
         for(std::size_t index = 0; index < outputs.size(); ++index) {
@@ -309,7 +310,9 @@ namespace Comet::Tests {
             frames.get_current_command_buffer().begin();
             const auto slot = frames.get_current_frame_slot_index();
             const auto image = scene.get_offscreen_color_view(slot)->get_image();
-            const auto drawn = scene.render(frames, submission);
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            const auto drawn = scene.render(frames, submission, geometry);
             ASSERT_TRUE(drawn) << drawn.error();
             if(index != 0) {
                 // 交换链没有 CopySrc；离屏目标复用实际后端，但不替代生产 loadOp 的路径测试。

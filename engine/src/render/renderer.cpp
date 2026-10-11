@@ -100,7 +100,8 @@ namespace Comet {
         m_render_resources->collect_completed_uploads();
         m_programs->collect_removed();
         m_scene_renderer->collect_removed_assets(m_asset_registry);
-        m_scene_resolver.refresh_assets(m_submission);
+        m_geometry.clear();
+        m_scene_resolver.refresh_assets(m_world);
 
         if(m_pending_output) {
             const auto output = std::exchange(m_pending_output, std::nullopt).value();
@@ -173,30 +174,22 @@ namespace Comet {
         }
         RenderView frame_view = m_render_view;
         frame_view.render_size = m_scene_renderer->get_render_target().get_size();
-        auto& submission = m_submission;
         if(render_scene)
             RenderDiagnostics::measure_preparation(m_diagnostics.get(),
                 RenderDiagnostics::PreparationPhase::Assets,
-                [&] { m_scene_resolver.resolve(*render_scene, frame_view, submission); });
-        else {
-            submission.render_items.clear();
-            submission.pending_asset_slots.clear();
-            submission.environment_resource.reset();
-            submission.environment_revision = 0;
-            submission.scene_lifetime = 0;
-            submission.asset_revision = 0;
-            submission.view_project_matrix.reset();
-            submission.lights.clear();
-            submission.environment = {};
-            submission.post_process = {};
-        }
+                [&] { m_scene_resolver.resolve(*render_scene, m_world); });
+        else
+            m_world.clear();
+        RenderDiagnostics::measure_preparation(m_diagnostics.get(),
+            RenderDiagnostics::PreparationPhase::Geometry, [&] { m_geometry.prepare(m_world); });
+        const RenderSubmission submission{m_world,
+            render_scene ? m_scene_resolver.resolve_camera(m_world, frame_view) : std::nullopt};
         if(auto programs = RenderDiagnostics::measure_preparation(m_diagnostics.get(),
                RenderDiagnostics::PreparationPhase::MaterialPrograms,
-               [&] { return m_scene_renderer->prepare_material_programs(submission); });
+               [&] { return m_scene_renderer->prepare_material_programs(m_world); });
             !programs)
             return programs;
-        if(auto prepared = m_scene_renderer->prepare_post_process(submission.post_process);
-            !prepared)
+        if(auto prepared = m_scene_renderer->prepare_post_process(m_world.post_process); !prepared)
             return prepared;
         const auto pick_request = std::exchange(m_viewport_pick_request, std::nullopt);
         if(pick_request && frame_view.visible
@@ -208,8 +201,8 @@ namespace Comet {
         if(!frame_view.visible) {
             m_line_draw_list.clear();
         }
-        auto resource_waits =
-            m_scene_renderer->render(*m_frames, submission, m_line_draw_list, m_diagnostics.get());
+        auto resource_waits = m_scene_renderer->render(
+            *m_frames, submission, m_geometry, m_line_draw_list, m_diagnostics.get());
         m_line_draw_list.clear();
 
         if(!resource_waits) {
@@ -389,20 +382,16 @@ namespace Comet {
     void Renderer::discard_frame_requests() {
         m_viewport_pick_request.reset();
         m_line_draw_list.clear();
-        m_submission.render_items.clear();
-        m_submission.pending_asset_slots.clear();
-        m_submission.environment_resource.reset();
-        m_submission.environment_revision = 0;
+        m_geometry.clear();
+        m_world.clear();
     }
 
     void Renderer::prepare_shutdown() noexcept {
         if(std::exchange(m_shutdown_prepared, true))
             return;
         m_render_context->get_device().wait_idle_for_shutdown();
-        m_submission.render_items.clear();
-        m_submission.pending_asset_slots.clear();
-        m_submission.environment_resource.reset();
-        m_submission.environment_revision = 0;
+        m_geometry.clear();
+        m_world.clear();
     }
 
     Renderer::~Renderer() {

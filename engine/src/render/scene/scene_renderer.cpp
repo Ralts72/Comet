@@ -256,11 +256,10 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
-    Result<void, GraphicsError> SceneRenderer::prepare_material_programs(
-        const RenderSubmission& submission) {
+    Result<void, GraphicsError> SceneRenderer::prepare_material_programs(const RenderWorld& world) {
         if(!m_state)
             return Result<void, GraphicsError>::failure({"Scene renderer is not configured"});
-        return m_state->materials->prepare_programs(submission);
+        return m_state->materials->prepare_programs(world);
     }
 
     Result<void, GraphicsError> SceneRenderer::configure_bloom(const bool enabled) {
@@ -441,23 +440,17 @@ namespace Comet {
     }
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> SceneRenderer::render(
-        FrameScheduler& frames, const RenderSubmission& submission, const LineDrawList& lines,
-        RenderDiagnostics* diagnostics) {
+        FrameScheduler& frames, const RenderSubmission& submission, const RenderGeometry& geometry,
+        const LineDrawList& lines, RenderDiagnostics* diagnostics) {
         PROFILE_SCOPE("SceneRenderer::render");
         using RenderResult = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
         frames.retain_current_frame_resource(m_state);
         frames.retain_current_frame_resource(m_state->output_target);
         frames.retain_current_frame_resource(m_state->hdr_target);
         const auto image = frames.get_current_frame_slot_index();
-        RenderDiagnostics::measure_preparation(
-            diagnostics, RenderDiagnostics::PreparationPhase::Geometry, [&] {
-                if(submission.view_project_matrix)
-                    m_geometry.prepare(submission);
-            });
-        const ScopeExit release_geometry([&] { m_geometry.clear(); });
         const auto lighting = RenderDiagnostics::measure_preparation(diagnostics,
             RenderDiagnostics::PreparationPhase::Lighting,
-            [&] { return ShadowPass::prepare(submission, m_geometry); });
+            [&] { return ShadowPass::prepare(submission, geometry); });
         auto& bindings = m_state->bindings;
         bindings.resize(m_state->graph.resource_count());
         const ScopeExit release_bindings([&] { bindings.clear(); });
@@ -469,9 +462,9 @@ namespace Comet {
         if(m_state->bloom_passes)
             m_state->bloom->bind_resources(bindings, *m_state->bloom_passes, image);
         std::vector<QueueSemaphoreSubmit> waits;
-        const auto recorder = [this, &frames, &submission, &lines, &lighting, &waits](
+        const auto recorder = [this, &frames, &submission, &geometry, &lines, &lighting, &waits](
                                   RenderGraph::PassId pass, CommandBuffer&) {
-            return record_pass(pass, frames, submission, lines, lighting, waits);
+            return record_pass(pass, frames, submission, geometry, lines, lighting, waits);
         };
         auto recorded = Result<void, GraphicsError>::success();
         if(diagnostics)
@@ -484,7 +477,8 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> SceneRenderer::record_pass(std::size_t pass, FrameScheduler& frames,
-        const RenderSubmission& submission, const LineDrawList& lines, const LightingData& lighting,
+        const RenderSubmission& submission, const RenderGeometry& geometry,
+        const LineDrawList& lines, const LightingData& lighting,
         std::vector<QueueSemaphoreSubmit>& waits) {
         const auto slot = frames.get_current_frame_slot_index();
         if(pass == m_state->output_pass_id) {
@@ -497,10 +491,10 @@ namespace Comet {
         }
         auto drawn = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::success({});
         if(pass == m_state->shadow_pass_id)
-            drawn = m_state->shadow_pass->render(frames, lighting, m_geometry);
+            drawn = m_state->shadow_pass->render(frames, lighting, geometry);
         else if(pass == m_state->scene_pass_id)
             drawn = draw_scene(
-                frames, frames.get_current_command_buffer(), submission, lines, lighting);
+                frames, frames.get_current_command_buffer(), submission, geometry, lines, lighting);
         else if(m_state->bloom_passes)
             return m_state->bloom->render(frames, pass, *m_state->bloom_passes,
                 m_state->hdr_target->get_color_view(slot), m_post_process.bloom_threshold);
@@ -515,9 +509,9 @@ namespace Comet {
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> SceneRenderer::draw_scene(
         FrameScheduler& frames, CommandBuffer& command, const RenderSubmission& submission,
-        const LineDrawList& lines, const LightingData& lighting) {
+        const RenderGeometry& geometry, const LineDrawList& lines, const LightingData& lighting) {
         m_state->hdr_target->set_clear_value(
-            ClearValue(Math::Vec4(submission.environment.background_color, 1.0f)));
+            ClearValue(Math::Vec4(submission.world.environment.background_color, 1.0f)));
         m_state->hdr_target->begin_render_target(command, frames.get_current_frame_slot_index());
         const auto size = m_state->hdr_target->get_size();
         command.set_viewport(
@@ -527,7 +521,7 @@ namespace Comet {
         auto skybox = m_state->skybox_pass->render(frames, submission);
         if(!skybox)
             return skybox;
-        auto waits = m_state->materials->render(frames, submission, m_geometry, lighting,
+        auto waits = m_state->materials->render(frames, submission, geometry, lighting,
             m_state->shadow_pass->get_depth_view(frames.get_current_frame_slot_index()));
         if(!waits)
             return waits;

@@ -58,11 +58,12 @@ namespace Comet {
             const PostProcessSettings& settings,
             std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
         [[nodiscard]] Result<void, GraphicsError> prepare_material_programs(
-            const RenderSubmission& submission);
+            const RenderWorld& world);
         // 仅录制已准备的状态；场景快照的后处理设置由上一步消费。
         [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render(
             FrameScheduler& frames, const RenderSubmission& submission,
-            const LineDrawList& lines = {}, RenderDiagnostics* diagnostics = nullptr);
+            const RenderGeometry& geometry, const LineDrawList& lines = {},
+            RenderDiagnostics* diagnostics = nullptr);
         // 普通失败保留旧目标并管理重试；设备错误终止调用链。
         Result<void, GraphicsError> resize_offscreen_target(Math::Vec2u size,
             std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
@@ -103,10 +104,12 @@ namespace Comet {
         Result<void, GraphicsError> replace_targets(
             RenderState& state, Swapchain* swapchain, Math::Vec2u size);
         Result<void, GraphicsError> record_pass(std::size_t pass, FrameScheduler& frames,
-            const RenderSubmission& submission, const LineDrawList& lines,
-            const LightingData& lighting, std::vector<QueueSemaphoreSubmit>& waits);
+            const RenderSubmission& submission, const RenderGeometry& geometry,
+            const LineDrawList& lines, const LightingData& lighting,
+            std::vector<QueueSemaphoreSubmit>& waits);
         Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> draw_scene(FrameScheduler& frames,
-            CommandBuffer& command, const RenderSubmission& submission, const LineDrawList& lines,
+            CommandBuffer& command, const RenderSubmission& submission,
+            const RenderGeometry& geometry, const LineDrawList& lines,
             const LightingData& lighting);
 
         Device& m_device;
@@ -121,6 +124,5 @@ namespace Comet {
         std::shared_ptr<RenderState> m_state;
         std::optional<TargetRetry> m_resize_failure;
         std::optional<TargetRetry> m_post_process_failure;
-        RenderGeometry m_geometry;
     };
 }

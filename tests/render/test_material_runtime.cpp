@@ -222,12 +222,12 @@ namespace Comet::Tests {
         RenderScene scene;
         scene.render_items.push_back(
             {.entity_id = 7, .mesh_handle = AssetHandle(11), .material_handle = AssetHandle(12)});
-        auto submission = resolver.resolve(scene, {});
-        ASSERT_EQ(submission.render_items.size(), 1u);
-        EXPECT_EQ(submission.render_items.front().entity_id, 7u);
-        EXPECT_TRUE(submission.render_items.front().material.resource == material);
-        EXPECT_EQ(submission.render_items.front().material.material_handle, AssetHandle(12));
-        EXPECT_TRUE(submission.render_items.front().mesh == mesh);
+        auto world = resolver.resolve(scene);
+        ASSERT_EQ(world.render_items.size(), 1u);
+        EXPECT_EQ(world.render_items.front().entity_id, 7u);
+        EXPECT_TRUE(world.render_items.front().material.resource == material);
+        EXPECT_EQ(world.render_items.front().material.material_handle, AssetHandle(12));
+        EXPECT_TRUE(world.render_items.front().mesh == mesh);
         engine->get_renderer().get_render_context().wait_idle();
     }
 }

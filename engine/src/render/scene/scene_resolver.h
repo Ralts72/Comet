@@ -15,12 +15,13 @@ namespace Comet {
     public:
         explicit SceneResolver(const AssetRegistry& asset_registry);
 
-        [[nodiscard]] RenderSubmission resolve(
-            const RenderScene& render_scene, const RenderView& view);
-        void resolve(
-            const RenderScene& render_scene, const RenderView& view, RenderSubmission& output);
+        [[nodiscard]] RenderWorld resolve(const RenderScene& render_scene);
+        void resolve(const RenderScene& render_scene, RenderWorld& output);
         // 在帧边界释放已替换或移除的资源；新资源由 resolve 获取。
-        void refresh_assets(RenderSubmission& submission) const;
+        void refresh_assets(RenderWorld& world) const;
+
+        [[nodiscard]] std::optional<ViewProjectMatrix> resolve_camera(
+            const RenderWorld& world, const RenderView& view);
 
     private:
         struct CameraDiagnostic {
@@ -29,9 +30,6 @@ namespace Comet {
 
             bool operator==(const CameraDiagnostic&) const = default;
         };
-
-        [[nodiscard]] std::optional<ViewProjectMatrix> resolve_camera(
-            const RenderScene& render_scene, const RenderView& view);
 
         const AssetRegistry& m_asset_registry;
         std::unordered_map<AssetHandle, bool> m_missing_mesh_handles;

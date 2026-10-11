@@ -40,14 +40,11 @@ namespace Comet::Tests {
         EXPECT_EQ(extracted.lights[0].type, LightType::Spot);
         AssetRegistry assets;
         SceneResolver resolver(assets);
-        RenderView view{.render_size = {16, 16},
-            .camera_selection = RenderView::CameraSelection::Override,
-            .camera_override = RenderCamera{}};
-        const auto submission = resolver.resolve(extracted, view);
+        const auto world = resolver.resolve(extracted);
         extracted.lights.clear();
-        ASSERT_EQ(submission.lights.size(), 1);
-        EXPECT_EQ(submission.lights[0].entity_id, light.get_id());
-        EXPECT_TRUE(submission.lights[0].casts_shadow);
+        ASSERT_EQ(world.lights.size(), 1);
+        EXPECT_EQ(world.lights[0].entity_id, light.get_id());
+        EXPECT_TRUE(world.lights[0].casts_shadow);
     }
 
     TEST(LightingTest, PacksDeterministicBoundedValidLightsAndReportsRejectedInputs) {

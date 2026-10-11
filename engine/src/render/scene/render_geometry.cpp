@@ -18,13 +18,13 @@ namespace Comet {
         }
     }
 
-    void RenderGeometry::prepare(const RenderSubmission& submission) {
+    void RenderGeometry::prepare(const RenderWorld& world) {
         clear();
-        const auto& items = submission.render_items;
-        const auto& changes = submission.item_changes;
+        const auto& items = world.render_items;
+        const auto& changes = world.item_changes;
         m_items.reserve(items.size());
         const bool same_scene =
-            submission.scene_lifetime != 0 && submission.scene_lifetime == m_scene_lifetime;
+            world.scene_lifetime != 0 && world.scene_lifetime == m_scene_lifetime;
         const bool tracked = same_scene && changes.revision != 0;
         const bool unchanged =
             tracked && m_revision == changes.revision && m_bounds.size() == items.size();
@@ -116,7 +116,7 @@ namespace Comet {
             }
         }
         m_scene_bounds = m_cached_scene_bounds;
-        m_scene_lifetime = submission.scene_lifetime;
+        m_scene_lifetime = world.scene_lifetime;
         m_revision = changes.revision;
     }
 

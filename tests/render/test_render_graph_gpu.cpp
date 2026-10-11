@@ -526,8 +526,7 @@ namespace Comet::Tests {
                 const float z = scenario == Scenario::OffscreenOccluder ? 1.5f : 0.625f;
                 const auto occluder =
                     Math::scale(Math::translate(Math::Mat4(1), {x, 0, z}), {0.25f, 0.25f, 0.25f});
-                RenderSubmission submission{
-                    .view_project_matrix = ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)},
+                RenderWorld world{
                     .render_items = {{.mesh = mesh, .material = {AssetHandle(559), material}},
                         {.model_matrix = occluder,
                             .mesh = mesh,
@@ -535,14 +534,15 @@ namespace Comet::Tests {
                     .lights = {{.entity_id = 1,
                         .intensity = Math::PI,
                         .casts_shadow = scenario != Scenario::ShadowsDisabled}}};
+                RenderSubmission submission{world, ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)}};
                 if(scenario == Scenario::RebuildAndRemoveOccluder && index == 1)
-                    submission.render_items.pop_back();
+                    world.render_items.pop_back();
                 if(scenario == Scenario::NoLights)
-                    submission.lights.clear();
+                    world.lights.clear();
                 if(scenario == Scenario::TiltedLight)
-                    submission.lights.front().direction = {1, 0, -1};
+                    world.lights.front().direction = {1, 0, -1};
                 RenderGeometry geometry;
-                geometry.prepare(submission);
+                geometry.prepare(world);
                 const auto lighting = ShadowPass::prepare(submission, geometry);
                 const bool shadow_enabled =
                     scenario != Scenario::ShadowsDisabled && scenario != Scenario::NoLights;
@@ -551,7 +551,7 @@ namespace Comet::Tests {
                 frames.begin_frame(0);
                 frames.get_current_command_buffer().begin();
                 auto& scene = *scene_owner.value();
-                auto drawn = scene.render(frames, submission);
+                auto drawn = scene.render(frames, submission, geometry);
                 ASSERT_TRUE(drawn) << drawn.error();
                 if(scenario == Scenario::OffscreenOccluder) {
                     EXPECT_EQ(scene.get_material_statistics().culled_items, 1u);
@@ -628,12 +628,11 @@ namespace Comet::Tests {
         auto shadow = std::move(created).value();
         std::weak_ptr<ImageView> view = shadow->get_depth_view(0);
         auto image = shadow->get_depth_view(0)->get_image();
-        RenderSubmission submission{
-            .view_project_matrix = ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)},
-            .render_items = {{.mesh = lit_quad()}},
-            .lights = {{.casts_shadow = true}}};
+        RenderWorld world{
+            .render_items = {{.mesh = lit_quad()}}, .lights = {{.casts_shadow = true}}};
+        RenderSubmission submission{world, ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)}};
         RenderGeometry geometry;
-        geometry.prepare(submission);
+        geometry.prepare(world);
         const auto lighting = ShadowPass::prepare(submission, geometry);
         ASSERT_EQ(lighting.shadow_light_index, 0);
         RenderGraph graph;
@@ -779,8 +778,10 @@ namespace Comet::Tests {
                 auto view = scene.get_offscreen_color_view(slot);
                 const auto format = view->get_image()->get_info().format;
                 EXPECT_NE(format, Format::R16G16B16A16_SFLOAT);
-                auto drawn = scene.render(
-                    frames, {.environment = {.background_color = {4.0f, 0.5f, 0.02f}}});
+                const RenderWorld world{.environment = {.background_color = {4.0f, 0.5f, 0.02f}}};
+                RenderGeometry geometry;
+                geometry.prepare(world);
+                auto drawn = scene.render(frames, {world}, geometry);
                 ASSERT_TRUE(drawn) << drawn.error().message;
                 EXPECT_TRUE(drawn.value().empty());
                 copy_output(frames, view->get_image(), readback, size);

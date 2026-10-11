@@ -76,7 +76,7 @@ namespace Comet {
 
     LightingData ShadowPass::prepare(
         const RenderSubmission& submission, const RenderGeometry& geometry) {
-        auto lighting = LightingData::prepare(submission.lights);
+        auto lighting = LightingData::prepare(submission.world.lights);
         if(submission.view_project_matrix && geometry.get_scene_bounds())
             lighting.prepare_shadow(*geometry.get_scene_bounds(), RESOLUTION);
         return lighting;

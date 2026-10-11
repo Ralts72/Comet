@@ -62,18 +62,20 @@ namespace Comet::Tests {
             ASSERT_TRUE(material->set_vector_property("base_color", {0.8f, 0.2f, 0.1f, 1}));
             ASSERT_TRUE(material->set_scalar_property("metallic", sample.metallic));
             ASSERT_TRUE(material->set_scalar_property("roughness", sample.roughness));
-            RenderSubmission submission{
-                .view_project_matrix =
-                    ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
-                        Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
+            RenderWorld world{
                 .render_items = {{.mesh = mesh, .material = {AssetHandle(index + 1000), material}}},
                 .environment = {{}, sample.background, 0.1f, sample.rotation, sample.enabled,
                     sample.intensity},
                 .environment_resource = environment};
+            RenderSubmission submission{
+                world, ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                           Math::ortho(-1, 1, -1, 1, 0.1f, 10)}};
             if(sample.missing)
-                submission.environment_resource.reset();
+                world.environment_resource.reset();
             begin_frame(frames);
-            auto drawn = scene.render(frames, submission);
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            auto drawn = scene.render(frames, submission, geometry);
             ASSERT_TRUE(drawn) << drawn.error();
             auto output = std::make_shared<Readback>(
                 device, context.get_context().get_physical_device(), 9 * 9 * 4);
@@ -140,21 +142,24 @@ namespace Comet::Tests {
         ASSERT_TRUE(material->set_vector_property("base_color", {1, 1, 1, 1}));
         ASSERT_TRUE(material->set_scalar_property("metallic", 1));
         ASSERT_TRUE(material->set_scalar_property("roughness", 0.045f));
-        RenderSubmission submission{
-            .view_project_matrix = ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
-                Math::ortho(-1, 1, -1, 1, 0.1f, 10)},
+        RenderWorld world{
             .render_items = {{.mesh = lit_quad(), .material = {AssetHandle(1521), material}}},
             .environment = {{}, false, 0, 0, true, 1},
             .environment_resource = environment.value()};
+        RenderSubmission submission{
+            world, ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                       Math::ortho(-1, 1, -1, 1, 0.1f, 10)}};
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
         std::array<std::shared_ptr<Readback>, 2> outputs;
         Format format{};
         for(size_t index = 0; index < outputs.size(); ++index) {
-            submission.environment.rotation = float(index * 180);
+            world.environment.rotation = float(index * 180);
             begin_frame(frames);
-            auto drawn = scene.render(frames, submission);
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            auto drawn = scene.render(frames, submission, geometry);
             ASSERT_TRUE(drawn) << drawn.error();
             outputs[index] = std::make_shared<Readback>(
                 device, context.get_context().get_physical_device(), 9 * 9 * 4);
@@ -198,11 +203,11 @@ namespace Comet::Tests {
                 }
         auto uploaded = engine->get_render_resources().try_create_texture(data);
         ASSERT_TRUE(uploaded) << uploaded.error().message;
-        RenderSubmission submission{.view_project_matrix = ViewProjectMatrix{Math::Mat4(1),
-                                        Math::perspective(60.0f, 1.0f, 0.1f, 100.0f)},
-            .environment = {{}, true, 0.5f, 0},
+        RenderWorld world{.environment = {{}, true, 0.5f, 0},
             .environment_resource = std::make_shared<Environment>(
                 Environment{.background = std::move(uploaded).value()})};
+        RenderSubmission submission{
+            world, ViewProjectMatrix{Math::Mat4(1), Math::perspective(60.0f, 1.0f, 0.1f, 100.0f)}};
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
@@ -216,9 +221,9 @@ namespace Comet::Tests {
                 submission.view_project_matrix->view =
                     Math::look_at({19, 4, 8}, {19, 4, 7}, {0, 1, 0});
             if(index == 2)
-                submission.environment.rotation = 90;
+                world.environment.rotation = 90;
             if(index == 3) {
-                submission.environment.rotation = 0;
+                world.environment.rotation = 0;
                 submission.view_project_matrix->projection = Math::ortho(-1, 1, -1, 1, 0.1f, 100);
             }
             if(index == 4)
@@ -231,30 +236,32 @@ namespace Comet::Tests {
                 }
                 auto replacement = engine->get_render_resources().try_create_texture(data);
                 ASSERT_TRUE(replacement);
-                submission.environment_resource = std::make_shared<Environment>(
+                world.environment_resource = std::make_shared<Environment>(
                     Environment{.background = std::move(replacement).value()});
             }
             if(index == 6)
-                submission.environment.background = false;
+                world.environment.background = false;
             if(index == 7) {
-                submission.environment.background = true;
-                submission.environment_resource.reset();
+                world.environment.background = true;
+                world.environment_resource.reset();
             }
             if(index == 8) {
                 auto replacement = engine->get_render_resources().try_create_texture(data);
                 ASSERT_TRUE(replacement);
-                submission.environment_resource = std::make_shared<Environment>(
+                world.environment_resource = std::make_shared<Environment>(
                     Environment{.background = std::move(replacement).value()});
                 submission.view_project_matrix =
                     ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
                         Math::ortho(-2, 2, -2, 2, 0.1f, 100)};
                 auto material = std::make_shared<Material>("foreground", "unlit_color");
                 ASSERT_TRUE(material->set_vector_property("color", {0, 1, 0, 1}));
-                submission.render_items.push_back(
+                world.render_items.push_back(
                     {.mesh = lit_quad(), .material = {AssetHandle(1243), material}});
             }
             begin_frame(frames);
-            auto drawn = scene.render(frames, submission);
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            auto drawn = scene.render(frames, submission, geometry);
             ASSERT_TRUE(drawn) << drawn.error();
             outputs[index] = std::make_shared<Readback>(
                 device, context.get_context().get_physical_device(), size.x * size.y * 4);
@@ -306,15 +313,16 @@ namespace Comet::Tests {
         auto scene_owner = create_scene(programs, {2, 2}, SampleCount::Count4);
         ASSERT_TRUE(scene_owner) << scene_owner.error();
         auto& scene = *scene_owner.value();
-        RenderSubmission submission{.view_project_matrix = ViewProjectMatrix{Math::Mat4(1),
-                                        Math::perspective(60.0f, 1, 0.1f, 100)},
-            .environment = {{}, true, 1, 0},
-            .environment_resource = texture.value()};
+        RenderWorld world{.environment = {{}, true, 1, 0}, .environment_resource = texture.value()};
+        RenderSubmission submission{
+            world, ViewProjectMatrix{Math::Mat4(1), Math::perspective(60.0f, 1, 0.1f, 100)}};
         FrameScheduler frames(device, config.render.max_frames_in_flight);
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
         begin_frame(frames);
-        auto drawn = scene.render(frames, submission);
+        RenderGeometry geometry;
+        geometry.prepare(world);
+        auto drawn = scene.render(frames, submission, geometry);
         ASSERT_TRUE(drawn) << drawn.error();
         auto output =
             std::make_shared<Readback>(device, context.get_context().get_physical_device(), 16);

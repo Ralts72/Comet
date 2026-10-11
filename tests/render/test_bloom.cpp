@@ -428,8 +428,11 @@ namespace Comet::Tests {
             EXPECT_FALSE(scene.prepare_post_process({.bloom_strength = -1}));
             EXPECT_EQ(scene.get_post_process_settings(), before);
             ASSERT_TRUE(scene.prepare_post_process(settings[i]));
-            auto rendered = scene.render(frames,
-                {.environment = {.background_color = colors[i]}, .post_process = settings[i]});
+            const RenderWorld world{
+                .environment = {.background_color = colors[i]}, .post_process = settings[i]};
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            auto rendered = scene.render(frames, {world}, geometry);
             ASSERT_TRUE(rendered) << rendered.error().message;
             EXPECT_EQ(scene.get_post_process_settings(), settings[i]);
             auto readback = std::make_shared<Readback>(

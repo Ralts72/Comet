@@ -6,6 +6,7 @@
 #include "render/quality_settings.h"
 #include "render/output_settings.h"
 #include "render/scene/render_scene.h"
+#include "render/scene/render_geometry.h"
 #include "render/scene/scene_resolver.h"
 #include "render/scene/scene_picking.h"
 #include "render/debug/line_draw_list.h"
@@ -154,7 +155,8 @@ namespace Comet {
         std::optional<ViewportPickRequest> m_viewport_pick_request;
         ViewportPickCallback m_viewport_pick_callback;
         LineDrawList m_line_draw_list;
-        RenderSubmission m_submission;
+        RenderWorld m_world;
+        RenderGeometry m_geometry;
         std::optional<QualitySettings> m_pending_quality;
         std::string m_quality_error;
         OutputSettings m_output;

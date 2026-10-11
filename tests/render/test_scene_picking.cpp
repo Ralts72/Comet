@@ -162,7 +162,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(make_world_ray(view_project, Math::Vec2u(0, 1), Math::Vec2u(1)));
         view_project.view[0][0] = std::numeric_limits<float>::quiet_NaN();
         EXPECT_FALSE(make_world_ray(view_project, Math::Vec2u(0), Math::Vec2u(1)));
-        EXPECT_FALSE(pick_render_submission({}, Math::Vec2u(0), Math::Vec2u(1)));
+        EXPECT_FALSE(pick_render_submission({RenderWorld{}}, Math::Vec2u(0), Math::Vec2u(1)));
     }
 
     TEST(ScenePickingTest, EqualDistanceChoiceDoesNotDependOnCandidateOrder) {

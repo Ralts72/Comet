@@ -583,14 +583,18 @@ namespace Comet::Tests {
         ASSERT_TRUE(owner);
         auto& scene_renderer = *owner.value();
         SceneResolver resolver(assets);
-        auto submission = resolver.resolve(scene, {.render_size = {64, 32}});
+        auto world = resolver.resolve(scene);
+        const RenderSubmission submission{
+            world, resolver.resolve_camera(world, {.render_size = {64, 32}})};
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         frames.wait_for_current_slot();
         frames.begin_frame(0);
         frames.get_current_command_buffer().begin();
-        ASSERT_TRUE(scene_renderer.prepare_material_programs(submission));
-        auto rendered = scene_renderer.render(frames, submission);
+        ASSERT_TRUE(scene_renderer.prepare_material_programs(world));
+        RenderGeometry geometry;
+        geometry.prepare(world);
+        auto rendered = scene_renderer.render(frames, submission, geometry);
         ASSERT_TRUE(rendered);
         frames.get_current_command_buffer().end();
         ASSERT_TRUE(frames.submit(rendered.value(), {}));
@@ -602,16 +606,16 @@ namespace Comet::Tests {
         scene.render_items.push_back(item);
         item.material_overrides = overrides(91, 0.1f);
         scene.render_items.push_back(item);
-        resolver.resolve(scene, {.render_size = {64, 32}}, submission);
-        ASSERT_TRUE(scene_renderer.prepare_material_programs(submission));
+        resolver.resolve(scene, world);
+        ASSERT_TRUE(scene_renderer.prepare_material_programs(world));
         ASSERT_TRUE(assets.replace_asset(program_handle, limited));
-        ASSERT_TRUE(scene_renderer.prepare_material_programs(submission));
+        ASSERT_TRUE(scene_renderer.prepare_material_programs(world));
         const auto* active = programs.published(program_handle, "unlit_color");
         ASSERT_NE(active, nullptr);
         EXPECT_EQ(active->source, limited);
 
-        submission.render_items.clear();
-        ASSERT_TRUE(scene_renderer.prepare_material_programs(submission));
+        world.render_items.clear();
+        ASSERT_TRUE(scene_renderer.prepare_material_programs(world));
         EXPECT_EQ(scene_renderer.get_material_statistics().cached_material_versions, 0u);
     }
 
@@ -692,19 +696,19 @@ namespace Comet::Tests {
         ASSERT_TRUE(assets.register_asset(second_handle, missing_texture));
         ASSERT_NO_FATAL_FAILURE(publish_material(first_handle, compatible));
         ASSERT_NO_FATAL_FAILURE(publish_material(second_handle, missing_texture));
-        RenderSubmission submission;
-        submission.render_items = {{.material = {first_handle, compatible}},
+        RenderWorld world;
+        world.render_items = {{.material = {first_handle, compatible}},
             {.material = {second_handle, missing_texture}}};
-        ASSERT_TRUE(materials->prepare_programs(submission));
+        ASSERT_TRUE(materials->prepare_programs(world));
         const auto required = program(false);
         ASSERT_TRUE(assets.replace_asset(program_handle, required));
         messages.str({});
-        ASSERT_TRUE(materials->prepare_programs(submission));
+        ASSERT_TRUE(materials->prepare_programs(world));
         EXPECT_EQ(published(), optional);
         const auto failure = messages.str();
         ASSERT_NE(failure.find("Missing texture property"), std::string::npos);
         for(int repeat = 0; repeat < 3; ++repeat)
-            ASSERT_TRUE(materials->prepare_programs(submission));
+            ASSERT_TRUE(materials->prepare_programs(world));
         EXPECT_EQ(messages.str(), failure);
 
         ASSERT_TRUE(assets.unregister_asset(second_handle));
@@ -715,25 +719,25 @@ namespace Comet::Tests {
         ASSERT_TRUE(recovered) << recovered.error();
         EXPECT_EQ(published(), required);
         std::move(recovered).value().publish();
-        submission.render_items.pop_back();
-        ASSERT_TRUE(materials->prepare_programs(submission));
+        world.render_items.pop_back();
+        ASSERT_TRUE(materials->prepare_programs(world));
         EXPECT_EQ(published(), required);
         EXPECT_EQ(messages.str(), failure);
 
         auto invalid = program(false);
         invalid->material->textures.front().name = "unknown_texture";
         ASSERT_TRUE(assets.replace_asset(program_handle, invalid));
-        ASSERT_TRUE(materials->prepare_programs(submission));
+        ASSERT_TRUE(materials->prepare_programs(world));
         EXPECT_EQ(published(), required);
         const auto shader_failure = messages.str();
         ASSERT_GT(shader_failure.size(), failure.size());
         for(int revision = 0; revision < 3; ++revision) {
             ASSERT_TRUE(compatible->set_scalar_property("metallic", 0.1f * revision));
-            submission.render_items.front().material.overrides =
+            world.render_items.front().material.overrides =
                 std::make_shared<const MaterialOverrides>(MaterialOverrides{.instance_id = 1,
                     .material = first_handle,
                     .scalar_properties = {{"roughness", 0.2f + 0.1f * revision}}});
-            ASSERT_TRUE(materials->prepare_programs(submission));
+            ASSERT_TRUE(materials->prepare_programs(world));
         }
         EXPECT_EQ(published(), required);
         EXPECT_EQ(messages.str(), shader_failure);
@@ -753,18 +757,18 @@ namespace Comet::Tests {
         auto source = std::make_shared<Material>("source", "pbr", program_handle);
         auto image = texture({255, 255, 255, 255});
         ASSERT_TRUE(image) << image.error();
-        RenderSubmission submission;
+        RenderWorld world;
         for(int change = 0; change < 3; ++change) {
             SCOPED_TRACE(change);
             optional = program(true);
             ASSERT_TRUE(assets.replace_asset(program_handle, optional));
             source->set_texture_property("base_color_texture", nullptr);
             ASSERT_NO_FATAL_FAILURE(publish_material(first_handle, source));
-            submission.render_items = {{.material = {first_handle, source}}};
-            ASSERT_TRUE(materials->prepare_programs(submission));
+            world.render_items = {{.material = {first_handle, source}}};
+            ASSERT_TRUE(materials->prepare_programs(world));
             const auto required = program(false);
             ASSERT_TRUE(assets.replace_asset(program_handle, required));
-            ASSERT_TRUE(materials->prepare_programs(submission));
+            ASSERT_TRUE(materials->prepare_programs(world));
             EXPECT_EQ(published(), optional);
 
             if(change != 0)
@@ -780,8 +784,8 @@ namespace Comet::Tests {
                 ASSERT_TRUE(next) << next.error();
                 EXPECT_EQ(published(), required);
             }
-            submission.render_items.front().material.resource = source;
-            ASSERT_TRUE(materials->prepare_programs(submission));
+            world.render_items.front().material.resource = source;
+            ASSERT_TRUE(materials->prepare_programs(world));
             EXPECT_EQ(published(), required);
         }
     }
@@ -1219,12 +1223,11 @@ namespace Comet::Tests {
                     instances.push_back(std::move(copy));
                 }
             }
+            const RenderWorld draw_world{.render_items = std::move(instances)};
             const RenderSubmission draw_submission{
-                .view_project_matrix =
-                    ViewProjectMatrix{.view = Math::Mat4(1), .projection = Math::Mat4(1)},
-                .render_items = std::move(instances)};
+                draw_world, ViewProjectMatrix{.view = Math::Mat4(1), .projection = Math::Mat4(1)}};
             RenderGeometry geometry;
-            geometry.prepare(draw_submission);
+            geometry.prepare(draw_world);
             const auto waits = materials->render(frames, draw_submission, geometry, lighting,
                 shadow_input.value()->get_image_view());
             ASSERT_TRUE(waits) << waits.error();

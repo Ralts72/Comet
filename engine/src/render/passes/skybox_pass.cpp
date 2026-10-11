@@ -72,24 +72,24 @@ namespace Comet {
             || frames.get_current_frame_slot_index() >= m_bindings.size())
             return Draw::failure({"Invalid skybox frame"});
         auto& binding = m_bindings[frames.get_current_frame_slot_index()];
-        if(!submission.environment.background || !submission.environment_resource
+        if(!submission.world.environment.background || !submission.world.environment_resource
             || !submission.view_project_matrix) {
             binding.reset();
             return Draw::success({});
         }
-        const auto& texture = submission.environment_resource->background;
+        const auto& texture = submission.world.environment_resource->background;
         const auto& image = texture->get_image_view()->get_image();
         if(&image->get_device() != &m_device || !image->get_info().cubemap
             || image->get_info().format != Format::R16G16B16A16_SFLOAT
-            || !std::isfinite(submission.environment.intensity)
-            || submission.environment.intensity < 0
-            || !std::isfinite(submission.environment.rotation))
+            || !std::isfinite(submission.world.environment.intensity)
+            || submission.world.environment.intensity < 0
+            || !std::isfinite(submission.world.environment.rotation))
             return Draw::failure({"Invalid skybox environment"});
         const auto& camera = *submission.view_project_matrix;
         if(glm::determinant(camera.projection) == 0 || glm::determinant(camera.view) == 0)
             return Draw::failure({"Skybox camera matrices must be invertible"});
-        const auto rotation = glm::rotate(
-            Math::Mat4(1.0f), -glm::radians(submission.environment.rotation), Math::Vec3(0, 1, 0));
+        const auto rotation = glm::rotate(Math::Mat4(1.0f),
+            -glm::radians(submission.world.environment.rotation), Math::Vec3(0, 1, 0));
         const auto camera_rotation = Math::Mat4(glm::mat3(Math::inverse(camera.view)));
         const auto clip_to_environment =
             rotation * camera_rotation * Math::inverse(camera.projection);
@@ -111,7 +111,7 @@ namespace Comet {
         command.push_constants(*m_pipeline->get_layout(), Flags<ShaderStage>(ShaderStage::Fragment),
             0, &clip_to_environment, sizeof(clip_to_environment));
         command.push_constants(*m_pipeline->get_layout(), Flags<ShaderStage>(ShaderStage::Fragment),
-            64, &submission.environment.intensity, sizeof(float));
+            64, &submission.world.environment.intensity, sizeof(float));
         command.draw(3);
         const auto completion = texture->get_ready_completion();
         if(completion.is_valid())

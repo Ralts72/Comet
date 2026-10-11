@@ -22,15 +22,15 @@ namespace Comet::Tests {
             {.vertices = {{{-1, -1, 0}}, {{1, -1, 0}}, {{0, 1, 1}}}, .indices = {0, 1, 2}});
         ASSERT_TRUE(uploaded);
         const auto mesh = uploaded.value();
-        RenderSubmission submission{
+        RenderWorld world{
             .render_items = {
                 {.model_matrix = Math::compose_trs({3, 0, 0}, {}, {-2, 1, 1}), .mesh = mesh},
                 {.model_matrix = Math::translate(Math::Mat4(1), {-3, 0, 0}), .mesh = mesh},
                 {.mesh = mesh}, {}}};
-        auto& items = submission.render_items;
+        auto& items = world.render_items;
         items[2].model_matrix[0][0] = std::numeric_limits<float>::quiet_NaN();
         RenderGeometry geometry;
-        geometry.prepare(submission);
+        geometry.prepare(world);
         ASSERT_EQ(geometry.get_items().size(), items.size());
         EXPECT_EQ(geometry.get_items()[0].source, &items[0]);
         ASSERT_TRUE(geometry.get_items()[0].world_bounds);
@@ -47,36 +47,36 @@ namespace Comet::Tests {
         auto mesh = engine->get_render_resources().try_create_mesh(
             {.vertices = {{{0, 0, 0}}, {{1, 0, 0}}, {{0, 1, 1}}}, .indices = {0, 1, 2}});
         ASSERT_TRUE(mesh);
-        RenderSubmission submission{.render_items = {{.mesh = mesh.value()}}};
-        auto& items = submission.render_items;
+        RenderWorld world{.render_items = {{.mesh = mesh.value()}}};
+        auto& items = world.render_items;
         RenderGeometry geometry;
-        geometry.prepare(submission);
+        geometry.prepare(world);
         ASSERT_TRUE(geometry.get_scene_bounds());
         EXPECT_EQ(geometry.get_scene_bounds()->maximum, Math::Vec3(1));
 
         items[0].model_matrix = Math::translate(Math::Mat4(1), {5, 0, 0});
-        geometry.prepare(submission);
+        geometry.prepare(world);
         EXPECT_EQ(geometry.get_scene_bounds()->minimum, Math::Vec3(5, 0, 0));
         EXPECT_EQ(geometry.get_scene_bounds()->maximum, Math::Vec3(6, 1, 1));
         auto replacement = engine->get_render_resources().try_create_mesh(
             {.vertices = {{{-2, -2, -2}}, {{2, -2, -2}}, {{0, 2, 2}}}, .indices = {0, 1, 2}});
         ASSERT_TRUE(replacement);
         items[0].mesh = replacement.value();
-        geometry.prepare(submission);
+        geometry.prepare(world);
         EXPECT_EQ(geometry.get_scene_bounds()->minimum, Math::Vec3(3, -2, -2));
         EXPECT_EQ(geometry.get_scene_bounds()->maximum, Math::Vec3(7, 2, 2));
 
         items.push_back(
             {.model_matrix = Math::translate(Math::Mat4(1), {-20, 0, 0}), .mesh = mesh.value()});
-        geometry.prepare(submission);
+        geometry.prepare(world);
         EXPECT_EQ(geometry.get_scene_bounds()->minimum, Math::Vec3(-20, -2, -2));
         EXPECT_EQ(geometry.get_scene_bounds()->maximum, Math::Vec3(7, 2, 2));
         std::reverse(items.begin(), items.end());
-        geometry.prepare(submission);
+        geometry.prepare(world);
         EXPECT_EQ(geometry.get_scene_bounds()->minimum, Math::Vec3(-20, -2, -2));
         EXPECT_EQ(geometry.get_scene_bounds()->maximum, Math::Vec3(7, 2, 2));
         items.erase(items.begin());
-        geometry.prepare(submission);
+        geometry.prepare(world);
         EXPECT_EQ(geometry.get_scene_bounds()->minimum, Math::Vec3(3, -2, -2));
         EXPECT_EQ(geometry.get_scene_bounds()->maximum, Math::Vec3(7, 2, 2));
 
@@ -84,7 +84,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(geometry.get_items().empty());
         EXPECT_FALSE(geometry.get_scene_bounds());
         items.clear();
-        geometry.prepare(submission);
+        geometry.prepare(world);
         EXPECT_TRUE(geometry.get_items().empty());
         EXPECT_FALSE(geometry.get_scene_bounds());
     }
@@ -121,21 +121,18 @@ namespace Comet::Tests {
         SceneResolver resolver(assets);
         SceneResolver reference_resolver(assets);
         RenderScene snapshot;
-        RenderSubmission submission;
+        RenderWorld world;
         RenderGeometry geometry;
-        const RenderView view{.render_size = {160, 120},
-            .camera_selection = RenderView::CameraSelection::Override,
-            .camera_override = RenderCamera{}};
         const auto check = [&] {
-            resolver.resolve(snapshot, view, submission);
-            geometry.prepare(submission);
-            const auto fresh = reference_resolver.resolve(snapshot, view);
+            resolver.resolve(snapshot, world);
+            geometry.prepare(world);
+            const auto fresh = reference_resolver.resolve(snapshot);
             RenderGeometry reference;
             reference.prepare(fresh);
-            ASSERT_EQ(submission.render_items.size(), fresh.render_items.size());
+            ASSERT_EQ(world.render_items.size(), fresh.render_items.size());
             ASSERT_EQ(geometry.get_items().size(), fresh.render_items.size());
             for(std::size_t index = 0; index < fresh.render_items.size(); ++index) {
-                const auto& actual = submission.render_items[index];
+                const auto& actual = world.render_items[index];
                 const auto& expected = fresh.render_items[index];
                 EXPECT_EQ(actual.entity_id, expected.entity_id);
                 EXPECT_EQ(actual.model_matrix, expected.model_matrix);
@@ -166,7 +163,7 @@ namespace Comet::Tests {
         };
         extractor.update(scene, snapshot);
         check();
-        const auto frozen = submission;
+        const auto frozen = world;
         const auto frozen_matrix = frozen.render_items.front().model_matrix;
         for(int step = 0; step < 80; ++step) {
             SCOPED_TRACE(step);
@@ -197,7 +194,7 @@ namespace Comet::Tests {
                         ASSERT_TRUE(assets.replace_asset(
                             AssetHandle{22}, std::make_shared<Material>("unrelated", "pbr")));
                     }
-                    resolver.refresh_assets(submission);
+                    resolver.refresh_assets(world);
                     break;
                 case 5:
                     for(auto entity : entities)
@@ -207,10 +204,10 @@ namespace Comet::Tests {
                     // 解析与几何准备分别漏过一批，也必须得到完整的新结果。
                     entities[19].edit_transform([](auto& value) { value.translation.z += 1; });
                     extractor.update(scene, snapshot);
-                    resolver.resolve(snapshot, view, submission);
+                    resolver.resolve(snapshot, world);
                     entities[20].edit_transform([](auto& value) { value.translation.z += 1; });
                     extractor.update(scene, snapshot);
-                    resolver.resolve(snapshot, view, submission);
+                    resolver.resolve(snapshot, world);
                     check();
                     entities[21].edit_transform([](auto& value) { value.translation.z += 1; });
                     extractor.update(scene, snapshot);
@@ -220,10 +217,10 @@ namespace Comet::Tests {
                     // 发布尚未解析时继续增删，失效位置随交换末项移动。
                     ASSERT_TRUE(assets.replace_asset(
                         AssetHandle{22}, std::make_shared<Material>("updated", "pbr")));
-                    resolver.refresh_assets(submission);
+                    resolver.refresh_assets(world);
                     ASSERT_TRUE(assets.replace_asset(
                         AssetHandle{12}, step % 16 == 7 ? second.value() : first.value()));
-                    resolver.refresh_assets(submission);
+                    resolver.refresh_assets(world);
                     scene.destroy_entity(entities[7]);
                     auto temporary = create(float(step + 100));
                     entities[7] = create(float(step));
@@ -238,35 +235,35 @@ namespace Comet::Tests {
                 SceneExtractor other;
                 RenderScene other_snapshot;
                 other.update(scene, other_snapshot);
-                resolver.resolve(other_snapshot, view, submission);
-                geometry.prepare(submission);
+                resolver.resolve(other_snapshot, world);
+                geometry.prepare(world);
                 geometry.clear();
             }
             check();
             if(step % 16 == 12) {
-                EXPECT_FALSE(submission.item_changes.full_update);
-                EXPECT_EQ(submission.item_changes.slots.size(), 1u);
+                EXPECT_FALSE(world.item_changes.full_update);
+                EXPECT_EQ(world.item_changes.slots.size(), 1u);
             }
-            EXPECT_TRUE(submission.pending_asset_slots.empty());
+            EXPECT_TRUE(world.pending_asset_slots.empty());
             check();
         }
         for(auto entity : entities)
             scene.destroy_entity(entity);
         extractor.update(scene, snapshot);
         check();
-        EXPECT_TRUE(submission.render_items.empty());
+        EXPECT_TRUE(world.render_items.empty());
         auto only = create(-100);
         extractor.update(scene, snapshot);
         ASSERT_FALSE(snapshot.item_changes.full_update);
         check();
-        EXPECT_FALSE(submission.item_changes.full_update);
-        ASSERT_EQ(submission.render_items.size(), 1u);
+        EXPECT_FALSE(world.item_changes.full_update);
+        ASSERT_EQ(world.render_items.size(), 1u);
         scene.destroy_entity(only);
         extractor.update(scene, snapshot);
         ASSERT_FALSE(snapshot.item_changes.full_update);
         check();
-        EXPECT_FALSE(submission.item_changes.full_update);
-        EXPECT_TRUE(submission.render_items.empty());
+        EXPECT_FALSE(world.item_changes.full_update);
+        EXPECT_TRUE(world.render_items.empty());
         EXPECT_FALSE(geometry.get_scene_bounds());
         Scene replacement;
         auto entity = replacement.create_entity();
@@ -304,12 +301,9 @@ namespace Comet::Tests {
         for(uint64_t index = 0; index < 32; ++index)
             entities.push_back(create(index));
         RenderScene snapshot;
-        RenderSubmission submission;
+        RenderWorld world;
         SceneResolver resolver(assets);
         RenderGeometry geometry;
-        const RenderView view{.render_size = {160, 120},
-            .camera_selection = RenderView::CameraSelection::Override,
-            .camera_override = RenderCamera{}};
         SceneExtractor::extract(scene, snapshot);
         const auto frozen = snapshot;
         for(uint64_t step = 0; step < 64; ++step) {
@@ -344,19 +338,19 @@ namespace Comet::Tests {
             else
                 std::rotate(snapshot.render_items.begin(), snapshot.render_items.begin() + 1,
                     snapshot.render_items.end());
-            resolver.resolve(snapshot, view, submission);
-            const auto expected = resolver.resolve(snapshot, view);
-            ASSERT_EQ(submission.render_items.size(), expected.render_items.size());
-            geometry.prepare(submission);
+            resolver.resolve(snapshot, world);
+            const auto expected = resolver.resolve(snapshot);
+            ASSERT_EQ(world.render_items.size(), expected.render_items.size());
+            geometry.prepare(world);
             RenderGeometry reference;
             reference.prepare(expected);
             for(std::size_t item = 0; item < expected.render_items.size(); ++item) {
                 EXPECT_EQ(
-                    submission.render_items[item].entity_id, expected.render_items[item].entity_id);
-                EXPECT_EQ(submission.render_items[item].model_matrix,
+                    world.render_items[item].entity_id, expected.render_items[item].entity_id);
+                EXPECT_EQ(world.render_items[item].model_matrix,
                     expected.render_items[item].model_matrix);
-                EXPECT_EQ(submission.render_items[item].mesh, expected.render_items[item].mesh);
-                EXPECT_EQ(submission.render_items[item].material.resource,
+                EXPECT_EQ(world.render_items[item].mesh, expected.render_items[item].mesh);
+                EXPECT_EQ(world.render_items[item].material.resource,
                     expected.render_items[item].material.resource);
                 ASSERT_TRUE(geometry.get_items()[item].world_bounds);
                 ASSERT_TRUE(reference.get_items()[item].world_bounds);
@@ -392,12 +386,12 @@ namespace Comet::Tests {
                 .mesh_revision = assets.get_revision(handle),
                 .mesh = mesh.value()};
         };
-        RenderSubmission submission{.scene_lifetime = 1,
+        RenderWorld world{.scene_lifetime = 1,
             .render_items = {make_item(1, -10), make_item(2, 0), make_item(3, 10)}};
-        auto& items = submission.render_items;
+        auto& items = world.render_items;
         RenderGeometry geometry;
         const auto verify = [&](float minimum, float maximum) {
-            geometry.prepare(submission);
+            geometry.prepare(world);
             ASSERT_EQ(geometry.get_items().size(), items.size());
             for(std::size_t index = 0; index < items.size(); ++index) {
                 const auto expected =
@@ -430,12 +424,12 @@ namespace Comet::Tests {
         verify(-101, 11);
         items.back().model_matrix[0][0] = std::numeric_limits<float>::quiet_NaN();
         ++items.back().transform_revision;
-        geometry.prepare(submission);
+        geometry.prepare(world);
         EXPECT_FALSE(geometry.get_items().back().world_bounds);
         ASSERT_TRUE(geometry.get_scene_bounds());
         EXPECT_EQ(geometry.get_scene_bounds()->minimum.x, -31);
         items.clear();
-        geometry.prepare(submission);
+        geometry.prepare(world);
         EXPECT_TRUE(geometry.get_items().empty());
         EXPECT_FALSE(geometry.get_scene_bounds());
     }
@@ -461,18 +455,15 @@ namespace Comet::Tests {
         ASSERT_TRUE(scene.set_parent(child, parent));
         SceneResolver resolver(assets);
         RenderScene extracted;
-        RenderSubmission submission;
+        RenderWorld world;
         RenderGeometry geometry;
-        const RenderView view{.render_size = {160, 120},
-            .camera_selection = RenderView::CameraSelection::Override,
-            .camera_override = RenderCamera{}};
         const auto resolve = [&] {
-            resolver.resolve(extracted, view, submission);
-            geometry.prepare(submission);
-            ASSERT_EQ(geometry.get_items().size(), submission.render_items.size());
+            resolver.resolve(extracted, world);
+            geometry.prepare(world);
+            ASSERT_EQ(geometry.get_items().size(), world.render_items.size());
             std::optional<BoundingBox> reference;
-            for(std::size_t index = 0; index < submission.render_items.size(); ++index) {
-                const auto& item = submission.render_items[index];
+            for(std::size_t index = 0; index < world.render_items.size(); ++index) {
+                const auto& item = world.render_items[index];
                 const auto bounds = transform_box(item.mesh->get_local_bounds(), item.model_matrix);
                 ASSERT_TRUE(bounds);
                 ASSERT_TRUE(geometry.get_items()[index].world_bounds);
@@ -492,7 +483,7 @@ namespace Comet::Tests {
         };
         SceneExtractor::extract(scene, extracted);
         resolve();
-        const auto frozen = submission;
+        const auto frozen = world;
         for(const auto& item : frozen.render_items)
             EXPECT_EQ(item.mesh_revision, assets.get_revision(mesh));
         geometry.clear();
@@ -507,13 +498,13 @@ namespace Comet::Tests {
         auto next_material = std::make_shared<Material>("next", "pbr");
         ASSERT_TRUE(assets.replace_asset(material, next_material));
         resolve();
-        for(const auto& item : submission.render_items) {
+        for(const auto& item : world.render_items) {
             EXPECT_EQ(item.mesh_revision, frozen.render_items.front().mesh_revision);
             EXPECT_EQ(item.material.resource, next_material);
         }
         ASSERT_TRUE(assets.replace_asset(mesh, larger.value()));
         resolve();
-        for(const auto& item : submission.render_items) {
+        for(const auto& item : world.render_items) {
             EXPECT_NE(item.mesh_revision, frozen.render_items.front().mesh_revision);
             EXPECT_EQ(item.mesh, larger.value());
             EXPECT_EQ(item.material.resource, next_material);
@@ -534,12 +525,12 @@ namespace Comet::Tests {
         EXPECT_EQ(geometry.get_scene_bounds()->minimum, Math::Vec3(-7, -2, -2));
         ASSERT_TRUE(assets.unregister_asset(mesh));
         resolve();
-        EXPECT_TRUE(submission.render_items.empty());
+        EXPECT_TRUE(world.render_items.empty());
         ASSERT_TRUE(assets.register_asset(mesh, original.value()));
         resolve();
         EXPECT_EQ(geometry.get_scene_bounds()->maximum, Math::Vec3(-4, 1, 1));
         assets.clear();
         resolve();
-        EXPECT_TRUE(submission.render_items.empty());
+        EXPECT_TRUE(world.render_items.empty());
     }
 }
