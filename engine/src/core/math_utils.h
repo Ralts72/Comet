@@ -7,6 +7,7 @@
 #include <glm/gtx/quaternion.hpp>
 
 #include <cmath>
+#include <optional>
 
 namespace Comet::Math {
     inline constexpr float PI = 3.14159265358979323846f;
@@ -52,6 +53,16 @@ namespace Comet::Math {
     }
     inline Vec3 normalize(const Vec3& v) {
         return glm::normalize(v);
+    }
+    [[nodiscard]] inline std::optional<Vec3> normalized_direction(const Vec3& value) {
+        if(!is_finite(value))
+            return std::nullopt;
+        const auto magnitude = glm::abs(value);
+        const float largest = glm::max(magnitude.x, glm::max(magnitude.y, magnitude.z));
+        if(largest == 0)
+            return std::nullopt;
+        // 先缩放，避免有限的极大／极小方向在求长度时溢出或下溢。
+        return glm::normalize(value / largest);
     }
     inline float dot(const Vec3& a, const Vec3& b) {
         return glm::dot(a, b);

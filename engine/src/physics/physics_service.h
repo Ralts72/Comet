@@ -8,6 +8,8 @@
 #include <cstddef>
 #include <memory>
 #include <span>
+#include <utility>
+#include <variant>
 #include <vector>
 
 namespace Comet {
@@ -43,11 +45,14 @@ namespace Comet {
             EntityId entity;
             TransformComponent transform;
         };
+        using JointSettings = std::variant<PointJointComponent, HingeJointComponent>;
+        using JointKey = std::pair<EntityId, std::size_t>;
         struct JointDefinition {
             EntityUuid uuid;
             EntityId entity;
             EntityId connected_entity;
-            PointJointComponent joint;
+            JointSettings joint;
+            [[nodiscard]] JointKey key() const { return {entity, joint.index()}; }
         };
         struct ContactChange {
             enum class Kind { CollisionEnter, CollisionExit, TriggerEnter, TriggerExit } kind;
@@ -71,7 +76,7 @@ namespace Comet {
         Result<void, Error> prepare_world();
         // 区分首次登记与重建，重建后需重新绑定关节。
         Result<BodyChange, Error> synchronize_body(const BodyDefinition& definition);
-        // 完整内容列表按 EntityId 排序；仅配置／结构变化或刚体重建时调用。
+        // 按实体与关节类型排序；仅配置／结构变化或刚体重建时调用。
         Result<void, Error> synchronize_joints(std::span<const JointDefinition> definitions);
         void remove_body(EntityUuid uuid, EntityId entity);
         Result<void, Error> step(float delta_time);

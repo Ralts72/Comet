@@ -324,6 +324,35 @@
           "connected_anchor": [0.4279271, 0.89574564, 0.25]
         }
       }
+    },
+    {
+      "uuid": "3a3b6b9d-86f7-4a27-848d-96496676c62d",
+      "components": {
+        "name": "Hinge_Pendulum",
+        "transform": {
+          "translation": [-0.6, 0.65, 0.25],
+          "rotation": [0, 0, 35],
+          "scale": [0.2, 0.6, 0.2]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6482638524486200214
+        },
+        "rigid_body": { "motion": "dynamic" },
+        "collider": {
+          "shape": "box",
+          "half_extents": [0.5, 0.5, 0.5],
+          "radius": 0.5
+        },
+        "hinge_joint": {
+          "enabled": true,
+          "connected_body": { "entity": "00000000-0000-0000-0000-000000000000" },
+          "anchor": [0, 0.5, 0],
+          "connected_anchor": [-0.7720729, 0.89574564, 0.25],
+          "axis": [0, 0, 1],
+          "connected_axis": [0, 0, 1]
+        }
+      }
     }
   ]
 }

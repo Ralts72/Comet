@@ -23,19 +23,42 @@ namespace CometEditor {
     namespace {
         using Caption = std::pair<std::string_view, std::string_view>;
 
-        std::optional<Comet::Math::Vec3> aligned_point_joint_anchor(
-            Comet::Scene& scene, const Comet::Entity entity) {
+        std::optional<Comet::Math::Vec3> aligned_joint_value(Comet::Scene& scene,
+            const Comet::Entity entity, const Comet::ComponentDescriptor& component,
+            const bool direction) {
+            using namespace Comet;
             if(!entity.has_component<Comet::TransformComponent>())
                 return std::nullopt;
-            const auto& joint = entity.get_component<Comet::PointJointComponent>();
-            auto position = scene.get_world_matrix(entity) * Comet::Math::Vec4(joint.anchor, 1);
-            if(joint.connected_body) {
-                const auto connected = scene.find_entity(joint.connected_body);
+            const auto* data = component.get_component(std::as_const(entity));
+            const auto reference = component.find_property("connected_body")->copy_value(data);
+            const auto local =
+                component.find_property(direction ? "axis" : "anchor")->copy_value(data);
+            if(!reference || !local)
+                return std::nullopt;
+            auto value = std::get<Math::Vec3>(*local);
+            if(direction) {
+                const auto normalized = Math::normalized_direction(value);
+                if(!normalized)
+                    return std::nullopt;
+                value = *normalized;
+            }
+            const auto matrix = [&](Entity body) -> const Math::Mat4& {
+                const auto& world = scene.get_world_matrix(body);
+                if(direction)
+                    return body.get_component<WorldTransformComponent>().pose_world_matrix;
+                return world;
+            };
+            auto position = matrix(entity) * Math::Vec4(value, direction ? 0 : 1);
+            const auto connected_body = std::get<EntityUuid>(*reference);
+            if(connected_body) {
+                const auto connected = scene.find_entity(connected_body);
                 if(!connected || !connected.has_component<Comet::TransformComponent>())
                     return std::nullopt;
-                position = glm::inverse(scene.get_world_matrix(connected)) * position;
+                position = glm::inverse(matrix(connected)) * position;
             }
             const Comet::Math::Vec3 anchor{position};
+            if(direction)
+                return Math::normalized_direction(anchor);
             if(!Comet::Math::is_finite(anchor))
                 return std::nullopt;
             return anchor;
@@ -57,7 +80,7 @@ namespace CometEditor {
                 {"transform", "变换"}, {"mesh_renderer", "网格渲染"}, {"camera", "相机"},
                 {"camera_controller", "相机控制器"}, {"audio_source", "音频源"},
                 {"rigid_body", "刚体"}, {"collider", "碰撞体"}, {"point_joint", "点关节"},
-                {"light", "光源"}};
+                {"hinge_joint", "铰链关节"}, {"light", "光源"}};
             static constexpr Caption properties[]{{"script/asset", "脚本"},
                 {"script/parameters", "参数"}, {"name/name", "名称"},
                 {"transform/translation", "位置"}, {"transform/rotation", "旋转"},
@@ -77,9 +100,7 @@ namespace CometEditor {
                 {"rigid_body/continuous_collision", "连续碰撞 (CCD)"}, {"collider/shape", "形状"},
                 {"collider/half_extents", "盒体半尺寸"}, {"collider/radius", "球体半径"},
                 {"collider/is_trigger", "触发器"}, {"collider/friction", "摩擦系数"},
-                {"collider/restitution", "弹性系数"}, {"point_joint/enabled", "启用"},
-                {"point_joint/connected_body", "连接刚体"}, {"point_joint/anchor", "本地锚点"},
-                {"point_joint/connected_anchor", "连接锚点"}, {"light/type", "类型"},
+                {"collider/restitution", "弹性系数"}, {"light/type", "类型"},
                 {"light/enabled", "启用"}, {"light/casts_shadow", "投射阴影（方向光）"},
                 {"light/color", "颜色（线性）"}, {"light/intensity", "强度"},
                 {"light/range", "范围"}, {"light/inner_angle", "内角"},
@@ -89,14 +110,21 @@ namespace CometEditor {
                 {"static", "静态"}, {"dynamic", "动态"}, {"kinematic", "运动学"}, {"box", "盒体"},
                 {"sphere", "球体"}, {"directional", "方向光"}, {"point", "点光源"},
                 {"spot", "聚光灯"}, {"mass", "指定质量"}, {"density", "按密度计算"}};
+            static constexpr Caption joint_properties[]{{"enabled", "启用"},
+                {"connected_body", "连接刚体"}, {"anchor", "本地锚点"},
+                {"connected_anchor", "连接锚点"}, {"axis", "本地转轴"},
+                {"connected_axis", "连接转轴"}};
 
             const auto& descriptors = source.components();
             std::vector<Comet::ComponentDescriptor> result(descriptors.begin(), descriptors.end());
             for(auto& component : result) {
                 set_caption(component.display_name, component.id, components);
                 for(auto& property : component.properties) {
-                    set_caption(
-                        property.display_name, component.id + "/" + property.id, properties);
+                    if(component.id == "point_joint" || component.id == "hinge_joint")
+                        set_caption(property.display_name, property.id, joint_properties);
+                    else
+                        set_caption(
+                            property.display_name, component.id + "/" + property.id, properties);
                     for(auto& option : property.enum_options)
                         set_caption(option.display_name, option.id, enum_options);
                 }
@@ -345,6 +373,9 @@ namespace CometEditor {
         auto value = property.copy_value(component.get_component(std::as_const(entity)));
         if(!value)
             return;
+        const bool joint = component.id == "point_joint" || component.id == "hinge_joint";
+        const bool align_joint =
+            joint && (property.id == "connected_anchor" || property.id == "connected_axis");
         if(property.type == Comet::PropertyType::AssetHandle && property.asset_type) {
             render_asset_property({entity.get_uuid(), component.id, property.id}, property,
                 std::get<Comet::AssetHandle>(*value));
@@ -362,6 +393,16 @@ namespace CometEditor {
         } else {
             if(!m_property_editor_registry.contains(property.type))
                 return;
+            if(align_joint) {
+                const auto& style = ImGui::GetStyle();
+                const float button_width = ImGui::CalcTextSize("对齐").x + style.FramePadding.x * 2;
+                const float label_width =
+                    ImGui::CalcTextSize(property.display_name.c_str(), nullptr, true).x
+                    + style.ItemInnerSpacing.x;
+                ImGui::SetNextItemWidth(
+                    std::max(1.0f, ImGui::GetContentRegionAvail().x - label_width
+                                       - style.ItemSpacing.x - button_width));
+            }
             result = std::visit(
                 [&](auto& edited) {
                     return m_property_editor_registry.edit_property(property, &edited);
@@ -369,28 +410,44 @@ namespace CometEditor {
                 *value);
         }
         apply_property_edit(entity, component, property, *value, result);
-        if(component.id == "point_joint" && property.id == "connected_body")
+        if(joint && property.id == "connected_body")
             ImGui::SetItemTooltip("选择另一刚体；无连接刚体时，连接锚点为固定世界位置。\n"
                                   "缺失实体／刚体会停用该连接；至少一端须为动态刚体。\n"
                                   "连接不自动关闭两物体之间的碰撞。");
         if(component.id == "point_joint" && property.id == "anchor")
             ImGui::SetItemTooltip("本实体的本地锚点，随缩放；点关节固定位置，允许自由转动。");
-        if(component.id == "point_joint" && property.id == "connected_anchor") {
-            ImGui::SetItemTooltip("连接到刚体时为对方的本地锚点，随其缩放；否则为固定世界位置。\n"
-                                  "两锚点应在同一世界位置，否则求解器会拉动刚体使它们重合。\n"
-                                  "右键可对齐到本地锚点；修改在下一固定步生效，保留当前速度。");
-            if(ImGui::BeginPopupContextItem("Joint anchor actions")) {
-                const auto aligned = aligned_point_joint_anchor(m_selection.get_scene(), entity);
-                if(ImGui::MenuItem("对齐到本地锚点###Align joint anchor", nullptr, false,
-                       aligned.has_value())) {
-                    if(m_property_edit.commit())
-                        apply_property_edit(entity, component, property, *aligned,
-                            {.changed = true, .finished = true});
-                    else
-                        LOG_ERROR("Cannot finish property edit before aligning joint anchor");
-                }
-                ImGui::EndPopup();
+        if(component.id == "hinge_joint" && property.id == "anchor")
+            ImGui::SetItemTooltip("本实体的本地锚点，随缩放；铰链固定位置，仅允许绕转轴旋转。");
+        if(joint && property.id == "connected_anchor")
+            ImGui::SetItemTooltip(
+                "连接到刚体时为对方的本地锚点，随其缩放；否则为固定世界位置。\n"
+                "两锚点应在同一世界位置，否则求解器会拉动刚体使它们重合。\n"
+                "旁边的对齐按钮可对齐到本地锚点；修改在下一固定步生效，保留当前速度。");
+        if(component.id == "hinge_joint" && property.id == "axis")
+            ImGui::SetItemTooltip("本实体的本地转轴，只受旋转影响，不随缩放。\n"
+                                  "方向须非零且有限，模拟会归一化；当前为无限位的自由铰链。");
+        if(component.id == "hinge_joint" && property.id == "connected_axis")
+            ImGui::SetItemTooltip("连接到刚体时为对方的本地方向，否则为世界方向；不随缩放。\n"
+                                  "两端转轴应在世界中同向，否则求解器会转动刚体使它们对齐。\n"
+                                  "旁边的对齐按钮可对齐到本地转轴；修改在下一固定步生效。");
+        if(align_joint) {
+            const bool direction = property.id == "connected_axis";
+            const char* caption =
+                direction ? "对齐###Align joint axis" : "对齐###Align joint anchor";
+            const auto aligned =
+                aligned_joint_value(m_selection.get_scene(), entity, component, direction);
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!aligned);
+            if(ImGui::Button(caption)) {
+                if(m_property_edit.commit())
+                    apply_property_edit(
+                        entity, component, property, *aligned, {.changed = true, .finished = true});
+                else
+                    LOG_ERROR("Cannot finish property edit before aligning joint");
             }
+            ImGui::EndDisabled();
+            ImGui::SetItemTooltip(direction ? "将连接转轴对齐到本地转轴的世界方向。"
+                                            : "将连接锚点对齐到本地锚点的世界位置。");
         }
         if(component.id == "rigid_body" && property.id == "mass_mode")
             ImGui::SetItemTooltip("指定质量：缩放保持质量，只改变形状与惯性。\n"

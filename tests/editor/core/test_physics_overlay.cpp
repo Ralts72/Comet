@@ -173,6 +173,98 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(lines.empty());
     }
 
+    TEST(PhysicsOverlayTest, HingeAxesUseUnscaledRotationsAndInvalidDirectionsAreMarked) {
+        Scene scene;
+        auto entity = scene.create_entity();
+        entity.add_component<RigidBodyComponent>();
+        entity.add_component<ColliderComponent>();
+        entity.edit_transform([](auto& value) {
+            value.translation = {2, 3, 4};
+            value.rotation.z = 90;
+            value.scale = {2, 1, 0.5f};
+        });
+        auto target = scene.create_entity();
+        target.add_component<RigidBodyComponent>(RigidBodyComponent{.motion = BodyMotion::Static});
+        target.add_component<ColliderComponent>();
+        target.edit_transform([](auto& value) {
+            value.translation = {3, 5, 4};
+            value.rotation.z = -90;
+            value.scale = {3, 1, 6};
+        });
+        entity.add_component<HingeJointComponent>(
+            HingeJointComponent{.connected_body = target.get_uuid(),
+                .anchor = {1, 0, 0},
+                .axis = {1, 1, 0},
+                .connected_axis = {1, 1, 0}});
+        LineDrawList lines;
+        append_joint_anchors(scene, lines);
+        ASSERT_GE(lines.vertices().size(), 6u);
+        const auto axes = lines.vertices().last(6).first(4);
+        EXPECT_LT(Math::length((axes[0].position + axes[1].position) * 0.5f - Math::Vec3(2, 5, 4)),
+            1e-5f);
+        EXPECT_LT(Math::length((axes[2].position + axes[3].position) * 0.5f - Math::Vec3(3, 5, 4)),
+            1e-5f);
+        EXPECT_LT(Math::length((axes[1].position - axes[0].position)
+                               - Math::normalize(Math::Vec3(-1, 1, 0)) * 0.36f),
+            1e-5f);
+        EXPECT_LT(Math::length((axes[3].position - axes[2].position)
+                               - Math::normalize(Math::Vec3(1, -1, 0)) * 0.36f),
+            1e-5f);
+        entity.edit_component<HingeJointComponent>([](auto& joint) {
+            joint.connected_body = {};
+            joint.connected_anchor = {3, 5, 4};
+        });
+        lines.clear();
+        append_joint_anchors(scene, lines);
+        const auto world_axis = lines.vertices().last(4).first(2);
+        EXPECT_LT(Math::length((world_axis[1].position - world_axis[0].position)
+                               - Math::normalize(Math::Vec3(1, 1, 0)) * 0.36f),
+            1e-5f);
+        for(const auto direction :
+            {Math::Vec3(0), Math::Vec3(0, 0, std::numeric_limits<float>::infinity())}) {
+            entity.edit_component<HingeJointComponent>(
+                [&](auto& joint) { joint.axis = direction; });
+            lines.clear();
+            append_joint_anchors(scene, lines);
+            ASSERT_FALSE(lines.empty());
+            for(const auto& vertex : lines.vertices()) {
+                EXPECT_TRUE(Math::is_finite(vertex.position));
+                EXPECT_EQ(vertex.color, Math::Vec4(1, 0.2f, 0.2f, 1));
+            }
+        }
+    }
+
+    TEST(PhysicsOverlayTest, HingeAxisPreviewUsesInterpolatedRotation) {
+        class Rotate final: public System {
+        public:
+            Result<void, Error> fixed_update(Scene& scene, const Context&) override {
+                scene.each<const HingeJointComponent>(
+                    [](Entity entity, const HingeJointComponent&) {
+                        entity.edit_transform([](auto& value) { value.rotation.z += 90; });
+                    });
+                return Result<void, Error>::success();
+            }
+        };
+        Scene scene;
+        SceneRuntime runtime;
+        auto entity = scene.create_entity();
+        entity.add_component<RigidBodyComponent>();
+        entity.add_component<ColliderComponent>();
+        entity.add_component<HingeJointComponent>(HingeJointComponent{.axis = {1, 0, 0}});
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.1}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Rotate>()));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.15));
+        LineDrawList lines;
+        append_joint_anchors(scene, lines);
+        const auto axes = lines.vertices().last(4);
+        EXPECT_LT(Math::length((axes[1].position - axes[0].position)
+                               - Math::normalize(Math::Vec3(1, 1, 0)) * 0.36f),
+            1e-5f);
+        EXPECT_FLOAT_EQ(entity.get_component<TransformComponent>().rotation.z, 90);
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST(PhysicsOverlayTest, CaptureUsesInterpolatedPoseAndPauseStepWithoutMutatingSceneState) {
         class Move final: public System {
         public:

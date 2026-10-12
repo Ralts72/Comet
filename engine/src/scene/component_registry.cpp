@@ -10,6 +10,17 @@
 #include <utility>
 
 namespace Comet {
+    namespace {
+        template<typename Joint> std::vector<PropertyDescriptor> joint_properties() {
+            return {make_property_descriptor("enabled", "Enabled", &Joint::enabled),
+                make_property_descriptor(
+                    "connected_body", "Connected Body", &Joint::connected_body),
+                make_property_descriptor("anchor", "Local Anchor", &Joint::anchor),
+                make_property_descriptor(
+                    "connected_anchor", "Connected Anchor", &Joint::connected_anchor)};
+        }
+    }
+
     bool ComponentDescriptor::assign_property(Entity entity, std::string_view property_id,
         const PropertyValue& value, PropertyDescriptor::WriteMode mode) const {
         const auto* property = find_property(property_id);
@@ -263,14 +274,15 @@ namespace Comet {
                             .maximum = 1,
                             .enforce_bounds = true}})}));
 
-        register_component(make_component_descriptor<PointJointComponent>("point_joint",
-            "Point Joint",
-            {make_property_descriptor("enabled", "Enabled", &PointJointComponent::enabled),
-                make_property_descriptor(
-                    "connected_body", "Connected Body", &PointJointComponent::connected_body),
-                make_property_descriptor("anchor", "Local Anchor", &PointJointComponent::anchor),
-                make_property_descriptor("connected_anchor", "Connected Anchor",
-                    &PointJointComponent::connected_anchor)}));
+        register_component(make_component_descriptor<PointJointComponent>(
+            "point_joint", "Point Joint", joint_properties<PointJointComponent>()));
+        auto hinge_properties = joint_properties<HingeJointComponent>();
+        hinge_properties.push_back(
+            make_property_descriptor("axis", "Local Axis", &HingeJointComponent::axis));
+        hinge_properties.push_back(make_property_descriptor(
+            "connected_axis", "Connected Axis", &HingeJointComponent::connected_axis));
+        register_component(make_component_descriptor<HingeJointComponent>(
+            "hinge_joint", "Hinge Joint", std::move(hinge_properties)));
 
         register_component(make_component_descriptor<LightComponent>("light", "Light",
             {make_enum_property_descriptor<LightComponent, LightType>("type", "Type",

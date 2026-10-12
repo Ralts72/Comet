@@ -63,43 +63,25 @@ namespace CometEditor {
                 static_cast<void>(lines.add_line(position - offset, position + offset, color));
             }
         }
-    }
-
-    void append_collider_outlines(Comet::Scene& scene, Comet::LineDrawList& lines) {
-        scene.each<const Comet::TransformComponent, const Comet::ColliderComponent>(
-            [&](const Comet::Entity entity, const Comet::TransformComponent& transform,
-                const Comet::ColliderComponent& collider) {
-                const auto color = collider_color(entity, collider, transform);
-                const auto& matrix = scene.get_render_transform(entity).world_matrix;
-                switch(collider.shape) {
-                    case Comet::ColliderShape::Box:
-                        if(Comet::Math::is_finite(collider.half_extents)
-                            && glm::all(
-                                glm::greaterThan(collider.half_extents, Comet::Math::Vec3(0))))
-                            static_cast<void>(lines.add_box({.minimum = -collider.half_extents,
-                                                                .maximum = collider.half_extents},
-                                matrix, color));
-                        break;
-                    case Comet::ColliderShape::Sphere:
-                        static_cast<void>(lines.add_sphere(collider.radius, matrix, color));
-                        break;
-                }
-            });
-    }
-
-    void append_joint_anchors(Comet::Scene& scene, Comet::LineDrawList& lines) {
-        using namespace Comet;
-        scene.each<const TransformComponent, const PointJointComponent>(
-            [&](const Entity entity, const TransformComponent&, const PointJointComponent& joint) {
-                const auto& first_matrix = scene.get_render_transform(entity).world_matrix;
+        template<typename Joint>
+        void append_joint_type_anchors(Comet::Scene& scene, Comet::LineDrawList& lines) {
+            using namespace Comet;
+            scene.each<const TransformComponent, const Joint>([&](const Entity entity,
+                                                                  const TransformComponent&,
+                                                                  const Joint& joint) {
+                const auto& first_pose = scene.get_render_transform(entity);
+                const auto& first_matrix = first_pose.world_matrix;
                 const auto first_anchor = Math::Vec3(first_matrix * Math::Vec4(joint.anchor, 1));
                 if(!Math::is_finite(first_anchor))
                     return;
-                const auto connected = scene.find_entity(joint.connected_body);
-                const bool supported = supported_joint_body(entity)
-                                       && (!joint.connected_body || supported_joint_body(connected))
-                                       && joint.connected_body != entity.get_uuid()
-                                       && (dynamic_body(entity) || dynamic_body(connected));
+                const Entity connected = scene.find_entity(joint.connected_body);
+                bool supported = supported_joint_body(entity)
+                                 && (!joint.connected_body || supported_joint_body(connected))
+                                 && joint.connected_body != entity.get_uuid()
+                                 && (dynamic_body(entity) || dynamic_body(connected));
+                if constexpr(std::is_same_v<Joint, HingeJointComponent>)
+                    supported &= Math::normalized_direction(joint.axis).has_value()
+                                 && Math::normalized_direction(joint.connected_axis).has_value();
                 Math::Vec4 first_color{1, 0.65f, 0.1f, 1};
                 Math::Vec4 second_color{0.1f, 0.9f, 0.9f, 1};
                 Math::Vec4 gap_color{1, 1, 0.2f, 1};
@@ -125,8 +107,55 @@ namespace CometEditor {
                 static_cast<void>(lines.add_box(
                     {.minimum = second_anchor - half_size, .maximum = second_anchor + half_size},
                     second_color));
+                if constexpr(std::is_same_v<Joint, HingeJointComponent>) {
+                    const auto first_axis = Math::normalized_direction(joint.axis);
+                    const auto second_axis = Math::normalized_direction(joint.connected_axis);
+                    if(first_axis) {
+                        const auto direction =
+                            Math::Vec3(first_pose.pose_world_matrix * Math::Vec4(*first_axis, 0));
+                        static_cast<void>(lines.add_line(first_anchor - direction * 0.18f,
+                            first_anchor + direction * 0.18f, first_color));
+                    }
+                    if(second_axis) {
+                        auto direction = *second_axis;
+                        if(connected)
+                            direction =
+                                Math::Vec3(scene.get_render_transform(connected).pose_world_matrix
+                                           * Math::Vec4(direction, 0));
+                        static_cast<void>(lines.add_line(second_anchor - direction * 0.18f,
+                            second_anchor + direction * 0.18f, second_color));
+                    }
+                }
                 if(first_anchor != second_anchor)
                     static_cast<void>(lines.add_line(first_anchor, second_anchor, gap_color));
             });
+        }
+    }
+
+    void append_collider_outlines(Comet::Scene& scene, Comet::LineDrawList& lines) {
+        scene.each<const Comet::TransformComponent, const Comet::ColliderComponent>(
+            [&](const Comet::Entity entity, const Comet::TransformComponent& transform,
+                const Comet::ColliderComponent& collider) {
+                const auto color = collider_color(entity, collider, transform);
+                const auto& matrix = scene.get_render_transform(entity).world_matrix;
+                switch(collider.shape) {
+                    case Comet::ColliderShape::Box:
+                        if(Comet::Math::is_finite(collider.half_extents)
+                            && glm::all(
+                                glm::greaterThan(collider.half_extents, Comet::Math::Vec3(0))))
+                            static_cast<void>(lines.add_box({.minimum = -collider.half_extents,
+                                                                .maximum = collider.half_extents},
+                                matrix, color));
+                        break;
+                    case Comet::ColliderShape::Sphere:
+                        static_cast<void>(lines.add_sphere(collider.radius, matrix, color));
+                        break;
+                }
+            });
+    }
+
+    void append_joint_anchors(Comet::Scene& scene, Comet::LineDrawList& lines) {
+        append_joint_type_anchors<Comet::PointJointComponent>(scene, lines);
+        append_joint_type_anchors<Comet::HingeJointComponent>(scene, lines);
     }
 }

@@ -79,13 +79,16 @@ namespace Comet {
 
     Result<void, Error> PhysicsSystem::synchronize_joints(Scene& scene) {
         std::vector<PhysicsService::JointDefinition> definitions;
-        definitions.reserve(scene.component_count<PointJointComponent>());
-        scene.each<const PointJointComponent>([&](Entity entity, const PointJointComponent& joint) {
+        definitions.reserve(scene.component_count<PointJointComponent>()
+                            + scene.component_count<HingeJointComponent>());
+        const auto append = [&](Entity entity, const auto& joint) {
             const auto connected = scene.find_entity(joint.connected_body);
             definitions.push_back({entity.get_uuid(), entity.get_id(),
                 connected ? connected.get_id() : INVALID_ENTITY_ID, joint});
-        });
-        std::ranges::sort(definitions, {}, &PhysicsService::JointDefinition::entity);
+        };
+        scene.each<const PointJointComponent>(append);
+        scene.each<const HingeJointComponent>(append);
+        std::ranges::sort(definitions, {}, &PhysicsService::JointDefinition::key);
         return m_physics.synchronize_joints(definitions);
     }
 

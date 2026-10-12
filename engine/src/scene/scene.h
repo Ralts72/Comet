@@ -199,7 +199,7 @@ namespace Comet {
                          || is_scene_physics_component_v<Component>)
                 mark_physics_dirty(handle);
 
-            if constexpr(std::is_same_v<Component, PointJointComponent>)
+            if constexpr(is_scene_joint_component_v<Component>)
                 m_physics_joints_changed = true;
 
             if(structure_changed) {

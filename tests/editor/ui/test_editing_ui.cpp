@@ -47,7 +47,8 @@ namespace CometEditor::Tests {
         SceneCommands::EntityClipboard clipboard;
         std::unique_ptr<HierarchyPanel> hierarchy;
         ImVec2 drag_point{};
-        ImVec2 joint_anchor_point{};
+        ImVec2 joint_anchor_button{};
+        ImVec2 joint_axis_button{};
         ImVec2 text_point{};
         float inspector_width = 700;
         bool draw_trailing_item = false;
@@ -67,9 +68,18 @@ namespace CometEditor::Tests {
                         const auto start = ImGui::GetItemRectMin();
                         drag_point = ImVec2(start.x + 20, start.y + 8);
                     }
-                    if(property.id == "connected_anchor") {
+                    if(property.id == "connected_anchor" || property.id == "connected_axis") {
                         const auto start = ImGui::GetItemRectMin();
-                        joint_anchor_point = ImVec2(start.x + 20, start.y + 8);
+                        const auto end = ImGui::GetItemRectMax();
+                        const auto& style = ImGui::GetStyle();
+                        const float width =
+                            ImGui::CalcTextSize("对齐").x + style.FramePadding.x * 2;
+                        const ImVec2 button{
+                            end.x + style.ItemSpacing.x + width * 0.5f, (start.y + end.y) * 0.5f};
+                        if(property.id == "connected_anchor")
+                            joint_anchor_button = button;
+                        else
+                            joint_axis_button = button;
                     }
                     if(draw_trailing_item)
                         ImGui::TextUnformatted("Extra widget content");
@@ -163,18 +173,8 @@ namespace CometEditor::Tests {
             frame();
         }
 
-        void align_joint_anchor() {
-            click(joint_anchor_point, ImGuiMouseButton_Right);
-            frame();
-            ASSERT_FALSE(GImGui->OpenPopupStack.empty());
-            auto* popup = GImGui->OpenPopupStack.back().Window;
-            ASSERT_NE(popup, nullptr);
-            ImGui::ActivateItemByID(popup->GetID("Align joint anchor"));
-            frame();
-            if(!GImGui->OpenPopupStack.empty())
-                ImGui::ClosePopupToLevel(0, true);
-            frame();
-        }
+        void align_joint_anchor() { click(joint_anchor_button); }
+        void align_joint_axis() { click(joint_axis_button); }
 
         ImVec2 entity_parameter_point() {
             auto* window = ImGui::FindWindowByName("Inspector");
@@ -365,6 +365,32 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(scene.get_parent(player));
     }
 
+    TEST_F(EditingUiTest, JointAlignButtonsFitNarrowInspectorAndUseLeftClick) {
+        entity.add_component<Comet::HingeJointComponent>(
+            Comet::HingeJointComponent{.anchor = {1, 2, 3}, .axis = {1, 1, 0}});
+        for(const float width : {700.0f, 480.0f, 320.0f}) {
+            inspector_width = width;
+            frame();
+            frame();
+            const auto* window = ImGui::FindWindowByName("Inspector");
+            ASSERT_NE(window, nullptr);
+            for(const auto button : {joint_anchor_button, joint_axis_button}) {
+                EXPECT_GT(button.x, window->WorkRect.Min.x);
+                EXPECT_LT(button.x, window->WorkRect.Max.x);
+            }
+            ASSERT_NO_FATAL_FAILURE(align_joint_anchor());
+            EXPECT_EQ(entity.get_component<Comet::HingeJointComponent>().connected_anchor,
+                Comet::Math::Vec3(1, 2, 3));
+            ASSERT_NO_FATAL_FAILURE(align_joint_axis());
+            EXPECT_LT(Comet::Math::length(
+                          entity.get_component<Comet::HingeJointComponent>().connected_axis
+                          - Comet::Math::normalize(Comet::Math::Vec3(1, 1, 0))),
+                1e-5f);
+            EXPECT_TRUE(GImGui->OpenPopupStack.empty());
+        }
+        EXPECT_EQ(history.undo_size(), 2u);
+    }
+
     TEST_F(EditingUiTest, JointAnchorAlignmentConvertsBetweenBodiesAndIsUndoable) {
         entity.edit_transform([](auto& value) {
             value.translation = {2, 3, 4};
@@ -406,6 +432,58 @@ namespace CometEditor::Tests {
         ASSERT_NO_FATAL_FAILURE(align_joint_anchor());
         EXPECT_EQ(entity.get_component<Comet::PointJointComponent>(), aligned);
         EXPECT_EQ(history.undo_size(), 1u);
+    }
+
+    TEST_F(EditingUiTest, HingeAlignmentUsesUnscaledAxesSupportsUndoAndPlayEditing) {
+        using namespace Comet;
+        entity.edit_transform([](auto& value) {
+            value.translation = {2, 3, 4};
+            value.rotation.z = 90;
+            value.scale = {2, 1, 0.5f};
+        });
+        auto target = scene.create_entity();
+        target.edit_transform([](auto& value) {
+            value.translation = {5, 6, 7};
+            value.scale = {2, 3, 4};
+        });
+        const HingeJointComponent joint{
+            .connected_body = target.get_uuid(), .anchor = {1, 0, 0}, .axis = {1, 1, 0}};
+        entity.add_component<HingeJointComponent>(joint);
+        frame();
+        ASSERT_NO_FATAL_FAILURE(align_joint_anchor());
+        EXPECT_LT(Math::length(entity.get_component<HingeJointComponent>().connected_anchor
+                               - Math::Vec3(-1.5f, -1.0f / 3, -0.75f)),
+            1e-5f);
+        ASSERT_NO_FATAL_FAILURE(align_joint_axis());
+        const auto expected = Math::normalize(Math::Vec3(-1, 1, 0));
+        EXPECT_LT(
+            Math::length(entity.get_component<HingeJointComponent>().connected_axis - expected),
+            1e-5f);
+        EXPECT_EQ(history.undo_size(), 2u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(entity.get_component<HingeJointComponent>().connected_axis, joint.connected_axis);
+        ASSERT_TRUE(history.redo());
+        ASSERT_NO_FATAL_FAILURE(align_joint_axis());
+        EXPECT_EQ(history.undo_size(), 2u);
+        scene.destroy_entity(target);
+        ASSERT_NO_FATAL_FAILURE(align_joint_axis());
+        EXPECT_EQ(history.undo_size(), 2u);
+        entity.edit_component<HingeJointComponent>([](auto& value) {
+            value.connected_body = {};
+            value.connected_axis = {0, 0, 1};
+        });
+        history.bind_scene(nullptr);
+        state.mode = EditorMode::Play;
+        ASSERT_NO_FATAL_FAILURE(align_joint_axis());
+        EXPECT_LT(
+            Math::length(entity.get_component<HingeJointComponent>().connected_axis - expected),
+            1e-5f);
+        EXPECT_FALSE(history.can_undo());
+        entity.edit_component<HingeJointComponent>([](auto& value) { value.axis = {}; });
+        ASSERT_NO_FATAL_FAILURE(align_joint_axis());
+        EXPECT_LT(
+            Math::length(entity.get_component<HingeJointComponent>().connected_axis - expected),
+            1e-5f);
     }
 
     TEST_F(EditingUiTest, WorldAnchorAlignmentUsesSimulationPoseInPlayAndDoesNotWriteHistory) {

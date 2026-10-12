@@ -103,7 +103,7 @@ namespace CometEditor::Tests {
         EXPECT_FLOAT_EQ(loaded.mass, 4.0f);
     }
 
-    TEST_F(SceneCommandsTest, PointJointReferencesUseHistoryAndRemapWithinDuplicatedSubtrees) {
+    TEST_F(SceneCommandsTest, JointReferencesUseHistoryAndRemapWithinDuplicatedSubtrees) {
         auto child = scene.create_entity("Anchor");
         ASSERT_TRUE(scene.set_parent(child, entity));
         ASSERT_TRUE(add("point_joint"));
@@ -111,7 +111,20 @@ namespace CometEditor::Tests {
             edit.apply({entity.get_uuid(), "point_joint", "connected_body"}, child.get_uuid()));
         ASSERT_TRUE(edit.apply(
             {entity.get_uuid(), "point_joint", "anchor"}, Comet::Math::Vec3(0, 0.5f, 0)));
+        ASSERT_TRUE(add("hinge_joint"));
+        ASSERT_TRUE(
+            edit.apply({entity.get_uuid(), "hinge_joint", "connected_body"}, child.get_uuid()));
+        ASSERT_TRUE(
+            edit.apply({entity.get_uuid(), "hinge_joint", "axis"}, Comet::Math::Vec3(1, 1, 0)));
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(
+            entity.get_component<Comet::HingeJointComponent>().axis, Comet::Math::Vec3(0, 0, 1));
+        ASSERT_TRUE(history.redo());
+        const auto hinge = entity.get_component<Comet::HingeJointComponent>();
         const auto configured = entity.get_component<Comet::PointJointComponent>();
+        ASSERT_TRUE(remove("hinge_joint"));
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(entity.get_component<Comet::HingeJointComponent>(), hinge);
         ASSERT_TRUE(remove("point_joint"));
         ASSERT_TRUE(history.undo());
         EXPECT_EQ(entity.get_component<Comet::PointJointComponent>(), configured);
@@ -126,6 +139,9 @@ namespace CometEditor::Tests {
         EXPECT_NE(copied_child, child.get_uuid());
         EXPECT_EQ(copy.get_component<Comet::PointJointComponent>().connected_body, copied_child);
         EXPECT_EQ(copy.get_component<Comet::PointJointComponent>().anchor, configured.anchor);
+        EXPECT_EQ(copy.get_component<Comet::HingeJointComponent>().connected_body, copied_child);
+        EXPECT_EQ(copy.get_component<Comet::HingeJointComponent>().axis, hinge.axis);
+        EXPECT_EQ(entity.get_component<Comet::HingeJointComponent>(), hinge);
         EXPECT_EQ(entity.get_component<Comet::PointJointComponent>(), configured);
         ASSERT_TRUE(history.undo());
         EXPECT_FALSE(scene.find_entity(copy_uuid));
@@ -133,6 +149,7 @@ namespace CometEditor::Tests {
         copy = scene.find_entity(copy_uuid);
         EXPECT_EQ(copy.get_component<Comet::PointJointComponent>().connected_body, copied_child);
         EXPECT_TRUE(scene.find_entity(copied_child));
+        EXPECT_EQ(copy.get_component<Comet::HingeJointComponent>().connected_body, copied_child);
     }
 
     TEST_F(SceneCommandsTest, MeshPlacementIsOneUndoableSerializableEntity) {

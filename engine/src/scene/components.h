@@ -44,7 +44,7 @@ namespace Comet {
     struct COMET_API WorldTransformComponent {
         uint64_t revision = 0;
         Math::Mat4 world_matrix = Math::Mat4(1.0f);
-        // 世界位置与层级旋转，不含本地或祖先缩放；供相机和灯光共用。
+        // 世界位置与层级旋转，不含本地或祖先缩放；供相机、灯光与关节方向共用。
         Math::Mat4 pose_world_matrix = Math::Mat4(1.0f);
     };
 
@@ -161,11 +161,28 @@ namespace Comet {
         bool operator==(const PointJointComponent&) const = default;
     };
 
+    struct COMET_API HingeJointComponent {
+        bool enabled = true;
+        EntityUuid connected_body;
+        // 锚点与连接语义同点关节；转轴只受旋转影响，不随缩放。
+        Math::Vec3 anchor{0};
+        Math::Vec3 connected_anchor{0};
+        Math::Vec3 axis{0, 0, 1};
+        // 连接刚体时为对方的本地方向，否则为世界方向；须非零且有限。
+        Math::Vec3 connected_axis{0, 0, 1};
+        bool operator==(const HingeJointComponent&) const = default;
+    };
+
+    template<typename T>
+    inline constexpr bool is_scene_joint_component_v =
+        std::is_same_v<std::remove_cvref_t<T>, PointJointComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, HingeJointComponent>;
+
     template<typename T>
     inline constexpr bool is_scene_physics_component_v =
         std::is_same_v<std::remove_cvref_t<T>, RigidBodyComponent>
         || std::is_same_v<std::remove_cvref_t<T>, ColliderComponent>
-        || std::is_same_v<std::remove_cvref_t<T>, PointJointComponent>;
+        || is_scene_joint_component_v<T>;
 
     template<typename T>
     inline constexpr bool is_scene_tracked_component_v =

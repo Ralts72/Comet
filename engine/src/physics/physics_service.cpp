@@ -18,6 +18,7 @@
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Constraints/PointConstraint.h>
+#include <Jolt/Physics/Constraints/HingeConstraint.h>
 
 #include <algorithm>
 #include <cmath>
@@ -245,8 +246,8 @@ namespace Comet {
             EntityUuid uuid;
             JPH::BodyID first;
             JPH::BodyID second;
-            PointJointComponent settings;
-            JPH::Ref<JPH::PointConstraint> constraint;
+            JointSettings settings;
+            JPH::Ref<JPH::TwoBodyConstraint> constraint;
         };
 
         Impl() : pairs(2), broad_phase(2, 2), jobs(1024) {
@@ -327,15 +328,16 @@ namespace Comet {
             }
         }
 
-        auto remove_joint(std::unordered_map<EntityId, Joint>::iterator it) {
+        auto remove_joint(std::map<JointKey, Joint>::iterator it) {
             world.RemoveConstraint(it->second.constraint.GetPtr());
             wake_joint_bodies(it->second);
             return joints.erase(it);
         }
 
-        Result<void, Error> synchronize_joint(const JointDefinition& definition) {
-            const auto& settings = definition.joint;
-            auto existing = joints.find(definition.entity);
+        template<typename Settings>
+        Result<void, Error> synchronize_joint(
+            const JointDefinition& definition, const Settings& settings) {
+            auto existing = joints.find(definition.key());
             const auto detach = [&] {
                 if(existing != joints.end())
                     remove_joint(existing);
@@ -344,11 +346,17 @@ namespace Comet {
             if(!settings.enabled)
                 return detach();
             if(settings.connected_body == definition.uuid)
-                return Result<void, Error>::failure({"Point joint cannot connect a body to itself: "
-                                                     + definition.uuid.to_string()});
+                return Result<void, Error>::failure(
+                    {"Joint cannot connect a body to itself: " + definition.uuid.to_string()});
             if(!Math::is_finite(settings.anchor) || !Math::is_finite(settings.connected_anchor))
                 return Result<void, Error>::failure(
-                    {"Point joint anchors must be finite: " + definition.uuid.to_string()});
+                    {"Joint anchors must be finite: " + definition.uuid.to_string()});
+            if constexpr(std::is_same_v<Settings, HingeJointComponent>) {
+                if(!Math::normalized_direction(settings.axis)
+                    || !Math::normalized_direction(settings.connected_axis))
+                    return Result<void, Error>::failure(
+                        {"Hinge axes must be finite and nonzero: " + definition.uuid.to_string()});
+            }
             const auto first = bodies.find(definition.entity);
             const auto second = bodies.find(definition.connected_entity);
             if(first == bodies.end() || first->second.uuid != definition.uuid)
@@ -363,8 +371,7 @@ namespace Comet {
             if(owner.rigid.motion != BodyMotion::Dynamic
                 && (!connected || connected->rigid.motion != BodyMotion::Dynamic))
                 return Result<void, Error>::failure(
-                    {"Point joint requires at least one dynamic body: "
-                        + definition.uuid.to_string()});
+                    {"Joint requires at least one dynamic body: " + definition.uuid.to_string()});
             const auto first_point = settings.anchor * owner.last_transform.scale;
             auto second_point = settings.connected_anchor;
             JPH::BodyID second_id;
@@ -376,13 +383,13 @@ namespace Comet {
                 || !std::isfinite(glm::dot(first_point, first_point))
                 || !std::isfinite(glm::dot(second_point, second_point)))
                 return Result<void, Error>::failure(
-                    {"Point joint anchors exceed supported range: " + definition.uuid.to_string()});
+                    {"Joint anchors exceed supported range: " + definition.uuid.to_string()});
             if(existing != joints.end() && existing->second.uuid == definition.uuid
                 && existing->second.first == owner.id && existing->second.second == second_id
-                && existing->second.settings == settings)
+                && existing->second.settings == definition.joint)
                 return Result<void, Error>::success();
 
-            JPH::Ref<JPH::PointConstraint> constraint;
+            JPH::Ref<JPH::TwoBodyConstraint> constraint;
             const JPH::BodyID ids[]{owner.id, second_id};
             {
                 const JPH::BodyLockMultiWrite lock(world.GetBodyLockInterface(), ids, 2);
@@ -391,17 +398,33 @@ namespace Comet {
                 if(connected)
                     second_body = lock.GetBody(1);
                 if(!first_body || !second_body)
-                    return Result<void, Error>::failure({"Cannot access point joint bodies"});
-                JPH::PointConstraintSettings native;
-                native.mSpace = JPH::EConstraintSpace::LocalToBodyCOM;
-                native.mPoint1 = to_position(first_point);
-                native.mPoint2 = to_position(second_point);
-                constraint = new JPH::PointConstraint(*first_body, *second_body, native);
+                    return Result<void, Error>::failure({"Cannot access joint bodies"});
+                const auto create = [&](auto& native) {
+                    native.mSpace = JPH::EConstraintSpace::LocalToBodyCOM;
+                    native.mPoint1 = to_position(first_point);
+                    native.mPoint2 = to_position(second_point);
+                    constraint = native.Create(*first_body, *second_body);
+                };
+                if constexpr(std::is_same_v<Settings, HingeJointComponent>) {
+                    JPH::HingeConstraintSettings native;
+                    const auto first_axis = *Math::normalized_direction(settings.axis);
+                    const auto second_axis = *Math::normalized_direction(settings.connected_axis);
+                    native.mHingeAxis1 = {first_axis.x, first_axis.y, first_axis.z};
+                    native.mHingeAxis2 = {second_axis.x, second_axis.y, second_axis.z};
+                    // 自由铰链未启用角度限位／驱动，法线仅定义内部参考基。
+                    native.mNormalAxis1 = native.mHingeAxis1.GetNormalizedPerpendicular();
+                    native.mNormalAxis2 = native.mHingeAxis2.GetNormalizedPerpendicular();
+                    create(native);
+                } else {
+                    JPH::PointConstraintSettings native;
+                    create(native);
+                }
             }
             if(existing != joints.end())
                 remove_joint(existing);
-            Joint joint{definition.uuid, owner.id, second_id, settings, std::move(constraint)};
-            const auto inserted = joints.emplace(definition.entity, std::move(joint)).first;
+            Joint joint{
+                definition.uuid, owner.id, second_id, definition.joint, std::move(constraint)};
+            const auto inserted = joints.emplace(definition.key(), std::move(joint)).first;
             world.AddConstraint(inserted->second.constraint.GetPtr());
             wake_joint_bodies(inserted->second);
             return Result<void, Error>::success();
@@ -410,15 +433,18 @@ namespace Comet {
         Result<void, Error> synchronize_joints(const std::span<const JointDefinition> definitions) {
             for(auto it = joints.begin(); it != joints.end();) {
                 const auto found =
-                    std::ranges::lower_bound(definitions, it->first, {}, &JointDefinition::entity);
-                if(found == definitions.end() || found->entity != it->first
+                    std::ranges::lower_bound(definitions, it->first, {}, &JointDefinition::key);
+                if(found == definitions.end() || found->key() != it->first
                     || found->uuid != it->second.uuid)
                     it = remove_joint(it);
                 else
                     ++it;
             }
             for(const auto& definition : definitions) {
-                if(auto result = synchronize_joint(definition); !result)
+                const auto result = std::visit(
+                    [&](const auto& settings) { return synchronize_joint(definition, settings); },
+                    definition.joint);
+                if(!result)
                     return result;
             }
             return Result<void, Error>::success();
@@ -776,7 +802,7 @@ namespace Comet {
         std::map<Pair, Contact> tracked_contacts;
         // unordered_map 的重哈希不移动 Body；移除时先从该列表摘除。
         std::vector<Body*> kinematic_bodies;
-        std::unordered_map<EntityId, Joint> joints;
+        std::map<JointKey, Joint> joints;
     };
 
     Result<void, Error> PhysicsService::step(const float delta_time) {

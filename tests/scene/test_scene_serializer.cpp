@@ -201,7 +201,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(loaded_body.get_component<RigidBodyComponent>().continuous_collision);
     }
 
-    TEST(SceneSerializerTest, PointJointsPreserveEntityReferencesAndAnchorsAcrossSaveAndClone) {
+    TEST(SceneSerializerTest, JointKindsPreserveReferencesAnchorsAndAxesAcrossSaveAndClone) {
         const auto registry = create_scene_component_registry();
         const SceneSerializer serializer(registry);
         Scene scene;
@@ -211,6 +211,13 @@ namespace Comet::Tests {
             .anchor = {0, 0.5f, 0},
             .connected_anchor = {0, -0.5f, 0}};
         actor.add_component<PointJointComponent>(joint);
+        const HingeJointComponent hinge{.enabled = false,
+            .connected_body = target.get_uuid(),
+            .anchor = {1, 2, 3},
+            .connected_anchor = {4, 5, 6},
+            .axis = {1, 1, 0},
+            .connected_axis = {0, 1, 1}};
+        actor.add_component<HingeJointComponent>(hinge);
         TemporaryDirectory directory;
         const auto path = (directory.path() / "joint.scene").string();
         ASSERT_TRUE(serializer.save(scene, path));
@@ -219,16 +226,22 @@ namespace Comet::Tests {
         EXPECT_EQ(
             loaded.value()->find_entity(actor.get_uuid()).get_component<PointJointComponent>(),
             joint);
+        EXPECT_EQ(
+            loaded.value()->find_entity(actor.get_uuid()).get_component<HingeJointComponent>(),
+            hinge);
         auto clone = serializer.clone(*loaded.value());
         ASSERT_TRUE(clone) << clone.error();
         auto cloned_actor = clone.value()->find_entity(actor.get_uuid());
         EXPECT_EQ(cloned_actor.get_component<PointJointComponent>(), joint);
+        EXPECT_EQ(cloned_actor.get_component<HingeJointComponent>(), hinge);
         EXPECT_TRUE(clone.value()->find_entity(
             cloned_actor.get_component<PointJointComponent>().connected_body));
         cloned_actor.edit_component<PointJointComponent>([](auto& value) {
             value.connected_body = {};
             value.connected_anchor = {1, 2, 3};
         });
+        cloned_actor.edit_component<HingeJointComponent>(
+            [](auto& value) { value.connected_body = {}; });
         auto text = serializer.serialize(*clone.value());
         ASSERT_TRUE(text);
         auto world_joint = serializer.deserialize(text.value());
@@ -237,12 +250,26 @@ namespace Comet::Tests {
                 ->find_entity(actor.get_uuid())
                 .get_component<PointJointComponent>()
                 .connected_body);
+        EXPECT_FALSE(world_joint.value()
+                ->find_entity(actor.get_uuid())
+                .get_component<HingeJointComponent>()
+                .connected_body);
+        EXPECT_EQ(actor.get_component<HingeJointComponent>(), hinge);
         EXPECT_EQ(actor.get_component<PointJointComponent>(), joint);
         for(const auto member :
             {&PointJointComponent::anchor, &PointJointComponent::connected_anchor}) {
             auto invalid = joint;
             (invalid.*member).x = std::numeric_limits<float>::infinity();
             actor.edit_component<PointJointComponent>([&](auto& value) { value = invalid; });
+            EXPECT_FALSE(serializer.serialize(scene));
+        }
+        ASSERT_TRUE(actor.try_set_component(joint));
+        for(const auto member :
+            {&HingeJointComponent::anchor, &HingeJointComponent::connected_anchor,
+                &HingeJointComponent::axis, &HingeJointComponent::connected_axis}) {
+            auto invalid = hinge;
+            (invalid.*member).x = std::numeric_limits<float>::infinity();
+            ASSERT_TRUE(actor.try_set_component(invalid));
             EXPECT_FALSE(serializer.serialize(scene));
         }
     }
