@@ -23,6 +23,10 @@ namespace CometEditor {
     namespace {
         using Caption = std::pair<std::string_view, std::string_view>;
 
+        bool is_joint_component(const std::string_view id) {
+            return id == "point_joint" || id == "hinge_joint" || id == "slider_joint";
+        }
+
         std::optional<Comet::Math::Vec3> aligned_joint_value(Comet::Scene& scene,
             const Comet::Entity entity, const Comet::ComponentDescriptor& component,
             const std::string_view local_property) {
@@ -92,7 +96,7 @@ namespace CometEditor {
                 {"transform", "变换"}, {"mesh_renderer", "网格渲染"}, {"camera", "相机"},
                 {"camera_controller", "相机控制器"}, {"audio_source", "音频源"},
                 {"rigid_body", "刚体"}, {"collider", "碰撞体"}, {"point_joint", "点关节"},
-                {"hinge_joint", "铰链关节"}, {"light", "光源"}};
+                {"hinge_joint", "铰链关节"}, {"slider_joint", "滑动关节"}, {"light", "光源"}};
             static constexpr Caption properties[]{{"script/asset", "脚本"},
                 {"script/parameters", "参数"}, {"name/name", "名称"},
                 {"transform/translation", "位置"}, {"transform/rotation", "旋转"},
@@ -130,17 +134,24 @@ namespace CometEditor {
                 {"min_angle", "最小角度 (°)"}, {"max_angle", "最大角度 (°)"},
                 {"motor_enabled", "速度驱动"}, {"motor_speed", "目标角速度 (°/s)"},
                 {"motor_max_torque", "最大力矩 (N·m)"}};
+            static constexpr Caption slider_properties[]{{"axis", "本地滑动轴"},
+                {"connected_axis", "连接滑动轴"}, {"reference_axis", "本地朝向"},
+                {"connected_reference_axis", "连接朝向"}, {"limits_enabled", "行程限位"},
+                {"min_distance", "最小行程 (m)"}, {"max_distance", "最大行程 (m)"},
+                {"motor_speed", "目标速度 (m/s)"}, {"motor_max_force", "最大驱动力 (N)"}};
 
             const auto& descriptors = source.components();
             std::vector<Comet::ComponentDescriptor> result(descriptors.begin(), descriptors.end());
             for(auto& component : result) {
                 set_caption(component.display_name, component.id, components);
                 for(auto& property : component.properties) {
-                    if(component.id == "point_joint" || component.id == "hinge_joint")
+                    if(is_joint_component(component.id))
                         set_caption(property.display_name, property.id, joint_properties);
                     else
                         set_caption(
                             property.display_name, component.id + "/" + property.id, properties);
+                    if(component.id == "slider_joint")
+                        set_caption(property.display_name, property.id, slider_properties);
                     for(auto& option : property.enum_options)
                         set_caption(option.display_name, option.id, enum_options);
                 }
@@ -238,16 +249,27 @@ namespace CometEditor {
                             || (property.id == "density" && mode == Comet::BodyMassMode::Mass))
                             continue;
                     }
-                    if(component_descriptor.id == "hinge_joint") {
-                        const auto& hinge = entity.get_component<Comet::HingeJointComponent>();
-                        const bool limit_parameter = property.id == "reference_axis"
-                                                     || property.id == "connected_reference_axis"
-                                                     || property.id == "min_angle"
-                                                     || property.id == "max_angle";
-                        const bool motor_parameter =
-                            property.id == "motor_speed" || property.id == "motor_max_torque";
-                        if((limit_parameter && !hinge.limits_enabled)
-                            || (motor_parameter && !hinge.motor_enabled))
+                    if(component_descriptor.id == "hinge_joint"
+                        || component_descriptor.id == "slider_joint") {
+                        const bool hinge_reference =
+                            component_descriptor.id == "hinge_joint"
+                            && (property.id == "reference_axis"
+                                || property.id == "connected_reference_axis");
+                        const bool limit_parameter = hinge_reference || property.id == "min_angle"
+                                                     || property.id == "max_angle"
+                                                     || property.id == "min_distance"
+                                                     || property.id == "max_distance";
+                        const bool motor_parameter = property.id == "motor_speed"
+                                                     || property.id == "motor_max_torque"
+                                                     || property.id == "motor_max_force";
+                        const auto* data =
+                            component_descriptor.get_component(std::as_const(entity));
+                        const auto enabled = [&](const char* name) {
+                            return std::get<bool>(
+                                *component_descriptor.find_property(name)->copy_value(data));
+                        };
+                        if((limit_parameter && !enabled("limits_enabled"))
+                            || (motor_parameter && !enabled("motor_enabled")))
                             continue;
                     }
                     ImGui::PushID(property.id.c_str());
@@ -401,7 +423,7 @@ namespace CometEditor {
         auto value = property.copy_value(component.get_component(std::as_const(entity)));
         if(!value)
             return;
-        const bool joint = component.id == "point_joint" || component.id == "hinge_joint";
+        const bool joint = is_joint_component(component.id);
         const bool align_joint =
             joint
             && (property.id == "connected_anchor" || property.id == "connected_axis"
@@ -476,6 +498,25 @@ namespace CometEditor {
         if(component.id == "hinge_joint" && property.id == "motor_max_torque")
             ImGui::SetItemTooltip("驱动能够施加的最大力矩，单位 N·m；0 表示不施加驱动力矩。\n"
                                   "受负载影响，实际角速度可能达不到目标；修改在下一固定步生效。");
+        if(component.id == "slider_joint"
+            && (property.id == "axis" || property.id == "connected_axis"))
+            ImGui::SetItemTooltip("只允许沿滑动轴平移，锁定其余平移与所有旋转。\n"
+                                  "本地轴属于本实体；连接轴属于对方，连接世界时为世界方向。\n"
+                                  "两端应在世界中同向，方向非零且有限；只受旋转影响。");
+        if(component.id == "slider_joint"
+            && (property.id == "reference_axis" || property.id == "connected_reference_axis"))
+            ImGui::SetItemTooltip("朝向投影到滑动轴的垂直平面，不能为零或与滑动轴平行。\n"
+                                  "两端在世界中同向时为锁定朝向；只受旋转影响。\n"
+                                  "先对齐连接滑动轴，再对齐连接朝向，避免启动时突然转动。");
+        if(component.id == "slider_joint" && property.id == "limits_enabled")
+            ImGui::SetItemTooltip("锚点重合时行程为零，正方向沿本地滑动轴，单位米。\n"
+                                  "最小值须 ≤0，最大值须 ≥0，两者不能相等；行程不随缩放。");
+        if(component.id == "slider_joint" && property.id == "motor_speed")
+            ImGui::SetItemTooltip("本实体相对连接端的目标速度，单位 m/s；正方向沿本地滑动轴。\n"
+                                  "0 会制动相对平移；实际速度受负载、最大驱动力和行程限位约束。");
+        if(component.id == "slider_joint" && property.id == "motor_max_force")
+            ImGui::SetItemTooltip("驱动能够施加的最大力，单位 N；0 表示不施加驱动力。\n"
+                                  "修改在下一固定步生效，暂停时等待继续或单步。");
         if(align_joint) {
             const bool direction = property.id != "connected_anchor";
             const auto aligned = aligned_joint_value(m_selection.get_scene(), entity, component,

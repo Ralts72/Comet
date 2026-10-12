@@ -19,6 +19,14 @@ namespace Comet {
                 make_property_descriptor(
                     "connected_anchor", "Connected Anchor", &Joint::connected_anchor)};
         }
+
+        template<typename Joint> std::vector<PropertyDescriptor> axis_joint_properties() {
+            auto properties = joint_properties<Joint>();
+            properties.push_back(make_property_descriptor("axis", "Local Axis", &Joint::axis));
+            properties.push_back(make_property_descriptor(
+                "connected_axis", "Connected Axis", &Joint::connected_axis));
+            return properties;
+        }
     }
 
     bool ComponentDescriptor::assign_property(Entity entity, std::string_view property_id,
@@ -276,11 +284,7 @@ namespace Comet {
 
         register_component(make_component_descriptor<PointJointComponent>(
             "point_joint", "Point Joint", joint_properties<PointJointComponent>()));
-        auto hinge_properties = joint_properties<HingeJointComponent>();
-        hinge_properties.push_back(
-            make_property_descriptor("axis", "Local Axis", &HingeJointComponent::axis));
-        hinge_properties.push_back(make_property_descriptor(
-            "connected_axis", "Connected Axis", &HingeJointComponent::connected_axis));
+        auto hinge_properties = axis_joint_properties<HingeJointComponent>();
         hinge_properties.insert(hinge_properties.end(),
             {make_property_descriptor("limits_enabled", "Angle Limits",
                  &HingeJointComponent::limits_enabled, {.required = false}),
@@ -309,6 +313,34 @@ namespace Comet {
                         .numeric = {.speed = 0.1f, .minimum = 0, .enforce_bounds = true}})});
         register_component(make_component_descriptor<HingeJointComponent>(
             "hinge_joint", "Hinge Joint", std::move(hinge_properties)));
+
+        auto slider_properties = axis_joint_properties<SliderJointComponent>();
+        slider_properties.insert(slider_properties.end(),
+            {make_property_descriptor("reference_axis", "Local Orientation",
+                 &SliderJointComponent::reference_axis, {.required = false}),
+                make_property_descriptor("connected_reference_axis", "Connected Orientation",
+                    &SliderJointComponent::connected_reference_axis, {.required = false}),
+                make_property_descriptor("limits_enabled", "Travel Limits",
+                    &SliderJointComponent::limits_enabled, {.required = false}),
+                make_property_descriptor("min_distance", "Minimum Distance",
+                    &SliderJointComponent::min_distance,
+                    {.required = false,
+                        .numeric = {.speed = 0.01f, .maximum = 0, .enforce_bounds = true}}),
+                make_property_descriptor("max_distance", "Maximum Distance",
+                    &SliderJointComponent::max_distance,
+                    {.required = false,
+                        .numeric = {.speed = 0.01f, .minimum = 0, .enforce_bounds = true}}),
+                make_property_descriptor("motor_enabled", "Velocity Motor",
+                    &SliderJointComponent::motor_enabled, {.required = false}),
+                make_property_descriptor("motor_speed", "Target Speed",
+                    &SliderJointComponent::motor_speed,
+                    {.required = false, .numeric = {.speed = 0.01f}}),
+                make_property_descriptor("motor_max_force", "Maximum Force",
+                    &SliderJointComponent::motor_max_force,
+                    {.required = false,
+                        .numeric = {.speed = 0.1f, .minimum = 0, .enforce_bounds = true}})});
+        register_component(make_component_descriptor<SliderJointComponent>(
+            "slider_joint", "Slider Joint", std::move(slider_properties)));
 
         register_component(make_component_descriptor<LightComponent>("light", "Light",
             {make_enum_property_descriptor<LightComponent, LightType>("type", "Type",

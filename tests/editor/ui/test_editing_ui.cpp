@@ -558,6 +558,72 @@ namespace CometEditor::Tests {
             1e-5f);
     }
 
+    TEST_F(EditingUiTest, SliderControlsAlignFramesAndShowOnlyEnabledParameters) {
+        using namespace Comet;
+        auto builtin = create_property_editor_registry(assets);
+        ImVec2 limits_checkbox{}, motor_checkbox{};
+        bool saw_distance = false, saw_speed = false;
+        for(const auto type : {PropertyType::Bool, PropertyType::Float})
+            ASSERT_TRUE(
+                widgets.register_editor(type, [&](const PropertyDescriptor& property, void* value) {
+                    const auto result = builtin.edit_property(property, value);
+                    const auto start = ImGui::GetItemRectMin();
+                    if(property.id == "limits_enabled")
+                        limits_checkbox = {start.x + 8, start.y + 8};
+                    if(property.id == "motor_enabled")
+                        motor_checkbox = {start.x + 8, start.y + 8};
+                    saw_distance |= property.id == "min_distance";
+                    saw_speed |= property.id == "motor_speed";
+                    return result;
+                }));
+        entity.edit_transform([](auto& value) {
+            value.rotation.z = 90;
+            value.scale = {2, 3, 4};
+        });
+        auto target = scene.create_entity();
+        target.edit_transform([](auto& value) { value.scale = {3, 4, 5}; });
+        entity.add_component<SliderJointComponent>(
+            SliderJointComponent{.connected_body = target.get_uuid(), .anchor = {0.5f, 0, 0}});
+        for(const float width : {700.0f, 480.0f, 320.0f}) {
+            inspector_width = width;
+            frame();
+            frame();
+            const auto* window = ImGui::FindWindowByName("Inspector");
+            ASSERT_NE(window, nullptr);
+            for(const auto button :
+                {joint_anchor_button, joint_axis_button, joint_reference_button})
+                EXPECT_LT(button.x, window->WorkRect.Max.x);
+            click(joint_anchor_button);
+            click(joint_axis_button);
+            click(joint_reference_button);
+            const auto& joint = entity.get_component<SliderJointComponent>();
+            EXPECT_LT(Math::length(joint.connected_anchor - Math::Vec3(0, 0.25f, 0)), 1e-5f);
+            EXPECT_LT(Math::length(joint.connected_axis - Math::Vec3(-1, 0, 0)), 1e-5f);
+            EXPECT_LT(Math::length(joint.connected_reference_axis - Math::Vec3(0, 1, 0)), 1e-5f);
+        }
+        EXPECT_FALSE(saw_distance);
+        EXPECT_FALSE(saw_speed);
+        EXPECT_EQ(history.undo_size(), 3u);
+        click(limits_checkbox);
+        EXPECT_TRUE(entity.get_component<SliderJointComponent>().limits_enabled);
+        EXPECT_TRUE(saw_distance);
+        click(motor_checkbox);
+        EXPECT_TRUE(entity.get_component<SliderJointComponent>().motor_enabled);
+        EXPECT_TRUE(saw_speed);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(entity.get_component<SliderJointComponent>().motor_enabled);
+        ASSERT_TRUE(history.redo());
+        history.bind_scene(nullptr);
+        state.mode = EditorMode::Play;
+        entity.edit_component<SliderJointComponent>(
+            [](auto& joint) { joint.connected_anchor = {}; });
+        click(joint_anchor_button);
+        EXPECT_LT(Math::length(entity.get_component<SliderJointComponent>().connected_anchor
+                               - Math::Vec3(0, 0.25f, 0)),
+            1e-5f);
+        EXPECT_FALSE(history.can_undo());
+    }
+
     TEST_F(EditingUiTest, WorldAnchorAlignmentUsesSimulationPoseInPlayAndDoesNotWriteHistory) {
         class Move final: public Comet::System {
         public:

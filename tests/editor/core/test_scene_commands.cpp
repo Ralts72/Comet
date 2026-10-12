@@ -131,6 +131,15 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(history.undo());
         EXPECT_EQ(entity.get_component<Comet::PointJointComponent>(), configured);
 
+        ASSERT_TRUE(add("slider_joint"));
+        ASSERT_TRUE(
+            edit.apply({entity.get_uuid(), "slider_joint", "connected_body"}, child.get_uuid()));
+        ASSERT_TRUE(edit.apply({entity.get_uuid(), "slider_joint", "max_distance"}, 1.25f));
+        const auto slider = entity.get_component<Comet::SliderJointComponent>();
+        ASSERT_TRUE(remove("slider_joint"));
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(entity.get_component<Comet::SliderJointComponent>(), slider);
+
         const auto copy_uuid =
             SceneCommands::duplicate_entity(history, registry, entity.get_uuid());
         ASSERT_TRUE(copy_uuid);
@@ -145,6 +154,9 @@ namespace CometEditor::Tests {
         EXPECT_EQ(copy.get_component<Comet::HingeJointComponent>().axis, hinge.axis);
         EXPECT_TRUE(copy.get_component<Comet::HingeJointComponent>().limits_enabled);
         EXPECT_FLOAT_EQ(copy.get_component<Comet::HingeJointComponent>().motor_speed, -120);
+        EXPECT_EQ(copy.get_component<Comet::SliderJointComponent>().connected_body, copied_child);
+        EXPECT_FLOAT_EQ(copy.get_component<Comet::SliderJointComponent>().max_distance, 1.25f);
+        EXPECT_EQ(entity.get_component<Comet::SliderJointComponent>(), slider);
         EXPECT_EQ(entity.get_component<Comet::HingeJointComponent>(), hinge);
         EXPECT_EQ(entity.get_component<Comet::PointJointComponent>(), configured);
         ASSERT_TRUE(history.undo());

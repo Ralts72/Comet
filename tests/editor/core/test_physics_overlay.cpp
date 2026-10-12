@@ -9,6 +9,63 @@
 namespace CometEditor::Tests {
     using namespace Comet;
 
+    TEST(PhysicsOverlayTest, SliderRailUsesConnectedFrameAndDistancesIgnoreScale) {
+        Scene scene;
+        auto actor = scene.create_entity();
+        actor.edit_transform([](auto& value) {
+            value.translation = {2, 3, 4};
+            value.rotation.z = 90;
+            value.scale = {2, 3, 4};
+        });
+        actor.add_component<RigidBodyComponent>();
+        actor.add_component<ColliderComponent>();
+        actor.add_component<SliderJointComponent>(
+            SliderJointComponent{.connected_anchor = {2, 3, 4},
+                .connected_axis = {-1, 0, 0},
+                .connected_reference_axis = {0, 1, 0},
+                .limits_enabled = true,
+                .min_distance = -0.25f,
+                .max_distance = 0.75f});
+        const auto rail = [&] {
+            LineDrawList lines;
+            append_joint_anchors(scene, lines);
+            std::vector<Math::Vec3> result;
+            for(const auto& vertex : lines.vertices()) {
+                EXPECT_TRUE(Math::is_finite(vertex.position));
+                if(vertex.color == Math::Vec4(1, 1, 0.2f, 1))
+                    result.push_back(vertex.position);
+            }
+            return result;
+        };
+        const auto world = rail();
+        ASSERT_EQ(world.size(), 6u);
+        EXPECT_LT(Math::length(world[0] - Math::Vec3(2.25f, 3, 4)), 1e-5f);
+        EXPECT_LT(Math::length(world[1] - Math::Vec3(1.25f, 3, 4)), 1e-5f);
+        auto target = scene.create_entity();
+        target.edit_transform([](auto& value) {
+            value.translation = {2, 3, 4};
+            value.rotation.z = 90;
+            value.scale = {3, 4, 5};
+        });
+        target.add_component<RigidBodyComponent>(RigidBodyComponent{.motion = BodyMotion::Static});
+        target.add_component<ColliderComponent>();
+        actor.edit_component<SliderJointComponent>([&](auto& joint) {
+            joint.connected_body = target.get_uuid();
+            joint.connected_anchor = {};
+            joint.connected_axis = {0, 1, 0};
+            joint.connected_reference_axis = {1, 0, 0};
+        });
+        const auto local = rail();
+        ASSERT_EQ(local.size(), world.size());
+        for(std::size_t i = 0; i < local.size(); ++i)
+            EXPECT_LT(Math::length(local[i] - world[i]), 1e-5f);
+        actor.edit_component<SliderJointComponent>([](auto& joint) { joint.min_distance = 1; });
+        EXPECT_TRUE(rail().empty());
+        actor.edit_component<SliderJointComponent>(
+            [](auto& joint) { joint.limits_enabled = false; });
+        EXPECT_TRUE(rail().empty());
+    }
+
     TEST(PhysicsOverlayTest, OutlinesUseColliderDimensionsWithoutRequiringMeshes) {
         Scene scene;
         auto box = scene.create_entity();

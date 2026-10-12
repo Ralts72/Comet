@@ -34,6 +34,210 @@ namespace Comet::Tests {
 
     class PointJointTest: public PhysicsJointTest {};
     class HingeJointTest: public PhysicsJointTest {};
+    class SliderJointTest: public PhysicsJointTest {};
+
+    TEST_F(SliderJointTest, WorldConnectionAllowsOnlyAxialMotionWithUnscaledOrientation) {
+        auto actor = body("Actor", BodyMotion::Dynamic, {0, 5, 0});
+        actor.edit_transform([](auto& value) {
+            value.rotation.z = 90;
+            value.scale = {2, 3, 4};
+        });
+        actor.add_component<SliderJointComponent>(SliderJointComponent{.anchor = {0.5f, 0, 0},
+            .connected_anchor = {0, 6, 0},
+            .connected_axis = {-1, 0, 0},
+            .connected_reference_axis = {0, 1, 0}});
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(physics.request_impulse(actor, {-2, 3, 4}));
+        ASSERT_TRUE(physics.request_torque(actor, {1, 2, 3}));
+        for(int i = 0; i < 60; ++i)
+            ASSERT_TRUE(runtime.advance(0.01));
+        const auto& transform = actor.get_component<TransformComponent>();
+        EXPECT_LT(transform.translation.x, -0.5f);
+        EXPECT_NEAR(transform.translation.y, 5, 0.005f);
+        EXPECT_NEAR(transform.translation.z, 0, 0.005f);
+        EXPECT_NEAR(transform.rotation.z, 90, 0.01f);
+        EXPECT_LT(Math::length(physics.get_velocity(actor)->angular), 1e-4f);
+        EXPECT_EQ(physics.get_statistics().joints, 1u);
+    }
+
+    TEST_F(SliderJointTest, MotorRespectsAsymmetricTravelAndZeroSurvivesRebuild) {
+        auto actor = body("Actor", BodyMotion::Dynamic, {0, 5, 0});
+        actor.add_component<SliderJointComponent>(
+            SliderJointComponent{.connected_anchor = {0, 5, 0},
+                .limits_enabled = true,
+                .min_distance = -0.25f,
+                .max_distance = 0.75f,
+                .motor_enabled = true,
+                .motor_speed = 1,
+                .motor_max_force = 30});
+        ASSERT_TRUE(runtime.start(scene));
+        for(int i = 0; i < 150; ++i) {
+            ASSERT_TRUE(runtime.advance(0.01));
+            EXPECT_LE(actor.get_component<TransformComponent>().translation.y, 5.76f);
+        }
+        EXPECT_NEAR(actor.get_component<TransformComponent>().translation.y, 5.75f, 0.005f);
+        actor.edit_component<SliderJointComponent>([](auto& joint) { joint.max_distance = 0.35f; });
+        actor.edit_component<ColliderComponent>([](auto& value) { value.half_extents.x = 0.7f; });
+        for(int i = 0; i < 30; ++i)
+            ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_NEAR(actor.get_component<TransformComponent>().translation.y, 5.35f, 0.005f);
+        actor.edit_component<SliderJointComponent>([](auto& joint) { joint.motor_speed = -1; });
+        for(int i = 0; i < 120; ++i) {
+            ASSERT_TRUE(runtime.advance(0.01));
+            EXPECT_GE(actor.get_component<TransformComponent>().translation.y, 4.74f);
+        }
+        EXPECT_NEAR(actor.get_component<TransformComponent>().translation.y, 4.75f, 0.005f);
+    }
+
+    TEST_F(SliderJointTest, MotorTargetsRelativeVelocityFromEitherDynamicEnd) {
+        for(const auto& [first_motion, second_motion] :
+            {std::pair{BodyMotion::Dynamic, BodyMotion::Dynamic},
+                std::pair{BodyMotion::Dynamic, BodyMotion::Kinematic},
+                std::pair{BodyMotion::Static, BodyMotion::Dynamic}}) {
+            auto actor = body("Actor", first_motion, {0, 5, 0});
+            auto target = body("Target", second_motion, {0, 5, 0});
+            actor.edit_component<ColliderComponent>([](auto& value) { value.is_trigger = true; });
+            actor.add_component<SliderJointComponent>(SliderJointComponent{
+                .connected_body = target.get_uuid(), .motor_enabled = true, .motor_speed = 1});
+            ASSERT_TRUE(runtime.start(scene));
+            for(int i = 0; i < 50; ++i) {
+                if(second_motion == BodyMotion::Kinematic)
+                    target.edit_transform([](auto& value) { value.translation.x += 0.002f; });
+                ASSERT_TRUE(runtime.advance(0.01));
+            }
+            const auto relative =
+                physics.get_velocity(actor)->linear - physics.get_velocity(target)->linear;
+            EXPECT_NEAR(relative.y, 1, 1e-4f);
+            EXPECT_NEAR(relative.x, 0, 1e-4f);
+            EXPECT_NEAR(relative.z, 0, 1e-4f);
+            EXPECT_NEAR(actor.get_component<TransformComponent>().translation.x,
+                target.get_component<TransformComponent>().translation.x, 0.005f);
+            ASSERT_TRUE(runtime.stop());
+            scene.destroy_entity(actor);
+            scene.destroy_entity(target);
+        }
+    }
+
+    TEST_F(SliderJointTest, ForceCapPauseAndJointKindsUseIndependentState) {
+        auto actor = body("Actor", BodyMotion::Dynamic, {0, 5, 0});
+        actor.add_component<SliderJointComponent>(
+            SliderJointComponent{.connected_anchor = {0, 5, 0},
+                .axis = {1, 0, 0},
+                .connected_axis = {1, 0, 0},
+                .reference_axis = {0, 1, 0},
+                .connected_reference_axis = {0, 1, 0},
+                .motor_enabled = true,
+                .motor_speed = 1,
+                .motor_max_force = 0});
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_FLOAT_EQ(physics.get_velocity(actor)->linear.x, 0);
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        actor.edit_component<SliderJointComponent>(
+            [](auto& joint) { joint.motor_max_force = 0.1f; });
+        ASSERT_TRUE(runtime.advance(0.1));
+        EXPECT_FLOAT_EQ(physics.get_velocity(actor)->linear.x, 0);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_NEAR(physics.get_velocity(actor)->linear.x, 0.001f, 1e-5f);
+        actor.add_component<PointJointComponent>(
+            PointJointComponent{.connected_anchor = {0, 5, 0}});
+        actor.add_component<HingeJointComponent>(
+            HingeJointComponent{.connected_anchor = {0, 5, 0}});
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(physics.get_statistics().joints, 3u);
+        actor.remove_component<SliderJointComponent>();
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(physics.get_statistics().joints, 2u);
+        actor.remove_component<HingeJointComponent>();
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(physics.get_statistics().joints, 1u);
+    }
+
+    TEST_F(SliderJointTest, RebindsBothBodiesAndMissingReferencesStayInactive) {
+        auto target = body("Target", BodyMotion::Static, {0, 5, 0});
+        auto actor = body("Actor", BodyMotion::Dynamic, {0, 5, 0});
+        actor.add_component<SliderJointComponent>(
+            SliderJointComponent{.connected_body = target.get_uuid(), .limits_enabled = true});
+        ASSERT_TRUE(runtime.start(scene));
+        for(const auto changed : {actor, target}) {
+            changed.edit_component<ColliderComponent>(
+                [](auto& value) { value.half_extents.x = 0.7f; });
+            ASSERT_TRUE(runtime.advance(0.01));
+            EXPECT_EQ(physics.get_statistics().joints, 1u);
+        }
+        target.remove_component<RigidBodyComponent>();
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(physics.get_statistics().joints, 0u);
+        target.add_component<RigidBodyComponent>(RigidBodyComponent{.motion = BodyMotion::Static});
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(physics.get_statistics().joints, 1u);
+        scene.destroy_entity(target);
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(physics.get_statistics().joints, 0u);
+        body("Replacement", BodyMotion::Static, {0, 5, 0});
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(physics.get_statistics().joints, 0u);
+        actor.edit_component<SliderJointComponent>([](auto& joint) {
+            joint.connected_body = {};
+            joint.connected_anchor = {0, 5, 0};
+        });
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(physics.get_statistics().joints, 1u);
+        scene.destroy_entity(actor);
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(physics.get_statistics().joints, 0u);
+    }
+
+    TEST_F(SliderJointTest, InvalidFramesLimitsAndMotorFailStartAndLiveSyncCleanly) {
+        auto actor = body("Actor", BodyMotion::Dynamic, {0, 5, 0});
+        const SliderJointComponent valid{
+            .connected_anchor = {0, 5, 0}, .limits_enabled = true, .motor_enabled = true};
+        actor.add_component<SliderJointComponent>(valid);
+        std::vector<SliderJointComponent> invalid;
+        for(const auto member : {&SliderJointComponent::axis, &SliderJointComponent::connected_axis,
+                &SliderJointComponent::reference_axis,
+                &SliderJointComponent::connected_reference_axis}) {
+            auto value = valid;
+            value.*member = {};
+            invalid.push_back(value);
+        }
+        auto parallel = valid;
+        parallel.reference_axis = parallel.axis;
+        invalid.push_back(parallel);
+        for(const auto& [minimum, maximum] :
+            {std::pair{1.0f, 2.0f}, std::pair{-2.0f, -1.0f}, std::pair{0.0f, 0.0f}}) {
+            auto value = valid;
+            value.min_distance = minimum;
+            value.max_distance = maximum;
+            invalid.push_back(value);
+        }
+        for(const auto member :
+            {&SliderJointComponent::min_distance, &SliderJointComponent::max_distance,
+                &SliderJointComponent::motor_speed, &SliderJointComponent::motor_max_force}) {
+            auto value = valid;
+            value.*member = std::numeric_limits<float>::quiet_NaN();
+            invalid.push_back(value);
+        }
+        auto negative = valid;
+        negative.motor_max_force = -1;
+        invalid.push_back(negative);
+        for(const auto& value : invalid) {
+            ASSERT_TRUE(actor.try_set_component(value));
+            EXPECT_FALSE(runtime.start(scene));
+            EXPECT_FALSE(runtime.is_active());
+            EXPECT_EQ(physics.get_statistics().bodies, 0u);
+            ASSERT_TRUE(actor.try_set_component(valid));
+            ASSERT_TRUE(runtime.start(scene));
+            ASSERT_TRUE(actor.try_set_component(value));
+            EXPECT_FALSE(runtime.advance(0.01));
+            EXPECT_FALSE(runtime.is_active());
+            EXPECT_EQ(physics.get_statistics().joints, 0u);
+        }
+    }
 
     TEST_F(PointJointTest, WorldAnchorConstrainsPositionAndAllowsRotation) {
         auto actor = body("Actor", BodyMotion::Dynamic, {0, 5, 0});

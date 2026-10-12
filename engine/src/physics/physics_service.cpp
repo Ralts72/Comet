@@ -19,6 +19,7 @@
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Constraints/PointConstraint.h>
 #include <Jolt/Physics/Constraints/HingeConstraint.h>
+#include <Jolt/Physics/Constraints/SliderConstraint.h>
 
 #include <algorithm>
 #include <cmath>
@@ -190,6 +191,78 @@ namespace Comet {
             return Result<JPH::MassProperties, Error>::success(properties);
         }
 
+        template<typename Settings>
+        Result<void, Error> validate_joint(const Settings& settings, const EntityUuid uuid) {
+            const auto fail = [&](const char* message) {
+                const char* kind = "Point";
+                if constexpr(std::is_same_v<Settings, HingeJointComponent>)
+                    kind = "Hinge";
+                else if constexpr(std::is_same_v<Settings, SliderJointComponent>)
+                    kind = "Slider";
+                return Result<void, Error>::failure(
+                    {std::string(kind) + " " + message + ": " + uuid.to_string()});
+            };
+            if(settings.connected_body == uuid)
+                return fail("joint cannot connect a body to itself");
+            if(!Math::is_finite(settings.anchor) || !Math::is_finite(settings.connected_anchor))
+                return fail("anchors must be finite");
+            if constexpr(!std::is_same_v<Settings, PointJointComponent>) {
+                if(!Math::normalized_direction(settings.axis)
+                    || !Math::normalized_direction(settings.connected_axis))
+                    return fail("axes must be finite and nonzero");
+                const bool needs_reference =
+                    std::is_same_v<Settings, SliderJointComponent> || settings.limits_enabled;
+                if(needs_reference
+                    && (!Math::perpendicular_direction(settings.axis, settings.reference_axis)
+                        || !Math::perpendicular_direction(
+                            settings.connected_axis, settings.connected_reference_axis)))
+                    return fail("references must be finite and not parallel to their axes");
+                if constexpr(std::is_same_v<Settings, HingeJointComponent>) {
+                    if(settings.limits_enabled && !settings.has_valid_angle_range())
+                        return fail("limits must span zero within [-180, 180]");
+                } else {
+                    if(settings.limits_enabled && !settings.has_valid_distance_range())
+                        return fail("limits must span zero with finite distances");
+                }
+                if(settings.motor_enabled) {
+                    float capacity;
+                    if constexpr(std::is_same_v<Settings, HingeJointComponent>)
+                        capacity = settings.motor_max_torque;
+                    else
+                        capacity = settings.motor_max_force;
+                    if(!std::isfinite(settings.motor_speed) || !std::isfinite(capacity)
+                        || capacity < 0)
+                        return fail("motor speed and nonnegative capacity must be finite");
+                }
+            }
+            return Result<void, Error>::success();
+        }
+
+        template<typename Settings, typename Native>
+        void configure_joint_frame(const Settings& settings, Native& native) {
+            const auto first = *Math::normalized_direction(settings.axis);
+            const auto second = *Math::normalized_direction(settings.connected_axis);
+            const JPH::Vec3 first_axis{first.x, first.y, first.z};
+            const JPH::Vec3 second_axis{second.x, second.y, second.z};
+            if constexpr(std::is_same_v<Settings, HingeJointComponent>) {
+                native.mHingeAxis1 = first_axis;
+                native.mHingeAxis2 = second_axis;
+            } else {
+                native.mSliderAxis1 = first_axis;
+                native.mSliderAxis2 = second_axis;
+            }
+            native.mNormalAxis1 = first_axis.GetNormalizedPerpendicular();
+            native.mNormalAxis2 = second_axis.GetNormalizedPerpendicular();
+            if(std::is_same_v<Settings, SliderJointComponent> || settings.limits_enabled) {
+                const auto first_reference =
+                    *Math::perpendicular_direction(settings.axis, settings.reference_axis);
+                const auto second_reference = *Math::perpendicular_direction(
+                    settings.connected_axis, settings.connected_reference_axis);
+                native.mNormalAxis1 = {first_reference.x, first_reference.y, first_reference.z};
+                native.mNormalAxis2 = {second_reference.x, second_reference.y, second_reference.z};
+            }
+        }
+
     }
 
     struct PhysicsService::Impl {
@@ -345,37 +418,8 @@ namespace Comet {
             };
             if(!settings.enabled)
                 return detach();
-            if(settings.connected_body == definition.uuid)
-                return Result<void, Error>::failure(
-                    {"Joint cannot connect a body to itself: " + definition.uuid.to_string()});
-            if(!Math::is_finite(settings.anchor) || !Math::is_finite(settings.connected_anchor))
-                return Result<void, Error>::failure(
-                    {"Joint anchors must be finite: " + definition.uuid.to_string()});
-            if constexpr(std::is_same_v<Settings, HingeJointComponent>) {
-                if(!Math::normalized_direction(settings.axis)
-                    || !Math::normalized_direction(settings.connected_axis))
-                    return Result<void, Error>::failure(
-                        {"Hinge axes must be finite and nonzero: " + definition.uuid.to_string()});
-                if(settings.limits_enabled) {
-                    if(!settings.has_valid_angle_range())
-                        return Result<void, Error>::failure(
-                            {"Hinge limits must span zero within [-180, 180]: "
-                                + definition.uuid.to_string()});
-                    if(!Math::perpendicular_direction(settings.axis, settings.reference_axis)
-                        || !Math::perpendicular_direction(
-                            settings.connected_axis, settings.connected_reference_axis))
-                        return Result<void, Error>::failure(
-                            {"Hinge references must be finite and not parallel to their axes: "
-                                + definition.uuid.to_string()});
-                }
-                if(settings.motor_enabled
-                    && (!std::isfinite(settings.motor_speed)
-                        || !std::isfinite(settings.motor_max_torque)
-                        || settings.motor_max_torque < 0))
-                    return Result<void, Error>::failure(
-                        {"Hinge motor speed and nonnegative torque must be finite: "
-                            + definition.uuid.to_string()});
-            }
+            if(auto valid = validate_joint(settings, definition.uuid); !valid)
+                return valid;
             const auto first = bodies.find(definition.entity);
             const auto second = bodies.find(definition.connected_entity);
             if(first == bodies.end() || first->second.uuid != definition.uuid)
@@ -426,21 +470,8 @@ namespace Comet {
                 };
                 if constexpr(std::is_same_v<Settings, HingeJointComponent>) {
                     JPH::HingeConstraintSettings native;
-                    const auto first_axis = *Math::normalized_direction(settings.axis);
-                    const auto second_axis = *Math::normalized_direction(settings.connected_axis);
-                    native.mHingeAxis1 = {first_axis.x, first_axis.y, first_axis.z};
-                    native.mHingeAxis2 = {second_axis.x, second_axis.y, second_axis.z};
-                    native.mNormalAxis1 = native.mHingeAxis1.GetNormalizedPerpendicular();
-                    native.mNormalAxis2 = native.mHingeAxis2.GetNormalizedPerpendicular();
+                    configure_joint_frame(settings, native);
                     if(settings.limits_enabled) {
-                        const auto first_reference =
-                            *Math::perpendicular_direction(settings.axis, settings.reference_axis);
-                        const auto second_reference = *Math::perpendicular_direction(
-                            settings.connected_axis, settings.connected_reference_axis);
-                        native.mNormalAxis1 = {
-                            first_reference.x, first_reference.y, first_reference.z};
-                        native.mNormalAxis2 = {
-                            second_reference.x, second_reference.y, second_reference.z};
                         // Jolt 计算连接端相对本端的角度，与内容语义符号相反。
                         native.mLimitsMin = -Math::radians(settings.max_angle);
                         native.mLimitsMax = -Math::radians(settings.min_angle);
@@ -452,6 +483,22 @@ namespace Comet {
                         auto& hinge = static_cast<JPH::HingeConstraint&>(*constraint.GetPtr());
                         hinge.SetTargetAngularVelocity(-Math::radians(settings.motor_speed));
                         hinge.SetMotorState(JPH::EMotorState::Velocity);
+                    }
+                } else if constexpr(std::is_same_v<Settings, SliderJointComponent>) {
+                    JPH::SliderConstraintSettings native;
+                    configure_joint_frame(settings, native);
+                    if(settings.limits_enabled) {
+                        // Jolt 位移为连接锚点减本端锚点，与内容语义符号相反。
+                        native.mLimitsMin = -settings.max_distance;
+                        native.mLimitsMax = -settings.min_distance;
+                    }
+                    if(settings.motor_enabled)
+                        native.mMotorSettings.SetForceLimit(settings.motor_max_force);
+                    create(native);
+                    if(settings.motor_enabled) {
+                        auto& slider = static_cast<JPH::SliderConstraint&>(*constraint.GetPtr());
+                        slider.SetTargetVelocity(-settings.motor_speed);
+                        slider.SetMotorState(JPH::EMotorState::Velocity);
                     }
                 } else {
                     JPH::PointConstraintSettings native;

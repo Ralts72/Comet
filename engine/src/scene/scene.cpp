@@ -116,7 +116,8 @@ namespace Comet {
             m_transform_interpolation.forget(*it);
             if(m_registry.all_of<RigidBodyComponent>(*it))
                 m_physics_structure_changed = true;
-            if(m_registry.any_of<PointJointComponent, HingeJointComponent>(*it))
+            if(m_registry.any_of<PointJointComponent, HingeJointComponent, SliderJointComponent>(
+                   *it))
                 m_physics_joints_changed = true;
             m_registry.destroy(*it);
         }

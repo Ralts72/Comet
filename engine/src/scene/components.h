@@ -187,10 +187,35 @@ namespace Comet {
         bool operator==(const HingeJointComponent&) const = default;
     };
 
+    struct COMET_API SliderJointComponent {
+        bool enabled = true;
+        EntityUuid connected_body;
+        // 锚点同点关节；重合时为零行程，只允许沿滑动轴平移。
+        Math::Vec3 anchor{0};
+        Math::Vec3 connected_anchor{0};
+        Math::Vec3 axis{0, 1, 0};
+        Math::Vec3 connected_axis{0, 1, 0};
+        // 投影到滑动轴垂直平面，定义锁定朝向；方向只受旋转影响。
+        Math::Vec3 reference_axis{1, 0, 0};
+        Math::Vec3 connected_reference_axis{1, 0, 0};
+        bool limits_enabled = false;
+        float min_distance = -0.5f; // 米，本端锚点相对连接锚点沿滑动轴的位移。
+        float max_distance = 0.5f;
+        bool motor_enabled = false;
+        float motor_speed = 0.5f;   // m/s，本端相对连接端，正值沿本地滑动轴。
+        float motor_max_force = 20; // N，0 表示不施加驱动力。
+        [[nodiscard]] bool has_valid_distance_range() const {
+            return std::isfinite(min_distance) && std::isfinite(max_distance) && min_distance <= 0
+                   && max_distance >= 0 && min_distance < max_distance;
+        }
+        bool operator==(const SliderJointComponent&) const = default;
+    };
+
     template<typename T>
     inline constexpr bool is_scene_joint_component_v =
         std::is_same_v<std::remove_cvref_t<T>, PointJointComponent>
-        || std::is_same_v<std::remove_cvref_t<T>, HingeJointComponent>;
+        || std::is_same_v<std::remove_cvref_t<T>, HingeJointComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, SliderJointComponent>;
 
     template<typename T>
     inline constexpr bool is_scene_physics_component_v =

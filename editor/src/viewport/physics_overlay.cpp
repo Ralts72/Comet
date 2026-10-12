@@ -95,6 +95,29 @@ namespace CometEditor {
             static_cast<void>(lines.add_line(anchor, previous, limit_color));
         }
 
+        void append_slider_limits(Comet::LineDrawList& lines,
+            const Comet::SliderJointComponent& joint, const Comet::Math::Vec3 anchor,
+            const Comet::Math::Mat4& pose, const Comet::Math::Vec4 reference_color,
+            const Comet::Math::Vec4 limit_color) {
+            using namespace Comet;
+            const auto reference =
+                Math::perpendicular_direction(joint.connected_axis, joint.connected_reference_axis);
+            if(!reference)
+                return;
+            const auto normal = Math::Vec3(pose * Math::Vec4(*reference, 0));
+            static_cast<void>(lines.add_line(anchor, anchor + normal * 0.14f, reference_color));
+            const auto axis = Math::normalized_direction(joint.connected_axis);
+            if(!joint.limits_enabled || !joint.has_valid_distance_range() || !axis)
+                return;
+            const auto direction = Math::Vec3(pose * Math::Vec4(*axis, 0));
+            const auto minimum = anchor + direction * joint.min_distance;
+            const auto maximum = anchor + direction * joint.max_distance;
+            static_cast<void>(lines.add_line(minimum, maximum, limit_color));
+            for(const auto end : {minimum, maximum})
+                static_cast<void>(
+                    lines.add_line(end - normal * 0.04f, end + normal * 0.04f, limit_color));
+        }
+
         template<typename Joint>
         void append_joint_type_anchors(Comet::Scene& scene, Comet::LineDrawList& lines) {
             using namespace Comet;
@@ -111,17 +134,21 @@ namespace CometEditor {
                                  && (!joint.connected_body || supported_joint_body(connected))
                                  && joint.connected_body != entity.get_uuid()
                                  && (dynamic_body(entity) || dynamic_body(connected));
-                if constexpr(std::is_same_v<Joint, HingeJointComponent>) {
+                if constexpr(!std::is_same_v<Joint, PointJointComponent>) {
                     supported &= Math::normalized_direction(joint.axis).has_value()
                                  && Math::normalized_direction(joint.connected_axis).has_value();
-                    if(joint.limits_enabled)
-                        supported &=
-                            joint.has_valid_angle_range()
-                            && Math::perpendicular_direction(joint.axis, joint.reference_axis)
-                                   .has_value()
-                            && Math::perpendicular_direction(
-                                joint.connected_axis, joint.connected_reference_axis)
-                                   .has_value();
+                    if(std::is_same_v<Joint, SliderJointComponent> || joint.limits_enabled)
+                        supported &= Math::perpendicular_direction(joint.axis, joint.reference_axis)
+                                         .has_value()
+                                     && Math::perpendicular_direction(
+                                         joint.connected_axis, joint.connected_reference_axis)
+                                            .has_value();
+                    if(joint.limits_enabled) {
+                        if constexpr(std::is_same_v<Joint, HingeJointComponent>)
+                            supported &= joint.has_valid_angle_range();
+                        else
+                            supported &= joint.has_valid_distance_range();
+                    }
                 }
                 Math::Vec4 first_color{1, 0.65f, 0.1f, 1};
                 Math::Vec4 second_color{0.1f, 0.9f, 0.9f, 1};
@@ -148,7 +175,7 @@ namespace CometEditor {
                 static_cast<void>(lines.add_box(
                     {.minimum = second_anchor - half_size, .maximum = second_anchor + half_size},
                     second_color));
-                if constexpr(std::is_same_v<Joint, HingeJointComponent>) {
+                if constexpr(!std::is_same_v<Joint, PointJointComponent>) {
                     const auto first_axis = Math::normalized_direction(joint.axis);
                     const auto second_axis = Math::normalized_direction(joint.connected_axis);
                     if(first_axis) {
@@ -166,7 +193,7 @@ namespace CometEditor {
                         static_cast<void>(lines.add_line(second_anchor - direction * 0.18f,
                             second_anchor + direction * 0.18f, second_color));
                     }
-                    if(joint.limits_enabled) {
+                    if(std::is_same_v<Joint, SliderJointComponent> || joint.limits_enabled) {
                         const auto reference =
                             Math::perpendicular_direction(joint.axis, joint.reference_axis);
                         if(reference) {
@@ -178,8 +205,12 @@ namespace CometEditor {
                         Math::Mat4 second_pose(1);
                         if(connected)
                             second_pose = scene.get_render_transform(connected).pose_world_matrix;
-                        append_hinge_limits(
-                            lines, joint, second_anchor, second_pose, second_color, gap_color);
+                        if constexpr(std::is_same_v<Joint, HingeJointComponent>) {
+                            append_hinge_limits(
+                                lines, joint, second_anchor, second_pose, second_color, gap_color);
+                        } else
+                            append_slider_limits(
+                                lines, joint, second_anchor, second_pose, second_color, gap_color);
                     }
                 }
                 if(first_anchor != second_anchor)
@@ -213,5 +244,6 @@ namespace CometEditor {
     void append_joint_anchors(Comet::Scene& scene, Comet::LineDrawList& lines) {
         append_joint_type_anchors<Comet::PointJointComponent>(scene, lines);
         append_joint_type_anchors<Comet::HingeJointComponent>(scene, lines);
+        append_joint_type_anchors<Comet::SliderJointComponent>(scene, lines);
     }
 }

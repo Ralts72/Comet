@@ -45,7 +45,8 @@ namespace Comet {
             EntityId entity;
             TransformComponent transform;
         };
-        using JointSettings = std::variant<PointJointComponent, HingeJointComponent>;
+        using JointSettings =
+            std::variant<PointJointComponent, HingeJointComponent, SliderJointComponent>;
         using JointKey = std::pair<EntityId, std::size_t>;
         struct JointDefinition {
             EntityUuid uuid;
