@@ -52,7 +52,8 @@ namespace CometEditor {
                 {"audio_source/clip", "音频片段"}, {"audio_source/play_on_start", "启动时播放"},
                 {"audio_source/loop", "循环"}, {"audio_source/category", "音频分类"},
                 {"audio_source/volume", "音量"}, {"rigid_body/motion", "运动类型"},
-                {"rigid_body/mass", "质量 (kg)"},
+                {"rigid_body/mass_mode", "质量计算"}, {"rigid_body/mass", "质量 (kg)"},
+                {"rigid_body/density", "密度 (kg/m³)"},
                 {"rigid_body/continuous_collision", "连续碰撞 (CCD)"}, {"collider/shape", "形状"},
                 {"collider/half_extents", "盒体半尺寸"}, {"collider/radius", "球体半径"},
                 {"collider/is_trigger", "触发器"}, {"collider/friction", "摩擦系数"},
@@ -65,7 +66,7 @@ namespace CometEditor {
                 {"orthographic", "正交"}, {"effects", "音效"}, {"music", "音乐"},
                 {"static", "静态"}, {"dynamic", "动态"}, {"kinematic", "运动学"}, {"box", "盒体"},
                 {"sphere", "球体"}, {"directional", "方向光"}, {"point", "点光源"},
-                {"spot", "聚光灯"}};
+                {"spot", "聚光灯"}, {"mass", "指定质量"}, {"density", "按密度计算"}};
 
             const auto& descriptors = source.components();
             std::vector<Comet::ComponentDescriptor> result(descriptors.begin(), descriptors.end());
@@ -164,6 +165,13 @@ namespace CometEditor {
             }
             if(expanded) {
                 for(const Comet::PropertyDescriptor& property : component_descriptor.properties) {
+                    if(component_descriptor.id == "rigid_body") {
+                        const auto mode =
+                            entity.get_component<Comet::RigidBodyComponent>().mass_mode;
+                        if((property.id == "mass" && mode == Comet::BodyMassMode::Density)
+                            || (property.id == "density" && mode == Comet::BodyMassMode::Mass))
+                            continue;
+                    }
                     ImGui::PushID(property.id.c_str());
                     if(component_descriptor.id == "script"
                         && property.type == Comet::PropertyType::Parameters)
@@ -328,6 +336,14 @@ namespace CometEditor {
             },
             *value);
         apply_property_edit(entity, component, property, *value, result);
+        if(component.id == "rigid_body" && property.id == "mass_mode")
+            ImGui::SetItemTooltip("指定质量：缩放保持质量，只改变形状与惯性。\n"
+                                  "按密度计算：质量 = 密度 × 缩放后的碰撞体积，长度按米计算。\n"
+                                  "仅动态刚体使用；下一固定步生效，切换保留当前速度。");
+        if(component.id == "rigid_body" && property.id == "density")
+            ImGui::SetItemTooltip("单位 kg/m³；默认 1000，水的近似密度。\n"
+                                  "计算质量至少为 0.001 kg；尺寸加倍时体积与质量变为 8 倍。\n"
+                                  "修改密度保留速度与接触身份，并唤醒动态刚体。");
         if(component.id == "rigid_body" && property.id == "continuous_collision")
             ImGui::SetItemTooltip("仅动态非触发器使用线性扫掠，减少高速穿过薄墙／地面的情况。\n"
                                   "下一固定步生效；切换保留当前速度。\n"

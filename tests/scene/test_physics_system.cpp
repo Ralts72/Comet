@@ -9,6 +9,7 @@
 #include <array>
 #include <gtest/gtest.h>
 #include <limits>
+#include <numbers>
 
 namespace Comet::Tests {
     namespace {
@@ -1456,6 +1457,190 @@ namespace Comet::Tests {
                 heavy.get_component<TransformComponent>().translation.x, distance / 2, 1e-5f);
             EXPECT_NEAR(large.get_component<TransformComponent>().translation.x, distance, 1e-5f);
             ASSERT_TRUE(runtime.stop());
+        }
+    }
+
+    TEST(PhysicsSystemTest, DensityUsesScaledCollisionVolumeForMassAndInertia) {
+        struct Case {
+            ColliderShape shape;
+            Math::Vec3 scale;
+            float mass;
+            float inertia;
+        };
+        const float sphere_mass = std::numbers::pi_v<float> / 3;
+        for(const auto& sample : {Case{ColliderShape::Box, {1, 1, 1}, 2, 1.0f / 3},
+                Case{ColliderShape::Box, {2, 2, 2}, 16, 32.0f / 3},
+                Case{ColliderShape::Box, {2, 3, 4}, 48, 52},
+                Case{ColliderShape::Sphere, {1, 1, 1}, sphere_mass, sphere_mass * 0.1f},
+                Case{ColliderShape::Sphere, {2, 2, 2}, sphere_mass * 8, sphere_mass * 3.2f}}) {
+            SCOPED_TRACE(static_cast<int>(sample.shape));
+            SCOPED_TRACE(sample.mass);
+            Scene scene;
+            PhysicsService physics;
+            auto body = add_body(scene, "Body", BodyMotion::Dynamic, {0, 10, 0}, sample.scale);
+            body.edit_component<ColliderComponent>(
+                [&](auto& component) { component.shape = sample.shape; });
+            body.edit_component<RigidBodyComponent>([](auto& component) {
+                component.mass_mode = BodyMassMode::Density;
+                component.density = 2;
+                component.mass = 123; // 密度模式不使用这个值。
+            });
+            SceneRuntime runtime;
+            ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+            ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+            ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+            ASSERT_TRUE(runtime.start(scene));
+            ASSERT_TRUE(physics.request_impulse_at(body, {1, 0, 0}, {0, 11, 0}));
+            ASSERT_TRUE(runtime.advance(0.01));
+            const auto velocity = physics.get_velocity(body);
+            ASSERT_TRUE(velocity);
+            // 默认线性／角阻尼均为 0.05，固定步为 0.01 秒。
+            EXPECT_NEAR(velocity->linear.x, 0.9995f / sample.mass, 1e-5f);
+            EXPECT_NEAR(velocity->angular.z, -0.9995f / sample.inertia, 1e-4f);
+            EXPECT_FLOAT_EQ(body.get_component<RigidBodyComponent>().mass, 123);
+        }
+    }
+
+    TEST(PhysicsSystemTest, DensityAndModeChangesRespectPauseAndPreserveBothVelocities) {
+        Scene scene;
+        PhysicsService physics;
+        auto body = add_body(scene, "Body", BodyMotion::Dynamic, {0, 10, 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(physics.request_impulse_at(body, {1, 0, 0}, {0, 11, 0}));
+        ASSERT_TRUE(runtime.advance(0.01));
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        auto before = physics.get_velocity(body);
+        ASSERT_TRUE(before);
+        body.edit_component<RigidBodyComponent>([](auto& component) {
+            component.mass_mode = BodyMassMode::Density;
+            component.density = 2;
+        });
+        ASSERT_TRUE(runtime.advance(0.1));
+        EXPECT_EQ(physics.get_velocity(body)->linear, before->linear);
+        EXPECT_EQ(physics.get_velocity(body)->angular, before->angular);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_NEAR(physics.get_velocity(body)->linear.x, before->linear.x * 0.9995f, 1e-5f);
+        EXPECT_NEAR(physics.get_velocity(body)->angular.z, before->angular.z * 0.9995f, 1e-4f);
+
+        for(const auto mode : {BodyMassMode::Density, BodyMassMode::Mass}) {
+            body.edit_component<RigidBodyComponent>([&](auto& component) {
+                component.mass_mode = mode;
+                component.density = 4;
+                component.mass = 4;
+            });
+            before = physics.get_velocity(body);
+            ASSERT_TRUE(physics.request_impulse(body, {4, 0, 0}));
+            ASSERT_TRUE(runtime.request_step());
+            ASSERT_TRUE(runtime.advance(0));
+            // 两种模式此时都为 4 kg，原有速度保留，新冲量增加 1 m/s。
+            EXPECT_NEAR(
+                physics.get_velocity(body)->linear.x, (before->linear.x + 1) * 0.9995f, 1e-5f);
+            EXPECT_NEAR(physics.get_velocity(body)->angular.z, before->angular.z * 0.9995f, 1e-4f);
+        }
+    }
+
+    TEST(PhysicsSystemTest, InactiveMassParameterDoesNotWakeSleepingDensityBody) {
+        Scene scene;
+        PhysicsService physics;
+        add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
+        auto body = add_body(scene, "Body", BodyMotion::Dynamic, {0, 2, 0});
+        body.edit_component<RigidBodyComponent>([](auto& component) {
+            component.mass_mode = BodyMassMode::Density;
+            component.density = 1;
+        });
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        auto probe = std::make_unique<ContactProbe>();
+        auto* observed = probe.get();
+        ASSERT_TRUE(runtime.add_system(std::move(probe)));
+        ASSERT_TRUE(runtime.start(scene));
+        for(int i = 0; i < 250; ++i)
+            ASSERT_TRUE(runtime.advance(0.01));
+        ASSERT_EQ(physics.get_statistics().active_bodies, 0u);
+        body.edit_component<RigidBodyComponent>([](auto& component) { component.mass = 5; });
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(physics.get_statistics().active_bodies, 0u);
+        body.edit_component<RigidBodyComponent>([](auto& component) { component.density = 2; });
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(physics.get_statistics().active_bodies, 1u);
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1);
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionExit), 0);
+    }
+
+    TEST(PhysicsSystemTest, InvalidDensityAndCalculatedMassFailWithCleanRuntime) {
+        for(const auto& [density, scale] : {std::pair{0.0f, 0.2f}, std::pair{-1.0f, 0.2f},
+                std::pair{RigidBodyComponent::MIN_DENSITY / 2, 0.2f},
+                std::pair{std::numeric_limits<float>::infinity(), 0.2f},
+                std::pair{std::numeric_limits<float>::quiet_NaN(), 0.2f},
+                std::pair{RigidBodyComponent::MIN_DENSITY, 0.2f},
+                std::pair{std::numeric_limits<float>::max(), 2.0f}}) {
+            SCOPED_TRACE(density);
+            Scene scene;
+            PhysicsService physics;
+            // 体积为 0.008 m³，最低密度计算质量不足 0.001 kg。
+            auto body = add_body(scene, "Body", BodyMotion::Dynamic, {0, 10, 0}, Math::Vec3(scale));
+            body.edit_component<RigidBodyComponent>([&](auto& component) {
+                component.mass_mode = BodyMassMode::Density;
+                component.density = density;
+            });
+            SceneRuntime runtime;
+            ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+            ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+            ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+            EXPECT_FALSE(runtime.start(scene));
+            EXPECT_FALSE(runtime.is_active());
+            EXPECT_EQ(physics.get_statistics().bodies, 0u);
+            body.edit_component<RigidBodyComponent>(
+                [](auto& component) { component.density = 1000; });
+            ASSERT_TRUE(runtime.start(scene));
+            body.edit_component<RigidBodyComponent>(
+                [&](auto& component) { component.density = density; });
+            EXPECT_FALSE(runtime.advance(0.01));
+            EXPECT_FALSE(runtime.is_active());
+            EXPECT_EQ(physics.get_statistics().bodies, 0u);
+        }
+    }
+
+    TEST(PhysicsSystemTest, DensityRecalculatesAfterCollisionSizeChanges) {
+        for(const auto shape : {ColliderShape::Box, ColliderShape::Sphere}) {
+            Scene scene;
+            PhysicsService physics;
+            auto body = add_body(scene, "Body", BodyMotion::Dynamic, {0, 10, 0});
+            body.edit_component<RigidBodyComponent>([](auto& component) {
+                component.mass_mode = BodyMassMode::Density;
+                component.density = 2;
+            });
+            body.edit_component<ColliderComponent>(
+                [&](auto& component) { component.shape = shape; });
+            SceneRuntime runtime;
+            ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+            ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+            ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+            ASSERT_TRUE(runtime.start(scene, SceneRuntime::State::Paused));
+            ASSERT_TRUE(physics.request_impulse(body, {1, 0, 0}));
+            ASSERT_TRUE(runtime.request_step());
+            ASSERT_TRUE(runtime.advance(0));
+            const auto original = physics.get_velocity(body)->linear.x;
+            body.edit_transform([](auto& transform) { transform.scale = Math::Vec3(2); });
+            ASSERT_TRUE(physics.request_impulse(body, {1, 0, 0}));
+            ASSERT_TRUE(runtime.request_step());
+            ASSERT_TRUE(runtime.advance(0));
+            EXPECT_NEAR(physics.get_velocity(body)->linear.x, original / 8, 1e-5f);
+            body.edit_component<ColliderComponent>([](auto& component) {
+                component.half_extents = Math::Vec3(1);
+                component.radius = 1;
+            });
+            ASSERT_TRUE(physics.request_impulse(body, {1, 0, 0}));
+            ASSERT_TRUE(runtime.request_step());
+            ASSERT_TRUE(runtime.advance(0));
+            EXPECT_NEAR(physics.get_velocity(body)->linear.x, original / 64, 1e-5f);
         }
     }
 

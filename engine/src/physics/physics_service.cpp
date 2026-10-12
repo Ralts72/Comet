@@ -97,6 +97,14 @@ namespace Comet {
                    && a.radius == b.radius && a.is_trigger == b.is_trigger;
         }
 
+        bool same_mass_settings(const RigidBodyComponent& a, const RigidBodyComponent& b) {
+            if(a.mass_mode != b.mass_mode)
+                return false;
+            if(a.mass_mode == BodyMassMode::Mass)
+                return a.mass == b.mass;
+            return a.density == b.density;
+        }
+
         Result<void, Error> validate_body(const EntityUuid uuid,
             const TransformComponent& transform, const ColliderComponent& collider,
             const RigidBodyComponent& rigid) {
@@ -108,6 +116,12 @@ namespace Comet {
             if(!std::isfinite(rigid.mass) || rigid.mass < RigidBodyComponent::MIN_MASS)
                 return Result<void, Error>::failure(
                     {"Invalid rigid body mass: " + uuid.to_string()});
+            if(rigid.mass_mode != BodyMassMode::Mass && rigid.mass_mode != BodyMassMode::Density)
+                return Result<void, Error>::failure(
+                    {"Unknown rigid body mass mode: " + uuid.to_string()});
+            if(!std::isfinite(rigid.density) || rigid.density < RigidBodyComponent::MIN_DENSITY)
+                return Result<void, Error>::failure(
+                    {"Invalid rigid body density: " + uuid.to_string()});
             if(!std::isfinite(collider.friction) || collider.friction < 0 || collider.friction > 1
                 || !std::isfinite(collider.restitution) || collider.restitution < 0
                 || collider.restitution > 1)
@@ -145,7 +159,13 @@ namespace Comet {
         }
 
         Result<JPH::MassProperties, Error> calculate_mass_properties(
-            const JPH::Shape& shape, const float mass) {
+            const JPH::Shape& shape, const RigidBodyComponent& rigid) {
+            auto mass = rigid.mass;
+            if(rigid.mass_mode == BodyMassMode::Density)
+                mass = shape.GetVolume() * rigid.density;
+            if(!std::isfinite(mass) || mass < RigidBodyComponent::MIN_MASS)
+                return Result<JPH::MassProperties, Error>::failure(
+                    {"Calculated rigid body mass must be finite and at least 0.001 kg"});
             auto properties = shape.GetMassProperties();
             if(!valid_inverse(properties.mMass) || !std::isfinite(mass / properties.mMass)
                 || mass / properties.mMass <= 0)
@@ -203,9 +223,7 @@ namespace Comet {
             EntityId entity;
             EntityUuid uuid;
             JPH::BodyID id;
-            BodyMotion motion;
-            float mass;
-            JPH::EMotionQuality motion_quality;
+            RigidBodyComponent rigid;
             ColliderComponent collider;
             TransformComponent last_transform;
             JPH::Quat last_physics_rotation;
@@ -262,7 +280,7 @@ namespace Comet {
             settings.mFriction = collider.friction;
             settings.mRestitution = collider.restitution;
             if(motion == BodyMotion::Dynamic) {
-                auto properties = calculate_mass_properties(*shape, rigid.mass);
+                auto properties = calculate_mass_properties(*shape, rigid);
                 if(!properties)
                     return Result<void, Error>::failure(
                         {properties.error().message + ": " + definition.uuid.to_string()});
@@ -277,9 +295,8 @@ namespace Comet {
             if(id.IsInvalid())
                 return Result<void, Error>::failure({"Physics body capacity exceeded"});
             const auto inserted = bodies.emplace(
-                definition.entity, Body{definition.entity, definition.uuid, id, motion, rigid.mass,
-                                       settings.mMotionQuality, collider, transform,
-                                       world.GetBodyInterface().GetRotation(id)});
+                definition.entity, Body{definition.entity, definition.uuid, id, rigid, collider,
+                                       transform, world.GetBodyInterface().GetRotation(id)});
             body_lookup[id.GetIndex()] = &inserted.first->second;
             if(motion == BodyMotion::Kinematic)
                 kinematic_bodies.push_back(&inserted.first->second);
@@ -306,7 +323,7 @@ namespace Comet {
             auto& interface = world.GetBodyInterface();
             wake_nearby_bodies(it->second.id);
             body_lookup[it->second.id.GetIndex()] = nullptr;
-            if(it->second.motion == BodyMotion::Kinematic)
+            if(it->second.rigid.motion == BodyMotion::Kinematic)
                 std::erase(kinematic_bodies, &it->second);
             interface.RemoveBody(it->second.id);
             interface.DestroyBody(it->second.id);
@@ -323,14 +340,14 @@ namespace Comet {
             return body;
         }
 
-        Result<void, Error> update_mass(Body& body, const float mass) {
-            if(body.motion == BodyMotion::Dynamic) {
+        Result<void, Error> update_mass(Body& body, const RigidBodyComponent& rigid) {
+            if(body.rigid.motion == BodyMotion::Dynamic) {
                 {
                     const JPH::BodyLockWrite lock(world.GetBodyLockInterface(), body.id);
                     if(!lock.Succeeded())
                         return Result<void, Error>::failure({"Cannot access mass update target"});
                     auto& target = lock.GetBody();
-                    auto properties = calculate_mass_properties(*target.GetShape(), mass);
+                    auto properties = calculate_mass_properties(*target.GetShape(), rigid);
                     if(!properties)
                         return Result<void, Error>::failure(
                             {properties.error().message + ": " + body.uuid.to_string()});
@@ -339,7 +356,6 @@ namespace Comet {
                 }
                 world.GetBodyInterface().ActivateBody(body.id);
             }
-            body.mass = mass;
             return Result<void, Error>::success();
         }
 
@@ -351,19 +367,20 @@ namespace Comet {
             const bool added = it == bodies.end();
             const bool rebuild =
                 !added
-                && (it->second.uuid != definition.uuid || it->second.motion != rigid.motion
+                && (it->second.uuid != definition.uuid || it->second.rigid.motion != rigid.motion
                     || !same_shape(it->second.collider, collider)
                     || !glm::all(glm::equal(it->second.last_transform.scale, transform.scale)));
-            const bool mass_changed = !added && it->second.mass != rigid.mass;
+            const bool rigid_changed = !added && it->second.rigid != rigid;
             const bool pose_changed = !added && !same_pose(it->second.last_transform, transform);
             const auto motion_quality = to_motion_quality(rigid, collider);
-            const bool quality_changed = !added && it->second.motion_quality != motion_quality;
+            const bool quality_changed =
+                !added
+                && to_motion_quality(it->second.rigid, it->second.collider) != motion_quality;
             const bool surface_changed =
                 !added
                 && (it->second.collider.friction != collider.friction
                     || it->second.collider.restitution != collider.restitution);
-            if(added || rebuild || mass_changed || pose_changed || quality_changed
-                || surface_changed) {
+            if(added || rebuild || rigid_changed || pose_changed || surface_changed) {
                 if(auto valid = validate_body(definition.uuid, transform, collider, rigid); !valid)
                     return Result<bool, Error>::failure(valid.error());
             }
@@ -385,12 +402,12 @@ namespace Comet {
             if(quality_changed) {
                 // 原地更新 Jolt 检测方式，保留速度、休眠及接触身份。
                 world.GetBodyInterface().SetMotionQuality(body.id, motion_quality);
-                body.motion_quality = motion_quality;
             }
-            if(mass_changed) {
-                if(auto updated = update_mass(body, rigid.mass); !updated)
+            if(!same_mass_settings(body.rigid, rigid)) {
+                if(auto updated = update_mass(body, rigid); !updated)
                     return Result<bool, Error>::failure(updated.error());
             }
+            body.rigid = rigid;
             if(rigid.motion == BodyMotion::Kinematic) {
                 if(!glm::all(glm::equal(body.last_transform.rotation, transform.rotation)))
                     body.last_physics_rotation = to_rotation(transform.rotation);
@@ -461,7 +478,7 @@ namespace Comet {
             for(const auto& request : commands) {
                 const auto found = bodies.find(request.entity);
                 if(found == bodies.end() || found->second.uuid != request.uuid
-                    || found->second.motion != BodyMotion::Dynamic)
+                    || found->second.rigid.motion != BodyMotion::Dynamic)
                     continue;
                 const auto id = found->second.id;
                 const JPH::Vec3 value(request.value.x, request.value.y, request.value.z);
@@ -523,7 +540,7 @@ namespace Comet {
 
         void collect_poses() {
             const auto collect = [this](Body& body) {
-                if(body.motion != BodyMotion::Dynamic)
+                if(body.rigid.motion != BodyMotion::Dynamic)
                     return;
                 JPH::RVec3 position;
                 JPH::Quat rotation;

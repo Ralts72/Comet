@@ -122,12 +122,17 @@ namespace Comet {
     };
 
     enum class BodyMotion { Static, Dynamic, Kinematic };
+    enum class BodyMassMode { Mass, Density };
 
     struct COMET_API RigidBodyComponent {
         static constexpr float MIN_MASS = 0.001f;
+        static constexpr float MIN_DENSITY = 0.001f;
         BodyMotion motion = BodyMotion::Dynamic;
-        // kg；仅动态刚体参与质量响应，缩放只改变碰撞形状与惯性。
+        BodyMassMode mass_mode = BodyMassMode::Mass;
+        // kg；质量模式保持指定值，密度模式按缩放后的碰撞体积计算。
         float mass = 1.0f;
+        // kg/m³；仅动态刚体参与质量与惯性响应。
+        float density = 1000.0f;
         // 仅动态非触发器使用线性扫掠；高速旋转和触发区仍不保证连续检测。
         bool continuous_collision = false;
         bool operator==(const RigidBodyComponent&) const = default;

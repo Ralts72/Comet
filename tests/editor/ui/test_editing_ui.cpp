@@ -1565,6 +1565,86 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(history.can_undo());
     }
 
+    TEST_F(EditingUiTest, MassModeSwitchesInputAndSupportsUndoAndPlayEditing) {
+        entity.add_component<Comet::RigidBodyComponent>();
+        ImVec2 mode_point{}, density_point{};
+        bool mass_drawn = false, density_drawn = false;
+        ASSERT_TRUE(widgets.register_editor(
+            Comet::PropertyType::Enum, [&, builtin = create_property_editor_registry(assets)](
+                                           const Comet::PropertyDescriptor& property, void* value) {
+                const auto result = builtin.edit_property(property, value);
+                if(property.id == "mass_mode") {
+                    EXPECT_TRUE(property.display_name.starts_with("质量计算###"));
+                    const auto start = ImGui::GetItemRectMin();
+                    mode_point = {start.x + 20, start.y + 8};
+                }
+                return result;
+            }));
+        ASSERT_TRUE(widgets.register_editor(Comet::PropertyType::Float,
+            [&, builtin = create_property_editor_registry(assets)](
+                const Comet::PropertyDescriptor& property, void* value) {
+                const auto result = builtin.edit_property(property, value);
+                mass_drawn |= property.id == "mass";
+                if(property.id == "density") {
+                    density_drawn = true;
+                    EXPECT_TRUE(property.display_name.starts_with("密度 (kg/m³)###"));
+                    const auto start = ImGui::GetItemRectMin();
+                    density_point = {start.x + 20, start.y + 8};
+                }
+                return result;
+            }));
+        const auto expect_fields = [&](bool density) {
+            mass_drawn = density_drawn = false;
+            frame();
+            EXPECT_EQ(mass_drawn, !density);
+            EXPECT_EQ(density_drawn, density);
+        };
+        const auto choose_mode = [&](int row) {
+            click(mode_point);
+            frame();
+            const auto* popup = ImGui::FindWindowByName("##Combo_00");
+            ASSERT_NE(popup, nullptr);
+            ASSERT_TRUE(popup->Active);
+            click({popup->DC.CursorStartPos.x + 20,
+                popup->DC.CursorStartPos.y + row * ImGui::GetTextLineHeightWithSpacing()
+                    + ImGui::GetTextLineHeight() * 0.5f});
+        };
+        expect_fields(false);
+        choose_mode(1);
+        expect_fields(true);
+        EXPECT_EQ(entity.get_component<Comet::RigidBodyComponent>().mass_mode,
+            Comet::BodyMassMode::Density);
+        EXPECT_EQ(history.undo_size(), 1u);
+        drag_at(density_point);
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        const auto density = entity.get_component<Comet::RigidBodyComponent>().density;
+        EXPECT_GT(density, 1000);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::RigidBodyComponent>().density, 1000);
+        ASSERT_TRUE(history.undo());
+        expect_fields(false);
+        ASSERT_TRUE(history.redo());
+        expect_fields(true);
+        ASSERT_TRUE(history.redo());
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::RigidBodyComponent>().density, density);
+
+        history.bind_scene(nullptr);
+        state.mode = EditorMode::Play;
+        choose_mode(0);
+        expect_fields(false);
+        EXPECT_EQ(
+            entity.get_component<Comet::RigidBodyComponent>().mass_mode, Comet::BodyMassMode::Mass);
+        choose_mode(1);
+        expect_fields(true);
+        drag_at(density_point);
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_GT(entity.get_component<Comet::RigidBodyComponent>().density, density);
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::RigidBodyComponent>().mass, 1);
+        EXPECT_FALSE(history.can_undo());
+    }
+
     TEST_F(EditingUiTest, ColliderSurfaceWidgetsUseBoundsUndoAndPlayEditing) {
         entity.add_component<Comet::ColliderComponent>();
         ImVec2 friction_point{}, restitution_point{};

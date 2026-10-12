@@ -268,6 +268,74 @@ namespace Comet::Tests {
         }
     }
 
+    TEST(SceneSerializerTest, DensityModePersistsCloneAndDefaultsToExplicitMassWhenOmitted) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        auto legacy = serializer.deserialize(R"({"version":2,"entities":[{
+            "uuid":"00000000-0000-4000-8000-000000000001",
+            "components":{"name":"Body","rigid_body":{"motion":"dynamic","mass":3}}}]})");
+        ASSERT_TRUE(legacy) << legacy.error();
+        auto body = legacy.value()->get_entities().front();
+        EXPECT_EQ(body.get_component<RigidBodyComponent>().mass_mode, BodyMassMode::Mass);
+        EXPECT_FLOAT_EQ(body.get_component<RigidBodyComponent>().mass, 3);
+        EXPECT_FLOAT_EQ(body.get_component<RigidBodyComponent>().density, 1000);
+        body.edit_component<RigidBodyComponent>([](auto& rigid) {
+            rigid.mass_mode = BodyMassMode::Density;
+            rigid.density = 600;
+        });
+        TemporaryDirectory directory;
+        const auto path = (directory.path() / "density.scene").string();
+        ASSERT_TRUE(serializer.save(*legacy.value(), path));
+        const auto loaded = serializer.load(path);
+        ASSERT_TRUE(loaded) << loaded.error();
+        const auto loaded_body = loaded.value()->find_entity(body.get_uuid());
+        EXPECT_EQ(loaded_body.get_component<RigidBodyComponent>(),
+            body.get_component<RigidBodyComponent>());
+        auto clone = serializer.clone(*loaded.value());
+        ASSERT_TRUE(clone) << clone.error();
+        auto cloned_body = clone.value()->find_entity(body.get_uuid());
+        EXPECT_EQ(cloned_body.get_component<RigidBodyComponent>(),
+            loaded_body.get_component<RigidBodyComponent>());
+        cloned_body.edit_component<RigidBodyComponent>([](auto& rigid) {
+            rigid.mass_mode = BodyMassMode::Mass;
+            rigid.mass = 5;
+        });
+        EXPECT_TRUE(serializer.serialize(*clone.value()));
+        EXPECT_EQ(loaded_body.get_component<RigidBodyComponent>().mass_mode, BodyMassMode::Density);
+        EXPECT_FLOAT_EQ(loaded_body.get_component<RigidBodyComponent>().mass, 3);
+    }
+
+    TEST(SceneSerializerTest, RejectsInvalidDensityAndMassModeOnLoadAndSave) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        for(const auto& [field, value] :
+            {std::pair{"density", "0"}, std::pair{"density", "-1"}, std::pair{"density", "0.0005"},
+                std::pair{"density", "null"}, std::pair{"density", "1e100"},
+                std::pair{"density", "\"1000\""}, std::pair{"mass_mode", "null"},
+                std::pair{"mass_mode", "1"}, std::pair{"mass_mode", "\"unknown\""}}) {
+            const auto json = std::string(R"({"version":2,"entities":[{
+                "uuid":"00000000-0000-4000-8000-000000000001",
+                "components":{"name":"Body","rigid_body":{"motion":"dynamic",")")
+                              + field + "\":" + value + "}}}]}";
+            const auto loaded = serializer.deserialize(json);
+            ASSERT_FALSE(loaded);
+            EXPECT_NE(loaded.error().find(field), std::string::npos);
+        }
+        Scene scene;
+        auto body = scene.create_entity();
+        body.add_component<RigidBodyComponent>();
+        for(const float density : {0.0f, -1.0f, RigidBodyComponent::MIN_DENSITY / 2,
+                std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()}) {
+            body.edit_component<RigidBodyComponent>([&](auto& rigid) { rigid.density = density; });
+            EXPECT_FALSE(serializer.serialize(scene));
+        }
+        body.edit_component<RigidBodyComponent>([](auto& rigid) {
+            rigid.density = 1000;
+            rigid.mass_mode = static_cast<BodyMassMode>(42);
+        });
+        EXPECT_FALSE(serializer.serialize(scene));
+    }
+
     TEST(SceneSerializerTest, RejectsInvalidRigidBodyMassOnLoadAndSave) {
         const auto registry = create_scene_component_registry();
         const SceneSerializer serializer(registry);
