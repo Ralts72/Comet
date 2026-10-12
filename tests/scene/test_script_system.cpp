@@ -1593,6 +1593,48 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(rotation.y, 4);
     }
 
+    TEST_P(DemoControlsTest, DemoThrustUsesVelocitiesAndRespectsGameplayInputGroup) {
+        const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
+        ASSERT_TRUE(project) << project.error();
+        ASSERT_TRUE(runtime.set_input_actions(project.value().input_actions()));
+        const auto script =
+            Script::load(project.value().paths().assets() / "scripts/impulse_cube.lua");
+        ASSERT_TRUE(script) << script.error().message;
+        ASSERT_TRUE(assets.register_asset(handle, script.value()));
+        auto cube = actor();
+        cube.add_component<RigidBodyComponent>();
+        cube.add_component<ColliderComponent>();
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        ASSERT_TRUE(runtime.start(scene));
+        control(Input::Key::K, Input::GamepadButton::RightShoulder, true);
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        const auto moving = physics.get_velocity(cube);
+        ASSERT_TRUE(moving);
+        EXPECT_GT(moving->linear.y, 0);
+        EXPECT_GT(moving->angular.y, 0);
+        ASSERT_TRUE(runtime.get_session().request_input_context("gameplay", false));
+        ASSERT_TRUE(runtime.advance(0.02, &input.publish_frame()));
+        const auto disabled = physics.get_velocity(cube);
+        ASSERT_TRUE(disabled);
+        EXPECT_LT(disabled->linear.y, moving->linear.y);
+        EXPECT_LE(disabled->angular.y, moving->angular.y);
+        ASSERT_TRUE(runtime.get_session().request_input_context("gameplay", true));
+        for(int frame = 0; frame < 150; ++frame)
+            ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
+        const auto limited = physics.get_velocity(cube);
+        ASSERT_TRUE(limited);
+        EXPECT_GT(limited->linear.y, 3.8f);
+        EXPECT_LT(limited->linear.y, 4.1f);
+        EXPECT_GT(limited->angular.y, 2.9f);
+        EXPECT_LT(limited->angular.y, 3.1f);
+        control(Input::Key::K, Input::GamepadButton::RightShoulder, false);
+        ASSERT_TRUE(runtime.advance(0.1, &input.publish_frame()));
+        const auto released = physics.get_velocity(cube);
+        ASSERT_TRUE(released);
+        EXPECT_LT(released->linear.y, limited->linear.y - 0.5f);
+        EXPECT_LE(released->angular.y, limited->angular.y);
+    }
+
     TEST_P(DemoControlsTest, DemoPaletteConsumesSharedControlsAndPreservesGameplayState) {
         const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
         ASSERT_TRUE(project) << project.error();

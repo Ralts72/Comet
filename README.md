@@ -311,9 +311,11 @@ Editor 无需 Stop／Play。按键由项目动作 `demo.restart` 配置；Edit �
 空格仍可暂停／恢复中间立方体的旋转。左右方向键绑定在项目 `project.json`，不占用相机的 WASD 控制。
 左侧的 `Impulse_Cube` 是动态刚体；按 `J` 施加一次向上冲量，方块弹起后受重力影响落地。
 长按不会连续施加，松开再按可再次弹起（不限制必须落地）；Edit 中可调整该实体 Script 的 `impulse` 参数。
+长按 `K`／手柄右肩键会持续施力使它上升，同时施加力矩旋转；松开后保留惯性并受重力下落。
+脚本逐固定步查询速度，达到阈值后暂停对应施力；`thrust_force`、`spin_torque`、`max_rise_speed` 和 `max_spin_speed` 可在 Inspector 调整。
 刚体面板的“质量 (kg)”默认 1；demo 使用 1 kg 与 3.5 的冲量。保持冲量不变，将质量改成 2 后重新 Play，
 方块获得的向上速度增量约减半；质量不会改变重力加速度。质量支持保存及 Undo／Redo，不再随模型缩放隐式变化。
-J 绑定在项目动作 `demo.impulse`，与方向键和空格同属 `gameplay` 组；得分后这些操作停止响应，
+J／K 分别绑定项目动作 `demo.impulse`／`demo.thrust`，与方向键和空格同属 `gameplay` 组；得分后这些操作停止响应，
 已产生的物理运动继续，`R` 重开后恢复操作。
 demo 的首个标准手柄也可操作这些玩法，绑定仍来自 `project.json`，Lua 不区分设备：
 
@@ -321,6 +323,7 @@ demo 的首个标准手柄也可操作这些玩法，绑定仍来自 `project.js
 | --- | --- | --- |
 | 移动方块／调色时换色 | 左右方向键 | 方向十字键左右 |
 | 施加冲量／调色时重置颜色 | J | West（左侧动作键） |
+| 持续上升并旋转 | K | RightShoulder（右肩键） |
 | 切换旋转／调色时确认 | Space | South（下方动作键） |
 | 开关调色模式 | Tab | North（上方动作键） |
 | 重新开始 | R | Start |
@@ -421,7 +424,7 @@ demo 的空格／手柄 South 切换方块旋转；运行状态保存在 Lua `se
 同级共享，公共动作不参与屏蔽，其他绑定仍可用。消费只作用于配置中的控制，不暂停物理或吞掉整个设备。
 “绑定关系”解释双方组都启用时的共享／消费，并标出默认关闭的组；不是当前 Play 状态，合法重叠不阻止保存。
 
-demo 得分后禁用 `gameplay` 组，方向键移动、空格切换与 J 冲量停止响应，`camera` 组和公共的 R 重开仍有效。
+demo 得分后禁用 `gameplay` 组，方向键移动、空格切换、J 冲量与 K 推进停止响应，`camera` 组和公共的 R 重开仍有效。
 按 Tab／手柄 North 开关调色模式：左右方向键／方向十字键换色，J／West 恢复初始颜色，空格／South 确认退出。
 调色时这些控制不再操作游戏组，相机和 R 重开仍可用；退出调色不会重新启用已因得分关闭的 gameplay。
 成功重载、换绑或清空旋转脚本会退出调色模式，保留已写入 Scene 的颜色，但不保留任意 Lua self 状态。
@@ -619,8 +622,13 @@ App 与 Editor 共用 Engine 目录内的字体；App 不依赖 Editor 的翻译
 | `comet.create_entity()`／`comet.destroy_entity()` | 请求创建／删除子树，在阶段末提交，只修改运行场景 |
 | `comet.has_rigid_body(entity)`／`comet.remove_rigid_body(entity)` | 查询／请求移除刚体，保留实体与其他组件；提交前查询仍见旧组件 |
 | `comet.apply_impulse(x,y,z)` | 向本实体质心施加世界空间冲量，要求 Transform、Collider 和 Dynamic Rigid Body |
+| `comet.apply_force(x,y,z)`／`comet.apply_torque(x,y,z)` | 世界空间力（N）／力矩（N·m），要求同上，只作用于下一固定步 |
+| `comet.linear_velocity()`／`comet.angular_velocity()` | 返回本实体最近模拟状态的三个分量（m/s／rad/s）；静态刚体为零，运动学刚体反映固定步目标运动 |
 | `comet.session_set/get()` | 共享本局临时值；支持 bool、有限数值、string、Vec3，设置 nil 删除 |
 | `comet.restart_scene()` | 恢复启动内容基线，不重读磁盘；demo 绑定 R |
+
+连续施力在 `fixed_update` 中逐步提交，无需乘以 `dt`；在普通 `update` 中逐帧施力会受到显示帧率影响。
+速度查询要求刚体已完成登记，新建刚体在下一固定步同步后可查询；返回真实模拟速度，不读取插值后的画面姿态。
 
 创建时可设置本地 Transform 与网格／材质来源；不复制其他组件或运行覆盖，不等于 Prefab：
 
@@ -665,10 +673,10 @@ Play 修改只作用于副本；脚本启动或运行失败会记录错误并恢
 
 demo 场景的 Ground 有静态盒碰撞体，Falling Cube 有动态刚体；打开编辑器点击 Play（或运行 app）即可看到方块落地，
 Edit 中位置保持原样。刚体与碰撞体在 Inspector 添加、编辑并保存到 `.scene`；物理世界不会保存，Stop 即销毁。
-Engine 为每个运行域装配 PhysicsService；启动前绑定服务，停止／失败时清空模拟对象和待处理冲量。
+Engine 为每个运行域装配 PhysicsService；启动前绑定服务，停止／失败时清空模拟对象和待处理物理请求。
 刚体与碰撞体在 C++ 中只读访问；添加时传入初值，后续使用 `try_set_component`／`edit_component` 提交修改，Inspector 复用同一入口。
 运行时配置修改在下一固定步同步；渲染提取不消费这些修改，稳定刚体也不再逐步重复检查配置。
-脚本可在 `on_start` 提交冲量，下一固定步执行；未装配物理服务时调用 `comet.apply_impulse` 会明确报错，组件配置仍可编辑和保存。
+脚本可在 `on_start` 提交冲量、力或力矩，下一固定步执行；未装配物理服务时调用这些接口会明确报错，组件配置仍可编辑和保存。
 只添加碰撞体不会参与模拟，还需添加刚体；静态刚体本身不会下落，也只有与其他物理 body 接触时才有碰撞效果。
 运动类型可选静态、动态、运动学：动态由物理推进并回写位置；运动学由脚本／场景 Transform 给出每个固定步的目标，
 不受重力或碰撞反推，可推动动态物体并触发静态 Trigger。脚本驱动移动平台或旋转障碍物应使用运动学，

@@ -70,8 +70,8 @@ set(COMET_RUNTIME_SOURCES
     src/scene/runtime_session.h
     src/scene/runtime_services.h
     src/audio/audio_commands.h
-    src/physics/physics_commands.cpp
-    src/physics/physics_commands.h
+    src/physics/physics_access.cpp
+    src/physics/physics_access.h
     src/scene/scene_runtime.cpp
     src/scene/scene_runtime.h
     src/scene/systems/system.h

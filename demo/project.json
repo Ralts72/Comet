@@ -244,6 +244,16 @@
       ]
     },
     {
+      "id": "0120f784-0b77-4a50-bba9-000000000059",
+      "name": "demo.thrust",
+      "context": "gameplay",
+      "type": "button",
+      "bindings": [
+        {"id": "0120f784-0b77-4a50-bba9-000000000060", "source": "key", "control": "K"},
+        {"id": "0120f784-0b77-4a50-bba9-000000000061", "source": "gamepad_button", "control": "RightShoulder"}
+      ]
+    },
+    {
       "id": "0120f784-0b77-4a50-bba9-000000000012",
       "name": "demo.move_x",
       "context": "gameplay",

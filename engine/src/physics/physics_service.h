@@ -1,6 +1,6 @@
 #pragma once
 
-#include "physics/physics_commands.h"
+#include "physics/physics_access.h"
 #include "common/error.h"
 #include "common/result.h"
 #include "scene/components.h"
@@ -13,7 +13,7 @@
 namespace Comet {
     class PhysicsSystem;
 
-    class COMET_API PhysicsService final: public PhysicsCommands {
+    class COMET_API PhysicsService final: public PhysicsAccess {
     public:
         struct Statistics {
             std::size_t bodies = 0;
@@ -28,7 +28,7 @@ namespace Comet {
 
     private:
         friend class PhysicsSystem;
-        static constexpr std::size_t MAX_IMPULSES = 128;
+        static constexpr std::size_t MAX_COMMANDS = 128;
         struct BodyDefinition {
             // 仅在同步调用内借用组件，后端缓存独立值。
             EntityUuid uuid;
@@ -48,13 +48,16 @@ namespace Comet {
             EntityUuid first_uuid;
             EntityUuid second_uuid;
         };
-        struct Impulse {
+        struct Command {
             EntityUuid uuid;
             EntityId entity;
+            CommandKind kind;
             Math::Vec3 value;
         };
 
-        bool enqueue_impulse(EntityUuid uuid, EntityId entity, Math::Vec3 impulse) override;
+        bool enqueue_command(
+            EntityUuid uuid, EntityId entity, CommandKind kind, Math::Vec3 value) override;
+        std::optional<Velocity> read_velocity(EntityUuid uuid, EntityId entity) const override;
         void reset() noexcept override;
         Result<void, Error> prepare_world();
         // 首次登记 EntityId 返回 true；同实体的刚体重建不重复登记。
@@ -66,6 +69,6 @@ namespace Comet {
 
         struct Impl;
         std::unique_ptr<Impl> m_impl;
-        std::vector<Impulse> m_impulses;
+        std::vector<Command> m_commands;
     };
 }

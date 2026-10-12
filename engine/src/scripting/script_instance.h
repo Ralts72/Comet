@@ -9,7 +9,7 @@ namespace Comet {
     class Scene;
     class RuntimeSession;
     class AudioCommands;
-    class PhysicsCommands;
+    class PhysicsAccess;
 
     // 每个行为实例独占 VM；借用权限仅在 invoke 期间有效。
     class COMET_API ScriptInstance final {
@@ -30,7 +30,7 @@ namespace Comet {
             Scene* scene = nullptr;
             RuntimeSession* session = nullptr;
             AudioCommands* audio = nullptr;
-            PhysicsCommands* physics = nullptr;
+            PhysicsAccess* physics = nullptr;
             const InputState* input = nullptr;
             Entity contact_other;
             const MaterialParameterValidator* materials = nullptr;

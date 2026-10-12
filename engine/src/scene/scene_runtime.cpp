@@ -1,7 +1,7 @@
 #include "scene/scene_runtime.h"
 #include "scene/scene.h"
 #include "audio/audio_commands.h"
-#include "physics/physics_commands.h"
+#include "physics/physics_access.h"
 #include "common/scope_exit.h"
 
 #include <algorithm>

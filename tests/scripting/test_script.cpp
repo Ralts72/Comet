@@ -767,69 +767,73 @@ return group
         ASSERT_TRUE(runtime.stop());
     }
 
-    TEST(ScriptInvocationTest, ImpulsesRequireFiniteArgumentsAndALiveDynamicBody) {
-        const auto script = Script::create(R"(
-            local function impulse() comet.apply_impulse(0, 1, 0) end
+    TEST(ScriptInvocationTest, PhysicsRequestsRequireFiniteArgumentsAndALiveDynamicBody) {
+        for(const char* name : {"apply_impulse", "apply_force", "apply_torque"}) {
+            SCOPED_TRACE(name);
+            const auto script = Script::create(
+                std::string("local function impulse() comet.") + name + R"((0, 1, 0) end
             return {on_start = impulse, on_stop = impulse, update = impulse,
                 fixed_update = impulse, on_trigger_enter = impulse,
                 on_trigger_exit = impulse, on_collision_enter = impulse,
                 on_collision_exit = impulse}
         )");
-        ASSERT_TRUE(script) << script.error().message;
-        const auto instance = ScriptInstance::create(*script.value());
-        ASSERT_TRUE(instance);
-        Scene scene;
-        PhysicsService physics;
-        auto actor = scene.create_entity();
-        actor.add_component<RigidBodyComponent>();
-        actor.add_component<ColliderComponent>();
-        EXPECT_FALSE(instance.value()->invoke(
-            ScriptInstance::Phase::Start, actor, {}, {.scene = &scene, .physics = &physics}));
-        SceneRuntime runtime;
-        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
-        ASSERT_TRUE(runtime.start(scene));
-        for(const auto phase : {ScriptInstance::Phase::Start, ScriptInstance::Phase::FixedUpdate,
-                ScriptInstance::Phase::Update, ScriptInstance::Phase::CollisionEnter,
-                ScriptInstance::Phase::CollisionExit, ScriptInstance::Phase::TriggerEnter,
-                ScriptInstance::Phase::TriggerExit}) {
-            const auto called = instance.value()->invoke(
-                phase, actor, {}, {.scene = &scene, .physics = &physics, .contact_other = actor});
-            ASSERT_TRUE(called) << called.error().message;
-        }
-        EXPECT_FALSE(instance.value()->invoke(ScriptInstance::Phase::Stop, {}, {}));
-        EXPECT_FALSE(instance.value()->invoke(
-            ScriptInstance::Phase::Update, {}, {}, {.scene = &scene, .physics = &physics}));
-        for(const auto motion : {BodyMotion::Static, BodyMotion::Kinematic}) {
+            ASSERT_TRUE(script) << script.error().message;
+            const auto instance = ScriptInstance::create(*script.value());
+            ASSERT_TRUE(instance);
+            Scene scene;
+            PhysicsService physics;
+            auto actor = scene.create_entity();
+            actor.add_component<RigidBodyComponent>();
+            actor.add_component<ColliderComponent>();
+            EXPECT_FALSE(instance.value()->invoke(
+                ScriptInstance::Phase::Start, actor, {}, {.scene = &scene, .physics = &physics}));
+            SceneRuntime runtime;
+            ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+            ASSERT_TRUE(runtime.start(scene));
+            for(const auto phase : {ScriptInstance::Phase::Start,
+                    ScriptInstance::Phase::FixedUpdate, ScriptInstance::Phase::Update,
+                    ScriptInstance::Phase::CollisionEnter, ScriptInstance::Phase::CollisionExit,
+                    ScriptInstance::Phase::TriggerEnter, ScriptInstance::Phase::TriggerExit}) {
+                const auto called = instance.value()->invoke(phase, actor, {},
+                    {.scene = &scene, .physics = &physics, .contact_other = actor});
+                ASSERT_TRUE(called) << called.error().message;
+            }
+            EXPECT_FALSE(instance.value()->invoke(ScriptInstance::Phase::Stop, {}, {}));
+            EXPECT_FALSE(instance.value()->invoke(
+                ScriptInstance::Phase::Update, {}, {}, {.scene = &scene, .physics = &physics}));
+            for(const auto motion : {BodyMotion::Static, BodyMotion::Kinematic}) {
+                actor.edit_component<RigidBodyComponent>(
+                    [motion](auto& component) { component.motion = motion; });
+                EXPECT_FALSE(instance.value()->invoke(ScriptInstance::Phase::Update, actor, {},
+                    {.scene = &scene, .physics = &physics}));
+            }
             actor.edit_component<RigidBodyComponent>(
-                [motion](auto& component) { component.motion = motion; });
+                [](auto& component) { component.motion = BodyMotion::Dynamic; });
+            actor.remove_component<ColliderComponent>();
             EXPECT_FALSE(instance.value()->invoke(
                 ScriptInstance::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
-        }
-        actor.edit_component<RigidBodyComponent>(
-            [](auto& component) { component.motion = BodyMotion::Dynamic; });
-        actor.remove_component<ColliderComponent>();
-        EXPECT_FALSE(instance.value()->invoke(
-            ScriptInstance::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
-        actor.add_component<ColliderComponent>();
-        actor.remove_component<RigidBodyComponent>();
-        EXPECT_FALSE(instance.value()->invoke(
-            ScriptInstance::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
-        actor.add_component<RigidBodyComponent>();
-        for(const char* arguments : {"", "0, 1", "0, 1, 0, 1", "'0', 1, 0", "0, true, 0",
-                "0, nil, 0", "0, {}, 0", "0, math.huge, 0", "0, 0/0, 0", "0, 1e40, 0"}) {
-            SCOPED_TRACE(arguments);
-            const auto invalid = Script::create(std::string("return {update = function() ")
-                                                + "comet.apply_impulse(" + arguments + ") end}");
-            ASSERT_TRUE(invalid);
-            auto invalid_instance = ScriptInstance::create(*invalid.value());
-            ASSERT_TRUE(invalid_instance);
-            EXPECT_FALSE(invalid_instance.value()->invoke(
+            actor.add_component<ColliderComponent>();
+            actor.remove_component<RigidBodyComponent>();
+            EXPECT_FALSE(instance.value()->invoke(
                 ScriptInstance::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
+            actor.add_component<RigidBodyComponent>();
+            for(const char* arguments : {"", "0, 1", "0, 1, 0, 1", "'0', 1, 0", "0, true, 0",
+                    "0, nil, 0", "0, {}, 0", "0, math.huge, 0", "0, 0/0, 0", "0, 1e40, 0"}) {
+                SCOPED_TRACE(arguments);
+                const auto invalid =
+                    Script::create(std::string("return {update = function() comet.") + name + "("
+                                   + arguments + ") end}");
+                ASSERT_TRUE(invalid);
+                auto invalid_instance = ScriptInstance::create(*invalid.value());
+                ASSERT_TRUE(invalid_instance);
+                EXPECT_FALSE(invalid_instance.value()->invoke(ScriptInstance::Phase::Update, actor,
+                    {}, {.scene = &scene, .physics = &physics}));
+            }
+            scene.destroy_entity(actor);
+            EXPECT_FALSE(instance.value()->invoke(
+                ScriptInstance::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
+            ASSERT_TRUE(runtime.stop());
         }
-        scene.destroy_entity(actor);
-        EXPECT_FALSE(instance.value()->invoke(
-            ScriptInstance::Phase::Update, actor, {}, {.scene = &scene, .physics = &physics}));
-        ASSERT_TRUE(runtime.stop());
     }
 
     TEST(ScriptInvocationTest, RigidBodyRemovalIsDeferredAndPreservesTheTargetEntity) {

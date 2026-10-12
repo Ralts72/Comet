@@ -6,6 +6,7 @@
 #include "scene/systems/physics_system.h"
 
 #include <algorithm>
+#include <array>
 #include <gtest/gtest.h>
 #include <limits>
 
@@ -937,7 +938,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(copied.get_component<ColliderComponent>().is_trigger);
     }
 
-    TEST(PhysicsSystemTest, ImpulseRequestsValidateTargetsAndBoundThePendingQueue) {
+    TEST(PhysicsSystemTest, PhysicsRequestsValidateTargetsAndShareOneBoundedQueue) {
         Scene scene;
         PhysicsService physics;
         const auto dynamic = add_body(scene, "Dynamic", BodyMotion::Dynamic, {0, 10, 0});
@@ -951,18 +952,24 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.set_services({.physics = &physics}));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
         ASSERT_TRUE(runtime.start(scene));
-        EXPECT_FALSE(physics.request_impulse({}, {1, 0, 0}));
-        EXPECT_FALSE(physics.request_impulse(foreign, {1, 0, 0}));
-        EXPECT_FALSE(physics.request_impulse(stationary, {1, 0, 0}));
-        EXPECT_FALSE(physics.request_impulse(kinematic, {1, 0, 0}));
-        EXPECT_FALSE(physics.request_impulse(no_body, {1, 0, 0}));
-        EXPECT_FALSE(
-            physics.request_impulse(dynamic, {std::numeric_limits<float>::infinity(), 0, 0}));
-        EXPECT_FALSE(
-            physics.request_impulse(dynamic, {0, std::numeric_limits<float>::quiet_NaN(), 0}));
+        for(const auto request : {&PhysicsAccess::request_impulse, &PhysicsAccess::request_force,
+                &PhysicsAccess::request_torque}) {
+            EXPECT_FALSE((physics.*request)({}, {1, 0, 0}));
+            EXPECT_FALSE((physics.*request)(foreign, {1, 0, 0}));
+            EXPECT_FALSE((physics.*request)(stationary, {1, 0, 0}));
+            EXPECT_FALSE((physics.*request)(kinematic, {1, 0, 0}));
+            EXPECT_FALSE((physics.*request)(no_body, {1, 0, 0}));
+            EXPECT_FALSE(
+                (physics.*request)(dynamic, {std::numeric_limits<float>::infinity(), 0, 0}));
+            EXPECT_FALSE(
+                (physics.*request)(dynamic, {0, std::numeric_limits<float>::quiet_NaN(), 0}));
+        }
+        const auto requests = std::array{&PhysicsAccess::request_impulse,
+            &PhysicsAccess::request_force, &PhysicsAccess::request_torque};
         for(int i = 0; i < 128; ++i)
-            ASSERT_TRUE(physics.request_impulse(dynamic, {0, 0, 0}));
-        EXPECT_FALSE(physics.request_impulse(dynamic, {1, 0, 0}));
+            ASSERT_TRUE((physics.*requests[i % requests.size()])(dynamic, {0, 0, 0}));
+        for(const auto request : requests)
+            EXPECT_FALSE((physics.*request)(dynamic, {1, 0, 0}));
         ASSERT_TRUE(runtime.advance(1.0 / 60.0));
         EXPECT_TRUE(physics.request_impulse(dynamic, {1, 0, 0}));
         ASSERT_TRUE(runtime.stop());

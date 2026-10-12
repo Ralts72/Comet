@@ -2,7 +2,7 @@
 #include "scripting/script_compiler.h"
 #include "asset/data/script_sources.h"
 #include "audio/audio_commands.h"
-#include "physics/physics_commands.h"
+#include "physics/physics_access.h"
 #include "scripting/lua_bindings.h"
 #include "scene/scene.h"
 #include "scene/runtime_session.h"

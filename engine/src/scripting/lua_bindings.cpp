@@ -1,6 +1,6 @@
 #include "scripting/lua_bindings.h"
 #include "audio/audio_commands.h"
-#include "physics/physics_commands.h"
+#include "physics/physics_access.h"
 #include "scene/scene.h"
 #include "scene/runtime_session.h"
 #include "input/input_state.h"
@@ -267,22 +267,55 @@ namespace Comet::LuaBindings {
                     state, "Cannot queue one-shot: invalid source or audio request limit reached");
             return 0;
         }
-        int apply_impulse(lua_State* state) {
-            if(lua_gettop(state) != 3)
-                return luaL_error(state, "apply_impulse requires three finite numbers");
-            for(int argument = 1; argument <= 3; ++argument)
-                luaL_checktype(state, argument, LUA_TNUMBER);
-            const Math::Vec3 impulse{number(state, 1), number(state, 2), number(state, 3)};
+        PhysicsAccess& require_physics(lua_State* state) {
             const auto& context = current(state);
             if(!context.scene || !context.scene->is_valid(context.entity))
-                return luaL_error(
-                    state, "Cannot queue impulse: active dynamic body with Collider required");
+                luaL_error(state, "Physics access requires an active entity");
             if(!context.physics)
-                return luaL_error(state, "Physics service is unavailable in this runtime");
-            if(!context.physics->request_impulse(context.entity, impulse))
+                luaL_error(state, "Physics service is unavailable in this runtime");
+            return *context.physics;
+        }
+
+        using PhysicsRequest = bool (PhysicsAccess::*)(Entity, Math::Vec3);
+        int apply_physics(lua_State* state, PhysicsRequest request, const char* name) {
+            if(lua_gettop(state) != 3)
+                return luaL_error(state, "%s requires three finite numbers", name);
+            for(int argument = 1; argument <= 3; ++argument)
+                luaL_checktype(state, argument, LUA_TNUMBER);
+            const Math::Vec3 value{number(state, 1), number(state, 2), number(state, 3)};
+            auto& physics = require_physics(state);
+            if(!(physics.*request)(current(state).entity, value))
                 return luaL_error(state,
-                    "Cannot queue impulse: active dynamic body with Collider required, or queue full");
+                    "%s requires an active dynamic body with Collider and room in the physics queue",
+                    name);
             return 0;
+        }
+        int apply_impulse(lua_State* state) {
+            return apply_physics(state, &PhysicsAccess::request_impulse, "apply_impulse");
+        }
+        int apply_force(lua_State* state) {
+            return apply_physics(state, &PhysicsAccess::request_force, "apply_force");
+        }
+        int apply_torque(lua_State* state) {
+            return apply_physics(state, &PhysicsAccess::request_torque, "apply_torque");
+        }
+        int push_velocity(lua_State* state, const bool angular) {
+            if(lua_gettop(state) != 0)
+                return luaL_error(state, "Velocity query takes no arguments");
+            const auto velocity = require_physics(state).get_velocity(current(state).entity);
+            if(!velocity)
+                return luaL_error(state, "Velocity requires a registered body with Collider");
+            const auto value = angular ? velocity->angular : velocity->linear;
+            lua_pushnumber(state, value.x);
+            lua_pushnumber(state, value.y);
+            lua_pushnumber(state, value.z);
+            return 3;
+        }
+        int linear_velocity(lua_State* state) {
+            return push_velocity(state, false);
+        }
+        int angular_velocity(lua_State* state) {
+            return push_velocity(state, true);
         }
         int set_material_scalar(lua_State* state) {
             auto& context = current(state);
@@ -543,7 +576,9 @@ namespace Comet::LuaBindings {
             {"create_entity", create_entity}, {"destroy_entity", destroy_entity},
             {"has_rigid_body", has_rigid_body}, {"remove_rigid_body", remove_rigid_body},
             {"restart_scene", restart_scene}, {"play_one_shot", play_one_shot},
-            {"apply_impulse", apply_impulse}, {"set_material_scalar", set_material_scalar},
+            {"apply_impulse", apply_impulse}, {"apply_force", apply_force},
+            {"apply_torque", apply_torque}, {"linear_velocity", linear_velocity},
+            {"angular_velocity", angular_velocity}, {"set_material_scalar", set_material_scalar},
             {"set_material_vector", set_material_vector}, {"session_get", session_get},
             {"session_set", session_set}, {"emit", emit}, {"set_input_context", set_input_context},
             {"action_value", action_value}, {"action_down", action_down},

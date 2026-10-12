@@ -374,28 +374,70 @@ namespace Comet {
             return Result<bool, Error>::success(false);
         }
 
-        Result<void, Error> apply_impulses(const std::span<const Impulse> impulses) {
-            for(const auto& request : impulses) {
+        Result<void, Error> validate_command(const JPH::Body& body, const Command& request,
+            const JPH::Vec3 value, const float delta_time) {
+            const auto* motion = body.GetMotionProperties();
+            auto linear = body.GetLinearVelocity();
+            auto force = body.GetAccumulatedForce();
+            auto torque = body.GetAccumulatedTorque();
+            switch(request.kind) {
+                case CommandKind::Impulse:
+                    linear += value * motion->GetInverseMass();
+                    break;
+                case CommandKind::Force:
+                    force += value;
+                    break;
+                case CommandKind::Torque:
+                    torque += value;
+                    break;
+            }
+            const auto acceleration = force * motion->GetInverseMass();
+            const auto angular_acceleration =
+                motion->MultiplyWorldSpaceInverseInertiaByVector(body.GetRotation(), torque);
+            const auto next_linear = linear + delta_time * acceleration;
+            const auto next_angular = body.GetAngularVelocity() + delta_time * angular_acceleration;
+            // Jolt 先累加／积分再限速；有限输入也可能在累加或长度平方时溢出。
+            if(!std::isfinite(force.LengthSq()) || !std::isfinite(torque.LengthSq())
+                || !std::isfinite(acceleration.LengthSq())
+                || !std::isfinite(angular_acceleration.LengthSq())
+                || !std::isfinite(next_linear.LengthSq())
+                || !std::isfinite(next_angular.LengthSq()))
+                return Result<void, Error>::failure(
+                    {"Physics command exceeds supported physics velocity range: "
+                        + request.uuid.to_string()});
+            return Result<void, Error>::success();
+        }
+
+        Result<void, Error> apply_commands(
+            const std::span<const Command> commands, const float delta_time) {
+            auto& interface = world.GetBodyInterface();
+            for(const auto& request : commands) {
                 const auto found = bodies.find(request.entity);
                 if(found == bodies.end() || found->second.uuid != request.uuid
                     || found->second.motion != BodyMotion::Dynamic)
                     continue;
                 const auto id = found->second.id;
-                const JPH::Vec3 impulse(request.value.x, request.value.y, request.value.z);
+                const JPH::Vec3 value(request.value.x, request.value.y, request.value.z);
                 {
                     const JPH::BodyLockRead lock(world.GetBodyLockInterface(), id);
                     if(!lock.Succeeded())
-                        return Result<void, Error>::failure({"Cannot access impulse target"});
-                    const auto& body = lock.GetBody();
-                    const auto velocity = body.GetLinearVelocity()
-                                          + impulse * body.GetMotionProperties()->GetInverseMass();
-                    // Jolt 在限速前求 float 长度平方，有限冲量也可能先溢出。
-                    if(!std::isfinite(velocity.LengthSq()))
                         return Result<void, Error>::failure(
-                            {"Impulse exceeds supported physics velocity range: "
-                                + request.uuid.to_string()});
+                            {"Cannot access physics command target"});
+                    if(auto valid = validate_command(lock.GetBody(), request, value, delta_time);
+                        !valid)
+                        return valid;
                 }
-                world.GetBodyInterface().AddImpulse(id, impulse);
+                switch(request.kind) {
+                    case CommandKind::Impulse:
+                        interface.AddImpulse(id, value);
+                        break;
+                    case CommandKind::Force:
+                        interface.AddForce(id, value);
+                        break;
+                    case CommandKind::Torque:
+                        interface.AddTorque(id, value);
+                        break;
+                }
             }
             return Result<void, Error>::success();
         }
@@ -543,9 +585,9 @@ namespace Comet {
     Result<void, Error> PhysicsService::step(const float delta_time) {
         if(!m_impl)
             return Result<void, Error>::failure({"Physics world is not active"});
-        const ScopeExit clear([this] { m_impulses.clear(); });
+        const ScopeExit clear([this] { m_commands.clear(); });
         m_impl->move_kinematic_bodies(delta_time);
-        if(auto applied = m_impl->apply_impulses(m_impulses); !applied)
+        if(auto applied = m_impl->apply_commands(m_commands, delta_time); !applied)
             return applied;
         m_impl->poses.clear();
         m_impl->capture_active_bodies();
@@ -581,16 +623,31 @@ namespace Comet {
         end();
     }
 
-    bool PhysicsService::enqueue_impulse(
-        const EntityUuid uuid, const EntityId entity, const Math::Vec3 impulse) {
-        if(m_impulses.size() >= MAX_IMPULSES)
+    bool PhysicsService::enqueue_command(const EntityUuid uuid, const EntityId entity,
+        const CommandKind kind, const Math::Vec3 value) {
+        if(m_commands.size() >= MAX_COMMANDS)
             return false;
-        m_impulses.push_back({uuid, entity, impulse});
+        m_commands.push_back({uuid, entity, kind, value});
         return true;
     }
 
+    std::optional<PhysicsAccess::Velocity> PhysicsService::read_velocity(
+        const EntityUuid uuid, const EntityId entity) const {
+        if(!m_impl)
+            return std::nullopt;
+        const auto found = m_impl->bodies.find(entity);
+        if(found == m_impl->bodies.end() || found->second.uuid != uuid)
+            return std::nullopt;
+        JPH::Vec3 linear, angular;
+        // 玩法调用与 Jolt Update 串行；返回拥有数据的值，不借用后端对象。
+        m_impl->world.GetBodyInterfaceNoLock().GetLinearAndAngularVelocity(
+            found->second.id, linear, angular);
+        return Velocity{{linear.GetX(), linear.GetY(), linear.GetZ()},
+            {angular.GetX(), angular.GetY(), angular.GetZ()}};
+    }
+
     void PhysicsService::reset() noexcept {
-        m_impulses.clear();
+        m_commands.clear();
         m_impl.reset();
     }
 
