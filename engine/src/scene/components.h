@@ -170,6 +170,20 @@ namespace Comet {
         Math::Vec3 axis{0, 0, 1};
         // 连接刚体时为对方的本地方向，否则为世界方向；须非零且有限。
         Math::Vec3 connected_axis{0, 0, 1};
+        bool limits_enabled = false;
+        // 两端参考方向在世界中重合时为零度；投影到各自转轴的垂直平面。
+        Math::Vec3 reference_axis{1, 0, 0};
+        Math::Vec3 connected_reference_axis{1, 0, 0};
+        // 本端相对连接端绕转轴的有符号角度，范围须包含零且宽度非零。
+        float min_angle = -45;
+        float max_angle = 45;
+        bool motor_enabled = false;
+        float motor_speed = 90;      // 度/秒，正值遵循本端转轴的右手方向。
+        float motor_max_torque = 10; // N·m，0 表示不施加驱动力矩。
+        [[nodiscard]] bool has_valid_angle_range() const {
+            return std::isfinite(min_angle) && std::isfinite(max_angle) && min_angle >= -180
+                   && min_angle <= 0 && max_angle >= 0 && max_angle <= 180 && min_angle < max_angle;
+        }
         bool operator==(const HingeJointComponent&) const = default;
     };
 

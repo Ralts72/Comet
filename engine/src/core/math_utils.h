@@ -64,6 +64,17 @@ namespace Comet::Math {
         // 先缩放，避免有限的极大／极小方向在求长度时溢出或下溢。
         return glm::normalize(value / largest);
     }
+    [[nodiscard]] inline std::optional<Vec3> perpendicular_direction(
+        const Vec3& axis, const Vec3& reference) {
+        const auto direction = normalized_direction(axis);
+        const auto normal = normalized_direction(reference);
+        if(!direction || !normal)
+            return std::nullopt;
+        const auto tangent = normalized_direction(glm::cross(*direction, *normal));
+        if(!tangent)
+            return std::nullopt;
+        return glm::cross(*tangent, *direction);
+    }
     inline float dot(const Vec3& a, const Vec3& b) {
         return glm::dot(a, b);
     }

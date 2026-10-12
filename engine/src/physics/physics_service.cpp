@@ -356,6 +356,25 @@ namespace Comet {
                     || !Math::normalized_direction(settings.connected_axis))
                     return Result<void, Error>::failure(
                         {"Hinge axes must be finite and nonzero: " + definition.uuid.to_string()});
+                if(settings.limits_enabled) {
+                    if(!settings.has_valid_angle_range())
+                        return Result<void, Error>::failure(
+                            {"Hinge limits must span zero within [-180, 180]: "
+                                + definition.uuid.to_string()});
+                    if(!Math::perpendicular_direction(settings.axis, settings.reference_axis)
+                        || !Math::perpendicular_direction(
+                            settings.connected_axis, settings.connected_reference_axis))
+                        return Result<void, Error>::failure(
+                            {"Hinge references must be finite and not parallel to their axes: "
+                                + definition.uuid.to_string()});
+                }
+                if(settings.motor_enabled
+                    && (!std::isfinite(settings.motor_speed)
+                        || !std::isfinite(settings.motor_max_torque)
+                        || settings.motor_max_torque < 0))
+                    return Result<void, Error>::failure(
+                        {"Hinge motor speed and nonnegative torque must be finite: "
+                            + definition.uuid.to_string()});
             }
             const auto first = bodies.find(definition.entity);
             const auto second = bodies.find(definition.connected_entity);
@@ -411,10 +430,29 @@ namespace Comet {
                     const auto second_axis = *Math::normalized_direction(settings.connected_axis);
                     native.mHingeAxis1 = {first_axis.x, first_axis.y, first_axis.z};
                     native.mHingeAxis2 = {second_axis.x, second_axis.y, second_axis.z};
-                    // 自由铰链未启用角度限位／驱动，法线仅定义内部参考基。
                     native.mNormalAxis1 = native.mHingeAxis1.GetNormalizedPerpendicular();
                     native.mNormalAxis2 = native.mHingeAxis2.GetNormalizedPerpendicular();
+                    if(settings.limits_enabled) {
+                        const auto first_reference =
+                            *Math::perpendicular_direction(settings.axis, settings.reference_axis);
+                        const auto second_reference = *Math::perpendicular_direction(
+                            settings.connected_axis, settings.connected_reference_axis);
+                        native.mNormalAxis1 = {
+                            first_reference.x, first_reference.y, first_reference.z};
+                        native.mNormalAxis2 = {
+                            second_reference.x, second_reference.y, second_reference.z};
+                        // Jolt 计算连接端相对本端的角度，与内容语义符号相反。
+                        native.mLimitsMin = -Math::radians(settings.max_angle);
+                        native.mLimitsMax = -Math::radians(settings.min_angle);
+                    }
+                    if(settings.motor_enabled)
+                        native.mMotorSettings.SetTorqueLimit(settings.motor_max_torque);
                     create(native);
+                    if(settings.motor_enabled) {
+                        auto& hinge = static_cast<JPH::HingeConstraint&>(*constraint.GetPtr());
+                        hinge.SetTargetAngularVelocity(-Math::radians(settings.motor_speed));
+                        hinge.SetMotorState(JPH::EMotorState::Velocity);
+                    }
                 } else {
                     JPH::PointConstraintSettings native;
                     create(native);

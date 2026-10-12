@@ -423,4 +423,164 @@ namespace Comet::Tests {
         }
     }
 
+    TEST_F(
+        HingeJointTest, MotorReversesAndRespectsAsymmetricLimitsWithPersistentZeroAcrossRebuild) {
+        auto actor = body("Actor", BodyMotion::Dynamic, {0, 5, 0});
+        actor.add_component<HingeJointComponent>(HingeJointComponent{.connected_anchor = {0, 5, 0},
+            .limits_enabled = true,
+            .min_angle = -20,
+            .max_angle = 55,
+            .motor_enabled = true,
+            .motor_speed = 90,
+            .motor_max_torque = 10});
+        ASSERT_TRUE(runtime.start(scene));
+        for(int i = 0; i < 150; ++i) {
+            ASSERT_TRUE(runtime.advance(0.01));
+            EXPECT_LE(actor.get_component<TransformComponent>().rotation.z, 56);
+        }
+        EXPECT_NEAR(actor.get_component<TransformComponent>().rotation.z, 55, 0.2f);
+        actor.edit_component<HingeJointComponent>([](auto& joint) {
+            joint.max_angle = 40;
+            joint.motor_enabled = false;
+        });
+        actor.edit_component<ColliderComponent>(
+            [](auto& collider) { collider.half_extents.x = 0.7f; });
+        for(int i = 0; i < 30; ++i)
+            ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_NEAR(actor.get_component<TransformComponent>().rotation.z, 40, 0.2f);
+        actor.edit_component<HingeJointComponent>([](auto& joint) {
+            joint.motor_enabled = true;
+            joint.motor_speed = -90;
+        });
+        for(int i = 0; i < 150; ++i) {
+            ASSERT_TRUE(runtime.advance(0.01));
+            EXPECT_GE(actor.get_component<TransformComponent>().rotation.z, -21);
+        }
+        EXPECT_NEAR(actor.get_component<TransformComponent>().rotation.z, -20, 0.2f);
+        EXPECT_EQ(physics.get_statistics().joints, 1u);
+    }
+
+    TEST_F(HingeJointTest, ReferenceDirectionsDefineZeroAndUseRotationWithoutScale) {
+        auto actor = body("Actor", BodyMotion::Dynamic, {0, 5, 0});
+        actor.edit_transform([](auto& value) {
+            value.rotation.z = 90;
+            value.scale = {2, 3, 4};
+        });
+        actor.add_component<HingeJointComponent>(HingeJointComponent{.connected_anchor = {0, 5, 0},
+            .limits_enabled = true,
+            .reference_axis = {1, 0, 1},
+            .connected_reference_axis = {0, 1, 1},
+            .min_angle = -20,
+            .max_angle = 40,
+            .motor_enabled = true,
+            .motor_speed = 90});
+        ASSERT_TRUE(runtime.start(scene));
+        for(int i = 0; i < 180; ++i)
+            ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_NEAR(actor.get_component<TransformComponent>().rotation.z, 130, 0.2f);
+        actor.edit_component<HingeJointComponent>([](auto& value) { value.motor_speed = -90; });
+        for(int i = 0; i < 180; ++i)
+            ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_NEAR(actor.get_component<TransformComponent>().rotation.z, 70, 0.2f);
+    }
+
+    TEST_F(HingeJointTest, MotorTargetsOwnerRelativeToConnectedBodyFromEitherDynamicEnd) {
+        for(const auto& [first_motion, second_motion] :
+            {std::pair{BodyMotion::Dynamic, BodyMotion::Dynamic},
+                std::pair{BodyMotion::Dynamic, BodyMotion::Kinematic},
+                std::pair{BodyMotion::Static, BodyMotion::Dynamic}}) {
+            auto actor = body("Actor", first_motion, {0, 5, 0});
+            auto target = body("Target", second_motion, {0, 5, 0});
+            actor.edit_component<ColliderComponent>(
+                [](auto& collider) { collider.is_trigger = true; });
+            actor.add_component<HingeJointComponent>(
+                HingeJointComponent{.connected_body = target.get_uuid(),
+                    .motor_enabled = true,
+                    .motor_speed = 90,
+                    .motor_max_torque = 10});
+            ASSERT_TRUE(runtime.start(scene));
+            for(int i = 0; i < 50; ++i)
+                ASSERT_TRUE(runtime.advance(0.01));
+            const auto relative =
+                physics.get_velocity(actor)->angular - physics.get_velocity(target)->angular;
+            EXPECT_NEAR(relative.z, Math::radians(90), 1e-4f);
+            EXPECT_NEAR(relative.x, 0, 1e-5f);
+            EXPECT_NEAR(relative.y, 0, 1e-5f);
+            ASSERT_TRUE(runtime.stop());
+            scene.destroy_entity(actor);
+            scene.destroy_entity(target);
+        }
+    }
+
+    TEST_F(HingeJointTest, MotorTorqueCapsAccelerationAndPauseChangesTakeEffectOnSingleStep) {
+        auto actor = body("Actor", BodyMotion::Dynamic, {0, 5, 0});
+        actor.add_component<HingeJointComponent>(HingeJointComponent{.connected_anchor = {0, 5, 0},
+            .motor_enabled = true,
+            .motor_speed = 90,
+            .motor_max_torque = 0});
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_FLOAT_EQ(physics.get_velocity(actor)->angular.z, 0);
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        actor.edit_component<HingeJointComponent>(
+            [](auto& joint) { joint.motor_max_torque = 0.1f; });
+        ASSERT_TRUE(runtime.advance(0.1));
+        EXPECT_FLOAT_EQ(physics.get_velocity(actor)->angular.z, 0);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        const auto angular = physics.get_velocity(actor)->angular.z;
+        EXPECT_GT(angular, 0);
+        EXPECT_LT(angular, 0.01f);
+        actor.edit_component<HingeJointComponent>([](auto& joint) { joint.motor_enabled = false; });
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_NEAR(physics.get_velocity(actor)->angular.z, angular * 0.9995f, 1e-5f);
+        EXPECT_EQ(physics.get_statistics().joints, 1u);
+    }
+
+    TEST_F(HingeJointTest, InvalidLimitsReferencesAndMotorSettingsFailStartAndLiveSync) {
+        auto actor = body("Actor", BodyMotion::Dynamic, {0, 5, 0});
+        const HingeJointComponent valid{
+            .connected_anchor = {0, 5, 0}, .limits_enabled = true, .motor_enabled = true};
+        actor.add_component<HingeJointComponent>(valid);
+        std::vector<HingeJointComponent> invalid;
+        for(const auto& [minimum, maximum] : {std::pair{1.0f, 30.0f}, std::pair{-30.0f, -1.0f},
+                std::pair{-181.0f, 30.0f}, std::pair{-30.0f, 181.0f}, std::pair{0.0f, 0.0f}}) {
+            auto value = valid;
+            value.min_angle = minimum;
+            value.max_angle = maximum;
+            invalid.push_back(value);
+        }
+        for(const auto member : {&HingeJointComponent::reference_axis,
+                &HingeJointComponent::connected_reference_axis}) {
+            for(const auto direction : {Math::Vec3(0), Math::Vec3(0, 0, 1)}) {
+                auto value = valid;
+                value.*member = direction;
+                invalid.push_back(value);
+            }
+        }
+        for(const auto member : {&HingeJointComponent::min_angle, &HingeJointComponent::max_angle,
+                &HingeJointComponent::motor_speed, &HingeJointComponent::motor_max_torque}) {
+            auto value = valid;
+            value.*member = std::numeric_limits<float>::quiet_NaN();
+            invalid.push_back(value);
+        }
+        auto negative_torque = valid;
+        negative_torque.motor_max_torque = -1;
+        invalid.push_back(negative_torque);
+        for(const auto& value : invalid) {
+            ASSERT_TRUE(actor.try_set_component(value));
+            EXPECT_FALSE(runtime.start(scene));
+            EXPECT_FALSE(runtime.is_active());
+            EXPECT_EQ(physics.get_statistics().bodies, 0u);
+            EXPECT_EQ(physics.get_statistics().joints, 0u);
+            ASSERT_TRUE(actor.try_set_component(valid));
+            ASSERT_TRUE(runtime.start(scene));
+            ASSERT_TRUE(actor.try_set_component(value));
+            EXPECT_FALSE(runtime.advance(0.01));
+            EXPECT_FALSE(runtime.is_active());
+            EXPECT_EQ(physics.get_statistics().joints, 0u);
+        }
+    }
+
 }

@@ -25,19 +25,25 @@ namespace CometEditor {
 
         std::optional<Comet::Math::Vec3> aligned_joint_value(Comet::Scene& scene,
             const Comet::Entity entity, const Comet::ComponentDescriptor& component,
-            const bool direction) {
+            const std::string_view local_property) {
             using namespace Comet;
+            const bool direction = local_property != "anchor";
             if(!entity.has_component<Comet::TransformComponent>())
                 return std::nullopt;
             const auto* data = component.get_component(std::as_const(entity));
             const auto reference = component.find_property("connected_body")->copy_value(data);
-            const auto local =
-                component.find_property(direction ? "axis" : "anchor")->copy_value(data);
+            const auto local = component.find_property(local_property)->copy_value(data);
             if(!reference || !local)
                 return std::nullopt;
             auto value = std::get<Math::Vec3>(*local);
             if(direction) {
-                const auto normalized = Math::normalized_direction(value);
+                auto normalized = Math::normalized_direction(value);
+                if(local_property == "reference_axis") {
+                    const auto axis = component.find_property("axis")->copy_value(data);
+                    if(!axis)
+                        return std::nullopt;
+                    normalized = Math::perpendicular_direction(std::get<Math::Vec3>(*axis), value);
+                }
                 if(!normalized)
                     return std::nullopt;
                 value = *normalized;
@@ -57,6 +63,12 @@ namespace CometEditor {
                 position = glm::inverse(matrix(connected)) * position;
             }
             const Comet::Math::Vec3 anchor{position};
+            if(local_property == "reference_axis") {
+                const auto axis = component.find_property("connected_axis")->copy_value(data);
+                if(!axis)
+                    return std::nullopt;
+                return Math::perpendicular_direction(std::get<Math::Vec3>(*axis), anchor);
+            }
             if(direction)
                 return Math::normalized_direction(anchor);
             if(!Comet::Math::is_finite(anchor))
@@ -113,7 +125,11 @@ namespace CometEditor {
             static constexpr Caption joint_properties[]{{"enabled", "启用"},
                 {"connected_body", "连接刚体"}, {"anchor", "本地锚点"},
                 {"connected_anchor", "连接锚点"}, {"axis", "本地转轴"},
-                {"connected_axis", "连接转轴"}};
+                {"connected_axis", "连接转轴"}, {"limits_enabled", "角度限位"},
+                {"reference_axis", "本地零度方向"}, {"connected_reference_axis", "连接零度方向"},
+                {"min_angle", "最小角度 (°)"}, {"max_angle", "最大角度 (°)"},
+                {"motor_enabled", "速度驱动"}, {"motor_speed", "目标角速度 (°/s)"},
+                {"motor_max_torque", "最大力矩 (N·m)"}};
 
             const auto& descriptors = source.components();
             std::vector<Comet::ComponentDescriptor> result(descriptors.begin(), descriptors.end());
@@ -220,6 +236,18 @@ namespace CometEditor {
                             entity.get_component<Comet::RigidBodyComponent>().mass_mode;
                         if((property.id == "mass" && mode == Comet::BodyMassMode::Density)
                             || (property.id == "density" && mode == Comet::BodyMassMode::Mass))
+                            continue;
+                    }
+                    if(component_descriptor.id == "hinge_joint") {
+                        const auto& hinge = entity.get_component<Comet::HingeJointComponent>();
+                        const bool limit_parameter = property.id == "reference_axis"
+                                                     || property.id == "connected_reference_axis"
+                                                     || property.id == "min_angle"
+                                                     || property.id == "max_angle";
+                        const bool motor_parameter =
+                            property.id == "motor_speed" || property.id == "motor_max_torque";
+                        if((limit_parameter && !hinge.limits_enabled)
+                            || (motor_parameter && !hinge.motor_enabled))
                             continue;
                     }
                     ImGui::PushID(property.id.c_str());
@@ -375,7 +403,9 @@ namespace CometEditor {
             return;
         const bool joint = component.id == "point_joint" || component.id == "hinge_joint";
         const bool align_joint =
-            joint && (property.id == "connected_anchor" || property.id == "connected_axis");
+            joint
+            && (property.id == "connected_anchor" || property.id == "connected_axis"
+                || property.id == "connected_reference_axis");
         if(property.type == Comet::PropertyType::AssetHandle && property.asset_type) {
             render_asset_property({entity.get_uuid(), component.id, property.id}, property,
                 std::get<Comet::AssetHandle>(*value));
@@ -425,20 +455,34 @@ namespace CometEditor {
                 "旁边的对齐按钮可对齐到本地锚点；修改在下一固定步生效，保留当前速度。");
         if(component.id == "hinge_joint" && property.id == "axis")
             ImGui::SetItemTooltip("本实体的本地转轴，只受旋转影响，不随缩放。\n"
-                                  "方向须非零且有限，模拟会归一化；当前为无限位的自由铰链。");
+                                  "方向须非零且有限，模拟会归一化；可启用角度限位与速度驱动。");
         if(component.id == "hinge_joint" && property.id == "connected_axis")
             ImGui::SetItemTooltip("连接到刚体时为对方的本地方向，否则为世界方向；不随缩放。\n"
                                   "两端转轴应在世界中同向，否则求解器会转动刚体使它们对齐。\n"
                                   "旁边的对齐按钮可对齐到本地转轴；修改在下一固定步生效。");
+        if(component.id == "hinge_joint"
+            && (property.id == "reference_axis" || property.id == "connected_reference_axis"))
+            ImGui::SetItemTooltip(
+                "参考方向投影到对应转轴的垂直平面，不能为零或与转轴平行。\n"
+                "两端零度方向在世界中同向时角度为零；只受旋转影响。\n"
+                "连接零度方向可用旁边的对齐按钮设置，保存后不会在刚体重建时重新定义。");
+        if(component.id == "hinge_joint" && property.id == "limits_enabled")
+            ImGui::SetItemTooltip("约束本实体相对连接端的旋转角度；正方向遵循本地转轴的右手方向。\n"
+                                  "范围须包含零：最小值 -180～0°，最大值 0～180°，两者不能相等。");
+        if(component.id == "hinge_joint" && property.id == "motor_speed")
+            ImGui::SetItemTooltip(
+                "本实体相对连接端的目标角速度，单位 °/s；正方向遵循本地转轴的右手方向。\n"
+                "0 会制动相对旋转；驱动受最大力矩和角度限位约束。");
+        if(component.id == "hinge_joint" && property.id == "motor_max_torque")
+            ImGui::SetItemTooltip("驱动能够施加的最大力矩，单位 N·m；0 表示不施加驱动力矩。\n"
+                                  "受负载影响，实际角速度可能达不到目标；修改在下一固定步生效。");
         if(align_joint) {
-            const bool direction = property.id == "connected_axis";
-            const char* caption =
-                direction ? "对齐###Align joint axis" : "对齐###Align joint anchor";
-            const auto aligned =
-                aligned_joint_value(m_selection.get_scene(), entity, component, direction);
+            const bool direction = property.id != "connected_anchor";
+            const auto aligned = aligned_joint_value(m_selection.get_scene(), entity, component,
+                std::string_view(property.id).substr(std::string_view("connected_").size()));
             ImGui::SameLine();
             ImGui::BeginDisabled(!aligned);
-            if(ImGui::Button(caption)) {
+            if(ImGui::Button("对齐###Align joint")) {
                 if(m_property_edit.commit())
                     apply_property_edit(
                         entity, component, property, *aligned, {.changed = true, .finished = true});
@@ -446,8 +490,8 @@ namespace CometEditor {
                     LOG_ERROR("Cannot finish property edit before aligning joint");
             }
             ImGui::EndDisabled();
-            ImGui::SetItemTooltip(direction ? "将连接转轴对齐到本地转轴的世界方向。"
-                                            : "将连接锚点对齐到本地锚点的世界位置。");
+            ImGui::SetItemTooltip(
+                direction ? "将连接方向对齐到本地方向。" : "将连接锚点对齐到本地锚点的世界位置。");
         }
         if(component.id == "rigid_body" && property.id == "mass_mode")
             ImGui::SetItemTooltip("指定质量：缩放保持质量，只改变形状与惯性。\n"

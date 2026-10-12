@@ -120,6 +120,8 @@ namespace CometEditor::Tests {
         EXPECT_EQ(
             entity.get_component<Comet::HingeJointComponent>().axis, Comet::Math::Vec3(0, 0, 1));
         ASSERT_TRUE(history.redo());
+        ASSERT_TRUE(edit.apply({entity.get_uuid(), "hinge_joint", "limits_enabled"}, true));
+        ASSERT_TRUE(edit.apply({entity.get_uuid(), "hinge_joint", "motor_speed"}, -120.0f));
         const auto hinge = entity.get_component<Comet::HingeJointComponent>();
         const auto configured = entity.get_component<Comet::PointJointComponent>();
         ASSERT_TRUE(remove("hinge_joint"));
@@ -141,6 +143,8 @@ namespace CometEditor::Tests {
         EXPECT_EQ(copy.get_component<Comet::PointJointComponent>().anchor, configured.anchor);
         EXPECT_EQ(copy.get_component<Comet::HingeJointComponent>().connected_body, copied_child);
         EXPECT_EQ(copy.get_component<Comet::HingeJointComponent>().axis, hinge.axis);
+        EXPECT_TRUE(copy.get_component<Comet::HingeJointComponent>().limits_enabled);
+        EXPECT_FLOAT_EQ(copy.get_component<Comet::HingeJointComponent>().motor_speed, -120);
         EXPECT_EQ(entity.get_component<Comet::HingeJointComponent>(), hinge);
         EXPECT_EQ(entity.get_component<Comet::PointJointComponent>(), configured);
         ASSERT_TRUE(history.undo());

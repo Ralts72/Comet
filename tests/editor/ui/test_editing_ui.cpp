@@ -49,6 +49,7 @@ namespace CometEditor::Tests {
         ImVec2 drag_point{};
         ImVec2 joint_anchor_button{};
         ImVec2 joint_axis_button{};
+        ImVec2 joint_reference_button{};
         ImVec2 text_point{};
         float inspector_width = 700;
         bool draw_trailing_item = false;
@@ -68,7 +69,8 @@ namespace CometEditor::Tests {
                         const auto start = ImGui::GetItemRectMin();
                         drag_point = ImVec2(start.x + 20, start.y + 8);
                     }
-                    if(property.id == "connected_anchor" || property.id == "connected_axis") {
+                    if(property.id == "connected_anchor" || property.id == "connected_axis"
+                        || property.id == "connected_reference_axis") {
                         const auto start = ImGui::GetItemRectMin();
                         const auto end = ImGui::GetItemRectMax();
                         const auto& style = ImGui::GetStyle();
@@ -78,8 +80,10 @@ namespace CometEditor::Tests {
                             end.x + style.ItemSpacing.x + width * 0.5f, (start.y + end.y) * 0.5f};
                         if(property.id == "connected_anchor")
                             joint_anchor_button = button;
-                        else
+                        else if(property.id == "connected_axis")
                             joint_axis_button = button;
+                        else
+                            joint_reference_button = button;
                     }
                     if(draw_trailing_item)
                         ImGui::TextUnformatted("Extra widget content");
@@ -483,6 +487,74 @@ namespace CometEditor::Tests {
         ASSERT_NO_FATAL_FAILURE(align_joint_axis());
         EXPECT_LT(
             Math::length(entity.get_component<HingeJointComponent>().connected_axis - expected),
+            1e-5f);
+    }
+
+    TEST_F(EditingUiTest, HingeControlsShowEnabledParametersAndReferenceAlignmentUsesButtons) {
+        using namespace Comet;
+        auto builtin = create_property_editor_registry(assets);
+        ImVec2 limits_checkbox{}, motor_checkbox{};
+        bool saw_motor_speed = false;
+        for(const auto type : {PropertyType::Bool, PropertyType::Float})
+            ASSERT_TRUE(
+                widgets.register_editor(type, [&](const PropertyDescriptor& property, void* value) {
+                    const auto result = builtin.edit_property(property, value);
+                    const auto start = ImGui::GetItemRectMin();
+                    if(property.id == "limits_enabled")
+                        limits_checkbox = {start.x + 8, start.y + 8};
+                    if(property.id == "motor_enabled")
+                        motor_checkbox = {start.x + 8, start.y + 8};
+                    saw_motor_speed |= property.id == "motor_speed";
+                    return result;
+                }));
+        entity.edit_transform([](auto& value) {
+            value.rotation.z = 90;
+            value.scale = {2, 3, 4};
+        });
+        auto target = scene.create_entity();
+        target.edit_transform([](auto& value) {
+            value.rotation.z = 30;
+            value.scale = {3, 4, 5};
+        });
+        entity.add_component<HingeJointComponent>(
+            HingeJointComponent{.connected_body = target.get_uuid(),
+                .reference_axis = {1, 0, 2},
+                .connected_reference_axis = {0, 0, 1}});
+        frame();
+        EXPECT_FLOAT_EQ(joint_reference_button.x, 0);
+        EXPECT_FALSE(saw_motor_speed);
+        click(limits_checkbox);
+        EXPECT_TRUE(entity.get_component<HingeJointComponent>().limits_enabled);
+        EXPECT_GT(joint_reference_button.x, 0);
+        click(joint_reference_button);
+        const auto expected = Math::Vec3(0.5f, std::sqrt(3.0f) * 0.5f, 0);
+        EXPECT_LT(Math::length(entity.get_component<HingeJointComponent>().connected_reference_axis
+                               - expected),
+            1e-5f);
+        click(motor_checkbox);
+        EXPECT_TRUE(entity.get_component<HingeJointComponent>().motor_enabled);
+        EXPECT_TRUE(saw_motor_speed);
+        EXPECT_EQ(history.undo_size(), 3u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(entity.get_component<HingeJointComponent>().motor_enabled);
+        saw_motor_speed = false;
+        frame();
+        EXPECT_FALSE(saw_motor_speed);
+        ASSERT_TRUE(history.redo());
+        history.bind_scene(nullptr);
+        state.mode = EditorMode::Play;
+        entity.edit_component<HingeJointComponent>(
+            [](auto& joint) { joint.connected_reference_axis = {1, 0, 0}; });
+        click(joint_reference_button);
+        EXPECT_LT(Math::length(entity.get_component<HingeJointComponent>().connected_reference_axis
+                               - expected),
+            1e-5f);
+        EXPECT_FALSE(history.can_undo());
+        entity.edit_component<HingeJointComponent>(
+            [](auto& joint) { joint.reference_axis = joint.axis; });
+        click(joint_reference_button);
+        EXPECT_LT(Math::length(entity.get_component<HingeJointComponent>().connected_reference_axis
+                               - expected),
             1e-5f);
     }
 

@@ -350,7 +350,10 @@
           "anchor": [0, 0.5, 0],
           "connected_anchor": [-0.7720729, 0.89574564, 0.25],
           "axis": [0, 0, 1],
-          "connected_axis": [0, 0, 1]
+          "connected_axis": [0, 0, 1],
+          "limits_enabled": true,
+          "min_angle": -60,
+          "max_angle": 60
         }
       }
     }

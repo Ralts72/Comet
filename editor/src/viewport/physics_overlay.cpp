@@ -63,6 +63,38 @@ namespace CometEditor {
                 static_cast<void>(lines.add_line(position - offset, position + offset, color));
             }
         }
+        void append_hinge_limits(Comet::LineDrawList& lines,
+            const Comet::HingeJointComponent& joint, const Comet::Math::Vec3 anchor,
+            const Comet::Math::Mat4& pose, const Comet::Math::Vec4 reference_color,
+            const Comet::Math::Vec4 limit_color) {
+            using namespace Comet;
+            const auto reference =
+                Math::perpendicular_direction(joint.connected_axis, joint.connected_reference_axis);
+            const auto axis = Math::normalized_direction(joint.connected_axis);
+            if(!reference || !axis || !joint.has_valid_angle_range())
+                return;
+            const auto world_reference = Math::Vec3(pose * Math::Vec4(*reference, 0));
+            const auto world_axis = Math::Vec3(pose * Math::Vec4(*axis, 0));
+            static_cast<void>(
+                lines.add_line(anchor, anchor + world_reference * 0.14f, reference_color));
+            constexpr int SEGMENTS = 32;
+            const auto position = [&](float degrees) {
+                return anchor
+                       + (Math::angle_axis(Math::radians(degrees), world_axis) * world_reference)
+                             * 0.16f;
+            };
+            auto previous = position(joint.min_angle);
+            static_cast<void>(lines.add_line(anchor, previous, limit_color));
+            for(int segment = 1; segment <= SEGMENTS; ++segment) {
+                const float angle = glm::mix(
+                    joint.min_angle, joint.max_angle, static_cast<float>(segment) / SEGMENTS);
+                const auto next = position(angle);
+                static_cast<void>(lines.add_line(previous, next, limit_color));
+                previous = next;
+            }
+            static_cast<void>(lines.add_line(anchor, previous, limit_color));
+        }
+
         template<typename Joint>
         void append_joint_type_anchors(Comet::Scene& scene, Comet::LineDrawList& lines) {
             using namespace Comet;
@@ -79,9 +111,18 @@ namespace CometEditor {
                                  && (!joint.connected_body || supported_joint_body(connected))
                                  && joint.connected_body != entity.get_uuid()
                                  && (dynamic_body(entity) || dynamic_body(connected));
-                if constexpr(std::is_same_v<Joint, HingeJointComponent>)
+                if constexpr(std::is_same_v<Joint, HingeJointComponent>) {
                     supported &= Math::normalized_direction(joint.axis).has_value()
                                  && Math::normalized_direction(joint.connected_axis).has_value();
+                    if(joint.limits_enabled)
+                        supported &=
+                            joint.has_valid_angle_range()
+                            && Math::perpendicular_direction(joint.axis, joint.reference_axis)
+                                   .has_value()
+                            && Math::perpendicular_direction(
+                                joint.connected_axis, joint.connected_reference_axis)
+                                   .has_value();
+                }
                 Math::Vec4 first_color{1, 0.65f, 0.1f, 1};
                 Math::Vec4 second_color{0.1f, 0.9f, 0.9f, 1};
                 Math::Vec4 gap_color{1, 1, 0.2f, 1};
@@ -124,6 +165,21 @@ namespace CometEditor {
                                            * Math::Vec4(direction, 0));
                         static_cast<void>(lines.add_line(second_anchor - direction * 0.18f,
                             second_anchor + direction * 0.18f, second_color));
+                    }
+                    if(joint.limits_enabled) {
+                        const auto reference =
+                            Math::perpendicular_direction(joint.axis, joint.reference_axis);
+                        if(reference) {
+                            const auto direction = Math::Vec3(
+                                first_pose.pose_world_matrix * Math::Vec4(*reference, 0));
+                            static_cast<void>(lines.add_line(
+                                first_anchor, first_anchor + direction * 0.14f, first_color));
+                        }
+                        Math::Mat4 second_pose(1);
+                        if(connected)
+                            second_pose = scene.get_render_transform(connected).pose_world_matrix;
+                        append_hinge_limits(
+                            lines, joint, second_anchor, second_pose, second_color, gap_color);
                     }
                 }
                 if(first_anchor != second_anchor)

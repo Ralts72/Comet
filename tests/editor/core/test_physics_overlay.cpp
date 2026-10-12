@@ -234,6 +234,64 @@ namespace CometEditor::Tests {
         }
     }
 
+    TEST(PhysicsOverlayTest, HingeLimitArcUsesConnectedZeroDirectionAndUnscaledPose) {
+        Scene scene;
+        auto entity = scene.create_entity();
+        entity.add_component<RigidBodyComponent>();
+        entity.add_component<ColliderComponent>();
+        entity.edit_transform([](auto& value) {
+            value.translation = {2, 3, 4};
+            value.rotation.z = 90;
+            value.scale = {2, 3, 4};
+        });
+        entity.add_component<HingeJointComponent>(HingeJointComponent{.connected_anchor = {2, 3, 4},
+            .limits_enabled = true,
+            .connected_reference_axis = {0, 1, 2},
+            .min_angle = -30,
+            .max_angle = 60});
+        const auto arc = [&] {
+            LineDrawList lines;
+            append_joint_anchors(scene, lines);
+            std::vector<Math::Vec3> points;
+            for(const auto& vertex : lines.vertices()) {
+                if(vertex.color == Math::Vec4(1, 1, 0.2f, 1))
+                    points.push_back(vertex.position);
+                EXPECT_TRUE(Math::is_finite(vertex.position));
+            }
+            return points;
+        };
+        const auto world_arc = arc();
+        ASSERT_EQ(world_arc.size(), 68u);
+        EXPECT_EQ(world_arc.front(), Math::Vec3(2, 3, 4));
+        EXPECT_LT(Math::length(world_arc[1]
+                               - (Math::Vec3(2, 3, 4)
+                                   + Math::Vec3(0.5f, std::sqrt(3.0f) * 0.5f, 0) * 0.16f)),
+            1e-5f);
+        EXPECT_LT(Math::length(world_arc.back()
+                               - (Math::Vec3(2, 3, 4)
+                                   + Math::Vec3(-std::sqrt(3.0f) * 0.5f, 0.5f, 0) * 0.16f)),
+            1e-5f);
+        auto target = scene.create_entity();
+        target.add_component<RigidBodyComponent>(RigidBodyComponent{.motion = BodyMotion::Static});
+        target.add_component<ColliderComponent>();
+        target.edit_transform([](auto& value) {
+            value.translation = {2, 3, 4};
+            value.rotation.z = 90;
+            value.scale = {3, 4, 5};
+        });
+        entity.edit_component<HingeJointComponent>([&](auto& joint) {
+            joint.connected_body = target.get_uuid();
+            joint.connected_anchor = {};
+            joint.connected_reference_axis = {1, 0, 2};
+        });
+        const auto local_arc = arc();
+        ASSERT_EQ(local_arc.size(), world_arc.size());
+        for(std::size_t i = 0; i < local_arc.size(); ++i)
+            EXPECT_LT(Math::length(local_arc[i] - world_arc[i]), 1e-5f);
+        entity.edit_component<HingeJointComponent>([](auto& joint) { joint.min_angle = 1; });
+        EXPECT_TRUE(arc().empty());
+    }
+
     TEST(PhysicsOverlayTest, HingeAxisPreviewUsesInterpolatedRotation) {
         class Rotate final: public System {
         public:

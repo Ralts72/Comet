@@ -216,7 +216,15 @@ namespace Comet::Tests {
             .anchor = {1, 2, 3},
             .connected_anchor = {4, 5, 6},
             .axis = {1, 1, 0},
-            .connected_axis = {0, 1, 1}};
+            .connected_axis = {0, 1, 1},
+            .limits_enabled = true,
+            .reference_axis = {0, 0, 1},
+            .connected_reference_axis = {1, 0, 0},
+            .min_angle = -30,
+            .max_angle = 60,
+            .motor_enabled = true,
+            .motor_speed = -120,
+            .motor_max_torque = 2.5f};
         actor.add_component<HingeJointComponent>(hinge);
         TemporaryDirectory directory;
         const auto path = (directory.path() / "joint.scene").string();
@@ -264,13 +272,44 @@ namespace Comet::Tests {
             EXPECT_FALSE(serializer.serialize(scene));
         }
         ASSERT_TRUE(actor.try_set_component(joint));
-        for(const auto member :
-            {&HingeJointComponent::anchor, &HingeJointComponent::connected_anchor,
-                &HingeJointComponent::axis, &HingeJointComponent::connected_axis}) {
+        for(const auto member : {&HingeJointComponent::anchor,
+                &HingeJointComponent::connected_anchor, &HingeJointComponent::axis,
+                &HingeJointComponent::connected_axis, &HingeJointComponent::reference_axis,
+                &HingeJointComponent::connected_reference_axis}) {
             auto invalid = hinge;
             (invalid.*member).x = std::numeric_limits<float>::infinity();
             ASSERT_TRUE(actor.try_set_component(invalid));
             EXPECT_FALSE(serializer.serialize(scene));
+        }
+    }
+
+    TEST(SceneSerializerTest, LegacyHingeContentDefaultsControlsOffAndRejectsOutOfRangeValues) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        const std::string legacy = R"({"version":2,"entities":[{
+            "uuid":"00000000-0000-4000-8000-000000000001",
+            "components":{"name":"Hinge","hinge_joint":{"enabled":true,
+                "connected_body":{"entity":"00000000-0000-0000-0000-000000000000"},
+                "anchor":[0,0,0],"connected_anchor":[0,0,0],"axis":[0,0,1],"connected_axis":[0,0,1]}}}]})";
+        auto loaded = serializer.deserialize(legacy);
+        ASSERT_TRUE(loaded) << loaded.error();
+        auto actor = loaded.value()->get_entities().front();
+        EXPECT_EQ(actor.get_component<HingeJointComponent>(), HingeJointComponent{});
+        for(const auto& [key, value] : {std::pair{"min_angle", 1.0f},
+                std::pair{"max_angle", 181.0f}, std::pair{"motor_max_torque", -1.0f}}) {
+            auto modified = legacy;
+            const auto position = modified.find("\"enabled\":true,");
+            ASSERT_NE(position, std::string::npos);
+            modified.insert(
+                position, std::string("\"") + key + "\":" + std::to_string(value) + ",");
+            EXPECT_FALSE(serializer.deserialize(modified));
+        }
+        for(const auto member : {&HingeJointComponent::min_angle, &HingeJointComponent::max_angle,
+                &HingeJointComponent::motor_speed, &HingeJointComponent::motor_max_torque}) {
+            auto invalid = HingeJointComponent{};
+            invalid.*member = std::numeric_limits<float>::infinity();
+            ASSERT_TRUE(actor.try_set_component(invalid));
+            EXPECT_FALSE(serializer.serialize(*loaded.value()));
         }
     }
 

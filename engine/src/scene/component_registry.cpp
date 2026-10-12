@@ -281,6 +281,32 @@ namespace Comet {
             make_property_descriptor("axis", "Local Axis", &HingeJointComponent::axis));
         hinge_properties.push_back(make_property_descriptor(
             "connected_axis", "Connected Axis", &HingeJointComponent::connected_axis));
+        hinge_properties.insert(hinge_properties.end(),
+            {make_property_descriptor("limits_enabled", "Angle Limits",
+                 &HingeJointComponent::limits_enabled, {.required = false}),
+                make_property_descriptor("reference_axis", "Local Reference",
+                    &HingeJointComponent::reference_axis, {.required = false}),
+                make_property_descriptor("connected_reference_axis", "Connected Reference",
+                    &HingeJointComponent::connected_reference_axis, {.required = false}),
+                make_property_descriptor("min_angle", "Minimum Angle",
+                    &HingeJointComponent::min_angle,
+                    {.required = false,
+                        .numeric =
+                            {.speed = 1, .minimum = -180, .maximum = 0, .enforce_bounds = true}}),
+                make_property_descriptor("max_angle", "Maximum Angle",
+                    &HingeJointComponent::max_angle,
+                    {.required = false,
+                        .numeric =
+                            {.speed = 1, .minimum = 0, .maximum = 180, .enforce_bounds = true}}),
+                make_property_descriptor("motor_enabled", "Velocity Motor",
+                    &HingeJointComponent::motor_enabled, {.required = false}),
+                make_property_descriptor("motor_speed", "Target Speed",
+                    &HingeJointComponent::motor_speed,
+                    {.required = false, .numeric = {.speed = 1}}),
+                make_property_descriptor("motor_max_torque", "Maximum Torque",
+                    &HingeJointComponent::motor_max_torque,
+                    {.required = false,
+                        .numeric = {.speed = 0.1f, .minimum = 0, .enforce_bounds = true}})});
         register_component(make_component_descriptor<HingeJointComponent>(
             "hinge_joint", "Hinge Joint", std::move(hinge_properties)));
 
