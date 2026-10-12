@@ -128,6 +128,8 @@ namespace Comet {
         BodyMotion motion = BodyMotion::Dynamic;
         // kg；仅动态刚体参与质量响应，缩放只改变碰撞形状与惯性。
         float mass = 1.0f;
+        // 仅动态非触发器使用线性扫掠；高速旋转和触发区仍不保证连续检测。
+        bool continuous_collision = false;
         bool operator==(const RigidBodyComponent&) const = default;
     };
 

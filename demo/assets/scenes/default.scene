@@ -272,7 +272,8 @@
         },
         "rigid_body": {
           "motion": "dynamic",
-          "mass": 1
+          "mass": 1,
+          "continuous_collision": true
         },
         "collider": {
           "shape": "box",

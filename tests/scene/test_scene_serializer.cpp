@@ -164,7 +164,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(serializer.serialize(scene));
     }
 
-    TEST(SceneSerializerTest, RigidBodyMassPersistsClonesAndDefaultsWhenOmitted) {
+    TEST(SceneSerializerTest, RigidBodyOptionsPersistCloneAndDefaultWhenOmitted) {
         const auto registry = create_scene_component_registry();
         const SceneSerializer serializer(registry);
         auto defaults = serializer.deserialize(R"({"version":2,"entities":[{
@@ -173,7 +173,11 @@ namespace Comet::Tests {
         ASSERT_TRUE(defaults) << defaults.error();
         auto body = defaults.value()->get_entities().front();
         EXPECT_FLOAT_EQ(body.get_component<RigidBodyComponent>().mass, 1.0f);
-        body.edit_component<RigidBodyComponent>([](auto& component) { component.mass = 3.5f; });
+        EXPECT_FALSE(body.get_component<RigidBodyComponent>().continuous_collision);
+        body.edit_component<RigidBodyComponent>([](auto& component) {
+            component.mass = 3.5f;
+            component.continuous_collision = true;
+        });
         TemporaryDirectory directory;
         const auto path = (directory.path() / "mass.scene").string();
         ASSERT_TRUE(serializer.save(*defaults.value(), path));
@@ -181,15 +185,20 @@ namespace Comet::Tests {
         ASSERT_TRUE(loaded) << loaded.error();
         const auto loaded_body = loaded.value()->find_entity(body.get_uuid());
         EXPECT_FLOAT_EQ(loaded_body.get_component<RigidBodyComponent>().mass, 3.5f);
+        EXPECT_TRUE(loaded_body.get_component<RigidBodyComponent>().continuous_collision);
         auto clone = serializer.clone(*loaded.value());
         ASSERT_TRUE(clone) << clone.error();
         const auto cloned_entity = clone.value()->find_entity(body.get_uuid());
         const auto& cloned_body = cloned_entity.get_component<RigidBodyComponent>();
         EXPECT_FLOAT_EQ(cloned_body.mass, 3.5f);
-        cloned_entity.edit_component<RigidBodyComponent>(
-            [](auto& component) { component.mass = RigidBodyComponent::MIN_MASS; });
+        EXPECT_TRUE(cloned_body.continuous_collision);
+        cloned_entity.edit_component<RigidBodyComponent>([](auto& component) {
+            component.mass = RigidBodyComponent::MIN_MASS;
+            component.continuous_collision = false;
+        });
         EXPECT_TRUE(serializer.serialize(*clone.value()));
         EXPECT_FLOAT_EQ(loaded_body.get_component<RigidBodyComponent>().mass, 3.5f);
+        EXPECT_TRUE(loaded_body.get_component<RigidBodyComponent>().continuous_collision);
     }
 
     TEST(SceneSerializerTest, RejectsInvalidRigidBodyMassOnLoadAndSave) {

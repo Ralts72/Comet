@@ -84,6 +84,14 @@ namespace Comet {
                    && glm::all(glm::equal(a.rotation, b.rotation));
         }
 
+        JPH::EMotionQuality to_motion_quality(
+            const RigidBodyComponent& rigid, const ColliderComponent& collider) {
+            if(rigid.continuous_collision && rigid.motion == BodyMotion::Dynamic
+                && !collider.is_trigger)
+                return JPH::EMotionQuality::LinearCast;
+            return JPH::EMotionQuality::Discrete;
+        }
+
         bool same_shape(const ColliderComponent& a, const ColliderComponent& b) {
             return a.shape == b.shape && glm::all(glm::equal(a.half_extents, b.half_extents))
                    && a.radius == b.radius && a.is_trigger == b.is_trigger;
@@ -191,6 +199,7 @@ namespace Comet {
             JPH::BodyID id;
             BodyMotion motion;
             float mass;
+            JPH::EMotionQuality motion_quality;
             ColliderComponent collider;
             TransformComponent last_transform;
             JPH::Quat last_physics_rotation;
@@ -243,6 +252,7 @@ namespace Comet {
                 to_rotation(transform.rotation), to_motion_type(motion),
                 motion == BodyMotion::Static ? STATIC_LAYER : MOVING_LAYER);
             settings.mIsSensor = collider.is_trigger;
+            settings.mMotionQuality = to_motion_quality(rigid, collider);
             if(motion == BodyMotion::Dynamic) {
                 auto properties = calculate_mass_properties(*shape, rigid.mass);
                 if(!properties)
@@ -258,9 +268,10 @@ namespace Comet {
             const auto id = world.GetBodyInterface().CreateAndAddBody(settings, activation);
             if(id.IsInvalid())
                 return Result<void, Error>::failure({"Physics body capacity exceeded"});
-            const auto inserted = bodies.emplace(definition.entity,
-                Body{definition.entity, definition.uuid, id, motion, rigid.mass, collider,
-                    transform, world.GetBodyInterface().GetRotation(id)});
+            const auto inserted = bodies.emplace(
+                definition.entity, Body{definition.entity, definition.uuid, id, motion, rigid.mass,
+                                       settings.mMotionQuality, collider, transform,
+                                       world.GetBodyInterface().GetRotation(id)});
             body_lookup[id.GetIndex()] = &inserted.first->second;
             if(motion == BodyMotion::Kinematic)
                 kinematic_bodies.push_back(&inserted.first->second);
@@ -337,7 +348,9 @@ namespace Comet {
                     || !glm::all(glm::equal(it->second.last_transform.scale, transform.scale)));
             const bool mass_changed = !added && it->second.mass != rigid.mass;
             const bool pose_changed = !added && !same_pose(it->second.last_transform, transform);
-            if(added || rebuild || mass_changed || pose_changed) {
+            const auto motion_quality = to_motion_quality(rigid, collider);
+            const bool quality_changed = !added && it->second.motion_quality != motion_quality;
+            if(added || rebuild || mass_changed || pose_changed || quality_changed) {
                 if(auto valid = validate_body(definition.uuid, transform, collider, rigid); !valid)
                     return Result<bool, Error>::failure(valid.error());
             }
@@ -349,6 +362,11 @@ namespace Comet {
                 return Result<bool, Error>::success(added);
             }
             auto& body = it->second;
+            if(quality_changed) {
+                // 原地更新 Jolt 检测方式，保留速度、休眠及接触身份。
+                world.GetBodyInterface().SetMotionQuality(body.id, motion_quality);
+                body.motion_quality = motion_quality;
+            }
             if(mass_changed) {
                 if(auto updated = update_mass(body, rigid.mass); !updated)
                     return Result<bool, Error>::failure(updated.error());

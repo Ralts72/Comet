@@ -1532,6 +1532,39 @@ namespace CometEditor::Tests {
         EXPECT_EQ(entity.get_component<Comet::LightComponent>().type, Comet::LightType::Point);
     }
 
+    TEST_F(EditingUiTest, ContinuousCollisionCheckboxUsesUndoAndSupportsPlayEditing) {
+        entity.add_component<Comet::RigidBodyComponent>();
+        ImGuiID checkbox = 0;
+        ASSERT_TRUE(widgets.register_editor(
+            Comet::PropertyType::Bool, [&, builtin = create_property_editor_registry(assets)](
+                                           const Comet::PropertyDescriptor& property, void* value) {
+                auto result = builtin.edit_property(property, value);
+                if(property.id == "continuous_collision") {
+                    EXPECT_TRUE(property.display_name.starts_with("连续碰撞 (CCD)###"));
+                    checkbox = ImGui::GetItemID();
+                }
+                return result;
+            }));
+        frame();
+        ASSERT_NE(checkbox, 0u);
+        ImGui::ActivateItemByID(checkbox);
+        frame();
+        frame();
+        EXPECT_TRUE(entity.get_component<Comet::RigidBodyComponent>().continuous_collision);
+        EXPECT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(entity.get_component<Comet::RigidBodyComponent>().continuous_collision);
+        ASSERT_TRUE(history.redo());
+        EXPECT_TRUE(entity.get_component<Comet::RigidBodyComponent>().continuous_collision);
+        history.bind_scene(nullptr);
+        state.mode = EditorMode::Play;
+        ImGui::ActivateItemByID(checkbox);
+        frame();
+        frame();
+        EXPECT_FALSE(entity.get_component<Comet::RigidBodyComponent>().continuous_collision);
+        EXPECT_FALSE(history.can_undo());
+    }
+
     TEST_F(EditingUiTest, PlayEditsRuntimeWithoutAddingHistory) {
         history.bind_scene(nullptr);
         state.mode = EditorMode::Play;

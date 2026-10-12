@@ -919,7 +919,10 @@ namespace Comet::Tests {
     TEST(PhysicsSystemTest, ComponentsSurviveSceneCloneWithoutRuntimeState) {
         Scene scene;
         auto entity = add_body(scene, "Ball", BodyMotion::Dynamic, {1, 2, 3});
-        entity.edit_component<RigidBodyComponent>([](auto& component) { component.mass = 7; });
+        entity.edit_component<RigidBodyComponent>([](auto& component) {
+            component.mass = 7;
+            component.continuous_collision = true;
+        });
         entity.edit_component<ColliderComponent>(
             [](auto& component) { component.shape = ColliderShape::Sphere; });
         entity.edit_component<ColliderComponent>([](auto& component) { component.radius = 0.25f; });
@@ -933,6 +936,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(copied);
         EXPECT_EQ(copied.get_component<RigidBodyComponent>().motion, BodyMotion::Dynamic);
         EXPECT_FLOAT_EQ(copied.get_component<RigidBodyComponent>().mass, 7);
+        EXPECT_TRUE(copied.get_component<RigidBodyComponent>().continuous_collision);
         EXPECT_EQ(copied.get_component<ColliderComponent>().shape, ColliderShape::Sphere);
         EXPECT_FLOAT_EQ(copied.get_component<ColliderComponent>().radius, 0.25f);
         EXPECT_TRUE(copied.get_component<ColliderComponent>().is_trigger);
@@ -1123,6 +1127,159 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(body.get_component<TransformComponent>().translation.x, 0);
         EXPECT_LT(body.get_component<TransformComponent>().translation.y, 10);
         ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(PhysicsSystemTest, ContinuousCollisionStopsFastBoxesAndSpheresAtThinWalls) {
+        struct Case {
+            bool enabled;
+            bool change_at_fixed_step;
+            BodyMotion initial_motion = BodyMotion::Dynamic;
+        };
+        for(const auto shape : {ColliderShape::Box, ColliderShape::Sphere}) {
+            for(const auto settings : {Case{false, false}, Case{true, false}, Case{true, true},
+                    Case{false, true}, Case{true, false, BodyMotion::Static},
+                    Case{true, false, BodyMotion::Kinematic}}) {
+                SCOPED_TRACE(static_cast<int>(shape));
+                SCOPED_TRACE(settings.enabled);
+                SCOPED_TRACE(settings.change_at_fixed_step);
+                SCOPED_TRACE(static_cast<int>(settings.initial_motion));
+                Scene scene;
+                PhysicsService physics;
+                auto wall = add_body(scene, "Wall", BodyMotion::Static, {0, 0, 0});
+                wall.edit_component<ColliderComponent>(
+                    [](auto& collider) { collider.half_extents = {0.05f, 5, 5}; });
+                auto projectile =
+                    add_body(scene, "Projectile", settings.initial_motion, {-1, 0, 0});
+                projectile.edit_component<ColliderComponent>([&](auto& collider) {
+                    collider.shape = shape;
+                    collider.half_extents = Math::Vec3(0.1f);
+                    collider.radius = 0.1f;
+                });
+                projectile.edit_component<RigidBodyComponent>([&](auto& rigid) {
+                    rigid.continuous_collision = settings.enabled;
+                    if(settings.change_at_fixed_step)
+                        rigid.continuous_collision = !settings.enabled;
+                });
+                SceneRuntime runtime;
+                ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+                ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+                ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+                auto probe = std::make_unique<ContactProbe>();
+                auto* observed = probe.get();
+                ASSERT_TRUE(runtime.add_system(std::move(probe)));
+                ASSERT_TRUE(runtime.start(scene));
+                if(settings.initial_motion != BodyMotion::Dynamic)
+                    projectile.edit_component<RigidBodyComponent>(
+                        [](auto& rigid) { rigid.motion = BodyMotion::Dynamic; });
+                if(settings.change_at_fixed_step)
+                    projectile.edit_component<RigidBodyComponent>(
+                        [&](auto& rigid) { rigid.continuous_collision = settings.enabled; });
+                ASSERT_TRUE(physics.request_impulse(projectile, {300, 0, 0}));
+                ASSERT_TRUE(runtime.advance(0.01));
+                const auto x = projectile.get_component<TransformComponent>().translation.x;
+                if(settings.enabled) {
+                    EXPECT_GT(x, -1);
+                    EXPECT_LT(x, -0.05f);
+                    EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1u);
+                } else {
+                    EXPECT_GT(x, 1);
+                    EXPECT_TRUE(observed->contacts.empty());
+                }
+                EXPECT_EQ(physics.get_statistics().bodies, 2u);
+            }
+        }
+    }
+
+    TEST(PhysicsSystemTest, ContinuousCollisionChangesPreserveVelocityAndRespectPauseStep) {
+        Scene scene;
+        PhysicsService physics;
+        auto body = add_body(scene, "Body", BodyMotion::Dynamic, {0, 10, 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(physics.request_impulse(body, {10, 0, 0}));
+        ASSERT_TRUE(physics.request_torque(body, {0, 0, 10}));
+        ASSERT_TRUE(runtime.advance(0.01));
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        for(const bool enabled : {true, false, true}) {
+            const auto previous = physics.get_velocity(body);
+            ASSERT_TRUE(previous);
+            const auto position = body.get_component<TransformComponent>().translation;
+            body.edit_component<RigidBodyComponent>(
+                [&](auto& rigid) { rigid.continuous_collision = enabled; });
+            ASSERT_TRUE(runtime.advance(0.1));
+            EXPECT_EQ(body.get_component<TransformComponent>().translation, position);
+            EXPECT_EQ(physics.get_velocity(body)->linear, previous->linear);
+            EXPECT_EQ(physics.get_velocity(body)->angular, previous->angular);
+            ASSERT_TRUE(runtime.request_step());
+            ASSERT_TRUE(runtime.advance(0));
+            const auto next = physics.get_velocity(body);
+            ASSERT_TRUE(next);
+            EXPECT_GT(next->linear.x, previous->linear.x * 0.99f);
+            EXPECT_GT(next->angular.z, previous->angular.z * 0.99f);
+            EXPECT_GT(body.get_component<TransformComponent>().translation.x, position.x);
+            EXPECT_EQ(physics.get_statistics().bodies, 1u);
+        }
+    }
+
+    TEST(PhysicsSystemTest, ChangingContinuousCollisionPreservesSleepingContact) {
+        Scene scene;
+        PhysicsService physics;
+        add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
+        auto resting = add_body(scene, "Resting", BodyMotion::Dynamic, {0, 2, 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        auto probe = std::make_unique<ContactProbe>();
+        auto* observed = probe.get();
+        ASSERT_TRUE(runtime.add_system(std::move(probe)));
+        ASSERT_TRUE(runtime.start(scene));
+        for(int step = 0; step < 250; ++step)
+            ASSERT_TRUE(runtime.advance(0.01));
+        ASSERT_EQ(physics.get_statistics().active_bodies, 0u);
+        ASSERT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1u);
+        for(const bool enabled : {true, false, true}) {
+            resting.edit_component<RigidBodyComponent>(
+                [&](auto& rigid) { rigid.continuous_collision = enabled; });
+            ASSERT_TRUE(runtime.advance(0.01));
+            EXPECT_EQ(physics.get_statistics().active_bodies, 0u);
+            EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1u);
+            EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionExit), 0u);
+        }
+    }
+
+    TEST(PhysicsSystemTest, ContinuousCollisionDoesNotSweepTriggers) {
+        for(const bool moving_trigger : {true, false}) {
+            Scene scene;
+            PhysicsService physics;
+            auto wall = add_body(scene, "Wall", BodyMotion::Static, {0, 0, 0});
+            wall.edit_component<ColliderComponent>([&](auto& collider) {
+                collider.half_extents = {0.05f, 5, 5};
+                collider.is_trigger = !moving_trigger;
+            });
+            auto projectile = add_body(scene, "Projectile", BodyMotion::Dynamic, {-1, 0, 0});
+            projectile.edit_component<ColliderComponent>([&](auto& collider) {
+                collider.half_extents = Math::Vec3(0.1f);
+                collider.is_trigger = moving_trigger;
+            });
+            projectile.edit_component<RigidBodyComponent>(
+                [](auto& rigid) { rigid.continuous_collision = true; });
+            SceneRuntime runtime;
+            ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+            ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+            ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+            auto probe = std::make_unique<ContactProbe>();
+            auto* observed = probe.get();
+            ASSERT_TRUE(runtime.add_system(std::move(probe)));
+            ASSERT_TRUE(runtime.start(scene));
+            ASSERT_TRUE(physics.request_impulse(projectile, {300, 0, 0}));
+            ASSERT_TRUE(runtime.advance(0.01));
+            EXPECT_GT(projectile.get_component<TransformComponent>().translation.x, 1);
+            EXPECT_TRUE(observed->contacts.empty());
+        }
     }
 
     TEST(PhysicsSystemTest, ConfiguredMassControlsImpulseResponseIndependentlyOfShapeSize) {

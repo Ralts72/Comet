@@ -225,7 +225,9 @@ namespace Comet {
                     {.required = false,
                         .numeric = {.speed = 0.1f,
                             .minimum = RigidBodyComponent::MIN_MASS,
-                            .enforce_bounds = true}})}));
+                            .enforce_bounds = true}}),
+                make_property_descriptor("continuous_collision", "Continuous Collision (CCD)",
+                    &RigidBodyComponent::continuous_collision, {.required = false})}));
 
         register_component(make_component_descriptor<ColliderComponent>("collider", "Collider",
             {make_enum_property_descriptor<ColliderComponent, ColliderShape>("shape", "Shape",

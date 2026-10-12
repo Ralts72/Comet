@@ -52,7 +52,8 @@ namespace CometEditor {
                 {"audio_source/clip", "音频片段"}, {"audio_source/play_on_start", "启动时播放"},
                 {"audio_source/loop", "循环"}, {"audio_source/category", "音频分类"},
                 {"audio_source/volume", "音量"}, {"rigid_body/motion", "运动类型"},
-                {"rigid_body/mass", "质量 (kg)"}, {"collider/shape", "形状"},
+                {"rigid_body/mass", "质量 (kg)"},
+                {"rigid_body/continuous_collision", "连续碰撞 (CCD)"}, {"collider/shape", "形状"},
                 {"collider/half_extents", "盒体半尺寸"}, {"collider/radius", "球体半径"},
                 {"collider/is_trigger", "触发器"}, {"light/type", "类型"},
                 {"light/enabled", "启用"}, {"light/casts_shadow", "投射阴影（方向光）"},
@@ -326,6 +327,10 @@ namespace CometEditor {
             },
             *value);
         apply_property_edit(entity, component, property, *value, result);
+        if(component.id == "rigid_body" && property.id == "continuous_collision")
+            ImGui::SetItemTooltip("仅动态非触发器使用线性扫掠，减少高速穿过薄墙／地面的情况。\n"
+                                  "下一固定步生效；切换保留当前速度。\n"
+                                  "额外消耗模拟时间；高速旋转与触发区仍使用原有检测。");
     }
 
     void InspectorPanel::render_script_parameters(Comet::Entity entity,
