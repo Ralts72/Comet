@@ -396,14 +396,23 @@ namespace Comet {
             const JPH::Vec3 value, const float delta_time) {
             const auto* motion = body.GetMotionProperties();
             auto linear = body.GetLinearVelocity();
+            auto angular = body.GetAngularVelocity();
             auto force = body.GetAccumulatedForce();
             auto torque = body.GetAccumulatedTorque();
+            auto moment = JPH::Vec3::sZero();
+            if(request.point)
+                moment = JPH::Vec3(to_position(*request.point) - body.GetCenterOfMassPosition())
+                             .Cross(value);
             switch(request.kind) {
                 case CommandKind::Impulse:
                     linear += value * motion->GetInverseMass();
+                    if(request.point)
+                        angular += motion->MultiplyWorldSpaceInverseInertiaByVector(
+                            body.GetRotation(), moment);
                     break;
                 case CommandKind::Force:
                     force += value;
+                    torque += moment;
                     break;
                 case CommandKind::Torque:
                     torque += value;
@@ -413,10 +422,10 @@ namespace Comet {
             const auto angular_acceleration =
                 motion->MultiplyWorldSpaceInverseInertiaByVector(body.GetRotation(), torque);
             const auto next_linear = linear + delta_time * acceleration;
-            const auto next_angular = body.GetAngularVelocity() + delta_time * angular_acceleration;
+            const auto next_angular = angular + delta_time * angular_acceleration;
             // Jolt 先累加／积分再限速；有限输入也可能在累加或长度平方时溢出。
-            if(!std::isfinite(force.LengthSq()) || !std::isfinite(torque.LengthSq())
-                || !std::isfinite(acceleration.LengthSq())
+            if(!std::isfinite(moment.LengthSq()) || !std::isfinite(force.LengthSq())
+                || !std::isfinite(torque.LengthSq()) || !std::isfinite(acceleration.LengthSq())
                 || !std::isfinite(angular_acceleration.LengthSq())
                 || !std::isfinite(next_linear.LengthSq())
                 || !std::isfinite(next_angular.LengthSq()))
@@ -447,10 +456,16 @@ namespace Comet {
                 }
                 switch(request.kind) {
                     case CommandKind::Impulse:
-                        interface.AddImpulse(id, value);
+                        if(request.point)
+                            interface.AddImpulse(id, value, to_position(*request.point));
+                        else
+                            interface.AddImpulse(id, value);
                         break;
                     case CommandKind::Force:
-                        interface.AddForce(id, value);
+                        if(request.point)
+                            interface.AddForce(id, value, to_position(*request.point));
+                        else
+                            interface.AddForce(id, value);
                         break;
                     case CommandKind::Torque:
                         interface.AddTorque(id, value);
@@ -642,10 +657,10 @@ namespace Comet {
     }
 
     bool PhysicsService::enqueue_command(const EntityUuid uuid, const EntityId entity,
-        const CommandKind kind, const Math::Vec3 value) {
+        const CommandKind kind, const Math::Vec3 value, const std::optional<Math::Vec3> point) {
         if(m_commands.size() >= MAX_COMMANDS)
             return false;
-        m_commands.push_back({uuid, entity, kind, value});
+        m_commands.push_back({uuid, entity, kind, value, point});
         return true;
     }
 

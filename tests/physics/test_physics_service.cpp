@@ -32,6 +32,8 @@ namespace Comet::Tests {
                 EXPECT_TRUE(services.physics->request_impulse(m_entity, {100, 0, 0}));
                 EXPECT_TRUE(services.physics->request_force(m_entity, {100, 0, 0}));
                 EXPECT_TRUE(services.physics->request_torque(m_entity, {0, 0, 10}));
+                EXPECT_TRUE(services.physics->request_impulse_at(m_entity, {0, 1, 0}, {1, 0, 0}));
+                EXPECT_TRUE(services.physics->request_force_at(m_entity, {0, 1, 0}, {1, 0, 0}));
                 return Result<void, Error>::failure({"Startup failed after physics commands"});
             }
 
@@ -175,6 +177,8 @@ namespace Comet::Tests {
                 comet.apply_impulse(100, 0, 0)
                 comet.apply_force(0, 2000, 0)
                 comet.apply_torque(0, 0, 10)
+                comet.apply_impulse_at(0, 1, 0, 0.5, 0, 0)
+                comet.apply_force_at(0, 10, 0, 0.5, 0, 0)
             end, update = function()
                 local vx, vy, vz = comet.linear_velocity()
                 local wx, wy, wz = comet.angular_velocity()
@@ -266,6 +270,95 @@ namespace Comet::Tests {
         }
     }
 
+    TEST_F(PhysicsServiceTest, PointCommandsUseWorldLeverArmsAfterSyncAndActOnlyOnce) {
+        add_physics_system();
+        for(const auto request :
+            {&PhysicsAccess::request_impulse_at, &PhysicsAccess::request_force_at}) {
+            const float duration = request == &PhysicsAccess::request_force_at ? 0.01f : 1.0f;
+            SCOPED_TRACE(duration);
+            for(const float offset : {-0.25f, 0.0f, 0.25f}) {
+                SCOPED_TRACE(offset);
+                body.set_transform(
+                    {.translation = {2, 10, 3}, .rotation = {0, 90, 0}, .scale = {2, 1, 1}});
+                body.edit_component<RigidBodyComponent>([](auto& rigid) { rigid.mass = 1; });
+                ASSERT_TRUE(runtime.start(scene));
+                ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+                body.edit_transform([](auto& transform) { transform.translation.x = 5; });
+                body.edit_component<RigidBodyComponent>([](auto& rigid) { rigid.mass = 2; });
+                ASSERT_TRUE((physics.*request)(body, {0, 2, 0}, {5 + offset, 10, 3}));
+                ASSERT_TRUE(runtime.advance(0.1));
+                EXPECT_EQ(physics.get_velocity(body)->linear, Math::Vec3(0));
+                EXPECT_EQ(physics.get_velocity(body)->angular, Math::Vec3(0));
+                ASSERT_TRUE(runtime.request_step());
+                ASSERT_TRUE(runtime.advance(0));
+                const auto first = physics.get_velocity(body);
+                ASSERT_TRUE(first);
+                EXPECT_NEAR(first->linear.y, duration - 9.81f * 0.01f, 0.002f);
+                // 绕 Y 转 90 度后，世界 Z 对应盒体短轴，I = m * (1² + 1²) / 12。
+                EXPECT_NEAR(first->angular.z, 6 * offset * duration, 0.002f);
+                EXPECT_NEAR(first->angular.x, 0, 1e-5f);
+                EXPECT_NEAR(first->angular.y, 0, 1e-5f);
+                ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Running));
+                ASSERT_TRUE(runtime.advance(0.03));
+                EXPECT_NEAR(physics.get_velocity(body)->angular.z, first->angular.z, 0.01f);
+                ASSERT_TRUE((physics.*request)(body, {0, 2, 0}, {6, 10, 3}));
+                ASSERT_TRUE(runtime.stop());
+                ASSERT_TRUE(runtime.start(scene));
+                ASSERT_TRUE(runtime.advance(0.01));
+                EXPECT_EQ(physics.get_velocity(body)->angular, Math::Vec3(0));
+                EXPECT_LT(physics.get_velocity(body)->linear.y, 0);
+                ASSERT_TRUE(runtime.stop());
+            }
+        }
+    }
+
+    TEST_F(PhysicsServiceTest, PointCommandsRejectInvalidCoordinatesAndLuaArguments) {
+        add_physics_system();
+        ASSERT_TRUE(runtime.start(scene));
+        for(const auto request :
+            {&PhysicsAccess::request_impulse_at, &PhysicsAccess::request_force_at}) {
+            EXPECT_FALSE((physics.*request)(
+                body, {0, 1, 0}, {std::numeric_limits<float>::infinity(), 0, 0}));
+            EXPECT_FALSE((physics.*request)(
+                body, {std::numeric_limits<float>::quiet_NaN(), 0, 0}, {0, 0, 0}));
+        }
+        for(const char* name : {"apply_impulse_at", "apply_force_at"}) {
+            for(const char* arguments : {"0,1,0", "0,1,0,0,0", "0,1,0,0,0,0,0", "0,1,0,0,0,'0'",
+                    "0,1,0,0,0,0/0", "0,1,0,0,0,1/0"}) {
+                SCOPED_TRACE(name);
+                SCOPED_TRACE(arguments);
+                const auto script = Script::create(std::string("return {update = function() comet.")
+                                                   + name + "(" + arguments + ") end}");
+                ASSERT_TRUE(script);
+                auto instance = ScriptInstance::create(*script.value());
+                ASSERT_TRUE(instance);
+                EXPECT_FALSE(instance.value()->invoke(ScriptInstance::Phase::Update, body, {},
+                    {.scene = &scene, .physics = &physics}));
+            }
+        }
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(physics.get_velocity(body)->angular, Math::Vec3(0));
+        EXPECT_LT(physics.get_velocity(body)->linear.y, 0);
+    }
+
+    TEST_F(PhysicsServiceTest, PointCommandsRejectLeverArmOverflowWithoutReplayingAfterFailure) {
+        add_physics_system();
+        for(const auto request :
+            {&PhysicsAccess::request_impulse_at, &PhysicsAccess::request_force_at}) {
+            ASSERT_TRUE(runtime.start(scene));
+            ASSERT_TRUE((physics.*request)(body, {0, 1, 0}, {1e20f, 0, 0}));
+            const auto result = runtime.advance(0.01);
+            ASSERT_FALSE(result);
+            EXPECT_NE(result.error().message.find("velocity range"), std::string::npos);
+            EXPECT_FALSE(runtime.is_active());
+            ASSERT_TRUE(runtime.start(scene));
+            ASSERT_TRUE(runtime.advance(0.01));
+            EXPECT_EQ(physics.get_velocity(body)->angular, Math::Vec3(0));
+            EXPECT_LT(physics.get_velocity(body)->linear.y, 0);
+            ASSERT_TRUE(runtime.stop());
+        }
+    }
+
     TEST_F(PhysicsServiceTest, VelocityRequiresRegisteredBodyAndDoesNotFollowRecycledEntities) {
         EXPECT_FALSE(physics.get_velocity(body));
         add_physics_system();
@@ -277,6 +370,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(physics.request_force(body, {200, 0, 0}));
         ASSERT_TRUE(physics.request_torque(body, {0, 0, 10}));
         const auto old = body;
+        ASSERT_TRUE(physics.request_impulse_at(body, {0, 1, 0}, {1, 0, 0}));
+        ASSERT_TRUE(physics.request_force_at(body, {0, 1, 0}, {1, 0, 0}));
         const auto uuid = body.get_uuid();
         scene.destroy_entity(body);
         EXPECT_FALSE(physics.get_velocity(old));

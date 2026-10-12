@@ -30,6 +30,9 @@ namespace Comet {
         // 世界空间，质心处施力；每次请求只作用于下一固定步，持续施力需逐固定步提交。
         [[nodiscard]] bool request_force(Entity entity, Math::Vec3 force);
         [[nodiscard]] bool request_torque(Entity entity, Math::Vec3 torque);
+        // 力／冲量与作用点均为世界空间；保存提交时的点，在下一固定步按实际质心计算力臂。
+        [[nodiscard]] bool request_impulse_at(Entity entity, Math::Vec3 impulse, Math::Vec3 point);
+        [[nodiscard]] bool request_force_at(Entity entity, Math::Vec3 force, Math::Vec3 point);
         // 最近的模拟状态，m/s 与 rad/s；尚未登记、缺少组件或不属于本运行域时返回空值。
         [[nodiscard]] std::optional<Velocity> get_velocity(Entity entity) const;
 
@@ -44,9 +47,10 @@ namespace Comet {
         bool begin(const Scene& scene);
         void end() noexcept;
         bool has_body(Entity entity) const;
-        bool request(Entity entity, CommandKind kind, Math::Vec3 value);
-        virtual bool enqueue_command(
-            EntityUuid uuid, EntityId entity, CommandKind kind, Math::Vec3 value) = 0;
+        bool request(Entity entity, CommandKind kind, Math::Vec3 value,
+            std::optional<Math::Vec3> point = std::nullopt);
+        virtual bool enqueue_command(EntityUuid uuid, EntityId entity, CommandKind kind,
+            Math::Vec3 value, std::optional<Math::Vec3> point) = 0;
         virtual std::optional<Velocity> read_velocity(EntityUuid uuid, EntityId entity) const = 0;
         virtual void reset() noexcept = 0;
 

@@ -20,12 +20,12 @@ namespace Comet {
                && entity.has_component<RigidBodyComponent>();
     }
 
-    bool PhysicsAccess::request(
-        const Entity entity, const CommandKind kind, const Math::Vec3 value) {
-        if(!has_body(entity) || !Math::is_finite(value)
+    bool PhysicsAccess::request(const Entity entity, const CommandKind kind, const Math::Vec3 value,
+        const std::optional<Math::Vec3> point) {
+        if(!has_body(entity) || !Math::is_finite(value) || (point && !Math::is_finite(*point))
             || entity.get_component<RigidBodyComponent>().motion != BodyMotion::Dynamic)
             return false;
-        return enqueue_command(entity.get_uuid(), entity.get_id(), kind, value);
+        return enqueue_command(entity.get_uuid(), entity.get_id(), kind, value, point);
     }
 
     bool PhysicsAccess::request_impulse(const Entity entity, const Math::Vec3 impulse) {
@@ -38,6 +38,16 @@ namespace Comet {
 
     bool PhysicsAccess::request_torque(const Entity entity, const Math::Vec3 torque) {
         return request(entity, CommandKind::Torque, torque);
+    }
+
+    bool PhysicsAccess::request_impulse_at(
+        const Entity entity, const Math::Vec3 impulse, const Math::Vec3 point) {
+        return request(entity, CommandKind::Impulse, impulse, point);
+    }
+
+    bool PhysicsAccess::request_force_at(
+        const Entity entity, const Math::Vec3 force, const Math::Vec3 point) {
+        return request(entity, CommandKind::Force, force, point);
     }
 
     std::optional<PhysicsAccess::Velocity> PhysicsAccess::get_velocity(const Entity entity) const {

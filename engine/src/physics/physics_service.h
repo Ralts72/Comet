@@ -53,10 +53,11 @@ namespace Comet {
             EntityId entity;
             CommandKind kind;
             Math::Vec3 value;
+            std::optional<Math::Vec3> point;
         };
 
-        bool enqueue_command(
-            EntityUuid uuid, EntityId entity, CommandKind kind, Math::Vec3 value) override;
+        bool enqueue_command(EntityUuid uuid, EntityId entity, CommandKind kind, Math::Vec3 value,
+            std::optional<Math::Vec3> point) override;
         std::optional<Velocity> read_velocity(EntityUuid uuid, EntityId entity) const override;
         void reset() noexcept override;
         Result<void, Error> prepare_world();

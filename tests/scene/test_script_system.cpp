@@ -1635,6 +1635,32 @@ namespace Comet::Tests {
         EXPECT_LE(released->angular.y, limited->angular.y);
     }
 
+    TEST_P(DemoControlsTest, DemoImpulseOffsetProducesRotationAndDoesNotRepeatWhileHeld) {
+        const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
+        ASSERT_TRUE(project) << project.error();
+        ASSERT_TRUE(runtime.set_input_actions(project.value().input_actions()));
+        const auto script =
+            Script::load(project.value().paths().assets() / "scripts/impulse_cube.lua");
+        ASSERT_TRUE(script) << script.error().message;
+        ASSERT_TRUE(assets.register_asset(handle, script.value()));
+        auto cube = actor();
+        cube.get_component<ScriptComponent>().parameters["impulse_offset"] = 0.25f;
+        cube.add_component<RigidBodyComponent>();
+        cube.add_component<ColliderComponent>();
+        cube.edit_transform([](auto& transform) { transform.translation = {2, 10, 3}; });
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        ASSERT_TRUE(runtime.start(scene));
+        control(Input::Key::J, Input::GamepadButton::West, true);
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        const auto first = physics.get_velocity(cube);
+        ASSERT_TRUE(first);
+        EXPECT_GT(first->linear.y, 3.1f);
+        EXPECT_LT(first->linear.y, 3.5f);
+        EXPECT_NEAR(first->angular.z, 3.5f * 0.25f * 6, 0.02f);
+        ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
+        EXPECT_NEAR(physics.get_velocity(cube)->angular.z, first->angular.z, 0.02f);
+    }
+
     TEST_P(DemoControlsTest, DemoPaletteConsumesSharedControlsAndPreservesGameplayState) {
         const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
         ASSERT_TRUE(project) << project.error();

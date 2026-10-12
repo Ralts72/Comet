@@ -2,6 +2,7 @@ local script = {}
 
 script.properties = {
     impulse = 3.5,
+    impulse_offset = 0,
     thrust_force = 15,
     spin_torque = 0.5,
     max_rise_speed = 4,
@@ -10,7 +11,9 @@ script.properties = {
 
 function script:fixed_update()
     if comet.action_pressed("demo.impulse") then
-        comet.apply_impulse(0, self.parameters.impulse, 0)
+        local x, y, z = comet.position()
+        comet.apply_impulse_at(0, self.parameters.impulse, 0,
+            x + self.parameters.impulse_offset, y, z)
     end
     if not comet.action_down("demo.thrust") then
         return

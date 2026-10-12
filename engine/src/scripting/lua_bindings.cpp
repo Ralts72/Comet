@@ -276,15 +276,25 @@ namespace Comet::LuaBindings {
             return *context.physics;
         }
 
-        using PhysicsRequest = bool (PhysicsAccess::*)(Entity, Math::Vec3);
-        int apply_physics(lua_State* state, PhysicsRequest request, const char* name) {
-            if(lua_gettop(state) != 3)
-                return luaL_error(state, "%s requires three finite numbers", name);
-            for(int argument = 1; argument <= 3; ++argument)
+        template<typename Request>
+        int apply_physics(lua_State* state, Request request, const char* name) {
+            constexpr bool at_point =
+                std::is_invocable_v<Request, PhysicsAccess&, Entity, Math::Vec3, Math::Vec3>;
+            constexpr int arguments = at_point ? 6 : 3;
+            if(lua_gettop(state) != arguments)
+                return luaL_error(state, "%s requires %d finite numbers", name, arguments);
+            for(int argument = 1; argument <= arguments; ++argument)
                 luaL_checktype(state, argument, LUA_TNUMBER);
             const Math::Vec3 value{number(state, 1), number(state, 2), number(state, 3)};
             auto& physics = require_physics(state);
-            if(!(physics.*request)(current(state).entity, value))
+            bool queued;
+            if constexpr(at_point) {
+                const Math::Vec3 point{number(state, 4), number(state, 5), number(state, 6)};
+                queued = (physics.*request)(current(state).entity, value, point);
+            } else {
+                queued = (physics.*request)(current(state).entity, value);
+            }
+            if(!queued)
                 return luaL_error(state,
                     "%s requires an active dynamic body with Collider and room in the physics queue",
                     name);
@@ -298,6 +308,12 @@ namespace Comet::LuaBindings {
         }
         int apply_torque(lua_State* state) {
             return apply_physics(state, &PhysicsAccess::request_torque, "apply_torque");
+        }
+        int apply_impulse_at(lua_State* state) {
+            return apply_physics(state, &PhysicsAccess::request_impulse_at, "apply_impulse_at");
+        }
+        int apply_force_at(lua_State* state) {
+            return apply_physics(state, &PhysicsAccess::request_force_at, "apply_force_at");
         }
         int push_velocity(lua_State* state, const bool angular) {
             if(lua_gettop(state) != 0)
@@ -577,6 +593,7 @@ namespace Comet::LuaBindings {
             {"has_rigid_body", has_rigid_body}, {"remove_rigid_body", remove_rigid_body},
             {"restart_scene", restart_scene}, {"play_one_shot", play_one_shot},
             {"apply_impulse", apply_impulse}, {"apply_force", apply_force},
+            {"apply_impulse_at", apply_impulse_at}, {"apply_force_at", apply_force_at},
             {"apply_torque", apply_torque}, {"linear_velocity", linear_velocity},
             {"angular_velocity", angular_velocity}, {"set_material_scalar", set_material_scalar},
             {"set_material_vector", set_material_vector}, {"session_get", session_get},
