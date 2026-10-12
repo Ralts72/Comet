@@ -90,7 +90,7 @@ namespace Comet {
         const Window& window, Context& context, Device& device, const SwapchainRequest& request) {
         using CreationResult = Result<std::unique_ptr<Swapchain>, GraphicsError>;
         std::unique_ptr<Swapchain> candidate(new Swapchain(window, context, device, request));
-        auto initialized = candidate->recreate();
+        auto initialized = candidate->recreate(window.get_framebuffer_size());
         if(!initialized)
             return CreationResult::failure(initialized.error());
         if(initialized.value() == RecreateStatus::Deferred)
@@ -99,7 +99,8 @@ namespace Comet {
         return CreationResult::success(std::move(candidate));
     }
 
-    Result<Swapchain::RecreateStatus, GraphicsError> Swapchain::recreate() {
+    Result<Swapchain::RecreateStatus, GraphicsError> Swapchain::recreate(
+        const Math::Vec2u framebuffer_size) {
         PROFILE_SCOPE("Swapchain::Recreate");
         const auto physical_device = m_context.get_physical_device();
         const auto surface = m_context.get_surface();
@@ -124,7 +125,6 @@ namespace Comet {
         if(modes != vk::Result::eSuccess)
             return Result<RecreateStatus, GraphicsError>::failure(
                 {"Cannot query present modes", modes});
-        const auto framebuffer_size = m_window.get_framebuffer_size();
         // 启动或显式修改模式时选择；resize / surface 恢复保持已选输出编码。
         const auto selection = select_swapchain(capabilities, surface_formats, present_modes,
             vk::Extent2D{framebuffer_size.x, framebuffer_size.y}, m_request, m_output_format);

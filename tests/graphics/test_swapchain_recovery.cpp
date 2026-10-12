@@ -208,7 +208,7 @@ namespace Comet::Tests {
         void resume() {
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
             while(std::chrono::steady_clock::now() < deadline) {
-                const auto ready = presentation->begin_frame();
+                const auto ready = presentation->begin_frame(window->get_framebuffer_size());
                 ASSERT_TRUE(ready) << ready.error().message;
                 if(ready.value()) {
                     finish_frame();
@@ -220,7 +220,7 @@ namespace Comet::Tests {
         }
 
         void verify_retirement(bool fail_images) {
-            auto ready = presentation->begin_frame();
+            auto ready = presentation->begin_frame(window->get_framebuffer_size());
             ASSERT_TRUE(ready);
             ASSERT_TRUE(ready.value());
             finish_frame();
@@ -232,7 +232,7 @@ namespace Comet::Tests {
             calls.fail_creation = !fail_images;
             calls.fail_images = fail_images;
             presentation->request_recreation();
-            ready = presentation->begin_frame();
+            ready = presentation->begin_frame(window->get_framebuffer_size());
             ASSERT_FALSE(ready);
             EXPECT_EQ(ready.error().result, static_cast<vk::Result>(calls.memory_error));
             EXPECT_EQ(calls.creates, 1u);
@@ -263,7 +263,7 @@ namespace Comet::Tests {
     TEST_P(SwapchainRecoveryTest, AcquireOutOfMemoryDoesNotBeginOrSubmitFrame) {
         calls.fail_acquire = true;
         const auto serial = frames->get_current_frame_serial();
-        const auto ready = presentation->begin_frame();
+        const auto ready = presentation->begin_frame(window->get_framebuffer_size());
         ASSERT_FALSE(ready);
         EXPECT_EQ(ready.error().result, vk::Result::eErrorOutOfDeviceMemory);
         EXPECT_EQ(calls.acquires, 1u);
@@ -275,7 +275,7 @@ namespace Comet::Tests {
     }
 
     TEST_P(SwapchainRecoveryTest, PresentOutOfMemoryFinishesSubmittedFrameAndReturnsError) {
-        const auto ready = presentation->begin_frame();
+        const auto ready = presentation->begin_frame(window->get_framebuffer_size());
         ASSERT_TRUE(ready);
         ASSERT_TRUE(ready.value());
         const auto serial = frames->get_current_frame_serial();
@@ -300,7 +300,7 @@ namespace Comet::Tests {
                 {"Cannot rebuild overlay", vk::Result::eErrorOutOfHostMemory});
         }});
         presentation->request_recreation();
-        const auto ready = presentation->begin_frame();
+        const auto ready = presentation->begin_frame(window->get_framebuffer_size());
         ASSERT_FALSE(ready);
         EXPECT_EQ(ready.error().result, vk::Result::eErrorOutOfHostMemory);
         EXPECT_EQ(calls.creates, 1u);
@@ -316,7 +316,7 @@ namespace Comet::Tests {
         calls.expire_acquires = 2;
         const auto serial = frames->get_current_frame_serial();
         for(unsigned i = 0; i < 2; ++i) {
-            const auto ready = presentation->begin_frame();
+            const auto ready = presentation->begin_frame(window->get_framebuffer_size());
             ASSERT_TRUE(ready);
             EXPECT_FALSE(ready.value());
             EXPECT_FALSE(frames->is_frame_active());
@@ -327,7 +327,7 @@ namespace Comet::Tests {
         EXPECT_EQ(frames->get_current_frame_serial(), serial + 1);
     }
     TEST_P(SwapchainRecoveryTest, OutOfDatePresentFinishesFrameBeforeRecreationOutOfMemory) {
-        const auto ready = presentation->begin_frame();
+        const auto ready = presentation->begin_frame(window->get_framebuffer_size());
         ASSERT_TRUE(ready);
         ASSERT_TRUE(ready.value());
         const auto serial = frames->get_current_frame_serial();
@@ -335,7 +335,7 @@ namespace Comet::Tests {
         finish_frame();
         EXPECT_FALSE(frames->is_frame_active());
         EXPECT_EQ(frames->get_current_frame_serial(), serial + 1);
-        const auto failed = presentation->begin_frame();
+        const auto failed = presentation->begin_frame(window->get_framebuffer_size());
         ASSERT_FALSE(failed);
         EXPECT_EQ(failed.error().result, vk::Result::eErrorOutOfDeviceMemory);
         EXPECT_EQ(calls.creates, 1u);
@@ -347,7 +347,7 @@ namespace Comet::Tests {
         const auto previous = context->get_swapchain().get_active_generation();
         calls.incomplete_formats = true;
         presentation->request_recreation();
-        const auto ready = presentation->begin_frame();
+        const auto ready = presentation->begin_frame(window->get_framebuffer_size());
         ASSERT_TRUE(ready);
         EXPECT_FALSE(ready.value());
         EXPECT_GT(calls.format_queries, 0u);
@@ -366,7 +366,7 @@ namespace Comet::Tests {
         presentation->request_recreation();
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
         while(std::chrono::steady_clock::now() < deadline) {
-            const auto ready = presentation->begin_frame();
+            const auto ready = presentation->begin_frame(window->get_framebuffer_size());
             if(!ready) {
                 EXPECT_EQ(ready.error().result, vk::Result::eIncomplete);
                 EXPECT_EQ(calls.format_queries, 16u);

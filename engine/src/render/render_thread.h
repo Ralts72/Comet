@@ -4,6 +4,7 @@
 #include "graphics/result.h"
 #include "render/render_frame.h"
 #include "render/resource/resource_factory.h"
+#include "asset/registry.h"
 
 #include <condition_variable>
 #include <exception>
@@ -45,9 +46,15 @@ namespace Comet {
         friend class Renderer;
         using FrameResult = Result<void, GraphicsError>;
         using Operation = std::packaged_task<void()>;
-        using Request = std::variant<RenderFrame, Operation>;
-        enum class Pending { None, Frame, Operation };
+        struct Preparation {
+            Math::Vec2u framebuffer_size;
+            AssetRegistry::Removals removals;
+        };
+        using Request = std::variant<RenderFrame, Preparation, Operation>;
+        enum class Pending { None, Frame, Preparation, Operation };
 
+        [[nodiscard]] Result<bool, GraphicsError> prepare_frame(
+            Math::Vec2u framebuffer_size, AssetRegistry::Removals removals);
         [[nodiscard]] FrameResult enqueue(Request request);
         [[nodiscard]] FrameResult take_result(std::unique_lock<std::mutex>& lock);
         [[nodiscard]] bool is_current() const {
@@ -102,6 +109,7 @@ namespace Comet {
         std::optional<Request> m_request;
         std::optional<FrameResult> m_result;
         Pending m_pending = Pending::None;
+        bool m_prepared = false;
         bool m_stopping = false;
         std::thread m_worker;
     };

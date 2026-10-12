@@ -79,6 +79,7 @@ namespace Comet {
             std::function<OverlayDrawList()> capture;
             std::function<void()> release;
             std::function<Result<void, GraphicsError>(const SwapchainCompatibility&)> rebuild;
+            std::function<void()> shutdown;
         };
 
         static Result<std::unique_ptr<Renderer>, GraphicsError> create(
@@ -86,7 +87,7 @@ namespace Comet {
 
         ~Renderer();
 
-        // Ready 才能捕获帧；删除批次由 Main 的资产管理层交付。
+        // Main 捕获窗口尺寸；GPU 侧准备完成且 Ready 才能捕获帧。
         [[nodiscard]] Result<FramePreparation, GraphicsError> prepare_frame(
             AssetRegistry::Removals removals = {});
         [[nodiscard]] RenderFrame capture_frame();
@@ -171,11 +172,17 @@ namespace Comet {
     private:
         friend class Engine;
         friend class RenderThread;
+        [[nodiscard]] Result<void, GraphicsError> begin_render_loop();
+        void end_render_loop();
+        void collect_resources();
+        [[nodiscard]] Result<FramePreparation, GraphicsError> prepare_gpu_frame(
+            Math::Vec2u framebuffer_size, AssetRegistry::Removals removals);
         [[nodiscard]] Result<void, GraphicsError> record_frame(RenderFrame frame);
         [[nodiscard]] Result<void, GraphicsError> draw_frame(RenderFrame& frame);
-        Renderer(std::unique_ptr<RenderContext> context, std::unique_ptr<RenderResources> resources,
-            std::unique_ptr<FrameScheduler> frames, std::unique_ptr<MaterialPrograms> programs,
-            std::unique_ptr<SceneRenderer> scene, const Settings& settings);
+        Renderer(const Window& window, std::unique_ptr<RenderContext> context,
+            std::unique_ptr<RenderResources> resources, std::unique_ptr<FrameScheduler> frames,
+            std::unique_ptr<MaterialPrograms> programs, std::unique_ptr<SceneRenderer> scene,
+            const Settings& settings);
         Result<void, GraphicsError> record_overlay(
             const OverlayDrawList& draws, std::vector<QueueSemaphoreSubmit>& waits);
         void discard_frame_requests();
@@ -194,6 +201,7 @@ namespace Comet {
             const RenderFrame::View& input, const RenderWorld& world, bool has_scene,
             std::vector<QueueSemaphoreSubmit>& waits, RenderDiagnostics* diagnostics);
 
+        const Window& m_window;
         std::unique_ptr<RenderContext> m_render_context;
         RenderThread* m_render_thread = nullptr; // Engine 绑定，排空请求后解除。
         std::unique_ptr<RenderResources> m_render_resources;
@@ -205,7 +213,9 @@ namespace Comet {
         ViewId m_next_view_id = 1;
         Settings m_settings;
         std::function<OverlayDrawList()> m_capture_overlay;
+        std::function<void()> m_shutdown_overlay;
         bool m_shutdown_prepared = false;
+        double m_frame_preparation_ms = 0;
         std::shared_ptr<const RenderWorld> m_world;
         RenderGeometry m_geometry;
         std::optional<QualitySettings> m_pending_quality;

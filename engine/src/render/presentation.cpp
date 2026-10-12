@@ -20,14 +20,14 @@ namespace Comet {
         m_overlay = std::move(overlay);
     }
 
-    Result<bool, GraphicsError> Presentation::begin_frame() {
+    Result<bool, GraphicsError> Presentation::begin_frame(const Math::Vec2u framebuffer_size) {
         PROFILE_SCOPE("Presentation::begin_frame");
         using Preparation = Result<bool, GraphicsError>;
         if(m_recovery != RecoveryStage::Ready) {
             if(m_retry_pending && !m_retry.consume(RetryBackoff::Clock::now()))
                 return Preparation::success(false);
             m_retry_pending = false;
-            if(auto recovery = recover(); !recovery)
+            if(auto recovery = recover(framebuffer_size); !recovery)
                 return Preparation::failure(recovery.error());
             if(m_recovery != RecoveryStage::Ready)
                 return Preparation::success(false);
@@ -135,7 +135,7 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
-    Result<void, GraphicsError> Presentation::recover() {
+    Result<void, GraphicsError> Presentation::recover(const Math::Vec2u framebuffer_size) {
         PROFILE_SCOPE("Presentation::recover");
         auto& swapchain = m_context.get_swapchain();
         m_frames.wait_for_all_slots();
@@ -148,7 +148,7 @@ namespace Comet {
             m_recovery = RecoveryStage::Swapchain;
         }
         if(m_recovery == RecoveryStage::Swapchain) {
-            const auto recreation = swapchain.recreate();
+            const auto recreation = swapchain.recreate(framebuffer_size);
             if(!recreation)
                 return handle_failure(recreation.error());
             if(recreation.value() == Swapchain::RecreateStatus::Deferred)

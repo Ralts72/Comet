@@ -389,7 +389,7 @@ namespace {
                     "cpu_frame_handoff", "cpu_render_wait", "cpu_render_thread",
                     "cpu_scene_extract", "cpu_asset_resolution", "cpu_material_programs",
                     "cpu_geometry", "cpu_lighting", "cpu_submission_prep", "cpu_queue_submit",
-                    "cpu_present", "cpu_render_record", "cpu_graph", "gpu_graph"})
+                    "cpu_present", "cpu_render_prepare_record", "cpu_graph", "gpu_graph"})
                 m_samples[name].reserve(options.frames);
             for(const auto& pass : m_passes)
                 for(const auto* prefix : {"cpu_", "gpu_"})
@@ -450,7 +450,7 @@ namespace {
                     m_samples["cpu_submission_prep"].push_back(snapshot.submission->finalize_ms);
                     m_samples["cpu_queue_submit"].push_back(snapshot.submission->submit_ms);
                     m_samples["cpu_present"].push_back(snapshot.submission->present_ms);
-                    m_samples["cpu_render_record"].push_back(
+                    m_samples["cpu_render_prepare_record"].push_back(
                         snapshot.frame->milliseconds - snapshot.submission->finalize_ms
                         - snapshot.submission->submit_ms - snapshot.submission->present_ms);
                     append_graph("cpu_", *snapshot.cpu);
@@ -500,7 +500,7 @@ namespace {
             std::ostringstream report;
             report.imbue(std::locale::classic());
             report << "# build=" << COMET_BENCHMARK_BUILD_TYPE << " validation_request=off\n";
-            report << "# timing_model=render-thread-v1\n";
+            report << "# timing_model=render-thread-v2\n";
 #ifdef __APPLE__
             report << "# cpu_qos_request=user_interactive\n";
             report << "# cpu_samples=";

@@ -28,7 +28,7 @@ Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，
 
 场景更新交付只读 CPU 快照，主线程解析时固定材质值及对应 Shader 引用，产出可独立保留的只读 RenderWorld。游戏和编辑器 UI 交付独立持有的绘制数据与像素，GPU 录制消费这些输入，在途资源由帧槽保活；ImGui 的输入／布局／字体前端与 Vulkan 录制上下文各自持有状态，当前上下文选择使用线程局部状态，交换链后端重建不重置窗口输入。Renderer 拥有 GPU 资源和各视图状态，材质参数校验与 Inspector 消费已发布布局的只读反馈，资产注销由主线程交付同一删除批次给各视图。
 
-独立 RenderThread 从 Engine 初始化持续到关闭，负责录制、提交、呈现、资产 GPU 创建和材质／Shader GPU 发布，每次最多接收一个请求；Main 可同时处理窗口事件，在下一次更新和资源操作前取回绘制结果。帧准备、交换链恢复、资源回收与 UI 后端生命周期仍由 Main 在交接边界同步执行，CPU 场景更新尚未与绘制重叠。类入口、依赖方向和资源所有权见[架构文档](docs/architecture/overview.md)。
+独立 RenderThread 从 Engine 初始化持续到关闭，负责录制、提交、呈现、资产 GPU 创建、材质／Shader GPU 发布及运行期间的共享资源回收，每次最多接收一个请求；Main 可同时处理窗口事件，在下一次更新和资源操作前取回绘制结果。启动和退出阶段由 Main 接管回收；Main 捕获窗口尺寸后同步等待 GPU 帧准备；交换链恢复及 UI GPU 后端重建、关闭由 RenderThread 执行，窗口输入、文档和布局由 Main 管理。CPU 场景更新尚未与绘制重叠。类入口、依赖方向和资源所有权见[架构文档](docs/architecture/overview.md)。
 
 编辑器视口使用稳定的图片标识；UI 帧固定图片引用，GPU 录制时创建或复用绑定，换图不会改写在途帧的 descriptor。
 共享 Buffer、Image、ImageView 和 Sampler 在其他线程释放最后引用时，由 Device 接管原生资源销毁，在所属线程的帧边界或关闭时回收；在途使用仍由帧与上传保活。
@@ -123,7 +123,7 @@ RmlUi Core 与 FreeType 静态编入 engine；Editor 的 `editor_core`、`editor
 
 ### 可复现渲染测量
 
-`render_benchmark` 创建固定场景、预热、采样并退出，用于比较引擎改动。基准使用实际 RenderThread 主循环，报告以 `timing_model=render-thread-v1` 标识计时口径。主线程等待、帧交付与渲染线程整帧分别采样，不与旧串行报告直接比较。脚本复用 `build-release/` 的 Release 引擎，只构建基准及其依赖：
+`render_benchmark` 创建固定场景、预热、采样并退出，用于比较引擎改动。基准使用实际 RenderThread 主循环，报告以 `timing_model=render-thread-v2` 标识计时口径。主线程等待、帧交付与渲染线程工作分别采样；渲染线程耗时包含帧准备、录制、提交和呈现，排除等待 Main 构建 UI 的空闲，不与旧口径直接比较。脚本复用 `build-release/` 的 Release 引擎，只构建基准及其依赖：
 
 ```bash
 ./tools/render_benchmark/run.sh

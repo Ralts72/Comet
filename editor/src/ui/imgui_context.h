@@ -64,6 +64,8 @@ namespace CometEditor::Ui {
         std::unique_ptr<Frame> end_frame();
 
         void release_swapchain_resources();
+        // GPU 已空闲后在绘制所属线程调用；窗口输入和布局仍由 Main 关闭。
+        void shutdown_gpu() noexcept;
         Comet::Result<void, Comet::GraphicsError> rebuild_swapchain_resources(
             const Comet::SwapchainCompatibility& compatibility);
 

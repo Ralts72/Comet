@@ -21,6 +21,7 @@ namespace CometEditor {
             const Comet::Input::Frame& input, Comet::Ui::ProjectUi::FrameInfo info);
         [[nodiscard]] std::unique_ptr<Comet::OverlayDraw> take_draw_frame();
         void release();
+        void shutdown_gpu();
         [[nodiscard]] Comet::Result<void, Comet::GraphicsError> rebuild(
             const Comet::SwapchainCompatibility& compatibility);
 

@@ -67,6 +67,7 @@ namespace Comet::Tests {
         CallbackOverlayDraw::Record render;
         std::function<void()> release;
         std::function<Result<void, GraphicsError>(const SwapchainCompatibility&)> rebuild;
+        std::function<void()> shutdown;
     };
     inline void set_test_overlay(Renderer& renderer, TestOverlay overlay) {
         renderer.set_overlay({.capture =
@@ -77,7 +78,8 @@ namespace Comet::Tests {
                                       return draws;
                                   },
             .release = std::move(overlay.release),
-            .rebuild = std::move(overlay.rebuild)});
+            .rebuild = std::move(overlay.rebuild),
+            .shutdown = std::move(overlay.shutdown)});
     }
     inline Result<void, GraphicsError> record_draw_frame(
         OverlayRecordContext& frame, std::unique_ptr<OverlayDraw> draw) {

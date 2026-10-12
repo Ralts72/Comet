@@ -407,18 +407,20 @@ namespace CometEditor::Ui {
         if(m_initialized) {
             m_render_context.get_device().wait_idle_for_shutdown();
         }
-        shutdown_vulkan();
-        m_backend_context.reset();
+        shutdown_gpu();
         m_font_pixels.clear();
         m_frontend_context.reset();
-
-        m_descriptor_pool.reset();
-
-        m_render_target.reset();
-        m_render_pass.reset();
         m_viewport_images.clear();
 
         m_initialized = false;
+    }
+
+    void ImGuiContext::shutdown_gpu() noexcept {
+        shutdown_vulkan();
+        m_backend_context.reset();
+        m_descriptor_pool.reset();
+        m_render_target.reset();
+        m_render_pass.reset();
     }
 
     bool ImGuiContext::begin_frame() {

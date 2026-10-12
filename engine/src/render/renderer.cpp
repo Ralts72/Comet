@@ -45,8 +45,8 @@ namespace Comet {
             device, *programs, *resources, settings.vulkan, settings.render, swapchain);
         if(!scene)
             return Creation::failure(scene.error());
-        auto renderer =
-            std::unique_ptr<Renderer>(new Renderer(std::move(context).value(), std::move(resources),
+        auto renderer = std::unique_ptr<Renderer>(
+            new Renderer(window, std::move(context).value(), std::move(resources),
                 std::move(frames), std::move(programs), std::move(scene).value(), settings));
         if(auto enabled = renderer->m_diagnostics->set_enabled(settings.enable_diagnostics);
             !enabled)
@@ -55,12 +55,13 @@ namespace Comet {
         return Creation::success(std::move(renderer));
     }
 
-    Renderer::Renderer(std::unique_ptr<RenderContext> context,
+    Renderer::Renderer(const Window& window, std::unique_ptr<RenderContext> context,
         std::unique_ptr<RenderResources> resources, std::unique_ptr<FrameScheduler> frames,
         std::unique_ptr<MaterialPrograms> programs, std::unique_ptr<SceneRenderer> scene,
         const Settings& settings)
-        : m_render_context(std::move(context)), m_render_resources(std::move(resources)),
-          m_frames(std::move(frames)), m_programs(std::move(programs)), m_settings(settings) {
+        : m_window(window), m_render_context(std::move(context)),
+          m_render_resources(std::move(resources)), m_frames(std::move(frames)),
+          m_programs(std::move(programs)), m_settings(settings) {
         m_views.emplace(DEFAULT_VIEW, ViewState{.scene = std::move(scene)});
         m_diagnostics = std::make_unique<RenderDiagnostics>(*m_frames);
         m_presentation = std::make_unique<Presentation>(*m_render_context, *m_frames,
@@ -144,17 +145,59 @@ namespace Comet {
         return get_view(DEFAULT_VIEW).scene->get_material_layouts();
     }
 
+    Result<void, GraphicsError> Renderer::begin_render_loop() {
+        return m_render_thread->invoke([this] {
+            m_render_context->get_device().adopt_resource_thread();
+            return Result<void, GraphicsError>::success();
+        });
+    }
+
+    void Renderer::end_render_loop() {
+        // Engine 已排空 CPU 帧；帧槽及上传批次继续保活尚在 GPU 上使用的资源。
+        m_render_context->get_device().adopt_resource_thread();
+    }
+
+    void Renderer::collect_resources() {
+        m_render_resources->collect_completed_uploads();
+        m_render_context->get_device().collect_retired_resources();
+    }
+
     Result<Renderer::FramePreparation, GraphicsError> Renderer::prepare_frame(
         AssetRegistry::Removals removals) {
+        const auto size = m_window.get_framebuffer_size();
+        if(m_render_thread && !m_render_context->get_device().is_resource_owner_thread()) {
+            const auto prepared = m_render_thread->prepare_frame(size, std::move(removals));
+            if(!prepared)
+                return Result<FramePreparation, GraphicsError>::failure(prepared.error());
+            return Result<FramePreparation, GraphicsError>::success(
+                prepared.value() ? FramePreparation::Ready : FramePreparation::Deferred);
+        }
+        return prepare_gpu_frame(size, std::move(removals));
+    }
+
+    Result<Renderer::FramePreparation, GraphicsError> Renderer::prepare_gpu_frame(
+        const Math::Vec2u framebuffer_size, AssetRegistry::Removals removals) {
         using Preparation = Result<FramePreparation, GraphicsError>;
+        m_frame_preparation_ms = 0;
+        const bool diagnosed =
+            m_render_thread && m_render_thread->is_current() && m_diagnostics->is_enabled();
+        RenderDiagnostics::Clock::time_point start{};
+        if(diagnosed)
+            start = RenderDiagnostics::Clock::now();
+        const ScopeExit measure([&] {
+            if(diagnosed)
+                m_frame_preparation_ms = std::chrono::duration<double, std::milli>(
+                    RenderDiagnostics::Clock::now() - start)
+                                             .count();
+        });
         if(m_shutdown_prepared)
             return Preparation::failure({"Renderer is shutting down"});
         ScopeExit failed([this] { prepare_shutdown(); });
         if(m_frames->is_frame_active())
             return Preparation::failure({"A render frame is already active"});
         PROFILE_SCOPE("prepare frame");
-        m_render_resources->collect_completed_uploads();
-        m_render_context->get_device().collect_retired_resources();
+        if(m_render_context->get_device().is_resource_owner_thread())
+            collect_resources();
         m_programs->remove_assets(removals);
         for(auto& [id, view] : m_views)
             view.scene->remove_assets(removals);
@@ -174,7 +217,7 @@ namespace Comet {
             }
             m_output = output;
         }
-        auto preparation = m_presentation->begin_frame();
+        auto preparation = m_presentation->begin_frame(framebuffer_size);
         if(!preparation) {
             discard_frame_requests();
             return Preparation::failure(preparation.error());
@@ -205,7 +248,8 @@ namespace Comet {
         }
         if(auto collected = m_diagnostics->collect_completed(); !collected)
             return Preparation::failure(collected.error());
-        m_diagnostics->poll_memory();
+        if(m_render_context->get_device().is_resource_owner_thread())
+            m_diagnostics->poll_memory();
         auto status = FramePreparation::Ready;
         if(!preparation.value()) {
             status = FramePreparation::Deferred;
@@ -244,14 +288,18 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> Renderer::record_frame(RenderFrame frame) {
-        if(!m_diagnostics->is_enabled())
+        const bool diagnosed = m_diagnostics->is_enabled();
+        RenderDiagnostics::Clock::time_point start{};
+        if(diagnosed)
+            start = RenderDiagnostics::Clock::now();
+        if(!diagnosed)
             return draw_frame(frame);
-        const auto start = RenderDiagnostics::Clock::now();
         auto result = draw_frame(frame);
         if(result)
             m_diagnostics->record_frame(frame.serial,
                 std::chrono::duration<double, std::milli>(RenderDiagnostics::Clock::now() - start)
-                    .count());
+                        .count()
+                    + std::exchange(m_frame_preparation_ms, 0));
         return result;
     }
 
@@ -539,6 +587,7 @@ namespace Comet {
 
     void Renderer::set_overlay(Overlay overlay) {
         m_capture_overlay = std::move(overlay.capture);
+        m_shutdown_overlay = std::move(overlay.shutdown);
         m_presentation->set_overlay({std::move(overlay.release), std::move(overlay.rebuild)});
     }
 
@@ -608,6 +657,8 @@ namespace Comet {
             return;
         m_render_context->get_device().wait_idle_for_shutdown();
         discard_frame_requests();
+        if(auto shutdown = std::exchange(m_shutdown_overlay, {}))
+            shutdown();
     }
 
     Renderer::~Renderer() {

@@ -1,4 +1,5 @@
 #include "support/engine_fixture.h"
+#include "core/window.h"
 #include "graphics/device.h"
 #include "graphics/resource/buffer.h"
 #include "graphics/resource/image.h"
@@ -7,6 +8,7 @@
 #include "render/frame_scheduler.h"
 
 #include <thread>
+#include <stdexcept>
 
 namespace Comet::Tests {
     namespace {
@@ -25,6 +27,95 @@ namespace Comet::Tests {
     }
 
     using ResourceRetirementTest = EngineTest;
+
+    TEST_F(ResourceRetirementTest, RunningLoopCollectsOnRenderThreadAndReturnsOwnershipOnExit) {
+        auto& renderer = engine->get_renderer();
+        auto& device = renderer.get_render_context().get_device();
+        ASSERT_TRUE(device.is_resource_owner_thread());
+        std::weak_ptr<Image> pending_image;
+        unsigned draws = 0;
+        unsigned ready = 0;
+        set_test_overlay(renderer, {.render = [&](OverlayRecordContext&) {
+            EXPECT_TRUE(device.is_resource_owner_thread());
+            EXPECT_TRUE(pending_image.expired());
+            const auto baseline = allocation_count(device);
+            auto buffer =
+                Buffer::create_gpu_buffer(device, Flags<BufferUsage>(BufferUsage::Vertex), 64);
+            EXPECT_EQ(allocation_count(device), baseline + 1);
+            buffer.reset();
+            EXPECT_EQ(allocation_count(device), baseline);
+            ++draws;
+            return Result<void, GraphicsError>::success();
+        }});
+
+        const auto result = engine->run({
+            .update =
+                [&](const Engine::FrameContext&) {
+                    EXPECT_FALSE(device.is_resource_owner_thread());
+                    auto image = make_image(device);
+                    auto view =
+                        ImageView::create(device, image, Flags<ImageAspect>(ImageAspect::Color));
+                    pending_image = image;
+                    image.reset();
+                    view.reset();
+                    EXPECT_FALSE(pending_image.expired());
+                    return Result<void, Error>::success();
+                },
+            .frame_ready =
+                [&](const Engine::FrameContext&) {
+                    if(++ready == 3)
+                        engine->get_window().request_close();
+                    return Result<void, Error>::success();
+                },
+        });
+        ASSERT_TRUE(result) << result.error();
+        EXPECT_EQ(draws, 3u);
+        EXPECT_TRUE(device.is_resource_owner_thread());
+        EXPECT_TRUE(pending_image.expired());
+        const auto baseline = allocation_count(device);
+        auto buffer =
+            Buffer::create_gpu_buffer(device, Flags<BufferUsage>(BufferUsage::Vertex), 64);
+        buffer.reset();
+        EXPECT_EQ(allocation_count(device), baseline);
+        renderer.set_overlay({});
+    }
+
+    TEST_F(ResourceRetirementTest, UpdateFailureDrainsRetirementWithoutSubmittingAnotherFrame) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        const auto baseline = allocation_count(device);
+        std::weak_ptr<Image> pending_image;
+        const auto result = engine->run({.update = [&](const Engine::FrameContext&) {
+            EXPECT_FALSE(device.is_resource_owner_thread());
+            auto image = make_image(device);
+            auto view = ImageView::create(device, image, Flags<ImageAspect>(ImageAspect::Color));
+            pending_image = image;
+            image.reset();
+            view.reset();
+            EXPECT_FALSE(pending_image.expired());
+            return Result<void, Error>::failure({"stop before rendering"});
+        }});
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error().message, "stop before rendering");
+        EXPECT_TRUE(device.is_resource_owner_thread());
+        EXPECT_TRUE(pending_image.expired());
+        EXPECT_EQ(allocation_count(device), baseline);
+    }
+
+    TEST_F(ResourceRetirementTest, UpdateExceptionReturnsRetirementOwnership) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        const auto baseline = allocation_count(device);
+        EXPECT_THROW(static_cast<void>(engine->run(
+                         {.update = [&](const Engine::FrameContext&) -> Result<void, Error> {
+                             EXPECT_FALSE(device.is_resource_owner_thread());
+                             auto image = make_image(device);
+                             image.reset();
+                             EXPECT_EQ(allocation_count(device), baseline + 1);
+                             throw std::runtime_error("update exception");
+                         }})),
+            std::runtime_error);
+        EXPECT_TRUE(device.is_resource_owner_thread());
+        EXPECT_EQ(allocation_count(device), baseline);
+    }
 
     TEST_F(ResourceRetirementTest, WorkerReleaseKeepsNativeResourcesUntilOwnerCollection) {
         auto& device = engine->get_renderer().get_render_context().get_device();

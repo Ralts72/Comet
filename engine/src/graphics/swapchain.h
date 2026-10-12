@@ -70,7 +70,7 @@ namespace Comet {
         Swapchain& operator=(Swapchain&&) noexcept = delete;
 
         enum class RecreateStatus { Recreated, Deferred };
-        Result<RecreateStatus, GraphicsError> recreate();
+        Result<RecreateStatus, GraphicsError> recreate(Math::Vec2u framebuffer_size);
         // 只更新下一次重建请求；调用方负责完成在途帧及 dependent 生命周期。
         bool request_vsync(bool enabled);
         bool request_output_mode(OutputMode mode);

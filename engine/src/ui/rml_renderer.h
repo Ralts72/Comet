@@ -56,6 +56,7 @@ namespace Comet::Ui {
         // RmlUi 回调不能返回 GraphicsError；加载候选时也可立即检查错误。
         [[nodiscard]] std::optional<Comet::GraphicsError> take_error();
         void release_swapchain_resources();
+        void shutdown_gpu();
         [[nodiscard]] Comet::Result<void, Comet::GraphicsError> rebuild_swapchain_resources(
             const Comet::SwapchainCompatibility& compatibility);
 

@@ -56,7 +56,9 @@ namespace Comet {
 
         void wait_idle() const;
         void wait_idle_for_shutdown() const noexcept;
-        // 在 Device 创建线程回收跨线程释放的共享资源；GPU 完成仍由帧／上传保活保证。
+        // 旧回收线程停止访问后才能交接；GPU 完成仍由帧／上传保活保证。
+        void adopt_resource_thread();
+        [[nodiscard]] bool is_resource_owner_thread() const;
         void collect_retired_resources();
 
         void set_allocator_frame_index(uint64_t frame_serial) const;

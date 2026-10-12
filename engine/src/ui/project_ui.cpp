@@ -1069,6 +1069,9 @@ namespace Comet::Ui {
     void ProjectUi::release_swapchain_resources() {
         m_impl->m_runtime->release_swapchain_resources();
     }
+    void ProjectUi::shutdown_gpu() {
+        m_impl->m_runtime->shutdown_gpu();
+    }
     Result<void, GraphicsError> ProjectUi::rebuild_swapchain_resources(
         const SwapchainCompatibility& compatibility) {
         return m_impl->m_runtime->rebuild_swapchain_resources(compatibility);

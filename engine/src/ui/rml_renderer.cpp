@@ -408,6 +408,16 @@ namespace Comet::Ui {
             m_pipeline_cache.clear();
         }
 
+        void shutdown_gpu() {
+            release_swapchain_resources();
+            m_geometry_cache.clear();
+            m_texture_cache.clear();
+            m_sampler.reset();
+            m_layout.reset();
+            m_vertex.reset();
+            m_fragment.reset();
+        }
+
         Status rebuild_swapchain_resources() {
             auto& swapchain = m_renderer.get_render_context().get_swapchain();
             const auto surface = swapchain.get_active_generation()->get_config().surface_format;
@@ -867,6 +877,10 @@ namespace Comet::Ui {
 
     void RmlRenderer::release_swapchain_resources() {
         m_impl->release_swapchain_resources();
+    }
+
+    void RmlRenderer::shutdown_gpu() {
+        m_impl->shutdown_gpu();
     }
 
     Status RmlRenderer::rebuild_swapchain_resources(const Comet::SwapchainCompatibility&) {

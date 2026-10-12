@@ -95,10 +95,10 @@ Engine／Renderer／设备等工厂先准备完整 owner，成功后交付；部
 ## 一帧经过哪里
 
 1. Main 处理窗口事件，再等待上一帧 RenderThread 完成；绘制错误原样返回。宿主 `on_update` 消费上次 UI 请求、维护资产与切换模式。
-2. Renderer 回收上传并准备 slot／交换链；帧就绪时调用 `on_frame_ready`，收集 ImGui 请求、属性编辑、Gizmo 和输入授权。
+2. Main 捕获窗口尺寸，RenderThread 准备 slot／交换链、回收资源并重建 GPU dependent；帧就绪时调用 `on_frame_ready`，收集 ImGui 请求、属性编辑、Gizmo 和输入授权。
 3. `on_runtime_input` 交付只读授权快照；Runtime 执行有界 Fixed Update，再执行一次普通 Update。
 4. Main 的 SceneExtractor 交付只读 RenderScene；Engine 持有的 SceneResolver 固定资源、材质值和选定 Shader 引用。Main 将只读 RenderWorld、固定视图参数、拾取、调试线段和 ImGui／RmlUi 绘制数据组合成 RenderFrame。RenderThread 的有界交接最多保留一帧，包括已开始录制的帧。
-5. RenderThread 准备世界界限、光照和共享阴影；所有 View 分别生成相机、裁剪、绘制和后处理，再绘制 Overlay、提交并呈现。Main 在取回结果前不修改 Renderer、View 或 UI 后端。退出主循环前取回最后一帧结果，宿主关闭前停止并 join 渲染线程；帧准备与交换链恢复仍在 Main 的交接边界执行。
+5. RenderThread 准备世界界限、光照和共享阴影；所有 View 分别生成相机、裁剪、绘制和后处理，再绘制 Overlay、提交并呈现。Main 在取回结果前不修改 Renderer、View 或 UI 后端。退出主循环前取回最后一帧结果并接回资源回收，宿主关闭前由 RenderThread 等待 GPU 空闲、关闭 UI GPU 后端，再停止并 join；窗口输入与文档由 Main 关闭。
 
 数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderWorld → RenderFrame → RenderSubmission → SceneRenderer`。
 
@@ -144,7 +144,7 @@ GPU 录制按捕获的图片版本解析逻辑标识并创建 descriptor，未�
 GPU 缓存不保活 CPU 图片版本，失效条目在后续录制时清理；实际图片和 sampler 随所用绑定保留。视口图片必须与录制帧槽匹配，交换链重建丢弃旧尺寸的 UI 帧。
 Vulkan 后端使用独立 ImGui 上下文及录制视口，字体／视口纹理的注册、录制和释放均选择此上下文，再恢复调用方上下文。
 后端重建只关闭 Vulkan，前端 GLFW、布局和待处理输入保持原状态；完整关闭先释放 GPU 绑定，再销毁后端、前端及借用的图形资源。
-前端构建不注册或改写 GPU descriptor，录制选择线程局部的后端上下文；独立前端可构建下一份 CPU 绘制数据。当前主循环仍在绘制完成后才开始下次 UI 构建与 GPU 状态修改；后端初始化、重建和完整关闭在 Main 边界执行。
+前端构建不注册或改写 GPU descriptor，录制选择线程局部的后端上下文；独立前端可构建下一份 CPU 绘制数据。当前主循环仍在绘制完成后才开始下次 UI 构建与 GPU 状态修改；交换链后端重建及 Engine 关闭时的 GPU 清理由 RenderThread 执行，输入、布局与窗口平台后端归 Main。启动初始化和主动重置继续按实际 GPU 生命周期收拢。
 
 ### 输入主链与配置边界
 
@@ -234,7 +234,7 @@ RmlContext::update 在 Main 更新布局并收集只读 DrawSnapshot；候选文
 快照保存当时的几何、纹理、变换及上下文尺寸，裁剪在 GPU 录制时按实际目标缩放；资源 Handle 释放或文档关闭后仍可消费旧快照。
 GPU cache 只弱引用 CPU 数据；释放 Handle 不改变本帧收集的数据，失效缓存在下一次后端准备时移除，在途 GPU owner 继续由帧槽保活。
 CPU 数据随 Handle 或绘制快照保留，纹理保存 RGBA8 原像素，首次 GPU 准备时转换为线性预乘 RGBA16F；未变化的资源不重复上传。
-文档更新与字体生成留在 Main，RmlContext::take_draw_frame 与 ImGuiContext::end_frame 产生独立绘制对象，Main 的 Overlay 捕获钩子将它们装入 RenderFrame。RenderThread 调用绘制对象，不访问宿主当前帧字段或 RmlContext 的最新快照。Main 在绘制完成前不替换 Overlay、文档 owner 或 GPU 后端；ImGui 的上下文选择使用线程局部状态。后端初始化、重建和完整关闭仍在 Main 同步边界协调。
+文档更新与字体生成留在 Main，RmlContext::take_draw_frame 与 ImGuiContext::end_frame 产生独立绘制对象，Main 的 Overlay 捕获钩子将它们装入 RenderFrame。RenderThread 调用绘制对象，不访问宿主当前帧字段或 RmlContext 的最新快照。Main 在绘制完成前不替换 Overlay、文档 owner 或 GPU 后端；ImGui 的上下文选择使用线程局部状态。GPU 后端的交换链重建和 Engine 关闭清理由 RenderThread 执行；启动初始化、候选资源验证和编辑器主动重置仍需继续收拢，窗口输入、文档与字体前端归 Main。
 
 ## 材质、Shader 与 Pipeline
 
@@ -287,8 +287,8 @@ Editor 源监控与 CPU 编译交付完整阶段候选；主线程复核请求�
 底层工厂报告 GraphicsError；资产／渲染组合层决定候选替换与旧版保留，低层不认识资产工作流。
 创建或提交失败不返回空对象成功，错误保留原生类别；OOM／DeviceLost 不扩展为全设备自动恢复。
 RenderAssetFactory 只借用 GPU 工厂，接收独立持有的 CPU 产品并返回完整 GPU 候选，不访问 Registry、资产索引或源文件。RenderThread 实现现有 RenderResourceFactory 接口，移走 Mesh／Texture CPU 数据并在同一线程创建、上传；环境按整组纹理完成后返回。Main 的资产 owner 等待候选，复核源版本及运行发布版本后注册；即使重新发布同一对象，也使较早的创建结果过期。
-线程从 Engine 初始化持续到 prepare_shutdown，资源、材质和 Shader 操作与绘制共享容量为一的交接槽；完成上一帧后才可提交同步 GPU 操作，操作失败不会消费上一帧结果或终止后续请求。Engine 将线程绑定到 Renderer，宿主沿用原有准备、发布与失效接口；内部同步操作不开放为业务任务入口。关闭时排空并 join，工厂对象仍随 Engine 存活，后续创建和发布明确失败，不留下悬空引用。同步 RenderResources 继续供后端初始化与确定性 GPU 回归使用。
-共享 Buffer、Image、ImageView 和 Sampler 的原生销毁归 Device 创建线程。所属线程释放时直接销毁，其他线程释放最后引用时只移交原生资源；帧准备及 Device 关闭前回收。待销毁 ImageView 保留其 Image，先销毁 view 再释放 image，不依赖队列中的偶然顺序。收集时不持生产者锁；正常串行释放不分配队列节点。
+线程从 Engine 初始化持续到 prepare_shutdown，资源、材质和 Shader 操作与绘制共享容量为一的交接槽；完成上一帧后才可提交同步 GPU 操作，操作失败不会消费上一帧结果或终止后续请求。Engine 将线程绑定到 Renderer，宿主沿用原有准备、发布与失效接口；内部同步操作不开放为业务任务入口。关闭时排空并 join，工厂对象仍随 Engine 存活，后续创建和发布明确失败，不留下悬空引用。逐帧准备使用专用请求，窗口尺寸和删除批次按值交付，复用有界槽和完成通知，不分配 future。GPU 帧准备和绘制分别同步交接；诊断合计两段实际工作时间。同步 RenderResources 继续供启动初始化与确定性 GPU 回归使用。
+共享 Buffer、Image、ImageView 和 Sampler 的原生销毁归当前回收线程。Main 负责启动和退出阶段；Engine 主循环开始时将回收交给 RenderThread，后者在 GPU 帧准备中回收已完成上传与待销毁资源。退出时先排空 CPU 帧，再由 Main 接回并清空退休队列；提前返回或绘制失败也遵循此顺序，未完成的 GPU 使用仍由帧槽／上传保活。所属线程释放时直接销毁，其他线程只移交原生资源；待销毁 ImageView 保留其 Image，先销毁 view 再释放 image。收集不持生产者锁，所属线程释放不分配队列节点。独立同步 Renderer 保持创建线程回收。
 该交接只确定销毁线程，不追踪 GPU last-use：FrameSlot／UploadManager 仍须保活到完成。Device 必须晚于资源及生产者关闭，原生 Pipeline、descriptor 和第三方后端资源仍由各自 GPU owner 管理，不通过任意业务回调进入销毁队列。
 AssetRegistry::take_removals 由 Main 在帧边界取走一次；批次拥有有序注销身份，clear／移动覆盖请求重置旧缓存。同类型重新注册只抵消尚未交付的删除，普通 replace 不产生删除请求。各 View 和 MaterialPrograms 只消费批次，不查询注册表；Shader 注销同时清掉依赖它的材质准备和 GPU 绑定，隐藏 View 不保留这些驻留缓存。在途帧仍持有自己的资源；材质依赖删除只解除相关失败的重试阻塞。
 

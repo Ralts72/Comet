@@ -223,7 +223,8 @@ namespace {
                 .rebuild =
                     [this](const Comet::SwapchainCompatibility& compatibility) {
                         return m_ui->rebuild_swapchain_resources(compatibility);
-                    }});
+                    },
+                .shutdown = [this] { m_ui->shutdown_gpu(); }});
             return Init::success();
         }
 

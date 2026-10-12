@@ -101,11 +101,18 @@ namespace Comet::Tests {
     TEST_F(RenderThreadTest, LastWorkerErrorSurvivesClosingTheWindow) {
         const GraphicsError failure{"Worker device lost", vk::Result::eErrorDeviceLost};
         const auto main_thread = std::this_thread::get_id();
-        Comet::Tests::set_test_overlay(
-            engine->get_renderer(), {.render = [&](OverlayRecordContext&) {
-                EXPECT_NE(std::this_thread::get_id(), main_thread);
-                return Result<void, GraphicsError>::failure(failure);
-            }});
+        unsigned shutdowns = 0;
+        Comet::Tests::set_test_overlay(engine->get_renderer(),
+            {.render =
+                    [&](OverlayRecordContext&) {
+                        EXPECT_NE(std::this_thread::get_id(), main_thread);
+                        return Result<void, GraphicsError>::failure(failure);
+                    },
+                .shutdown =
+                    [&] {
+                        EXPECT_NE(std::this_thread::get_id(), main_thread);
+                        ++shutdowns;
+                    }});
         const auto result = engine->run({
             .frame_ready =
                 [&](const Engine::FrameContext&) {
@@ -116,7 +123,89 @@ namespace Comet::Tests {
         ASSERT_FALSE(result);
         EXPECT_EQ(result.error().message, failure.as_error().message);
         EXPECT_EQ(result.error().code, failure.as_error().code);
+        EXPECT_EQ(shutdowns, 1u);
         EXPECT_FALSE(engine->get_renderer().prepare_frame());
+        engine->get_renderer().set_overlay({});
+    }
+
+    TEST_F(RenderThreadTest, SwapchainPreparationAndShutdownUseTheDrawingThread) {
+        const auto main_thread = std::this_thread::get_id();
+        std::thread::id drawing_thread;
+        unsigned rebuilds = 0;
+        unsigned releases = 0;
+        unsigned shutdowns = 0;
+        set_test_overlay(engine->get_renderer(),
+            {
+                .render =
+                    [&](OverlayRecordContext&) {
+                        EXPECT_EQ(std::this_thread::get_id(), drawing_thread);
+                        return Result<void, GraphicsError>::success();
+                    },
+                .release =
+                    [&] {
+                        drawing_thread = std::this_thread::get_id();
+                        EXPECT_NE(drawing_thread, main_thread);
+                        ++releases;
+                    },
+                .rebuild =
+                    [&](const SwapchainCompatibility&) {
+                        EXPECT_EQ(std::this_thread::get_id(), drawing_thread);
+                        ++rebuilds;
+                        return Result<void, GraphicsError>::success();
+                    },
+                .shutdown =
+                    [&] {
+                        EXPECT_EQ(std::this_thread::get_id(), drawing_thread);
+                        ++shutdowns;
+                    },
+            });
+        const auto result = engine->run({
+            .update =
+                [&](const Engine::FrameContext&) {
+                    engine->get_renderer().request_swapchain_recreation();
+                    return Result<void, Error>::success();
+                },
+            .frame_ready =
+                [&](const Engine::FrameContext&) {
+                    engine->get_window().request_close();
+                    return Result<void, Error>::success();
+                },
+        });
+        ASSERT_TRUE(result) << result.error();
+        EXPECT_EQ(rebuilds, 1u);
+        EXPECT_EQ(releases, 1u);
+        EXPECT_EQ(shutdowns, 0u);
+        engine->prepare_shutdown();
+        EXPECT_EQ(shutdowns, 1u);
+        engine->prepare_shutdown();
+        EXPECT_EQ(shutdowns, 1u);
+        engine->get_renderer().set_overlay({});
+    }
+
+    TEST_F(RenderThreadTest, PreparationFailurePreservesVulkanErrorAndClosesGpuBackend) {
+        const GraphicsError failure{"Cannot rebuild overlay", vk::Result::eErrorOutOfDeviceMemory};
+        unsigned shutdowns = 0;
+        const auto main_thread = std::this_thread::get_id();
+        engine->get_renderer().set_overlay({
+            .rebuild =
+                [&](const SwapchainCompatibility&) {
+                    EXPECT_NE(std::this_thread::get_id(), main_thread);
+                    return Result<void, GraphicsError>::failure(failure);
+                },
+            .shutdown =
+                [&] {
+                    EXPECT_NE(std::this_thread::get_id(), main_thread);
+                    ++shutdowns;
+                },
+        });
+        const auto result = engine->run({.update = [&](const Engine::FrameContext&) {
+            engine->get_renderer().request_swapchain_recreation();
+            return Result<void, Error>::success();
+        }});
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error().message, failure.as_error().message);
+        EXPECT_EQ(result.error().code, failure.as_error().code);
+        EXPECT_EQ(shutdowns, 1u);
         engine->get_renderer().set_overlay({});
     }
 

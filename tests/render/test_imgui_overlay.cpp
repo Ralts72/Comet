@@ -485,6 +485,7 @@ namespace Comet::Tests {
         unsigned ready = 0;
         unsigned draws = 0;
         unsigned rebuilds = 0;
+        unsigned shutdowns = 0;
         renderer.set_overlay({.capture =
                                   [&] {
                                       EXPECT_EQ(std::this_thread::get_id(), main_thread);
@@ -494,14 +495,20 @@ namespace Comet::Tests {
                                   },
             .release =
                 [&] {
-                    EXPECT_EQ(std::this_thread::get_id(), main_thread);
+                    EXPECT_NE(std::this_thread::get_id(), main_thread);
                     ui->release_swapchain_resources();
                 },
             .rebuild =
                 [&](const SwapchainCompatibility& compatibility) {
-                    EXPECT_EQ(std::this_thread::get_id(), main_thread);
+                    EXPECT_NE(std::this_thread::get_id(), main_thread);
                     ++rebuilds;
                     return ui->rebuild_swapchain_resources(compatibility);
+                },
+            .shutdown =
+                [&] {
+                    EXPECT_NE(std::this_thread::get_id(), main_thread);
+                    ++shutdowns;
+                    ui->shutdown_gpu();
                 }});
         const auto result = engine->run({.frame_ready = [&](const Engine::FrameContext&) {
             EXPECT_EQ(std::this_thread::get_id(), main_thread);
@@ -536,6 +543,11 @@ namespace Comet::Tests {
         EXPECT_EQ(draws, 4u);
         EXPECT_GT(rebuilds, 0u);
         EXPECT_FALSE(ui_frame);
+        auto* frontend = ImGui::GetCurrentContext();
+        engine->prepare_shutdown();
+        EXPECT_EQ(shutdowns, 1u);
+        EXPECT_EQ(ImGui::GetCurrentContext(), frontend);
+        EXPECT_NE(ImGui::GetIO().BackendPlatformUserData, nullptr);
     }
 
     TEST_F(ImGuiOverlayGpuTest, SwapchainRebuildDiscardsOldFramesAndAcceptsNewFrames) {

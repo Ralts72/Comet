@@ -25,7 +25,7 @@ namespace Comet {
         Presentation(RenderContext& context, FrameScheduler& frames, Dependent scene);
         void set_overlay(Dependent overlay);
         // 成功值 false 表示延期；错误保留原生状态码。
-        [[nodiscard]] Result<bool, GraphicsError> begin_frame();
+        [[nodiscard]] Result<bool, GraphicsError> begin_frame(Math::Vec2u framebuffer_size);
         [[nodiscard]] Result<void, GraphicsError> end_frame(
             std::span<const QueueSemaphoreSubmit> resource_waits,
             RenderDiagnostics* diagnostics = nullptr);
@@ -33,7 +33,7 @@ namespace Comet {
 
     private:
         enum class RecoveryStage { Ready, Swapchain, Dependents, Surface };
-        Result<void, GraphicsError> recover();
+        Result<void, GraphicsError> recover(Math::Vec2u framebuffer_size);
         Result<void, GraphicsError> handle_failure(const GraphicsError& error);
         void release_dependents();
         RecoveryStage m_recovery = RecoveryStage::Ready;

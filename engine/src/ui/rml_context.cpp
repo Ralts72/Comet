@@ -378,6 +378,9 @@ namespace Comet::Ui {
     void RmlContext::release_swapchain_resources() {
         m_impl->m_renderer->release_swapchain_resources();
     }
+    void RmlContext::shutdown_gpu() {
+        m_impl->m_renderer->shutdown_gpu();
+    }
     Result<void, GraphicsError> RmlContext::rebuild_swapchain_resources(
         const SwapchainCompatibility& compatibility) {
         return m_impl->m_renderer->rebuild_swapchain_resources(compatibility);

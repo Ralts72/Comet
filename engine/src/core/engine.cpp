@@ -70,6 +70,7 @@ namespace Comet {
             return;
         static_cast<void>(complete_render_frame());
         m_render_thread->stop();
+        m_renderer->end_render_loop();
         if(auto stopped = stop_scene_runtime(); !stopped)
             LOG_FATAL("Cannot shut down Engine during System execution");
         if(auto cleared = m_scene_runtime.clear_systems(); !cleared)
@@ -215,9 +216,13 @@ namespace Comet {
             return Result<void, Error>::failure({"Engine update loop is already running"});
         m_running = true;
         const ScopeExit reset_running([&] {
+            static_cast<void>(complete_render_frame());
+            m_renderer->end_render_loop();
             m_window->set_cursor_locked(false);
             m_running = false;
         });
+        if(auto started = m_renderer->begin_render_loop(); !started)
+            return Result<void, Error>::failure(started.error().as_error());
         LOG_INFO("running engine...");
 
         auto result = Result<void, Error>::success();

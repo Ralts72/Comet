@@ -74,6 +74,10 @@ namespace CometEditor {
         if(m_ui)
             m_ui->release_swapchain_resources();
     }
+    void GameUi::shutdown_gpu() {
+        if(m_ui)
+            m_ui->shutdown_gpu();
+    }
 
     Comet::Result<void, Comet::GraphicsError> GameUi::rebuild(
         const Comet::SwapchainCompatibility& compatibility) {

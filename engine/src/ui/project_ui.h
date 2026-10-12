@@ -56,6 +56,7 @@ namespace Comet::Ui {
         [[nodiscard]] std::unique_ptr<OverlayDraw> take_draw_frame(
             RenderOutput output = RenderOutput::Presentation);
         void release_swapchain_resources();
+        void shutdown_gpu();
         [[nodiscard]] Result<void, GraphicsError> rebuild_swapchain_resources(
             const SwapchainCompatibility& compatibility);
 

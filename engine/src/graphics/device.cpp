@@ -10,6 +10,7 @@
 #include "graphics/resource/image.h"
 #include "graphics/convert.h"
 
+#include <atomic>
 #include <cstdio>
 #include <mutex>
 #include <thread>
@@ -26,8 +27,15 @@ namespace Comet {
             std::shared_ptr<Image> image;
         };
 
+        void adopt_owner() {
+            m_owner.store(std::this_thread::get_id());
+            collect();
+        }
+
+        [[nodiscard]] bool is_owner() const { return std::this_thread::get_id() == m_owner.load(); }
+
         template<typename T> void release(T resource) {
-            if(std::this_thread::get_id() == m_owner) {
+            if(is_owner()) {
                 destroy(resource);
                 return;
             }
@@ -36,8 +44,8 @@ namespace Comet {
         }
 
         void collect() {
-            if(std::this_thread::get_id() != m_owner)
-                LOG_FATAL("GPU resource collection requires the Device owner thread");
+            if(!is_owner())
+                LOG_FATAL("GPU resource collection requires the resource owner thread");
             {
                 std::scoped_lock lock(m_mutex);
                 m_pending.swap(m_collected);
@@ -64,7 +72,7 @@ namespace Comet {
         using Resource = std::variant<Allocator::BufferAllocation, Allocator::ImageAllocation,
             ImageViewRelease, vk::UniqueSampler>;
         Device& m_device;
-        const std::thread::id m_owner;
+        std::atomic<std::thread::id> m_owner;
         std::mutex m_mutex;
         std::vector<Resource> m_pending;
         std::vector<Resource> m_collected;
@@ -163,6 +171,14 @@ namespace Comet {
         if(m_device) {
             m_device.destroy();
         }
+    }
+
+    void Device::adopt_resource_thread() {
+        m_retired_resources->adopt_owner();
+    }
+
+    bool Device::is_resource_owner_thread() const {
+        return m_retired_resources->is_owner();
     }
 
     void Device::collect_retired_resources() {

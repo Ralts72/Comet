@@ -442,6 +442,11 @@ namespace {
                         if(auto result = m_game_ui->rebuild(compatibility); !result)
                             return result;
                         return m_imgui_context->rebuild_swapchain_resources(compatibility);
+                    },
+                .shutdown =
+                    [this] {
+                        m_game_ui->shutdown_gpu();
+                        m_imgui_context->shutdown_gpu();
                     }});
         }
 
