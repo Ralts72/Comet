@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common/export.h"
-#include "scene/property.h"
+#include "common/parameters.h"
 
 #include <map>
 #include <optional>

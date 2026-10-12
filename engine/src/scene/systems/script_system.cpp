@@ -329,6 +329,9 @@ namespace Comet {
     Result<void, Error> ScriptSystem::fixed_update(Scene& scene, const Context& context) {
         return dispatch(scene, context, ScriptInstance::Phase::FixedUpdate);
     }
+    Result<void, Error> ScriptSystem::post_fixed_update(Scene& scene, const Context& context) {
+        return dispatch_contacts(scene, context);
+    }
     Result<void, Error> ScriptSystem::dispatch_contacts(Scene& scene, const Context& context) {
         for(const auto& event : scene.get_contact_events()) {
             if(!scene.is_valid(event.first) || !scene.is_valid(event.second))
@@ -385,8 +388,6 @@ namespace Comet {
     Result<void, Error> ScriptSystem::update(Scene& scene, const Context& context) {
         if(auto updated = dispatch(scene, context, ScriptInstance::Phase::Update); !updated)
             return updated;
-        if(auto contacted = dispatch_contacts(scene, context); !contacted)
-            return contacted;
         return dispatch_events(scene, context);
     }
     void ScriptSystem::on_stop(Scene&, RuntimeSession&, const RuntimeServices&) noexcept {

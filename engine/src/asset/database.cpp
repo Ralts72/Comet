@@ -298,6 +298,15 @@ namespace Comet {
         dependencies.erase(duplicate.begin(), duplicate.end());
 
         const auto previous = m_import_dependencies_by_asset.find(handle);
+        if(std::ranges::equal(
+               find_import_dependencies(m_import_dependencies_by_asset, handle), dependencies)) {
+            const auto signature =
+                record_source_signature(asset->second, asset->second.dependencies, m_paths.assets(),
+                    m_import_dependencies_by_asset, m_assets);
+            const auto cached = m_asset_source_signatures.find(handle);
+            if(cached != m_asset_source_signatures.end() && cached->second == signature)
+                return Result<void>::success();
+        }
         if(previous != m_import_dependencies_by_asset.end()) {
             for(const std::filesystem::path& dependency : previous->second) {
                 auto dependents = m_import_dependents_by_source.find(dependency);

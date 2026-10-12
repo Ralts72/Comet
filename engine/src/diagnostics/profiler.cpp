@@ -54,7 +54,7 @@ namespace Comet {
             return false;
         }
 
-        auto& stack = get_thread_stack();
+        auto& stack = s_thread_stack;
         stack.push_back({.label = label, .start = std::chrono::steady_clock::now()});
         return true;
 #else
@@ -65,7 +65,7 @@ namespace Comet {
 
     void Profiler::end_sample() {
 #ifdef COMET_ENABLE_PROFILER
-        auto& stack = get_thread_stack();
+        auto& stack = s_thread_stack;
         if(stack.empty())
             return;
 
@@ -118,10 +118,6 @@ namespace Comet {
         std::lock_guard<std::mutex> lock(s_mtx);
         s_records.clear();
 #endif
-    }
-
-    std::vector<Profiler::ActiveBlock>& Profiler::get_thread_stack() {
-        return s_thread_stack;
     }
 
     ScopedSample::ScopedSample(const char* label) : m_active(Profiler::begin_sample(label)) {}

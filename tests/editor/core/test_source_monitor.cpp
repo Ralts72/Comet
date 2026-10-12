@@ -1,15 +1,15 @@
 #include "assets/source_monitor.h"
 #include "file_recheck_trigger.h"
 
-#include "asset/handle.h"
 #include "core/task_scheduler.h"
+#include "support/temporary_directory.h"
+#include "support/blocked_worker.h"
 
 #include <gtest/gtest.h>
 
 #include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <future>
 #include <string>
 #include <thread>
 
@@ -17,30 +17,18 @@ namespace CometEditor::Tests {
     namespace {
         class TemporaryAssetDirectory final {
         public:
-            TemporaryAssetDirectory() {
-                m_root = std::filesystem::temp_directory_path()
-                         / ("comet_asset_source_monitor_test_"
-                             + std::to_string(Comet::AssetHandle::generate().value()));
-                std::filesystem::create_directories(m_root);
-            }
-
-            ~TemporaryAssetDirectory() {
-                std::error_code error;
-                std::filesystem::remove_all(m_root, error);
-            }
-
-            [[nodiscard]] const std::filesystem::path& root() const { return m_root; }
+            [[nodiscard]] const std::filesystem::path& root() const { return m_directory.path(); }
 
             void write(
                 const std::filesystem::path& relative_path, const std::string& contents) const {
-                const std::filesystem::path path = m_root / relative_path;
+                const std::filesystem::path path = root() / relative_path;
                 std::filesystem::create_directories(path.parent_path());
                 std::ofstream output(path, std::ios::binary);
                 output << contents;
             }
 
         private:
-            std::filesystem::path m_root;
+            Comet::Tests::TemporaryDirectory m_directory;
         };
     }
 
@@ -125,13 +113,10 @@ namespace CometEditor::Tests {
         directory.write("mesh.gltf", "mesh");
         AssetSourceMonitor monitor(directory.root());
         Comet::TaskScheduler scheduler(1);
-        std::promise<void> release;
-        const auto unblock = release.get_future().share();
-        auto blocker = scheduler.try_submit([unblock] { unblock.wait(); });
-        ASSERT_TRUE(blocker);
+        Comet::Tests::BlockedWorker blocker(scheduler);
 
         EXPECT_EQ(monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::NotPolled);
-        release.set_value();
+        blocker.release();
         scheduler.wait_idle();
         EXPECT_EQ(monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::Unchanged);
         EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
@@ -161,15 +146,12 @@ namespace CometEditor::Tests {
         directory.write("mesh.gltf", "mesh");
         AssetSourceMonitor monitor(directory.root());
         Comet::TaskScheduler scheduler(1);
-        std::promise<void> release;
-        const auto unblock = release.get_future().share();
-        auto blocker = scheduler.try_submit([unblock] { unblock.wait(); });
-        ASSERT_TRUE(blocker);
+        Comet::Tests::BlockedWorker blocker(scheduler);
 
         EXPECT_EQ(monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::NotPolled);
         directory.write("new.scene", "scene");
         EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
-        release.set_value();
+        blocker.release();
         scheduler.wait_idle();
         EXPECT_EQ(monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::NotPolled);
         EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
@@ -179,24 +161,15 @@ namespace CometEditor::Tests {
         const TemporaryAssetDirectory directory;
         AssetSourceMonitor monitor(directory.root());
         Comet::TaskScheduler scheduler(1, 1);
-        std::promise<void> started;
-        std::promise<void> release;
-        const auto unblock = release.get_future().share();
-        auto blocker = scheduler.try_submit([&] {
-            started.set_value();
-            unblock.wait();
-        });
-        ASSERT_TRUE(blocker);
-        started.get_future().wait();
+        Comet::Tests::BlockedWorker blocker(scheduler);
         auto queued = scheduler.try_submit([] {});
         if(!queued) {
-            release.set_value();
             ADD_FAILURE() << "Could not fill the scheduler queue";
             return;
         }
 
         EXPECT_EQ(monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::NotPolled);
-        release.set_value();
+        blocker.release();
         scheduler.wait_idle();
         EXPECT_EQ(monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::NotPolled);
         scheduler.wait_idle();
@@ -303,8 +276,8 @@ namespace CometEditor::Tests {
             EXPECT_EQ(state, AssetSourceMonitor::PollState::Changed);
             EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
         } else {
-            EXPECT_EQ(monitor.poll_async(scheduler).state,
-                AssetSourceMonitor::PollState::NotPolled);
+            EXPECT_EQ(
+                monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::NotPolled);
             EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Changed);
         }
     }
@@ -343,22 +316,19 @@ namespace CometEditor::Tests {
         std::this_thread::sleep_for(std::chrono::milliseconds(150));
         ASSERT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
 
-        std::promise<void> release;
-        const auto unblock = release.get_future().share();
-        auto blocker = scheduler.try_submit([unblock] { unblock.wait(); });
-        ASSERT_TRUE(blocker);
+        Comet::Tests::BlockedWorker blocker(scheduler);
         const auto generation = monitor.change_generation();
         directory.write("material.mat", "second version");
 
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
         while(monitor.change_generation() == generation
               && std::chrono::steady_clock::now() < deadline) {
-            EXPECT_EQ(monitor.poll_async(scheduler).state,
-                AssetSourceMonitor::PollState::NotPolled);
+            EXPECT_EQ(
+                monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::NotPolled);
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         EXPECT_GT(monitor.change_generation(), generation);
-        release.set_value();
+        blocker.release();
         scheduler.wait_idle();
 
         const auto result = monitor.poll_async(scheduler);
@@ -377,10 +347,7 @@ namespace CometEditor::Tests {
         std::this_thread::sleep_for(std::chrono::milliseconds(150));
         ASSERT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
 
-        std::promise<void> release;
-        const auto unblock = release.get_future().share();
-        auto blocker = scheduler.try_submit([unblock] { unblock.wait(); });
-        ASSERT_TRUE(blocker);
+        Comet::Tests::BlockedWorker blocker(scheduler);
         const auto generation = monitor.change_generation();
         directory.write("material.mat", "second version");
 
@@ -392,7 +359,7 @@ namespace CometEditor::Tests {
         }
         EXPECT_GT(monitor.change_generation(), generation);
         EXPECT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Changed);
-        release.set_value();
+        blocker.release();
         scheduler.wait_idle();
 
         EXPECT_NE(monitor.poll_async(scheduler).state, AssetSourceMonitor::PollState::Changed);
@@ -409,18 +376,9 @@ namespace CometEditor::Tests {
         std::this_thread::sleep_for(std::chrono::milliseconds(150));
         ASSERT_EQ(monitor.poll_now().state, AssetSourceMonitor::PollState::Unchanged);
 
-        std::promise<void> started;
-        std::promise<void> release;
-        const auto unblock = release.get_future().share();
-        auto blocker = scheduler.try_submit([&] {
-            started.set_value();
-            unblock.wait();
-        });
-        ASSERT_TRUE(blocker);
-        started.get_future().wait();
+        Comet::Tests::BlockedWorker blocker(scheduler);
         auto queued = scheduler.try_submit([] {});
         if(!queued) {
-            release.set_value();
             ADD_FAILURE() << "Could not fill the scheduler queue";
             return;
         }
@@ -435,7 +393,7 @@ namespace CometEditor::Tests {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         EXPECT_GT(monitor.change_generation(), generation);
-        release.set_value();
+        blocker.release();
         scheduler.wait_idle();
 
         AssetSourceMonitor::PollResult result;

@@ -1,6 +1,6 @@
 #include "asset/import/mesh_importer.h"
 #include "asset/data/mesh_data.h"
-#include "asset/handle.h"
+#include "support/temporary_directory.h"
 
 #include <gtest/gtest.h>
 
@@ -18,23 +18,11 @@ namespace Comet::Tests {
         constexpr std::string_view TRIANGLE_BUFFER =
             "AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAABAAIA";
 
-        class TemporaryDirectory final {
+        class MeshImportInputs final {
         public:
-            TemporaryDirectory() {
-                m_path = std::filesystem::temp_directory_path()
-                         / ("comet_mesh_importer_test_"
-                             + std::to_string(AssetHandle::generate().value()));
-                std::filesystem::create_directories(m_path);
-            }
-
-            ~TemporaryDirectory() {
-                std::error_code error;
-                std::filesystem::remove_all(m_path, error);
-            }
-
             [[nodiscard]] std::filesystem::path write_text(
                 const std::string_view name, const std::string_view contents) const {
-                const std::filesystem::path path = m_path / name;
+                const std::filesystem::path path = m_directory.path() / name;
                 std::ofstream output(path, std::ios::binary);
                 output << contents;
                 return path;
@@ -46,7 +34,7 @@ namespace Comet::Tests {
                     json.push_back(' ');
                 }
 
-                const std::filesystem::path path = m_path / name;
+                const std::filesystem::path path = m_directory.path() / name;
                 std::ofstream output(path, std::ios::binary);
                 write_u32(output, 0x46546C67);
                 write_u32(output, 2);
@@ -59,7 +47,7 @@ namespace Comet::Tests {
 
             [[nodiscard]] std::filesystem::path write_triangle_buffer(
                 const std::string_view name) const {
-                const std::filesystem::path path = m_path / name;
+                const std::filesystem::path path = m_directory.path() / name;
                 std::ofstream output(path, std::ios::binary);
                 constexpr std::array<float, 9> positions{
                     0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f};
@@ -86,7 +74,7 @@ namespace Comet::Tests {
                 output.write(bytes, sizeof(bytes));
             }
 
-            std::filesystem::path m_path;
+            TemporaryDirectory m_directory;
         };
 
         [[nodiscard]] std::string make_triangle_gltf(
@@ -110,10 +98,25 @@ namespace Comet::Tests {
 
         EXPECT_EQ(data.vertices.size(), 24);
         EXPECT_EQ(data.indices.size(), 36);
+        for(std::size_t index = 0; index + 2 < data.indices.size(); index += 3) {
+            const auto i0 = data.indices[index];
+            const auto i1 = data.indices[index + 1];
+            const auto i2 = data.indices[index + 2];
+            ASSERT_LT(i0, data.vertices.size());
+            ASSERT_LT(i1, data.vertices.size());
+            ASSERT_LT(i2, data.vertices.size());
+            const auto& v0 = data.vertices[i0];
+            const auto& v1 = data.vertices[i1];
+            const auto& v2 = data.vertices[i2];
+            const auto face_normal =
+                Math::cross(v1.position - v0.position, v2.position - v0.position);
+            for(const auto normal : std::array{v0.normal, v1.normal, v2.normal})
+                EXPECT_GT(Math::dot(face_normal, normal), 0.0f) << "Triangle " << index / 3;
+        }
     }
 
     TEST(MeshImporterTest, ImportsGltfAndGeneratesMissingVertexData) {
-        const TemporaryDirectory directory;
+        const MeshImportInputs directory;
         const std::filesystem::path source = directory.write_text(
             "triangle.gltf", make_triangle_gltf(R"({"attributes":{"POSITION":0},"indices":1})"));
 
@@ -132,7 +135,7 @@ namespace Comet::Tests {
     }
 
     TEST(MeshImporterTest, ChecksWorkingSetBeforeBuildingMeshData) {
-        const TemporaryDirectory directory;
+        const MeshImportInputs directory;
         const auto source = directory.write_text(
             "triangle.gltf", make_triangle_gltf(R"({"attributes":{"POSITION":0},"indices":1})"));
         const auto estimate = MeshImporter::working_bytes(source);
@@ -160,7 +163,7 @@ namespace Comet::Tests {
     }
 
     TEST(MeshImporterTest, IncludesExternalBufferSizeInWorkingSet) {
-        const TemporaryDirectory directory;
+        const MeshImportInputs directory;
         const auto buffer = directory.write_triangle_buffer("triangle.bin");
         const auto source = directory.write_text("triangle.gltf",
             make_triangle_gltf(R"({"attributes":{"POSITION":0},"indices":1})", "triangle.bin"));
@@ -173,7 +176,7 @@ namespace Comet::Tests {
     }
 
     TEST(MeshImporterTest, ImportsGlbContainer) {
-        const TemporaryDirectory directory;
+        const MeshImportInputs directory;
         const std::filesystem::path source = directory.write_glb(
             "triangle.glb", make_triangle_gltf(R"({"attributes":{"POSITION":0},"indices":1})"));
 
@@ -184,7 +187,7 @@ namespace Comet::Tests {
     }
 
     TEST(MeshImporterTest, ReportsExternalBufferDependencies) {
-        const TemporaryDirectory directory;
+        const MeshImportInputs directory;
         const std::filesystem::path buffer = directory.write_triangle_buffer("triangle.bin");
         const std::filesystem::path source = directory.write_text("triangle.gltf",
             make_triangle_gltf(R"({"attributes":{"POSITION":0},"indices":1})", "triangle.bin"));
@@ -197,7 +200,7 @@ namespace Comet::Tests {
     }
 
     TEST(MeshImporterTest, ConcatenatesTrianglePrimitives) {
-        const TemporaryDirectory directory;
+        const MeshImportInputs directory;
         const std::filesystem::path source = directory.write_text("two_primitives.gltf",
             make_triangle_gltf(
                 R"({"attributes":{"POSITION":0},"indices":1},{"attributes":{"POSITION":0},"indices":1})"));
@@ -209,7 +212,7 @@ namespace Comet::Tests {
     }
 
     TEST(MeshImporterTest, RejectsUnsupportedPrimitiveTopology) {
-        const TemporaryDirectory directory;
+        const MeshImportInputs directory;
         const std::filesystem::path source = directory.write_text("lines.gltf",
             make_triangle_gltf(R"({"attributes":{"POSITION":0},"indices":1,"mode":1})"));
 
@@ -217,7 +220,7 @@ namespace Comet::Tests {
     }
 
     TEST(MeshImporterTest, RejectsPrimitiveWithoutPosition) {
-        const TemporaryDirectory directory;
+        const MeshImportInputs directory;
         const std::filesystem::path source = directory.write_text(
             "missing_position.gltf", make_triangle_gltf(R"({"attributes":{},"indices":1})"));
 
@@ -225,7 +228,7 @@ namespace Comet::Tests {
     }
 
     TEST(MeshImporterTest, RejectsCorruptedInput) {
-        const TemporaryDirectory directory;
+        const MeshImportInputs directory;
         const std::filesystem::path source = directory.write_text("corrupted.gltf", "not glTF");
 
         const auto result = MeshImporter{}.import(source);
@@ -234,7 +237,7 @@ namespace Comet::Tests {
     }
 
     TEST(MeshImporterTest, ReturnsFailureForNonFiniteVerticesAndInvalidIndices) {
-        const TemporaryDirectory directory;
+        const MeshImportInputs directory;
         const auto buffer = directory.write_triangle_buffer("triangle.bin");
         const auto source = directory.write_text("triangle.gltf",
             make_triangle_gltf(R"({"attributes":{"POSITION":0},"indices":1})", "triangle.bin"));

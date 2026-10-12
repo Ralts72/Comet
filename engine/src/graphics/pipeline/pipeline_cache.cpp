@@ -1,5 +1,6 @@
 #include "graphics/pipeline/pipeline_cache.h"
 
+#include "common/binary.h"
 #include "common/file_io.h"
 #include "diagnostics/logger.h"
 
@@ -23,29 +24,20 @@ namespace Comet {
             return value;
         }
 
-        void write_le(std::span<std::byte> bytes, std::size_t offset, uint64_t value,
-            std::size_t size) {
+        void write_le(
+            std::span<std::byte> bytes, std::size_t offset, uint64_t value, std::size_t size) {
             for(std::size_t i = 0; i < size; ++i)
                 bytes[offset + i] = std::byte((value >> (i * 8)) & 0xff);
         }
 
-        uint64_t checksum(std::span<const std::byte> bytes) {
-            uint64_t value = 14695981039346656037ull;
-            for(const auto byte : bytes) {
-                value ^= std::to_integer<uint8_t>(byte);
-                value *= 1099511628211ull;
-            }
-            return value;
-        }
-
         bool valid_header(std::span<const std::byte> data) {
             return data.size() >= HEADER_SIZE && data.size() <= PipelineCache::MAX_DATA_SIZE
-                && read_le(data, 0, 4) == HEADER_SIZE
-                && read_le(data, 4, 4) == VK_PIPELINE_CACHE_HEADER_VERSION_ONE;
+                   && read_le(data, 0, 4) == HEADER_SIZE
+                   && read_le(data, 4, 4) == VK_PIPELINE_CACHE_HEADER_VERSION_ONE;
         }
 
-        Result<void> validate_device(std::span<const std::byte> data,
-            const vk::PhysicalDeviceProperties& properties) {
+        Result<void> validate_device(
+            std::span<const std::byte> data, const vk::PhysicalDeviceProperties& properties) {
             if(!valid_header(data))
                 return Result<void>::failure(
                     "Invalid Vulkan pipeline cache size or header version");
@@ -97,7 +89,7 @@ namespace Comet {
         write_le(file, 8, 1, 4);
         write_le(file, 12, HEADER_SIZE, 4);
         write_le(file, 16, data.size(), 8);
-        write_le(file, 24, checksum(data), 8);
+        write_le(file, 24, Binary::hash_bytes(data), 8);
         std::ranges::copy(data, file.begin() + HEADER_SIZE);
         return Result<std::vector<std::byte>>::success(std::move(file));
     }
@@ -106,19 +98,19 @@ namespace Comet {
         std::span<const std::byte> file, const vk::PhysicalDeviceProperties& properties) {
         using DecodeResult = Result<std::span<const std::byte>>;
         if(file.size() < HEADER_SIZE || file.size() > MAX_DATA_SIZE + HEADER_SIZE
-            || !std::ranges::equal(file.first(MAGIC.size()), MAGIC)
-            || read_le(file, 8, 4) != 1 || read_le(file, 12, 4) != HEADER_SIZE)
+            || !std::ranges::equal(file.first(MAGIC.size()), MAGIC) || read_le(file, 8, 4) != 1
+            || read_le(file, 12, 4) != HEADER_SIZE)
             return DecodeResult::failure("Invalid Comet pipeline cache envelope");
         const auto data = file.subspan(HEADER_SIZE);
-        if(read_le(file, 16, 8) != data.size() || read_le(file, 24, 8) != checksum(data))
+        if(read_le(file, 16, 8) != data.size() || read_le(file, 24, 8) != Binary::hash_bytes(data))
             return DecodeResult::failure("Pipeline cache length or checksum mismatch");
         if(auto valid = validate_device(data, properties); !valid)
             return DecodeResult::failure(valid.error());
         return DecodeResult::success(data);
     }
 
-    PipelineCache::PipelineCache(vk::Device device, vk::UniquePipelineCache cache,
-        vk::PhysicalDeviceProperties properties)
+    PipelineCache::PipelineCache(
+        vk::Device device, vk::UniquePipelineCache cache, vk::PhysicalDeviceProperties properties)
         : m_device(device), m_cache(std::move(cache)), m_properties(properties) {}
 
     Result<void, GraphicsError> PipelineCache::restore(const std::filesystem::path& directory) {
@@ -151,8 +143,8 @@ namespace Comet {
             const GraphicsError failure{"Cannot restore driver pipeline cache", result};
             if(failure.is_device_lost() || failure.is_out_of_memory())
                 return RestoreResult::failure(failure);
-            LOG_WARN("Driver rejected pipeline cache '{}': {}", m_path.string(),
-                vk::to_string(result));
+            LOG_WARN(
+                "Driver rejected pipeline cache '{}': {}", m_path.string(), vk::to_string(result));
             return RestoreResult::success();
         }
         result = m_device.mergePipelineCaches(get(), 1, &candidate);

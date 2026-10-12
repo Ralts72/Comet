@@ -31,6 +31,7 @@ namespace Comet::Ui {
 
         bool eligible(const Rml::Element* element, const Rml::Element* root) {
             if(!element || !element->IsVisible(true) || element->HasAttribute("disabled")
+                || element->GetComputedValues().focus() == Rml::Style::Focus::None
                 || element->GetComputedValues().tab_index() != Rml::Style::TabIndex::Auto)
                 return false;
             for(auto* parent = element; parent; parent = parent->GetParentNode()) {
@@ -73,6 +74,26 @@ namespace Comet::Ui {
             AudioSettings,
             AudioApply
         };
+        static bool allowed_before_publication(const Api operation) {
+            switch(operation) {
+                case Api::Set:
+                case Api::RequireElement:
+                case Api::Property:
+                case Api::Markup:
+                case Api::Modal:
+                case Api::Focus:
+                case Api::FocusFirst:
+                case Api::HasFocus:
+                case Api::InputStatus:
+                case Api::InputActions:
+                case Api::DisplaySettings:
+                case Api::QualitySettings:
+                case Api::AudioSettings:
+                    return true;
+                default:
+                    return false;
+            }
+        }
         class Controller final {
         public:
             explicit Controller(Impl& host)
@@ -248,8 +269,7 @@ namespace Comet::Ui {
             Rml::ElementList elements;
             root->QuerySelectorAll(elements, "button, input, select, textarea");
             for(auto* element : elements) {
-                if(eligible(element, root)) {
-                    element->Focus(true);
+                if(eligible(element, root) && element->Focus(true)) {
                     return;
                 }
             }
@@ -373,11 +393,7 @@ namespace Comet::Ui {
     int ProjectUi::Impl::api(Controller& vm, lua_State* state, Api operation) {
         if(vm.m_retired)
             return luaL_error(state, "UI controller has been retired");
-        const bool presentation = operation <= Api::HasFocus || operation == Api::InputStatus
-                                  || operation == Api::InputActions
-                                  || operation == Api::DisplaySettings
-                                  || operation == Api::QualitySettings;
-        if(vm.m_preparing && !presentation)
+        if(vm.m_preparing && !allowed_before_publication(operation))
             return luaL_error(state, "UI services are unavailable before controller publication");
         if(operation >= Api::InputRestore && operation <= Api::InputApply && !m_edit_active)
             return luaL_error(state, "Player input transaction has not been opened");
@@ -785,7 +801,8 @@ namespace Comet::Ui {
                     m_runtime->set_capture_active(false);
                 }
                 return 0;
-            case Api::InputStatus:
+            case Api::InputStatus: {
+                const auto resolved = m_edit.resolution();
                 lua_newtable(state);
                 lua_pushboolean(state, m_edit_active);
                 lua_setfield(state, -2, "active");
@@ -793,16 +810,16 @@ namespace Comet::Ui {
                 lua_setfield(state, -2, "waiting");
                 lua_pushboolean(state, bool(m_edit.capture()));
                 lua_setfield(state, -2, "capturing");
-                lua_pushboolean(state, bool(m_edit.resolution()));
+                lua_pushboolean(state, bool(resolved));
                 lua_setfield(state, -2, "compatible");
-                lua_pushboolean(
-                    state, m_edit.resolution() && !m_edit.resolution().value().issues.empty());
+                lua_pushboolean(state, resolved && !resolved.value().issues.empty());
                 lua_setfield(state, -2, "has_issues");
                 lua_pushlstring(state, m_edit.error().data(), m_edit.error().size());
                 lua_setfield(state, -2, "error");
                 lua_pushinteger(state, static_cast<lua_Integer>(m_edit_revision));
                 lua_setfield(state, -2, "revision");
                 return 1;
+            }
             case Api::InputActions:
                 snapshot_actions();
                 lua_newtable(state);

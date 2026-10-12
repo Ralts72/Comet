@@ -11,6 +11,60 @@
 
 namespace Comet {
     namespace {
+        struct RenderResource {
+            std::vector<std::shared_ptr<ImageView>> color_views;
+            std::shared_ptr<FrameBuffer> frame_buffer;
+        };
+
+        class SwapchainTarget final: public RenderTarget {
+        public:
+            void begin_render_target(CommandBuffer& command_buffer) override;
+
+            [[nodiscard]] std::shared_ptr<FrameBuffer> get_framebuffer(
+                const uint32_t index) const override {
+                return m_render_resources.at(index).frame_buffer;
+            }
+
+            [[nodiscard]] std::shared_ptr<ImageView> get_color_view(
+                const uint32_t index) const override {
+                return m_render_resources.at(index).color_views.back();
+            }
+
+        private:
+            friend class Comet::RenderTarget;
+
+            SwapchainTarget(Device& device, RenderPass& render_pass,
+                std::shared_ptr<Swapchain::Generation> swapchain_generation);
+
+            [[nodiscard]] GpuResourceResult<void> try_initialize();
+
+            std::shared_ptr<Swapchain::Generation> m_swapchain_generation;
+            std::vector<RenderResource> m_render_resources;
+        };
+
+        class MultiTarget final: public RenderTarget {
+        public:
+            [[nodiscard]] std::shared_ptr<FrameBuffer> get_framebuffer(
+                const uint32_t index) const override {
+                return m_render_resources.at(index).frame_buffer;
+            }
+
+            [[nodiscard]] std::shared_ptr<ImageView> get_color_view(
+                const uint32_t index) const override {
+                return m_render_resources.at(index).color_views.back();
+            }
+
+        private:
+            friend class Comet::RenderTarget;
+
+            MultiTarget(
+                Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count);
+
+            [[nodiscard]] GpuResourceResult<void> try_initialize();
+
+            std::vector<RenderResource> m_render_resources;
+        };
+
         GpuResourceResult<RenderResource> try_create_render_resource(Device& device,
             RenderPass& render_pass, const Math::Vec2u extent,
             const std::shared_ptr<Image>& presentation_image = {}) {
@@ -139,71 +193,58 @@ namespace Comet {
         command_buffer.end_render_pass();
     }
 
-    void RenderTarget::clear_render_resources(std::vector<RenderResource>& resources) {
-        for(auto& [color_views, frame_buffer] : resources) {
-            frame_buffer.reset();
-            color_views.clear();
+    namespace {
+        SwapchainTarget::SwapchainTarget(Device& device, RenderPass& render_pass,
+            std::shared_ptr<Swapchain::Generation> swapchain_generation)
+            : RenderTarget(device, render_pass,
+                  Math::Vec2u(swapchain_generation->get_config().extent.width,
+                      swapchain_generation->get_config().extent.height),
+                  swapchain_generation->get_images().size()),
+              m_swapchain_generation(std::move(swapchain_generation)) {
+            m_clear_values.resize(m_render_pass.get_attachments().size());
+            set_clear_value(ClearValue(Math::Vec4(0.2f, 0.3f, 0.3f, 1.0f)));
+            set_clear_value(ClearValue(1.0f, 0));
         }
-        resources.clear();
-    }
 
-    SwapchainTarget::SwapchainTarget(Device& device, RenderPass& render_pass,
-        std::shared_ptr<Swapchain::Generation> swapchain_generation)
-        : RenderTarget(device, render_pass,
-              Math::Vec2u(swapchain_generation->get_config().extent.width,
-                  swapchain_generation->get_config().extent.height),
-              swapchain_generation->get_images().size()),
-          m_swapchain_generation(std::move(swapchain_generation)) {
-        m_clear_values.resize(m_render_pass.get_attachments().size());
-        set_clear_value(ClearValue(Math::Vec4(0.2f, 0.3f, 0.3f, 1.0f)));
-        set_clear_value(ClearValue(1.0f, 0));
-    }
-
-    GpuResourceResult<void> SwapchainTarget::try_initialize() {
-        m_render_resources.reserve(m_frame_count);
-        for(const auto& image : m_swapchain_generation->get_images()) {
-            auto resource = try_create_render_resource(m_device, m_render_pass, m_extent, image);
-            if(!resource)
-                return GpuResourceResult<void>::failure(resource.result());
-            m_render_resources.push_back(std::move(resource).value());
-        }
-        return GpuResourceResult<void>::success();
-    }
-
-    SwapchainTarget::~SwapchainTarget() {
-        clear_render_resources(m_render_resources);
-    }
-
-    void SwapchainTarget::begin_render_target(CommandBuffer& command_buffer) {
-        RenderTarget::begin_render_target(
-            command_buffer, m_swapchain_generation->get_current_index());
-    }
-
-    MultiTarget::MultiTarget(
-        Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count)
-        : RenderTarget(device, render_pass, size, frame_count) {
-        m_clear_values.resize(m_render_pass.get_attachments().size());
-        set_clear_value(ClearValue(Math::Vec4(0.2f, 0.3f, 0.3f, 1.0f)));
-        set_clear_value(ClearValue(1.0f, 0));
-    }
-
-    MultiTarget::~MultiTarget() {
-        clear_render_resources(m_render_resources);
-    }
-
-    GpuResourceResult<void> MultiTarget::try_initialize() {
-        std::vector<RenderResource> resources;
-        resources.reserve(m_frame_count);
-        for(uint32_t index = 0; index < m_frame_count; ++index) {
-            auto resource_attempt = try_create_render_resource(m_device, m_render_pass, m_extent);
-            if(!resource_attempt) {
-                return GpuResourceResult<void>::failure(resource_attempt.result());
+        GpuResourceResult<void> SwapchainTarget::try_initialize() {
+            m_render_resources.reserve(m_frame_count);
+            for(const auto& image : m_swapchain_generation->get_images()) {
+                auto resource =
+                    try_create_render_resource(m_device, m_render_pass, m_extent, image);
+                if(!resource)
+                    return GpuResourceResult<void>::failure(resource.result());
+                m_render_resources.push_back(std::move(resource).value());
             }
-            resources.push_back(std::move(resource_attempt).value());
+            return GpuResourceResult<void>::success();
         }
 
-        clear_render_resources(m_render_resources);
-        m_render_resources = std::move(resources);
-        return GpuResourceResult<void>::success();
+        void SwapchainTarget::begin_render_target(CommandBuffer& command_buffer) {
+            RenderTarget::begin_render_target(
+                command_buffer, m_swapchain_generation->get_current_index());
+        }
+
+        MultiTarget::MultiTarget(
+            Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count)
+            : RenderTarget(device, render_pass, size, frame_count) {
+            m_clear_values.resize(m_render_pass.get_attachments().size());
+            set_clear_value(ClearValue(Math::Vec4(0.2f, 0.3f, 0.3f, 1.0f)));
+            set_clear_value(ClearValue(1.0f, 0));
+        }
+
+        GpuResourceResult<void> MultiTarget::try_initialize() {
+            std::vector<RenderResource> resources;
+            resources.reserve(m_frame_count);
+            for(uint32_t index = 0; index < m_frame_count; ++index) {
+                auto resource_attempt =
+                    try_create_render_resource(m_device, m_render_pass, m_extent);
+                if(!resource_attempt) {
+                    return GpuResourceResult<void>::failure(resource_attempt.result());
+                }
+                resources.push_back(std::move(resource_attempt).value());
+            }
+
+            m_render_resources = std::move(resources);
+            return GpuResourceResult<void>::success();
+        }
     }
 }

@@ -192,7 +192,7 @@ namespace CometEditor {
             m_edit.reset();
             return false;
         }
-        if(!Comet::property_values_equal(edit.before, *after)) {
+        if(edit.before != *after) {
             if(!m_history.record_applied(
                    std::make_unique<PropertyCommand>(m_registry, edit.target, edit.before, *after)))
                 return false;

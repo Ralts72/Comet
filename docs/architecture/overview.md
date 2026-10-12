@@ -11,7 +11,7 @@
 | 模块 | 职责 | 主要依赖 |
 | --- | --- | --- |
 | Foundation | 错误、文件、UUID、参数值、数学、任务、项目路径、日志和 CPU 计时 | GLM、spdlog、Threads |
-| Serialization | 文件编解码流程、错误定位、JSON 编解码 | Foundation、simdjson |
+| Serialization | JSON 编解码、字段错误定位与文件流程 | Foundation、simdjson |
 | ShaderContracts | 后端无关 Shader 契约与 SPIR-V 反射 | Foundation、SPIRV-Reflect |
 | AssetData | Handle、Registry、CPU 产品数据、脚本定义和资产字段序列化 | Serialization、ShaderContracts |
 | Input | 采样值、动作、输入组、运行域求值、改键草稿和覆盖 | Serialization |
@@ -80,7 +80,8 @@ CTest 检查直接及传递 include，并在临时副本中验证反向依赖会
 | EditorSceneSession／SceneDocument | 保留的 Edit 内容、Play 切换、文档路径和保存点 | 通过 Engine 激活场景；命令历史只编辑 Edit 内容 |
 | 宿主玩家设置／ProjectUi | 玩家选择实例、页面和独立 UI 控制器 | 宿主注入读取、保存、应用及确认服务 |
 
-Worker 读取源码、准备 CPU 产品和候选；主线程发布索引、Registry 和 GPU 版本。文件监听只提示复核，不直接修改世界或资源。
+后台 CPU Worker 导入／解码／编译并交付自有结果；同步 AssetLoader 仍可在 Main 读取产品及准备 CPU 数据。
+Main 接纳索引和任务结果，RenderThread 创建 GPU 候选并返回，Main 复核后注册到 Registry。渲染域的程序与 Pipeline 发布由 RenderThread 管理；文件监听只提示复核，不直接修改世界或资源。
 候选携带实际输入和版本身份，过期结果拒绝发布；连续保存沿既有任务背压和最新请求合并流程处理。
 源文件操作属于 `editor/assets`，运行时加载属于 AssetManager；两者共享索引，分别负责自己的工作流。
 
@@ -100,7 +101,33 @@ Engine／Renderer／设备等工厂先准备完整 owner，成功后交付；部
 4. 持续运行时，Main 的 Runtime 执行有界 Fixed Update 和一次普通 Update，与 RenderThread 绘制刚交付的快照重叠，模拟结果在下一帧提取。暂停单步则在本次提取前完成，编辑和单步结果直接显示在本帧。提取仍等上一份绘制完成，复用已有快照存储。更新失败先取回绘制结果，再交给宿主恢复，不提取部分写入的场景。
 5. RenderThread 准备世界界限、光照和共享阴影；所有 View 分别生成相机、裁剪、绘制和后处理，再绘制 Overlay、提交并呈现。Main 在取回结果前不修改 Renderer、View 或 UI 后端。退出主循环前取回最后一帧结果并接回资源回收，宿主关闭前由 RenderThread 等待 GPU 空闲、关闭 UI GPU 后端，再停止并 join；窗口输入与文档由 Main 关闭。
 
-数据链为 `Scene → SceneExtractor → RenderScene → SceneResolver → RenderWorld → RenderFrame → RenderSubmission → SceneRenderer`。
+```mermaid
+flowchart LR
+    subgraph Main[Main：内容、模拟与帧捕获]
+        Input[Window 物理采样] --> Gate[宿主输入授权]
+        Gate --> RI[RuntimeInput 阶段快照]
+        RI --> Runtime[SceneRuntime / Systems]
+        Runtime --> Scene[Scene 内容与变换]
+        Edit[Editor 命令与属性事务] --> Scene
+        Scene --> Extract[SceneExtractor]
+        Extract --> Snapshot[只读 RenderScene]
+        Snapshot --> Resolve[SceneResolver]
+        Registry[AssetRegistry 已接纳版本] --> Resolve
+        Resolve --> World[只读 RenderWorld]
+        World --> Frame[RenderFrame]
+        UI[ImGui / RmlUi 绘制快照] --> Frame
+    end
+    subgraph Render[RenderThread：GPU 状态与绘制]
+        Frame --> Geometry[世界界限 / 光照 / 阴影]
+        Geometry --> Views[各 View 裁剪 / 材质 / RenderGraph]
+        Views --> Submit[Overlay / Submit / Present]
+    end
+    Submit --> GPU[GPU 在途提交]
+    GPU --> Slot[FrameSlot 完成后回收]
+```
+
+持续运行时，Main 交付帧 N 后推进下一步模拟，与该帧绘制重叠；下一次提取前等绘制结果。
+编辑／暂停单步先修改 Scene 再提取。RenderSubmission 只在持有 RenderWorld 时临时借用，不单独跨线程排队。
 macOS 渲染线程使用交互 QoS；线程优先级不保证固定 CPU 核心，收益以相同负载的墙钟和尾延迟测量为准。
 
 Main 的计时区分事件、等待渲染线程、更新、帧准备／UI 和帧交付。RenderDiagnostics 在绘制所属线程直接计量成功帧，覆盖世界准备、所有 View、UI、提交与呈现；单视图图计时继续独立。不同线程的墙钟阶段不能直接相加。
@@ -121,33 +148,20 @@ Main 的计时区分事件、等待渲染线程、更新、帧准备／UI 和帧
 App 与 Editor 都只使用默认 View。Editor 的单视口在 Edit 使用编辑相机，在 Play 使用运行副本的主相机；Stop 恢复编辑内容和观察状态。
 创建／移除 View 在帧边界完成，场景切换不交换目标；画质重建与热发布不能释放在途帧的旧资源。
 
-增量更新沿提取、解析、几何准备传递同一套槽位和结构编辑规则。Scene 内容版本、输入／输出批次和资产发布版本有不同用途，不能互相代替。
-`common/version` 共用身份与版本的标记和序号生成算法，各身份域持有独立序列；`common/snapshot` 共用生产者的写时复制，更新与发布时机仍由所属模块决定。
-Scene 集中组件增删改的渲染／物理通知；材质集中参数修改后的版本更新和快照失效，缓存键整体比较与记录。编辑器资产操作共用 `AssetTarget` 的 Handle 与索引版本，拖拽另保留会话代数。
-局部批次要求版本连续；跨生产者、漏过批次、大量修改或缺失资源造成压缩时完整核对。手工快照没有变化提示，逐项检查身份与版本。
-Registry 总版本变化时检查持有引用的条目版本；已解析材质的参数版本按唯一身份检查，变化后才扫描受影响物体并重新捕获快照。未变资源和界限继续复用，失效位置属于各自世界，不被其他消费者或快照副本消费。
-相机、Light 和场景设置仍完整提取。静态 extract 不消费记录；增量 update 返回 `shared_ptr<const RenderScene>`。
-未变场景共享同一快照；更新时没有旧读者就复用存储，仍有读者则复制后写入。换场景和 reset 释放生产者持有的状态，旧快照持续有效到最后一个读者退出。
-SceneResolver::update 返回 `shared_ptr<const RenderWorld>`；资源刷新和 reset 不修改消费者保留的旧世界，串行帧释放读者后继续复用世界及物体存储。
-提取、AssetHandle 解析和材质值捕获属于 Main；GPU 准备只读取世界快照，不重新查询最新 Shader。主循环在 Main 捕获完整帧，再交给 RenderThread 绘制；Renderer 不持有注册表或资产解析状态。CPU 更新、创建请求与发布反馈仍由 Main 管理；场景模拟可与 RenderThread 绘制只读快照重叠。
+增量更新共用槽位与结构编辑规则，保留各阶段的独立消费状态：Scene 内容变化、物理脏集合、资产发布版本不能相互替代。
+`common/version` 共享身份／版本标记和序号算法，`common/snapshot` 共享生产者写时复制；更新、清理与发布时机归各 owner。
+连续批次可局部更新；漏过批次、换生产者、压缩或缺少变化提示时完整核对。相机、Light 和场景设置仍完整提取。
+提取器和解析器独占快照时复用存储，有旧读者时复制后写入；reset／换场景不改旧快照。Registry 总版本只触发相关资源版本核对，材质参数按唯一身份检查后更新受影响物体。
+组件通过受控入口提交修改，同值／拒绝写入不推进版本。物理姿态回写只更新变换与渲染，不作为下一步物理配置输入；运行覆盖随改绑、组件移除或 Runtime 停止清理。
 
-渲染、物理组件只读访问，通过副本提交修改；同值或拒绝的写入不增加版本。物理姿态回写更新变换和渲染，避免再作为下一步物理输入。
-这些进程内身份不写入场景文件，复制 Scene 获得新的实例代号。材质改绑、移除组件和 Runtime 停止会清理对应运行覆盖。
+GPU 不查询最新 Registry、组件或 UI DOM。Main 捕获固定资源版本、材质值、Shader、视图参数及绘制数据，RenderThread 只消费这次输入；各 View 顺序读取同一世界。
+帧延期跳过 UI／提取／绘制但 Runtime 继续，最小化重置墙钟增量和待处理输入。拾取以值返回，Main 在下一次更新核对模式、场景寿命与实体，再修改选择。
 
-RenderThread 内各视图顺序消费同一只读世界；借用 RenderSubmission 只在持有世界快照期间有效，不能单独排队。帧延期跳过 UI／提取／绘制，Runtime 仍推进；最小化等待并重置墙钟增量与待处理输入。
-Editor 在提取前完成属性编辑；Renderer 只返回拾取值，Editor 在下一次 Main 更新消费结果，选择、Gizmo 和选中框一起更新。
-切换 Scene 时结束旧交互、清理请求并重绑选择与引用。
-
-ImGui 的 `end_frame` 返回独立帧；GPU 录制不再读取前端的 `GetDrawData` 或字体像素。
-字体像素只在图集变化时复制，未变帧共享同一份数据；Main 确认像素已由帧持有，GPU 单独解析字体标识、创建纹理版本并按帧槽退休。
-新字形产生新 GPU 纹理版本，在途帧继续使用旧版本；稳态复用纹理，录制后释放 CPU 绘制数据，只保活实际 GPU 绑定。
-回调数据使用 ImGui 的内联复制存储，禁止直接借用回调数据指针；回调自身及其数据中的引用须符合 GPU 录制寿命。
-视口前端只保存 ImageView／Sampler 的独立图片版本，同一 View／帧槽的逻辑标识稳定；`end_frame` 固定引用，后续前端换图不改变已交付帧。
-GPU 录制按捕获的图片版本解析逻辑标识并创建 descriptor，未变化的帧槽复用绑定；换图创建新绑定，在途旧绑定继续由 FrameSlot 保活。
-GPU 缓存不保活 CPU 图片版本，失效条目在后续录制时清理；实际图片和 sampler 随所用绑定保留。视口图片必须与录制帧槽匹配，交换链重建丢弃旧尺寸的 UI 帧。
-Vulkan 后端使用独立 ImGui 上下文及录制视口，字体／视口纹理的注册、录制和释放均选择此上下文，再恢复调用方上下文。
-后端重建只关闭 Vulkan，前端 GLFW、布局和待处理输入保持原状态；完整关闭先释放 GPU 绑定，再销毁后端、前端及借用的图形资源。
-前端构建不注册或改写 GPU descriptor，录制选择线程局部的后端上下文；独立前端可构建下一份 CPU 绘制数据。当前主循环仍在绘制完成后才开始下次 UI 构建与 GPU 状态修改；交换链后端重建及 Engine 关闭时的 GPU 清理由 RenderThread 执行，输入、布局与窗口平台后端归 Main。ImGui 初始后端在进入主循环前创建，运行期间不在 Main 重新初始化 GPU 后端。
+ImGui 前端在 `end_frame` 交付自有顶点、索引、命令、回调内联数据、字体像素及视口图片引用；GPU 后端消费一次并按帧槽保活实际绑定。
+未变图集共享像素、未变图片复用绑定；新字形或换图创建新 GPU 版本，旧帧不受影响。回调及数据内的引用仍须满足 GPU 录制寿命。
+前端与 Vulkan 后端使用独立上下文，当前上下文选择是线程局部的；后端不访问前端 renderer／viewport 状态。
+Main 当前仍等绘制完成才构建下一份 UI 或替换 Overlay／文档 owner；后端重建保留窗口输入与布局，丢弃旧尺寸绘制帧。
+运行期间的 GPU 重建和关闭清理由 RenderThread 执行，完整关闭先释放绑定，再销毁后端、前端及借用资源；ImGui 初始后端在主循环前创建。
 
 ### 输入主链与配置边界
 
@@ -175,8 +189,7 @@ App 的显示试用由 DisplaySettingsPreview 保存前态和 15 秒期限；确
 | --- | --- | --- |
 | `common/file_io` | 文本读取、有大小上限的二进制读取、原子文本／二进制分块写入 | 文件是否可缺失、预算和业务提交顺序 |
 | `common/binary` | 小端整数／浮点数、带长度的字符串读写、分块 FNV-1a 哈希 | Magic、版本、长度前缀宽度、字段限制与领域校验 |
-| `common/serialization` | 来源／字段错误定位、Serializer 文件加载／保存流程 | 格式选择和领域编解码 |
-| `common/json` | simdjson 解析、对象／数组检查、必填与可选标量字段读取、固定长度浮点向量读写、键校验、可选路径查找、可缺失文件读取、Writer、编解码入口 | 项目、场景、材质等 Schema 与版本，缺省值、颜色及数值范围的领域校验 |
+| `common/json` | simdjson 解析、对象／数组检查、必填与可选标量字段读取、固定长度浮点向量读写、键校验、可选路径查找、可缺失文件读取、原子保存、Writer、编解码与 Serializer 文件入口 | 项目、场景、材质等 Schema 与版本，缺省值、颜色及数值范围的领域校验 |
 
 项目、资产、开发者 Profile 与快捷键共用 JSON 工具。JSON DOM 借用 parser；`Json::deserialize` 的回调必须返回拥有数据的结果。
 快捷键冲突、资产身份、范围等属于具体功能，不放入通用 Reader。
@@ -184,6 +197,7 @@ Editor 的窗口、最近项目、项目会话与玩家输入／显示／画质�
 各工作流决定默认值、保存时机与内存提交规则，解码结果拥有数据，错误来源字符串覆盖整个解析寿命。
 资产 Serializer 不再拥有通用 JSON 文件工具。场景描述符共用于保存、恢复、编辑与内容复制；内容 clone 直接走内存快照，不通过 JSON 往返。
 Mesh、ShaderProgram、Environment Artifact 与导入指纹共用二进制基础工具；各资产保留独立头部、版本与校验规则。
+ImportInputSnapshot 统一校验源文件首项、规范化相对路径及依赖有序唯一；文件数量／大小限制和实际内容复核由各调用方负责。
 Environment 按纹理读取，发布时将头部和四份纹理存储分块原子写入，避免再复制一份完整像素 payload。
 
 ### 系统更新与场景边界
@@ -191,7 +205,10 @@ Environment 按纹理读取，发布时将头部和四份纹理存储分块原�
 Scene 保存实体身份、组件和层级；结构请求在阶段末提交，遍历中不直接改变结构。RuntimeSession 保存本局值、输入组请求和重开意图。
 父子关系只由 Scene 修改并保持无环；子树删除直接遍历子节点索引，收集完毕后从后代向祖先清理。
 Runtime 统一控制系统启停、部分启动失败、暂停和单步；System 不重复实现生命周期状态机。
-ScriptSystem 先执行玩法，PhysicsSystem 同步配置并模拟／回写，接触随后交付脚本；AudioSystem 同步声音源。
+每个固定步先按注册顺序执行 `fixed_update` 并提交结构请求，再执行 `post_fixed_update` 并提交本阶段的请求；最后才进入每帧 `update`。
+默认 ScriptSystem 先执行固定步玩法，PhysicsSystem 同步配置并模拟／回写；接触在该步的后置阶段交付脚本，阶段结束即清空。
+固定更新中删除的实体不再收到接触；接触回调的结构请求在下一固定步前生效。后置阶段复用本步时间和输入，不再次消费边沿。
+普通更新执行相机、脚本玩法／自定义事件和声音源同步，不重复交付接触。暂停不执行更新，单步完整执行一次固定、后置和普通阶段。
 物理后端仅接收借用参数及身份值；系统检查必需组件和父级，后端在新建／变化时校验值域。
 启动时登记全部刚体；运行时只同步脏实体的 Transform、刚体、碰撞体与父级变化。
 Scene 的物理脏集合独立于渲染变更批次，固定步成功同步后清空；相同组件值不入队，销毁时移除脏项。
@@ -224,14 +241,29 @@ ScriptSystem 不监听文件、不另建资产版本缓存；UI 控制器的 VM 
 
 RmlContext 提供通用文档、字体、输入与 Overlay 适配，不认识 demo 动作或菜单。项目的 `ui` 清单决定页面和控制器入口。
 ProjectUi 负责清单装载与 UI 控制器桥接，宿主注入输入、显示、画质、音量的读取／保存／应用服务。
-HUD、改键、菜单、倒计时、导航和草稿逻辑属于 `demo/assets/ui` 的 RML／RCSS／Lua，App 是通用宿主。
+HUD、页面、主题、画质档位和游戏特有交互属于项目 RML／RCSS／Lua，App 是通用宿主。
+Engine 内置 `ui.settings(options)`，统一菜单、设置草稿、改键录入、焦点、显示确认和应用结果；底层仍调用既有输入事务及宿主设置服务。
+项目选择面板、控件身份、快捷键和扩展回调；普通页面仍可直接返回自己的控制器，不必使用设置模块。
 Editor Play 使用相同项目页面；ImGui 项目／玩家面板调用相同引擎业务能力，不复制存储规则。
 Editor 的 GameUi 适配器只借用 Window、Renderer、Project 和设置服务，由宿主组合，不持有整个 Engine。
-候选页面／控制器先准备，失败保留旧版；事件核对当前文档身份，候选事件不提前改变设置。
+候选页面／控制器先准备，失败保留旧版；事件核对当前文档身份。准备期允许读取设置和调整候选页面，宿主应用／保存服务只在发布后开放。
 RmlUi Core 和 FreeType 静态编入 engine；FreeType 是字体后端。App／Editor 共用 engine 字体，ImGui／RmlUi 分别做图集和回退。
 Editor 文案固定中文并内置在所属界面的 C++ 代码中，ImGui 稳定 ID 与显示文字分离。
 Inspector 初始化时准备自己的中文显示描述，沿用引擎字段身份和读写回调；项目／脚本名称、原始诊断和日志保持原文。
 当前一个进程只允许一个拥有 RmlUi Core 的 RmlContext；多上下文属于后续能力。
+
+`ui.settings` 在项目控制器加载前提供，不开放文件加载或 `package`；模块编入 engine，实例状态仍属于各自的 UI VM。
+`input` 默认启用；`display`／`quality`／`audio` 默认关闭，设为 `true` 或选项表后启用。所有面板以宿主服务实际可用性为准。
+显示选项支持 `sizes`／`frame_rates`；画质选项支持 `render_scales`／有序 `presets`（`id`、`name` 和实际画质参数），没有内置游戏档位。
+`elements` 默认对应 `settings`（open）、`menu`、`panel`、`cancel`，改键还需要 `bindings`、`apply`、`restore`；启用显示还需要 `display-confirm`（confirm）。
+项目可覆盖任一角色的 ID；`open=false` 允许仅通过快捷键打开。`required_elements` 用于校验项目额外控件。
+`shortcuts` 默认 open=F1、close=Escape、reload=F6、gamepad_open=Start、gamepad_close=East，各项可设为 `false`。
+键盘菜单键、重载键和手柄打开键自动加入录入保留控制；`input.reserved_keys`／`reserved_buttons` 可显式指定。
+页面通过 `command(...)` 的 `open`／`cancel`／`apply`／`restore`／`previous`／`next` 控制菜单和改键；绑定行默认生成录入、禁用和恢复按钮，可用 `render_bindings(action)` 替换。
+显示／画质／音量命令及模型使用 demo RML 的相同语义，控件布局和样式由项目定义。
+`model`／`state` 可添加项目标量，不能覆盖模块字段；同名生命周期回调在内置流程之后执行，供 HUD 或项目操作扩展。
+热重载迁移同类型的已有标量，同时保留新控制器声明的新字段默认值；不复用旧函数、页面句柄或闭包。
+
 RmlRenderer 的文档回调只校验并保存独立 CPU 几何／像素，绘制收集只保存这些只读数据、裁剪、变换和位移，不创建或销毁 GPU 对象。
 RmlContext::update 在 Main 更新布局并收集只读 DrawSnapshot；候选文档验证把该快照同步交给 RenderThread 准备 GPU 资源，成功后 Main 才同时替换页面和快照。GPU 录制入口只接收绘制数据，不读取 RmlUi 上下文或回入 DOM。
 快照保存当时的几何、纹理、变换及上下文尺寸，裁剪在 GPU 录制时按实际目标缩放；资源 Handle 释放或文档关闭后仍可消费旧快照。
@@ -287,20 +319,48 @@ Editor 源监控与 CPU 编译交付完整阶段候选；主线程复核请求�
 
 ### GPU 创建与错误
 
-底层工厂报告 GraphicsError；资产／渲染组合层决定候选替换与旧版保留，低层不认识资产工作流。
-创建或提交失败不返回空对象成功，错误保留原生类别；OOM／DeviceLost 不扩展为全设备自动恢复。
-RenderAssetFactory 只借用 GPU 工厂，接收独立持有的 CPU 产品并返回完整 GPU 候选，不访问 Registry、资产索引或源文件。RenderThread 实现现有 RenderResourceFactory 接口，移走 Mesh／Texture CPU 数据并在同一线程创建、上传；环境按整组纹理完成后返回。Main 的资产 owner 等待候选，复核源版本及运行发布版本后注册；即使重新发布同一对象，也使较早的创建结果过期。
-线程从 Engine 初始化持续到 prepare_shutdown，资源、材质和 Shader 操作与绘制共享容量为一的交接槽；完成上一帧后才可提交同步 GPU 操作，操作失败不会消费上一帧结果或终止后续请求。Engine 将线程绑定到 Renderer，宿主沿用原有准备、发布与失效接口；内部同步操作不开放为业务任务入口。关闭时排空并 join，工厂对象仍随 Engine 存活，后续创建和发布明确失败，不留下悬空引用。逐帧准备使用专用请求，窗口尺寸和删除批次按值交付，复用有界槽和完成通知，不分配 future。GPU 帧准备和绘制分别同步交接；诊断合计两段实际工作时间。同步 RenderResources 继续供启动初始化与确定性 GPU 回归使用。
-共享 Buffer、Image、ImageView 和 Sampler 的原生销毁归当前回收线程。Main 负责启动和退出阶段；Engine 主循环开始时将回收交给 RenderThread，后者在 GPU 帧准备中回收已完成上传与待销毁资源。退出时先排空 CPU 帧，再由 Main 接回并清空退休队列；提前返回或绘制失败也遵循此顺序，未完成的 GPU 使用仍由帧槽／上传保活。所属线程释放时直接销毁，其他线程只移交原生资源；待销毁 ImageView 保留其 Image，先销毁 view 再释放 image。收集不持生产者锁，所属线程释放不分配队列节点。独立同步 Renderer 保持创建线程回收。
-该交接只确定销毁线程，不追踪 GPU last-use：FrameSlot／UploadManager 仍须保活到完成。Device 必须晚于资源及生产者关闭，原生 Pipeline、descriptor 和第三方后端资源仍由各自 GPU owner 管理，不通过任意业务回调进入销毁队列。
-AssetRegistry::take_removals 由 Main 在帧边界取走一次；批次拥有有序注销身份，clear／移动覆盖请求重置旧缓存。同类型重新注册只抵消尚未交付的删除，普通 replace 不产生删除请求。各 View 和 MaterialPrograms 只消费批次，不查询注册表；Shader 注销同时清掉依赖它的材质准备和 GPU 绑定，隐藏 View 不保留这些驻留缓存。在途帧仍持有自己的资源；材质依赖删除只解除相关失败的重试阻塞。
+底层工厂报告 GraphicsError，不返回空对象成功；组合层决定候选替换或旧版保留。OOM／DeviceLost 沿错误路径返回，不扩展全设备自动恢复。
+
+| 边界 | 所有权与约束 |
+| --- | --- |
+| CPU 产品 → GPU 候选 | RenderAssetFactory 借用工厂，不访问 Registry、索引或源文件。RenderThread 创建并上传，环境整组纹理完成后返回；Main 复核源及发布版本后注册 |
+| Main → RenderThread | Engine 生命周期内共用容量为一的交接槽。完成上一帧后才可同步准备／发布资源；操作失败不消费上一帧结果。帧准备按值交付尺寸和删除批次，复用完成通知 |
+| 诊断 | 帧准备与绘制分段计时，合计实际工作；不把等待重复算作计算。同步 RenderResources 保留给启动和确定性 GPU 回归 |
+| 跨线程资源释放 | Buffer、Image、ImageView、Sampler 在所属回收线程销毁；其他线程只移交原生资源。ImageView 保留 Image，先释放 view 再释放 image；收集不持生产者锁 |
+| 回收线程交接 | Main 负责启动／退出，主循环交给 RenderThread，在帧准备时回收已完成上传和退休资源。退出／失败先排空 CPU 帧，再由 Main 接回；关闭 join 后明确拒绝新创建或发布 |
+| GPU 完成 | 销毁线程不代表 last-use 完成。FrameSlot／UploadManager 继续保活，Device 晚于资源及生产者销毁；Pipeline、descriptor 和第三方资源由各自 GPU owner 管理 |
+| 资产注销 | Main 每帧取走一次 Registry 删除批次，各 View／MaterialPrograms 消费同一自有身份列表；clear 请求重置缓存，隐藏 View 也清理，已提交帧继续保活 |
+
+普通 replace 不产生注销请求；同类型重新注册只抵消尚未交付的删除。Shader 注销同时清理依赖材质的准备和绑定；依赖删除解除对应的失败重试阻塞。
 
 ### 驱动 PipelineCache 持久化
 
 设备匹配的驱动缓存独立于 Shader 产品缓存；文件限制大小并检查头、设备身份和校验和。
 坏缓存可删除重建；OOM／DeviceLost 沿错误路径返回。磁盘写入复用公共原子写，不建立跨进程锁／合并框架。
 
-## 两种完成与资源发布
+## 资产从源码到画面
+
+```mermaid
+flowchart LR
+    Source[项目源码与依赖] --> Watch[Editor 监听 / 防抖 / 复核]
+    Watch --> Import[CPU Worker 导入 / 编译]
+    Import --> Product[自有 CPU 产品 / 可重建 Artifact]
+    Product --> Accept[Main 接纳任务结果]
+    Accept --> Create[RenderThread 创建 GPU 候选]
+    Create --> Check[Main 核对源及 Registry 发布版本]
+    Check --> Registry[AssetRegistry 注册]
+    Registry --> Resolve[SceneResolver 捕获版本]
+    Resolve --> Frame[RenderFrame 只读输入]
+    Frame --> Draw[RenderThread 绘制 / 发布程序与绑定]
+    Draw --> Retain[FrameSlot 保活实际资源]
+    Retain --> Done[GPU 完成后回收]
+```
+
+同步加载可以直接从产品读取进入候选创建，不必经过后台任务。Artifact 成功落盘是导入事实，后续 GPU 创建失败不会撤销它。
+过期结果不得覆盖新版本；Shader 内容错误让后续帧显示错误材质，已经提交的旧帧继续使用自己捕获的资源。
+Registry 接纳与渲染域程序发布分别核对各自状态，不建立第二份资产身份或让文件通知直接切换 GPU 对象。
+
+## GPU 完成与资源保活
 
 | 完成机制 | 保护范围 |
 | --- | --- |

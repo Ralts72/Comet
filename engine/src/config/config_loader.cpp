@@ -33,19 +33,11 @@ namespace Comet {
                     return false;
                 if(!node)
                     return true;
-                auto fields = m_context.object(*node, section.empty() ? "<root>" : section);
-                if(!fields) {
-                    m_error = fields.error();
+                auto valid =
+                    m_context.validate_keys(*node, allowed, section.empty() ? "<root>" : section);
+                if(!valid) {
+                    m_error = valid.error();
                     return false;
-                }
-                for(const auto entry : fields.value()) {
-                    const auto key = entry.key;
-                    if(std::find(allowed.begin(), allowed.end(), key) == allowed.end()) {
-                        auto location = std::string(section);
-                        if(!location.empty())
-                            location += '.';
-                        return fail(location + std::string(key), "unknown developer setting");
-                    }
                 }
                 return true;
             }

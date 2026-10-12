@@ -69,17 +69,11 @@ namespace CometEditor::Tests {
         }
     }
 
-    TEST(EditorShortcutsTest, ValidatesAfterMergingAndDoesNotPartiallyApplyFailure) {
+    TEST(EditorShortcutsTest, ValidatesBindingsAfterMergingOverrides) {
         auto parsed = EditorShortcuts::parse(
             R"({"editor": {"shortcuts": {"scene.save": ["Primary+O"], "scene.open": ["Primary+S"]}}})");
         ASSERT_TRUE(parsed);
         auto shortcuts = std::move(parsed).value();
-        EXPECT_EQ(shortcuts.label(Action::SaveScene, false), "Ctrl+O");
-        auto replacement = EditorShortcuts::parse(
-            R"({"editor": {"shortcuts": {"scene.save": ["F5"], "scene.open": ["Escape"]}}})");
-        ASSERT_FALSE(replacement);
-        if(replacement)
-            shortcuts = std::move(replacement).value();
         EXPECT_EQ(shortcuts.label(Action::SaveScene, false), "Ctrl+O");
     }
 

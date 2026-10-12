@@ -37,8 +37,7 @@ set(UNIT_TEST_SOURCES
         config/test_config.cpp
         config/test_display_settings.cpp
         config/test_display_settings_preview.cpp
-        config/test_quality_settings.cpp
-        config/test_audio_settings.cpp
+        config/test_player_settings.cpp
         core/test_geometry.cpp
         core/test_math_utils.cpp
         core/test_project.cpp
@@ -74,7 +73,10 @@ set(UNIT_TEST_SOURCES
         editor/core/test_source_operations.cpp
         editor/core/test_transform_gizmo.cpp
         editor/core/test_viewport_layout.cpp
+        graphics/test_allocator.cpp
+        graphics/test_barrier.cpp
         graphics/test_device_capability.cpp
+        graphics/test_queue.cpp
         graphics/test_resource_state.cpp
         graphics/test_viewport.cpp
         graphics/test_vulkan_raii_ownership.cpp
@@ -130,12 +132,9 @@ set(INTEGRATION_SOURCES
         editor/integration/test_material_editing.cpp
         editor/integration/test_viewport.cpp
         editor/integration/test_game_ui.cpp
-        graphics/test_allocator.cpp
-        graphics/test_barrier.cpp
         graphics/test_creation.cpp
         graphics/test_descriptor_set.cpp
         graphics/test_pipeline_cache.cpp
-        graphics/test_queue.cpp
         graphics/test_render_pass.cpp
         graphics/test_resource_retirement.cpp
         graphics/test_sampler.cpp
@@ -183,6 +182,8 @@ if(DISCOVERED_TEST_SOURCES)
     message(FATAL_ERROR "Assign new test sources to an execution group: ${DISCOVERED_TEST_SOURCES}")
 endif()
 add_executable(unit_testing test.cpp ${UNIT_TEST_SOURCES})
+# 转换函数保留为后端私有接口，CPU 回归直接编译其无状态实现。
+target_sources(unit_testing PRIVATE "${CMAKE_SOURCE_DIR}/engine/src/graphics/convert.cpp")
 add_executable(integration_testing test.cpp ${INTEGRATION_SOURCES})
 set(TEST_TARGETS unit_testing integration_testing)
 if(COMET_BUILD_EDITOR)

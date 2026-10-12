@@ -1,5 +1,6 @@
 #include "asset/database.h"
 #include "asset/serialization/metadata_serializer.h"
+#include "support/temporary_directory.h"
 
 #include <gtest/gtest.h>
 
@@ -15,19 +16,9 @@ namespace Comet::Tests {
     namespace {
         class TemporaryProject final {
         public:
-            TemporaryProject() {
-                m_root = std::filesystem::temp_directory_path()
-                         / ("comet_asset_database_test_"
-                             + std::to_string(AssetHandle::generate().value()));
-                std::filesystem::create_directories(paths().assets());
-            }
+            TemporaryProject() { std::filesystem::create_directories(paths().assets()); }
 
-            ~TemporaryProject() {
-                std::error_code error;
-                std::filesystem::remove_all(m_root, error);
-            }
-
-            [[nodiscard]] ProjectPaths paths() const { return ProjectPaths(m_root); }
+            [[nodiscard]] ProjectPaths paths() const { return ProjectPaths(m_directory.path()); }
 
             std::filesystem::path add_file(const std::filesystem::path& relative_path,
                 const std::string& contents = "asset") const {
@@ -39,7 +30,7 @@ namespace Comet::Tests {
             }
 
         private:
-            std::filesystem::path m_root;
+            TemporaryDirectory m_directory;
         };
 
         bool has_issue_containing(const AssetScanReport& report, const std::string_view text) {
@@ -127,7 +118,8 @@ namespace Comet::Tests {
         project.add_file("textures/button.png");
         const std::array ui_paths{std::filesystem::path("ui/page.rml"),
             std::filesystem::path("ui/theme.rcss"), std::filesystem::path("ui/other.RML"),
-            std::filesystem::path("ui/other.RCSS"), std::filesystem::path("ui/runtime.ui.lua")};
+            std::filesystem::path("ui/other.RCSS"), std::filesystem::path("ui/runtime.ui.lua"),
+            std::filesystem::path("ui/other.UI.LUA")};
         for(const auto& path : ui_paths)
             project.add_file(path);
         AssetDatabase database(project.paths());
@@ -149,6 +141,21 @@ namespace Comet::Tests {
         EXPECT_EQ(updated.generated_metadata, 0u);
         EXPECT_TRUE(updated.modified_assets.empty());
         EXPECT_EQ(database.size(), 1u);
+    }
+
+    TEST(AssetDatabaseTest, UnsupportedObjDoesNotGenerateIdentityOrMetadata) {
+        const TemporaryProject project;
+        const auto source = project.add_file("mesh.obj", "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n");
+        AssetDatabase database(project.paths());
+
+        const auto report = database.scan();
+
+        EXPECT_FALSE(report.succeeded());
+        EXPECT_TRUE(has_issue_containing(report, "unsupported asset extension '.obj'"));
+        EXPECT_EQ(report.generated_metadata, 0u);
+        EXPECT_EQ(database.find("mesh.obj"), nullptr);
+        EXPECT_FALSE(std::filesystem::exists(metadata_path(source)));
+        EXPECT_TRUE(std::filesystem::is_regular_file(source));
     }
 
     TEST(AssetDatabaseTest, LuaModuleChangesInvalidateOnlyDeclaredScriptDependents) {
@@ -398,6 +405,33 @@ namespace Comet::Tests {
         EXPECT_TRUE(std::ranges::find(modified_scan.modified_assets, handle)
                     != modified_scan.modified_assets.end());
         EXPECT_GT(database.get_revision(handle), initial_revision);
+    }
+
+    TEST(AssetDatabaseTest, UnchangedImportDependenciesKeepPreparedScanCurrent) {
+        const TemporaryProject project;
+        project.add_file("meshes/model.gltf");
+        const auto dependency = project.add_file("meshes/model.bin");
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        const auto handle = database.find("meshes/model.gltf")->handle;
+        const auto empty_generation = database.generation();
+        ASSERT_TRUE(database.update_import_dependencies(handle, {}));
+        EXPECT_EQ(database.generation(), empty_generation);
+        ASSERT_TRUE(database.update_import_dependencies(handle, {dependency}));
+
+        const auto generation = database.generation();
+        const auto revision = database.get_revision(handle);
+        auto prepared = AssetDatabase::prepare_scan(project.paths(), generation);
+        ASSERT_TRUE(database.update_import_dependencies(handle, {"meshes/model.bin", dependency}));
+        EXPECT_EQ(database.generation(), generation);
+        EXPECT_EQ(database.get_revision(handle), revision);
+        EXPECT_TRUE(database.publish_scan(std::move(prepared)));
+
+        project.add_file("meshes/model.bin", "changed dependency");
+        const auto changed_generation = database.generation();
+        ASSERT_TRUE(database.update_import_dependencies(handle, {dependency}));
+        EXPECT_GT(database.generation(), changed_generation);
+        EXPECT_EQ(database.get_revision(handle), revision);
     }
 
     TEST(AssetDatabaseTest, UpdatesImportSettingsInIndexAndMetadata) {

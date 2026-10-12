@@ -2,18 +2,6 @@
 #include <cmath>
 
 namespace Comet {
-    bool property_values_equal(const PropertyValue& left, const PropertyValue& right) {
-        if(left.index() != right.index()) {
-            return false;
-        }
-        return std::visit(
-            [&right](const auto& value) {
-                using Value = std::remove_cvref_t<decltype(value)>;
-                return value == std::get<Value>(right);
-            },
-            left);
-    }
-
     std::optional<PropertyValue> PropertyDescriptor::copy_value(const void* component) const {
         const void* value = get_value(component);
         if(!value) {

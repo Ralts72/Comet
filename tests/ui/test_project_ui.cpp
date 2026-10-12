@@ -944,6 +944,99 @@ return controller
         click("toggle");
         EXPECT_FALSE(ui->is_modal());
     }
+    TEST_F(ProjectUiGpuTest, BuiltinInputMenuUsesProjectElementsShortcutsAndBindingMarkup) {
+        write("other.rml", R"rml(<rml><head><style>
+            body {font-family: Comet; font-weight: bold;}
+            button {width: 200px; height: 45px;} #dialog {display: none;}
+            </style></head><body data-model="ui">
+            <button id="launch" data-event-click="command('open')">Open</button>
+            <div id="dialog"><div id="card"><div>{{action_name}}</div><div id="slots"></div>
+            <button id="reset" data-event-click="command('restore')">Reset</button>
+            <button id="save" data-event-click="command('apply')">Save</button>
+            <button id="dismiss" data-event-click="command('cancel')">Cancel</button>
+            </div></div></body></rml>)rml");
+        write("other.ui.lua", R"lua(return ui.settings {
+            elements={open="launch",menu="dialog",panel="card",bindings="slots",
+                restore="reset",apply="save",cancel="dismiss"},
+            shortcuts={open="F2",reload=false},
+            render_bindings=function(action)
+                return '<button id="custom-binding" data-event-click="command(\'toggle_binding\',\''
+                    ..action.id..'\',\''..action.bindings[1].id..'\')">Toggle</button>'
+            end,
+        })lua");
+        const auto action_id = Uuid::generate();
+        const auto binding_id = Uuid::generate();
+        const auto actions = InputActions::create({{.name = "custom.action",
+            .bindings = {{.control = Input::Key::A, .id = binding_id}},
+            .id = action_id}});
+        ASSERT_TRUE(actions) << actions.error();
+        create_ui(actions.value(), {"ui/other.rml", "ui/other.ui.lua"});
+        EXPECT_EQ(document().GetElementById("settings"), nullptr);
+        queue_key(GLFW_KEY_F1);
+        ASSERT_TRUE(submit_frame());
+        EXPECT_FALSE(ui->is_modal());
+        queue_key(GLFW_KEY_F2);
+        ASSERT_TRUE(submit_frame());
+        EXPECT_TRUE(ui->is_modal());
+        EXPECT_EQ(loads, 1u);
+        click("custom-binding");
+        click("save");
+        ASSERT_EQ(submitted.size(), 1u);
+        ASSERT_EQ(submitted.front().actions().size(), 1u);
+        const auto& patch = submitted.front().actions().front();
+        EXPECT_EQ(patch.id, action_id);
+        ASSERT_EQ(patch.bindings.size(), 1u);
+        EXPECT_EQ(patch.bindings.front().id, binding_id);
+        EXPECT_TRUE(patch.bindings.front().disabled);
+        EXPECT_FALSE(ui->is_modal());
+    }
+
+    TEST_F(ProjectUiGpuTest, BuiltinAudioMenuReloadKeepsDraftAndInitializesNewProjectState) {
+        write("other.rml", R"rml(<rml><head><style>
+            body {font-family: Comet; font-weight: bold;}
+            button {width: 200px; height: 45px;} #dialog {display: none;}
+            </style></head><body data-model="ui">
+            <div id="probe">{{probe}}</div>
+            <button id="launch" data-event-click="command('open')">Open</button>
+            <div id="dialog"><div id="card"><div id="volume">{{audio_master}}</div>
+            <button id="reduce" data-event-click="command('audio_master',42)">Reduce</button>
+            <button id="save" data-event-click="command('audio_apply')">Save</button>
+            <button id="dismiss" data-event-click="command('cancel')">Cancel</button>
+            </div></div></body></rml>)rml");
+        const auto controller = [](const std::string& project_state) {
+            return R"lua(return ui.settings {input=false,audio=true,
+                elements={open="launch",menu="dialog",panel="card",cancel="dismiss"},
+                model={probe=""},state={)lua"
+                   + project_state + R"lua(},
+                on_mount=function(self,api)
+                    api.set("probe",string.format("%g/%s/%s",self.state.kept,
+                        tostring(self.state.added),tostring(self.state.changed)))
+                end,
+            })lua";
+        };
+        write("other.ui.lua", controller("kept=3,changed='old'"));
+        audio_services = true;
+        create_ui({}, {"ui/other.rml", "ui/other.ui.lua"});
+        click("launch");
+        click("reduce");
+        EXPECT_EQ(document().GetElementById("volume")->GetInnerRML(), "42");
+        write("other.ui.lua", controller("kept=0,added=7,changed=9"));
+        ASSERT_TRUE(ui->reload());
+        ASSERT_TRUE(submit_frame());
+        EXPECT_TRUE(ui->is_modal());
+        EXPECT_EQ(document().GetElementById("volume")->GetInnerRML(), "42");
+        EXPECT_EQ(document().GetElementById("probe")->GetInnerRML(), "3/7/9");
+        EXPECT_EQ(loads, 0u);
+        EXPECT_EQ(audio_applications, 0u);
+        click("save");
+        EXPECT_EQ(audio_applications, 1u);
+        EXPECT_FLOAT_EQ(saved_audio.master_volume, 0.42f);
+        EXPECT_TRUE(ui->is_modal());
+        click("dismiss");
+        EXPECT_FALSE(ui->is_modal());
+        EXPECT_TRUE(submitted.empty());
+    }
+
     TEST_F(ProjectUiGpuTest, CaptureStopsTheCurrentInputBatchAndUsesTheFollowingFrame) {
         auto& window = engine->get_window();
         glfwFocusWindow(window.get());
@@ -961,9 +1054,15 @@ return controller
         auto* key = document().GetElementById("key-" + action.bindings.front().id.to_string());
         ASSERT_NE(key, nullptr);
         EXPECT_EQ(Rml::GetContext(0)->GetFocusElement(), key);
-        queue_key(GLFW_KEY_ENTER);
-        queue_key(GLFW_KEY_TAB);
-        queue_key(GLFW_KEY_ENTER);
+        pending_input = [](GLFWwindow* native_window) {
+            const auto callback = glfwSetKeyCallback(native_window, nullptr);
+            glfwSetKeyCallback(native_window, callback);
+            ASSERT_NE(callback, nullptr);
+            for(const int key : {GLFW_KEY_ENTER, GLFW_KEY_TAB, GLFW_KEY_ENTER}) {
+                callback(native_window, key, 0, GLFW_PRESS, 0);
+                callback(native_window, key, 0, GLFW_RELEASE, 0);
+            }
+        };
         ASSERT_TRUE(submit_frame());
         EXPECT_TRUE(submitted.empty());
         EXPECT_TRUE(ui->is_modal());
@@ -1001,6 +1100,79 @@ return controller
         EXPECT_EQ(loads, 1u);
         EXPECT_EQ(&document(), live);
         ASSERT_TRUE(submit_frame());
+    }
+
+    TEST_F(ProjectUiGpuTest, CandidateReadsSettingsWithoutPublishingHostMutations) {
+        display_services = quality_services = audio_services = true;
+        saved_display = {960, 540, WindowMode::Windowed, true};
+        saved_quality.render_scale = 0.75f;
+        saved_audio = {0.25f, 0.5f, 0.75f};
+        write("other.rml", R"rml(<rml><head><style>
+            body {font-family: Comet; font-weight: bold;}
+            </style></head><body data-model="ui"><div id="readback">{{readback}}</div>
+            </body></rml>)rml");
+        const std::string before_mutation = R"lua(return {model={readback=""},
+            on_mount=function(self,ui)
+                assert(ui.display_settings().width == 960)
+                assert(ui.quality_settings().render_scale == 0.75)
+                local audio = ui.audio_settings()
+                assert(audio.master_volume == 0.25 and audio.effects_volume == 0.5
+                    and audio.music_volume == 0.75 and audio.defaults and audio.active)
+                ui.set("readback", "ready")
+        )lua";
+        const auto controller = [&](const std::string& mutation) {
+            return before_mutation + mutation + "\nend}";
+        };
+        write("other.ui.lua", controller(""));
+        create_ui({}, {"ui/other.rml", "ui/other.ui.lua"});
+        auto* live = &document();
+        EXPECT_EQ(live->GetElementById("readback")->GetInnerRML(), "ready");
+        for(const auto* mutation : {"ui.audio_apply(1, 1, 1)", "ui.quality_apply(1, 1, 1)",
+                "ui.display_apply(800, 600, 'windowed', true)", "ui.display_confirm()",
+                "ui.display_revert()"}) {
+            SCOPED_TRACE(mutation);
+            write("other.ui.lua", controller(mutation));
+            const auto rejected = ui->reload();
+            ASSERT_FALSE(rejected);
+            EXPECT_NE(rejected.error().find("before controller publication"), std::string::npos);
+            EXPECT_EQ(&document(), live);
+            EXPECT_EQ(audio_applications, 0u);
+            EXPECT_EQ(quality_applications, 0u);
+            EXPECT_EQ(display_applications, 0u);
+            EXPECT_EQ(saved_audio, (AudioSettings{0.25f, 0.5f, 0.75f}));
+            ASSERT_TRUE(submit_frame());
+        }
+        write("other.ui.lua", controller(""));
+        ASSERT_TRUE(ui->reload());
+        EXPECT_EQ(document().GetElementById("readback")->GetInnerRML(), "ready");
+    }
+
+    TEST_F(ProjectUiGpuTest, FocusFirstSkipsControlsThatDeclineFocus) {
+        write("other.rml", R"rml(<rml><head><style>
+            body {font-family: Comet; font-weight: bold;}
+            button {tab-index: auto; display: block; height: 30dp;}
+            #decorative {focus: none;}
+            </style></head><body data-model="ui"><div id="panel">
+            <button id="decorative">Decoration</button><button id="disabled" disabled>Disabled</button>
+            <button id="action" data-event-click="command('apply')">Apply</button>
+            <div>{{result}}</div></div></body></rml>)rml");
+        write("other.ui.lua", R"lua(return {model={result=""},
+            on_mount=function(self,ui) ui.modal(true) end,
+            on_present=function(self,ui)
+                if not ui.has_focus("panel") then ui.focus_first("panel") end
+            end,
+            on_event=function(self,ui,operation)
+                if operation == "apply" then ui.set("result", "activated") end
+            end})lua");
+        create_ui({}, {"ui/other.rml", "ui/other.ui.lua"});
+        auto& context = *Rml::GetContext(0);
+        EXPECT_EQ(context.GetFocusElement(), document().GetElementById("action"));
+        queue_key(GLFW_KEY_ENTER);
+        ASSERT_TRUE(submit_frame());
+        EXPECT_NE(document().GetInnerRML().find("activated"), std::string::npos);
+        context.GetFocusElement()->Blur();
+        ASSERT_TRUE(submit_frame());
+        EXPECT_EQ(context.GetFocusElement(), document().GetElementById("action"));
     }
 
     TEST_F(ProjectUiGpuTest, QueuedStructuralEditsDiagnoseRemovedTargets) {

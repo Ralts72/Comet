@@ -7,6 +7,13 @@
 #include <cstring>
 
 namespace Comet {
+    class GPUBuffer final: public Buffer {
+    private:
+        friend class Buffer;
+
+        GPUBuffer(Device& device, size_t size, Allocator::BufferAllocation allocation);
+    };
+
     namespace {
         vk::BufferCreateInfo build_buffer_create_info(
             const Flags<BufferUsage> usage, const size_t size) {
@@ -46,10 +53,6 @@ namespace Comet {
         m_buffer = allocation.buffer;
         m_mapped_data = allocation.mapped_data;
         m_allocation = std::move(allocation.allocation);
-    }
-
-    CPUBuffer::~CPUBuffer() {
-        m_mapped_data = nullptr;
     }
 
     std::shared_ptr<Buffer> Buffer::create_cpu_buffer(Device& device,

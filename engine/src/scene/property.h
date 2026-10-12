@@ -30,8 +30,6 @@ namespace Comet {
 
     using PropertyValue = std::variant<bool, float, Math::Vec3, Math::Vec4, AssetHandle,
         std::string, ParameterMap, EntityUuid>;
-    [[nodiscard]] COMET_API bool property_values_equal(
-        const PropertyValue& left, const PropertyValue& right);
 
     struct NumericPropertyMetadata {
         float speed = 0.1f;

@@ -1,5 +1,6 @@
 #include "ui/lua_controller.h"
 #include "common/file_io.h"
+#include "ui/settings_source.h"
 
 extern "C" {
 #include <lua.h>
@@ -188,6 +189,12 @@ namespace Comet::Ui::Detail {
                 lua_pushnil(state);
                 lua_setglobal(state, name);
             }
+            if(luaL_loadbufferx(state, settings_source, sizeof(settings_source) - 1,
+                   "@engine/ui/settings.lua", "t")
+                != LUA_OK)
+                return lua_error(state);
+            lua_call(state, 0, 1);
+            lua_setglobal(state, "ui");
             if(luaL_loadbufferx(
                    state, vm.m_source.data(), vm.m_source.size(), vm.m_name.c_str(), "t")
                 != LUA_OK)
@@ -195,9 +202,9 @@ namespace Comet::Ui::Detail {
             lua_call(state, 0, 1);
             if(!lua_istable(state, -1))
                 return luaL_error(state, "UI controller must return a table");
-            for(const auto* method :
-                {"on_mount", "on_frame", "on_present", "on_event", "on_input_result",
-                    "on_display_result", "on_reload_error", "on_deactivate", "on_destroy"}) {
+            for(const auto* method : {"on_mount", "on_frame", "on_present", "on_event",
+                    "on_input_result", "on_display_result", "on_quality_result", "on_audio_result",
+                    "on_reload_error", "on_deactivate", "on_destroy"}) {
                 lua_getfield(state, -1, method);
                 const bool valid = lua_isnil(state, -1) || lua_isfunction(state, -1);
                 lua_pop(state, 1);
@@ -235,10 +242,20 @@ namespace Comet::Ui::Detail {
             auto& vm = current(state);
             lua_rawgeti(state, LUA_REGISTRYINDEX, vm.m_definition);
             if(!vm.m_saved_state.empty()) {
-                lua_newtable(state);
+                lua_getfield(state, -1, "state");
+                if(!lua_istable(state, -1)) {
+                    lua_pop(state, 1);
+                    lua_newtable(state);
+                }
                 for(const auto& [name, value] : vm.m_saved_state) {
+                    lua_getfield(state, -1, name.c_str());
+                    const auto type = lua_type(state, -1);
+                    lua_pop(state, 1);
                     push_scalar(state, value);
-                    lua_setfield(state, -2, name.c_str());
+                    if(type == LUA_TNIL || type == lua_type(state, -1))
+                        lua_setfield(state, -2, name.c_str());
+                    else
+                        lua_pop(state, 1);
                 }
                 lua_setfield(state, -2, "state");
                 vm.m_saved_state.clear();

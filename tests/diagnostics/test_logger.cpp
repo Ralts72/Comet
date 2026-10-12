@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#include "config/config.h"
 #include "diagnostics/logger.h"
 #include "diagnostics/diagnostics.h"
 #include "common/file_io.h"
@@ -22,7 +21,7 @@ protected:
 TEST_F(LoggerTest, InitUsesExplicitConfig) {
     Logger::shutdown();
 
-    Config::Log config;
+    LogSettings config;
     config.enable_file_logging = false;
     config.level = "error";
 
@@ -35,7 +34,7 @@ TEST_F(LoggerTest, InitUsesExplicitConfig) {
 }
 
 TEST_F(LoggerTest, GettersDoNotImplicitlyInitializeAfterShutdown) {
-    Config::Log config;
+    LogSettings config;
     config.enable_file_logging = false;
     config.level = "info";
 
@@ -52,7 +51,7 @@ TEST_F(LoggerTest, GettersDoNotImplicitlyInitializeAfterShutdown) {
 TEST_F(LoggerTest, CreatesProfilerLoggerOnlyWhenRuntimeProfilingIsEnabled) {
     Logger::shutdown();
 
-    Config::Log config;
+    LogSettings config;
     config.enable_file_logging = false;
 
     Logger::init(config, false);
@@ -70,7 +69,7 @@ TEST_F(LoggerTest, CreatesProfilerLoggerOnlyWhenRuntimeProfilingIsEnabled) {
 TEST_F(LoggerTest, OperationalMacrosRemainAvailableInOptimizedBuilds) {
     Logger::shutdown();
 
-    Config::Log config;
+    LogSettings config;
     config.enable_file_logging = false;
     config.level = "info";
     Logger::init(config);
@@ -95,7 +94,7 @@ TEST_F(LoggerTest, OrdinaryAndProfilerFilesFollowEachProject) {
     Tests::TemporaryDirectory directory;
     for(const auto* project : {"first", "second"}) {
         const ProjectPaths paths(directory.path() / project);
-        Config::Diagnostics config;
+        DiagnosticsSettings config;
         config.log.directory = paths.logs();
         config.enable_profiler = true;
         std::filesystem::path log_path;
@@ -132,7 +131,7 @@ TEST_F(LoggerTest, MissingDirectoryOrDisabledFileLoggingDoesNotCreateFiles) {
     Logger::shutdown();
     Tests::TemporaryDirectory directory;
     const ScopeExit shutdown([] { Logger::shutdown(); });
-    Config::Log config;
+    LogSettings config;
     Logger::init(config, true);
     EXPECT_NE(Logger::get_console_logger(), nullptr);
     EXPECT_TRUE(Logger::get_log_file_path().empty());
@@ -151,7 +150,7 @@ TEST_F(LoggerTest, UnwritableDirectoryKeepsConsoleLogging) {
     const ScopeExit shutdown([] { Logger::shutdown(); });
     const auto blocked = directory.path() / "not-a-directory";
     ASSERT_TRUE(write_text_file_atomic(blocked, "preserved"));
-    Config::Log config;
+    LogSettings config;
     config.directory = blocked / "logs";
     ::testing::internal::CaptureStderr();
     Logger::init(config, true);

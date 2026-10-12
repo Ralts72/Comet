@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common/export.h"
-#include "diagnostics/log_settings.h"
+#include "diagnostics/diagnostics.h"
 #include "asset/import/asset_task_types.h"
 #include "core/window_settings.h"
 #include "graphics/vulkan_settings.h"
@@ -12,11 +12,7 @@ namespace Comet {
     public:
         using Log = LogSettings;
 
-        struct Diagnostics {
-            Log log;
-            bool enable_profiler = false;
-            bool enable_render_diagnostics = false;
-        };
+        using Diagnostics = DiagnosticsSettings;
 
         using Window = WindowSettings;
         using Vulkan = VulkanSettings;

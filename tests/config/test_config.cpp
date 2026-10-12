@@ -8,7 +8,6 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
-#include <random>
 #include <string>
 #include <string_view>
 
@@ -18,23 +17,15 @@ namespace {
     class TemporaryConfigFile final {
     public:
         explicit TemporaryConfigFile(const std::string& contents) {
-            const auto id = std::random_device{}();
-            m_path = std::filesystem::temp_directory_path()
-                     / ("comet_config_test_" + std::to_string(id) + ".json");
-
             std::ofstream output(m_path);
             output << "{\"test\": " << contents << '}';
-        }
-
-        ~TemporaryConfigFile() {
-            std::error_code error;
-            std::filesystem::remove(m_path, error);
         }
 
         [[nodiscard]] std::string path() const { return m_path.string(); }
 
     private:
-        std::filesystem::path m_path;
+        Comet::Tests::TemporaryDirectory m_directory;
+        std::filesystem::path m_path = m_directory.path() / "config.json";
     };
 }
 
@@ -241,7 +232,7 @@ TEST(ConfigTest, RejectsPlayerSettingsAndUnknownDeveloperKeys) {
         ASSERT_FALSE(result);
         EXPECT_NE(result.error().find(file.path()), std::string::npos);
         EXPECT_NE(result.error().find(key), std::string::npos);
-        EXPECT_NE(result.error().find("unknown developer setting"), std::string::npos);
+        EXPECT_NE(result.error().find("unknown field"), std::string::npos);
     }
 }
 

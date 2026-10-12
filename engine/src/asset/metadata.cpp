@@ -1,6 +1,18 @@
 #include "asset/metadata.h"
 
+#include <algorithm>
+#include <cctype>
+#include <string>
+
 namespace Comet {
+    namespace {
+        std::string lowercase(std::string text) {
+            std::ranges::transform(text, text.begin(),
+                [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
+            return text;
+        }
+    }
+
     std::string_view to_string(const AssetType type) noexcept {
         switch(type) {
             case AssetType::Audio:
@@ -54,6 +66,49 @@ namespace Comet {
             return TextureImportSettings{};
         }
         return std::monostate{};
+    }
+
+    std::string source_extension(const std::filesystem::path& path) {
+        return lowercase(path.extension().string());
+    }
+
+    bool is_lua_module_source(const std::filesystem::path& path) {
+        return lowercase(path.filename().string()).ends_with(".module.lua");
+    }
+
+    bool is_source_only_path(const std::filesystem::path& path) {
+        const auto extension = source_extension(path);
+        if(extension == ".bin" || extension == ".glsl" || extension == ".rml"
+            || extension == ".rcss")
+            return true;
+        if(extension != ".lua")
+            return false;
+        const auto name = lowercase(path.filename().string());
+        return name.ends_with(".ui.lua") || name.ends_with(".module.lua");
+    }
+
+    std::optional<AssetType> asset_type_from_path(const std::filesystem::path& path) {
+        const auto extension = source_extension(path);
+        if(extension == ".hdr")
+            return AssetType::Environment;
+        if(extension == ".png" || extension == ".jpg" || extension == ".jpeg")
+            return AssetType::Texture;
+        if(extension == ".mat")
+            return AssetType::Material;
+        if(extension == ".gltf" || extension == ".glb")
+            return AssetType::Mesh;
+        if(extension == ".vert" || extension == ".frag" || extension == ".comp"
+            || extension == ".geom")
+            return AssetType::Shader;
+        if(extension == ".shader")
+            return AssetType::ShaderProgram;
+        if(extension == ".lua" && !is_source_only_path(path))
+            return AssetType::Script;
+        if(extension == ".wav")
+            return AssetType::Audio;
+        if(extension == ".scene")
+            return AssetType::Scene;
+        return std::nullopt;
     }
 
     std::filesystem::path metadata_path(const std::filesystem::path& asset_path) {

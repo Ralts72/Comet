@@ -7,6 +7,7 @@
 #include "core/task_scheduler.h"
 #include "render/resource/resource_factory.h"
 #include "support/hdr_image.h"
+#include "support/temporary_directory.h"
 #include <gtest/gtest.h>
 #include <array>
 #include <fstream>
@@ -28,9 +29,8 @@ namespace Comet::Tests {
                     vk::Result::eErrorUnknown);
             }
         } factory;
-        std::filesystem::path root =
-            std::filesystem::temp_directory_path()
-            / ("comet_external_import_" + std::to_string(AssetHandle::generate().value()));
+        TemporaryDirectory directory;
+        const std::filesystem::path root = directory.path();
         ProjectPaths paths{root / "project"};
         std::filesystem::path external = root / "external";
         AssetRegistry registry;
@@ -42,11 +42,7 @@ namespace Comet::Tests {
             std::filesystem::create_directories(paths.assets() / "folder");
             std::filesystem::create_directories(external);
         }
-        void TearDown() override {
-            scheduler.wait_idle();
-            std::error_code error;
-            std::filesystem::remove_all(root, error);
-        }
+        void TearDown() override { scheduler.wait_idle(); }
         std::filesystem::path texture(const std::filesystem::path& name = "texture.png") {
             const auto target = external / name;
             std::filesystem::create_directories(target.parent_path());
@@ -102,13 +98,14 @@ namespace Comet::Tests {
         EXPECT_FALSE(std::filesystem::exists(paths.assets() / "folder/invalid.lua"));
     }
 
-    TEST_F(ExternalFileImportTest, RejectsLuaModulesAloneOrInBatchesWithoutPublishingMetadata) {
+    TEST_F(ExternalFileImportTest, RejectsSourceOnlyLuaAloneOrInBatchesWithoutPublishingMetadata) {
         const auto script = external / "actor.lua";
         std::ofstream(script) << "return {}";
-        for(const auto* name : {"shared.module.lua", "other.MODULE.LUA"}) {
-            const auto module = external / name;
-            std::ofstream(module) << "return {}";
-            for(const auto& report : {import({module}), import({script, module})}) {
+        for(const auto* name : {"shared.module.lua", "other.MODULE.LUA", ".module.lua",
+                "runtime.ui.lua", "other.UI.LUA", ".ui.lua"}) {
+            const auto source = external / name;
+            std::ofstream(source) << "return {}";
+            for(const auto& report : {import({source}), import({script, source})}) {
                 EXPECT_FALSE(report.succeeded());
                 EXPECT_FALSE(report.snapshot_updated);
                 ASSERT_FALSE(report.issues.empty());
@@ -116,7 +113,7 @@ namespace Comet::Tests {
                 EXPECT_EQ(report.generated_metadata, 0u);
                 expect_empty();
             }
-            EXPECT_TRUE(std::filesystem::is_regular_file(module));
+            EXPECT_TRUE(std::filesystem::is_regular_file(source));
             EXPECT_FALSE(std::filesystem::exists(metadata_path(paths.assets() / "folder" / name)));
         }
     }

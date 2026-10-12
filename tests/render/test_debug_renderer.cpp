@@ -9,6 +9,7 @@
 #include "render/render_target.h"
 #include "render/resource/render_resources.h"
 #include "graphics/render_pass.h"
+#include "graphics/swapchain.h"
 #include "graphics/device.h"
 #include "core/window.h"
 #include "diagnostics/logger.h"

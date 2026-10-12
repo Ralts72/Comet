@@ -128,15 +128,6 @@ namespace Comet {
         Linear = 1,
     };
 
-    enum class ImageViewType {
-        Dim1,
-        Dim2,
-        Dim3,
-        Dim2Array,
-        Cube,
-        CubeArray,
-    };
-
     enum class ImageUsage {
         CopySrc = 0x01,
         CopyDst = 0x02,
@@ -407,28 +398,6 @@ namespace Comet {
         PVRTC2_4BPP_SRGB_BLOCK_IMG = 1000054007,
     };
 
-    enum class DepthCompare {
-        DecrementClamp,
-        DecrementWrap,
-        Invert,
-        IncrementClamp,
-        IncrementWrap,
-        Keep,
-        Replace,
-        Zero,
-    };
-
-    enum class StencilOp {
-        Keep,
-        Zero,
-        Replace,
-        IncrementAndClamp,
-        DecrementAndClamp,
-        Invert,
-        IncrementAndWrap,
-        DecrementAndWrap,
-    };
-
     enum class CullMode {
         None = 0,
         Back = 0x01,
@@ -440,11 +409,6 @@ namespace Comet {
         CW,
     };
 
-    enum class StripIndexFormat {
-        Uint16,
-        Uint32,
-    };
-
     enum class Topology {
         LineList,
         LineStrip,
@@ -452,14 +416,6 @@ namespace Comet {
         TriangleList,
         TriangleStrip,
         TriangleFan,
-    };
-
-    enum class FlagsConstant {
-        Red = 0x01,
-        Green = 0x02,
-        Blue = 0x04,
-        Alpha = 0x08,
-        All = Red | Green | Blue | Alpha,
     };
 
     enum class BlendFactor {
@@ -518,39 +474,6 @@ namespace Comet {
         All = 0x01 | 0x02 | 0x04 | 0x08,
     };
 
-    enum class VertexFormat {
-        Uint8x2,
-        Uint8x4,
-        Sint8x2,
-        Sint8x4,
-        Unorm8x2,
-        Unorm8x4,
-        Snorm8x2,
-        Snorm8x4,
-        Uint16x2,
-        Uint16x4,
-        Sint16x2,
-        Sint16x4,
-        Unorm16x2,
-        Unorm16x4,
-        Snorm16x2,
-        Snorm16x4,
-        Float16x2,
-        Float16x4,
-        Float32,
-        Float32x2,
-        Float32x3,
-        Float32x4,
-        Uint32,
-        Uint32x2,
-        Uint32x3,
-        Uint32x4,
-        Sint32,
-        Sint32x2,
-        Sint32x3,
-        Sint32x4,
-    };
-
     enum class ShaderStage {
         Vertex = 0x01,
         TessellationControl = 0x02,
@@ -560,15 +483,6 @@ namespace Comet {
         Compute = 0x20,
         AllGraphics = 0x1F,
         All = 0x7FFFFFFF,
-    };
-
-    enum class BorderColor {
-        FloatTransparentBlack,
-        IntTransparentBlack,
-        FloatOpaqueBlack,
-        IntOpaqueBlack,
-        FloatOpaqueWhite,
-        IntOpaqueWhite,
     };
 
     enum class SamplerMipmapMode {
@@ -639,12 +553,6 @@ namespace Comet {
         None = 0,
     };
 
-    enum class Dependency {
-        ByRegionBit = 0x00000001,
-        DeviceGroupBit = 0x00000004,
-        ViewLocalBit = 0x00000002,
-    };
-
     enum class ImageLayout {
         Undefined = 0,
         General,
@@ -666,29 +574,7 @@ namespace Comet {
         AttachmentOptimal,
     };
 
-    enum class PipelineBindPoint { Graphics = 0, Compute };
-
     enum class ImageTiling { Optimal = 0, Linear };
-
-    enum class SharingMode { Exclusive = 0, Concurrent };
-
-    enum class ComponentMapping {
-        SwizzleIdentity = 0,
-        SwizzleZero,
-        SwizzleOne,
-        SwizzleR,
-        SwizzleG,
-        SwizzleB,
-        SwizzleA,
-    };
-
-    enum class ColorComponent {
-        R = 0x00000001,
-        G = 0x00000002,
-        B = 0x00000004,
-        A = 0x00000008,
-        All = R | G | B | A,
-    };
 
     enum class OutputMode { Sdr, Hdr, Auto };
 

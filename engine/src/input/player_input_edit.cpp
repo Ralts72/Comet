@@ -4,20 +4,6 @@
 #include <utility>
 
 namespace Comet {
-    namespace {
-        InputActions::Binding composed_binding(
-            const InputActions::Binding& binding, const InputOverrides::Binding& patch) {
-            auto composed = binding;
-            if(patch.control)
-                composed.control = *patch.control;
-            if(patch.scale)
-                composed.scale = *patch.scale;
-            if(patch.deadzone)
-                composed.deadzone = *patch.deadzone;
-            return composed;
-        }
-    }
-
     void PlayerInputEdit::reset(const InputActions& defaults, const InputOverrides& current,
         std::span<const Input::Key> reserved_keys) {
         m_defaults = defaults;
@@ -187,10 +173,9 @@ namespace Comet {
 
     void PlayerInputEdit::store_binding(
         const Action& action, const Binding& binding, InputOverrides::Binding patch) {
-        const auto valid =
-            InputActions::create({{action.name, action.type, {composed_binding(binding, patch)},
-                                     action.context, action.id}},
-                m_defaults.contexts());
+        const auto valid = InputActions::create(
+            {{action.name, action.type, {patch.compose(binding)}, action.context, action.id}},
+            m_defaults.contexts());
         if(!valid) {
             m_error = valid.error();
             return;

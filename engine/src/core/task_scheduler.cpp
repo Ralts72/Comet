@@ -3,7 +3,6 @@
 #include "diagnostics/logger.h"
 
 #include <algorithm>
-#include <memory>
 #include <utility>
 
 namespace Comet {
@@ -52,11 +51,7 @@ namespace Comet {
         if(!task)
             return std::nullopt;
 
-        auto scheduled_task = std::make_shared<std::packaged_task<void()>>(std::move(task));
-        auto result = scheduled_task->get_future();
-        if(!enqueue([scheduled_task] { (*scheduled_task)(); }))
-            return std::nullopt;
-        return result;
+        return try_submit_result(std::move(task));
     }
 
     bool TaskScheduler::enqueue(Task task) {

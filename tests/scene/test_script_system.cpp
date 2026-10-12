@@ -941,6 +941,63 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
+    TEST_F(ScriptSystemTest, ContactReactionCommitsBeforeTheNextFixedStepInTheSameFrame) {
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        source(R"(return {
+            on_start = function(self)
+                self.steps = 0
+                self.enters = 0
+                self.exits = 0
+            end,
+            fixed_update = function(self)
+                self.steps = self.steps + 1
+                if self.steps == 2 then
+                    assert(self.enters == 1)
+                    assert(not comet.has_rigid_body(comet.self_entity()))
+                end
+            end,
+            on_trigger_enter = function(self, other)
+                assert(other:is_valid())
+                assert(self.steps == 1)
+                self.enters = self.enters + 1
+                comet.remove_rigid_body(comet.self_entity())
+                assert(comet.has_rigid_body(comet.self_entity()))
+                comet.session_set('contact.enter.step', self.steps)
+            end,
+            on_trigger_exit = function(self, other)
+                assert(other:is_valid())
+                assert(self.steps == 2)
+                assert(not comet.has_rigid_body(comet.self_entity()))
+                self.exits = self.exits + 1
+                comet.session_set('contact.exit.step', self.steps)
+            end,
+            update = function(self)
+                assert(self.steps == 2)
+                assert(self.enters == 1 and self.exits == 1)
+                comet.session_set('contact.updated', true)
+            end
+        })");
+        auto sensor = actor();
+        sensor.add_component<RigidBodyComponent>(RigidBodyComponent{.motion = BodyMotion::Static});
+        sensor.add_component<ColliderComponent>(ColliderComponent{.is_trigger = true});
+        auto target = scene.create_entity("Target");
+        target.add_component<RigidBodyComponent>();
+        target.add_component<ColliderComponent>();
+        target.set_transform({.translation = {0, 0.3f, 0}});
+        ASSERT_TRUE(runtime.start(scene));
+        const auto advanced = runtime.advance(0.02);
+        ASSERT_TRUE(advanced) << advanced.error().message;
+        EXPECT_EQ(runtime.get_timing().fixed_steps, 2u);
+        EXPECT_EQ(runtime.get_session().get_value("contact.enter.step"), ParameterValue{1.0f});
+        EXPECT_EQ(runtime.get_session().get_value("contact.exit.step"), ParameterValue{2.0f});
+        EXPECT_EQ(runtime.get_session().get_value("contact.updated"), ParameterValue{true});
+        EXPECT_TRUE(sensor);
+        EXPECT_FALSE(sensor.has_component<RigidBodyComponent>());
+        EXPECT_TRUE(scene.get_contact_events().empty());
+        ASSERT_TRUE(runtime.advance(0));
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST_F(ScriptSystemTest, FailedContactCallbackStopsRuntimeAndClearsNotifications) {
         ASSERT_TRUE(runtime.clear_systems());
         auto candidate_system = std::make_unique<ScriptSystem>(assets);

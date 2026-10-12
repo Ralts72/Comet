@@ -44,8 +44,6 @@ namespace Comet {
         static std::atomic_bool s_enabled;
         static std::mutex s_mtx;
         static std::unordered_map<std::string, ProfileRecord> s_records;
-
-        static std::vector<ActiveBlock>& get_thread_stack();
     };
 
     class COMET_API ScopedSample {

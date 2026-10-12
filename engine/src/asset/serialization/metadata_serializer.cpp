@@ -132,10 +132,10 @@ namespace Comet {
 
     Result<void> MetadataSerializer::save(
         const AssetMetadata& metadata, const std::filesystem::path& path) const {
-        return Serialization::save(*this, metadata, path);
+        return Json::save(*this, metadata, path);
     }
 
     Result<AssetMetadata> MetadataSerializer::load(const std::filesystem::path& path) const {
-        return Serialization::load(*this, path);
+        return Json::load(*this, path);
     }
 }

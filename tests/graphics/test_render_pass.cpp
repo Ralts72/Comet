@@ -1,4 +1,5 @@
 #include "graphics/render_pass.h"
+#include "graphics/swapchain.h"
 #include "graphics/resource/image.h"
 #include "graphics/resource/image_view.h"
 #include "render/render_target.h"

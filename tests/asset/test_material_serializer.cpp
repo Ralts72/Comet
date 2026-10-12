@@ -1,5 +1,6 @@
 #include "asset/serialization/material_serializer.h"
 #include "asset/handle.h"
+#include "support/temporary_directory.h"
 
 #include <gtest/gtest.h>
 
@@ -80,22 +81,15 @@ namespace Comet::Tests {
         class TemporaryMaterial final {
         public:
             explicit TemporaryMaterial(const std::string& contents) {
-                m_path = std::filesystem::temp_directory_path()
-                         / ("comet_material_serializer_test_"
-                             + std::to_string(AssetHandle::generate().value()) + ".mat");
                 std::ofstream output(m_path, std::ios::binary);
                 output << contents;
-            }
-
-            ~TemporaryMaterial() {
-                std::error_code error;
-                std::filesystem::remove(m_path, error);
             }
 
             [[nodiscard]] const std::filesystem::path& path() const { return m_path; }
 
         private:
-            std::filesystem::path m_path;
+            TemporaryDirectory m_directory;
+            std::filesystem::path m_path = m_directory.path() / "test.mat";
         };
     }
 

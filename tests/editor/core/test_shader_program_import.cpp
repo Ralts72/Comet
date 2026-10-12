@@ -192,6 +192,65 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(prepared) << prepared.error().message;
     }
 
+    TEST_F(ShaderProgramImportTest, RejectsDescriptorChangesBeforePreparationWithoutRescan) {
+        const auto stale = request();
+        const Comet::ShaderProgramSerializer serializer;
+        const auto original = serializer.load(stale.descriptor_path);
+        ASSERT_TRUE(original);
+        for(const bool change_entry : {true, false}) {
+            SCOPED_TRACE(change_entry);
+            auto changed = original.value();
+            if(change_entry)
+                changed.fragment.entry = "renamed";
+            else
+                changed.material = Comet::ShaderProgramMaterial{};
+            ASSERT_TRUE(serializer.save(changed, stale.descriptor_path));
+            EXPECT_EQ(database.get_revision(program), stale.revision);
+
+            const auto rejected = ShaderProgramImport::prepare(paths, stale);
+            ASSERT_FALSE(rejected);
+            EXPECT_NE(rejected.error().message.find("descriptor changed"), std::string::npos);
+            EXPECT_FALSE(std::filesystem::exists(artifact_path()));
+        }
+        const auto current = request();
+        EXPECT_EQ(current.revision, stale.revision);
+        EXPECT_NE(current.descriptor_input, stale.descriptor_input);
+        const auto prepared = ShaderProgramImport::prepare(paths, current);
+        ASSERT_TRUE(prepared) << prepared.error().message;
+        EXPECT_EQ(prepared.value().artifact.inputs.files.front(), current.descriptor_input);
+        EXPECT_EQ(prepared.value().artifact.material, current.material);
+    }
+
+    TEST_F(ShaderProgramImportTest, RejectsOldDescriptorRequestEvenWhenLatestArtifactIsCached) {
+        const auto stale = request();
+        auto initial = ShaderProgramImport::prepare(paths, stale);
+        ASSERT_TRUE(initial) << initial.error().message;
+        ASSERT_TRUE(initial.value().artifact.publish_atomic(artifact_path()));
+        const auto cached = ShaderProgramImport::prepare(paths, stale);
+        ASSERT_TRUE(cached);
+        ASSERT_TRUE(cached.value().from_cache);
+
+        const Comet::ShaderProgramSerializer serializer;
+        auto changed = serializer.load(stale.descriptor_path);
+        ASSERT_TRUE(changed);
+        changed.value().material = Comet::ShaderProgramMaterial{};
+        ASSERT_TRUE(serializer.save(changed.value(), stale.descriptor_path));
+        const auto current = request();
+        EXPECT_EQ(current.revision, stale.revision);
+        auto updated = ShaderProgramImport::prepare(paths, current);
+        ASSERT_TRUE(updated) << updated.error().message;
+        EXPECT_FALSE(updated.value().from_cache);
+        ASSERT_TRUE(updated.value().artifact.publish_atomic(artifact_path()));
+
+        const auto rejected = ShaderProgramImport::prepare(paths, stale);
+        ASSERT_FALSE(rejected);
+        EXPECT_NE(rejected.error().message.find("descriptor changed"), std::string::npos);
+        const auto reused = ShaderProgramImport::prepare(paths, current);
+        ASSERT_TRUE(reused);
+        EXPECT_TRUE(reused.value().from_cache);
+        EXPECT_EQ(reused.value().artifact.inputs.files.front(), current.descriptor_input);
+    }
+
     TEST(ShaderProgramSerializerTest, RejectsUnsupportedVersionAndInvalidStageIdentity) {
         const Comet::ShaderProgramSerializer serializer;
         EXPECT_FALSE(serializer.deserialize(
@@ -377,6 +436,12 @@ namespace CometEditor::Tests {
         EXPECT_EQ(cached.value().artifact.vertex_words, published->vertex_words);
         EXPECT_EQ(cached.value().artifact.vertex_entry, published->vertex_entry);
         EXPECT_EQ(cached.value().artifact.fragment_entry, published->fragment_entry);
+        auto invalid = *published;
+        invalid.inputs.files.push_back(invalid.inputs.files.back());
+        EXPECT_FALSE(invalid.publish_atomic(artifact_path()));
+        const auto retained = Comet::ShaderProgramArtifact::load(artifact_path(), program);
+        ASSERT_TRUE(retained);
+        EXPECT_EQ(retained->inputs, published->inputs);
     }
 
     TEST_F(ShaderProgramImportTest, CorruptCacheRebuildsWithoutChangingIdentity) {

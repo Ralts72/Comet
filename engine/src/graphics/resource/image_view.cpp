@@ -2,6 +2,7 @@
 #include "graphics/device.h"
 #include "graphics/resource/image.h"
 #include "diagnostics/logger.h"
+#include "common/scope_exit.h"
 
 #include <utility>
 
@@ -50,7 +51,10 @@ namespace Comet {
             return GpuResourceResult<std::shared_ptr<ImageView>>::failure(result);
         }
 
-        std::shared_ptr<ImageView> view(new ImageView(device, std::move(image), image_view));
+        ScopeExit cleanup([&] { device.get().destroyImageView(image_view); });
+        std::unique_ptr<ImageView> candidate(new ImageView(device, std::move(image), image_view));
+        cleanup.release();
+        std::shared_ptr<ImageView> view(std::move(candidate));
         LOG_INFO("Vulkan image view created successfully");
         return GpuResourceResult<std::shared_ptr<ImageView>>::success(std::move(view));
     }

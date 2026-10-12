@@ -6,6 +6,23 @@
 #include <bit>
 
 namespace Comet {
+    class OwnedImage final: public Image {
+    public:
+        ~OwnedImage() override;
+
+    private:
+        friend class Image;
+
+        OwnedImage(Device& device, const ImageInfo& info, Allocator::ImageAllocation allocation);
+
+        Allocation m_allocation;
+    };
+
+    class BorrowedImage final: public Image {
+    public:
+        BorrowedImage(Device& device, vk::Image image, const ImageInfo& info);
+    };
+
     namespace {
         void validate_image_info(const ImageInfo& info) {
             if(info.extent.x == 0 || info.extent.y == 0 || info.extent.z == 0) {

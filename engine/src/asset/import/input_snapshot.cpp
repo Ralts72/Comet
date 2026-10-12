@@ -123,7 +123,7 @@ namespace Comet {
 
     bool import_inputs_are_current(
         const std::filesystem::path& asset_root, const ImportInputSnapshot& snapshot) {
-        if(snapshot.files.empty()) {
+        if(!snapshot.valid()) {
             return false;
         }
 
@@ -131,19 +131,8 @@ namespace Comet {
         if(!root)
             return false;
         const auto& canonical_root = root.value();
-        const std::filesystem::path source_relative =
-            snapshot.files.front().relative_path.lexically_normal();
-        std::filesystem::path previous_dependency;
-        for(std::size_t index = 0; index < snapshot.files.size(); ++index) {
-            const ImportInputFingerprint& expected = snapshot.files[index];
-            const std::filesystem::path relative = expected.relative_path.lexically_normal();
-            if(!is_safe_relative_path(relative) || relative != expected.relative_path
-                || (index > 0 && relative == source_relative)
-                || (index > 1
-                    && relative.generic_string() <= previous_dependency.generic_string())) {
-                return false;
-            }
-
+        for(const auto& expected : snapshot.files) {
+            const auto& relative = expected.relative_path;
             const std::filesystem::path absolute = canonical_root / relative;
             const auto resolved = relative_to_root(canonical_root, absolute);
             if(!resolved || resolved.value() != relative) {
@@ -152,9 +141,6 @@ namespace Comet {
             const auto current = fingerprint_file(absolute, relative);
             if(!current || *current != expected) {
                 return false;
-            }
-            if(index > 0) {
-                previous_dependency = relative;
             }
         }
         return true;

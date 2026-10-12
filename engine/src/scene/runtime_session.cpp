@@ -28,8 +28,7 @@ namespace Comet {
 
     bool RuntimeSession::set_value(const std::string_view key, ParameterValue value) {
         if(!is_active() || !valid_parameter_name(key) || !valid_parameter_value(value)
-            || std::holds_alternative<EntityUuid>(value)
-            || std::holds_alternative<Math::Vec4>(value))
+            || std::holds_alternative<Uuid>(value) || std::holds_alternative<Math::Vec4>(value))
             return false;
         if(m_values.size() >= 128 && !m_values.contains(key))
             return false;

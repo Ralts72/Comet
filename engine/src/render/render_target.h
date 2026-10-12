@@ -1,11 +1,12 @@
 #pragma once
-#include "graphics/swapchain.h"
 #include "graphics/vk_common.h"
 #include "graphics/result.h"
 #include "core/math_utils.h"
 #include "common/export.h"
 
 #include <cstddef>
+#include <memory>
+#include <vector>
 
 namespace Comet {
     class ImageView;
@@ -13,11 +14,7 @@ namespace Comet {
     class RenderPass;
     class Device;
     class CommandBuffer;
-
-    struct RenderResource {
-        std::vector<std::shared_ptr<ImageView>> color_views;
-        std::shared_ptr<FrameBuffer> frame_buffer;
-    };
+    class Swapchain;
 
     class COMET_API RenderTarget {
     public:
@@ -53,8 +50,6 @@ namespace Comet {
             : m_device(device), m_render_pass(render_pass), m_extent(size),
               m_frame_count(frame_count), m_clear_values({}), m_current_image_index(0) {}
 
-        void clear_render_resources(std::vector<RenderResource>& resources);
-
         Device& m_device;
         RenderPass& m_render_pass;
         const Math::Vec2u m_extent;
@@ -63,56 +58,4 @@ namespace Comet {
         uint32_t m_current_image_index;
     };
 
-    class COMET_API SwapchainTarget final: public RenderTarget {
-    public:
-        ~SwapchainTarget() override;
-
-        void begin_render_target(CommandBuffer& command_buffer) override;
-
-        [[nodiscard]] std::shared_ptr<FrameBuffer> get_framebuffer(
-            const uint32_t index) const override {
-            return m_render_resources.at(index).frame_buffer;
-        }
-
-        [[nodiscard]] std::shared_ptr<ImageView> get_color_view(
-            const uint32_t index) const override {
-            return m_render_resources.at(index).color_views.back();
-        }
-
-    private:
-        friend class RenderTarget;
-
-        SwapchainTarget(Device& device, RenderPass& render_pass,
-            std::shared_ptr<Swapchain::Generation> swapchain_generation);
-
-        [[nodiscard]] GpuResourceResult<void> try_initialize();
-
-        std::shared_ptr<Swapchain::Generation> m_swapchain_generation;
-        std::vector<RenderResource> m_render_resources;
-    };
-
-    class COMET_API MultiTarget final: public RenderTarget {
-    public:
-        ~MultiTarget() override;
-
-        [[nodiscard]] std::shared_ptr<FrameBuffer> get_framebuffer(
-            const uint32_t index) const override {
-            return m_render_resources.at(index).frame_buffer;
-        }
-
-        [[nodiscard]] std::shared_ptr<ImageView> get_color_view(
-            const uint32_t index) const override {
-            return m_render_resources.at(index).color_views.back();
-        }
-
-    private:
-        friend class RenderTarget;
-
-        MultiTarget(
-            Device& device, RenderPass& render_pass, Math::Vec2u size, uint32_t frame_count);
-
-        [[nodiscard]] GpuResourceResult<void> try_initialize();
-
-        std::vector<RenderResource> m_render_resources;
-    };
 }

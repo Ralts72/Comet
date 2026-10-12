@@ -5,6 +5,7 @@
 #include "config/config.h"
 #include "graphics/context.h"
 #include "graphics/device.h"
+#include "graphics/swapchain.h"
 #include "graphics/resource/buffer.h"
 #include "graphics/resource/image.h"
 #include "graphics/resource/image_view.h"
@@ -35,7 +36,7 @@ namespace Comet::Tests {
     }
 
     class RenderGpuTest: public testing::Test {
-    protected:
+    public:
         // 测试专用 host-coherent 读回 owner，不改变生产 Buffer 的映射策略。
         class Readback final: public Buffer {
         public:
@@ -72,6 +73,7 @@ namespace Comet::Tests {
             vk::UniqueDeviceMemory memory;
             vk::UniqueBuffer native;
         };
+    protected:
         std::unique_ptr<Engine> engine;
         std::unique_ptr<RenderTestFrontend> render_frontend;
         std::ostringstream messages;
@@ -158,6 +160,7 @@ namespace Comet::Tests {
             ASSERT_TRUE(submitted) << submitted.error().message;
             frames.end_frame();
         }
+    public:
         struct FrameWait {
             Device& device;
             FrameScheduler& frames;
@@ -167,6 +170,7 @@ namespace Comet::Tests {
                 frames.wait_for_all_slots();
             }
         };
+    protected:
         static void copy_output(FrameScheduler& frames, const std::shared_ptr<Image>& image,
             const std::shared_ptr<Readback>& readback, Math::Vec2u size) {
             RenderGraph graph;

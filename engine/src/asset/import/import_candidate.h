@@ -48,6 +48,7 @@ namespace Comet {
         ShaderProgramImportSource fragment;
         std::filesystem::path descriptor_path;
         std::optional<ShaderProgramMaterial> material;
+        ImportInputFingerprint descriptor_input;
     };
     struct ShaderProgramImportFailure {
         std::string message;

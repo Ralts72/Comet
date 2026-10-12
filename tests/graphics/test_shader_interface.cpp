@@ -3,6 +3,7 @@
 #include "graphics/pipeline/shader.h"
 #include "core/engine.h"
 #include "support/engine_fixture.h"
+#include "support/render_gpu_test.h"
 #include "render/renderer.h"
 #include "render/render_context.h"
 #include "graphics/device.h"
@@ -39,7 +40,6 @@
 #include <bit>
 #include <functional>
 #include <limits>
-#include <optional>
 #include <unordered_map>
 
 namespace Comet::Tests {
@@ -873,26 +873,10 @@ namespace Comet::Tests {
         cyan.fragment_specialization = {{1, 1.0f}};
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(VARIANT_COUNT);
-        vk::UniqueDeviceMemory memory;
-        auto readback =
-            device.get().createBufferUnique(vk::BufferCreateInfo({}, VARIANT_COUNT * 32 * 16 * 4,
-                vk::BufferUsageFlagBits::eTransferDst, vk::SharingMode::eExclusive));
-        const auto requirements = device.get().getBufferMemoryRequirements(*readback);
-        const auto properties = context.get_context().get_physical_device().getMemoryProperties();
-        const auto required =
-            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent;
-        std::optional<uint32_t> memory_type;
-        for(uint32_t index = 0; index < properties.memoryTypeCount; ++index) {
-            if((requirements.memoryTypeBits & (1u << index))
-                && (properties.memoryTypes[index].propertyFlags & required) == required) {
-                memory_type = index;
-                break;
-            }
-        }
-        ASSERT_TRUE(memory_type);
-        memory = device.get().allocateMemoryUnique(
-            vk::MemoryAllocateInfo(requirements.size, *memory_type));
-        device.get().bindBufferMemory(*readback, *memory, 0);
+        RenderGpuTest::Readback readback(
+            device, context.get_context().get_physical_device(), VARIANT_COUNT * 32 * 16 * 4);
+        ASSERT_TRUE(readback.get());
+        RenderGpuTest::FrameWait wait{device, frames};
         for(uint32_t index = 0; index < VARIANT_COUNT; ++index) {
             frames.wait_for_current_slot();
             frames.begin_frame(index);
@@ -913,7 +897,7 @@ namespace Comet::Tests {
                 vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, 0, 0, 1);
             copy.imageExtent = vk::Extent3D(32, 16, 1);
             command.get().copyImageToBuffer(target->get_color_view(index)->get_image()->get(),
-                vk::ImageLayout::eTransferSrcOptimal, *readback, copy);
+                vk::ImageLayout::eTransferSrcOptimal, readback.get(), copy);
             barrier = vk::MemoryBarrier(
                 vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eHostRead);
             command.get().pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
@@ -924,8 +908,7 @@ namespace Comet::Tests {
             frames.end_frame();
         }
         frames.wait_for_all_slots();
-        const auto* pixels =
-            static_cast<const uint8_t*>(device.get().mapMemory(*memory, 0, VK_WHOLE_SIZE));
+        const auto pixels = readback.read();
         for(uint32_t frame = 0; frame < VARIANT_COUNT; ++frame) {
             for(uint32_t x = 0; x < 32; ++x) {
                 const auto offset = (frame * 32 * 16 + 8 * 32 + x) * 4;
@@ -936,12 +919,12 @@ namespace Comet::Tests {
                     expected_red = 255;
                 else if(cyan_pixel)
                     expected_red = 128;
-                EXPECT_NEAR(pixels[offset], expected_red, 1) << frame << ":" << x;
-                EXPECT_EQ(pixels[offset + 1], cyan_pixel ? 255 : 0);
-                EXPECT_EQ(pixels[offset + 2], cyan_pixel ? 255 : 0);
+                EXPECT_NEAR(std::to_integer<int>(pixels[offset]), expected_red, 1)
+                    << frame << ":" << x;
+                EXPECT_EQ(std::to_integer<int>(pixels[offset + 1]), cyan_pixel ? 255 : 0);
+                EXPECT_EQ(std::to_integer<int>(pixels[offset + 2]), cyan_pixel ? 255 : 0);
             }
         }
-        device.get().unmapMemory(*memory);
     }
 
     TEST_F(ShaderPipelineTest, SelectsSubpassAsPartOfPipelineState) {

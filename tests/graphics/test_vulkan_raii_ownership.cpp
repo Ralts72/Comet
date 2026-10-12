@@ -40,11 +40,8 @@ namespace {
         && std::is_move_constructible_v<T> && std::is_move_assignable_v<T>;
 
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<Buffer>);
-    static_assert(NONCOPYABLE_IMMOVABLE_OWNER<GPUBuffer>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<CPUBuffer>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<Image>);
-    static_assert(NONCOPYABLE_IMMOVABLE_OWNER<OwnedImage>);
-    static_assert(NONCOPYABLE_IMMOVABLE_OWNER<BorrowedImage>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<ImageView>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<Sampler>);
     static_assert(NONCOPYABLE_IMMOVABLE_OWNER<Shader>);

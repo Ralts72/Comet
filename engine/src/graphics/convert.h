@@ -19,8 +19,6 @@ namespace Comet::Graphics {
 
     COMET_API Format vk_to_format(vk::Format format);
 
-    vk::ImageViewType image_view_type_to_vk(ImageViewType type);
-
     vk::PrimitiveTopology primitive_topology_to_vk(Topology topology);
 
     vk::PolygonMode polygon_mode_to_vk(PolygonMode mode);
@@ -31,19 +29,13 @@ namespace Comet::Graphics {
 
     vk::BlendFactor blend_factor_to_vk(BlendFactor factor);
 
-    vk::StencilOp stencil_op_to_vk(StencilOp op);
-
     vk::AttachmentLoadOp attachment_load_op_to_vk(AttachmentLoadOp op);
 
     vk::AttachmentStoreOp attachment_store_op_to_vk(AttachmentStoreOp op);
 
     vk::IndexType index_type_to_vk(IndexType type);
 
-    vk::Format vertex_format_to_vk(VertexFormat format);
-
     vk::ShaderStageFlags shader_stage_to_vk(Flags<ShaderStage> flags);
-
-    vk::BorderColor border_color_to_vk(BorderColor color);
 
     vk::SamplerMipmapMode sampler_mipmap_mode_to_vk(SamplerMipmapMode mode);
 
@@ -66,19 +58,9 @@ namespace Comet::Graphics {
 
     vk::AccessFlags2 access_to_vk2(Flags<Access> flags);
 
-    vk::DependencyFlags dependency_to_vk(Flags<Dependency> flags);
-
     vk::ImageLayout image_layout_to_vk(ImageLayout layout);
 
-    vk::PipelineBindPoint pipeline_bind_point_to_vk(PipelineBindPoint point);
-
     vk::ImageTiling image_tiling_to_vk(ImageTiling tiling);
-
-    vk::SharingMode sharing_mode_to_vk(SharingMode mode);
-
-    vk::ComponentSwizzle component_mapping_to_vk(ComponentMapping swizzle);
-
-    vk::ColorComponentFlags component_mask_to_vk(Flags<ColorComponent> flags);
 
     vk::ColorSpaceKHR image_color_space_to_vk(ImageColorSpace space);
 
@@ -90,5 +72,4 @@ namespace Comet::Graphics {
 
     vk::PresentModeKHR present_mode_to_vk(PresentMode mode);
 
-    PresentMode vk_to_present_mode(vk::PresentModeKHR mode);
 }

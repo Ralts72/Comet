@@ -467,10 +467,7 @@ namespace Comet::Tests {
         const std::shared_ptr<Texture> original = loaded_asset(manager.load_texture(handle));
         ASSERT_NE(original, nullptr);
 
-        std::promise<void> release_worker;
-        const std::shared_future<void> worker_gate = release_worker.get_future().share();
-        auto blocker = task_scheduler.try_submit([worker_gate] { worker_gate.wait(); });
-        ASSERT_TRUE(blocker);
+        BlockedWorker blocker(task_scheduler);
 
         TemporaryProject::replace_texture(texture_path);
         const AssetScanReport first_refresh = manager.scan();
@@ -483,9 +480,8 @@ namespace Comet::Tests {
         EXPECT_GT(manager.get_database().get_revision(handle), first_revision);
         EXPECT_TRUE(registry.resolve<Texture>(handle) == original);
 
-        release_worker.set_value();
+        blocker.release();
         task_scheduler.wait_idle();
-        blocker->get();
         completed_handles(manager.process_completions());
         task_scheduler.wait_idle();
         completed_handles(manager.process_completions());

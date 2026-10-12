@@ -16,7 +16,6 @@ namespace Comet {
         inline constexpr std::size_t MAX_GROUP_BYTES = 8 * MAX_SOURCE_BYTES;
         inline constexpr std::size_t MAX_GROUP_FILES = 256;
         inline constexpr std::size_t MAX_GROUP_ROOTS = 128;
-        bool is_module_path(const std::filesystem::path& path);
         bool safe_source_path(const std::filesystem::path& path);
         Result<std::filesystem::path> resolve_source(
             const std::filesystem::path& root, const std::filesystem::path& relative);

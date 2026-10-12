@@ -1,11 +1,10 @@
 #include "scene/entity_reference.h"
 #include "scene/scene.h"
+#include "ui/widgets.h"
 
 #include <imgui.h>
 #include <algorithm>
-#include <cstring>
 #include <string>
-#include <type_traits>
 #include <vector>
 
 namespace CometEditor {
@@ -30,15 +29,11 @@ namespace CometEditor {
         if(!ImGui::BeginDragDropTarget())
             return std::nullopt;
         std::optional<Comet::EntityUuid> result;
-        const auto* payload = ImGui::GetDragDropPayload();
-        if(payload && payload->IsDataType(EntityDragPayload::TYPE) && payload->Data
-            && payload->DataSize == sizeof(EntityDragPayload)) {
-            static_assert(std::is_trivially_copyable_v<EntityDragPayload>);
-            EntityDragPayload source;
-            std::memcpy(&source, payload->Data, sizeof(source));
-            if(source.generation == generation && scene.find_entity(source.entity)
+        if(const auto source =
+                Ui::read_drag_payload<EntityDragPayload>(ImGui::GetDragDropPayload())) {
+            if(source->generation == generation && scene.find_entity(source->entity)
                 && ImGui::AcceptDragDropPayload(EntityDragPayload::TYPE))
-                result = source.entity;
+                result = source->entity;
         }
         ImGui::EndDragDropTarget();
         return result;

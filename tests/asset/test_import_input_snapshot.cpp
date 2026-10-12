@@ -1,6 +1,7 @@
 #include "asset/import/input_snapshot.h"
 
 #include "asset/handle.h"
+#include "support/temporary_directory.h"
 
 #include <gtest/gtest.h>
 
@@ -8,24 +9,17 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
 
 namespace Comet::Tests {
     namespace {
         class TemporaryInputProject final {
         public:
-            TemporaryInputProject() {
-                m_root = std::filesystem::temp_directory_path()
-                         / ("comet_import_input_snapshot_test_"
-                             + std::to_string(AssetHandle::generate().value()));
-                std::filesystem::create_directories(m_root / "assets");
-            }
+            TemporaryInputProject() { std::filesystem::create_directories(assets()); }
 
-            ~TemporaryInputProject() {
-                std::error_code error;
-                std::filesystem::remove_all(m_root, error);
+            [[nodiscard]] std::filesystem::path assets() const {
+                return m_directory.path() / "assets";
             }
-
-            [[nodiscard]] std::filesystem::path assets() const { return m_root / "assets"; }
 
             [[nodiscard]] std::filesystem::path write(
                 const std::filesystem::path& relative_path, const std::string& contents) const {
@@ -37,7 +31,7 @@ namespace Comet::Tests {
             }
 
         private:
-            std::filesystem::path m_root;
+            TemporaryDirectory m_directory;
         };
     }
 
@@ -77,5 +71,30 @@ namespace Comet::Tests {
 
         const std::array dependencies{outside};
         EXPECT_FALSE(capture_import_inputs(project.assets(), source, dependencies));
+    }
+
+    TEST(ImportInputSnapshotTest, RejectsMalformedManifestEvenWhenFilesExist) {
+        const TemporaryInputProject project;
+        const auto source = project.write("meshes/model.gltf", "source");
+        const std::array dependencies{
+            project.write("buffers/a.bin", "first"), project.write("buffers/b.bin", "second")};
+        const auto captured = capture_import_inputs(project.assets(), source, dependencies);
+        ASSERT_TRUE(captured);
+
+        for(const auto& path :
+            {std::filesystem::path{}, source, std::filesystem::path("buffers/../buffers/a.bin"),
+                std::filesystem::path("meshes/model.gltf")}) {
+            auto invalid = captured.value();
+            invalid.files[1].relative_path = path;
+            EXPECT_FALSE(import_inputs_are_current(project.assets(), invalid))
+                << path.generic_string();
+        }
+        auto duplicate = captured.value();
+        duplicate.files.push_back(duplicate.files.back());
+        EXPECT_FALSE(import_inputs_are_current(project.assets(), duplicate));
+        auto reordered = captured.value();
+        std::swap(reordered.files[1], reordered.files[2]);
+        EXPECT_FALSE(import_inputs_are_current(project.assets(), reordered));
+        EXPECT_FALSE(import_inputs_are_current(project.assets(), {}));
     }
 }

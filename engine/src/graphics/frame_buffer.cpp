@@ -3,6 +3,7 @@
 #include "device.h"
 #include "render_pass.h"
 #include "diagnostics/logger.h"
+#include "common/scope_exit.h"
 
 #include <utility>
 
@@ -42,8 +43,11 @@ namespace Comet {
             return GpuResourceResult<std::shared_ptr<FrameBuffer>>::failure(result);
         }
 
-        std::shared_ptr<FrameBuffer> owner(
+        ScopeExit cleanup([&] { device.get().destroyFramebuffer(frame_buffer); });
+        std::unique_ptr<FrameBuffer> candidate(
             new FrameBuffer(device, image_views, width, height, frame_buffer));
+        cleanup.release();
+        std::shared_ptr<FrameBuffer> owner(std::move(candidate));
         LOG_INFO("Vulkan framebuffer created successfully");
         LOG_TRACE("Framebuffer created, width: {} height: {}  view count: {}", width, height,
             vk_image_views.size());

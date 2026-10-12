@@ -13,6 +13,7 @@
 #include "graphics/resource/image_view.h"
 #include "graphics/device.h"
 #include "graphics/render_pass.h"
+#include "graphics/swapchain.h"
 #include "graphics/attachment.h"
 #include "graphics/pipeline/pipeline.h"
 #include "graphics/convert.h"

@@ -72,18 +72,6 @@ namespace Comet::Graphics {
         return static_cast<Format>(format);
     }
 
-    vk::ImageViewType image_view_type_to_vk(const ImageViewType type) {
-        switch(type) {
-            CASE(ImageViewType::Dim1, vk::ImageViewType::e1D);
-            CASE(ImageViewType::Dim2, vk::ImageViewType::e2D);
-            CASE(ImageViewType::Dim3, vk::ImageViewType::e3D);
-            CASE(ImageViewType::Dim2Array, vk::ImageViewType::e2DArray);
-            CASE(ImageViewType::Cube, vk::ImageViewType::eCube);
-            CASE(ImageViewType::CubeArray, vk::ImageViewType::eCubeArray);
-        }
-        LOG_FATAL("can't reach");
-    }
-
     vk::PrimitiveTopology primitive_topology_to_vk(const Topology topology) {
         switch(topology) {
             CASE(Topology::LineList, vk::PrimitiveTopology::eLineList);
@@ -145,20 +133,6 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::StencilOp stencil_op_to_vk(const StencilOp op) {
-        switch(op) {
-            CASE(StencilOp::Keep, vk::StencilOp::eKeep);
-            CASE(StencilOp::Zero, vk::StencilOp::eZero);
-            CASE(StencilOp::Replace, vk::StencilOp::eReplace);
-            CASE(StencilOp::IncrementAndClamp, vk::StencilOp::eIncrementAndClamp);
-            CASE(StencilOp::DecrementAndClamp, vk::StencilOp::eDecrementAndClamp);
-            CASE(StencilOp::Invert, vk::StencilOp::eInvert);
-            CASE(StencilOp::IncrementAndWrap, vk::StencilOp::eIncrementAndWrap);
-            CASE(StencilOp::DecrementAndWrap, vk::StencilOp::eDecrementAndWrap);
-        }
-        LOG_FATAL("can't reach");
-    }
-
     vk::AttachmentLoadOp attachment_load_op_to_vk(const AttachmentLoadOp op) {
         switch(op) {
             CASE(AttachmentLoadOp::Clear, vk::AttachmentLoadOp::eClear);
@@ -184,42 +158,6 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::Format vertex_format_to_vk(const VertexFormat format) {
-        switch(format) {
-            CASE(VertexFormat::Uint8x2, vk::Format::eR8G8Uint);
-            CASE(VertexFormat::Uint8x4, vk::Format::eR8G8B8A8Uint);
-            CASE(VertexFormat::Sint8x2, vk::Format::eR8G8Sint);
-            CASE(VertexFormat::Sint8x4, vk::Format::eR8G8B8A8Sint);
-            CASE(VertexFormat::Unorm8x2, vk::Format::eR8G8Unorm);
-            CASE(VertexFormat::Unorm8x4, vk::Format::eR8G8B8A8Unorm);
-            CASE(VertexFormat::Snorm8x2, vk::Format::eR8G8Snorm);
-            CASE(VertexFormat::Snorm8x4, vk::Format::eR8G8B8A8Snorm);
-            CASE(VertexFormat::Uint16x2, vk::Format::eR16G16Uint);
-            CASE(VertexFormat::Uint16x4, vk::Format::eR16G16B16A16Uint);
-            CASE(VertexFormat::Sint16x2, vk::Format::eR16G16Sint);
-            CASE(VertexFormat::Sint16x4, vk::Format::eR16G16B16A16Sint);
-            CASE(VertexFormat::Unorm16x2, vk::Format::eR16G16Unorm);
-            CASE(VertexFormat::Unorm16x4, vk::Format::eR16G16B16A16Unorm);
-            CASE(VertexFormat::Snorm16x2, vk::Format::eR16G16Snorm);
-            CASE(VertexFormat::Snorm16x4, vk::Format::eR16G16B16A16Snorm);
-            CASE(VertexFormat::Float16x2, vk::Format::eR16G16Sfloat);
-            CASE(VertexFormat::Float16x4, vk::Format::eR16G16B16A16Sfloat);
-            CASE(VertexFormat::Float32, vk::Format::eR32Sfloat);
-            CASE(VertexFormat::Float32x2, vk::Format::eR32G32Sfloat);
-            CASE(VertexFormat::Float32x3, vk::Format::eR32G32B32Sfloat);
-            CASE(VertexFormat::Float32x4, vk::Format::eR32G32B32A32Sfloat);
-            CASE(VertexFormat::Uint32, vk::Format::eR32Uint);
-            CASE(VertexFormat::Uint32x2, vk::Format::eR32G32Uint);
-            CASE(VertexFormat::Uint32x3, vk::Format::eR32G32B32Uint);
-            CASE(VertexFormat::Uint32x4, vk::Format::eR32G32B32A32Uint);
-            CASE(VertexFormat::Sint32, vk::Format::eR32Sint);
-            CASE(VertexFormat::Sint32x2, vk::Format::eR32G32Sint);
-            CASE(VertexFormat::Sint32x3, vk::Format::eR32G32B32Sint);
-            CASE(VertexFormat::Sint32x4, vk::Format::eR32G32B32A32Sint);
-        }
-        LOG_FATAL("can't reach");
-    }
-
     vk::ShaderStageFlags shader_stage_to_vk(const Flags<ShaderStage> flags) {
         if(flags == ShaderStage::All) {
             return vk::ShaderStageFlagBits::eAll;
@@ -236,18 +174,6 @@ namespace Comet::Graphics {
         TRY_SET_BIT(ShaderStage::Fragment, vk::ShaderStageFlagBits::eFragment)
         TRY_SET_BIT(ShaderStage::Compute, vk::ShaderStageFlagBits::eCompute)
         return bits;
-    }
-
-    vk::BorderColor border_color_to_vk(const BorderColor color) {
-        switch(color) {
-            CASE(BorderColor::FloatTransparentBlack, vk::BorderColor::eFloatTransparentBlack);
-            CASE(BorderColor::IntTransparentBlack, vk::BorderColor::eIntTransparentBlack);
-            CASE(BorderColor::FloatOpaqueBlack, vk::BorderColor::eFloatOpaqueBlack);
-            CASE(BorderColor::IntOpaqueBlack, vk::BorderColor::eIntOpaqueBlack);
-            CASE(BorderColor::FloatOpaqueWhite, vk::BorderColor::eFloatOpaqueWhite);
-            CASE(BorderColor::IntOpaqueWhite, vk::BorderColor::eIntOpaqueWhite);
-        }
-        LOG_FATAL("can't reach");
     }
 
     vk::SamplerMipmapMode sampler_mipmap_mode_to_vk(const SamplerMipmapMode mode) {
@@ -271,7 +197,7 @@ namespace Comet::Graphics {
             CASE(DescriptorType::UniformBufferDynamic, vk::DescriptorType::eUniformBufferDynamic)
             CASE(DescriptorType::StoragesBufferDynamic, vk::DescriptorType::eStorageBufferDynamic)
             CASE(DescriptorType::InputAttachment, vk::DescriptorType::eInputAttachment)
-            CASE(DescriptorType::InlineUniformBlock, vk::DescriptorType::eUniformBufferDynamic)
+            CASE(DescriptorType::InlineUniformBlock, vk::DescriptorType::eInlineUniformBlock)
         }
         LOG_FATAL("can't reach");
     }
@@ -302,6 +228,7 @@ namespace Comet::Graphics {
         TRY_SET_BIT(BufferUsage::Index, vk::BufferUsageFlagBits::eIndexBuffer)
         TRY_SET_BIT(BufferUsage::Uniform, vk::BufferUsageFlagBits::eUniformBuffer)
         TRY_SET_BIT(BufferUsage::Storage, vk::BufferUsageFlagBits::eStorageBuffer)
+        TRY_SET_BIT(BufferUsage::Indirect, vk::BufferUsageFlagBits::eIndirectBuffer)
         return bits;
     }
 
@@ -404,25 +331,16 @@ namespace Comet::Graphics {
         return bits;
     }
 
-    vk::DependencyFlags dependency_to_vk(const Flags<Dependency> flags) {
-        vk::DependencyFlags bits{};
-        TRY_SET_BIT(Dependency::ByRegionBit, vk::DependencyFlagBits::eByRegion)
-        TRY_SET_BIT(Dependency::DeviceGroupBit, vk::DependencyFlagBits::eDeviceGroup)
-        TRY_SET_BIT(Dependency::ViewLocalBit, vk::DependencyFlagBits::eViewLocal)
-        return bits;
-    }
-
     vk::ImageLayout image_layout_to_vk(const ImageLayout layout) {
         switch(layout) {
             CASE(ImageLayout::Undefined, vk::ImageLayout::eUndefined)
             CASE(ImageLayout::General, vk::ImageLayout::eGeneral)
             CASE(ImageLayout::Preinitialized, vk::ImageLayout::ePreinitialized)
             CASE(ImageLayout::PresentSrcKHR, vk::ImageLayout::ePresentSrcKHR)
-            CASE(ImageLayout::AttachmentOptimal, vk::ImageLayout::eColorAttachmentOptimal)
+            CASE(ImageLayout::AttachmentOptimal, vk::ImageLayout::eAttachmentOptimal)
             CASE(ImageLayout::ReadOnly_optimal, vk::ImageLayout::eReadOnlyOptimal)
             CASE(ImageLayout::ColorAttachmentOptimal, vk::ImageLayout::eColorAttachmentOptimal)
-            CASE(ImageLayout::DepthAttachmentOptimal,
-                vk::ImageLayout::eDepthStencilAttachmentOptimal)
+            CASE(ImageLayout::DepthAttachmentOptimal, vk::ImageLayout::eDepthAttachmentOptimal)
             CASE(ImageLayout::StencilAttachmentOptimal, vk::ImageLayout::eStencilAttachmentOptimal)
             CASE(ImageLayout::TransferDstOptimal, vk::ImageLayout::eTransferDstOptimal)
             CASE(ImageLayout::TransferSrcOptimal, vk::ImageLayout::eTransferSrcOptimal)
@@ -441,50 +359,12 @@ namespace Comet::Graphics {
         LOG_FATAL("can't reach");
     }
 
-    vk::PipelineBindPoint pipeline_bind_point_to_vk(const PipelineBindPoint point) {
-        switch(point) {
-            CASE(PipelineBindPoint::Compute, vk::PipelineBindPoint::eCompute)
-            CASE(PipelineBindPoint::Graphics, vk::PipelineBindPoint::eGraphics)
-        }
-        LOG_FATAL("can't reach");
-    }
-
     vk::ImageTiling image_tiling_to_vk(const ImageTiling tiling) {
         switch(tiling) {
             CASE(ImageTiling::Linear, vk::ImageTiling::eLinear)
             CASE(ImageTiling::Optimal, vk::ImageTiling::eOptimal)
         }
         LOG_FATAL("can't reach");
-    }
-
-    vk::SharingMode sharing_mode_to_vk(const SharingMode mode) {
-        switch(mode) {
-            CASE(SharingMode::Concurrent, vk::SharingMode::eConcurrent)
-            CASE(SharingMode::Exclusive, vk::SharingMode::eExclusive)
-        }
-        LOG_FATAL("can't reach");
-    }
-
-    vk::ComponentSwizzle component_mapping_to_vk(const ComponentMapping swizzle) {
-        switch(swizzle) {
-            CASE(ComponentMapping::SwizzleZero, vk::ComponentSwizzle::eZero)
-            CASE(ComponentMapping::SwizzleOne, vk::ComponentSwizzle::eOne)
-            CASE(ComponentMapping::SwizzleIdentity, vk::ComponentSwizzle::eIdentity)
-            CASE(ComponentMapping::SwizzleR, vk::ComponentSwizzle::eR)
-            CASE(ComponentMapping::SwizzleG, vk::ComponentSwizzle::eG)
-            CASE(ComponentMapping::SwizzleB, vk::ComponentSwizzle::eB)
-            CASE(ComponentMapping::SwizzleA, vk::ComponentSwizzle::eA)
-        }
-        LOG_FATAL("can't reach");
-    }
-
-    vk::ColorComponentFlags component_mask_to_vk(const Flags<ColorComponent> flags) {
-        vk::ColorComponentFlags bits{};
-        TRY_SET_BIT(ColorComponent::R, vk::ColorComponentFlagBits::eR)
-        TRY_SET_BIT(ColorComponent::G, vk::ColorComponentFlagBits::eG)
-        TRY_SET_BIT(ColorComponent::B, vk::ColorComponentFlagBits::eB)
-        TRY_SET_BIT(ColorComponent::A, vk::ColorComponentFlagBits::eA)
-        return bits;
     }
 
     vk::ColorSpaceKHR image_color_space_to_vk(const ImageColorSpace space) {
@@ -564,22 +444,6 @@ namespace Comet::Graphics {
             CASE(PresentMode::FifoRelaxed, vk::PresentModeKHR::eFifoRelaxed);
         }
         LOG_FATAL("can't reach");
-    }
-
-    PresentMode vk_to_present_mode(const vk::PresentModeKHR mode) {
-        switch(mode) {
-            CASE(vk::PresentModeKHR::eImmediate, PresentMode::Immediate);
-            CASE(vk::PresentModeKHR::eMailbox, PresentMode::Mailbox);
-            CASE(vk::PresentModeKHR::eFifo, PresentMode::Fifo);
-            CASE(vk::PresentModeKHR::eFifoRelaxed, PresentMode::FifoRelaxed);
-            // 共享呈现模式尚未支持，回退到 FIFO。
-            case vk::PresentModeKHR::eSharedDemandRefresh:
-            case vk::PresentModeKHR::eSharedContinuousRefresh:
-                LOG_WARN("Shared present mode not fully supported, falling back to Fifo");
-                return PresentMode::Fifo;
-            default:
-                LOG_FATAL("Unknown present mode");
-        }
     }
 
 #undef CASE

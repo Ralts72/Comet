@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common/export.h"
-#include "common/serialization.h"
+#include "common/file_io.h"
 #include <simdjson.h>
 
 #include <algorithm>
@@ -15,14 +15,21 @@
 #include <string_view>
 #include <system_error>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace Comet::Json {
     using Node = simdjson::dom::element;
 
-    class COMET_API Context final: public Serialization::Context {
+    class COMET_API Context final {
     public:
-        using Serialization::Context::Context;
+        // 借用来源描述；kind 和 source 须存活到本次编解码结束。
+        Context(std::string_view kind, std::string_view source) : m_kind(kind), m_source(source) {}
+
+        std::string error(std::string_view location, std::string_view detail) const {
+            return "Invalid " + std::string(m_kind) + " '" + std::string(m_source) + "' at '"
+                   + std::string(location) + "': " + std::string(detail);
+        }
 
         Result<Node> parse(simdjson::dom::parser& parser, std::string_view contents) const;
         Result<simdjson::dom::object> object(Node node, std::string_view location) const;
@@ -40,8 +47,8 @@ namespace Comet::Json {
                 return Result<void>::failure(fields.error());
             for(const auto field : fields.value()) {
                 if(std::ranges::find(allowed, field.key) == std::ranges::end(allowed))
-                    return Result<void>::failure(
-                        error(location, "unknown field '" + std::string(field.key) + "'"));
+                    return Result<void>::failure(error(field_location(location, field.key),
+                        "unknown field '" + std::string(field.key) + "'"));
             }
             return Result<void>::success();
         }
@@ -92,13 +99,7 @@ namespace Comet::Json {
                 return Read::success(std::nullopt);
             if(status)
                 return Read::failure(error(location, simdjson::error_message(status)));
-            std::string field_location;
-            if(location != "<root>") {
-                field_location = location;
-                field_location += '.';
-            }
-            field_location += key;
-            auto value = read_scalar<T>(child, field_location, expected);
+            auto value = read_scalar<T>(child, field_location(location, key), expected);
             if(!value)
                 return Read::failure(value.error());
             return Read::success(std::move(value).value());
@@ -115,6 +116,16 @@ namespace Comet::Json {
                     error(location, "missing required field '" + std::string(key) + "'"));
             return Result<T>::success(std::move(child).value().value());
         }
+
+    private:
+        static std::string field_location(std::string_view parent, std::string_view key) {
+            if(parent.empty() || parent == "<root>")
+                return std::string(key);
+            return std::string(parent) + '.' + std::string(key);
+        }
+
+        std::string_view m_kind;
+        std::string_view m_source;
     };
 
     // simdjson 的 DOM 只读且依赖 parser；写入不持有这些借用节点。
@@ -204,6 +215,25 @@ namespace Comet::Json {
         if(!root)
             return Result<T>::failure(root.error());
         return decode(root.value(), context);
+    }
+
+    template<typename Serializer, typename Data>
+    Result<void> save(
+        const Serializer& serializer, const Data& data, const std::filesystem::path& path) {
+        auto contents = serializer.serialize(data);
+        if(!contents)
+            return Result<void>::failure(contents.error());
+        return write_text_file_atomic(path, contents.value());
+    }
+
+    template<typename Serializer>
+    auto load(const Serializer& serializer, const std::filesystem::path& path)
+        -> decltype(serializer.deserialize(std::string_view{}, std::string_view{})) {
+        using Loaded = decltype(serializer.deserialize(std::string_view{}, std::string_view{}));
+        auto contents = read_text_file(path);
+        if(!contents)
+            return Loaded::failure(contents.error());
+        return serializer.deserialize(contents.value(), path.string());
     }
 
     // 缺失文件返回 nullopt；已有文件的读取或解析错误仍须报告给调用方。

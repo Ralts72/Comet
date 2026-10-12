@@ -22,18 +22,6 @@ namespace Comet {
         constexpr std::uint32_t FORMAT_VERSION = 2;
         constexpr std::uint32_t MAX_INPUT_COUNT = 1024;
         constexpr std::uint32_t MAX_PATH_LENGTH = 16 * 1024;
-        [[nodiscard]] bool is_safe_relative_path(const std::filesystem::path& path) {
-            if(path.empty() || path.is_absolute()) {
-                return false;
-            }
-            for(const std::filesystem::path& component : path) {
-                if(component == "..") {
-                    return false;
-                }
-            }
-            return true;
-        }
-
         [[nodiscard]] std::string path_to_utf8(const std::filesystem::path& path) {
             const std::u8string value = path.generic_u8string();
             return {reinterpret_cast<const char*>(value.data()), value.size()};
@@ -68,28 +56,6 @@ namespace Comet {
             return true;
         }
 
-        [[nodiscard]] bool valid_source_inputs(const ImportInputSnapshot& snapshot) {
-            if(snapshot.files.empty() || snapshot.files.size() > MAX_INPUT_COUNT) {
-                return false;
-            }
-
-            std::filesystem::path previous_dependency;
-            for(std::size_t index = 0; index < snapshot.files.size(); ++index) {
-                const std::filesystem::path relative =
-                    snapshot.files[index].relative_path.lexically_normal();
-                if(!is_safe_relative_path(relative)
-                    || relative != snapshot.files[index].relative_path
-                    || (index > 0 && relative == snapshot.files.front().relative_path)
-                    || (index > 1
-                        && relative.generic_string() <= previous_dependency.generic_string())) {
-                    return false;
-                }
-                if(index > 0) {
-                    previous_dependency = relative;
-                }
-            }
-            return true;
-        }
     }
 
     std::optional<MeshArtifact> MeshArtifact::load(const std::filesystem::path& artifact_path,
@@ -141,13 +107,13 @@ namespace Comet {
             }
             const std::filesystem::path relative =
                 path_from_utf8(serialized_path).lexically_normal();
-            if(!is_safe_relative_path(relative) || path_to_utf8(relative) != serialized_path) {
+            if(path_to_utf8(relative) != serialized_path) {
                 return std::nullopt;
             }
             input.relative_path = relative;
             artifact.source_inputs.files.push_back(std::move(input));
         }
-        if(!valid_source_inputs(artifact.source_inputs)) {
+        if(!artifact.source_inputs.valid()) {
             return std::nullopt;
         }
 
@@ -183,7 +149,8 @@ namespace Comet {
                 "Cannot publish a mesh artifact with invalid vertex or index counts");
         }
 
-        if(!handle || importer_version == 0 || !valid_source_inputs(source_inputs)) {
+        if(!handle || importer_version == 0 || source_inputs.files.size() > MAX_INPUT_COUNT
+            || !source_inputs.valid()) {
             return Result<void>::failure(
                 "Cannot publish a mesh artifact with invalid source inputs");
         }

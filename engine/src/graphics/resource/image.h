@@ -48,22 +48,4 @@ namespace Comet {
         ImageInfo m_info;
     };
 
-    class COMET_API OwnedImage final: public Image {
-    public:
-        ~OwnedImage() override;
-
-    private:
-        friend class Image;
-
-        OwnedImage(Device& device, const ImageInfo& info, Allocator::ImageAllocation allocation);
-
-        Allocation m_allocation;
-    };
-
-    class COMET_API BorrowedImage final: public Image {
-    public:
-        BorrowedImage(Device& device, vk::Image image, const ImageInfo& info);
-
-        ~BorrowedImage() override = default;
-    };
 }

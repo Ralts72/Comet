@@ -102,7 +102,8 @@ namespace Comet {
             if(!kind)
                 return Result<void, Error>::failure({"Unknown physics contact kind"});
             if(!scene.append_contact_event({*kind, first, second}))
-                return Result<void, Error>::failure({"Too many physics contacts in one frame"});
+                return Result<void, Error>::failure(
+                    {"Too many physics contacts in one fixed step"});
         }
         return Result<void, Error>::success();
     }

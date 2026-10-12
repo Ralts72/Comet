@@ -20,20 +20,6 @@ namespace Comet {
     }
 
     namespace {
-        const char* allocation_usage_name(const AllocationUsage usage) {
-            switch(usage) {
-                case AllocationUsage::Device:
-                    return "device";
-                case AllocationUsage::Upload:
-                    return "upload";
-                case AllocationUsage::CpuToGpu:
-                    return "cpu-to-gpu";
-                case AllocationUsage::Readback:
-                    return "readback";
-            }
-            return "unknown";
-        }
-
         VmaAllocationCreateInfo build_vma_allocation_info(const AllocationCreateInfo& create_info) {
             VmaAllocationCreateInfo vma_info = {};
             switch(create_info.usage) {
@@ -102,17 +88,6 @@ namespace Comet {
         }
     }
 
-    Allocator::BufferAllocation Allocator::create_buffer(const vk::BufferCreateInfo& buffer_info,
-        const AllocationCreateInfo& allocation_info) const {
-        auto attempt = try_create_buffer(buffer_info, allocation_info);
-        if(!attempt) {
-            LOG_FATAL("Failed to create VMA buffer '{}' ({} bytes, usage {}): {}",
-                allocation_info.debug_name, buffer_info.size,
-                allocation_usage_name(allocation_info.usage), vk::to_string(attempt.result()));
-        }
-        return std::move(attempt).value();
-    }
-
     GpuResourceResult<Allocator::BufferAllocation> Allocator::try_create_buffer(
         const vk::BufferCreateInfo& buffer_info,
         const AllocationCreateInfo& allocation_info) const {
@@ -148,16 +123,6 @@ namespace Comet {
         }
     }
 
-    Allocator::ImageAllocation Allocator::create_image(
-        const vk::ImageCreateInfo& image_info, const AllocationCreateInfo& allocation_info) const {
-        auto attempt = try_create_image(image_info, allocation_info);
-        if(!attempt) {
-            LOG_FATAL("Failed to create VMA image '{}' (usage {}): {}", allocation_info.debug_name,
-                allocation_usage_name(allocation_info.usage), vk::to_string(attempt.result()));
-        }
-        return std::move(attempt).value();
-    }
-
     GpuResourceResult<Allocator::ImageAllocation> Allocator::try_create_image(
         const vk::ImageCreateInfo& image_info, const AllocationCreateInfo& allocation_info) const {
         const VmaAllocationCreateInfo vma_allocation_info =
@@ -190,27 +155,6 @@ namespace Comet {
             vmaDestroyImage(m_allocator, static_cast<VkImage>(image), allocation.m_handle);
             allocation.m_handle = VK_NULL_HANDLE;
         }
-    }
-
-    void* Allocator::map_memory(const Allocation& allocation) const {
-        if(!allocation) {
-            LOG_FATAL("Cannot map null allocation");
-        }
-
-        void* mapping = nullptr;
-        const VkResult result = vmaMapMemory(m_allocator, allocation.m_handle, &mapping);
-        if(result != VK_SUCCESS) {
-            LOG_FATAL(
-                "Failed to map allocation: {}", vk::to_string(static_cast<vk::Result>(result)));
-        }
-        return mapping;
-    }
-
-    void Allocator::unmap_memory(const Allocation& allocation) const {
-        if(!allocation) {
-            LOG_FATAL("Cannot unmap null allocation");
-        }
-        vmaUnmapMemory(m_allocator, allocation.m_handle);
     }
 
     void Allocator::flush_memory(

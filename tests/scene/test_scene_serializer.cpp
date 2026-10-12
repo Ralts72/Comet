@@ -14,7 +14,6 @@
 
 #include <filesystem>
 #include <limits>
-#include <random>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -390,46 +389,6 @@ namespace Comet::Tests {
             return SceneSerializer(component_registry());
         }
 
-        class TemporarySceneFile final {
-        public:
-            TemporarySceneFile() {
-                const auto id = std::random_device{}();
-                m_path = std::filesystem::temp_directory_path()
-                         / ("comet_scene_test_" + std::to_string(id) + ".scene");
-            }
-
-            ~TemporarySceneFile() {
-                std::error_code error;
-                std::filesystem::remove(m_path, error);
-            }
-
-            [[nodiscard]] std::string path() const { return m_path.string(); }
-
-        private:
-            std::filesystem::path m_path;
-        };
-
-        class TemporarySceneDirectory final {
-        public:
-            TemporarySceneDirectory() {
-                const auto id = std::random_device{}();
-                m_root = std::filesystem::temp_directory_path()
-                         / ("comet_scene_directory_test_" + std::to_string(id));
-            }
-
-            ~TemporarySceneDirectory() {
-                std::error_code error;
-                std::filesystem::remove_all(m_root, error);
-            }
-
-            [[nodiscard]] std::string scene_path() const {
-                return (m_root / "nested" / "untitled.scene").string();
-            }
-
-        private:
-            std::filesystem::path m_root;
-        };
-
         void expect_scene_error(const SceneSerializer& serializer, const std::string_view contents,
             const std::string_view expected_detail) {
             const auto result = serializer.deserialize(contents, "invalid.scene");
@@ -715,11 +674,12 @@ namespace Comet::Tests {
         const EntityUuid entity_uuid = uuid("00000000-0000-4000-8000-000000000040");
         Scene scene;
         ASSERT_TRUE(scene.create_entity_with_uuid(entity_uuid, "Saved"));
-        const TemporarySceneFile file;
+        const TemporaryDirectory directory;
+        const auto path = (directory.path() / "saved.scene").string();
         const SceneSerializer serializer = make_scene_serializer();
 
-        ASSERT_TRUE(serializer.save(scene, file.path()));
-        auto loaded_result = serializer.load(file.path());
+        ASSERT_TRUE(serializer.save(scene, path));
+        auto loaded_result = serializer.load(path);
         ASSERT_TRUE(loaded_result) << loaded_result.error();
         auto loaded = std::move(loaded_result).value();
 
@@ -732,8 +692,8 @@ namespace Comet::Tests {
     TEST(SceneSerializerTest, CreatesMissingParentDirectoriesWhenSaving) {
         Scene scene;
         ASSERT_TRUE(scene.create_entity("Saved"));
-        const TemporarySceneDirectory directory;
-        const std::string path = directory.scene_path();
+        const TemporaryDirectory directory;
+        const auto path = (directory.path() / "nested" / "untitled.scene").string();
         ASSERT_FALSE(std::filesystem::exists(std::filesystem::path(path).parent_path()));
 
         const SceneSerializer serializer = make_scene_serializer();
@@ -874,18 +834,19 @@ namespace Comet::Tests {
             parent = entity;
         }
         const auto serializer = make_scene_serializer();
-        const TemporarySceneFile file;
-        ASSERT_TRUE(serializer.save(scene, file.path()));
+        const TemporaryDirectory directory;
+        const auto path = (directory.path() / "depth.scene").string();
+        ASSERT_TRUE(serializer.save(scene, path));
         ASSERT_TRUE(serializer.clone(scene));
-        const auto loaded = serializer.load(file.path());
+        const auto loaded = serializer.load(path);
         ASSERT_TRUE(loaded) << loaded.error();
         EXPECT_EQ(loaded.value()->entity_count(), scene.entity_count());
         ASSERT_TRUE(scene.set_parent(scene.create_entity("Too deep"), parent));
-        EXPECT_FALSE(serializer.save(scene, file.path()));
+        EXPECT_FALSE(serializer.save(scene, path));
         const auto rejected_clone = serializer.clone(scene);
         ASSERT_FALSE(rejected_clone);
         EXPECT_NE(rejected_clone.error().find("maximum hierarchy depth"), std::string::npos);
-        const auto preserved = serializer.load(file.path());
+        const auto preserved = serializer.load(path);
         ASSERT_TRUE(preserved) << preserved.error();
         EXPECT_EQ(preserved.value()->entity_count(), SceneSerializer::MAX_HIERARCHY_DEPTH);
 

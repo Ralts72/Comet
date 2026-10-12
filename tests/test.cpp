@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#include "config/config.h"
 #include "diagnostics/diagnostics.h"
 
 #include <memory>
@@ -7,7 +6,7 @@
 class CometTestEnvironment: public ::testing::Environment {
 public:
     void SetUp() override {
-        Comet::Config::Diagnostics diagnostics_config;
+        Comet::DiagnosticsSettings diagnostics_config;
         diagnostics_config.log.enable_file_logging = false;
         diagnostics_config.log.level = "warn";
         diagnostics_config.enable_profiler = false;

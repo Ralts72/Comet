@@ -1,6 +1,6 @@
 #include "asset/import/texture_importer.h"
 #include "asset/data/texture_data.h"
-#include "asset/handle.h"
+#include "support/temporary_directory.h"
 
 #include <gtest/gtest.h>
 
@@ -67,9 +67,8 @@ namespace Comet::Tests {
     }
 
     TEST(TextureImporterTest, RejectsHugeDimensionsBeforeDecodingPixels) {
-        const auto source =
-            std::filesystem::temp_directory_path()
-            / ("comet_large_header_" + std::to_string(AssetHandle::generate().value()) + ".png");
+        const TemporaryDirectory directory;
+        const auto source = directory.path() / "large-header.png";
         const auto sample = std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
                             / "assets/textures/awesomeface.png";
         std::ifstream input(sample, std::ios::binary);
@@ -88,15 +87,11 @@ namespace Comet::Tests {
         ASSERT_FALSE(estimate);
         EXPECT_NE(estimate.error().find("working-set budget"), std::string::npos);
         EXPECT_FALSE(TextureImporter{}.import(source));
-
-        std::error_code error;
-        std::filesystem::remove(source, error);
     }
 
     TEST(TextureImporterTest, RejectsInvalidImageData) {
-        const std::filesystem::path source =
-            std::filesystem::temp_directory_path()
-            / ("comet_invalid_texture_" + std::to_string(AssetHandle::generate().value()) + ".png");
+        const TemporaryDirectory directory;
+        const auto source = directory.path() / "invalid.png";
         {
             std::ofstream output(source, std::ios::binary);
             output << "not an image";
@@ -105,8 +100,5 @@ namespace Comet::Tests {
         const auto result = TextureImporter{}.import(source);
         ASSERT_FALSE(result);
         EXPECT_NE(result.error().find(source.string()), std::string::npos);
-
-        std::error_code error;
-        std::filesystem::remove(source, error);
     }
 }

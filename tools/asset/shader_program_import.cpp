@@ -1,10 +1,13 @@
 #include "asset/shader_program_import.h"
 #include "asset/import/import_service.h"
+#include "asset/metadata.h"
 #include "asset/serialization/shader_program_serializer.h"
+#include "common/binary.h"
+#include "common/file_io.h"
 #include "shader/compiler.h"
 
 #include <algorithm>
-#include <cctype>
+#include <span>
 #include <utility>
 
 namespace Comet {
@@ -14,9 +17,7 @@ namespace Comet {
         Comet::Result<Import::Source> resolve_source(const Comet::AssetDatabase& database,
             const Comet::ShaderProgramStage& stage, const std::string_view extension) {
             const auto* record = database.find(stage.source);
-            auto actual_extension = record ? record->path.extension().string() : std::string{};
-            std::ranges::transform(actual_extension, actual_extension.begin(),
-                [](const unsigned char character) { return char(std::tolower(character)); });
+            const auto actual_extension = record ? source_extension(record->path) : std::string{};
             if(!record || record->type != Comet::AssetType::Shader || actual_extension != extension)
                 return Comet::Result<Import::Source>::failure(
                     "Shader program source handle does not reference a " + std::string(extension)
@@ -48,7 +49,11 @@ namespace Comet {
         if(!record || record->type != Comet::AssetType::ShaderProgram)
             return Comet::Result<Request>::failure("Shader program is not indexed");
         const auto descriptor_path = database.paths().assets() / record->path;
-        auto descriptor = Comet::ShaderProgramSerializer{}.load(descriptor_path);
+        const auto contents = Comet::read_text_file(descriptor_path);
+        if(!contents)
+            return Comet::Result<Request>::failure(contents.error());
+        auto descriptor = Comet::ShaderProgramSerializer{}.deserialize(
+            contents.value(), descriptor_path.string());
         if(!descriptor)
             return Comet::Result<Request>::failure(descriptor.error());
         auto vertex = resolve_source(database, descriptor.value().vertex, ".vert");
@@ -59,7 +64,9 @@ namespace Comet {
             return Comet::Result<Request>::failure(fragment.error());
         return Comet::Result<Request>::success({handle, database.get_revision(handle),
             std::move(vertex).value(), std::move(fragment).value(), descriptor_path,
-            std::move(descriptor).value().material});
+            std::move(descriptor).value().material,
+            {record->path, contents.value().size(),
+                Comet::Binary::hash_bytes(std::as_bytes(std::span(contents.value())))}});
     }
 
     Comet::Result<ShaderProgramImport::Candidate, ShaderProgramImport::Failure>
@@ -75,12 +82,14 @@ namespace Comet {
             if(auto resolved = paths.resolve_asset_path(absolute); !resolved)
                 return Prepared::failure({resolved.error(), {}});
         }
+        if(request.descriptor_input.relative_path
+                != request.descriptor_path.lexically_relative(paths.assets())
+            || !Comet::import_inputs_are_current(paths.assets(), {{request.descriptor_input}}))
+            return Prepared::failure({"Shader program descriptor changed before preparation", {}});
         if(auto cached = Comet::ShaderProgramArtifact::load(
                Comet::ImportService(paths).shader_program_artifact_path(request.handle),
                request.handle);
-            cached
-            && cached->inputs.files.front().relative_path
-                   == request.descriptor_path.lexically_relative(paths.assets())
+            cached && cached->inputs.files.front() == request.descriptor_input
             && contains_path(cached->inputs, paths.assets(), request.vertex.path)
             && contains_path(cached->inputs, paths.assets(), request.fragment.path)
             && Comet::import_inputs_are_current(paths.assets(), cached->inputs))
@@ -129,6 +138,7 @@ namespace Comet {
             return Prepared::failure({inputs.error(), std::move(watched)});
         if(!Comet::ShaderCompiler::inputs_unchanged(vertex)
             || !Comet::ShaderCompiler::inputs_unchanged(fragment)
+            || inputs.value().files.front() != request.descriptor_input
             || !Comet::import_inputs_are_current(paths.assets(), inputs.value()))
             return Prepared::failure(
                 {"Shader inputs changed during compilation", std::move(watched)});

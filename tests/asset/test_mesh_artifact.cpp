@@ -4,6 +4,7 @@
 #include "asset/handle.h"
 #include "asset/import/mesh_importer.h"
 #include "common/file_io.h"
+#include "support/temporary_directory.h"
 
 #include <gtest/gtest.h>
 
@@ -16,22 +17,14 @@ namespace Comet::Tests {
     namespace {
         class TemporaryArtifactProject final {
         public:
-            TemporaryArtifactProject() {
-                m_root = std::filesystem::temp_directory_path()
-                         / ("comet_mesh_artifact_test_"
-                             + std::to_string(AssetHandle::generate().value()));
-                std::filesystem::create_directories(asset_root());
-            }
+            TemporaryArtifactProject() { std::filesystem::create_directories(asset_root()); }
 
-            ~TemporaryArtifactProject() {
-                std::error_code error;
-                std::filesystem::remove_all(m_root, error);
+            [[nodiscard]] std::filesystem::path asset_root() const {
+                return m_directory.path() / "assets";
             }
-
-            [[nodiscard]] std::filesystem::path asset_root() const { return m_root / "assets"; }
 
             [[nodiscard]] std::filesystem::path artifact_path() const {
-                return m_root / ".comet/cache/imported/mesh/42.bin";
+                return m_directory.path() / ".comet/cache/imported/mesh/42.bin";
             }
 
             [[nodiscard]] std::filesystem::path write_source(
@@ -51,7 +44,7 @@ namespace Comet::Tests {
             }
 
         private:
-            std::filesystem::path m_root;
+            TemporaryDirectory m_directory;
         };
 
         [[nodiscard]] MeshData make_mesh_data() {
@@ -168,6 +161,13 @@ namespace Comet::Tests {
         EXPECT_EQ(previous->data.indices.front(), 0U);
 
         artifact.data.indices.front() = 0;
+        auto duplicate_source = artifact;
+        duplicate_source.source_inputs.files.push_back(
+            duplicate_source.source_inputs.files.front());
+        EXPECT_FALSE(duplicate_source.publish_atomic(project.artifact_path()));
+        const auto retained = MeshArtifact::load(project.artifact_path(), AssetHandle(42));
+        ASSERT_TRUE(retained);
+        EXPECT_EQ(retained->source_inputs, artifact.source_inputs);
         const auto blocked = source / "artifact.bin";
         const auto write = artifact.publish_atomic(blocked);
         ASSERT_FALSE(write);

@@ -1,6 +1,7 @@
 #include "core/project.h"
 #include "asset/handle.h"
 #include "common/file_io.h"
+#include "support/temporary_directory.h"
 
 #include <gtest/gtest.h>
 #include <algorithm>
@@ -12,15 +13,10 @@
 namespace Comet::Tests {
     class ProjectTest: public ::testing::Test {
     protected:
-        std::filesystem::path root =
-            std::filesystem::canonical(std::filesystem::temp_directory_path())
-            / ("comet_project_" + std::to_string(AssetHandle::generate().value()));
+        TemporaryDirectory directory;
+        const std::filesystem::path root = directory.path();
 
         void SetUp() override { std::filesystem::create_directories(root / "assets"); }
-        void TearDown() override {
-            std::error_code error;
-            std::filesystem::remove_all(root, error);
-        }
         void write(const std::string_view contents) {
             const auto saved = write_text_file_atomic(root / "project.json", contents);
             ASSERT_TRUE(saved) << saved.error();
@@ -105,6 +101,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(project.save_display_settings({0, 720}));
         std::filesystem::remove(root / "project.json");
         std::filesystem::create_directory(root / "project.json");
+        EXPECT_TRUE(project.save_display_settings(defaults));
         EXPECT_FALSE(project.save_display_settings(DisplaySettings{}));
         EXPECT_EQ(project.display_settings(), defaults);
     }
@@ -129,6 +126,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(project.save_quality_settings({3, 8, 1}));
         std::filesystem::remove(root / "project.json");
         std::filesystem::create_directory(root / "project.json");
+        EXPECT_TRUE(project.save_quality_settings(defaults));
         EXPECT_FALSE(project.save_quality_settings(QualitySettings{}));
         EXPECT_EQ(project.quality_settings(), defaults);
     }
@@ -155,6 +153,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(project.save_audio_settings({1, -1, 1}));
         std::filesystem::remove(root / "project.json");
         std::filesystem::create_directory(root / "project.json");
+        EXPECT_TRUE(project.save_audio_settings(defaults));
         EXPECT_FALSE(project.save_audio_settings(AudioSettings{}));
         EXPECT_EQ(project.audio_settings(), defaults);
     }

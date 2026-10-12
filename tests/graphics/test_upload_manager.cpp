@@ -135,8 +135,6 @@ namespace Comet::Tests {
         static_assert(std::same_as<std::invoke_result_t<UploadBufferFactory, Device&,
                                        Flags<BufferUsage>, size_t, const void*, std::string_view>,
             std::shared_ptr<CPUBuffer>>);
-        static_assert(!std::is_constructible_v<GPUBuffer, Device&, Flags<BufferUsage>, size_t,
-            std::string_view>);
         static_assert(!std::is_constructible_v<CPUBuffer, Device&, Flags<BufferUsage>, size_t,
             const void*, AllocationUsage, std::string_view>);
 

@@ -1,4 +1,5 @@
 #include "device.h"
+#include "common/scope_exit.h"
 #include "context.h"
 #include "graphics/synchronization/fence.h"
 #include "queue.h"
@@ -141,6 +142,7 @@ namespace Comet {
         device_create_info.pNext = &enabled_features;
         device_create_info.pEnabledFeatures = nullptr;
         m_device = physical_device.createDevice(device_create_info);
+        ScopeExit cleanup([this] { destroy(); });
         LOG_INFO("Vulkan logical device created successfully");
         create_allocator();
 
@@ -155,12 +157,17 @@ namespace Comet {
 
         create_pipeline_cache();
         create_default_command_pool();
+        cleanup.release();
     }
 
     Device::~Device() {
         if(m_device) {
             wait_idle_for_shutdown();
         }
+        destroy();
+    }
+
+    void Device::destroy() noexcept {
         m_default_command_pool.reset();
         m_present_queues.clear();
         m_graphics_queues.clear();

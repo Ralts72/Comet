@@ -404,50 +404,38 @@ namespace Comet {
     }
 
     Result<void> Project::save_display_settings(DisplaySettings settings) {
-        if(auto valid = settings.validate(); !valid)
-            return valid;
-        if(settings == m_display_settings)
-            return Result<void>::success();
-        auto contents = serialize(m_name, m_startup_scene, m_input_actions, settings,
-            m_quality_settings, m_audio_settings);
-        if(!contents)
-            return Result<void>::failure(contents.error());
-        if(auto saved = write_text_file_atomic(m_paths.root() / "project.json", contents.value());
-            !saved)
-            return saved;
-        m_display_settings = settings;
-        return Result<void>::success();
+        return save_player_defaults(settings, m_quality_settings, m_audio_settings);
     }
 
     Result<void> Project::save_quality_settings(QualitySettings settings) {
-        if(auto valid = settings.validate(); !valid)
-            return valid;
-        if(settings == m_quality_settings)
-            return Result<void>::success();
-        auto contents = serialize(m_name, m_startup_scene, m_input_actions, m_display_settings,
-            settings, m_audio_settings);
-        if(!contents)
-            return Result<void>::failure(contents.error());
-        if(auto saved = write_text_file_atomic(m_paths.root() / "project.json", contents.value());
-            !saved)
-            return saved;
-        m_quality_settings = settings;
-        return Result<void>::success();
+        return save_player_defaults(m_display_settings, settings, m_audio_settings);
     }
 
     Result<void> Project::save_audio_settings(AudioSettings settings) {
-        if(auto valid = settings.validate(); !valid)
+        return save_player_defaults(m_display_settings, m_quality_settings, settings);
+    }
+
+    Result<void> Project::save_player_defaults(
+        DisplaySettings display, QualitySettings quality, AudioSettings audio) {
+        if(auto valid = display.validate(); !valid)
             return valid;
-        if(settings == m_audio_settings)
+        if(auto valid = quality.validate(); !valid)
+            return valid;
+        if(auto valid = audio.validate(); !valid)
+            return valid;
+        if(display == m_display_settings && quality == m_quality_settings
+            && audio == m_audio_settings)
             return Result<void>::success();
-        auto contents = serialize(m_name, m_startup_scene, m_input_actions, m_display_settings,
-            m_quality_settings, settings);
+        auto contents =
+            serialize(m_name, m_startup_scene, m_input_actions, display, quality, audio);
         if(!contents)
             return Result<void>::failure(contents.error());
         if(auto saved = write_text_file_atomic(m_paths.root() / "project.json", contents.value());
             !saved)
             return saved;
-        m_audio_settings = settings;
+        m_display_settings = display;
+        m_quality_settings = quality;
+        m_audio_settings = audio;
         return Result<void>::success();
     }
 

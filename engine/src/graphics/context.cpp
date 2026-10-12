@@ -1,4 +1,5 @@
 #include "context.h"
+#include "common/scope_exit.h"
 #include "graphics/window_surface.h"
 
 #include <algorithm>
@@ -93,12 +94,18 @@ namespace Comet {
 
     Context::Context(const Window& window, const VulkanSettings& config,
         const DeviceCapabilityRequest& capability_request) {
+        ScopeExit cleanup([this] { destroy(); });
         create_instance(config.enable_validation);
         create_surface(window);
         pickup_physical_device(capability_request);
+        cleanup.release();
     }
 
     Context::~Context() {
+        destroy();
+    }
+
+    void Context::destroy() noexcept {
         m_surface.reset();
         if(m_debug_messenger) {
             destroy_debug_messenger(m_instance, m_debug_messenger);

@@ -1402,25 +1402,9 @@ namespace Comet::Tests {
                 .mesh = mesh,
                 .material = {AssetHandle(2), solid, overridden}}};
 
-        vk::UniqueDeviceMemory memory;
-        auto readback = device.get().createBufferUnique(vk::BufferCreateInfo({}, 4 * 64 * 32 * 4,
-            vk::BufferUsageFlagBits::eTransferDst, vk::SharingMode::eExclusive));
-        const auto requirements = device.get().getBufferMemoryRequirements(*readback);
-        const auto properties = context.get_context().get_physical_device().getMemoryProperties();
-        std::optional<uint32_t> memory_type;
-        const auto required =
-            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent;
-        for(uint32_t index = 0; index < properties.memoryTypeCount; ++index) {
-            if((requirements.memoryTypeBits & (1u << index))
-                && (properties.memoryTypes[index].propertyFlags & required) == required) {
-                memory_type = index;
-                break;
-            }
-        }
-        ASSERT_TRUE(memory_type);
-        memory = device.get().allocateMemoryUnique(
-            vk::MemoryAllocateInfo(requirements.size, *memory_type));
-        device.get().bindBufferMemory(*readback, *memory, 0);
+        RenderGpuTest::Readback readback(
+            device, context.get_context().get_physical_device(), 4 * 64 * 32 * 4);
+        ASSERT_TRUE(readback.get());
         TemporaryDirectory sources;
         auto solid_source = read_text_file(
             std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/material/unlit_color.frag");
@@ -1496,6 +1480,7 @@ namespace Comet::Tests {
         pipelines.collect_unused();
         const auto initial_pipelines = pipelines.get_cached_pipeline_count();
         const auto lighting = LightingData::prepare(std::array{RenderLight{.intensity = Math::PI}});
+        const RenderGpuTest::FrameWait wait{device, frames};
         for(int iteration = 0; iteration < 4; ++iteration) {
             if(iteration == 1) {
                 auto blue = texture({0, 0, 255, 255});
@@ -1580,7 +1565,7 @@ namespace Comet::Tests {
                 vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, 0, 0, 1);
             copy.imageExtent = vk::Extent3D(64, 32, 1);
             command.get().copyImageToBuffer(target->get_color_view(slot)->get_image()->get(),
-                vk::ImageLayout::eTransferSrcOptimal, *readback, copy);
+                vk::ImageLayout::eTransferSrcOptimal, readback.get(), copy);
             const vk::MemoryBarrier barrier(
                 vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eHostRead);
             command.get().pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
@@ -1609,8 +1594,8 @@ namespace Comet::Tests {
         EXPECT_TRUE(retired.expired());
         pipelines.collect_unused();
         EXPECT_EQ(pipelines.get_cached_pipeline_count(), initial_pipelines + 2);
-        const auto* all_pixels =
-            static_cast<const uint8_t*>(device.get().mapMemory(*memory, 0, VK_WHOLE_SIZE));
+        const auto readback_bytes = readback.read();
+        const auto* all_pixels = reinterpret_cast<const uint8_t*>(readback_bytes.data());
         for(int iteration = 0; iteration < 4; ++iteration) {
             const auto* pixels = all_pixels + iteration * 64 * 32 * 4;
             const auto check = [&](uint32_t x, Math::Vec3i expected) {
@@ -1631,7 +1616,6 @@ namespace Comet::Tests {
                 check(56, iteration == 3 ? Math::Vec3i(13, 51, 26) : Math::Vec3i(0, 26, 64));
             }
         }
-        device.get().unmapMemory(*memory);
         EXPECT_EQ(solid->get_revision(), solid_revision);
         EXPECT_EQ(solid->get_vector_property("color"), Math::Vec4(0.2f, 0.8f, 0.4f, 1));
         EXPECT_EQ(solid->get_scalar_property("intensity"), 0.5f);

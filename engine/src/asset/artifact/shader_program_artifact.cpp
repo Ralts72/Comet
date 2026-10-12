@@ -20,15 +20,6 @@ namespace Comet {
         constexpr std::size_t MAX_ENTRY_BYTES = 256;
         constexpr std::size_t MAX_MATERIAL_BYTES = 64 * 1024;
 
-        bool valid_relative(const std::filesystem::path& path) {
-            if(path.empty() || path.is_absolute() || path != path.lexically_normal())
-                return false;
-            for(const auto& component : path)
-                if(component == "..")
-                    return false;
-            return true;
-        }
-
         bool valid_words(const std::vector<std::uint32_t>& words) {
             return words.size() >= 5 && words.front() == SPIRV_MAGIC
                    && words.size() <= MAX_BYTES / sizeof(std::uint32_t);
@@ -49,7 +40,7 @@ namespace Comet {
             } catch(const std::filesystem::filesystem_error&) {
                 return false;
             }
-            return valid_relative(path) && path.generic_u8string().size() == bytes.size();
+            return path.generic_u8string().size() == bytes.size();
         }
 
         bool read_words(
@@ -95,6 +86,8 @@ namespace Comet {
                 return std::nullopt;
             artifact.inputs.files.push_back(std::move(file));
         }
+        if(!artifact.inputs.valid())
+            return std::nullopt;
         std::string material_text;
         if(!read_text(reader, artifact.vertex_entry, MAX_ENTRY_BYTES)
             || !read_text(reader, artifact.fragment_entry, MAX_ENTRY_BYTES)
@@ -114,7 +107,7 @@ namespace Comet {
     }
 
     Result<void> ShaderProgramArtifact::publish_atomic(const std::filesystem::path& path) const {
-        if(!handle || inputs.files.empty() || inputs.files.size() > MAX_INPUTS
+        if(!handle || inputs.files.size() > MAX_INPUTS || !inputs.valid()
             || !valid_words(vertex_words) || !valid_words(fragment_words) || vertex_entry.empty()
             || vertex_entry.size() > MAX_ENTRY_BYTES || vertex_entry.find('\0') != std::string::npos
             || fragment_entry.empty() || fragment_entry.size() > MAX_ENTRY_BYTES
@@ -134,8 +127,7 @@ namespace Comet {
         Binary::Writer payload;
         for(const auto& file : inputs.files) {
             const auto bytes = file.relative_path.generic_u8string();
-            if(!valid_relative(file.relative_path) || bytes.empty()
-                || bytes.size() > MAX_PATH_BYTES)
+            if(bytes.empty() || bytes.size() > MAX_PATH_BYTES)
                 return Result<void>::failure("Invalid shader program input path");
             payload.write_u64(bytes.size());
             payload.write_bytes(std::as_bytes(std::span(bytes)));

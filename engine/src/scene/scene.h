@@ -124,7 +124,7 @@ namespace Comet {
         [[nodiscard]] uint64_t get_lifetime() const noexcept { return m_lifetime; }
         [[nodiscard]] uint64_t get_render_revision() const noexcept { return m_render_revision; }
 
-        // 固定步产生；System::update 可只读，当前帧结束后清空。
+        // 当前固定步的通知，仅在 post_fixed_update 阶段借用；阶段结束即清空。
         [[nodiscard]] const std::vector<ContactEvent>& get_contact_events() const {
             return m_contact_events;
         }

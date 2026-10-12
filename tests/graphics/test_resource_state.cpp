@@ -1,4 +1,5 @@
 #include "graphics/synchronization/resource_state.h"
+#include "graphics/convert.h"
 
 #include <gtest/gtest.h>
 
@@ -26,6 +27,30 @@ namespace Comet::Tests {
         EXPECT_EQ(resolve_resource_state(ResourceUsage::IndirectBuffer),
             ResourceState({.stages = Flags<PipelineStage>(PipelineStage::DrawIndirect),
                 .access = Flags<Access>(Access::IndirectCommandRead)}));
+    }
+
+    TEST(ResourceStateTest, PreservesIndirectUsageAndOtherBufferFlags) {
+        const auto usage =
+            Flags<BufferUsage>(BufferUsage::Indirect) | BufferUsage::Storage | BufferUsage::CopyDst;
+
+        EXPECT_EQ(Graphics::buffer_usage_to_vk(usage), vk::BufferUsageFlagBits::eIndirectBuffer
+                                                           | vk::BufferUsageFlagBits::eStorageBuffer
+                                                           | vk::BufferUsageFlagBits::eTransferDst);
+    }
+
+    TEST(ResourceStateTest, DistinguishesAttachmentAndDescriptorTypes) {
+        EXPECT_EQ(Graphics::description_type_to_vk(DescriptorType::InlineUniformBlock),
+            vk::DescriptorType::eInlineUniformBlock);
+        EXPECT_EQ(Graphics::description_type_to_vk(DescriptorType::UniformBufferDynamic),
+            vk::DescriptorType::eUniformBufferDynamic);
+        EXPECT_EQ(Graphics::image_layout_to_vk(ImageLayout::AttachmentOptimal),
+            vk::ImageLayout::eAttachmentOptimal);
+        EXPECT_EQ(Graphics::image_layout_to_vk(ImageLayout::ColorAttachmentOptimal),
+            vk::ImageLayout::eColorAttachmentOptimal);
+        EXPECT_EQ(Graphics::image_layout_to_vk(ImageLayout::DepthAttachmentOptimal),
+            vk::ImageLayout::eDepthAttachmentOptimal);
+        EXPECT_EQ(Graphics::image_layout_to_vk(ImageLayout::DepthStencilAttachmentOptimal),
+            vk::ImageLayout::eDepthStencilAttachmentOptimal);
     }
 
     TEST(ResourceStateTest, RequiresExplicitShaderStages) {

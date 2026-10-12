@@ -49,6 +49,8 @@ namespace Comet {
             const AudioSettings& audio_settings) const;
         [[nodiscard]] Result<void> save_settings(std::string name,
             const std::filesystem::path& startup_scene, InputActions input_actions);
+        [[nodiscard]] Result<void> save_player_defaults(
+            DisplaySettings display, QualitySettings quality, AudioSettings audio);
 
         ProjectPaths m_paths;
         Uuid m_id;

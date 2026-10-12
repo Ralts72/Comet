@@ -1,8 +1,7 @@
 #include "assets/asset_reference.h"
 #include "asset/database.h"
+#include "ui/widgets.h"
 #include <imgui.h>
-#include <cstring>
-#include <type_traits>
 
 namespace CometEditor {
     bool edit_asset_reference(const char* label, Comet::AssetHandle& handle,
@@ -69,12 +68,6 @@ namespace CometEditor {
     }
 
     std::optional<AssetDragPayload> read_asset_drag_payload(const ImGuiPayload* payload) {
-        if(!payload || !payload->IsDataType(AssetDragPayload::TYPE) || !payload->Data
-            || payload->DataSize != sizeof(AssetDragPayload))
-            return std::nullopt;
-        static_assert(std::is_trivially_copyable_v<AssetDragPayload>);
-        AssetDragPayload result;
-        std::memcpy(&result, payload->Data, sizeof(result));
-        return result;
+        return Ui::read_drag_payload<AssetDragPayload>(payload);
     }
 }

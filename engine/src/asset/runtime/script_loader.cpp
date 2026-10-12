@@ -1,5 +1,6 @@
 #include "asset/script.h"
 #include "asset/data/script_sources.h"
+#include "asset/metadata.h"
 #include "scripting/script_compiler.h"
 
 #include <algorithm>
@@ -21,7 +22,7 @@ namespace Comet {
     Result<std::shared_ptr<Script>, Error> Script::load(const std::filesystem::path& path) {
         std::error_code error;
         const auto resolved = std::filesystem::weakly_canonical(path, error);
-        if(is_module_path(path) || (!error && is_module_path(resolved)))
+        if(is_lua_module_source(path) || (!error && is_lua_module_source(resolved)))
             return Result<std::shared_ptr<Script>, Error>::failure(
                 {"Module sources cannot be attached as scripts: " + path.string()});
         auto source = read_source(path);
@@ -49,7 +50,7 @@ namespace Comet {
                 failure.message = std::move(message);
         };
         for(const auto& input : relative_paths) {
-            if(!safe_source_path(input) || is_module_path(input)) {
+            if(!safe_source_path(input) || is_lua_module_source(input)) {
                 fail("Invalid component script path: " + input.generic_string());
                 continue;
             }
@@ -64,7 +65,7 @@ namespace Comet {
                 fail(captured.error());
                 continue;
             }
-            if(is_module_path(captured.value()->resolved)) {
+            if(is_lua_module_source(captured.value()->resolved)) {
                 fail("Module sources cannot be attached as scripts: " + path.generic_string());
                 continue;
             }

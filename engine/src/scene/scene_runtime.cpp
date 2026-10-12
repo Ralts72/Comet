@@ -239,6 +239,13 @@ namespace Comet {
                     return result;
             if(!m_scene->commit_entity_requests())
                 return Result<void, Error>::failure({"Cannot commit fixed-step entity requests"});
+            for(auto& system : m_systems)
+                if(auto result = system->post_fixed_update(*m_scene, context); !result)
+                    return result;
+            m_scene->clear_contact_events();
+            if(!m_scene->commit_entity_requests())
+                return Result<void, Error>::failure(
+                    {"Cannot commit post-fixed-step entity requests"});
             m_accumulator = std::max(0.0, m_accumulator - step);
         }
         const double dropped = std::floor((m_accumulator + epsilon) / step) * step;
@@ -254,7 +261,6 @@ namespace Comet {
                 return result;
         if(!m_scene->commit_entity_requests())
             return Result<void, Error>::failure({"Cannot commit update entity requests"});
-        m_scene->clear_contact_events();
         cleanup.release();
         m_executing = false;
         return Result<void, Error>::success();

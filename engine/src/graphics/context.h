@@ -58,6 +58,8 @@ namespace Comet {
 
         void create_surface(const Window& window);
 
+        void destroy() noexcept;
+
         vk::Instance m_instance;
         vk::DebugUtilsMessengerEXT m_debug_messenger;
         std::shared_ptr<vk::UniqueSurfaceKHR> m_surface;

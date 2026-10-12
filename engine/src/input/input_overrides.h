@@ -15,6 +15,17 @@ namespace Comet {
             std::optional<float> deadzone;
             bool disabled = false;
             bool operator==(const Binding&) const = default;
+
+            // 只合成字段；绑定是否启用由解析／编辑工作流处理。
+            [[nodiscard]] InputActions::Binding compose(InputActions::Binding binding) const {
+                if(control)
+                    binding.control = *control;
+                if(scale)
+                    binding.scale = *scale;
+                if(deadzone)
+                    binding.deadzone = *deadzone;
+                return binding;
+            }
         };
         struct Action {
             Uuid id;

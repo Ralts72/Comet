@@ -75,13 +75,7 @@ namespace Comet {
                     action->bindings.erase(binding);
                     continue;
                 }
-                auto candidate = *binding;
-                if(binding_patch.control)
-                    candidate.control = *binding_patch.control;
-                if(binding_patch.scale)
-                    candidate.scale = *binding_patch.scale;
-                if(binding_patch.deadzone)
-                    candidate.deadzone = *binding_patch.deadzone;
+                auto candidate = binding_patch.compose(*binding);
                 const auto valid = InputActions::create(
                     {{action->name, action->type, {candidate}, action->context, action->id}},
                     defaults.contexts());

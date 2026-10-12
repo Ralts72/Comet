@@ -1,11 +1,10 @@
 #include "diagnostics/diagnostics.h"
-#include "config/config.h"
 
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
 
 namespace Comet {
-    Diagnostics::Diagnostics(const Config::Diagnostics& config) {
+    Diagnostics::Diagnostics(const DiagnosticsSettings& config) {
         const bool profiler_available = Profiler::is_available();
         const bool profiler_enabled = config.enable_profiler && profiler_available;
 

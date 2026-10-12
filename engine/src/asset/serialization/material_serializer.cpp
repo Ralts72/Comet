@@ -209,10 +209,10 @@ namespace Comet {
 
     Result<void> MaterialSerializer::save(
         const MaterialData& data, const std::filesystem::path& path) const {
-        return Serialization::save(*this, data, path);
+        return Json::save(*this, data, path);
     }
 
     Result<MaterialData> MaterialSerializer::load(const std::filesystem::path& path) const {
-        return Serialization::load(*this, path);
+        return Json::load(*this, path);
     }
 }

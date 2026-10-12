@@ -25,6 +25,7 @@ namespace Comet::Tests {
         struct Calls {
             std::vector<std::string> order;
             std::vector<Sample> fixed;
+            std::vector<Sample> post_fixed;
             std::vector<Sample> updates;
         };
         class RecordingSystem final: public System {
@@ -44,6 +45,14 @@ namespace Comet::Tests {
                     context.input.physical()});
                 if(fixed)
                     return fixed(scene, context);
+                return UpdateResult::success();
+            }
+            UpdateResult post_fixed_update(Scene& scene, const Context& context) override {
+                calls.order.push_back("post fixed " + name);
+                calls.post_fixed.push_back({context.delta_time, context.total_time, context.index,
+                    context.input.physical()});
+                if(post_fixed)
+                    return post_fixed(scene, context);
                 return UpdateResult::success();
             }
             UpdateResult update(Scene& scene, const Context& context) override {
@@ -70,6 +79,7 @@ namespace Comet::Tests {
             }
             std::function<UpdateResult(Scene&)> start;
             std::function<UpdateResult(Scene&, const Context&)> fixed;
+            std::function<UpdateResult(Scene&, const Context&)> post_fixed;
             std::function<UpdateResult(Scene&, const Context&)> update_frame;
             std::function<void(bool)> pause;
             std::function<void(Scene&)> stop;
@@ -135,10 +145,11 @@ namespace Comet::Tests {
             EXPECT_FALSE(runtime.wants_cursor_capture());
             return UpdateResult::success();
         };
-        system->fixed = system->update_frame = [&](Scene&, const System::Context&) {
-            EXPECT_FALSE(runtime.wants_cursor_capture());
-            return UpdateResult::success();
-        };
+        system->fixed = system->post_fixed =
+            system->update_frame = [&](Scene&, const System::Context&) {
+                EXPECT_FALSE(runtime.wants_cursor_capture());
+                return UpdateResult::success();
+            };
         system->stop = [&](Scene&) { EXPECT_FALSE(runtime.wants_cursor_capture()); };
         EXPECT_FALSE(runtime.wants_cursor_capture());
         ASSERT_TRUE(runtime.start(scene));
@@ -346,12 +357,19 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.start(scene));
         advance(0.21);
         EXPECT_EQ(calls.order, (std::vector<std::string>{"start A", "start B", "fixed A", "fixed B",
-                                   "fixed A", "fixed B", "update A", "update B"}));
+                                   "post fixed A", "post fixed B", "fixed A", "fixed B",
+                                   "post fixed A", "post fixed B", "update A", "update B"}));
         EXPECT_EQ(runtime.get_timing().fixed_steps, 2u);
         EXPECT_EQ(runtime.get_timing().fixed_index, 2u);
         EXPECT_NEAR(runtime.get_timing().fixed_time, 0.2, 1e-9);
         EXPECT_NEAR(runtime.get_timing().interpolation, 0.1, 1e-9);
         EXPECT_DOUBLE_EQ(calls.updates.front().delta, 0.21);
+        ASSERT_EQ(calls.fixed.size(), calls.post_fixed.size());
+        for(size_t i = 0; i < calls.fixed.size(); ++i) {
+            EXPECT_DOUBLE_EQ(calls.post_fixed[i].delta, calls.fixed[i].delta);
+            EXPECT_DOUBLE_EQ(calls.post_fixed[i].time, calls.fixed[i].time);
+            EXPECT_EQ(calls.post_fixed[i].index, calls.fixed[i].index);
+        }
         ASSERT_TRUE(runtime.stop());
         EXPECT_EQ(calls.order[calls.order.size() - 2], "stop B");
         EXPECT_EQ(calls.order.back(), "stop A");
@@ -386,14 +404,17 @@ namespace Comet::Tests {
             calls.order, (std::vector<std::string>{"pause A", "start A", "pause B", "start B"}));
         advance(1);
         EXPECT_TRUE(calls.fixed.empty());
+        EXPECT_TRUE(calls.post_fixed.empty());
         EXPECT_TRUE(calls.updates.empty());
         ASSERT_TRUE(runtime.request_step());
         advance(0);
         EXPECT_EQ(calls.fixed.size(), 2u);
+        EXPECT_EQ(calls.post_fixed.size(), 2u);
         EXPECT_EQ(calls.updates.size(), 2u);
         EXPECT_EQ(runtime.get_state(), State::Paused);
         advance(1);
         EXPECT_EQ(calls.fixed.size(), 2u);
+        EXPECT_EQ(calls.post_fixed.size(), 2u);
         ASSERT_TRUE(runtime.stop());
         calls.order.clear();
         ASSERT_TRUE(runtime.start(scene));
@@ -487,8 +508,26 @@ namespace Comet::Tests {
             EXPECT_TRUE(current.find_entity(created));
             return UpdateResult::success();
         };
+        EntityUuid after_fixed;
+        requester->post_fixed = [&](Scene& current, const System::Context&) -> UpdateResult {
+            EXPECT_FALSE(current.find_entity(created));
+            const auto request = current.request_create_entity("AfterFixed");
+            if(!request)
+                return UpdateResult::failure({"Cannot queue post-fixed entity"});
+            after_fixed = *request;
+            return UpdateResult::success();
+        };
+        observer->post_fixed = [&](Scene& current, const System::Context&) -> UpdateResult {
+            EXPECT_FALSE(current.find_entity(after_fixed));
+            return UpdateResult::success();
+        };
+        observer->update_frame = [&](Scene& current, const System::Context&) -> UpdateResult {
+            EXPECT_TRUE(current.find_entity(after_fixed));
+            return UpdateResult::success();
+        };
         advance(0.1);
         EXPECT_FALSE(scene.find_entity(created));
+        EXPECT_TRUE(scene.find_entity(after_fixed));
 
         requester->update_frame = [&](Scene& current, const System::Context&) -> UpdateResult {
             const auto request = current.request_create_entity("Updated");
@@ -637,28 +676,32 @@ namespace Comet::Tests {
 
     TEST_F(SceneRuntimeTest, FailedPhaseDiscardsUncommittedEntityRequests) {
         auto* requester = add();
-        requester->update_frame = [&](Scene& current, const System::Context&) -> UpdateResult {
-            EXPECT_TRUE(current.request_create_entity("Discarded",
-                {.transform = {.translation = {1, 2, 3}},
-                    .mesh_renderer = MeshRendererComponent{AssetHandle{11}, AssetHandle{22}}}));
-            EXPECT_TRUE(runtime.get_session().set_value("game.score", 2.0f));
-            EXPECT_TRUE(runtime.get_session().request_restart());
-            return UpdateResult::failure({"phase failed"});
-        };
-        ASSERT_TRUE(runtime.start(scene));
-        EXPECT_FALSE(runtime.advance(0));
-        EXPECT_EQ(scene.entity_count(), 0u);
-        EXPECT_FALSE(runtime.is_active());
-        EXPECT_FALSE(scene.request_create_entity("Inactive"));
-        EXPECT_FALSE(runtime.get_session().get_value("game.score"));
-        EXPECT_FALSE(runtime.take_restart_request());
+        for(auto callback : {&RecordingSystem::post_fixed, &RecordingSystem::update_frame}) {
+            requester->post_fixed = requester->update_frame = {};
+            requester->*callback = [&](Scene& current, const System::Context&) -> UpdateResult {
+                EXPECT_TRUE(current.request_create_entity("Discarded",
+                    {.transform = {.translation = {1, 2, 3}},
+                        .mesh_renderer = MeshRendererComponent{AssetHandle{11}, AssetHandle{22}}}));
+                EXPECT_TRUE(runtime.get_session().set_value("game.score", 2.0f));
+                EXPECT_TRUE(runtime.get_session().request_restart());
+                return UpdateResult::failure({"phase failed"});
+            };
+            ASSERT_TRUE(runtime.start(scene));
+            EXPECT_FALSE(runtime.advance(0.1));
+            EXPECT_EQ(scene.entity_count(), 0u);
+            EXPECT_FALSE(runtime.is_active());
+            EXPECT_FALSE(scene.request_create_entity("Inactive"));
+            EXPECT_FALSE(runtime.get_session().get_value("game.score"));
+            EXPECT_FALSE(runtime.take_restart_request());
+        }
     }
 
     TEST_F(SceneRuntimeTest, RigidBodyRemovalCommitsAfterEachPhaseAndPreservesOtherComponents) {
         auto startup = scene.create_entity("Startup");
         auto fixed = scene.create_entity("Fixed");
+        auto post_fixed = scene.create_entity("Post fixed");
         auto updated = scene.create_entity("Update");
-        for(auto entity : {startup, fixed, updated})
+        for(auto entity : {startup, fixed, post_fixed, updated})
             entity.add_component<RigidBodyComponent>();
         fixed.add_component<ColliderComponent>(ColliderComponent{.is_trigger = true});
         fixed.add_component<MeshRendererComponent>(AssetHandle{11}, AssetHandle{22});
@@ -688,12 +731,22 @@ namespace Comet::Tests {
             EXPECT_TRUE(fixed.has_component<RigidBodyComponent>());
             return UpdateResult::success();
         };
+        requester->post_fixed = [&](Scene& current, const System::Context&) {
+            EXPECT_TRUE(current.request_remove_rigid_body(post_fixed));
+            return UpdateResult::success();
+        };
+        observer->post_fixed = [&](Scene&, const System::Context&) {
+            EXPECT_FALSE(fixed.has_component<RigidBodyComponent>());
+            EXPECT_TRUE(post_fixed.has_component<RigidBodyComponent>());
+            return UpdateResult::success();
+        };
         requester->update_frame = [&](Scene& current, const System::Context&) {
             EXPECT_TRUE(current.request_remove_rigid_body(updated));
             return UpdateResult::success();
         };
         observer->update_frame = [&](Scene&, const System::Context&) {
             EXPECT_FALSE(fixed.has_component<RigidBodyComponent>());
+            EXPECT_FALSE(post_fixed.has_component<RigidBodyComponent>());
             EXPECT_TRUE(updated.has_component<RigidBodyComponent>());
             return UpdateResult::success();
         };
@@ -706,6 +759,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.request_step());
         advance(0);
         EXPECT_FALSE(fixed.has_component<RigidBodyComponent>());
+        EXPECT_FALSE(post_fixed.has_component<RigidBodyComponent>());
         EXPECT_FALSE(updated.has_component<RigidBodyComponent>());
         EXPECT_EQ(fixed.get_uuid(), uuid);
         EXPECT_EQ(fixed.get_id(), id);
@@ -1160,17 +1214,14 @@ namespace Comet::Tests {
         EXPECT_EQ(
             calls.order, (std::vector<std::string>{"start A", "start B", "stop B", "stop A"}));
         failing->start = {};
-        for(bool fixed : {true, false}) {
+        for(auto callback : {&RecordingSystem::fixed, &RecordingSystem::post_fixed,
+                &RecordingSystem::update_frame}) {
             calls.order.clear();
-            failing->fixed = {};
-            failing->update_frame = {};
+            failing->fixed = failing->post_fixed = failing->update_frame = {};
             auto fail = [&](Scene&, const System::Context&) {
                 return UpdateResult::failure(failure);
             };
-            if(fixed)
-                failing->fixed = fail;
-            else
-                failing->update_frame = fail;
+            failing->*callback = fail;
             ASSERT_TRUE(runtime.start(scene));
             result = runtime.advance(0.1);
             ASSERT_FALSE(result);
@@ -1306,7 +1357,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
-    TEST_F(SceneRuntimeTest, SingleStepRunsBothPhasesOnceAndCoalescesPendingRequests) {
+    TEST_F(SceneRuntimeTest, SingleStepRunsAllPhasesOnceAndCoalescesPendingRequests) {
         ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.1, .max_frame_delta = 0.01}));
         add("A");
         add("B");
@@ -1318,7 +1369,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.request_step());
         advance(10);
         EXPECT_EQ(calls.order, (std::vector<std::string>{"start A", "start B", "fixed A", "fixed B",
-                                   "update A", "update B"}));
+                                   "post fixed A", "post fixed B", "update A", "update B"}));
         EXPECT_EQ(runtime.get_state(), State::Paused);
         EXPECT_EQ(runtime.get_timing().frame_index, 1u);
         EXPECT_EQ(runtime.get_timing().fixed_steps, 1u);
@@ -1333,7 +1384,9 @@ namespace Comet::Tests {
             EXPECT_EQ(sample.input.scroll, Math::Vec2(0));
         }
         EXPECT_DOUBLE_EQ(calls.updates.front().delta, 0.1);
+        EXPECT_EQ(calls.post_fixed.size(), 2u);
         advance(10);
+        EXPECT_EQ(calls.post_fixed.size(), 2u);
         EXPECT_EQ(runtime.get_timing().frame_index, 1u);
         EXPECT_EQ(runtime.get_timing().fixed_steps, 0u);
         ASSERT_TRUE(runtime.request_step());

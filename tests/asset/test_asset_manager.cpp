@@ -291,10 +291,7 @@ namespace Comet::Tests {
     }
 
     TEST_F(MeshAsyncImportTest, OldRequestCannotOverwriteNewRevisionAfterMove) {
-        std::promise<void> release;
-        const auto gate = release.get_future().share();
-        auto blocker = scheduler.try_submit([gate] { gate.wait(); });
-        ASSERT_TRUE(blocker);
+        BlockedWorker blocker(scheduler);
         EXPECT_TRUE(manager.import_mesh_async(handle));
         const auto before = manager.get_database().get_revision(handle);
         const auto report =
@@ -302,10 +299,9 @@ namespace Comet::Tests {
         EXPECT_TRUE(report.succeeded());
         EXPECT_NE(manager.get_database().get_revision(handle), before);
         EXPECT_TRUE(manager.import_mesh_async(handle));
-        release.set_value();
+        blocker.release();
         complete();
         complete();
-        blocker->get();
         const auto artifact = MeshArtifact::load(artifact_path(), handle);
         ASSERT_TRUE(artifact);
         EXPECT_EQ(artifact->source_inputs.files.front().relative_path, "moved/new.gltf");
@@ -581,10 +577,7 @@ namespace Comet::Tests {
         const std::shared_ptr<Mesh> original = loaded_asset(manager.load_mesh(handle));
         ASSERT_NE(original, nullptr);
 
-        std::promise<void> release_worker;
-        const std::shared_future<void> worker_gate = release_worker.get_future().share();
-        auto blocker = task_scheduler.try_submit([worker_gate] { worker_gate.wait(); });
-        ASSERT_TRUE(blocker);
+        BlockedWorker blocker(task_scheduler);
 
         TemporaryProject::write_mesh(mesh_path,
             R"({"attributes":{"POSITION":0},"indices":1},{"attributes":{"POSITION":0},"indices":1})");
@@ -599,9 +592,8 @@ namespace Comet::Tests {
         EXPECT_GT(manager.get_database().get_revision(handle), first_revision);
         EXPECT_TRUE(registry.resolve<Mesh>(handle) == original);
 
-        release_worker.set_value();
+        blocker.release();
         task_scheduler.wait_idle();
-        blocker->get();
         completed_handles(manager.process_completions());
         task_scheduler.wait_idle();
         completed_handles(manager.process_completions());

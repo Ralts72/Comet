@@ -639,9 +639,6 @@ namespace CometEditor::Tests {
         AssetRegistry assets;
         Scene scene;
         const auto components = create_scene_component_registry();
-        SceneRuntime runtime;
-        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
-        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
         auto script = Script::create(R"(return {
             properties = {speed = 100, enabled = true, label = "spin", axis = {0, 1, 0}},
             fixed_update = function(self, dt)
@@ -672,6 +669,9 @@ namespace CometEditor::Tests {
         auto clone = play.value()->find_entity(entity.get_uuid());
         EXPECT_NE(clone.get_component<ScriptComponent>().lifetime(), lifetime);
         EXPECT_EQ(clone.get_component<ScriptComponent>().parameters, values);
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
         ASSERT_TRUE(runtime.start(*play.value()));
         ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
         ASSERT_TRUE(runtime.advance(1));

@@ -9,7 +9,7 @@ Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，
 | `engine/src/` | 引擎库：基础与数据模块，以及 runtime、audio、render、graphics 等运行后端 |
 | `engine/shaders/` | 生产 Shader，按 material、lighting、shadow、environment、debug、post、common 分目录；仅编译 CMake 显式列表 |
 | `engine/resources/fonts/` | App／Editor 共用的 Roboto Bold 与 Noto Sans SC Bold 字体 |
-| `engine/src/ui/` | 合入 engine 的游戏 UI 对象模块 `comet_game_ui`：RmlUi 呈现、输入适配与项目 Lua 控制器桥接；不包含固定项目页面或菜单流程 |
+| `engine/src/ui/` | 合入 engine 的游戏 UI 对象模块 `comet_game_ui`：RmlUi 呈现、输入适配、Lua 桥接及可复用设置控制器；页面、样式和游戏策略归项目 |
 | `tools/shader/` | 共用 CPU Shader 编译库与构建 CLI，不链接 engine 运行时 |
 | `tools/asset/` | 编辑器与独立工具共用的项目 Shader 导入，以及无窗口的启动场景资产准备入口 |
 | `tools/render_benchmark/` | 固定场景渲染性能基准及一键运行脚本，链接 engine，不依赖测试框架或编辑器 |
@@ -26,18 +26,12 @@ Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，
 | `demo/.comet/` | 示例项目本机缓存、日志与编辑器状态，不进入版本控制 |
 | `tests/`、`3rdparty/` | GoogleTest 测试与第三方依赖 |
 
-场景更新交付只读 CPU 快照，主线程解析时固定材质值及对应 Shader 引用，产出可独立保留的只读 RenderWorld。游戏和编辑器 UI 交付独立持有的绘制数据与像素，GPU 录制消费这些输入，在途资源由帧槽保活；ImGui 的输入／布局／字体前端与 Vulkan 录制上下文各自持有状态，当前上下文选择使用线程局部状态，交换链后端重建不重置窗口输入。Renderer 拥有 GPU 资源和各视图状态，材质参数校验与 Inspector 消费已发布布局的只读反馈，资产注销由主线程交付同一删除批次给各视图。
+对外使用一个 `engine` 动态库和 `Comet::Engine`；内部对象库按职责约束依赖，源码目录仍按功能组织。
+Main 拥有场景、输入、编辑工作流和 UI 前端，捕获资源版本后交付只读帧；RenderThread 管 GPU 状态与绘制，持续运行时与下一步模拟重叠。
+编辑和暂停单步的修改在本帧提取前生效。在途资源保活、候选发布、变化记录及关闭顺序见[架构与数据链条](docs/architecture/overview.md)，后续能力见[路线图](docs/engine-roadmap.md)。
 
-独立 RenderThread 从 Engine 初始化持续到关闭，负责录制、提交、呈现、资产 GPU 创建、材质／Shader GPU 发布及运行期间的共享资源回收，每次最多接收一个请求；Main 可同时推进下一步场景模拟，在下一次宿主回调和资源操作前取回绘制结果。启动和退出阶段由 Main 接管回收；Main 捕获窗口尺寸后同步等待 GPU 帧准备；交换链恢复及 UI GPU 后端重建、关闭由 RenderThread 执行，窗口输入、文档和布局由 Main 管理。持续运行时先交付当前快照，再与绘制并发模拟，画面落后模拟一步；编辑和暂停单步的结果在本帧提取前生效。类入口、依赖方向和资源所有权见[架构文档](docs/architecture/overview.md)。
-
-编辑器视口使用稳定的图片标识；UI 帧固定图片引用，GPU 录制时创建或复用绑定，换图不会改写在途帧的 descriptor。
-共享 Buffer、Image、ImageView 和 Sampler 在其他线程释放最后引用时，由 Device 接管原生资源销毁，在所属线程的帧边界或关闭时回收；在途使用仍由帧与上传保活。
-材质预览、取消与撤销由编辑侧先捕获材质快照和 Shader 版本，Renderer 经渲染线程准备各视图的 GPU 候选；Main 复核并保存后，再由渲染线程发布绑定。内置 Shader 的完整发布与错误材质切换复用相同的线程交接。
-GPU 资产工厂只接收独立 CPU 产品并返回候选；App／Editor 经 Engine 的资源工厂把 Mesh、Texture 和环境纹理移交渲染线程创建，返回后主线程复核源版本与运行发布版本再注册，过期结果不能覆盖更新资源。当前创建调用同步等待结果，资产注册不移到渲染线程。
-运行期间的视口目标分配和尺寸变化也交给 RenderThread；尺寸未变时不增加线程交接。RmlUi 后端初始化、候选页面的 GPU 校验，以及项目 UI 重置时的 GPU 清理复用同一同步交接；页面与控制器仍在 Main 校验和发布，失败保留当前页面。
-
-`engine/src/common/` 提供共享文件读写、JSON、二进制、错误定位、版本标记、身份序号和快照写时复制工具；各模块负责自身的数据结构、字段校验及变化通知。
-显示、画质和音量选择共用 `config/player_settings` 存储流程，具体设置类型仍归所属功能模块。
+`engine/src/common/` 复用文件、JSON、二进制、版本与快照工具，Schema、领域校验和变化消费仍由所属模块负责。
+显示、画质和音量共用 `config/player_settings` 存储；输入保留按稳定身份合成的稀疏覆盖。项目菜单、主题与玩法归 demo／项目，宿主只装配服务。
 
 编辑器工具栏与 demo 菜单选用了“570+ 图标 v1.0.3”中的少量透明 PNG。
 编辑器图标合入 ImGui 字体图集；游戏图标由项目 RmlUi 页面引用。
@@ -513,8 +507,27 @@ app 首轮不提供来源、倍率和死区编辑，已有这些字段及未显�
 ```
 
 没有 `ui` 的项目不创建游戏界面；无效入口直接报告错误。app 不约定菜单控件、命令或快捷键。
-demo 的页面、样式与 HUD／改键菜单交互位于 `demo/assets/ui/`；修改 `runtime.ui.lua` 无需重编译 app。
-Lua 编排界面操作；录入、草稿校验和提交状态由 Engine 的 C++ `PlayerInputEdit` 实现，个人设置保存与运行时换绑通过宿主服务完成。
+demo 的页面、样式、HUD 和画质档位位于 `demo/assets/ui/`；修改 `runtime.ui.lua` 无需重编译 app。
+Engine 内置 `ui.settings` 管理设置草稿、菜单、录入、焦点、显示确认和提交结果，App／Editor Play 共用。
+项目可以只启用改键，或选择显示、画质和音量面板；不需要重复编写生命周期与设置流程：
+
+```lua
+return ui.settings {
+    display = {sizes = {{1280, 720}, {1920, 1080}}},
+    quality = true,
+    audio = true,
+    model = {fps_text = "0 FPS"},
+    on_frame = function(self, api, frame)
+        api.set("fps_text", tostring(math.floor(frame.fps + 0.5)) .. " FPS")
+    end,
+}
+```
+
+改键默认启用，其余面板默认关闭；`input=false` 可制作仅含显示或音量的设置页。
+页面使用下述模型和事件约定，`elements` 可指定自己的控件 ID，`shortcuts` 可更换或关闭快捷键；
+画质档位通过 `quality.presets` 定义，`render_bindings(action)` 可替换默认绑定行布局。
+设置模块从 `engine/src/ui/settings.lua` 编入引擎，运行时无需寻找或复制引擎源码。
+录入、草稿校验和提交状态继续由 C++ `PlayerInputEdit` 实现，个人设置保存与运行时换绑通过宿主服务完成。
 页面通过 `data-model="ui"` 使用控制器的标量 `model`，通过 `command(...)` 交付控件事件。
 控制器的 `on_mount` 校验页面，`on_frame` 接收 FPS／游戏可用状态，`on_present` 更新呈现，
 `on_event` 决定交互；`on_input_result` 决定保存后关闭或保留菜单，`on_deactivate` 处理场景重启。
@@ -604,7 +617,7 @@ App 与 Editor 共用 Engine 目录内的字体；App 不依赖 Editor 的翻译
 | `comet.self_entity()`／`comet.find_entity(uuid)` | 当前实体／按 UUID 查找；引用提供 `:is_valid()`、`:position()`、`:translate()`、`:rotate()` |
 | `{type = "entity"}` 参数 | Inspector 选择或从 Hierarchy 拖入；场景保存 UUID，可与接触回调的 `other` 比较 |
 | `comet.create_entity()`／`comet.destroy_entity()` | 请求创建／删除子树，在阶段末提交，只修改运行场景 |
-| `comet.has_rigid_body()`／`comet.remove_rigid_body()` | 查询／请求移除刚体，保留实体与其他组件；提交前查询仍见旧组件 |
+| `comet.has_rigid_body(entity)`／`comet.remove_rigid_body(entity)` | 查询／请求移除刚体，保留实体与其他组件；提交前查询仍见旧组件 |
 | `comet.apply_impulse(x,y,z)` | 向本实体质心施加世界空间冲量，要求 Transform、Collider 和 Dynamic Rigid Body |
 | `comet.session_set/get()` | 共享本局临时值；支持 bool、有限数值、string、Vec3，设置 nil 删除 |
 | `comet.restart_scene()` | 恢复启动内容基线，不重读磁盘；demo 绑定 R |
@@ -637,7 +650,8 @@ Trigger 对应 `on_trigger_enter/exit`，不产生物理碰撞响应。结构提
 
 ### 场景运行时
 
-app 与 editor Play 共用 SceneRuntime：先固定更新，再普通更新，退出时逆序停止 System；Edit 不执行游戏行为。
+app 与 editor Play 共用 SceneRuntime：每步固定更新后执行 `post_fixed_update`，再进入每帧普通更新，退出时逆序停止 System；Edit 不执行游戏行为。
+碰撞／触发通知逐固定步交付，回调中的结构请求在阶段末提交，下一固定步可见；普通更新不重复交付接触。
 RuntimeSession 保存本局会话值、输入组请求和重开意图，System 显式访问当前会话；Lua API 保持一致。
 暂停保留会话，停止／失败后清空；场景保存或克隆只复制内容，两个运行域不共享本局状态。
 宿主在 UI 更新后通过 `on_runtime_input` 每个非挂起帧交付一次授权输入；渲染延期仍推进 Runtime，未授权只关闭游戏输入。

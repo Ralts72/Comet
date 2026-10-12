@@ -7,7 +7,6 @@
 #include "diagnostics/profiler.h"
 
 #include <algorithm>
-#include <cctype>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -62,56 +61,6 @@ namespace Comet {
             std::unordered_map<AssetHandle, std::vector<std::filesystem::path>>;
         using ImportDependentsBySource =
             std::unordered_map<std::filesystem::path, std::vector<AssetHandle>>;
-
-        std::string lowercase_extension(const std::filesystem::path& path) {
-            std::string extension = path.extension().string();
-            std::ranges::transform(extension, extension.begin(), [](const unsigned char character) {
-                return static_cast<char>(std::tolower(character));
-            });
-            return extension;
-        }
-
-        bool is_lua_module_source(const std::filesystem::path& path) {
-            return lowercase_extension(path) == ".lua"
-                   && lowercase_extension(path.stem()) == ".module";
-        }
-
-        std::optional<AssetType> asset_type_from_path(const std::filesystem::path& path) {
-            const std::string extension = lowercase_extension(path);
-            if(extension == ".hdr")
-                return AssetType::Environment;
-
-            if(extension == ".png" || extension == ".jpg" || extension == ".jpeg") {
-                return AssetType::Texture;
-            }
-            if(extension == ".mat")
-                return AssetType::Material;
-            if(extension == ".obj" || extension == ".gltf" || extension == ".glb") {
-                return AssetType::Mesh;
-            }
-            if(extension == ".vert" || extension == ".frag" || extension == ".comp"
-                || extension == ".geom") {
-                return AssetType::Shader;
-            }
-            if(extension == ".shader")
-                return AssetType::ShaderProgram;
-            if(extension == ".lua" && !is_lua_module_source(path)
-                && lowercase_extension(path.stem()) != ".ui")
-                return AssetType::Script;
-            if(extension == ".wav")
-                return AssetType::Audio;
-            if(extension == ".scene")
-                return AssetType::Scene;
-            return std::nullopt;
-        }
-
-        bool is_source_only_path(const std::filesystem::path& path) {
-            const auto extension = lowercase_extension(path);
-            return extension == ".bin" || extension == ".glsl" || extension == ".rml"
-                   || extension == ".rcss"
-                   || (extension == ".lua" && lowercase_extension(path.stem()) == ".ui")
-                   || is_lua_module_source(path);
-        }
 
         std::string path_text(const std::filesystem::path& path) {
             return path.generic_string();
@@ -489,7 +438,7 @@ namespace Comet {
                     add_issue(report, record.path, label + " is not indexed");
                 else if(dependency->second.type != AssetType::Shader)
                     add_issue(report, record.path, label + " must reference a Shader asset");
-                else if(lowercase_extension(dependency->second.path) != expected_extension)
+                else if(source_extension(dependency->second.path) != expected_extension)
                     add_issue(report, record.path,
                         label + " must reference a " + std::string(expected_extension) + " source");
                 record.dependencies.push_back(source);

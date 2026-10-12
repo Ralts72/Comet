@@ -307,12 +307,12 @@ namespace Comet {
 
     Result<void> ShaderProgramSerializer::save(
         const ShaderProgramData& data, const std::filesystem::path& path) const {
-        return Serialization::save(*this, data, path);
+        return Json::save(*this, data, path);
     }
 
     Result<ShaderProgramData> ShaderProgramSerializer::load(
         const std::filesystem::path& path) const {
-        return Serialization::load(*this, path);
+        return Json::load(*this, path);
     }
 
     Result<std::string> ShaderProgramSerializer::serialize_material(

@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace Comet {
@@ -27,6 +28,13 @@ namespace Comet {
     [[nodiscard]] COMET_API std::string_view to_string(AssetType type) noexcept;
     [[nodiscard]] COMET_API std::optional<AssetType> asset_type_from_string(
         std::string_view value) noexcept;
+
+    [[nodiscard]] COMET_API std::string source_extension(const std::filesystem::path& path);
+    [[nodiscard]] COMET_API std::optional<AssetType> asset_type_from_path(
+        const std::filesystem::path& path);
+    // 依赖源码不生成独立资产身份或 .meta。
+    [[nodiscard]] COMET_API bool is_source_only_path(const std::filesystem::path& path);
+    [[nodiscard]] COMET_API bool is_lua_module_source(const std::filesystem::path& path);
 
     struct AssetMetadata {
         AssetHandle handle;

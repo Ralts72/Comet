@@ -71,27 +71,17 @@ namespace Comet {
         Allocator(Allocator&&) noexcept = delete;
         Allocator& operator=(Allocator&&) noexcept = delete;
 
-        [[nodiscard]] BufferAllocation create_buffer(const vk::BufferCreateInfo& buffer_info,
-            const AllocationCreateInfo& allocation_info = {}) const;
-
         [[nodiscard]] GpuResourceResult<BufferAllocation> try_create_buffer(
             const vk::BufferCreateInfo& buffer_info,
             const AllocationCreateInfo& allocation_info = {}) const;
 
         void destroy_buffer(vk::Buffer buffer, Allocation& allocation) const;
 
-        [[nodiscard]] ImageAllocation create_image(const vk::ImageCreateInfo& image_info,
-            const AllocationCreateInfo& allocation_info = {}) const;
-
         [[nodiscard]] GpuResourceResult<ImageAllocation> try_create_image(
             const vk::ImageCreateInfo& image_info,
             const AllocationCreateInfo& allocation_info = {}) const;
 
         void destroy_image(vk::Image image, Allocation& allocation) const;
-
-        [[nodiscard]] void* map_memory(const Allocation& allocation) const;
-
-        void unmap_memory(const Allocation& allocation) const;
 
         void flush_memory(const Allocation& allocation, size_t offset, size_t size) const;
 

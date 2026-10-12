@@ -30,6 +30,7 @@
 #include <variant>
 
 namespace CometEditor::AssetSourceOperations {
+    using Comet::asset_type_from_path;
     using Comet::AssetDatabase;
     using Comet::AssetHandle;
     using Comet::AssetImportLimits;
@@ -38,6 +39,8 @@ namespace CometEditor::AssetSourceOperations {
     using Comet::AssetType;
     using Comet::AudioClip;
     using Comet::EnvironmentImporter;
+    using Comet::is_lua_module_source;
+    using Comet::is_source_only_path;
     using Comet::MaterialData;
     using Comet::MaterialSerializer;
     using Comet::MeshImporter;
@@ -47,6 +50,7 @@ namespace CometEditor::AssetSourceOperations {
     using Comet::Result;
     using Comet::ScopeExit;
     using Comet::Script;
+    using Comet::source_extension;
     using Comet::TextureImporter;
     using Comet::write_text_file_atomic;
     namespace {
@@ -57,6 +61,15 @@ namespace CometEditor::AssetSourceOperations {
             AssetScanReport report;
             report.issues.push_back({.path = std::move(path), .message = std::move(message)});
             return report;
+        }
+
+        void discard_scan_updates(AssetScanReport& report, const AssetDatabase& database) {
+            report.snapshot_updated = false;
+            report.indexed_assets = database.size();
+            report.generated_metadata = 0;
+            report.added_assets.clear();
+            report.removed_assets.clear();
+            report.modified_assets.clear();
         }
 
         [[nodiscard]] bool is_safe_destination(const std::filesystem::path& path) {
@@ -100,30 +113,20 @@ namespace CometEditor::AssetSourceOperations {
             std::filesystem::remove(staged, error);
         }
 
-        std::string extension_of(const std::filesystem::path& path) {
-            auto extension = path.extension().string();
-            std::ranges::transform(extension, extension.begin(),
-                [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            return extension;
-        }
-
-        bool is_lua_module_source(const std::filesystem::path& path) {
-            return extension_of(path) == ".lua" && extension_of(path.stem()) == ".module";
-        }
-
         std::optional<AssetType> external_import_type(const std::filesystem::path& path) {
-            const auto extension = extension_of(path);
-            if(extension == ".gltf" || extension == ".glb")
-                return AssetType::Mesh;
-            if(extension == ".png" || extension == ".jpg" || extension == ".jpeg")
-                return AssetType::Texture;
-            if(extension == ".hdr")
-                return AssetType::Environment;
-            if(extension == ".lua" && !is_lua_module_source(path))
-                return AssetType::Script;
-            if(extension == ".wav")
-                return AssetType::Audio;
-            return std::nullopt;
+            const auto type = asset_type_from_path(path);
+            if(!type)
+                return std::nullopt;
+            switch(*type) {
+                case AssetType::Mesh:
+                case AssetType::Texture:
+                case AssetType::Environment:
+                case AssetType::Script:
+                case AssetType::Audio:
+                    return type;
+                default:
+                    return std::nullopt;
+            }
         }
 
         Result<void> validate_relative(const std::filesystem::path& path) {
@@ -289,7 +292,7 @@ namespace CometEditor::AssetSourceOperations {
                 const auto relative = uri.fspath();
                 if(auto result = validate_relative(relative); !result)
                     return result;
-                if(relative.empty() || extension_of(relative) == ".meta")
+                if(relative.empty() || source_extension(relative) == ".meta")
                     return Result<void>::failure("Invalid glTF dependency: " + relative.string());
                 dependencies.push_back(relative.lexically_normal());
                 return Result<void>::success();
@@ -445,9 +448,9 @@ namespace CometEditor::AssetSourceOperations {
             std::error_code error;
             // key 是目标相对路径，value 是外部源；相同依赖只复制一次。
             for(const auto& source : sources) {
-                if(is_lua_module_source(source))
+                if(source_extension(source) == ".lua" && is_source_only_path(source))
                     return Result<void>::failure(
-                        "Lua module sources (.module.lua) are source-only dependencies, not Script assets; "
+                        "Lua module and UI controller sources are source-only dependencies, not Script assets; "
                         "create them inside project assets with a source editor");
                 const auto type = external_import_type(source);
                 if(!type)
@@ -470,7 +473,7 @@ namespace CometEditor::AssetSourceOperations {
             for(const auto& source : sources) {
                 if(external_import_type(source))
                     continue;
-                if(extension_of(source) == ".meta") {
+                if(source_extension(source) == ".meta") {
                     auto owner = source;
                     owner.replace_extension();
                     if(std::ranges::find(sources, owner) != sources.end())
@@ -647,12 +650,7 @@ namespace CometEditor::AssetSourceOperations {
             ScopeExit cleanup_on_exit([this] { cleanup(nullptr); });
             const auto result = publish_files(database);
             if(!result) {
-                report.snapshot_updated = false;
-                report.indexed_assets = database.size();
-                report.generated_metadata = 0;
-                report.added_assets.clear();
-                report.removed_assets.clear();
-                report.modified_assets.clear();
+                discard_scan_updates(report, database);
                 report.issues.push_back({directory, result.error()});
             }
             cleanup(&report);
@@ -787,7 +785,7 @@ namespace CometEditor::AssetSourceOperations {
             }
 
             AssetScanReport run() {
-                if(!is_safe_destination(destination) || extension_of(destination) != extension)
+                if(!is_safe_destination(destination) || source_extension(destination) != extension)
                     return operation_error(destination, std::string(name)
                                                             + " destination must be a relative "
                                                             + std::string(extension) + " path");
@@ -892,7 +890,7 @@ return script
     }
 
     bool can_open_source(const AssetDatabase& database, const std::filesystem::path& source) {
-        const auto extension = extension_of(source);
+        const auto extension = source_extension(source);
         if(is_lua_module_source(source) || extension == ".glsl")
             return true;
         const auto* record = database.find(source);
@@ -1006,12 +1004,7 @@ return script
 
         rollback();
         rollback_on_exit.release();
-        report.snapshot_updated = false;
-        report.indexed_assets = database.size();
-        report.generated_metadata = 0;
-        report.added_assets.clear();
-        report.removed_assets.clear();
-        report.modified_assets.clear();
+        discard_scan_updates(report, database);
         if(!rollback_error.empty())
             report.issues.push_back(
                 {destination, "Lua module move failed and rollback was incomplete; files retained: "
@@ -1170,12 +1163,7 @@ return script
             }
             rollback_deletion_files(files, staging_entry, report);
             rollback_on_exit.release();
-            report.snapshot_updated = false;
-            report.indexed_assets = database.size();
-            report.generated_metadata = 0;
-            report.added_assets.clear();
-            report.removed_assets.clear();
-            report.modified_assets.clear();
+            discard_scan_updates(report, database);
             report.issues.push_back({source_path, result.error()});
             if(std::ranges::any_of(files, &StagedDeletionFile::trashed))
                 report.issues.push_back({source_path,
@@ -1406,12 +1394,7 @@ return script
         const bool files_changed = source_moved || metadata_moved;
         rollback();
         rollback_on_exit.release();
-        report.snapshot_updated = false;
-        report.indexed_assets = database.size();
-        report.generated_metadata = 0;
-        report.added_assets.clear();
-        report.removed_assets.clear();
-        report.modified_assets.clear();
+        discard_scan_updates(report, database);
         if(!metadata_rollback_error.empty() || !source_rollback_error.empty()) {
             std::string message = "asset move failed and file rollback was incomplete";
             if(!metadata_rollback_error.empty())

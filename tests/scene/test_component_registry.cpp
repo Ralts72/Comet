@@ -23,45 +23,53 @@ namespace {
         EXPECT_TRUE(property.assign_value(&parameters, Comet::Math::Vec4(0.5f)));
     }
 
-    const Comet::PropertyDescriptor& require_property(
-        const Comet::ComponentDescriptor& component, const std::string_view property_id) {
-        const Comet::PropertyDescriptor* property = component.find_property(property_id);
-        EXPECT_NE(property, nullptr);
-        return *property;
-    }
-
     TEST(ComponentRegistryTest, RegistersBuiltInEditableComponents) {
         const Comet::ComponentRegistry registry = Comet::create_scene_component_registry();
 
         EXPECT_NE(registry.find_component("name"), nullptr);
-        EXPECT_NE(registry.find_component("transform"), nullptr);
-        EXPECT_NE(registry.find_component("mesh_renderer"), nullptr);
-        EXPECT_NE(registry.find_component("camera"), nullptr);
+        ASSERT_NE(registry.find_component("transform"), nullptr);
+        ASSERT_NE(registry.find_component("mesh_renderer"), nullptr);
+        ASSERT_NE(registry.find_component("camera"), nullptr);
         EXPECT_NE(registry.find_component("camera_controller"), nullptr);
         EXPECT_NE(registry.find_component("light"), nullptr);
 
         const auto& transform = *registry.find_component("transform");
         EXPECT_EQ(transform.display_name, "Transform");
         EXPECT_TRUE(transform.serializable);
-        EXPECT_EQ(require_property(transform, "translation").type, Comet::PropertyType::Vec3);
-        EXPECT_EQ(require_property(transform, "rotation").numeric.speed, 1.0f);
-        EXPECT_TRUE(require_property(transform, "rotation").editable);
-        EXPECT_TRUE(require_property(transform, "rotation").serializable);
-        EXPECT_FALSE(require_property(transform, "rotation").asset_type);
+        const auto* translation = transform.find_property("translation");
+        const auto* rotation = transform.find_property("rotation");
+        ASSERT_NE(translation, nullptr);
+        ASSERT_NE(rotation, nullptr);
+        EXPECT_EQ(translation->type, Comet::PropertyType::Vec3);
+        EXPECT_EQ(rotation->numeric.speed, 1.0f);
+        EXPECT_TRUE(rotation->editable);
+        EXPECT_TRUE(rotation->serializable);
+        EXPECT_FALSE(rotation->asset_type);
         const auto& mesh_renderer = *registry.find_component("mesh_renderer");
-        EXPECT_EQ(require_property(mesh_renderer, "mesh").asset_type, Comet::AssetType::Mesh);
-        EXPECT_EQ(
-            require_property(mesh_renderer, "material").asset_type, Comet::AssetType::Material);
-        EXPECT_FALSE(require_property(transform, "rotation").transient);
+        const auto* mesh = mesh_renderer.find_property("mesh");
+        const auto* material = mesh_renderer.find_property("material");
+        ASSERT_NE(mesh, nullptr);
+        ASSERT_NE(material, nullptr);
+        EXPECT_EQ(mesh->asset_type, Comet::AssetType::Mesh);
+        EXPECT_EQ(material->asset_type, Comet::AssetType::Material);
+        EXPECT_FALSE(rotation->transient);
 
-        EXPECT_EQ(require_property(mesh_renderer, "mesh").type, Comet::PropertyType::AssetHandle);
+        EXPECT_EQ(mesh->type, Comet::PropertyType::AssetHandle);
 
         const auto& camera = *registry.find_component("camera");
-        EXPECT_EQ(require_property(camera, "primary").type, Comet::PropertyType::Bool);
-        EXPECT_EQ(require_property(camera, "projection").type, Comet::PropertyType::Enum);
-        EXPECT_FALSE(require_property(camera, "projection").required);
-        EXPECT_EQ(require_property(camera, "fov").type, Comet::PropertyType::Float);
-        EXPECT_FALSE(require_property(camera, "orthographic_height").required);
+        const auto* primary = camera.find_property("primary");
+        const auto* projection = camera.find_property("projection");
+        const auto* fov = camera.find_property("fov");
+        const auto* height = camera.find_property("orthographic_height");
+        ASSERT_NE(primary, nullptr);
+        ASSERT_NE(projection, nullptr);
+        ASSERT_NE(fov, nullptr);
+        ASSERT_NE(height, nullptr);
+        EXPECT_EQ(primary->type, Comet::PropertyType::Bool);
+        EXPECT_EQ(projection->type, Comet::PropertyType::Enum);
+        EXPECT_FALSE(projection->required);
+        EXPECT_EQ(fov->type, Comet::PropertyType::Float);
+        EXPECT_FALSE(height->required);
     }
 
     TEST(ComponentRegistryTest, RejectsAssetTypeMetadataOnNonAssetAndUnknownType) {
@@ -115,14 +123,16 @@ namespace {
 
     TEST(ComponentRegistryTest, RigidBodyMassBoundsApplyToEditingAndRestore) {
         const auto registry = Comet::create_scene_component_registry();
+        ASSERT_NE(registry.find_component("rigid_body"), nullptr);
         const auto& descriptor = *registry.find_component("rigid_body");
-        const auto& mass = require_property(descriptor, "mass");
-        EXPECT_EQ(mass.type, Comet::PropertyType::Float);
-        EXPECT_EQ(mass.display_name, "Mass (kg)");
-        EXPECT_FALSE(mass.required);
-        EXPECT_TRUE(mass.numeric.enforce_bounds);
-        EXPECT_EQ(mass.numeric.minimum, Comet::RigidBodyComponent::MIN_MASS);
-        EXPECT_FLOAT_EQ(mass.numeric.speed, 0.1f);
+        const auto* mass = descriptor.find_property("mass");
+        ASSERT_NE(mass, nullptr);
+        EXPECT_EQ(mass->type, Comet::PropertyType::Float);
+        EXPECT_EQ(mass->display_name, "Mass (kg)");
+        EXPECT_FALSE(mass->required);
+        EXPECT_TRUE(mass->numeric.enforce_bounds);
+        EXPECT_EQ(mass->numeric.minimum, Comet::RigidBodyComponent::MIN_MASS);
+        EXPECT_FLOAT_EQ(mass->numeric.speed, 0.1f);
         Comet::Scene scene;
         auto entity = scene.create_entity();
         const auto& body = entity.add_component<Comet::RigidBodyComponent>();
@@ -213,15 +223,17 @@ namespace {
         entity.add_component<Comet::CameraComponent>();
         const Comet::ComponentRegistry registry = Comet::create_scene_component_registry();
 
+        ASSERT_NE(registry.find_component("transform"), nullptr);
         const auto& transform = *registry.find_component("transform");
         ASSERT_TRUE(transform.has_component(entity));
         const void* transform_value = transform.get_component(entity);
         ASSERT_NE(transform_value, nullptr);
 
-        const auto& rotation = require_property(transform, "rotation");
+        const auto* rotation = transform.find_property("rotation");
+        ASSERT_NE(rotation, nullptr);
         ASSERT_TRUE(transform.assign_property(entity, "rotation", Comet::Math::Vec3(0, 725, -540)));
         const auto& rotation_value =
-            *static_cast<const Comet::Math::Vec3*>(rotation.get_value(transform_value));
+            *static_cast<const Comet::Math::Vec3*>(rotation->get_value(transform_value));
         EXPECT_FLOAT_EQ(rotation_value.x, 0.0f);
         EXPECT_FLOAT_EQ(rotation_value.y, 5.0f);
         EXPECT_FLOAT_EQ(rotation_value.z, -180.0f);
@@ -274,16 +286,18 @@ namespace {
         Comet::Scene scene;
         auto entity = scene.create_entity("Before");
         const auto registry = Comet::create_scene_component_registry();
+        ASSERT_NE(registry.find_component("name"), nullptr);
         const auto& component = *registry.find_component("name");
-        const auto& name = require_property(component, "name");
+        const auto* name = component.find_property("name");
+        ASSERT_NE(name, nullptr);
         EXPECT_FALSE(component.serializable);
         EXPECT_FALSE(component.add_component_callback);
         EXPECT_FALSE(component.remove_component_callback);
         EXPECT_FALSE(component.add_component(entity));
         EXPECT_FALSE(component.remove_component(entity));
-        EXPECT_EQ(name.type, Comet::PropertyType::String);
+        EXPECT_EQ(name->type, Comet::PropertyType::String);
         ASSERT_TRUE(component.assign_property(entity, "name", std::string("名称")));
-        EXPECT_EQ(std::get<std::string>(*name.copy_value(component.get_component(entity))), "名称");
+        EXPECT_EQ(std::get<std::string>(*name->copy_value(component.get_component(entity))), "名称");
         EXPECT_FALSE(component.assign_property(entity, "name", 1.0f));
         EXPECT_EQ(entity.get_component<Comet::NameComponent>().name, "名称");
     }

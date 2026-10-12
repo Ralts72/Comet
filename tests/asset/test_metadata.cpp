@@ -1,5 +1,6 @@
 #include "asset/metadata.h"
 #include "asset/serialization/metadata_serializer.h"
+#include "support/temporary_directory.h"
 
 #include <gtest/gtest.h>
 
@@ -9,28 +10,6 @@
 #include <string>
 
 namespace Comet::Tests {
-    namespace {
-        class TemporaryDirectory final {
-        public:
-            TemporaryDirectory() {
-                m_path = std::filesystem::temp_directory_path()
-                         / ("comet_asset_metadata_test_"
-                             + std::to_string(AssetHandle::generate().value()));
-                std::filesystem::create_directories(m_path);
-            }
-
-            ~TemporaryDirectory() {
-                std::error_code error;
-                std::filesystem::remove_all(m_path, error);
-            }
-
-            [[nodiscard]] const std::filesystem::path& path() const { return m_path; }
-
-        private:
-            std::filesystem::path m_path;
-        };
-    }
-
     TEST(AssetMetadataTest, SerializesStableGuidAndType) {
         const AssetMetadata metadata{.handle = AssetHandle(42),
             .type = AssetType::Texture,

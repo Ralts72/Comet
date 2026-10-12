@@ -118,6 +118,8 @@ namespace Comet {
 
         void create_allocator();
 
+        void destroy() noexcept;
+
         vk::Device m_device;
         std::unique_ptr<Allocator> m_allocator;
         Context& m_context;

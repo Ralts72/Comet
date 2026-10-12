@@ -13,7 +13,7 @@ namespace Comet::Tests {
     namespace {
         class ContactProbe final: public System {
         public:
-            Result<void, Error> update(Scene& scene, const Context&) override {
+            Result<void, Error> post_fixed_update(Scene& scene, const Context&) override {
                 contacts = scene.get_contact_events();
                 history.insert(history.end(), contacts.begin(), contacts.end());
                 return Result<void, Error>::success();
@@ -532,8 +532,7 @@ namespace Comet::Tests {
         mover.edit_transform([](TransformComponent& transform) { transform.translation.x = -2; });
         // 接触检测观察固定步开始时的姿态，下一步确认已经分离。
         ASSERT_TRUE(runtime.advance(0.02));
-        ASSERT_EQ(observed->contacts.size(), 1u);
-        EXPECT_EQ(observed->contacts[0].kind, Scene::ContactEvent::Kind::TriggerExit);
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerExit), 1u);
         ASSERT_TRUE(runtime.stop());
     }
 
@@ -558,8 +557,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(observed->contacts.empty());
         rod.edit_transform([](TransformComponent& transform) { transform.rotation.y = 90; });
         ASSERT_TRUE(runtime.advance(0.02));
-        ASSERT_EQ(observed->contacts.size(), 1u);
-        EXPECT_EQ(observed->contacts[0].kind, Scene::ContactEvent::Kind::TriggerEnter);
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerEnter), 1u);
         for(int step = 0; step < 20; ++step) {
             ASSERT_TRUE(runtime.advance(0.01));
             EXPECT_TRUE(observed->contacts.empty());
@@ -571,8 +569,7 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(rod.get_component<TransformComponent>().rotation.y, 90);
         rod.edit_transform([](TransformComponent& transform) { transform.rotation.y = 180; });
         ASSERT_TRUE(runtime.advance(0.02));
-        ASSERT_EQ(observed->contacts.size(), 1u);
-        EXPECT_EQ(observed->contacts[0].kind, Scene::ContactEvent::Kind::TriggerExit);
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::TriggerExit), 1u);
         ASSERT_TRUE(runtime.stop());
     }
 

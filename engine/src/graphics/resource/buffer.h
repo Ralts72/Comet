@@ -64,16 +64,9 @@ namespace Comet {
             bool within_budget, const void* data, std::string_view debug_name);
     };
 
-    class COMET_API GPUBuffer final: public Buffer {
-    private:
-        friend class Buffer;
-
-        GPUBuffer(Device& device, size_t size, Allocator::BufferAllocation allocation);
-    };
-
     class COMET_API CPUBuffer final: public Buffer {
     public:
-        ~CPUBuffer() override;
+        ~CPUBuffer() override = default;
 
         void write(const void* data) const;
 

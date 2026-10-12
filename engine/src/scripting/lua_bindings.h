@@ -1,7 +1,7 @@
 #pragma once
 
 #include "scene/entity.h"
-#include "scene/property.h"
+#include "common/parameters.h"
 
 #include <cstdint>
 #include <optional>

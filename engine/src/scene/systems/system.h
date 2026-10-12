@@ -29,6 +29,10 @@ namespace Comet {
         virtual Result<void, Error> fixed_update(Scene&, const Context&) {
             return Result<void, Error>::success();
         }
+        // 所有固定更新及结构提交完成后执行；借用本步接触，同一 Context 不再次消费输入。
+        virtual Result<void, Error> post_fixed_update(Scene&, const Context&) {
+            return Result<void, Error>::success();
+        }
         virtual Result<void, Error> update(Scene&, const Context&) {
             return Result<void, Error>::success();
         }
