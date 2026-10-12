@@ -336,6 +336,8 @@ namespace Comet {
         if(!pipelined)
             runtime_result = advance_runtime();
         if(frame_ready_to_render && runtime_result) {
+            if(callbacks.frame_capture)
+                callbacks.frame_capture(frame);
             auto render_frame = m_renderer->capture_frame();
             if(m_scene) {
                 const auto render_scene = m_scene_extractor.update(*m_scene);

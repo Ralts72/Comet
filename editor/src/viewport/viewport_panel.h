@@ -49,6 +49,7 @@ namespace CometEditor {
         [[nodiscard]] const ViewportLayout& get_layout() const { return m_layout; }
 
         [[nodiscard]] bool is_visible() const { return m_actually_visible; }
+        [[nodiscard]] bool shows_colliders() const { return m_show_colliders; }
 
         // 所有面板绘制后复核焦点／弹窗，避免当帧输入穿透到运行场景。
         [[nodiscard]] const Comet::Input::Frame& route_runtime_input(
@@ -114,6 +115,7 @@ namespace CometEditor {
         Comet::Input::Gate m_game_ui_input;
         bool m_game_ui_available = false;
         bool m_show_game_ui = true;
+        bool m_show_colliders = false;
         bool m_game_ui_reload_requested = false;
         std::uint32_t m_max_render_dimension = 0;
         ViewportLayout::ResolutionPolicy m_play_resolution_policy;

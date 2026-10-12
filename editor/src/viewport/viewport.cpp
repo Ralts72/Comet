@@ -1,4 +1,5 @@
 #include "viewport/viewport.h"
+#include "viewport/collider_overlay.h"
 
 #include "asset/registry.h"
 #include "diagnostics/logger.h"
@@ -71,33 +72,35 @@ namespace CometEditor {
                 m_state.camera, *bounds, static_cast<float>(resolution.x) / resolution.y);
     }
 
-    void Viewport::submit_selection_bounds(Comet::Scene* scene) {
-        if(m_state.mode != EditorMode::Edit || !m_panel.is_visible())
-            return;
+    void Viewport::append_selection_bounds(Comet::Scene& scene) {
         const auto entity = m_selection.get_selected_entity();
-        if(!scene || !scene->is_valid(entity)
-            || !entity.has_component<Comet::MeshRendererComponent>())
+        if(!scene.is_valid(entity) || !entity.has_component<Comet::MeshRendererComponent>())
             return;
         const auto mesh = m_assets.resolve<Comet::Mesh>(
             entity.get_component<Comet::MeshRendererComponent>().mesh);
         if(!mesh)
             return;
-        Comet::LineDrawList lines;
-        if(lines.add_box(mesh->get_local_bounds(), scene->get_world_matrix(entity),
-               Comet::Math::Vec4(1.0f, 0.65f, 0.1f, 1.0f)))
-            m_renderer.submit_lines(lines);
+        static_cast<void>(m_feedback_lines.add_box(mesh->get_local_bounds(),
+            scene.get_world_matrix(entity), Comet::Math::Vec4(1.0f, 0.65f, 0.1f, 1.0f)));
     }
 
     void Viewport::submit_feedback(Comet::Scene* scene) {
-        if(!scene || m_state.mode != EditorMode::Edit || !m_panel.is_visible()) {
+        m_feedback_lines.clear();
+        if(!scene || !m_panel.is_visible()) {
             m_renderer.cancel_viewport_pick();
             return;
         }
-        if(const auto pixel = m_panel.take_pick_request()) {
-            m_renderer.request_viewport_pick(
-                *pixel, m_panel.get_layout().image_resolution, scene->get_lifetime());
+        if(m_state.mode == EditorMode::Edit) {
+            if(const auto pixel = m_panel.take_pick_request())
+                m_renderer.request_viewport_pick(
+                    *pixel, m_panel.get_layout().image_resolution, scene->get_lifetime());
+            append_selection_bounds(*scene);
+        } else {
+            m_renderer.cancel_viewport_pick();
         }
-        submit_selection_bounds(scene);
+        if(m_panel.shows_colliders())
+            append_collider_outlines(*scene, m_feedback_lines);
+        m_renderer.submit_lines(m_feedback_lines);
     }
 
     void Viewport::consume_pick(Comet::Scene* scene) {

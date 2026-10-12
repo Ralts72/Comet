@@ -73,6 +73,8 @@ namespace Comet {
                 .runtime_input =
                     [this](const Engine::FrameContext& frame) { return on_runtime_input(frame); },
                 .runtime_failed = [this](const Error& error) { return on_runtime_error(error); },
+                .frame_capture =
+                    [this](const Engine::FrameContext& frame) { on_frame_capture(frame); },
             });
         m_engine->prepare_shutdown();
         on_shutdown();

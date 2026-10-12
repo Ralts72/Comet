@@ -21,6 +21,9 @@ namespace Comet {
         // 变换八个角点后连边，保留旋转/缩放，不重新拟合世界轴对齐盒。
         [[nodiscard]] bool add_box(const BoundingBox& box, const Math::Mat4& transform,
             Math::Vec4 color = Math::Vec4(1.0f));
+        // 三个局部大圆构成线框；与 add_box 一样接受仿射变换。
+        [[nodiscard]] bool add_sphere(
+            float radius, const Math::Mat4& transform, Math::Vec4 color = Math::Vec4(1.0f));
 
         // 顶点数量超限时拒绝整批追加，保留已有线段。
         [[nodiscard]] bool append(const LineDrawList& draw_list);

@@ -12,6 +12,34 @@
 namespace CometEditor::Tests {
     using ViewportPlayUiTest = ViewportUiTest;
 
+    TEST_F(ViewportPlayUiTest, ColliderToggleWorksWithoutProjectUiAndSurvivesModeChanges) {
+        viewport.set_game_ui_available(false);
+        EXPECT_FALSE(viewport.shows_colliders());
+        const auto toggle = [&] {
+            auto* window = ImGui::FindWindowByName("Viewport");
+            ASSERT_NE(window, nullptr);
+            ImGui::ActivateItemByID(window->GetID("###View"));
+            frame();
+            frame();
+            ASSERT_FALSE(GImGui->OpenPopupStack.empty());
+            auto* popup = GImGui->OpenPopupStack.back().Window;
+            ASSERT_NE(popup, nullptr);
+            ImGui::ActivateItemByID(popup->GetID("碰撞体###Colliders"));
+            frame();
+            ImGui::ClosePopupToLevel(0, true);
+            frame();
+        };
+        toggle();
+        EXPECT_TRUE(viewport.shows_colliders());
+        activate_play_camera();
+        EXPECT_TRUE(viewport.shows_colliders());
+        ASSERT_TRUE(runtime.set_state(Comet::SceneRuntime::State::Paused));
+        toggle();
+        EXPECT_FALSE(viewport.shows_colliders());
+        EXPECT_EQ(runtime.get_state(), Comet::SceneRuntime::State::Paused);
+        EXPECT_FALSE(viewport.take_play_command());
+    }
+
     TEST(ViewportWindowUiTest, ImageRemainsVisibleOnFirstOpenAndAfterRestoringSmallWindow) {
         for(const auto* settings :
             {"", "[Window][Viewport]\nPos=485,72\nSize=172,116\nCollapsed=0\n"}) {

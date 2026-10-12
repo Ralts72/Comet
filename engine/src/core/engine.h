@@ -42,6 +42,8 @@ namespace Comet {
             // 每个非挂起帧在 UI 后调用一次，包括渲染延期帧；空值关闭游戏输入。
             std::function<std::optional<Input::Frame>(const FrameContext&)> runtime_input;
             std::function<Result<void, Error>(const Error&)> runtime_failed;
+            // 主线程在交付帧前生成依赖当前场景姿态的反馈；暂停单步已执行，运行更新尚未开始。
+            std::function<void(const FrameContext&)> frame_capture;
         };
         [[nodiscard]] const FrameDiagnostics& frame_diagnostics() const {
             return m_frame_diagnostics;

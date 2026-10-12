@@ -33,6 +33,7 @@ add_library(editor_core STATIC
         src/viewport/camera_controller.cpp
         src/viewport/transform_gizmo.cpp
         src/viewport/viewport_layout.cpp
+        src/viewport/collider_overlay.cpp
 )
 target_link_libraries(editor_core PUBLIC engine comet_asset_tools comet_shader_tools PRIVATE fastgltf::fastgltf)
 if(APPLE)

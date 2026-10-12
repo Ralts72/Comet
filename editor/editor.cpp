@@ -277,8 +277,11 @@ namespace {
                 m_runtime_input = m_viewport->panel().route_runtime_input(
                     frame.physical_input, input_blocked, pointer_blocked);
             }
-            m_viewport->submit_feedback(get_engine().get_scene());
             return Comet::Result<void, Comet::Error>::success();
+        }
+
+        void on_frame_capture(const Comet::Engine::FrameContext&) override {
+            m_viewport->submit_feedback(get_engine().get_scene());
         }
 
         std::optional<Comet::Input::Frame> on_runtime_input(

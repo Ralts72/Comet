@@ -98,7 +98,7 @@ Engine／Renderer／设备等工厂先准备完整 owner，成功后交付；部
 
 1. Main 处理窗口事件，再等待上一帧 RenderThread 完成；绘制错误原样返回。宿主 `on_update` 消费上次 UI 请求、维护资产与切换模式。
 2. Main 捕获窗口尺寸，RenderThread 准备 slot／交换链、回收资源并重建 GPU dependent；帧就绪时调用 `on_frame_ready`，收集 ImGui 请求、属性编辑、Gizmo 和输入授权。
-3. `on_runtime_input` 交付只读授权快照；Main 的 SceneExtractor 提取当前场景，SceneResolver 固定资源、材质值和选定 Shader 引用，组合视图、拾取、调试线段及 UI 绘制数据，交付只读 RenderFrame。交接最多保留一帧，包括已经开始录制的帧。
+3. `on_runtime_input` 交付只读授权快照；暂停单步先推进模拟，Main 在 `on_frame_capture` 生成依赖当前姿态的反馈，再由 SceneExtractor 提取场景。SceneResolver 固定资源、材质值和选定 Shader 引用，组合视图、拾取、调试线段及 UI 绘制数据，交付只读 RenderFrame。交接最多保留一帧，包括已经开始录制的帧。
 4. 持续运行时，Main 的 Runtime 执行有界 Fixed Update 和一次普通 Update，与 RenderThread 绘制刚交付的快照重叠，模拟结果在下一帧提取。暂停单步则在本次提取前完成，编辑和单步结果直接显示在本帧。提取仍等上一份绘制完成，复用已有快照存储。更新失败先取回绘制结果，再交给宿主恢复，不提取部分写入的场景。
 5. RenderThread 准备世界界限、光照和共享阴影；所有 View 分别生成相机、裁剪、绘制和后处理，再绘制 Overlay、提交并呈现。Main 在取回结果前不修改 Renderer、View 或 UI 后端。退出主循环前取回最后一帧结果并接回资源回收，宿主关闭前由 RenderThread 等待 GPU 空闲、关闭 UI GPU 后端，再停止并 join；窗口输入与文档由 Main 关闭。
 
@@ -429,6 +429,9 @@ Viewport 在 Main 更新检查当前场景、Edit 模式和实体存活，过期
 隐藏视图消费本视图的临时请求但跳过绘制，全部隐藏时才跳过世界准备；输入、UI 和运行推进遵守宿主阶段。
 ViewportPanel 根据 Edit／Play 切换工具栏、相机交互与输入路由，共用图像展示、DPI 坐标和尺寸稳定策略。Edit 提供拾取、Gizmo 和资产拖入；Play 提供运行控制、分辨率预览与游戏输入。项目 UI 在同一离屏画面合成。
 面板绘制完成后复核视口焦点／弹窗，失焦释放游戏按键；切回不重放仍按住的输入。Viewport 只绑定默认 View，不创建额外的场景目标。
+ColliderOverlay 属于 Editor：读取 Collider／RigidBody 配置和 Scene 呈现变换，追加盒／球线框到复用的反馈列表；未添加刚体用灰色、不支持的父级／缩放用红色预览。
+Viewport 在 `on_frame_capture` 提交选择框、碰撞体轮廓与拾取请求，暂停单步和持续运行都与同次提取的模型姿态对齐。
+Engine 的 LineDrawList 只提供通用仿射盒／球线段，RenderFrame 持有自有顶点；物理服务不依赖渲染，RenderThread 不读取 Scene 或 Jolt 状态。
 画质、Shader 与材质预览均在所有视图准备成功后替换；已录制帧仍使用旧版本。
 
 ## 渲染诊断

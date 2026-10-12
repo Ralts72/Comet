@@ -4,6 +4,7 @@
 #include "viewport/transform_gizmo.h"
 #include "common/error.h"
 #include "common/result.h"
+#include "render/debug/line_draw_list.h"
 
 #include <memory>
 
@@ -42,7 +43,7 @@ namespace CometEditor {
 
     private:
         void focus_selection(Comet::Scene* scene);
-        void submit_selection_bounds(Comet::Scene* scene);
+        void append_selection_bounds(Comet::Scene& scene);
 
         EditorState& m_state;
         SelectionService& m_selection;
@@ -52,5 +53,6 @@ namespace CometEditor {
         std::shared_ptr<Comet::Sampler> m_sampler;
         TransformGizmo m_gizmo;
         ViewportPanel m_panel;
+        Comet::LineDrawList m_feedback_lines;
     };
 }

@@ -171,15 +171,24 @@ namespace Comet::Tests {
             return Result<void, GraphicsError>::success();
         }});
         unsigned frames = 0;
-        const auto result = engine->run({.frame_ready = [&](const Engine::FrameContext&) {
-            EXPECT_EQ(observer->updates, frames);
-            if(++frames == 2)
-                engine->get_window().request_close();
-            return Result<void, Error>::success();
-        }});
+        unsigned captures = 0;
+        const auto result = engine->run({.frame_ready =
+                                             [&](const Engine::FrameContext&) {
+                                                 EXPECT_EQ(observer->updates, frames);
+                                                 if(++frames == 2)
+                                                     engine->get_window().request_close();
+                                                 return Result<void, Error>::success();
+                                             },
+            .frame_capture =
+                [&](const Engine::FrameContext&) {
+                    EXPECT_EQ(std::this_thread::get_id(), main_thread);
+                    EXPECT_EQ(observer->updates, captures);
+                    ++captures;
+                }});
         ASSERT_TRUE(result) << result.error();
         EXPECT_EQ(draws, 2u);
         EXPECT_EQ(observer->updates, 2u);
+        EXPECT_EQ(captures, 2u);
         engine->prepare_shutdown();
         engine->get_renderer().set_overlay({});
     }
@@ -248,6 +257,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(engine->start_scene_runtime(SceneRuntime::State::Paused));
         unsigned draws = 0;
         unsigned recoveries = 0;
+        unsigned captures = 0;
         set_test_overlay(engine->get_renderer(), {.render = [&](OverlayRecordContext&) {
             ++draws;
             return Result<void, GraphicsError>::success();
@@ -264,12 +274,38 @@ namespace Comet::Tests {
                     engine->get_window().request_close();
                     return Result<void, Error>::success();
                 },
+            .frame_capture = [&](const Engine::FrameContext&) { ++captures; },
         });
         ASSERT_TRUE(result) << result.error();
         EXPECT_EQ(recoveries, 1u);
         EXPECT_EQ(calls->updates, 1);
         EXPECT_EQ(calls->stops, 1);
+        EXPECT_EQ(captures, 0u);
         engine->get_renderer().set_overlay({});
+    }
+
+    TEST_F(RenderThreadTest, FrameCaptureObservesCompletedPausedStep) {
+        auto calls = std::make_shared<RuntimeCalls>();
+        engine->set_scene(std::make_unique<Scene>());
+        ASSERT_TRUE(engine->add_system(std::make_unique<SceneMotionSystem>(calls)));
+        ASSERT_TRUE(engine->start_scene_runtime(SceneRuntime::State::Paused));
+        unsigned captures = 0;
+        const auto main_thread = std::this_thread::get_id();
+        const auto result = engine->run({.frame_ready =
+                                             [&](const Engine::FrameContext&) {
+                                                 EXPECT_EQ(calls->fixed_updates, 0);
+                                                 return engine->request_runtime_step();
+                                             },
+            .frame_capture =
+                [&](const Engine::FrameContext&) {
+                    EXPECT_EQ(std::this_thread::get_id(), main_thread);
+                    EXPECT_EQ(calls->fixed_updates, 1);
+                    EXPECT_EQ(calls->updates, 1);
+                    ++captures;
+                    engine->get_window().request_close();
+                }});
+        ASSERT_TRUE(result) << result.error();
+        EXPECT_EQ(captures, 1u);
     }
 
     TEST_F(RenderThreadTest, SwapchainPreparationAndShutdownUseTheDrawingThread) {

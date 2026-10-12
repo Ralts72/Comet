@@ -58,6 +58,9 @@ namespace Comet {
             return Result<void, Error>::failure(error);
         }
 
+        // UI 与暂停单步之后、场景提取之前捕获调试线等反馈；运行态仍与交付后的绘制重叠。
+        virtual void on_frame_capture(const Engine::FrameContext&) {}
+
         // on_init 一旦开始，退出时就会调用；必须能清理部分初始化的状态。
         virtual void on_shutdown() = 0;
 

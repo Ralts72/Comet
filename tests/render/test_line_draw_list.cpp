@@ -121,4 +121,42 @@ namespace Comet::Tests {
             EXPECT_EQ(vertex.position, Math::Vec3(1, 2, 3));
         }
     }
+
+    TEST_F(LineDrawListTest, SphereContainsClosedGreatCirclesAndPreservesAffineTransform) {
+        const auto transform = Math::compose_trs({4, 5, 6}, {20, 35, 40}, {2, 3, 4});
+        const auto inverse = Math::inverse(transform);
+        const Math::Vec4 color(0.1f, 0.2f, 0.3f, 1);
+        ASSERT_TRUE(list.add_sphere(2, transform, color));
+        ASSERT_EQ(list.line_count(), 96u);
+        for(std::size_t circle = 0; circle < 3; ++circle) {
+            const auto vertices = list.vertices().subspan(circle * 64, 64);
+            for(std::size_t index = 0; index < vertices.size(); index += 2) {
+                const auto local = Math::Vec3(inverse * Math::Vec4(vertices[index].position, 1));
+                EXPECT_NEAR(Math::length(local), 2, 1e-5f);
+                EXPECT_NEAR(local[circle], 0, 1e-5f);
+                EXPECT_EQ(vertices[index].color, color);
+                EXPECT_EQ(
+                    vertices[index + 1].position, vertices[(index + 2) % vertices.size()].position);
+            }
+        }
+    }
+
+    TEST_F(LineDrawListTest, InvalidSphereNeverLeavesPartialCircles) {
+        ASSERT_TRUE(list.add_line({0, 0, 0}, {1, 0, 0}));
+        const auto identity = Math::Mat4(1);
+        const float inf = std::numeric_limits<float>::infinity();
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        for(const float radius : {0.0f, -1.0f, inf, nan})
+            EXPECT_FALSE(list.add_sphere(radius, identity));
+        EXPECT_FALSE(list.add_sphere(1, identity, {1, 1, 1, nan}));
+        auto transform = identity;
+        transform[0][3] = 1;
+        EXPECT_FALSE(list.add_sphere(1, transform));
+        transform = identity;
+        transform[1][1] = inf;
+        EXPECT_FALSE(list.add_sphere(1, transform));
+        transform = Math::compose_trs({0, 0, 0}, {0, 0, 0}, Math::Vec3(2));
+        EXPECT_FALSE(list.add_sphere(std::numeric_limits<float>::max(), transform));
+        EXPECT_EQ(list.line_count(), 1u);
+    }
 }
