@@ -58,10 +58,9 @@ namespace CometEditor {
             return std::nullopt;
         std::optional<AssetDragPayload> result;
         if(const auto payload = read_asset_drag_payload(ImGui::GetDragDropPayload())) {
-            const auto* record = database.find(payload->handle);
+            const auto* record = database.find(payload->target.handle);
             if(payload->type == type && record && record->type == type
-                && database.is_current(payload->handle, payload->revision)
-                && payload->generation == generation
+                && database.is_current(payload->target) && payload->generation == generation
                 && ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE))
                 result = payload;
         }

@@ -7,11 +7,6 @@
 #include <variant>
 
 namespace CometEditor {
-    struct AssetRead {
-        Comet::AssetHandle handle;
-        Comet::AssetRevision revision;
-    };
-
     struct MaterialEdit {
         Comet::MaterialData before;
         Comet::MaterialData after;
@@ -24,8 +19,7 @@ namespace CometEditor {
 
     struct AssetEdit {
         enum class Action { Apply, Preview, Commit, Cancel };
-        Comet::AssetHandle handle;
-        Comet::AssetRevision revision;
+        Comet::AssetTarget target;
         std::variant<MaterialEdit, TextureEdit> value;
         Action action = Action::Apply;
     };

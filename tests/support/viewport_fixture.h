@@ -35,10 +35,8 @@ namespace CometEditor::Tests {
         Comet::Input runtime_input;
         bool runtime_accepting = false;
         bool runtime_ui_blocked = false;
-        AssetDragPayload mesh_payload{.handle = Comet::AssetHandle(42),
-            .revision = 1,
-            .generation = 0,
-            .type = Comet::AssetType::Mesh};
+        AssetDragPayload mesh_payload{
+            .target = {Comet::AssetHandle(42), 1}, .generation = 0, .type = Comet::AssetType::Mesh};
         std::size_t payload_size = sizeof(AssetDragPayload);
 
         void SetUp() override {

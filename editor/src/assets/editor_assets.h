@@ -42,7 +42,7 @@ namespace CometEditor {
             std::span<const std::filesystem::path> sources, const std::filesystem::path& directory);
         [[nodiscard]] Comet::Result<void, Comet::Error> apply_texture_edit(const AssetEdit& edit);
         [[nodiscard]] Comet::Result<Comet::MaterialData> read_material(
-            const AssetRead& request) const;
+            const Comet::AssetTarget& request) const;
         [[nodiscard]] Comet::Result<Comet::AssetManager::MaterialUpdate, Comet::Error>
         prepare_material_edit(const AssetEdit& edit);
         [[nodiscard]] Comet::Result<void, Comet::Error> commit_material_edit(

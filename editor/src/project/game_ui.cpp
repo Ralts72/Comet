@@ -37,7 +37,17 @@ namespace CometEditor {
 
     void GameUi::reset() {
         deactivate();
-        m_renderer.wait_idle();
+        if(m_ui) {
+            const auto cleared = m_renderer.prepare_overlay_resources([this] {
+                m_renderer.wait_idle();
+                m_ui->shutdown_gpu();
+                return Comet::Result<void, Comet::GraphicsError>::success();
+            });
+            if(!cleared) {
+                LOG_ERROR("Cannot reset project UI: {}", cleared.error().message);
+                return;
+            }
+        }
         m_ui.reset();
         reload();
     }

@@ -1,4 +1,5 @@
 #include "render/scene/scene_resolver.h"
+#include "common/snapshot.h"
 
 #include "asset/registry.h"
 #include "asset/artifact/shader_program_artifact.h"
@@ -36,11 +37,7 @@ namespace Comet {
     }
 
     RenderWorld& SceneResolver::writable_output() {
-        if(!m_output)
-            m_output = std::make_shared<RenderWorld>();
-        else if(m_output.use_count() != 1)
-            m_output = std::make_shared<RenderWorld>(*m_output);
-        return *m_output;
+        return writable_snapshot(m_output);
     }
 
     std::shared_ptr<const RenderWorld> SceneResolver::update(const RenderScene& render_scene) {

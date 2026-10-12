@@ -170,8 +170,9 @@ namespace CometEditor {
                 m_selection.select_asset(asset.handle);
             record_drop_target(path);
             if(ImGui::BeginDragDropSource()) {
-                const AssetDragPayload payload{asset.handle, m_database.get_revision(asset.handle),
-                    m_history.generation(), asset.type};
+                const AssetDragPayload payload{
+                    {asset.handle, m_database.get_revision(asset.handle)}, m_history.generation(),
+                    asset.type};
                 ImGui::SetDragDropPayload(
                     AssetDragPayload::TYPE, &payload, sizeof(payload), ImGuiCond_Once);
                 ImGui::TextUnformatted(name.c_str());
@@ -485,7 +486,7 @@ namespace CometEditor {
 
     std::optional<ProjectPanel::MoveRequest> ProjectPanel::take_move_request() {
         auto request = std::exchange(m_pending_move, std::nullopt);
-        if(request && !m_database.is_current(request->handle, request->revision)) {
+        if(request && !m_database.is_current(request->target)) {
             m_operation_error = "Asset changed while editing; please try again";
             return std::nullopt;
         }
@@ -498,7 +499,7 @@ namespace CometEditor {
 
     std::optional<ProjectPanel::DeleteRequest> ProjectPanel::take_delete_request() {
         auto request = std::exchange(m_pending_delete, std::nullopt);
-        if(request && !m_database.is_current(request->handle, request->revision)) {
+        if(request && !m_database.is_current(*request)) {
             m_operation_error = "Asset changed while editing; please try again";
             return std::nullopt;
         }
@@ -542,11 +543,11 @@ namespace CometEditor {
         if(const auto payload =
                 read_asset_drag_payload(ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE))) {
             const auto& source = *payload;
-            const auto* record = m_database.find(source.handle);
+            const auto* record = m_database.find(source.target.handle);
             if(record) {
                 const auto destination = directory / record->path.filename();
                 if(destination != record->path)
-                    m_pending_move = MoveRequest{source.handle, source.revision, destination};
+                    m_pending_move = MoveRequest{source.target, destination};
             }
         }
         if(const auto* payload = ImGui::AcceptDragDropPayload(MODULE_DRAG_TYPE)) {
@@ -571,7 +572,7 @@ namespace CometEditor {
                 m_operation_error = report.issues.front().message;
         }
         const auto* target = std::get_if<Comet::AssetHandle>(&m_rename_target);
-        if(committed && target && *target == request.handle)
+        if(committed && target && *target == request.target.handle)
             m_close_rename = true;
     }
 
@@ -770,7 +771,7 @@ namespace CometEditor {
                     m_operation_error.clear();
                 } else
                     m_pending_move = MoveRequest{
-                        record->handle, m_database.get_revision(record->handle), destination};
+                        {record->handle, m_database.get_revision(record->handle)}, destination};
             }
         }
         ImGui::EndDisabled();

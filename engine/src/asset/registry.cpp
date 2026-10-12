@@ -1,15 +1,15 @@
 #include "asset/registry.h"
+#include "common/version.h"
 
 #include "diagnostics/logger.h"
 
-#include <atomic>
 #include <algorithm>
 
 namespace Comet {
     namespace {
         uint64_t next_revision() noexcept {
-            static std::atomic<uint64_t> revision{0};
-            return revision.fetch_add(1, std::memory_order_relaxed) + 1;
+            static VersionSequence revision;
+            return revision.next();
         }
     }
 

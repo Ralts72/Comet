@@ -20,18 +20,14 @@ namespace CometEditor {
     class ProjectPanel: public EditorPanel {
     public:
         struct MoveRequest {
-            Comet::AssetHandle handle;
-            Comet::AssetRevision revision;
+            Comet::AssetTarget target;
             std::filesystem::path destination;
         };
         struct ModuleMoveRequest {
             std::filesystem::path source;
             std::filesystem::path destination;
         };
-        struct DeleteRequest {
-            Comet::AssetHandle handle;
-            Comet::AssetRevision revision;
-        };
+        using DeleteRequest = Comet::AssetTarget;
         struct ModuleDeleteRequest {
             std::filesystem::path source;
         };

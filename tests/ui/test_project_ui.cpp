@@ -4,6 +4,7 @@
 #include "support/temporary_directory.h"
 #include "core/window.h"
 #include "render/overlay_record_context.h"
+#include "common/scope_exit.h"
 
 #include <GLFW/glfw3.h>
 #include <RmlUi/Core.h>
@@ -289,7 +290,7 @@ namespace Comet::Tests {
     TEST_F(ProjectUiGpuTest, MenuFocusIsCapturedBeforeGpuRecording) {
         class FocusProbe final: public Rml::Element {
         public:
-            FocusProbe() : Rml::Element("div") {}
+            using Rml::Element::Element;
             Rml::Element* observed = nullptr;
             unsigned calls = 0;
 
@@ -299,8 +300,11 @@ namespace Comet::Tests {
                 ++calls;
             }
         };
-        Rml::ElementPtr owned(new FocusProbe());
+        Rml::ElementInstancerGeneric<FocusProbe> instancer;
+        auto owned = instancer.InstanceElement(&document(), "div", {});
         auto* probe = static_cast<FocusProbe*>(owned.get());
+        probe->SetInstancer(&instancer);
+        const ScopeExit release_probe([&] { document().RemoveChild(probe).reset(); });
         ASSERT_TRUE(probe->SetProperty("position", "absolute"));
         ASSERT_TRUE(probe->SetProperty("left", "0px"));
         ASSERT_TRUE(probe->SetProperty("top", "0px"));

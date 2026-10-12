@@ -1,4 +1,5 @@
 #include "render/scene/scene_extractor.h"
+#include "common/snapshot.h"
 
 #include "scene/components.h"
 #include "scene/scene.h"
@@ -107,8 +108,7 @@ namespace Comet {
 
     void SceneExtractor::reset() noexcept {
         m_output.reset();
-        m_scene_lifetime = 0;
-        m_revision = 0;
+        m_scene_version = {};
         m_matches_storage_order = false;
         m_slots_by_entity.clear();
         m_entities_by_slot.clear();
@@ -168,21 +168,20 @@ namespace Comet {
     }
 
     std::shared_ptr<const RenderScene> SceneExtractor::update(Scene& scene) {
-        if(m_scene_lifetime == scene.get_lifetime() && m_revision == scene.get_render_revision())
+        const VersionStamp version{scene.get_lifetime(), scene.get_render_revision()};
+        if(m_scene_version == version)
             return m_output;
-        if(!m_output || m_scene_lifetime != scene.get_lifetime())
-            m_output = std::make_shared<RenderScene>();
-        else if(m_output.use_count() != 1)
-            m_output = std::make_shared<RenderScene>(*m_output);
-        auto& output = *m_output;
+        if(m_scene_version.identity != version.identity)
+            m_output.reset();
+        auto& output = writable_snapshot(m_output);
         const auto batch = scene.render_changes();
-        const bool full = m_scene_lifetime != scene.get_lifetime()
-                          || m_revision != batch.base_revision || batch.full_update;
+        const bool full = m_scene_version.identity != version.identity
+                          || m_scene_version.revision != batch.base_revision || batch.full_update;
         output.item_changes.begin_update(full);
         if(full) {
             const bool rebuild_slots =
-                !m_matches_storage_order || m_scene_lifetime != scene.get_lifetime()
-                || m_revision != batch.base_revision || batch.structure_changed;
+                !m_matches_storage_order || m_scene_version.identity != version.identity
+                || m_scene_version.revision != batch.base_revision || batch.structure_changed;
             SceneExtractor* slots = nullptr;
             if(rebuild_slots)
                 slots = this;
@@ -194,9 +193,8 @@ namespace Comet {
             if(batch.structure_changed)
                 m_matches_storage_order = false;
         }
-        m_scene_lifetime = scene.get_lifetime();
-        m_revision = batch.revision;
-        scene.acknowledge_render_changes(m_revision,
+        m_scene_version = {version.identity, batch.revision};
+        scene.acknowledge_render_changes(m_scene_version.revision,
             std::clamp<std::size_t>(scene.component_count<MeshRendererComponent>() / 4, 8, 64));
         return m_output;
     }

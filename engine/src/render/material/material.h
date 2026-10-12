@@ -38,6 +38,8 @@ namespace Comet {
         [[nodiscard]] std::shared_ptr<Texture> get_texture_property(const std::string& name) const;
 
     private:
+        void mark_changed();
+
         std::string m_name;
         std::string m_template_name;
         AssetHandle m_shader_program;

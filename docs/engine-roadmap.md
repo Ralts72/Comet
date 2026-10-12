@@ -22,7 +22,7 @@
 1. **项目 UI／Gameplay 整体验收**：实际走通设置、改键、取消／应用、计分、声音、暂停／单步、重开和 Stop／再次 Play，检查高 DPI、resize、失焦与重载失败。
 2. **内容编辑与性能**：按真实需求扩展纹理等资产撤销；依据高对象／多材质、持续变换、活动／休眠刚体基线推进优化。
    当前增量数据、多视图、共享阴影和统一候选发布的职责见架构文档。
-   渲染线程准备已有独立持有的只读 Scene／RenderWorld、固定材质／Shader 输入、拾取值返回、RmlUi／ImGui 绘制帧、独立 ImGui 后端上下文与视口图片版本、材质布局反馈、资产删除批次和共享资源销毁交接。资产 GPU 创建、材质候选准备及发布、内置 Shader 发布和错误材质切换已接入同一 RenderThread；运行期间的共享资源与已完成上传也在该线程回收，启动和退出阶段交回 Main。Main 捕获输入并复核、保存和注册，GPU 操作同步等待结果。绘制与窗口事件可重叠，ImGui 当前上下文选择为线程局部状态。帧准备、交换链恢复及 UI GPU 后端重建、Engine 关闭清理已迁移；继续收拢 UI 初始化、候选验证与主动重置，再将 CPU 更新与绘制重叠。
+   渲染线程准备已有独立持有的只读 Scene／RenderWorld、固定材质／Shader 输入、拾取值返回、RmlUi／ImGui 绘制帧、独立 ImGui 后端上下文与视口图片版本、材质布局反馈、资产删除批次和共享资源销毁交接。资产 GPU 创建、材质候选准备及发布、内置 Shader 发布和错误材质切换已接入同一 RenderThread；运行期间的共享资源与已完成上传也在该线程回收，启动和退出阶段交回 Main。Main 捕获输入并复核、保存和注册，GPU 操作同步等待结果。绘制与窗口事件可重叠，ImGui 当前上下文选择为线程局部状态。帧准备、交换链恢复及 UI GPU 后端重建、Engine 关闭清理已迁移；Runtime 更新已与绘制重叠；RmlUi 初始化、候选 GPU 校验、主动重置清理和视口目标分配也已进入同一交接，继续测量收益与尾延迟。
    空间索引和多视图 GPU 统计按规模扩展，已有路径按新热点优化。
 3. **后续功能**：动画、粒子、GI、路径追踪按下方跨阶段计划推进；先后顺序依赖样例与技术前置条件，不因个人使用而取消，也不要求先完成通用工程框架。
 
@@ -792,32 +792,32 @@ EXR、六面图片和更高背景分辨率按内容需求扩展。发布包只�
 ### 渲染线程与并行准备（第一阶段已接入）
 
 Main 拥有 Scene、UI 前端和资产发布；CPU Worker 负责导入／编译。独立 RenderThread 已在主循环中负责世界与视图准备、录制、提交和呈现。
-交接容量为一个请求，包含录制中的帧；Main 可同时处理窗口事件，下一次更新前等待结果。绘制错误和 Vulkan 错误码回传 Main；退出主循环时取回最后一帧结果，宿主关闭前停止并 join 渲染线程。
-RenderThread 从 Engine 初始化持续到关闭，资产 GPU 创建、材质候选准备及发布、内置 Shader 发布和错误材质切换共用有界交接槽。CPU 产品直接移走，Main 同步等待候选后复核、保存并注册，再提交 GPU 绑定发布。主循环内由 RenderThread 回收已完成上传及共享资源，退出先排空 CPU 帧再交回 Main。Main 捕获窗口尺寸和删除批次，以专用请求同步等待 GPU 帧准备；交换链／Surface 恢复及 UI GPU 后端重建、Engine 关闭清理由 RenderThread 执行。窗口输入、文档与字体归 Main；CPU 场景更新尚未与绘制重叠。
+交接容量为一个请求，包含录制中的帧；Main 可同时更新下一步模拟，下一次宿主回调前等待结果。绘制错误和 Vulkan 错误码回传 Main；退出主循环时取回最后一帧结果，宿主关闭前停止并 join 渲染线程。
+RenderThread 从 Engine 初始化持续到关闭，资产 GPU 创建、材质候选准备及发布、内置 Shader 发布和错误材质切换共用有界交接槽。CPU 产品直接移走，Main 同步等待候选后复核、保存并注册，再提交 GPU 绑定发布。主循环内由 RenderThread 回收已完成上传及共享资源，退出先排空 CPU 帧再交回 Main。Main 捕获窗口尺寸和删除批次，以专用请求同步等待 GPU 帧准备；交换链／Surface 恢复及 UI GPU 后端重建、Engine 关闭清理由 RenderThread 执行。窗口输入、文档与字体归 Main；持续运行时先交付当前快照，再与绘制并发执行下一步 Runtime 更新，模拟结果在下一帧提取；编辑和暂停单步的结果在本帧提取前生效。
 SceneExtractor 已交付可独立持有的只读 CPU 快照；同步帧复用存储，旧快照被保留且场景变化时才复制。
 SceneResolver 在 Main 固定材质值和 Shader 引用，交付可独立保留的只读 RenderWorld；串行帧复用世界存储，旧读者仍在时复制后更新。局部编辑继续走已有失效槽位，不另设资产身份表，GPU 不查询最新注册表。
 拾取结果已改为帧提交后由 Main 消费；RmlUi 在更新阶段交付只读绘制快照，保留几何／像素及当时尺寸。GPU 录制不读取文档，资源准备与清理集中在后端；主循环的 GPU 绘制已由独立线程消费固定输入。
 渲染线程是保留的性能与架构学习目标：让更新与渲染可重叠，并使 GPU 状态归渲染线程唯一拥有。
-后续按完整帧输入、GPU 生命周期、更新与绘制重叠的顺序推进，不建设通用任务图，也不把它作为编辑功能的前置条件。
+继续测量轻负载、脚本与物理场景的墙钟、尾延迟及输入延迟；异步 GPU 候选反馈和并行准备按实际瓶颈推进，不建设通用任务图。
 
 | Owner | 职责 | 边界 |
 | --- | --- | --- |
 | Main/Update | Scene、脚本、Editor command、ImGui 构建 | 不并发写 GPU cache |
 | Worker | I/O、解码、编译、纯 CPU 工作 | 不访问 Scene/ImGui，不提交 Queue |
-| RenderThread | 资产 GPU 创建、材质／Shader GPU 发布、帧准备、共享资源回收、交换链／UI GPU 后端重建及关闭、录制、submit/present | 不读取可变 Registry／EnTT／面板；Main 在完成交接前不改 GPU 状态 |
+| RenderThread | 资产 GPU 创建、材质／Shader GPU 发布、帧与目标准备、UI GPU 校验／清理、共享资源回收、交换链重建、录制、submit/present | 不读取可变 Registry／EnTT／面板；Main 在完成交接前不改 GPU 状态 |
 
-- Main 在 Runtime 更新后提取并解析场景。Engine 持有 SceneResolver，Renderer 不保存注册表或解析状态；RenderFrame 固定 serial、世界、视图参数、拾取、调试线和 UI 绘制数据，Worker 消费这次交付。资产 GPU 创建、材质／Shader 发布及运行期间的共享资源回收已移交 RenderThread，帧准备和交换链恢复也由该线程执行，Main 同步等待后构建 UI。继续收拢 UI 资源准备和重置，再开启场景更新与绘制重叠。
+- 持续运行时，Main 在 Runtime 更新前提取并解析场景；编辑和暂停单步仍在提取前生效。Engine 持有 SceneResolver，Renderer 不保存注册表或解析状态；RenderFrame 固定 serial、世界、视图参数、拾取、调试线和 UI 绘制数据，Worker 消费这次交付。资产 GPU 创建、材质／Shader 发布及运行期间的共享资源回收已移交 RenderThread，帧准备和交换链恢复也由该线程执行，Main 同步等待后构建 UI。Runtime 更新已与绘制重叠；UI GPU 资源准备和重置共用同步交接，用固定场景测量实际收益。
   Overlay 捕获在 Main 调用，帧直接持有 ImGui／RmlUi 绘制对象，GPU 录制不读取 Editor／App 当前帧字段。继续复用现有后端，不按 UI 种类增加调度器。
   ImGui 已交付独立绘制帧，固定顶点、索引、回调内联数据和动态字体像素；GPU 消费一次、创建字体纹理版本并按帧槽保活。稳态共享像素并复用纹理，新增字形的图集复制／完整上传成本在推进更新与绘制重叠时按实际编辑器场景测量。
   ImGui 前端和 Vulkan 后端各自拥有上下文与视口，GPU 录制不访问前端的 renderer／viewport 数据，后端重建保留窗口输入与布局。
   视口前端只保存稳定图片标识和独立 ImageView／Sampler 引用，UI 帧固定当时版本；GPU 录制创建或复用绑定，换图不改写在途 descriptor，旧绑定按帧槽退休。录制核对图片帧槽，交换链重建丢弃旧尺寸的 UI 帧。
-  当前上下文选择已使用线程局部状态；真实 GPU 回归覆盖 Main 构建新 UI 数据与 Worker 录制旧帧并发，主循环回归覆盖缩放、重建和最后一帧关闭。重建和 Engine 关闭时的 GPU 清理已在 RenderThread；启动初始化与主动重置仍需收拢到统一 owner。
-  RmlUi 绘制快照可跨文档更新或关闭保留，裁剪按消费目标尺寸换算。快照已纳入帧包；后续统一由 GPU owner 准备、上传和回收，文档、字体生成与输入继续归 Main。
+  当前上下文选择已使用线程局部状态；真实 GPU 回归覆盖 Main 构建新 UI 数据与 Worker 录制旧帧并发，主循环回归覆盖缩放、重建和最后一帧关闭。重建和 Engine 关闭时的 GPU 清理已在 RenderThread；ImGui 初始后端在进入主循环前创建，运行期间不在 Main 重新初始化 GPU 后端。
+  RmlUi 绘制快照可跨文档更新或关闭保留，裁剪按消费目标尺寸换算。快照已纳入帧包；RmlUi 初始化、候选 GPU 验证和主动重置清理通过 Renderer 的 UI 后端资源入口同步交接，文档、字体生成与输入继续归 Main。
   场景 Handle 解析留在 Main；帧包保留只读 RenderWorld，不能只排队包含 Handle 的 Scene 快照或借用 RenderSubmission。
   材质参数校验和 Inspector 由 Main 接纳独立布局反馈；预览、取消和撤销在 Main 固定材质快照与 Shader 引用，Renderer 及 MaterialRenderer 只消费这次输入，不复制编辑源或查询最新注册版本。
   Main 捕获同一资产删除批次交给所有 View，GPU 缓存清理不再查询注册表；批次随帧序移交，不能越过更新的 GPU 发布重放旧删除。
-  共享资源最后引用可以在其他线程释放，原生销毁交回当前回收线程；主循环开始交给 RenderThread，退出排空后交回 Main，交接不代替 GPU 完成。RenderAssetFactory 不持有 Registry，资源工厂已把 Mesh／Texture CPU 产品按值交给 RenderThread 创建并返回候选，Main 用源版本和运行发布版本接纳；过期创建结果不能覆盖更新资源，失败也不能删除更新预览。Renderer 现有材质和 Shader 接口已调度到同一线程，准备与发布保留 Main 保存／接纳之间的事务顺序，不另设编辑器提交接口。继续收拢 UI 初始化、候选验证与主动重置，再开启异步候选反馈和更新／绘制重叠；保留消费者先停止再关闭后端的顺序、实时预览、Shader 错误材质及在途帧保活。
-- Scene／RenderWorld 快照发生复制时包含完整值；引入更新／渲染重叠后测量复制与分配成本，再决定是否增加有界槽位复用或增量移交，不提前建设第二套变化协议。
+  共享资源最后引用可以在其他线程释放，原生销毁交回当前回收线程；主循环开始交给 RenderThread，退出排空后交回 Main，交接不代替 GPU 完成。RenderAssetFactory 不持有 Registry，资源工厂已把 Mesh／Texture CPU 产品按值交给 RenderThread 创建并返回候选，Main 用源版本和运行发布版本接纳；过期创建结果不能覆盖更新资源，失败也不能删除更新预览。Renderer 现有材质和 Shader 接口已调度到同一线程，准备与发布保留 Main 保存／接纳之间的事务顺序，不另设编辑器提交接口。视口目标分配和尺寸变化也在同一 GPU 线程，尺寸未变不唤醒 Worker；异步候选反馈按实际阻塞推进；保留消费者先停止再关闭后端的顺序、实时预览、Shader 错误材质及在途帧保活。
+- Scene／RenderWorld 快照发生复制时包含完整值；当前提取先等上一份绘制完成，复用已有存储，CPU 场景更新直接与只读快照绘制重叠。继续测量复制与分配成本，不提前建设第二套变化协议。
 - 队列容量不超过允许的 frames-in-flight，拥塞用显式等待/淘汰过期 editor packet 等策略处理。
 - GPU 创建、替换、销毁在 owner 安全边界；队列外部同步、缓存与 completion owner 都必须明确。
 - 先 profile，再并行 culling/sorting/preparation 或 secondary command recording；每 worker 独立 CommandPool。

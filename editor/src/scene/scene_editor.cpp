@@ -125,14 +125,16 @@ namespace CometEditor {
             || property->asset_type != asset.type)
             return Result::failure({"Asset assignment property is no longer editable"});
         const auto current = property->copy_value(component->get_component(std::as_const(entity)));
-        if(current && std::get<Comet::AssetHandle>(*current) == asset.handle)
+        if(current && std::get<Comet::AssetHandle>(*current) == asset.target.handle)
             return Result::success();
         if(!m_edit.commit())
             return Result::failure({"Cannot finish active property edit"});
-        if(auto loaded = m_assets.load_reference(asset.handle, asset.type, asset.revision); !loaded)
+        if(auto loaded =
+                m_assets.load_reference(asset.target.handle, asset.type, asset.target.revision);
+            !loaded)
             return loaded;
         if(target.component == "script" && target.property == "asset") {
-            auto command = std::make_unique<ScriptAssignment>(entity, asset.handle);
+            auto command = std::make_unique<ScriptAssignment>(entity, asset.target.handle);
             if(m_state.mode == EditorMode::Play) {
                 if(!command->redo(*scene))
                     return Result::failure({"Cannot update runtime script binding"});
@@ -142,10 +144,10 @@ namespace CometEditor {
             return Result::success();
         }
         if(m_state.mode == EditorMode::Play) {
-            if(!component->assign_property(entity, property->id, asset.handle))
+            if(!component->assign_property(entity, property->id, asset.target.handle))
                 return Result::failure({"Cannot update runtime asset reference"});
             m_assets.track_scene(*scene, m_components);
-        } else if(!m_edit.apply(target, asset.handle))
+        } else if(!m_edit.apply(target, asset.target.handle))
             return Result::failure({"Cannot commit asset reference"});
         return Result::success();
     }
@@ -154,15 +156,17 @@ namespace CometEditor {
         Comet::Scene* scene, const AssetInput& asset, Comet::Math::Vec3 position) {
         using Result = Comet::Result<void, Comet::Error>;
         if(!can_edit(scene, asset.generation) || asset.type != Comet::AssetType::Mesh
-            || !asset.handle)
+            || !asset.target.handle)
             return Result::failure({"Mesh insertion targets an inactive scene or invalid asset"});
         if(!m_edit.commit())
             return Result::failure({"Cannot finish active property edit"});
-        if(auto loaded = m_assets.load_reference(asset.handle, asset.type, asset.revision); !loaded)
+        if(auto loaded =
+                m_assets.load_reference(asset.target.handle, asset.type, asset.target.revision);
+            !loaded)
             return loaded;
-        const auto* record = m_assets.database().find(asset.handle);
-        const auto uuid = SceneCommands::create_mesh_entity(
-            m_history, m_components, record->path.stem().string(), asset.handle, {}, position);
+        const auto* record = m_assets.database().find(asset.target.handle);
+        const auto uuid = SceneCommands::create_mesh_entity(m_history, m_components,
+            record->path.stem().string(), asset.target.handle, {}, position);
         if(!uuid)
             return Result::failure({"Cannot create entity for dropped mesh"});
         m_selection.select_entity(scene->find_entity(uuid).get_id());

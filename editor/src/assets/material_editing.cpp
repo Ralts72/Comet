@@ -15,7 +15,7 @@ namespace CometEditor {
             return Comet::Result<void, Comet::Error>::failure(update.error());
         const auto snapshot = update.value().material()->snapshot();
         const auto program = assets.compiled_shader_program(snapshot->get_shader_program());
-        auto bindings = renderer.prepare_material_update(edit.handle, snapshot, program);
+        auto bindings = renderer.prepare_material_update(edit.target.handle, snapshot, program);
         if(!bindings)
             return Comet::Result<void, Comet::Error>::failure(bindings.error().as_error());
         if(auto committed = assets.commit_material_edit(update.value()); !committed)

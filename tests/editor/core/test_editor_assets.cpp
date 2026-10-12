@@ -295,7 +295,7 @@ namespace CometEditor::Tests {
         SceneEditor editor(state, history, edit, components, selection, *assets);
         const PropertyEditTransaction::Target target{entity.get_uuid(), "script", "asset"};
         const auto input = [&](Comet::AssetHandle handle) {
-            return SceneEditor::AssetInput{handle, assets->database().get_revision(handle),
+            return SceneEditor::AssetInput{{handle, assets->database().get_revision(handle)},
                 history.generation(), Comet::AssetType::Script};
         };
         ASSERT_TRUE(editor.assign_asset(&scene, target, input(a)));
@@ -356,7 +356,7 @@ namespace CometEditor::Tests {
         SelectionService selection(scene);
         EditorState state;
         SceneEditor editor(state, history, edit, components, selection, *assets);
-        SceneEditor::AssetInput input{material, assets->database().get_revision(material),
+        SceneEditor::AssetInput input{{material, assets->database().get_revision(material)},
             history.generation(), Comet::AssetType::Material};
         PropertyEditTransaction::Target target{entity.get_uuid(), "mesh_renderer", "material"};
         ASSERT_TRUE(editor.assign_asset(&scene, target, input));
@@ -380,7 +380,7 @@ namespace CometEditor::Tests {
     TEST_F(EditorAssetsTest, MaterialReadsValidateIdentityAndRevisionWithoutPublishingRuntime) {
         const auto handle = add_material();
         const auto runtime_before = runtime.resolve<Comet::Material>(handle);
-        AssetRead request{handle, assets->database().get_revision(handle)};
+        Comet::AssetTarget request{handle, assets->database().get_revision(handle)};
         auto read = assets->read_material(request);
         ASSERT_TRUE(read);
         EXPECT_EQ(read.value().template_name, "test");
@@ -441,7 +441,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(original);
         const auto unlit = make_material_data(*Comet::MaterialLayout::find_builtin("unlit_color"));
         auto update = assets->prepare_material_edit(
-            {handle, assets->database().get_revision(handle), MaterialEdit{data, unlit}});
+            {{handle, assets->database().get_revision(handle)}, MaterialEdit{data, unlit}});
         ASSERT_TRUE(update);
         ASSERT_TRUE(assets->commit_material_edit(update.value()));
         EXPECT_NE(runtime.resolve<Comet::Material>(handle), original);
@@ -1150,7 +1150,7 @@ namespace CometEditor::Tests {
         const auto original_data = Comet::MaterialSerializer{}.load(path).value();
         const auto revision = assets->database().get_revision(material);
         const auto data = make_material_data(*Comet::MaterialLayout::find_builtin("pbr"));
-        const AssetEdit edit{material, revision, MaterialEdit{original_data, data}};
+        const AssetEdit edit{{material, revision}, MaterialEdit{original_data, data}};
         auto first = assets->prepare_material_edit(edit);
         auto stale = assets->prepare_material_edit(edit);
         ASSERT_TRUE(first);
@@ -1171,8 +1171,9 @@ namespace CometEditor::Tests {
         const auto path = Comet::ProjectPaths(root).assets() / "placement.mat";
         const auto original_data = Comet::MaterialSerializer{}.load(path).value();
         const auto data = make_material_data(*Comet::MaterialLayout::find_builtin("pbr"));
-        auto update = assets->prepare_material_edit({material,
-            assets->database().get_revision(material), MaterialEdit{original_data, data}});
+        auto update =
+            assets->prepare_material_edit({{material, assets->database().get_revision(material)},
+                MaterialEdit{original_data, data}});
         ASSERT_TRUE(update);
         const auto backup = path.parent_path() / "backup";
         std::filesystem::rename(path, backup);
@@ -1189,7 +1190,7 @@ namespace CometEditor::Tests {
 
     TEST_F(EditorAssetsTest, StaleMaterialEditPreservesFileAndResidentVersion) {
         const auto material = add_material();
-        const AssetEdit edit{material, assets->database().get_revision(material),
+        const AssetEdit edit{{material, assets->database().get_revision(material)},
             MaterialEdit{{}, {.template_name = "updated"}}};
         auto update = assets->prepare_material_edit(edit);
         ASSERT_TRUE(update);
@@ -1197,7 +1198,7 @@ namespace CometEditor::Tests {
         const auto published = runtime.resolve<Comet::Material>(material);
         ASSERT_TRUE(published);
         const auto revision = assets->database().get_revision(material);
-        ASSERT_NE(revision, edit.revision);
+        ASSERT_NE(revision, edit.target.revision);
         const auto path = Comet::ProjectPaths(root).assets() / "placement.mat";
         const auto modified = std::filesystem::last_write_time(path);
 
@@ -1281,7 +1282,7 @@ namespace CometEditor::Tests {
 
     TEST_F(EditorAssetsTest, RemovedAssetEditIsRejectedBeforePublication) {
         const auto material = add_material();
-        const AssetEdit edit{material, assets->database().get_revision(material), MaterialEdit{}};
+        const AssetEdit edit{{material, assets->database().get_revision(material)}, MaterialEdit{}};
         const auto path = Comet::ProjectPaths(root).assets() / "placement.mat";
         ASSERT_TRUE(std::filesystem::remove(path));
         ASSERT_TRUE(std::filesystem::remove(Comet::metadata_path(path)));
@@ -1321,11 +1322,11 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(original);
         factory.set_failure_result(vk::Result::eErrorDeviceLost);
         const auto reimported = assets->apply_texture_edit(
-            {texture, assets->database().get_revision(texture), TextureEdit{}});
+            {{texture, assets->database().get_revision(texture)}, TextureEdit{}});
         ASSERT_FALSE(reimported);
         EXPECT_TRUE(Comet::is_device_lost(reimported.error()));
         const auto updated =
-            assets->prepare_material_edit({material, assets->database().get_revision(material),
+            assets->prepare_material_edit({{material, assets->database().get_revision(material)},
                 MaterialEdit{{},
                     {.template_name = "changed", .texture_properties = {{"albedo", texture}}}}});
         ASSERT_FALSE(updated);
@@ -1540,11 +1541,11 @@ namespace CometEditor::Tests {
         assets->track_scene(scene, components);
         EXPECT_EQ(assets->restore_references().value(), 1);
         EXPECT_FALSE(assets->apply_texture_edit(
-            {texture, assets->database().get_revision(texture), TextureEdit{}}));
+            {{texture, assets->database().get_revision(texture)}, TextureEdit{}}));
         EXPECT_EQ(assets->restore_references().value(), 0);
         factory.fail_texture_creation(false);
         ASSERT_TRUE(assets->apply_texture_edit(
-            {texture, assets->database().get_revision(texture), TextureEdit{}}));
+            {{texture, assets->database().get_revision(texture)}, TextureEdit{}}));
         EXPECT_FALSE(runtime.contains(material));
         EXPECT_EQ(assets->restore_references().value(), 1);
         EXPECT_TRUE(runtime.contains(material));

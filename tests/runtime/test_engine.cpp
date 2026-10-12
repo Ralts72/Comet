@@ -5,6 +5,7 @@
 #include "config/config.h"
 #include "core/window.h"
 #include "render/renderer.h"
+#include "graphics/device.h"
 #include "render/frame_scheduler.h"
 #include "support/engine_fixture.h"
 #include "support/scene_motion_system.h"
@@ -27,6 +28,7 @@
 #include <GLFW/glfw3.h>
 #include <type_traits>
 #include <thread>
+#include <future>
 #include <vector>
 
 namespace Comet::Tests {
@@ -98,6 +100,90 @@ namespace Comet::Tests {
         engine->get_renderer().set_overlay({});
     }
 
+    TEST_F(RenderThreadTest, RuntimeUpdateOverlapsDrawingAndPublishesTheNextSceneSnapshot) {
+        class MoveOnce final: public System {
+        public:
+            MoveOnce(Entity object, Renderer& renderer, std::future<void>& drawing,
+                std::promise<void>& updated)
+                : m_object(object), m_renderer(renderer), m_drawing(drawing), m_updated(updated) {}
+            Result<void, Error> update(Scene&, const Context&) override {
+                if(++updates != 1)
+                    return Result<void, Error>::success();
+                const auto started = m_drawing.wait_for(std::chrono::seconds(5));
+                const auto rejected = m_renderer.prepare_overlay_resources([] {
+                    ADD_FAILURE() << "GPU preparation must not enter an in-flight frame";
+                    return Result<void, GraphicsError>::success();
+                });
+                EXPECT_FALSE(rejected);
+                EXPECT_EQ(rejected.error().result, vk::Result::eNotReady);
+                const auto edited =
+                    m_object.try_edit_transform([](auto& value) { value.translation.x = 1000; });
+                m_updated.set_value();
+                if(started != std::future_status::ready)
+                    return Result<void, Error>::failure({"Drawing did not overlap runtime update"});
+                if(!edited)
+                    return Result<void, Error>::failure({"Cannot move runtime object"});
+                return Result<void, Error>::success();
+            }
+            unsigned updates = 0;
+
+        private:
+            Entity m_object;
+            Renderer& m_renderer;
+            std::future<void>& m_drawing;
+            std::promise<void>& m_updated;
+        };
+        auto mesh = engine->get_render_resource_factory().try_create_mesh(
+            {.vertices = {{{-0.5f, -0.5f, -2}}, {{0.5f, -0.5f, -2}}, {{0, 0.5f, -2}}},
+                .indices = {0, 1, 2}});
+        ASSERT_TRUE(mesh);
+        ASSERT_TRUE(engine->get_asset_registry().register_asset(AssetHandle{10}, mesh.value()));
+        ASSERT_TRUE(engine->get_asset_registry().register_asset(
+            AssetHandle{20}, std::make_shared<Material>("item", "unlit_color")));
+        auto scene = std::make_unique<Scene>();
+        scene->create_entity("Camera").add_component<CameraComponent>(
+            CameraComponent{.primary = true});
+        auto object = scene->create_entity("Object");
+        object.add_component<MeshRendererComponent>(AssetHandle{10}, AssetHandle{20});
+        engine->set_scene(std::move(scene));
+        std::promise<void> drawing;
+        std::promise<void> updated;
+        auto drawing_started = drawing.get_future();
+        auto update_finished = updated.get_future();
+        auto motion =
+            std::make_unique<MoveOnce>(object, engine->get_renderer(), drawing_started, updated);
+        const auto* observer = motion.get();
+        ASSERT_TRUE(engine->add_system(std::move(motion)));
+        ASSERT_TRUE(engine->start_scene_runtime());
+        unsigned draws = 0;
+        const auto main_thread = std::this_thread::get_id();
+        set_test_overlay(engine->get_renderer(), {.render = [&](OverlayRecordContext&) {
+            EXPECT_NE(std::this_thread::get_id(), main_thread);
+            if(++draws == 1) {
+                drawing.set_value();
+                EXPECT_EQ(
+                    update_finished.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+            }
+            const auto& statistics =
+                engine->get_renderer().get_scene_renderer().get_material_statistics();
+            EXPECT_EQ(statistics.render_items, 1u);
+            EXPECT_EQ(statistics.culled_items, draws == 1 ? 0u : 1u);
+            return Result<void, GraphicsError>::success();
+        }});
+        unsigned frames = 0;
+        const auto result = engine->run({.frame_ready = [&](const Engine::FrameContext&) {
+            EXPECT_EQ(observer->updates, frames);
+            if(++frames == 2)
+                engine->get_window().request_close();
+            return Result<void, Error>::success();
+        }});
+        ASSERT_TRUE(result) << result.error();
+        EXPECT_EQ(draws, 2u);
+        EXPECT_EQ(observer->updates, 2u);
+        engine->prepare_shutdown();
+        engine->get_renderer().set_overlay({});
+    }
+
     TEST_F(RenderThreadTest, LastWorkerErrorSurvivesClosingTheWindow) {
         const GraphicsError failure{"Worker device lost", vk::Result::eErrorDeviceLost};
         const auto main_thread = std::this_thread::get_id();
@@ -125,6 +211,64 @@ namespace Comet::Tests {
         EXPECT_EQ(result.error().code, failure.as_error().code);
         EXPECT_EQ(shutdowns, 1u);
         EXPECT_FALSE(engine->get_renderer().prepare_frame());
+        engine->get_renderer().set_overlay({});
+    }
+
+    TEST_F(RenderThreadTest, DrawingFailureTakesPriorityOverConcurrentRuntimeFailure) {
+        auto calls = std::make_shared<RuntimeCalls>();
+        calls->fail_update = true;
+        engine->set_scene(std::make_unique<Scene>());
+        ASSERT_TRUE(engine->add_system(std::make_unique<SceneMotionSystem>(calls)));
+        ASSERT_TRUE(engine->start_scene_runtime());
+        const GraphicsError failure{"Worker device lost", vk::Result::eErrorDeviceLost};
+        set_test_overlay(engine->get_renderer(), {.render = [&](OverlayRecordContext&) {
+            return Result<void, GraphicsError>::failure(failure);
+        }});
+        unsigned recoveries = 0;
+        const auto result = engine->run({.runtime_failed = [&](const Error&) {
+            ++recoveries;
+            return Result<void, Error>::success();
+        }});
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error().message, failure.as_error().message);
+        EXPECT_EQ(result.error().code, failure.as_error().code);
+        EXPECT_EQ(calls->updates, 1);
+        EXPECT_EQ(calls->stops, 1);
+        EXPECT_EQ(recoveries, 0u);
+        EXPECT_FALSE(engine->get_scene_runtime().is_active());
+        EXPECT_FALSE(engine->get_renderer().prepare_frame());
+        engine->get_renderer().set_overlay({});
+    }
+
+    TEST_F(RenderThreadTest, PausedStepFailureCompletesAcquiredFrameBeforeRecovery) {
+        auto calls = std::make_shared<RuntimeCalls>();
+        calls->fail_update = true;
+        engine->set_scene(std::make_unique<Scene>());
+        ASSERT_TRUE(engine->add_system(std::make_unique<SceneMotionSystem>(calls)));
+        ASSERT_TRUE(engine->start_scene_runtime(SceneRuntime::State::Paused));
+        unsigned draws = 0;
+        unsigned recoveries = 0;
+        set_test_overlay(engine->get_renderer(), {.render = [&](OverlayRecordContext&) {
+            ++draws;
+            return Result<void, GraphicsError>::success();
+        }});
+        const auto result = engine->run({
+            .frame_ready =
+                [&](const Engine::FrameContext&) { return engine->request_runtime_step(); },
+            .runtime_failed =
+                [&](const Error& error) {
+                    EXPECT_EQ(error.message, "runtime update failed");
+                    EXPECT_EQ(draws, 1u);
+                    EXPECT_FALSE(engine->get_renderer().get_frame_scheduler().is_frame_active());
+                    ++recoveries;
+                    engine->get_window().request_close();
+                    return Result<void, Error>::success();
+                },
+        });
+        ASSERT_TRUE(result) << result.error();
+        EXPECT_EQ(recoveries, 1u);
+        EXPECT_EQ(calls->updates, 1);
+        EXPECT_EQ(calls->stops, 1);
         engine->get_renderer().set_overlay({});
     }
 
@@ -167,6 +311,19 @@ namespace Comet::Tests {
                 },
             .frame_ready =
                 [&](const Engine::FrameContext&) {
+                    const GraphicsError failure{
+                        "UI candidate unavailable", vk::Result::eErrorOutOfDeviceMemory};
+                    const auto prepared = engine->get_renderer().prepare_overlay_resources([&] {
+                        EXPECT_EQ(std::this_thread::get_id(), drawing_thread);
+                        EXPECT_TRUE(engine->get_renderer()
+                                .get_render_context()
+                                .get_device()
+                                .is_resource_owner_thread());
+                        return Result<void, GraphicsError>::failure(failure);
+                    });
+                    EXPECT_FALSE(prepared);
+                    EXPECT_EQ(prepared.error().message, failure.message);
+                    EXPECT_EQ(prepared.error().result, failure.result);
                     engine->get_window().request_close();
                     return Result<void, Error>::success();
                 },
@@ -623,26 +780,17 @@ namespace Comet::Tests {
         Comet::Tests::set_test_overlay(
             engine.get_renderer(), {.render = [&](OverlayRecordContext&) {
                 ++draws;
-                EXPECT_EQ(calls->starts, 1);
-                EXPECT_EQ(calls->stops, 0);
-                if(draws == 1) {
-                    EXPECT_EQ(calls->updates, 0);
-                    EXPECT_EQ(calls->fixed_updates, 0);
-                } else if(draws <= 3) {
-                    EXPECT_EQ(calls->updates, 1);
-                    EXPECT_EQ(calls->fixed_updates, 1);
-                    EXPECT_EQ(engine.get_scene_runtime().get_state(), SceneRuntime::State::Paused);
-                } else {
-                    EXPECT_EQ(calls->updates, 2);
-                    EXPECT_EQ(engine.get_scene_runtime().get_state(), SceneRuntime::State::Running);
-                }
-
                 return Result<void, GraphicsError>::success();
             }});
         const auto result = engine.run({
             .update =
                 [&](const Engine::FrameContext&) {
                     ++hosts;
+                    EXPECT_EQ(calls->starts, 1);
+                    EXPECT_EQ(calls->stops, 0);
+                    EXPECT_EQ(calls->updates, hosts <= 2 ? 0 : 1);
+                    EXPECT_EQ(calls->fixed_updates, hosts <= 2 ? 0 : 1);
+                    EXPECT_EQ(engine.get_scene_runtime().get_state(), SceneRuntime::State::Paused);
                     if(hosts > 8)
                         engine.get_window().request_close();
                     if(hosts == 2)
@@ -663,6 +811,8 @@ namespace Comet::Tests {
         EXPECT_EQ(hosts, 4);
         EXPECT_EQ(ui_frames, 4);
         EXPECT_EQ(draws, 4);
+        EXPECT_EQ(calls->updates, 2);
+        EXPECT_EQ(engine.get_scene_runtime().get_state(), SceneRuntime::State::Running);
         engine.prepare_shutdown();
         EXPECT_EQ(calls->stops, 1);
         EXPECT_FALSE(engine.set_runtime_state(SceneRuntime::State::Paused));
@@ -826,7 +976,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(renderer.prepare_frame());
     }
 
-    TEST(EngineRunTest, RuntimeFailureStopsSystemsBeforeReturningWithoutDrawing) {
+    TEST(EngineRunTest, RuntimeFailureDrainsCapturedFrameAndStopsSystemsBeforeReturning) {
         auto engine_result = Engine::create(Config{});
         ASSERT_TRUE(engine_result) << engine_result.error().message;
         auto& engine = *engine_result.value();
@@ -847,7 +997,7 @@ namespace Comet::Tests {
         EXPECT_EQ(result.error().message, "runtime update failed");
         EXPECT_EQ(calls->updates, 1);
         EXPECT_EQ(calls->stops, 1);
-        EXPECT_EQ(draws, 0);
+        EXPECT_EQ(draws, 1);
         EXPECT_FALSE(runtime.is_active());
         EXPECT_FALSE(engine.run());
         engine.get_renderer().set_overlay({});

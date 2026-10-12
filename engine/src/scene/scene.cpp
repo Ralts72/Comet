@@ -4,17 +4,17 @@
 #include "diagnostics/logger.h"
 
 #include <algorithm>
-#include <atomic>
+#include "common/version.h"
 #include <cmath>
 #include "common/scope_exit.h"
 
 namespace Comet {
     namespace {
-        std::atomic<uint64_t> next_material_instance{0};
-        std::atomic<uint64_t> next_scene_lifetime{0};
+        VersionSequence next_material_instance;
+        VersionSequence next_scene_lifetime;
     }
 
-    Scene::Scene() : m_lifetime(next_scene_lifetime.fetch_add(1, std::memory_order_relaxed) + 1) {
+    Scene::Scene() : m_lifetime(next_scene_lifetime.next()) {
         m_registry.on_destroy<MeshRendererComponent>().connect<&Scene::clear_material_overrides>(
             *this);
     }
@@ -104,8 +104,7 @@ namespace Comet {
         for(auto it = subtree.rbegin(); it != subtree.rend(); ++it) {
             const EntityId id = m_registry.get<IdComponent>(*it).id;
             const EntityUuid uuid = m_registry.get<UuidComponent>(*it).uuid;
-            mark_render_dirty();
-            record_render_change(*it);
+            mark_render_entity_changed(*it);
             m_render_structure_changed = true;
             m_children_by_parent.erase(id);
             m_entities_by_id.erase(id);
@@ -302,8 +301,7 @@ namespace Comet {
         MaterialOverrides candidate = previous ? *previous : MaterialOverrides{};
         candidate.material = material;
         if(!previous)
-            candidate.instance_id =
-                next_material_instance.fetch_add(1, std::memory_order_relaxed) + 1;
+            candidate.instance_id = next_material_instance.next();
         const std::string property(name);
         if(const auto* scalar = std::get_if<float>(&value)) {
             if(!std::isfinite(*scalar))
@@ -325,8 +323,7 @@ namespace Comet {
             return Result<void>::success();
         m_material_overrides.insert_or_assign(
             entity.m_handle, std::make_shared<const MaterialOverrides>(std::move(candidate)));
-        mark_render_dirty();
-        record_render_change(entity.m_handle);
+        mark_render_entity_changed(entity.m_handle);
         return Result<void>::success();
     }
 
@@ -461,6 +458,11 @@ namespace Comet {
         m_physics_structure_changed = false;
     }
 
+    void Scene::mark_render_entity_changed(const entt::entity handle) {
+        mark_render_dirty();
+        record_render_change(handle);
+    }
+
     void Scene::record_render_change(const entt::entity handle) {
         if(m_render_full_update || m_dirty_render_entities.contains(handle))
             return;
@@ -476,8 +478,7 @@ namespace Comet {
     void Scene::mark_transform_dirty(const entt::entity handle) {
         if(m_dirty_transforms.contains(handle))
             return;
-        mark_render_dirty();
-        record_render_change(handle);
+        mark_render_entity_changed(handle);
         m_dirty_transforms.push(handle);
         if(m_children_by_parent.empty())
             return;

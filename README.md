@@ -1,6 +1,6 @@
 # Comet 引擎
 
-Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，使用 C++20、CMake 和 Vulkan。目前重点是场景编辑、资产导入和单视口编辑／运行交互。Play 与示例 app 还支持固定步刚体模拟和基础音频播放；两者共用 RmlUi 项目游戏界面。主线程解析场景并交付拥有视图和 UI 快照的帧，独立渲染线程负责录制、提交与呈现；动画、粒子、GI、路径追踪、更新与绘制重叠及内容导出继续按路线图推进。工程实现围绕实际使用和实测性能收敛，不预建通用 SDK 或插件生态。
+Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，使用 C++20、CMake 和 Vulkan。目前重点是场景编辑、资产导入和单视口编辑／运行交互。Play 与示例 app 还支持固定步刚体模拟和基础音频播放；两者共用 RmlUi 项目游戏界面。主线程解析场景并交付拥有视图和 UI 快照的帧，独立渲染线程负责录制、提交与呈现；场景模拟已与只读快照绘制重叠；动画、粒子、GI、路径追踪及内容导出继续按路线图推进。工程实现围绕实际使用和实测性能收敛，不预建通用 SDK 或插件生态。
 
 ## 项目结构
 
@@ -28,14 +28,15 @@ Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，
 
 场景更新交付只读 CPU 快照，主线程解析时固定材质值及对应 Shader 引用，产出可独立保留的只读 RenderWorld。游戏和编辑器 UI 交付独立持有的绘制数据与像素，GPU 录制消费这些输入，在途资源由帧槽保活；ImGui 的输入／布局／字体前端与 Vulkan 录制上下文各自持有状态，当前上下文选择使用线程局部状态，交换链后端重建不重置窗口输入。Renderer 拥有 GPU 资源和各视图状态，材质参数校验与 Inspector 消费已发布布局的只读反馈，资产注销由主线程交付同一删除批次给各视图。
 
-独立 RenderThread 从 Engine 初始化持续到关闭，负责录制、提交、呈现、资产 GPU 创建、材质／Shader GPU 发布及运行期间的共享资源回收，每次最多接收一个请求；Main 可同时处理窗口事件，在下一次更新和资源操作前取回绘制结果。启动和退出阶段由 Main 接管回收；Main 捕获窗口尺寸后同步等待 GPU 帧准备；交换链恢复及 UI GPU 后端重建、关闭由 RenderThread 执行，窗口输入、文档和布局由 Main 管理。CPU 场景更新尚未与绘制重叠。类入口、依赖方向和资源所有权见[架构文档](docs/architecture/overview.md)。
+独立 RenderThread 从 Engine 初始化持续到关闭，负责录制、提交、呈现、资产 GPU 创建、材质／Shader GPU 发布及运行期间的共享资源回收，每次最多接收一个请求；Main 可同时推进下一步场景模拟，在下一次宿主回调和资源操作前取回绘制结果。启动和退出阶段由 Main 接管回收；Main 捕获窗口尺寸后同步等待 GPU 帧准备；交换链恢复及 UI GPU 后端重建、关闭由 RenderThread 执行，窗口输入、文档和布局由 Main 管理。持续运行时先交付当前快照，再与绘制并发模拟，画面落后模拟一步；编辑和暂停单步的结果在本帧提取前生效。类入口、依赖方向和资源所有权见[架构文档](docs/architecture/overview.md)。
 
 编辑器视口使用稳定的图片标识；UI 帧固定图片引用，GPU 录制时创建或复用绑定，换图不会改写在途帧的 descriptor。
 共享 Buffer、Image、ImageView 和 Sampler 在其他线程释放最后引用时，由 Device 接管原生资源销毁，在所属线程的帧边界或关闭时回收；在途使用仍由帧与上传保活。
 材质预览、取消与撤销由编辑侧先捕获材质快照和 Shader 版本，Renderer 经渲染线程准备各视图的 GPU 候选；Main 复核并保存后，再由渲染线程发布绑定。内置 Shader 的完整发布与错误材质切换复用相同的线程交接。
 GPU 资产工厂只接收独立 CPU 产品并返回候选；App／Editor 经 Engine 的资源工厂把 Mesh、Texture 和环境纹理移交渲染线程创建，返回后主线程复核源版本与运行发布版本再注册，过期结果不能覆盖更新资源。当前创建调用同步等待结果，资产注册不移到渲染线程。
+运行期间的视口目标分配和尺寸变化也交给 RenderThread；尺寸未变时不增加线程交接。RmlUi 后端初始化、候选页面的 GPU 校验，以及项目 UI 重置时的 GPU 清理复用同一同步交接；页面与控制器仍在 Main 校验和发布，失败保留当前页面。
 
-`engine/src/common/` 提供共享文件读写、JSON 与二进制基础工具和错误定位；各模块负责自身的数据结构与字段校验。
+`engine/src/common/` 提供共享文件读写、JSON、二进制、错误定位、版本标记、身份序号和快照写时复制工具；各模块负责自身的数据结构、字段校验及变化通知。
 显示、画质和音量选择共用 `config/player_settings` 存储流程，具体设置类型仍归所属功能模块。
 
 编辑器工具栏与 demo 菜单选用了“570+ 图标 v1.0.3”中的少量透明 PNG。
@@ -135,7 +136,8 @@ RmlUi Core 与 FreeType 静态编入 engine；Editor 的 `editor_core`、`editor
 
 默认报告为 `build-release/reports/render-benchmark.csv`，成功时原子替换。参数依次为报告路径、物体数、逻辑窗口宽高、采样帧数、Bloom；
 可追加材质数、场景类型，再一起追加 MSAA／各向异性／渲染比例，范围见 `--help`。
-支持 `static`、`moving`、`light-moving`、`culling`、`project-shader`、`physics-active` 和 `physics-sleeping`，覆盖静止、持续变换、光源变化、屏外裁剪、项目 Shader 及活动／休眠刚体。
+支持 `static`、`moving`、`script-moving`、`light-moving`、`culling`、`project-shader`、`physics-active` 和 `physics-sleeping`，覆盖静止、C++／Lua 持续变换、光源变化、屏外裁剪、项目 Shader 及活动／休眠刚体。
+持续变换通过 SceneRuntime 执行，报告的 `motion_model=runtime-v1` 与历史宿主回调驱动的负载区分；`script-moving` 为每个物体挂接通过生产 ScriptSystem 执行的 Lua 旋转行为。活动／休眠刚体每帧执行一次暂停单步，持续运行负载则按真实帧间隔推进固定步。
 工具在临时项目中走生产资产链，不修改 demo 或依赖可选 HDR，结束清理临时数据。macOS 测量期间阻止空闲睡眠并关闭本进程窗口动画。
 
 报告包含设备、CPU 采样分布、实际画质／分辨率、物体与刚体计数、draw／实例／绑定／上传字节数、内存分配量，以及 CPU／GPU 各阶段 P50/P95/P99。

@@ -23,8 +23,7 @@ namespace CometEditor {
             std::uint64_t generation;
         };
         struct AssetInput {
-            Comet::AssetHandle handle;
-            Comet::AssetRevision revision;
+            Comet::AssetTarget target;
             std::uint64_t generation;
             Comet::AssetType type;
         };

@@ -24,12 +24,12 @@ namespace Comet {
         const auto& changes = world.item_changes;
         m_items.reserve(items.size());
         const bool same_scene =
-            world.scene_lifetime != 0 && world.scene_lifetime == m_scene_lifetime;
+            world.scene_lifetime != 0 && world.scene_lifetime == m_scene_version.identity;
         const bool tracked = same_scene && changes.revision != 0;
-        const bool unchanged =
-            tracked && m_revision == changes.revision && m_bounds.size() == items.size();
+        const bool unchanged = tracked && m_scene_version.revision == changes.revision
+                               && m_bounds.size() == items.size();
         const bool partial =
-            tracked && changes.can_apply(m_revision, m_bounds.size(), items.size());
+            tracked && changes.can_apply(m_scene_version.revision, m_bounds.size(), items.size());
         const auto update_bounds = [&](const std::size_t index) {
             const auto& item = items[index];
             auto& cached = m_bounds[index];
@@ -95,8 +95,7 @@ namespace Comet {
             }
         }
         m_scene_bounds = m_cached_scene_bounds;
-        m_scene_lifetime = world.scene_lifetime;
-        m_revision = changes.revision;
+        m_scene_version = {world.scene_lifetime, changes.revision};
     }
 
     void RenderGeometry::clear_frame() {
@@ -107,8 +106,7 @@ namespace Comet {
         clear_frame();
         m_bounds.clear();
         m_cached_scene_bounds.reset();
-        m_scene_lifetime = 0;
-        m_revision = 0;
+        m_scene_version = {};
     }
 
 }

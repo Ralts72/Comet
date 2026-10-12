@@ -585,20 +585,15 @@ namespace Comet {
             m_has_runtime_instances = true;
         auto& cached = m_materials[key];
         const auto revision = material.resource->get_revision();
-        if(cached.used && cached.prepared_serial == frame_serial
-            && cached.prepared_source == material.resource.get()
-            && cached.prepared_revision == revision && cached.prepared_pipeline == pipeline.get()
-            && cached.prepared_overrides == material.overrides.get())
+        const PreparedInputKey input{frame_serial, revision, material.resource.get(),
+            material.overrides.get(), pipeline.get()};
+        if(cached.used && cached.prepared_input == input)
             return Preparation::success(cached.resources);
         cached.used = true;
         cached.overrides = material.overrides;
         ++m_statistics.material_preparations;
         const auto complete = [&] {
-            cached.prepared_serial = frame_serial;
-            cached.prepared_revision = revision;
-            cached.prepared_source = material.resource.get();
-            cached.prepared_overrides = material.overrides.get();
-            cached.prepared_pipeline = pipeline.get();
+            cached.prepared_input = input;
             return Preparation::success(cached.resources);
         };
         const auto keep_previous = [&](const GraphicsError& error) {

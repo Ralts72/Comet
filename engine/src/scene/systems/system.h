@@ -25,6 +25,7 @@ namespace Comet {
         virtual Result<void, Error> on_start(Scene&, RuntimeSession&, const RuntimeServices&) {
             return Result<void, Error>::success();
         }
+        // 在 Main 更新场景，与只读快照绘制并发；不得修改 Renderer 或 UI 后端。
         virtual Result<void, Error> fixed_update(Scene&, const Context&) {
             return Result<void, Error>::success();
         }

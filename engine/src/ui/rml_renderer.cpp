@@ -479,7 +479,9 @@ namespace Comet::Ui {
             auto collected = collect(context);
             if(!collected)
                 return collected;
-            if(auto prepared = prepare_resources(*collected.value()); !prepared)
+            if(auto prepared = m_renderer.prepare_overlay_resources(
+                   [this, draws = collected.value()] { return prepare_resources(*draws); });
+                !prepared)
                 return Result<DrawSnapshot, GraphicsError>::failure(prepared.error());
             return collected;
         }
@@ -839,7 +841,14 @@ namespace Comet::Ui {
         Comet::Renderer& renderer) {
         using Creation = Comet::Result<std::unique_ptr<RmlRenderer>, Comet::GraphicsError>;
         auto impl = std::make_unique<Impl>(renderer);
-        if(auto initialized = impl->initialize(); !initialized)
+        if(auto initialized = renderer.prepare_overlay_resources([&impl] {
+               ScopeExit rollback([&] { impl->shutdown_gpu(); });
+               auto result = impl->initialize();
+               if(result)
+                   rollback.release();
+               return result;
+           });
+            !initialized)
             return Creation::failure(initialized.error());
         return Creation::success(std::unique_ptr<RmlRenderer>(new RmlRenderer(std::move(impl))));
     }

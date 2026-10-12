@@ -26,9 +26,9 @@ namespace CometEditor {
         void set_material_layouts(
             std::vector<std::shared_ptr<const Comet::MaterialLayout>> layouts);
         [[nodiscard]] std::optional<AssetEdit> take_asset_edit();
-        [[nodiscard]] std::optional<AssetRead> take_asset_read();
+        [[nodiscard]] std::optional<Comet::AssetTarget> take_asset_read();
         void complete_asset_read(
-            const AssetRead& request, Comet::Result<Comet::MaterialData> result);
+            const Comet::AssetTarget& request, Comet::Result<Comet::MaterialData> result);
         void complete_asset_edit(const AssetEdit& edit, bool succeeded, std::string error = {});
         void finish_material_edit(bool cancel = false);
 
@@ -51,8 +51,7 @@ namespace CometEditor {
         const Comet::AssetDatabase& m_asset_database;
         const Comet::MaterialProgramValidator& m_material_parameters;
         Comet::AssetHandle m_selected_asset;
-        Comet::AssetHandle m_loaded_asset;
-        Comet::AssetRevision m_loaded_revision = 0;
+        Comet::AssetTarget m_loaded_target;
         std::optional<Comet::TextureImportSettings> m_texture_import_settings;
         std::optional<Comet::MaterialData> m_material_data;
         std::optional<Comet::MaterialData> m_material_before;
@@ -61,7 +60,7 @@ namespace CometEditor {
         std::vector<std::shared_ptr<const Comet::MaterialLayout>> m_material_layouts;
         std::string m_asset_error;
         std::optional<AssetEdit> m_asset_edit;
-        std::optional<AssetRead> m_asset_read;
+        std::optional<Comet::AssetTarget> m_asset_read;
         std::optional<MaterialTemplateChange> m_template_change;
         mutable std::shared_ptr<const Comet::ShaderProgramArtifact> m_program_layout_source;
         mutable std::shared_ptr<const Comet::MaterialLayout> m_program_layout;

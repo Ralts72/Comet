@@ -27,7 +27,7 @@ namespace CometEditor {
             const auto& change = std::get<MaterialEdit>(edit.value);
             if(change.before == change.after)
                 return Comet::Result<void, Comet::Error>::success();
-            auto& history = m_histories[edit.handle];
+            auto& history = m_histories[edit.target.handle];
             if(auto applied = apply_material_edit(m_assets, m_renderer, edit); !applied)
                 return applied;
             history.record(change);
@@ -45,16 +45,15 @@ namespace CometEditor {
         const auto* change = std::get_if<MaterialEdit>(&edit.value);
         if(!change)
             return Result::failure({"Expected a material edit"});
-        if(m_active
-            && (m_active->edit.handle != edit.handle || m_active->edit.revision != edit.revision))
+        if(m_active && m_active->edit.target != edit.target)
             return Result::failure({"Finish the active material edit first"});
         if(!m_active && change->before == change->after)
             return Result::success();
         if(m_active && std::get<MaterialEdit>(m_active->edit.value).after == change->after)
             return Result::success();
         if(!m_active) {
-            if(auto loaded =
-                    m_assets.load_reference(edit.handle, Comet::AssetType::Material, edit.revision);
+            if(auto loaded = m_assets.load_reference(
+                   edit.target.handle, Comet::AssetType::Material, edit.target.revision);
                 !loaded)
                 return loaded;
         }
@@ -64,7 +63,7 @@ namespace CometEditor {
         auto original = candidate.value().expected_material();
         const auto snapshot = candidate.value().material()->snapshot();
         const auto program = m_assets.compiled_shader_program(snapshot->get_shader_program());
-        auto bindings = m_renderer.prepare_material_update(edit.handle, snapshot, program);
+        auto bindings = m_renderer.prepare_material_update(edit.target.handle, snapshot, program);
         if(!bindings)
             return Result::failure(bindings.error().as_error());
         if(auto published = m_assets.preview_material_edit(candidate.value()); !published)
@@ -87,7 +86,7 @@ namespace CometEditor {
         const auto& change = std::get<MaterialEdit>(m_active->edit.value);
         if(change.before == change.after)
             return cancel();
-        auto& history = m_histories[m_active->edit.handle];
+        auto& history = m_histories[m_active->edit.target.handle];
         if(auto saved = m_assets.commit_material_edit(m_active->candidate); !saved)
             return saved;
         history.record(change);
@@ -101,7 +100,7 @@ namespace CometEditor {
         const auto snapshot = m_active->original->snapshot();
         const auto program = m_assets.compiled_shader_program(snapshot->get_shader_program());
         auto bindings =
-            m_renderer.prepare_material_update(m_active->edit.handle, snapshot, program);
+            m_renderer.prepare_material_update(m_active->edit.target.handle, snapshot, program);
         if(!bindings)
             return Comet::Result<void, Comet::Error>::failure(bindings.error().as_error());
         auto restored = m_assets.restore_material_preview(m_active->candidate, m_active->original);
@@ -146,7 +145,7 @@ namespace CometEditor {
         if(!forward)
             std::swap(replayed.before, replayed.after);
         if(auto applied = apply_material_edit(m_assets, m_renderer,
-               {handle, m_assets.database().get_revision(handle), std::move(replayed)});
+               {{handle, m_assets.database().get_revision(handle)}, std::move(replayed)});
             !applied)
             return applied;
         if(forward)

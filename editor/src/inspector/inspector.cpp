@@ -246,7 +246,7 @@ namespace CometEditor {
         result.changed = edit_asset_reference("HDR 贴图###HDR map", environment.asset,
             m_asset_database, Comet::AssetType::Environment);
         if(const auto asset = accept_asset_drop(Comet::AssetType::Environment)) {
-            environment.asset = asset->handle;
+            environment.asset = asset->target.handle;
             result.changed = true;
         }
         result.changed |= ImGui::Checkbox("背景###Background", &environment.background);
@@ -446,9 +446,10 @@ namespace CometEditor {
         auto selected = handle;
         const auto type = *property.asset_type;
         if(edit_asset_reference(property.display_name.c_str(), selected, m_asset_database, type))
-            m_asset_assignment = AssetAssignment{target,
-                {selected, m_asset_database.get_revision(selected), m_history.generation(), type}};
-        if(const auto asset = accept_asset_drop(type); asset && asset->handle != handle)
+            m_asset_assignment =
+                AssetAssignment{target, {{selected, m_asset_database.get_revision(selected)},
+                                            m_history.generation(), type}};
+        if(const auto asset = accept_asset_drop(type); asset && asset->target.handle != handle)
             m_asset_assignment = AssetAssignment{target, *asset};
     }
 

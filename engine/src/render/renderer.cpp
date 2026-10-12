@@ -102,6 +102,9 @@ namespace Comet {
 
     Result<Renderer::ViewId, GraphicsError> Renderer::create_offscreen_view(
         const Math::Vec2u initial_size) {
+        if(m_render_thread && !m_render_thread->is_current())
+            return m_render_thread->invoke(
+                [this, initial_size] { return create_offscreen_view(initial_size); });
         using Creation = Result<ViewId, GraphicsError>;
         if(m_shutdown_prepared || m_frames->is_frame_active())
             return Creation::failure({"View creation requires a live renderer frame boundary"});
@@ -124,6 +127,8 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> Renderer::remove_offscreen_view(const ViewId id) {
+        if(m_render_thread && !m_render_thread->is_current())
+            return m_render_thread->invoke([this, id] { return remove_offscreen_view(id); });
         if(m_shutdown_prepared || m_frames->is_frame_active())
             return Result<void, GraphicsError>::failure(
                 {"View removal requires a live renderer frame boundary"});
@@ -387,6 +392,9 @@ namespace Comet {
 
     Result<void, GraphicsError> Renderer::enable_offscreen_rendering(
         const Math::Vec2u initial_size) {
+        if(m_render_thread && !m_render_thread->is_current())
+            return m_render_thread->invoke(
+                [this, initial_size] { return enable_offscreen_rendering(initial_size); });
         if(m_shutdown_prepared)
             return Result<void, GraphicsError>::failure({"Renderer is shutting down"});
         if(m_frames->is_frame_active())
@@ -600,6 +608,18 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
+    Result<void, GraphicsError> Renderer::prepare_overlay_resources(
+        const std::function<Result<void, GraphicsError>()>& prepare) {
+        if(m_render_thread && !m_render_thread->is_current())
+            return m_render_thread->invoke(
+                [this, prepare] { return prepare_overlay_resources(prepare); });
+        if(m_shutdown_prepared)
+            return Result<void, GraphicsError>::failure({"Renderer is shutting down"});
+        if(!prepare)
+            return Result<void, GraphicsError>::failure({"Overlay preparation is empty"});
+        return prepare();
+    }
+
     Result<void, GraphicsError> Renderer::set_render_view(RenderView view, const ViewId id) {
         if(m_shutdown_prepared)
             return Result<void, GraphicsError>::failure({"Renderer is shutting down"});
@@ -607,6 +627,13 @@ namespace Comet {
         if(found == m_views.end())
             return Result<void, GraphicsError>::failure({"Unknown render view"});
         if(view.visible && view.render_size.x > 0 && view.render_size.y > 0) {
+            // 尺寸未变时只更新 CPU 视图状态，避免每帧同步唤醒 Worker。
+            if(m_render_thread && !m_render_thread->is_current()
+                && found->second.scene->is_offscreen()
+                && found->second.scene->get_render_target().get_size() != view.render_size)
+                return m_render_thread->invoke([this, view = std::move(view), id]() mutable {
+                    return set_render_view(std::move(view), id);
+                });
             if(auto resized = found->second.scene->resize_offscreen_target(view.render_size);
                 !resized) {
                 prepare_shutdown();

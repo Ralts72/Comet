@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "common/version.h"
 #include "render/scene/render_scene.h"
 #include <entt.hpp>
 #include <memory>
@@ -26,8 +27,7 @@ namespace Comet {
         void update_items(Scene& scene, RenderScene& output);
 
         std::shared_ptr<RenderScene> m_output;
-        uint64_t m_scene_lifetime = 0;
-        uint64_t m_revision = 0;
+        VersionStamp<uint64_t> m_scene_version;
         bool m_matches_storage_order = false;
         std::vector<std::size_t> m_slots_by_entity;
         std::vector<entt::entity> m_entities_by_slot;

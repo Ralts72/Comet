@@ -928,7 +928,7 @@ namespace {
                 return Comet::Result<void, Comet::Error>::success();
             const auto& asset = request.asset;
             return m_scene_editor->assign_asset(get_engine().get_scene(), request.target,
-                {asset.handle, asset.revision, asset.generation, asset.type});
+                {asset.target, asset.generation, asset.type});
         }
 
         Comet::Result<void, Comet::Error> handle_mesh_drop(
@@ -937,7 +937,7 @@ namespace {
                 return Comet::Result<void, Comet::Error>::success();
             const auto& asset = request.asset;
             return m_scene_editor->create_mesh(get_engine().get_scene(),
-                {asset.handle, asset.revision, asset.generation, asset.type}, request.position);
+                {asset.target, asset.generation, asset.type}, request.position);
         }
 
         Comet::Result<void, Comet::Error> process_editor_requests() {
@@ -1026,7 +1026,7 @@ namespace {
             }
             if(const auto move = m_project_panel->take_move_request()) {
                 auto report = CometEditor::move_project_asset(*m_assets, m_project,
-                    *m_scene_document, *m_project_session, move->handle, move->destination);
+                    *m_scene_document, *m_project_session, move->target.handle, move->destination);
                 m_project_panel->complete_move(*move, report);
                 accept_asset_report(std::move(report));
             }

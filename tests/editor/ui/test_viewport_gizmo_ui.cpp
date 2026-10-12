@@ -148,8 +148,8 @@ namespace CometEditor::Tests {
         frame();
         const auto request = viewport.take_mesh_drop();
         ASSERT_TRUE(request);
-        EXPECT_EQ(request->asset.handle, mesh_payload.handle);
-        EXPECT_EQ(request->asset.revision, mesh_payload.revision);
+        EXPECT_EQ(request->asset.target.handle, mesh_payload.target.handle);
+        EXPECT_EQ(request->asset.target.revision, mesh_payload.target.revision);
         EXPECT_EQ(request->asset.generation, history.generation());
         const auto mouse = ImGui::GetIO().MousePos;
         const auto uv = (Comet::Math::Vec2(mouse.x, mouse.y) - rect.min) / rect.size();

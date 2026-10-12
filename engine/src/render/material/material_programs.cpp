@@ -1,4 +1,5 @@
 #include "render/material/material_programs.h"
+#include "common/snapshot.h"
 
 #include "asset/artifact/shader_program_artifact.h"
 #include "asset/registry.h"
@@ -107,9 +108,7 @@ namespace Comet {
     }
 
     MaterialPrograms::Publications& MaterialPrograms::writable_publications() {
-        if(m_published.use_count() != 1)
-            m_published = std::make_shared<Publications>(*m_published);
-        return *m_published;
+        return writable_snapshot(m_published);
     }
 
     void MaterialPrograms::remove_assets(const AssetRegistry::Removals& removals) {

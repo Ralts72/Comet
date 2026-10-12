@@ -299,6 +299,52 @@ namespace CometEditor::Tests {
         EXPECT_EQ(Rml::GetNumContexts(), 1);
     }
 
+    TEST_F(EditorGameUiGpuTest, ResetAndReloadKeepCompositionUsableDuringTheRenderLoop) {
+        auto& renderer = engine->get_renderer();
+        unsigned frames = 0;
+        bool reset = false;
+        const auto result = engine->run({
+            .update =
+                [&](const Comet::Engine::FrameContext&) {
+                    if(frames == 1 && !reset) {
+                        game->reset();
+                        reset = true;
+                        EXPECT_EQ(Rml::GetNumContexts(), 1);
+                        EXPECT_FALSE(game->is_modal());
+                    }
+                    return Comet::Result<void, Comet::Error>::success();
+                },
+            .frame_ready =
+                [&](const Comet::Engine::FrameContext& frame) {
+                    if(frames == 1)
+                        game->reload();
+                    const auto output = renderer.get_offscreen_frame();
+                    if(!editor->begin_frame())
+                        return Comet::Result<void, Comet::Error>::failure(
+                            {"Cannot begin editor UI frame"});
+                    editor->set_viewport_image(output.slot, output.color_view, sampler);
+                    ImGui::Begin("Game preview");
+                    ImGui::Image(editor->get_viewport_texture_id(output.slot), {120, 90});
+                    ImGui::End();
+                    const auto prepared = game->frame(frame.physical_input,
+                        {.view = Comet::Ui::View{.size = Comet::Math::Vec2(output.size),
+                             .pixel_size = output.size,
+                             .density = 1}});
+                    if(!prepared)
+                        return Comet::Result<void, Comet::Error>::failure(prepared.error());
+                    editor_frame = editor->end_frame();
+                    EXPECT_NE(Rml::GetContext(0)->GetDocument(0), nullptr);
+                    if(++frames == 3)
+                        engine->get_window().request_close();
+                    return Comet::Result<void, Comet::Error>::success();
+                },
+        });
+        ASSERT_TRUE(result) << result.error().message;
+        EXPECT_TRUE(reset);
+        EXPECT_EQ(frames, 3u);
+        EXPECT_EQ(Rml::GetNumContexts(), 1);
+    }
+
     TEST_F(EditorGameUiGpuTest, InvalidInitialControllerKeepsEditorUsableAndReloadRetries) {
         engine->get_renderer().set_overlay({});
         engine->get_renderer().wait_idle();

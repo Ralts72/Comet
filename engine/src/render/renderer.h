@@ -139,6 +139,9 @@ namespace Comet {
         void prepare_shutdown() noexcept;
         // Main 捕获绘制对象；同一集成方的交换链生命周期一起安装或解除。
         void set_overlay(Overlay overlay);
+        // UI 后端在帧交接边界同步准备或清理 GPU 资源；回调不能访问窗口、输入或布局。
+        [[nodiscard]] Result<void, GraphicsError> prepare_overlay_resources(
+            const std::function<Result<void, GraphicsError>()>& prepare);
         [[nodiscard]] const FrameScheduler& get_frame_scheduler() const { return *m_frames; }
         [[nodiscard]] RenderDiagnostics& get_diagnostics() { return *m_diagnostics; }
         [[nodiscard]] const RenderDiagnostics& get_diagnostics() const { return *m_diagnostics; }

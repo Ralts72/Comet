@@ -180,7 +180,28 @@ namespace Comet {
         void update_world_transform(entt::entity handle);
         std::size_t sync_transform_chain(entt::entity handle);
         void mark_render_dirty() { ++m_render_revision; }
+        void mark_render_entity_changed(entt::entity handle);
         void record_render_change(entt::entity handle);
+
+        template<typename Component>
+        void component_changed(entt::entity handle, bool structure_changed) {
+            if constexpr(std::is_same_v<Component, TransformComponent>)
+                mark_transform_dirty(handle);
+            else if constexpr(is_scene_render_component_v<Component>)
+                mark_render_entity_changed(handle);
+
+            if constexpr(std::is_same_v<Component, TransformComponent>
+                         || is_scene_physics_component_v<Component>)
+                mark_physics_dirty(handle);
+
+            if(structure_changed) {
+                if constexpr(std::is_same_v<Component, TransformComponent>
+                             || std::is_same_v<Component, MeshRendererComponent>)
+                    m_render_structure_changed = true;
+                if constexpr(std::is_same_v<Component, RigidBodyComponent>)
+                    m_physics_structure_changed = true;
+            }
+        }
 
         struct RenderChange {
             entt::entity handle;
@@ -233,30 +254,12 @@ namespace Comet {
     template<typename T, typename... Args>
         requires(!is_scene_managed_component_v<T>)
     decltype(auto) Entity::add_component(Args&&... args) {
-        if constexpr(std::is_same_v<T, TransformComponent>) {
-            m_scene->mark_transform_dirty(m_handle);
-            m_scene->mark_physics_dirty(m_handle);
-            m_scene->m_render_structure_changed = true;
-            return std::as_const(
-                m_scene->m_registry.emplace<T>(m_handle, std::forward<Args>(args)...));
-        } else {
-            auto& component = m_scene->m_registry.emplace<T>(m_handle, std::forward<Args>(args)...);
-            if constexpr(is_scene_physics_component_v<T>) {
-                m_scene->mark_physics_dirty(m_handle);
-                if constexpr(std::is_same_v<T, RigidBodyComponent>)
-                    m_scene->m_physics_structure_changed = true;
-            }
-            if constexpr(is_scene_render_component_v<T>) {
-                m_scene->mark_render_dirty();
-                m_scene->record_render_change(m_handle);
-                if constexpr(std::is_same_v<T, MeshRendererComponent>)
-                    m_scene->m_render_structure_changed = true;
-            }
-            if constexpr(is_scene_read_only_component_v<T>)
-                return std::as_const(component);
-            else
-                return component;
-        }
+        auto& component = m_scene->m_registry.emplace<T>(m_handle, std::forward<Args>(args)...);
+        m_scene->component_changed<T>(m_handle, true);
+        if constexpr(is_scene_read_only_component_v<T>)
+            return std::as_const(component);
+        else
+            return component;
     }
 
     template<typename T>
@@ -272,12 +275,7 @@ namespace Comet {
                 m_scene->clear_material_overrides(m_scene->m_registry, m_handle);
         }
         current = component;
-        if constexpr(is_scene_render_component_v<T>) {
-            m_scene->mark_render_dirty();
-            m_scene->record_render_change(m_handle);
-        } else {
-            m_scene->mark_physics_dirty(m_handle);
-        }
+        m_scene->component_changed<T>(m_handle, false);
         return true;
     }
 
@@ -319,26 +317,8 @@ namespace Comet {
     template<typename T>
         requires(!is_scene_managed_component_v<T>)
     void Entity::remove_component() const {
-        if constexpr(is_scene_physics_component_v<T> || std::is_same_v<T, TransformComponent>) {
-            if(has_component<T>()) {
-                m_scene->mark_physics_dirty(m_handle);
-                if constexpr(std::is_same_v<T, RigidBodyComponent>)
-                    m_scene->m_physics_structure_changed = true;
-            }
-        }
-        if constexpr(std::is_same_v<T, TransformComponent>) {
-            if(has_component<T>()) {
-                m_scene->mark_transform_dirty(m_handle);
-                m_scene->m_render_structure_changed = true;
-            }
-        } else if constexpr(is_scene_render_component_v<T>) {
-            if(has_component<T>()) {
-                m_scene->mark_render_dirty();
-                m_scene->record_render_change(m_handle);
-                if constexpr(std::is_same_v<T, MeshRendererComponent>)
-                    m_scene->m_render_structure_changed = true;
-            }
-        }
+        if(has_component<T>())
+            m_scene->component_changed<T>(m_handle, true);
         m_scene->m_registry.remove<T>(m_handle);
     }
 }

@@ -63,8 +63,7 @@ namespace CometEditor {
             return;
         }
         m_selected_asset = handle;
-        m_loaded_asset = {};
-        m_loaded_revision = 0;
+        m_loaded_target = {};
         m_texture_import_settings.reset();
         m_material_data.reset();
         m_asset_error.clear();
@@ -136,7 +135,8 @@ namespace CometEditor {
             return;
         }
 
-        if(m_loaded_asset != handle || !m_asset_database.is_current(handle, m_loaded_revision)) {
+        if(m_loaded_target.handle != handle
+            || !m_asset_database.is_current(handle, m_loaded_target.revision)) {
             load_asset(*record);
         }
 
@@ -260,7 +260,7 @@ namespace CometEditor {
             if(const auto asset = accept_asset_drop(
                    m_asset_database, Comet::AssetType::ShaderProgram, generation);
                 asset)
-                select_program(asset->handle);
+                select_program(asset->target.handle);
         }
         if(!layout) {
             ImGui::TextDisabled("%s", "材质模板尚未注册");
@@ -301,8 +301,8 @@ namespace CometEditor {
             if(allow_drop) {
                 if(const auto asset =
                         accept_asset_drop(m_asset_database, Comet::AssetType::Texture, generation);
-                    asset && asset->handle != texture_handle)
-                    assign(asset->handle);
+                    asset && asset->target.handle != texture_handle)
+                    assign(asset->target.handle);
             }
             ImGui::PopID();
         }
@@ -389,8 +389,8 @@ namespace CometEditor {
     }
 
     void AssetInspector::confirm_material_template() {
-        if(m_selected_asset != m_loaded_asset
-            || !m_asset_database.is_current(m_loaded_asset, m_loaded_revision))
+        if(m_selected_asset != m_loaded_target.handle
+            || !m_asset_database.is_current(m_loaded_target))
             m_template_change.reset();
         std::string template_name;
         std::span<const std::string> discarded;
@@ -407,7 +407,7 @@ namespace CometEditor {
             *m_material_data = m_template_change->data;
             const auto error = validate_material();
             if(error.empty())
-                update_material(*m_asset_database.find(m_loaded_asset), previous);
+                update_material(*m_asset_database.find(m_loaded_target.handle), previous);
             else {
                 *m_material_data = previous;
                 m_asset_error = error;
@@ -417,8 +417,7 @@ namespace CometEditor {
     }
 
     void AssetInspector::load_asset(const Comet::AssetRecord& record) {
-        m_loaded_asset = record.handle;
-        m_loaded_revision = m_asset_database.get_revision(record.handle);
+        m_loaded_target = {record.handle, m_asset_database.get_revision(record.handle)};
         m_texture_import_settings.reset();
         m_material_data.reset();
         m_template_change.reset();
@@ -439,18 +438,17 @@ namespace CometEditor {
             return;
         }
 
-        m_asset_read = AssetRead{record.handle, m_loaded_revision};
+        m_asset_read = Comet::AssetTarget{record.handle, m_loaded_target.revision};
     }
 
-    std::optional<AssetRead> AssetInspector::take_asset_read() {
+    std::optional<Comet::AssetTarget> AssetInspector::take_asset_read() {
         return std::exchange(m_asset_read, std::nullopt);
     }
 
     void AssetInspector::complete_asset_read(
-        const AssetRead& request, Comet::Result<Comet::MaterialData> result) {
-        if(request.handle != m_loaded_asset || request.revision != m_loaded_revision
-            || m_selected_asset != request.handle
-            || !m_asset_database.is_current(request.handle, request.revision))
+        const Comet::AssetTarget& request, Comet::Result<Comet::MaterialData> result) {
+        if(request != m_loaded_target || m_selected_asset != request.handle
+            || !m_asset_database.is_current(request))
             return;
         if(result)
             m_material_data = std::move(result).value();
@@ -463,7 +461,7 @@ namespace CometEditor {
         if(!m_texture_import_settings) {
             return;
         }
-        m_asset_edit = AssetEdit{record.handle, m_loaded_revision,
+        m_asset_edit = AssetEdit{{record.handle, m_loaded_target.revision},
             TextureEdit{previous_settings, *m_texture_import_settings}};
     }
 
@@ -473,7 +471,7 @@ namespace CometEditor {
             return;
         }
 
-        m_asset_edit = AssetEdit{record.handle, m_loaded_revision,
+        m_asset_edit = AssetEdit{{record.handle, m_loaded_target.revision},
             MaterialEdit{previous_data, *m_material_data}, action};
     }
 
@@ -489,8 +487,8 @@ namespace CometEditor {
             action = AssetEdit::Action::Cancel;
             m_material_data = *m_material_before;
         }
-        m_asset_edit = AssetEdit{m_loaded_asset, m_loaded_revision,
-            MaterialEdit{*m_material_before, *m_material_data}, action};
+        m_asset_edit =
+            AssetEdit{m_loaded_target, MaterialEdit{*m_material_before, *m_material_data}, action};
     }
 
     std::optional<AssetEdit> AssetInspector::take_asset_edit() {
@@ -499,7 +497,7 @@ namespace CometEditor {
 
     void AssetInspector::complete_asset_edit(
         const AssetEdit& edit, const bool succeeded, std::string error) {
-        if(m_loaded_asset != edit.handle || m_loaded_revision != edit.revision)
+        if(m_loaded_target != edit.target)
             return;
         m_asset_error = std::move(error);
         if(edit.action == AssetEdit::Action::Preview)
@@ -508,7 +506,7 @@ namespace CometEditor {
             if(!succeeded && edit.action == AssetEdit::Action::Commit)
                 return;
             m_material_before.reset();
-            m_loaded_revision = m_asset_database.get_revision(edit.handle);
+            m_loaded_target.revision = m_asset_database.get_revision(edit.target.handle);
             if(m_next_asset) {
                 const auto next = *m_next_asset;
                 m_next_asset.reset();
@@ -517,7 +515,7 @@ namespace CometEditor {
             return;
         }
         if(succeeded) {
-            m_loaded_revision = m_asset_database.get_revision(edit.handle);
+            m_loaded_target.revision = m_asset_database.get_revision(edit.target.handle);
             return;
         }
         if(const auto* material = std::get_if<MaterialEdit>(&edit.value))

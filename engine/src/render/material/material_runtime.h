@@ -62,11 +62,22 @@ namespace Comet {
         void merge(MaterialRuntimeCache&& candidates);
 
     private:
-        struct Entry {
+        struct InputKey {
             std::shared_ptr<const Material> source;
             std::shared_ptr<const MaterialLayout> layout;
             std::shared_ptr<const MaterialOverrides> overrides;
             uint64_t material_revision = 0;
+
+            [[nodiscard]] bool matches(const std::shared_ptr<const Material>& material,
+                const std::shared_ptr<const MaterialLayout>& requested_layout,
+                const std::shared_ptr<const MaterialOverrides>& requested_overrides,
+                uint64_t revision) const {
+                return source == material && layout == requested_layout
+                       && overrides == requested_overrides && material_revision == revision;
+            }
+        };
+        struct Entry {
+            InputKey input;
             std::shared_ptr<const PreparedMaterial> prepared;
             std::string error;
             bool used = false;

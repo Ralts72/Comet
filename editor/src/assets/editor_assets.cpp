@@ -33,10 +33,10 @@ namespace CometEditor {
             LOG_WARN("Asset source monitor is using periodic fallback scans");
     }
 
-    Comet::Result<Comet::MaterialData> EditorAssets::read_material(const AssetRead& request) const {
+    Comet::Result<Comet::MaterialData> EditorAssets::read_material(
+        const Comet::AssetTarget& request) const {
         const auto* record = database().find(request.handle);
-        if(!record || record->type != Comet::AssetType::Material
-            || !database().is_current(request.handle, request.revision))
+        if(!record || record->type != Comet::AssetType::Material || !database().is_current(request))
             return Comet::Result<Comet::MaterialData>::failure("Material read request is stale");
         return Comet::MaterialSerializer{}.load(m_database.paths().assets() / record->path);
     }
@@ -380,12 +380,12 @@ namespace CometEditor {
     Comet::Result<Comet::AssetManager::MaterialUpdate, Comet::Error> EditorAssets::
         prepare_material_edit(const AssetEdit& edit) {
         using Preparation = Comet::Result<Comet::AssetManager::MaterialUpdate, Comet::Error>;
-        if(!database().is_current(edit.handle, edit.revision))
+        if(!database().is_current(edit.target))
             return Preparation::failure({"Asset edit revision is stale"});
         const auto* material = std::get_if<MaterialEdit>(&edit.value);
         if(!material)
             return Preparation::failure({"Asset edit is not a material edit"});
-        return m_manager.prepare_material_update(edit.handle, material->after);
+        return m_manager.prepare_material_update(edit.target.handle, material->after);
     }
 
     Comet::Result<void, Comet::Error> EditorAssets::commit_material_edit(
@@ -409,16 +409,17 @@ namespace CometEditor {
     }
 
     Comet::Result<void, Comet::Error> EditorAssets::apply_texture_edit(const AssetEdit& edit) {
-        if(!database().is_current(edit.handle, edit.revision))
+        if(!database().is_current(edit.target))
             return Comet::Result<void, Comet::Error>::failure({"Asset edit revision is stale"});
 
         const auto* texture = std::get_if<TextureEdit>(&edit.value);
         if(!texture)
             return Comet::Result<void, Comet::Error>::failure({"Asset edit is not a texture edit"});
-        const auto path = database().find(edit.handle)->path;
-        if(auto imported = m_manager.reimport_texture(edit.handle, texture->after); !imported)
+        const auto path = database().find(edit.target.handle)->path;
+        if(auto imported = m_manager.reimport_texture(edit.target.handle, texture->after);
+            !imported)
             return Comet::Result<void, Comet::Error>::failure(imported.error());
-        m_scene_assets.mark_changed(edit.handle);
+        m_scene_assets.mark_changed(edit.target.handle);
         acknowledge(Comet::metadata_path(path));
         return Comet::Result<void, Comet::Error>::success();
     }

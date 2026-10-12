@@ -34,6 +34,14 @@ namespace Comet {
     };
 
     inline constexpr AssetHandle INVALID_ASSET_HANDLE{};
+
+    // 索引内某个资产的操作版本；运行资源发布版本由 Registry 单独维护。
+    struct AssetTarget {
+        AssetHandle handle;
+        AssetRevision revision = INVALID_ASSET_REVISION;
+
+        auto operator<=>(const AssetTarget&) const = default;
+    };
 }
 
 template<> struct std::hash<Comet::AssetHandle> {

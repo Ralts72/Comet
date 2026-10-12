@@ -13,8 +13,7 @@ namespace Comet {
 namespace CometEditor {
     struct AssetDragPayload {
         static constexpr const char* TYPE = "COMET_PROJECT_ASSET";
-        Comet::AssetHandle handle;
-        Comet::AssetRevision revision;
+        Comet::AssetTarget target;
         std::uint64_t generation;
         Comet::AssetType type;
     };

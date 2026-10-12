@@ -85,6 +85,9 @@ namespace Comet {
         [[nodiscard]] std::vector<AssetRecord> get_assets() const;
         [[nodiscard]] AssetRevision get_revision(AssetHandle handle) const noexcept;
         [[nodiscard]] bool is_current(AssetHandle handle, AssetRevision revision) const noexcept;
+        [[nodiscard]] bool is_current(const AssetTarget& target) const noexcept {
+            return is_current(target.handle, target.revision);
+        }
         [[nodiscard]] std::size_t size() const noexcept;
 
     private:

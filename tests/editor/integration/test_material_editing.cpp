@@ -52,7 +52,7 @@ namespace CometEditor::Tests {
         AssetEdit change(float roughness, AssetEdit::Action action = AssetEdit::Action::Preview) {
             auto data = initial;
             data.scalar_properties["roughness"] = roughness;
-            return {handle, revision, MaterialEdit{initial, std::move(data)}, action};
+            return {{handle, revision}, MaterialEdit{initial, std::move(data)}, action};
         }
 
         Comet::MaterialData saved() {
@@ -91,9 +91,9 @@ namespace CometEditor::Tests {
         EXPECT_EQ(engine->get_asset_registry().resolve<Comet::Material>(handle), original);
         ASSERT_TRUE(editing->process(change(0.8f)));
         ASSERT_TRUE(editing->process(
-            {handle, revision, MaterialEdit{initial, initial}, AssetEdit::Action::Commit}));
+            {{handle, revision}, MaterialEdit{initial, initial}, AssetEdit::Action::Commit}));
         ASSERT_TRUE(editing->process(
-            {handle, revision, MaterialEdit{initial, initial}, AssetEdit::Action::Commit}));
+            {{handle, revision}, MaterialEdit{initial, initial}, AssetEdit::Action::Commit}));
         EXPECT_EQ(engine->get_asset_registry().resolve<Comet::Material>(handle), original);
         EXPECT_EQ(saved(), initial);
         EXPECT_EQ(assets->database().get_revision(handle), revision);
@@ -174,8 +174,8 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(assets->create_material("second.mat", initial).succeeded());
         const auto second = assets->database().find("second.mat")->handle;
         auto edit = change(0.8f, AssetEdit::Action::Commit);
-        edit.handle = second;
-        edit.revision = assets->database().get_revision(second);
+        edit.target.handle = second;
+        edit.target.revision = assets->database().get_revision(second);
         ASSERT_TRUE(editing->process(edit));
         EXPECT_TRUE(editing->can_redo(handle));
         EXPECT_TRUE(editing->can_undo(second));
@@ -203,15 +203,15 @@ namespace CometEditor::Tests {
         const auto path = paths.assets() / "test.mat";
         auto data = initial;
         data.template_name = "unsupported";
-        EXPECT_FALSE(
-            apply_material_edit(assets, renderer, {handle, revision, MaterialEdit{initial, data}}));
+        EXPECT_FALSE(apply_material_edit(
+            assets, renderer, {{handle, revision}, MaterialEdit{initial, data}}));
         EXPECT_EQ(registry.resolve<Comet::Material>(handle), original);
         EXPECT_EQ(assets.database().get_revision(handle), revision);
         EXPECT_EQ(Comet::MaterialSerializer{}.load(path).value(), initial);
 
         data = initial;
         data.scalar_properties["roughness"] = 0.7f;
-        const AssetEdit edit{handle, revision, MaterialEdit{initial, data}};
+        const AssetEdit edit{{handle, revision}, MaterialEdit{initial, data}};
         EXPECT_FALSE(assets.apply_texture_edit(edit));
         const auto backup = paths.assets() / "saved.mat";
         std::filesystem::rename(path, backup);

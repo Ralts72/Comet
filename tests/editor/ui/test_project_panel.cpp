@@ -86,10 +86,10 @@ namespace CometEditor::Tests {
             if(consume_requests) {
                 if(const auto request = project->take_move_request()) {
                     ++move_count;
-                    moved_handle = request->handle;
+                    moved_handle = request->target.handle;
                     destination = request->destination;
                     auto report = AssetSourceOperations::move(
-                        database, request->handle, request->destination);
+                        database, request->target.handle, request->destination);
                     project->complete_move(*request, report);
                     project->update_scan_report(std::move(report));
                 }
@@ -745,8 +745,8 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(payload->IsDataType(AssetDragPayload::TYPE));
         ASSERT_EQ(payload->DataSize, sizeof(AssetDragPayload));
         auto source = *static_cast<const AssetDragPayload*>(payload->Data);
-        EXPECT_EQ(source.handle, handle);
-        EXPECT_EQ(source.revision, revision);
+        EXPECT_EQ(source.target.handle, handle);
+        EXPECT_EQ(source.target.revision, revision);
         EXPECT_EQ(source.generation, generation);
         EXPECT_EQ(source.type, Comet::AssetType::Mesh);
         history.bind_scene(&scene);
@@ -789,10 +789,11 @@ namespace CometEditor::Tests {
         EXPECT_EQ(move_count, 0);
         const auto request = project->take_move_request();
         ASSERT_TRUE(request);
-        EXPECT_EQ(request->handle, source);
+        EXPECT_EQ(request->target.handle, source);
         EXPECT_EQ(request->destination, "deferred.png");
         EXPECT_FALSE(project->take_move_request());
-        auto report = AssetSourceOperations::move(database, request->handle, request->destination);
+        auto report =
+            AssetSourceOperations::move(database, request->target.handle, request->destination);
         project->complete_move(*request, report);
         project->update_scan_report(std::move(report));
         frame();

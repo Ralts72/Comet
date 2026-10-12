@@ -5,6 +5,9 @@
 #include "asset/data/texture_data.h"
 
 #include <utility>
+#ifdef __APPLE__
+#include <pthread/qos.h>
+#endif
 
 namespace Comet {
     RenderThread::RenderThread(Renderer& renderer)
@@ -88,6 +91,10 @@ namespace Comet {
     }
 
     void RenderThread::run() {
+#ifdef __APPLE__
+        // 实时绘制使用交互 QoS，与窗口帧循环匹配。
+        static_cast<void>(pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0));
+#endif
         for(;;) {
             auto request = [&]() {
                 std::unique_lock lock(m_mutex);

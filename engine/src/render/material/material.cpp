@@ -28,8 +28,7 @@ namespace Comet {
             return;
         }
         m_texture_properties[name] = std::move(texture);
-        ++m_revision;
-        m_snapshot.reset();
+        mark_changed();
     }
 
     std::shared_ptr<Texture> Material::get_texture_property(const std::string& name) const {
@@ -45,8 +44,7 @@ namespace Comet {
         if(found != m_scalar_properties.end() && found->second == value)
             return true;
         m_scalar_properties[name] = value;
-        ++m_revision;
-        m_snapshot.reset();
+        mark_changed();
         return true;
     }
 
@@ -58,9 +56,13 @@ namespace Comet {
         if(found != m_vector_properties.end() && found->second == value)
             return true;
         m_vector_properties[name] = value;
+        mark_changed();
+        return true;
+    }
+
+    void Material::mark_changed() {
         ++m_revision;
         m_snapshot.reset();
-        return true;
     }
 
     std::optional<float> Material::get_scalar_property(const std::string& name) const {

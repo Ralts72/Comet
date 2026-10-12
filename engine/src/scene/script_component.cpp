@@ -1,12 +1,11 @@
 #include "scene/script_component.h"
-#include <atomic>
+#include "common/version.h"
 
 namespace Comet {
     namespace {
-        std::atomic<uint64_t> next_lifetime{0};
+        VersionSequence next_lifetime;
     }
-    ScriptComponent::ScriptComponent()
-        : m_lifetime(next_lifetime.fetch_add(1, std::memory_order_relaxed) + 1) {}
+    ScriptComponent::ScriptComponent() : m_lifetime(next_lifetime.next()) {}
     ScriptComponent::ScriptComponent(const ScriptComponent& other) : ScriptComponent() {
         asset = other.asset;
         parameters = other.parameters;
@@ -15,7 +14,7 @@ namespace Comet {
         if(this != &other) {
             asset = other.asset;
             parameters = other.parameters;
-            m_lifetime = next_lifetime.fetch_add(1, std::memory_order_relaxed) + 1;
+            m_lifetime = next_lifetime.next();
         }
         return *this;
     }

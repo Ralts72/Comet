@@ -323,63 +323,77 @@ namespace Comet {
         std::optional<Input::Frame> runtime_input;
         if(callbacks.runtime_input)
             runtime_input = callbacks.runtime_input(frame);
-        if(auto advanced = m_scene_runtime.advance(
-               frame.update.delta_time, runtime_input ? &*runtime_input : nullptr);
-            !advanced) {
-            m_window->set_cursor_locked(false);
-            if(!callbacks.runtime_failed || is_device_lost(advanced.error())) {
-                prepare_shutdown();
-                return advanced;
+        const auto advance_runtime = [&] {
+            auto result = m_scene_runtime.advance(
+                frame.update.delta_time, runtime_input ? &*runtime_input : nullptr);
+            m_frame_diagnostics.mark_runtime_update();
+            return result;
+        };
+        const bool pipelined = m_scene_runtime.is_active()
+                               && m_scene_runtime.get_state() == SceneRuntime::State::Running;
+        auto runtime_result = Result<void, Error>::success();
+        // 暂停单步的结果在本次画面显示；运行态与已交付快照的绘制重叠。
+        if(!pipelined)
+            runtime_result = advance_runtime();
+        if(frame_ready_to_render && runtime_result) {
+            auto render_frame = m_renderer->capture_frame();
+            if(m_scene) {
+                const auto render_scene = m_scene_extractor.update(*m_scene);
+                m_frame_diagnostics.mark_scene_extract();
+                if(render_frame.has_visible_view()) {
+                    render_frame.world = RenderDiagnostics::measure_preparation(
+                        &m_renderer->get_diagnostics(), RenderDiagnostics::PreparationPhase::Assets,
+                        [&] { return m_scene_resolver.update(*render_scene); });
+                } else {
+                    m_scene_resolver.reset();
+                }
+            } else {
+                m_scene_extractor.reset();
+                m_scene_resolver.reset();
             }
-            m_scene_resolver.reset();
-            // 不提取部分写入的场景；先完成已 acquire 的帧，再交给宿主恢复。
-            if(frame_ready_to_render) {
+            const auto rendered = m_render_thread->submit(std::move(render_frame));
+            if(!rendered) {
+                prepare_shutdown();
+                return Result<void, Error>::failure(rendered.error().as_error());
+            }
+            m_frame_diagnostics.mark_frame_handoff();
+        }
+        if(pipelined)
+            runtime_result = advance_runtime();
+        if(!runtime_result) {
+            m_window->set_cursor_locked(false);
+            const bool recoverable =
+                callbacks.runtime_failed && !is_device_lost(runtime_result.error());
+            // 单步失败时只完成已 acquire 的 UI 帧，不提取部分更新的场景。
+            if(recoverable && frame_ready_to_render && !pipelined) {
                 if(auto queued = m_render_thread->submit(m_renderer->capture_frame()); !queued) {
                     prepare_shutdown();
                     return Result<void, Error>::failure(queued.error().as_error());
                 }
-                if(auto drained = complete_render_frame(); !drained) {
-                    prepare_shutdown();
-                    return drained;
-                }
             }
-            if(auto recovered = callbacks.runtime_failed(advanced.error()); !recovered) {
+            // 先取回绘制错误并排空快照，再允许宿主替换场景或 UI。
+            if(auto drained = complete_render_frame(); !drained) {
+                prepare_shutdown();
+                return drained;
+            }
+            if(!recoverable) {
+                prepare_shutdown();
+                return runtime_result;
+            }
+            m_scene_resolver.reset();
+            if(auto recovered = callbacks.runtime_failed(runtime_result.error()); !recovered) {
                 prepare_shutdown();
                 return recovered;
             }
             return Result<void, Error>::success();
         }
         m_window->set_cursor_locked(m_scene_runtime.wants_cursor_capture());
-        m_frame_diagnostics.mark_runtime_update();
         if(!frame_ready_to_render) {
             m_window->wait_events(0.016);
             m_frame_diagnostics.mark_deferred_wait();
-            m_frame_diagnostics.finish_frame(false, m_renderer->get_diagnostics().is_enabled());
-            discard_unfinished_diagnostics.release();
-            return Result<void, Error>::success();
         }
-        auto render_frame = m_renderer->capture_frame();
-        if(m_scene) {
-            const auto render_scene = m_scene_extractor.update(*m_scene);
-            m_frame_diagnostics.mark_scene_extract();
-            if(render_frame.has_visible_view()) {
-                render_frame.world = RenderDiagnostics::measure_preparation(
-                    &m_renderer->get_diagnostics(), RenderDiagnostics::PreparationPhase::Assets,
-                    [&] { return m_scene_resolver.update(*render_scene); });
-            } else {
-                m_scene_resolver.reset();
-            }
-        } else {
-            m_scene_extractor.reset();
-            m_scene_resolver.reset();
-        }
-        const auto rendered = m_render_thread->submit(std::move(render_frame));
-        if(!rendered) {
-            prepare_shutdown();
-            return Result<void, Error>::failure(rendered.error().as_error());
-        }
-        m_frame_diagnostics.mark_frame_handoff();
-        m_frame_diagnostics.finish_frame(true, m_renderer->get_diagnostics().is_enabled());
+        m_frame_diagnostics.finish_frame(
+            frame_ready_to_render, m_renderer->get_diagnostics().is_enabled());
         discard_unfinished_diagnostics.release();
         return Result<void, Error>::success();
     }

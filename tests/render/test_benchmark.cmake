@@ -8,7 +8,7 @@ if(NOT result STREQUAL "0" OR NOT help MATCHES "Usage: render_benchmark OUTPUT.c
     message(FATAL_ERROR "Invalid benchmark help: ${result} ${help} ${error}")
 endif()
 file(MAKE_DIRECTORY "${OUTPUT_DIRECTORY}")
-foreach(case static-0 static-1 scaled multi moving moving-singles light-moving active sleeping culling project-shader)
+foreach(case static-0 static-1 scaled multi moving moving-singles script-moving light-moving active sleeping culling project-shader)
     set(bloom 0)
     set(materials 1)
     set(workload static)
@@ -40,9 +40,9 @@ foreach(case static-0 static-1 scaled multi moving moving-singles light-moving a
         set(workload project-shader)
         set(draws 9)
         list(APPEND workload_args ${materials} ${workload})
-    elseif(case STREQUAL "light-moving")
+    elseif(case STREQUAL "light-moving" OR case STREQUAL "script-moving")
         set(materials 4)
-        set(workload light-moving)
+        set(workload ${case})
         list(APPEND workload_args ${materials} ${workload})
     elseif(case MATCHES "^moving")
         set(materials 4)
@@ -91,6 +91,7 @@ foreach(case static-0 static-1 scaled multi moving moving-singles light-moving a
         endif()
     endforeach()
     if(NOT csv MATCHES "timing_model=render-thread-v2"
+            OR NOT csv MATCHES "motion_model=runtime-v1"
             OR NOT csv MATCHES "scene_draws=${draws} lights=3 msaa=${msaa} bloom=${bloom}"
             OR NOT csv MATCHES "render_items=9 culled_items=${culled}"
             OR NOT csv MATCHES "pipeline_binds=${pipelines} material_binds=${materials} cached_material_versions=${materials}"
@@ -124,7 +125,7 @@ foreach(case static-0 static-1 scaled multi moving moving-singles light-moving a
         if(NOT csv MATCHES "shadow_upload_bytes=576" OR NOT csv MATCHES "instance_upload_bytes=0")
             message(FATAL_ERROR "Light changes did not update only shadow transforms\n${csv}")
         endif()
-    elseif(case STREQUAL "active" OR case MATCHES "^moving")
+    elseif(case STREQUAL "active" OR case MATCHES "^(moving|script-moving)")
         if(NOT csv MATCHES "shadow_upload_bytes=576" OR NOT csv MATCHES "instance_upload_bytes=[1-9][0-9]*")
             message(FATAL_ERROR "Moving instances were not uploaded\n${csv}")
         endif()
@@ -144,8 +145,11 @@ foreach(case static-0 static-1 scaled multi moving moving-singles light-moving a
     elseif(NOT csv MATCHES "physics_bodies=0 active_bodies_min=0 active_bodies_max=0")
         message(FATAL_ERROR "Static workload unexpectedly included physics\n${csv}")
     endif()
-    if(case MATCHES "^moving" AND NOT csv MATCHES "moving_rotation_degrees_per_frame=0.5")
+    if(case MATCHES "^(moving|script-moving)" AND NOT csv MATCHES "moving_rotation_degrees_per_frame=0.5")
         message(FATAL_ERROR "Invalid movement metadata\n${csv}")
+    endif()
+    if(case STREQUAL "script-moving" AND NOT csv MATCHES "# scripts=8\n")
+        message(FATAL_ERROR "Missing active script instances\n${csv}")
     endif()
     if(case STREQUAL "light-moving" AND (NOT csv MATCHES "light_rotation_degrees_per_frame=0.5"
             OR NOT csv MATCHES "moving_rotation_degrees_per_frame=0"))

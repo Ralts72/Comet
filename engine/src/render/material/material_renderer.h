@@ -187,6 +187,16 @@ namespace Comet {
             std::shared_ptr<DescriptorPool> pool;
             std::optional<DescriptorSet> descriptor;
         };
+        struct PreparedInputKey {
+            // 非拥有指针仅在同一 serial 内比较。
+            uint64_t serial = 0;
+            uint64_t revision = 0;
+            const Material* source = nullptr;
+            const MaterialOverrides* overrides = nullptr;
+            const PipelineState* pipeline = nullptr;
+
+            bool operator==(const PreparedInputKey&) const = default;
+        };
         struct CachedMaterial {
             std::shared_ptr<MaterialResources> resources;
             std::shared_ptr<const MaterialOverrides> overrides;
@@ -194,12 +204,7 @@ namespace Comet {
             std::weak_ptr<const PipelineState> failed_pipeline;
             uint64_t retry_after_serial = 0;
             std::string preparation_error;
-            // 帧内输入身份；非拥有指针仅在同一 serial 内比较。
-            uint64_t prepared_serial = 0;
-            uint64_t prepared_revision = 0;
-            const Material* prepared_source = nullptr;
-            const MaterialOverrides* prepared_overrides = nullptr;
-            const PipelineState* prepared_pipeline = nullptr;
+            PreparedInputKey prepared_input;
             const ResolvedRenderItem* requested_input = nullptr; // 程序准备借用，同步时清空。
             bool used = false;
         };

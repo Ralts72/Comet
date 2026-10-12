@@ -1,14 +1,14 @@
 #include "render/scene/render_scene.h"
+#include "common/version.h"
 
 #include <cmath>
-#include <atomic>
 
 namespace Comet {
     void RenderItemChanges::begin_update(const bool full) {
         // 不同提取器、解析器和快照副本不能共用一个局部版本序列。
-        static std::atomic<uint64_t> next_revision{1};
+        static VersionSequence next_revision;
         base_revision = revision;
-        revision = next_revision.fetch_add(1, std::memory_order_relaxed);
+        revision = next_revision.next();
         full_update = full;
         slots.clear();
         structure.clear();

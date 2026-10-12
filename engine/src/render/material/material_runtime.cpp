@@ -22,16 +22,13 @@ namespace Comet {
         const MaterialInstanceKey key{handle, overrides ? overrides->instance_id : 0};
         auto& entry = m_entries[key];
         entry.used = true;
-        if(entry.source == material && entry.layout == layout && entry.overrides == overrides
-            && entry.material_revision == material->get_revision()) {
+        const auto revision = material->get_revision();
+        if(entry.input.matches(material, layout, overrides, revision)) {
             if(!entry.error.empty())
                 return Preparation::failure(entry.error);
             return Preparation::success(entry.prepared);
         }
-        entry.source = material;
-        entry.layout = layout;
-        entry.overrides = overrides;
-        entry.material_revision = material->get_revision();
+        entry.input = {material, layout, overrides, revision};
         entry.prepared.reset();
         entry.error.clear();
         if(material->get_template_name() != layout->get_name()) {
@@ -92,8 +89,8 @@ namespace Comet {
         if(found == m_entries.end())
             return Result<std::shared_ptr<const PreparedMaterial>>::failure(
                 "Resident material source is missing");
-        const auto source = found->second.source;
-        const auto overrides = found->second.overrides;
+        const auto source = found->second.input.source;
+        const auto overrides = found->second.input.overrides;
         const bool used = found->second.used;
         auto result = prepare(key.material_handle, source, layout, overrides);
         found->second.used = used;
@@ -114,7 +111,7 @@ namespace Comet {
             return;
         std::erase_if(m_entries, [&](const auto& entry) {
             return removals.contains(entry.first.material_handle)
-                   || removals.contains(entry.second.source->get_shader_program());
+                   || removals.contains(entry.second.input.source->get_shader_program());
         });
     }
 

@@ -2,6 +2,7 @@
 #include "asset/artifact/shader_program_artifact.h"
 #include "asset/registry.h"
 #include "asset/runtime/render_asset_factory.h"
+#include "asset/script.h"
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
 #include "common/file_io.h"
@@ -24,7 +25,9 @@
 #include "render/scene/scene_renderer.h"
 #include "render/render_target.h"
 #include "scene/scene.h"
+#include "scene/script_component.h"
 #include "scene/systems/physics_system.h"
+#include "scene/systems/script_system.h"
 
 #include <algorithm>
 #include <array>
@@ -58,12 +61,13 @@ namespace {
     constexpr unsigned MAX_PHYSICS_OBJECTS = 512;
     constexpr std::string_view USAGE =
         "Usage: render_benchmark OUTPUT.csv OBJECTS WIDTH HEIGHT FRAMES BLOOM(0/1) "
-        "[MATERIALS [static|moving|light-moving|culling|project-shader|physics-active|physics-sleeping "
+        "[MATERIALS [static|moving|script-moving|light-moving|culling|project-shader|physics-active|physics-sleeping "
         "[MSAA ANISOTROPY RENDER_SCALE]]]";
 
     enum class Workload {
         Static,
         Moving,
+        ScriptMoving,
         LightMoving,
         Culling,
         ProjectShader,
@@ -75,6 +79,8 @@ namespace {
         switch(workload) {
             case Workload::Moving:
                 return "moving";
+            case Workload::ScriptMoving:
+                return "script-moving";
             case Workload::LightMoving:
                 return "light-moving";
             case Workload::Culling:
@@ -130,6 +136,8 @@ namespace {
                 workload = Workload::Culling;
             else if(name == "moving")
                 workload = Workload::Moving;
+            else if(name == "script-moving")
+                workload = Workload::ScriptMoving;
             else if(name == "light-moving")
                 workload = Workload::LightMoving;
             else if(name == "physics-active")
@@ -230,6 +238,24 @@ namespace {
         Comet::TransformComponent transform;
     };
 
+    class SceneAnimationSystem final: public Comet::System {
+    public:
+        explicit SceneAnimationSystem(std::vector<InitialPose> poses) : m_poses(std::move(poses)) {}
+        Result<void, Comet::Error> update(Comet::Scene&, const Context&) override {
+            const auto angle = std::fmod(++m_frame * 0.5f, 360.0f);
+            for(const auto& pose : m_poses) {
+                auto transform = pose.transform;
+                transform.rotation.y += angle;
+                pose.entity.set_transform(transform);
+            }
+            return Result<void, Comet::Error>::success();
+        }
+
+    private:
+        std::vector<InitialPose> m_poses;
+        uint64_t m_frame = 0;
+    };
+
     Result<void> populate_scene(Comet::Engine& engine, Comet::AssetManager& assets,
         const std::filesystem::path& root, const Options& options,
         std::vector<InitialPose>& initial_poses) {
@@ -245,6 +271,15 @@ namespace {
             return Result<void>::failure(loaded.error().message);
         std::vector<Comet::AssetHandle> materials;
         constexpr Comet::AssetHandle project_program(0xc0be700000000001ULL);
+        constexpr Comet::AssetHandle motion_script(0xc0be700000000002ULL);
+        if(options.workload == Workload::ScriptMoving) {
+            auto script = Comet::Script::create(
+                "return {update = function() comet.rotate(0, 0.5, 0) end}", "benchmark.lua");
+            if(!script)
+                return Result<void>::failure(script.error().message);
+            if(!engine.get_asset_registry().register_asset(motion_script, script.value()))
+                return Result<void>::failure("Cannot register benchmark motion script");
+        }
         if(options.workload == Workload::ProjectShader) {
             const auto code = Comet::default_material_shaders().at("pbr");
             auto program = std::make_shared<Comet::ShaderProgramArtifact>();
@@ -323,6 +358,8 @@ namespace {
             if(options.workload == Workload::Moving)
                 initial_poses.push_back(
                     {entity, entity.get_component<Comet::TransformComponent>()});
+            if(options.workload == Workload::ScriptMoving)
+                entity.add_component<Comet::ScriptComponent>().asset = motion_script;
         }
         auto ground = create_entity("Ground");
         ground.add_component<Comet::MeshRendererComponent>(mesh_handle, materials.front());
@@ -497,10 +534,13 @@ namespace {
             uint64_t allocated = 0;
             for(const auto& heap : device.query_memory_budget().heaps)
                 allocated += heap.allocation_bytes;
+            const bool moving = m_options.workload == Workload::Moving
+                                || m_options.workload == Workload::ScriptMoving;
             std::ostringstream report;
             report.imbue(std::locale::classic());
             report << "# build=" << COMET_BENCHMARK_BUILD_TYPE << " validation_request=off\n";
             report << "# timing_model=render-thread-v2\n";
+            report << "# motion_model=runtime-v1\n";
 #ifdef __APPLE__
             report << "# cpu_qos_request=user_interactive\n";
             report << "# cpu_samples=";
@@ -525,8 +565,9 @@ namespace {
                    << " materials=" << m_options.materials << " layout="
                    << (m_options.workload == Workload::Culling ? "culling-v1" : "grid-v1")
                    << " stable_ids=on\n"
-                   << "# moving_rotation_degrees_per_frame="
-                   << (m_options.workload == Workload::Moving ? 0.5 : 0.0) << '\n'
+                   << "# moving_rotation_degrees_per_frame=" << (moving ? 0.5 : 0.0) << '\n'
+                   << "# scripts="
+                   << (m_options.workload == Workload::ScriptMoving ? m_options.objects : 0) << '\n'
                    << "# light_rotation_degrees_per_frame="
                    << (m_options.workload == Workload::LightMoving ? 0.5 : 0.0) << '\n'
                    << "# physics_bodies=" << physics_statistics().bodies
@@ -719,6 +760,22 @@ namespace {
             !populated)
             return populated;
         auto& runtime = engine->get_scene_runtime();
+        if(options.workload == Workload::ScriptMoving) {
+            if(auto added = engine->add_system(
+                   std::make_unique<Comet::ScriptSystem>(engine->get_asset_registry()));
+                !added)
+                return Result<void>::failure(added.error().message);
+            if(auto started = engine->start_scene_runtime(); !started)
+                return Result<void>::failure(started.error().message);
+        }
+        if(options.workload == Workload::Moving || options.workload == Workload::LightMoving) {
+            if(auto added = engine->add_system(
+                   std::make_unique<SceneAnimationSystem>(std::move(initial_poses)));
+                !added)
+                return Result<void>::failure(added.error().message);
+            if(auto started = engine->start_scene_runtime(); !started)
+                return Result<void>::failure(started.error().message);
+        }
         if(uses_physics(options.workload)) {
             if(auto added = engine->add_default_scene_systems(); !added)
                 return Result<void>::failure(added.error().message);
@@ -732,15 +789,6 @@ namespace {
                 [&](const Comet::Engine::FrameContext& frame) {
                     if(auto sampled = measurement.sample(frame.update); !sampled)
                         return sampled;
-                    if(options.workload == Workload::Moving
-                        || options.workload == Workload::LightMoving) {
-                        const auto angle = std::fmod(frame.update.frame_index * 0.5f, 360.0f);
-                        for(const auto& pose : initial_poses) {
-                            auto transform = pose.transform;
-                            transform.rotation.y += angle;
-                            pose.entity.set_transform(transform);
-                        }
-                    }
                     if(!uses_physics(options.workload))
                         return Result<void, Comet::Error>::success();
                     if(options.workload == Workload::PhysicsActive

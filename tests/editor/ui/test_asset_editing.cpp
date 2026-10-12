@@ -124,8 +124,8 @@ namespace CometEditor::Tests {
                     *request, Comet::MaterialSerializer{}.load(
                                   paths.assets() / database.find(request->handle)->path));
             if(const auto request = inspector->asset_inspector().take_asset_edit()) {
-                EXPECT_EQ(request->handle, expected_material);
-                EXPECT_EQ(request->revision, database.get_revision(request->handle));
+                EXPECT_EQ(request->target.handle, expected_material);
+                EXPECT_EQ(request->target.revision, database.get_revision(request->target.handle));
                 const auto* update = std::get_if<MaterialEdit>(&request->value);
                 ASSERT_NE(update, nullptr);
                 submitted_material = update->after;
@@ -184,7 +184,7 @@ namespace CometEditor::Tests {
         }
 
         AssetDragPayload drag_asset(Comet::AssetHandle handle, Comet::AssetType type) {
-            return {handle, database.get_revision(handle), history.generation(), type};
+            return {{handle, database.get_revision(handle)}, history.generation(), type};
         }
 
         ImVec2 property_point(int index) {
@@ -832,9 +832,9 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(data->IsDataType(AssetDragPayload::TYPE));
         ASSERT_EQ(data->DataSize, sizeof(AssetDragPayload));
         const auto first = *static_cast<const AssetDragPayload*>(data->Data);
-        EXPECT_EQ(first.handle, texture);
+        EXPECT_EQ(first.target.handle, texture);
         EXPECT_EQ(first.type, Comet::AssetType::Texture);
-        EXPECT_EQ(first.revision, database.get_revision(texture));
+        EXPECT_EQ(first.target.revision, database.get_revision(texture));
         EXPECT_EQ(first.generation, history.generation());
         EXPECT_EQ(selection.get_selected_entity(), entity);
         history.clear();
@@ -873,7 +873,7 @@ namespace CometEditor::Tests {
         frame();
         const auto request = inspector->take_asset_assignment();
         ASSERT_TRUE(request);
-        EXPECT_EQ(request->asset.handle, mesh);
+        EXPECT_EQ(request->asset.target.handle, mesh);
         EXPECT_EQ(request->target.entity, entity.get_uuid());
         EXPECT_FALSE(entity.get_component<Comet::MeshRendererComponent>().mesh);
     }
@@ -884,13 +884,13 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(database.scan().succeeded());
         auto request = choose(0, 2);
         ASSERT_TRUE(request);
-        EXPECT_EQ(request->asset.handle, database.find("nested/mesh.gltf")->handle);
+        EXPECT_EQ(request->asset.target.handle, database.find("nested/mesh.gltf")->handle);
         EXPECT_EQ(request->asset.type, Comet::AssetType::Mesh);
-        EXPECT_NE(request->asset.handle, mesh);
+        EXPECT_NE(request->asset.target.handle, mesh);
         request = choose(1, 1);
         ASSERT_TRUE(request);
-        EXPECT_EQ(request->asset.handle, material);
-        EXPECT_EQ(request->asset.revision, database.get_revision(material));
+        EXPECT_EQ(request->asset.target.handle, material);
+        EXPECT_EQ(request->asset.target.revision, database.get_revision(material));
         EXPECT_EQ(request->asset.type, Comet::AssetType::Material);
         EXPECT_EQ(history.undo_size(), 0);
         EXPECT_FALSE(entity.get_component<Comet::MeshRendererComponent>().material);
@@ -905,9 +905,9 @@ namespace CometEditor::Tests {
         EXPECT_EQ(renderer.mesh, Comet::AssetHandle(999));
         const auto request = choose(0, 0);
         ASSERT_TRUE(request);
-        EXPECT_FALSE(request->asset.handle);
-        EXPECT_EQ(request->asset.revision, Comet::INVALID_ASSET_REVISION);
-        ASSERT_TRUE(edit.apply(request->target, request->asset.handle));
+        EXPECT_FALSE(request->asset.target.handle);
+        EXPECT_EQ(request->asset.target.revision, Comet::INVALID_ASSET_REVISION);
+        ASSERT_TRUE(edit.apply(request->target, request->asset.target.handle));
         EXPECT_FALSE(renderer.mesh);
         ASSERT_TRUE(history.undo());
         EXPECT_EQ(renderer.mesh, Comet::AssetHandle(999));
@@ -921,7 +921,7 @@ namespace CometEditor::Tests {
         history.bind_scene(nullptr);
         const auto request = choose(1, 1);
         ASSERT_TRUE(request);
-        EXPECT_EQ(request->asset.handle, material);
+        EXPECT_EQ(request->asset.target.handle, material);
         EXPECT_EQ(request->asset.generation, history.generation());
         payload = drag_asset(material, Comet::AssetType::Material);
         EXPECT_FALSE(drop(property_point(1)));
@@ -944,7 +944,7 @@ namespace CometEditor::Tests {
 
         const auto request = choose(1, 1);
         ASSERT_TRUE(request);
-        EXPECT_EQ(request->asset.handle, material);
+        EXPECT_EQ(request->asset.target.handle, material);
         EXPECT_EQ(request->asset.generation, generation);
         EXPECT_EQ(request->target.entity, entity.get_uuid());
         ASSERT_TRUE(queue_choice(1, 1));
@@ -974,9 +974,9 @@ namespace CometEditor::Tests {
             EXPECT_EQ(request->target.entity, entity.get_uuid());
             EXPECT_EQ(request->target.component, "mesh_renderer");
             EXPECT_EQ(request->target.property, index == 0 ? "mesh" : "material");
-            EXPECT_EQ(request->asset.handle, handle);
+            EXPECT_EQ(request->asset.target.handle, handle);
             EXPECT_EQ(history.undo_size(), 0);
-            ASSERT_TRUE(edit.apply(request->target, request->asset.handle));
+            ASSERT_TRUE(edit.apply(request->target, request->asset.target.handle));
             EXPECT_EQ(history.undo_size(), 1);
             ASSERT_TRUE(history.undo());
             const auto& renderer = entity.get_component<Comet::MeshRendererComponent>();
@@ -1465,7 +1465,7 @@ namespace CometEditor::Tests {
         payload = drag_asset(Comet::AssetHandle(999), Comet::AssetType::Material);
         EXPECT_FALSE(drop(point));
         payload = drag_asset(material, Comet::AssetType::Material);
-        ++payload.revision;
+        ++payload.target.revision;
         EXPECT_FALSE(drop(point));
         payload = drag_asset(material, Comet::AssetType::Material);
         payload_size = sizeof(std::uint64_t);

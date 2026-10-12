@@ -20,14 +20,15 @@
 
 #include <gtest/gtest.h>
 
+#include <tuple>
 #include <utility>
 
 #include "support/scene_motion_system.h"
 
 namespace Comet::Tests {
-    class FrameEditOrderTest: public ::testing::TestWithParam<bool> {};
+    class FrameEditOrderTest: public ::testing::TestWithParam<std::tuple<bool, bool>> {};
 
-    TEST_P(FrameEditOrderTest, PickConsumesUpdatedSceneAndFeedbackReturnsAtNextUpdate) {
+    TEST_P(FrameEditOrderTest, PickConsumesCapturedSceneAndFeedbackReturnsAtNextUpdate) {
         Config config;
         config.window.width = 320;
         config.window.height = 240;
@@ -62,11 +63,14 @@ namespace Comet::Tests {
         engine.set_scene(make_scene(20));
         auto calls = std::make_shared<RuntimeCalls>();
         auto& runtime = engine.get_scene_runtime();
+        const bool paused = std::get<1>(GetParam());
+        const auto state = paused ? SceneRuntime::State::Paused : SceneRuntime::State::Running;
         ASSERT_TRUE(engine.add_system(std::make_unique<SceneMotionSystem>(calls)));
-        ASSERT_TRUE(engine.start_scene_runtime());
+        ASSERT_TRUE(engine.start_scene_runtime(state));
         int updates = 0;
         int preparations = 0;
         bool picked = false;
+        bool first_feedback = false;
         std::optional<uint64_t> allocations_before_lines;
         const auto allocation_count = [&] {
             uint64_t count = 0;
@@ -79,7 +83,8 @@ namespace Comet::Tests {
         const auto frame_ready = [&](const Engine::FrameContext&) {
             ++preparations;
             if(preparations == 2) {
-                EXPECT_TRUE(picked);
+                EXPECT_TRUE(first_feedback);
+                EXPECT_FALSE(picked);
                 const auto entity = engine.get_scene()->find_entity(EntityId(2));
                 LineDrawList lines;
                 EXPECT_TRUE(lines.add_box(mesh.value()->get_local_bounds(),
@@ -91,12 +96,14 @@ namespace Comet::Tests {
                 }
                 allocations_before_lines = allocation_count();
                 renderer.submit_lines(lines);
-                return Result<void, Error>::success();
+                const auto size = renderer.get_scene_renderer().get_render_target().get_size();
+                renderer.request_viewport_pick(size / 2u, size, engine.get_scene()->get_lifetime());
+                return paused ? engine.request_runtime_step() : Result<void, Error>::success();
             }
             EXPECT_EQ(updates, 1);
             EXPECT_EQ(calls->updates, 0);
             EXPECT_TRUE(renderer.get_frame_scheduler().is_frame_active());
-            if(GetParam()) {
+            if(std::get<0>(GetParam())) {
                 auto previous = engine.replace_scene(make_scene(10));
                 EXPECT_FALSE(runtime.is_active());
                 EXPECT_EQ(calls->stops, 1);
@@ -104,7 +111,7 @@ namespace Comet::Tests {
                               .get_component<TransformComponent>()
                               .translation.x,
                     20);
-                if(auto started = engine.start_scene_runtime(); !started)
+                if(auto started = engine.start_scene_runtime(state); !started)
                     return started;
             } else {
                 EXPECT_TRUE(engine.get_scene()
@@ -113,18 +120,15 @@ namespace Comet::Tests {
             }
             const auto size = renderer.get_scene_renderer().get_render_target().get_size();
             renderer.request_viewport_pick(size / 2u, size, engine.get_scene()->get_lifetime());
-            return Result<void, Error>::success();
+            return paused ? engine.request_runtime_step() : Result<void, Error>::success();
         };
         Comet::Tests::set_test_overlay(renderer, {.render = [&](Comet::OverlayRecordContext&) {
             EXPECT_FALSE(renderer.take_viewport_pick_result());
-            EXPECT_EQ(calls->updates, preparations);
             if(allocations_before_lines) {
                 const auto& materials = renderer.get_scene_renderer().get_material_statistics();
                 EXPECT_EQ(allocation_count(),
                     *allocations_before_lines + 1 + materials.material_bindings_created);
             }
-            if(preparations == 2)
-                engine.get_window().request_close();
 
             return Comet::Result<void, Comet::GraphicsError>::success();
         }});
@@ -132,10 +136,24 @@ namespace Comet::Tests {
             .update =
                 [&](const Engine::FrameContext&) {
                     if(const auto result = renderer.take_viewport_pick_result()) {
-                        EXPECT_EQ(preparations, 1);
-                        EXPECT_EQ(calls->updates, 1);
+                        EXPECT_EQ(calls->updates, preparations);
                         EXPECT_EQ(result->scene_lifetime, engine.get_scene()->get_lifetime());
-                        picked = result->hit && result->hit->entity_id == EntityId(2);
+                        if(preparations == 1) {
+                            // 单步显示本次结果；持续运行仍绘制更新前的快照。
+                            EXPECT_EQ(result->hit.has_value(), paused);
+                            if(result->hit)
+                                EXPECT_EQ(result->hit->entity_id, EntityId(2));
+                            EXPECT_FLOAT_EQ(engine.get_scene()
+                                                ->find_entity(EntityId(2))
+                                                .get_component<TransformComponent>()
+                                                .translation.x,
+                                0);
+                            first_feedback = true;
+                        } else {
+                            EXPECT_EQ(preparations, 2);
+                            picked = result->hit && result->hit->entity_id == EntityId(2);
+                            engine.get_window().request_close();
+                        }
                         EXPECT_FALSE(renderer.take_viewport_pick_result());
                     }
                     if(++updates > 5)
@@ -152,5 +170,6 @@ namespace Comet::Tests {
         EXPECT_TRUE(allocations_before_lines.has_value());
     }
 
-    INSTANTIATE_TEST_SUITE_P(MutateOrReplaceScene, FrameEditOrderTest, ::testing::Bool());
+    INSTANTIATE_TEST_SUITE_P(MutateOrReplaceScene, FrameEditOrderTest,
+        ::testing::Combine(::testing::Bool(), ::testing::Bool()));
 }

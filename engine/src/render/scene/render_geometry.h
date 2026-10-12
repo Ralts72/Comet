@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "common/version.h"
 #include "core/geometry.h"
 #include "scene/entity_id.h"
 
@@ -44,7 +45,6 @@ namespace Comet {
         std::vector<CachedBounds> m_bounds;
         std::optional<BoundingBox> m_scene_bounds;
         std::optional<BoundingBox> m_cached_scene_bounds;
-        uint64_t m_scene_lifetime = 0;
-        uint64_t m_revision = 0;
+        VersionStamp<uint64_t> m_scene_version;
     };
 }
