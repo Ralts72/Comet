@@ -12,10 +12,11 @@
 namespace CometEditor::Tests {
     using ViewportPlayUiTest = ViewportUiTest;
 
-    TEST_F(ViewportPlayUiTest, ColliderToggleWorksWithoutProjectUiAndSurvivesModeChanges) {
+    TEST_F(ViewportPlayUiTest, PhysicsTogglesAreIndependentAndSurviveModeChangesWithoutProjectUi) {
         viewport.set_game_ui_available(false);
         EXPECT_FALSE(viewport.shows_colliders());
-        const auto toggle = [&] {
+        EXPECT_FALSE(viewport.shows_joints());
+        const auto toggle = [&](const char* label) {
             auto* window = ImGui::FindWindowByName("Viewport");
             ASSERT_NE(window, nullptr);
             ImGui::ActivateItemByID(window->GetID("###View"));
@@ -24,18 +25,25 @@ namespace CometEditor::Tests {
             ASSERT_FALSE(GImGui->OpenPopupStack.empty());
             auto* popup = GImGui->OpenPopupStack.back().Window;
             ASSERT_NE(popup, nullptr);
-            ImGui::ActivateItemByID(popup->GetID("碰撞体###Colliders"));
+            ImGui::ActivateItemByID(popup->GetID(label));
             frame();
             ImGui::ClosePopupToLevel(0, true);
             frame();
         };
-        toggle();
+        toggle("碰撞体###Colliders");
         EXPECT_TRUE(viewport.shows_colliders());
+        EXPECT_FALSE(viewport.shows_joints());
+        toggle("关节锚点###Joints");
+        EXPECT_TRUE(viewport.shows_joints());
         activate_play_camera();
         EXPECT_TRUE(viewport.shows_colliders());
+        EXPECT_TRUE(viewport.shows_joints());
         ASSERT_TRUE(runtime.set_state(Comet::SceneRuntime::State::Paused));
-        toggle();
+        toggle("碰撞体###Colliders");
         EXPECT_FALSE(viewport.shows_colliders());
+        EXPECT_TRUE(viewport.shows_joints());
+        toggle("关节锚点###Joints");
+        EXPECT_FALSE(viewport.shows_joints());
         EXPECT_EQ(runtime.get_state(), Comet::SceneRuntime::State::Paused);
         EXPECT_FALSE(viewport.take_play_command());
     }

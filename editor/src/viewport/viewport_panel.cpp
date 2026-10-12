@@ -305,10 +305,14 @@ namespace CometEditor {
         ImGui::SeparatorText("调试");
         ImGui::PushItemFlag(ImGuiItemFlags_AutoClosePopups, false);
         ImGui::MenuItem("碰撞体###Colliders", nullptr, &m_show_colliders);
-        ImGui::PopItemFlag();
         ImGui::SetItemTooltip("蓝：静态；绿：动态；紫：运动学；青：触发器\n"
                               "灰：未添加刚体；红：不支持的父级或缩放\n"
                               "显示组件配置的轮廓，受场景遮挡。");
+        ImGui::MenuItem("关节锚点###Joints", nullptr, &m_show_joints);
+        ImGui::SetItemTooltip("橙色十字：本地锚点；青色方框：连接锚点；黄线：两端位置差\n"
+                              "灰：已禁用；红：缺失或不支持的连接\n"
+                              "显示组件配置与呈现姿态，受场景遮挡。");
+        ImGui::PopItemFlag();
         if(m_state.mode == EditorMode::Play) {
             if(ImGui::MenuItem("输入###Input", nullptr, false, m_runtime.is_active()))
                 m_play_command = PlayCommand::InputSettings;

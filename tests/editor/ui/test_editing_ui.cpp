@@ -47,6 +47,7 @@ namespace CometEditor::Tests {
         SceneCommands::EntityClipboard clipboard;
         std::unique_ptr<HierarchyPanel> hierarchy;
         ImVec2 drag_point{};
+        ImVec2 joint_anchor_point{};
         ImVec2 text_point{};
         float inspector_width = 700;
         bool draw_trailing_item = false;
@@ -65,6 +66,10 @@ namespace CometEditor::Tests {
                     if(property.id == "translation") {
                         const auto start = ImGui::GetItemRectMin();
                         drag_point = ImVec2(start.x + 20, start.y + 8);
+                    }
+                    if(property.id == "connected_anchor") {
+                        const auto start = ImGui::GetItemRectMin();
+                        joint_anchor_point = ImVec2(start.x + 20, start.y + 8);
                     }
                     if(draw_trailing_item)
                         ImGui::TextUnformatted("Extra widget content");
@@ -155,6 +160,19 @@ namespace CometEditor::Tests {
             auto* popup = GImGui->OpenPopupStack.back().Window;
             ASSERT_NE(popup, nullptr);
             ImGui::ActivateItemByID(popup->GetID("Use script default"));
+            frame();
+        }
+
+        void align_joint_anchor() {
+            click(joint_anchor_point, ImGuiMouseButton_Right);
+            frame();
+            ASSERT_FALSE(GImGui->OpenPopupStack.empty());
+            auto* popup = GImGui->OpenPopupStack.back().Window;
+            ASSERT_NE(popup, nullptr);
+            ImGui::ActivateItemByID(popup->GetID("Align joint anchor"));
+            frame();
+            if(!GImGui->OpenPopupStack.empty())
+                ImGui::ClosePopupToLevel(0, true);
             frame();
         }
 
@@ -345,6 +363,98 @@ namespace CometEditor::Tests {
         EXPECT_EQ(request->entity, player.get_uuid());
         EXPECT_EQ(request->parent, entity.get_uuid());
         EXPECT_FALSE(scene.get_parent(player));
+    }
+
+    TEST_F(EditingUiTest, JointAnchorAlignmentConvertsBetweenBodiesAndIsUndoable) {
+        entity.edit_transform([](auto& value) {
+            value.translation = {2, 3, 4};
+            value.rotation.z = 90;
+            value.scale = {2, 1, 0.5f};
+        });
+        auto target = scene.create_entity();
+        target.edit_transform([](auto& value) {
+            value.translation = {5, 6, 7};
+            value.rotation.z = 90;
+            value.scale = {2, 3, 4};
+        });
+        const Comet::PointJointComponent joint{.connected_body = target.get_uuid(),
+            .anchor = {1, 0, 0},
+            .connected_anchor = {9, 8, 7}};
+        entity.add_component<Comet::PointJointComponent>(joint);
+        frame();
+        ASSERT_NO_FATAL_FAILURE(align_joint_anchor());
+        const auto aligned = entity.get_component<Comet::PointJointComponent>();
+        EXPECT_LT(
+            Comet::Math::length(aligned.connected_anchor - Comet::Math::Vec3(-0.5f, 1, -0.75f)),
+            1e-5f);
+        EXPECT_EQ(aligned.connected_body, target.get_uuid());
+        EXPECT_EQ(aligned.anchor, joint.anchor);
+        EXPECT_EQ(history.undo_size(), 1u);
+        EXPECT_FALSE(edit.active());
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(entity.get_component<Comet::PointJointComponent>(), joint);
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(entity.get_component<Comet::PointJointComponent>(), aligned);
+        ASSERT_NO_FATAL_FAILURE(align_joint_anchor());
+        EXPECT_EQ(history.undo_size(), 1u);
+
+        target.edit_transform([](auto& value) { value.scale.y = 0; });
+        ASSERT_NO_FATAL_FAILURE(align_joint_anchor());
+        EXPECT_EQ(entity.get_component<Comet::PointJointComponent>(), aligned);
+        EXPECT_EQ(history.undo_size(), 1u);
+        scene.destroy_entity(target);
+        ASSERT_NO_FATAL_FAILURE(align_joint_anchor());
+        EXPECT_EQ(entity.get_component<Comet::PointJointComponent>(), aligned);
+        EXPECT_EQ(history.undo_size(), 1u);
+    }
+
+    TEST_F(EditingUiTest, WorldAnchorAlignmentUsesSimulationPoseInPlayAndDoesNotWriteHistory) {
+        class Move final: public Comet::System {
+        public:
+            Comet::Result<void, Comet::Error> fixed_update(
+                Comet::Scene& scene, const Context&) override {
+                scene.each<const Comet::PointJointComponent>(
+                    [](Comet::Entity entity, const Comet::PointJointComponent&) {
+                        entity.edit_transform([](auto& value) { value.translation.x += 10; });
+                    });
+                return Comet::Result<void, Comet::Error>::success();
+            }
+        };
+        entity.edit_transform([](auto& value) {
+            value.translation = {2, 3, 4};
+            value.rotation.z = 90;
+            value.scale = {2, 1, 0.5f};
+        });
+        entity.add_component<Comet::PointJointComponent>(
+            Comet::PointJointComponent{.anchor = {1, 0, 0}});
+        frame();
+        ASSERT_NO_FATAL_FAILURE(align_joint_anchor());
+        EXPECT_LT(
+            Comet::Math::length(entity.get_component<Comet::PointJointComponent>().connected_anchor
+                                - Comet::Math::Vec3(2, 5, 4)),
+            1e-5f);
+        ASSERT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(entity.get_component<Comet::PointJointComponent>().connected_anchor,
+            Comet::Math::Vec3(0));
+        ASSERT_TRUE(history.redo());
+
+        Comet::SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.1}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Move>()));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.15));
+        EXPECT_NEAR(scene.get_render_transform(entity).world_matrix[3].x, 7, 1e-5f);
+        history.bind_scene(nullptr);
+        state.mode = EditorMode::Play;
+        ASSERT_NO_FATAL_FAILURE(align_joint_anchor());
+        EXPECT_LT(
+            Comet::Math::length(entity.get_component<Comet::PointJointComponent>().connected_anchor
+                                - Comet::Math::Vec3(12, 5, 4)),
+            1e-5f);
+        EXPECT_FALSE(history.can_undo());
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::TransformComponent>().translation.x, 12);
+        ASSERT_TRUE(runtime.stop());
     }
 
     TEST_F(EditingUiTest, PointJointBodySelectionUsesSharedReferenceWidgetAndPlayEditing) {

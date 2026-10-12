@@ -1,5 +1,5 @@
 #include "viewport/viewport.h"
-#include "viewport/collider_overlay.h"
+#include "viewport/physics_overlay.h"
 
 #include "asset/registry.h"
 #include "diagnostics/logger.h"
@@ -100,6 +100,8 @@ namespace CometEditor {
         }
         if(m_panel.shows_colliders())
             append_collider_outlines(*scene, m_feedback_lines);
+        if(m_panel.shows_joints())
+            append_joint_anchors(*scene, m_feedback_lines);
         m_renderer.submit_lines(m_feedback_lines);
     }
 

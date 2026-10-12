@@ -50,7 +50,7 @@ set(UNIT_TEST_SOURCES
         diagnostics/test_profiler.cpp
         diagnostics/test_timing_history.cpp
         editor/core/test_camera_controller.cpp
-        editor/core/test_collider_overlay.cpp
+        editor/core/test_physics_overlay.cpp
         editor/core/test_command_history.cpp
         editor/core/test_editor_assets.cpp
         editor/core/test_external_file_import.cpp

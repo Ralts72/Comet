@@ -23,6 +23,24 @@ namespace CometEditor {
     namespace {
         using Caption = std::pair<std::string_view, std::string_view>;
 
+        std::optional<Comet::Math::Vec3> aligned_point_joint_anchor(
+            Comet::Scene& scene, const Comet::Entity entity) {
+            if(!entity.has_component<Comet::TransformComponent>())
+                return std::nullopt;
+            const auto& joint = entity.get_component<Comet::PointJointComponent>();
+            auto position = scene.get_world_matrix(entity) * Comet::Math::Vec4(joint.anchor, 1);
+            if(joint.connected_body) {
+                const auto connected = scene.find_entity(joint.connected_body);
+                if(!connected || !connected.has_component<Comet::TransformComponent>())
+                    return std::nullopt;
+                position = glm::inverse(scene.get_world_matrix(connected)) * position;
+            }
+            const Comet::Math::Vec3 anchor{position};
+            if(!Comet::Math::is_finite(anchor))
+                return std::nullopt;
+            return anchor;
+        }
+
         void set_caption(
             std::string& label, std::string_view id, std::span<const Caption> captions) {
             for(const auto& [key, caption] : captions) {
@@ -357,10 +375,23 @@ namespace CometEditor {
                                   "连接不自动关闭两物体之间的碰撞。");
         if(component.id == "point_joint" && property.id == "anchor")
             ImGui::SetItemTooltip("本实体的本地锚点，随缩放；点关节固定位置，允许自由转动。");
-        if(component.id == "point_joint" && property.id == "connected_anchor")
+        if(component.id == "point_joint" && property.id == "connected_anchor") {
             ImGui::SetItemTooltip("连接到刚体时为对方的本地锚点，随其缩放；否则为固定世界位置。\n"
                                   "两锚点应在同一世界位置，否则求解器会拉动刚体使它们重合。\n"
-                                  "修改在下一固定步生效，保留当前速度。");
+                                  "右键可对齐到本地锚点；修改在下一固定步生效，保留当前速度。");
+            if(ImGui::BeginPopupContextItem("Joint anchor actions")) {
+                const auto aligned = aligned_point_joint_anchor(m_selection.get_scene(), entity);
+                if(ImGui::MenuItem("对齐到本地锚点###Align joint anchor", nullptr, false,
+                       aligned.has_value())) {
+                    if(m_property_edit.commit())
+                        apply_property_edit(entity, component, property, *aligned,
+                            {.changed = true, .finished = true});
+                    else
+                        LOG_ERROR("Cannot finish property edit before aligning joint anchor");
+                }
+                ImGui::EndPopup();
+            }
+        }
         if(component.id == "rigid_body" && property.id == "mass_mode")
             ImGui::SetItemTooltip("指定质量：缩放保持质量，只改变形状与惯性。\n"
                                   "按密度计算：质量 = 密度 × 缩放后的碰撞体积，长度按米计算。\n"
