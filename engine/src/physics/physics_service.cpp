@@ -108,6 +108,12 @@ namespace Comet {
             if(!std::isfinite(rigid.mass) || rigid.mass < RigidBodyComponent::MIN_MASS)
                 return Result<void, Error>::failure(
                     {"Invalid rigid body mass: " + uuid.to_string()});
+            if(!std::isfinite(collider.friction) || collider.friction < 0 || collider.friction > 1
+                || !std::isfinite(collider.restitution) || collider.restitution < 0
+                || collider.restitution > 1)
+                return Result<void, Error>::failure(
+                    {"Collider friction and restitution must be finite and between 0 and 1: "
+                        + uuid.to_string()});
             const auto valid_scale = Math::is_finite(transform.scale)
                                      && glm::all(glm::greaterThan(transform.scale, Math::Vec3(0)));
             if(!Math::is_finite(transform.translation) || !Math::is_finite(transform.rotation)
@@ -253,6 +259,8 @@ namespace Comet {
                 motion == BodyMotion::Static ? STATIC_LAYER : MOVING_LAYER);
             settings.mIsSensor = collider.is_trigger;
             settings.mMotionQuality = to_motion_quality(rigid, collider);
+            settings.mFriction = collider.friction;
+            settings.mRestitution = collider.restitution;
             if(motion == BodyMotion::Dynamic) {
                 auto properties = calculate_mass_properties(*shape, rigid.mass);
                 if(!properties)
@@ -350,7 +358,12 @@ namespace Comet {
             const bool pose_changed = !added && !same_pose(it->second.last_transform, transform);
             const auto motion_quality = to_motion_quality(rigid, collider);
             const bool quality_changed = !added && it->second.motion_quality != motion_quality;
-            if(added || rebuild || mass_changed || pose_changed || quality_changed) {
+            const bool surface_changed =
+                !added
+                && (it->second.collider.friction != collider.friction
+                    || it->second.collider.restitution != collider.restitution);
+            if(added || rebuild || mass_changed || pose_changed || quality_changed
+                || surface_changed) {
                 if(auto valid = validate_body(definition.uuid, transform, collider, rigid); !valid)
                     return Result<bool, Error>::failure(valid.error());
             }
@@ -362,6 +375,13 @@ namespace Comet {
                 return Result<bool, Error>::success(added);
             }
             auto& body = it->second;
+            if(surface_changed) {
+                // Jolt 每步重新组合接触系数；更新表面参数保留刚体、休眠与接触缓存。
+                auto& interface = world.GetBodyInterface();
+                interface.SetFriction(body.id, collider.friction);
+                interface.SetRestitution(body.id, collider.restitution);
+                body.collider = collider;
+            }
             if(quality_changed) {
                 // 原地更新 Jolt 检测方式，保留速度、休眠及接触身份。
                 world.GetBodyInterface().SetMotionQuality(body.id, motion_quality);

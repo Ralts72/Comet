@@ -1282,6 +1282,155 @@ namespace Comet::Tests {
         }
     }
 
+    TEST(PhysicsSystemTest, RestitutionCombinesBothSurfacesAndSupportsFixedStepChangesAndCcd) {
+        struct Case {
+            float body;
+            float floor;
+            bool change_at_fixed_step = false;
+        };
+        for(const auto shape : {ColliderShape::Box, ColliderShape::Sphere}) {
+            for(const auto settings : {Case{0, 0}, Case{1, 0}, Case{0, 1}, Case{0.8f, 0.2f, true},
+                    Case{0.2f, 0.8f, true}}) {
+                SCOPED_TRACE(static_cast<int>(shape));
+                SCOPED_TRACE(settings.body);
+                SCOPED_TRACE(settings.floor);
+                Scene scene;
+                PhysicsService physics;
+                auto floor =
+                    add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
+                auto body = add_body(scene, "Body", BodyMotion::Dynamic, {0, 1, 0});
+                body.edit_component<ColliderComponent>(
+                    [shape](auto& collider) { collider.shape = shape; });
+                body.edit_component<RigidBodyComponent>([&](auto& rigid) {
+                    rigid.continuous_collision = settings.change_at_fixed_step;
+                });
+                const auto configure = [&] {
+                    body.edit_component<ColliderComponent>(
+                        [&](auto& collider) { collider.restitution = settings.body; });
+                    floor.edit_component<ColliderComponent>(
+                        [&](auto& collider) { collider.restitution = settings.floor; });
+                };
+                if(!settings.change_at_fixed_step)
+                    configure();
+                SceneRuntime runtime;
+                ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+                ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+                ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+                ASSERT_TRUE(runtime.start(scene));
+                if(settings.change_at_fixed_step)
+                    configure();
+                ASSERT_TRUE(physics.request_impulse(body, {0, -50, 0}));
+                float upward_speed = 0;
+                for(int step = 0; step < 10; ++step) {
+                    ASSERT_TRUE(runtime.advance(0.01));
+                    upward_speed = std::max(upward_speed, physics.get_velocity(body)->linear.y);
+                }
+                if(settings.body == 0 && settings.floor == 0)
+                    EXPECT_LT(upward_speed, 1);
+                else
+                    EXPECT_GT(upward_speed, 30);
+            }
+        }
+    }
+
+    TEST(PhysicsSystemTest, FrictionChangesUpdateSlidingContactsWithoutResettingVelocity) {
+        Scene scene;
+        PhysicsService physics;
+        auto floor = add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {20, 1, 20});
+        floor.edit_component<ColliderComponent>([](auto& collider) { collider.friction = 0; });
+        auto body = add_body(scene, "Slider", BodyMotion::Dynamic, {0, 0.5f, 0});
+        body.edit_component<ColliderComponent>([](auto& collider) { collider.friction = 1; });
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        auto probe = std::make_unique<ContactProbe>();
+        auto* observed = probe.get();
+        ASSERT_TRUE(runtime.add_system(std::move(probe)));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(physics.request_impulse(body, {5, 0, 0}));
+        for(int step = 0; step < 10; ++step)
+            ASSERT_TRUE(runtime.advance(0.01));
+        const auto sliding_speed = physics.get_velocity(body)->linear.x;
+        ASSERT_GT(sliding_speed, 4.9f);
+        ASSERT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1u);
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        floor.edit_component<ColliderComponent>([](auto& collider) { collider.friction = 1; });
+        ASSERT_TRUE(runtime.advance(0.1));
+        EXPECT_FLOAT_EQ(physics.get_velocity(body)->linear.x, sliding_speed);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        const auto friction_speed = physics.get_velocity(body)->linear.x;
+        EXPECT_LT(friction_speed, sliding_speed - 0.05f);
+        EXPECT_GT(friction_speed, sliding_speed * 0.8f);
+        body.edit_component<ColliderComponent>([](auto& collider) { collider.friction = 0; });
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_NEAR(physics.get_velocity(body)->linear.x, friction_speed, 0.01f);
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1u);
+        EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionExit), 0u);
+    }
+
+    TEST(PhysicsSystemTest, SurfaceChangesPreserveSleepingBodiesAndContactIdentity) {
+        Scene scene;
+        PhysicsService physics;
+        auto floor = add_body(scene, "Floor", BodyMotion::Static, {0, -0.5f, 0}, {10, 1, 10});
+        auto resting = add_body(scene, "Resting", BodyMotion::Dynamic, {0, 2, 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        auto probe = std::make_unique<ContactProbe>();
+        auto* observed = probe.get();
+        ASSERT_TRUE(runtime.add_system(std::move(probe)));
+        ASSERT_TRUE(runtime.start(scene));
+        for(int step = 0; step < 250; ++step)
+            ASSERT_TRUE(runtime.advance(0.01));
+        ASSERT_EQ(physics.get_statistics().active_bodies, 0u);
+        ASSERT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1u);
+        for(auto entity : {floor, resting}) {
+            entity.edit_component<ColliderComponent>([](auto& collider) {
+                collider.friction = 0.9f;
+                collider.restitution = 0.8f;
+            });
+            ASSERT_TRUE(runtime.advance(0.01));
+            EXPECT_EQ(physics.get_statistics().active_bodies, 0u);
+            EXPECT_EQ(physics.get_statistics().pose_updates, 0u);
+            EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionEnter), 1u);
+            EXPECT_EQ(observed->count(Scene::ContactEvent::Kind::CollisionExit), 0u);
+        }
+    }
+
+    TEST(PhysicsSystemTest, InvalidSurfaceResponseFailsStartAndFixedSynchronization) {
+        for(const auto property : {&ColliderComponent::friction, &ColliderComponent::restitution}) {
+            for(const float value : {-0.1f, 1.1f, std::numeric_limits<float>::infinity(),
+                    std::numeric_limits<float>::quiet_NaN()}) {
+                SCOPED_TRACE(value);
+                Scene scene;
+                PhysicsService physics;
+                auto body = add_body(scene, "Body", BodyMotion::Dynamic, {0, 10, 0});
+                body.edit_component<ColliderComponent>(
+                    [&](auto& collider) { collider.*property = value; });
+                SceneRuntime runtime;
+                ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+                ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+                EXPECT_FALSE(runtime.start(scene));
+                EXPECT_FALSE(runtime.is_active());
+                body.edit_component<ColliderComponent>(
+                    [&](auto& collider) { collider.*property = 0.2f; });
+                ASSERT_TRUE(runtime.start(scene));
+                body.edit_component<ColliderComponent>(
+                    [&](auto& collider) { collider.*property = value; });
+                const auto result = runtime.advance(1.0 / 60.0);
+                ASSERT_FALSE(result);
+                EXPECT_NE(
+                    result.error().message.find("friction and restitution"), std::string::npos);
+                EXPECT_FALSE(runtime.is_active());
+                EXPECT_EQ(physics.get_statistics().bodies, 0u);
+            }
+        }
+    }
+
     TEST(PhysicsSystemTest, ConfiguredMassControlsImpulseResponseIndependentlyOfShapeSize) {
         for(const auto shape : {ColliderShape::Box, ColliderShape::Sphere}) {
             Scene scene;

@@ -140,6 +140,9 @@ namespace Comet {
         Math::Vec3 half_extents{0.5f};
         float radius = 0.5f;
         bool is_trigger = false;
+        // 接触响应系数，范围 [0, 1]；触发器只保存配置，不参与碰撞响应。
+        float friction = 0.2f;
+        float restitution = 0.0f;
         bool operator==(const ColliderComponent&) const = default;
     };
 

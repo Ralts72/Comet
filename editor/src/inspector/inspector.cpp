@@ -55,7 +55,8 @@ namespace CometEditor {
                 {"rigid_body/mass", "质量 (kg)"},
                 {"rigid_body/continuous_collision", "连续碰撞 (CCD)"}, {"collider/shape", "形状"},
                 {"collider/half_extents", "盒体半尺寸"}, {"collider/radius", "球体半径"},
-                {"collider/is_trigger", "触发器"}, {"light/type", "类型"},
+                {"collider/is_trigger", "触发器"}, {"collider/friction", "摩擦系数"},
+                {"collider/restitution", "弹性系数"}, {"light/type", "类型"},
                 {"light/enabled", "启用"}, {"light/casts_shadow", "投射阴影（方向光）"},
                 {"light/color", "颜色（线性）"}, {"light/intensity", "强度"},
                 {"light/range", "范围"}, {"light/inner_angle", "内角"},
@@ -331,6 +332,13 @@ namespace CometEditor {
             ImGui::SetItemTooltip("仅动态非触发器使用线性扫掠，减少高速穿过薄墙／地面的情况。\n"
                                   "下一固定步生效；切换保留当前速度。\n"
                                   "额外消耗模拟时间；高速旋转与触发区仍使用原有检测。");
+        if(component.id == "collider" && property.id == "friction")
+            ImGui::SetItemTooltip("范围 0～1，0 为无摩擦；两物体取摩擦系数的几何平均值。\n"
+                                  "下一固定步生效，保留速度与接触；触发器不参与碰撞响应。");
+        if(component.id == "collider" && property.id == "restitution")
+            ImGui::SetItemTooltip(
+                "范围 0～1，0 为无弹性反弹，1 为完全弹性；两物体取较大值。\n"
+                "下一固定步生效；低速接触仍按后端阈值抑制反弹，触发器不参与碰撞响应。");
     }
 
     void InspectorPanel::render_script_parameters(Comet::Entity entity,

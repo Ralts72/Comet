@@ -239,8 +239,19 @@ namespace Comet {
                     {.numeric = {.speed = 0.05f, .minimum = 0.001f}}),
                 make_property_descriptor("radius", "Sphere Radius", &ColliderComponent::radius,
                     {.numeric = {.speed = 0.05f, .minimum = 0.001f}}),
-                make_property_descriptor("is_trigger", "Trigger", &ColliderComponent::is_trigger,
-                    {.required = false})}));
+                make_property_descriptor(
+                    "is_trigger", "Trigger", &ColliderComponent::is_trigger, {.required = false}),
+                make_property_descriptor("friction", "Friction", &ColliderComponent::friction,
+                    {.required = false,
+                        .numeric =
+                            {.speed = 0.01f, .minimum = 0, .maximum = 1, .enforce_bounds = true}}),
+                make_property_descriptor("restitution", "Restitution",
+                    &ColliderComponent::restitution,
+                    {.required = false,
+                        .numeric = {.speed = 0.01f,
+                            .minimum = 0,
+                            .maximum = 1,
+                            .enforce_bounds = true}})}));
 
         register_component(make_component_descriptor<LightComponent>("light", "Light",
             {make_enum_property_descriptor<LightComponent, LightType>("type", "Type",

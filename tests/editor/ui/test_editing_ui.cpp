@@ -1565,6 +1565,51 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(history.can_undo());
     }
 
+    TEST_F(EditingUiTest, ColliderSurfaceWidgetsUseBoundsUndoAndPlayEditing) {
+        entity.add_component<Comet::ColliderComponent>();
+        ImVec2 friction_point{}, restitution_point{};
+        ASSERT_TRUE(widgets.register_editor(Comet::PropertyType::Float,
+            [&, builtin = create_property_editor_registry(assets)](
+                const Comet::PropertyDescriptor& property, void* value) {
+                auto result = builtin.edit_property(property, value);
+                const auto start = ImGui::GetItemRectMin();
+                if(property.id == "friction") {
+                    EXPECT_TRUE(property.display_name.starts_with("摩擦系数###"));
+                    friction_point = {start.x + 20, start.y + 8};
+                }
+                if(property.id == "restitution") {
+                    EXPECT_TRUE(property.display_name.starts_with("弹性系数###"));
+                    restitution_point = {start.x + 20, start.y + 8};
+                }
+                return result;
+            }));
+        frame();
+        frame();
+        for(const auto& [member, point] :
+            {std::pair{&Comet::ColliderComponent::friction, friction_point},
+                std::pair{&Comet::ColliderComponent::restitution, restitution_point}}) {
+            const auto before = entity.get_component<Comet::ColliderComponent>().*member;
+            drag_at(point);
+            ImGui::GetIO().AddMouseButtonEvent(0, false);
+            frame();
+            const auto after = entity.get_component<Comet::ColliderComponent>().*member;
+            EXPECT_GT(after, before);
+            EXPECT_LE(after, 1);
+            ASSERT_TRUE(history.undo());
+            EXPECT_FLOAT_EQ(entity.get_component<Comet::ColliderComponent>().*member, before);
+            ASSERT_TRUE(history.redo());
+            EXPECT_FLOAT_EQ(entity.get_component<Comet::ColliderComponent>().*member, after);
+        }
+        EXPECT_EQ(history.undo_size(), 2u);
+        history.bind_scene(nullptr);
+        state.mode = EditorMode::Play;
+        drag_at(friction_point);
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::ColliderComponent>().friction, 1);
+        EXPECT_FALSE(history.can_undo());
+    }
+
     TEST_F(EditingUiTest, PlayEditsRuntimeWithoutAddingHistory) {
         history.bind_scene(nullptr);
         state.mode = EditorMode::Play;

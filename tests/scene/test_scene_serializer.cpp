@@ -201,6 +201,73 @@ namespace Comet::Tests {
         EXPECT_TRUE(loaded_body.get_component<RigidBodyComponent>().continuous_collision);
     }
 
+    TEST(SceneSerializerTest, ColliderSurfaceParametersPersistCloneAndDefaultWhenOmitted) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        auto defaults = serializer.deserialize(R"({"version":2,"entities":[{
+            "uuid":"00000000-0000-4000-8000-000000000001",
+            "components":{"name":"Body","collider":{"shape":"sphere",
+            "half_extents":[0.5,0.5,0.5],"radius":0.5}}}]})");
+        ASSERT_TRUE(defaults) << defaults.error();
+        auto body = defaults.value()->get_entities().front();
+        EXPECT_FLOAT_EQ(body.get_component<ColliderComponent>().friction, 0.2f);
+        EXPECT_FLOAT_EQ(body.get_component<ColliderComponent>().restitution, 0);
+        body.edit_component<ColliderComponent>([](auto& collider) {
+            collider.friction = 0.6f;
+            collider.restitution = 0.8f;
+        });
+        TemporaryDirectory directory;
+        const auto path = (directory.path() / "collider.scene").string();
+        ASSERT_TRUE(serializer.save(*defaults.value(), path));
+        auto loaded = serializer.load(path);
+        ASSERT_TRUE(loaded) << loaded.error();
+        const auto loaded_body = loaded.value()->find_entity(body.get_uuid());
+        EXPECT_FLOAT_EQ(loaded_body.get_component<ColliderComponent>().friction, 0.6f);
+        EXPECT_FLOAT_EQ(loaded_body.get_component<ColliderComponent>().restitution, 0.8f);
+        auto clone = serializer.clone(*loaded.value());
+        ASSERT_TRUE(clone) << clone.error();
+        const auto cloned_body = clone.value()->find_entity(body.get_uuid());
+        EXPECT_EQ(cloned_body.get_component<ColliderComponent>(),
+            loaded_body.get_component<ColliderComponent>());
+        cloned_body.edit_component<ColliderComponent>([](auto& collider) {
+            collider.friction = 0;
+            collider.restitution = 1;
+        });
+        EXPECT_TRUE(serializer.serialize(*clone.value()));
+        EXPECT_FLOAT_EQ(loaded_body.get_component<ColliderComponent>().friction, 0.6f);
+        EXPECT_FLOAT_EQ(loaded_body.get_component<ColliderComponent>().restitution, 0.8f);
+    }
+
+    TEST(SceneSerializerTest, RejectsInvalidColliderSurfaceParametersOnLoadAndSave) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        for(const auto* field : {"friction", "restitution"}) {
+            for(const auto* value : {"-0.1", "1.1", "null", "1e100", "\"0.2\""}) {
+                const auto json = std::string(R"({"version":2,"entities":[{
+                    "uuid":"00000000-0000-4000-8000-000000000001",
+                    "components":{"name":"Body","collider":{"shape":"box",
+                    "half_extents":[0.5,0.5,0.5],"radius":0.5,")")
+                                  + field + "\":" + value + "}}}]}";
+                const auto loaded = serializer.deserialize(json);
+                ASSERT_FALSE(loaded);
+                EXPECT_NE(loaded.error().find(field), std::string::npos);
+            }
+        }
+        Scene scene;
+        auto body = scene.create_entity();
+        body.add_component<ColliderComponent>();
+        for(const auto property : {&ColliderComponent::friction, &ColliderComponent::restitution}) {
+            for(const float value : {-0.1f, 1.1f, std::numeric_limits<float>::infinity(),
+                    std::numeric_limits<float>::quiet_NaN()}) {
+                body.edit_component<ColliderComponent>(
+                    [&](auto& collider) { collider.*property = value; });
+                EXPECT_FALSE(serializer.serialize(scene));
+            }
+            body.edit_component<ColliderComponent>(
+                [&](auto& collider) { collider.*property = 0.2f; });
+        }
+    }
+
     TEST(SceneSerializerTest, RejectsInvalidRigidBodyMassOnLoadAndSave) {
         const auto registry = create_scene_component_registry();
         const SceneSerializer serializer(registry);
