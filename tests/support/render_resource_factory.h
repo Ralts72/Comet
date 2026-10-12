@@ -2,6 +2,7 @@
 
 #include "render/resource/resource_factory.h"
 #include "asset/data/mesh_data.h"
+#include "asset/data/texture_data.h"
 
 #include <cstdint>
 #include <functional>
@@ -12,8 +13,7 @@ namespace Comet::Tests {
     // Mesh／Texture 是身份占位符，只能比较身份，不能解引用或打印对象内容。
     class FakeRenderResourceFactory final: public RenderResourceFactory {
     public:
-        GpuResourceResult<std::shared_ptr<Texture>> try_create_texture(
-            const TextureData&) override {
+        GpuResourceResult<std::shared_ptr<Texture>> try_create_texture(TextureData) override {
             ++m_texture_creation_count;
             if(m_on_texture_creation) {
                 auto callback = std::exchange(m_on_texture_creation, {});
@@ -28,7 +28,7 @@ namespace Comet::Tests {
                 std::shared_ptr<Texture>(owner, reinterpret_cast<Texture*>(owner.get())));
         }
 
-        GpuResourceResult<std::shared_ptr<Mesh>> try_create_mesh(const MeshData& data) override {
+        GpuResourceResult<std::shared_ptr<Mesh>> try_create_mesh(MeshData data) override {
             ++m_mesh_creation_count;
             m_last_mesh_vertex_count = data.vertices.size();
             if(m_on_mesh_creation) {

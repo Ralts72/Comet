@@ -20,7 +20,7 @@ namespace Comet {
     struct MaterialData;
 
     // 接收独立 CPU 产品并返回完整 GPU 候选；不读取文件、索引或 Registry。
-    // Main 复核请求后注册；创建与接纳当前仍串行执行。
+    // Main 复核请求后注册；GPU 创建由所注入的资源工厂决定执行线程。
     class COMET_API RenderAssetFactory final {
     public:
         explicit RenderAssetFactory(RenderResourceFactory& resources);

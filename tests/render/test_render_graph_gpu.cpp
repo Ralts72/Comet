@@ -277,15 +277,13 @@ namespace Comet::Tests {
 
     TEST_F(RenderGraphGpuTest, OffscreenSceneExportsSampledLayoutAcrossMsaaAndResize) {
         for(const auto samples : {SampleCount::Count1, SampleCount::Count4}) {
-            engine.reset();
             Config config;
             config.window.width = 160;
             config.window.height = 120;
             config.vulkan.enable_validation = true;
             config.vulkan.msaa_samples = samples;
-            auto created = Engine::create(config);
+            const auto created = recreate_engine(config);
             ASSERT_TRUE(created) << created.error().message;
-            engine = std::move(created).value();
             auto& renderer = engine->get_renderer();
             ASSERT_TRUE(renderer.enable_offscreen_rendering({32, 32}));
             auto& context = renderer.get_render_context();
@@ -683,15 +681,13 @@ namespace Comet::Tests {
 
     TEST_F(RenderGraphGpuTest, OutputModesSwitchAtRuntimeAndKeepTheirFormatOnResize) {
         for(const auto mode : {OutputMode::Sdr, OutputMode::Hdr, OutputMode::Auto}) {
-            engine.reset();
             Config config;
             config.render.output_mode = mode;
             config.vulkan.enable_validation = true;
             config.window.width = 160;
             config.window.height = 120;
-            auto created = Engine::create(config);
+            const auto created = recreate_engine(config);
             ASSERT_TRUE(created) << created.error().message;
-            engine = std::move(created).value();
             auto& renderer = engine->get_renderer();
             auto& swapchain = renderer.get_render_context().get_swapchain();
             const auto selected = swapchain.get_active_generation()->get_config().surface_format;
@@ -753,10 +749,8 @@ namespace Comet::Tests {
             config.window.height = 120;
             config.vulkan.enable_validation = true;
             config.render.max_frames_in_flight = 2;
-            engine.reset();
-            auto created = Engine::create(config);
+            const auto created = recreate_engine(config);
             ASSERT_TRUE(created) << created.error().message;
-            engine = std::move(created).value();
             auto& renderer = engine->get_renderer();
             MaterialPrograms programs;
             auto scene_owner = create_scene(programs, {4, 4}, samples);

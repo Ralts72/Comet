@@ -381,15 +381,13 @@ namespace Comet::Tests {
     }
 
     TEST_F(BloomGpuTest, ProductionSettingsToggleResizeAndKeepInFlightFramesIndependent) {
-        engine.reset();
         Config config;
         config.window.width = 160;
         config.window.height = 120;
         config.vulkan.enable_validation = true;
         config.vulkan.msaa_samples = SampleCount::Count4;
-        auto created = Engine::create(config);
+        const auto created = recreate_engine(config);
         ASSERT_TRUE(created) << created.error().message;
-        engine = std::move(created).value();
         auto& renderer = engine->get_renderer();
         const auto prepared = render_frontend->prepare_frame();
         ASSERT_TRUE(prepared);

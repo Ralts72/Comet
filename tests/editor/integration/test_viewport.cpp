@@ -73,7 +73,7 @@ namespace CometEditor::Tests {
         // 保留已发布候选，确认它不会继续保活稍后注销的源材质。
         auto update = renderer.prepare_material_update(handle, material->snapshot(), program);
         ASSERT_TRUE(update) << update.error();
-        std::move(update).value().publish();
+        ASSERT_TRUE(std::move(update).value().publish());
         material.reset();
         engine.set_scene(std::make_unique<Comet::Scene>());
         auto calls = std::make_shared<Comet::Tests::RuntimeCalls>();

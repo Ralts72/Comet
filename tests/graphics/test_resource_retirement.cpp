@@ -96,6 +96,7 @@ namespace Comet::Tests {
         std::thread worker([view = std::move(view)]() mutable { view.reset(); });
         worker.join();
         EXPECT_FALSE(retained_image.expired());
+        render_frontend.reset();
         engine.reset();
         EXPECT_TRUE(retained_image.expired());
     }

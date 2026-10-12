@@ -533,7 +533,7 @@ namespace Comet::Tests {
         for(size_t index = 0; index < outputs.size(); ++index) {
             SCOPED_TRACE(index);
             if(index == 1) {
-                renderer.invalidate_material_shaders(failed_programs);
+                ASSERT_TRUE(renderer.invalidate_material_shaders(failed_programs));
             } else if(index == 2) {
                 auto created = renderer.create_offscreen_view({4, 4});
                 ASSERT_TRUE(created) << created.error();

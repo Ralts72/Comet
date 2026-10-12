@@ -39,6 +39,18 @@ namespace Comet::Tests {
         SceneResolver m_resolver;
     };
 
+    inline Result<void, Error> recreate_test_engine(std::unique_ptr<Engine>& engine,
+        std::unique_ptr<RenderTestFrontend>& frontend, const Config& config) {
+        frontend.reset();
+        engine.reset();
+        auto created = Engine::create(config);
+        if(!created)
+            return Result<void, Error>::failure(created.error());
+        engine = std::move(created).value();
+        frontend = std::make_unique<RenderTestFrontend>(*engine);
+        return Result<void, Error>::success();
+    }
+
     // 故障注入与原生后端测试的录制动作；生产宿主交付具体的 UI 帧对象。
     class CallbackOverlayDraw final: public OverlayDraw {
     public:
@@ -103,10 +115,12 @@ namespace Comet::Tests {
             config.window.width = 160;
             config.window.height = 120;
             config.vulkan.enable_validation = true;
-            auto created = Engine::create(config);
+            const auto created = recreate_engine(config);
             ASSERT_TRUE(created) << created.error().message;
-            engine = std::move(created).value();
-            render_frontend = std::make_unique<RenderTestFrontend>(*engine);
+        }
+
+        Result<void, Error> recreate_engine(const Config& config) {
+            return recreate_test_engine(engine, render_frontend, config);
         }
 
         void TearDown() override {

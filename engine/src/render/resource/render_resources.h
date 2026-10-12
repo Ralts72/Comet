@@ -20,9 +20,9 @@ namespace Comet {
         }
 
         [[nodiscard]] GpuResourceResult<std::shared_ptr<Texture>> try_create_texture(
-            const TextureData& data) override;
+            TextureData data) override;
         [[nodiscard]] GpuResourceResult<std::shared_ptr<Mesh>> try_create_mesh(
-            const MeshData& data) override;
+            MeshData data) override;
         void collect_completed_uploads();
 
     private:

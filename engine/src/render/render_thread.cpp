@@ -1,9 +1,9 @@
 #include "render_thread.h"
 #include "render/renderer.h"
+#include "render/resource/render_resources.h"
+#include "asset/data/mesh_data.h"
+#include "asset/data/texture_data.h"
 
-#include <exception>
-#include <string_view>
-#include <system_error>
 #include <utility>
 
 namespace Comet {
@@ -11,71 +11,91 @@ namespace Comet {
         : m_renderer(renderer), m_worker([this] { run(); }) {}
 
     RenderThread::~RenderThread() {
+        stop();
+    }
+
+    void RenderThread::stop() {
         {
             const std::scoped_lock lock(m_mutex);
             m_stopping = true;
         }
         m_available.notify_one();
-        m_worker.join();
+        if(m_worker.joinable())
+            m_worker.join();
     }
 
     Result<void, GraphicsError> RenderThread::submit(RenderFrame frame) {
+        return enqueue(std::move(frame));
+    }
+
+    RenderThread::FrameResult RenderThread::enqueue(Request request) {
         {
             const std::scoped_lock lock(m_mutex);
             if(m_stopping)
-                return Result<void, GraphicsError>::failure({"Render thread is stopped"});
-            if(m_pending)
-                return Result<void, GraphicsError>::failure(
-                    {"Previous render frame is not completed"});
-            m_frame.emplace(std::move(frame));
-            m_pending = true;
+                return FrameResult::failure({"Render thread is stopped"});
+            if(m_pending != Pending::None)
+                return FrameResult::failure(
+                    {"Previous render work is not completed", vk::Result::eNotReady});
+            m_pending =
+                std::holds_alternative<RenderFrame>(request) ? Pending::Frame : Pending::Operation;
+            m_request.emplace(std::move(request));
         }
         m_available.notify_one();
-        return Result<void, GraphicsError>::success();
+        return FrameResult::success();
     }
 
     Result<void, GraphicsError> RenderThread::complete() {
         std::unique_lock lock(m_mutex);
-        if(!m_pending)
-            return Result<void, GraphicsError>::success();
+        if(m_pending == Pending::None)
+            return FrameResult::success();
+        if(m_pending != Pending::Frame)
+            return FrameResult::failure({"A synchronous GPU operation is still active"});
+        return take_result(lock);
+    }
+
+    RenderThread::FrameResult RenderThread::take_result(std::unique_lock<std::mutex>& lock) {
         m_completed.wait(lock, [this] { return m_result.has_value(); });
         auto result = std::move(*m_result);
         m_result.reset();
-        m_pending = false;
+        m_pending = Pending::None;
         return result;
+    }
+
+    GpuResourceResult<std::shared_ptr<Mesh>> RenderThread::try_create_mesh(MeshData data) {
+        return invoke([this, data = std::move(data)]() mutable {
+            return m_renderer.get_render_resources().try_create_mesh(std::move(data));
+        });
+    }
+
+    GpuResourceResult<std::shared_ptr<Texture>> RenderThread::try_create_texture(TextureData data) {
+        return invoke([this, data = std::move(data)]() mutable {
+            return m_renderer.get_render_resources().try_create_texture(std::move(data));
+        });
     }
 
     void RenderThread::run() {
         for(;;) {
-            auto frame = [&]() {
+            auto request = [&]() {
                 std::unique_lock lock(m_mutex);
-                m_available.wait(lock, [this] { return m_frame || m_stopping; });
-                return std::exchange(m_frame, std::nullopt);
+                m_available.wait(lock, [this] { return m_request || m_stopping; });
+                return std::exchange(m_request, std::nullopt);
             }();
-            if(!frame)
+            if(!request)
                 return;
-            auto result = [&] {
-                try {
-                    return m_renderer.record_frame(std::move(*frame));
-                } catch(const std::system_error& error) {
-                    // 跨动态库使用标准基类；Vulkan-Hpp 的具体异常类型可能不共享 RTTI。
-                    GraphicsError failure{"Render thread failed: " + std::string(error.what())};
-                    if(std::string_view(error.code().category().name())
-                        == vk::make_error_code(vk::Result::eErrorUnknown).category().name())
-                        failure.result = static_cast<vk::Result>(error.code().value());
-                    return Result<void, GraphicsError>::failure(std::move(failure));
-                } catch(const std::exception& error) {
-                    return Result<void, GraphicsError>::failure(
-                        {"Render thread failed: " + std::string(error.what())});
-                } catch(...) {
-                    return Result<void, GraphicsError>::failure({"Render thread failed"});
-                }
-            }();
+            const auto is_frame = std::holds_alternative<RenderFrame>(*request);
+            auto result = FrameResult::success();
+            if(is_frame) {
+                result = guarded_work([&] {
+                    return m_renderer.record_frame(std::move(std::get<RenderFrame>(*request)));
+                });
+            } else {
+                std::get<Operation> (*request)();
+            }
             // 先释放包的引用，再通知 Owner；通知之后不能再访问本帧资源。
-            frame.reset();
+            request.reset();
             {
                 const std::scoped_lock lock(m_mutex);
-                if(!result)
+                if(is_frame && !result)
                     m_stopping = true;
                 m_result.emplace(std::move(result));
             }

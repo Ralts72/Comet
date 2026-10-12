@@ -296,10 +296,8 @@ namespace Comet::Tests {
         config.window.height = 120;
         config.vulkan.enable_validation = true;
         config.vulkan.msaa_samples = SampleCount::Count4;
-        engine.reset();
-        auto created = Engine::create(config);
+        const auto created = recreate_engine(config);
         ASSERT_TRUE(created);
-        engine = std::move(created).value();
         TemporaryDirectory directory;
         write_hdr(directory.path() / "sky.hdr");
         auto imported = EnvironmentImporter{}.import(directory.path() / "sky.hdr");

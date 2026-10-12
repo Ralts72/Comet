@@ -15,9 +15,10 @@ namespace Comet {
     public:
         virtual ~RenderResourceFactory() = default;
 
+        // CPU 产品按值交付，线程工厂可直接移走存储；返回后候选可由调用方注册。
         [[nodiscard]] virtual GpuResourceResult<std::shared_ptr<Texture>> try_create_texture(
-            const TextureData& data) = 0;
+            TextureData data) = 0;
         [[nodiscard]] virtual GpuResourceResult<std::shared_ptr<Mesh>> try_create_mesh(
-            const MeshData& data) = 0;
+            MeshData data) = 0;
     };
 }

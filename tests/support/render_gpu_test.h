@@ -87,18 +87,11 @@ namespace Comet::Tests {
             config.window.height = 120;
             config.vulkan.enable_validation = true;
             config.vulkan.msaa_samples = SampleCount::Count1;
-            auto created = Engine::create(config);
+            const auto created = recreate_engine(config);
             ASSERT_TRUE(created) << created.error().message;
-            engine = std::move(created).value();
-            render_frontend = std::make_unique<RenderTestFrontend>(*engine);
         }
         void TearDown() override {
-            if(presentation_target) {
-                engine->get_renderer().wait_idle();
-                engine->get_renderer().set_overlay({});
-                presentation_target.reset();
-                presentation_pass.reset();
-            }
+            release_presentation();
             render_frontend.reset();
             engine.reset();
             if(auto logger = Logger::get_console_logger())
@@ -106,6 +99,18 @@ namespace Comet::Tests {
             EXPECT_EQ(messages.str().find("VUID-"), std::string::npos) << messages.str();
             EXPECT_EQ(messages.str().find("Validation Error"), std::string::npos) << messages.str();
             EXPECT_TRUE(messages.str().empty()) << messages.str();
+        }
+        Result<void, Error> recreate_engine(const Config& config) {
+            release_presentation();
+            return recreate_test_engine(engine, render_frontend, config);
+        }
+        void release_presentation() {
+            if(presentation_target) {
+                engine->get_renderer().wait_idle();
+                engine->get_renderer().set_overlay({});
+                presentation_target.reset();
+                presentation_pass.reset();
+            }
         }
         Result<std::unique_ptr<SceneRenderer>, GraphicsError> create_scene(
             MaterialPrograms& programs, Math::Vec2u size,

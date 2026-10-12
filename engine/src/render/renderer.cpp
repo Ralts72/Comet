@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "render/render_thread.h"
 #include "asset/registry.h"
 #include "common/scope_exit.h"
 #include "render/render_context.h"
@@ -348,6 +349,10 @@ namespace Comet {
 
     Result<MaterialRenderer::ReloadReport, GraphicsError> Renderer::reload_material_shaders(
         MaterialShaders shaders) {
+        if(m_render_thread && !m_render_thread->is_current())
+            return m_render_thread->invoke([this, shaders = std::move(shaders)]() mutable {
+                return reload_material_shaders(std::move(shaders));
+            });
         if(m_shutdown_prepared)
             return Result<MaterialRenderer::ReloadReport, GraphicsError>::failure(
                 {"Renderer is shutting down"});
@@ -368,7 +373,9 @@ namespace Comet {
                     if(prior == previous.end() || prior->second != code)
                         failed.push_back(name);
                 }
-                invalidate_material_shaders(failed);
+                if(auto invalidated = invalidate_material_shaders(failed); !invalidated)
+                    return Result<MaterialRenderer::ReloadReport, GraphicsError>::failure(
+                        invalidated.error());
                 return Result<MaterialRenderer::ReloadReport, GraphicsError>::failure(
                     candidate.error());
             }
@@ -388,19 +395,40 @@ namespace Comet {
         return Result<MaterialRenderer::ReloadReport, GraphicsError>::success(report);
     }
 
-    void Renderer::invalidate_material_shaders(const std::span<const std::string> programs) {
+    Result<void, GraphicsError> Renderer::invalidate_material_shaders(
+        const std::span<const std::string> programs) {
+        if(m_render_thread && !m_render_thread->is_current())
+            return m_render_thread->invoke(
+                [this, programs = std::vector<std::string>(programs.begin(), programs.end())] {
+                    return invalidate_material_shaders(programs);
+                });
+        if(m_shutdown_prepared || m_frames->is_frame_active())
+            return Result<void, GraphicsError>::failure(
+                {"Shader invalidation requires a live renderer frame boundary"});
         m_programs->invalidate_builtin(programs);
+        return Result<void, GraphicsError>::success();
     }
 
-    void Renderer::MaterialUpdate::publish() && {
+    Result<void, GraphicsError> Renderer::MaterialUpdate::publish() && {
+        if(m_owner->m_render_thread && !m_owner->m_render_thread->is_current())
+            return m_owner->m_render_thread->invoke(
+                [update = std::move(*this)]() mutable { return std::move(update).publish(); });
+        if(m_owner->m_shutdown_prepared || m_owner->m_frames->is_frame_active())
+            return Result<void, GraphicsError>::failure(
+                {"Material publication requires a live renderer frame boundary"});
         for(auto& update : m_views)
             std::move(update).publish();
         m_views.clear();
+        return Result<void, GraphicsError>::success();
     }
 
     Result<Renderer::MaterialUpdate, GraphicsError> Renderer::prepare_material_update(
         const AssetHandle handle, const std::shared_ptr<const Material>& snapshot,
         const std::shared_ptr<const ShaderProgramArtifact>& program_source) {
+        if(m_render_thread && !m_render_thread->is_current())
+            return m_render_thread->invoke([this, handle, snapshot, program_source] {
+                return prepare_material_update(handle, snapshot, program_source);
+            });
         using Preparation = Result<MaterialUpdate, GraphicsError>;
         if(m_shutdown_prepared)
             return Preparation::failure({"Renderer is shutting down"});
@@ -416,6 +444,7 @@ namespace Comet {
         if(!candidates)
             return Preparation::failure(candidates.error());
         MaterialUpdate update;
+        update.m_owner = this;
         update.m_views = std::move(candidates).value();
         return Preparation::success(std::move(update));
     }

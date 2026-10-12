@@ -18,12 +18,11 @@ namespace Comet::Tests {
     class ExternalFileImportTest: public ::testing::Test {
     protected:
         class Factory: public RenderResourceFactory {
-            GpuResourceResult<std::shared_ptr<Mesh>> try_create_mesh(const MeshData&) override {
+            GpuResourceResult<std::shared_ptr<Mesh>> try_create_mesh(MeshData) override {
                 ADD_FAILURE() << "File import must not allocate GPU resources";
                 return GpuResourceResult<std::shared_ptr<Mesh>>::failure(vk::Result::eErrorUnknown);
             }
-            GpuResourceResult<std::shared_ptr<Texture>> try_create_texture(
-                const TextureData&) override {
+            GpuResourceResult<std::shared_ptr<Texture>> try_create_texture(TextureData) override {
                 ADD_FAILURE() << "File import must not allocate GPU resources";
                 return GpuResourceResult<std::shared_ptr<Texture>>::failure(
                     vk::Result::eErrorUnknown);

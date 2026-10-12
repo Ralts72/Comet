@@ -19,6 +19,6 @@ namespace Comet {
         [[nodiscard]] bool has_lighting() const { return irradiance && specular && brdf; }
 
         [[nodiscard]] static Result<std::shared_ptr<Environment>, GraphicsError> try_create(
-            RenderResourceFactory& resources, const EnvironmentData& data);
+            RenderResourceFactory& resources, EnvironmentData data);
     };
 }

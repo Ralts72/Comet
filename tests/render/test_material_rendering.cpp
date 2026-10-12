@@ -410,7 +410,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(assets.replace_asset(program_handle, make_program(true)));
         auto prepared = prepare_material_update(material_handle, material);
         ASSERT_TRUE(prepared) << prepared.error();
-        std::move(prepared).value().publish();
+        ASSERT_TRUE(std::move(prepared).value().publish());
         EXPECT_EQ(
             renderer.get_scene_renderer().get_material_statistics().cached_material_versions, 1u);
 
@@ -447,7 +447,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(material->set_scalar_property("frequency", 3.0f));
         auto prepared = prepare_material_update(material_handle, material);
         ASSERT_TRUE(prepared) << prepared.error();
-        std::move(prepared).value().publish();
+        ASSERT_TRUE(std::move(prepared).value().publish());
         const auto* published = engine->get_renderer().get_material_program_feedback()->published(
             program_handle, "unlit_color");
         ASSERT_NE(published, nullptr);
@@ -477,7 +477,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(engine->get_asset_registry().replace_asset(program_handle, duplicate));
         auto rebuilt = prepare_material_update(material_handle, material);
         ASSERT_TRUE(rebuilt) << rebuilt.error();
-        std::move(rebuilt).value().publish();
+        ASSERT_TRUE(std::move(rebuilt).value().publish());
         published = engine->get_renderer().get_material_program_feedback()->published(
             program_handle, "unlit_color");
         ASSERT_NE(published, nullptr);
@@ -666,7 +666,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(assets.register_asset(material_handle, material));
         auto preview = prepare_material_update(material_handle, material);
         ASSERT_TRUE(preview) << preview.error();
-        std::move(preview).value().publish();
+        ASSERT_TRUE(std::move(preview).value().publish());
         const auto unavailable = std::make_shared<ShaderProgramArtifact>();
         unavailable->handle = program_handle;
         ASSERT_TRUE(assets.replace_asset(program_handle, unavailable));
@@ -923,7 +923,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(assets.replace_asset(program_handle, invalid));
         auto update = renderer.prepare_material_update(first_handle, snapshot, captured_program);
         ASSERT_TRUE(update) << update.error();
-        std::move(update).value().publish();
+        ASSERT_TRUE(std::move(update).value().publish());
         const auto feedback = renderer.get_material_program_feedback();
         const auto* published = feedback->published(program_handle, "pbr");
         ASSERT_NE(published, nullptr);
@@ -1211,16 +1211,29 @@ namespace Comet::Tests {
     TEST_F(MaterialRenderingTest, MaterialPreparationRequiresFrameBoundary) {
         auto& renderer = engine->get_renderer();
         const auto material = std::make_shared<Material>("edit", "pbr");
-        {
-            auto candidate = prepare_material_update(AssetHandle(1), material);
-            ASSERT_TRUE(candidate) << candidate.error();
-        }
+        auto candidate = prepare_material_update(AssetHandle(1), material);
+        ASSERT_TRUE(candidate) << candidate.error();
         auto frame = render_frontend->prepare_frame();
         ASSERT_TRUE(frame);
         ASSERT_EQ(frame.value(), Renderer::FramePreparation::Ready);
         auto rejected = prepare_material_update(AssetHandle(1), material);
         EXPECT_FALSE(rejected);
+        EXPECT_FALSE(std::move(candidate).value().publish());
+        const std::array failed_programs{std::string("pbr")};
+        EXPECT_FALSE(renderer.invalidate_material_shaders(failed_programs));
         EXPECT_TRUE(renderer.render_frame({}));
+        candidate = prepare_material_update(AssetHandle(1), material);
+        ASSERT_TRUE(candidate) << candidate.error();
+        ASSERT_TRUE(std::move(candidate).value().publish());
+        EXPECT_EQ(
+            renderer.get_scene_renderer().get_material_statistics().cached_material_versions, 1u);
+
+        candidate = prepare_material_update(AssetHandle(1), material);
+        ASSERT_TRUE(candidate) << candidate.error();
+        engine->prepare_shutdown();
+        EXPECT_FALSE(std::move(candidate).value().publish());
+        EXPECT_FALSE(renderer.reload_material_shaders({}));
+        EXPECT_FALSE(renderer.invalidate_material_shaders(failed_programs));
     }
 
     TEST_F(MaterialRenderingTest, InvalidOffscreenExtentKeepsCurrentTarget) {

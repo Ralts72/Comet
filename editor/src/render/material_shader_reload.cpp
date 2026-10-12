@@ -46,7 +46,8 @@ namespace CometEditor {
                     || !compilation->stages.at(name + ".frag").succeeded())
                     failed.push_back(name);
             }
-            renderer.invalidate_material_shaders(failed);
+            if(auto invalidated = renderer.invalidate_material_shaders(failed); !invalidated)
+                return Result::failure(invalidated.error().as_error());
             LOG_ERROR("Material Shader compilation failed; showing error material: {}",
                 compilation->diagnostics);
             return Result::success(false);

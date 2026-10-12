@@ -707,7 +707,7 @@ namespace Comet::Ui {
                         data.pixels.data() + (pixel * 4 + channel) * 2, &half, sizeof(half));
                 }
             }
-            auto created = m_resources.try_create_texture(data);
+            auto created = m_resources.try_create_texture(std::move(data));
             if(!created)
                 return Creation::failure(created.error());
             auto texture = std::move(created).value();

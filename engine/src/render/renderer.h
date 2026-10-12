@@ -26,6 +26,7 @@
 
 namespace Comet {
     class Window;
+    class Engine;
     class CommandBuffer;
     class RenderContext;
     class RenderResources;
@@ -41,7 +42,7 @@ namespace Comet {
     struct SwapchainCompatibility;
     struct QueueSemaphoreSubmit;
 
-    // Main 在帧边界准备资源、修改视图和读取反馈；RenderThread 独占录制与提交。
+    // Main 在帧边界修改视图和读取反馈；GPU 资产、材质及 Shader 发布经 RenderThread 执行。
     // submit 到 complete 之间，宿主不能访问这里的可变状态，包括诊断快照。
     class COMET_API Renderer {
     public:
@@ -49,11 +50,12 @@ namespace Comet {
         public:
             MaterialUpdate(MaterialUpdate&&) = default;
             MaterialUpdate& operator=(MaterialUpdate&&) = default;
-            void publish() &&;
+            [[nodiscard]] Result<void, GraphicsError> publish() &&;
 
         private:
             friend class Renderer;
             MaterialUpdate() = default;
+            Renderer* m_owner = nullptr;
             std::vector<MaterialRenderer::MaterialUpdate> m_views;
         };
 
@@ -101,7 +103,8 @@ namespace Comet {
         Result<MaterialRenderer::ReloadReport, GraphicsError> reload_material_shaders(
             MaterialShaders shaders);
         // 编译失败的内置程序在所有视图中显示错误材质，成功发布后恢复。
-        void invalidate_material_shaders(std::span<const std::string> programs);
+        [[nodiscard]] Result<void, GraphicsError> invalidate_material_shaders(
+            std::span<const std::string> programs);
         [[nodiscard]] std::vector<std::shared_ptr<const MaterialLayout>> get_material_layouts()
             const;
         [[nodiscard]] MaterialPrograms::Feedback get_material_program_feedback() const {
@@ -166,6 +169,7 @@ namespace Comet {
         [[nodiscard]] const RenderContext& get_render_context() const { return *m_render_context; }
 
     private:
+        friend class Engine;
         friend class RenderThread;
         [[nodiscard]] Result<void, GraphicsError> record_frame(RenderFrame frame);
         [[nodiscard]] Result<void, GraphicsError> draw_frame(RenderFrame& frame);
@@ -191,6 +195,7 @@ namespace Comet {
             std::vector<QueueSemaphoreSubmit>& waits, RenderDiagnostics* diagnostics);
 
         std::unique_ptr<RenderContext> m_render_context;
+        RenderThread* m_render_thread = nullptr; // Engine 绑定，排空请求后解除。
         std::unique_ptr<RenderResources> m_render_resources;
         std::unique_ptr<FrameScheduler> m_frames;
         std::unique_ptr<RenderDiagnostics> m_diagnostics;

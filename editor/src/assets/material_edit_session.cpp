@@ -69,7 +69,8 @@ namespace CometEditor {
             return Result::failure(bindings.error().as_error());
         if(auto published = m_assets.preview_material_edit(candidate.value()); !published)
             return published;
-        std::move(bindings).value().publish();
+        if(auto published = std::move(bindings).value().publish(); !published)
+            return Result::failure(published.error().as_error());
         if(m_active) {
             std::get<MaterialEdit>(m_active->edit.value).after = change->after;
             m_active->candidate = std::move(candidate).value();
@@ -108,7 +109,8 @@ namespace CometEditor {
             m_active.reset();
             return restored;
         }
-        std::move(bindings).value().publish();
+        if(auto published = std::move(bindings).value().publish(); !published)
+            return Comet::Result<void, Comet::Error>::failure(published.error().as_error());
         m_active.reset();
         return restored;
     }

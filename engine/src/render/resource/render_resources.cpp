@@ -19,12 +19,11 @@ namespace Comet {
     RenderResources::~RenderResources() = default;
 
     GpuResourceResult<std::shared_ptr<Texture>> RenderResources::try_create_texture(
-        const TextureData& data) {
+        TextureData data) {
         return Texture::try_create(m_device, *m_upload_manager, data, true);
     }
 
-    GpuResourceResult<std::shared_ptr<Mesh>> RenderResources::try_create_mesh(
-        const MeshData& data) {
+    GpuResourceResult<std::shared_ptr<Mesh>> RenderResources::try_create_mesh(MeshData data) {
         return Mesh::try_create(m_device, *m_upload_manager, data, true);
     }
 

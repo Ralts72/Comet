@@ -45,14 +45,19 @@ namespace Comet {
         : m_frame_timer(std::make_unique<FrameTimer>()), m_task_scheduler(std::move(scheduler)),
           m_window(std::move(window)), m_asset_registry(std::move(assets)),
           m_renderer(std::move(renderer)),
+          m_render_thread(std::make_unique<RenderThread>(*m_renderer)),
           m_material_parameters(std::make_unique<MaterialProgramValidator>(*m_asset_registry)),
-          m_scene_resolver(*m_asset_registry) {}
+          m_scene_resolver(*m_asset_registry) {
+        m_renderer->m_render_thread = m_render_thread.get();
+    }
 
     Engine::~Engine() {
         LOG_INFO("shutting down engine...");
         prepare_shutdown();
         m_asset_registry->clear();
         m_material_parameters.reset();
+        m_renderer->m_render_thread = nullptr;
+        m_render_thread.reset();
         m_renderer.reset();
         m_asset_registry.reset();
         m_scene.reset();
@@ -64,7 +69,7 @@ namespace Comet {
         if(m_shutdown_prepared)
             return;
         static_cast<void>(complete_render_frame());
-        m_render_thread.reset();
+        m_render_thread->stop();
         if(auto stopped = stop_scene_runtime(); !stopped)
             LOG_FATAL("Cannot shut down Engine during System execution");
         if(auto cleared = m_scene_runtime.clear_systems(); !cleared)
@@ -86,6 +91,10 @@ namespace Comet {
 
     const RenderResources& Engine::get_render_resources() const {
         return get_renderer().get_render_resources();
+    }
+
+    RenderResourceFactory& Engine::get_render_resource_factory() {
+        return *m_render_thread;
     }
 
     void Engine::set_scene(std::unique_ptr<Scene> scene) {
@@ -206,11 +215,9 @@ namespace Comet {
             return Result<void, Error>::failure({"Engine update loop is already running"});
         m_running = true;
         const ScopeExit reset_running([&] {
-            m_render_thread.reset();
             m_window->set_cursor_locked(false);
             m_running = false;
         });
-        m_render_thread = std::make_unique<RenderThread>(*m_renderer);
         LOG_INFO("running engine...");
 
         auto result = Result<void, Error>::success();

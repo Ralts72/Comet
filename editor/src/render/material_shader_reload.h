@@ -9,7 +9,7 @@ namespace Comet {
 }
 
 namespace CometEditor {
-    // 主线程发布内置材质程序；ShaderReload 只负责文件监控和 CPU 编译。
+    // Main 接纳编译结果，Renderer 调度 GPU 发布；ShaderReload 负责监控和 CPU 编译。
     class MaterialShaderReload final {
     public:
         MaterialShaderReload(Comet::TaskScheduler& scheduler,

@@ -103,7 +103,7 @@ namespace {
 
             auto& engine = get_engine();
             m_asset_manager = std::make_unique<Comet::AssetManager>(m_project.paths(),
-                engine.get_asset_registry(), engine.get_render_resources(),
+                engine.get_asset_registry(), engine.get_render_resource_factory(),
                 engine.get_task_scheduler(), get_config().assets);
             const auto scan = m_asset_manager->scan();
             for(const auto& issue : scan.issues)

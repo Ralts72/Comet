@@ -20,7 +20,8 @@ namespace CometEditor {
             return Comet::Result<void, Comet::Error>::failure(bindings.error().as_error());
         if(auto committed = assets.commit_material_edit(update.value()); !committed)
             return committed;
-        std::move(bindings).value().publish();
+        if(auto published = std::move(bindings).value().publish(); !published)
+            return Comet::Result<void, Comet::Error>::failure(published.error().as_error());
         return Comet::Result<void, Comet::Error>::success();
     }
 

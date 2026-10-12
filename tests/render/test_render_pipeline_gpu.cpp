@@ -35,6 +35,11 @@ namespace Comet::Tests {
         renderer.cancel_viewport_pick();
         RenderThread recording(renderer);
         ASSERT_TRUE(recording.submit(std::move(captured)));
+        const auto busy =
+            recording.try_create_texture({.width = 1, .height = 1, .pixels = {255, 255, 255, 255}});
+        EXPECT_FALSE(busy);
+        EXPECT_EQ(busy.result(), vk::Result::eNotReady);
+        EXPECT_FALSE(recording.submit({}));
         const auto completed = recording.complete();
         ASSERT_TRUE(completed) << completed.error();
         const auto pick = renderer.take_viewport_pick_result();
@@ -42,6 +47,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(pick->hit);
         EXPECT_EQ(pick->hit->entity_id, EntityId(1));
         EXPECT_EQ(pick->scene_lifetime, 100u);
+        EXPECT_TRUE(recording.try_create_texture(
+            {.width = 1, .height = 1, .pixels = {255, 255, 255, 255}}));
     }
 
     TEST_F(RenderGraphGpuTest, PickResultsDiscardStaleRequestsCancellationAndFailedFrames) {
@@ -170,7 +177,7 @@ namespace Comet::Tests {
                 auto candidate =
                     renderer.prepare_material_update(left_material, blue->snapshot(), {});
                 ASSERT_TRUE(candidate) << candidate.error();
-                std::move(candidate).value().publish();
+                ASSERT_TRUE(std::move(candidate).value().publish());
                 ASSERT_TRUE(registry.replace_asset(left_material, blue));
             }
             if(frame == 2) {
@@ -402,14 +409,14 @@ namespace Comet::Tests {
             } else if(index == 2) {
                 auto update = renderer.prepare_material_update(handle, pbr->snapshot(), {});
                 ASSERT_TRUE(update) << update.error();
-                std::move(update).value().publish();
+                ASSERT_TRUE(std::move(update).value().publish());
                 ASSERT_TRUE(registry.replace_asset(handle, pbr));
             } else if(index == 3) {
                 auto red = std::make_shared<Material>("authored", "unlit_color");
                 ASSERT_TRUE(red->set_vector_property("color", {1, 0, 0, 1}));
                 auto update = renderer.prepare_material_update(handle, red->snapshot(), {});
                 ASSERT_TRUE(update) << update.error();
-                std::move(update).value().publish();
+                ASSERT_TRUE(std::move(update).value().publish());
                 ASSERT_TRUE(registry.replace_asset(handle, std::move(red)));
             }
             outputs[index] =

@@ -14,9 +14,13 @@
 #include "scene/systems/script_system.h"
 #include "asset/registry.h"
 #include "asset/data/mesh_data.h"
+#include "asset/data/environment_data.h"
+#include "asset/runtime/render_asset_factory.h"
 #include "render/material/material.h"
 #include "render/resource/render_resources.h"
 #include "render/resource/mesh.h"
+#include "render/resource/texture.h"
+#include "render/resource/environment.h"
 #include "render/scene/scene_renderer.h"
 
 #include <gtest/gtest.h>
@@ -31,6 +35,37 @@ namespace Comet::Tests {
 
     using EngineSceneActivationTest = EngineTest;
     using RenderThreadTest = EngineTest;
+
+    TEST_F(RenderThreadTest, AssetFactoryRemainsValidBeforeAndAfterRunUntilShutdown) {
+        auto& resources = engine->get_render_resource_factory();
+        RenderAssetFactory assets(resources);
+        auto mesh = assets.prepare(
+            MeshData{.vertices = {{{-1, -1, 0}}, {{1, -1, 0}}, {{0, 1, 0}}}, .indices = {0, 1, 2}});
+        ASSERT_TRUE(mesh) << mesh.error();
+        EXPECT_EQ(mesh.value()->get_local_bounds().maximum, Math::Vec3(1, 1, 0));
+        const TextureData pixel{.width = 1, .height = 1, .pixels = {255, 255, 255, 255}};
+        auto environment = assets.prepare(EnvironmentData{
+            .background = pixel, .irradiance = pixel, .specular = pixel, .brdf = pixel});
+        ASSERT_TRUE(environment) << environment.error();
+        EXPECT_TRUE(environment.value()->has_lighting());
+
+        unsigned frames = 0;
+        const auto result = engine->run({.frame_ready = [&](const Engine::FrameContext&) {
+            auto texture = assets.prepare(pixel);
+            EXPECT_TRUE(texture) << texture.error();
+            if(++frames == 3)
+                engine->get_window().request_close();
+            return Result<void, Error>::success();
+        }});
+        ASSERT_TRUE(result) << result.error();
+        EXPECT_EQ(frames, 3u);
+        EXPECT_EQ(&engine->get_render_resource_factory(), &resources);
+        auto texture = assets.prepare(pixel);
+        ASSERT_TRUE(texture) << texture.error();
+        EXPECT_EQ(texture.value()->get_width(), 1);
+        engine->prepare_shutdown();
+        EXPECT_FALSE(assets.prepare(pixel));
+    }
 
     TEST_F(RenderThreadTest, DrawingUsesOneWorkerAndShutdownWaitsForTheLastFrame) {
         const auto main_thread = std::this_thread::get_id();
@@ -104,7 +139,7 @@ namespace Comet::Tests {
     }
 
     TEST_F(EngineSceneActivationTest, CachedExtractionRefreshesEditsAndReinstalledScene) {
-        auto mesh = engine->get_render_resources().try_create_mesh(
+        auto mesh = engine->get_render_resource_factory().try_create_mesh(
             {.vertices = {{{-0.5f, -0.5f, -2}}, {{0.5f, -0.5f, -2}}, {{0, 0.5f, -2}}},
                 .indices = {0, 1, 2}});
         ASSERT_TRUE(mesh);

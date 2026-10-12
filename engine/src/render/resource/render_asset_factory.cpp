@@ -25,15 +25,15 @@ namespace Comet {
         : m_resources(resources) {}
 
     Result<std::shared_ptr<Mesh>, Error> RenderAssetFactory::prepare(MeshData data) {
-        return asset_creation<Mesh>(m_resources.try_create_mesh(data));
+        return asset_creation<Mesh>(m_resources.try_create_mesh(std::move(data)));
     }
 
     Result<std::shared_ptr<Texture>, Error> RenderAssetFactory::prepare(TextureData data) {
-        return asset_creation<Texture>(m_resources.try_create_texture(data));
+        return asset_creation<Texture>(m_resources.try_create_texture(std::move(data)));
     }
 
     Result<std::shared_ptr<Environment>, Error> RenderAssetFactory::prepare(EnvironmentData data) {
-        return asset_creation<Environment>(Environment::try_create(m_resources, data));
+        return asset_creation<Environment>(Environment::try_create(m_resources, std::move(data)));
     }
 
     Result<std::shared_ptr<Environment>, Error> RenderAssetFactory::prepare_preview(

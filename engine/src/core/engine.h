@@ -26,6 +26,7 @@ namespace Comet {
     class Renderer;
     class RenderThread;
     class RenderResources;
+    class RenderResourceFactory;
     class Config;
     class MaterialProgramValidator;
 
@@ -88,6 +89,8 @@ namespace Comet {
 
         [[nodiscard]] RenderResources& get_render_resources();
         [[nodiscard]] const RenderResources& get_render_resources() const;
+        // 资产加载与热发布通过此工厂创建 GPU 候选，在返回后由 Main 注册。
+        [[nodiscard]] RenderResourceFactory& get_render_resource_factory();
 
         [[nodiscard]] TaskScheduler& get_task_scheduler() { return *m_task_scheduler; }
         [[nodiscard]] const TaskScheduler& get_task_scheduler() const { return *m_task_scheduler; }
