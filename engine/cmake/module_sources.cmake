@@ -57,6 +57,8 @@ set(COMET_WORLD_SOURCES
     src/scene/component_registry.cpp
     src/scene/property.cpp
     src/scene/scene.cpp
+    src/scene/transform_interpolation.cpp
+    src/scene/transform_interpolation.h
     src/scene/scene_serializer.cpp
     src/scene/scene_settings.cpp
     src/scene/script_component.cpp

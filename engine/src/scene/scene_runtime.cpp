@@ -157,6 +157,7 @@ namespace Comet {
         m_timing.fixed_steps = 0;
         m_timing.interpolation = 0;
         m_timing.dropped_time = 0;
+        m_scene->m_transform_interpolation.reset(*m_scene);
         m_executing = true;
         if(m_services.audio)
             m_services.audio->set_paused(state == State::Paused);
@@ -234,6 +235,7 @@ namespace Comet {
             m_timing.fixed_time = m_timing.fixed_index * step;
             const System::Context context{step, m_timing.fixed_time, m_timing.fixed_index,
                 m_input.consume_fixed(), m_session, m_services};
+            m_scene->m_transform_interpolation.begin_fixed(*m_scene);
             for(auto& system : m_systems)
                 if(auto result = system->fixed_update(*m_scene, context); !result)
                     return result;
@@ -246,6 +248,7 @@ namespace Comet {
             if(!m_scene->commit_entity_requests())
                 return Result<void, Error>::failure(
                     {"Cannot commit post-fixed-step entity requests"});
+            m_scene->m_transform_interpolation.end_fixed(*m_scene);
             m_accumulator = std::max(0.0, m_accumulator - step);
         }
         const double dropped = std::floor((m_accumulator + epsilon) / step) * step;
@@ -261,6 +264,11 @@ namespace Comet {
                 return result;
         if(!m_scene->commit_entity_requests())
             return Result<void, Error>::failure({"Cannot commit update entity requests"});
+        if(stepping)
+            m_scene->m_transform_interpolation.reset(*m_scene);
+        else
+            m_scene->m_transform_interpolation.set_alpha(
+                *m_scene, static_cast<float>(std::clamp(m_timing.interpolation, 0.0, 1.0)));
         cleanup.release();
         m_executing = false;
         return Result<void, Error>::success();

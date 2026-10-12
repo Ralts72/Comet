@@ -7,33 +7,38 @@
 
 namespace Comet {
     namespace {
-        void extract_views(Scene& scene, RenderScene& output) {
+        void extract_views(Scene& scene, RenderScene& output, bool interpolating) {
             output.cameras.clear();
             output.lights.clear();
             output.environment = scene.get_environment();
             output.post_process = scene.get_post_process();
             output.cameras.reserve(scene.component_count<CameraComponent>());
             scene.each<const CameraComponent, const TransformComponent, WorldTransformComponent,
-                IdComponent>([&](Entity, const CameraComponent& camera, const TransformComponent&,
-                                 const WorldTransformComponent& world, const IdComponent& id) {
-                auto projection = RenderCamera::Projection::Perspective;
-                if(camera.projection == CameraComponent::Projection::Orthographic)
-                    projection = RenderCamera::Projection::Orthographic;
-                output.cameras.push_back({.entity_id = id.id,
-                    .primary = camera.primary,
-                    .view_matrix = Math::inverse(world.pose_world_matrix),
-                    .projection = projection,
-                    .fov_degrees = camera.fov,
-                    .orthographic_height = camera.orthographic_height,
-                    .near_clip = camera.near_clip,
-                    .far_clip = camera.far_clip});
-            });
+                IdComponent>(
+                [&](Entity entity, const CameraComponent& camera, const TransformComponent&,
+                    const WorldTransformComponent& authoritative, const IdComponent& id) {
+                    const auto& world =
+                        interpolating ? scene.get_render_transform(entity) : authoritative;
+                    auto projection = RenderCamera::Projection::Perspective;
+                    if(camera.projection == CameraComponent::Projection::Orthographic)
+                        projection = RenderCamera::Projection::Orthographic;
+                    output.cameras.push_back({.entity_id = id.id,
+                        .primary = camera.primary,
+                        .view_matrix = Math::inverse(world.pose_world_matrix),
+                        .projection = projection,
+                        .fov_degrees = camera.fov,
+                        .orthographic_height = camera.orthographic_height,
+                        .near_clip = camera.near_clip,
+                        .far_clip = camera.far_clip});
+                });
             output.lights.reserve(scene.component_count<LightComponent>());
             scene.each<const LightComponent, WorldTransformComponent, IdComponent>(
-                [&](Entity, const LightComponent& light, const WorldTransformComponent& world,
-                    const IdComponent& id) {
+                [&](Entity entity, const LightComponent& light,
+                    const WorldTransformComponent& authoritative, const IdComponent& id) {
                     if(!light.enabled)
                         return;
+                    const auto& world =
+                        interpolating ? scene.get_render_transform(entity) : authoritative;
                     output.lights.push_back({.entity_id = id.id,
                         .type = light.type,
                         .position = Math::Vec3(world.world_matrix[3]),
@@ -76,7 +81,8 @@ namespace Comet {
         scene.update_world_transforms();
         const bool same_scene = output.scene_lifetime == scene.get_lifetime();
         output.scene_lifetime = scene.get_lifetime();
-        extract_views(scene, output);
+        const bool interpolating = scene.m_transform_interpolation.active();
+        extract_views(scene, output, interpolating);
         // 复用已有快照槽位；查询过滤掉缺少 Transform 的实体后再收缩。
         output.render_items.resize(scene.component_count<MeshRendererComponent>());
         if(slots) {
@@ -85,20 +91,21 @@ namespace Comet {
         }
         std::size_t item_count = 0;
         scene.each<const MeshRendererComponent, const TransformComponent, WorldTransformComponent,
-            IdComponent>(
-            [&](Entity entity, const MeshRendererComponent& mesh, const TransformComponent&,
-                const WorldTransformComponent& world, const IdComponent& id) {
-                extract_item(
-                    scene, entity, mesh, world, id.id, same_scene, output.render_items[item_count]);
-                if(slots) {
-                    const auto index = entt::to_entity(entity.m_handle);
-                    if(index >= slots->m_slots_by_entity.size())
-                        slots->m_slots_by_entity.resize(index + 1);
-                    slots->m_slots_by_entity[index] = item_count;
-                    slots->m_entities_by_slot[item_count] = entity.m_handle;
-                }
-                ++item_count;
-            });
+            IdComponent>([&](Entity entity, const MeshRendererComponent& mesh,
+                             const TransformComponent&,
+                             const WorldTransformComponent& authoritative, const IdComponent& id) {
+            const auto& world = interpolating ? scene.get_render_transform(entity) : authoritative;
+            extract_item(
+                scene, entity, mesh, world, id.id, same_scene, output.render_items[item_count]);
+            if(slots) {
+                const auto index = entt::to_entity(entity.m_handle);
+                if(index >= slots->m_slots_by_entity.size())
+                    slots->m_slots_by_entity.resize(index + 1);
+                slots->m_slots_by_entity[index] = item_count;
+                slots->m_entities_by_slot[item_count] = entity.m_handle;
+            }
+            ++item_count;
+        });
         output.render_items.resize(item_count);
         if(slots) {
             slots->m_entities_by_slot.resize(item_count);
@@ -117,6 +124,7 @@ namespace Comet {
     void SceneExtractor::update_items(Scene& scene, RenderScene& output) {
         auto& items = output.render_items;
         auto& changes = output.item_changes;
+        const bool interpolating = scene.m_transform_interpolation.active();
         for(const auto& change : scene.render_changes().entities) {
             const auto index = entt::to_entity(change.handle);
             auto slot = items.size();
@@ -142,7 +150,9 @@ namespace Comet {
                     m_matches_storage_order = false;
                 }
                 extract_item(scene, entity, entity.get_component<MeshRendererComponent>(),
-                    entity.get_component<WorldTransformComponent>(), change.id, true, items[slot]);
+                    interpolating ? scene.get_render_transform(entity)
+                                  : entity.get_component<WorldTransformComponent>(),
+                    change.id, true, items[slot]);
                 changes.slots.push_back(slot);
             } else if(slot < items.size()) {
                 changes.structure.push_back(
@@ -188,7 +198,7 @@ namespace Comet {
             extract_all(scene, output, slots);
         } else {
             scene.update_world_transforms();
-            extract_views(scene, output);
+            extract_views(scene, output, scene.m_transform_interpolation.active());
             update_items(scene, output);
             if(batch.structure_changed)
                 m_matches_storage_order = false;

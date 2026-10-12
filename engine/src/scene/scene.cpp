@@ -81,6 +81,7 @@ namespace Comet {
             LOG_FATAL("Scene entity index is inconsistent");
         }
         mark_transform_dirty(handle);
+        m_transform_interpolation.discontinuity(*this, handle);
         m_render_structure_changed = true;
         rollback.release();
         ++m_next_entity_id;
@@ -112,6 +113,7 @@ namespace Comet {
             m_dirty_transforms.remove(*it);
             m_dirty_render_entities.remove(*it);
             m_dirty_physics_entities.remove(*it);
+            m_transform_interpolation.forget(*it);
             if(m_registry.all_of<RigidBodyComponent>(*it))
                 m_physics_structure_changed = true;
             m_registry.destroy(*it);
@@ -236,6 +238,7 @@ namespace Comet {
     }
 
     void Scene::clear_runtime_state() noexcept {
+        m_transform_interpolation.reset(*this);
         m_entity_requests.clear();
         m_contact_events.clear();
         m_events.clear();
@@ -359,6 +362,7 @@ namespace Comet {
         else
             children->second.push_back(child.m_handle);
         relationship.parent = new_parent;
+        m_transform_interpolation.discontinuity(*this, child.m_handle);
         remove_child_index(previous_parent, child.m_handle);
         mark_transform_dirty(child.m_handle);
         mark_physics_dirty(child.m_handle);
@@ -377,6 +381,7 @@ namespace Comet {
 
         const EntityId previous_parent = relationship.parent;
         relationship.parent = INVALID_ENTITY_ID;
+        m_transform_interpolation.discontinuity(*this, child.m_handle);
         remove_child_index(previous_parent, child.m_handle);
         mark_transform_dirty(child.m_handle);
         mark_physics_dirty(child.m_handle);
@@ -500,6 +505,10 @@ namespace Comet {
         }
     }
 
+    void Scene::reset_transform_interpolation(const entt::entity handle) {
+        m_transform_interpolation.discontinuity(*this, handle);
+    }
+
     void Scene::update_world_transform(const entt::entity handle) {
         const EntityId parent = m_registry.get<RelationshipComponent>(handle).parent;
         const auto* local = m_registry.try_get<TransformComponent>(handle);
@@ -519,7 +528,7 @@ namespace Comet {
             world.pose_world_matrix = parent_world->pose_world_matrix * pose_local;
         }
         world.pose_world_matrix[3] = world.world_matrix[3];
-        ++world.revision;
+        world.revision = ++m_transform_revision;
     }
 
     std::size_t Scene::sync_transform_chain(entt::entity handle) {
@@ -559,6 +568,13 @@ namespace Comet {
 
         sync_transform_chain(entity.m_handle);
         return m_registry.get<WorldTransformComponent>(entity.m_handle).world_matrix;
+    }
+
+    const WorldTransformComponent& Scene::get_render_transform(const Entity entity) {
+        if(!is_valid(entity))
+            LOG_FATAL("Cannot get render transform for an invalid entity");
+        sync_transform_chain(entity.m_handle);
+        return m_transform_interpolation.world(*this, entity.m_handle);
     }
 
     Entity Scene::find_entity(const EntityId id) {

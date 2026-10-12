@@ -9,6 +9,7 @@ namespace Comet {
 
     class COMET_API Entity {
     public:
+        enum class TransformUpdate { Continuous, Teleport };
         Entity() = default;
 
         [[nodiscard]] EntityId get_id() const;
@@ -19,9 +20,11 @@ namespace Comet {
             requires(!is_scene_managed_component_v<T>)
         decltype(auto) add_component(Args&&... args);
 
-        [[nodiscard]] bool try_set_transform(const TransformComponent& transform) const;
+        [[nodiscard]] bool try_set_transform(const TransformComponent& transform,
+            TransformUpdate update = TransformUpdate::Continuous) const;
         // 确定有效的内部写入；违反约定时终止，不静默丢弃。
-        void set_transform(const TransformComponent& transform) const;
+        void set_transform(const TransformComponent& transform,
+            TransformUpdate update = TransformUpdate::Continuous) const;
 
         // 回调编辑临时副本；成功返回后提交，不能持有副本引用。
         template<typename Function> [[nodiscard]] bool try_edit_transform(Function&& edit) const;

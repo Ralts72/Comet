@@ -39,6 +39,30 @@ namespace Comet::Tests {
         }
     }
 
+    TEST(PhysicsSystemTest, InterpolatesDynamicBodyOnlyForPresentation) {
+        Scene scene;
+        PhysicsService physics;
+        auto falling = add_body(scene, "Falling", BodyMotion::Dynamic, {0, 10, 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.015));
+        const auto actual = falling.get_component<TransformComponent>().translation.y;
+        EXPECT_LT(actual, 10);
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(falling)[3].y, actual);
+        EXPECT_NEAR(
+            scene.get_render_transform(falling).world_matrix[3].y, (10 + actual) * 0.5f, 1e-6f);
+        falling.edit_transform([](auto& transform) { transform.translation.y = 100; });
+        EXPECT_FLOAT_EQ(scene.get_render_transform(falling).world_matrix[3].y, 100);
+        ASSERT_TRUE(runtime.advance(0.01));
+        const auto after_teleport = falling.get_component<TransformComponent>().translation.y;
+        EXPECT_GT(scene.get_render_transform(falling).world_matrix[3].y, 99);
+        EXPECT_NEAR(scene.get_render_transform(falling).world_matrix[3].y,
+            (100 + after_teleport) * 0.5f, 1e-5f);
+    }
+
     TEST(PhysicsSystemTest, PublishesContactTransitionsAfterFixedStep) {
         for(const bool trigger : {false, true}) {
             Scene scene;

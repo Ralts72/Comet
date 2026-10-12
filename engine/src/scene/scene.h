@@ -17,6 +17,7 @@
 #include "scene/entity.h"
 #include "scene/property.h"
 #include "scene/scene_settings.h"
+#include "scene/transform_interpolation.h"
 #include <entt.hpp>
 
 namespace Comet {
@@ -96,6 +97,8 @@ namespace Comet {
 
         // 即时查询：仅同步该实体的脏祖先链，不刷新无关分支。
         [[nodiscard]] const Math::Mat4& get_world_matrix(Entity entity);
+        // 只读呈现姿态；脚本、物理和保存继续使用真实 Transform／WorldTransform。
+        [[nodiscard]] const WorldTransformComponent& get_render_transform(Entity entity);
 
         [[nodiscard]] Entity find_entity(EntityId id);
 
@@ -142,6 +145,7 @@ namespace Comet {
         friend class ScriptSystem;
         friend class ComponentRegistry;
         friend class SceneExtractor;
+        friend class TransformInterpolation;
 
         static constexpr std::size_t MAX_ENTITY_REQUESTS = 1024;
         static constexpr std::size_t MAX_EVENTS = 1024;
@@ -172,6 +176,7 @@ namespace Comet {
         [[nodiscard]] bool has_cycle(Entity child, Entity parent);
         void remove_child_index(EntityId parent, entt::entity child);
         void mark_transform_dirty(entt::entity handle);
+        void reset_transform_interpolation(entt::entity handle);
         void mark_physics_dirty(const entt::entity handle) {
             if(m_runtime_active && m_registry.all_of<RigidBodyComponent>(handle)
                 && !m_dirty_physics_entities.contains(handle))
@@ -195,6 +200,8 @@ namespace Comet {
                 mark_physics_dirty(handle);
 
             if(structure_changed) {
+                if constexpr(std::is_same_v<Component, TransformComponent>)
+                    reset_transform_interpolation(handle);
                 if constexpr(std::is_same_v<Component, TransformComponent>
                              || std::is_same_v<Component, MeshRendererComponent>)
                     m_render_structure_changed = true;
@@ -226,6 +233,8 @@ namespace Comet {
 
         const uint64_t m_lifetime;
         uint64_t m_render_revision = 1;
+        uint64_t m_transform_revision = 0;
+        TransformInterpolation m_transform_interpolation;
         uint64_t m_render_changes_base = 0;
         std::size_t m_render_change_limit = 0;
         bool m_render_full_update = true;

@@ -15,7 +15,7 @@
 | ShaderContracts | 后端无关 Shader 契约与 SPIR-V 反射 | Foundation、SPIRV-Reflect |
 | AssetData | Handle、Registry、CPU 产品数据、脚本定义和资产字段序列化 | Serialization、ShaderContracts |
 | Input | 采样值、动作、输入组、运行域求值、改键草稿和覆盖 | Serialization |
-| World | 实体、组件、描述符、层级、场景内容保存与复制 | AssetData、EnTT |
+| World | 实体、组件、描述符、层级、呈现变换、场景内容保存与复制 | AssetData、EnTT |
 | Runtime | 时间、暂停／单步、会话与 System 生命周期 | World、Input |
 | Audio | AudioService、Voice、播放设备与 AudioSystem | Runtime、miniaudio |
 | Physics | PhysicsService、刚体世界与 PhysicsSystem | Runtime、Jolt |
@@ -72,6 +72,7 @@ CTest 检查直接及传递 include，并在临时副本中验证反向依赖会
 | Owner | 拥有 | 借用／交付 |
 | --- | --- | --- |
 | Engine | Window、Scene、Registry、TaskScheduler、Renderer、RenderThread、Runtime、音频与物理服务 | Main 调用宿主钩子；交付一帧并取回绘制结果 |
+| Scene | 场景内容、实体身份、真实世界变换与临时呈现变换 | Runtime 推进固定步；提取器读取呈现姿态 |
 | SceneRuntime | RuntimeSession 和 System 实例 | 借用当前 Scene 与 RuntimeServices，停止后结束借用 |
 | System | 脚本实例或实体／组件绑定 | 借用资产定义和服务；同步配置，回写输出 |
 | AssetManager | 加载、导入任务、失效和发布编排 | 借用索引与 Registry，移交 CPU 产品创建 GPU 候选，复核后注册版本 |
@@ -209,6 +210,14 @@ Runtime 统一控制系统启停、部分启动失败、暂停和单步；System
 默认 ScriptSystem 先执行固定步玩法，PhysicsSystem 同步配置并模拟／回写；接触在该步的后置阶段交付脚本，阶段结束即清空。
 固定更新中删除的实体不再收到接触；接触回调的结构请求在下一固定步前生效。后置阶段复用本步时间和输入，不再次消费边沿。
 普通更新执行相机、脚本玩法／自定义事件和声音源同步，不重复交付接触。暂停不执行更新，单步完整执行一次固定、后置和普通阶段。
+
+固定步姿态插值由 Scene 拥有的 TransformInterpolation 保存临时历史；Runtime 只控制固定步边界和插值系数。
+只记录固定／后置阶段实际改变的本地姿态，并缓存受影响子树；静止场景继续直接提取真实 WorldTransform，不逐步复制全部 Transform。
+SceneExtractor 通过 `Scene::get_render_transform` 为网格、相机和灯光读取同一呈现层级，位置／缩放线性插值、旋转四元数插值；相机／灯光朝向仍排除祖先缩放。
+普通更新取消实体自身的固定步历史；显式 Teleport、生成和重挂接清除子树历史，暂停／单步／停止清空全部历史。
+真实变换与呈现缓存共用 Scene 的变换版本来源，呈现变化只通知渲染批次；不回写内容、物理或脚本查询，也不改变已交付快照。
+固定步运动显示延后一个模拟步。Render 只消费只读快照，不依赖 Runtime；后续动画沿同一写入边界接入。
+
 物理后端仅接收借用参数及身份值；系统检查必需组件和父级，后端在新建／变化时校验值域。
 启动时登记全部刚体；运行时只同步脏实体的 Transform、刚体、碰撞体与父级变化。
 Scene 的物理脏集合独立于渲染变更批次，固定步成功同步后清空；相同组件值不入队，销毁时移除脏项。

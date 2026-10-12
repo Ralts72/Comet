@@ -104,6 +104,7 @@ set(UNIT_TEST_SOURCES
         scene/test_physics_system.cpp
         scene/test_scene.cpp
         scene/test_scene_runtime.cpp
+        scene/test_transform_interpolation.cpp
         scene/test_script_system.cpp
         scripting/test_script.cpp
         scripting/test_script_logging.cpp

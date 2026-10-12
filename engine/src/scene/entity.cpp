@@ -26,8 +26,14 @@ namespace Comet {
         return m_scene != nullptr && m_handle != entt::null && m_scene->m_registry.valid(m_handle);
     }
 
-    bool Entity::try_set_transform(const TransformComponent& transform) const {
-        return try_set_transform(transform, true);
+    bool Entity::try_set_transform(
+        const TransformComponent& transform, const TransformUpdate update) const {
+        if(update != TransformUpdate::Continuous && update != TransformUpdate::Teleport)
+            return false;
+        const auto accepted = try_set_transform(transform, true);
+        if(accepted && update == TransformUpdate::Teleport)
+            m_scene->m_transform_interpolation.discontinuity(*m_scene, m_handle);
+        return accepted;
     }
 
     bool Entity::try_set_transform(
@@ -39,6 +45,7 @@ namespace Comet {
         if(current.translation == transform.translation && current.rotation == transform.rotation
             && current.scale == transform.scale)
             return true;
+        m_scene->m_transform_interpolation.record(m_handle, current);
         m_scene->mark_transform_dirty(m_handle);
         if(notify_physics)
             m_scene->mark_physics_dirty(m_handle);
@@ -52,8 +59,9 @@ namespace Comet {
                 "Cannot write transform: invalid entity, missing component or non-finite value");
     }
 
-    void Entity::set_transform(const TransformComponent& transform) const {
-        require_transform_write(try_set_transform(transform));
+    void Entity::set_transform(
+        const TransformComponent& transform, const TransformUpdate update) const {
+        require_transform_write(try_set_transform(transform, update));
     }
 
     void Entity::require_component_write(bool accepted) {
