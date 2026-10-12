@@ -347,6 +347,42 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(scene.get_parent(player));
     }
 
+    TEST_F(EditingUiTest, PointJointBodySelectionUsesSharedReferenceWidgetAndPlayEditing) {
+        entity.add_component<Comet::PointJointComponent>();
+        entity.get_component<Comet::NameComponent>().name = "ZOwner";
+        const auto target = scene.create_entity("ATarget").get_uuid();
+        const auto choose = [&](int row) {
+            auto* window = ImGui::FindWindowByName("Inspector");
+            auto id = ImHashStr("connected_body", 0, window->GetID("point_joint"));
+            ImGui::ActivateItemByID(ImHashStr("Connected Body", 0, id));
+            frame();
+            frame();
+            const auto* popup = ImGui::FindWindowByName("##Combo_00");
+            ASSERT_NE(popup, nullptr);
+            ASSERT_TRUE(popup->Active);
+            click({popup->DC.CursorStartPos.x + 20,
+                popup->DC.CursorStartPos.y + row * ImGui::GetTextLineHeightWithSpacing()
+                    + ImGui::GetTextLineHeight() * 0.5f});
+        };
+        frame();
+        ASSERT_NO_FATAL_FAILURE(choose(1));
+        EXPECT_EQ(entity.get_component<Comet::PointJointComponent>().connected_body, target);
+        EXPECT_EQ(history.undo_size(), 1u);
+        EXPECT_FALSE(edit.active());
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(entity.get_component<Comet::PointJointComponent>().connected_body);
+        ASSERT_TRUE(history.redo());
+        ASSERT_NO_FATAL_FAILURE(choose(0));
+        EXPECT_FALSE(entity.get_component<Comet::PointJointComponent>().connected_body);
+        ASSERT_TRUE(history.undo());
+
+        history.bind_scene(nullptr);
+        state.mode = EditorMode::Play;
+        ASSERT_NO_FATAL_FAILURE(choose(0));
+        EXPECT_FALSE(entity.get_component<Comet::PointJointComponent>().connected_body);
+        EXPECT_FALSE(history.can_undo());
+    }
+
     TEST_F(EditingUiTest, EntityParameterSelectionUsesHistoryAndSurvivesRenameAndMissingTarget) {
         auto script = Comet::Script::create("return {properties = {player = {type = 'entity'}}}");
         ASSERT_TRUE(script);

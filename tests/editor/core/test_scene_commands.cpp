@@ -103,6 +103,38 @@ namespace CometEditor::Tests {
         EXPECT_FLOAT_EQ(loaded.mass, 4.0f);
     }
 
+    TEST_F(SceneCommandsTest, PointJointReferencesUseHistoryAndRemapWithinDuplicatedSubtrees) {
+        auto child = scene.create_entity("Anchor");
+        ASSERT_TRUE(scene.set_parent(child, entity));
+        ASSERT_TRUE(add("point_joint"));
+        ASSERT_TRUE(
+            edit.apply({entity.get_uuid(), "point_joint", "connected_body"}, child.get_uuid()));
+        ASSERT_TRUE(edit.apply(
+            {entity.get_uuid(), "point_joint", "anchor"}, Comet::Math::Vec3(0, 0.5f, 0)));
+        const auto configured = entity.get_component<Comet::PointJointComponent>();
+        ASSERT_TRUE(remove("point_joint"));
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(entity.get_component<Comet::PointJointComponent>(), configured);
+
+        const auto copy_uuid =
+            SceneCommands::duplicate_entity(history, registry, entity.get_uuid());
+        ASSERT_TRUE(copy_uuid);
+        auto copy = scene.find_entity(copy_uuid);
+        const auto children = scene.get_children(copy);
+        ASSERT_EQ(children.size(), 1);
+        const auto copied_child = children.front().get_uuid();
+        EXPECT_NE(copied_child, child.get_uuid());
+        EXPECT_EQ(copy.get_component<Comet::PointJointComponent>().connected_body, copied_child);
+        EXPECT_EQ(copy.get_component<Comet::PointJointComponent>().anchor, configured.anchor);
+        EXPECT_EQ(entity.get_component<Comet::PointJointComponent>(), configured);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FALSE(scene.find_entity(copy_uuid));
+        ASSERT_TRUE(history.redo());
+        copy = scene.find_entity(copy_uuid);
+        EXPECT_EQ(copy.get_component<Comet::PointJointComponent>().connected_body, copied_child);
+        EXPECT_TRUE(scene.find_entity(copied_child));
+    }
+
     TEST_F(SceneCommandsTest, MeshPlacementIsOneUndoableSerializableEntity) {
         const auto uuid = SceneCommands::create_mesh_entity(
             history, registry, "Placed", Comet::AssetHandle(8), Comet::AssetHandle(9), {2, 3, 4});

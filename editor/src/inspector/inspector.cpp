@@ -2,6 +2,7 @@
 #include "inspector/property_editor_registry.h"
 #include "scene/selection.h"
 #include "scene/scene_commands.h"
+#include "scene/entity_reference.h"
 #include "diagnostics/logger.h"
 
 #include "scene/component_registry.h"
@@ -37,7 +38,8 @@ namespace CometEditor {
             static constexpr Caption components[]{{"script", "脚本"}, {"name", "名称"},
                 {"transform", "变换"}, {"mesh_renderer", "网格渲染"}, {"camera", "相机"},
                 {"camera_controller", "相机控制器"}, {"audio_source", "音频源"},
-                {"rigid_body", "刚体"}, {"collider", "碰撞体"}, {"light", "光源"}};
+                {"rigid_body", "刚体"}, {"collider", "碰撞体"}, {"point_joint", "点关节"},
+                {"light", "光源"}};
             static constexpr Caption properties[]{{"script/asset", "脚本"},
                 {"script/parameters", "参数"}, {"name/name", "名称"},
                 {"transform/translation", "位置"}, {"transform/rotation", "旋转"},
@@ -57,7 +59,9 @@ namespace CometEditor {
                 {"rigid_body/continuous_collision", "连续碰撞 (CCD)"}, {"collider/shape", "形状"},
                 {"collider/half_extents", "盒体半尺寸"}, {"collider/radius", "球体半径"},
                 {"collider/is_trigger", "触发器"}, {"collider/friction", "摩擦系数"},
-                {"collider/restitution", "弹性系数"}, {"light/type", "类型"},
+                {"collider/restitution", "弹性系数"}, {"point_joint/enabled", "启用"},
+                {"point_joint/connected_body", "连接刚体"}, {"point_joint/anchor", "本地锚点"},
+                {"point_joint/connected_anchor", "连接锚点"}, {"light/type", "类型"},
                 {"light/enabled", "启用"}, {"light/casts_shadow", "投射阴影（方向光）"},
                 {"light/color", "颜色（线性）"}, {"light/intensity", "强度"},
                 {"light/range", "范围"}, {"light/inner_angle", "内角"},
@@ -328,14 +332,35 @@ namespace CometEditor {
                 std::get<Comet::AssetHandle>(*value));
             return;
         }
-        if(!m_property_editor_registry.contains(property.type))
-            return;
-        const PropertyEditResult result = std::visit(
-            [&](auto& edited) {
-                return m_property_editor_registry.edit_property(property, &edited);
-            },
-            *value);
+        PropertyEditResult result;
+        if(property.type == Comet::PropertyType::EntityReference) {
+            std::optional<std::uint64_t> drop_generation;
+            if(m_state.mode == EditorMode::Edit
+                && m_history.get_scene() == &m_selection.get_scene())
+                drop_generation = m_history.generation();
+            result.changed = edit_entity_reference(property.display_name.c_str(),
+                std::get<Comet::EntityUuid>(*value), m_selection.get_scene(), drop_generation);
+            result.finished = result.changed;
+        } else {
+            if(!m_property_editor_registry.contains(property.type))
+                return;
+            result = std::visit(
+                [&](auto& edited) {
+                    return m_property_editor_registry.edit_property(property, &edited);
+                },
+                *value);
+        }
         apply_property_edit(entity, component, property, *value, result);
+        if(component.id == "point_joint" && property.id == "connected_body")
+            ImGui::SetItemTooltip("选择另一刚体；无连接刚体时，连接锚点为固定世界位置。\n"
+                                  "缺失实体／刚体会停用该连接；至少一端须为动态刚体。\n"
+                                  "连接不自动关闭两物体之间的碰撞。");
+        if(component.id == "point_joint" && property.id == "anchor")
+            ImGui::SetItemTooltip("本实体的本地锚点，随缩放；点关节固定位置，允许自由转动。");
+        if(component.id == "point_joint" && property.id == "connected_anchor")
+            ImGui::SetItemTooltip("连接到刚体时为对方的本地锚点，随其缩放；否则为固定世界位置。\n"
+                                  "两锚点应在同一世界位置，否则求解器会拉动刚体使它们重合。\n"
+                                  "修改在下一固定步生效，保留当前速度。");
         if(component.id == "rigid_body" && property.id == "mass_mode")
             ImGui::SetItemTooltip("指定质量：缩放保持质量，只改变形状与惯性。\n"
                                   "按密度计算：质量 = 密度 × 缩放后的碰撞体积，长度按米计算。\n"

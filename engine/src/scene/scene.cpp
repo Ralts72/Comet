@@ -116,6 +116,8 @@ namespace Comet {
             m_transform_interpolation.forget(*it);
             if(m_registry.all_of<RigidBodyComponent>(*it))
                 m_physics_structure_changed = true;
+            if(m_registry.all_of<PointJointComponent>(*it))
+                m_physics_joints_changed = true;
             m_registry.destroy(*it);
         }
     }
@@ -244,6 +246,7 @@ namespace Comet {
         m_events.clear();
         m_dirty_physics_entities.clear();
         m_physics_structure_changed = false;
+        m_physics_joints_changed = false;
         if(!m_material_overrides.empty()) {
             mark_render_dirty();
             m_render_full_update = true;
@@ -454,13 +457,14 @@ namespace Comet {
     }
 
     Scene::PhysicsChanges Scene::physics_changes() const {
-        return {m_physics_structure_changed,
+        return {m_physics_structure_changed, m_physics_joints_changed,
             {m_dirty_physics_entities.data(), m_dirty_physics_entities.size()}};
     }
 
     void Scene::acknowledge_physics_changes() {
         m_dirty_physics_entities.clear();
         m_physics_structure_changed = false;
+        m_physics_joints_changed = false;
     }
 
     void Scene::mark_render_entity_changed(const entt::entity handle) {

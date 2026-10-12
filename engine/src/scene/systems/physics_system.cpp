@@ -14,9 +14,14 @@ namespace Comet {
         m_entries.reserve(scene.component_count<RigidBodyComponent>());
         Result<void, Error> result = Result<void, Error>::success();
         scene.each<const RigidBodyComponent>([&](Entity entity, const RigidBodyComponent&) {
-            if(result)
-                result = synchronize_body(scene, entity.m_handle);
+            if(result) {
+                const auto synchronized = synchronize_body(scene, entity.m_handle);
+                if(!synchronized)
+                    result = Result<void, Error>::failure(synchronized.error());
+            }
         });
+        if(result)
+            result = synchronize_joints(scene);
         if(result)
             scene.acknowledge_physics_changes();
         return result;
@@ -24,6 +29,7 @@ namespace Comet {
 
     Result<void, Error> PhysicsSystem::synchronize(Scene& scene) {
         const auto batch = scene.physics_changes();
+        bool joints_changed = batch.joints_changed || batch.structure_changed;
         if(batch.structure_changed) {
             std::erase_if(m_entries, [this](const Entry& entry) {
                 // has_component 已检查句柄寿命；必需组件在下方统一校验。
@@ -37,31 +43,50 @@ namespace Comet {
             // 销毁会移除脏项；移除刚体的实体仍可能在本批中。
             if(!scene.m_registry.all_of<RigidBodyComponent>(handle))
                 continue;
-            if(auto result = synchronize_body(scene, handle); !result)
+            const auto result = synchronize_body(scene, handle);
+            if(!result)
+                return Result<void, Error>::failure(result.error());
+            joints_changed |= result.value() != PhysicsService::BodyChange::None;
+        }
+        if(joints_changed) {
+            if(auto result = synchronize_joints(scene); !result)
                 return result;
         }
         scene.acknowledge_physics_changes();
         return Result<void, Error>::success();
     }
 
-    Result<void, Error> PhysicsSystem::synchronize_body(Scene& scene, const entt::entity handle) {
+    Result<PhysicsService::BodyChange, Error> PhysicsSystem::synchronize_body(
+        Scene& scene, const entt::entity handle) {
         const auto& [id, uuid, relationship] =
             scene.m_registry.get<IdComponent, UuidComponent, RelationshipComponent>(handle);
         const auto [transform, collider] =
             scene.m_registry.try_get<TransformComponent, ColliderComponent>(handle);
         if(!transform || !collider)
-            return Result<void, Error>::failure(
+            return Result<PhysicsService::BodyChange, Error>::failure(
                 {"Rigid body requires Transform and Collider: " + uuid.uuid.to_string()});
         if(relationship.parent != INVALID_ENTITY_ID)
-            return Result<void, Error>::failure(
+            return Result<PhysicsService::BodyChange, Error>::failure(
                 {"Parented rigid body is unsupported: " + uuid.uuid.to_string()});
         const auto synchronized = m_physics.synchronize_body({uuid.uuid, id.id, *transform,
             *collider, scene.m_registry.get<RigidBodyComponent>(handle)});
         if(!synchronized)
-            return Result<void, Error>::failure(synchronized.error());
-        if(synchronized.value())
+            return synchronized;
+        if(synchronized.value() == PhysicsService::BodyChange::Added)
             m_entries.push_back({Entity(handle, &scene), id.id, uuid.uuid});
-        return Result<void, Error>::success();
+        return synchronized;
+    }
+
+    Result<void, Error> PhysicsSystem::synchronize_joints(Scene& scene) {
+        std::vector<PhysicsService::JointDefinition> definitions;
+        definitions.reserve(scene.component_count<PointJointComponent>());
+        scene.each<const PointJointComponent>([&](Entity entity, const PointJointComponent& joint) {
+            const auto connected = scene.find_entity(joint.connected_body);
+            definitions.push_back({entity.get_uuid(), entity.get_id(),
+                connected ? connected.get_id() : INVALID_ENTITY_ID, joint});
+        });
+        std::ranges::sort(definitions, {}, &PhysicsService::JointDefinition::entity);
+        return m_physics.synchronize_joints(definitions);
     }
 
     Result<void, Error> PhysicsSystem::fixed_update(Scene& scene, const Context& context) {

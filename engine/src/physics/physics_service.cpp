@@ -9,6 +9,7 @@
 #include <Jolt/Physics/Body/Body.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Body/BodyLockMulti.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayerInterfaceTable.h>
 #include <Jolt/Physics/Collision/BroadPhase/ObjectVsBroadPhaseLayerFilterTable.h>
 #include <Jolt/Physics/Collision/ObjectLayerPairFilterTable.h>
@@ -16,6 +17,7 @@
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/PhysicsSystem.h>
+#include <Jolt/Physics/Constraints/PointConstraint.h>
 
 #include <algorithm>
 #include <cmath>
@@ -239,6 +241,14 @@ namespace Comet {
             bool reported = false;
         };
 
+        struct Joint {
+            EntityUuid uuid;
+            JPH::BodyID first;
+            JPH::BodyID second;
+            PointJointComponent settings;
+            JPH::Ref<JPH::PointConstraint> constraint;
+        };
+
         Impl() : pairs(2), broad_phase(2, 2), jobs(1024) {
             pairs.EnableCollision(STATIC_LAYER, MOVING_LAYER);
             pairs.EnableCollision(MOVING_LAYER, MOVING_LAYER);
@@ -252,6 +262,10 @@ namespace Comet {
         }
 
         ~Impl() {
+            // Jolt 关节借用 Body，必须先从世界移除并释放，再销毁刚体。
+            for(const auto& [entity, joint] : joints)
+                world.RemoveConstraint(joint.constraint.GetPtr());
+            joints.clear();
             auto& interface = world.GetBodyInterface();
             for(const auto& [entity, body] : bodies) {
                 interface.RemoveBody(body.id);
@@ -305,6 +319,111 @@ namespace Comet {
             return Result<void, Error>::success();
         }
 
+        void wake_joint_bodies(const Joint& joint) {
+            for(const auto id : {joint.first, joint.second}) {
+                const auto* body = find_body(id);
+                if(body && body->rigid.motion == BodyMotion::Dynamic)
+                    world.GetBodyInterface().ActivateBody(id);
+            }
+        }
+
+        auto remove_joint(std::unordered_map<EntityId, Joint>::iterator it) {
+            world.RemoveConstraint(it->second.constraint.GetPtr());
+            wake_joint_bodies(it->second);
+            return joints.erase(it);
+        }
+
+        Result<void, Error> synchronize_joint(const JointDefinition& definition) {
+            const auto& settings = definition.joint;
+            auto existing = joints.find(definition.entity);
+            const auto detach = [&] {
+                if(existing != joints.end())
+                    remove_joint(existing);
+                return Result<void, Error>::success();
+            };
+            if(!settings.enabled)
+                return detach();
+            if(settings.connected_body == definition.uuid)
+                return Result<void, Error>::failure({"Point joint cannot connect a body to itself: "
+                                                     + definition.uuid.to_string()});
+            if(!Math::is_finite(settings.anchor) || !Math::is_finite(settings.connected_anchor))
+                return Result<void, Error>::failure(
+                    {"Point joint anchors must be finite: " + definition.uuid.to_string()});
+            const auto first = bodies.find(definition.entity);
+            const auto second = bodies.find(definition.connected_entity);
+            if(first == bodies.end() || first->second.uuid != definition.uuid)
+                return detach();
+            if(settings.connected_body
+                && (second == bodies.end() || second->second.uuid != settings.connected_body))
+                return detach();
+            const auto& owner = first->second;
+            const Body* connected = nullptr;
+            if(settings.connected_body)
+                connected = &second->second;
+            if(owner.rigid.motion != BodyMotion::Dynamic
+                && (!connected || connected->rigid.motion != BodyMotion::Dynamic))
+                return Result<void, Error>::failure(
+                    {"Point joint requires at least one dynamic body: "
+                        + definition.uuid.to_string()});
+            const auto first_point = settings.anchor * owner.last_transform.scale;
+            auto second_point = settings.connected_anchor;
+            JPH::BodyID second_id;
+            if(connected) {
+                second_point *= connected->last_transform.scale;
+                second_id = connected->id;
+            }
+            if(!Math::is_finite(first_point) || !Math::is_finite(second_point)
+                || !std::isfinite(glm::dot(first_point, first_point))
+                || !std::isfinite(glm::dot(second_point, second_point)))
+                return Result<void, Error>::failure(
+                    {"Point joint anchors exceed supported range: " + definition.uuid.to_string()});
+            if(existing != joints.end() && existing->second.uuid == definition.uuid
+                && existing->second.first == owner.id && existing->second.second == second_id
+                && existing->second.settings == settings)
+                return Result<void, Error>::success();
+
+            JPH::Ref<JPH::PointConstraint> constraint;
+            const JPH::BodyID ids[]{owner.id, second_id};
+            {
+                const JPH::BodyLockMultiWrite lock(world.GetBodyLockInterface(), ids, 2);
+                auto* first_body = lock.GetBody(0);
+                auto* second_body = &JPH::Body::sFixedToWorld;
+                if(connected)
+                    second_body = lock.GetBody(1);
+                if(!first_body || !second_body)
+                    return Result<void, Error>::failure({"Cannot access point joint bodies"});
+                JPH::PointConstraintSettings native;
+                native.mSpace = JPH::EConstraintSpace::LocalToBodyCOM;
+                native.mPoint1 = to_position(first_point);
+                native.mPoint2 = to_position(second_point);
+                constraint = new JPH::PointConstraint(*first_body, *second_body, native);
+            }
+            if(existing != joints.end())
+                remove_joint(existing);
+            Joint joint{definition.uuid, owner.id, second_id, settings, std::move(constraint)};
+            const auto inserted = joints.emplace(definition.entity, std::move(joint)).first;
+            world.AddConstraint(inserted->second.constraint.GetPtr());
+            wake_joint_bodies(inserted->second);
+            return Result<void, Error>::success();
+        }
+
+        Result<void, Error> synchronize_joints(const std::span<const JointDefinition> definitions) {
+            for(auto it = joints.begin(); it != joints.end();) {
+                const auto found =
+                    std::ranges::lower_bound(definitions, it->first, {}, &JointDefinition::entity);
+                if(found == definitions.end() || found->entity != it->first
+                    || found->uuid != it->second.uuid)
+                    it = remove_joint(it);
+                else
+                    ++it;
+            }
+            for(const auto& definition : definitions) {
+                if(auto result = synchronize_joint(definition); !result)
+                    return result;
+            }
+            return Result<void, Error>::success();
+        }
+
         void wake_nearby_bodies(const JPH::BodyID id) {
             JPH::AABox bounds;
             {
@@ -320,6 +439,12 @@ namespace Comet {
         }
 
         void remove_body(std::unordered_map<EntityId, Body>::iterator it) {
+            for(auto joint = joints.begin(); joint != joints.end();) {
+                if(joint->second.first == it->second.id || joint->second.second == it->second.id)
+                    joint = remove_joint(joint);
+                else
+                    ++joint;
+            }
             auto& interface = world.GetBodyInterface();
             wake_nearby_bodies(it->second.id);
             body_lookup[it->second.id.GetIndex()] = nullptr;
@@ -359,7 +484,7 @@ namespace Comet {
             return Result<void, Error>::success();
         }
 
-        Result<bool, Error> synchronize_body(const BodyDefinition& definition) {
+        Result<BodyChange, Error> synchronize_body(const BodyDefinition& definition) {
             const auto& transform = definition.transform;
             const auto& collider = definition.collider;
             const auto& rigid = definition.rigid;
@@ -382,14 +507,15 @@ namespace Comet {
                     || it->second.collider.restitution != collider.restitution);
             if(added || rebuild || rigid_changed || pose_changed || surface_changed) {
                 if(auto valid = validate_body(definition.uuid, transform, collider, rigid); !valid)
-                    return Result<bool, Error>::failure(valid.error());
+                    return Result<BodyChange, Error>::failure(valid.error());
             }
             if(added || rebuild) {
                 if(rebuild)
                     remove_body(it);
                 if(auto created = add_body(definition); !created)
-                    return Result<bool, Error>::failure(created.error());
-                return Result<bool, Error>::success(added);
+                    return Result<BodyChange, Error>::failure(created.error());
+                return Result<BodyChange, Error>::success(
+                    added ? BodyChange::Added : BodyChange::Rebuilt);
             }
             auto& body = it->second;
             if(surface_changed) {
@@ -405,7 +531,7 @@ namespace Comet {
             }
             if(!same_mass_settings(body.rigid, rigid)) {
                 if(auto updated = update_mass(body, rigid); !updated)
-                    return Result<bool, Error>::failure(updated.error());
+                    return Result<BodyChange, Error>::failure(updated.error());
             }
             body.rigid = rigid;
             if(rigid.motion == BodyMotion::Kinematic) {
@@ -426,7 +552,7 @@ namespace Comet {
                     wake_nearby_bodies(body.id);
                 body.last_transform = transform;
             }
-            return Result<bool, Error>::success(false);
+            return Result<BodyChange, Error>::success(BodyChange::None);
         }
 
         Result<void, Error> validate_command(const JPH::Body& body, const Command& request,
@@ -650,6 +776,7 @@ namespace Comet {
         std::map<Pair, Contact> tracked_contacts;
         // unordered_map 的重哈希不移动 Body；移除时先从该列表摘除。
         std::vector<Body*> kinematic_bodies;
+        std::unordered_map<EntityId, Joint> joints;
     };
 
     Result<void, Error> PhysicsService::step(const float delta_time) {
@@ -686,7 +813,8 @@ namespace Comet {
             return {};
         return {.bodies = m_impl->bodies.size(),
             .active_bodies = m_impl->world.GetNumActiveBodies(JPH::EBodyType::RigidBody),
-            .pose_updates = m_impl->poses.size()};
+            .pose_updates = m_impl->poses.size(),
+            .joints = m_impl->joints.size()};
     }
 
     PhysicsService::~PhysicsService() {
@@ -730,10 +858,18 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
-    Result<bool, Error> PhysicsService::synchronize_body(const BodyDefinition& definition) {
+    Result<PhysicsService::BodyChange, Error> PhysicsService::synchronize_body(
+        const BodyDefinition& definition) {
         if(!m_impl)
-            return Result<bool, Error>::failure({"Physics world is not active"});
+            return Result<BodyChange, Error>::failure({"Physics world is not active"});
         return m_impl->synchronize_body(definition);
+    }
+
+    Result<void, Error> PhysicsService::synchronize_joints(
+        const std::span<const JointDefinition> definitions) {
+        if(!m_impl)
+            return Result<void, Error>::failure({"Physics world is not active"});
+        return m_impl->synchronize_joints(definitions);
     }
 
     void PhysicsService::remove_body(const EntityUuid uuid, const EntityId entity) {

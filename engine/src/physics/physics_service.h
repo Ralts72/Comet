@@ -19,6 +19,7 @@ namespace Comet {
             std::size_t bodies = 0;
             std::size_t active_bodies = 0;
             std::size_t pose_updates = 0;
+            std::size_t joints = 0;
         };
 
         PhysicsService();
@@ -29,6 +30,7 @@ namespace Comet {
     private:
         friend class PhysicsSystem;
         static constexpr std::size_t MAX_COMMANDS = 128;
+        enum class BodyChange { None, Added, Rebuilt };
         struct BodyDefinition {
             // 仅在同步调用内借用组件，后端缓存独立值。
             EntityUuid uuid;
@@ -40,6 +42,12 @@ namespace Comet {
         struct Pose {
             EntityId entity;
             TransformComponent transform;
+        };
+        struct JointDefinition {
+            EntityUuid uuid;
+            EntityId entity;
+            EntityId connected_entity;
+            PointJointComponent joint;
         };
         struct ContactChange {
             enum class Kind { CollisionEnter, CollisionExit, TriggerEnter, TriggerExit } kind;
@@ -61,8 +69,10 @@ namespace Comet {
         std::optional<Velocity> read_velocity(EntityUuid uuid, EntityId entity) const override;
         void reset() noexcept override;
         Result<void, Error> prepare_world();
-        // 首次登记 EntityId 返回 true；同实体的刚体重建不重复登记。
-        Result<bool, Error> synchronize_body(const BodyDefinition& definition);
+        // 区分首次登记与重建，重建后需重新绑定关节。
+        Result<BodyChange, Error> synchronize_body(const BodyDefinition& definition);
+        // 完整内容列表按 EntityId 排序；仅配置／结构变化或刚体重建时调用。
+        Result<void, Error> synchronize_joints(std::span<const JointDefinition> definitions);
         void remove_body(EntityUuid uuid, EntityId entity);
         Result<void, Error> step(float delta_time);
         [[nodiscard]] std::span<const Pose> poses() const;

@@ -151,10 +151,21 @@ namespace Comet {
         bool operator==(const ColliderComponent&) const = default;
     };
 
+    struct COMET_API PointJointComponent {
+        bool enabled = true;
+        // 空引用连接到固定世界点；非空引用丢失时停用，不改成世界连接。
+        EntityUuid connected_body;
+        // 本地锚点随实体缩放；世界连接的 connected_anchor 是世界坐标。
+        Math::Vec3 anchor{0};
+        Math::Vec3 connected_anchor{0};
+        bool operator==(const PointJointComponent&) const = default;
+    };
+
     template<typename T>
     inline constexpr bool is_scene_physics_component_v =
         std::is_same_v<std::remove_cvref_t<T>, RigidBodyComponent>
-        || std::is_same_v<std::remove_cvref_t<T>, ColliderComponent>;
+        || std::is_same_v<std::remove_cvref_t<T>, ColliderComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, PointJointComponent>;
 
     template<typename T>
     inline constexpr bool is_scene_tracked_component_v =

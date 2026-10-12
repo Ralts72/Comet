@@ -201,6 +201,52 @@ namespace Comet::Tests {
         EXPECT_TRUE(loaded_body.get_component<RigidBodyComponent>().continuous_collision);
     }
 
+    TEST(SceneSerializerTest, PointJointsPreserveEntityReferencesAndAnchorsAcrossSaveAndClone) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        Scene scene;
+        auto target = scene.create_entity("Target");
+        auto actor = scene.create_entity("Actor");
+        const PointJointComponent joint{.connected_body = target.get_uuid(),
+            .anchor = {0, 0.5f, 0},
+            .connected_anchor = {0, -0.5f, 0}};
+        actor.add_component<PointJointComponent>(joint);
+        TemporaryDirectory directory;
+        const auto path = (directory.path() / "joint.scene").string();
+        ASSERT_TRUE(serializer.save(scene, path));
+        auto loaded = serializer.load(path);
+        ASSERT_TRUE(loaded) << loaded.error();
+        EXPECT_EQ(
+            loaded.value()->find_entity(actor.get_uuid()).get_component<PointJointComponent>(),
+            joint);
+        auto clone = serializer.clone(*loaded.value());
+        ASSERT_TRUE(clone) << clone.error();
+        auto cloned_actor = clone.value()->find_entity(actor.get_uuid());
+        EXPECT_EQ(cloned_actor.get_component<PointJointComponent>(), joint);
+        EXPECT_TRUE(clone.value()->find_entity(
+            cloned_actor.get_component<PointJointComponent>().connected_body));
+        cloned_actor.edit_component<PointJointComponent>([](auto& value) {
+            value.connected_body = {};
+            value.connected_anchor = {1, 2, 3};
+        });
+        auto text = serializer.serialize(*clone.value());
+        ASSERT_TRUE(text);
+        auto world_joint = serializer.deserialize(text.value());
+        ASSERT_TRUE(world_joint) << world_joint.error();
+        EXPECT_FALSE(world_joint.value()
+                ->find_entity(actor.get_uuid())
+                .get_component<PointJointComponent>()
+                .connected_body);
+        EXPECT_EQ(actor.get_component<PointJointComponent>(), joint);
+        for(const auto member :
+            {&PointJointComponent::anchor, &PointJointComponent::connected_anchor}) {
+            auto invalid = joint;
+            (invalid.*member).x = std::numeric_limits<float>::infinity();
+            actor.edit_component<PointJointComponent>([&](auto& value) { value = invalid; });
+            EXPECT_FALSE(serializer.serialize(scene));
+        }
+    }
+
     TEST(SceneSerializerTest, ColliderSurfaceParametersPersistCloneAndDefaultWhenOmitted) {
         const auto registry = create_scene_component_registry();
         const SceneSerializer serializer(registry);

@@ -263,6 +263,15 @@ namespace Comet {
                             .maximum = 1,
                             .enforce_bounds = true}})}));
 
+        register_component(make_component_descriptor<PointJointComponent>("point_joint",
+            "Point Joint",
+            {make_property_descriptor("enabled", "Enabled", &PointJointComponent::enabled),
+                make_property_descriptor(
+                    "connected_body", "Connected Body", &PointJointComponent::connected_body),
+                make_property_descriptor("anchor", "Local Anchor", &PointJointComponent::anchor),
+                make_property_descriptor("connected_anchor", "Connected Anchor",
+                    &PointJointComponent::connected_anchor)}));
+
         register_component(make_component_descriptor<LightComponent>("light", "Light",
             {make_enum_property_descriptor<LightComponent, LightType>("type", "Type",
                  &LightComponent::type,

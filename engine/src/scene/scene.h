@@ -199,6 +199,9 @@ namespace Comet {
                          || is_scene_physics_component_v<Component>)
                 mark_physics_dirty(handle);
 
+            if constexpr(std::is_same_v<Component, PointJointComponent>)
+                m_physics_joints_changed = true;
+
             if(structure_changed) {
                 if constexpr(std::is_same_v<Component, TransformComponent>)
                     reset_transform_interpolation(handle);
@@ -226,6 +229,7 @@ namespace Comet {
         void acknowledge_render_changes(uint64_t revision, std::size_t next_limit);
         struct PhysicsChanges {
             bool structure_changed;
+            bool joints_changed;
             std::span<const entt::entity> entities;
         };
         [[nodiscard]] PhysicsChanges physics_changes() const;
@@ -247,6 +251,7 @@ namespace Comet {
         std::vector<Event> m_events;
         bool m_runtime_active = false;
         bool m_physics_structure_changed = false;
+        bool m_physics_joints_changed = false;
         entt::sparse_set m_dirty_physics_entities;
         SceneEnvironment m_environment;
         PostProcessSettings m_post_process;
