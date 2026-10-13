@@ -509,10 +509,11 @@ namespace CometEditor {
             if(mesh && mesh->animation_data()) {
                 auto& clip = std::get<std::string>(*value);
                 const auto& clips = mesh->animation_data()->clips;
-                const bool found = std::ranges::any_of(
-                    clips, [&](const auto& candidate) { return candidate.name == clip; });
-                const std::string preview =
-                    clip.empty() ? "绑定姿态" : (found ? clip : "片段已丢失：" + clip);
+                std::string preview = clip;
+                if(clip.empty())
+                    preview = "绑定姿态";
+                else if(!mesh->animation_data()->find_clip(clip))
+                    preview = "片段已丢失：" + clip;
                 if(ImGui::BeginCombo(property.display_name.c_str(), preview.c_str())) {
                     if(ImGui::Selectable("绑定姿态", clip.empty()) && !clip.empty()) {
                         clip.clear();

@@ -18,6 +18,8 @@ Shift／LeftShoulder 跑步，Ctrl／RightShoulder 蹲伏；右键拖动／右�
 首版 Mesh 资产支持一个 mesh／skin、每顶点最多四个骨骼权重，以及 TRS 的 Linear／Step／CubicSpline 动画。
 同一 Mesh 的多个实体独立播放，主绘制和阴影共用 GPU 蒙皮结果。模型内多个 primitive 使用所指定的同一个材质。
 替换角色时，应同时选择新模型自身的动作；跨骨架重定向、独立动画库、root motion、IK 和 morph target 尚未接通。
+动作名称找不到时，模型显示绑定姿态，Console 报出实体和缺失动作；重新选择有效片段后恢复播放。
+若新片段有效、只有旧过渡片段在替换模型后丢失，则直接播放新片段。其他对象继续绘制，保存的动作映射保持原值。
 
 首次构建和 Demo 入口见 [README](../README.md)。本文说明具体操作与接口；模块实现见[架构文档](architecture/overview.md)，后续能力见[路线图](engine-roadmap.md)。
 

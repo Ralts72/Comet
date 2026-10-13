@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Comet {
@@ -46,6 +47,8 @@ namespace Comet {
         std::vector<uint32_t> evaluation_order;
         std::vector<SkinJoint> joints;
         std::vector<AnimationClip> clips;
+
+        [[nodiscard]] COMET_API const AnimationClip* find_clip(std::string_view name) const;
     };
     // 时间和过渡归场景实例；片段、骨架和权重归不可变资产。
     struct AnimationPlayback {
@@ -56,6 +59,8 @@ namespace Comet {
         double previous_time = 0;
         bool previous_loop = true;
         float blend = 1;
+
+        bool operator==(const AnimationPlayback&) const = default;
     };
     struct AnimationPose {
         std::vector<Math::Mat4> matrices;

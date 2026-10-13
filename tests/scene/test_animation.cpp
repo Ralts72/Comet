@@ -55,6 +55,8 @@ namespace Comet::Tests {
     TEST(AnimationTest, SamplesLoopsClampsAndBlendsWithoutChangingAsset) {
         auto data = simple_animation();
         ASSERT_TRUE(validate_animation(data));
+        ASSERT_NE(data.find_clip("move"), nullptr);
+        EXPECT_FALSE(data.find_clip("missing"));
         AnimationPlayback playback{.clip = "move", .time = 0.25};
         auto sampled = sample_animation(data, &playback);
         ASSERT_TRUE(sampled);
@@ -112,9 +114,11 @@ namespace Comet::Tests {
         auto frozen = SceneExtractor::extract(*scene);
         ASSERT_TRUE(frozen.render_items.front().animation);
         const double time = frozen.render_items.front().animation->time;
+        const auto paused_playback = scene->get_animation_playback(entity);
         ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
         ASSERT_TRUE(runtime.advance(0.1));
         EXPECT_EQ(scene->get_animation_playback(entity)->time, time);
+        EXPECT_EQ(scene->get_animation_playback(entity), paused_playback);
         ASSERT_TRUE(runtime.request_step());
         ASSERT_TRUE(runtime.advance(0.1));
         EXPECT_GT(scene->get_animation_playback(entity)->time, time);
@@ -123,5 +127,45 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
         EXPECT_FALSE(scene->get_animation_playback(entity));
         EXPECT_FALSE(SceneExtractor::extract(*scene).render_items.front().animation);
+    }
+
+    TEST(AnimationTest, ZeroSpeedReusesPlaybackAndClipEditsKeepCapturedFramesImmutable) {
+        Scene scene;
+        auto entity = scene.create_entity("Animated");
+        entity.add_component<MeshRendererComponent>(AssetHandle(1), AssetHandle(2));
+        entity.add_component<AnimatorComponent>(
+            AnimatorComponent{.clip = "idle", .speed = 0, .transition = 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(std::make_unique<AnimationSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        const auto frozen = scene.get_animation_playback(entity);
+        ASSERT_TRUE(frozen);
+        for(int frame = 0; frame < 4; ++frame) {
+            ASSERT_TRUE(runtime.advance(0.1));
+            EXPECT_EQ(scene.get_animation_playback(entity), frozen);
+        }
+        entity.edit_component<AnimatorComponent>([](auto& animator) {
+            animator.clip = "walk";
+            animator.transition = 0.2f;
+        });
+        ASSERT_TRUE(runtime.advance(0.1));
+        const auto changed = scene.get_animation_playback(entity);
+        ASSERT_TRUE(changed);
+        EXPECT_NE(changed, frozen);
+        EXPECT_EQ(changed->clip, "walk");
+        EXPECT_EQ(changed->previous_clip, "idle");
+        EXPECT_LT(changed->blend, 1);
+        EXPECT_EQ(frozen->clip, "idle");
+        ASSERT_TRUE(runtime.advance(0.1));
+        const auto settled = scene.get_animation_playback(entity);
+        ASSERT_TRUE(settled);
+        EXPECT_NE(settled, changed);
+        EXPECT_EQ(settled->blend, 1);
+        EXPECT_TRUE(settled->previous_clip.empty());
+        EXPECT_LT(changed->blend, 1);
+        ASSERT_TRUE(runtime.advance(0.1));
+        EXPECT_EQ(scene.get_animation_playback(entity), settled);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(scene.get_animation_playback(entity));
     }
 }

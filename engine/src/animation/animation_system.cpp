@@ -64,14 +64,18 @@ namespace Comet {
             if(animator.character && (clip == animator.jump || clip == animator.fall))
                 frame.loop = false;
             frame.time += delta * animator.speed;
-            frame.previous_time += delta * animator.speed;
+            if(!frame.previous_clip.empty())
+                frame.previous_time += delta * animator.speed;
             playback.transition_time += float(delta);
             frame.blend = 1;
             if(animator.transition > 0)
                 frame.blend = std::min(playback.transition_time / animator.transition, 1.0f);
             if(frame.blend == 1)
                 frame.previous_clip.clear();
-            scene.set_animation_playback(entity, std::make_shared<const AnimationPlayback>(frame));
+            const auto published = scene.get_animation_playback(entity);
+            if(!published || *published != frame)
+                scene.set_animation_playback(
+                    entity, std::make_shared<const AnimationPlayback>(frame));
         });
         std::erase_if(m_playbacks, [&](const auto& entry) {
             Entity entity = scene.find_entity(entry.first);

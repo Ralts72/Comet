@@ -13,12 +13,6 @@ namespace Comet {
                     return false;
             return true;
         }
-        const AnimationClip* find_clip(const AnimationData& data, const std::string& name) {
-            for(const auto& clip : data.clips)
-                if(clip.name == name)
-                    return &clip;
-            return nullptr;
-        }
         glm::quat quaternion(const Math::Vec4& value) {
             return glm::normalize(glm::quat(value.w, value.x, value.y, value.z));
         }
@@ -56,7 +50,7 @@ namespace Comet {
                 pose.push_back(node.rest);
             if(name.empty())
                 return Result<std::vector<JointTransform>>::success(std::move(pose));
-            const auto* clip = find_clip(data, name);
+            const auto* clip = data.find_clip(name);
             if(!clip)
                 return Result<std::vector<JointTransform>>::failure(
                     "Animation clip is missing: " + name);
@@ -80,6 +74,12 @@ namespace Comet {
             }
             return Result<std::vector<JointTransform>>::success(std::move(pose));
         }
+    }
+    const AnimationClip* AnimationData::find_clip(const std::string_view name) const {
+        for(const auto& clip : clips)
+            if(clip.name == name)
+                return &clip;
+        return nullptr;
     }
     Result<void> validate_animation(const AnimationData& data) {
         if(data.nodes.empty() || data.joints.empty() || data.mesh_node >= data.nodes.size()

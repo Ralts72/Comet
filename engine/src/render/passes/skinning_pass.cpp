@@ -8,6 +8,7 @@
 #include "render/frame_scheduler.h"
 #include "render/resource/mesh.h"
 #include "render/scene/render_geometry.h"
+#include "diagnostics/logger.h"
 #include "skinning_comp.h"
 #include <array>
 #include <unordered_set>
@@ -25,6 +26,9 @@ namespace Comet {
         std::shared_ptr<CPUBuffer> palette;
         std::unique_ptr<DescriptorPool> pool;
         std::vector<DescriptorSet> descriptors;
+        std::shared_ptr<const AnimationPlayback> playback;
+        std::optional<BoundingBox> pose_bounds;
+        std::string animation_error;
     };
     SkinningPass::SkinningPass(Device& device, uint32_t frame_slots)
         : m_device(device), m_frames(frame_slots) {}
@@ -134,9 +138,6 @@ namespace Comet {
             auto& item = m_items[slot];
             if(auto initialized = initialize(); !initialized)
                 return initialized;
-            auto pose = sample_animation(*item.mesh->m_animation, item.animation.get());
-            if(!pose)
-                return Result<void, GraphicsError>::failure({pose.error()});
             auto& instance = cache[index];
             if(!instance || instance->source != item.mesh) {
                 auto next = create_instance(item.mesh);
@@ -145,7 +146,34 @@ namespace Comet {
                 instance = std::move(next).value();
             }
             used.insert(index);
-            instance->palette->write(pose.value().matrices.data());
+            if(!instance->pose_bounds || instance->playback != item.animation) {
+                const auto& data = *item.mesh->m_animation;
+                auto pose = sample_animation(data, item.animation.get());
+                std::string error;
+                if(!pose) {
+                    error = pose.error();
+                    // 更换模型后旧过渡片段可能不存在；目的片段仍可独立播放。
+                    if(item.animation && !item.animation->previous_clip.empty()
+                        && !data.find_clip(item.animation->previous_clip)) {
+                        auto current = *item.animation;
+                        current.previous_clip.clear();
+                        current.blend = 1;
+                        pose = sample_animation(data, &current);
+                    }
+                    if(!pose)
+                        pose = sample_animation(data, nullptr);
+                }
+                if(error != instance->animation_error) {
+                    if(!error.empty())
+                        LOG_ERROR("Animation for entity {}: {}", item.entity_id, error);
+                    instance->animation_error = std::move(error);
+                }
+                if(!pose)
+                    return Result<void, GraphicsError>::failure({pose.error()});
+                instance->palette->write(pose.value().matrices.data());
+                instance->pose_bounds = pose.value().bounds;
+                instance->playback = item.animation;
+            }
             const auto& ready = item.mesh->m_ready_completion;
             if(ready.is_valid() && !ready.is_complete())
                 merge_semaphore_wait(
@@ -172,8 +200,8 @@ namespace Comet {
                 vk::PipelineStageFlagBits::eVertexInput, {}, after, {}, {});
             frames.retain_current_frame_resource(instance);
             item.mesh = instance->output;
-            instance->output->m_local_bounds = pose.value().bounds;
-            const auto bounds = transform_box(pose.value().bounds, item.model_matrix);
+            instance->output->m_local_bounds = *instance->pose_bounds;
+            const auto bounds = transform_box(*instance->pose_bounds, item.model_matrix);
             if(!bounds)
                 return Result<void, GraphicsError>::failure({"Invalid skinned world bounds"});
             geometry.replace_skinned(index, item, *bounds);
