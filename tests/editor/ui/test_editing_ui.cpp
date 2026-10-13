@@ -52,6 +52,7 @@ namespace CometEditor::Tests {
         ImVec2 joint_reference_button{};
         ImVec2 text_point{};
         float inspector_width = 700;
+        float inspector_height = 500;
         bool draw_trailing_item = false;
         bool show_text_input = false;
         char text_buffer[32]{};
@@ -114,7 +115,7 @@ namespace CometEditor::Tests {
                 hierarchy->render();
             }
             ImGui::SetNextWindowPos(ImVec2(hierarchy ? 300 : 20, 40));
-            ImGui::SetNextWindowSize(ImVec2(inspector_width, 500));
+            ImGui::SetNextWindowSize(ImVec2(inspector_width, inspector_height));
             inspector->render();
             if(show_text_input) {
                 ImGui::Begin("Text input");
@@ -617,11 +618,98 @@ namespace CometEditor::Tests {
         state.mode = EditorMode::Play;
         entity.edit_component<SliderJointComponent>(
             [](auto& joint) { joint.connected_anchor = {}; });
+        frame();
         click(joint_anchor_button);
         EXPECT_LT(Math::length(entity.get_component<SliderJointComponent>().connected_anchor
                                - Math::Vec3(0, 0.25f, 0)),
             1e-5f);
         EXPECT_FALSE(history.can_undo());
+    }
+
+    TEST_F(EditingUiTest, JointModesShowRelevantControlsAndUseUndoAndPlayEditing) {
+        using namespace Comet;
+        ImGui::GetIO().DisplaySize.y = 1000;
+        inspector_height = 900;
+        auto builtin = create_property_editor_registry(assets);
+        std::vector<std::string> visible;
+        ImVec2 mode_point{};
+        for(const auto type : {PropertyType::Bool, PropertyType::Float, PropertyType::Enum})
+            ASSERT_TRUE(
+                widgets.register_editor(type, [&](const PropertyDescriptor& property, void* value) {
+                    visible.push_back(property.id);
+                    const auto result = builtin.edit_property(property, value);
+                    if(property.id == "motor_mode") {
+                        const auto start = ImGui::GetItemRectMin();
+                        mode_point = {start.x + 20, start.y + 8};
+                    }
+                    return result;
+                }));
+        for(const auto id : {"hinge_joint", "slider_joint"}) {
+            SCOPED_TRACE(id);
+            history.clear();
+            state.mode = EditorMode::Edit;
+            history.bind_scene(&scene);
+            const auto* descriptor = components.find_component(id);
+            ASSERT_NE(descriptor, nullptr);
+            ASSERT_TRUE(descriptor->add_component(entity));
+            ASSERT_TRUE(edit.apply({entity.get_uuid(), id, "motor_enabled"}, true));
+            visible.clear();
+            frame();
+            const auto shown = [&](std::string_view property) {
+                return std::find(visible.begin(), visible.end(), property) != visible.end();
+            };
+            EXPECT_TRUE(shown("motor_speed"));
+            EXPECT_FALSE(shown("motor_target"));
+            EXPECT_FALSE(shown("motor_frequency"));
+            EXPECT_FALSE(shown("limits_frequency"));
+            joint_reference_button = {};
+            click(mode_point);
+            frame();
+            const auto* popup = ImGui::FindWindowByName("##Combo_00");
+            ASSERT_NE(popup, nullptr);
+            ASSERT_TRUE(popup->Active);
+            click({popup->DC.CursorStartPos.x + 20, popup->DC.CursorStartPos.y
+                                                        + ImGui::GetTextLineHeightWithSpacing()
+                                                        + ImGui::GetTextLineHeight() * 0.5f});
+            visible.clear();
+            frame();
+            EXPECT_FALSE(shown("motor_speed"));
+            EXPECT_TRUE(shown("motor_target"));
+            EXPECT_TRUE(shown("motor_frequency"));
+            EXPECT_TRUE(shown("motor_damping"));
+            EXPECT_GT(joint_reference_button.x, 0);
+            EXPECT_EQ(history.undo_size(), 2u);
+            ASSERT_TRUE(history.undo());
+            visible.clear();
+            frame();
+            EXPECT_TRUE(shown("motor_speed"));
+            EXPECT_FALSE(shown("motor_target"));
+            ASSERT_TRUE(history.redo());
+            ASSERT_TRUE(edit.apply({entity.get_uuid(), id, "limits_enabled"}, true));
+            visible.clear();
+            frame();
+            EXPECT_TRUE(shown("limits_frequency"));
+            EXPECT_FALSE(shown("limits_damping"));
+            ASSERT_TRUE(edit.apply({entity.get_uuid(), id, "limits_frequency"}, 2.0f));
+            visible.clear();
+            frame();
+            EXPECT_TRUE(shown("limits_damping"));
+            history.bind_scene(nullptr);
+            state.mode = EditorMode::Play;
+            click(mode_point);
+            frame();
+            popup = ImGui::FindWindowByName("##Combo_00");
+            ASSERT_NE(popup, nullptr);
+            ASSERT_TRUE(popup->Active);
+            click({popup->DC.CursorStartPos.x + 20,
+                popup->DC.CursorStartPos.y + ImGui::GetTextLineHeight() * 0.5f});
+            visible.clear();
+            frame();
+            EXPECT_TRUE(shown("motor_speed"));
+            EXPECT_FALSE(shown("motor_target"));
+            EXPECT_FALSE(history.can_undo());
+            ASSERT_TRUE(descriptor->remove_component(entity));
+        }
     }
 
     TEST_F(EditingUiTest, WorldAnchorAlignmentUsesSimulationPoseInPlayAndDoesNotWriteHistory) {

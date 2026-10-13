@@ -6,6 +6,7 @@ namespace CometEditor {
     namespace {
         constexpr Comet::Math::Vec4 INVALID_COLOR{1, 0.2f, 0.2f, 1};
         constexpr Comet::Math::Vec4 DISABLED_COLOR{0.6f, 0.6f, 0.6f, 1};
+        constexpr Comet::Math::Vec4 TARGET_COLOR{0.4f, 1, 0.4f, 1};
 
         bool supported_collider_transform(const Comet::Entity entity,
             const Comet::ColliderComponent& collider, const Comet::TransformComponent& transform) {
@@ -63,15 +64,15 @@ namespace CometEditor {
                 static_cast<void>(lines.add_line(position - offset, position + offset, color));
             }
         }
-        void append_hinge_limits(Comet::LineDrawList& lines,
+        void append_hinge_controls(Comet::LineDrawList& lines,
             const Comet::HingeJointComponent& joint, const Comet::Math::Vec3 anchor,
             const Comet::Math::Mat4& pose, const Comet::Math::Vec4 reference_color,
-            const Comet::Math::Vec4 limit_color) {
+            const Comet::Math::Vec4 limit_color, const Comet::Math::Vec4 target_color) {
             using namespace Comet;
             const auto reference =
                 Math::perpendicular_direction(joint.connected_axis, joint.connected_reference_axis);
             const auto axis = Math::normalized_direction(joint.connected_axis);
-            if(!reference || !axis || !joint.has_valid_angle_range())
+            if(!reference || !axis)
                 return;
             const auto world_reference = Math::Vec3(pose * Math::Vec4(*reference, 0));
             const auto world_axis = Math::Vec3(pose * Math::Vec4(*axis, 0));
@@ -83,22 +84,31 @@ namespace CometEditor {
                        + (Math::angle_axis(Math::radians(degrees), world_axis) * world_reference)
                              * 0.16f;
             };
-            auto previous = position(joint.min_angle);
-            static_cast<void>(lines.add_line(anchor, previous, limit_color));
-            for(int segment = 1; segment <= SEGMENTS; ++segment) {
-                const float angle = glm::mix(
-                    joint.min_angle, joint.max_angle, static_cast<float>(segment) / SEGMENTS);
-                const auto next = position(angle);
-                static_cast<void>(lines.add_line(previous, next, limit_color));
-                previous = next;
+            if(joint.limits_enabled && joint.has_valid_angle_range()) {
+                auto previous = position(joint.min_angle);
+                static_cast<void>(lines.add_line(anchor, previous, limit_color));
+                for(int segment = 1; segment <= SEGMENTS; ++segment) {
+                    const float angle = glm::mix(
+                        joint.min_angle, joint.max_angle, static_cast<float>(segment) / SEGMENTS);
+                    const auto next = position(angle);
+                    static_cast<void>(lines.add_line(previous, next, limit_color));
+                    previous = next;
+                }
+                static_cast<void>(lines.add_line(anchor, previous, limit_color));
             }
-            static_cast<void>(lines.add_line(anchor, previous, limit_color));
+            if(joint.motor_enabled && joint.motor_mode == JointMotorMode::Position
+                && std::isfinite(joint.motor_target)) {
+                float target = joint.motor_target;
+                if(joint.limits_enabled && joint.has_valid_angle_range())
+                    target = glm::clamp(target, joint.min_angle, joint.max_angle);
+                static_cast<void>(lines.add_line(anchor, position(target), target_color));
+            }
         }
 
-        void append_slider_limits(Comet::LineDrawList& lines,
+        void append_slider_controls(Comet::LineDrawList& lines,
             const Comet::SliderJointComponent& joint, const Comet::Math::Vec3 anchor,
             const Comet::Math::Mat4& pose, const Comet::Math::Vec4 reference_color,
-            const Comet::Math::Vec4 limit_color) {
+            const Comet::Math::Vec4 limit_color, const Comet::Math::Vec4 target_color) {
             using namespace Comet;
             const auto reference =
                 Math::perpendicular_direction(joint.connected_axis, joint.connected_reference_axis);
@@ -107,15 +117,26 @@ namespace CometEditor {
             const auto normal = Math::Vec3(pose * Math::Vec4(*reference, 0));
             static_cast<void>(lines.add_line(anchor, anchor + normal * 0.14f, reference_color));
             const auto axis = Math::normalized_direction(joint.connected_axis);
-            if(!joint.limits_enabled || !joint.has_valid_distance_range() || !axis)
+            if(!axis)
                 return;
             const auto direction = Math::Vec3(pose * Math::Vec4(*axis, 0));
-            const auto minimum = anchor + direction * joint.min_distance;
-            const auto maximum = anchor + direction * joint.max_distance;
-            static_cast<void>(lines.add_line(minimum, maximum, limit_color));
-            for(const auto end : {minimum, maximum})
-                static_cast<void>(
-                    lines.add_line(end - normal * 0.04f, end + normal * 0.04f, limit_color));
+            if(joint.limits_enabled && joint.has_valid_distance_range()) {
+                const auto minimum = anchor + direction * joint.min_distance;
+                const auto maximum = anchor + direction * joint.max_distance;
+                static_cast<void>(lines.add_line(minimum, maximum, limit_color));
+                for(const auto end : {minimum, maximum})
+                    static_cast<void>(
+                        lines.add_line(end - normal * 0.04f, end + normal * 0.04f, limit_color));
+            }
+            if(joint.motor_enabled && joint.motor_mode == JointMotorMode::Position
+                && std::isfinite(joint.motor_target)) {
+                float target = joint.motor_target;
+                if(joint.limits_enabled && joint.has_valid_distance_range())
+                    target = glm::clamp(target, joint.min_distance, joint.max_distance);
+                const auto position = anchor + direction * target;
+                static_cast<void>(lines.add_line(
+                    position - normal * 0.04f, position + normal * 0.04f, target_color));
+            }
         }
 
         template<typename Joint>
@@ -137,7 +158,8 @@ namespace CometEditor {
                 if constexpr(!std::is_same_v<Joint, PointJointComponent>) {
                     supported &= Math::normalized_direction(joint.axis).has_value()
                                  && Math::normalized_direction(joint.connected_axis).has_value();
-                    if(std::is_same_v<Joint, SliderJointComponent> || joint.limits_enabled)
+                    if(std::is_same_v<Joint, SliderJointComponent> || joint.limits_enabled
+                        || (joint.motor_enabled && joint.motor_mode == JointMotorMode::Position))
                         supported &= Math::perpendicular_direction(joint.axis, joint.reference_axis)
                                          .has_value()
                                      && Math::perpendicular_direction(
@@ -153,10 +175,11 @@ namespace CometEditor {
                 Math::Vec4 first_color{1, 0.65f, 0.1f, 1};
                 Math::Vec4 second_color{0.1f, 0.9f, 0.9f, 1};
                 Math::Vec4 gap_color{1, 1, 0.2f, 1};
+                auto target_color = TARGET_COLOR;
                 if(!supported)
-                    first_color = second_color = gap_color = INVALID_COLOR;
+                    first_color = second_color = gap_color = target_color = INVALID_COLOR;
                 if(!joint.enabled)
-                    first_color = second_color = gap_color = DISABLED_COLOR;
+                    first_color = second_color = gap_color = target_color = DISABLED_COLOR;
                 append_joint_anchor(lines, first_anchor, first_color);
                 static_cast<void>(
                     lines.add_line(Math::Vec3(first_matrix[3]), first_anchor, first_color));
@@ -193,7 +216,8 @@ namespace CometEditor {
                         static_cast<void>(lines.add_line(second_anchor - direction * 0.18f,
                             second_anchor + direction * 0.18f, second_color));
                     }
-                    if(std::is_same_v<Joint, SliderJointComponent> || joint.limits_enabled) {
+                    if(std::is_same_v<Joint, SliderJointComponent> || joint.limits_enabled
+                        || (joint.motor_enabled && joint.motor_mode == JointMotorMode::Position)) {
                         const auto reference =
                             Math::perpendicular_direction(joint.axis, joint.reference_axis);
                         if(reference) {
@@ -206,11 +230,11 @@ namespace CometEditor {
                         if(connected)
                             second_pose = scene.get_render_transform(connected).pose_world_matrix;
                         if constexpr(std::is_same_v<Joint, HingeJointComponent>) {
-                            append_hinge_limits(
-                                lines, joint, second_anchor, second_pose, second_color, gap_color);
+                            append_hinge_controls(lines, joint, second_anchor, second_pose,
+                                second_color, gap_color, target_color);
                         } else
-                            append_slider_limits(
-                                lines, joint, second_anchor, second_pose, second_color, gap_color);
+                            append_slider_controls(lines, joint, second_anchor, second_pose,
+                                second_color, gap_color, target_color);
                     }
                 }
                 if(first_anchor != second_anchor)

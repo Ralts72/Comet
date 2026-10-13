@@ -353,7 +353,10 @@
           "connected_axis": [0, 0, 1],
           "limits_enabled": true,
           "min_angle": -60,
-          "max_angle": 60
+          "max_angle": 60,
+          "motor_enabled": true,
+          "motor_mode": "position",
+          "motor_target": 0
         }
       }
     },

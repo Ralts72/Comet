@@ -349,6 +349,86 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(arc().empty());
     }
 
+    TEST(PhysicsOverlayTest, PositionTargetsUseConnectedFrameClampToLimitsAndRespectDisabledColor) {
+        const auto check = []<typename Joint>() {
+            Scene scene;
+            auto actor = scene.create_entity();
+            actor.add_component<RigidBodyComponent>();
+            actor.add_component<ColliderComponent>();
+            auto target = scene.create_entity();
+            target.add_component<RigidBodyComponent>(
+                RigidBodyComponent{.motion = BodyMotion::Static});
+            target.add_component<ColliderComponent>();
+            target.edit_transform([](auto& pose) {
+                pose.translation = {2, 3, 4};
+                pose.rotation.z = 90;
+                pose.scale = {3, 4, 5};
+            });
+            Joint settings;
+            settings.connected_body = target.get_uuid();
+            settings.motor_enabled = true;
+            settings.motor_mode = JointMotorMode::Position;
+            if constexpr(std::is_same_v<Joint, HingeJointComponent>) {
+                settings.motor_target = 30;
+                settings.min_angle = -15;
+                settings.max_angle = 20;
+            } else {
+                settings.motor_target = 0.4f;
+                settings.min_distance = -0.2f;
+                settings.max_distance = 0.25f;
+            }
+            actor.add_component<Joint>(settings);
+            const auto marker_center = [&] {
+                LineDrawList lines;
+                append_joint_anchors(scene, lines);
+                std::vector<Math::Vec3> marker;
+                for(const auto& vertex : lines.vertices()) {
+                    EXPECT_TRUE(Math::is_finite(vertex.position));
+                    if(vertex.color == Math::Vec4(0.4f, 1, 0.4f, 1))
+                        marker.push_back(vertex.position);
+                }
+                EXPECT_EQ(marker.size(), 2u);
+                if(marker.size() != 2)
+                    return Math::Vec3{};
+                if constexpr(std::is_same_v<Joint, HingeJointComponent>)
+                    return marker.back();
+                return (marker.front() + marker.back()) * 0.5f;
+            };
+            const auto expected = [](float target_value) {
+                if constexpr(std::is_same_v<Joint, HingeJointComponent>)
+                    return Math::Vec3(2, 3, 4)
+                           + Math::Vec3(-std::sin(Math::radians(target_value)),
+                                 std::cos(Math::radians(target_value)), 0)
+                                 * 0.16f;
+                return Math::Vec3(2 - target_value, 3, 4);
+            };
+            EXPECT_LT(Math::length(marker_center() - expected(settings.motor_target)), 1e-5f);
+            settings.limits_enabled = true;
+            ASSERT_TRUE(actor.try_set_component(settings));
+            float maximum;
+            if constexpr(std::is_same_v<Joint, HingeJointComponent>)
+                maximum = settings.max_angle;
+            else
+                maximum = settings.max_distance;
+            EXPECT_LT(Math::length(marker_center() - expected(maximum)), 1e-5f);
+            actor.edit_component<Joint>([](auto& joint) { joint.enabled = false; });
+            LineDrawList lines;
+            append_joint_anchors(scene, lines);
+            for(const auto& vertex : lines.vertices())
+                EXPECT_EQ(vertex.color, Math::Vec4(0.6f, 0.6f, 0.6f, 1));
+            actor.edit_component<Joint>([](auto& joint) {
+                joint.enabled = true;
+                joint.reference_axis = joint.axis;
+            });
+            lines.clear();
+            append_joint_anchors(scene, lines);
+            for(const auto& vertex : lines.vertices())
+                EXPECT_EQ(vertex.color, Math::Vec4(1, 0.2f, 0.2f, 1));
+        };
+        check.template operator()<HingeJointComponent>();
+        check.template operator()<SliderJointComponent>();
+    }
+
     TEST(PhysicsOverlayTest, HingeAxisPreviewUsesInterpolatedRotation) {
         class Rotate final: public System {
         public:

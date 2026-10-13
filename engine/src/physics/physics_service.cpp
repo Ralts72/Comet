@@ -211,7 +211,8 @@ namespace Comet {
                     || !Math::normalized_direction(settings.connected_axis))
                     return fail("axes must be finite and nonzero");
                 const bool needs_reference =
-                    std::is_same_v<Settings, SliderJointComponent> || settings.limits_enabled;
+                    std::is_same_v<Settings, SliderJointComponent> || settings.limits_enabled
+                    || (settings.motor_enabled && settings.motor_mode == JointMotorMode::Position);
                 if(needs_reference
                     && (!Math::perpendicular_direction(settings.axis, settings.reference_axis)
                         || !Math::perpendicular_direction(
@@ -224,22 +225,48 @@ namespace Comet {
                     if(settings.limits_enabled && !settings.has_valid_distance_range())
                         return fail("limits must span zero with finite distances");
                 }
+                if(settings.limits_enabled) {
+                    if(!std::isfinite(settings.limits_frequency) || settings.limits_frequency < 0)
+                        return fail("limit frequency must be finite and nonnegative");
+                    if(settings.limits_frequency > 0
+                        && (!std::isfinite(settings.limits_damping) || settings.limits_damping < 0))
+                        return fail("limit damping must be finite and nonnegative");
+                }
                 if(settings.motor_enabled) {
                     float capacity;
                     if constexpr(std::is_same_v<Settings, HingeJointComponent>)
                         capacity = settings.motor_max_torque;
                     else
                         capacity = settings.motor_max_force;
-                    if(!std::isfinite(settings.motor_speed) || !std::isfinite(capacity)
-                        || capacity < 0)
-                        return fail("motor speed and nonnegative capacity must be finite");
+                    if(!std::isfinite(capacity) || capacity < 0)
+                        return fail("motor capacity must be finite and nonnegative");
+                    switch(settings.motor_mode) {
+                        case JointMotorMode::Velocity:
+                            if(!std::isfinite(settings.motor_speed))
+                                return fail("motor speed must be finite");
+                            break;
+                        case JointMotorMode::Position:
+                            if(!std::isfinite(settings.motor_target)
+                                || !std::isfinite(settings.motor_frequency)
+                                || settings.motor_frequency < 0.001f
+                                || !std::isfinite(settings.motor_damping)
+                                || settings.motor_damping < 0)
+                                return fail(
+                                    "position motor requires finite target, positive frequency and nonnegative damping");
+                            if constexpr(std::is_same_v<Settings, HingeJointComponent>)
+                                if(settings.motor_target < -180 || settings.motor_target > 180)
+                                    return fail("motor target angle must be within [-180, 180]");
+                            break;
+                        default:
+                            return fail("unknown motor mode");
+                    }
                 }
             }
             return Result<void, Error>::success();
         }
 
         template<typename Settings, typename Native>
-        void configure_joint_frame(const Settings& settings, Native& native) {
+        void configure_axis_joint(const Settings& settings, Native& native) {
             const auto first = *Math::normalized_direction(settings.axis);
             const auto second = *Math::normalized_direction(settings.connected_axis);
             const JPH::Vec3 first_axis{first.x, first.y, first.z};
@@ -253,13 +280,39 @@ namespace Comet {
             }
             native.mNormalAxis1 = first_axis.GetNormalizedPerpendicular();
             native.mNormalAxis2 = second_axis.GetNormalizedPerpendicular();
-            if(std::is_same_v<Settings, SliderJointComponent> || settings.limits_enabled) {
+            if(std::is_same_v<Settings, SliderJointComponent> || settings.limits_enabled
+                || (settings.motor_enabled && settings.motor_mode == JointMotorMode::Position)) {
                 const auto first_reference =
                     *Math::perpendicular_direction(settings.axis, settings.reference_axis);
                 const auto second_reference = *Math::perpendicular_direction(
                     settings.connected_axis, settings.connected_reference_axis);
                 native.mNormalAxis1 = {first_reference.x, first_reference.y, first_reference.z};
                 native.mNormalAxis2 = {second_reference.x, second_reference.y, second_reference.z};
+            }
+            if(settings.limits_enabled && settings.limits_frequency > 0)
+                native.mLimitsSpringSettings = {JPH::ESpringMode::FrequencyAndDamping,
+                    settings.limits_frequency, settings.limits_damping};
+            if(settings.motor_enabled && settings.motor_mode == JointMotorMode::Position)
+                native.mMotorSettings.mSpringSettings = {JPH::ESpringMode::FrequencyAndDamping,
+                    settings.motor_frequency, settings.motor_damping};
+        }
+
+        template<typename Settings, typename Native>
+        void configure_joint_motor(const Settings& settings, Native& native) {
+            if(!settings.motor_enabled)
+                return;
+            if(settings.motor_mode == JointMotorMode::Velocity) {
+                if constexpr(std::is_same_v<Settings, HingeJointComponent>)
+                    native.SetTargetAngularVelocity(-Math::radians(settings.motor_speed));
+                else
+                    native.SetTargetVelocity(-settings.motor_speed);
+                native.SetMotorState(JPH::EMotorState::Velocity);
+            } else {
+                if constexpr(std::is_same_v<Settings, HingeJointComponent>)
+                    native.SetTargetAngle(-Math::radians(settings.motor_target));
+                else
+                    native.SetTargetPosition(-settings.motor_target);
+                native.SetMotorState(JPH::EMotorState::Position);
             }
         }
 
@@ -470,7 +523,7 @@ namespace Comet {
                 };
                 if constexpr(std::is_same_v<Settings, HingeJointComponent>) {
                     JPH::HingeConstraintSettings native;
-                    configure_joint_frame(settings, native);
+                    configure_axis_joint(settings, native);
                     if(settings.limits_enabled) {
                         // Jolt 计算连接端相对本端的角度，与内容语义符号相反。
                         native.mLimitsMin = -Math::radians(settings.max_angle);
@@ -479,14 +532,11 @@ namespace Comet {
                     if(settings.motor_enabled)
                         native.mMotorSettings.SetTorqueLimit(settings.motor_max_torque);
                     create(native);
-                    if(settings.motor_enabled) {
-                        auto& hinge = static_cast<JPH::HingeConstraint&>(*constraint.GetPtr());
-                        hinge.SetTargetAngularVelocity(-Math::radians(settings.motor_speed));
-                        hinge.SetMotorState(JPH::EMotorState::Velocity);
-                    }
+                    configure_joint_motor(
+                        settings, static_cast<JPH::HingeConstraint&>(*constraint.GetPtr()));
                 } else if constexpr(std::is_same_v<Settings, SliderJointComponent>) {
                     JPH::SliderConstraintSettings native;
-                    configure_joint_frame(settings, native);
+                    configure_axis_joint(settings, native);
                     if(settings.limits_enabled) {
                         // Jolt 位移为连接锚点减本端锚点，与内容语义符号相反。
                         native.mLimitsMin = -settings.max_distance;
@@ -495,11 +545,8 @@ namespace Comet {
                     if(settings.motor_enabled)
                         native.mMotorSettings.SetForceLimit(settings.motor_max_force);
                     create(native);
-                    if(settings.motor_enabled) {
-                        auto& slider = static_cast<JPH::SliderConstraint&>(*constraint.GetPtr());
-                        slider.SetTargetVelocity(-settings.motor_speed);
-                        slider.SetMotorState(JPH::EMotorState::Velocity);
-                    }
+                    configure_joint_motor(
+                        settings, static_cast<JPH::SliderConstraint&>(*constraint.GetPtr()));
                 } else {
                     JPH::PointConstraintSettings native;
                     create(native);

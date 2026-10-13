@@ -222,9 +222,15 @@ namespace Comet::Tests {
             .connected_reference_axis = {1, 0, 0},
             .min_angle = -30,
             .max_angle = 60,
+            .limits_frequency = 3,
+            .limits_damping = 0.5f,
             .motor_enabled = true,
+            .motor_mode = JointMotorMode::Position,
+            .motor_target = -15,
             .motor_speed = -120,
-            .motor_max_torque = 2.5f};
+            .motor_max_torque = 2.5f,
+            .motor_frequency = 4,
+            .motor_damping = 0.7f};
         actor.add_component<HingeJointComponent>(hinge);
         const SliderJointComponent slider{.enabled = false,
             .connected_body = target.get_uuid(),
@@ -237,9 +243,15 @@ namespace Comet::Tests {
             .limits_enabled = true,
             .min_distance = -0.25f,
             .max_distance = 1.25f,
+            .limits_frequency = 5,
+            .limits_damping = 0.8f,
             .motor_enabled = true,
+            .motor_mode = JointMotorMode::Position,
+            .motor_target = 0.5f,
             .motor_speed = -2,
-            .motor_max_force = 30};
+            .motor_max_force = 30,
+            .motor_frequency = 6,
+            .motor_damping = 1.2f};
         actor.add_component<SliderJointComponent>(slider);
         TemporaryDirectory directory;
         const auto path = (directory.path() / "joint.scene").string();
@@ -321,8 +333,11 @@ namespace Comet::Tests {
         ASSERT_TRUE(loaded) << loaded.error();
         auto actor = loaded.value()->get_entities().front();
         EXPECT_EQ(actor.get_component<HingeJointComponent>(), HingeJointComponent{});
-        for(const auto& [key, value] : {std::pair{"min_angle", 1.0f},
-                std::pair{"max_angle", 181.0f}, std::pair{"motor_max_torque", -1.0f}}) {
+        for(const auto& [key, value] :
+            {std::pair{"min_angle", 1.0f}, std::pair{"max_angle", 181.0f},
+                std::pair{"motor_max_torque", -1.0f}, std::pair{"motor_target", 181.0f},
+                std::pair{"motor_frequency", 0.0f}, std::pair{"motor_damping", -1.0f},
+                std::pair{"limits_frequency", -1.0f}, std::pair{"limits_damping", -1.0f}}) {
             auto modified = legacy;
             const auto position = modified.find("\"enabled\":true,");
             ASSERT_NE(position, std::string::npos);
@@ -331,7 +346,10 @@ namespace Comet::Tests {
             EXPECT_FALSE(serializer.deserialize(modified));
         }
         for(const auto member : {&HingeJointComponent::min_angle, &HingeJointComponent::max_angle,
-                &HingeJointComponent::motor_speed, &HingeJointComponent::motor_max_torque}) {
+                &HingeJointComponent::motor_speed, &HingeJointComponent::motor_max_torque,
+                &HingeJointComponent::motor_target, &HingeJointComponent::motor_frequency,
+                &HingeJointComponent::motor_damping, &HingeJointComponent::limits_frequency,
+                &HingeJointComponent::limits_damping}) {
             auto invalid = HingeJointComponent{};
             invalid.*member = std::numeric_limits<float>::infinity();
             ASSERT_TRUE(actor.try_set_component(invalid));
@@ -352,7 +370,9 @@ namespace Comet::Tests {
         auto actor = loaded.value()->get_entities().front();
         EXPECT_EQ(actor.get_component<SliderJointComponent>(), SliderJointComponent{});
         for(const auto& [key, value] : {std::pair{"min_distance", 1.0f},
-                std::pair{"max_distance", -1.0f}, std::pair{"motor_max_force", -1.0f}}) {
+                std::pair{"max_distance", -1.0f}, std::pair{"motor_max_force", -1.0f},
+                std::pair{"motor_frequency", 0.0f}, std::pair{"motor_damping", -1.0f},
+                std::pair{"limits_frequency", -1.0f}, std::pair{"limits_damping", -1.0f}}) {
             auto modified = json;
             const auto position = modified.find("\"enabled\":true,");
             ASSERT_NE(position, std::string::npos);
@@ -360,9 +380,11 @@ namespace Comet::Tests {
                 position, std::string("\"") + key + "\":" + std::to_string(value) + ",");
             EXPECT_FALSE(serializer.deserialize(modified));
         }
-        for(const auto member :
-            {&SliderJointComponent::min_distance, &SliderJointComponent::max_distance,
-                &SliderJointComponent::motor_speed, &SliderJointComponent::motor_max_force}) {
+        for(const auto member : {&SliderJointComponent::min_distance,
+                &SliderJointComponent::max_distance, &SliderJointComponent::motor_speed,
+                &SliderJointComponent::motor_max_force, &SliderJointComponent::motor_target,
+                &SliderJointComponent::motor_frequency, &SliderJointComponent::motor_damping,
+                &SliderJointComponent::limits_frequency, &SliderJointComponent::limits_damping}) {
             auto invalid = SliderJointComponent{};
             invalid.*member = std::numeric_limits<float>::infinity();
             ASSERT_TRUE(actor.try_set_component(invalid));
@@ -376,6 +398,35 @@ namespace Comet::Tests {
             (invalid.*member).x = std::numeric_limits<float>::infinity();
             ASSERT_TRUE(actor.try_set_component(invalid));
             EXPECT_FALSE(serializer.serialize(*loaded.value()));
+        }
+    }
+
+    TEST(SceneSerializerTest, JointMotorModesRejectUnknownIdsOnLoadAndSave) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        Scene scene;
+        auto actor = scene.create_entity();
+        for(const auto id : {"hinge_joint", "slider_joint"}) {
+            SCOPED_TRACE(id);
+            const auto* descriptor = registry.find_component(id);
+            ASSERT_NE(descriptor, nullptr);
+            ASSERT_TRUE(descriptor->add_component(actor));
+            auto serialized = serializer.serialize(scene);
+            ASSERT_TRUE(serialized) << serialized.error();
+            const std::string field = R"("motor_mode": "velocity")";
+            auto invalid = serialized.value();
+            const auto position = invalid.find(field);
+            ASSERT_NE(position, std::string::npos);
+            invalid.replace(position, field.size(), R"("motor_mode": "unknown")");
+            EXPECT_FALSE(serializer.deserialize(invalid));
+            if(actor.has_component<HingeJointComponent>())
+                actor.edit_component<HingeJointComponent>(
+                    [](auto& joint) { joint.motor_mode = static_cast<JointMotorMode>(99); });
+            else
+                actor.edit_component<SliderJointComponent>(
+                    [](auto& joint) { joint.motor_mode = static_cast<JointMotorMode>(99); });
+            EXPECT_FALSE(serializer.serialize(scene));
+            ASSERT_TRUE(descriptor->remove_component(actor));
         }
     }
 

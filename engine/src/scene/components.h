@@ -161,6 +161,8 @@ namespace Comet {
         bool operator==(const PointJointComponent&) const = default;
     };
 
+    enum class JointMotorMode { Velocity, Position };
+
     struct COMET_API HingeJointComponent {
         bool enabled = true;
         EntityUuid connected_body;
@@ -177,9 +179,15 @@ namespace Comet {
         // 本端相对连接端绕转轴的有符号角度，范围须包含零且宽度非零。
         float min_angle = -45;
         float max_angle = 45;
+        float limits_frequency = 0; // Hz，0 为硬限位，正值为弹性限位。
+        float limits_damping = 1;   // 阻尼比，1 为临界阻尼。
         bool motor_enabled = false;
+        JointMotorMode motor_mode = JointMotorMode::Velocity;
+        float motor_target = 0;      // 度，位置驱动目标；超出限位时夹到范围内。
         float motor_speed = 90;      // 度/秒，正值遵循本端转轴的右手方向。
         float motor_max_torque = 10; // N·m，0 表示不施加驱动力矩。
+        float motor_frequency = 2;   // Hz，位置驱动的弹簧频率，最小 0.001。
+        float motor_damping = 1;
         [[nodiscard]] bool has_valid_angle_range() const {
             return std::isfinite(min_angle) && std::isfinite(max_angle) && min_angle >= -180
                    && min_angle <= 0 && max_angle >= 0 && max_angle <= 180 && min_angle < max_angle;
@@ -201,9 +209,15 @@ namespace Comet {
         bool limits_enabled = false;
         float min_distance = -0.5f; // 米，本端锚点相对连接锚点沿滑动轴的位移。
         float max_distance = 0.5f;
+        float limits_frequency = 0; // Hz，0 为硬限位，正值为弹性限位。
+        float limits_damping = 1;
         bool motor_enabled = false;
+        JointMotorMode motor_mode = JointMotorMode::Velocity;
+        float motor_target = 0;     // 米，位置驱动目标；超出限位时夹到范围内。
         float motor_speed = 0.5f;   // m/s，本端相对连接端，正值沿本地滑动轴。
         float motor_max_force = 20; // N，0 表示不施加驱动力。
+        float motor_frequency = 2;  // Hz，位置驱动的弹簧频率，最小 0.001。
+        float motor_damping = 1;
         [[nodiscard]] bool has_valid_distance_range() const {
             return std::isfinite(min_distance) && std::isfinite(max_distance) && min_distance <= 0
                    && max_distance >= 0 && min_distance < max_distance;

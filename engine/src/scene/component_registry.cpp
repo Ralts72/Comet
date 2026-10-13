@@ -27,6 +27,36 @@ namespace Comet {
                 "connected_axis", "Connected Axis", &Joint::connected_axis));
             return properties;
         }
+
+        template<typename Joint>
+        void append_joint_controls(std::vector<PropertyDescriptor>& properties,
+            PropertyDescriptor target, PropertyDescriptor speed, PropertyDescriptor capacity) {
+            properties.insert(properties.end(),
+                {make_property_descriptor("limits_frequency", "Limit Frequency (Hz)",
+                     &Joint::limits_frequency,
+                     {.required = false,
+                         .numeric = {.speed = 0.1f, .minimum = 0, .enforce_bounds = true}}),
+                    make_property_descriptor("limits_damping", "Limit Damping Ratio",
+                        &Joint::limits_damping,
+                        {.required = false,
+                            .numeric = {.speed = 0.05f, .minimum = 0, .enforce_bounds = true}}),
+                    make_property_descriptor("motor_enabled", "Motor Enabled",
+                        &Joint::motor_enabled, {.required = false}),
+                    make_enum_property_descriptor<Joint, JointMotorMode>("motor_mode", "Motor Mode",
+                        &Joint::motor_mode,
+                        {{JointMotorMode::Velocity, {"velocity", "Velocity"}},
+                            {JointMotorMode::Position, {"position", "Position"}}},
+                        {.required = false}),
+                    std::move(target), std::move(speed), std::move(capacity),
+                    make_property_descriptor("motor_frequency", "Motor Frequency (Hz)",
+                        &Joint::motor_frequency,
+                        {.required = false,
+                            .numeric = {.speed = 0.1f, .minimum = 0.001f, .enforce_bounds = true}}),
+                    make_property_descriptor("motor_damping", "Motor Damping Ratio",
+                        &Joint::motor_damping,
+                        {.required = false,
+                            .numeric = {.speed = 0.05f, .minimum = 0, .enforce_bounds = true}})});
+        }
     }
 
     bool ComponentDescriptor::assign_property(Entity entity, std::string_view property_id,
@@ -300,17 +330,20 @@ namespace Comet {
                 make_property_descriptor("max_angle", "Maximum Angle",
                     &HingeJointComponent::max_angle,
                     {.required = false,
-                        .numeric =
-                            {.speed = 1, .minimum = 0, .maximum = 180, .enforce_bounds = true}}),
-                make_property_descriptor("motor_enabled", "Velocity Motor",
-                    &HingeJointComponent::motor_enabled, {.required = false}),
-                make_property_descriptor("motor_speed", "Target Speed",
-                    &HingeJointComponent::motor_speed,
-                    {.required = false, .numeric = {.speed = 1}}),
-                make_property_descriptor("motor_max_torque", "Maximum Torque",
-                    &HingeJointComponent::motor_max_torque,
-                    {.required = false,
-                        .numeric = {.speed = 0.1f, .minimum = 0, .enforce_bounds = true}})});
+                        .numeric = {
+                            .speed = 1, .minimum = 0, .maximum = 180, .enforce_bounds = true}})});
+        append_joint_controls<HingeJointComponent>(hinge_properties,
+            make_property_descriptor("motor_target", "Target Angle",
+                &HingeJointComponent::motor_target,
+                {.required = false,
+                    .numeric =
+                        {.speed = 1, .minimum = -180, .maximum = 180, .enforce_bounds = true}}),
+            make_property_descriptor("motor_speed", "Target Speed",
+                &HingeJointComponent::motor_speed, {.required = false, .numeric = {.speed = 1}}),
+            make_property_descriptor("motor_max_torque", "Maximum Torque",
+                &HingeJointComponent::motor_max_torque,
+                {.required = false,
+                    .numeric = {.speed = 0.1f, .minimum = 0, .enforce_bounds = true}}));
         register_component(make_component_descriptor<HingeJointComponent>(
             "hinge_joint", "Hinge Joint", std::move(hinge_properties)));
 
@@ -329,16 +362,18 @@ namespace Comet {
                 make_property_descriptor("max_distance", "Maximum Distance",
                     &SliderJointComponent::max_distance,
                     {.required = false,
-                        .numeric = {.speed = 0.01f, .minimum = 0, .enforce_bounds = true}}),
-                make_property_descriptor("motor_enabled", "Velocity Motor",
-                    &SliderJointComponent::motor_enabled, {.required = false}),
-                make_property_descriptor("motor_speed", "Target Speed",
-                    &SliderJointComponent::motor_speed,
-                    {.required = false, .numeric = {.speed = 0.01f}}),
-                make_property_descriptor("motor_max_force", "Maximum Force",
-                    &SliderJointComponent::motor_max_force,
-                    {.required = false,
-                        .numeric = {.speed = 0.1f, .minimum = 0, .enforce_bounds = true}})});
+                        .numeric = {.speed = 0.01f, .minimum = 0, .enforce_bounds = true}})});
+        append_joint_controls<SliderJointComponent>(slider_properties,
+            make_property_descriptor("motor_target", "Target Distance",
+                &SliderJointComponent::motor_target,
+                {.required = false, .numeric = {.speed = 0.01f}}),
+            make_property_descriptor("motor_speed", "Target Speed",
+                &SliderJointComponent::motor_speed,
+                {.required = false, .numeric = {.speed = 0.01f}}),
+            make_property_descriptor("motor_max_force", "Maximum Force",
+                &SliderJointComponent::motor_max_force,
+                {.required = false,
+                    .numeric = {.speed = 0.1f, .minimum = 0, .enforce_bounds = true}}));
         register_component(make_component_descriptor<SliderJointComponent>(
             "slider_joint", "Slider Joint", std::move(slider_properties)));
 

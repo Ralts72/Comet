@@ -36,6 +36,284 @@ namespace Comet::Tests {
     class HingeJointTest: public PhysicsJointTest {};
     class SliderJointTest: public PhysicsJointTest {};
 
+    template<typename Joint> class JointControlTest: public PhysicsJointTest {
+    protected:
+        Entity actor;
+        void SetUp() override {
+            PhysicsJointTest::SetUp();
+            actor = body("Actor", BodyMotion::Dynamic, {0, 5, 0});
+            Joint settings;
+            settings.connected_anchor = {0, 5, 0};
+            settings.motor_enabled = true;
+            settings.motor_mode = JointMotorMode::Position;
+            if constexpr(std::is_same_v<Joint, HingeJointComponent>) {
+                actor.edit_transform([](auto& value) { value.rotation.z = 90; });
+                settings.reference_axis = {1, 0, 1};
+                settings.connected_reference_axis = {0, 1, 0};
+            } else {
+                settings.axis = settings.connected_axis = {1, 0, 0};
+                settings.reference_axis = settings.connected_reference_axis = {0, 1, 0};
+            }
+            actor.add_component<Joint>(settings);
+        }
+        static float amount(float angle, float distance) {
+            if constexpr(std::is_same_v<Joint, HingeJointComponent>)
+                return angle;
+            return distance;
+        }
+        float value() const {
+            const auto& pose = actor.get_component<TransformComponent>();
+            if constexpr(std::is_same_v<Joint, HingeJointComponent>)
+                return Math::wrap_degrees(pose.rotation.z - 90);
+            return pose.translation.x;
+        }
+        float speed() const {
+            const auto velocity = *physics.get_velocity(actor);
+            if constexpr(std::is_same_v<Joint, HingeJointComponent>)
+                return velocity.angular.z * Math::RAD_TO_DEG;
+            return velocity.linear.x;
+        }
+        Joint joint() const { return actor.get_component<Joint>(); }
+        void capacity(float maximum) {
+            actor.edit_component<Joint>([&](auto& settings) {
+                if constexpr(std::is_same_v<Joint, HingeJointComponent>)
+                    settings.motor_max_torque = maximum;
+                else
+                    settings.motor_max_force = maximum;
+            });
+        }
+        void limits(Joint& settings, float minimum, float maximum) {
+            settings.limits_enabled = true;
+            if constexpr(std::is_same_v<Joint, HingeJointComponent>) {
+                settings.min_angle = minimum;
+                settings.max_angle = maximum;
+            } else {
+                settings.min_distance = minimum;
+                settings.max_distance = maximum;
+            }
+        }
+    };
+    using JointControlTypes = ::testing::Types<HingeJointComponent, SliderJointComponent>;
+    TYPED_TEST_SUITE(JointControlTest, JointControlTypes);
+
+    TYPED_TEST(JointControlTest, PositionUsesSavedZeroForBothSignsAndAfterBodyRebuild) {
+        auto settings = this->joint();
+        settings.motor_target = this->amount(40, 0.6f);
+        ASSERT_TRUE(this->actor.try_set_component(settings));
+        ASSERT_TRUE(this->runtime.start(this->scene));
+        for(int i = 0; i < 160; ++i)
+            ASSERT_TRUE(this->runtime.advance(0.01));
+        EXPECT_NEAR(this->value(), settings.motor_target, this->amount(0.2f, 0.005f));
+        settings.motor_target = this->amount(-25, -0.3f);
+        ASSERT_TRUE(this->actor.try_set_component(settings));
+        this->actor.template edit_component<ColliderComponent>(
+            [](auto& collider) { collider.half_extents.x = 0.7f; });
+        for(int i = 0; i < 160; ++i)
+            ASSERT_TRUE(this->runtime.advance(0.01));
+        EXPECT_NEAR(this->value(), settings.motor_target, this->amount(0.2f, 0.005f));
+        EXPECT_NEAR(this->speed(), 0, this->amount(0.1f, 0.001f));
+        EXPECT_EQ(this->physics.get_statistics().joints, 1u);
+    }
+
+    TYPED_TEST(JointControlTest, PositionTargetsRelativePoseFromEitherDynamicEnd) {
+        auto connected = this->body("Connected", BodyMotion::Dynamic, {0, 5, 0});
+        // 共用质心锚点，触发器避免碰撞响应干扰驱动方向检查。
+        connected.template edit_component<ColliderComponent>(
+            [](auto& collider) { collider.is_trigger = true; });
+        for(const auto& [motion, connected_motion] :
+            {std::pair{BodyMotion::Dynamic, BodyMotion::Dynamic},
+                std::pair{BodyMotion::Dynamic, BodyMotion::Static},
+                std::pair{BodyMotion::Static, BodyMotion::Dynamic}}) {
+            SCOPED_TRACE(static_cast<int>(motion));
+            SCOPED_TRACE(static_cast<int>(connected_motion));
+            this->actor.template edit_component<RigidBodyComponent>(
+                [&](auto& body) { body.motion = motion; });
+            connected.template edit_component<RigidBodyComponent>(
+                [&](auto& body) { body.motion = connected_motion; });
+            this->actor.edit_transform([](auto& pose) {
+                pose.translation = {0, 5, 0};
+                pose.rotation = {};
+                if constexpr(std::is_same_v<TypeParam, HingeJointComponent>)
+                    pose.rotation.z = 90;
+            });
+            connected.edit_transform([](auto& pose) {
+                pose.translation = {0, 5, 0};
+                pose.rotation = {};
+            });
+            auto settings = this->joint();
+            settings.connected_body = connected.get_uuid();
+            settings.connected_anchor = {};
+            settings.motor_target = this->amount(35, 0.5f);
+            ASSERT_TRUE(this->actor.try_set_component(settings));
+            ASSERT_TRUE(this->runtime.start(this->scene));
+            const auto relative = [&] {
+                const auto& pose = connected.template get_component<TransformComponent>();
+                if constexpr(std::is_same_v<TypeParam, HingeJointComponent>)
+                    return Math::wrap_degrees(this->value() - pose.rotation.z);
+                const auto& owner_pose = this->actor.template get_component<TransformComponent>();
+                // 双动态连接可整体旋转，行程沿本端当前轴计算。
+                const auto rotation =
+                    Math::compose_trs(Math::Vec3(0), owner_pose.rotation, Math::Vec3(1));
+                const auto axis = Math::Vec3(rotation * Math::Vec4(settings.axis, 0));
+                return Math::dot(owner_pose.translation - pose.translation, axis);
+            };
+            for(int i = 0; i < 160; ++i)
+                ASSERT_TRUE(this->runtime.advance(0.01));
+            EXPECT_NEAR(relative(), settings.motor_target, this->amount(0.2f, 0.005f));
+            settings.motor_target = this->amount(-20, -0.2f);
+            ASSERT_TRUE(this->actor.try_set_component(settings));
+            // 重建会重置该端速度；固定一端后检查基准，避免自由落体中引入旋转载荷。
+            if(motion == BodyMotion::Static || connected_motion == BodyMotion::Static)
+                connected.template edit_component<ColliderComponent>(
+                    [](auto& collider) { collider.half_extents.x += 0.1f; });
+            for(int i = 0; i < 160; ++i)
+                ASSERT_TRUE(this->runtime.advance(0.01));
+            EXPECT_NEAR(relative(), settings.motor_target, this->amount(0.2f, 0.005f));
+            EXPECT_EQ(this->physics.get_statistics().joints, 1u);
+            ASSERT_TRUE(this->runtime.stop());
+        }
+    }
+
+    TYPED_TEST(JointControlTest, PositionClampsTargetAndRespectsMaximumForceOrTorque) {
+        auto settings = this->joint();
+        this->limits(settings, this->amount(-20, -0.2f), this->amount(45, 0.45f));
+        settings.motor_target = this->amount(100, 2);
+        ASSERT_TRUE(this->actor.try_set_component(settings));
+        this->capacity(0);
+        ASSERT_TRUE(this->runtime.start(this->scene));
+        ASSERT_TRUE(this->runtime.advance(0.05));
+        EXPECT_NEAR(this->value(), 0, this->amount(1e-4f, 1e-5f));
+        this->capacity(0.1f);
+        ASSERT_TRUE(this->runtime.advance(0.01));
+        EXPECT_GT(this->speed(), 0);
+        EXPECT_LT(this->speed(), this->amount(0.5f, 0.002f));
+        this->capacity(10);
+        for(int i = 0; i < 160; ++i)
+            ASSERT_TRUE(this->runtime.advance(0.01));
+        EXPECT_NEAR(this->value(), this->amount(45, 0.45f), this->amount(0.2f, 0.005f));
+        settings = this->joint();
+        settings.motor_target = this->amount(-100, -2);
+        ASSERT_TRUE(this->actor.try_set_component(settings));
+        for(int i = 0; i < 160; ++i)
+            ASSERT_TRUE(this->runtime.advance(0.01));
+        EXPECT_NEAR(this->value(), this->amount(-20, -0.2f), this->amount(0.2f, 0.005f));
+    }
+
+    TYPED_TEST(JointControlTest, ModeChangeWaitsForSingleStepAndKeepsReferenceFrame) {
+        auto settings = this->joint();
+        settings.motor_mode = JointMotorMode::Velocity;
+        settings.motor_speed = this->amount(20, 0.2f);
+        ASSERT_TRUE(this->actor.try_set_component(settings));
+        ASSERT_TRUE(this->runtime.start(this->scene));
+        for(int i = 0; i < 80; ++i)
+            ASSERT_TRUE(this->runtime.advance(0.01));
+        ASSERT_TRUE(this->runtime.set_state(SceneRuntime::State::Paused));
+        const auto before = this->value();
+        settings.motor_mode = JointMotorMode::Position;
+        settings.motor_target = this->amount(-20, -0.2f);
+        ASSERT_TRUE(this->actor.try_set_component(settings));
+        ASSERT_TRUE(this->runtime.advance(0.1));
+        EXPECT_FLOAT_EQ(this->value(), before);
+        ASSERT_TRUE(this->runtime.request_step());
+        ASSERT_TRUE(this->runtime.advance(0));
+        EXPECT_NE(this->value(), before);
+        ASSERT_TRUE(this->runtime.set_state(SceneRuntime::State::Running));
+        for(int i = 0; i < 160; ++i)
+            ASSERT_TRUE(this->runtime.advance(0.01));
+        EXPECT_NEAR(this->value(), settings.motor_target, this->amount(0.2f, 0.005f));
+    }
+
+    TYPED_TEST(JointControlTest, SoftLimitsOvershootAndDampingControlsRecovery) {
+        const float maximum = this->amount(5, 0.05f);
+        float hard_peak = 0, damped_peak = 0, undamped_peak = 0;
+        float step_travel = 0;
+        for(const auto& [frequency, damping] :
+            {std::pair{0.0f, 1.0f}, std::pair{2.0f, 1.0f}, std::pair{2.0f, 0.0f}}) {
+            auto settings = this->joint();
+            this->limits(settings, -maximum, maximum);
+            settings.motor_enabled = false;
+            settings.limits_frequency = frequency;
+            settings.limits_damping = damping;
+            ASSERT_TRUE(this->actor.try_set_component(settings));
+            this->actor.edit_transform([](auto& pose) {
+                pose.translation = {0, 5, 0};
+                pose.rotation = {};
+                if constexpr(std::is_same_v<TypeParam, HingeJointComponent>)
+                    pose.rotation.z = 90;
+            });
+            ASSERT_TRUE(this->runtime.start(this->scene));
+            if constexpr(std::is_same_v<TypeParam, HingeJointComponent>)
+                ASSERT_TRUE(this->physics.request_torque(this->actor, {0, 0, 20}));
+            else
+                ASSERT_TRUE(this->physics.request_impulse(this->actor, {0.8f, 0, 0}));
+            float peak = 0;
+            for(int i = 0; i < 220; ++i) {
+                ASSERT_TRUE(this->runtime.advance(0.01));
+                if(i == 0 && frequency == 0)
+                    step_travel = std::abs(this->speed()) * 0.01f;
+                peak = std::max(peak, this->value());
+            }
+            if(frequency == 0)
+                hard_peak = peak;
+            else if(damping == 1) {
+                damped_peak = peak;
+                EXPECT_LE(this->value(), maximum + this->amount(0.05f, 0.001f));
+                EXPECT_NEAR(this->speed(), 0, this->amount(0.1f, 0.001f));
+            } else
+                undamped_peak = peak;
+            ASSERT_TRUE(this->runtime.stop());
+        }
+        // 硬限位在离散步边界求解，首次越界不超过一帧的自由运动距离。
+        EXPECT_LE(hard_peak, maximum + step_travel + this->amount(1e-4f, 1e-5f));
+        EXPECT_GT(damped_peak, hard_peak + this->amount(0.2f, 0.002f));
+        EXPECT_GT(undamped_peak, damped_peak + this->amount(0.2f, 0.002f));
+    }
+
+    TYPED_TEST(JointControlTest, InvalidSpringControlsFailStartAndLiveSyncCleanly) {
+        auto valid = this->joint();
+        this->limits(valid, this->amount(-30, -0.3f), this->amount(60, 0.6f));
+        valid.limits_frequency = 2;
+        using Joint = TypeParam;
+        std::vector<Joint> invalid;
+        for(const auto member : {&Joint::limits_frequency, &Joint::limits_damping,
+                &Joint::motor_frequency, &Joint::motor_damping, &Joint::motor_target}) {
+            auto settings = valid;
+            settings.*member = std::numeric_limits<float>::quiet_NaN();
+            invalid.push_back(settings);
+        }
+        for(const auto member : {&Joint::limits_frequency, &Joint::limits_damping,
+                &Joint::motor_frequency, &Joint::motor_damping}) {
+            auto settings = valid;
+            settings.*member = -1;
+            invalid.push_back(settings);
+        }
+        auto settings = valid;
+        settings.motor_frequency = 0;
+        invalid.push_back(settings);
+        settings = valid;
+        settings.motor_mode = static_cast<JointMotorMode>(99);
+        invalid.push_back(settings);
+        settings = valid;
+        settings.limits_enabled = false;
+        settings.reference_axis = settings.axis;
+        invalid.push_back(settings);
+        for(const auto& bad : invalid) {
+            ASSERT_TRUE(this->actor.try_set_component(bad));
+            const auto started = this->runtime.start(this->scene);
+            ASSERT_FALSE(started);
+            EXPECT_NE(started.error().message.find(this->actor.get_uuid().to_string()),
+                std::string::npos);
+            EXPECT_FALSE(this->runtime.is_active());
+            EXPECT_EQ(this->physics.get_statistics().bodies, 0u);
+            ASSERT_TRUE(this->actor.try_set_component(valid));
+            ASSERT_TRUE(this->runtime.start(this->scene));
+            ASSERT_TRUE(this->actor.try_set_component(bad));
+            EXPECT_FALSE(this->runtime.advance(0.01));
+            EXPECT_FALSE(this->runtime.is_active());
+            EXPECT_EQ(this->physics.get_statistics().joints, 0u);
+        }
+    }
+
     TEST_F(SliderJointTest, WorldConnectionAllowsOnlyAxialMotionWithUnscaledOrientation) {
         auto actor = body("Actor", BodyMotion::Dynamic, {0, 5, 0});
         actor.edit_transform([](auto& value) {
