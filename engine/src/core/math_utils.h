@@ -75,6 +75,33 @@ namespace Comet::Math {
             return std::nullopt;
         return glm::cross(*tangent, *direction);
     }
+
+    // 列向量依次为右、上、后；forward 沿局部 -Z，保留 up 指定的滚转方向。
+    [[nodiscard]] inline std::optional<Mat3> view_basis(
+        const Vec3& forward, const Vec3& up, const float minimum_cross_length = 0) {
+        const auto direction = normalized_direction(forward);
+        const auto reference = normalized_direction(up);
+        if(!direction || !reference)
+            return std::nullopt;
+        const auto cross = glm::cross(*direction, *reference);
+        if(glm::length(cross) < minimum_cross_length)
+            return std::nullopt;
+        const auto right = normalized_direction(cross);
+        if(!right)
+            return std::nullopt;
+        return Mat3(*right, glm::cross(*right, *direction), -*direction);
+    }
+
+    // 保留模拟输入幅度，只限制超出单位长度的向量；double 避免有限大值溢出。
+    template<glm::length_t Size>
+    [[nodiscard]] inline glm::vec<Size, float> clamp_unit_length(
+        const glm::vec<Size, float>& value) {
+        const glm::vec<Size, double> precise(value);
+        const double squared_length = glm::dot(precise, precise);
+        if(squared_length <= 1)
+            return value;
+        return glm::vec<Size, float>(precise / std::sqrt(squared_length));
+    }
     inline float dot(const Vec3& a, const Vec3& b) {
         return glm::dot(a, b);
     }

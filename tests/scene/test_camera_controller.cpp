@@ -1,3 +1,4 @@
+#include "gameplay/camera_controller.h"
 #include "scene/runtime_session.h"
 #include "scene/systems/camera_controller.h"
 #include "scene/scene.h"
@@ -51,6 +52,24 @@ namespace Comet::Tests {
             EXPECT_NEAR(camera.rotation.z, expected.z, 0.00001f);
         }
     };
+
+    TEST_F(CameraControllerTest, NativeGameplayCanControlAnExplicitCameraWithoutPrimarySelection) {
+        auto secondary = scene.create_entity("Explicit camera");
+        secondary.add_component<CameraComponent>();
+        secondary.add_component<CameraControllerComponent>(
+            CameraControllerComponent{.move_speed = 4});
+        const auto configured = InputActions::create(
+            {{"camera.move_x", InputActions::Type::Axis, {{Input::Key::D, 0.5f}}}});
+        ASSERT_TRUE(configured);
+        input.key_event(Input::Key::D, true);
+        configured.value().evaluate(input.publish_frame(), input_state);
+        ASSERT_TRUE(Gameplay::CameraController::update(scene, secondary, input_state, 0.5));
+        EXPECT_EQ(secondary.get_component<TransformComponent>().translation, Math::Vec3(1, 0, 0));
+        EXPECT_EQ(camera.translation, Math::Vec3(0));
+        ASSERT_TRUE(CameraControllerSystem{}.update(scene, {0.5, 0, 0, input_state, session}));
+        EXPECT_EQ(camera.translation, Math::Vec3(0.75f, 0, 0));
+        EXPECT_EQ(secondary.get_component<TransformComponent>().translation, Math::Vec3(1, 0, 0));
+    }
 
     TEST_F(CameraControllerTest, TurnsOnlyDuringRightDragAndSkipsThePressFrame) {
         input.cursor_event({100, 200});

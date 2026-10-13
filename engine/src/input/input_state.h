@@ -1,6 +1,7 @@
 #pragma once
 
 #include "input/input.h"
+#include "common/result.h"
 
 #include <map>
 #include <string>
@@ -22,6 +23,9 @@ namespace Comet {
         [[nodiscard]] bool focused() const { return m_physical.focused; }
         [[nodiscard]] const Input::Frame& physical() const { return m_physical; }
         [[nodiscard]] const Action* action(std::string_view name) const;
+        // 可选动作缺失时返回同类型的零值；已配置动作仍须满足类型约束。
+        [[nodiscard]] Result<Action> read_action(
+            std::string_view name, Action::Type type, bool required = true) const;
 
     private:
         friend class InputActions;

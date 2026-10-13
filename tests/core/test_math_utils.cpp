@@ -7,6 +7,34 @@
 
 namespace Comet::Tests {
 
+    TEST(MathUtilsTest, ViewBasisUsesNegativeZForwardAndPreservesRoll) {
+        const auto basis = Math::view_basis({0, 0, -5}, {0, 3, 0});
+        ASSERT_TRUE(basis);
+        EXPECT_TRUE(TestUtils::Mat4Equal(Math::Mat4(*basis), Math::Mat4(1)));
+        const auto rolled = Math::view_basis({0, 0, -1}, {-1, 0, 0});
+        ASSERT_TRUE(rolled);
+        EXPECT_TRUE(TestUtils::Vec3Equal((*rolled)[0], {0, 1, 0}));
+        EXPECT_TRUE(TestUtils::Vec3Equal((*rolled)[1], {-1, 0, 0}));
+        EXPECT_FALSE(Math::view_basis({0, 0, 0}, {0, 1, 0}));
+        EXPECT_FALSE(Math::view_basis({0, 1, 0}, {0, 1, 0}));
+        EXPECT_FALSE(Math::view_basis({0, 1, -0.000001f}, {0, 1, 0}, 0.00001f));
+    }
+
+    TEST(MathUtilsTest, UnitLengthClampPreservesAnalogInputAndHandlesLargeDirections) {
+        EXPECT_EQ(Math::clamp_unit_length(Math::Vec2(0)), Math::Vec2(0));
+        EXPECT_EQ(Math::clamp_unit_length(Math::Vec2(0.3f, 0.4f)), Math::Vec2(0.3f, 0.4f));
+        EXPECT_TRUE(
+            TestUtils::Vec3Equal(Math::clamp_unit_length(Math::Vec3(3, 4, 0)), {0.6f, 0.8f, 0}));
+        const float large = std::numeric_limits<float>::max();
+        const auto planar = Math::clamp_unit_length(Math::Vec2(large, -large));
+        EXPECT_TRUE(Math::is_finite(planar));
+        EXPECT_NEAR(glm::length(planar), 1, 0.00001f);
+        EXPECT_NEAR(planar.x, -planar.y, 0.00001f);
+        const auto spatial = Math::clamp_unit_length(Math::Vec3(large));
+        EXPECT_TRUE(Math::is_finite(spatial));
+        EXPECT_NEAR(Math::length(spatial), 1, 0.00001f);
+    }
+
     TEST(MathUtilsTest, ChecksEveryVectorComponentForFiniteValues) {
         const auto check = []<typename Vector>() {
             EXPECT_TRUE(Math::is_finite(Vector(0.0f)));

@@ -14,7 +14,6 @@ set(SOURCES
     src/runtime/entry.cpp
     src/runtime/application.cpp
     src/core/engine.cpp
-    src/scene/systems/camera_controller.cpp
 )
 
 add_library(engine SHARED ${SOURCES})

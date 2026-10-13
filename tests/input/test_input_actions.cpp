@@ -8,6 +8,34 @@
 #include <utility>
 
 namespace Comet::Tests {
+    TEST(InputActionsTest, TypedReadsDistinguishRequiredMissingAndIncorrectlyTypedActions) {
+        const auto actions =
+            InputActions::create({{"move", InputActions::Type::Axis, {{Input::Key::D, 0.5f}}},
+                {"jump", InputActions::Type::Button, {{Input::Key::Space}}}});
+        ASSERT_TRUE(actions);
+        Input input;
+        InputState state;
+        input.focus_event(true);
+        input.key_event(Input::Key::D, true);
+        input.key_event(Input::Key::Space, true);
+        actions.value().evaluate(input.publish_frame(), state);
+        using Type = InputState::Action::Type;
+        const auto move = state.read_action("move", Type::Axis);
+        ASSERT_TRUE(move);
+        EXPECT_FLOAT_EQ(move.value().value, 0.5f);
+        const auto jump = state.read_action("jump", Type::Button);
+        ASSERT_TRUE(jump);
+        EXPECT_TRUE(jump.value().pressed);
+        EXPECT_TRUE(state.read_action("jump", Type::Button).value().pressed);
+        EXPECT_FALSE(state.read_action("missing", Type::Axis));
+        const auto optional = state.read_action("missing", Type::Delta, false);
+        ASSERT_TRUE(optional);
+        EXPECT_EQ(optional.value().type, Type::Delta);
+        EXPECT_EQ(optional.value().value, 0);
+        EXPECT_FALSE(state.read_action("jump", Type::Axis, false));
+        EXPECT_FALSE(state.read_action("move", Type::Button));
+    }
+
     TEST(InputActionsTest, PersistentIdentitiesAreRetainedAndBindingIdsAreScopedToEachAction) {
         const auto jump_id = Uuid::generate();
         const auto fire_id = Uuid::generate();

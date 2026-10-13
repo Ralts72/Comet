@@ -32,7 +32,7 @@ Compute 在绘制前生成普通 Mesh 顶点，主绘制、阴影及项目材质
 | Runtime | 时间、暂停／单步、会话与 System 生命周期 | World、Input |
 | Audio | AudioService、Voice、播放设备与 AudioSystem | Runtime、miniaudio |
 | Physics | PhysicsService、刚体世界与 PhysicsSystem | Runtime、Jolt |
-| Gameplay | 可复用角色输入／移动控制及动画实例推进，借用输入快照和 PhysicsAccess | Runtime |
+| Gameplay | 可复用角色／相机控制及动画实例推进，借用输入快照和 PhysicsAccess | Runtime |
 | Scripting | 行为 VM、Lua 校验与 ScriptSystem，以及 Gameplay 桥接 | Runtime、Gameplay、Lua |
 | AssetPipeline | 扫描、索引、源导入、Artifact 与任务队列 | AssetData、stb_image、fastgltf |
 | RuntimeAssets | 需求、加载、失效、版本编排和资源发布契约 | AssetPipeline、Audio／Script 定义 |
@@ -296,6 +296,9 @@ ScriptSystem 不监听文件、不另建资产版本缓存；UI 控制器的 VM 
 ## Gameplay 基础能力
 
 `gameplay/CharacterController` 负责把项目动作转换为世界 XZ 移动与地面跳跃意图，借用本次 InputState 和 PhysicsAccess；不持有世界、后端对象或玩法会话。
+`gameplay/CameraController` 借用指定相机实体、InputState、帧时间与可选 PhysicsAccess，负责自由／环绕移动、转向、缩放和避障；配置由 CameraControllerComponent 保存。
+CameraControllerSystem 只选择主相机并转交更新／捕获意图，原生调用者也可以显式指定其他相机。角色使用固定更新，相机使用普通更新。
+两种控制器共用 InputState 的类型化动作读取；方向基与单位长度限幅归 Math，编辑器复用方向计算，保留平移、聚焦和正交缩放的交互规则。
 动作名可配置，移动轴保持模拟量；归一化及胶囊求解仍由 Physics 负责。失焦或调用方停用控制时提交零意图，重力和移动平台跟随不停止。
 可选 `movement_reference` 使用即时同步的无缩放世界姿态计算平面方向；相机俯仰不缩短模拟输入，垂直俯视时使用右轴确定平面朝向。
 可选 `facing` 将移动方向转换到外观父级的旋转空间，只改外观旋转，保留位置／缩放及静止朝向；目标不得带刚体或角色控制器。demo 将外观和相机设为兄弟实体，转向不改相机。

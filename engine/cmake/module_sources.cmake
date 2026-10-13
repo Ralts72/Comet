@@ -100,8 +100,12 @@ set(COMET_PHYSICS_SOURCES
 
 set(COMET_GAMEPLAY_SOURCES
     src/animation/animation_system.cpp
+    src/gameplay/camera_controller.cpp
+    src/gameplay/camera_controller.h
     src/gameplay/character_controller.cpp
     src/gameplay/character_controller.h
+    src/scene/systems/camera_controller.cpp
+    src/scene/systems/camera_controller.h
 )
 
 set(COMET_SCRIPTING_SOURCES

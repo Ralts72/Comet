@@ -161,11 +161,11 @@ namespace CometEditor {
                 * offset;
 
             const Comet::Math::Vec3 forward = -Comet::Math::normalize(offset);
-            const Comet::Math::Vec3 right_candidate = Comet::Math::cross(forward, world_up);
-            if(Comet::Math::length(right_candidate) >= MIN_DIRECTION_LENGTH) {
-                const Comet::Math::Vec3 right = Comet::Math::normalize(right_candidate);
+            if(const auto basis =
+                    Comet::Math::view_basis(forward, world_up, MIN_DIRECTION_LENGTH)) {
                 const Comet::Math::Vec3 pitched =
-                    Comet::Math::angle_axis(-input.orbit_delta.y * ORBIT_RADIANS_PER_PIXEL, right)
+                    Comet::Math::angle_axis(
+                        -input.orbit_delta.y * ORBIT_RADIANS_PER_PIXEL, (*basis)[0])
                     * offset;
                 const Comet::Math::Vec3 pitched_forward = -Comet::Math::normalize(pitched);
                 if(std::abs(Comet::Math::dot(pitched_forward, world_up)) < MAX_VERTICAL_ALIGNMENT) {
@@ -197,15 +197,12 @@ namespace CometEditor {
                     2.0f * distance
                     * std::tan(Comet::Math::radians(camera.perspective.fov_degrees) * 0.5f);
             }
-            const Comet::Math::Vec3 right_candidate = Comet::Math::cross(forward, world_up);
-            if(Comet::Math::length(right_candidate) >= MIN_DIRECTION_LENGTH) {
-                const Comet::Math::Vec3 right = Comet::Math::normalize(right_candidate);
-                const Comet::Math::Vec3 camera_up =
-                    Comet::Math::normalize(Comet::Math::cross(right, forward));
+            if(const auto basis =
+                    Comet::Math::view_basis(forward, world_up, MIN_DIRECTION_LENGTH)) {
                 const float world_units_per_pixel = visible_world_height / input.viewport_height;
                 const Comet::Math::Vec3 translation =
-                    right * (-input.pan_delta.x * world_units_per_pixel)
-                    + camera_up * (input.pan_delta.y * world_units_per_pixel);
+                    (*basis)[0] * (-input.pan_delta.x * world_units_per_pixel)
+                    + (*basis)[1] * (input.pan_delta.y * world_units_per_pixel);
                 camera.perspective.position += translation;
                 camera.target += translation;
             }

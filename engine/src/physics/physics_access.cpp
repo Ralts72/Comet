@@ -63,11 +63,7 @@ namespace Comet {
             || !entity.get_component<CharacterControllerComponent>().enabled
             || !Math::is_finite(move.direction))
             return false;
-        const auto magnitude = std::hypot(
-            static_cast<double>(move.direction.x), static_cast<double>(move.direction.y));
-        if(magnitude > 1)
-            move.direction = {static_cast<float>(move.direction.x / magnitude),
-                static_cast<float>(move.direction.y / magnitude)};
+        move.direction = Math::clamp_unit_length(move.direction);
         return enqueue_character_move(entity.get_uuid(), entity.get_id(), move);
     }
 

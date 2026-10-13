@@ -44,7 +44,7 @@ set(AUDIO_HEADERS "${RUNTIME_HEADERS}|audio/|scene/systems/audio_system\\.h$")
 
 set(PHYSICS_HEADERS "${RUNTIME_HEADERS}|physics/|scene/systems/physics_system\\.h$")
 set(PHYSICS_BACKEND_HEADERS "${ASSET_HEADERS}|audio/audio_category\\.h$|physics/|scene/(components|entity_id|entity_uuid|scene_settings)\\.h$")
-set(GAMEPLAY_HEADERS "${RUNTIME_HEADERS}|gameplay/|animation/animation_system\\.h$")
+set(GAMEPLAY_HEADERS "${RUNTIME_HEADERS}|gameplay/|animation/animation_system\\.h$|scene/systems/camera_controller\\.h$")
 set(SCRIPTING_HEADERS "${GAMEPLAY_HEADERS}|scripting/|scene/systems/script_system\\.h$")
 set(RUNTIME_ASSET_HEADERS "${PIPELINE_HEADERS}|${AUDIO_DATA_HEADERS}|asset/(asset_manager\\.h$|runtime/)|scripting/script_compiler\\.h$|audio/audio\\.h$|graphics/error\\.h$")
 set(RENDER_ASSET_HEADERS "${FOUNDATION_HEADERS}|animation/animation_data\\.h$|asset/handle\\.h$|asset/data/|asset/runtime/render_asset_factory\\.h$|graphics/|render/(resource/|material/material\\.h$)")

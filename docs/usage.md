@@ -257,6 +257,8 @@ local jumped = comet.control_character(true, self.controls)
 ```
 
 输入组由项目启停。C++ 可调用 `Gameplay::CharacterController`；碰撞／坡度／平台求解仍归 Physics，计分、声音和完成规则归项目。
+角色控制在固定步调用；相机控制在普通更新调用。游戏相机默认经 CameraControllerSystem 选择主相机，也可由 C++ 调用 `Gameplay::CameraController::update(scene, camera, input, delta_time, physics)`，显式控制指定实体。
+相机配置仍在 CameraControllerComponent 中；输入读取和方向计算与角色共用，编辑器导航沿用自己的拖动、聚焦和缩放规则。
 停用控制或失焦提交零移动意图，重力与平台跟随继续运行。
 
 创建实体可提供初始本地变换和网格／材质来源，不等同于 Prefab：
