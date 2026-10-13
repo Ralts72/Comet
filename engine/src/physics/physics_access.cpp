@@ -57,19 +57,18 @@ namespace Comet {
         return read_velocity(entity.get_uuid(), entity.get_id());
     }
 
-    bool PhysicsAccess::request_character_move(
-        const Entity entity, Math::Vec2 direction, const bool jump) {
+    bool PhysicsAccess::request_character_move(const Entity entity, CharacterMove move) {
         if(!m_scene || !m_scene->is_valid(entity)
             || !entity.has_component<CharacterControllerComponent>()
             || !entity.get_component<CharacterControllerComponent>().enabled
-            || !Math::is_finite(direction))
+            || !Math::is_finite(move.direction))
             return false;
-        const auto magnitude =
-            std::hypot(static_cast<double>(direction.x), static_cast<double>(direction.y));
+        const auto magnitude = std::hypot(
+            static_cast<double>(move.direction.x), static_cast<double>(move.direction.y));
         if(magnitude > 1)
-            direction = {static_cast<float>(direction.x / magnitude),
-                static_cast<float>(direction.y / magnitude)};
-        return enqueue_character_move(entity.get_uuid(), entity.get_id(), direction, jump);
+            move.direction = {static_cast<float>(move.direction.x / magnitude),
+                static_cast<float>(move.direction.y / magnitude)};
+        return enqueue_character_move(entity.get_uuid(), entity.get_id(), move);
     }
 
     std::optional<PhysicsAccess::CharacterState> PhysicsAccess::get_character_state(
@@ -79,5 +78,14 @@ namespace Comet {
             || !entity.get_component<CharacterControllerComponent>().enabled)
             return std::nullopt;
         return read_character_state(entity.get_uuid(), entity.get_id());
+    }
+
+    std::optional<float> PhysicsAccess::sweep_sphere(const Entity ignored, const Math::Vec3 origin,
+        const Math::Vec3 displacement, const float radius) const {
+        if(!m_scene || (ignored != Entity{} && !m_scene->is_valid(ignored))
+            || !Math::is_finite(origin) || !Math::is_finite(displacement) || !std::isfinite(radius)
+            || radius <= 0)
+            return std::nullopt;
+        return cast_sphere(ignored.get_uuid(), ignored.get_id(), origin, displacement, radius);
     }
 }

@@ -1,3 +1,4 @@
+#include "asset/default_assets.h"
 #include "assets/editor_assets.h"
 #include "asset/shader_program_import.h"
 #include "assets/system_trash.h"
@@ -438,6 +439,9 @@ namespace CometEditor {
         const Comet::AssetType type, const Comet::AssetRevision revision) {
         if(!handle)
             return Comet::Result<void, Comet::Error>::success(); // 空引用允许保存在场景中。
+        if(const auto* asset = Comet::find_default_asset(handle);
+            asset && asset->type == type && revision == Comet::INVALID_ASSET_REVISION)
+            return m_manager.ensure_loaded(handle, type);
         if(!database().is_current(handle, revision)) {
             return Comet::Result<void, Comet::Error>::failure(
                 {"Asset reference revision is stale"});

@@ -27,6 +27,7 @@ set(COMET_SHADER_CONTRACTS_SOURCES
 )
 
 set(COMET_ASSET_DATA_SOURCES
+    src/animation/animation_data.cpp
     src/asset/data/import_input_snapshot.h
     src/asset/script.cpp
     src/asset/script.h
@@ -98,6 +99,7 @@ set(COMET_PHYSICS_SOURCES
 )
 
 set(COMET_GAMEPLAY_SOURCES
+    src/animation/animation_system.cpp
     src/gameplay/character_controller.cpp
     src/gameplay/character_controller.h
 )
@@ -180,6 +182,7 @@ set(COMET_GRAPHICS_SOURCES
 )
 
 set(COMET_RENDER_SOURCES
+    src/render/passes/skinning_pass.cpp
     src/render/presentation.cpp
     src/render/render_graph.cpp
     src/render/render_diagnostics.cpp

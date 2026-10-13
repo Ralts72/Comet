@@ -15,6 +15,7 @@
 #include <vector>
 
 namespace Comet {
+    struct AnimationPlayback;
     struct MaterialOverrides;
 
     struct COMET_API RenderCamera {
@@ -43,6 +44,7 @@ namespace Comet {
     struct RenderItem {
         EntityId entity_id = INVALID_ENTITY_ID;
         uint64_t transform_revision = 0;
+        std::shared_ptr<const AnimationPlayback> animation;
         Math::Mat4 model_matrix = Math::Mat4(1.0f);
         AssetHandle mesh_handle = INVALID_ASSET_HANDLE;
         AssetHandle material_handle = INVALID_ASSET_HANDLE;

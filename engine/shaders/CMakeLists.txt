@@ -16,6 +16,7 @@ foreach(PROGRAM IN LISTS SHADER_PROGRAMS)
             "${CMAKE_CURRENT_SOURCE_DIR}/${PROGRAM}.frag")
 endforeach()
 list(APPEND SHADER_FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/animation/skinning.comp"
         "${CMAKE_CURRENT_SOURCE_DIR}/material/pbr_instanced.vert"
         "${CMAKE_CURRENT_SOURCE_DIR}/material/unlit_color_instanced.vert")
 

@@ -23,6 +23,7 @@ namespace Comet {
         const auto& items = world.render_items;
         const auto& changes = world.item_changes;
         m_items.reserve(items.size());
+        m_skin_bounds.resize(items.size());
         const bool same_scene =
             world.scene_lifetime != 0 && world.scene_lifetime == m_scene_version.identity;
         const bool tracked = same_scene && changes.revision != 0;
@@ -98,6 +99,15 @@ namespace Comet {
         m_scene_version = {world.scene_lifetime, changes.revision};
     }
 
+    void RenderGeometry::replace_skinned(
+        std::size_t index, const ResolvedRenderItem& item, const BoundingBox& bounds) {
+        m_skin_bounds[index] = bounds;
+        m_items[index] = {&item, &m_skin_bounds[index]};
+        if(m_scene_bounds)
+            m_scene_bounds->include(bounds);
+        else
+            m_scene_bounds = bounds;
+    }
     void RenderGeometry::clear_frame() {
         m_items.clear();
         m_scene_bounds.reset();

@@ -224,6 +224,36 @@ namespace Comet {
                     make_property_descriptor("material", "Material",
                         &MeshRendererComponent::material, {.asset_type = AssetType::Material})}));
 
+        register_component(make_component_descriptor<AnimatorComponent>("animator", "Animator",
+            {make_property_descriptor(
+                 "enabled", "enabled", &AnimatorComponent::enabled, {.required = false}),
+                make_property_descriptor(
+                    "clip", "clip", &AnimatorComponent::clip, {.required = false}),
+                make_property_descriptor("speed", "speed", &AnimatorComponent::speed,
+                    {.required = false,
+                        .numeric = {.speed = 0.05f, .minimum = 0, .enforce_bounds = true}}),
+                make_property_descriptor(
+                    "loop", "loop", &AnimatorComponent::loop, {.required = false}),
+                make_property_descriptor("transition", "transition", &AnimatorComponent::transition,
+                    {.required = false,
+                        .numeric = {.speed = 0.01f, .minimum = 0, .enforce_bounds = true}}),
+                make_property_descriptor(
+                    "character", "character", &AnimatorComponent::character, {.required = false}),
+                make_property_descriptor(
+                    "idle", "idle", &AnimatorComponent::idle, {.required = false}),
+                make_property_descriptor(
+                    "walk", "walk", &AnimatorComponent::walk, {.required = false}),
+                make_property_descriptor(
+                    "run", "run", &AnimatorComponent::run, {.required = false}),
+                make_property_descriptor(
+                    "crouch", "crouch", &AnimatorComponent::crouch, {.required = false}),
+                make_property_descriptor("crouch_walk", "crouch_walk",
+                    &AnimatorComponent::crouch_walk, {.required = false}),
+                make_property_descriptor(
+                    "jump", "jump", &AnimatorComponent::jump, {.required = false}),
+                make_property_descriptor(
+                    "fall", "fall", &AnimatorComponent::fall, {.required = false})}));
+
         register_component(make_component_descriptor<CameraComponent>("camera", "Camera",
             {make_property_descriptor("primary", "Primary", &CameraComponent::primary),
                 make_enum_property_descriptor<CameraComponent, CameraComponent::Projection>(
@@ -245,6 +275,12 @@ namespace Comet {
         register_component(make_component_descriptor<CameraControllerComponent>("camera_controller",
             "Camera Controller",
             {make_property_descriptor("enabled", "Enabled", &CameraControllerComponent::enabled),
+                make_enum_property_descriptor<CameraControllerComponent,
+                    CameraControllerComponent::Mode>("mode", "Control Mode",
+                    &CameraControllerComponent::mode,
+                    {{CameraControllerComponent::Mode::Free, {"free", "Free"}},
+                        {CameraControllerComponent::Mode::Orbit, {"orbit", "Orbit"}}},
+                    {.required = false}),
                 make_property_descriptor("move_speed", "Move Speed",
                     &CameraControllerComponent::move_speed,
                     {.numeric = {.speed = 0.1f, .minimum = 0.0f, .maximum = 1000.0f}}),
@@ -254,7 +290,31 @@ namespace Comet {
                 make_property_descriptor("look_speed", "Look Speed (deg/s)",
                     &CameraControllerComponent::look_speed,
                     {.required = false,
-                        .numeric = {.speed = 1.0f, .minimum = 0.0f, .maximum = 720.0f}})}));
+                        .numeric = {.speed = 1.0f, .minimum = 0.0f, .maximum = 720.0f}}),
+                make_property_descriptor("orbit_distance", "Orbit Distance",
+                    &CameraControllerComponent::orbit_distance,
+                    {.required = false,
+                        .numeric = {.speed = 0.1f, .minimum = 0.01f, .enforce_bounds = true}}),
+                make_property_descriptor("orbit_height", "Orbit Height",
+                    &CameraControllerComponent::orbit_height,
+                    {.required = false,
+                        .numeric = {.speed = 0.1f, .minimum = 0, .enforce_bounds = true}}),
+                make_property_descriptor("orbit_min_distance", "Minimum Orbit Distance",
+                    &CameraControllerComponent::orbit_min_distance,
+                    {.required = false,
+                        .numeric = {.speed = 0.1f, .minimum = 0.01f, .enforce_bounds = true}}),
+                make_property_descriptor("orbit_max_distance", "Maximum Orbit Distance",
+                    &CameraControllerComponent::orbit_max_distance,
+                    {.required = false,
+                        .numeric = {.speed = 0.1f, .minimum = 0.01f, .enforce_bounds = true}}),
+                make_property_descriptor("orbit_zoom_step", "Orbit Zoom Step",
+                    &CameraControllerComponent::orbit_zoom_step,
+                    {.required = false,
+                        .numeric = {.speed = 0.05f, .minimum = 0, .enforce_bounds = true}}),
+                make_property_descriptor("collision_radius", "Camera Collision Radius",
+                    &CameraControllerComponent::collision_radius,
+                    {.required = false,
+                        .numeric = {.speed = 0.01f, .minimum = 0.01f, .enforce_bounds = true}})}));
 
         register_component(
             make_component_descriptor<AudioSourceComponent>("audio_source", "Audio Source",
@@ -310,6 +370,30 @@ namespace Comet {
                 make_property_descriptor("move_speed", "Move Speed",
                     &CharacterControllerComponent::move_speed,
                     {.numeric = {.speed = 0.1f, .minimum = 0, .enforce_bounds = true}}),
+                make_property_descriptor("run_speed", "Run Speed",
+                    &CharacterControllerComponent::run_speed,
+                    {.required = false,
+                        .numeric = {.speed = 0.1f, .minimum = 0, .enforce_bounds = true}}),
+                make_property_descriptor("crouch_speed", "Crouch Speed",
+                    &CharacterControllerComponent::crouch_speed,
+                    {.required = false,
+                        .numeric = {.speed = 0.1f, .minimum = 0, .enforce_bounds = true}}),
+                make_property_descriptor("crouch_height_ratio", "Crouch Height Ratio",
+                    &CharacterControllerComponent::crouch_height_ratio,
+                    {.required = false,
+                        .numeric = {.speed = 0.01f,
+                            .minimum = 0.1f,
+                            .maximum = 1,
+                            .enforce_bounds = true}}),
+                make_property_descriptor("air_control", "Air Control",
+                    &CharacterControllerComponent::air_control,
+                    {.required = false,
+                        .numeric =
+                            {.speed = 0.01f, .minimum = 0, .maximum = 1, .enforce_bounds = true}}),
+                make_property_descriptor("push_force", "Push Force (N)",
+                    &CharacterControllerComponent::push_force,
+                    {.required = false,
+                        .numeric = {.speed = 1, .minimum = 0, .enforce_bounds = true}}),
                 make_property_descriptor("jump_speed", "Jump Speed",
                     &CharacterControllerComponent::jump_speed,
                     {.numeric = {.speed = 0.1f, .minimum = 0, .enforce_bounds = true}}),

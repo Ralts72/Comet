@@ -405,6 +405,72 @@
           "control": "South"
         }
       ]
+    },
+    {
+      "id": "0120f784-0b77-4a50-bba9-000000000104",
+      "name": "character.run",
+      "context": "character",
+      "type": "button",
+      "bindings": [
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000201",
+          "source": "key",
+          "control": "LeftShift"
+        },
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000202",
+          "source": "gamepad_button",
+          "control": "LeftShoulder"
+        }
+      ]
+    },
+    {
+      "id": "0120f784-0b77-4a50-bba9-000000000105",
+      "name": "character.crouch",
+      "context": "character",
+      "type": "button",
+      "bindings": [
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000203",
+          "source": "key",
+          "control": "LeftControl"
+        },
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000204",
+          "source": "gamepad_button",
+          "control": "RightShoulder"
+        }
+      ]
+    },
+    {
+      "id": "0120f784-0b77-4a50-bba9-000000000109",
+      "name": "camera.zoom_axis",
+      "context": "camera",
+      "type": "axis",
+      "bindings": [
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000205",
+          "source": "key",
+          "control": "PageUp"
+        },
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000206",
+          "source": "key",
+          "control": "PageDown",
+          "scale": -1
+        },
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000207",
+          "source": "gamepad_button",
+          "control": "DpadUp"
+        },
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000208",
+          "source": "gamepad_button",
+          "control": "DpadDown",
+          "scale": -1
+        }
+      ]
     }
   ]
 }

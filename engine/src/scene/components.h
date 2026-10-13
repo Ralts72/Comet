@@ -62,6 +62,20 @@ namespace Comet {
         bool operator==(const MeshRendererComponent&) const = default;
     };
 
+    struct COMET_API AnimatorComponent {
+        bool enabled = true;
+        std::string clip = "idle";
+        float speed = 1;
+        bool loop = true;
+        float transition = 0.15f;
+        // 非空时按所引用角色的实际移动状态选择动作。
+        EntityUuid character;
+        std::string idle = "idle", walk = "walk", run = "run";
+        std::string crouch = "crouch", crouch_walk = "crouch_walk";
+        std::string jump = "jump", fall = "fall";
+        bool operator==(const AnimatorComponent&) const = default;
+    };
+
     struct COMET_API LightComponent {
         LightType type = LightType::Directional;
         bool enabled = true;
@@ -90,17 +104,27 @@ namespace Comet {
 
     template<typename T>
     inline constexpr bool is_scene_render_component_v =
-        std::is_same_v<std::remove_cvref_t<T>, MeshRendererComponent>
+        std::is_same_v<std::remove_cvref_t<T>, AnimatorComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, MeshRendererComponent>
         || std::is_same_v<std::remove_cvref_t<T>, CameraComponent>
         || std::is_same_v<std::remove_cvref_t<T>, LightComponent>;
 
     struct COMET_API CameraControllerComponent {
+        enum class Mode { Free, Orbit };
         bool enabled = true;
+        Mode mode = Mode::Free;
         float move_speed = 3.0f;
         // 每个窗口逻辑像素对应的转角，单位为度。
         float look_sensitivity = 0.2f;
         // 转向轴满量程时的角速度，单位为度／秒。
         float look_speed = 120.0f;
+        // Orbit 围绕父实体；距离与中心高度为世界米数，碰撞只缩短实际距离。
+        float orbit_distance = 6.0f;
+        float orbit_height = 1.2f;
+        float orbit_min_distance = 1.5f;
+        float orbit_max_distance = 12.0f;
+        float orbit_zoom_step = 0.5f;
+        float collision_radius = 0.15f;
     };
 
     struct COMET_API AudioSourceComponent {
@@ -157,6 +181,12 @@ namespace Comet {
         float radius = 0.3f;
         float height = 1.8f;
         float move_speed = 4.0f;
+        float run_speed = 6.0f;
+        float crouch_speed = 2.0f;
+        // 蹲伏高度不小于胶囊直径；形状变化保留脚底位置。
+        float crouch_height_ratio = 0.6f;
+        float air_control = 1.0f;
+        float push_force = 100.0f;
         float jump_speed = 5.0f;
         float max_slope_angle = 45.0f;
         float step_height = 0.3f;

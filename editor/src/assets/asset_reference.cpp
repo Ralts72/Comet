@@ -1,3 +1,4 @@
+#include "asset/default_assets.h"
 #include "assets/asset_reference.h"
 #include "asset/database.h"
 #include "ui/widgets.h"
@@ -10,7 +11,10 @@ namespace CometEditor {
         std::string preview = "无";
         if(handle.is_valid()) {
             const auto* record = database.find(handle);
-            if(!record) {
+            if(const auto* asset = Comet::find_default_asset(handle);
+                asset && (!type || *type == asset->type)) {
+                preview = asset->name;
+            } else if(!record) {
                 preview = "已丢失";
             } else if(type && record->type != *type) {
                 preview = std::string("类型不匹配：") + record->path.generic_string();
@@ -42,6 +46,20 @@ namespace CometEditor {
                 if(selected) {
                     ImGui::SetItemDefaultFocus();
                 }
+            }
+            for(const auto& asset : Comet::DEFAULT_ASSETS) {
+                if(type && *type != asset.type)
+                    continue;
+                has_candidates = true;
+                const bool selected = handle == asset.handle;
+                const std::string item_label =
+                    std::string(asset.name) + "###" + std::to_string(asset.handle.value());
+                if(ImGui::Selectable(item_label.c_str(), selected) && !selected) {
+                    handle = asset.handle;
+                    changed = true;
+                }
+                if(selected)
+                    ImGui::SetItemDefaultFocus();
             }
             if(!has_candidates) {
                 ImGui::TextDisabled("%s", "没有匹配的资产");

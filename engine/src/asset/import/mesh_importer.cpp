@@ -26,6 +26,197 @@ namespace Comet {
             return "Failed to import mesh '" + source_path.string() + "': " + std::string(message);
         }
 
+        Result<std::shared_ptr<const AnimationData>> import_animation(
+            const fastgltf::Asset& asset, MeshData& mesh) {
+            using Imported = Result<std::shared_ptr<const AnimationData>>;
+            if(asset.skins.empty()) {
+                for(const auto& primitive : asset.meshes.front().primitives)
+                    if(primitive.findAttribute("JOINTS_0") != primitive.attributes.end())
+                        return Imported::failure("Joint attributes require a skin");
+                return Imported::success(nullptr);
+            }
+            if(asset.skins.size() != 1)
+                return Imported::failure("One skin is supported per Mesh asset");
+            auto data = std::make_shared<AnimationData>();
+            data->nodes.resize(asset.nodes.size());
+            for(std::size_t index = 0; index < asset.nodes.size(); ++index) {
+                const auto& source = asset.nodes[index];
+                auto& node = data->nodes[index];
+                node.name = source.name;
+                const auto* trs = std::get_if<fastgltf::TRS>(&source.transform);
+                if(!trs)
+                    return Imported::failure("Cannot decompose skeleton node transform");
+                node.rest.translation = {
+                    trs->translation[0], trs->translation[1], trs->translation[2]};
+                node.rest.scale = {trs->scale[0], trs->scale[1], trs->scale[2]};
+                node.rest.rotation = {
+                    trs->rotation[3], trs->rotation[0], trs->rotation[1], trs->rotation[2]};
+                if(source.meshIndex) {
+                    if(*source.meshIndex != 0 || !source.skinIndex || *source.skinIndex != 0
+                        || data->mesh_node != NO_ANIMATION_NODE)
+                        return Imported::failure("A skinned Mesh asset requires one mesh node");
+                    data->mesh_node = uint32_t(index);
+                }
+                for(const auto child : source.children) {
+                    if(child >= data->nodes.size()
+                        || data->nodes[child].parent != NO_ANIMATION_NODE)
+                        return Imported::failure("Invalid skeleton node hierarchy");
+                    data->nodes[child].parent = uint32_t(index);
+                }
+            }
+            std::vector<uint8_t> visited(data->nodes.size());
+            const auto visit = [&](auto&& self, uint32_t index) -> bool {
+                if(visited[index] == 1)
+                    return false;
+                if(visited[index] == 2)
+                    return true;
+                visited[index] = 1;
+                const auto parent = data->nodes[index].parent;
+                if(parent != NO_ANIMATION_NODE && !self(self, parent))
+                    return false;
+                visited[index] = 2;
+                data->evaluation_order.push_back(index);
+                return true;
+            };
+            for(uint32_t index = 0; index < data->nodes.size(); ++index)
+                if(!visit(visit, index))
+                    return Imported::failure("Skeleton contains a cycle");
+            const auto& skin = asset.skins.front();
+            for(const auto node : skin.joints)
+                data->joints.push_back({.node = uint32_t(node)});
+            if(skin.inverseBindMatrices) {
+                const auto& accessor = asset.accessors[*skin.inverseBindMatrices];
+                if(accessor.type != fastgltf::AccessorType::Mat4
+                    || accessor.count != data->joints.size())
+                    return Imported::failure("Invalid inverse bind matrix accessor");
+                fastgltf::iterateAccessorWithIndex<fastgltf::math::fmat4x4>(
+                    asset, accessor, [&](const auto& value, std::size_t index) {
+                        for(int column = 0; column < 4; ++column)
+                            for(int row = 0; row < 4; ++row)
+                                data->joints[index].inverse_bind[column][row] = value[column][row];
+                    });
+            }
+            for(std::size_t index = 0; index < asset.animations.size(); ++index) {
+                const auto& source = asset.animations[index];
+                AnimationClip clip;
+                clip.name = source.name;
+                if(clip.name.empty())
+                    clip.name = "clip_" + std::to_string(index);
+                for(const auto& input : source.channels) {
+                    if(!input.nodeIndex || *input.nodeIndex >= data->nodes.size()
+                        || input.samplerIndex >= source.samplers.size())
+                        return Imported::failure("Invalid animation channel target");
+                    AnimationChannel channel;
+                    channel.node = uint32_t(*input.nodeIndex);
+                    switch(input.path) {
+                        case fastgltf::AnimationPath::Translation:
+                            channel.path = AnimationChannel::Path::Translation;
+                            break;
+                        case fastgltf::AnimationPath::Rotation:
+                            channel.path = AnimationChannel::Path::Rotation;
+                            break;
+                        case fastgltf::AnimationPath::Scale:
+                            channel.path = AnimationChannel::Path::Scale;
+                            break;
+                        default:
+                            return Imported::failure("Morph animation is not supported yet");
+                    }
+                    const auto& sampler = source.samplers[input.samplerIndex];
+                    switch(sampler.interpolation) {
+                        case fastgltf::AnimationInterpolation::Linear:
+                            channel.interpolation = AnimationChannel::Interpolation::Linear;
+                            break;
+                        case fastgltf::AnimationInterpolation::Step:
+                            channel.interpolation = AnimationChannel::Interpolation::Step;
+                            break;
+                        case fastgltf::AnimationInterpolation::CubicSpline:
+                            channel.interpolation = AnimationChannel::Interpolation::CubicSpline;
+                            break;
+                        default:
+                            return Imported::failure("Unsupported animation interpolation");
+                    }
+                    const auto& times = asset.accessors[sampler.inputAccessor];
+                    const auto& values = asset.accessors[sampler.outputAccessor];
+                    const bool rotation = channel.path == AnimationChannel::Path::Rotation;
+                    if(times.type != fastgltf::AccessorType::Scalar
+                        || values.type
+                               != (rotation ? fastgltf::AccessorType::Vec4
+                                            : fastgltf::AccessorType::Vec3))
+                        return Imported::failure("Invalid animation key accessor");
+                    channel.times.reserve(times.count);
+                    channel.values.reserve(values.count);
+                    fastgltf::iterateAccessor<float>(asset, times, [&](float value) {
+                        channel.times.push_back(value);
+                        clip.duration = std::max(clip.duration, value);
+                    });
+                    if(rotation) {
+                        fastgltf::iterateAccessor<fastgltf::math::fvec4>(
+                            asset, values, [&](const auto& value) {
+                                channel.values.emplace_back(value[0], value[1], value[2], value[3]);
+                            });
+                    } else {
+                        fastgltf::iterateAccessor<fastgltf::math::fvec3>(
+                            asset, values, [&](const auto& value) {
+                                channel.values.emplace_back(value[0], value[1], value[2], 0);
+                            });
+                    }
+                    clip.channels.push_back(std::move(channel));
+                }
+                data->clips.push_back(std::move(clip));
+            }
+            mesh.skin.resize(mesh.vertices.size());
+            std::size_t first = 0;
+            for(const auto& primitive : asset.meshes.front().primitives) {
+                const auto joints = primitive.findAttribute("JOINTS_0"),
+                           weights = primitive.findAttribute("WEIGHTS_0");
+                if(joints == primitive.attributes.end() || weights == primitive.attributes.end())
+                    return Imported::failure(
+                        "Every skinned primitive requires JOINTS_0 and WEIGHTS_0");
+                const auto& joint_accessor = asset.accessors[joints->accessorIndex];
+                const auto& weight_accessor = asset.accessors[weights->accessorIndex];
+                const auto vertices =
+                    asset.accessors[primitive.findAttribute("POSITION")->accessorIndex].count;
+                if(joint_accessor.type != fastgltf::AccessorType::Vec4
+                    || weight_accessor.type != fastgltf::AccessorType::Vec4
+                    || joint_accessor.count != vertices || weight_accessor.count != vertices)
+                    return Imported::failure("Invalid joint or weight accessor");
+                if(primitive.findAttribute("JOINTS_1") != primitive.attributes.end())
+                    return Imported::failure("Only four bone influences per vertex are supported");
+                fastgltf::iterateAccessorWithIndex<fastgltf::math::uvec4>(
+                    asset, joint_accessor, [&](const auto& value, std::size_t index) {
+                        for(int slot = 0; slot < 4; ++slot)
+                            mesh.skin[first + index].joints[slot] = value[slot];
+                    });
+                fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec4>(
+                    asset, weight_accessor, [&](const auto& value, std::size_t index) {
+                        mesh.skin[first + index].weights = {value[0], value[1], value[2], value[3]};
+                    });
+                first += vertices;
+            }
+            for(std::size_t index = 0; index < mesh.skin.size(); ++index) {
+                auto& influence = mesh.skin[index];
+                const float sum = glm::dot(influence.weights, Math::Vec4(1));
+                if(!Math::is_finite(influence.weights) || sum < 0.0001f
+                    || glm::any(glm::lessThan(influence.weights, Math::Vec4(0))))
+                    return Imported::failure("Invalid skin weights");
+                influence.weights /= sum;
+                for(int slot = 0; slot < 4; ++slot) {
+                    if(influence.joints[slot] >= data->joints.size())
+                        return Imported::failure("Vertex references an invalid joint");
+                    if(influence.weights[slot] == 0)
+                        continue;
+                    auto& bounds = data->joints[influence.joints[slot]].bounds;
+                    if(bounds)
+                        bounds->include(mesh.vertices[index].position);
+                    else
+                        bounds = BoundingBox::from_point(mesh.vertices[index].position);
+                }
+            }
+            if(auto valid = validate_animation(*data); !valid)
+                return Imported::failure(valid.error());
+            return Imported::success(std::move(data));
+        }
+
         Result<std::size_t> estimate_mesh_bytes(const fastgltf::Asset& asset,
             const std::size_t source_bytes, const AssetImportLimits& limits) {
             if(limits.mesh_working_bytes <= IMPORT_OVERHEAD_BYTES)
@@ -39,6 +230,44 @@ namespace Comet {
                     "Mesh exceeds its configured CPU working-set budget");
             const std::size_t output_budget = (available - source_bytes * 3) / 4;
             std::size_t output_bytes = 0;
+            const auto add_output = [&](std::size_t count, std::size_t size) {
+                if(count > (output_budget - output_bytes) / size)
+                    return false;
+                output_bytes += count * size;
+                return true;
+            };
+            if(!asset.skins.empty()) {
+                if(!add_output(asset.nodes.size(), sizeof(AnimationNode) + sizeof(uint32_t))
+                    || !add_output(asset.skins.front().joints.size(), sizeof(SkinJoint))
+                    || !add_output(asset.animations.size(), sizeof(AnimationClip)))
+                    return Result<std::size_t>::failure(
+                        "Skeleton exceeds its CPU working-set budget");
+                for(const auto& node : asset.nodes)
+                    if(!add_output(node.name.size(), 1))
+                        return Result<std::size_t>::failure(
+                            "Skeleton names exceed the working-set budget");
+                for(const auto& clip : asset.animations) {
+                    if(!add_output(clip.channels.size(), sizeof(AnimationChannel))
+                        || !add_output(clip.name.size(), 1))
+                        return Result<std::size_t>::failure(
+                            "Animation exceeds its CPU working-set budget");
+                    for(const auto& channel : clip.channels) {
+                        if(channel.samplerIndex >= clip.samplers.size())
+                            return Result<std::size_t>::failure("Invalid animation sampler");
+                        const auto& sampler = clip.samplers[channel.samplerIndex];
+                        if(sampler.inputAccessor >= asset.accessors.size()
+                            || sampler.outputAccessor >= asset.accessors.size())
+                            return Result<std::size_t>::failure("Invalid animation accessor");
+                        if(!add_output(asset.accessors[sampler.inputAccessor].count, sizeof(float))
+                            || !add_output(
+                                asset.accessors[sampler.outputAccessor].count, sizeof(Math::Vec4)))
+                            return Result<std::size_t>::failure(
+                                "Animation keys exceed the CPU working-set budget");
+                    }
+                }
+            }
+            const std::size_t vertex_bytes =
+                sizeof(MeshVertex) + (asset.skins.empty() ? 0 : sizeof(SkinInfluences));
             for(const fastgltf::Primitive& primitive : asset.meshes.front().primitives) {
                 const auto* position = primitive.findAttribute("POSITION");
                 if(position == primitive.attributes.end()
@@ -52,10 +281,10 @@ namespace Comet {
                     indices = asset.accessors[*primitive.indicesAccessor].count;
                 }
                 if(vertices == 0 || indices == 0
-                    || vertices > (output_budget - output_bytes) / sizeof(MeshVertex))
+                    || vertices > (output_budget - output_bytes) / vertex_bytes)
                     return Result<std::size_t>::failure(
                         "Mesh exceeds its configured CPU working-set budget");
-                output_bytes += vertices * sizeof(MeshVertex);
+                output_bytes += vertices * vertex_bytes;
                 if(indices > (output_budget - output_bytes) / sizeof(std::uint32_t))
                     return Result<std::size_t>::failure(
                         "Mesh exceeds its configured CPU working-set budget");
@@ -119,7 +348,7 @@ namespace Comet {
                     import_error(source_path, fastgltf::getErrorMessage(source.error())));
             fastgltf::Parser parser;
             auto parsed = parser.loadGltf(source.get(), source_path.parent_path(),
-                fastgltf::Options::None, fastgltf::Category::Meshes | fastgltf::Category::Buffers);
+                fastgltf::Options::DecomposeNodeMatrices, fastgltf::Category::All);
             if(!parsed)
                 return Result<MeshInspection>::failure(
                     import_error(source_path, fastgltf::getErrorMessage(parsed.error())));
@@ -214,10 +443,11 @@ namespace Comet {
                 import_error(source_path, fastgltf::getErrorMessage(source.error())));
         }
 
-        constexpr auto options = fastgltf::Options::LoadExternalBuffers;
+        constexpr auto options =
+            fastgltf::Options::LoadExternalBuffers | fastgltf::Options::DecomposeNodeMatrices;
         fastgltf::Parser parser;
         auto parsed = parser.loadGltf(
-            source.get(), source_path.parent_path(), options, fastgltf::Category::Meshes);
+            source.get(), source_path.parent_path(), options, fastgltf::Category::All);
         if(!parsed) {
             return Result<MeshData>::failure(
                 import_error(source_path, fastgltf::getErrorMessage(parsed.error())));
@@ -399,6 +629,10 @@ namespace Comet {
             return Result<MeshData>::failure(
                 import_error(source_path, "mesh contains no drawable triangles"));
         }
+        auto animation = import_animation(asset, data);
+        if(!animation)
+            return Result<MeshData>::failure(import_error(source_path, animation.error()));
+        data.animation = std::move(animation).value();
         return Result<MeshData>::success(std::move(data));
     }
 

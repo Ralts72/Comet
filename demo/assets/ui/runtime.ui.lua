@@ -1,4 +1,5 @@
 -- Engine 管理设置草稿、录入、应用和焦点；页面与游戏策略留在项目中。
+local motions = {idle = "站立", walk = "行走", run = "跑步", crouch = "蹲伏", jump = "跳跃", fall = "下落"}
 return ui.settings {
     display = {sizes = {{960, 720}, {1280, 720}, {1920, 1080}}},
     audio = true,
@@ -21,6 +22,10 @@ return ui.settings {
         api.set("character_game", type(score) == "number")
         if type(score) == "number" then
             local status = "收集目标：" .. tostring(math.floor(score)) .. " / 3"
+            local motion = api.session_get("character.motion")
+            if motions[motion] then
+                status = status .. " · " .. motions[motion]
+            end
             if api.session_get("character.finished") then
                 status = "挑战完成！按 R / Start 重新开始"
             end

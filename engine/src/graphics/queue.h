@@ -21,7 +21,8 @@ namespace Comet {
             const uint64_t value = 0)
             : semaphore(&semaphore), value(value), stage_mask(stage_mask) {}
 
-        QueueSemaphoreSubmit(const GpuCompletionPoint& completion, Flags<PipelineStage> stage_mask);
+        COMET_API QueueSemaphoreSubmit(
+            const GpuCompletionPoint& completion, Flags<PipelineStage> stage_mask);
     };
 
     // 同一 semaphore 只提交一次等待，取最大 timeline 值并合并消费者阶段。

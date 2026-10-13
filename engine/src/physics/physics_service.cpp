@@ -19,6 +19,8 @@
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Constraints/PointConstraint.h>
 #include <Jolt/Physics/Constraints/HingeConstraint.h>
@@ -69,6 +71,24 @@ namespace Comet {
                    && controller.GetLinearVelocity().GetY() - controller.GetGroundVelocity().GetY()
                           < 0.1f;
         }
+
+        JPH::RefConst<JPH::Shape> character_shape(const float height, const float radius) {
+            JPH::RefConst<JPH::Shape> shape;
+            if(height > radius * 2)
+                shape = new JPH::CapsuleShape(height * 0.5f - radius, radius);
+            else
+                shape = new JPH::SphereShape(radius);
+            return new JPH::RotatedTranslatedShape(
+                JPH::Vec3(0, height * 0.5f, 0), JPH::Quat::sIdentity(), shape);
+        }
+
+        class SolidBodyFilter final: public JPH::IgnoreSingleBodyFilter {
+        public:
+            explicit SolidBodyFilter(const JPH::BodyID ignored) : IgnoreSingleBodyFilter(ignored) {}
+            bool ShouldCollideLocked(const JPH::Body& body) const override {
+                return !body.IsSensor();
+            }
+        };
 
         JPH::Quat to_rotation(const Math::Vec3& degrees) {
             const Math::Quat rotation =
@@ -417,6 +437,11 @@ namespace Comet {
             CharacterControllerComponent settings;
             TransformComponent last_transform;
             JPH::Ref<JPH::CharacterVirtual> controller;
+            JPH::RefConst<JPH::Shape> standing_shape;
+            JPH::RefConst<JPH::Shape> crouching_shape;
+            Math::Vec3 relative_velocity{0};
+            bool crouched = false;
+            bool running = false;
         };
 
         struct ContactBody {
@@ -819,31 +844,45 @@ namespace Comet {
                 return Result<ObjectChange, Error>::failure(
                     {"Character needs an upright capsule, positive uniform scale and height > diameter: "
                         + definition.uuid.to_string()});
-            for(const auto value : {settings.move_speed, settings.jump_speed, settings.step_height,
+            for(const auto value : {settings.move_speed, settings.run_speed, settings.crouch_speed,
+                    settings.push_force, settings.jump_speed, settings.step_height,
                     settings.ground_snap_distance, settings.gravity_scale})
                 if(!std::isfinite(value) || value < 0 || !std::isfinite(value * scale))
                     return Result<ObjectChange, Error>::failure(
                         {"Character movement settings must be finite and nonnegative: "
                             + definition.uuid.to_string()});
+            if(!std::isfinite(settings.crouch_height_ratio) || settings.crouch_height_ratio < 0.1f
+                || settings.crouch_height_ratio > 1 || !std::isfinite(settings.air_control)
+                || settings.air_control < 0 || settings.air_control > 1)
+                return Result<ObjectChange, Error>::failure(
+                    {"Character crouch ratio or air control is outside its range"});
 
             const bool added = it == characters.end();
-            const bool rebuild = !added
-                                 && (it->second.uuid != definition.uuid
-                                     || it->second.settings.radius != settings.radius
-                                     || it->second.settings.height != settings.height
-                                     || it->second.last_transform.scale != transform.scale);
+            const bool rebuild =
+                !added
+                && (it->second.uuid != definition.uuid
+                    || it->second.settings.radius != settings.radius
+                    || it->second.settings.height != settings.height
+                    || it->second.settings.crouch_height_ratio != settings.crouch_height_ratio
+                    || it->second.last_transform.scale != transform.scale);
             auto velocity = JPH::Vec3::sZero();
+            bool crouched = false;
             if(rebuild) {
-                if(it->second.uuid == definition.uuid)
+                if(it->second.uuid == definition.uuid) {
                     velocity = it->second.controller->GetLinearVelocity();
+                    crouched = it->second.crouched;
+                }
                 erase_character(it);
             }
             if(added || rebuild) {
+                const auto standing = character_shape(height, radius);
+                const auto crouching = character_shape(
+                    std::max(radius * 2, height * settings.crouch_height_ratio), radius);
                 JPH::CharacterVirtualSettings native;
-                native.mShape = new JPH::RotatedTranslatedShape(JPH::Vec3(0, height * 0.5f, 0),
-                    JPH::Quat::sIdentity(), new JPH::CapsuleShape(height * 0.5f - radius, radius));
+                native.mShape = crouched ? crouching : standing;
                 native.mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -radius);
                 native.mMaxSlopeAngle = Math::radians(settings.max_slope_angle);
+                native.mMaxStrength = settings.push_force;
                 native.mInnerBodyShape = native.mShape;
                 native.mInnerBodyLayer = MOVING_LAYER;
                 JPH::Ref<JPH::CharacterVirtual> controller = new JPH::CharacterVirtual(&native,
@@ -853,7 +892,8 @@ namespace Comet {
                         {"Physics character capacity exceeded"});
                 controller->SetLinearVelocity(velocity);
                 const auto [inserted, success] = characters.emplace(definition.entity,
-                    Character{definition.entity, definition.uuid, settings, transform, controller});
+                    Character{definition.entity, definition.uuid, settings, transform, controller,
+                        standing, crouching, {}, crouched});
                 character_lookup[controller->GetInnerBodyID().GetIndex()] = &inserted->second;
                 controller->RefreshContacts(world.GetDefaultBroadPhaseLayerFilter(MOVING_LAYER),
                     world.GetDefaultLayerFilter(MOVING_LAYER), {}, {}, allocator);
@@ -863,6 +903,7 @@ namespace Comet {
             auto& character = it->second;
             character.settings = settings;
             character.controller->SetMaxSlopeAngle(Math::radians(settings.max_slope_angle));
+            character.controller->SetMaxStrength(settings.push_force);
             if(!same_pose(character.last_transform, transform)) {
                 character.controller->SetPosition(to_position(transform.translation));
                 character.controller->SetRotation(to_rotation(transform.rotation));
@@ -874,29 +915,52 @@ namespace Comet {
             return Result<ObjectChange, Error>::success(ObjectChange::None);
         }
 
-        void move_characters(const float delta_time, std::span<const CharacterMove> requests) {
+        void move_characters(const float delta_time, std::span<const CharacterRequest> requests) {
             for(auto& [entity, character] : characters) {
                 auto& controller = *character.controller;
                 const auto& settings = character.settings;
-                const auto request = std::ranges::find(requests, entity, &CharacterMove::entity);
-                Math::Vec2 direction{0};
-                bool jump = false;
-                if(request != requests.end() && request->uuid == character.uuid) {
-                    direction = request->direction;
-                    jump = request->jump;
+                const auto request = std::ranges::find(requests, entity, &CharacterRequest::entity);
+                CharacterMove move;
+                if(request != requests.end() && request->uuid == character.uuid)
+                    move = request->move;
+                if(move.crouch != character.crouched) {
+                    const auto& shape =
+                        move.crouch ? character.crouching_shape : character.standing_shape;
+                    if(controller.SetShape(shape,
+                           1.5f * world.GetPhysicsSettings().mPenetrationSlop,
+                           world.GetDefaultBroadPhaseLayerFilter(MOVING_LAYER),
+                           world.GetDefaultLayerFilter(MOVING_LAYER), {}, {}, allocator)) {
+                        controller.SetInnerBodyShape(shape);
+                        character.crouched = move.crouch;
+                    }
                 }
+                character.running = move.run && !character.crouched;
                 controller.UpdateGroundVelocity();
                 const auto ground = controller.GetGroundVelocity();
-                auto velocity = JPH::Vec3(0, controller.GetLinearVelocity().GetY(), 0);
-                if(character_grounded(controller)) {
+                const bool grounded = character_grounded(controller);
+                const auto previous = controller.GetLinearVelocity();
+                auto velocity = JPH::Vec3(0, previous.GetY(), 0);
+                if(grounded) {
                     velocity = ground;
-                    if(jump)
+                    if(move.jump)
                         velocity += JPH::Vec3(0, settings.jump_speed, 0);
                 }
+                float speed = settings.move_speed;
+                if(character.crouched)
+                    speed = settings.crouch_speed;
+                else if(character.running)
+                    speed = settings.run_speed;
+                const auto desired = JPH::Vec3(move.direction.x, 0, move.direction.y) * speed;
+                auto horizontal = desired;
+                if(!grounded) {
+                    const auto previous_horizontal = JPH::Vec3(previous.GetX(), 0, previous.GetZ());
+                    const auto blend = 1 - std::exp(-settings.air_control * 10 * delta_time);
+                    horizontal = previous_horizontal + (desired - previous_horizontal) * blend;
+                }
                 const auto gravity = world.GetGravity() * settings.gravity_scale;
-                velocity += JPH::Vec3(direction.x, 0, direction.y) * settings.move_speed
-                            + gravity * delta_time;
+                velocity += horizontal + gravity * delta_time;
                 controller.SetLinearVelocity(velocity);
+                const auto before = controller.GetPosition();
                 JPH::CharacterVirtual::ExtendedUpdateSettings update;
                 update.mWalkStairsStepUp =
                     JPH::Vec3(0, settings.step_height * character.last_transform.scale.x, 0);
@@ -907,6 +971,11 @@ namespace Comet {
                     world.GetDefaultLayerFilter(MOVING_LAYER), {}, {}, allocator);
                 auto transform = character.last_transform;
                 const auto position = controller.GetPosition();
+                const auto actual = JPH::Vec3(position - before) / delta_time;
+                auto relative = actual;
+                if(character_grounded(controller))
+                    relative -= controller.GetGroundVelocity();
+                character.relative_velocity = {relative.GetX(), relative.GetY(), relative.GetZ()};
                 transform.translation = {position.GetX(), position.GetY(), position.GetZ()};
                 if(!same_pose(character.last_transform, transform))
                     poses.push_back({character.entity, transform});
@@ -1350,15 +1419,15 @@ namespace Comet {
     }
 
     bool PhysicsService::enqueue_character_move(
-        const EntityUuid uuid, const EntityId entity, const Math::Vec2 direction, const bool jump) {
-        const auto found = std::ranges::find(m_character_moves, entity, &CharacterMove::entity);
+        const EntityUuid uuid, const EntityId entity, const CharacterMove move) {
+        const auto found = std::ranges::find(m_character_moves, entity, &CharacterRequest::entity);
         if(found != m_character_moves.end()) {
-            *found = {uuid, entity, direction, jump};
+            *found = {uuid, entity, move};
             return true;
         }
         if(m_character_moves.size() >= MAX_COMMANDS)
             return false;
-        m_character_moves.push_back({uuid, entity, direction, jump});
+        m_character_moves.push_back({uuid, entity, move});
         return true;
     }
 
@@ -1372,8 +1441,40 @@ namespace Comet {
         const auto& controller = *found->second.controller;
         const auto velocity = controller.GetLinearVelocity();
         const auto normal = controller.GetGroundNormal();
+        const auto& character = found->second;
+        const float height = controller.GetShape()->GetLocalBounds().GetSize().GetY();
         return CharacterState{{velocity.GetX(), velocity.GetY(), velocity.GetZ()},
-            {normal.GetX(), normal.GetY(), normal.GetZ()}, character_grounded(controller)};
+            {normal.GetX(), normal.GetY(), normal.GetZ()}, character_grounded(controller),
+            character.relative_velocity, character.running, character.crouched,
+            height / (character.settings.height * character.last_transform.scale.x)};
+    }
+
+    std::optional<float> PhysicsService::cast_sphere(const EntityUuid ignored,
+        const EntityId entity, const Math::Vec3 origin, const Math::Vec3 displacement,
+        const float radius) const {
+        if(!m_impl)
+            return std::nullopt;
+        JPH::BodyID ignored_body;
+        if(const auto found = m_impl->characters.find(entity);
+            found != m_impl->characters.end() && found->second.uuid == ignored)
+            ignored_body = found->second.controller->GetInnerBodyID();
+        else if(const auto found = m_impl->bodies.find(entity);
+            found != m_impl->bodies.end() && found->second.uuid == ignored)
+            ignored_body = found->second.id;
+        const JPH::SphereShape sphere(radius);
+        const auto start = JPH::RMat44::sTranslation(to_position(origin));
+        const JPH::RShapeCast cast(&sphere, JPH::Vec3::sOne(), start,
+            JPH::Vec3(displacement.x, displacement.y, displacement.z));
+        JPH::ShapeCastSettings settings;
+        settings.mBackFaceModeConvex = JPH::EBackFaceMode::CollideWithBackFaces;
+        JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
+        const SolidBodyFilter filter(ignored_body);
+        m_impl->world.GetNarrowPhaseQuery().CastShape(cast, settings, to_position(origin),
+            collector, m_impl->world.GetDefaultBroadPhaseLayerFilter(MOVING_LAYER),
+            m_impl->world.GetDefaultLayerFilter(MOVING_LAYER), filter);
+        if(collector.HadHit())
+            return std::clamp(collector.mHit.mFraction, 0.0f, 1.0f);
+        return 1.0f;
     }
 
     Result<void, Error> PhysicsService::synchronize_joints(

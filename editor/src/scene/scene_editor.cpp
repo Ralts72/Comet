@@ -166,7 +166,8 @@ namespace CometEditor {
             return loaded;
         const auto* record = m_assets.database().find(asset.target.handle);
         const auto uuid = SceneCommands::create_mesh_entity(m_history, m_components,
-            record->path.stem().string(), asset.target.handle, {}, position);
+            record ? record->path.stem().string() : "Default character", asset.target.handle, {},
+            position);
         if(!uuid)
             return Result::failure({"Cannot create entity for dropped mesh"});
         m_selection.select_entity(scene->find_entity(uuid).get_id());

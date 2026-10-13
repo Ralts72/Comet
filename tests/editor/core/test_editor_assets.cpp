@@ -1,3 +1,4 @@
+#include "asset/default_assets.h"
 #include "render/resource/environment.h"
 #include "assets/editor_assets.h"
 #include "assets/material_editing.h"
@@ -342,6 +343,71 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(execution.add_system(std::make_unique<Comet::ScriptSystem>(runtime)));
         ASSERT_TRUE(execution.start(playing));
         ASSERT_TRUE(execution.stop());
+    }
+
+    TEST_F(
+        EditorAssetsTest, DefaultCharacterCanBeAssignedUndoneAndUsedInPlayWithoutProjectMetadata) {
+        const auto handle = Comet::DEFAULT_CHARACTER_MESH;
+        EXPECT_FALSE(assets->database().find(handle));
+        Comet::Scene scene;
+        auto entity = scene.create_entity();
+        entity.add_component<Comet::MeshRendererComponent>(Comet::MeshRendererComponent{mesh, {}});
+        auto components = Comet::create_scene_component_registry();
+        CommandHistory history;
+        history.bind_scene(&scene);
+        PropertyEditTransaction edit(history, components);
+        SelectionService selection(scene);
+        EditorState state;
+        SceneEditor editor(state, history, edit, components, selection, *assets);
+        SceneEditor::AssetInput input{
+            {handle, Comet::INVALID_ASSET_REVISION}, history.generation(), Comet::AssetType::Mesh};
+        PropertyEditTransaction::Target target{entity.get_uuid(), "mesh_renderer", "mesh"};
+        ASSERT_TRUE(editor.assign_asset(&scene, target, input));
+        EXPECT_EQ(entity.get_component<Comet::MeshRendererComponent>().mesh, handle);
+        EXPECT_TRUE(runtime.contains<Comet::Mesh>(handle));
+        EXPECT_GT(factory.last_mesh_vertex_count(), 100u);
+        ASSERT_TRUE(editor.undo(&scene));
+        EXPECT_EQ(entity.get_component<Comet::MeshRendererComponent>().mesh, mesh);
+        ASSERT_TRUE(editor.redo(&scene));
+        EXPECT_EQ(entity.get_component<Comet::MeshRendererComponent>().mesh, handle);
+        const auto history_state = history.state_id();
+        Comet::Scene playing;
+        auto copy = playing.create_entity_with_uuid(entity.get_uuid());
+        copy.add_component<Comet::MeshRendererComponent>();
+        state.mode = EditorMode::Play;
+        ASSERT_TRUE(editor.assign_asset(&playing, target, input));
+        EXPECT_EQ(copy.get_component<Comet::MeshRendererComponent>().mesh, handle);
+        EXPECT_EQ(history.state_id(), history_state);
+        EXPECT_FALSE(assets->load_reference(handle, Comet::AssetType::Material, 0));
+    }
+
+    TEST_F(EditorAssetsTest, DefaultMaterialAssignmentUsesExistingHistoryAndNeedsNoMetadata) {
+        const auto material = add_material();
+        Comet::Scene scene;
+        auto entity = scene.create_entity();
+        entity.add_component<Comet::MeshRendererComponent>(
+            Comet::MeshRendererComponent{mesh, material});
+        auto components = Comet::create_scene_component_registry();
+        CommandHistory history;
+        history.bind_scene(&scene);
+        PropertyEditTransaction edit(history, components);
+        SelectionService selection(scene);
+        EditorState state;
+        SceneEditor editor(state, history, edit, components, selection, *assets);
+        const PropertyEditTransaction::Target target{
+            entity.get_uuid(), "mesh_renderer", "material"};
+        for(const auto handle : {Comet::DEFAULT_PBR_MATERIAL, Comet::DEFAULT_UNLIT_MATERIAL}) {
+            const SceneEditor::AssetInput input{
+                {handle, 0}, history.generation(), Comet::AssetType::Material};
+            ASSERT_TRUE(editor.assign_asset(&scene, target, input));
+            EXPECT_EQ(entity.get_component<Comet::MeshRendererComponent>().material, handle);
+            EXPECT_TRUE(runtime.contains<Comet::Material>(handle));
+            EXPECT_FALSE(assets->database().find(handle));
+            ASSERT_TRUE(editor.undo(&scene));
+            EXPECT_EQ(entity.get_component<Comet::MeshRendererComponent>().material, material);
+            EXPECT_FALSE(assets->load_reference(handle, Comet::AssetType::Material, 1));
+            EXPECT_FALSE(assets->load_reference(handle, Comet::AssetType::Mesh, 0));
+        }
     }
 
     TEST_F(EditorAssetsTest, AssetAssignmentUsesHistoryOnlyForTheEditScene) {
@@ -1384,17 +1450,35 @@ namespace CometEditor::Tests {
         const auto expected_references = components.collect_asset_references(*startup.value());
         const auto expected_meshes = std::ranges::count_if(expected_references,
             [](const auto& reference) { return reference.type == Comet::AssetType::Mesh; });
+        const auto default_meshes = std::ranges::count_if(expected_references, [](const auto& ref) {
+            return ref.type == Comet::AssetType::Mesh && Comet::find_default_asset(ref.handle);
+        });
         ASSERT_GT(expected_meshes, 0);
         ASSERT_TRUE(document.open(project.startup_scene().string()));
         ASSERT_NE(active, nullptr);
         EXPECT_EQ(document.get_path(), path);
-        // 项目 Shader 先完成后台编译，其材质和 Mesh 初次打开时都会暂缺。
-        EXPECT_EQ(missing, expected_meshes + 1);
-        EXPECT_EQ(factory.mesh_creation_count(), 0);
+        // 项目 Mesh 与 Shader 材质等待导入；内置资源可直接加载。
+        const auto deferred_assets =
+            std::ranges::count_if(expected_references, [&](const auto& ref) {
+                if(Comet::find_default_asset(ref.handle))
+                    return false;
+                if(ref.type == Comet::AssetType::Mesh)
+                    return true;
+                const auto* record = assets->database().find(ref.handle);
+                return ref.type == Comet::AssetType::Material && record
+                       && std::ranges::any_of(record->dependencies, [&](const auto dependency) {
+                              const auto* input = assets->database().find(dependency);
+                              return input && input->type == Comet::AssetType::ShaderProgram;
+                          });
+            });
+        EXPECT_EQ(missing, deferred_assets);
+        EXPECT_EQ(factory.mesh_creation_count(), default_meshes);
         EXPECT_EQ(active->entity_count(), initial_entities);
         const auto references = components.collect_asset_references(*active);
         EXPECT_EQ(references, expected_references);
         for(const auto& reference : references) {
+            if(Comet::find_default_asset(reference.handle))
+                continue;
             const auto* record = assets->database().find(reference.handle);
             ASSERT_NE(record, nullptr);
             EXPECT_EQ(record->type, reference.type);

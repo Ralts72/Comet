@@ -13,6 +13,8 @@ namespace Comet {
     class Device;
     class UploadManager;
     struct MeshData;
+    struct AnimationData;
+    class SkinningPass;
 
     class COMET_API Mesh {
     public:
@@ -28,15 +30,22 @@ namespace Comet {
         [[nodiscard]] const GpuCompletionPoint& get_ready_completion() const {
             return m_ready_completion;
         }
+        [[nodiscard]] bool is_skinned() const { return bool(m_animation); }
+        [[nodiscard]] const std::shared_ptr<const AnimationData>& animation_data() const {
+            return m_animation;
+        }
         [[nodiscard]] const BoundingBox& get_local_bounds() const { return m_local_bounds; }
 
     private:
+        friend class SkinningPass;
         Mesh(std::shared_ptr<Buffer> vertex_buffer, std::shared_ptr<Buffer> index_buffer,
             GpuCompletionPoint ready_completion, BoundingBox local_bounds, uint32_t vertex_count,
             uint32_t index_count);
 
         std::shared_ptr<Buffer> m_vertex_buffer;
         std::shared_ptr<Buffer> m_index_buffer;
+        std::shared_ptr<Buffer> m_skin_buffer;
+        std::shared_ptr<const AnimationData> m_animation;
         GpuCompletionPoint m_ready_completion;
         BoundingBox m_local_bounds;
         uint32_t m_vertex_count;

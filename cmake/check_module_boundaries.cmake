@@ -31,7 +31,7 @@ set(FOUNDATION_HEADERS
 set(SERIALIZATION_HEADERS "${FOUNDATION_HEADERS}")
 set(SHADER_HEADERS "${FOUNDATION_HEADERS}|graphics/(enums|pipeline/shader_interface)\\.h$")
 set(ASSET_HEADERS
-    "${SERIALIZATION_HEADERS}|${SHADER_HEADERS}|asset/(data/|serialization/|(handle|metadata|import_settings|registry|reference|script)\\.h$)")
+    "${SERIALIZATION_HEADERS}|${SHADER_HEADERS}|animation/animation_data\\.h$|asset/(data/|serialization/|(default_assets|handle|metadata|import_settings|registry|reference|script)\\.h$)")
 set(INPUT_HEADERS "${SERIALIZATION_HEADERS}|input/")
 set(AUDIO_DATA_HEADERS "audio/(audio_category|audio_settings)\\.h$")
 set(WORLD_HEADERS
@@ -44,10 +44,10 @@ set(AUDIO_HEADERS "${RUNTIME_HEADERS}|audio/|scene/systems/audio_system\\.h$")
 
 set(PHYSICS_HEADERS "${RUNTIME_HEADERS}|physics/|scene/systems/physics_system\\.h$")
 set(PHYSICS_BACKEND_HEADERS "${ASSET_HEADERS}|audio/audio_category\\.h$|physics/|scene/(components|entity_id|entity_uuid|scene_settings)\\.h$")
-set(GAMEPLAY_HEADERS "${RUNTIME_HEADERS}|gameplay/")
+set(GAMEPLAY_HEADERS "${RUNTIME_HEADERS}|gameplay/|animation/animation_system\\.h$")
 set(SCRIPTING_HEADERS "${GAMEPLAY_HEADERS}|scripting/|scene/systems/script_system\\.h$")
 set(RUNTIME_ASSET_HEADERS "${PIPELINE_HEADERS}|${AUDIO_DATA_HEADERS}|asset/(asset_manager\\.h$|runtime/)|scripting/script_compiler\\.h$|audio/audio\\.h$|graphics/error\\.h$")
-set(RENDER_ASSET_HEADERS "${FOUNDATION_HEADERS}|asset/handle\\.h$|asset/data/|asset/runtime/render_asset_factory\\.h$|graphics/|render/(resource/|material/material\\.h$)")
+set(RENDER_ASSET_HEADERS "${FOUNDATION_HEADERS}|animation/animation_data\\.h$|asset/handle\\.h$|asset/data/|asset/runtime/render_asset_factory\\.h$|graphics/|render/(resource/|material/material\\.h$)")
 set(PLATFORM_HEADERS "${INPUT_HEADERS}|core/(window|window_settings)\\.h$")
 set(GRAPHICS_HEADERS "${FOUNDATION_HEADERS}|graphics/|${PLATFORM_HEADERS}")
 set(RENDER_HEADERS "${GRAPHICS_HEADERS}|${WORLD_HEADERS}|render/|asset/artifact/shader_program_artifact\\.h$|asset/runtime/render_asset_factory\\.h$")
@@ -146,7 +146,7 @@ check_includes("${ENGINE_SOURCE}" "${ENGINE_CORE_FILES}" "RmlUi/|ui/rml_"
     "Only the Engine UI module may depend on RmlUi")
 
 set(LOW_LEVEL_FILES)
-foreach(directory common input scene scripting audio physics gameplay)
+foreach(directory common input scene scripting audio physics gameplay animation)
     file(GLOB_RECURSE files RELATIVE "${ENGINE_SOURCE}"
         "${ENGINE_SOURCE}/${directory}/*.h" "${ENGINE_SOURCE}/${directory}/*.cpp")
     list(APPEND LOW_LEVEL_FILES ${files})

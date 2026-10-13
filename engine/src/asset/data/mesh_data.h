@@ -2,6 +2,9 @@
 
 #include "core/math_utils.h"
 #include "core/geometry.h"
+#include "animation/animation_data.h"
+#include <memory>
+#include <array>
 
 #include <cstdint>
 #include <optional>
@@ -14,9 +17,19 @@ namespace Comet {
         Math::Vec3 normal{};
     };
 
+    struct SkinInfluences {
+        std::array<uint32_t, 4> joints{};
+        Math::Vec4 weights{0};
+    };
+
+    static_assert(sizeof(MeshVertex) == 8 * sizeof(float));
+    static_assert(sizeof(SkinInfluences) == 8 * sizeof(uint32_t));
+
     struct MeshData {
         std::vector<MeshVertex> vertices;
         std::vector<std::uint32_t> indices;
+        std::vector<SkinInfluences> skin;
+        std::shared_ptr<const AnimationData> animation;
     };
 
     [[nodiscard]] inline std::optional<BoundingBox> calculate_mesh_bounds(const MeshData& data) {

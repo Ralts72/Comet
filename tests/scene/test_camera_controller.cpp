@@ -2,6 +2,9 @@
 #include "scene/systems/camera_controller.h"
 #include "scene/scene.h"
 #include "core/project.h"
+#include "physics/physics_service.h"
+#include "scene/scene_runtime.h"
+#include "scene/systems/physics_system.h"
 
 #include <gtest/gtest.h>
 #include <cmath>
@@ -401,5 +404,108 @@ namespace Comet::Tests {
         input.key_event(Input::Key::Up, true);
         update();
         expect_position({0, 0, -0.3f});
+    }
+
+    TEST_F(CameraControllerTest, OrbitUsesWorldDistanceAndOnlyTurnsOrZoomsAroundItsParent) {
+        auto parent = scene.create_entity("Player");
+        parent.edit_transform([](auto& transform) {
+            transform.translation = {3, 0, 0};
+            transform.rotation.y = 90;
+            transform.scale = {2, 3, 4};
+        });
+        ASSERT_TRUE(scene.set_parent(entity, parent));
+        auto& controller = entity.get_component<CameraControllerComponent>();
+        controller.mode = CameraControllerComponent::Mode::Orbit;
+        input.key_event(Input::Key::W, true);
+        update();
+        auto position = Math::Vec3(scene.get_world_matrix(entity)[3]);
+        EXPECT_NEAR(position.x, 9, 0.0001f);
+        EXPECT_NEAR(position.y, 1.2f, 0.0001f);
+        EXPECT_NEAR(position.z, 0, 0.0001f);
+        EXPECT_EQ(parent.get_component<TransformComponent>().translation, Math::Vec3(3, 0, 0));
+        input.mouse_button_event(Input::MouseButton::Right, true);
+        update();
+        EXPECT_TRUE(CameraControllerSystem{}.wants_cursor_capture(scene, input_state));
+        input.cursor_event({450, 0});
+        update(0);
+        position = Math::Vec3(scene.get_world_matrix(entity)[3]);
+        EXPECT_NEAR(position.x, 3, 0.0001f);
+        EXPECT_NEAR(position.z, 6, 0.0001f);
+        input.scroll_event({0, 1});
+        update(0);
+        EXPECT_FLOAT_EQ(controller.orbit_distance, 5.5f);
+        input.key_event(Input::Key::PageUp, true);
+        update(0.5f);
+        EXPECT_FLOAT_EQ(controller.orbit_distance, 4);
+        input.scroll_event({0, 100});
+        update(0);
+        EXPECT_FLOAT_EQ(controller.orbit_distance, controller.orbit_min_distance);
+        input.scroll_event({0, -100});
+        update(0);
+        EXPECT_FLOAT_EQ(controller.orbit_distance, controller.orbit_max_distance);
+        const auto rotation = camera.rotation;
+        input.focus_event(false);
+        input.cursor_event({10000, 10000});
+        parent.edit_transform([](auto& transform) { transform.translation.x = 5; });
+        update();
+        EXPECT_EQ(camera.rotation, rotation);
+        EXPECT_FALSE(CameraControllerSystem{}.wants_cursor_capture(scene, input_state));
+        EXPECT_NEAR(Math::Vec3(scene.get_world_matrix(entity)[3]).x, 5, 0.0001f);
+    }
+
+    TEST_F(CameraControllerTest, OrbitGamepadTurnsWithoutCaptureAndZoomsWithTheDpad) {
+        auto parent = scene.create_entity("Player");
+        ASSERT_TRUE(scene.set_parent(entity, parent));
+        auto& controller = entity.get_component<CameraControllerComponent>();
+        controller.mode = CameraControllerComponent::Mode::Orbit;
+        Input::GamepadSample pad;
+        pad.axes[static_cast<size_t>(Input::GamepadAxis::RightX)] = 1;
+        pad.axes[static_cast<size_t>(Input::GamepadAxis::RightY)] = 1;
+        input.gamepad_sample(0, pad);
+        update(0.2f);
+        expect_rotation({-24, -24, 0});
+        EXPECT_FALSE(CameraControllerSystem{}.wants_cursor_capture(scene, input_state));
+        entity.edit_transform([](auto& transform) { transform.rotation = {}; });
+        update(0.1f);
+        update(0.1f);
+        expect_rotation({-24, -24, 0});
+        pad.buttons[static_cast<size_t>(Input::GamepadButton::DpadUp)] = true;
+        input.gamepad_sample(0, pad);
+        update(1);
+        EXPECT_FLOAT_EQ(controller.orbit_distance, 3);
+        update(1);
+        EXPECT_FLOAT_EQ(controller.orbit_distance, controller.orbit_min_distance);
+        EXPECT_GE(camera.rotation.x, -89);
+        input.gamepad_sample(0, std::nullopt);
+        const auto rotation = camera.rotation;
+        update();
+        EXPECT_EQ(camera.rotation, rotation);
+    }
+
+    TEST_F(CameraControllerTest, OrbitCollisionShortensActualDistanceAndRestoresItAfterRemoval) {
+        auto parent = scene.create_entity("Player");
+        parent.add_component<CharacterControllerComponent>();
+        ASSERT_TRUE(scene.set_parent(entity, parent));
+        auto& controller = entity.get_component<CameraControllerComponent>();
+        controller.mode = CameraControllerComponent::Mode::Orbit;
+        auto wall = scene.create_entity("Wall");
+        wall.edit_transform([](auto& transform) { transform.translation = {0, 2, 3}; });
+        wall.add_component<RigidBodyComponent>(RigidBodyComponent{.motion = BodyMotion::Static});
+        wall.add_component<ColliderComponent>(ColliderComponent{.half_extents = {2, 2, 0.2f}});
+        PhysicsService physics;
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_input_actions(actions));
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<CameraControllerSystem>()));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(1.0 / 60, &input.publish_frame()));
+        EXPECT_NEAR(Math::Vec3(scene.get_world_matrix(entity)[3]).z, 2.64f, 0.03f);
+        EXPECT_FLOAT_EQ(controller.orbit_distance, 6);
+        scene.destroy_entity(wall);
+        ASSERT_TRUE(runtime.advance(1.0 / 60, &input.publish_frame()));
+        EXPECT_NEAR(Math::Vec3(scene.get_world_matrix(entity)[3]).z, 6, 0.0001f);
+        EXPECT_FLOAT_EQ(controller.orbit_distance, 6);
+        ASSERT_TRUE(runtime.stop());
     }
 }

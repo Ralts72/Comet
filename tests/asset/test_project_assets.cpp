@@ -1,3 +1,4 @@
+#include "asset/default_assets.h"
 #include "asset/database.h"
 #include "asset/import/environment_importer.h"
 #include "asset/import/mesh_importer.h"
@@ -42,6 +43,11 @@ namespace Comet::Tests {
             SceneSerializer(registry).load((root / project.value().startup_scene()).string());
         ASSERT_TRUE(scene) << scene.error();
         for(const auto& reference : registry.collect_asset_references(*scene.value())) {
+            if(const auto* asset = find_default_asset(reference.handle)) {
+                EXPECT_EQ(reference.type, asset->type);
+                EXPECT_FALSE(database.find(reference.handle));
+                continue;
+            }
             EXPECT_TRUE(identities.contains(reference.handle));
             const auto* record = database.find(reference.handle);
             if(reference.required)

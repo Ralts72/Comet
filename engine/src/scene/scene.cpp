@@ -119,8 +119,26 @@ namespace Comet {
             if(m_registry.any_of<PointJointComponent, HingeJointComponent, SliderJointComponent>(
                    *it))
                 m_physics_joints_changed = true;
+            m_animation_playbacks.erase(*it);
             m_registry.destroy(*it);
         }
+    }
+
+    std::shared_ptr<const AnimationPlayback> Scene::get_animation_playback(Entity entity) const {
+        if(!is_valid(entity))
+            return nullptr;
+        const auto found = m_animation_playbacks.find(entity.m_handle);
+        return found == m_animation_playbacks.end() ? nullptr : found->second;
+    }
+    void Scene::set_animation_playback(
+        Entity entity, std::shared_ptr<const AnimationPlayback> playback) {
+        if(!is_valid(entity))
+            return;
+        if(!playback && !m_animation_playbacks.erase(entity.m_handle))
+            return;
+        if(playback)
+            m_animation_playbacks.insert_or_assign(entity.m_handle, std::move(playback));
+        mark_render_entity_changed(entity.m_handle);
     }
 
     bool Scene::begin_runtime() {
@@ -248,11 +266,12 @@ namespace Comet {
         m_dirty_physics_entities.clear();
         m_physics_structure_changed = false;
         m_physics_joints_changed = false;
-        if(!m_material_overrides.empty()) {
+        if(!m_material_overrides.empty() || !m_animation_playbacks.empty()) {
             mark_render_dirty();
             m_render_full_update = true;
         }
         m_material_overrides.clear();
+        m_animation_playbacks.clear();
     }
 
     bool Scene::emit_event(const std::string_view name, std::optional<ParameterValue> value) {

@@ -99,6 +99,7 @@ set(UNIT_TEST_SOURCES
         render/test_render_asset_factory.cpp
         render/test_scene_extractor.cpp
         render/test_scene_picking.cpp
+        scene/test_animation.cpp
         scene/test_audio_system.cpp
         scene/test_camera_controller.cpp
         scene/test_character_controller.cpp
@@ -152,6 +153,7 @@ set(INTEGRATION_SOURCES
         render/test_frame_scheduler.cpp
         render/test_render_geometry.cpp
         render/test_imgui_overlay.cpp
+        render/test_skinning.cpp
         render/test_material_rendering.cpp
         render/test_material_runtime.cpp
         render/test_offscreen_resize.cpp
@@ -310,10 +312,13 @@ set_tests_properties(render_graph_sync_validation PROPERTIES
         RESOURCE_LOCK comet_gpu TIMEOUT 90 LABELS "integration;gpu")
 
 add_executable(post_process_recovery test.cpp render/test_post_process_recovery.cpp
+        "${CMAKE_SOURCE_DIR}/engine/src/render/passes/skinning_pass.cpp"
         "${CMAKE_SOURCE_DIR}/engine/src/render/renderer.cpp"
         "${CMAKE_SOURCE_DIR}/engine/src/render/scene/scene_renderer.cpp"
         "${CMAKE_SOURCE_DIR}/engine/src/graphics/convert.cpp")
 target_link_libraries(post_process_recovery PRIVATE engine gtest)
+add_dependencies(post_process_recovery shader_compile)
+target_include_directories(post_process_recovery PRIVATE "${CMAKE_BINARY_DIR}/engine/generated/shaders/include")
 target_compile_definitions(post_process_recovery PRIVATE COMET_EXPORTS)
 comet_copy_runtime_dependencies(post_process_recovery)
 add_test(NAME post_process_recovery COMMAND post_process_recovery ${TEST_PLATFORM_ARGS})

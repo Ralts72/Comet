@@ -35,9 +35,11 @@ namespace Comet {
             LOG_FATAL("Failed to resolve mesh index buffer state");
         }
 
-        auto vertex_attempt =
-            Buffer::try_create_gpu_buffer(device, Flags<BufferUsage>(BufferUsage::Vertex),
-                data.vertices.size() * sizeof(MeshVertex), within_budget, "mesh vertex buffer");
+        auto vertex_attempt = Buffer::try_create_gpu_buffer(device,
+            Flags<BufferUsage>(BufferUsage::Vertex)
+                | (data.animation ? Flags<BufferUsage>(BufferUsage::Storage)
+                                  : Flags<BufferUsage>{}),
+            data.vertices.size() * sizeof(MeshVertex), within_budget, "mesh vertex buffer");
         if(!vertex_attempt) {
             return GpuResourceResult<std::shared_ptr<Mesh>>::failure(vertex_attempt.result());
         }
@@ -54,6 +56,17 @@ namespace Comet {
             index_buffer = std::move(index_attempt).value();
         }
 
+        std::shared_ptr<Buffer> skin_buffer;
+        if(data.animation) {
+            if(data.skin.size() != data.vertices.size())
+                LOG_FATAL("Skin weights must match mesh vertices");
+            auto skin =
+                Buffer::try_create_gpu_buffer(device, Flags<BufferUsage>(BufferUsage::Storage),
+                    data.skin.size() * sizeof(SkinInfluences), within_budget, "mesh skin weights");
+            if(!skin)
+                return GpuResourceResult<std::shared_ptr<Mesh>>::failure(skin.result());
+            skin_buffer = std::move(skin).value();
+        }
         auto upload_batch = upload_manager.begin_batch();
         auto vertex_upload = upload_batch.try_enqueue_upload(
             vertex_buffer, std::as_bytes(std::span(data.vertices)), *vertex_state, within_budget);
@@ -68,12 +81,23 @@ namespace Comet {
             }
         }
 
+        if(skin_buffer) {
+            auto upload =
+                upload_batch.try_enqueue_upload(skin_buffer, std::as_bytes(std::span(data.skin)),
+                    *resolve_resource_state(ResourceUsage::StorageRead,
+                        Flags<PipelineStage>(PipelineStage::ComputeShader)),
+                    within_budget);
+            if(!upload)
+                return GpuResourceResult<std::shared_ptr<Mesh>>::failure(upload.result());
+        }
         const auto completion = upload_batch.submit();
         if(!completion)
             return GpuResourceResult<std::shared_ptr<Mesh>>::failure(completion.result());
         std::shared_ptr<Mesh> mesh(new Mesh(std::move(vertex_buffer), std::move(index_buffer),
             completion.value(), *local_bounds, static_cast<uint32_t>(data.vertices.size()),
             static_cast<uint32_t>(data.indices.size())));
+        mesh->m_skin_buffer = std::move(skin_buffer);
+        mesh->m_animation = data.animation;
         return GpuResourceResult<std::shared_ptr<Mesh>>::success(std::move(mesh));
     }
 

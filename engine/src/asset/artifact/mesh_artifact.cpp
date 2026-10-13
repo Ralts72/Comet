@@ -19,9 +19,174 @@ namespace Comet {
     namespace {
         constexpr std::array<std::byte, 8> MAGIC{std::byte{'C'}, std::byte{'O'}, std::byte{'M'},
             std::byte{'E'}, std::byte{'T'}, std::byte{'M'}, std::byte{'S'}, std::byte{'H'}};
-        constexpr std::uint32_t FORMAT_VERSION = 2;
+        constexpr std::uint32_t FORMAT_VERSION = 3;
         constexpr std::uint32_t MAX_INPUT_COUNT = 1024;
         constexpr std::uint32_t MAX_PATH_LENGTH = 16 * 1024;
+        bool write_animation(Binary::Writer& writer, const MeshData& mesh) {
+            writer.write_u32(mesh.animation ? 1 : 0);
+            if(!mesh.animation)
+                return mesh.skin.empty();
+            const auto& data = *mesh.animation;
+            if(mesh.skin.size() != mesh.vertices.size() || !validate_animation(data))
+                return false;
+            writer.write_u32(data.mesh_node);
+            writer.write_u32(uint32_t(data.nodes.size()));
+            for(const auto& node : data.nodes) {
+                if(!writer.write_string(node.name, MAX_PATH_LENGTH))
+                    return false;
+                writer.write_u32(node.parent);
+                for(int i = 0; i < 3; ++i)
+                    writer.write_float(node.rest.translation[i]);
+                for(int i = 0; i < 4; ++i)
+                    writer.write_float(node.rest.rotation[i]);
+                for(int i = 0; i < 3; ++i)
+                    writer.write_float(node.rest.scale[i]);
+            }
+            for(const auto node : data.evaluation_order)
+                writer.write_u32(node);
+            writer.write_u32(uint32_t(data.joints.size()));
+            for(const auto& joint : data.joints) {
+                writer.write_u32(joint.node);
+                for(int c = 0; c < 4; ++c)
+                    for(int r = 0; r < 4; ++r)
+                        writer.write_float(joint.inverse_bind[c][r]);
+            }
+            for(const auto& influence : mesh.skin) {
+                if(!Math::is_finite(influence.weights)
+                    || glm::any(glm::lessThan(influence.weights, Math::Vec4(0)))
+                    || std::abs(glm::dot(influence.weights, Math::Vec4(1)) - 1) > 0.001f)
+                    return false;
+                for(const auto joint : influence.joints)
+                    if(joint >= data.joints.size())
+                        return false;
+                for(const auto joint : influence.joints)
+                    writer.write_u32(joint);
+                for(int i = 0; i < 4; ++i)
+                    writer.write_float(influence.weights[i]);
+            }
+            writer.write_u32(uint32_t(data.clips.size()));
+            for(const auto& clip : data.clips) {
+                if(!writer.write_string(clip.name, MAX_PATH_LENGTH))
+                    return false;
+                writer.write_float(clip.duration);
+                writer.write_u32(uint32_t(clip.channels.size()));
+                for(const auto& channel : clip.channels) {
+                    writer.write_u32(channel.node);
+                    writer.write_u32(uint32_t(channel.path));
+                    writer.write_u32(uint32_t(channel.interpolation));
+                    writer.write_u32(uint32_t(channel.times.size()));
+                    for(const auto time : channel.times)
+                        writer.write_float(time);
+                    for(const auto& value : channel.values)
+                        for(int i = 0; i < 4; ++i)
+                            writer.write_float(value[i]);
+                }
+            }
+            return true;
+        }
+        bool read_count(Binary::Reader& reader, uint32_t& count, std::size_t minimum_bytes) {
+            return reader.read_u32(count) && count <= 1000000
+                   && count <= reader.remaining() / minimum_bytes;
+        }
+        bool read_animation(Binary::Reader& reader, MeshData& mesh) {
+            uint32_t present = 0;
+            if(!reader.read_u32(present) || present > 1)
+                return false;
+            if(!present)
+                return true;
+            auto data = std::make_shared<AnimationData>();
+            uint32_t count = 0;
+            if(!reader.read_u32(data->mesh_node) || !read_count(reader, count, 48))
+                return false;
+            data->nodes.resize(count);
+            data->evaluation_order.resize(count);
+            for(auto& node : data->nodes) {
+                if(!reader.read_string(node.name, MAX_PATH_LENGTH) || !reader.read_u32(node.parent))
+                    return false;
+                for(int i = 0; i < 3; ++i)
+                    if(!reader.read_float(node.rest.translation[i]))
+                        return false;
+                for(int i = 0; i < 4; ++i)
+                    if(!reader.read_float(node.rest.rotation[i]))
+                        return false;
+                for(int i = 0; i < 3; ++i)
+                    if(!reader.read_float(node.rest.scale[i]))
+                        return false;
+            }
+            for(auto& node : data->evaluation_order)
+                if(!reader.read_u32(node))
+                    return false;
+            if(!read_count(reader, count, 68))
+                return false;
+            data->joints.resize(count);
+            for(auto& joint : data->joints) {
+                if(!reader.read_u32(joint.node))
+                    return false;
+                for(int c = 0; c < 4; ++c)
+                    for(int r = 0; r < 4; ++r)
+                        if(!reader.read_float(joint.inverse_bind[c][r]))
+                            return false;
+            }
+            if(mesh.vertices.size() > reader.remaining() / 32)
+                return false;
+            mesh.skin.resize(mesh.vertices.size());
+            for(std::size_t index = 0; index < mesh.skin.size(); ++index) {
+                auto& influence = mesh.skin[index];
+                for(auto& joint : influence.joints)
+                    if(!reader.read_u32(joint) || joint >= data->joints.size())
+                        return false;
+                for(int i = 0; i < 4; ++i)
+                    if(!reader.read_float(influence.weights[i])
+                        || !std::isfinite(influence.weights[i]) || influence.weights[i] < 0)
+                        return false;
+                if(std::abs(glm::dot(influence.weights, Math::Vec4(1)) - 1) > 0.001f)
+                    return false;
+                for(int i = 0; i < 4; ++i) {
+                    if(influence.weights[i] == 0)
+                        continue;
+                    auto& bounds = data->joints[influence.joints[i]].bounds;
+                    if(bounds)
+                        bounds->include(mesh.vertices[index].position);
+                    else
+                        bounds = BoundingBox::from_point(mesh.vertices[index].position);
+                }
+            }
+            if(!read_count(reader, count, 12))
+                return false;
+            data->clips.resize(count);
+            for(auto& clip : data->clips) {
+                if(!reader.read_string(clip.name, MAX_PATH_LENGTH)
+                    || !reader.read_float(clip.duration) || !read_count(reader, count, 16))
+                    return false;
+                clip.channels.resize(count);
+                for(auto& channel : clip.channels) {
+                    uint32_t path = 0, interpolation = 0;
+                    if(!reader.read_u32(channel.node) || !reader.read_u32(path) || path > 2
+                        || !reader.read_u32(interpolation) || interpolation > 2
+                        || !read_count(reader, count, 20))
+                        return false;
+                    channel.path = AnimationChannel::Path(path);
+                    channel.interpolation = AnimationChannel::Interpolation(interpolation);
+                    const auto value_count = std::size_t(count) * (interpolation == 2 ? 3 : 1);
+                    if(count * 4ull + value_count * 16ull > reader.remaining())
+                        return false;
+                    channel.times.resize(count);
+                    channel.values.resize(value_count);
+                    for(auto& time : channel.times)
+                        if(!reader.read_float(time))
+                            return false;
+                    for(auto& value : channel.values)
+                        for(int i = 0; i < 4; ++i)
+                            if(!reader.read_float(value[i]))
+                                return false;
+                }
+            }
+            if(!validate_animation(*data))
+                return false;
+            mesh.animation = std::move(data);
+            return true;
+        }
+
         [[nodiscard]] std::string path_to_utf8(const std::filesystem::path& path) {
             const std::u8string value = path.generic_u8string();
             return {reinterpret_cast<const char*>(value.data()), value.size()};
@@ -121,7 +286,7 @@ namespace Comet {
         const std::uint64_t expected_mesh_size =
             static_cast<std::uint64_t>(vertex_count) * SERIALIZED_VERTEX_SIZE
             + static_cast<std::uint64_t>(index_count) * sizeof(std::uint32_t);
-        if(expected_mesh_size != reader.remaining()) {
+        if(expected_mesh_size + 4 > reader.remaining()) {
             return std::nullopt;
         }
 
@@ -138,6 +303,8 @@ namespace Comet {
             }
         }
 
+        if(!read_animation(reader, artifact.data) || reader.remaining() != 0)
+            return std::nullopt;
         return artifact;
     }
 
@@ -181,6 +348,8 @@ namespace Comet {
             }
             writer.write_u32(index);
         }
+        if(!write_animation(writer, data))
+            return Result<void>::failure("Cannot publish invalid animation data");
         writer.write_u64(Binary::hash_bytes(writer.data()));
         return write_binary_file_atomic(artifact_path, writer.data());
     }

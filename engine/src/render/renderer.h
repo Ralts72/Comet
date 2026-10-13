@@ -209,6 +209,7 @@ namespace Comet {
         RenderThread* m_render_thread = nullptr; // Engine 绑定，排空请求后解除。
         std::unique_ptr<RenderResources> m_render_resources;
         std::unique_ptr<FrameScheduler> m_frames;
+        std::shared_ptr<class SkinningPass> m_skinning;
         std::unique_ptr<RenderDiagnostics> m_diagnostics;
         std::unique_ptr<Presentation> m_presentation;
         std::unique_ptr<MaterialPrograms> m_programs;

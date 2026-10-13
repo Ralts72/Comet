@@ -1,5 +1,18 @@
 # 引擎架构与运行时边界
 
+## 骨骼与动画
+
+Mesh 导入数据保存顶点权重和不可变 `AnimationData`，骨骼层级、绑定矩阵及片段属于资产，沿 Mesh Artifact 保存、校验与加载。
+`AnimatorComponent` 只保存播放配置和角色动作映射，复用组件描述符的保存、克隆、引用重映射与 Inspector 撤销。
+`AnimationSystem` 在 Main 普通更新阶段推进实例时间；角色动作取自 Gameplay 的实际移动状态，动画不回写角色的物理位置。
+Scene 保存不可变播放快照，提取／解析交付同一快照给 RenderThread；Stop、销毁及重开清理播放状态，场景文件不保存时间与逐帧姿态。
+
+RenderThread 采样局部 TRS、混合并合成骨骼矩阵，`SkinningPass` 每帧槽复用角色的调色板和输出顶点缓冲。
+Compute 在绘制前生成普通 Mesh 顶点，主绘制、阴影及项目材质共用结果，不扩展材质顶点接口。
+按每个关节影响的顶点界限计算保守姿态界限，供裁剪和阴影范围使用；在途帧保留输入资产、输出缓冲和 descriptor owner。
+默认角色和基础材质在 `asset/default_assets.h` 声明固定身份，按需由 AssetLoader 加载，复用 Registry、资源工厂和普通引用选择／撤销路径。
+角色使用同一 MeshImporter／GPU 工厂；默认材质参数只取自 MaterialLayout，不额外保存重复配置。项目资产仍沿数据库、缓存和发布版本工作。
+
 本文描述当前模块、所有权和关键时序。功能规划与验收见[路线图](../engine-roadmap.md)，构建入口见 [README](../../README.md)，具体操作见[使用手册](../usage.md)。
 
 ## 构建模块
@@ -19,7 +32,7 @@
 | Runtime | 时间、暂停／单步、会话与 System 生命周期 | World、Input |
 | Audio | AudioService、Voice、播放设备与 AudioSystem | Runtime、miniaudio |
 | Physics | PhysicsService、刚体世界与 PhysicsSystem | Runtime、Jolt |
-| Gameplay | 可复用角色输入／移动控制，借用输入快照和 PhysicsAccess | Runtime |
+| Gameplay | 可复用角色输入／移动控制及动画实例推进，借用输入快照和 PhysicsAccess | Runtime |
 | Scripting | 行为 VM、Lua 校验与 ScriptSystem，以及 Gameplay 桥接 | Runtime、Gameplay、Lua |
 | AssetPipeline | 扫描、索引、源导入、Artifact 与任务队列 | AssetData、stb_image、fastgltf |
 | RuntimeAssets | 需求、加载、失效、版本编排和资源发布契约 | AssetPipeline、Audio／Script 定义 |
@@ -284,8 +297,10 @@ ScriptSystem 不监听文件、不另建资产版本缓存；UI 控制器的 VM 
 
 `gameplay/CharacterController` 负责把项目动作转换为世界 XZ 移动与地面跳跃意图，借用本次 InputState 和 PhysicsAccess；不持有世界、后端对象或玩法会话。
 动作名可配置，移动轴保持模拟量；归一化及胶囊求解仍由 Physics 负责。失焦或调用方停用控制时提交零意图，重力和移动平台跟随不停止。
-Lua 的 `comet.control_character(enabled, actions)` 调用相同 C++ 控制器，返回是否提交跳跃，供项目触发声音／动画；项目继续决定输入组、计分、完成与重开。
-基础控制在固定更新、物理步进前调用，复用既有运行调度。后续角色朝向、相机参照、移动状态及 root motion 在 Gameplay 扩展，碰撞求解保持在 Physics；当前目录只包含已有消费者需要的能力。
+可选 `movement_reference` 使用即时同步的无缩放世界姿态计算平面方向；相机俯仰不缩短模拟输入，垂直俯视时使用右轴确定平面朝向。
+可选 `facing` 将移动方向转换到外观父级的旋转空间，只改外观旋转，保留位置／缩放及静止朝向；目标不得带刚体或角色控制器。demo 将外观和相机设为兄弟实体，转向不改相机。
+Lua 的 `comet.control_character(enabled, options)` 调用相同 C++ 控制器，实体选项复用已有场景代次／实体身份校验，返回是否提交跳跃；项目继续决定输入组、计分、完成与重开。
+基础控制借用当前 Scene，在固定更新、物理步进前调用，复用既有运行调度。Gameplay 提供实际移动状态、跑步／蹲伏和外观朝向；Physics 负责姿态空间检查与碰撞求解。后续 root motion 继续沿同一写入边界扩展。
 
 ## 项目 UI 控制器
 

@@ -1,3 +1,5 @@
+#include "render/resource/mesh.h"
+#include "animation/animation_data.h"
 #include "inspector/inspector.h"
 #include "inspector/property_editor_registry.h"
 #include "scene/selection.h"
@@ -121,9 +123,15 @@ namespace CometEditor {
                 {"camera_controller", "相机控制器"}, {"audio_source", "音频源"},
                 {"character_controller", "角色控制器"}, {"rigid_body", "刚体"},
                 {"collider", "碰撞体"}, {"point_joint", "点关节"}, {"hinge_joint", "铰链关节"},
-                {"slider_joint", "滑动关节"}, {"light", "光源"}};
-            static constexpr Caption properties[]{{"script/asset", "脚本"},
-                {"script/parameters", "参数"}, {"name/name", "名称"},
+                {"slider_joint", "滑动关节"}, {"light", "光源"}, {"animator", "动画"}};
+            static constexpr Caption properties[]{{"animator/enabled", "启用"},
+                {"animator/clip", "播放片段"}, {"animator/speed", "播放速度"},
+                {"animator/loop", "循环"}, {"animator/transition", "过渡时间 (s)"},
+                {"animator/character", "驱动角色"}, {"animator/idle", "待机动作"},
+                {"animator/walk", "行走动作"}, {"animator/run", "跑步动作"},
+                {"animator/crouch", "蹲伏动作"}, {"animator/crouch_walk", "蹲伏移动动作"},
+                {"animator/jump", "跳跃动作"}, {"animator/fall", "下落动作"},
+                {"script/asset", "脚本"}, {"script/parameters", "参数"}, {"name/name", "名称"},
                 {"transform/translation", "位置"}, {"transform/rotation", "旋转"},
                 {"transform/scale", "缩放"}, {"mesh_renderer/mesh", "网格"},
                 {"mesh_renderer/material", "材质"}, {"camera/primary", "主相机"},
@@ -133,10 +141,22 @@ namespace CometEditor {
                 {"camera_controller/move_speed", "移动速度"},
                 {"camera_controller/look_sensitivity", "鼠标转向灵敏度"},
                 {"camera_controller/look_speed", "持续转向速度 (度/秒)"},
+                {"camera_controller/mode", "控制模式"},
+                {"camera_controller/orbit_distance", "环绕距离 (m)"},
+                {"camera_controller/orbit_height", "中心高度 (m)"},
+                {"camera_controller/orbit_min_distance", "最近距离 (m)"},
+                {"camera_controller/orbit_max_distance", "最远距离 (m)"},
+                {"camera_controller/orbit_zoom_step", "滚轮缩放步长 (m)"},
+                {"camera_controller/collision_radius", "相机碰撞半径 (m)"},
                 {"character_controller/enabled", "启用"},
                 {"character_controller/radius", "胶囊半径 (m)"},
                 {"character_controller/height", "胶囊总高 (m)"},
                 {"character_controller/move_speed", "移动速度 (m/s)"},
+                {"character_controller/run_speed", "跑步速度 (m/s)"},
+                {"character_controller/crouch_speed", "蹲伏速度 (m/s)"},
+                {"character_controller/crouch_height_ratio", "蹲伏高度比例"},
+                {"character_controller/air_control", "空中操控"},
+                {"character_controller/push_force", "推动力上限 (N)"},
                 {"character_controller/jump_speed", "跳跃速度 (m/s)"},
                 {"character_controller/max_slope_angle", "最大坡度 (°)"},
                 {"character_controller/step_height", "台阶高度 (m)"},
@@ -160,7 +180,7 @@ namespace CometEditor {
                 {"static", "静态"}, {"dynamic", "动态"}, {"kinematic", "运动学"}, {"box", "盒体"},
                 {"sphere", "球体"}, {"directional", "方向光"}, {"point", "点光源"},
                 {"spot", "聚光灯"}, {"mass", "指定质量"}, {"density", "按密度计算"},
-                {"velocity", "速度"}, {"position", "位置"}};
+                {"velocity", "速度"}, {"position", "位置"}, {"free", "自由"}, {"orbit", "环绕"}};
             static constexpr Caption joint_properties[]{{"enabled", "启用"},
                 {"connected_body", "连接刚体"}, {"anchor", "本地锚点"},
                 {"connected_anchor", "连接锚点"}, {"axis", "本地转轴"},
@@ -285,6 +305,11 @@ namespace CometEditor {
                     ImGui::TextWrapped(
                         "脚底为原点，总高须大于直径。角色与刚体不能共用同一实体；保持竖直、无父级和正等比缩放。");
                 for(const Comet::PropertyDescriptor& property : component_descriptor.properties) {
+                    if(component_descriptor.id == "camera_controller"
+                        && (property.id.starts_with("orbit_") || property.id == "collision_radius")
+                        && entity.get_component<Comet::CameraControllerComponent>().mode
+                               != Comet::CameraControllerComponent::Mode::Orbit)
+                        continue;
                     if(component_descriptor.id == "rigid_body") {
                         const auto mode =
                             entity.get_component<Comet::RigidBodyComponent>().mass_mode;
@@ -457,6 +482,15 @@ namespace CometEditor {
         auto value = property.copy_value(component.get_component(std::as_const(entity)));
         if(!value)
             return;
+        if(component.id == "animator") {
+            const bool driven = bool(entity.get_component<Comet::AnimatorComponent>().character);
+            const bool motion = property.id == "idle" || property.id == "walk"
+                                || property.id == "run" || property.id == "crouch"
+                                || property.id == "crouch_walk" || property.id == "jump"
+                                || property.id == "fall";
+            if((driven && (property.id == "clip" || property.id == "loop")) || (!driven && motion))
+                return;
+        }
         const bool joint = is_joint_component(component.id);
         const bool align_joint =
             joint
@@ -468,6 +502,35 @@ namespace CometEditor {
             return;
         }
         PropertyEditResult result;
+        if(component.id == "animator" && property.type == Comet::PropertyType::String
+            && entity.has_component<Comet::MeshRendererComponent>()) {
+            auto mesh = m_runtime_assets.resolve<Comet::Mesh>(
+                entity.get_component<Comet::MeshRendererComponent>().mesh);
+            if(mesh && mesh->animation_data()) {
+                auto& clip = std::get<std::string>(*value);
+                const auto& clips = mesh->animation_data()->clips;
+                const bool found = std::ranges::any_of(
+                    clips, [&](const auto& candidate) { return candidate.name == clip; });
+                const std::string preview =
+                    clip.empty() ? "绑定姿态" : (found ? clip : "片段已丢失：" + clip);
+                if(ImGui::BeginCombo(property.display_name.c_str(), preview.c_str())) {
+                    if(ImGui::Selectable("绑定姿态", clip.empty()) && !clip.empty()) {
+                        clip.clear();
+                        result.changed = true;
+                    }
+                    for(const auto& candidate : clips)
+                        if(ImGui::Selectable(candidate.name.c_str(), candidate.name == clip)
+                            && candidate.name != clip) {
+                            clip = candidate.name;
+                            result.changed = true;
+                        }
+                    ImGui::EndCombo();
+                }
+                result.finished = result.changed;
+                apply_property_edit(entity, component, property, *value, result);
+                return;
+            }
+        }
         if(property.type == Comet::PropertyType::EntityReference) {
             std::optional<std::uint64_t> drop_generation;
             if(m_state.mode == EditorMode::Edit

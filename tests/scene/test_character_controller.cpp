@@ -1,3 +1,4 @@
+#include "animation/animation_system.h"
 #include "physics/physics_service.h"
 #include "asset/registry.h"
 #include "asset/script.h"
@@ -10,6 +11,8 @@
 #include "scene/scene_serializer.h"
 #include "scene/script_component.h"
 #include "scene/systems/audio_system.h"
+#include "scene/systems/camera_controller.h"
+#include "gameplay/character_controller.h"
 #include "scene/systems/physics_system.h"
 #include "scene/systems/script_system.h"
 
@@ -26,11 +29,16 @@ namespace Comet::Tests {
             Entity player;
             Math::Vec2 direction{0};
             bool jump = false;
+            bool run = false;
+            bool crouch = false;
             Result<void, Error> fixed_update(Scene&, const Context& context) override {
                 if(player.has_component<CharacterControllerComponent>()
                     && player.get_component<CharacterControllerComponent>().enabled)
                     EXPECT_TRUE(context.services.physics->request_character_move(
-                        player, direction, std::exchange(jump, false)));
+                        player, {.direction = direction,
+                                    .jump = std::exchange(jump, false),
+                                    .run = run,
+                                    .crouch = crouch}));
                 return Result<void, Error>::success();
             }
         };
@@ -117,6 +125,116 @@ namespace Comet::Tests {
         EXPECT_NEAR(position().y, 0, 0.03f);
     }
 
+    TEST_F(CharacterControllerTest, RunAndCrouchUseConfiguredSpeedsAndKeepFeetOnTheFloor) {
+        ASSERT_TRUE(runtime.start(scene));
+        intent->direction = {1, 0};
+        intent->run = true;
+        ASSERT_TRUE(step(30));
+        EXPECT_NEAR(position().x, 3, 0.05f);
+        EXPECT_TRUE(physics.get_character_state(player)->running);
+        EXPECT_EQ(Gameplay::CharacterController::get_state(player, physics).value().motion,
+            Gameplay::CharacterController::Motion::Running);
+        intent->crouch = true;
+        ASSERT_TRUE(step(30));
+        EXPECT_NEAR(position().x, 4, 0.05f);
+        EXPECT_NEAR(position().y, 0, 0.03f);
+        const auto crouched = physics.get_character_state(player);
+        ASSERT_TRUE(crouched);
+        EXPECT_TRUE(crouched->crouched);
+        EXPECT_FALSE(crouched->running);
+        EXPECT_NEAR(crouched->height_ratio, 0.6f, 0.001f);
+        EXPECT_EQ(physics.get_statistics().characters, 1u);
+        intent->run = false;
+        intent->crouch = false;
+        ASSERT_TRUE(step(30));
+        EXPECT_NEAR(position().x, 6, 0.05f);
+        EXPECT_FALSE(physics.get_character_state(player)->crouched);
+        EXPECT_NEAR(physics.get_character_state(player)->height_ratio, 1, 0.001f);
+    }
+
+    TEST_F(CharacterControllerTest, LowRoofBlocksStandingAndKeepsCrouchUntilThereIsSpace) {
+        box({0, 1.35f, -2}, {0.8f, 0.15f, 1});
+        ASSERT_TRUE(runtime.start(scene));
+        intent->direction = {0, -1};
+        ASSERT_TRUE(step(30));
+        EXPECT_GT(position().z, -0.8f);
+        intent->crouch = true;
+        ASSERT_TRUE(step(30));
+        EXPECT_LT(position().z, -1.3f);
+        EXPECT_TRUE(physics.get_character_state(player)->crouched);
+        intent->crouch = false;
+        intent->run = true;
+        ASSERT_TRUE(step(15));
+        EXPECT_TRUE(physics.get_character_state(player)->crouched);
+        EXPECT_FALSE(physics.get_character_state(player)->running);
+        ASSERT_TRUE(step(90));
+        EXPECT_LT(position().z, -4);
+        EXPECT_FALSE(physics.get_character_state(player)->crouched);
+        EXPECT_NEAR(position().y, 0, 0.03f);
+    }
+
+    TEST_F(CharacterControllerTest, SensorRoofDoesNotPreventStanding) {
+        auto sensor = box({0, 1.35f, 0}, {2, 0.15f, 2});
+        sensor.edit_component<ColliderComponent>(
+            [](auto& collider) { collider.is_trigger = true; });
+        ASSERT_TRUE(runtime.start(scene));
+        intent->crouch = true;
+        ASSERT_TRUE(step());
+        EXPECT_TRUE(physics.get_character_state(player)->crouched);
+        intent->crouch = false;
+        ASSERT_TRUE(step());
+        EXPECT_FALSE(physics.get_character_state(player)->crouched);
+    }
+
+    TEST_F(CharacterControllerTest, AirControlPreservesMomentumWhenDisabledAndCanTurnWhenEnabled) {
+        player.edit_component<CharacterControllerComponent>([](auto& settings) {
+            settings.air_control = 0;
+            settings.gravity_scale = 0;
+        });
+        ASSERT_TRUE(runtime.start(scene));
+        intent->direction = {1, 0};
+        ASSERT_TRUE(step());
+        intent->jump = true;
+        ASSERT_TRUE(step());
+        intent->direction = {-1, 0};
+        ASSERT_TRUE(step(15));
+        EXPECT_NEAR(physics.get_character_state(player)->velocity.x, 4, 0.01f);
+        EXPECT_FALSE(physics.get_character_state(player)->grounded);
+        player.edit_component<CharacterControllerComponent>(
+            [](auto& settings) { settings.air_control = 1; });
+        ASSERT_TRUE(step(20));
+        EXPECT_LT(physics.get_character_state(player)->velocity.x, -3);
+    }
+
+    TEST_F(CharacterControllerTest, ActualMovementStateDoesNotReportWalkingAgainstAWall) {
+        box({1.5f, 1, 0}, {0.2f, 1, 2});
+        ASSERT_TRUE(runtime.start(scene));
+        intent->direction = {1, 0};
+        intent->run = true;
+        ASSERT_TRUE(step(90));
+        const auto state = Gameplay::CharacterController::get_state(player, physics);
+        ASSERT_TRUE(state);
+        EXPECT_EQ(state.value().motion, Gameplay::CharacterController::Motion::Idle);
+        EXPECT_NEAR(state.value().speed, 0, 0.03f);
+    }
+
+    TEST_F(CharacterControllerTest, SphereSweepIgnoresSelfAndSensorsAndStopsBeforeSolidBodies) {
+        box({0, 1, 3}, {2, 1, 0.2f});
+        auto sensor = box({0, 1, 1}, {2, 1, 0.1f});
+        sensor.edit_component<ColliderComponent>(
+            [](auto& collider) { collider.is_trigger = true; });
+        ASSERT_TRUE(runtime.start(scene));
+        const auto hit = physics.sweep_sphere(player, {0, 1, 0}, {0, 0, 5}, 0.15f);
+        ASSERT_TRUE(hit);
+        EXPECT_NEAR(*hit, 0.53f, 0.01f);
+        const auto self = physics.sweep_sphere({}, {0, 1, 0}, {0, 0, 5}, 0.15f);
+        ASSERT_TRUE(self);
+        EXPECT_EQ(*self, 0);
+        EXPECT_FALSE(physics.sweep_sphere(player, {}, {}, -1));
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(physics.sweep_sphere(player, {}, {0, 0, 1}, 0.15f));
+    }
+
     TEST_F(CharacterControllerTest, ClimbsSmallStepsAndRejectsTallLedges) {
         box({1.5f, 0.1f, 0}, {0.5f, 0.1f, 2});
         box({2.5f, 0.2f, 0}, {0.5f, 0.2f, 2});
@@ -190,7 +308,7 @@ namespace Comet::Tests {
         EXPECT_EQ(physics.get_statistics().characters, 1u);
         ASSERT_TRUE(runtime.stop());
         EXPECT_FALSE(physics.get_character_state(player));
-        EXPECT_FALSE(physics.request_character_move(player, {1, 0}, false));
+        EXPECT_FALSE(physics.request_character_move(player, {.direction = {1, 0}}));
         EXPECT_EQ(physics.get_statistics().characters, 0u);
     }
 
@@ -317,8 +435,10 @@ namespace Comet::Tests {
             ASSERT_TRUE(player);
             ASSERT_TRUE(runtime.set_input_actions(project.value().input_actions()));
             ASSERT_TRUE(runtime.set_services({.audio = &audio, .physics = &physics}));
+            ASSERT_TRUE(runtime.add_system(std::make_unique<CameraControllerSystem>()));
             ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
             ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+            ASSERT_TRUE(runtime.add_system(std::make_unique<AnimationSystem>()));
             ASSERT_TRUE(runtime.add_system(std::make_unique<AudioSystem>(audio)));
             input.focus_event(true);
             if(GetParam())
@@ -393,6 +513,33 @@ namespace Comet::Tests {
         const auto edit_before = serializer.serialize(*edit_scene);
         ASSERT_TRUE(edit_before) << edit_before.error();
         ASSERT_TRUE(drive(-3, 5));
+        const auto visual =
+            playing->find_entity(*EntityUuid::parse("70a518f1-2c0e-4180-9ead-000000000002"));
+        const auto camera =
+            playing->find_entity(*EntityUuid::parse("70a518f1-2c0e-4180-9ead-000000000003"));
+        ASSERT_TRUE(visual);
+        ASSERT_TRUE(camera);
+        (void)playing->get_world_matrix(visual);
+        EXPECT_NEAR(
+            visual.get_component<WorldTransformComponent>().pose_world_matrix[2].x, 1, 0.0001f);
+        EXPECT_EQ(camera.get_component<TransformComponent>().rotation, Math::Vec3(-18, 0, 0));
+        EXPECT_EQ(player.get_component<TransformComponent>().rotation, Math::Vec3(0));
+        const auto paused_position = position();
+        const auto paused_rotation = visual.get_component<TransformComponent>().rotation;
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        move(0, -1);
+        ASSERT_TRUE(tick(3));
+        EXPECT_EQ(position(), paused_position);
+        EXPECT_EQ(visual.get_component<TransformComponent>().rotation, paused_rotation);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(tick());
+        EXPECT_LT(position().z, paused_position.z);
+        (void)playing->get_world_matrix(visual);
+        EXPECT_NEAR(
+            visual.get_component<WorldTransformComponent>().pose_world_matrix[2].z, 1, 0.0001f);
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Running));
+        move(0, 0);
+        ASSERT_TRUE(tick());
         ASSERT_TRUE(drive(-3, -1.5f));
         EXPECT_GT(position().y, 0.7f);
         EXPECT_EQ(score(), 1);
@@ -435,18 +582,146 @@ namespace Comet::Tests {
         auto restarted = serializer.clone(*edit_scene);
         ASSERT_TRUE(restarted) << restarted.error();
         const auto player_uuid = player.get_uuid();
+        const auto visual_uuid = visual.get_uuid();
         playing = std::move(restarted).value();
         player = playing->find_entity(player_uuid);
         ASSERT_TRUE(runtime.start(
             *playing, SceneRuntime::State::Running, SceneRuntime::InputStart::Rebase));
         EXPECT_EQ(score(), 0);
         EXPECT_EQ(position(), Math::Vec3(0, 0, 5));
+        EXPECT_EQ(playing->find_entity(visual_uuid).get_component<TransformComponent>().rotation,
+            Math::Vec3(0));
         ASSERT_TRUE(tick(3));
         EXPECT_FALSE(runtime.take_restart_request());
         button(Input::Key::R, Input::GamepadButton::Start, false);
         ASSERT_TRUE(tick());
         ASSERT_TRUE(drive(-1, 5));
         EXPECT_TRUE(physics.get_character_state(player)->grounded);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_P(CharacterDemoTest, ProjectBindingsRunCrouchAndPassTheTunnelWithoutStandingIntoItsRoof) {
+        const auto source = serializer.serialize(*edit_scene);
+        ASSERT_TRUE(source);
+        const auto visual =
+            playing->find_entity(*EntityUuid::parse("70a518f1-2c0e-4180-9ead-000000000002"));
+        ASSERT_TRUE(visual);
+        button(Input::Key::LeftShift, Input::GamepadButton::LeftShoulder, true);
+        move(1, 0);
+        ASSERT_TRUE(tick(30));
+        EXPECT_NEAR(position().x, 3, 0.05f);
+        EXPECT_EQ(runtime.get_session().get_value("character.motion"),
+            ParameterValue(std::string("run")));
+        button(Input::Key::LeftShift, Input::GamepadButton::LeftShoulder, false);
+        button(Input::Key::LeftControl, Input::GamepadButton::RightShoulder, true);
+        move(-1, 0);
+        ASSERT_TRUE(tick(30));
+        EXPECT_NEAR(position().x, 2, 0.05f);
+        EXPECT_NEAR(visual.get_component<TransformComponent>().scale.y, 1.0f, 0.001f);
+        EXPECT_EQ(runtime.get_session().get_value("character.motion"),
+            ParameterValue(std::string("crouch")));
+        button(Input::Key::LeftControl, Input::GamepadButton::RightShoulder, false);
+        move(0, 0);
+        ASSERT_TRUE(tick());
+        EXPECT_NEAR(visual.get_component<TransformComponent>().scale.y, 1.0f, 0.001f);
+        ASSERT_TRUE(drive(0, 5));
+        ASSERT_TRUE(drive(0, 3.6f));
+        move(0, -1);
+        ASSERT_TRUE(tick(30));
+        EXPECT_GT(position().z, 2.75f);
+        button(Input::Key::LeftControl, Input::GamepadButton::RightShoulder, true);
+        ASSERT_TRUE(tick(60));
+        EXPECT_LT(position().z, 1.2f);
+        EXPECT_TRUE(physics.get_character_state(player)->crouched);
+        button(Input::Key::LeftControl, Input::GamepadButton::RightShoulder, false);
+        move(0, 0);
+        ASSERT_TRUE(tick(3));
+        EXPECT_TRUE(physics.get_character_state(player)->crouched);
+        EXPECT_NEAR(visual.get_component<TransformComponent>().scale.y, 1.0f, 0.001f);
+        move(0, -1);
+        ASSERT_TRUE(tick(120));
+        EXPECT_LT(position().z, -2);
+        EXPECT_FALSE(physics.get_character_state(player)->crouched);
+        EXPECT_NEAR(visual.get_component<TransformComponent>().scale.y, 1.0f, 0.001f);
+        move(0, 0);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_EQ(serializer.serialize(*edit_scene).value(), source.value());
+    }
+
+    TEST_P(CharacterDemoTest, MouseOrGamepadTurnsTheViewAndMovementUsesTheNewCameraHeading) {
+        const auto source = serializer.serialize(*edit_scene);
+        ASSERT_TRUE(source);
+        auto camera =
+            playing->find_entity(*EntityUuid::parse("70a518f1-2c0e-4180-9ead-000000000003"));
+        ASSERT_TRUE(camera);
+        if(GetParam()) {
+            pad.axes[static_cast<size_t>(Input::GamepadAxis::RightX)] = 1;
+            input.gamepad_sample(0, pad);
+            ASSERT_TRUE(tick(45));
+            EXPECT_FALSE(runtime.wants_cursor_capture());
+            pad.axes[static_cast<size_t>(Input::GamepadAxis::RightX)] = 0;
+            input.gamepad_sample(0, pad);
+            ASSERT_TRUE(tick());
+        } else {
+            input.cursor_event({100, 0});
+            input.mouse_button_event(Input::MouseButton::Right, true);
+            ASSERT_TRUE(tick());
+            EXPECT_TRUE(runtime.wants_cursor_capture());
+            input.cursor_event({550, 0});
+            ASSERT_TRUE(tick());
+            input.mouse_button_event(Input::MouseButton::Right, false);
+            ASSERT_TRUE(tick());
+        }
+        EXPECT_NEAR(camera.get_component<TransformComponent>().rotation.y, -90, 0.001f);
+        move(0, -1);
+        ASSERT_TRUE(tick(30));
+        EXPECT_NEAR(position().x, 2, 0.05f);
+        EXPECT_NEAR(position().z, 5, 0.05f);
+        EXPECT_EQ(player.get_component<TransformComponent>().rotation, Math::Vec3(0));
+        move(0, 0);
+        if(GetParam()) {
+            button(Input::Key::PageUp, Input::GamepadButton::DpadUp, true);
+            ASSERT_TRUE(tick(30));
+            button(Input::Key::PageUp, Input::GamepadButton::DpadUp, false);
+        } else {
+            input.scroll_event({0, 3});
+            ASSERT_TRUE(tick());
+        }
+        EXPECT_NEAR(camera.get_component<CameraControllerComponent>().orbit_distance, 4.5f, 0.001f);
+        const auto stopped = position();
+        const auto rotation = camera.get_component<TransformComponent>().rotation;
+        input.focus_event(false);
+        input.cursor_event({20000, 20000});
+        input.key_event(Input::Key::W, true);
+        ASSERT_TRUE(tick(5));
+        EXPECT_NEAR(position().x, stopped.x, 0.01f);
+        EXPECT_NEAR(position().z, stopped.z, 0.01f);
+        EXPECT_EQ(camera.get_component<TransformComponent>().rotation, rotation);
+        EXPECT_FALSE(runtime.wants_cursor_capture());
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_EQ(serializer.serialize(*edit_scene).value(), source.value());
+    }
+
+    TEST_P(CharacterDemoTest, ReloadDuringCrouchDoesNotChangeTheFacingTransform) {
+        button(Input::Key::LeftControl, Input::GamepadButton::RightShoulder, true);
+        ASSERT_TRUE(tick());
+        const auto visual =
+            playing->find_entity(*EntityUuid::parse("70a518f1-2c0e-4180-9ead-000000000002"));
+        ASSERT_TRUE(visual);
+        const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
+        ASSERT_TRUE(project);
+        const std::array<std::filesystem::path, 1> path{"scripts/character.lua"};
+        for(int reload = 0; reload < 3; ++reload) {
+            const auto script = Script::load_group(project.value().paths().assets(), path);
+            ASSERT_TRUE(script);
+            ASSERT_TRUE(
+                assets.replace_asset(AssetHandle{14309634625000312004ULL}, script.value()[0]));
+            ASSERT_TRUE(tick(2));
+            EXPECT_NEAR(visual.get_component<TransformComponent>().scale.y, 1.0f, 0.001f);
+        }
+        button(Input::Key::LeftControl, Input::GamepadButton::RightShoulder, false);
+        ASSERT_TRUE(tick());
+        EXPECT_NEAR(visual.get_component<TransformComponent>().scale.y, 1.0f, 0.001f);
         ASSERT_TRUE(runtime.stop());
     }
 

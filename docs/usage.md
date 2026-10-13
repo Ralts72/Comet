@@ -1,8 +1,31 @@
 # Comet 使用手册
 
+## 骨骼角色与动画
+
+角色场景使用引擎内置的 Quaternius 人形模型和 `idle`、`walk`、`run`、`crouch`、`crouch_walk`、`jump`、`fall` 七个动作。
+资源位于 `engine/resources/characters/default.glb`，由 Git LFS 保存，启动不需要联网；来源与裁剪说明见同目录 `source.json`。
+Shift／LeftShoulder 跑步，Ctrl／RightShoulder 蹲伏；右键拖动／右摇杆转动相机，滚轮或 PageUp／PageDown／D-pad 上下缩放。
+相机遇到墙壁会缩短距离，离开障碍后恢复。
+
+在层级中选中“角色模型”：
+
+- “网格渲染 → 网格”可在引擎默认角色与项目导入的 glTF／GLB 之间选择。
+- “网格渲染 → 材质”可选择引擎默认 PBR／无光照材质；默认角色使用中性的 PBR。修改配色、贴图或参数时，在项目中创建自己的材质并替换该引用。
+- “动画”中选择片段、播放速度、循环与过渡时间；片段下拉框来自当前模型，空选择表示绑定姿态。
+- 指定“驱动角色”后，根据角色的实际移动状态选择对应动作，各动作可独立替换；清空该引用后按“播放片段”播放。
+- Edit 修改可保存、撤销；Play 中的时间和姿态只属于运行副本，暂停停止推进，单步推进一次。
+
+首版 Mesh 资产支持一个 mesh／skin、每顶点最多四个骨骼权重，以及 TRS 的 Linear／Step／CubicSpline 动画。
+同一 Mesh 的多个实体独立播放，主绘制和阴影共用 GPU 蒙皮结果。模型内多个 primitive 使用所指定的同一个材质。
+替换角色时，应同时选择新模型自身的动作；跨骨架重定向、独立动画库、root motion、IK 和 morph target 尚未接通。
+
 首次构建和 Demo 入口见 [README](../README.md)。本文说明具体操作与接口；模块实现见[架构文档](architecture/overview.md)，后续能力见[路线图](engine-roadmap.md)。
 
 ## 项目与配置
+
+默认角色、基础动作、默认 PBR／无光照材质、共用字体和图标由引擎提供，不需要复制到每个项目，也不生成项目 `.meta`。
+材质默认参数沿用引擎的材质布局定义；demo 的黄色地面、贴图材质和条纹 Shader 用于展示项目效果，仍属于项目资源。
+输入动作、场景灯光、相机初始位置、菜单主题、关卡数值和游戏规则由项目配置。
 
 ### 打开项目
 
@@ -95,6 +118,7 @@ Project 右键可新建 Material、Script 或 Lua Module；搜索按文件名／
 `scenes/character.scene` 提供角色移动、跳跃、台阶、坡度、移动平台及三目标收集；WASD／左摇杆移动，空格／South 跳跃，R 重开。
 Gameplay 负责动作读取与跳跃请求，Physics 负责胶囊求解；Demo Lua 保存计分、完成、声音和重开规则。
 角色以脚底为原点，使用无父级的竖直胶囊和正等比缩放；外观与跟随相机作为子实体。
+移动以相机的水平朝向为参照，前方标记随外观转向，相机不会跟着外观旋转。
 
 `scenes/default.scene` 保留刚体、关节、材质和脚本演示：左右方向键移动，Space／South 切换旋转，J／K 施加冲量／力，
 Tab／North 开关调色，R 重开。开启调色时相关动作由输入组消费，公共动作仍可使用。
@@ -199,7 +223,7 @@ Editor 保存源码后重载关联行为：暂停时等待继续或单步；成�
 | `comet.apply_impulse_at(ix,iy,iz,px,py,pz)`／`apply_force_at(...)` | 在指定世界位置施加冲量／力 |
 | `comet.linear_velocity()`／`angular_velocity()` | 查询最近模拟速度的三个分量 |
 | `comet.move_character(x,z,jump)`／`character_grounded()` | 提交角色移动意图／查询落地状态 |
-| `comet.control_character(enabled, actions)` | 使用基础 Gameplay 控制器，返回是否提交地面跳跃请求 |
+| `comet.control_character(enabled, options)` | 使用基础 Gameplay 控制器，返回是否提交地面跳跃请求 |
 | `comet.session_set(key,value)`／`session_get(key)` | 本局共享 bool、有限数值、string、Vec3；nil 删除 |
 | `comet.restart_scene()` | 恢复本局启动内容基线 |
 | `comet.emit(name,value)` | 发送场景通知；脚本通过 `events` 声明接收方法 |
@@ -212,6 +236,9 @@ Editor 保存源码后重载关联行为：暂停时等待继续或单步；成�
 基础角色使用 Character Controller 组件配置速度、尺寸、跳跃、坡度、台阶和地面吸附。
 `control_character` 默认启用并读取 `character.move_x`／`character.move_z`／`character.jump`，两参数可省略；
 可用 `{move_x = "move.horizontal", move_z = "move.vertical", jump = "jump"}` 覆盖动作名，移动要求 Axis，跳跃要求 Button。
+选项中的 `movement_reference` 接受相机等实体引用，使用其无缩放世界朝向计算水平移动，俯仰不减速；省略时按世界 XZ 移动。
+`facing` 接受外观实体引用，使本地 -Z 朝向移动方向，停止时保留朝向；不允许目标带刚体或角色控制器。
+这两个选项均可通过脚本 `entity` 属性配置，沿用实体引用的失效检查；项目决定参考相机与外观，相机不必属于角色层级。
 
 ```lua
 function script:fixed_update()
@@ -219,6 +246,14 @@ function script:fixed_update()
         comet.play_one_shot()
     end
 end
+```
+
+配置引用的项目可在 `on_start` 创建选项表，每个固定步复用：
+
+```lua
+self.controls = {movement_reference = self.parameters.camera, facing = self.parameters.visual}
+-- fixed_update 内：
+local jumped = comet.control_character(true, self.controls)
 ```
 
 输入组由项目启停。C++ 可调用 `Gameplay::CharacterController`；碰撞／坡度／平台求解仍归 Physics，计分、声音和完成规则归项目。

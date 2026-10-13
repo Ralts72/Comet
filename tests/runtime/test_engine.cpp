@@ -1,3 +1,4 @@
+#include "asset/default_assets.h"
 #include "scene/systems/audio_system.h"
 #include "scene/systems/physics_system.h"
 #include "core/engine.h"
@@ -59,7 +60,7 @@ namespace Comet::Tests {
             engine->get_render_resource_factory(), engine->get_task_scheduler());
         ASSERT_TRUE(assets.scan().snapshot_updated);
         for(const auto& reference : references)
-            if(reference.type == AssetType::Mesh)
+            if(reference.type == AssetType::Mesh && reference.handle != DEFAULT_CHARACTER_MESH)
                 ASSERT_TRUE(assets.import_mesh(reference.handle));
         ASSERT_TRUE(
             assets.prepare_references(references, AssetManager::MissingAssetPolicy::FailRequired));

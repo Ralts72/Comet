@@ -28,6 +28,8 @@ namespace Comet {
     class MaterialParameterValidator;
     struct MaterialOverrides;
 
+    struct AnimationPlayback;
+
     class COMET_API Scene {
     public:
         struct EntityCreation {
@@ -119,6 +121,9 @@ namespace Comet {
             return storage ? storage->size() : 0;
         }
 
+        [[nodiscard]] std::shared_ptr<const AnimationPlayback> get_animation_playback(
+            Entity entity) const;
+
         [[nodiscard]] bool is_valid(Entity entity) const;
 
         [[nodiscard]] std::size_t entity_count() const;
@@ -138,6 +143,9 @@ namespace Comet {
         [[nodiscard]] bool set_post_process(const PostProcessSettings& settings);
 
     private:
+        friend class AnimationSystem;
+        void set_animation_playback(
+            Entity entity, std::shared_ptr<const AnimationPlayback> playback);
         friend class Entity;
         friend class SceneSerializer;
         friend class SceneRuntime;
@@ -259,6 +267,8 @@ namespace Comet {
         PostProcessSettings m_post_process;
         std::unordered_map<entt::entity, std::shared_ptr<const MaterialOverrides>>
             m_material_overrides;
+        std::unordered_map<entt::entity, std::shared_ptr<const AnimationPlayback>>
+            m_animation_playbacks;
         entt::registry m_registry;
         std::unordered_map<EntityId, entt::entity> m_entities_by_id;
         std::unordered_map<EntityUuid, entt::entity> m_entities_by_uuid;

@@ -1,0 +1,28 @@
+#version 450
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0, std430) readonly buffer Vertices { float source[]; };
+struct Influence { uvec4 joints; vec4 weights; };
+layout(set = 0, binding = 1, std430) readonly buffer Influences { Influence influences[]; };
+layout(set = 0, binding = 2, std430) readonly buffer Palette { mat4 bones[]; };
+layout(set = 0, binding = 3, std430) writeonly buffer Output { float target[]; };
+layout(push_constant) uniform Parameters { uint vertex_count; } parameters;
+void main() {
+    uint vertex = gl_GlobalInvocationID.x;
+    if(vertex >= parameters.vertex_count) return;
+    uint offset = vertex * 8;
+    Influence influence = influences[vertex];
+    mat4 skin = influence.weights.x * bones[influence.joints.x]
+              + influence.weights.y * bones[influence.joints.y]
+              + influence.weights.z * bones[influence.joints.z]
+              + influence.weights.w * bones[influence.joints.w];
+    vec3 position = (skin * vec4(source[offset], source[offset + 1], source[offset + 2], 1)).xyz;
+    vec3 rest_normal = vec3(source[offset + 5], source[offset + 6], source[offset + 7]);
+    mat3 basis = mat3(skin);
+    vec3 transformed_normal = basis * rest_normal;
+    if(abs(determinant(basis)) > 1e-8) transformed_normal = transpose(inverse(basis)) * rest_normal;
+    vec3 normal = rest_normal;
+    if(dot(transformed_normal, transformed_normal) > 1e-12) normal = normalize(transformed_normal);
+    target[offset] = position.x; target[offset + 1] = position.y; target[offset + 2] = position.z;
+    target[offset + 3] = source[offset + 3]; target[offset + 4] = source[offset + 4];
+    target[offset + 5] = normal.x; target[offset + 6] = normal.y; target[offset + 7] = normal.z;
+}

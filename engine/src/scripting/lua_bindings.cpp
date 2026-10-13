@@ -335,14 +335,23 @@ namespace Comet::LuaBindings {
             return push_velocity(state, true);
         }
         int move_character(lua_State* state) {
-            if(lua_gettop(state) != 3)
-                return luaL_error(state, "move_character expects X/Z direction and a jump boolean");
+            const auto count = lua_gettop(state);
+            if(count < 3 || count > 5)
+                return luaL_error(
+                    state, "move_character expects X/Z, jump, optional run/crouch booleans");
             luaL_checktype(state, 1, LUA_TNUMBER);
             luaL_checktype(state, 2, LUA_TNUMBER);
             luaL_checktype(state, 3, LUA_TBOOLEAN);
+            if(count >= 4)
+                luaL_checktype(state, 4, LUA_TBOOLEAN);
+            if(count >= 5)
+                luaL_checktype(state, 5, LUA_TBOOLEAN);
             const Math::Vec2 direction{number(state, 1), number(state, 2)};
             if(!require_physics(state).request_character_move(
-                   current(state).entity, direction, lua_toboolean(state, 3)))
+                   current(state).entity, {.direction = direction,
+                                              .jump = bool(lua_toboolean(state, 3)),
+                                              .run = bool(lua_toboolean(state, 4)),
+                                              .crouch = bool(lua_toboolean(state, 5))}))
                 return luaL_error(state, "move_character needs an enabled Character Controller");
             return 0;
         }
@@ -376,7 +385,7 @@ namespace Comet::LuaBindings {
         int control_character(lua_State* state) {
             if(lua_gettop(state) > 2)
                 return luaL_error(
-                    state, "control_character expects an enabled boolean and action names");
+                    state, "control_character expects an enabled boolean and options");
             bool enabled = true;
             if(lua_gettop(state) >= 1) {
                 luaL_checktype(state, 1, LUA_TBOOLEAN);
@@ -386,20 +395,31 @@ namespace Comet::LuaBindings {
             if(lua_gettop(state) == 2) {
                 luaL_checktype(state, 2, LUA_TTABLE);
                 if(lua_getmetatable(state, 2))
-                    return luaL_error(state, "Character action names must be a plain table");
+                    return luaL_error(state, "Character options must be a plain table");
                 lua_pushnil(state);
                 while(lua_next(state, 2)) {
                     luaL_checktype(state, -2, LUA_TSTRING);
                     size_t length = 0;
                     const char* name = lua_tolstring(state, -2, &length);
                     const std::string_view key(name, length);
-                    if(key != "move_x" && key != "move_z" && key != "jump")
-                        return luaL_error(state, "Unknown character action field: %s", key.data());
+                    if(key != "move_x" && key != "move_z" && key != "jump" && key != "run"
+                        && key != "crouch" && key != "movement_reference" && key != "facing")
+                        return luaL_error(state, "Unknown character option: %s", key.data());
                     lua_pop(state, 1);
                 }
                 controller.move_x = character_action(state, "move_x", controller.move_x);
                 controller.move_z = character_action(state, "move_z", controller.move_z);
                 controller.jump = character_action(state, "jump", controller.jump);
+                controller.run = character_action(state, "run", controller.run);
+                controller.crouch = character_action(state, "crouch", controller.crouch);
+                for(const auto& [field, target] :
+                    {std::pair{"movement_reference", &controller.movement_reference},
+                        std::pair{"facing", &controller.facing}}) {
+                    lua_getfield(state, 2, field);
+                    if(!lua_isnil(state, -1))
+                        *target = require_entity(state, -1).get_uuid();
+                    lua_pop(state, 1);
+                }
             }
             auto& context = current(state);
             if(!context.input)
@@ -409,8 +429,8 @@ namespace Comet::LuaBindings {
             bool jumping = false;
             context.return_value.reset();
             {
-                const auto result =
-                    controller.update(context.entity, *context.input, physics, enabled);
+                const auto result = controller.update(
+                    *context.scene, context.entity, *context.input, physics, enabled);
                 if(result)
                     jumping = result.value();
                 else
@@ -422,6 +442,41 @@ namespace Comet::LuaBindings {
                 return lua_error(state);
             }
             lua_pushboolean(state, jumping);
+            return 1;
+        }
+        int character_state(lua_State* state) {
+            if(lua_gettop(state) != 0)
+                return luaL_error(state, "character_state takes no arguments");
+            auto& physics = require_physics(state);
+            auto& context = current(state);
+            Gameplay::CharacterController::State value;
+            bool available = false;
+            {
+                const auto result =
+                    Gameplay::CharacterController::get_state(context.entity, physics);
+                if(result) {
+                    value = result.value();
+                    available = true;
+                }
+            }
+            if(!available) {
+                lua_pushnil(state);
+                return 1;
+            }
+            lua_createtable(state, 0, 6);
+            const auto name = value.name();
+            lua_pushlstring(state, name.data(), name.size());
+            lua_setfield(state, -2, "motion");
+            lua_pushboolean(state, value.grounded);
+            lua_setfield(state, -2, "grounded");
+            lua_pushboolean(state, value.crouched);
+            lua_setfield(state, -2, "crouched");
+            lua_pushnumber(state, value.speed);
+            lua_setfield(state, -2, "speed");
+            lua_pushnumber(state, value.vertical_speed);
+            lua_setfield(state, -2, "vertical_speed");
+            lua_pushnumber(state, value.height_ratio);
+            lua_setfield(state, -2, "height_ratio");
             return 1;
         }
         int set_material_scalar(lua_State* state) {
@@ -622,6 +677,30 @@ namespace Comet::LuaBindings {
         int reference_translate(lua_State* state) {
             return translate_entity(state, require_entity(state), 2);
         }
+        int reference_scale(lua_State* state) {
+            const auto& scale = transform(state, require_entity(state)).scale;
+            lua_pushnumber(state, scale.x);
+            lua_pushnumber(state, scale.y);
+            lua_pushnumber(state, scale.z);
+            return 3;
+        }
+        int set_transform_vector(
+            lua_State* state, const Entity entity, Math::Vec3 TransformComponent::* field) {
+            if(lua_gettop(state) != 4)
+                return luaL_error(state, "Entity transform setter expects three numbers");
+            auto target = transform(state, entity);
+            target.*field = {number(state, 2), number(state, 3), number(state, 4)};
+            if(!entity.try_set_transform(target))
+                return luaL_error(state, "Invalid entity transform");
+            return 0;
+        }
+        int reference_set_scale(lua_State* state) {
+            return set_transform_vector(state, require_entity(state), &TransformComponent::scale);
+        }
+        int reference_set_position(lua_State* state) {
+            return set_transform_vector(
+                state, require_entity(state), &TransformComponent::translation);
+        }
         const InputState::Action& action(lua_State* state, bool button) {
             const auto* input = current(state).input;
             const char* name = luaL_checkstring(state, 1);
@@ -671,7 +750,9 @@ namespace Comet::LuaBindings {
         lua_newtable(state);
         lua_pushlightuserdata(state, &context);
         const luaL_Reg entity_api[]{{"is_valid", reference_valid}, {"position", reference_position},
-            {"rotate", reference_rotate}, {"translate", reference_translate}, {nullptr, nullptr}};
+            {"rotate", reference_rotate}, {"translate", reference_translate},
+            {"scale", reference_scale}, {"set_scale", reference_set_scale},
+            {"set_position", reference_set_position}, {nullptr, nullptr}};
         luaL_setfuncs(state, entity_api, 1);
         lua_setfield(state, -2, "__index");
         lua_pop(state, 1);
@@ -688,11 +769,12 @@ namespace Comet::LuaBindings {
             {"apply_torque", apply_torque}, {"linear_velocity", linear_velocity},
             {"angular_velocity", angular_velocity}, {"set_material_scalar", set_material_scalar},
             {"move_character", move_character}, {"character_grounded", character_grounded},
-            {"control_character", control_character}, {"set_material_vector", set_material_vector},
-            {"session_get", session_get}, {"session_set", session_set}, {"emit", emit},
-            {"set_input_context", set_input_context}, {"action_value", action_value},
-            {"action_down", action_down}, {"action_pressed", action_pressed},
-            {"action_released", action_released}, {nullptr, nullptr}};
+            {"character_state", character_state}, {"control_character", control_character},
+            {"set_material_vector", set_material_vector}, {"session_get", session_get},
+            {"session_set", session_set}, {"emit", emit}, {"set_input_context", set_input_context},
+            {"action_value", action_value}, {"action_down", action_down},
+            {"action_pressed", action_pressed}, {"action_released", action_released},
+            {nullptr, nullptr}};
         luaL_setfuncs(state, api, 1);
         lua_setglobal(state, "comet");
     }

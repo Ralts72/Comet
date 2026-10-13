@@ -1,3 +1,4 @@
+#include "asset/default_assets.h"
 #include "asset/project_prepare.h"
 #include "asset/shader_program_import.h"
 #include "asset/database.h"
@@ -94,6 +95,9 @@ namespace Comet {
         while(!pending.empty()) {
             const auto reference = pending.back();
             pending.pop_back();
+            if(const auto* asset = find_default_asset(reference.handle);
+                asset && asset->type == reference.type)
+                continue;
             const auto* record = database.find(reference.handle);
             if(!record) {
                 if(!reference.required)

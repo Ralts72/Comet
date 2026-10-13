@@ -14,6 +14,7 @@
 #include <vector>
 
 namespace Comet {
+    struct AnimationPlayback;
     class Mesh;
     class Material;
     class ShaderProgramArtifact;
@@ -31,6 +32,7 @@ namespace Comet {
     struct ResolvedRenderItem {
         EntityId entity_id = INVALID_ENTITY_ID;
         uint64_t transform_revision = 0;
+        std::shared_ptr<const AnimationPlayback> animation;
         Math::Mat4 model_matrix = Math::Mat4(1.0f);
         AssetHandle mesh_handle = INVALID_ASSET_HANDLE;
         uint64_t mesh_revision = 0;

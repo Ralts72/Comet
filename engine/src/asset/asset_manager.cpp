@@ -1,3 +1,4 @@
+#include "asset/default_assets.h"
 #include "asset/asset_manager.h"
 #include "asset/runtime/asset_loader.h"
 #include "asset/runtime/render_asset_factory.h"
@@ -212,6 +213,14 @@ namespace Comet {
         const std::span<const AssetReference> references, const MissingAssetPolicy policy) const {
         bool ready = true;
         for(const auto& reference : references) {
+            if(const auto* asset = find_default_asset(reference.handle);
+                asset && asset->type == reference.type) {
+                const bool loaded = reference.type == AssetType::Mesh
+                                        ? m_registry.contains<Mesh>(reference.handle)
+                                        : m_registry.contains<Material>(reference.handle);
+                if(loaded)
+                    continue;
+            }
             if(reference.type == AssetType::Environment) {
                 const auto state = environment_state(reference.handle);
                 if(state && state.value() == EnvironmentState::Ready)

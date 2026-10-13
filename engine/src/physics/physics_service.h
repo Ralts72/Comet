@@ -83,20 +83,20 @@ namespace Comet {
             Math::Vec3 value;
             std::optional<Math::Vec3> point;
         };
-        struct CharacterMove {
+        struct CharacterRequest {
             EntityUuid uuid;
             EntityId entity;
-            Math::Vec2 direction;
-            bool jump;
+            CharacterMove move;
         };
 
         bool enqueue_command(EntityUuid uuid, EntityId entity, CommandKind kind, Math::Vec3 value,
             std::optional<Math::Vec3> point) override;
         std::optional<Velocity> read_velocity(EntityUuid uuid, EntityId entity) const override;
-        bool enqueue_character_move(
-            EntityUuid uuid, EntityId entity, Math::Vec2 direction, bool jump) override;
+        bool enqueue_character_move(EntityUuid uuid, EntityId entity, CharacterMove move) override;
         std::optional<CharacterState> read_character_state(
             EntityUuid uuid, EntityId entity) const override;
+        std::optional<float> cast_sphere(EntityUuid ignored, EntityId entity, Math::Vec3 origin,
+            Math::Vec3 displacement, float radius) const override;
         void reset() noexcept override;
         Result<void, Error> prepare_world();
         // 区分首次登记与重建，重建后需重新绑定关节。
@@ -114,6 +114,6 @@ namespace Comet {
         struct Impl;
         std::unique_ptr<Impl> m_impl;
         std::vector<Command> m_commands;
-        std::vector<CharacterMove> m_character_moves;
+        std::vector<CharacterRequest> m_character_moves;
     };
 }

@@ -1,3 +1,4 @@
+#include "render/passes/skinning_pass.h"
 #include "renderer.h"
 #include "render/render_thread.h"
 #include "asset/registry.h"
@@ -339,6 +340,13 @@ namespace Comet {
             !programs)
             return programs;
         std::vector<QueueSemaphoreSubmit> resource_waits;
+        if(!m_skinning)
+            m_skinning = std::make_shared<SkinningPass>(
+                m_render_context->get_device(), m_settings.render.max_frames_in_flight);
+        if(auto skinned = m_skinning->prepare(world, *m_frames, m_geometry, resource_waits);
+            !skinned)
+            return skinned;
+        m_frames->retain_current_frame_resource(m_skinning);
         // 诊断查询覆盖第一个可见 View；其他 View 不重复开启同一组 GPU 查询。
         bool diagnosed = false;
         for(const auto& input : frame.views) {
@@ -688,6 +696,7 @@ namespace Comet {
 
         m_presentation.reset();
         m_diagnostics.reset();
+        m_skinning.reset();
         m_frames.reset();
         m_views.clear();
         m_render_resources.reset();

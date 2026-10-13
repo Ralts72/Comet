@@ -25,6 +25,8 @@ namespace Comet {
         RenderGeometry& operator=(const RenderGeometry&) = delete;
 
         void prepare(const RenderWorld& world);
+        void replace_skinned(
+            std::size_t index, const ResolvedRenderItem& item, const BoundingBox& bounds);
         void clear_frame();
         void reset();
         // 列表和界限只借用到下一次 prepare／clear_frame／reset。
@@ -42,6 +44,7 @@ namespace Comet {
         };
 
         std::vector<Item> m_items;
+        std::vector<BoundingBox> m_skin_bounds;
         std::vector<CachedBounds> m_bounds;
         std::optional<BoundingBox> m_scene_bounds;
         std::optional<BoundingBox> m_cached_scene_bounds;

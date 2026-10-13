@@ -23,6 +23,17 @@ namespace Comet {
             Math::Vec3 velocity{0};
             Math::Vec3 ground_normal{0};
             bool grounded = false;
+            // 实际位移速度扣除承载平台速度；用于区分阻挡、运动与被动跟随。
+            Math::Vec3 relative_velocity{0};
+            bool running = false;
+            bool crouched = false;
+            float height_ratio = 1;
+        };
+        struct CharacterMove {
+            Math::Vec2 direction{0};
+            bool jump = false;
+            bool run = false;
+            bool crouch = false;
         };
         virtual ~PhysicsAccess() = default;
         PhysicsAccess(const PhysicsAccess&) = delete;
@@ -41,8 +52,11 @@ namespace Comet {
         // 最近的模拟状态，m/s 与 rad/s；尚未登记、缺少组件或不属于本运行域时返回空值。
         [[nodiscard]] std::optional<Velocity> get_velocity(Entity entity) const;
         // 世界 XZ 平面的移动意图；长度超过 1 时归一化，最近一次请求只用于下一固定步。
-        [[nodiscard]] bool request_character_move(Entity entity, Math::Vec2 direction, bool jump);
+        [[nodiscard]] bool request_character_move(Entity entity, CharacterMove move);
         [[nodiscard]] std::optional<CharacterState> get_character_state(Entity entity) const;
+        // 同步球体扫掠，忽略指定实体和触发器；无命中返回 1，无运行域或无效参数返回空值。
+        [[nodiscard]] std::optional<float> sweep_sphere(
+            Entity ignored, Math::Vec3 origin, Math::Vec3 displacement, float radius) const;
 
     protected:
         PhysicsAccess() = default;
@@ -61,9 +75,11 @@ namespace Comet {
             Math::Vec3 value, std::optional<Math::Vec3> point) = 0;
         virtual std::optional<Velocity> read_velocity(EntityUuid uuid, EntityId entity) const = 0;
         virtual bool enqueue_character_move(
-            EntityUuid uuid, EntityId entity, Math::Vec2 direction, bool jump) = 0;
+            EntityUuid uuid, EntityId entity, CharacterMove move) = 0;
         virtual std::optional<CharacterState> read_character_state(
             EntityUuid uuid, EntityId entity) const = 0;
+        virtual std::optional<float> cast_sphere(EntityUuid ignored, EntityId entity,
+            Math::Vec3 origin, Math::Vec3 displacement, float radius) const = 0;
         virtual void reset() noexcept = 0;
 
         const Scene* m_scene = nullptr;

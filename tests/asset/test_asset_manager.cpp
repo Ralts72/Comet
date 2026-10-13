@@ -1,6 +1,47 @@
+#include "asset/default_assets.h"
 #include "support/asset_manager_fixture.h"
 
 namespace Comet::Tests {
+    TEST(AssetManagerTest, DefaultMaterialsLoadWithoutProjectFilesAndRetainTypedIdentity) {
+        const TemporaryProject project;
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        const std::array references{AssetReference{DEFAULT_PBR_MATERIAL, AssetType::Material},
+            AssetReference{DEFAULT_UNLIT_MATERIAL, AssetType::Material}};
+        EXPECT_FALSE(
+            manager.references_ready(references, AssetManager::MissingAssetPolicy::FailRequired));
+        ASSERT_TRUE(
+            manager.prepare_references(references, AssetManager::MissingAssetPolicy::FailRequired));
+        const auto ready =
+            manager.references_ready(references, AssetManager::MissingAssetPolicy::FailRequired);
+        ASSERT_TRUE(ready);
+        EXPECT_TRUE(ready.value());
+        for(const auto& reference : references) {
+            EXPECT_FALSE(manager.get_database().find(reference.handle));
+            const auto material = registry.resolve<Material>(reference.handle);
+            ASSERT_TRUE(material);
+            const auto* asset = find_default_asset(reference.handle);
+            ASSERT_NE(asset, nullptr);
+            EXPECT_EQ(material->get_template_name(), asset->material_template);
+            EXPECT_EQ(manager.load_material(reference.handle).value(), material);
+            EXPECT_FALSE(manager.ensure_loaded(reference.handle, AssetType::Mesh));
+            EXPECT_FALSE(
+                manager.prepare_material_update(reference.handle, {.template_name = "pbr"}));
+        }
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
+        EXPECT_EQ(factory.texture_creation_count(), 0);
+        EXPECT_FALSE(manager.ensure_loaded(AssetHandle{999}, AssetType::Material));
+
+        registry.clear();
+        ASSERT_TRUE(registry.register_asset(DEFAULT_PBR_MATERIAL, std::make_shared<int>(1)));
+        EXPECT_FALSE(manager.load_material(DEFAULT_PBR_MATERIAL));
+        EXPECT_FALSE(
+            manager.references_ready(references, AssetManager::MissingAssetPolicy::FailRequired));
+    }
+
     namespace {
         AssetScanReport simulate_external_move(AssetDatabase& database, AssetManager& manager,
             const ProjectPaths& paths, AssetHandle handle,

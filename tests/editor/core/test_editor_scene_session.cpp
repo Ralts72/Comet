@@ -130,7 +130,7 @@ namespace CometEditor::Tests {
             EntityUuid player;
             Result<void, Error> fixed_update(Scene& scene, const Context& context) override {
                 if(!context.services.physics->request_character_move(
-                       scene.find_entity(player), {1, 0}, false))
+                       scene.find_entity(player), {.direction = {1, 0}}))
                     return Result<void, Error>::failure({"Character intent rejected"});
                 return Result<void, Error>::success();
             }

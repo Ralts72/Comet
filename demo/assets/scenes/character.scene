@@ -50,11 +50,23 @@
           "max_slope_angle": 45,
           "step_height": 0.3,
           "ground_snap_distance": 0.3,
-          "gravity_scale": 1
+          "gravity_scale": 1,
+          "run_speed": 6,
+          "crouch_speed": 2,
+          "crouch_height_ratio": 0.6,
+          "air_control": 1,
+          "push_force": 100
         },
         "script": {
           "asset": 14309634625000312004,
-          "parameters": {}
+          "parameters": {
+            "camera": {
+              "entity": "70a518f1-2c0e-4180-9ead-000000000003"
+            },
+            "visual": {
+              "entity": "70a518f1-2c0e-4180-9ead-000000000002"
+            }
+          }
         },
         "audio_source": {
           "clip": 8247160951280394421,
@@ -71,7 +83,7 @@
             "transform": {
               "translation": [
                 0,
-                0.85,
+                0,
                 0
               ],
               "rotation": [
@@ -80,16 +92,46 @@
                 0
               ],
               "scale": [
-                0.5,
-                1.7,
-                0.5
+                1,
+                1,
+                1
               ]
-            },
-            "mesh_renderer": {
-              "mesh": 7535385251553858160,
-              "material": 6482638524486200214
             }
-          }
+          },
+          "children": [
+            {
+              "uuid": "70a518f1-2c0e-4180-9ead-000000000043",
+              "components": {
+                "name": "角色模型",
+                "transform": {
+                  "translation": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "rotation": [
+                    0,
+                    180,
+                    0
+                  ],
+                  "scale": [
+                    1,
+                    1,
+                    1
+                  ]
+                },
+                "mesh_renderer": {
+                  "mesh": 13857136248767905793,
+                  "material": 13857136248767905794
+                },
+                "animator": {
+                  "character": {
+                    "entity": "70a518f1-2c0e-4180-9ead-000000000001"
+                  }
+                }
+              }
+            }
+          ]
         },
         {
           "uuid": "70a518f1-2c0e-4180-9ead-000000000003",
@@ -117,6 +159,19 @@
               "fov": 55,
               "near_clip": 0.1,
               "far_clip": 100
+            },
+            "camera_controller": {
+              "enabled": true,
+              "mode": "orbit",
+              "move_speed": 3,
+              "look_sensitivity": 0.2,
+              "look_speed": 120,
+              "orbit_distance": 6,
+              "orbit_height": 1.2,
+              "orbit_min_distance": 1.5,
+              "orbit_max_distance": 12,
+              "orbit_zoom_step": 0.5,
+              "collision_radius": 0.15
             }
           }
         }
@@ -206,7 +261,7 @@
           "translation": [
             0,
             1.2,
-            1
+            -4
           ],
           "rotation": [
             0,
@@ -868,6 +923,126 @@
             },
             "target_count": 3
           }
+        }
+      }
+    },
+    {
+      "uuid": "70a518f1-2c0e-4180-9ead-000000000040",
+      "components": {
+        "name": "蹲伏通道 顶部",
+        "transform": {
+          "translation": [
+            0,
+            1.35,
+            1
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3.6,
+            0.3,
+            3.0
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 9429603817048603172
+        },
+        "rigid_body": {
+          "motion": "static"
+        },
+        "collider": {
+          "shape": "box",
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "radius": 0.5,
+          "is_trigger": false
+        }
+      }
+    },
+    {
+      "uuid": "70a518f1-2c0e-4180-9ead-000000000041",
+      "components": {
+        "name": "蹲伏通道 左侧",
+        "transform": {
+          "translation": [
+            -1.65,
+            0.6,
+            1
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.3,
+            1.2,
+            3.0
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 9429603817048603172
+        },
+        "rigid_body": {
+          "motion": "static"
+        },
+        "collider": {
+          "shape": "box",
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "radius": 0.5,
+          "is_trigger": false
+        }
+      }
+    },
+    {
+      "uuid": "70a518f1-2c0e-4180-9ead-000000000042",
+      "components": {
+        "name": "蹲伏通道 右侧",
+        "transform": {
+          "translation": [
+            1.65,
+            0.6,
+            1
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.3,
+            1.2,
+            3.0
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 9429603817048603172
+        },
+        "rigid_body": {
+          "motion": "static"
+        },
+        "collider": {
+          "shape": "box",
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "radius": 0.5,
+          "is_trigger": false
         }
       }
     }

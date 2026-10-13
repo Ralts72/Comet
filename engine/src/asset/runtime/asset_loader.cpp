@@ -1,3 +1,5 @@
+#include "asset/default_assets.h"
+#include "asset/import/mesh_importer.h"
 #include "asset/runtime/asset_loader.h"
 
 #include "asset/artifact/mesh_artifact.h"
@@ -15,6 +17,22 @@
 
 namespace Comet {
     namespace {
+        template<typename T, typename Create>
+        Result<std::shared_ptr<T>, Error> load_default_asset(
+            AssetRegistry& registry, const AssetHandle handle, Create&& create) {
+            using LoadResult = Result<std::shared_ptr<T>, Error>;
+            if(auto asset = registry.resolve<T>(handle))
+                return LoadResult::success(std::move(asset));
+            if(registry.contains(handle))
+                return LoadResult::failure({"Default asset type conflict"});
+            auto candidate = create();
+            if(!candidate)
+                return candidate;
+            if(!registry.register_asset(handle, candidate.value()))
+                return LoadResult::failure({"Cannot register default asset"});
+            return candidate;
+        }
+
         template<typename T, typename Create>
         Result<std::shared_ptr<T>, Error> load_runtime_asset(const AssetDatabase& database,
             AssetRegistry& registry, const AssetHandle handle, const AssetType type,
@@ -53,6 +71,14 @@ namespace Comet {
           m_texture_bytes(texture_bytes), m_environment_bytes(environment_bytes) {}
 
     Result<std::shared_ptr<Mesh>, Error> AssetLoader::load_mesh(const AssetHandle handle) {
+        if(handle == DEFAULT_CHARACTER_MESH) {
+            return load_default_asset<Mesh>(m_registry, handle, [this] {
+                static const auto imported = MeshImporter{}.import(COMET_DEFAULT_CHARACTER_FILE);
+                if(!imported)
+                    return Result<std::shared_ptr<Mesh>, Error>::failure({imported.error()});
+                return m_render_factory.prepare(imported.value());
+            });
+        }
         return load_runtime_asset<Mesh>(m_database, m_registry, handle, AssetType::Mesh,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Mesh>, Error> {
                 auto artifact = MeshArtifact::load(
@@ -108,6 +134,14 @@ namespace Comet {
     }
 
     Result<std::shared_ptr<Material>, Error> AssetLoader::load_material(const AssetHandle handle) {
+        if(const auto* asset = find_default_asset(handle);
+            asset && asset->type == AssetType::Material) {
+            return load_default_asset<Material>(m_registry, handle, [asset] {
+                // 参数缺省值由 MaterialLayout 定义，不再复制一份 .mat 配置。
+                return RenderAssetFactory::prepare_material(std::string(asset->name),
+                    MaterialData{.template_name = std::string(asset->material_template)}, {});
+            });
+        }
         return load_runtime_asset<Material>(m_database, m_registry, handle, AssetType::Material,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Material>, Error> {
                 const auto data =

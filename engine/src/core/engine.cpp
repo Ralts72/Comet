@@ -1,3 +1,4 @@
+#include "animation/animation_system.h"
 #include "engine.h"
 #include "common/scope_exit.h"
 #include "config/config.h"
@@ -147,6 +148,8 @@ namespace Comet {
             !added)
             return added;
         if(auto added = add_system(std::make_unique<PhysicsSystem>(*m_physics_service)); !added)
+            return added;
+        if(auto added = add_system(std::make_unique<AnimationSystem>()); !added)
             return added;
         return add_system(std::make_unique<AudioSystem>(*m_audio_service));
     }

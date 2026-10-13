@@ -47,6 +47,7 @@ target_link_libraries(comet_physics PUBLIC comet_runtime PRIVATE Jolt::Jolt)
 target_link_libraries(comet_gameplay PUBLIC comet_runtime)
 target_link_libraries(comet_scripting PUBLIC comet_runtime PRIVATE comet_gameplay comet_lua)
 target_link_libraries(comet_asset_pipeline PUBLIC comet_asset_data PRIVATE stb_image fastgltf::fastgltf)
+target_compile_definitions(comet_runtime_assets PRIVATE COMET_DEFAULT_CHARACTER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/resources/characters/default.glb")
 target_link_libraries(comet_runtime_assets PUBLIC comet_asset_pipeline PRIVATE comet_audio comet_scripting)
 
 target_link_libraries(comet_platform PUBLIC comet_input PRIVATE glfw)
