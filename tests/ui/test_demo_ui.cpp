@@ -109,6 +109,8 @@ namespace {
             auto constructor = context->CreateDataModel("ui");
             ASSERT_TRUE(constructor);
             ASSERT_TRUE(constructor.Bind("fps_text", &fps));
+            ASSERT_TRUE(constructor.Bind("character_game", &available));
+            ASSERT_TRUE(constructor.Bind("character_status", &display_text));
             ASSERT_TRUE(constructor.Bind("action_name", &action));
             ASSERT_TRUE(constructor.Bind("status_text", &status));
             ASSERT_TRUE(constructor.Bind("error_text", &error));

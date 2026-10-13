@@ -198,6 +198,21 @@ namespace CometEditor::Tests {
 
         void settings() { click("settings"); }
 
+        void override_controller_callback(std::string_view name, std::string_view body) {
+            std::ifstream original(
+                std::filesystem::path(PROJECT_ROOT_DIR) / "demo/assets/ui/runtime.ui.lua");
+            ASSERT_TRUE(original);
+            const std::string source{
+                std::istreambuf_iterator<char>(original), std::istreambuf_iterator<char>()};
+            std::ofstream script(documents.path() / "assets/ui/runtime.ui.lua", std::ios::trunc);
+            ASSERT_TRUE(script);
+            script << "local controller = (function()\n"
+                   << source << "\nend)()\ncontroller." << name << " = function(self, ui) " << body
+                   << " end\nreturn controller";
+            script.flush();
+            ASSERT_TRUE(script.good());
+        }
+
         Comet::Ui::ProjectUi::Services input_services() {
             return {.load_input =
                         [this] {
@@ -396,12 +411,8 @@ namespace CometEditor::Tests {
         for(const auto* method : {"on_frame", "on_event"}) {
             SCOPED_TRACE(method);
             const auto file = documents.path() / "assets/ui/runtime.ui.lua";
-            {
-                std::ofstream script(file, std::ios::trunc);
-                script << "return ui.settings{model={fps_text='0 FPS'}," << method
-                       << "=function() error('UI runtime failure') end}";
-                ASSERT_TRUE(script.good());
-            }
+            ASSERT_NO_FATAL_FAILURE(
+                override_controller_callback(method, "error('UI runtime failure')"));
             game->reload();
             ASSERT_TRUE(game->error().empty());
             if(std::string_view(method) == "on_event") {
@@ -449,13 +460,8 @@ namespace CometEditor::Tests {
     }
 
     TEST_F(EditorGameUiGpuTest, BackendFailuresRemainFatalToTheHost) {
-        const auto file = documents.path() / "assets/ui/runtime.ui.lua";
-        {
-            std::ofstream script(file, std::ios::trunc);
-            script << "return ui.settings{model={fps_text='0 FPS'},on_frame=function(self,ui) "
-                      "ui.property('hud','filter','blur(1px)') end}";
-            ASSERT_TRUE(script.good());
-        }
+        ASSERT_NO_FATAL_FAILURE(
+            override_controller_callback("on_frame", "ui.property('hud','filter','blur(1px)')"));
         game->reload();
         ASSERT_TRUE(game->error().empty());
         auto& renderer = engine->get_renderer();

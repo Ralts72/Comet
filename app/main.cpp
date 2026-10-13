@@ -208,7 +208,14 @@ namespace {
                                             applied.error().message);
                                     return Comet::Result<void>::success();
                                 });
-                        }});
+                        },
+                    .session_get =
+                        [this](std::string_view key) -> std::optional<Comet::ParameterValue> {
+                        const auto& runtime = get_engine().get_scene_runtime();
+                        if(!runtime.is_active())
+                            return std::nullopt;
+                        return runtime.get_session().get_value(key);
+                    }});
             if(!ui)
                 return Init::failure(ui.error());
             m_ui = std::move(ui).value();

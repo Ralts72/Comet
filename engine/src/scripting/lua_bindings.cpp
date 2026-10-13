@@ -333,6 +333,29 @@ namespace Comet::LuaBindings {
         int angular_velocity(lua_State* state) {
             return push_velocity(state, true);
         }
+        int move_character(lua_State* state) {
+            if(lua_gettop(state) != 3)
+                return luaL_error(state, "move_character expects X/Z direction and a jump boolean");
+            luaL_checktype(state, 1, LUA_TNUMBER);
+            luaL_checktype(state, 2, LUA_TNUMBER);
+            luaL_checktype(state, 3, LUA_TBOOLEAN);
+            const Math::Vec2 direction{number(state, 1), number(state, 2)};
+            if(!require_physics(state).request_character_move(
+                   current(state).entity, direction, lua_toboolean(state, 3)))
+                return luaL_error(state, "move_character needs an enabled Character Controller");
+            return 0;
+        }
+        int character_grounded(lua_State* state) {
+            if(lua_gettop(state) != 0)
+                return luaL_error(state, "character_grounded takes no arguments");
+            const auto character =
+                require_physics(state).get_character_state(current(state).entity);
+            if(!character)
+                return luaL_error(
+                    state, "character_grounded needs a registered Character Controller");
+            lua_pushboolean(state, character->grounded);
+            return 1;
+        }
         int set_material_scalar(lua_State* state) {
             auto& context = current(state);
             if(!context.scene || !context.materials)
@@ -596,6 +619,7 @@ namespace Comet::LuaBindings {
             {"apply_impulse_at", apply_impulse_at}, {"apply_force_at", apply_force_at},
             {"apply_torque", apply_torque}, {"linear_velocity", linear_velocity},
             {"angular_velocity", angular_velocity}, {"set_material_scalar", set_material_scalar},
+            {"move_character", move_character}, {"character_grounded", character_grounded},
             {"set_material_vector", set_material_vector}, {"session_get", session_get},
             {"session_set", session_set}, {"emit", emit}, {"set_input_context", set_input_context},
             {"action_value", action_value}, {"action_down", action_down},

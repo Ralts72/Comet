@@ -83,7 +83,8 @@ namespace Comet::Ui {
             QualitySettings,
             QualityApply,
             AudioSettings,
-            AudioApply
+            AudioApply,
+            SessionGet
         };
         static bool allowed_before_publication(const Api operation) {
             switch(operation) {
@@ -100,6 +101,7 @@ namespace Comet::Ui {
                 case Api::DisplaySettings:
                 case Api::QualitySettings:
                 case Api::AudioSettings:
+                case Api::SessionGet:
                     return true;
                 default:
                     return false;
@@ -136,7 +138,8 @@ namespace Comet::Ui {
                             {"quality_settings", static_cast<int>(Api::QualitySettings)},
                             {"quality_apply", static_cast<int>(Api::QualityApply)},
                             {"audio_settings", static_cast<int>(Api::AudioSettings)},
-                            {"audio_apply", static_cast<int>(Api::AudioApply)}},
+                            {"audio_apply", static_cast<int>(Api::AudioApply)},
+                            {"session_get", static_cast<int>(Api::SessionGet)}},
                       [this](lua_State* state, int api) {
                           return m_host.api(*this, state, static_cast<Api>(api));
                       }) {}
@@ -383,6 +386,7 @@ namespace Comet::Ui {
         std::optional<Comet::QualitySettings> m_pending_quality;
         std::optional<Comet::AudioSettings> m_pending_audio;
         std::string m_capture_focus, m_api_error;
+        std::optional<ParameterValue> m_session_value;
         std::optional<Error> m_event_error;
         std::map<std::string, std::string> m_pending_markup;
         const Input::Frame* m_input = nullptr;
@@ -402,6 +406,34 @@ namespace Comet::Ui {
             return luaL_error(state, "Player input transaction has not been opened");
         auto element = [&](const char* id) { return vm.m_document->GetElementById(id); };
         switch(operation) {
+            case Api::SessionGet: {
+                std::size_t length = 0;
+                const auto* name = luaL_checklstring(state, 1, &length);
+                if(!valid_parameter_name(std::string_view(name, length)))
+                    return luaL_error(state, "Expected a session key of at most 128 bytes");
+                m_session_value.reset();
+                if(m_services.session_get)
+                    m_session_value = m_services.session_get(std::string_view(name, length));
+                if(!m_session_value) {
+                    lua_pushnil(state);
+                    return 1;
+                }
+                // 值由宿主持有，Lua 分配失败的 longjmp 不跨过拥有资源的局部对象。
+                std::visit(
+                    [state](const auto& value) {
+                        using T = std::decay_t<decltype(value)>;
+                        if constexpr(std::is_same_v<T, bool>)
+                            lua_pushboolean(state, value);
+                        else if constexpr(std::is_same_v<T, float>)
+                            lua_pushnumber(state, value);
+                        else if constexpr(std::is_same_v<T, std::string>)
+                            lua_pushlstring(state, value.data(), value.size());
+                        else
+                            lua_pushnil(state);
+                    },
+                    *m_session_value);
+                return 1;
+            }
             case Api::Set: {
                 const auto* name = luaL_checkstring(state, 1);
                 bool valid = false;

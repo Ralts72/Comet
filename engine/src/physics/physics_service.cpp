@@ -15,6 +15,9 @@
 #include <Jolt/Physics/Collision/ObjectLayerPairFilterTable.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Constraints/PointConstraint.h>
@@ -59,6 +62,12 @@ namespace Comet {
 
         JPH::RVec3 to_position(const Math::Vec3& value) {
             return {value.x, value.y, value.z};
+        }
+
+        bool character_grounded(const JPH::CharacterVirtual& controller) {
+            return controller.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround
+                   && controller.GetLinearVelocity().GetY() - controller.GetGroundVelocity().GetY()
+                          < 0.1f;
         }
 
         JPH::Quat to_rotation(const Math::Vec3& degrees) {
@@ -402,6 +411,21 @@ namespace Comet {
             bool reported = false;
         };
 
+        struct Character {
+            EntityId entity;
+            EntityUuid uuid;
+            CharacterControllerComponent settings;
+            TransformComponent last_transform;
+            JPH::Ref<JPH::CharacterVirtual> controller;
+        };
+
+        struct ContactBody {
+            EntityId entity;
+            EntityUuid uuid;
+            bool trigger;
+            bool active_this_step;
+        };
+
         struct Joint {
             EntityUuid uuid;
             JPH::BodyID first;
@@ -420,10 +444,13 @@ namespace Comet {
                 std::make_unique<JPH::ObjectVsBroadPhaseLayerFilterTable>(broad_phase, 2, pairs, 2);
             world.Init(1024, 0, 1024, 1024, broad_phase, *object_filter, pairs);
             body_lookup.resize(world.GetMaxBodies());
+            character_lookup.resize(world.GetMaxBodies());
             world.SetContactListener(&collector);
         }
 
         ~Impl() {
+            // 角色销毁其代理刚体，此时物理世界与支撑刚体仍有效。
+            characters.clear();
             // Jolt 关节借用 Body，必须先从世界移除并释放，再销毁刚体。
             for(const auto& [entity, joint] : joints)
                 world.RemoveConstraint(joint.constraint.GetPtr());
@@ -744,6 +771,149 @@ namespace Comet {
             return body;
         }
 
+        std::optional<ContactBody> find_contact_body(const JPH::BodyID id) {
+            if(const auto* body = find_body(id))
+                return ContactBody{
+                    body->entity, body->uuid, body->collider.is_trigger, body->active_this_step};
+            if(id.GetIndex() >= character_lookup.size())
+                return std::nullopt;
+            const auto* character = character_lookup[id.GetIndex()];
+            if(!character || character->controller->GetInnerBodyID() != id)
+                return std::nullopt;
+            return ContactBody{character->entity, character->uuid, false, true};
+        }
+
+        auto erase_character(std::map<EntityId, Character>::iterator it) {
+            character_lookup[it->second.controller->GetInnerBodyID().GetIndex()] = nullptr;
+            return characters.erase(it);
+        }
+
+        void remove_characters(const std::span<const std::pair<EntityUuid, EntityId>> definitions) {
+            for(const auto& [uuid, entity] : definitions) {
+                const auto it = characters.find(entity);
+                if(it != characters.end() && it->second.uuid == uuid)
+                    erase_character(it);
+            }
+        }
+
+        Result<ObjectChange, Error> synchronize_character(const CharacterDefinition& definition) {
+            const auto& settings = definition.settings;
+            const auto& transform = definition.transform;
+            auto it = characters.find(definition.entity);
+            if(!settings.enabled) {
+                if(it != characters.end())
+                    erase_character(it);
+                return Result<ObjectChange, Error>::success(ObjectChange::None);
+            }
+            const auto scale = transform.scale.x;
+            const auto radius = settings.radius * scale;
+            const auto height = settings.height * scale;
+            if(!Math::is_finite(transform.translation) || !Math::is_finite(transform.rotation)
+                || !Math::is_finite(transform.scale) || scale <= 0
+                || transform.scale != Math::Vec3(scale) || transform.rotation.x != 0
+                || transform.rotation.z != 0 || !std::isfinite(settings.radius)
+                || settings.radius < 0.01f || !std::isfinite(settings.height)
+                || settings.height <= settings.radius * 2 || !std::isfinite(height) || radius <= 0
+                || height <= radius * 2 || !std::isfinite(settings.max_slope_angle)
+                || settings.max_slope_angle < 1 || settings.max_slope_angle > 89)
+                return Result<ObjectChange, Error>::failure(
+                    {"Character needs an upright capsule, positive uniform scale and height > diameter: "
+                        + definition.uuid.to_string()});
+            for(const auto value : {settings.move_speed, settings.jump_speed, settings.step_height,
+                    settings.ground_snap_distance, settings.gravity_scale})
+                if(!std::isfinite(value) || value < 0 || !std::isfinite(value * scale))
+                    return Result<ObjectChange, Error>::failure(
+                        {"Character movement settings must be finite and nonnegative: "
+                            + definition.uuid.to_string()});
+
+            const bool added = it == characters.end();
+            const bool rebuild = !added
+                                 && (it->second.uuid != definition.uuid
+                                     || it->second.settings.radius != settings.radius
+                                     || it->second.settings.height != settings.height
+                                     || it->second.last_transform.scale != transform.scale);
+            auto velocity = JPH::Vec3::sZero();
+            if(rebuild) {
+                if(it->second.uuid == definition.uuid)
+                    velocity = it->second.controller->GetLinearVelocity();
+                erase_character(it);
+            }
+            if(added || rebuild) {
+                JPH::CharacterVirtualSettings native;
+                native.mShape = new JPH::RotatedTranslatedShape(JPH::Vec3(0, height * 0.5f, 0),
+                    JPH::Quat::sIdentity(), new JPH::CapsuleShape(height * 0.5f - radius, radius));
+                native.mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -radius);
+                native.mMaxSlopeAngle = Math::radians(settings.max_slope_angle);
+                native.mInnerBodyShape = native.mShape;
+                native.mInnerBodyLayer = MOVING_LAYER;
+                JPH::Ref<JPH::CharacterVirtual> controller = new JPH::CharacterVirtual(&native,
+                    to_position(transform.translation), to_rotation(transform.rotation), &world);
+                if(controller->GetInnerBodyID().IsInvalid())
+                    return Result<ObjectChange, Error>::failure(
+                        {"Physics character capacity exceeded"});
+                controller->SetLinearVelocity(velocity);
+                const auto [inserted, success] = characters.emplace(definition.entity,
+                    Character{definition.entity, definition.uuid, settings, transform, controller});
+                character_lookup[controller->GetInnerBodyID().GetIndex()] = &inserted->second;
+                controller->RefreshContacts(world.GetDefaultBroadPhaseLayerFilter(MOVING_LAYER),
+                    world.GetDefaultLayerFilter(MOVING_LAYER), {}, {}, allocator);
+                return Result<ObjectChange, Error>::success(
+                    added ? ObjectChange::Added : ObjectChange::Rebuilt);
+            }
+            auto& character = it->second;
+            character.settings = settings;
+            character.controller->SetMaxSlopeAngle(Math::radians(settings.max_slope_angle));
+            if(!same_pose(character.last_transform, transform)) {
+                character.controller->SetPosition(to_position(transform.translation));
+                character.controller->SetRotation(to_rotation(transform.rotation));
+                character.controller->RefreshContacts(
+                    world.GetDefaultBroadPhaseLayerFilter(MOVING_LAYER),
+                    world.GetDefaultLayerFilter(MOVING_LAYER), {}, {}, allocator);
+            }
+            character.last_transform = transform;
+            return Result<ObjectChange, Error>::success(ObjectChange::None);
+        }
+
+        void move_characters(const float delta_time, std::span<const CharacterMove> requests) {
+            for(auto& [entity, character] : characters) {
+                auto& controller = *character.controller;
+                const auto& settings = character.settings;
+                const auto request = std::ranges::find(requests, entity, &CharacterMove::entity);
+                Math::Vec2 direction{0};
+                bool jump = false;
+                if(request != requests.end() && request->uuid == character.uuid) {
+                    direction = request->direction;
+                    jump = request->jump;
+                }
+                controller.UpdateGroundVelocity();
+                const auto ground = controller.GetGroundVelocity();
+                auto velocity = JPH::Vec3(0, controller.GetLinearVelocity().GetY(), 0);
+                if(character_grounded(controller)) {
+                    velocity = ground;
+                    if(jump)
+                        velocity += JPH::Vec3(0, settings.jump_speed, 0);
+                }
+                const auto gravity = world.GetGravity() * settings.gravity_scale;
+                velocity += JPH::Vec3(direction.x, 0, direction.y) * settings.move_speed
+                            + gravity * delta_time;
+                controller.SetLinearVelocity(velocity);
+                JPH::CharacterVirtual::ExtendedUpdateSettings update;
+                update.mWalkStairsStepUp =
+                    JPH::Vec3(0, settings.step_height * character.last_transform.scale.x, 0);
+                update.mStickToFloorStepDown = JPH::Vec3(
+                    0, -settings.ground_snap_distance * character.last_transform.scale.x, 0);
+                controller.ExtendedUpdate(delta_time, gravity, update,
+                    world.GetDefaultBroadPhaseLayerFilter(MOVING_LAYER),
+                    world.GetDefaultLayerFilter(MOVING_LAYER), {}, {}, allocator);
+                auto transform = character.last_transform;
+                const auto position = controller.GetPosition();
+                transform.translation = {position.GetX(), position.GetY(), position.GetZ()};
+                if(!same_pose(character.last_transform, transform))
+                    poses.push_back({character.entity, transform});
+                character.last_transform = transform;
+            }
+        }
+
         Result<void, Error> update_mass(Body& body, const RigidBodyComponent& rigid) {
             if(body.rigid.motion == BodyMotion::Dynamic) {
                 {
@@ -763,7 +933,7 @@ namespace Comet {
             return Result<void, Error>::success();
         }
 
-        Result<BodyChange, Error> synchronize_body(const BodyDefinition& definition) {
+        Result<ObjectChange, Error> synchronize_body(const BodyDefinition& definition) {
             const auto& transform = definition.transform;
             const auto& collider = definition.collider;
             const auto& rigid = definition.rigid;
@@ -786,7 +956,7 @@ namespace Comet {
                     || it->second.collider.restitution != collider.restitution);
             if(added || rebuild || rigid_changed || pose_changed || surface_changed) {
                 if(auto valid = validate_body(definition.uuid, transform, collider, rigid); !valid)
-                    return Result<BodyChange, Error>::failure(valid.error());
+                    return Result<ObjectChange, Error>::failure(valid.error());
             }
             if(added || rebuild) {
                 Velocity velocity;
@@ -802,9 +972,9 @@ namespace Comet {
                 if(rebuild)
                     remove_body(it);
                 if(auto created = add_body(definition, velocity); !created)
-                    return Result<BodyChange, Error>::failure(created.error());
-                return Result<BodyChange, Error>::success(
-                    added ? BodyChange::Added : BodyChange::Rebuilt);
+                    return Result<ObjectChange, Error>::failure(created.error());
+                return Result<ObjectChange, Error>::success(
+                    added ? ObjectChange::Added : ObjectChange::Rebuilt);
             }
             auto& body = it->second;
             if(surface_changed) {
@@ -820,7 +990,7 @@ namespace Comet {
             }
             if(!same_mass_settings(body.rigid, rigid)) {
                 if(auto updated = update_mass(body, rigid); !updated)
-                    return Result<BodyChange, Error>::failure(updated.error());
+                    return Result<ObjectChange, Error>::failure(updated.error());
             }
             body.rigid = rigid;
             if(rigid.motion == BodyMotion::Kinematic) {
@@ -841,7 +1011,7 @@ namespace Comet {
                     wake_nearby_bodies(body.id);
                 body.last_transform = transform;
             }
-            return Result<BodyChange, Error>::success(BodyChange::None);
+            return Result<ObjectChange, Error>::success(ObjectChange::None);
         }
 
         Result<void, Error> validate_command(const JPH::Body& body, const Command& request,
@@ -1006,15 +1176,15 @@ namespace Comet {
                 return ContactChange::Kind::CollisionExit;
             };
             for(const auto& pair : frame_contacts) {
-                const Body* first = find_body(pair.first);
-                const Body* second = find_body(pair.second);
+                auto first = find_contact_body(pair.first);
+                auto second = find_contact_body(pair.second);
                 if(!first || !second)
                     continue;
                 if(first->uuid > second->uuid)
                     std::swap(first, second);
                 const auto [found, added] = tracked_contacts.try_emplace(
                     pair, Contact{first->entity, second->entity, first->uuid, second->uuid,
-                              first->collider.is_trigger || second->collider.is_trigger});
+                              first->trigger || second->trigger});
                 auto& contact = found->second;
                 contact.reported = true;
                 if(added)
@@ -1027,8 +1197,8 @@ namespace Comet {
                     ++it;
                     continue;
                 }
-                const auto* first = find_body(pair.first);
-                const auto* second = find_body(pair.second);
+                const auto first = find_contact_body(pair.first);
+                const auto second = find_contact_body(pair.second);
                 // Jolt 不报告休眠接触；两端在步进前后均未活动才能沿用上一逻辑状态。
                 if(first && second && !first->active_this_step && !second->active_this_step) {
                     ++it;
@@ -1060,6 +1230,8 @@ namespace Comet {
         JPH::JobSystemSingleThreaded jobs;
         std::unordered_map<EntityId, Body> bodies;
         std::vector<Body*> body_lookup;
+        std::map<EntityId, Character> characters;
+        std::vector<Character*> character_lookup;
         std::vector<JPH::BodyID> step_active_bodies;
         std::vector<Pair> frame_contacts;
         std::map<Pair, Contact> tracked_contacts;
@@ -1074,11 +1246,15 @@ namespace Comet {
     Result<void, Error> PhysicsService::step(const float delta_time) {
         if(!m_impl)
             return Result<void, Error>::failure({"Physics world is not active"});
-        const ScopeExit clear([this] { m_commands.clear(); });
+        const ScopeExit clear([this] {
+            m_commands.clear();
+            m_character_moves.clear();
+        });
         m_impl->move_kinematic_bodies(delta_time);
         if(auto applied = m_impl->apply_commands(m_commands, delta_time); !applied)
             return applied;
         m_impl->poses.clear();
+        m_impl->move_characters(delta_time, m_character_moves);
         m_impl->capture_active_bodies();
         const auto errors = m_impl->world.Update(delta_time, 1, &m_impl->allocator, &m_impl->jobs);
         if(errors != JPH::EPhysicsUpdateError::None) {
@@ -1107,7 +1283,8 @@ namespace Comet {
         return {.bodies = m_impl->bodies.size(),
             .active_bodies = m_impl->world.GetNumActiveBodies(JPH::EBodyType::RigidBody),
             .pose_updates = m_impl->poses.size(),
-            .joints = m_impl->joints.size()};
+            .joints = m_impl->joints.size(),
+            .characters = m_impl->characters.size()};
     }
 
     PhysicsService::~PhysicsService() {
@@ -1139,6 +1316,7 @@ namespace Comet {
 
     void PhysicsService::reset() noexcept {
         m_commands.clear();
+        m_character_moves.clear();
         m_impl.reset();
     }
 
@@ -1151,11 +1329,51 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
-    Result<PhysicsService::BodyChange, Error> PhysicsService::synchronize_body(
+    Result<PhysicsService::ObjectChange, Error> PhysicsService::synchronize_body(
         const BodyDefinition& definition) {
         if(!m_impl)
-            return Result<BodyChange, Error>::failure({"Physics world is not active"});
+            return Result<ObjectChange, Error>::failure({"Physics world is not active"});
         return m_impl->synchronize_body(definition);
+    }
+
+    Result<PhysicsService::ObjectChange, Error> PhysicsService::synchronize_character(
+        const CharacterDefinition& definition) {
+        if(!m_impl)
+            return Result<ObjectChange, Error>::failure({"Physics world is not active"});
+        return m_impl->synchronize_character(definition);
+    }
+
+    void PhysicsService::remove_characters(
+        const std::span<const std::pair<EntityUuid, EntityId>> definitions) {
+        if(m_impl)
+            m_impl->remove_characters(definitions);
+    }
+
+    bool PhysicsService::enqueue_character_move(
+        const EntityUuid uuid, const EntityId entity, const Math::Vec2 direction, const bool jump) {
+        const auto found = std::ranges::find(m_character_moves, entity, &CharacterMove::entity);
+        if(found != m_character_moves.end()) {
+            *found = {uuid, entity, direction, jump};
+            return true;
+        }
+        if(m_character_moves.size() >= MAX_COMMANDS)
+            return false;
+        m_character_moves.push_back({uuid, entity, direction, jump});
+        return true;
+    }
+
+    std::optional<PhysicsAccess::CharacterState> PhysicsService::read_character_state(
+        const EntityUuid uuid, const EntityId entity) const {
+        if(!m_impl)
+            return std::nullopt;
+        const auto found = m_impl->characters.find(entity);
+        if(found == m_impl->characters.end() || found->second.uuid != uuid)
+            return std::nullopt;
+        const auto& controller = *found->second.controller;
+        const auto velocity = controller.GetLinearVelocity();
+        const auto normal = controller.GetGroundNormal();
+        return CharacterState{{velocity.GetX(), velocity.GetY(), velocity.GetZ()},
+            {normal.GetX(), normal.GetY(), normal.GetZ()}, character_grounded(controller)};
     }
 
     Result<void, Error> PhysicsService::synchronize_joints(

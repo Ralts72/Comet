@@ -24,9 +24,10 @@ namespace Comet {
             Entity entity;
             EntityId id;
             EntityUuid uuid;
+            bool character = false;
         };
         Result<void, Error> synchronize(Scene& scene);
-        Result<PhysicsService::BodyChange, Error> synchronize_body(
+        Result<PhysicsService::ObjectChange, Error> synchronize_object(
             Scene& scene, entt::entity handle);
         Result<void, Error> synchronize_joints(Scene& scene);
         PhysicsService& m_physics;

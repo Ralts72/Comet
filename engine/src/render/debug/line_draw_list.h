@@ -24,6 +24,9 @@ namespace Comet {
         // 三个局部大圆构成线框；与 add_box 一样接受仿射变换。
         [[nodiscard]] bool add_sphere(
             float radius, const Math::Mat4& transform, Math::Vec4 color = Math::Vec4(1.0f));
+        // 沿局部 Y 轴，原点在胶囊中心；half_height 是柱体半高，不含半球。
+        [[nodiscard]] bool add_capsule(float radius, float half_height, const Math::Mat4& transform,
+            Math::Vec4 color = Math::Vec4(1.0f));
 
         // 顶点数量超限时拒绝整批追加，保留已有线段。
         [[nodiscard]] bool append(const LineDrawList& draw_list);

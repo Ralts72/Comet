@@ -71,22 +71,26 @@ namespace Comet::Tests {
         const SceneSerializer serializer(registry);
         const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
         ASSERT_TRUE(project) << project.error();
-        auto loaded = serializer.load(
-            (project.value().paths().assets() / project.value().startup_scene()).string());
-        ASSERT_TRUE(loaded) << loaded.error();
-        ASSERT_EQ(loaded.value()->component_count<AudioSourceComponent>(), 1u);
-        const auto goal_uuid = EntityUuid::parse("672cd0cc-501f-419e-af5e-a883a0cd3d07");
-        ASSERT_TRUE(goal_uuid);
-        const auto goal = loaded.value()->find_entity(*goal_uuid);
-        ASSERT_TRUE(goal);
-        EXPECT_FALSE(goal.get_component<AudioSourceComponent>().play_on_start);
-        auto clone = serializer.clone(*loaded.value());
-        ASSERT_TRUE(clone) << clone.error();
-        EXPECT_EQ(clone.value()->component_count<AudioSourceComponent>(), 1u);
-        EXPECT_FALSE(clone.value()
-                ->find_entity(goal.get_uuid())
-                .get_component<AudioSourceComponent>()
-                .play_on_start);
+        for(const auto* path : {"scenes/default.scene", "scenes/character.scene"}) {
+            auto loaded = serializer.load((project.value().paths().assets() / path).string());
+            ASSERT_TRUE(loaded) << loaded.error();
+            const auto count = loaded.value()->component_count<AudioSourceComponent>();
+            ASSERT_GT(count, 0u);
+            auto clone = serializer.clone(*loaded.value());
+            ASSERT_TRUE(clone) << clone.error();
+            EXPECT_EQ(clone.value()->component_count<AudioSourceComponent>(), count);
+            loaded.value()->each<const AudioSourceComponent>(
+                [&](Entity entity, const auto& source) {
+                    const auto copied = clone.value()->find_entity(entity.get_uuid());
+                    ASSERT_TRUE(copied.has_component<AudioSourceComponent>());
+                    const auto& audio = copied.get_component<AudioSourceComponent>();
+                    EXPECT_EQ(audio.clip, source.clip);
+                    EXPECT_EQ(audio.play_on_start, source.play_on_start);
+                    EXPECT_EQ(audio.loop, source.loop);
+                    EXPECT_EQ(audio.volume, source.volume);
+                    EXPECT_EQ(audio.category, source.category);
+                });
+        }
     }
 
     class ProjectAssetIntegrationTest: public ::testing::TestWithParam<int> {};

@@ -114,7 +114,7 @@ namespace Comet {
             m_dirty_render_entities.remove(*it);
             m_dirty_physics_entities.remove(*it);
             m_transform_interpolation.forget(*it);
-            if(m_registry.all_of<RigidBodyComponent>(*it))
+            if(m_registry.any_of<RigidBodyComponent, CharacterControllerComponent>(*it))
                 m_physics_structure_changed = true;
             if(m_registry.any_of<PointJointComponent, HingeJointComponent, SliderJointComponent>(
                    *it))

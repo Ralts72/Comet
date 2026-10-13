@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "common/parameters.h"
 
 #include "core/project.h"
 #include "input/input_overrides.h"
@@ -29,6 +30,8 @@ namespace Comet::Ui {
             std::function<Result<AudioSettings>()> load_audio;
             std::function<AudioSettings()> active_audio;
             std::function<Result<void>(AudioSettings)> apply_audio;
+            // Main 上只读查询本局状态；没有活动游戏或键缺失时返回空值。
+            std::function<std::optional<ParameterValue>(std::string_view)> session_get;
         };
         struct FrameInfo {
             float fps = 0;

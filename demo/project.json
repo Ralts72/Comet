@@ -2,7 +2,7 @@
   "version": 2,
   "id": "bf04a980-f080-4d3f-b1ac-1a938379a190",
   "name": "sampler",
-  "startup_scene": "scenes/default.scene",
+  "startup_scene": "scenes/character.scene",
   "display": {
     "width": 960, "height": 720, "mode": "windowed", "vsync": false,
     "output": {"mode": "auto", "hdr_headroom": 4, "hdr_white_level": 1}
@@ -14,7 +14,13 @@
   "input_contexts": [
     {"name": "gameplay", "enabled": true},
     {"name": "camera", "enabled": true},
-    {"name": "palette", "enabled": false, "priority": 100, "consume": true}
+    {"name": "palette", "enabled": false, "priority": 100, "consume": true},
+    {
+      "name": "character",
+      "enabled": false,
+      "priority": 50,
+      "consume": true
+    }
   ],
   "input_actions": [
     {
@@ -330,6 +336,74 @@
       "bindings": [
         {"id": "0120f784-0b77-4a50-bba9-000000000043", "source": "key", "control": "Space"},
         {"id": "0120f784-0b77-4a50-bba9-000000000044", "source": "gamepad_button", "control": "South"}
+      ]
+    },
+    {
+      "id": "0120f784-0b77-4a50-bba9-000000000101",
+      "name": "character.move_x",
+      "context": "character",
+      "type": "axis",
+      "bindings": [
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000064",
+          "source": "key",
+          "control": "D"
+        },
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000065",
+          "source": "key",
+          "control": "A",
+          "scale": -1
+        },
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000066",
+          "source": "gamepad_axis",
+          "control": "LeftX",
+          "deadzone": 0.15
+        }
+      ]
+    },
+    {
+      "id": "0120f784-0b77-4a50-bba9-000000000102",
+      "name": "character.move_z",
+      "context": "character",
+      "type": "axis",
+      "bindings": [
+        {
+          "id": "0120f784-0b77-4a50-bba9-00000000006e",
+          "source": "key",
+          "control": "S"
+        },
+        {
+          "id": "0120f784-0b77-4a50-bba9-00000000006f",
+          "source": "key",
+          "control": "W",
+          "scale": -1
+        },
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000070",
+          "source": "gamepad_axis",
+          "control": "LeftY",
+          "deadzone": 0.15
+        }
+      ]
+    },
+    {
+      "id": "0120f784-0b77-4a50-bba9-000000000103",
+      "name": "character.jump",
+      "context": "character",
+      "type": "button",
+      "bindings": [
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000078",
+          "source": "key",
+          "control": "Space"
+        },
+        {
+          "id": "0120f784-0b77-4a50-bba9-000000000079",
+          "source": "gamepad_button",
+          "control": "South"
+        }
       ]
     }
   ]

@@ -14,6 +14,10 @@
 #include "asset/script.h"
 #include "scene/systems/script_system.h"
 #include "asset/registry.h"
+#include "asset/asset_manager.h"
+#include "core/project.h"
+#include "scene/component_registry.h"
+#include "scene/scene_serializer.h"
 #include "asset/data/mesh_data.h"
 #include "asset/data/environment_data.h"
 #include "asset/runtime/render_asset_factory.h"
@@ -37,6 +41,67 @@ namespace Comet::Tests {
 
     using EngineSceneActivationTest = EngineTest;
     using RenderThreadTest = EngineTest;
+
+    TEST_F(EngineSceneActivationTest, CharacterDemoLoadsRealAssetsAndRendersWithDefaultSystems) {
+        const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
+        ASSERT_TRUE(project) << project.error();
+        const auto components = create_scene_component_registry();
+        auto loaded =
+            SceneSerializer(components)
+                .load(
+                    (project.value().paths().assets() / project.value().startup_scene()).string());
+        ASSERT_TRUE(loaded) << loaded.error();
+        auto scene = std::move(loaded).value();
+        const auto expected_items = scene->component_count<MeshRendererComponent>();
+        auto references =
+            components.collect_asset_references(*scene, ComponentRegistry::ReferenceScope::Runtime);
+        AssetManager assets(project.value().paths(), engine->get_asset_registry(),
+            engine->get_render_resource_factory(), engine->get_task_scheduler());
+        ASSERT_TRUE(assets.scan().snapshot_updated);
+        for(const auto& reference : references)
+            if(reference.type == AssetType::Mesh)
+                ASSERT_TRUE(assets.import_mesh(reference.handle));
+        ASSERT_TRUE(
+            assets.prepare_references(references, AssetManager::MissingAssetPolicy::FailRequired));
+        ASSERT_TRUE(engine->set_input_actions(project.value().input_actions()));
+        ASSERT_TRUE(engine->add_default_scene_systems());
+        bool activated = false;
+        unsigned frames = 0;
+        unsigned active_frames = 0;
+        const auto result = engine->run({.frame_ready = [&](const Engine::FrameContext&) {
+            const auto published = assets.process_completions();
+            if(!published)
+                return Result<void, Error>::failure(published.error());
+            if(!activated) {
+                const auto ready = assets.references_ready(
+                    references, AssetManager::MissingAssetPolicy::FailRequired);
+                if(!ready)
+                    return Result<void, Error>::failure(ready.error());
+                if(ready.value()) {
+                    engine->set_scene(std::move(scene));
+                    if(auto started = engine->start_scene_runtime(); !started)
+                        return started;
+                    activated = true;
+                }
+            } else if(++active_frames == 4) {
+                const auto* physics = engine->get_scene_runtime().find_system<PhysicsSystem>();
+                EXPECT_NE(physics, nullptr);
+                if(physics)
+                    EXPECT_EQ(physics->get_statistics().characters, 1u);
+                const auto& statistics =
+                    engine->get_renderer().get_scene_renderer().get_material_statistics();
+                EXPECT_EQ(statistics.render_items, expected_items);
+                EXPECT_GT(statistics.draw_calls, 0u);
+                engine->get_window().request_close();
+            }
+            if(++frames == 300)
+                return Result<void, Error>::failure({"Character demo activation timed out"});
+            return Result<void, Error>::success();
+        }});
+        ASSERT_TRUE(result) << result.error();
+        EXPECT_TRUE(activated);
+        EXPECT_EQ(active_frames, 4u);
+    }
 
     TEST_F(RenderThreadTest, AssetFactoryRemainsValidBeforeAndAfterRunUntilShutdown) {
         auto& resources = engine->get_render_resource_factory();

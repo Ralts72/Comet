@@ -12,15 +12,18 @@ namespace Comet {
                 {"PhysicsSystem requires its physics service in RuntimeServices"});
         if(auto ready = m_physics.prepare_world(); !ready)
             return ready;
-        m_entries.reserve(scene.component_count<RigidBodyComponent>());
+        m_entries.reserve(scene.component_count<RigidBodyComponent>()
+                          + scene.component_count<CharacterControllerComponent>());
         Result<void, Error> result = Result<void, Error>::success();
-        scene.each<const RigidBodyComponent>([&](Entity entity, const RigidBodyComponent&) {
+        const auto append = [&](Entity entity, const auto&) {
             if(result) {
-                const auto synchronized = synchronize_body(scene, entity.m_handle);
+                const auto synchronized = synchronize_object(scene, entity.m_handle);
                 if(!synchronized)
                     result = Result<void, Error>::failure(synchronized.error());
             }
-        });
+        };
+        scene.each<const RigidBodyComponent>(append);
+        scene.each<const CharacterControllerComponent>(append);
         if(result)
             result = synchronize_joints(scene);
         if(result)
@@ -33,23 +36,28 @@ namespace Comet {
         bool joints_changed = batch.joints_changed || batch.structure_changed;
         if(batch.structure_changed) {
             std::vector<std::pair<EntityUuid, EntityId>> removed;
+            std::vector<std::pair<EntityUuid, EntityId>> removed_characters;
             std::erase_if(m_entries, [&](const Entry& entry) {
                 // has_component 已检查句柄寿命；必需组件在下方统一校验。
-                if(entry.entity.has_component<RigidBodyComponent>())
+                if(entry.character ? entry.entity.has_component<CharacterControllerComponent>()
+                                   : entry.entity.has_component<RigidBodyComponent>())
                     return false;
-                removed.emplace_back(entry.uuid, entry.id);
+                auto& pending = entry.character ? removed_characters : removed;
+                pending.emplace_back(entry.uuid, entry.id);
                 return true;
             });
             m_physics.remove_bodies(removed);
+            m_physics.remove_characters(removed_characters);
         }
         for(const auto handle : batch.entities) {
             // 销毁会移除脏项；移除刚体的实体仍可能在本批中。
-            if(!scene.m_registry.all_of<RigidBodyComponent>(handle))
+            if(!scene.m_registry.any_of<RigidBodyComponent, CharacterControllerComponent>(handle))
                 continue;
-            const auto result = synchronize_body(scene, handle);
+            const auto result = synchronize_object(scene, handle);
             if(!result)
                 return Result<void, Error>::failure(result.error());
-            joints_changed |= result.value() != PhysicsService::BodyChange::None;
+            joints_changed |= scene.m_registry.all_of<RigidBodyComponent>(handle)
+                              && result.value() != PhysicsService::ObjectChange::None;
         }
         if(joints_changed) {
             if(auto result = synchronize_joints(scene); !result)
@@ -59,24 +67,37 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
-    Result<PhysicsService::BodyChange, Error> PhysicsSystem::synchronize_body(
+    Result<PhysicsService::ObjectChange, Error> PhysicsSystem::synchronize_object(
         Scene& scene, const entt::entity handle) {
         const auto& [id, uuid, relationship] =
             scene.m_registry.get<IdComponent, UuidComponent, RelationshipComponent>(handle);
-        const auto [transform, collider] =
-            scene.m_registry.try_get<TransformComponent, ColliderComponent>(handle);
-        if(!transform || !collider)
-            return Result<PhysicsService::BodyChange, Error>::failure(
+        const auto* transform = scene.m_registry.try_get<TransformComponent>(handle);
+        const auto* character = scene.m_registry.try_get<CharacterControllerComponent>(handle);
+        const auto* collider = scene.m_registry.try_get<ColliderComponent>(handle);
+        if(!character && (!transform || !collider))
+            return Result<PhysicsService::ObjectChange, Error>::failure(
                 {"Rigid body requires Transform and Collider: " + uuid.uuid.to_string()});
+        if(!transform)
+            return Result<PhysicsService::ObjectChange, Error>::failure(
+                {"Physics object requires Transform: " + uuid.uuid.to_string()});
         if(relationship.parent != INVALID_ENTITY_ID)
-            return Result<PhysicsService::BodyChange, Error>::failure(
-                {"Parented rigid body is unsupported: " + uuid.uuid.to_string()});
-        const auto synchronized = m_physics.synchronize_body({uuid.uuid, id.id, *transform,
-            *collider, scene.m_registry.get<RigidBodyComponent>(handle)});
+            return Result<PhysicsService::ObjectChange, Error>::failure(
+                {"Parented physics object is unsupported: " + uuid.uuid.to_string()});
+        if(character && scene.m_registry.all_of<RigidBodyComponent>(handle))
+            return Result<PhysicsService::ObjectChange, Error>::failure(
+                {"Character and rigid body cannot own the same Transform: "
+                    + uuid.uuid.to_string()});
+        const auto synchronized = [&] {
+            if(character)
+                return m_physics.synchronize_character({uuid.uuid, id.id, *transform, *character});
+            return m_physics.synchronize_body({uuid.uuid, id.id, *transform, *collider,
+                scene.m_registry.get<RigidBodyComponent>(handle)});
+        }();
         if(!synchronized)
             return synchronized;
-        if(synchronized.value() == PhysicsService::BodyChange::Added)
-            m_entries.push_back({Entity(handle, &scene), id.id, uuid.uuid});
+        if(synchronized.value() == PhysicsService::ObjectChange::Added
+            && std::ranges::find(m_entries, id.id, &Entry::id) == m_entries.end())
+            m_entries.push_back({Entity(handle, &scene), id.id, uuid.uuid, character != nullptr});
         return synchronized;
     }
 

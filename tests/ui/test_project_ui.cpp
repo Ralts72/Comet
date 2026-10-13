@@ -47,6 +47,7 @@ namespace Comet::Tests {
         bool audio_services = false, fail_audio_save = false;
         AudioSettings saved_audio;
         unsigned audio_applications = 0;
+        ParameterMap session_values;
 
         void SetUp() override {
             EngineTest::SetUp();
@@ -70,6 +71,12 @@ namespace Comet::Tests {
             ui.reset();
             Ui::ProjectUi::Services services;
             services.input_actions = actions;
+            services.session_get = [this](std::string_view key) -> std::optional<ParameterValue> {
+                const auto found = session_values.find(std::string(key));
+                if(found == session_values.end())
+                    return std::nullopt;
+                return found->second;
+            };
             services.load_input = [this] {
                 ++loads;
                 return Result<InputOverrides>::success(saved);
@@ -287,6 +294,25 @@ namespace Comet::Tests {
             EXPECT_EQ(input->GetAttribute("value", Rml::String{}), value);
         }
     };
+    TEST_F(ProjectUiGpuTest, DemoHudReadsSessionAndClearsWhenTheGameStops) {
+        session_values["character.score"] = 1.0f;
+        session_values["character.finished"] = false;
+        ASSERT_TRUE(submit_frame());
+        auto* hint = document().GetElementById("game-hint");
+        auto* status = document().GetElementById("game-status");
+        ASSERT_NE(hint, nullptr);
+        ASSERT_NE(status, nullptr);
+        EXPECT_TRUE(hint->IsVisible());
+        EXPECT_NE(status->GetInnerRML().find("1 / 3"), std::string::npos);
+        session_values["character.score"] = 3.0f;
+        session_values["character.finished"] = true;
+        ASSERT_TRUE(submit_frame());
+        EXPECT_NE(status->GetInnerRML().find("挑战完成"), std::string::npos);
+        session_values.clear();
+        ASSERT_TRUE(submit_frame());
+        EXPECT_FALSE(hint->IsVisible());
+    }
+
     TEST_F(ProjectUiGpuTest, MenuFocusIsCapturedBeforeGpuRecording) {
         class FocusProbe final: public Rml::Element {
         public:
@@ -816,7 +842,12 @@ return controller
         EXPECT_EQ(Rml::GetContext(0)->GetFocusElement(), previous);
         queue_mouse(position, false);
         ASSERT_TRUE(submit_frame());
-        EXPECT_NE(document().GetElementById("action-name")->GetInnerRML().find("palette.confirm"),
+        const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
+        ASSERT_TRUE(project) << project.error();
+        EXPECT_NE(document()
+                      .GetElementById("action-name")
+                      ->GetInnerRML()
+                      .find(project.value().input_actions().actions().back().name),
             std::string::npos);
     }
 

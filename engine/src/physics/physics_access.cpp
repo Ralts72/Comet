@@ -1,5 +1,6 @@
 #include "physics/physics_access.h"
 #include "scene/scene.h"
+#include <cmath>
 
 namespace Comet {
     bool PhysicsAccess::begin(const Scene& scene) {
@@ -54,5 +55,29 @@ namespace Comet {
         if(!has_body(entity))
             return std::nullopt;
         return read_velocity(entity.get_uuid(), entity.get_id());
+    }
+
+    bool PhysicsAccess::request_character_move(
+        const Entity entity, Math::Vec2 direction, const bool jump) {
+        if(!m_scene || !m_scene->is_valid(entity)
+            || !entity.has_component<CharacterControllerComponent>()
+            || !entity.get_component<CharacterControllerComponent>().enabled
+            || !Math::is_finite(direction))
+            return false;
+        const auto magnitude =
+            std::hypot(static_cast<double>(direction.x), static_cast<double>(direction.y));
+        if(magnitude > 1)
+            direction = {static_cast<float>(direction.x / magnitude),
+                static_cast<float>(direction.y / magnitude)};
+        return enqueue_character_move(entity.get_uuid(), entity.get_id(), direction, jump);
+    }
+
+    std::optional<PhysicsAccess::CharacterState> PhysicsAccess::get_character_state(
+        const Entity entity) const {
+        if(!m_scene || !m_scene->is_valid(entity)
+            || !entity.has_component<CharacterControllerComponent>()
+            || !entity.get_component<CharacterControllerComponent>().enabled)
+            return std::nullopt;
+        return read_character_state(entity.get_uuid(), entity.get_id());
     }
 }

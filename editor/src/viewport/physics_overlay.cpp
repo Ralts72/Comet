@@ -244,6 +244,25 @@ namespace CometEditor {
     }
 
     void append_collider_outlines(Comet::Scene& scene, Comet::LineDrawList& lines) {
+        scene.each<const Comet::TransformComponent, const Comet::CharacterControllerComponent>(
+            [&](const Comet::Entity entity, const Comet::TransformComponent& transform,
+                const Comet::CharacterControllerComponent& character) {
+                using namespace Comet;
+                auto color = Math::Vec4(1, 0.65f, 0.1f, 1);
+                if(!character.enabled)
+                    color = DISABLED_COLOR;
+                else if(transform.scale != Math::Vec3(transform.scale.x) || transform.scale.x <= 0
+                        || transform.rotation.x != 0 || transform.rotation.z != 0
+                        || entity.has_component<RigidBodyComponent>()
+                        || entity.get_component<RelationshipComponent>().parent
+                               != INVALID_ENTITY_ID)
+                    color = INVALID_COLOR;
+                const auto matrix =
+                    scene.get_render_transform(entity).world_matrix
+                    * glm::translate(Math::Mat4(1), Math::Vec3(0, character.height * 0.5f, 0));
+                static_cast<void>(lines.add_capsule(
+                    character.radius, character.height * 0.5f - character.radius, matrix, color));
+            });
         scene.each<const Comet::TransformComponent, const Comet::ColliderComponent>(
             [&](const Comet::Entity entity, const Comet::TransformComponent& transform,
                 const Comet::ColliderComponent& collider) {

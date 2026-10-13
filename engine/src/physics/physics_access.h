@@ -19,6 +19,11 @@ namespace Comet {
             Math::Vec3 linear{0};
             Math::Vec3 angular{0};
         };
+        struct CharacterState {
+            Math::Vec3 velocity{0};
+            Math::Vec3 ground_normal{0};
+            bool grounded = false;
+        };
         virtual ~PhysicsAccess() = default;
         PhysicsAccess(const PhysicsAccess&) = delete;
         PhysicsAccess& operator=(const PhysicsAccess&) = delete;
@@ -35,6 +40,9 @@ namespace Comet {
         [[nodiscard]] bool request_force_at(Entity entity, Math::Vec3 force, Math::Vec3 point);
         // 最近的模拟状态，m/s 与 rad/s；尚未登记、缺少组件或不属于本运行域时返回空值。
         [[nodiscard]] std::optional<Velocity> get_velocity(Entity entity) const;
+        // 世界 XZ 平面的移动意图；长度超过 1 时归一化，最近一次请求只用于下一固定步。
+        [[nodiscard]] bool request_character_move(Entity entity, Math::Vec2 direction, bool jump);
+        [[nodiscard]] std::optional<CharacterState> get_character_state(Entity entity) const;
 
     protected:
         PhysicsAccess() = default;
@@ -52,6 +60,10 @@ namespace Comet {
         virtual bool enqueue_command(EntityUuid uuid, EntityId entity, CommandKind kind,
             Math::Vec3 value, std::optional<Math::Vec3> point) = 0;
         virtual std::optional<Velocity> read_velocity(EntityUuid uuid, EntityId entity) const = 0;
+        virtual bool enqueue_character_move(
+            EntityUuid uuid, EntityId entity, Math::Vec2 direction, bool jump) = 0;
+        virtual std::optional<CharacterState> read_character_state(
+            EntityUuid uuid, EntityId entity) const = 0;
         virtual void reset() noexcept = 0;
 
         const Scene* m_scene = nullptr;

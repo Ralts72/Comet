@@ -4,6 +4,10 @@
     <link type="text/rcss" href="runtime.rcss" />
 </head>
 <body data-model="ui">
+    <div id="game-hint" data-if="character_game">
+        <div id="game-status">{{ character_status }}</div>
+        <div>WASD / 左摇杆移动 · 空格 / A 跳跃 · R / Start 重开</div>
+    </div>
     <div id="hud">
         <span id="fps">{{ fps_text }}</span>
         <button id="settings" data-event-click="command('open')" data-attrif-disabled="!menu_available"><img class="icon" src="icons/settings.png" />设置 / F1</button>

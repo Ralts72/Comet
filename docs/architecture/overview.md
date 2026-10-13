@@ -220,11 +220,14 @@ SceneExtractor 通过 `Scene::get_render_transform` 为网格、相机和灯光�
 固定步运动显示延后一个模拟步。Render 只消费只读快照，不依赖 Runtime；后续动画沿同一写入边界接入。
 
 物理后端仅接收借用参数及身份值；系统检查必需组件和父级，后端在新建／变化时校验值域。
-启动时登记全部刚体；运行时只同步脏实体的 Transform、刚体、碰撞体与父级变化。
+启动时登记刚体与角色；运行时只同步脏实体的 Transform、物理配置与父级变化。
 Scene 的物理脏集合独立于渲染变更批次，固定步成功同步后清空；相同组件值不入队，销毁时移除脏项。
-刚体增删触发登记列表清理，核对实体寿命与组件存在；少量配置修改和稳定步不扫描全部刚体。
+刚体／角色增删触发登记列表清理，核对实体寿命与组件存在；少量配置修改和稳定步不扫描全部配置。
 运动学目标旋转不变时复用四元数，后端维护自己的运动学刚体列表并每步更新速度；列表不借用 Scene 组件。
-AudioService 拥有设备和 Voice，PhysicsService 拥有 Jolt 世界、刚体和关节；System 只保存实体绑定，不让内容组件持有后端对象。
+AudioService 拥有设备和 Voice，PhysicsService 拥有 Jolt 世界、刚体、虚拟角色和关节；System 只保存实体绑定，不让内容组件持有后端对象。
+CharacterController 保存胶囊尺寸、移动／跳跃速度、坡度、台阶、地面吸附与重力配置；脚底为原点，只支持竖直、无父级及正等比缩放。它与 RigidBody 不能拥有同一 Transform，外观／跟随相机可作为子实体。
+玩法通过 PhysicsAccess 提交世界 XZ 移动意图与跳跃边沿，最近请求只作用于下一固定步；静止也继续重力、地面吸附与平台跟随。PhysicsSystem 沿既有脏批次同步角色；PhysicsService 在运动学速度准备后、Jolt 世界步进前更新 CharacterVirtual，再沿同一姿态回写入口发布位置。胶囊及代理刚体归后端，代理进入已有接触身份索引，使触发通知共用后置固定阶段；销毁和 Stop 释放代理，不把地面状态／速度写入内容。
+
 PointJoint 保存启用、连接实体 UUID 与两个锚点，HingeJoint／SliderJoint 额外保存两端轴、参考方向与可选限位／驱动参数，复用属性描述符的保存、克隆、撤销和实体引用重映射；Inspector 复用脚本参数的实体选择控件。
 PhysicsSystem 先完成刚体同步，再提交按实体与关节类型排序的关节定义；仅关节配置、刚体增删或重建触发关节同步，稳定步不扫描场景关节配置。
 三种关节共用同步、校验和销毁流程，铰链／滑动共用方向与参考基、弹簧和驱动设置；属性元信息共用限位弹簧与驱动字段，仍保留角度／行程及力矩／力的区别。PhysicsService 按实体与关节类型保存独立配置和两端原生身份，未变的连接复用 Jolt 对象；刚体删除／重建及世界销毁前先移除并释放关联关节。
@@ -277,8 +280,9 @@ ScriptSystem 不监听文件、不另建资产版本缓存；UI 控制器的 VM 
 ## 项目 UI 控制器
 
 RmlContext 提供通用文档、字体、输入与 Overlay 适配，不认识 demo 动作或菜单。项目的 `ui` 清单决定页面和控制器入口。
-ProjectUi 负责清单装载与 UI 控制器桥接，宿主注入输入、显示、画质、音量的读取／保存／应用服务。
+ProjectUi 负责清单装载与 UI 控制器桥接，宿主注入输入、显示、画质、音量的读取／保存／应用服务，以及本局状态的只读查询。
 HUD、页面、主题、画质档位和游戏特有交互属于项目 RML／RCSS／Lua，App 是通用宿主。
+UI 的 `api.session_get(key)` 读取当前活动 RuntimeSession 的 bool／float／string；无游戏、缺键或非标量返回 nil。App／Editor 只提供查询回调，demo 用它显示收集进度与完成提示；页面不写本局状态、不借用 Scene 或物理对象，RenderThread 继续只消费已捕获的 UI 顶点。
 Engine 内置 `ui.settings(options)`，统一菜单、设置草稿、改键录入、焦点、显示确认和应用结果；底层仍调用既有输入事务及宿主设置服务。
 项目选择面板、控件身份、快捷键和扩展回调；普通页面仍可直接返回自己的控制器，不必使用设置模块。
 Editor Play 使用相同项目页面；ImGui 项目／玩家面板调用相同引擎业务能力，不复制存储规则。
@@ -456,9 +460,9 @@ Viewport 在 Main 更新检查当前场景、Edit 模式和实体存活，过期
 隐藏视图消费本视图的临时请求但跳过绘制，全部隐藏时才跳过世界准备；输入、UI 和运行推进遵守宿主阶段。
 ViewportPanel 根据 Edit／Play 切换工具栏、相机交互与输入路由，共用图像展示、DPI 坐标和尺寸稳定策略。Edit 提供拾取、Gizmo 和资产拖入；Play 提供运行控制、分辨率预览与游戏输入。项目 UI 在同一离屏画面合成。
 面板绘制完成后复核视口焦点／弹窗，失焦释放游戏按键；切回不重放仍按住的输入。Viewport 只绑定默认 View，不创建额外的场景目标。
-ColliderOverlay 属于 Editor：读取 Collider／RigidBody 配置和 Scene 呈现变换，追加盒／球线框到复用的反馈列表；未添加刚体用灰色、不支持的父级／缩放用红色预览。
+ColliderOverlay 属于 Editor：读取 Collider／RigidBody／CharacterController 配置和 Scene 呈现变换，追加盒／球／胶囊线框到复用的反馈列表；未添加刚体用灰色、不支持的父级／缩放用红色预览。
 Viewport 在 `on_frame_capture` 提交选择框、碰撞体轮廓与拾取请求，暂停单步和持续运行都与同次提取的模型姿态对齐。
-Engine 的 LineDrawList 只提供通用仿射盒／球线段，RenderFrame 持有自有顶点；物理服务不依赖渲染，RenderThread 不读取 Scene 或 Jolt 状态。
+Engine 的 LineDrawList 只提供通用仿射盒／球／胶囊线段，RenderFrame 持有自有顶点；物理服务不依赖渲染，RenderThread 不读取 Scene 或 Jolt 状态。
 画质、Shader 与材质预览均在所有视图准备成功后替换；已录制帧仍使用旧版本。
 
 ## 渲染诊断

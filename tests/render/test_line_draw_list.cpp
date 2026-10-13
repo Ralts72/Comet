@@ -141,6 +141,22 @@ namespace Comet::Tests {
         }
     }
 
+    TEST_F(LineDrawListTest, CapsuleEndpointsFollowTheTransformedSurface) {
+        const auto transform = Math::compose_trs({4, 5, 6}, {20, 35, 40}, {2, 3, 4});
+        const auto inverse = Math::inverse(transform);
+        ASSERT_TRUE(list.add_capsule(0.3f, 0.6f, transform));
+        ASSERT_EQ(list.line_count(), 132u);
+        for(const auto& vertex : list.vertices()) {
+            const auto local = Math::Vec3(inverse * Math::Vec4(vertex.position, 1));
+            const auto axis = Math::Vec3(0, std::clamp(local.y, -0.6f, 0.6f), 0);
+            EXPECT_NEAR(Math::length(local - axis), 0.3f, 1e-5f);
+        }
+        const auto count = list.line_count();
+        EXPECT_FALSE(list.add_capsule(0, 0.6f, transform));
+        EXPECT_FALSE(list.add_capsule(0.3f, -0.1f, transform));
+        EXPECT_EQ(list.line_count(), count);
+    }
+
     TEST_F(LineDrawListTest, InvalidSphereNeverLeavesPartialCircles) {
         ASSERT_TRUE(list.add_line({0, 0, 0}, {1, 0, 0}));
         const auto identity = Math::Mat4(1);

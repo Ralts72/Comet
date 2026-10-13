@@ -104,6 +104,59 @@ namespace Comet {
         return true;
     }
 
+    bool LineDrawList::add_capsule(const float radius, const float half_height,
+        const Math::Mat4& transform, const Math::Vec4 color) {
+        constexpr int segments = 32;
+        constexpr std::size_t vertex_count = (4 * segments + 4) * 2;
+        if(!std::isfinite(radius) || radius <= 0 || !std::isfinite(half_height) || half_height < 0
+            || !is_affine(transform) || !Math::is_finite(color)
+            || m_vertices.max_size() - m_vertices.size() < vertex_count)
+            return false;
+        std::array<Vertex, vertex_count> vertices;
+        std::size_t offset = 0;
+        const auto line = [&](Math::Vec3 first, Math::Vec3 second) {
+            for(const auto local : {first, second}) {
+                const auto world = Math::Vec3(transform * Math::Vec4(local, 1));
+                if(!Math::is_finite(world))
+                    return false;
+                vertices[offset++] = {.position = world, .color = color};
+            }
+            return true;
+        };
+        const auto pi = std::numbers::pi_v<float>;
+        for(const float center : {-half_height, half_height}) {
+            for(int index = 0; index < segments; ++index) {
+                const auto ring = [&](int point) {
+                    const auto angle = 2 * pi * point / segments;
+                    return Math::Vec3(std::cos(angle) * radius, center, std::sin(angle) * radius);
+                };
+                if(!line(ring(index), ring(index + 1)))
+                    return false;
+            }
+        }
+        for(const int axis : {0, 2}) {
+            for(const float sign : {-1.0f, 1.0f}) {
+                const auto arc = [&](int point) {
+                    const auto angle = pi * point / (segments / 2);
+                    Math::Vec3 local{0, sign * (half_height + std::sin(angle) * radius), 0};
+                    local[axis] = std::cos(angle) * radius;
+                    return local;
+                };
+                for(int index = 0; index < segments / 2; ++index)
+                    if(!line(arc(index), arc(index + 1)))
+                        return false;
+                Math::Vec3 lower{0, -half_height, 0};
+                lower[axis] = sign * radius;
+                auto upper = lower;
+                upper.y = half_height;
+                if(!line(lower, upper))
+                    return false;
+            }
+        }
+        m_vertices.insert(m_vertices.end(), vertices.begin(), vertices.end());
+        return true;
+    }
+
     bool LineDrawList::append(const LineDrawList& draw_list) {
         const std::size_t count = draw_list.m_vertices.size();
         if(count == 0)

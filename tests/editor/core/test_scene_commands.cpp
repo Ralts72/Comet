@@ -25,6 +25,26 @@ namespace CometEditor::Tests {
         }
     };
 
+    TEST_F(SceneCommandsTest, CharacterConfigurationUsesSharedHistoryAndStructuralSnapshots) {
+        ASSERT_TRUE(add("character_controller"));
+        const PropertyEditTransaction::Target radius{
+            entity.get_uuid(), "character_controller", "radius"};
+        ASSERT_TRUE(edit.apply(radius, 0.4f));
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::CharacterControllerComponent>().radius, 0.4f);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::CharacterControllerComponent>().radius, 0.3f);
+        ASSERT_TRUE(history.redo());
+        ASSERT_TRUE(remove("character_controller"));
+        EXPECT_FALSE(entity.has_component<Comet::CharacterControllerComponent>());
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(entity.get_component<Comet::CharacterControllerComponent>().radius, 0.4f);
+        const auto copy = SceneCommands::duplicate_entity(history, registry, entity.get_uuid());
+        ASSERT_TRUE(copy);
+        EXPECT_FLOAT_EQ(
+            scene.find_entity(copy).get_component<Comet::CharacterControllerComponent>().radius,
+            0.4f);
+    }
+
     TEST_F(SceneCommandsTest, CameraControllerUsesSharedEditingHistoryAndPersistence) {
         ASSERT_TRUE(add("camera_controller"));
         const PropertyEditTransaction::Target target{

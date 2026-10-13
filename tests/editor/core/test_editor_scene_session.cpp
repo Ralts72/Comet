@@ -5,6 +5,7 @@
 #include "scene/scene.h"
 #include "scene/scene_serializer.h"
 #include "scene/systems/camera_controller.h"
+#include "scene/systems/physics_system.h"
 #include "scene/scene_runtime.h"
 #include "scene/systems/script_system.h"
 #include "scene/script_component.h"
@@ -109,6 +110,73 @@ namespace CometEditor::Tests {
             1);
         session.request_mode(EditorMode::Edit);
         ASSERT_TRUE(session.apply_mode_request());
+    }
+
+    TEST(EditorSceneSessionTest, CharacterPlayMovesOnlyRuntimeCopyAndRestoresEditAndHistory) {
+        using namespace Comet;
+        const SceneSerializer serializer(component_registry());
+        EditorState state;
+        auto active = std::make_unique<Scene>();
+        auto* original = active.get();
+        auto floor = active->create_entity();
+        floor.edit_transform([](auto& t) { t.translation.y = -0.5f; });
+        floor.add_component<RigidBodyComponent>(RigidBodyComponent{.motion = BodyMotion::Static});
+        floor.add_component<ColliderComponent>(ColliderComponent{.half_extents = {20, 0.5f, 20}});
+        auto player = active->create_entity("Player");
+        player.add_component<CharacterControllerComponent>();
+        const auto uuid = player.get_uuid();
+        class MoveCharacter final: public System {
+        public:
+            EntityUuid player;
+            Result<void, Error> fixed_update(Scene& scene, const Context& context) override {
+                if(!context.services.physics->request_character_move(
+                       scene.find_entity(player), {1, 0}, false))
+                    return Result<void, Error>::failure({"Character intent rejected"});
+                return Result<void, Error>::success();
+            }
+        };
+        PhysicsService physics;
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        auto controls = std::make_unique<MoveCharacter>();
+        controls->player = uuid;
+        ASSERT_TRUE(runtime.add_system(std::move(controls)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        CommandHistory history;
+        history.bind_scene(original);
+        const auto history_id = history.state_id();
+        const auto replace = [&](SceneOwner replacement) {
+            EXPECT_TRUE(runtime.stop());
+            active.swap(replacement);
+            return replacement;
+        };
+        EditorSceneSession session(
+            state, serializer, [&] { return active.get(); },
+            [&](SceneOwner candidate) {
+                return Activation::success(replace(std::move(candidate)));
+            },
+            replace, [&](SceneRuntime::State initial) { return runtime.start(*active, initial); });
+        session.request_mode(EditorMode::Play);
+        ASSERT_TRUE(session.apply_mode_request());
+        ASSERT_TRUE(runtime.advance(0.1));
+        auto playing = active->find_entity(uuid);
+        EXPECT_GT(playing.get_component<TransformComponent>().translation.x, 0.3f);
+        playing.edit_component<CharacterControllerComponent>([](auto& c) { c.move_speed = 8; });
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        const auto paused = playing.get_component<TransformComponent>().translation;
+        ASSERT_TRUE(runtime.advance(1));
+        EXPECT_EQ(playing.get_component<TransformComponent>().translation, paused);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_NEAR(
+            playing.get_component<TransformComponent>().translation.x - paused.x, 8.0f / 60, 1e-5f);
+        session.request_mode(EditorMode::Edit);
+        ASSERT_TRUE(session.apply_mode_request());
+        EXPECT_EQ(active.get(), original);
+        EXPECT_EQ(player.get_component<TransformComponent>().translation, Math::Vec3(0));
+        EXPECT_EQ(player.get_component<CharacterControllerComponent>().move_speed, 4);
+        EXPECT_EQ(history.state_id(), history_id);
+        EXPECT_EQ(physics.get_statistics().characters, 0u);
     }
 
     TEST(EditorSceneSessionTest, DefersPlayAndRestoresOriginalEditScene) {

@@ -16,6 +16,15 @@ body {
     text-align: right;
 }
 #fps { margin-right: 16dp; color: #b6c3d7; }
+#game-hint {
+    position: absolute;
+    left: 22dp;
+    bottom: 18dp;
+    width: 70%;
+    max-width: 650dp;
+    font-size: 14dp;
+    color: #d1def0;
+}
 #notice { display: block; max-width: 360dp; color: #ffa79c; margin-top: 8dp; }
 button {
     display: inline-block;

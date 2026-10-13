@@ -92,6 +92,31 @@ namespace CometEditor::Tests {
             EXPECT_NEAR(Math::length(vertex.position - Math::Vec3(2, 3, 4)), 6, 1e-5f);
     }
 
+    TEST(PhysicsOverlayTest, CharacterOutlineUsesFootOriginAndLocalCapsuleDimensions) {
+        Scene scene;
+        auto character = scene.create_entity();
+        character.add_component<CharacterControllerComponent>();
+        character.edit_transform([](auto& t) {
+            t.translation = {2, 3, 4};
+            t.scale = Math::Vec3(2);
+        });
+        LineDrawList lines;
+        append_collider_outlines(scene, lines);
+        ASSERT_EQ(lines.line_count(), 132u);
+        float minimum = std::numeric_limits<float>::max();
+        float maximum = std::numeric_limits<float>::lowest();
+        for(const auto& vertex : lines.vertices()) {
+            minimum = std::min(minimum, vertex.position.y);
+            maximum = std::max(maximum, vertex.position.y);
+        }
+        EXPECT_NEAR(minimum, 3, 1e-5f);
+        EXPECT_NEAR(maximum, 6.6f, 1e-5f);
+        character.edit_component<CharacterControllerComponent>([](auto& c) { c.enabled = false; });
+        lines.clear();
+        append_collider_outlines(scene, lines);
+        EXPECT_EQ(lines.vertices().front().color, Math::Vec4(0.6f, 0.6f, 0.6f, 1));
+    }
+
     TEST(PhysicsOverlayTest, ColorsDistinguishBodyKindsAndUnsupportedConfiguration) {
         Scene scene;
         auto entity = scene.create_entity();

@@ -1,6 +1,6 @@
 # Comet 引擎
 
-Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，使用 C++20、CMake 和 Vulkan。目前重点是场景编辑、资产导入和单视口编辑／运行交互。Play 与示例 app 还支持固定步刚体模拟、姿态插值和基础音频播放；两者共用 RmlUi 项目游戏界面。主线程解析场景并交付拥有视图和 UI 快照的帧，独立渲染线程负责录制、提交与呈现；场景模拟已与只读快照绘制重叠；动画、粒子、GI、路径追踪及内容导出继续按路线图推进。工程实现围绕实际使用和实测性能收敛，不预建通用 SDK 或插件生态。
+Comet 是供作者个人学习使用的实验性 3D 引擎与 ImGui 编辑器，使用 C++20、CMake 和 Vulkan。目前重点是场景编辑、资产导入和单视口编辑／运行交互。Play 与示例 app 还支持固定步刚体模拟、角色控制、姿态插值和基础音频播放；两者共用 RmlUi 项目游戏界面。主线程解析场景并交付拥有视图和 UI 快照的帧，独立渲染线程负责录制、提交与呈现；场景模拟已与只读快照绘制重叠；动画、粒子、GI、路径追踪及内容导出继续按路线图推进。工程实现围绕实际使用和实测性能收敛，不预建通用 SDK 或插件生态。
 
 ## 项目结构
 
@@ -59,7 +59,7 @@ ctest --preset dev-debug
 ./tools/download_assets.sh
 ```
 
-脚本按 1K、2K、4K、8K 顺序下载 Small Hangar 01 的四个版本，总计约 130.7 MiB，默认场景引用 4K。
+脚本按 1K、2K、4K、8K 顺序下载 Small Hangar 01 的四个版本，总计约 130.7 MiB，原有物理演示场景 `scenes/default.scene` 引用 4K。
 每个版本有独立的 `.meta`，可在 Environment 的 HDR map 中切换；4K 转成单面 1024 的 cubemap，
 8K 转成单面 2048，包含 mip 的纹理约占 256 MiB，解码时还需要额外 CPU 内存。16K 超出导入尺寸限制，不下载。
 首次导入期间编辑器可显示低分辨率临时背景；app 等待启用的环境准备完成后启动场景。
@@ -298,6 +298,11 @@ FPS 复用 editor 的平滑统计，每 0.5 秒采样一次。
 该数值表示主循环帧率，不是 GPU 耗时；全屏隐藏标题栏时不可见。
 app 启动时同步补齐所引用 Mesh 的 Artifact 并加载资源；指定场景或必需资源加载失败会终止启动，
 不像 editor 那样保留缺失引用供修复。这仍是开发期运行入口，不是已打包的 Shipping Player。
+默认启动 `demo/assets/scenes/character.scene`：WASD／左摇杆移动，空格／手柄 A 跳跃，R／Start 重开。沿台阶、缓坡和移动平台收集三个条纹目标；触碰目标播放提示音并抬升完成标记，全部收集后停止接受移动输入，HUD 显示完成提示；站在移动平台上仍会随平台移动。跌落场地会重开本局。
+角色使用脚底为原点的胶囊控制器，方块外观和跟随相机是子实体；墙面会阻挡并允许滑动，过陡坡面及过高台阶不可直接走上。Inspector 可调整角色尺寸、速度、跳跃、最大坡度、台阶与地面吸附，视口“视图 → 碰撞体”显示胶囊轮廓。
+角色配置和碰撞移动由 Engine 提供，输入与收集逻辑位于 demo 的 Lua；HUD 通过只读 `api.session_get` 查询本局进度，界面策略不写入 App 或 Editor。App／Play 使用同一场景与脚本，暂停／单步沿用固定步，Stop 恢复 Edit 内容。
+
+原有能力演示保留在 `demo/assets/scenes/default.scene`，可从资产面板打开；下面的立方体、关节与调色操作对应此场景。
 示例立方体通过 Script 组件引用 `demo/assets/scripts/spin.lua`，`speed` 为每秒角度，`enabled` 控制是否旋转。
 app 和 editor Play 共用该行为，不依赖 UUID 或项目路径；Edit 不执行旋转，Play 修改不保存回 Edit 场景。
 示例场景还有一个脚本交互：进入 Play（或运行 app）后，用左右方向键移动左侧小方块碰触右侧条纹目标。
@@ -634,6 +639,8 @@ App 与 Editor 共用 Engine 目录内的字体；App 不依赖 Editor 的翻译
 | `comet.apply_force(x,y,z)`／`comet.apply_torque(x,y,z)` | 世界空间力（N）／力矩（N·m），要求同上，只作用于下一固定步 |
 | `comet.apply_impulse_at(ix,iy,iz,px,py,pz)` | 在世界坐标 `(px,py,pz)` 施加冲量；作用线不经过质心时同时改变角速度 |
 | `comet.apply_force_at(fx,fy,fz,px,py,pz)` | 在世界坐标 `(px,py,pz)` 施加一个固定步的力，同时按力臂产生力矩 |
+| `comet.move_character(x,z,jump)` | 提交本实体在世界 XZ 平面的移动意图和跳跃边沿；方向长度超过 1 会归一化，角色组件决定移动速度，最近一次请求只作用于下一固定步 |
+| `comet.character_grounded()` | 查询最近完成的角色模拟是否站在可行走地面；陡坡、悬空和起跳状态不允许再次跳跃 |
 | `comet.linear_velocity()`／`comet.angular_velocity()` | 返回本实体最近模拟状态的三个分量（m/s／rad/s）；静态刚体为零，运动学刚体反映固定步目标运动 |
 | `comet.session_set/get()` | 共享本局临时值；支持 bool、有限数值、string、Vec3，设置 nil 删除 |
 | `comet.restart_scene()` | 恢复启动内容基线，不重读磁盘；demo 绑定 R |
@@ -741,8 +748,8 @@ Editor 视口“视图 → 碰撞体”可在 Edit／Play 显示盒／球轮廓�
 滑动关节显示两端轴和朝向，开启限位后显示黄色导轨与端点；导轨使用连接端的呈现姿态，长度对应配置的实际米数。
 位置驱动显示绿色目标：铰链为目标角度的径向线，滑动为目标行程的横线，均按已启用的限位钳制。
 显示使用与模型相同的呈现姿态，受场景遮挡；对齐使用真实模拟姿态，Edit 可撤销，Play 不写入编辑历史。这些标记读取组件配置，不表示后端关节的实际启用状态。
-关节不自动禁用两物体间的碰撞；角色控制器后续按样例扩展。
-首版在主线程模拟，最多 1024 个刚体；脚本可收到碰撞／触发进入与离开通知。
+关节不自动禁用两物体间的碰撞。
+物理在主线程模拟，刚体与角色代理共用最多 1024 个原生刚体槽位；脚本可收到碰撞／触发进入与离开通知。
 接触回调不会因为刚体进入休眠而报告离开；移动／删除静态支撑或触发区会唤醒附近物体，重新检测实际接触。
 
 demo 的 `Move_Cube` 使用运动学刚体，与目标保持同一高度；Play／app 中按左右方向键移动，无需先等待它落地。
@@ -975,7 +982,7 @@ Finder 导入只支持独立组件脚本，暂不处理 Lua 多文件依赖包�
 ## Shader 开发
 
 项目示例位于 `demo/assets/shaders/stripes.vert`、`stripes.frag` 和 `stripes.shader`，材质 `demo/assets/materials/stripes.mat`
-通过稳定 Handle 引用程序。`stripes.shader` 为 `frequency` 等属性提供默认值和编辑范围；启动编辑器打开默认场景，可看到右侧条纹立方体，在 Inspector 修改频率或编辑 `stripes.frag` 后可观察变化。
+通过稳定 Handle 引用程序。`stripes.shader` 为 `frequency` 等属性提供默认值和编辑范围；启动编辑器打开 `scenes/default.scene`，可看到右侧条纹立方体，在 Inspector 修改频率或编辑 `stripes.frag` 后可观察变化。
 项目 Shader 不进入引擎的 CMake 内嵌程序列表；编辑器与 `comet_prepare_project` 共用源编译逻辑，app 只加载产物。
 
 以下目录相对 `engine/shaders/`。

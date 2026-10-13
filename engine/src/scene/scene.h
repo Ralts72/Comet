@@ -178,7 +178,8 @@ namespace Comet {
         void mark_transform_dirty(entt::entity handle);
         void reset_transform_interpolation(entt::entity handle);
         void mark_physics_dirty(const entt::entity handle) {
-            if(m_runtime_active && m_registry.all_of<RigidBodyComponent>(handle)
+            if(m_runtime_active
+                && m_registry.any_of<RigidBodyComponent, CharacterControllerComponent>(handle)
                 && !m_dirty_physics_entities.contains(handle))
                 m_dirty_physics_entities.push(handle);
         }
@@ -208,7 +209,8 @@ namespace Comet {
                 if constexpr(std::is_same_v<Component, TransformComponent>
                              || std::is_same_v<Component, MeshRendererComponent>)
                     m_render_structure_changed = true;
-                if constexpr(std::is_same_v<Component, RigidBodyComponent>)
+                if constexpr(std::is_same_v<Component, RigidBodyComponent>
+                             || std::is_same_v<Component, CharacterControllerComponent>)
                     m_physics_structure_changed = true;
             }
         }

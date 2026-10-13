@@ -119,8 +119,9 @@ namespace CometEditor {
             static constexpr Caption components[]{{"script", "脚本"}, {"name", "名称"},
                 {"transform", "变换"}, {"mesh_renderer", "网格渲染"}, {"camera", "相机"},
                 {"camera_controller", "相机控制器"}, {"audio_source", "音频源"},
-                {"rigid_body", "刚体"}, {"collider", "碰撞体"}, {"point_joint", "点关节"},
-                {"hinge_joint", "铰链关节"}, {"slider_joint", "滑动关节"}, {"light", "光源"}};
+                {"character_controller", "角色控制器"}, {"rigid_body", "刚体"},
+                {"collider", "碰撞体"}, {"point_joint", "点关节"}, {"hinge_joint", "铰链关节"},
+                {"slider_joint", "滑动关节"}, {"light", "光源"}};
             static constexpr Caption properties[]{{"script/asset", "脚本"},
                 {"script/parameters", "参数"}, {"name/name", "名称"},
                 {"transform/translation", "位置"}, {"transform/rotation", "旋转"},
@@ -132,6 +133,15 @@ namespace CometEditor {
                 {"camera_controller/move_speed", "移动速度"},
                 {"camera_controller/look_sensitivity", "鼠标转向灵敏度"},
                 {"camera_controller/look_speed", "持续转向速度 (度/秒)"},
+                {"character_controller/enabled", "启用"},
+                {"character_controller/radius", "胶囊半径 (m)"},
+                {"character_controller/height", "胶囊总高 (m)"},
+                {"character_controller/move_speed", "移动速度 (m/s)"},
+                {"character_controller/jump_speed", "跳跃速度 (m/s)"},
+                {"character_controller/max_slope_angle", "最大坡度 (°)"},
+                {"character_controller/step_height", "台阶高度 (m)"},
+                {"character_controller/ground_snap_distance", "地面吸附距离 (m)"},
+                {"character_controller/gravity_scale", "重力倍率"},
                 {"audio_source/clip", "音频片段"}, {"audio_source/play_on_start", "启动时播放"},
                 {"audio_source/loop", "循环"}, {"audio_source/category", "音频分类"},
                 {"audio_source/volume", "音量"}, {"rigid_body/motion", "运动类型"},
@@ -271,6 +281,9 @@ namespace CometEditor {
                 ImGui::EndPopup();
             }
             if(expanded) {
+                if(component_descriptor.id == "character_controller")
+                    ImGui::TextWrapped(
+                        "脚底为原点，总高须大于直径。角色与刚体不能共用同一实体；保持竖直、无父级和正等比缩放。");
                 for(const Comet::PropertyDescriptor& property : component_descriptor.properties) {
                     if(component_descriptor.id == "rigid_body") {
                         const auto mode =
@@ -310,9 +323,15 @@ namespace CometEditor {
             ImGui::OpenPopup("Add Component");
         if(ImGui::BeginPopup("Add Component")) {
             for(const auto& component : m_component_descriptions) {
+                const bool conflicting =
+                    (component.id == "rigid_body"
+                        && entity.has_component<Comet::CharacterControllerComponent>())
+                    || (component.id == "character_controller"
+                        && entity.has_component<Comet::RigidBodyComponent>());
                 if(SceneCommands::can_edit_component_structure(component)
                     && !component.has_component(entity)
-                    && ImGui::MenuItem(component.display_name.c_str()))
+                    && ImGui::MenuItem(
+                        component.display_name.c_str(), nullptr, false, !conflicting))
                     add = &component;
             }
             ImGui::EndPopup();

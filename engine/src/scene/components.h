@@ -151,6 +151,20 @@ namespace Comet {
         bool operator==(const ColliderComponent&) const = default;
     };
 
+    struct COMET_API CharacterControllerComponent {
+        bool enabled = true;
+        // 竖直胶囊，Transform 原点为脚底；尺寸为本地米数，只支持正的等比缩放。
+        float radius = 0.3f;
+        float height = 1.8f;
+        float move_speed = 4.0f;
+        float jump_speed = 5.0f;
+        float max_slope_angle = 45.0f;
+        float step_height = 0.3f;
+        float ground_snap_distance = 0.3f;
+        float gravity_scale = 1.0f;
+        bool operator==(const CharacterControllerComponent&) const = default;
+    };
+
     struct COMET_API PointJointComponent {
         bool enabled = true;
         // 空引用连接到固定世界点；非空引用丢失时停用，不改成世界连接。
@@ -239,6 +253,7 @@ namespace Comet {
     template<typename T>
     inline constexpr bool is_scene_physics_component_v =
         std::is_same_v<std::remove_cvref_t<T>, RigidBodyComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, CharacterControllerComponent>
         || std::is_same_v<std::remove_cvref_t<T>, ColliderComponent>
         || is_scene_joint_component_v<T>;
 

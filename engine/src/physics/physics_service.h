@@ -22,6 +22,7 @@ namespace Comet {
             std::size_t active_bodies = 0;
             std::size_t pose_updates = 0;
             std::size_t joints = 0;
+            std::size_t characters = 0;
         };
 
         PhysicsService();
@@ -32,7 +33,7 @@ namespace Comet {
     private:
         friend class PhysicsSystem;
         static constexpr std::size_t MAX_COMMANDS = 128;
-        enum class BodyChange { None, Added, Rebuilt };
+        enum class ObjectChange { None, Added, Rebuilt };
         struct BodyDefinition {
             // 仅在同步调用内借用组件，后端缓存独立值。
             EntityUuid uuid;
@@ -40,6 +41,12 @@ namespace Comet {
             const TransformComponent& transform;
             const ColliderComponent& collider;
             const RigidBodyComponent& rigid;
+        };
+        struct CharacterDefinition {
+            EntityUuid uuid;
+            EntityId entity;
+            const TransformComponent& transform;
+            const CharacterControllerComponent& settings;
         };
         struct Pose {
             EntityId entity;
@@ -76,14 +83,26 @@ namespace Comet {
             Math::Vec3 value;
             std::optional<Math::Vec3> point;
         };
+        struct CharacterMove {
+            EntityUuid uuid;
+            EntityId entity;
+            Math::Vec2 direction;
+            bool jump;
+        };
 
         bool enqueue_command(EntityUuid uuid, EntityId entity, CommandKind kind, Math::Vec3 value,
             std::optional<Math::Vec3> point) override;
         std::optional<Velocity> read_velocity(EntityUuid uuid, EntityId entity) const override;
+        bool enqueue_character_move(
+            EntityUuid uuid, EntityId entity, Math::Vec2 direction, bool jump) override;
+        std::optional<CharacterState> read_character_state(
+            EntityUuid uuid, EntityId entity) const override;
         void reset() noexcept override;
         Result<void, Error> prepare_world();
         // 区分首次登记与重建，重建后需重新绑定关节。
-        Result<BodyChange, Error> synchronize_body(const BodyDefinition& definition);
+        Result<ObjectChange, Error> synchronize_body(const BodyDefinition& definition);
+        Result<ObjectChange, Error> synchronize_character(const CharacterDefinition& definition);
+        void remove_characters(std::span<const std::pair<EntityUuid, EntityId>> definitions);
         // 按实体与关节类型排序；仅配置／结构变化或刚体重建时调用。
         Result<void, Error> synchronize_joints(std::span<const JointDefinition> definitions);
         void remove_bodies(std::span<const std::pair<EntityUuid, EntityId>> definitions);
@@ -95,5 +114,6 @@ namespace Comet {
         struct Impl;
         std::unique_ptr<Impl> m_impl;
         std::vector<Command> m_commands;
+        std::vector<CharacterMove> m_character_moves;
     };
 }
