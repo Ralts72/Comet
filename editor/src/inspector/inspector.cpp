@@ -161,7 +161,8 @@ namespace CometEditor {
                 {"motor_enabled", "启用驱动"}, {"motor_mode", "驱动模式"},
                 {"motor_target", "目标角度 (°)"}, {"motor_speed", "目标角速度 (°/s)"},
                 {"motor_max_torque", "最大力矩 (N·m)"}, {"motor_frequency", "驱动频率 (Hz)"},
-                {"motor_damping", "驱动阻尼比"}};
+                {"motor_damping", "驱动阻尼比"}, {"break_force", "断裂力 (N)"},
+                {"break_torque", "断裂力矩 (N·m)"}};
             static constexpr Caption slider_properties[]{{"axis", "本地滑动轴"},
                 {"connected_axis", "连接滑动轴"}, {"reference_axis", "本地朝向"},
                 {"connected_reference_axis", "连接朝向"}, {"limits_enabled", "行程限位"},
@@ -480,6 +481,10 @@ namespace CometEditor {
             ImGui::SetItemTooltip("选择另一刚体；无连接刚体时，连接锚点为固定世界位置。\n"
                                   "缺失实体／刚体会停用该连接；至少一端须为动态刚体。\n"
                                   "连接不自动关闭两物体之间的碰撞。");
+        if(joint && (property.id == "break_force" || property.id == "break_torque"))
+            ImGui::SetItemTooltip("0 关闭对应断裂判断；正值限制每个固定步的关节载荷。\n"
+                                  "超过任一阈值后取消本关节的启用，保留当步产生的运动。\n"
+                                  "重新勾选启用可重连；Play 断裂只修改运行副本，日志记录载荷。");
         if(component.id == "point_joint" && property.id == "anchor")
             ImGui::SetItemTooltip("本实体的本地锚点，随缩放；点关节固定位置，允许自由转动。");
         if(component.id == "hinge_joint" && property.id == "anchor")

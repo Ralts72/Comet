@@ -1,5 +1,7 @@
 #include "scene/scene.h"
 #include "scene/scene_runtime.h"
+#include "scene/scene_serializer.h"
+#include "scene/component_registry.h"
 #include "scene/systems/physics_system.h"
 
 #include <gtest/gtest.h>
@@ -35,6 +37,217 @@ namespace Comet::Tests {
     class PointJointTest: public PhysicsJointTest {};
     class HingeJointTest: public PhysicsJointTest {};
     class SliderJointTest: public PhysicsJointTest {};
+
+    template<typename Joint> class JointBreakTest: public PhysicsJointTest {
+    protected:
+        Entity actor;
+        void SetUp() override {
+            PhysicsJointTest::SetUp();
+            actor = body("Breakable", BodyMotion::Dynamic, {0, 5, 0});
+            Joint joint;
+            joint.connected_anchor = {0, 5, 0};
+            joint.break_force = 20;
+            if constexpr(std::is_same_v<Joint, SliderJointComponent>) {
+                joint.axis = joint.connected_axis = {1, 0, 0};
+                joint.reference_axis = joint.connected_reference_axis = {0, 1, 0};
+            }
+            actor.add_component<Joint>(joint);
+        }
+        bool enabled() const { return actor.get_component<Joint>().enabled; }
+    };
+    using JointBreakTypes =
+        testing::Types<PointJointComponent, HingeJointComponent, SliderJointComponent>;
+    TYPED_TEST_SUITE(JointBreakTest, JointBreakTypes);
+
+    TYPED_TEST(JointBreakTest, LoweredThresholdWakesSleepingJointAndBreakSurvivesBodyRebuild) {
+        ASSERT_TRUE(this->runtime.start(this->scene));
+        for(int i = 0; i < 120; ++i)
+            ASSERT_TRUE(this->runtime.advance(0.01));
+        EXPECT_TRUE(this->enabled());
+        EXPECT_EQ(this->physics.get_statistics().active_bodies, 0u);
+        this->actor.template edit_component<TypeParam>([](auto& joint) { joint.break_force = 5; });
+        ASSERT_TRUE(this->runtime.advance(0.01));
+        EXPECT_FALSE(this->enabled());
+        EXPECT_EQ(this->physics.get_statistics().joints, 0u);
+        this->actor.template edit_component<ColliderComponent>(
+            [](auto& collider) { collider.half_extents.x = 0.7f; });
+        ASSERT_TRUE(this->runtime.advance(0.01));
+        EXPECT_FALSE(this->enabled());
+        EXPECT_EQ(this->physics.get_statistics().joints, 0u);
+        this->actor.template edit_component<TypeParam>([](auto& joint) {
+            joint.break_force = 0;
+            joint.enabled = true;
+        });
+        ASSERT_TRUE(this->runtime.advance(0.01));
+        EXPECT_TRUE(this->enabled());
+        EXPECT_EQ(this->physics.get_statistics().joints, 1u);
+        ASSERT_TRUE(this->physics.request_force(this->actor, {0, 100, 0}));
+        ASSERT_TRUE(this->runtime.advance(0.01));
+        EXPECT_TRUE(this->enabled());
+    }
+
+    TYPED_TEST(JointBreakTest, ForceUsesNewtonsAtDifferentFixedSteps) {
+        for(const double delta : {0.005, 0.02}) {
+            SCOPED_TRACE(delta);
+            ASSERT_TRUE(this->runtime.set_settings({.fixed_delta = delta}));
+            this->actor.edit_transform([](auto& pose) { pose.translation = {0, 5, 0}; });
+            this->actor.template edit_component<TypeParam>(
+                [](auto& joint) { joint.enabled = true; });
+            ASSERT_TRUE(this->runtime.start(this->scene));
+            ASSERT_TRUE(this->physics.request_force(this->actor, {0, 25, 0}));
+            ASSERT_TRUE(this->runtime.advance(delta));
+            EXPECT_TRUE(this->enabled());
+            ASSERT_TRUE(this->physics.request_force(this->actor, {0, 40, 0}));
+            ASSERT_TRUE(this->runtime.advance(delta));
+            EXPECT_FALSE(this->enabled());
+            EXPECT_EQ(this->physics.get_statistics().joints, 0u);
+            ASSERT_TRUE(this->runtime.stop());
+        }
+    }
+
+    TYPED_TEST(JointBreakTest, PauseDefersBreakUntilSingleStepAndKeepsEditSceneUnchanged) {
+        const auto components = create_scene_component_registry();
+        const SceneSerializer serializer(components);
+        auto clone = serializer.clone(this->scene);
+        ASSERT_TRUE(clone) << clone.error();
+        auto runtime_actor = clone.value()->find_entity(this->actor.get_uuid());
+        ASSERT_TRUE(this->runtime.start(*clone.value(), SceneRuntime::State::Paused));
+        ASSERT_TRUE(this->physics.request_force(runtime_actor, {0, 40, 0}));
+        ASSERT_TRUE(this->runtime.advance(0.1));
+        EXPECT_TRUE(runtime_actor.template get_component<TypeParam>().enabled);
+        ASSERT_TRUE(this->runtime.request_step());
+        ASSERT_TRUE(this->runtime.advance(0));
+        EXPECT_FALSE(runtime_actor.template get_component<TypeParam>().enabled);
+        EXPECT_TRUE(this->enabled());
+        ASSERT_TRUE(this->runtime.stop());
+        ASSERT_TRUE(this->runtime.start(this->scene));
+        EXPECT_EQ(this->physics.get_statistics().joints, 1u);
+        ASSERT_TRUE(this->runtime.advance(0.01));
+        EXPECT_TRUE(this->enabled());
+    }
+
+    TYPED_TEST(JointBreakTest, InvalidThresholdsFailStartAndLiveSyncCleanly) {
+        const auto valid = this->actor.template get_component<TypeParam>();
+        std::vector<TypeParam> invalid;
+        for(const float force : {-1.0f, std::numeric_limits<float>::quiet_NaN()}) {
+            auto joint = valid;
+            joint.break_force = force;
+            invalid.push_back(joint);
+            if constexpr(!std::is_same_v<TypeParam, PointJointComponent>) {
+                joint = valid;
+                joint.break_torque = force;
+                invalid.push_back(joint);
+            }
+        }
+        for(const auto& joint : invalid) {
+            ASSERT_TRUE(this->actor.try_set_component(joint));
+            EXPECT_FALSE(this->runtime.start(this->scene));
+            EXPECT_FALSE(this->runtime.is_active());
+            EXPECT_EQ(this->physics.get_statistics().joints, 0u);
+            ASSERT_TRUE(this->actor.try_set_component(valid));
+            ASSERT_TRUE(this->runtime.start(this->scene));
+            ASSERT_TRUE(this->actor.try_set_component(joint));
+            EXPECT_FALSE(this->runtime.advance(0.01));
+            EXPECT_FALSE(this->runtime.is_active());
+            EXPECT_EQ(this->physics.get_statistics().bodies, 0u);
+        }
+    }
+
+    TEST_F(PhysicsJointTest, SimultaneousBreaksDisableTheirOwnComponents) {
+        const auto add = [&]<typename Joint>(float x) {
+            auto actor = body("Breakable", BodyMotion::Dynamic, {x, 5, 0});
+            Joint joint;
+            joint.connected_anchor = {x, 5, 0};
+            joint.break_force = 5;
+            if constexpr(std::is_same_v<Joint, SliderJointComponent>) {
+                joint.axis = joint.connected_axis = {1, 0, 0};
+                joint.reference_axis = joint.connected_reference_axis = {0, 1, 0};
+            }
+            actor.add_component<Joint>(joint);
+            return actor;
+        };
+        auto point = add.template operator()<PointJointComponent>(0);
+        auto hinge = add.template operator()<HingeJointComponent>(2);
+        auto slider = add.template operator()<SliderJointComponent>(4);
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_EQ(physics.get_statistics().joints, 3u);
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(physics.get_statistics().joints, 0u);
+        EXPECT_FALSE(point.get_component<PointJointComponent>().enabled);
+        EXPECT_FALSE(hinge.get_component<HingeJointComponent>().enabled);
+        EXPECT_FALSE(slider.get_component<SliderJointComponent>().enabled);
+        for(int i = 0; i < 5; ++i)
+            ASSERT_TRUE(runtime.advance(0.01));
+        for(const auto actor : {point, hinge, slider})
+            EXPECT_LT(actor.get_component<TransformComponent>().translation.y, 5);
+    }
+
+    TEST_F(HingeJointTest, LockedAxisTorqueBreaksOnlyHingeAndFreeAxisTorqueDoesNotBreak) {
+        auto actor = body("Actor", BodyMotion::Dynamic, {0, 5, 0});
+        actor.add_component<PointJointComponent>(
+            PointJointComponent{.connected_anchor = {0, 5, 0}, .break_force = 20});
+        actor.add_component<HingeJointComponent>(
+            HingeJointComponent{.connected_anchor = {0, 5, 0}, .break_torque = 1});
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(physics.request_torque(actor, {0, 0, 3}));
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_TRUE(actor.get_component<HingeJointComponent>().enabled);
+        ASSERT_TRUE(physics.request_torque(actor, {3, 0, 0}));
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_FALSE(actor.get_component<HingeJointComponent>().enabled);
+        EXPECT_TRUE(actor.get_component<PointJointComponent>().enabled);
+        EXPECT_EQ(physics.get_statistics().joints, 1u);
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(physics.get_statistics().joints, 1u);
+    }
+
+    TEST_F(SliderJointTest, LockedRotationTorqueBreaksSlider) {
+        auto actor = body("Actor", BodyMotion::Dynamic, {0, 5, 0});
+        actor.add_component<SliderJointComponent>(
+            SliderJointComponent{.connected_anchor = {0, 5, 0}, .break_torque = 1});
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(physics.request_torque(actor, {3, 0, 0}));
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_FALSE(actor.get_component<SliderJointComponent>().enabled);
+        EXPECT_EQ(physics.get_statistics().joints, 0u);
+    }
+
+    TEST_F(HingeJointTest, MotorAtLimitCountsTowardBreakingTorque) {
+        auto actor = body("Actor", BodyMotion::Dynamic, {0, 5, 0});
+        actor.add_component<HingeJointComponent>(HingeJointComponent{.connected_anchor = {0, 5, 0},
+            .limits_enabled = true,
+            .min_angle = -10,
+            .max_angle = 0,
+            .motor_enabled = true,
+            .motor_speed = 90,
+            .motor_max_torque = 4,
+            .break_torque = 3});
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_FALSE(actor.get_component<HingeJointComponent>().enabled);
+        EXPECT_EQ(physics.get_statistics().joints, 0u);
+    }
+
+    TEST_F(SliderJointTest, MotorAtLimitCountsTowardBreakingForce) {
+        auto actor = body("Actor", BodyMotion::Dynamic, {0, 5, 0});
+        actor.add_component<SliderJointComponent>(
+            SliderJointComponent{.connected_anchor = {0, 5, 0},
+                .axis = {1, 0, 0},
+                .connected_axis = {1, 0, 0},
+                .reference_axis = {0, 1, 0},
+                .connected_reference_axis = {0, 1, 0},
+                .limits_enabled = true,
+                .min_distance = -0.1f,
+                .max_distance = 0,
+                .motor_enabled = true,
+                .motor_speed = 1,
+                .motor_max_force = 30,
+                .break_force = 20});
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_FALSE(actor.get_component<SliderJointComponent>().enabled);
+        EXPECT_EQ(physics.get_statistics().joints, 0u);
+    }
 
     template<typename Joint> class JointControlTest: public PhysicsJointTest {
     protected:

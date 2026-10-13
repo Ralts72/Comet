@@ -12,12 +12,22 @@
 namespace Comet {
     namespace {
         template<typename Joint> std::vector<PropertyDescriptor> joint_properties() {
-            return {make_property_descriptor("enabled", "Enabled", &Joint::enabled),
+            auto properties = std::vector<PropertyDescriptor>{
+                make_property_descriptor("enabled", "Enabled", &Joint::enabled),
                 make_property_descriptor(
                     "connected_body", "Connected Body", &Joint::connected_body),
                 make_property_descriptor("anchor", "Local Anchor", &Joint::anchor),
                 make_property_descriptor(
-                    "connected_anchor", "Connected Anchor", &Joint::connected_anchor)};
+                    "connected_anchor", "Connected Anchor", &Joint::connected_anchor),
+                make_property_descriptor("break_force", "Break Force (N)", &Joint::break_force,
+                    {.required = false,
+                        .numeric = {.speed = 1, .minimum = 0, .enforce_bounds = true}})};
+            if constexpr(!std::is_same_v<Joint, PointJointComponent>)
+                properties.push_back(make_property_descriptor("break_torque", "Break Torque (N.m)",
+                    &Joint::break_torque,
+                    {.required = false,
+                        .numeric = {.speed = 0.1f, .minimum = 0, .enforce_bounds = true}}));
+            return properties;
         }
 
         template<typename Joint> std::vector<PropertyDescriptor> axis_joint_properties() {

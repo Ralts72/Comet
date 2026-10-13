@@ -206,7 +206,11 @@ namespace Comet {
                 return fail("joint cannot connect a body to itself");
             if(!Math::is_finite(settings.anchor) || !Math::is_finite(settings.connected_anchor))
                 return fail("anchors must be finite");
+            if(!std::isfinite(settings.break_force) || settings.break_force < 0)
+                return fail("break force must be finite and nonnegative");
             if constexpr(!std::is_same_v<Settings, PointJointComponent>) {
+                if(!std::isfinite(settings.break_torque) || settings.break_torque < 0)
+                    return fail("break torque must be finite and nonnegative");
                 if(!Math::normalized_direction(settings.axis)
                     || !Math::normalized_direction(settings.connected_axis))
                     return fail("axes must be finite and nonzero");
@@ -316,6 +320,36 @@ namespace Comet {
             }
         }
 
+        template<typename Settings> bool is_breakable(const Settings& settings) {
+            if constexpr(std::is_same_v<Settings, PointJointComponent>)
+                return settings.break_force > 0;
+            else
+                return settings.break_force > 0 || settings.break_torque > 0;
+        }
+
+        template<typename Settings>
+        std::pair<float, float> joint_impulses(const JPH::TwoBodyConstraint& constraint) {
+            if constexpr(std::is_same_v<Settings, PointJointComponent>) {
+                const auto& point = static_cast<const JPH::PointConstraint&>(constraint);
+                return {point.GetTotalLambdaPosition().Length(), 0};
+            } else if constexpr(std::is_same_v<Settings, HingeJointComponent>) {
+                const auto& hinge = static_cast<const JPH::HingeConstraint&>(constraint);
+                const auto rotation = hinge.GetTotalLambdaRotation();
+                // 限位与驱动可能方向相反；断裂按较大载荷判断，不让它们抵消。
+                const auto axial = std::max(std::abs(hinge.GetTotalLambdaRotationLimits()),
+                    std::abs(hinge.GetTotalLambdaMotor()));
+                return {hinge.GetTotalLambdaPosition().Length(),
+                    std::hypot(rotation[0], rotation[1], axial)};
+            } else {
+                const auto& slider = static_cast<const JPH::SliderConstraint&>(constraint);
+                const auto position = slider.GetTotalLambdaPosition();
+                const auto axial = std::max(std::abs(slider.GetTotalLambdaPositionLimits()),
+                    std::abs(slider.GetTotalLambdaMotor()));
+                return {std::hypot(position[0], position[1], axial),
+                    slider.GetTotalLambdaRotation().Length()};
+            }
+        }
+
     }
 
     struct PhysicsService::Impl {
@@ -375,6 +409,7 @@ namespace Comet {
             JointSettings settings;
             JPH::Ref<JPH::TwoBodyConstraint> constraint;
         };
+        using JointMap = std::map<JointKey, Joint>;
 
         Impl() : pairs(2), broad_phase(2, 2), jobs(1024) {
             pairs.EnableCollision(STATIC_LAYER, MOVING_LAYER);
@@ -392,6 +427,7 @@ namespace Comet {
             // Jolt 关节借用 Body，必须先从世界移除并释放，再销毁刚体。
             for(const auto& [entity, joint] : joints)
                 world.RemoveConstraint(joint.constraint.GetPtr());
+            breakable_joints.clear();
             joints.clear();
             auto& interface = world.GetBodyInterface();
             for(const auto& [entity, body] : bodies) {
@@ -454,7 +490,8 @@ namespace Comet {
             }
         }
 
-        auto remove_joint(std::map<JointKey, Joint>::iterator it) {
+        auto remove_joint(JointMap::iterator it) {
+            std::erase(breakable_joints, it);
             world.RemoveConstraint(it->second.constraint.GetPtr());
             wake_joint_bodies(it->second);
             return joints.erase(it);
@@ -558,6 +595,8 @@ namespace Comet {
                 definition.uuid, owner.id, second_id, definition.joint, std::move(constraint)};
             const auto inserted = joints.emplace(definition.key(), std::move(joint)).first;
             world.AddConstraint(inserted->second.constraint.GetPtr());
+            if(is_breakable(settings))
+                breakable_joints.push_back(inserted);
             wake_joint_bodies(inserted->second);
             return Result<void, Error>::success();
         }
@@ -580,6 +619,33 @@ namespace Comet {
                     return result;
             }
             return Result<void, Error>::success();
+        }
+
+        void collect_broken_joints(const float delta_time) {
+            broken_joints.clear();
+            for(const auto it : breakable_joints) {
+                const auto& joint = it->second;
+                if(!joint.constraint->IsActive())
+                    continue;
+                std::visit(
+                    [&](const auto& settings) {
+                        using Settings = std::decay_t<decltype(settings)>;
+                        const auto [linear, angular] =
+                            joint_impulses<Settings>(*joint.constraint.GetPtr());
+                        bool broken =
+                            settings.break_force > 0 && linear > settings.break_force * delta_time;
+                        if constexpr(!std::is_same_v<Settings, PointJointComponent>)
+                            broken |= settings.break_torque > 0
+                                      && angular > settings.break_torque * delta_time;
+                        if(broken)
+                            broken_joints.push_back({it->first.first, joint.uuid, settings,
+                                linear / delta_time, angular / delta_time});
+                    },
+                    joint.settings);
+            }
+            // 检查完成后统一摘除，保证可断裂列表的迭代器在采样期间有效。
+            for(const auto& broken : broken_joints)
+                remove_joint(joints.find({broken.entity, broken.joint.index()}));
         }
 
         void wake_nearby_bodies(const JPH::BodyID id) {
@@ -934,7 +1000,10 @@ namespace Comet {
         std::map<Pair, Contact> tracked_contacts;
         // unordered_map 的重哈希不移动 Body；移除时先从该列表摘除。
         std::vector<Body*> kinematic_bodies;
-        std::map<JointKey, Joint> joints;
+        JointMap joints;
+        // map 插入不移动节点；移除关节前先从可断裂列表摘除。
+        std::vector<JointMap::iterator> breakable_joints;
+        std::vector<JointBreak> broken_joints;
     };
 
     Result<void, Error> PhysicsService::step(const float delta_time) {
@@ -961,6 +1030,7 @@ namespace Comet {
             return Result<void, Error>::failure({std::move(message)});
         }
         m_impl->collect_poses();
+        m_impl->collect_broken_joints(delta_time);
         m_impl->publish_contacts();
         return Result<void, Error>::success();
     }
@@ -1043,5 +1113,8 @@ namespace Comet {
     }
     std::span<const PhysicsService::ContactChange> PhysicsService::contacts() const {
         return m_impl->changes;
+    }
+    std::span<const PhysicsService::JointBreak> PhysicsService::broken_joints() const {
+        return m_impl->broken_joints;
     }
 }

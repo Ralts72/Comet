@@ -158,6 +158,7 @@ namespace Comet {
         // 本地锚点随实体缩放；世界连接的 connected_anchor 是世界坐标。
         Math::Vec3 anchor{0};
         Math::Vec3 connected_anchor{0};
+        float break_force = 0; // N，0 为不断裂；固定步超出阈值后取消启用。
         bool operator==(const PointJointComponent&) const = default;
     };
 
@@ -188,6 +189,8 @@ namespace Comet {
         float motor_max_torque = 10; // N·m，0 表示不施加驱动力矩。
         float motor_frequency = 2;   // Hz，位置驱动的弹簧频率，最小 0.001。
         float motor_damping = 1;
+        float break_force = 0;  // N，0 为不断裂。
+        float break_torque = 0; // N·m，0 为不断裂；任一阈值超出后取消启用。
         [[nodiscard]] bool has_valid_angle_range() const {
             return std::isfinite(min_angle) && std::isfinite(max_angle) && min_angle >= -180
                    && min_angle <= 0 && max_angle >= 0 && max_angle <= 180 && min_angle < max_angle;
@@ -218,6 +221,8 @@ namespace Comet {
         float motor_max_force = 20; // N，0 表示不施加驱动力。
         float motor_frequency = 2;  // Hz，位置驱动的弹簧频率，最小 0.001。
         float motor_damping = 1;
+        float break_force = 0;
+        float break_torque = 0;
         [[nodiscard]] bool has_valid_distance_range() const {
             return std::isfinite(min_distance) && std::isfinite(max_distance) && min_distance <= 0
                    && max_distance >= 0 && min_distance < max_distance;

@@ -55,6 +55,13 @@ namespace Comet {
             JointSettings joint;
             [[nodiscard]] JointKey key() const { return {entity, joint.index()}; }
         };
+        struct JointBreak {
+            EntityId entity;
+            EntityUuid uuid;
+            JointSettings joint;
+            float force;
+            float torque;
+        };
         struct ContactChange {
             enum class Kind { CollisionEnter, CollisionExit, TriggerEnter, TriggerExit } kind;
             EntityId first;
@@ -83,6 +90,7 @@ namespace Comet {
         Result<void, Error> step(float delta_time);
         [[nodiscard]] std::span<const Pose> poses() const;
         [[nodiscard]] std::span<const ContactChange> contacts() const;
+        [[nodiscard]] std::span<const JointBreak> broken_joints() const;
 
         struct Impl;
         std::unique_ptr<Impl> m_impl;

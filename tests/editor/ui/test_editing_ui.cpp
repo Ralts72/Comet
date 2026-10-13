@@ -493,6 +493,8 @@ namespace CometEditor::Tests {
 
     TEST_F(EditingUiTest, HingeControlsShowEnabledParametersAndReferenceAlignmentUsesButtons) {
         using namespace Comet;
+        ImGui::GetIO().DisplaySize.y = 1000;
+        inspector_height = 900;
         auto builtin = create_property_editor_registry(assets);
         ImVec2 limits_checkbox{}, motor_checkbox{};
         bool saw_motor_speed = false;
@@ -561,6 +563,8 @@ namespace CometEditor::Tests {
 
     TEST_F(EditingUiTest, SliderControlsAlignFramesAndShowOnlyEnabledParameters) {
         using namespace Comet;
+        ImGui::GetIO().DisplaySize.y = 1000;
+        inspector_height = 900;
         auto builtin = create_property_editor_registry(assets);
         ImVec2 limits_checkbox{}, motor_checkbox{};
         bool saw_distance = false, saw_speed = false;
@@ -624,6 +628,59 @@ namespace CometEditor::Tests {
                                - Math::Vec3(0, 0.25f, 0)),
             1e-5f);
         EXPECT_FALSE(history.can_undo());
+    }
+
+    TEST_F(EditingUiTest, JointBreakThresholdsUseUndoBoundsAndPlayEditing) {
+        using namespace Comet;
+        ImGui::GetIO().MouseDoubleClickTime = 0.001f;
+        auto builtin = create_property_editor_registry(assets);
+        ImVec2 force_point{};
+        bool saw_torque = false;
+        ASSERT_TRUE(widgets.register_editor(
+            PropertyType::Float, [&](const PropertyDescriptor& property, void* value) {
+                const auto result = builtin.edit_property(property, value);
+                if(property.id == "break_force") {
+                    const auto start = ImGui::GetItemRectMin();
+                    force_point = {start.x + 20, start.y + 8};
+                }
+                saw_torque |= property.id == "break_torque";
+                return result;
+            }));
+        for(const auto id : {"point_joint", "hinge_joint", "slider_joint"}) {
+            SCOPED_TRACE(id);
+            state.mode = EditorMode::Edit;
+            history.bind_scene(&scene);
+            const auto* descriptor = components.find_component(id);
+            ASSERT_NE(descriptor, nullptr);
+            ASSERT_TRUE(descriptor->add_component(entity));
+            const auto* force = descriptor->find_property("break_force");
+            ASSERT_NE(force, nullptr);
+            const auto value = [&] {
+                return std::get<float>(*force->copy_value(descriptor->get_component(entity)));
+            };
+            saw_torque = false;
+            frame();
+            EXPECT_EQ(saw_torque, std::string_view(id) != "point_joint");
+            EXPECT_FALSE(edit.apply({entity.get_uuid(), id, "break_force"}, -1.0f));
+            drag_at(force_point);
+            ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+            frame();
+            EXPECT_GT(value(), 0);
+            EXPECT_EQ(history.undo_size(), 1u);
+            ASSERT_TRUE(history.undo());
+            EXPECT_FLOAT_EQ(value(), 0);
+            ASSERT_TRUE(history.redo());
+            const auto configured = value();
+            history.bind_scene(nullptr);
+            state.mode = EditorMode::Play;
+            frame();
+            drag_at(force_point);
+            ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+            frame();
+            EXPECT_GT(value(), configured);
+            EXPECT_FALSE(history.can_undo());
+            ASSERT_TRUE(descriptor->remove_component(entity));
+        }
     }
 
     TEST_F(EditingUiTest, JointModesShowRelevantControlsAndUseUndoAndPlayEditing) {

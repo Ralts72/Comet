@@ -1,5 +1,6 @@
 #include "scene/systems/physics_system.h"
 #include "scene/scene.h"
+#include "diagnostics/logger.h"
 
 #include <algorithm>
 
@@ -108,6 +109,33 @@ namespace Comet {
             // 后端刚生成的姿态只通知场景／渲染，不再排入下一步的输入同步。
             if(!entity.try_set_transform(pose.transform, false))
                 return Result<void, Error>::failure({"Cannot write physics transform"});
+        }
+        for(const auto& broken : m_physics.broken_joints()) {
+            auto entity = scene.find_entity(broken.entity);
+            if(!entity || entity.get_uuid() != broken.uuid)
+                return Result<void, Error>::failure({"Cannot find broken joint owner"});
+            const auto applied = std::visit(
+                [&](const auto& joint) {
+                    auto disabled = joint;
+                    disabled.enabled = false;
+                    return entity.try_set_component(disabled);
+                },
+                broken.joint);
+            if(!applied)
+                return Result<void, Error>::failure({"Cannot disable broken joint"});
+            const auto kind = std::visit(
+                [](const auto& joint) {
+                    using Joint = std::decay_t<decltype(joint)>;
+                    if constexpr(std::is_same_v<Joint, PointJointComponent>)
+                        return "Point";
+                    else if constexpr(std::is_same_v<Joint, HingeJointComponent>)
+                        return "Hinge";
+                    else
+                        return "Slider";
+                },
+                broken.joint);
+            LOG_INFO("{} joint broke: {} (force={} N, torque={} N.m)", kind,
+                broken.uuid.to_string(), broken.force, broken.torque);
         }
         for(const auto& contact : m_physics.contacts()) {
             const auto first = scene.find_entity(contact.first);

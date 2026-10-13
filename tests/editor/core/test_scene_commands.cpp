@@ -130,6 +130,8 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(history.redo());
         ASSERT_TRUE(edit.apply({entity.get_uuid(), "hinge_joint", "motor_target"}, 25.0f));
         ASSERT_TRUE(edit.apply({entity.get_uuid(), "hinge_joint", "limits_frequency"}, 2.0f));
+        ASSERT_TRUE(edit.apply({entity.get_uuid(), "hinge_joint", "break_force"}, 20.0f));
+        ASSERT_TRUE(edit.apply({entity.get_uuid(), "hinge_joint", "break_torque"}, 3.0f));
         const auto hinge = entity.get_component<Comet::HingeJointComponent>();
         const auto configured = entity.get_component<Comet::PointJointComponent>();
         ASSERT_TRUE(remove("hinge_joint"));
@@ -146,6 +148,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(
             edit.apply({entity.get_uuid(), "slider_joint", "motor_mode"}, std::string("position")));
         ASSERT_TRUE(edit.apply({entity.get_uuid(), "slider_joint", "motor_target"}, 0.5f));
+        ASSERT_TRUE(edit.apply({entity.get_uuid(), "slider_joint", "break_force"}, 30.0f));
         const auto slider = entity.get_component<Comet::SliderJointComponent>();
         ASSERT_TRUE(remove("slider_joint"));
         ASSERT_TRUE(history.undo());

@@ -209,7 +209,8 @@ namespace Comet::Tests {
         auto actor = scene.create_entity("Actor");
         const PointJointComponent joint{.connected_body = target.get_uuid(),
             .anchor = {0, 0.5f, 0},
-            .connected_anchor = {0, -0.5f, 0}};
+            .connected_anchor = {0, -0.5f, 0},
+            .break_force = 25};
         actor.add_component<PointJointComponent>(joint);
         const HingeJointComponent hinge{.enabled = false,
             .connected_body = target.get_uuid(),
@@ -230,7 +231,9 @@ namespace Comet::Tests {
             .motor_speed = -120,
             .motor_max_torque = 2.5f,
             .motor_frequency = 4,
-            .motor_damping = 0.7f};
+            .motor_damping = 0.7f,
+            .break_force = 30,
+            .break_torque = 5};
         actor.add_component<HingeJointComponent>(hinge);
         const SliderJointComponent slider{.enabled = false,
             .connected_body = target.get_uuid(),
@@ -251,7 +254,9 @@ namespace Comet::Tests {
             .motor_speed = -2,
             .motor_max_force = 30,
             .motor_frequency = 6,
-            .motor_damping = 1.2f};
+            .motor_damping = 1.2f,
+            .break_force = 40,
+            .break_torque = 6};
         actor.add_component<SliderJointComponent>(slider);
         TemporaryDirectory directory;
         const auto path = (directory.path() / "joint.scene").string();
@@ -426,6 +431,66 @@ namespace Comet::Tests {
                 actor.edit_component<SliderJointComponent>(
                     [](auto& joint) { joint.motor_mode = static_cast<JointMotorMode>(99); });
             EXPECT_FALSE(serializer.serialize(scene));
+            ASSERT_TRUE(descriptor->remove_component(actor));
+        }
+    }
+
+    TEST(SceneSerializerTest, JointBreakThresholdsDefaultOffAndRejectInvalidNumbersOnLoadAndSave) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        Scene scene;
+        auto actor = scene.create_entity();
+        for(const auto id : {"point_joint", "hinge_joint", "slider_joint"}) {
+            SCOPED_TRACE(id);
+            const auto* descriptor = registry.find_component(id);
+            ASSERT_NE(descriptor, nullptr);
+            ASSERT_TRUE(descriptor->add_component(actor));
+            for(const auto field : {"break_force", "break_torque"}) {
+                const auto* property = descriptor->find_property(field);
+                if(!property)
+                    continue;
+                auto serialized = serializer.serialize(scene);
+                ASSERT_TRUE(serialized) << serialized.error();
+                const std::string key = std::string("\"") + field + "\": 0";
+                const auto position = serialized.value().find(key);
+                ASSERT_NE(position, std::string::npos);
+                auto omitted = serialized.value();
+                auto begin = position;
+                auto end = position + key.size();
+                if(omitted[end] == ',')
+                    ++end;
+                else
+                    begin = omitted.rfind(',', position);
+                ASSERT_NE(begin, std::string::npos);
+                omitted.erase(begin, end - begin);
+                auto defaults = serializer.deserialize(omitted);
+                ASSERT_TRUE(defaults) << defaults.error();
+                EXPECT_EQ(property->copy_value(descriptor->get_component(
+                              defaults.value()->find_entity(actor.get_uuid()))),
+                    PropertyValue(0.0f));
+                for(const auto number : {"-1", "1e100"}) {
+                    auto invalid = serialized.value();
+                    invalid.replace(
+                        position, key.size(), std::string("\"") + field + "\": " + number);
+                    EXPECT_FALSE(serializer.deserialize(invalid));
+                }
+                // 内容 API 不依赖编辑器的数值边界；保存时仍须拒绝无效配置。
+                if(actor.has_component<PointJointComponent>())
+                    actor.edit_component<PointJointComponent>(
+                        [](auto& joint) { joint.break_force = -1; });
+                else if(actor.has_component<HingeJointComponent>())
+                    actor.edit_component<HingeJointComponent>([&](auto& joint) {
+                        (std::string_view(field) == "break_force" ? joint.break_force
+                                                                  : joint.break_torque) = -1;
+                    });
+                else
+                    actor.edit_component<SliderJointComponent>([&](auto& joint) {
+                        (std::string_view(field) == "break_force" ? joint.break_force
+                                                                  : joint.break_torque) = -1;
+                    });
+                EXPECT_FALSE(serializer.serialize(scene));
+                ASSERT_TRUE(descriptor->assign_property(actor, field, 0.0f));
+            }
             ASSERT_TRUE(descriptor->remove_component(actor));
         }
     }
