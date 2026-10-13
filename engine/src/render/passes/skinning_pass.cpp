@@ -11,7 +11,6 @@
 #include "diagnostics/logger.h"
 #include "skinning_comp.h"
 #include <array>
-#include <unordered_set>
 
 namespace Comet {
     struct SkinningPass::Program {
@@ -122,12 +121,15 @@ namespace Comet {
         FrameScheduler& frames, RenderGeometry& geometry,
         std::vector<QueueSemaphoreSubmit>& waits) {
         auto& cache = m_frames.at(frames.get_current_frame_slot_index());
-        std::unordered_set<std::size_t> used;
+        const auto is_skinned = [&](std::size_t index) {
+            return index < world.render_items.size() && world.render_items[index].mesh
+                   && world.render_items[index].mesh->is_skinned();
+        };
         m_items.clear();
         m_slots.clear();
         for(std::size_t index = 0; index < world.render_items.size(); ++index) {
             const auto& item = world.render_items[index];
-            if(item.mesh && item.mesh->m_animation) {
+            if(is_skinned(index)) {
                 m_items.push_back(item);
                 m_slots.push_back(index);
             }
@@ -145,7 +147,6 @@ namespace Comet {
                     return Result<void, GraphicsError>::failure(next.error());
                 instance = std::move(next).value();
             }
-            used.insert(index);
             if(!instance->pose_bounds || instance->playback != item.animation) {
                 const auto& data = *item.mesh->m_animation;
                 auto pose = sample_animation(data, item.animation.get());
@@ -206,7 +207,7 @@ namespace Comet {
                 return Result<void, GraphicsError>::failure({"Invalid skinned world bounds"});
             geometry.replace_skinned(index, item, *bounds);
         }
-        std::erase_if(cache, [&](const auto& item) { return !used.contains(item.first); });
+        std::erase_if(cache, [&](const auto& item) { return !is_skinned(item.first); });
         return Result<void, GraphicsError>::success();
     }
 }

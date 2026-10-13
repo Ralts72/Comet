@@ -102,7 +102,6 @@ namespace Comet {
                     || range.layer_count == UINT32_MAX
                     || uint64_t(range.base_mip_level) + range.level_count > UINT32_MAX
                     || uint64_t(range.base_array_layer) + range.layer_count > UINT32_MAX
-                    || (image->layout == ImageLayout::Undefined && resource.access)
                     || image->layout == ImageLayout::Preinitialized
                     || image->layout < ImageLayout::Undefined
                     || image->layout > ImageLayout::AttachmentOptimal)

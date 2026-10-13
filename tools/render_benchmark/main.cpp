@@ -1,4 +1,6 @@
 #include "asset/asset_manager.h"
+#include "asset/default_assets.h"
+#include "animation/animation_system.h"
 #include "asset/artifact/shader_program_artifact.h"
 #include "asset/registry.h"
 #include "asset/runtime/render_asset_factory.h"
@@ -22,6 +24,7 @@
 #include "render/material/material.h"
 #include "render/material/material_shader.h"
 #include "render/resource/render_resources.h"
+#include "render/resource/mesh.h"
 #include "render/scene/scene_renderer.h"
 #include "render/render_target.h"
 #include "scene/scene.h"
@@ -61,13 +64,14 @@ namespace {
     constexpr unsigned MAX_PHYSICS_OBJECTS = 512;
     constexpr std::string_view USAGE =
         "Usage: render_benchmark OUTPUT.csv OBJECTS WIDTH HEIGHT FRAMES BLOOM(0/1) "
-        "[MATERIALS [static|moving|script-moving|light-moving|culling|project-shader|physics-active|physics-sleeping "
+        "[MATERIALS [static|moving|script-moving|skeletal|light-moving|culling|project-shader|physics-active|physics-sleeping "
         "[MSAA ANISOTROPY RENDER_SCALE]]]";
 
     enum class Workload {
         Static,
         Moving,
         ScriptMoving,
+        Skeletal,
         LightMoving,
         Culling,
         ProjectShader,
@@ -81,6 +85,8 @@ namespace {
                 return "moving";
             case Workload::ScriptMoving:
                 return "script-moving";
+            case Workload::Skeletal:
+                return "skeletal";
             case Workload::LightMoving:
                 return "light-moving";
             case Workload::Culling:
@@ -138,6 +144,8 @@ namespace {
                 workload = Workload::Moving;
             else if(name == "script-moving")
                 workload = Workload::ScriptMoving;
+            else if(name == "skeletal")
+                workload = Workload::Skeletal;
             else if(name == "light-moving")
                 workload = Workload::LightMoving;
             else if(name == "physics-active")
@@ -256,6 +264,27 @@ namespace {
         uint64_t m_frame = 0;
     };
 
+    // 复用生产动画系统，只固定测试时钟，保证每次运行采样同一段动作。
+    class SkeletalAnimationSystem final: public Comet::System {
+    public:
+        Result<void, Comet::Error> on_start(Comet::Scene& scene, Comet::RuntimeSession& session,
+            const Comet::RuntimeServices& services) override {
+            return m_animation.on_start(scene, session, services);
+        }
+        Result<void, Comet::Error> update(Comet::Scene& scene, const Context& context) override {
+            auto fixed = context;
+            fixed.delta_time = 1.0 / 60;
+            return m_animation.update(scene, fixed);
+        }
+        void on_stop(Comet::Scene& scene, Comet::RuntimeSession& session,
+            const Comet::RuntimeServices& services) noexcept override {
+            m_animation.on_stop(scene, session, services);
+        }
+
+    private:
+        Comet::AnimationSystem m_animation;
+    };
+
     Result<void> populate_scene(Comet::Engine& engine, Comet::AssetManager& assets,
         const std::filesystem::path& root, const Options& options,
         std::vector<InitialPose>& initial_poses) {
@@ -269,6 +298,17 @@ namespace {
             return Result<void>::failure(imported.error().message);
         if(auto loaded = assets.ensure_loaded(mesh_handle, Comet::AssetType::Mesh); !loaded)
             return Result<void>::failure(loaded.error().message);
+        if(options.workload == Workload::Skeletal) {
+            if(auto loaded =
+                    assets.ensure_loaded(Comet::DEFAULT_CHARACTER_MESH, Comet::AssetType::Mesh);
+                !loaded)
+                return Result<void>::failure(loaded.error().message);
+            const auto character =
+                engine.get_asset_registry().resolve<Comet::Mesh>(Comet::DEFAULT_CHARACTER_MESH);
+            if(!character || !character->is_skinned()
+                || !character->animation_data()->find_clip("walk"))
+                return Result<void>::failure("Default character needs a skinned walk clip");
+        }
         std::vector<Comet::AssetHandle> materials;
         constexpr Comet::AssetHandle project_program(0xc0be700000000001ULL);
         constexpr Comet::AssetHandle motion_script(0xc0be700000000002ULL);
@@ -334,9 +374,14 @@ namespace {
         const auto columns = static_cast<unsigned>(std::ceil(std::sqrt(options.objects)));
         const float spacing = 10.0f / columns;
         for(unsigned index = 0; index < options.objects; ++index) {
-            auto entity = create_entity("PBR cube");
+            const bool skeletal = options.workload == Workload::Skeletal;
+            auto entity = create_entity(skeletal ? "Animated character" : "PBR cube");
             entity.add_component<Comet::MeshRendererComponent>(
-                mesh_handle, materials[index % materials.size()]);
+                skeletal ? Comet::DEFAULT_CHARACTER_MESH : mesh_handle,
+                materials[index % materials.size()]);
+            if(skeletal)
+                entity.add_component<Comet::AnimatorComponent>(
+                    Comet::AnimatorComponent{.clip = "walk"});
             entity.set_transform({.translation = {(index % columns + 0.5f) * spacing - 5, 0,
                                       (index / columns + 0.5f) * spacing - 5},
                 .rotation = {0, 20, 0},
@@ -568,6 +613,12 @@ namespace {
                    << "# moving_rotation_degrees_per_frame=" << (moving ? 0.5 : 0.0) << '\n'
                    << "# scripts="
                    << (m_options.workload == Workload::ScriptMoving ? m_options.objects : 0) << '\n'
+                   << "# skeletal_instances="
+                   << (m_options.workload == Workload::Skeletal ? m_options.objects : 0)
+                   << " animation_delta_s="
+                   << (m_options.workload == Workload::Skeletal ? 1.0 / 60 : 0)
+                   << " animation_clip="
+                   << (m_options.workload == Workload::Skeletal ? "walk" : "none") << '\n'
                    << "# light_rotation_degrees_per_frame="
                    << (m_options.workload == Workload::LightMoving ? 0.5 : 0.0) << '\n'
                    << "# physics_bodies=" << physics_statistics().bodies
@@ -643,17 +694,20 @@ namespace {
             const auto visible_materials = std::min(m_options.materials, visible_objects);
             const auto& shadow = scene.get_shadow_statistics();
             const bool project_shader = m_options.workload == Workload::ProjectShader;
-            const auto draws = project_shader ? visible_objects + 1 : visible_materials;
+            const bool skeletal = m_options.workload == Workload::Skeletal;
+            const auto draws = project_shader || skeletal ? visible_objects + 1 : visible_materials;
             const auto pipeline_binds =
-                project_shader || visible_objects >= 2 * visible_materials - 1 ? 1u : 2u;
+                project_shader || skeletal || visible_objects >= 2 * visible_materials - 1 ? 1u
+                                                                                           : 2u;
+            const auto meshes = skeletal ? visible_objects + 1 : 1u;
             if(frame.truncated || frame.passes.size() != m_passes.size()
                 || stats.render_items != m_options.objects + 1
                 || stats.culled_items != m_options.objects - visible_objects
                 || stats.draw_calls != draws || stats.drawn_instances != visible_objects + 1
-                || shadow.draw_calls != 1 || shadow.drawn_instances != m_options.objects + 1
+                || shadow.draw_calls != meshes || shadow.drawn_instances != m_options.objects + 1
                 || stats.light_count != 3 || stats.pipeline_binds != pipeline_binds
                 || stats.material_binds != visible_materials
-                || stats.material_preparations != visible_materials || stats.mesh_binds != 1
+                || stats.material_preparations != visible_materials || stats.mesh_binds != meshes
                 || stats.cached_material_versions != visible_materials
                 || scene.get_post_process_settings().uses_bloom() != m_options.bloom)
                 return Result<void>::failure(
@@ -768,6 +822,12 @@ namespace {
             if(auto added = engine->add_system(
                    std::make_unique<Comet::ScriptSystem>(engine->get_asset_registry()));
                 !added)
+                return Result<void>::failure(added.error().message);
+            if(auto started = engine->start_scene_runtime(); !started)
+                return Result<void>::failure(started.error().message);
+        }
+        if(options.workload == Workload::Skeletal) {
+            if(auto added = engine->add_system(std::make_unique<SkeletalAnimationSystem>()); !added)
                 return Result<void>::failure(added.error().message);
             if(auto started = engine->start_scene_runtime(); !started)
                 return Result<void>::failure(started.error().message);

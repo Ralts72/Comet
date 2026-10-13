@@ -199,6 +199,59 @@ namespace Comet::Tests {
         EXPECT_EQ(frozen.render_items[0].material.program_source, program);
     }
 
+    TEST(SceneResolverTest, MaterialTrackingFollowsLiveBindingsAcrossEditsAndSceneReplacement) {
+        AssetRegistry assets;
+        FakeRenderResourceFactory resources;
+        ASSERT_TRUE(assets.register_asset(AssetHandle{10}, resources.try_create_mesh({}).value()));
+        for(uint64_t handle = 20; handle < 40; ++handle)
+            ASSERT_TRUE(assets.register_asset(
+                AssetHandle{handle}, std::make_shared<Material>("material", "unlit_color")));
+        SceneResolver resolver(assets);
+        RenderScene scene;
+        scene.scene_lifetime = 1;
+        scene.render_items = {
+            {.entity_id = 1, .mesh_handle = AssetHandle{10}, .material_handle = AssetHandle{20}},
+            {.entity_id = 2, .mesh_handle = AssetHandle{10}, .material_handle = AssetHandle{20}}};
+        scene.item_changes.begin_update(true);
+        RenderWorld world;
+        resolver.resolve(scene, world);
+        const auto frozen = world;
+        for(uint64_t handle = 21; handle < 40; ++handle) {
+            scene.render_items[0].material_handle = AssetHandle{handle};
+            scene.item_changes.begin_update(false);
+            scene.item_changes.slots = {0};
+            resolver.resolve(scene, world);
+            EXPECT_FALSE(world.item_changes.full_update);
+            EXPECT_EQ(world.resolution.material_sources.size(), 2u);
+            EXPECT_TRUE(world.resolution.material_sources.contains(AssetHandle{20}));
+            EXPECT_EQ(world.render_items[0].material.resource,
+                assets.resolve<Material>(AssetHandle{handle})->snapshot());
+        }
+        scene.render_items.pop_back();
+        scene.item_changes.begin_update(false);
+        scene.item_changes.structure = {{RenderItemChanges::StructuralEdit::Type::Remove, 1}};
+        resolver.resolve(scene, world);
+        ASSERT_EQ(world.resolution.material_sources.size(), 1u);
+        EXPECT_TRUE(world.resolution.material_sources.contains(AssetHandle{39}));
+        auto material = assets.resolve<Material>(AssetHandle{39});
+        ASSERT_TRUE(material->set_scalar_property("intensity", 0.5f));
+        resolver.resolve(scene, world);
+        EXPECT_EQ(world.render_items[0].material.resource->get_scalar_property("intensity"), 0.5f);
+
+        ++scene.scene_lifetime;
+        scene.render_items[0].material_handle = AssetHandle{20};
+        scene.item_changes.begin_update(true);
+        resolver.resolve(scene, world);
+        EXPECT_EQ(world.resolution.material_sources.size(), 1u);
+        EXPECT_TRUE(world.resolution.material_sources.contains(AssetHandle{20}));
+        scene.render_items.clear();
+        scene.item_changes.begin_update(true);
+        resolver.resolve(scene, world);
+        EXPECT_TRUE(world.resolution.material_sources.empty());
+        EXPECT_EQ(frozen.render_items.size(), 2u);
+        EXPECT_EQ(frozen.resolution.material_sources.size(), 1u);
+    }
+
     TEST(SceneResolverTest, OwnedWorldsRetainFrameValuesAcrossUpdatesRefreshAndReset) {
         AssetRegistry assets;
         FakeRenderResourceFactory resources;

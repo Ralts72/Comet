@@ -178,7 +178,11 @@ namespace Comet {
         RenderState& state, const bool bloom_enabled) {
         const auto build = [&](const bool shared_shadow) -> Result<void, GraphicsError> {
             RenderGraph graph;
-            ImageState shadow_initial{
+            // 丢弃旧内容仍需等待上一轮附件写入与片段采样。
+            auto shadow_access =
+                *resolve_resource_state(ResourceUsage::DepthStencilAttachmentWrite);
+            shadow_access.stages |= PipelineStage::FragmentShader;
+            ImageState shadow_initial{.resource = shadow_access,
                 .subresources = {.aspects = Flags<ImageAspect>(ImageAspect::Depth)}};
             if(shared_shadow)
                 shadow_initial =
@@ -200,13 +204,16 @@ namespace Comet {
                     Flags<ImageAspect>(is_depth ? ImageAspect::Depth : ImageAspect::Color);
                 if(is_depth && !Graphics::is_depth_only_format(attachment.description.format))
                     aspects |= ImageAspect::Stencil;
-                const auto id =
-                    graph.import_image("attachment " + std::to_string(scene.uses.size()),
-                        {.subresources = {.aspects = aspects}});
-                scene_attachments.push_back(id);
                 auto usage = ResourceUsage::ColorAttachmentWrite;
                 if(is_depth)
                     usage = ResourceUsage::DepthStencilAttachmentWrite;
+                auto previous_access = *resolve_resource_state(usage);
+                if(!is_depth)
+                    previous_access.stages |= PipelineStage::FragmentShader;
+                const auto id =
+                    graph.import_image("attachment " + std::to_string(scene.uses.size()),
+                        {.resource = previous_access, .subresources = {.aspects = aspects}});
+                scene_attachments.push_back(id);
                 scene.uses.push_back({id, usage, {}});
                 if(!is_depth)
                     output = id;

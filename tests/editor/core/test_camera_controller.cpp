@@ -126,6 +126,7 @@ namespace CometEditor::Tests {
 
     TEST(EditorCameraControllerTest, OrbitPreservesTargetAndDistance) {
         EditorCameraState camera;
+        const auto previous_position = camera.perspective.position;
         const float previous_distance =
             Comet::Math::length(camera.perspective.position - camera.target);
 
@@ -135,8 +136,8 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(Comet::Tests::TestUtils::Vec3Equal(camera.target, Comet::Math::Vec3(0.0f)));
         EXPECT_NEAR(Comet::Math::length(camera.perspective.position - camera.target),
             previous_distance, 0.0001f);
-        EXPECT_FALSE(Comet::Tests::TestUtils::Vec3Equal(
-            camera.perspective.position, Comet::Math::Vec3(0.0f, 0.0f, 3.0f)));
+        EXPECT_FALSE(
+            Comet::Tests::TestUtils::Vec3Equal(camera.perspective.position, previous_position));
         EXPECT_TRUE(Comet::Tests::TestUtils::Vec3Equal(
             camera.perspective.up, Comet::Math::Vec3(0.0f, 1.0f, 0.0f)));
     }
@@ -176,9 +177,12 @@ namespace CometEditor::Tests {
 
     TEST(EditorCameraControllerTest, ZoomChangesDistanceAndClampsNearTarget) {
         EditorCameraState camera;
+        const float previous_distance =
+            Comet::Math::length(camera.perspective.position - camera.target);
 
         apply_editor_camera_input(camera, {.zoom_delta = 1.0f});
-        EXPECT_LT(Comet::Math::length(camera.perspective.position - camera.target), 3.0f);
+        EXPECT_LT(
+            Comet::Math::length(camera.perspective.position - camera.target), previous_distance);
 
         apply_editor_camera_input(camera, {.zoom_delta = 1000.0f});
         EXPECT_NEAR(

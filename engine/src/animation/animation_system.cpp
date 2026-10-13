@@ -4,7 +4,7 @@
 #include <algorithm>
 namespace Comet {
     namespace {
-        std::string selected_clip(
+        const std::string& selected_clip(
             Scene& scene, const AnimatorComponent& animator, const RuntimeServices& services) {
             if(!animator.character)
                 return animator.clip;
@@ -51,7 +51,7 @@ namespace Comet {
             }
             auto& playback = m_playbacks[entity.get_id()];
             auto& frame = playback.frame;
-            const auto clip = selected_clip(scene, animator, services);
+            const auto& clip = selected_clip(scene, animator, services);
             if(clip != frame.clip) {
                 frame.previous_clip = frame.clip;
                 frame.previous_time = frame.time;

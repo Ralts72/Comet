@@ -1,23 +1,5 @@
 # 引擎架构与运行时边界
 
-## 骨骼与动画
-
-Mesh 导入数据保存顶点权重和不可变 `AnimationData`，骨骼层级、绑定矩阵及片段属于资产，沿 Mesh Artifact 保存、校验与加载。
-`AnimatorComponent` 只保存播放配置和角色动作映射，复用组件描述符的保存、克隆、引用重映射与 Inspector 撤销。
-`AnimationSystem` 在 Main 普通更新阶段推进实例时间；角色动作取自 Gameplay 的实际移动状态，动画不回写角色的物理位置。
-Scene 保存不可变播放快照，提取／解析交付同一快照给 RenderThread；Stop、销毁及重开清理播放状态，场景文件不保存时间与逐帧姿态。
-播放值未变化时保留原快照，避免零速且过渡已结束的实例重复发布；零速仍允许片段过渡推进。
-Editor 的 `AnimationPreview` 拥有所选模型的预览时钟，Inspector 在 Main 捕获帧前通过 Scene 的瞬时播放接口发布不可变快照，复用正常提取、采样和蒙皮链路。
-预览与 Animator 配置、命令历史及游戏 Runtime 分开；结束时只清理仍属于预览的发布，选择／资源／场景变化和进入 Play 时重置，不新增渲染视口。
-
-RenderThread 采样局部 TRS、混合并合成骨骼矩阵，`SkinningPass` 每帧槽复用角色的调色板和输出顶点缓冲。
-Compute 在绘制前生成普通 Mesh 顶点，主绘制、阴影及项目材质共用结果，不扩展材质顶点接口。
-按每个关节影响的顶点界限计算保守姿态界限，供裁剪和阴影范围使用；在途帧保留输入资产、输出缓冲和 descriptor owner。
-同一帧槽复用未变化播放快照的调色板和局部界限；替换 Mesh owner 后重新采样。GPU dispatch 与同步保持逐帧录制，避免把取消录制当作已经生成顶点。
-采样接口严格报告无效片段；呈现层记录诊断后显示绑定姿态，旧过渡片段缺失时可直接采样有效的新片段。同一实例每帧槽不重复报告相同错误，内容或资源修正后重新检查；GPU 创建与提交错误仍交由渲染故障边界处理。
-默认角色和基础材质在 `asset/default_assets.h` 声明固定身份，按需由 AssetLoader 加载，复用 Registry、资源工厂和普通引用选择／撤销路径。
-角色使用同一 MeshImporter／GPU 工厂；默认材质参数只取自 MaterialLayout，不额外保存重复配置。项目资产仍沿数据库、缓存和发布版本工作。
-
 本文描述当前模块、所有权和关键时序。功能规划与验收见[路线图](../engine-roadmap.md)，构建入口见 [README](../../README.md)，具体操作见[使用手册](../usage.md)。
 
 ## 构建模块
@@ -310,6 +292,24 @@ CameraControllerSystem 只选择主相机并转交更新／捕获意图，原生
 Lua 的 `comet.control_character(enabled, options)` 调用相同 C++ 控制器，实体选项复用已有场景代次／实体身份校验，返回是否提交跳跃；项目继续决定输入组、计分、完成与重开。
 基础控制借用当前 Scene，在固定更新、物理步进前调用，复用既有运行调度。Gameplay 提供实际移动状态、跑步／蹲伏和外观朝向；Physics 负责姿态空间检查与碰撞求解。后续 root motion 继续沿同一写入边界扩展。
 
+## 骨骼与动画
+
+Mesh 导入数据保存顶点权重和不可变 `AnimationData`，骨骼层级、绑定矩阵及片段属于资产，沿 Mesh Artifact 保存、校验与加载。
+`AnimatorComponent` 只保存播放配置和角色动作映射，复用组件描述符的保存、克隆、引用重映射与 Inspector 撤销。
+`AnimationSystem` 在 Main 普通更新阶段推进实例时间；角色动作取自 Gameplay 的实际移动状态，动画不回写角色的物理位置。
+Scene 保存不可变播放快照，提取／解析交付同一快照给 RenderThread；Stop、销毁及重开清理播放状态，场景文件不保存时间与逐帧姿态。
+播放值未变化时保留原快照，避免零速且过渡已结束的实例重复发布；零速仍允许片段过渡推进。
+Editor 的 `AnimationPreview` 拥有所选模型的预览时钟，Inspector 在 Main 捕获帧前通过 Scene 的瞬时播放接口发布不可变快照，复用正常提取、采样和蒙皮链路。
+预览与 Animator 配置、命令历史及游戏 Runtime 分开；结束时只清理仍属于预览的发布，选择／资源／场景变化和进入 Play 时重置，不新增渲染视口。
+
+RenderThread 采样局部 TRS、混合并合成骨骼矩阵，`SkinningPass` 每帧槽复用角色的调色板和输出顶点缓冲。
+Compute 在绘制前生成普通 Mesh 顶点，主绘制、阴影及项目材质共用结果，不扩展材质顶点接口。
+按每个关节影响的顶点界限计算保守姿态界限，供裁剪和阴影范围使用；在途帧保留输入资产、输出缓冲和 descriptor owner。
+同一帧槽复用未变化播放快照的调色板和局部界限；替换 Mesh owner 后重新采样。GPU dispatch 与同步保持逐帧录制，避免把取消录制当作已经生成顶点。
+采样接口严格报告无效片段；呈现层记录诊断后显示绑定姿态，旧过渡片段缺失时可直接采样有效的新片段。同一实例每帧槽不重复报告相同错误，内容或资源修正后重新检查；GPU 创建与提交错误仍交由渲染故障边界处理。
+默认角色和基础材质在 `asset/default_assets.h` 声明固定身份，按需由 AssetLoader 加载，复用 Registry、资源工厂和普通引用选择／撤销路径。
+角色使用同一 MeshImporter／GPU 工厂；默认材质参数只取自 MaterialLayout，不额外保存重复配置。项目资产仍沿数据库、缓存和发布版本工作。
+
 ## 项目 UI 控制器
 
 RmlContext 提供通用文档、字体、输入与 Overlay 适配，不认识 demo 动作或菜单。项目的 `ui` 清单决定页面和控制器入口。
@@ -319,6 +319,8 @@ UI 的 `api.session_get(key)` 读取当前活动 RuntimeSession 的 bool／float
 Engine 内置 `ui.settings(options)`，统一菜单、设置草稿、改键录入、焦点、显示确认和应用结果；底层仍调用既有输入事务及宿主设置服务。
 项目选择面板、控件身份、快捷键和扩展回调；普通页面仍可直接返回自己的控制器，不必使用设置模块。
 Editor Play 使用相同项目页面；ImGui 项目／玩家面板调用相同引擎业务能力，不复制存储规则。
+改键覆盖由 `InputOverrides::Binding::compose` 合成；面板借用解析结果，仅在编辑会使引用失效时复制当前绑定或诊断。
+Lua API 的错误字符串和复杂返回值由宿主持有；进入可能分配的 Lua 调用前结束 C++ 局部资源的寿命，避免内存错误的 longjmp 绕过析构。
 Editor 的 GameUi 适配器只借用 Window、Renderer、Project 和设置服务，由宿主组合，不持有整个 Engine。
 候选页面／模型／控制器在独立的临时 RmlUi Context 中准备，复用同一个 Core、字体和渲染后端；验证和 GPU 准备成功后一起替换，失败保留旧 DOM、绑定、焦点与草稿，不累计失败候选的字段。事件核对当前文档身份；准备期允许读取设置和调整候选页面，宿主应用／保存服务只在发布后开放。
 UI Lua 执行错误保留独立 Error.code 分类。Editor GameUi 停用故障界面、释放游戏输入并显示诊断，显式重载成功后恢复；不结束 Editor 或丢弃未保存内容。GPU 错误仍沿渲染错误路径返回，App 的生命周期失败策略由 App 决定。
@@ -329,15 +331,7 @@ Inspector 初始化时准备自己的中文显示描述，沿用引擎字段身�
 当前一个进程只允许一个拥有 RmlUi Core 的 RmlContext；热重载的临时原生 Context 共用该 owner，不提供多个独立 UI 会话。
 
 `ui.settings` 在项目控制器加载前提供，不开放文件加载或 `package`；模块编入 engine，实例状态仍属于各自的 UI VM。
-`input` 默认启用；`display`／`quality`／`audio` 默认关闭，设为 `true` 或选项表后启用。所有面板以宿主服务实际可用性为准。
-显示选项支持 `sizes`／`frame_rates`；画质选项支持 `render_scales`／有序 `presets`（`id`、`name` 和实际画质参数），没有内置游戏档位。
-`elements` 默认对应 `settings`（open）、`menu`、`panel`、`cancel`，改键还需要 `bindings`、`apply`、`restore`；启用显示还需要 `display-confirm`（confirm）。
-项目可覆盖任一角色的 ID；`open=false` 允许仅通过快捷键打开。`required_elements` 用于校验项目额外控件。
-`shortcuts` 默认 open=F1、close=Escape、reload=F6、gamepad_open=Start、gamepad_close=East，各项可设为 `false`。
-键盘菜单键、重载键和手柄打开键自动加入录入保留控制；`input.reserved_keys`／`reserved_buttons` 可显式指定。
-页面通过 `command(...)` 的 `open`／`cancel`／`apply`／`restore`／`previous`／`next` 控制菜单和改键；绑定行默认生成录入、禁用和恢复按钮，可用 `render_bindings(action)` 替换。
-显示／画质／音量命令及模型使用 demo RML 的相同语义，控件布局和样式由项目定义。
-`model`／`state` 可添加项目标量，不能覆盖模块字段；同名生命周期回调在内置流程之后执行，供 HUD 或项目操作扩展。
+设置模块的面板、控件、快捷键和回调用法见[项目游戏 UI](../usage.md#项目游戏-ui)；布局与样式仍由项目决定。
 热重载迁移同类型的已有标量，同时保留新控制器声明的新字段默认值；不复用旧函数、页面句柄或闭包。
 
 RmlRenderer 的文档回调只校验并保存独立 CPU 几何／像素，绘制收集只保存这些只读数据、裁剪、变换和位移，不创建或销毁 GPU 对象。
@@ -357,6 +351,7 @@ MaterialRenderer 负责具体 Pipeline、参数／纹理绑定与绘制；Shader
 ### 材质准备与寿命
 
 SceneResolver 解析资源版本，MaterialBinding 持有独立材质值快照和当时选定的 ShaderProgramArtifact；后者发布后不再原地修改。Material 同版本复用快照，标量、向量或纹理引用变化时才生成新副本，旧世界不跟随源材质改变。
+完整与增量提取共用资源解析；材质监听项随当前绑定清理，旧帧仍通过自己的值快照和 GPU 引用保活。
 MaterialRenderer 从本帧绑定的程序引用准备各 View，编辑器显式材质候选也先固定参数；重载失败时后续绘制显示固定内置的洋红色错误材质，已提交帧保留自己的 GPU 版本。主材质通道负责视锥裁剪和材质分组，阴影按自己的可见范围处理。
 各通道复用 RenderGeometry 的世界界限与场景界限。主材质按材质身份、阴影按网格排序，实际准备结果再按布局和网格分组。
 材质与阴影共用槽位索引排序：保留上一帧顺序，每帧用当前输入核对，顺序失效或数量变化时重新排序；不另外维护资产失效标记。
@@ -457,6 +452,7 @@ Presentation 的等待列表与 Queue 的提交／呈现参数转换使用调用
 编译按 image subresource／buffer 范围跟踪 writer、reader 和初始化，生成 RAW／WAR／WAW 与 layout 依赖。
 录制前核对绑定、范围和设备，再保活资源并执行 barrier／pass／export；回调失败立即退出该帧，已录命令不回滚。
 SceneRenderer 保存编译计划，每帧绑定当前 slot 目标；resize 更换 owner，旧目标由在途帧保留。
+重用目标即使以 Undefined 丢弃旧内容，也保留先前附件写入与采样的同步范围；丢弃不代表资源从未使用过。
 图负责场景／阴影／Bloom 的同步；最终输出 RenderPass、ImGui、WSI 与 upload completion 仍有独立职责。
 资源别名规划与跨队列调度尚未实现。独立 RenderThread 已负责录制、提交与呈现，仍不改变图的 pass 顺序。
 

@@ -48,6 +48,7 @@ namespace Comet::Tests {
         AudioSettings saved_audio;
         unsigned audio_applications = 0;
         ParameterMap session_values;
+        std::string settings_load_error;
 
         void SetUp() override {
             EngineTest::SetUp();
@@ -89,6 +90,8 @@ namespace Comet::Tests {
             if(display_services) {
                 services.display_defaults = {1280, 720, WindowMode::Windowed, true};
                 services.load_display = [this] {
+                    if(!settings_load_error.empty())
+                        return Result<DisplaySettings>::failure(settings_load_error);
                     if(display_confirmation)
                         return Result<DisplaySettings>::success(display_confirmation->settings());
                     return Result<DisplaySettings>::success(saved_display);
@@ -132,6 +135,8 @@ namespace Comet::Tests {
             if(quality_services) {
                 services.quality_defaults = default_quality;
                 services.load_quality = [this] {
+                    if(!settings_load_error.empty())
+                        return Result<QualitySettings>::failure(settings_load_error);
                     return Result<QualitySettings>::success(saved_quality);
                 };
                 services.apply_quality = [this](QualitySettings value) {
@@ -148,6 +153,8 @@ namespace Comet::Tests {
             if(audio_services) {
                 services.audio_defaults = {0.7f, 0.6f, 0.5f};
                 services.load_audio = [this] {
+                    if(!settings_load_error.empty())
+                        return Result<AudioSettings>::failure(settings_load_error);
                     return Result<AudioSettings>::success(saved_audio);
                 };
                 services.active_audio = [this] { return engine->get_audio_settings(); };
@@ -1203,6 +1210,32 @@ return controller
         write("other.ui.lua", controller(""));
         ASSERT_TRUE(ui->reload());
         EXPECT_EQ(document().GetElementById("readback")->GetInnerRML(), "ready");
+    }
+
+    TEST_F(ProjectUiGpuTest, SettingsReadErrorsRemainUsableAfterLuaAllocationFailure) {
+        display_services = quality_services = audio_services = true;
+        write("other.rml", R"rml(<rml><head></head><body data-model="ui"></body></rml>)rml");
+        for(const auto* api : {"display_settings", "quality_settings", "audio_settings"}) {
+            SCOPED_TRACE(api);
+            settings_load_error = "Cannot read player settings";
+            write("other.ui.lua", std::string(R"lua(return {model={},
+                on_mount=function(self,ui)
+                    local value, message = ui.)lua")
+                                      + api + R"lua(()
+                    assert(value == nil and message == "Cannot read player settings")
+                end})lua");
+            create_ui({}, {"ui/other.rml", "ui/other.ui.lua"});
+            auto* live = &document();
+            // 错误返回也会分配 Lua 字符串；超过 VM 预算后仍应保留可用的旧控制器。
+            settings_load_error.assign(17 * 1024 * 1024, 'x');
+            const auto rejected = ui->reload();
+            ASSERT_FALSE(rejected);
+            EXPECT_NE(rejected.error().find("memory"), std::string::npos);
+            EXPECT_EQ(&document(), live);
+            settings_load_error = "Cannot read player settings";
+            ASSERT_TRUE(ui->reload());
+            ASSERT_TRUE(submit_frame());
+        }
     }
 
     TEST_F(ProjectUiGpuTest, FocusFirstSkipsControlsThatDeclineFocus) {

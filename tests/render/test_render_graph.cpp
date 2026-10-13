@@ -84,6 +84,23 @@ namespace Comet::Tests {
         EXPECT_EQ(final.subresources, initial.subresources);
         EXPECT_TRUE(static_cast<bool>(final.resource.access & Access::TransferWrite));
     }
+    TEST_F(RenderGraphTest, DiscardPreservesPriorAccessWithoutMakingContentsReadable) {
+        auto initial = image_state(ResourceUsage::ColorAttachmentWrite);
+        initial.resource.stages |= PipelineStage::FragmentShader;
+        initial.layout = ImageLayout::Undefined;
+        const auto id = graph.import_image("reused target", initial);
+        pass("clear", id, ResourceUsage::ColorAttachmentWrite);
+        const auto plan = graph.compile();
+        ASSERT_TRUE(plan) << plan.error();
+        ASSERT_EQ(plan.value().get_passes()[0].barriers.size(), 1u);
+        EXPECT_EQ(std::get<ImageState>(plan.value().get_passes()[0].barriers[0].before), initial);
+
+        graph = {};
+        const auto discarded = graph.import_image("discarded target", initial);
+        pass("invalid read", discarded, ResourceUsage::SampledRead, fragment);
+        EXPECT_FALSE(graph.compile());
+    }
+
     TEST_F(RenderGraphTest, RejectsUninitializedReadersAndReadModifyWrite) {
         const auto id = buffer();
         pass("invalid read", id, ResourceUsage::UniformRead, vertex);

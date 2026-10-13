@@ -2,7 +2,6 @@
 
 #include "asset/asset_manager.h"
 #include "assets/asset_edit.h"
-#include "render/renderer.h"
 
 #include <map>
 #include <optional>

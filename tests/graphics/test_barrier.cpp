@@ -82,6 +82,20 @@ namespace Comet::Tests {
         EXPECT_EQ(barrier->subresourceRange.layerCount, 4u);
     }
 
+    TEST(ImageBarrierTest, DiscardRetainsPreviousWritesAndReaderExecutionScope) {
+        auto before = require_state(ResourceUsage::ColorAttachmentWrite, color_range());
+        before.resource.stages |= PipelineStage::FragmentShader;
+        before.layout = ImageLayout::Undefined;
+        const auto after = require_state(ResourceUsage::ColorAttachmentWrite, color_range());
+        const auto barrier = Graphics::build_image_memory_barrier({}, before, after);
+        ASSERT_TRUE(barrier);
+        EXPECT_EQ(barrier->oldLayout, vk::ImageLayout::eUndefined);
+        EXPECT_EQ(barrier->srcStageMask, vk::PipelineStageFlagBits2::eColorAttachmentOutput
+                                             | vk::PipelineStageFlagBits2::eFragmentShader);
+        EXPECT_TRUE(
+            static_cast<bool>(barrier->srcAccessMask & vk::AccessFlagBits2::eColorAttachmentWrite));
+    }
+
     TEST(ImageBarrierTest, MapsShaderAccess) {
         const auto subresources = color_range();
         auto before = require_state(ResourceUsage::TransferDestination, subresources);

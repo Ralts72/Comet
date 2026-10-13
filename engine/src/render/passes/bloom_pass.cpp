@@ -82,10 +82,13 @@ namespace Comet {
 
     BloomPass::Passes BloomPass::append_passes(
         RenderGraph& graph, const RenderGraph::ResourceId hdr) {
-        const auto ping = graph.import_image(
-            "bloom ping", {.subresources = {.aspects = Flags<ImageAspect>(ImageAspect::Color)}});
-        const auto pong = graph.import_image(
-            "bloom pong", {.subresources = {.aspects = Flags<ImageAspect>(ImageAspect::Color)}});
+        const ImageState discarded{
+            .resource = {.stages = Flags<PipelineStage>(PipelineStage::ColorAttachmentOutput)
+                                   | PipelineStage::FragmentShader,
+                .access = Flags<Access>(Access::ColorAttachmentWrite)},
+            .subresources = {.aspects = Flags<ImageAspect>(ImageAspect::Color)}};
+        const auto ping = graph.import_image("bloom ping", discarded);
+        const auto pong = graph.import_image("bloom pong", discarded);
         const Flags<PipelineStage> fragment(PipelineStage::FragmentShader);
         const auto extract =
             graph.add_pass({"bloom extract", {{hdr, ResourceUsage::SampledRead, fragment},

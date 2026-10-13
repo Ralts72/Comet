@@ -114,21 +114,9 @@ namespace CometEditor {
             return chosen;
         }
 
-        Actions::Binding composed_binding(
-            const Actions::Binding& binding, const Overrides::Binding& patch) {
-            auto composed = binding;
-            if(patch.control)
-                composed.control = *patch.control;
-            if(patch.scale)
-                composed.scale = *patch.scale;
-            if(patch.deadzone)
-                composed.deadzone = *patch.deadzone;
-            return composed;
-        }
-
         void render_disabled_binding(const Actions::Action& action, const Actions::Binding& binding,
             const Overrides::Binding& patch) {
-            const auto retained = composed_binding(binding, patch);
+            const auto retained = patch.compose(binding);
             const auto name = Actions::format_binding(retained).value();
             ImGui::TextWrapped("%s %s / %s", "已禁用绑定（当前不生效）：",
                 Ui::input_source_name(name.source), name.control.c_str());
@@ -228,28 +216,18 @@ namespace CometEditor {
             ImGui::ClearActiveID();
     }
 
-    void PlayerInputPanel::render_binding(const Action& action, const Binding& binding,
-        Overrides::Resolution& resolved, const Input::Frame& input) {
+    void PlayerInputPanel::render_binding(
+        const Action& action, const Binding& binding, const Input::Frame& input) {
         ImGui::PushID(binding.id.to_string().c_str());
         auto patch = m_edit.binding_patch(action.id, binding.id);
         const auto* action_override = m_edit.action_patch(action.id);
         const bool incompatible = action_override && action_override->type != action.type;
-        bool changed = false;
         bool disabled = patch.disabled && !incompatible;
-        if(ImGui::Checkbox("禁用绑定###Disable Binding", &disabled)) {
+        if(ImGui::Checkbox("禁用绑定###Disable Binding", &disabled))
             m_edit.disable_binding(action.id, binding.id, disabled);
-            changed = true;
-        }
         same_line_if_fits(button_width("恢复绑定默认值"));
-        if(ImGui::Button("恢复绑定默认值###Restore Binding")) {
+        if(ImGui::Button("恢复绑定默认值###Restore Binding"))
             m_edit.restore_binding(action.id, binding.id);
-            changed = true;
-        }
-        if(changed) {
-            auto updated = m_edit.resolution();
-            if(updated)
-                resolved = std::move(updated).value();
-        }
         patch = m_edit.binding_patch(action.id, binding.id);
         if(patch.disabled && !incompatible) {
             render_disabled_binding(action, binding, patch);
@@ -257,6 +235,12 @@ namespace CometEditor {
             ImGui::PopID();
             return;
         }
+        const auto& resolution = m_edit.resolution();
+        if(!resolution) {
+            ImGui::PopID();
+            return;
+        }
+        const auto& resolved = resolution.value();
         const bool overridden = patch.control || patch.scale || patch.deadzone;
         const bool rejected = binding_rejected(resolved, action.id, binding.id);
         const char* status = "继承项目默认";
@@ -268,8 +252,8 @@ namespace CometEditor {
         const auto& effective_bindings = resolved.actions.actions()[m_selected_action].bindings;
         const auto effective = std::ranges::find(effective_bindings, binding.id, &Binding::id);
         ImGui::BeginDisabled(rejected);
-        const auto& effective_binding =
-            effective == effective_bindings.end() ? binding : *effective;
+        // 控件可重建解析结果；只保留正在编辑的绑定值。
+        const auto effective_binding = effective == effective_bindings.end() ? binding : *effective;
         render_controls(action, binding, effective_binding, input);
         ImGui::EndDisabled();
         ImGui::Separator();
@@ -336,19 +320,18 @@ namespace CometEditor {
             ImGui::TextWrapped("%s", "已禁用；个人配置仍保留，重新启用后恢复。");
             return;
         }
-        auto resolved = m_edit.resolution();
-        if(!resolved)
+        if(!m_edit.resolution())
             return;
         ImGui::BeginDisabled(incompatible);
         ImGui::BeginChild("Bindings", ImVec2(0, 190), true);
         for(const auto& binding : action.bindings)
-            render_binding(action, binding, resolved.value(), input);
+            render_binding(action, binding, input);
         ImGui::EndChild();
         ImGui::EndDisabled();
     }
 
     void PlayerInputPanel::render_feedback() {
-        const auto resolved = m_edit.resolution();
+        const auto& resolved = m_edit.resolution();
         if(!resolved) {
             ImGui::TextWrapped("%s", resolved.error().c_str());
             return;
@@ -359,15 +342,16 @@ namespace CometEditor {
             Ui::render_binding_relationships(resolved.value().actions, m_selected_action);
             ImGui::EndChild();
         }
-        render_diagnostics(resolved.value());
+        render_diagnostics(resolved.value().issues);
     }
 
-    void PlayerInputPanel::render_diagnostics(const Overrides::Resolution& resolved) {
-        if(resolved.issues.empty())
+    void PlayerInputPanel::render_diagnostics(std::vector<Overrides::Issue> issues) {
+        if(issues.empty())
             return;
         ImGui::TextWrapped("%s", "不兼容的个人配置暂不生效，恢复默认前仍保留。");
         ImGui::BeginChild("Diagnostics", ImVec2(0, 75), true);
-        for(const auto& issue : resolved.issues) {
+        // 移除覆盖会重建解析结果，只快照需要在本次绘制中遍历的诊断。
+        for(const auto& issue : issues) {
             ImGui::PushID(issue.action.to_string().c_str());
             ImGui::PushID(issue.binding.to_string().c_str());
             ImGui::TextWrapped("%s", issue.message.c_str());

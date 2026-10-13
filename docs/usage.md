@@ -94,6 +94,7 @@ Editor 使用一个视口：Edit 为编辑相机，Play 为运行副本的主相
 左侧按钮提供运行、停止、暂停／继续和单步。“预览”选择分辨率与适应／1:1 显示；Play 游戏 UI 使用同一项目页面。
 
 Edit 中右键或 Option/Alt+左键环绕，中键或 Option/Alt+Shift+左键平移，滚轮缩放；左键选择，F 聚焦选中网格。
+编辑相机默认从 `(10, 8, 12)` 斜上方看向世界原点；项目的游戏相机位置由场景决定。
 工具菜单选择移动／旋转／缩放、世界／局部空间和吸附。缩放使用局部空间；Esc、失焦或隐藏视口取消拖动。
 “视图 → 碰撞体”显示盒、球、角色胶囊和关节反馈；关节字段旁“对齐”按钮调整锚点／方向，Edit 支持撤销。
 
@@ -400,10 +401,13 @@ Project 右键 Shader 源码或程序描述选择“打开源码”。Editor 监
 ./tools/render_benchmark/run.sh
 ./tools/render_benchmark/run.sh --help
 ./tools/render_benchmark/run.sh /tmp/comet-moving.csv 2048 640 360 240 0 64 moving
+./tools/render_benchmark/run.sh /tmp/comet-skeletal.csv 64 640 360 480 0 8 skeletal
 ```
 
-默认报告位于 `build-release/reports/render-benchmark.csv`；支持静态／移动、脚本、光源、裁剪、项目 Shader 及活动／休眠刚体场景。
-报告记录画质与负载、整帧和分段耗时、P50/P95/P99、draw／上传／分配量。
+默认报告位于 `build-release/reports/render-benchmark.csv`；支持静态／移动、脚本、骨骼动画、光源、裁剪、项目 Shader 及活动／休眠刚体场景。
+报告记录画质与负载、整帧和分段耗时、P50/P95/P99、draw／上传量及 VMA 当前分配字节（不代表 CPU 分配次数或内存峰值）。
+`skeletal` 使用默认角色的 `walk` 片段，生产动画系统按每帧 1/60 秒推进，继续使用 Runtime／RenderThread 重叠路径。
+CPU 采样与蒙皮准备包含在渲染准备／录制时间中；当前 GPU graph 区间不包含图录制前的蒙皮 compute，不能把它当作全部 GPU 成本。
 正式比较使用同设备 Release、相同负载，多次交替运行；避免并行构建和其他 GPU 任务。
 CPU 墙钟包含等待，GPU 不包含呈现完成，分段百分位不能相加；旧计时口径应单独比较。
 

@@ -18,6 +18,7 @@ extern "C" {
 #include <cmath>
 #include <map>
 #include <limits>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include "core/frame_pacer.h"
@@ -345,15 +346,9 @@ namespace Comet::Ui {
                 const auto* patch = m_edit.action_patch(action.id);
                 ActionView view{action.id.to_string(), action.name, patch && patch->disabled,
                     !patch || patch->type == action.type, {}};
-                for(auto binding : action.bindings) {
+                for(const auto& binding : action.bindings) {
                     const auto override = m_edit.binding_patch(action.id, binding.id);
-                    if(override.control)
-                        binding.control = *override.control;
-                    if(override.scale)
-                        binding.scale = *override.scale;
-                    if(override.deadzone)
-                        binding.deadzone = *override.deadzone;
-                    const auto formatted = InputActions::format_binding(binding);
+                    const auto formatted = InputActions::format_binding(override.compose(binding));
                     BindingView row;
                     row.id = binding.id.to_string();
                     row.disabled = override.disabled;
@@ -365,6 +360,18 @@ namespace Comet::Ui {
                 }
                 m_actions.push_back(std::move(view));
             }
+        }
+
+        template<class Settings>
+        std::optional<Settings> load_settings(const std::function<Result<Settings>()>& load) {
+            static_assert(std::is_trivially_destructible_v<Settings>);
+            // Lua 分配失败会 longjmp；在进入 Lua 前销毁 Result，错误字符串由宿主持有。
+            auto result = load();
+            m_api_error.clear();
+            if(result)
+                return result.value();
+            m_api_error = std::move(result.error());
+            return std::nullopt;
         }
 
         Window& m_window;
@@ -557,10 +564,10 @@ namespace Comet::Ui {
                 lua_pushnil(state);
                 return 1;
             }
-            auto loaded = m_services.load_display();
+            const auto loaded = load_settings(m_services.load_display);
             if(!loaded) {
                 lua_pushnil(state);
-                lua_pushlstring(state, loaded.error().data(), loaded.error().size());
+                lua_pushlstring(state, m_api_error.data(), m_api_error.size());
                 return 2;
             }
             const auto push_settings = [&](const Comet::DisplaySettings& settings) {
@@ -681,10 +688,10 @@ namespace Comet::Ui {
                 lua_pushnil(state);
                 return 1;
             }
-            const auto loaded = m_services.load_quality();
+            const auto loaded = load_settings(m_services.load_quality);
             if(!loaded) {
                 lua_pushnil(state);
-                lua_pushlstring(state, loaded.error().data(), loaded.error().size());
+                lua_pushlstring(state, m_api_error.data(), m_api_error.size());
                 return 2;
             }
             const auto push_settings = [&](const Comet::QualitySettings& settings) {
@@ -735,10 +742,10 @@ namespace Comet::Ui {
                 lua_pushnil(state);
                 return 1;
             }
-            auto loaded = m_services.load_audio();
+            const auto loaded = load_settings(m_services.load_audio);
             if(!loaded) {
                 lua_pushnil(state);
-                lua_pushlstring(state, loaded.error().data(), loaded.error().size());
+                lua_pushlstring(state, m_api_error.data(), m_api_error.size());
                 return 2;
             }
             const auto push_settings = [&](const Comet::AudioSettings& settings) {
@@ -837,7 +844,7 @@ namespace Comet::Ui {
                 }
                 return 0;
             case Api::InputStatus: {
-                const auto resolved = m_edit.resolution();
+                const auto& resolved = m_edit.resolution();
                 lua_newtable(state);
                 lua_pushboolean(state, m_edit_active);
                 lua_setfield(state, -2, "active");

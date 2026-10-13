@@ -39,10 +39,9 @@ namespace Comet::Graphics {
 
     std::optional<vk::ImageMemoryBarrier2> build_image_memory_barrier(
         const vk::Image image, const ImageState& before, const ImageState& after) {
+        // Undefined 丢弃内容，但源访问范围仍用于同步先前读写。
         if(!before.subresources.is_valid() || before.subresources != after.subresources
             || after.layout == ImageLayout::Undefined || after.layout == ImageLayout::Preinitialized
-            || (before.layout == ImageLayout::Undefined
-                && static_cast<bool>(before.resource.access))
             || !has_valid_access_scope(before.resource) || !has_valid_access_scope(after.resource)
             || !has_stable_queue_owner(before.resource, after.resource)) {
             return std::nullopt;

@@ -5,6 +5,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace CometEditor {
     class PlayerInputPanel final {
@@ -23,14 +24,14 @@ namespace CometEditor {
         using Binding = Comet::InputActions::Binding;
         void render_action_selector();
         void render_actions(const Comet::Input::Frame& input);
-        void render_binding(const Action& action, const Binding& binding,
-            Comet::InputOverrides::Resolution& resolved, const Comet::Input::Frame& input);
+        void render_binding(
+            const Action& action, const Binding& binding, const Comet::Input::Frame& input);
         void render_controls(const Action& action, const Binding& binding, const Binding& effective,
             const Comet::Input::Frame& input);
         void render_capture_button(const Action& action, const Binding& binding,
             Comet::PlayerInputEdit::CaptureKind kind, const Comet::Input::Frame& input);
         void render_feedback();
-        void render_diagnostics(const Comet::InputOverrides::Resolution& resolved);
+        void render_diagnostics(std::vector<Comet::InputOverrides::Issue> issues);
         void render_error();
         void render_content(const Comet::Input::Frame& input);
         void render_footer();

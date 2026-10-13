@@ -741,6 +741,32 @@ namespace Comet::Tests {
         }
     }
 
+    TEST_F(RenderGraphGpuTest, ReusedSceneTargetsWaitForPreviousSamplingBeforeDiscard) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        for(const auto samples : {SampleCount::Count1, SampleCount::Count4}) {
+            MaterialPrograms programs;
+            auto owner = create_scene(programs, {16, 16}, samples);
+            ASSERT_TRUE(owner) << owner.error();
+            auto& scene = *owner.value();
+            const RenderWorld world{.post_process = {.bloom_enabled = true}};
+            ASSERT_TRUE(scene.prepare_post_process(world.post_process));
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            FrameScheduler frames(device, 2);
+            frames.initialize_swapchain_images(2);
+            FrameWait wait{device, frames};
+            begin_frame(frames);
+            // 同一提交内复用目标，让 fence／上传等待无法掩盖缺失的采样 → 丢弃屏障。
+            for(unsigned redraw = 0; redraw < 2; ++redraw) {
+                auto drawn = scene.render(frames, {world}, geometry);
+                ASSERT_TRUE(drawn) << drawn.error();
+                EXPECT_TRUE(drawn.value().empty());
+            }
+            submit(device, frames);
+            frames.wait_for_all_slots();
+        }
+    }
+
     TEST_F(RenderGraphGpuTest, ProductionHdrClearSurvivesMsaaAndTargetGenerationChanges) {
         for(const auto samples : {SampleCount::Count1, SampleCount::Count4}) {
             Config config;

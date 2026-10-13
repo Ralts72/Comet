@@ -10,10 +10,20 @@
 
 #include <algorithm>
 #include <array>
+#include <unordered_set>
 #include <utility>
 
 namespace Comet {
     namespace {
+        void prune_material_sources(RenderWorld& world) {
+            std::unordered_set<AssetHandle> used;
+            used.reserve(world.resolution.material_sources.size());
+            for(const auto& item : world.render_items)
+                used.insert(item.material.material_handle);
+            std::erase_if(world.resolution.material_sources,
+                [&](const auto& entry) { return !used.contains(entry.first); });
+        }
+
         void update_item_values(
             const RenderItem& item, const bool same_scene, ResolvedRenderItem& resolved) {
             if(!same_scene || item.entity_id == INVALID_ENTITY_ID || item.transform_revision == 0
@@ -228,12 +238,14 @@ namespace Comet {
         slots.reserve(items.size());
         const bool same_scene =
             render_scene.scene_lifetime != 0 && world.scene_lifetime == render_scene.scene_lifetime;
+        bool materials_changed = !same_scene || slots.size() != items.size();
         // 完整与局部解析共用相邻 Handle 查询，避免共享资源逐物体重复查找。
         AssetHandle mesh_handle;
         AssetHandle material_handle;
         std::shared_ptr<Mesh> mesh;
         uint64_t mesh_revision = 0;
         MaterialBinding material;
+        enum class MissingResource { None, Mesh, Material };
         const auto resolve_item = [&](const RenderItem& item, ResolvedRenderItem& resolved) {
             if(!resolved.mesh || resolved.mesh_handle != item.mesh_handle) {
                 if(mesh_handle != item.mesh_handle) {
@@ -245,9 +257,10 @@ namespace Comet {
                 resolved.mesh_revision = mesh_revision;
             }
             if(!resolved.mesh)
-                return false;
+                return MissingResource::Mesh;
             if(!resolved.material.resource
                 || resolved.material.material_handle != item.material_handle) {
+                materials_changed = true;
                 if(material_handle != item.material_handle) {
                     material_handle = item.material_handle;
                     material = resolve_material(material_handle, world);
@@ -255,8 +268,8 @@ namespace Comet {
                 resolved.material = material;
             }
             if(!resolved.material.resource)
-                return false;
-            return true;
+                return MissingResource::Material;
+            return MissingResource::None;
         };
         const auto& changes = render_scene.item_changes;
         auto& pending = world.resolution.pending_asset_slots;
@@ -272,6 +285,7 @@ namespace Comet {
                 || changes.can_apply(
                     world.resolution.input_revision, slots.size(), items.size()))) {
             if(!unchanged) {
+                materials_changed |= !changes.structure.empty();
                 const bool combine_assets = !pending.empty();
                 auto count = slots.size();
                 for(const auto& edit : changes.structure) {
@@ -294,7 +308,7 @@ namespace Comet {
             }
             bool complete = true;
             for(const auto index : pending) {
-                if(!resolve_item(items[index], slots[index])) {
+                if(resolve_item(items[index], slots[index]) != MissingResource::None) {
                     complete = false;
                     break;
                 }
@@ -308,6 +322,8 @@ namespace Comet {
                         world.item_changes.structure = changes.structure;
                 }
                 world.resolution.input_revision = changes.revision;
+                if(materials_changed)
+                    prune_material_sources(world);
                 return;
             }
         }
@@ -325,53 +341,26 @@ namespace Comet {
             if(item_count == slots.size())
                 slots.emplace_back();
             auto& resolved = slots[item_count];
-            const bool same_mesh = resolved.mesh && resolved.mesh_handle == item.mesh_handle;
-            const bool same_material = resolved.material.resource
-                                       && resolved.material.material_handle == item.material_handle;
-            if(!same_mesh || !same_material) {
-                if(!same_mesh && mesh_handle != item.mesh_handle) {
-                    mesh_handle = item.mesh_handle;
-                    mesh = m_asset_registry.resolve<Mesh>(item.mesh_handle, &mesh_revision);
-                }
-                const auto& item_mesh = same_mesh ? resolved.mesh : mesh;
-                if(!item_mesh) {
-                    const auto [entry, inserted] =
-                        m_missing_mesh_handles.try_emplace(item.mesh_handle, true);
-                    entry->second = true;
-                    if(inserted)
-                        LOG_ERROR("Render item references missing mesh handle {}",
-                            item.mesh_handle.value());
-                    continue;
-                }
-
-                if(!same_material && material_handle != item.material_handle) {
-                    material_handle = item.material_handle;
-                    material = resolve_material(item.material_handle, world);
-                }
-                const auto& item_material =
-                    same_material ? resolved.material.resource : material.resource;
-                if(!item_material) {
-                    const auto [entry, inserted] =
-                        m_missing_material_handles.try_emplace(item.material_handle, true);
-                    entry->second = true;
-                    if(inserted)
-                        LOG_ERROR("Render item references missing material handle {}",
-                            item.material_handle.value());
-                    continue;
-                }
-                if(!same_mesh) {
-                    resolved.mesh_handle = item.mesh_handle;
-                    resolved.mesh_revision = mesh_revision;
-                    resolved.mesh = mesh;
-                }
-                if(!same_material) {
-                    resolved.material = material;
-                }
+            const auto missing = resolve_item(item, resolved);
+            if(missing != MissingResource::None) {
+                const bool mesh_missing = missing == MissingResource::Mesh;
+                const auto handle = mesh_missing ? item.mesh_handle : item.material_handle;
+                auto& diagnostics =
+                    mesh_missing ? m_missing_mesh_handles : m_missing_material_handles;
+                const auto [entry, inserted] = diagnostics.try_emplace(handle, true);
+                entry->second = true;
+                if(inserted)
+                    LOG_ERROR("Render item references missing {} handle {}",
+                        mesh_missing ? "mesh" : "material", handle.value());
+                continue;
             }
             update_item_values(item, same_scene, resolved);
             ++item_count;
         }
+        materials_changed |= slots.size() != item_count;
         slots.resize(item_count);
+        if(materials_changed)
+            prune_material_sources(world);
         world.scene_lifetime = render_scene.scene_lifetime;
         world.resolution.input_revision = changes.revision;
         std::erase_if(m_missing_mesh_handles, [](const auto& entry) { return !entry.second; });

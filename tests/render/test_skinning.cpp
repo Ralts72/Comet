@@ -117,6 +117,19 @@ namespace Comet::Tests {
         EXPECT_NEAR(both, (first + second) / 2, 1);
         m_scene.render_items.pop_back();
         EXPECT_NEAR(centroid(0), first, 1);
+
+        auto plain = m_source;
+        plain.skin.clear();
+        plain.animation.reset();
+        const auto uploaded = engine->get_render_resources().try_create_mesh(plain);
+        ASSERT_TRUE(uploaded);
+        ASSERT_TRUE(engine->get_asset_registry().register_asset(AssetHandle(12), uploaded.value()));
+        m_scene.render_items[0].mesh_handle = AssetHandle(12);
+        for(int frame = 0; frame < 4; ++frame)
+            EXPECT_NEAR(centroid(), (first + second) / 2, 1);
+        m_scene.render_items[0].mesh_handle = AssetHandle(10);
+        for(int frame = 0; frame < 4; ++frame)
+            EXPECT_NEAR(centroid(1), second, 1);
     }
     TEST_F(SkinningGpuTest, MissingClipUsesBindPoseAndReplacementInvalidatesPausedPose) {
         const double first = centroid(0);

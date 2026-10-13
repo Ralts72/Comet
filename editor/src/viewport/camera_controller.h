@@ -13,7 +13,7 @@ namespace CometEditor {
         Comet::RenderCamera::Projection projection = Comet::RenderCamera::Projection::Perspective;
 
         struct PerspectiveState {
-            Comet::Math::Vec3 position{0.0f, 0.0f, 3.0f};
+            Comet::Math::Vec3 position{10.0f, 8.0f, 12.0f};
             Comet::Math::Vec3 up{0.0f, 1.0f, 0.0f};
             float fov_degrees = 45.0f;
         } perspective;
