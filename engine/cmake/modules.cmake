@@ -27,6 +27,7 @@ comet_add_module(world)
 comet_add_module(runtime)
 comet_add_module(audio)
 comet_add_module(physics)
+comet_add_module(gameplay)
 comet_add_module(scripting)
 comet_add_module(asset_pipeline)
 comet_add_module(runtime_assets)
@@ -43,7 +44,8 @@ target_link_libraries(comet_world PUBLIC comet_asset_data EnTT::EnTT)
 target_link_libraries(comet_runtime PUBLIC comet_world comet_input)
 target_link_libraries(comet_audio PUBLIC comet_runtime PRIVATE comet_miniaudio)
 target_link_libraries(comet_physics PUBLIC comet_runtime PRIVATE Jolt::Jolt)
-target_link_libraries(comet_scripting PUBLIC comet_runtime PRIVATE comet_lua)
+target_link_libraries(comet_gameplay PUBLIC comet_runtime)
+target_link_libraries(comet_scripting PUBLIC comet_runtime PRIVATE comet_gameplay comet_lua)
 target_link_libraries(comet_asset_pipeline PUBLIC comet_asset_data PRIVATE stb_image fastgltf::fastgltf)
 target_link_libraries(comet_runtime_assets PUBLIC comet_asset_pipeline PRIVATE comet_audio comet_scripting)
 
@@ -57,7 +59,7 @@ target_link_libraries(comet_render PUBLIC comet_graphics comet_world PRIVATE com
 
 set(COMET_ENGINE_MODULES
     comet_foundation comet_serialization comet_shader_contracts comet_asset_data
-    comet_input comet_world comet_runtime comet_audio comet_physics comet_scripting comet_asset_pipeline
+    comet_input comet_world comet_runtime comet_audio comet_physics comet_gameplay comet_scripting comet_asset_pipeline
     comet_runtime_assets comet_platform comet_graphics comet_render)
 
 include("${CMAKE_CURRENT_LIST_DIR}/game_ui.cmake")

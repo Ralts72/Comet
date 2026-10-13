@@ -41,12 +41,10 @@ TEST(ConfigTest, ProjectProfilesDefineExpectedDiagnosticsPolicy) {
         ProfileExpectation{"editor-dev", "info", false, false},
         ProfileExpectation{"app-release", "warn", false, false}};
 
-    const std::filesystem::path config_directory =
-        std::filesystem::path(std::string(PROJECT_ROOT_DIR)) / "config";
+    const auto config_file = std::filesystem::path(PROJECT_ROOT_DIR) / "config.json";
     for(const auto& expectation : expectations) {
         SCOPED_TRACE(expectation.name);
-        const auto loaded =
-            ConfigLoader{}.load((config_directory / "profiles.json").string(), expectation.name);
+        const auto loaded = ConfigLoader{}.load(config_file.string(), expectation.name);
         ASSERT_TRUE(loaded) << loaded.error();
         const Config& config = loaded.value();
 
@@ -259,7 +257,7 @@ TEST(ConfigTest, ReportsMissingFile) {
 
 TEST(ConfigTest, RejectsMissingAndMalformedProfileContainers) {
     Tests::TemporaryDirectory directory;
-    const auto path = directory.path() / "profiles.json";
+    const auto path = directory.path() / "config.json";
     for(const auto contents : {"{}", "[]", "null", R"({"test": {}, "test": {}})"}) {
         SCOPED_TRACE(contents);
         ASSERT_TRUE(write_text_file_atomic(path, contents));

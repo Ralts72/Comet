@@ -1,5 +1,6 @@
 #include "support/imgui_context.h"
 #include "ui/icons.h"
+#include "ui/resources.h"
 
 #include <gtest/gtest.h>
 #include <imgui_internal.h>
@@ -14,8 +15,7 @@ namespace CometEditor::Tests {
         Comet::Tests::ImGuiTestContext context;
         Ui::IconAtlas icons;
         auto& atlas = *ImGui::GetIO().Fonts;
-        const auto loaded = icons.load(
-            atlas, std::filesystem::path(PROJECT_ROOT_DIR) / "editor/resources/icons/ui");
+        const auto loaded = icons.load(atlas, Comet::Ui::builtin_resource_directory() / "icons");
         ASSERT_TRUE(loaded) << loaded.error();
 
         unsigned char* pixels;

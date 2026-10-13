@@ -1,6 +1,6 @@
 # 引擎架构与运行时边界
 
-本文描述当前模块、所有权和关键时序。功能规划与验收见[路线图](../engine-roadmap.md)，构建和操作见 [README](../../README.md)。
+本文描述当前模块、所有权和关键时序。功能规划与验收见[路线图](../engine-roadmap.md)，构建入口见 [README](../../README.md)，具体操作见[使用手册](../usage.md)。
 
 ## 构建模块
 
@@ -19,7 +19,8 @@
 | Runtime | 时间、暂停／单步、会话与 System 生命周期 | World、Input |
 | Audio | AudioService、Voice、播放设备与 AudioSystem | Runtime、miniaudio |
 | Physics | PhysicsService、刚体世界与 PhysicsSystem | Runtime、Jolt |
-| Scripting | 行为 VM、Lua 校验与 ScriptSystem | Runtime、Lua |
+| Gameplay | 可复用角色输入／移动控制，借用输入快照和 PhysicsAccess | Runtime |
+| Scripting | 行为 VM、Lua 校验与 ScriptSystem，以及 Gameplay 桥接 | Runtime、Gameplay、Lua |
 | AssetPipeline | 扫描、索引、源导入、Artifact 与任务队列 | AssetData、stb_image、fastgltf |
 | RuntimeAssets | 需求、加载、失效、版本编排和资源发布契约 | AssetPipeline、Audio／Script 定义 |
 | Platform | Window、GLFW 事件、输入采样与剪贴板 | Input、GLFW |
@@ -47,7 +48,9 @@ flowchart TD
     Runtime --> Input
     Audio --> Runtime
     Physics --> Runtime
+    Gameplay --> Runtime
     Scripting --> Runtime
+    Scripting --> Gameplay
     Render --> World
     Render --> Graphics
     GameUi --> Render
@@ -173,7 +176,7 @@ App 依据最终 UI 状态授权，Editor 依据视口焦点／悬停授权；�
 | 设置来源 | 保存位置 | 负责内容 |
 | --- | --- | --- |
 | C++ 默认值 | 所属模块的设置结构 | 完整、可运行的基础默认值 |
-| 开发者 Profile | `config/profiles.json` 的对应分组 | 诊断、底层格式／交换链／在途帧参数、资源预算；启动只选择一个分组，缺省值来自 C++ |
+| 开发者 Profile | 根目录 `config.json` 的对应分组 | 诊断、底层格式／交换链／在途帧参数、资源预算；启动只选择一个分组，缺省值来自 C++ |
 | 项目默认值 | `project.json` | 游戏显示、画质、音量、输入和 UI 入口 |
 | 玩家选择 | 按项目 UUID 隔离的用户目录 | display／quality／audio 完整设置与输入稀疏覆盖 |
 | 编辑器本地状态 | 用户／项目本地状态目录 | 窗口、布局、快捷键、最近项目和会话 |
@@ -277,6 +280,13 @@ ScriptSystem 不监听文件、不另建资产版本缓存；UI 控制器的 VM 
 场景组件保存参数覆盖，运行实例只覆盖对应实体；共用 Material 资产保持原内容。
 字段类型和值范围复用材质布局契约；Stop／运行副本销毁清除运行覆盖，不把 GPU descriptor 或文件操作暴露给 Lua。
 
+## Gameplay 基础能力
+
+`gameplay/CharacterController` 负责把项目动作转换为世界 XZ 移动与地面跳跃意图，借用本次 InputState 和 PhysicsAccess；不持有世界、后端对象或玩法会话。
+动作名可配置，移动轴保持模拟量；归一化及胶囊求解仍由 Physics 负责。失焦或调用方停用控制时提交零意图，重力和移动平台跟随不停止。
+Lua 的 `comet.control_character(enabled, actions)` 调用相同 C++ 控制器，返回是否提交跳跃，供项目触发声音／动画；项目继续决定输入组、计分、完成与重开。
+基础控制在固定更新、物理步进前调用，复用既有运行调度。后续角色朝向、相机参照、移动状态及 root motion 在 Gameplay 扩展，碰撞求解保持在 Physics；当前目录只包含已有消费者需要的能力。
+
 ## 项目 UI 控制器
 
 RmlContext 提供通用文档、字体、输入与 Overlay 适配，不认识 demo 动作或菜单。项目的 `ui` 清单决定页面和控制器入口。
@@ -290,6 +300,7 @@ Editor 的 GameUi 适配器只借用 Window、Renderer、Project 和设置服务
 候选页面／模型／控制器在独立的临时 RmlUi Context 中准备，复用同一个 Core、字体和渲染后端；验证和 GPU 准备成功后一起替换，失败保留旧 DOM、绑定、焦点与草稿，不累计失败候选的字段。事件核对当前文档身份；准备期允许读取设置和调整候选页面，宿主应用／保存服务只在发布后开放。
 UI Lua 执行错误保留独立 Error.code 分类。Editor GameUi 停用故障界面、释放游戏输入并显示诊断，显式重载成功后恢复；不结束 Editor 或丢弃未保存内容。GPU 错误仍沿渲染错误路径返回，App 的生命周期失败策略由 App 决定。
 RmlUi Core 和 FreeType 静态编入 engine；FreeType 是字体后端。App／Editor 共用 engine 字体，ImGui／RmlUi 分别做图集和回退。
+基础 UI PNG 由 Engine 保存并随构建复制，Editor 图集与项目 RmlUi 共用同一资源目录。RML／RCSS 的 `comet://ui/` 引用只解析内置目录中的文件；项目图片继续按原路径读取。内置图片不作为项目资产或源码依赖，项目页面、主题与玩法素材仍由项目拥有。
 Editor 文案固定中文并内置在所属界面的 C++ 代码中，ImGui 稳定 ID 与显示文字分离。
 Inspector 初始化时准备自己的中文显示描述，沿用引擎字段身份和读写回调；项目／脚本名称、原始诊断和日志保持原文。
 当前一个进程只允许一个拥有 RmlUi Core 的 RmlContext；热重载的临时原生 Context 共用该 owner，不提供多个独立 UI 会话。

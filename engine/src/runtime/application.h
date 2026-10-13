@@ -13,7 +13,7 @@
 
 namespace Comet {
     struct LaunchOptions {
-        std::filesystem::path config_directory;
+        std::filesystem::path config_file;
         std::string config_profile;
     };
 

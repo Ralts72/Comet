@@ -59,9 +59,13 @@ namespace CometEditor {
         void set_fps(const float fps) { m_fps = fps; }
 
     private:
-        void render_file_menu(std::span<const std::filesystem::path> recent_projects);
+        void render_file_menu(const std::filesystem::path& current_scene,
+            std::span<const std::filesystem::path> recent_projects);
         void render_project_menu(
             const std::filesystem::path& current_scene, const std::filesystem::path& startup_scene);
+        void render_scene_menu(const char* label, Command command,
+            const std::filesystem::path& current_scene,
+            const std::filesystem::path& selected_scene);
         void render_edit_menu();
         void render_view_menu();
         [[nodiscard]] bool can_undo() const {

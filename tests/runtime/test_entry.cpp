@@ -54,15 +54,16 @@ namespace Comet::Tests {
         }
 
         LaunchOptions options{
-            .config_directory = std::filesystem::temp_directory_path()
-                                / ("comet_entry_missing_" + std::to_string(std::random_device{}())),
+            .config_file = std::filesystem::temp_directory_path()
+                           / ("comet_entry_missing_" + std::to_string(std::random_device{}()))
+                           / "config.json",
             .config_profile = "test"};
 
         void SetUp() override {
             DefaultApplication::constructions = 0;
             DefaultApplication::destructions = 0;
             received.clear();
-            ASSERT_FALSE(std::filesystem::exists(options.config_directory));
+            ASSERT_FALSE(std::filesystem::exists(options.config_file));
         }
     };
 
@@ -92,7 +93,7 @@ namespace Comet::Tests {
         const int result = launch(1, arguments, options, {}, create_default);
         const auto error = ::testing::internal::GetCapturedStderr();
         EXPECT_EQ(result, 1);
-        EXPECT_NE(error.find("profiles.json"), std::string::npos);
+        EXPECT_NE(error.find(options.config_file.string()), std::string::npos);
         EXPECT_EQ(DefaultApplication::constructions, 1);
         EXPECT_EQ(DefaultApplication::destructions, 1);
     }

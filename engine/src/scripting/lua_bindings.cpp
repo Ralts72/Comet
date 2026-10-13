@@ -1,4 +1,5 @@
 #include "scripting/lua_bindings.h"
+#include "gameplay/character_controller.h"
 #include "audio/audio_commands.h"
 #include "physics/physics_access.h"
 #include "scene/scene.h"
@@ -356,6 +357,73 @@ namespace Comet::LuaBindings {
             lua_pushboolean(state, character->grounded);
             return 1;
         }
+        std::string_view character_action(
+            lua_State* state, const char* field, const std::string_view default_name) {
+            lua_getfield(state, 2, field);
+            if(lua_isnil(state, -1)) {
+                lua_pop(state, 1);
+                return default_name;
+            }
+            luaL_checktype(state, -1, LUA_TSTRING);
+            size_t length = 0;
+            const char* name = lua_tolstring(state, -1, &length);
+            const std::string_view value(name, length);
+            if(!InputActions::valid_name(value))
+                luaL_error(state, "Invalid character action name: %s", field);
+            lua_pop(state, 1);
+            return value;
+        }
+        int control_character(lua_State* state) {
+            if(lua_gettop(state) > 2)
+                return luaL_error(
+                    state, "control_character expects an enabled boolean and action names");
+            bool enabled = true;
+            if(lua_gettop(state) >= 1) {
+                luaL_checktype(state, 1, LUA_TBOOLEAN);
+                enabled = lua_toboolean(state, 1);
+            }
+            Gameplay::CharacterController controller;
+            if(lua_gettop(state) == 2) {
+                luaL_checktype(state, 2, LUA_TTABLE);
+                if(lua_getmetatable(state, 2))
+                    return luaL_error(state, "Character action names must be a plain table");
+                lua_pushnil(state);
+                while(lua_next(state, 2)) {
+                    luaL_checktype(state, -2, LUA_TSTRING);
+                    size_t length = 0;
+                    const char* name = lua_tolstring(state, -2, &length);
+                    const std::string_view key(name, length);
+                    if(key != "move_x" && key != "move_z" && key != "jump")
+                        return luaL_error(state, "Unknown character action field: %s", key.data());
+                    lua_pop(state, 1);
+                }
+                controller.move_x = character_action(state, "move_x", controller.move_x);
+                controller.move_z = character_action(state, "move_z", controller.move_z);
+                controller.jump = character_action(state, "jump", controller.jump);
+            }
+            auto& context = current(state);
+            if(!context.input)
+                return luaL_error(
+                    state, "Character control requires runtime input during an update");
+            auto& physics = require_physics(state);
+            bool jumping = false;
+            context.return_value.reset();
+            {
+                const auto result =
+                    controller.update(context.entity, *context.input, physics, enabled);
+                if(result)
+                    jumping = result.value();
+                else
+                    context.return_value = result.error();
+            }
+            if(context.return_value) {
+                const auto& error = std::get<std::string>(*context.return_value);
+                lua_pushlstring(state, error.data(), error.size());
+                return lua_error(state);
+            }
+            lua_pushboolean(state, jumping);
+            return 1;
+        }
         int set_material_scalar(lua_State* state) {
             auto& context = current(state);
             if(!context.scene || !context.materials)
@@ -620,11 +688,11 @@ namespace Comet::LuaBindings {
             {"apply_torque", apply_torque}, {"linear_velocity", linear_velocity},
             {"angular_velocity", angular_velocity}, {"set_material_scalar", set_material_scalar},
             {"move_character", move_character}, {"character_grounded", character_grounded},
-            {"set_material_vector", set_material_vector}, {"session_get", session_get},
-            {"session_set", session_set}, {"emit", emit}, {"set_input_context", set_input_context},
-            {"action_value", action_value}, {"action_down", action_down},
-            {"action_pressed", action_pressed}, {"action_released", action_released},
-            {nullptr, nullptr}};
+            {"control_character", control_character}, {"set_material_vector", set_material_vector},
+            {"session_get", session_get}, {"session_set", session_set}, {"emit", emit},
+            {"set_input_context", set_input_context}, {"action_value", action_value},
+            {"action_down", action_down}, {"action_pressed", action_pressed},
+            {"action_released", action_released}, {nullptr, nullptr}};
         luaL_setfuncs(state, api, 1);
         lua_setglobal(state, "comet");
     }

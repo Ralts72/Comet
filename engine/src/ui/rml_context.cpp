@@ -2,6 +2,7 @@
 
 #include "ui/rml_platform.h"
 #include "ui/rml_renderer.h"
+#include "ui/resources.h"
 #include "common/scope_exit.h"
 #include "core/window.h"
 #include "diagnostics/logger.h"
@@ -54,15 +55,23 @@ namespace Comet::Ui {
                 : m_documents(std::move(documents)), m_fonts(std::move(fonts)) {}
 
             Rml::FileHandle Open(const Rml::String& name) override {
-                if(name.find("://") != std::string::npos)
-                    return 0;
                 std::error_code error;
-                auto path = std::filesystem::path(name);
-                if(path.is_relative())
-                    path = m_documents / path;
-                path = std::filesystem::canonical(path, error);
-                if(error || (!inside_root(path, m_documents) && !inside_root(path, m_fonts)))
-                    return 0;
+                std::filesystem::path path;
+                if(name.starts_with(builtin_resource_prefix)) {
+                    auto resource = resolve_builtin_resource(name);
+                    if(!resource)
+                        return 0;
+                    path = std::move(resource).value();
+                } else {
+                    if(name.find("://") != std::string::npos)
+                        return 0;
+                    path = name;
+                    if(path.is_relative())
+                        path = m_documents / path;
+                    path = std::filesystem::canonical(path, error);
+                    if(error || (!inside_root(path, m_documents) && !inside_root(path, m_fonts)))
+                        return 0;
+                }
                 const auto size = std::filesystem::file_size(path, error);
                 if(error || size > max_file_bytes)
                     return 0;

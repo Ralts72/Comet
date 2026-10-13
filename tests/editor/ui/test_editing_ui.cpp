@@ -2367,6 +2367,44 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(menu.take_request());
     }
 
+    TEST(MenuBarTest, SceneSwitchSelectsOtherProjectSceneAndKeepsCurrentSceneDisabled) {
+        Comet::Tests::ImGuiTestContext imgui;
+        EditorState state;
+        CommandHistory history;
+        EditorShortcuts shortcuts;
+        MenuBar menu(state, history, shortcuts);
+        const std::filesystem::path current = "scenes/main.scene";
+        const std::filesystem::path other = "levels/main.scene";
+        menu.set_available_scenes({current, other});
+        const auto frame = [&] {
+            ImGui::NewFrame();
+            menu.render(current, current);
+            ImGui::Render();
+        };
+        frame();
+        const auto* bar = ImGui::FindWindowByName("##MainMenuBar");
+        ASSERT_NE(bar, nullptr);
+        ImGui::ActivateItemByID(ImHashStr("File", 0, ImHashStr("##MenuBar", 0, bar->ID)));
+        frame();
+        frame();
+        ASSERT_FALSE(GImGui->OpenPopupStack.empty());
+        auto* popup = GImGui->OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID("Switch Scene"));
+        frame();
+        frame();
+        ASSERT_EQ(GImGui->OpenPopupStack.Size, 2);
+        popup = GImGui->OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID(current.generic_string().c_str()));
+        frame();
+        EXPECT_FALSE(menu.take_request());
+        ImGui::ActivateItemByID(popup->GetID(other.generic_string().c_str()));
+        frame();
+        EXPECT_EQ(menu.take_request(), (MenuBar::Request{MenuBar::Command::OpenScene, other}));
+        EXPECT_FALSE(menu.take_request());
+    }
+
     TEST(MenuBarTest, RecentProjectSelectionProvidesPath) {
         Comet::Tests::ImGuiTestContext imgui;
         EditorState state;

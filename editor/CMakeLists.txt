@@ -68,8 +68,7 @@ target_include_directories(editor_imgui
         PRIVATE "${COMET_EDITOR_SHADER_DIRECTORY}/include")
 target_link_libraries(editor_imgui PUBLIC engine imgui)
 target_compile_definitions(editor_imgui PRIVATE
-        COMET_EDITOR_FONT_DIRECTORY="${CMAKE_SOURCE_DIR}/engine/resources/fonts"
-        COMET_EDITOR_ICON_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/ui")
+        COMET_EDITOR_FONT_DIRECTORY="${CMAKE_SOURCE_DIR}/engine/resources/fonts")
 target_compile_options(editor_imgui PUBLIC "$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
 
 add_library(editor_ui STATIC
@@ -125,6 +124,6 @@ target_link_libraries(editor PRIVATE editor_ui)
 comet_copy_runtime_dependencies(editor)
 target_compile_definitions(editor PRIVATE
         COMET_BUILTIN_SHADER_DIRECTORY="${CMAKE_SOURCE_DIR}/engine/shaders"
-        COMET_CONFIG_DIRECTORY="${CMAKE_SOURCE_DIR}/config"
+        COMET_CONFIG_FILE="${CMAKE_SOURCE_DIR}/config.json"
         COMET_CONFIG_PROFILE="${COMET_CONFIG_PROFILE}"
 )

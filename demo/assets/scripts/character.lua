@@ -18,16 +18,9 @@ function script:fixed_update()
         comet.restart_scene()
         return
     end
-    if comet.session_get("character.finished") then
-        comet.move_character(0, 0, false)
-        return
-    end
-    local jump = comet.action_pressed("character.jump")
-    if jump and comet.character_grounded() then
+    if comet.control_character(not comet.session_get("character.finished")) then
         comet.play_one_shot()
     end
-    comet.move_character(comet.action_value("character.move_x"),
-        comet.action_value("character.move_z"), jump)
 end
 
 function script:on_stop()

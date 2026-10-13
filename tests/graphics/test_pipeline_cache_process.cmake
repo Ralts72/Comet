@@ -1,10 +1,10 @@
 string(RANDOM LENGTH 12 RANDOM_SUFFIX)
 set(ROOT "${TEST_ROOT}/${RANDOM_SUFFIX} cache")
-file(MAKE_DIRECTORY "${ROOT}/config")
-file(WRITE "${ROOT}/config/profiles.json"
+file(MAKE_DIRECTORY "${ROOT}")
+file(WRITE "${ROOT}/config.json"
         [=[{"probe": {"diagnostics": {"enable_validation": true, "enable_file_logging": false, "log_level": "info"}}}]=])
 foreach(EXPECTED IN ITEMS missing restored)
-    execute_process(COMMAND "${PROBE}" "${ROOT}/config" "${ROOT}/cache" "${EXPECTED}"
+    execute_process(COMMAND "${PROBE}" "${ROOT}/config.json" "${ROOT}/cache" "${EXPECTED}"
             RESULT_VARIABLE RESULT OUTPUT_VARIABLE OUTPUT ERROR_VARIABLE ERROR TIMEOUT 30)
     if (NOT RESULT STREQUAL "0" OR "${OUTPUT}${ERROR}" MATCHES "VUID-|Validation Error")
         message(FATAL_ERROR "Cache ${EXPECTED} process failed (${RESULT})\n${OUTPUT}\n${ERROR}")

@@ -17,6 +17,6 @@ namespace Comet {
 #define RUN_APP(Factory, ...)                                                                      \
     int main(int argc, char** argv) {                                                              \
         return Comet::launch(argc, argv,                                                           \
-            {.config_directory = COMET_CONFIG_DIRECTORY, .config_profile = COMET_CONFIG_PROFILE},  \
+            {.config_file = COMET_CONFIG_FILE, .config_profile = COMET_CONFIG_PROFILE},            \
             std::string_view{__VA_ARGS__}, Factory);                                               \
     }

@@ -97,6 +97,11 @@ set(COMET_PHYSICS_SOURCES
     src/scene/systems/physics_system.h
 )
 
+set(COMET_GAMEPLAY_SOURCES
+    src/gameplay/character_controller.cpp
+    src/gameplay/character_controller.h
+)
+
 set(COMET_SCRIPTING_SOURCES
     src/scripting/script_instance.cpp
     src/scripting/script_instance.h
@@ -224,5 +229,7 @@ set(COMET_GAME_UI_SOURCES
     src/ui/rml_renderer.cpp
     src/ui/project_ui.cpp
     src/ui/resource_dependencies.cpp
+    src/ui/resources.cpp
+    src/ui/resources.h
     src/ui/lua_controller.cpp
 )

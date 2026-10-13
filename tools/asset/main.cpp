@@ -18,11 +18,9 @@ int main(int argc, char** argv) {
         return 1;
     }
     const auto start = std::chrono::steady_clock::now();
-    const std::filesystem::path config_directory = COMET_CONFIG_DIRECTORY;
     Comet::Config config;
     if(!std::string_view(COMET_CONFIG_PROFILE).empty()) {
-        auto loaded = Comet::ConfigLoader{}.load(
-            (config_directory / "profiles.json").string(), COMET_CONFIG_PROFILE);
+        auto loaded = Comet::ConfigLoader{}.load(COMET_CONFIG_FILE, COMET_CONFIG_PROFILE);
         if(!loaded) {
             std::cerr << loaded.error() << '\n';
             return 1;

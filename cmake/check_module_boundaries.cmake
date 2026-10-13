@@ -44,7 +44,8 @@ set(AUDIO_HEADERS "${RUNTIME_HEADERS}|audio/|scene/systems/audio_system\\.h$")
 
 set(PHYSICS_HEADERS "${RUNTIME_HEADERS}|physics/|scene/systems/physics_system\\.h$")
 set(PHYSICS_BACKEND_HEADERS "${ASSET_HEADERS}|audio/audio_category\\.h$|physics/|scene/(components|entity_id|entity_uuid|scene_settings)\\.h$")
-set(SCRIPTING_HEADERS "${RUNTIME_HEADERS}|scripting/|scene/systems/script_system\\.h$")
+set(GAMEPLAY_HEADERS "${RUNTIME_HEADERS}|gameplay/")
+set(SCRIPTING_HEADERS "${GAMEPLAY_HEADERS}|scripting/|scene/systems/script_system\\.h$")
 set(RUNTIME_ASSET_HEADERS "${PIPELINE_HEADERS}|${AUDIO_DATA_HEADERS}|asset/(asset_manager\\.h$|runtime/)|scripting/script_compiler\\.h$|audio/audio\\.h$|graphics/error\\.h$")
 set(RENDER_ASSET_HEADERS "${FOUNDATION_HEADERS}|asset/handle\\.h$|asset/data/|asset/runtime/render_asset_factory\\.h$|graphics/|render/(resource/|material/material\\.h$)")
 set(PLATFORM_HEADERS "${INPUT_HEADERS}|core/(window|window_settings)\\.h$")
@@ -122,6 +123,7 @@ check_module_closure(Audio "${COMET_AUDIO_SOURCES}" "${AUDIO_HEADERS}")
 check_module_closure(Physics "${COMET_PHYSICS_SOURCES}" "${PHYSICS_HEADERS}")
 check_module_closure(PhysicsBackend "src/physics/physics_service.cpp;src/physics/physics_service.h"
     "${PHYSICS_BACKEND_HEADERS}")
+check_module_closure(Gameplay "${COMET_GAMEPLAY_SOURCES}" "${GAMEPLAY_HEADERS}")
 check_module_closure(Scripting "${COMET_SCRIPTING_SOURCES}" "${SCRIPTING_HEADERS}")
 check_module_closure(AssetPipeline "${COMET_ASSET_PIPELINE_SOURCES}" "${PIPELINE_HEADERS}")
 check_module_closure(RuntimeAssets "${COMET_RUNTIME_ASSETS_SOURCES}" "${RUNTIME_ASSET_HEADERS}")
@@ -144,13 +146,13 @@ check_includes("${ENGINE_SOURCE}" "${ENGINE_CORE_FILES}" "RmlUi/|ui/rml_"
     "Only the Engine UI module may depend on RmlUi")
 
 set(LOW_LEVEL_FILES)
-foreach(directory common input scene scripting audio physics)
+foreach(directory common input scene scripting audio physics gameplay)
     file(GLOB_RECURSE files RELATIVE "${ENGINE_SOURCE}"
         "${ENGINE_SOURCE}/${directory}/*.h" "${ENGINE_SOURCE}/${directory}/*.cpp")
     list(APPEND LOW_LEVEL_FILES ${files})
 endforeach()
 check_includes("${ENGINE_SOURCE}" "${LOW_LEVEL_FILES}" "render/|graphics/|[Vv]ulkan|GLFW/"
-    "Scene/Input/Scripting/Audio/Physics/Common must not include rendering or platform backends")
+    "Scene/Input/Scripting/Audio/Physics/Gameplay/Common must not include rendering or platform backends")
 
 file(GLOB_RECURSE ASSET_FILES RELATIVE "${ENGINE_SOURCE}"
     "${ENGINE_SOURCE}/asset/*.h" "${ENGINE_SOURCE}/asset/*.cpp")

@@ -84,9 +84,7 @@ namespace Comet {
     }
 
     int run(Application* app, const LaunchOptions& options) {
-        const auto& directory = options.config_directory;
-        auto config =
-            ConfigLoader{}.load((directory / "profiles.json").string(), options.config_profile);
+        auto config = ConfigLoader{}.load(options.config_file.string(), options.config_profile);
         if(!config) {
             std::cerr << "Application failed: " << config.error() << '\n';
             return 1;

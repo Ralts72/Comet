@@ -50,3 +50,5 @@ probe_dependency("src/graphics/context.cpp" "<GLFW/glfw3.h>"
     "Graphics includes a runtime backend")
 probe_dependency("src/scene/scene.cpp" "\"scene/runtime_session.h\""
     "World violates module dependencies")
+probe_dependency("src/gameplay/character_controller.cpp" "\"physics/physics_service.h\""
+    "Gameplay violates module dependencies")

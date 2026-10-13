@@ -1,4 +1,5 @@
 #include "ui/imgui_context.h"
+#include "ui/resources.h"
 #include "common/scope_exit.h"
 #include "graphics/context.h"
 #include "graphics/device.h"
@@ -262,7 +263,8 @@ namespace CometEditor::Ui {
             return Comet::Result<void, Comet::GraphicsError>::failure(
                 {"Cannot load ImGui Chinese font"});
 
-        if(auto icons = m_icons.load(*io.Fonts, COMET_EDITOR_ICON_DIRECTORY); !icons)
+        if(auto icons = m_icons.load(*io.Fonts, Comet::Ui::builtin_resource_directory() / "icons");
+            !icons)
             return Comet::Result<void, Comet::GraphicsError>::failure({icons.error()});
 
         ImGui::StyleColorsDark();

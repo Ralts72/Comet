@@ -1,5 +1,6 @@
 #include "input/player_input_edit.h"
 #include "asset/import/texture_importer.h"
+#include "ui/resources.h"
 
 #include <RmlUi/Core.h>
 #include <RmlUi/Core/DataModelHandle.h>
@@ -34,7 +35,15 @@ namespace {
             EXPECT_EQ(geometry.erase(handle), 1u);
         }
         Rml::TextureHandle LoadTexture(Rml::Vector2i& size, const Rml::String& source) override {
-            auto image = Comet::TextureImporter{}.import(source, {.flip_y = false});
+            std::filesystem::path path(source);
+            if(source.starts_with(Comet::Ui::builtin_resource_prefix)) {
+                auto resource = Comet::Ui::resolve_builtin_resource(source);
+                EXPECT_TRUE(resource) << resource.error();
+                if(!resource)
+                    return 0;
+                path = std::move(resource).value();
+            }
+            auto image = Comet::TextureImporter{}.import(path, {.flip_y = false});
             EXPECT_TRUE(image) << image.error();
             if(!image)
                 return 0;

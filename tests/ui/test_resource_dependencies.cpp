@@ -119,6 +119,33 @@ namespace Comet::Tests {
         EXPECT_FALSE(collect());
     }
 
+    TEST_F(UiResourceDependenciesTest, BuiltInIconsRemainOutsideTheProjectDependencyClosure) {
+        write(entry.document, R"(<rml><head><link type="text/rcss" href="theme.rcss" /></head>
+            <body><img src="comet://ui/icons/settings.png" />
+            <img src="../images/icon.png" /></body></rml>)");
+        write("ui/theme.rcss", R"(
+            @spritesheet defaults { src: comet://ui/icons/play.png; play: 0px 0px 64px 64px; }
+            .button { decorator: image('comet://ui/icons/close.png'); }
+        )");
+        const auto resources = collect();
+        ASSERT_TRUE(resources) << resources.error();
+        EXPECT_EQ(resources.value(), (std::vector<std::filesystem::path>{"images/icon.png",
+                                         "ui/menu.rml", "ui/menu.ui.lua", "ui/theme.rcss"}));
+    }
+
+    TEST_F(UiResourceDependenciesTest, MissingAndEscapingBuiltInImagesAreReportedBeforeLoading) {
+        for(const auto* source : {"comet://ui/icons/missing.png",
+                "comet://ui/../fonts/Roboto-Bold.ttf", "comet://ui/icons/../icons/play.png",
+                "comet://ui/icons", "comet://ui//etc/passwd", "comet://ui/icons\\play.png"}) {
+            SCOPED_TRACE(source);
+            write(entry.document,
+                "<rml><body><img src=\"" + std::string(source) + "\" /></body></rml>");
+            const auto resources = collect();
+            ASSERT_FALSE(resources);
+            EXPECT_NE(resources.error().find("ui/menu.rml"), std::string::npos);
+        }
+    }
+
     TEST_F(UiResourceDependenciesTest, ResolvesSymlinksWithoutDroppingTheReferencedExportPath) {
         std::error_code error;
         std::filesystem::create_symlink(

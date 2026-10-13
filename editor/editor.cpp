@@ -686,8 +686,13 @@ namespace {
                     m_scene_document->request({CometEditor::SceneDocument::Action::New, {}});
                     break;
                 case CometEditor::MenuBar::Command::OpenScene:
-                    m_path_dialog.request(CometEditor::PathDialog::Action::OpenScene,
-                        m_scene_document->get_path(), m_project.paths().assets() / "scenes");
+                    if(request.path.empty()) {
+                        m_path_dialog.request(CometEditor::PathDialog::Action::OpenScene,
+                            m_scene_document->get_path(), m_project.paths().assets() / "scenes");
+                    } else {
+                        m_scene_document->request(
+                            {CometEditor::SceneDocument::Action::Open, request.path.string()});
+                    }
                     break;
                 case CometEditor::MenuBar::Command::SaveScene:
                     if(m_scene_document->get_path().empty()) {
@@ -1341,9 +1346,7 @@ int main(int argc, char** argv) {
             std::cerr << "Application failed: " << project.error() << '\n';
             return 1;
         }
-        const std::filesystem::path config_directory = COMET_CONFIG_DIRECTORY;
-        auto config = Comet::ConfigLoader{}.load(
-            (config_directory / "profiles.json").string(), COMET_CONFIG_PROFILE);
+        auto config = Comet::ConfigLoader{}.load(COMET_CONFIG_FILE, COMET_CONFIG_PROFILE);
         if(!config) {
             std::cerr << "Application failed: " << config.error() << '\n';
             return 1;

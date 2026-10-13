@@ -1,4 +1,5 @@
 #include "ui/resource_dependencies.h"
+#include "ui/resources.h"
 #include "common/file_io.h"
 
 #include <RmlUi/Core/BaseXMLParser.h>
@@ -63,7 +64,8 @@ namespace Comet::Ui {
                 }
                 const auto start = i++;
                 while(i < text.size() && !std::isspace(static_cast<unsigned char>(text[i]))
-                      && std::string_view("{}():;,@'\"").find(text[i]) == text.npos
+                      && (std::string_view("{}():;,@'\"").find(text[i]) == text.npos
+                          || text.substr(i, 3) == "://")
                       && text.substr(i, 2) != "/*")
                     ++i;
                 tokens.push_back({std::string(text.substr(start, i - start))});
@@ -84,8 +86,9 @@ namespace Comet::Ui {
             if(property == "src" && (block == Block::Spritesheet || block == Block::FontFace)) {
                 std::string source;
                 const auto append = [&] {
-                    sources.references.push_back(
-                        {owner, source, ResourceType::File, block == Block::FontFace});
+                    sources.references.push_back({owner, source,
+                        block == Block::Spritesheet ? ResourceType::Image : ResourceType::File,
+                        block == Block::FontFace});
                     source.clear();
                 };
                 for(std::size_t i = 2; i < tokens.size(); ++i) {
@@ -186,8 +189,10 @@ namespace Comet::Ui {
                     const auto source = attribute("src");
                     if(!source.empty()) {
                         Reference reference{m_owner, source};
-                        if(tag == "img")
+                        if(tag == "img") {
+                            reference.type = ResourceType::Image;
                             reference.directory = m_document.parent_path();
+                        }
                         m_sources.references.push_back(std::move(reference));
                     }
                 }
@@ -302,6 +307,13 @@ namespace Comet::Ui {
         for(const auto& reference : images) {
             if(sources.sprites.contains(reference.source))
                 continue;
+            if(reference.source.starts_with(builtin_resource_prefix)) {
+                const auto resource = resolve_builtin_resource(reference.source);
+                if(!resource)
+                    return Collected::failure(
+                        reference.owner.generic_string() + ": " + resource.error());
+                continue;
+            }
             auto path = resolve_reference(root, reference);
             if(!path)
                 return Collected::failure(path.error());

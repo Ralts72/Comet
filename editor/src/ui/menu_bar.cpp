@@ -16,7 +16,7 @@ namespace CometEditor {
         const std::filesystem::path& startup_scene,
         std::span<const std::filesystem::path> recent_projects) {
         if(ImGui::BeginMainMenuBar()) {
-            render_file_menu(recent_projects);
+            render_file_menu(current_scene, recent_projects);
             render_project_menu(current_scene, startup_scene);
             render_edit_menu();
             render_view_menu();
@@ -29,7 +29,8 @@ namespace CometEditor {
         }
     }
 
-    void MenuBar::render_file_menu(std::span<const std::filesystem::path> recent_projects) {
+    void MenuBar::render_file_menu(const std::filesystem::path& current_scene,
+        std::span<const std::filesystem::path> recent_projects) {
         if(ImGui::BeginMenu("文件###File", m_state.mode == EditorMode::Edit)) {
             if(ImGui::MenuItem("新建项目###New Project"))
                 m_request = Request{Command::NewProject, {}};
@@ -54,6 +55,8 @@ namespace CometEditor {
                    m_shortcuts.label(EditorShortcuts::Action::OpenScene, mac).c_str())) {
                 m_request = Request{Command::OpenScene, {}};
             }
+            render_scene_menu(
+                "切换场景###Switch Scene", Command::OpenScene, current_scene, current_scene);
             if(ImGui::MenuItem("保存场景###Save Scene",
                    m_shortcuts.label(EditorShortcuts::Action::SaveScene, mac).c_str())) {
                 m_request = Request{Command::SaveScene, {}};
@@ -67,23 +70,8 @@ namespace CometEditor {
         if(ImGui::BeginMenu("项目###Project", m_state.mode == EditorMode::Edit)) {
             if(ImGui::MenuItem("重命名项目...###Rename Project..."))
                 m_request = Request{Command::RenameProject, {}};
-            if(ImGui::BeginMenu("启动场景###Startup Scene")) {
-                for(const auto& path : m_available_scenes) {
-                    if(ImGui::MenuItem(
-                           path.generic_string().c_str(), nullptr, path == startup_scene)) {
-                        m_request = Request{Command::SetStartupScene, path};
-                    }
-                }
-                if(!current_scene.empty()
-                    && std::ranges::find(m_available_scenes, current_scene)
-                           == m_available_scenes.end()) {
-                    if(ImGui::MenuItem(current_scene.generic_string().c_str(), nullptr,
-                           current_scene == startup_scene)) {
-                        m_request = Request{Command::SetStartupScene, current_scene};
-                    }
-                }
-                ImGui::EndMenu();
-            }
+            render_scene_menu(
+                "启动场景###Startup Scene", Command::SetStartupScene, current_scene, startup_scene);
             ImGui::Separator();
             if(ImGui::BeginMenu("设置###Settings")) {
                 if(ImGui::MenuItem("显示###Display"))
@@ -120,6 +108,24 @@ namespace CometEditor {
         }
     }
 
+    void MenuBar::render_scene_menu(const char* label, const Command command,
+        const std::filesystem::path& current_scene, const std::filesystem::path& selected_scene) {
+        if(!ImGui::BeginMenu(label, !m_available_scenes.empty() || !current_scene.empty()))
+            return;
+        const auto item = [&](const std::filesystem::path& path) {
+            const bool selected = path == selected_scene;
+            const bool enabled = command != Command::OpenScene || !selected;
+            if(ImGui::MenuItem(path.generic_string().c_str(), nullptr, selected, enabled))
+                m_request = Request{command, path};
+        };
+        for(const auto& path : m_available_scenes)
+            item(path);
+        if(!current_scene.empty()
+            && std::ranges::find(m_available_scenes, current_scene) == m_available_scenes.end())
+            item(current_scene);
+        ImGui::EndMenu();
+    }
+
     void MenuBar::collect_shortcuts() {
         if(m_request || m_state.mode != EditorMode::Edit || ImGui::GetIO().WantTextInput
             || ImGui::IsAnyItemActive() || ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId))
@@ -147,6 +153,7 @@ namespace CometEditor {
     }
 
     void MenuBar::set_available_scenes(std::vector<std::filesystem::path> scenes) {
+        std::ranges::sort(scenes);
         m_available_scenes = std::move(scenes);
     }
 

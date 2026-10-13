@@ -75,6 +75,7 @@ set(UNIT_TEST_SOURCES
         editor/core/test_transform_gizmo.cpp
         editor/core/test_viewport_layout.cpp
         graphics/test_allocator.cpp
+        gameplay/test_character_controller.cpp
         graphics/test_barrier.cpp
         graphics/test_device_capability.cpp
         graphics/test_queue.cpp
