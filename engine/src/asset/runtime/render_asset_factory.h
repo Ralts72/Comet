@@ -13,7 +13,7 @@ namespace Comet {
     class COMET_API Mesh;
     class COMET_API Texture;
     class COMET_API Material;
-    struct COMET_API Environment;
+    struct Environment;
     struct MeshData;
     struct TextureData;
     struct EnvironmentData;

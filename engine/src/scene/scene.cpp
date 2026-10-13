@@ -98,7 +98,8 @@ namespace Comet {
             const auto id = m_registry.get<IdComponent>(subtree[i]).id;
             const auto children = m_children_by_parent.find(id);
             if(children != m_children_by_parent.end())
-                subtree.insert(subtree.end(), children->second.begin(), children->second.end());
+                for(const auto child : children->second)
+                    subtree.push_back(child);
         }
         // 所有遍历分配在删除前完成，避免半途分配失败留下半棵树。
         remove_child_index(entity.get_component<RelationshipComponent>().parent, entity.m_handle);

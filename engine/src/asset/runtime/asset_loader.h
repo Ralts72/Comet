@@ -18,7 +18,7 @@ namespace Comet {
     class COMET_API Material;
     class ShaderProgramArtifact;
     class AudioClip;
-    struct COMET_API Environment;
+    struct Environment;
     struct MaterialData;
     struct AssetRecord;
     struct TextureImportSettings;

@@ -42,7 +42,7 @@ namespace Comet {
     struct ShaderProgramImportFailure;
     struct ShaderProgramImportCandidate;
     class ShaderProgramArtifact;
-    struct COMET_API Environment;
+    struct Environment;
 
     class COMET_API AssetManager final {
     public:

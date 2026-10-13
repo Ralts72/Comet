@@ -1,4 +1,4 @@
-#include "asset/default_assets.h"
+#include "asset/project_prepare.h"
 #include "scene/systems/audio_system.h"
 #include "scene/systems/physics_system.h"
 #include "core/engine.h"
@@ -9,6 +9,7 @@
 #include "graphics/device.h"
 #include "render/frame_scheduler.h"
 #include "support/engine_fixture.h"
+#include "support/temporary_directory.h"
 #include "support/scene_motion_system.h"
 #include "scene/systems/camera_controller.h"
 #include "scene/script_component.h"
@@ -44,8 +45,16 @@ namespace Comet::Tests {
     using RenderThreadTest = EngineTest;
 
     TEST_F(EngineSceneActivationTest, CharacterDemoLoadsRealAssetsAndRendersWithDefaultSystems) {
-        const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
+        // 独立项目目录，不能借用本机试玩留下的导入缓存。
+        TemporaryDirectory directory;
+        const std::filesystem::path sample = COMET_SAMPLE_PROJECT_DIRECTORY;
+        std::filesystem::copy_file(sample / "project.json", directory.path() / "project.json");
+        std::filesystem::copy(sample / "assets", directory.path() / "assets",
+            std::filesystem::copy_options::recursive);
+        const auto project = Project::load(directory.path());
         ASSERT_TRUE(project) << project.error();
+        const auto imported = prepare_project(project.value());
+        ASSERT_TRUE(imported) << imported.error();
         const auto components = create_scene_component_registry();
         auto loaded =
             SceneSerializer(components)
@@ -59,11 +68,9 @@ namespace Comet::Tests {
         AssetManager assets(project.value().paths(), engine->get_asset_registry(),
             engine->get_render_resource_factory(), engine->get_task_scheduler());
         ASSERT_TRUE(assets.scan().snapshot_updated);
-        for(const auto& reference : references)
-            if(reference.type == AssetType::Mesh && reference.handle != DEFAULT_CHARACTER_MESH)
-                ASSERT_TRUE(assets.import_mesh(reference.handle));
-        ASSERT_TRUE(
-            assets.prepare_references(references, AssetManager::MissingAssetPolicy::FailRequired));
+        const auto prepared =
+            assets.prepare_references(references, AssetManager::MissingAssetPolicy::FailRequired);
+        ASSERT_TRUE(prepared) << prepared.error();
         ASSERT_TRUE(engine->set_input_actions(project.value().input_actions()));
         ASSERT_TRUE(engine->add_default_scene_systems());
         bool activated = false;
