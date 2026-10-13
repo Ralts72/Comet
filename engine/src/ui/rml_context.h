@@ -43,6 +43,7 @@ namespace Comet::Ui {
             std::vector<FontFace> fonts;
         };
         using PrepareDocument = std::function<Result<void>(Rml::ElementDocument&)>;
+        using PrepareContext = std::function<Result<void>(Rml::Context&)>;
 
         static Result<std::unique_ptr<RmlContext>, Error> create(
             Window& window, Renderer& renderer, Options options);
@@ -60,12 +61,13 @@ namespace Comet::Ui {
         [[nodiscard]] bool text_input_active() const;
         [[nodiscard]] bool pointer_blocked() const;
         // 更新布局并收集本帧只读绘制数据；必须在 GPU 录制前调用。
-        [[nodiscard]] Result<void> update();
+        [[nodiscard]] Result<void, Error> update();
 
         // prepare 校验和准备页面，finalize 恢复最终呈现；任一阶段失败均保留当前页面。
+        // prepare_context 在独立候选 Context 中绑定模型，成功后连同页面一起发布。
         [[nodiscard]] Result<Rml::ElementDocument*> replace_document(Rml::ElementDocument* current,
             const std::filesystem::path& file, const PrepareDocument& prepare = {},
-            const PrepareDocument& finalize = {});
+            const PrepareDocument& finalize = {}, const PrepareContext& prepare_context = {});
         // 候选页面会触发 RmlUi 事件；业务回调在发布前应忽略这些事件。
         [[nodiscard]] bool is_loading_document() const;
 

@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 #include <limits>
 #include <utility>
+#include <vector>
 
 namespace Comet::Tests {
     class PhysicsJointTest: public ::testing::Test {
@@ -180,6 +181,73 @@ namespace Comet::Tests {
             ASSERT_TRUE(runtime.advance(0.01));
         for(const auto actor : {point, hinge, slider})
             EXPECT_LT(actor.get_component<TransformComponent>().translation.y, 5);
+    }
+
+    TEST_F(PointJointTest, BatchBreaksKeepUnbrokenJointsValidThroughRebuild) {
+        std::vector<Entity> breaking;
+        for(int index = 0; index < 32; ++index) {
+            const Math::Vec3 position{float(index * 3), 5, 0};
+            auto actor = body("Breaking", BodyMotion::Dynamic, position);
+            actor.add_component<PointJointComponent>(
+                PointJointComponent{.connected_anchor = position, .break_force = 5});
+            breaking.push_back(actor);
+        }
+        auto survivor = body("Survivor", BodyMotion::Dynamic, {-3, 5, 0});
+        survivor.add_component<PointJointComponent>(
+            PointJointComponent{.connected_anchor = {-3, 5, 0}, .break_force = 20});
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_EQ(physics.get_statistics().joints, 33u);
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(physics.get_statistics().joints, 1u);
+        for(const auto actor : breaking)
+            EXPECT_FALSE(actor.get_component<PointJointComponent>().enabled);
+        EXPECT_TRUE(survivor.get_component<PointJointComponent>().enabled);
+        survivor.edit_component<ColliderComponent>(
+            [](auto& collider) { collider.half_extents.x = 0.7f; });
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(physics.get_statistics().joints, 1u);
+        EXPECT_TRUE(survivor.get_component<PointJointComponent>().enabled);
+        survivor.edit_component<PointJointComponent>([](auto& joint) { joint.break_force = 5; });
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_FALSE(survivor.get_component<PointJointComponent>().enabled);
+        EXPECT_EQ(physics.get_statistics().joints, 0u);
+    }
+
+    TEST_F(PointJointTest, BatchBodyRemovalDetachesBothJointEndsAndKeepsKinematicIndexValid) {
+        std::vector<Entity> actors;
+        std::vector<Entity> targets;
+        for(int index = 0; index < 17; ++index) {
+            const float x = float(index * 3);
+            auto target = body("Target", BodyMotion::Kinematic, {x, 5, 0});
+            auto actor = body("Actor", BodyMotion::Dynamic, {x, 3, 0});
+            actor.add_component<PointJointComponent>(PointJointComponent{
+                .connected_body = target.get_uuid(), .anchor = {0, 2, 0}, .break_force = 20});
+            actors.push_back(actor);
+            targets.push_back(target);
+        }
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_EQ(physics.get_statistics().bodies, 34u);
+        ASSERT_EQ(physics.get_statistics().joints, 17u);
+        for(int index = 0; index < 16; ++index) {
+            if(index % 2 == 0)
+                targets[index].remove_component<RigidBodyComponent>();
+            else
+                scene.destroy_entity(actors[index]);
+        }
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(physics.get_statistics().bodies, 18u);
+        EXPECT_EQ(physics.get_statistics().joints, 1u);
+        EXPECT_TRUE(actors.back().get_component<PointJointComponent>().enabled);
+        for(int index = 0; index < 16; index += 2) {
+            EXPECT_FALSE(physics.get_velocity(targets[index]));
+            EXPECT_TRUE(actors[index].get_component<PointJointComponent>().connected_body);
+            targets[index].add_component<RigidBodyComponent>(
+                RigidBodyComponent{.motion = BodyMotion::Kinematic});
+        }
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(physics.get_statistics().bodies, 26u);
+        EXPECT_EQ(physics.get_statistics().joints, 9u);
+        EXPECT_TRUE(runtime.is_active());
     }
 
     TEST_F(HingeJointTest, LockedAxisTorqueBreaksOnlyHingeAndFreeAxisTorqueDoesNotBreak) {

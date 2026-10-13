@@ -15,12 +15,20 @@ namespace CometEditor {
 
     void GameUi::reload() {
         if(m_ui) {
-            if(auto result = m_ui->reload(); !result)
-                LOG_WARN("Cannot reload project UI: {}", result.error());
+            if(auto result = m_ui->reload(); !result) {
+                m_error = result.error();
+                LOG_WARN("Cannot reload project UI: {}", m_error);
+            } else {
+                m_suspended = false;
+                m_error.clear();
+            }
             return;
         }
-        if(!m_project.ui())
+        if(!m_project.ui()) {
+            m_error.clear();
+            m_suspended = false;
             return;
+        }
         m_services.input_actions = m_project.input_actions();
         m_services.display_defaults = m_project.display_settings();
         m_services.quality_defaults = m_project.quality_settings();
@@ -28,11 +36,13 @@ namespace CometEditor {
         auto created = Comet::Ui::ProjectUi::create(m_window, m_renderer, *m_project.ui(),
             {.resource_root = m_project.paths().assets()}, m_services);
         if(!created) {
-            LOG_WARN("Project UI unavailable: {}; use Reload UI after fixing the source",
-                created.error().message);
+            m_error = created.error().message;
+            LOG_WARN("Project UI unavailable: {}; use Reload UI after fixing the source", m_error);
             return;
         }
         m_ui = std::move(created).value();
+        m_suspended = false;
+        m_error.clear();
     }
 
     void GameUi::reset() {
@@ -49,6 +59,8 @@ namespace CometEditor {
             }
         }
         m_ui.reset();
+        m_error.clear();
+        m_suspended = false;
         reload();
     }
 
@@ -65,13 +77,22 @@ namespace CometEditor {
     Comet::Result<Comet::Ui::ProjectUi::FrameResult, Comet::Error> GameUi::frame(
         const Comet::Input::Frame& input, Comet::Ui::ProjectUi::FrameInfo info) {
         using Result = Comet::Result<Comet::Ui::ProjectUi::FrameResult, Comet::Error>;
-        if(!m_ui || !info.view) {
+        if(m_suspended || !m_ui || !info.view) {
             if(m_render)
                 deactivate();
             return Result::success({});
         }
         m_render = true;
-        return m_ui->frame(input, std::move(info));
+        const auto result = m_ui->frame(input, std::move(info));
+        if(result)
+            return Result::success(result.value());
+        if(!Comet::Ui::is_controller_error(result.error()))
+            return Result::failure(result.error());
+        m_error = result.error().message;
+        LOG_ERROR("Project UI stopped: {}; use Reload UI after fixing the controller", m_error);
+        m_suspended = true;
+        deactivate();
+        return Result::success({.blocked = true, .pointer_blocked = true});
     }
 
     std::unique_ptr<Comet::OverlayDraw> GameUi::take_draw_frame() {

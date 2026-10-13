@@ -17,6 +17,7 @@ namespace CometEditor {
         void reset();
         void deactivate();
         [[nodiscard]] bool is_modal() const;
+        [[nodiscard]] const std::string& error() const { return m_error; }
         [[nodiscard]] Comet::Result<Comet::Ui::ProjectUi::FrameResult, Comet::Error> frame(
             const Comet::Input::Frame& input, Comet::Ui::ProjectUi::FrameInfo info);
         [[nodiscard]] std::unique_ptr<Comet::OverlayDraw> take_draw_frame();
@@ -32,5 +33,7 @@ namespace CometEditor {
         Comet::Ui::ProjectUi::Services m_services;
         std::unique_ptr<Comet::Ui::ProjectUi> m_ui;
         bool m_render = false;
+        bool m_suspended = false;
+        std::string m_error;
     };
 }

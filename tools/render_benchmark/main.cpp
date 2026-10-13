@@ -606,16 +606,20 @@ namespace {
                    << " gpu_samples=" << gpu_samples << " gpu_status=" << gpu_status << '\n'
                    << "# gpu_error=" << snapshot.gpu_error << '\n'
                    << "# vma_allocation_bytes=" << allocated << '\n'
-                   << "metric,samples,p50_ms,p95_ms,p99_ms\n";
+                   << "metric,samples,p50_ms,p95_ms,p99_ms,mean_ms\n";
             for(auto& [name, values] : m_samples) {
                 if(values.empty())
                     continue;
+                double total = 0;
+                for(const auto value : values)
+                    total += value;
                 std::sort(values.begin(), values.end());
                 const auto percentile = [&](double p) {
                     return values[static_cast<size_t>(std::ceil(values.size() * p)) - 1];
                 };
                 report << name << ',' << values.size() << ',' << percentile(0.5) << ','
-                       << percentile(0.95) << ',' << percentile(0.99) << '\n';
+                       << percentile(0.95) << ',' << percentile(0.99) << ','
+                       << total / values.size() << '\n';
             }
             const auto written = Comet::write_text_file_atomic(m_options.output, report.str());
             if(written)

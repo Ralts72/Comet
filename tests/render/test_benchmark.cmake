@@ -86,7 +86,7 @@ foreach(case static-0 static-1 scaled multi moving moving-singles script-moving 
             cpu_scene_extract cpu_asset_resolution cpu_material_programs cpu_geometry cpu_lighting
             cpu_submission_prep cpu_queue_submit cpu_present cpu_render_prepare_record cpu_graph
             "cpu_directional shadow" cpu_scene cpu_display)
-        if(NOT csv MATCHES "\n${metric},16,[0-9.eE+-]+,[0-9.eE+-]+,[0-9.eE+-]+\n")
+        if(NOT csv MATCHES "\n${metric},16,[0-9.eE+-]+,[0-9.eE+-]+,[0-9.eE+-]+,[0-9.eE+-]+\n")
             message(FATAL_ERROR "Missing complete metric: ${metric}\n${csv}")
         endif()
     endforeach()
@@ -96,7 +96,7 @@ foreach(case static-0 static-1 scaled multi moving moving-singles script-moving 
             OR NOT csv MATCHES "render_items=9 culled_items=${culled}"
             OR NOT csv MATCHES "pipeline_binds=${pipelines} material_binds=${materials} cached_material_versions=${materials}"
             OR NOT csv MATCHES "workload=${workload} materials=${materials}"
-            OR NOT csv MATCHES "metric,samples,p50_ms,p95_ms,p99_ms"
+            OR NOT csv MATCHES "metric,samples,p50_ms,p95_ms,p99_ms,mean_ms"
             OR NOT csv MATCHES "gpu_samples=[0-9]+ gpu_status=(complete|partial|unsupported|degraded)")
         message(FATAL_ERROR "Invalid scene or GPU coverage metadata\n${csv}")
     endif()

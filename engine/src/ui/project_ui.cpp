@@ -18,7 +18,6 @@ extern "C" {
 #include <cmath>
 #include <map>
 #include <limits>
-#include <set>
 #include <utility>
 #include <variant>
 #include "core/frame_pacer.h"
@@ -27,6 +26,18 @@ namespace Comet::Ui {
     namespace {
         constexpr std::size_t max_model_fields = 128;
         constexpr std::size_t max_text_bytes = 256 * 1024;
+        class ControllerErrorCategory final: public std::error_category {
+        public:
+            const char* name() const noexcept override { return "comet.ui.controller"; }
+            std::string message(int) const override { return "Project UI controller failed"; }
+        };
+        const std::error_category& controller_error_category() {
+            static const ControllerErrorCategory category;
+            return category;
+        }
+        Error controller_error(std::string message) {
+            return {std::move(message), {1, controller_error_category()}};
+        }
         constexpr const char* model_name = "ui";
 
         bool eligible(const Rml::Element* element, const Rml::Element* root) {
@@ -143,6 +154,7 @@ namespace Comet::Ui {
             Impl& m_host;
             Detail::LuaController m_lua;
             Rml::ElementDocument* m_document = nullptr;
+            Rml::DataModelHandle m_model;
             std::string m_focus;
             bool m_focus_first = false;
             bool m_modal = false;
@@ -162,14 +174,18 @@ namespace Comet::Ui {
             m_runtime.reset();
         }
         Result<void> initialize(std::vector<std::filesystem::path> resources) {
-            auto constructor = m_runtime->context().CreateDataModel(model_name);
+            return reload(std::move(resources));
+        }
+        Result<void> install_model(Rml::Context& context, Controller& controller) {
+            auto constructor = context.CreateDataModel(model_name);
             if(!constructor
                 || !constructor.BindEventCallback(
-                    "command", [this](Rml::DataModelHandle, Rml::Event& event,
+                    "command", [this, owner = &controller](Rml::DataModelHandle, Rml::Event& event,
                                    const Rml::VariantList& arguments) {
                         const auto* target = event.GetTargetElement();
-                        if(m_controller && target && !m_runtime->is_loading_document() && !m_calling
-                            && target->GetOwnerDocument() == m_controller->m_document) {
+                        if(m_controller.get() == owner && target
+                            && !m_runtime->is_loading_document() && !m_calling
+                            && target->GetOwnerDocument() == owner->m_document) {
                             if(m_dispatching) {
                                 if(auto result = call("on_event", arguments); !result)
                                     m_event_error = result.error();
@@ -178,13 +194,24 @@ namespace Comet::Ui {
                         }
                     }))
                 return Result<void>::failure("Cannot create project UI data model");
-            m_model = constructor.GetModelHandle();
-            return reload(std::move(resources));
+            if(controller.m_lua.model().size() > max_model_fields)
+                return Result<void>::failure("UI data model exceeds 128 fields");
+            for(const auto& [name, value] : controller.m_lua.model()) {
+                if(!constructor.BindFunc(name, [owner = &controller, name](Rml::Variant& result) {
+                       result = owner->m_lua.model().at(name);
+                   }))
+                    return Result<void>::failure("Cannot bind UI model field: " + name);
+            }
+            controller.m_model = constructor.GetModelHandle();
+            return Result<void>::success();
         }
-        Result<void> call(const char* method, const Rml::VariantList& arguments = {}) {
+        Result<void, Error> call(const char* method, const Rml::VariantList& arguments = {}) {
             const ScopeExit finish([this] { m_calling = false; });
             m_calling = true;
-            return m_controller->call(method, arguments);
+            const auto result = m_controller->call(method, arguments);
+            if(!result)
+                return Result<void, Error>::failure(controller_error(result.error()));
+            return Result<void, Error>::success();
         }
         void retire() {
             if(!m_controller)
@@ -192,7 +219,7 @@ namespace Comet::Ui {
             m_controller->m_retired = true;
             m_controller->m_document = nullptr;
             if(auto result = call("on_destroy"); !result)
-                LOG_WARN("UI controller cleanup failed: {}", result.error());
+                LOG_WARN("UI controller cleanup failed: {}", result.error().message);
         }
         Result<void> reload() {
             auto resources = collect_resource_dependencies(m_resource_root, m_entry);
@@ -208,36 +235,14 @@ namespace Comet::Ui {
                 if(auto copied = candidate->copy_state(*m_controller); !copied)
                     return copied;
             }
-            auto constructor = m_runtime->context().GetDataModel(model_name);
-            for(const auto& [name, value] : candidate->m_lua.model()) {
-                if(m_fields.contains(name))
-                    continue;
-                if(m_fields.size() >= max_model_fields)
-                    return Result<void>::failure("UI data model exceeds 128 fields across reloads");
-                if(!constructor.BindFunc(name, [this, name](Rml::Variant& result) {
-                       if(m_presented) {
-                           if(const auto value = m_presented->m_lua.model().find(name);
-                               value != m_presented->m_lua.model().end())
-                               result = value->second;
-                       }
-                   }))
-                    return Result<void>::failure("Cannot bind UI model field: " + name);
-                m_fields.insert(name);
-            }
-            m_presented = candidate.get();
-            m_model.DirtyAllVariables();
-            const ScopeExit restore([this] {
-                m_presented = m_controller.get();
-                m_model.DirtyAllVariables();
-                (void)m_runtime->update();
-            });
             auto replacement = m_runtime->replace_document(
                 m_controller ? m_controller->m_document : nullptr, m_entry.document,
                 [&](Rml::ElementDocument& document) {
                     candidate->m_document = &document;
                     return candidate->call("on_mount", {Rml::Variant(bool(m_controller))});
                 },
-                [&](Rml::ElementDocument&) { return candidate->call("on_present"); });
+                [&](Rml::ElementDocument&) { return candidate->call("on_present"); },
+                [&](Rml::Context& context) { return install_model(context, *candidate); });
             if(!replacement)
                 return Result<void>::failure(replacement.error());
             retire();
@@ -293,15 +298,15 @@ namespace Comet::Ui {
         int quality_api(lua_State* state, Api operation);
         int audio_api(lua_State* state, Api operation);
         Result<FrameResult, Error> frame(const Input::Frame& input, FrameInfo info);
-        Result<void> dispatch_events();
+        Result<void, Error> dispatch_events();
         void process_capture(const Input::Frame& input, bool was_capturing);
-        Result<void> apply_settings();
-        Result<void> present();
-        Result<void> report_result(const char* event, const Result<void>& result);
+        Result<void, Error> apply_settings();
+        Result<void, Error> present();
+        Result<void, Error> report_result(const char* event, const Result<void>& result);
         void deactivate() {
             if(m_controller) {
                 if(auto result = call("on_deactivate"); !result)
-                    LOG_WARN("UI controller deactivate failed: {}", result.error());
+                    LOG_WARN("UI controller deactivate failed: {}", result.error().message);
                 m_controller->m_modal = false;
             }
             m_edit.clear();
@@ -368,9 +373,6 @@ namespace Comet::Ui {
         std::vector<std::filesystem::path> m_resource_dependencies;
         Services m_services;
         std::unique_ptr<Controller> m_controller;
-        Controller* m_presented = nullptr;
-        Rml::DataModelHandle m_model;
-        std::set<std::string> m_fields;
         std::vector<Rml::VariantList> m_events;
         PlayerInputEdit m_edit;
         std::vector<ActionView> m_actions;
@@ -380,7 +382,8 @@ namespace Comet::Ui {
         std::optional<std::variant<Comet::DisplaySettings, DisplayDecision>> m_pending_display;
         std::optional<Comet::QualitySettings> m_pending_quality;
         std::optional<Comet::AudioSettings> m_pending_audio;
-        std::string m_capture_focus, m_api_error, m_event_error;
+        std::string m_capture_focus, m_api_error;
+        std::optional<Error> m_event_error;
         std::map<std::string, std::string> m_pending_markup;
         const Input::Frame* m_input = nullptr;
         FrameInfo m_info;
@@ -409,7 +412,7 @@ namespace Comet::Ui {
                             && Detail::LuaController::scalar(state, 2, value);
                     if(valid && found->second != value) {
                         found->second = std::move(value);
-                        m_model.DirtyVariable(name);
+                        vm.m_model.DirtyVariable(name);
                     }
                 }
                 if(!valid)
@@ -904,31 +907,31 @@ namespace Comet::Ui {
         m_blocked = m_controller->m_modal;
         const bool was_capturing = bool(m_edit.capture());
         if(auto result = call("on_frame"); !result)
-            return Frame::failure({result.error()});
+            return Frame::failure(result.error());
         m_runtime->set_capture_active(was_capturing);
         const bool dispatched_modal = m_controller->m_modal;
         m_dispatching = true;
         m_runtime->process_input(input, m_controller->m_modal, m_info.view);
         m_dispatching = false;
-        if(!m_event_error.empty())
-            return Frame::failure({std::exchange(m_event_error, {})});
+        if(m_event_error)
+            return Frame::failure(std::exchange(m_event_error, {}).value());
         if(auto dispatched = dispatch_events(); !dispatched)
-            return Frame::failure({dispatched.error()});
+            return Frame::failure(dispatched.error());
         process_capture(input, was_capturing);
         if(auto applied = apply_settings(); !applied)
-            return Frame::failure({applied.error()});
+            return Frame::failure(applied.error());
         if(auto presented = present(); !presented)
-            return Frame::failure({presented.error()});
+            return Frame::failure(presented.error());
         // 同一物理帧内切换 modal 时同步平台基线；下一帧的新按键可以正常导航。
         if(dispatched_modal != m_controller->m_modal)
             m_runtime->process_input(input, m_controller->m_modal, m_info.view);
         if(auto updated = m_runtime->update(); !updated)
-            return Frame::failure({updated.error()});
+            return Frame::failure(updated.error());
         m_blocked |= m_controller->m_modal;
         return Frame::success({m_blocked, m_runtime->pointer_blocked()});
     }
 
-    Result<void> ProjectUi::Impl::dispatch_events() {
+    Result<void, Error> ProjectUi::Impl::dispatch_events() {
         // UI 生命周期事件由验证阶段隔离，运行时事件在物理帧内顺序交付。
         auto events = std::move(m_events);
         m_events.clear();
@@ -936,7 +939,7 @@ namespace Comet::Ui {
             if(auto result = call("on_event", arguments); !result)
                 return result;
         }
-        return Result<void>::success();
+        return Result<void, Error>::success();
     }
 
     void ProjectUi::Impl::process_capture(const Input::Frame& input, const bool was_capturing) {
@@ -974,7 +977,7 @@ namespace Comet::Ui {
         m_runtime->set_capture_active(bool(m_edit.capture()));
     }
 
-    Result<void> ProjectUi::Impl::apply_settings() {
+    Result<void, Error> ProjectUi::Impl::apply_settings() {
         if(auto display = std::exchange(m_pending_display, {})) {
             auto applied = Result<void>::success();
             if(const auto* settings = std::get_if<Comet::DisplaySettings>(&*display))
@@ -1010,10 +1013,10 @@ namespace Comet::Ui {
             if(auto result = report_result("on_input_result", applied); !result)
                 return result;
         }
-        return Result<void>::success();
+        return Result<void, Error>::success();
     }
 
-    Result<void> ProjectUi::Impl::present() {
+    Result<void, Error> ProjectUi::Impl::present() {
         if(std::exchange(m_reload_requested, false)) {
             if(auto result = reload(); !result) {
                 LOG_WARN("Project UI reload failed: {}", result.error());
@@ -1026,23 +1029,28 @@ namespace Comet::Ui {
             return result;
         for(const auto& [id, contents] : m_pending_markup) {
             if(!replace_markup(*m_controller, id, contents))
-                return Result<void>::failure("UI markup target no longer exists: " + id);
+                return Result<void, Error>::failure(
+                    controller_error("UI markup target no longer exists: " + id));
         }
         m_pending_markup.clear();
         if(std::exchange(m_focus_requested, false)) {
             if(!m_runtime->context().Update())
-                return Result<void>::failure("Cannot update UI context before focusing");
+                return Result<void, Error>::failure({"Cannot update UI context before focusing"});
             focus(*m_controller);
         }
-        return Result<void>::success();
+        return Result<void, Error>::success();
     }
 
-    Result<void> ProjectUi::Impl::report_result(const char* event, const Result<void>& result) {
+    Result<void, Error> ProjectUi::Impl::report_result(
+        const char* event, const Result<void>& result) {
         return call(event,
             {Rml::Variant(bool(result)), Rml::Variant(result ? std::string{} : result.error())});
     }
 
     ProjectUi::ProjectUi(std::unique_ptr<Impl> impl) : m_impl(std::move(impl)) {}
+    bool is_controller_error(const Error& error) {
+        return error.code.category() == controller_error_category() && error.code.value() == 1;
+    }
     ProjectUi::~ProjectUi() = default;
     Result<std::unique_ptr<ProjectUi>, Error> ProjectUi::create(Window& window, Renderer& renderer,
         const Project::UiEntry& entry, RmlContext::Options options, Services services) {

@@ -10,6 +10,7 @@
 #include "core/project_paths.h"
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -79,7 +80,8 @@ namespace Comet {
         void accept_scan_report(const AssetScanReport& report);
         // 本次成功发布的结果；Mesh Artifact 发布不代表 GPU 已驻留。
         [[nodiscard]] Result<std::vector<AssetHandle>, Error> process_completions();
-        // 失败／过期也计数；时间预算不抢占单个发布操作。
+        // 失败／过期也计数；昂贵重试按资产或 Script 原子组占用余量。
+        // 时间预算不抢占单个发布／重试操作。
         [[nodiscard]] Result<std::vector<AssetHandle>, Error> process_completions(
             AssetCompletionBudget budget);
         [[nodiscard]] AssetAsyncStatus get_async_status() const;
@@ -135,10 +137,17 @@ namespace Comet {
             AssetHandle handle, std::vector<std::filesystem::path> dependencies);
         enum class RefreshResult { Scheduled, Deferred, Invalidated, Rejected };
         [[nodiscard]] RefreshResult schedule_refresh(const AssetRecord& record);
-        Result<void, Error> publish_script_group(
-            AssetHandle seed, std::unordered_set<AssetHandle>& processed);
+        struct ScriptReloadSource;
+        using ScriptReloadSources = std::map<AssetHandle, ScriptReloadSource>;
+        ScriptReloadSource script_reload_source(const AssetRecord& record) const;
+        ScriptReloadSources script_reload_sources() const;
+        Result<void, Error> publish_script_group(AssetHandle seed,
+            std::unordered_set<AssetHandle>& processed, ScriptReloadSources& sources);
         std::vector<AssetHandle> refresh_scripts(std::span<const AssetHandle> handles);
-        void retry_refresh_requests(std::vector<AssetHandle>& published);
+        std::vector<AssetHandle> refresh_scripts(std::span<const AssetHandle> handles,
+            AssetCompletionBudget& budget, std::chrono::steady_clock::time_point start);
+        void retry_refresh_requests(
+            std::vector<AssetHandle>& published, AssetCompletionBudget& budget);
         Result<void, Error> reload_loaded_material_dependents(AssetHandle texture_handle);
         Result<void, Error> publish_material(AssetHandle handle, const MaterialData& data,
             const std::shared_ptr<Material>& material, bool replace_existing);

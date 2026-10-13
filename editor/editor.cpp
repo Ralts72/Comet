@@ -354,13 +354,7 @@ namespace {
             auto& engine = get_engine();
             auto& renderer = engine.get_renderer();
             m_viewport->panel().set_game_ui_available(m_project.ui().has_value());
-            auto display = load_player_display();
-            if(display)
-                m_viewport->panel().set_play_resolution(
-                    {static_cast<uint32_t>(display.value().width),
-                        static_cast<uint32_t>(display.value().height)});
-            else
-                LOG_WARN("Player display settings unavailable: {}", display.error());
+            refresh_play_resolution();
             m_game_ui = std::make_unique<CometEditor::GameUi>(engine.get_window(), renderer,
                 m_project,
                 Comet::Ui::ProjectUi::Services{.load_input = [this] { return load_player_input(); },
@@ -463,6 +457,15 @@ namespace {
             }
             return Comet::Result<Comet::DisplaySettings>::success(
                 m_player_display_settings->settings());
+        }
+        void refresh_play_resolution() {
+            const auto display = load_player_display();
+            if(display)
+                m_viewport->panel().set_play_resolution(
+                    {static_cast<uint32_t>(display.value().width),
+                        static_cast<uint32_t>(display.value().height)});
+            else
+                LOG_WARN("Player display settings unavailable: {}", display.error());
         }
         Comet::Result<Comet::AudioSettings> load_player_audio() {
             if(!m_player_audio_settings) {
@@ -897,6 +900,7 @@ namespace {
             update_undo_state();
             m_menu_bar->render(current_saved_scene(), m_project.startup_scene(), recent);
             m_hierarchy_panel->render();
+            m_viewport->panel().set_game_ui_error(m_game_ui->error());
             if(m_viewport->panel().is_open())
                 ImGui::SetNextWindowSize({640, 480}, ImGuiCond_FirstUseEver);
             m_viewport->panel().render();
@@ -945,6 +949,10 @@ namespace {
 
         Comet::Result<void, Comet::Error> process_editor_requests() {
             const auto settings = m_project_settings.update();
+            if(settings.display_changed) {
+                m_player_display_settings.reset();
+                refresh_play_resolution();
+            }
             if(settings.quality_changed)
                 m_player_quality_settings.reset();
             if(settings.audio_changed)

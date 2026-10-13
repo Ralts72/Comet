@@ -174,7 +174,7 @@ namespace Comet::Ui {
         ~Impl() {
             if(m_initialized) {
                 if(m_context)
-                    Rml::RemoveContext(context_name);
+                    Rml::RemoveContext(std::string(m_context->GetName()));
                 Rml::Shutdown();
                 Rml::SetRenderInterface(nullptr);
                 Rml::SetFileInterface(nullptr);
@@ -238,10 +238,46 @@ namespace Comet::Ui {
 
         Result<Rml::ElementDocument*> replace_document(Rml::ElementDocument* current,
             const std::filesystem::path& file, const PrepareDocument& prepare,
-            const PrepareDocument& finalize) {
+            const PrepareDocument& finalize, const PrepareContext& prepare_context) {
+            if(!prepare_context)
+                return load_document(current, file, prepare, finalize);
             using Replacement = Result<Rml::ElementDocument*>;
             const ScopeExit finish_load([this] { m_loading_document = false; });
             m_loading_document = true;
+            auto* previous = m_context;
+            const auto candidate_name =
+                std::string(context_name) + "-" + std::to_string(++m_context_generation);
+            auto* candidate = Rml::CreateContext(
+                candidate_name, previous->GetDimensions(), &m_renderer->interface());
+            if(!candidate)
+                return Replacement::failure("Cannot create candidate UI context");
+            candidate->SetDensityIndependentPixelRatio(previous->GetDensityIndependentPixelRatio());
+            m_context = candidate;
+            bool committed = false;
+            const ScopeExit restore([&] {
+                if(!committed) {
+                    m_context = previous;
+                    Rml::RemoveContext(candidate_name);
+                }
+            });
+            if(auto prepared = prepare_context(*candidate); !prepared)
+                return Replacement::failure(prepared.error());
+            auto replacement = load_document(nullptr, file, prepare, finalize);
+            if(!replacement)
+                return replacement;
+            m_platform.cancel_input(*previous);
+            const auto previous_name = previous->GetName();
+            Rml::RemoveContext(previous_name);
+            committed = true;
+            return replacement;
+        }
+
+        Result<Rml::ElementDocument*> load_document(Rml::ElementDocument* current,
+            const std::filesystem::path& file, const PrepareDocument& prepare,
+            const PrepareDocument& finalize) {
+            using Replacement = Result<Rml::ElementDocument*>;
+            const bool loading_before = std::exchange(m_loading_document, true);
+            const ScopeExit finish_load([&] { m_loading_document = loading_before; });
             const auto errors_before = m_system.m_errors;
             const auto warnings_before = m_system.m_warnings;
             Rml::Factory::ClearStyleSheetCache();
@@ -312,6 +348,7 @@ namespace Comet::Ui {
         bool m_initialized = false;
         bool m_owns_runtime = false;
         bool m_loading_document = false;
+        std::uint64_t m_context_generation = 0;
     };
 
     RmlContext::RmlContext(std::unique_ptr<Impl> impl) : m_impl(std::move(impl)) {}
@@ -351,20 +388,20 @@ namespace Comet::Ui {
     bool RmlContext::pointer_blocked() const {
         return m_impl->m_context->IsMouseInteracting();
     }
-    Result<void> RmlContext::update() {
+    Result<void, Error> RmlContext::update() {
         m_impl->m_draw_data.reset();
         if(!m_impl->m_context->Update())
-            return Result<void>::failure("Cannot update UI context");
+            return Result<void, Error>::failure({"Cannot update UI context"});
         auto collected = m_impl->m_renderer->collect(*m_impl->m_context);
         if(!collected)
-            return Result<void>::failure(collected.error().message);
+            return Result<void, Error>::failure(collected.error().as_error());
         m_impl->m_draw_data = std::move(collected).value();
-        return Result<void>::success();
+        return Result<void, Error>::success();
     }
     Result<Rml::ElementDocument*> RmlContext::replace_document(Rml::ElementDocument* current,
         const std::filesystem::path& file, const PrepareDocument& prepare,
-        const PrepareDocument& finalize) {
-        return m_impl->replace_document(current, file, prepare, finalize);
+        const PrepareDocument& finalize, const PrepareContext& prepare_context) {
+        return m_impl->replace_document(current, file, prepare, finalize, prepare_context);
     }
     bool RmlContext::is_loading_document() const {
         return m_impl->m_loading_document;

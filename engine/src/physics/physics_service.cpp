@@ -437,7 +437,8 @@ namespace Comet {
             bodies.clear();
         }
 
-        Result<void, Error> add_body(const BodyDefinition& definition) {
+        Result<void, Error> add_body(
+            const BodyDefinition& definition, const Velocity& velocity = {}) {
             const auto& transform = definition.transform;
             const auto& collider = definition.collider;
             const auto& rigid = definition.rigid;
@@ -457,6 +458,10 @@ namespace Comet {
             settings.mFriction = collider.friction;
             settings.mRestitution = collider.restitution;
             if(motion == BodyMotion::Dynamic) {
+                settings.mLinearVelocity = {
+                    velocity.linear.x, velocity.linear.y, velocity.linear.z};
+                settings.mAngularVelocity = {
+                    velocity.angular.x, velocity.angular.y, velocity.angular.z};
                 auto properties = calculate_mass_properties(*shape, rigid);
                 if(!properties)
                     return Result<void, Error>::failure(
@@ -490,11 +495,26 @@ namespace Comet {
             }
         }
 
-        auto remove_joint(JointMap::iterator it) {
-            std::erase(breakable_joints, it);
+        auto erase_joint(JointMap::iterator it) {
             world.RemoveConstraint(it->second.constraint.GetPtr());
             wake_joint_bodies(it->second);
             return joints.erase(it);
+        }
+
+        auto remove_joint(JointMap::iterator it) {
+            std::erase(breakable_joints, it);
+            return erase_joint(it);
+        }
+
+        void remove_joints_if(const auto& remove) {
+            std::erase_if(
+                breakable_joints, [&](const auto it) { return remove(it->first, it->second); });
+            for(auto it = joints.begin(); it != joints.end();) {
+                if(remove(it->first, it->second))
+                    it = erase_joint(it);
+                else
+                    ++it;
+            }
         }
 
         template<typename Settings>
@@ -602,15 +622,12 @@ namespace Comet {
         }
 
         Result<void, Error> synchronize_joints(const std::span<const JointDefinition> definitions) {
-            for(auto it = joints.begin(); it != joints.end();) {
+            remove_joints_if([&](const JointKey& key, const Joint& joint) {
                 const auto found =
-                    std::ranges::lower_bound(definitions, it->first, {}, &JointDefinition::key);
-                if(found == definitions.end() || found->key() != it->first
-                    || found->uuid != it->second.uuid)
-                    it = remove_joint(it);
-                else
-                    ++it;
-            }
+                    std::ranges::lower_bound(definitions, key, {}, &JointDefinition::key);
+                return found == definitions.end() || found->key() != key
+                       || found->uuid != joint.uuid;
+            });
             for(const auto& definition : definitions) {
                 const auto result = std::visit(
                     [&](const auto& settings) { return synchronize_joint(definition, settings); },
@@ -643,9 +660,18 @@ namespace Comet {
                     },
                     joint.settings);
             }
-            // 检查完成后统一摘除，保证可断裂列表的迭代器在采样期间有效。
+            if(broken_joints.empty())
+                return;
+            const auto key = [](const JointBreak& broken) {
+                return JointKey{broken.entity, broken.joint.index()};
+            };
+            std::ranges::sort(broken_joints, {}, key);
+            // 先一次摘除索引，再释放约束；采样期间始终保留有效迭代器。
+            std::erase_if(breakable_joints, [&](const auto it) {
+                return std::ranges::binary_search(broken_joints, it->first, {}, key);
+            });
             for(const auto& broken : broken_joints)
-                remove_joint(joints.find({broken.entity, broken.joint.index()}));
+                erase_joint(joints.find(key(broken)));
         }
 
         void wake_nearby_bodies(const JPH::BodyID id) {
@@ -662,21 +688,50 @@ namespace Comet {
             world.GetBodyInterface().ActivateBodiesInAABox(bounds, {}, {});
         }
 
-        void remove_body(std::unordered_map<EntityId, Body>::iterator it) {
-            for(auto joint = joints.begin(); joint != joints.end();) {
-                if(joint->second.first == it->second.id || joint->second.second == it->second.id)
-                    joint = remove_joint(joint);
-                else
-                    ++joint;
-            }
+        void erase_body(std::unordered_map<EntityId, Body>::iterator it) {
             auto& interface = world.GetBodyInterface();
             wake_nearby_bodies(it->second.id);
             body_lookup[it->second.id.GetIndex()] = nullptr;
-            if(it->second.rigid.motion == BodyMotion::Kinematic)
-                std::erase(kinematic_bodies, &it->second);
             interface.RemoveBody(it->second.id);
             interface.DestroyBody(it->second.id);
             bodies.erase(it);
+        }
+
+        void remove_body(std::unordered_map<EntityId, Body>::iterator it) {
+            const auto id = it->second.id;
+            remove_joints_if([&](const JointKey&, const Joint& joint) {
+                return joint.first == id || joint.second == id;
+            });
+            if(it->second.rigid.motion == BodyMotion::Kinematic)
+                std::erase(kinematic_bodies, &it->second);
+            erase_body(it);
+        }
+
+        void remove_bodies(const std::span<const std::pair<EntityUuid, EntityId>> definitions) {
+            if(definitions.empty())
+                return;
+            std::vector<JPH::BodyID> ids;
+            ids.reserve(definitions.size());
+            for(const auto& [uuid, entity] : definitions) {
+                const auto found = bodies.find(entity);
+                if(found != bodies.end() && found->second.uuid == uuid)
+                    ids.push_back(found->second.id);
+            }
+            if(ids.empty())
+                return;
+            std::sort(ids.begin(), ids.end());
+            const auto removing = [&](const JPH::BodyID id) {
+                return std::binary_search(ids.begin(), ids.end(), id);
+            };
+            remove_joints_if([&](const JointKey&, const Joint& joint) {
+                return removing(joint.first) || removing(joint.second);
+            });
+            std::erase_if(kinematic_bodies, [&](const Body* body) { return removing(body->id); });
+            for(const auto& [uuid, entity] : definitions) {
+                const auto found = bodies.find(entity);
+                if(found != bodies.end() && found->second.uuid == uuid)
+                    erase_body(found);
+            }
         }
 
         Body* find_body(const JPH::BodyID id) {
@@ -734,9 +789,19 @@ namespace Comet {
                     return Result<BodyChange, Error>::failure(valid.error());
             }
             if(added || rebuild) {
+                Velocity velocity;
+                if(rebuild && it->second.uuid == definition.uuid
+                    && it->second.rigid.motion == BodyMotion::Dynamic
+                    && rigid.motion == BodyMotion::Dynamic) {
+                    JPH::Vec3 linear, angular;
+                    world.GetBodyInterfaceNoLock().GetLinearAndAngularVelocity(
+                        it->second.id, linear, angular);
+                    velocity = {{linear.GetX(), linear.GetY(), linear.GetZ()},
+                        {angular.GetX(), angular.GetY(), angular.GetZ()}};
+                }
                 if(rebuild)
                     remove_body(it);
-                if(auto created = add_body(definition); !created)
+                if(auto created = add_body(definition, velocity); !created)
                     return Result<BodyChange, Error>::failure(created.error());
                 return Result<BodyChange, Error>::success(
                     added ? BodyChange::Added : BodyChange::Rebuilt);
@@ -1100,12 +1165,11 @@ namespace Comet {
         return m_impl->synchronize_joints(definitions);
     }
 
-    void PhysicsService::remove_body(const EntityUuid uuid, const EntityId entity) {
+    void PhysicsService::remove_bodies(
+        const std::span<const std::pair<EntityUuid, EntityId>> definitions) {
         if(!m_impl)
             return;
-        const auto found = m_impl->bodies.find(entity);
-        if(found != m_impl->bodies.end() && found->second.uuid == uuid)
-            m_impl->remove_body(found);
+        m_impl->remove_bodies(definitions);
     }
 
     std::span<const PhysicsService::Pose> PhysicsService::poses() const {

@@ -10,6 +10,8 @@
 #include <imgui.h>
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <utility>
 
 namespace Comet {
     class SceneRuntime;
@@ -58,6 +60,7 @@ namespace CometEditor {
             bool pointer_blocked = false);
 
         void set_game_ui_available(bool available) { m_game_ui_available = available; }
+        void set_game_ui_error(std::string error) { m_game_ui_error = std::move(error); }
         void set_play_resolution(Comet::Math::Vec2u size) {
             m_play_resolution_policy = {
                 .mode = ViewportLayout::ResolutionPolicy::Mode::Fixed, .fixed_resolution = size};
@@ -115,6 +118,7 @@ namespace CometEditor {
         Comet::Input::Gate m_runtime_input;
         Comet::Input::Gate m_game_ui_input;
         bool m_game_ui_available = false;
+        std::string m_game_ui_error;
         bool m_show_game_ui = true;
         bool m_show_colliders = false;
         bool m_show_joints = false;

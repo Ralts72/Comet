@@ -31,6 +31,8 @@ namespace Comet::Tests {
         renderer.request_viewport_pick({16, 16}, {32, 32}, 100);
         auto captured = renderer.capture_frame();
         captured.world = render_frontend->resolve(scene);
+        const auto* world = captured.world.get();
+        const auto* items = captured.world->render_items.data();
         ASSERT_TRUE(renderer.set_render_view({.visible = false}));
         renderer.cancel_viewport_pick();
         RenderThread recording(renderer);
@@ -42,6 +44,9 @@ namespace Comet::Tests {
         EXPECT_FALSE(recording.submit({}));
         const auto completed = recording.complete();
         ASSERT_TRUE(completed) << completed.error();
+        const auto next = render_frontend->resolve(scene);
+        EXPECT_EQ(next.get(), world);
+        EXPECT_EQ(next->render_items.data(), items);
         const auto pick = renderer.take_viewport_pick_result();
         ASSERT_TRUE(pick);
         ASSERT_TRUE(pick->hit);

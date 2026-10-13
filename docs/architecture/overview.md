@@ -137,7 +137,7 @@ Main 的计时区分事件、等待渲染线程、更新、帧准备／UI 和帧
 | --- | --- | --- |
 | 场景内容、变换与变化记录 | Scene | 受控写入记录变化；提取器和物理系统读取批次，成功后由 Scene 清理 |
 | CPU 快照与实体槽位 | SceneExtractor；消费者持有只读快照 | 快照不借用组件，可独立保留；提取器独占写入及自己的索引 |
-| 解析后的世界与资源引用 | Engine 的 SceneResolver 生产；RenderFrame／Renderer 持有只读 RenderWorld | 独占时复用，旧读者仍在时复制后更新；ResolutionCache 随世界复制，输入检查与输出 item_changes 分开 |
+| 解析后的世界与资源引用 | Engine 的 SceneResolver 生产；RenderFrame 持有，Renderer 在录制期间借用 | 录制结束先解除几何借用，再在 RenderThread 释放帧引用；Main 取回完成结果后可独占复用，有外部旧读者时复制后更新 |
 | 世界界限和本帧几何列表 | Renderer／RenderGeometry | 缓存界限值；列表借用世界和缓存，clear_frame 结束借用，reset 同时清空缓存 |
 | 光照与方向光深度图 | View 集合共享的 ShadowPass | 每个帧槽有一张深度图；本帧首次录制写入，其余 View 采样同一结果 |
 | 相机诊断与目标 | Renderer 的 ViewState／SceneRenderer | 每个 View 独立；帧包固定当时的视图参数、拾取与调试线，隐藏保留目标并消费临时请求 |
@@ -183,6 +183,7 @@ Profile 拒绝玩家设置及未知字段。窗口尺寸与最大化状态由宿
 别名保留各功能名称，具体类型的字段读取／写入／校验仍归 DisplaySettings、QualitySettings、AudioSettings。
 输入文件是按动作／绑定身份合并的覆盖，保留 PlayerInputSettings 的独立协议，不套用完整值存储。
 App 的显示试用由 DisplaySettingsPreview 保存前态和 15 秒期限；确认成功才持久化，取消／超时恢复前态。Editor Play 只应用视口相关设置。
+项目显示默认值修改后，Editor 重新解析玩家设置并更新 Play 分辨率；已有个人选择仍优先，项目默认值不覆盖玩家文件。
 
 ### 序列化与复用边界
 
@@ -244,7 +245,7 @@ PhysicsService 校验力臂、力矩及速度的有限范围后调用 Jolt 的�
 RigidBody 保存指定质量／密度两种模式及各自参数，旧场景默认指定质量；PropertyDescriptor 负责保存、克隆与撤销，Inspector 只显示当前模式的输入框。
 PhysicsService 使用已缩放的 Jolt Shape 体积计算密度质量，并复用质量／惯性的校验与更新路径；不把计算值回写为内容质量，也不在 Editor 重复物理公式。
 后端保存完整刚体配置，CCD 方式从该配置派生；只有当前质量模式使用的参数变化才更新动态质量并唤醒刚体，保留线性／角速度与接触身份。
-缩放或碰撞形状改变仍按既有重建规则清除速度，并依据新形状重新计算质量／惯性；不将这种内容重建等同于质量参数的原地更新。
+同一动态实体的缩放或碰撞形状改变会重建后端刚体，保留线性／角速度，按新形状计算质量／惯性并重新绑定关节；新实体和运动类型切换按新的配置创建。
 RigidBody 的 `continuous_collision` 保存内容配置，默认关闭；PhysicsService 仅为动态非触发器选择 Jolt LinearCast，其余使用 Discrete。
 配置变化在同步边界调用 SetMotionQuality，原地保留刚体身份、速度和休眠状态；运动类型／形状变化仍沿现有重建路径处理。
 线性 CCD 不提供旋转扫掠或触发区连续查询，接触通知仍沿现有 Jolt 回调与阶段末派发处理，不以渲染插值判断碰撞。
@@ -261,7 +262,7 @@ Collider 保存摩擦和弹性系数（0～1），默认 0.2／0；PropertyDescr
 - ScriptComponent 保存 Handle 与稀疏参数覆盖；`common/parameters` 共享参数类型和过滤规则，普通参数编辑不重建实例。
 - Inspector Edit 查询资产定义，Play 查询实际实例定义。查询核对场景、实体和组件寿命，返回值不延长实例寿命。
 
-源码重载先准备并校验关联资产及候选 VM；准备失败保留旧版，成功后逆序停止旧实例并启动新版。
+源码重载先准备并校验关联资产及候选 VM；同一批源修改只构建一次驻留脚本索引，各组发布后更新成员身份和依赖。准备失败保留旧版，成功后逆序停止旧实例并启动新版。
 新版 `on_start` 或运行回调已可能修改世界，执行失败沿 Runtime 停止／Editor 恢复 Edit 路径处理，不承诺回滚副作用。
 换版保留兼容参数覆盖，重建 self／模块，不迁移任意 Lua 状态，也不自动改写 Edit 内容；暂停时待继续或单步再换版。
 项目 require 使用预先冻结的源码闭包，实例只执行已准备模块，不在运行回调中查找文件。模块为 source-only，不创建资产身份。
@@ -282,11 +283,12 @@ Engine 内置 `ui.settings(options)`，统一菜单、设置草稿、改键录�
 项目选择面板、控件身份、快捷键和扩展回调；普通页面仍可直接返回自己的控制器，不必使用设置模块。
 Editor Play 使用相同项目页面；ImGui 项目／玩家面板调用相同引擎业务能力，不复制存储规则。
 Editor 的 GameUi 适配器只借用 Window、Renderer、Project 和设置服务，由宿主组合，不持有整个 Engine。
-候选页面／控制器先准备，失败保留旧版；事件核对当前文档身份。准备期允许读取设置和调整候选页面，宿主应用／保存服务只在发布后开放。
+候选页面／模型／控制器在独立的临时 RmlUi Context 中准备，复用同一个 Core、字体和渲染后端；验证和 GPU 准备成功后一起替换，失败保留旧 DOM、绑定、焦点与草稿，不累计失败候选的字段。事件核对当前文档身份；准备期允许读取设置和调整候选页面，宿主应用／保存服务只在发布后开放。
+UI Lua 执行错误保留独立 Error.code 分类。Editor GameUi 停用故障界面、释放游戏输入并显示诊断，显式重载成功后恢复；不结束 Editor 或丢弃未保存内容。GPU 错误仍沿渲染错误路径返回，App 的生命周期失败策略由 App 决定。
 RmlUi Core 和 FreeType 静态编入 engine；FreeType 是字体后端。App／Editor 共用 engine 字体，ImGui／RmlUi 分别做图集和回退。
 Editor 文案固定中文并内置在所属界面的 C++ 代码中，ImGui 稳定 ID 与显示文字分离。
 Inspector 初始化时准备自己的中文显示描述，沿用引擎字段身份和读写回调；项目／脚本名称、原始诊断和日志保持原文。
-当前一个进程只允许一个拥有 RmlUi Core 的 RmlContext；多上下文属于后续能力。
+当前一个进程只允许一个拥有 RmlUi Core 的 RmlContext；热重载的临时原生 Context 共用该 owner，不提供多个独立 UI 会话。
 
 `ui.settings` 在项目控制器加载前提供，不开放文件加载或 `package`；模块编入 engine，实例状态仍属于各自的 UI VM。
 `input` 默认启用；`display`／`quality`／`audio` 默认关闭，设为 `true` 或选项表后启用。所有面板以宿主服务实际可用性为准。
@@ -393,6 +395,7 @@ flowchart LR
 ```
 
 同步加载可以直接从产品读取进入候选创建，不必经过后台任务。Artifact 成功落盘是导入事实，后续 GPU 创建失败不会撤销它。
+后台完成结果、昂贵的延期重试与环境预览共用一次调用的数量／时间预算；零发布预算仍可派发已有排队任务，不进行新的昂贵源检查。脚本重试以关联原子组计数，组内不抢占，尚未处理的请求留到后续调用。
 过期结果不得覆盖新版本；Shader 内容错误让后续帧显示错误材质，已经提交的旧帧继续使用自己捕获的资源。
 Registry 接纳与渲染域程序发布分别核对各自状态，不建立第二份资产身份或让文件通知直接切换 GPU 对象。
 

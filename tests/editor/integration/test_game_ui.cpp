@@ -6,8 +6,10 @@
 #include "scene/scene.h"
 #include "scene/selection.h"
 #include "scene/command_history.h"
+#include "scene/scene_commands.h"
 #include "scene/component_registry.h"
 #include "core/window.h"
+#include "common/scope_exit.h"
 #include "graphics/resource/sampler.h"
 #include "input/player_input_settings.h"
 #include "viewport/viewport_panel.h"
@@ -18,6 +20,8 @@
 #include <RmlUi/Core.h>
 #include <imgui.h>
 #include <fstream>
+#include <sstream>
+#include <string_view>
 
 namespace CometEditor::Tests {
     class EditorGameUiGpuTest: public Comet::Tests::RenderGpuTest {
@@ -32,6 +36,7 @@ namespace CometEditor::Tests {
         bool docked = false;
         std::optional<Comet::Math::Vec2> pointer;
         std::optional<Comet::Ui::View> ui_view;
+        bool ui_blocked = false;
         Comet::Tests::TemporaryDirectory documents;
 
         void SetUp() override {
@@ -172,6 +177,7 @@ namespace CometEditor::Tests {
                                .view = view});
                 ui_view = view;
                 ASSERT_TRUE(ui) << ui.error().message;
+                ui_blocked = ui.value().blocked;
                 editor_frame = editor->end_frame();
                 ASSERT_TRUE(renderer.render_frame());
                 return;
@@ -376,6 +382,109 @@ namespace CometEditor::Tests {
         frame();
         settings();
         EXPECT_TRUE(game->is_modal());
+    }
+
+    TEST_F(EditorGameUiGpuTest, ControllerFailuresReleaseInputAndReloadWithoutChangingTheScene) {
+        auto* scene = engine->get_scene();
+        const auto components = Comet::create_scene_component_registry();
+        CommandHistory history;
+        history.bind_scene(scene);
+        ASSERT_TRUE(SceneCommands::create_entity(history, components, "Unsaved edit"));
+        const auto dirty_state = history.state_id();
+        ASSERT_TRUE(engine->start_scene_runtime());
+        frame();
+        for(const auto* method : {"on_frame", "on_event"}) {
+            SCOPED_TRACE(method);
+            const auto file = documents.path() / "assets/ui/runtime.ui.lua";
+            {
+                std::ofstream script(file, std::ios::trunc);
+                script << "return ui.settings{model={fps_text='0 FPS'}," << method
+                       << "=function() error('UI runtime failure') end}";
+                ASSERT_TRUE(script.good());
+            }
+            game->reload();
+            ASSERT_TRUE(game->error().empty());
+            if(std::string_view(method) == "on_event") {
+                frame();
+                settings();
+            } else {
+                frame();
+            }
+            EXPECT_NE(game->error().find("UI runtime failure"), std::string::npos);
+            EXPECT_FALSE(game->is_modal());
+            EXPECT_TRUE(ui_blocked);
+            const auto expected = "Project UI stopped: " + game->error()
+                                  + "; use Reload UI after fixing the controller";
+            std::istringstream diagnostics(messages.str());
+            std::string line, remaining;
+            unsigned expected_count = 0;
+            while(std::getline(diagnostics, line)) {
+                if(line.ends_with(" [error] " + expected) && line.find("VUID-") == std::string::npos
+                    && line.find("Validation Error") == std::string::npos)
+                    ++expected_count;
+                else
+                    remaining += line + '\n';
+            }
+            EXPECT_EQ(expected_count, 1u) << messages.str();
+            messages.str(remaining);
+            messages.clear();
+            EXPECT_EQ(engine->get_scene(), scene);
+            EXPECT_EQ(history.state_id(), dirty_state);
+            EXPECT_TRUE(history.can_undo());
+            EXPECT_TRUE(engine->get_scene_runtime().is_active());
+            EXPECT_FALSE(engine->get_window().should_close());
+            frame();
+            EXPECT_FALSE(ui_blocked);
+            std::filesystem::copy_file(
+                std::filesystem::path(PROJECT_ROOT_DIR) / "demo/assets/ui/runtime.ui.lua", file,
+                std::filesystem::copy_options::overwrite_existing);
+            game->reload();
+            EXPECT_TRUE(game->error().empty());
+            frame();
+            settings();
+            EXPECT_TRUE(game->is_modal());
+            game->deactivate();
+            frame();
+        }
+    }
+
+    TEST_F(EditorGameUiGpuTest, BackendFailuresRemainFatalToTheHost) {
+        const auto file = documents.path() / "assets/ui/runtime.ui.lua";
+        {
+            std::ofstream script(file, std::ios::trunc);
+            script << "return ui.settings{model={fps_text='0 FPS'},on_frame=function(self,ui) "
+                      "ui.property('hud','filter','blur(1px)') end}";
+            ASSERT_TRUE(script.good());
+        }
+        game->reload();
+        ASSERT_TRUE(game->error().empty());
+        auto& renderer = engine->get_renderer();
+        bool ready = false;
+        for(unsigned attempt = 0; attempt < 12 && !ready; ++attempt) {
+            engine->get_window().poll_events();
+            const auto prepared = renderer.prepare_frame();
+            ASSERT_TRUE(prepared) << prepared.error().message;
+            ready = prepared.value() == Comet::Renderer::FramePreparation::Ready;
+        }
+        ASSERT_TRUE(ready);
+        const Comet::ScopeExit finish_frame([&] {
+            const auto finished = renderer.render_frame();
+            EXPECT_TRUE(finished) << finished.error().message;
+        });
+        const auto output = renderer.get_offscreen_frame();
+        ASSERT_TRUE(editor->begin_frame());
+        const Comet::ScopeExit finish_editor([&] { editor_frame = editor->end_frame(); });
+        editor->set_viewport_image(output.slot, output.color_view, sampler);
+        ImGui::Begin("Game preview");
+        ImGui::Image(editor->get_viewport_texture_id(output.slot), {120, 90});
+        ImGui::End();
+        const auto result = game->frame(engine->get_window().publish_input_frame(),
+            {.view = Comet::Ui::View{
+                 .size = Comet::Math::Vec2(output.size), .pixel_size = output.size, .density = 1}});
+        ASSERT_FALSE(result);
+        EXPECT_FALSE(Comet::Ui::is_controller_error(result.error()));
+        EXPECT_NE(result.error().message.find("not supported"), std::string::npos);
+        EXPECT_TRUE(game->error().empty());
     }
 
     TEST_F(EditorGameUiGpuTest, ReopenedMenuUsesSharedHostSettingsAndApplyUpdatesThatSameOwner) {

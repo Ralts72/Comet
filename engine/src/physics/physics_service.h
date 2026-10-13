@@ -86,7 +86,7 @@ namespace Comet {
         Result<BodyChange, Error> synchronize_body(const BodyDefinition& definition);
         // 按实体与关节类型排序；仅配置／结构变化或刚体重建时调用。
         Result<void, Error> synchronize_joints(std::span<const JointDefinition> definitions);
-        void remove_body(EntityUuid uuid, EntityId entity);
+        void remove_bodies(std::span<const std::pair<EntityUuid, EntityId>> definitions);
         Result<void, Error> step(float delta_time);
         [[nodiscard]] std::span<const Pose> poses() const;
         [[nodiscard]] std::span<const ContactChange> contacts() const;

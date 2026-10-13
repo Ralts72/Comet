@@ -206,8 +206,6 @@ namespace Comet {
         m_programs->remove_assets(removals);
         for(auto& [id, view] : m_views)
             view.scene->remove_assets(removals);
-        m_geometry.clear_frame();
-        m_world.reset();
 
         if(m_pending_output) {
             const auto output = std::exchange(m_pending_output, std::nullopt).value();
@@ -309,14 +307,13 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> Renderer::draw_frame(RenderFrame& frame) {
+        const ScopeExit release_geometry([this] { m_geometry.clear_frame(); });
         if(m_shutdown_prepared)
             return Result<void, GraphicsError>::failure({"Renderer is shutting down"});
         if(!m_frames->is_recording_frame() || frame.serial != m_frames->get_current_frame_serial())
             return Result<void, GraphicsError>::failure({"No matching prepared render frame"});
         PROFILE_SCOPE("render frame");
         if(!frame.has_visible_view()) {
-            m_geometry.clear_frame();
-            m_world.reset();
             get_view(DEFAULT_VIEW).scene->get_shadow_pass()->reset_statistics();
             for(auto& [id, view] : m_views) {
                 view.pick_result.reset();
@@ -328,9 +325,8 @@ namespace Comet {
                 return recorded;
             return m_presentation->end_frame(waits);
         }
-        m_world = std::move(frame.world);
         const RenderWorld empty_world;
-        const auto& world = m_world ? *m_world : empty_world;
+        const auto& world = frame.world ? *frame.world : empty_world;
         RenderDiagnostics::measure_preparation(m_diagnostics.get(),
             RenderDiagnostics::PreparationPhase::Geometry, [&] { m_geometry.prepare(world); });
         std::vector<MaterialRenderer*> materials;
@@ -354,7 +350,7 @@ namespace Comet {
             }
             auto* diagnostics = diagnosed ? nullptr : m_diagnostics.get();
             if(auto recorded = render_view(
-                   view, input, world, m_world != nullptr, resource_waits, diagnostics);
+                   view, input, world, frame.world != nullptr, resource_waits, diagnostics);
                 !recorded)
                 return recorded;
             diagnosed = true;
@@ -675,8 +671,6 @@ namespace Comet {
             view.pick_result.reset();
             view.lines.clear();
         }
-        m_geometry.clear_frame();
-        m_world.reset();
     }
 
     void Renderer::prepare_shutdown() noexcept {

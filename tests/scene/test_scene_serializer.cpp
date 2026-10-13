@@ -12,6 +12,7 @@
 #include "asset/registry.h"
 #include "support/temporary_directory.h"
 
+#include <array>
 #include <filesystem>
 #include <limits>
 #include <stdexcept>
@@ -63,6 +64,41 @@ namespace Comet::Tests {
         Scene scene;
         auto& parameters = scene.create_entity().add_component<ScriptComponent>().parameters;
         parameters["color"] = Math::Vec4(1, 1, 1, std::numeric_limits<float>::infinity());
+        const auto saved = serializer.serialize(scene);
+        ASSERT_FALSE(saved);
+        EXPECT_NE(saved.error().find("parameters"), std::string::npos);
+        const auto cloned = serializer.clone(scene);
+        ASSERT_FALSE(cloned);
+        EXPECT_NE(cloned.error().find("parameters"), std::string::npos);
+
+        const std::array<std::string, 3> invalid_parameters{R"({"":1})", R"({"same":1,"same":2})",
+            std::string("{\"long\":\"") + std::string(4097, 'a') + "\"}"};
+        for(const auto& object : invalid_parameters) {
+            const auto json = R"({"version":2,"entities":[{
+                "uuid":"00000000-0000-4000-8000-000000000001",
+                "components":{"name":"Actor","script":{"asset":42,"parameters":)"
+                              + object + "}}}]}";
+            const auto loaded = serializer.deserialize(json, "invalid-parameters.scene");
+            ASSERT_FALSE(loaded);
+            EXPECT_NE(loaded.error().find("parameters"), std::string::npos);
+            EXPECT_NE(loaded.error().find("invalid-parameters.scene"), std::string::npos);
+        }
+        parameters.clear();
+        for(int index = 0; index < 128; ++index)
+            parameters.emplace("value" + std::to_string(index), float(index));
+        const auto full = serializer.serialize(scene);
+        ASSERT_TRUE(full) << full.error();
+        EXPECT_TRUE(serializer.deserialize(full.value()));
+        auto oversized = full.value();
+        constexpr std::string_view parameter_object = R"("parameters": {)";
+        const auto position = oversized.find(parameter_object);
+        ASSERT_NE(position, std::string::npos);
+        oversized.insert(position + parameter_object.size(), R"("extra": 1,)");
+        const auto rejected = serializer.deserialize(oversized, "too-many-parameters.scene");
+        ASSERT_FALSE(rejected);
+        EXPECT_NE(rejected.error().find("parameters"), std::string::npos);
+        EXPECT_NE(rejected.error().find("too-many-parameters.scene"), std::string::npos);
+        parameters.emplace("extra", 1.0f);
         EXPECT_FALSE(serializer.serialize(scene));
     }
 
@@ -719,9 +755,11 @@ namespace Comet::Tests {
                 R"({"exposure":"bad","bloom_enabled":true,"bloom_strength":1,"bloom_threshold":1})",
                 R"({"exposure":1,"bloom_enabled":true,"bloom_strength":1,"bloom_threshold":1,"unknown":0})"}) {
             const auto result = serializer.deserialize(
-                std::string(R"({"version":2,"entities":[],"post_process":)") + object + "}");
+                std::string(R"({"version":2,"entities":[],"post_process":)") + object + "}",
+                "invalid-post-process.scene");
             ASSERT_FALSE(result) << object;
             EXPECT_NE(result.error().find("post_process"), std::string::npos);
+            EXPECT_NE(result.error().find("invalid-post-process.scene"), std::string::npos);
         }
     }
 

@@ -127,9 +127,17 @@ namespace Comet {
         return accepted ? RefreshResult::Scheduled : RefreshResult::Deferred;
     }
 
-    void AssetManager::retry_refresh_requests(std::vector<AssetHandle>& published) {
+    void AssetManager::retry_refresh_requests(
+        std::vector<AssetHandle>& published, AssetCompletionBudget& budget) {
+        if(budget.max_results == 0 || budget.max_time <= std::chrono::nanoseconds::zero())
+            return;
+        auto start = std::chrono::steady_clock::now();
+        bool retried_asset = false;
         std::vector<AssetHandle> scripts;
         for(auto request = m_refresh_requests.begin(); request != m_refresh_requests.end();) {
+            if(budget.max_results == 0
+                || std::chrono::steady_clock::now() - start >= budget.max_time)
+                break;
             const auto [handle, revision] = *request;
             const auto* record = m_database.find(handle);
             if(!record || !m_database.is_current(handle, revision)
@@ -140,14 +148,23 @@ namespace Comet {
             }
             if(record->type == AssetType::Script) {
                 scripts.push_back(handle);
-                request = m_refresh_requests.erase(request);
+                if(scripts.size() >= budget.max_results)
+                    break;
+                ++request;
                 continue;
             }
+            --budget.max_results;
+            retried_asset = true;
             if(schedule_refresh(*record) == RefreshResult::Deferred)
                 break;
             request = m_refresh_requests.erase(request);
         }
-        const auto completed_scripts = refresh_scripts(scripts);
+        // 仅收集 Script 时沿用原时刻，避免每轮收集耗尽预算却不尝试首组。
+        if(scripts.empty() || retried_asset) {
+            budget.max_time -= std::chrono::steady_clock::now() - start;
+            start = std::chrono::steady_clock::now();
+        }
+        const auto completed_scripts = refresh_scripts(scripts, budget, start);
         published.insert(published.end(), completed_scripts.begin(), completed_scripts.end());
     }
 
@@ -175,10 +192,10 @@ namespace Comet {
         });
         if(!completion)
             return Result<std::vector<AssetHandle>, Error>::failure(completion.error());
-        retry_refresh_requests(published);
         auto remaining = budget;
         remaining.max_results -= completion.value();
         remaining.max_time -= std::chrono::steady_clock::now() - start;
+        retry_refresh_requests(published, remaining);
         if(auto previews = publish_environment_previews(remaining); !previews)
             return Result<std::vector<AssetHandle>, Error>::failure(previews.error());
         return Result<std::vector<AssetHandle>, Error>::success(std::move(published));

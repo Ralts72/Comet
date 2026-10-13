@@ -219,7 +219,6 @@ namespace Comet {
         std::function<void()> m_shutdown_overlay;
         bool m_shutdown_prepared = false;
         double m_frame_preparation_ms = 0;
-        std::shared_ptr<const RenderWorld> m_world;
         RenderGeometry m_geometry;
         std::optional<QualitySettings> m_pending_quality;
         std::string m_quality_error;

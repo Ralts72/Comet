@@ -1632,7 +1632,9 @@ namespace Comet::Tests {
             ASSERT_TRUE(physics.request_impulse(body, {1, 0, 0}));
             ASSERT_TRUE(runtime.request_step());
             ASSERT_TRUE(runtime.advance(0));
-            EXPECT_NEAR(physics.get_velocity(body)->linear.x, original / 8, 1e-5f);
+            EXPECT_NEAR(
+                physics.get_velocity(body)->linear.x, original * 0.9995f + original / 8, 1e-5f);
+            const auto before_resize = physics.get_velocity(body)->linear.x;
             body.edit_component<ColliderComponent>([](auto& component) {
                 component.half_extents = Math::Vec3(1);
                 component.radius = 1;
@@ -1640,8 +1642,87 @@ namespace Comet::Tests {
             ASSERT_TRUE(physics.request_impulse(body, {1, 0, 0}));
             ASSERT_TRUE(runtime.request_step());
             ASSERT_TRUE(runtime.advance(0));
-            EXPECT_NEAR(physics.get_velocity(body)->linear.x, original / 64, 1e-5f);
+            EXPECT_NEAR(physics.get_velocity(body)->linear.x,
+                before_resize * 0.9995f + original / 64, 1e-5f);
         }
+    }
+
+    TEST(PhysicsSystemTest, GeometryRebuildPreservesBothVelocitiesAtTheFixedBoundary) {
+        for(int change = 0; change < 5; ++change) {
+            SCOPED_TRACE(change);
+            Scene scene;
+            PhysicsService physics;
+            auto body = add_body(scene, "Moving", BodyMotion::Dynamic, {0, 10, 0});
+            if(change == 1)
+                body.edit_component<ColliderComponent>(
+                    [](auto& collider) { collider.shape = ColliderShape::Sphere; });
+            SceneRuntime runtime;
+            ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+            ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+            ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+            ASSERT_TRUE(runtime.start(scene));
+            ASSERT_TRUE(physics.request_impulse_at(body, {1, 0, 0}, {0, 11, 0}));
+            ASSERT_TRUE(runtime.advance(0.01));
+            ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+            const auto before = physics.get_velocity(body);
+            ASSERT_TRUE(before);
+            ASSERT_GT(before->linear.x, 0.9f);
+            ASSERT_LT(before->angular.z, -1);
+            switch(change) {
+                case 0:
+                    body.edit_component<ColliderComponent>(
+                        [](auto& collider) { collider.half_extents.x = 0.7f; });
+                    break;
+                case 1:
+                    body.edit_component<ColliderComponent>(
+                        [](auto& collider) { collider.radius = 0.7f; });
+                    break;
+                case 2:
+                    body.edit_transform([](auto& transform) { transform.scale = Math::Vec3(2); });
+                    break;
+                case 3:
+                    body.edit_component<ColliderComponent>(
+                        [](auto& collider) { collider.shape = ColliderShape::Sphere; });
+                    break;
+                case 4:
+                    body.edit_component<ColliderComponent>(
+                        [](auto& collider) { collider.is_trigger = true; });
+                    break;
+            }
+            ASSERT_TRUE(runtime.advance(0.1));
+            EXPECT_EQ(physics.get_velocity(body)->linear, before->linear);
+            EXPECT_EQ(physics.get_velocity(body)->angular, before->angular);
+            ASSERT_TRUE(runtime.request_step());
+            ASSERT_TRUE(runtime.advance(0));
+            const auto after = physics.get_velocity(body);
+            ASSERT_TRUE(after);
+            EXPECT_NEAR(after->linear.x, before->linear.x * 0.9995f, 1e-5f);
+            EXPECT_NEAR(after->angular.z, before->angular.z * 0.9995f, 1e-4f);
+            EXPECT_EQ(physics.get_statistics().bodies, 1u);
+        }
+    }
+
+    TEST(PhysicsSystemTest, MotionChangesStartDynamicBodiesWithFreshVelocity) {
+        Scene scene;
+        PhysicsService physics;
+        auto body = add_body(scene, "Moving", BodyMotion::Dynamic, {0, 10, 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(physics.request_impulse_at(body, {1, 0, 0}, {0, 11, 0}));
+        ASSERT_TRUE(runtime.advance(0.01));
+        ASSERT_GT(physics.get_velocity(body)->linear.x, 0.9f);
+        for(const auto motion : {BodyMotion::Static, BodyMotion::Dynamic}) {
+            body.edit_component<RigidBodyComponent>([&](auto& rigid) { rigid.motion = motion; });
+            ASSERT_TRUE(runtime.advance(0.01));
+        }
+        const auto velocity = physics.get_velocity(body);
+        ASSERT_TRUE(velocity);
+        EXPECT_FLOAT_EQ(velocity->linear.x, 0);
+        EXPECT_EQ(velocity->angular, Math::Vec3(0));
+        EXPECT_EQ(physics.get_statistics().bodies, 1u);
     }
 
     TEST(PhysicsSystemTest, MassChangesAtFixedBoundaryWithoutResettingVelocity) {

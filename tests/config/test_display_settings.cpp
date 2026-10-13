@@ -20,6 +20,11 @@ namespace Comet::Tests {
         ASSERT_TRUE(loaded) << loaded.error();
         EXPECT_EQ(loaded.value().settings(), defaults);
         EXPECT_FALSE(std::filesystem::exists(path()));
+        const DisplaySettings new_defaults{1920, 1080, WindowMode::Fullscreen, false};
+        const auto refreshed = PlayerDisplaySettings::load(project_id, new_defaults, path());
+        ASSERT_TRUE(refreshed) << refreshed.error();
+        EXPECT_EQ(refreshed.value().settings(), new_defaults);
+        EXPECT_FALSE(std::filesystem::exists(path()));
         const DisplaySettings candidate{
             960, 720, WindowMode::Borderless, false, {OutputMode::Auto, 6.0f, 1.25f}, 144};
         bool applied = false;
@@ -30,7 +35,7 @@ namespace Comet::Tests {
             return Result<void>::success();
         }));
         EXPECT_TRUE(applied);
-        auto reopened = PlayerDisplaySettings::load(project_id, DisplaySettings{}, path());
+        auto reopened = PlayerDisplaySettings::load(project_id, new_defaults, path());
         ASSERT_TRUE(reopened) << reopened.error();
         EXPECT_EQ(reopened.value().settings(), candidate);
         EXPECT_FALSE(PlayerDisplaySettings::load(Uuid::generate(), defaults, path()));

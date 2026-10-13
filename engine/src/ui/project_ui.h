@@ -7,6 +7,8 @@
 #include "ui/rml_context.h"
 
 namespace Comet::Ui {
+    [[nodiscard]] COMET_API bool is_controller_error(const Error& error);
+
     // 项目呈现生命周期独立于 Scene；宿主只提供持久化和 Runtime 应用服务。
     class COMET_API ProjectUi final {
     public:

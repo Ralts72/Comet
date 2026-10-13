@@ -89,7 +89,21 @@ namespace Comet::Tests {
         const auto scan = manager.scan();
         ASSERT_EQ(scan.modified_assets.size(), handles.size());
         blocker.release();
-        EXPECT_EQ(drain().size(), handles.size());
+        scheduler.wait_idle();
+        const AssetCompletionBudget one_result{
+            .max_results = 1, .max_time = std::chrono::seconds(1)};
+        auto published = completed_handles(manager.process_completions(one_result));
+        ASSERT_EQ(published.size(), 1u);
+        EXPECT_EQ(manager.get_async_status().in_flight, 1u);
+        EXPECT_EQ(manager.get_async_status().queued, 0u);
+        EXPECT_TRUE(completed_handles(manager.process_completions({.max_results = 0})).empty());
+        EXPECT_TRUE(completed_handles(
+            manager.process_completions({.max_time = std::chrono::nanoseconds(0)}))
+                .empty());
+        EXPECT_EQ(manager.get_async_status().queued, 0u);
+        const auto remaining = drain();
+        published.insert(published.end(), remaining.begin(), remaining.end());
+        EXPECT_EQ(published.size(), handles.size());
         for(std::size_t i = 0; i < handles.size(); ++i)
             EXPECT_NE(registry.resolve<Mesh>(handles[i]), previous[i]);
     }

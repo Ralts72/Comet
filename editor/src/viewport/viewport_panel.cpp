@@ -144,6 +144,11 @@ namespace CometEditor {
             render_gizmo_settings();
         }
         render_view_options();
+        if(!m_game_ui_error.empty()) {
+            toolbar_next(ImGui::CalcTextSize("UI 出错").x);
+            ImGui::TextColored({1, 0.55f, 0.3f, 1}, "%s", "UI 出错");
+            ImGui::SetItemTooltip("%s\n修复后使用 视图 → 重载 UI。", m_game_ui_error.c_str());
+        }
         ImGui::Separator();
     }
 
@@ -301,6 +306,8 @@ namespace CometEditor {
             ImGui::PopItemFlag();
             if(ImGui::MenuItem("重载 UI###Reload UI"))
                 m_game_ui_reload_requested = true;
+            if(!m_game_ui_error.empty())
+                ImGui::TextWrapped("%s", m_game_ui_error.c_str());
         }
         ImGui::SeparatorText("调试");
         ImGui::PushItemFlag(ImGuiItemFlags_AutoClosePopups, false);

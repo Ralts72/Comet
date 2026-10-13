@@ -32,13 +32,15 @@ namespace Comet {
         const auto batch = scene.physics_changes();
         bool joints_changed = batch.joints_changed || batch.structure_changed;
         if(batch.structure_changed) {
-            std::erase_if(m_entries, [this](const Entry& entry) {
+            std::vector<std::pair<EntityUuid, EntityId>> removed;
+            std::erase_if(m_entries, [&](const Entry& entry) {
                 // has_component 已检查句柄寿命；必需组件在下方统一校验。
                 if(entry.entity.has_component<RigidBodyComponent>())
                     return false;
-                m_physics.remove_body(entry.uuid, entry.id);
+                removed.emplace_back(entry.uuid, entry.id);
                 return true;
             });
+            m_physics.remove_bodies(removed);
         }
         for(const auto handle : batch.entities) {
             // 销毁会移除脏项；移除刚体的实体仍可能在本批中。

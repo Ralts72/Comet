@@ -4,18 +4,19 @@
 #include "asset/script.h"
 
 #include <algorithm>
+#include <limits>
 #include <map>
 #include <set>
 
 namespace Comet {
-    namespace {
-        struct ScriptSource {
-            AssetRecord record;
-            AssetRevision revision;
-            std::shared_ptr<Script> previous;
-            std::set<std::filesystem::path> dependencies;
-        };
+    struct AssetManager::ScriptReloadSource {
+        AssetRecord record;
+        AssetRevision revision;
+        std::shared_ptr<Script> previous;
+        std::set<std::filesystem::path> dependencies;
+    };
 
+    namespace {
         bool shares_dependency(const std::set<std::filesystem::path>& left,
             const std::set<std::filesystem::path>& right) {
             return std::ranges::any_of(
@@ -33,52 +34,88 @@ namespace Comet {
         if(m_registry.contains(handle))
             return Result<std::shared_ptr<Script>, Error>::failure({"Runtime asset type conflict"});
         std::unordered_set<AssetHandle> processed;
-        if(auto published = publish_script_group(handle, processed); !published)
+        auto sources = script_reload_sources();
+        if(auto published = publish_script_group(handle, processed, sources); !published)
             return Result<std::shared_ptr<Script>, Error>::failure(published.error());
         return Result<std::shared_ptr<Script>, Error>::success(m_registry.resolve<Script>(handle));
     }
 
     std::vector<AssetHandle> AssetManager::refresh_scripts(
         const std::span<const AssetHandle> handles) {
+        AssetCompletionBudget budget{
+            std::numeric_limits<std::size_t>::max(), std::chrono::nanoseconds::max()};
+        return refresh_scripts(handles, budget, std::chrono::steady_clock::now());
+    }
+
+    std::vector<AssetHandle> AssetManager::refresh_scripts(
+        const std::span<const AssetHandle> handles, AssetCompletionBudget& budget,
+        const std::chrono::steady_clock::time_point start) {
+        if(handles.empty() || budget.max_results == 0
+            || budget.max_time <= std::chrono::nanoseconds::zero())
+            return {};
+        auto sources = script_reload_sources();
         std::unordered_set<AssetHandle> processed;
         std::vector<AssetHandle> published;
+        // 输入收集与索引准备计入首组；正预算至少尝试一个不可分割的组。
+        bool attempted_group = false;
         for(const auto handle : handles) {
             if(processed.contains(handle))
                 continue;
+            if(budget.max_results == 0
+                || (attempted_group && std::chrono::steady_clock::now() - start >= budget.max_time))
+                break;
+            attempted_group = true;
+            --budget.max_results;
             std::unordered_set<AssetHandle> group;
-            if(auto result = publish_script_group(handle, group); !result)
+            if(auto result = publish_script_group(handle, group, sources); !result)
                 LOG_WARN("Cannot refresh script group containing {}: {}", handle.value(),
                     result.error().message);
             else
                 published.insert(published.end(), group.begin(), group.end());
             processed.insert(group.begin(), group.end());
+            for(const auto member : group) {
+                const auto* record = m_database.find(member);
+                if(record && m_registry.resolve<Script>(member))
+                    sources.insert_or_assign(member, script_reload_source(*record));
+                else
+                    sources.erase(member);
+            }
         }
         std::ranges::sort(published);
         const auto duplicate = std::ranges::unique(published);
         published.erase(duplicate.begin(), duplicate.end());
+        budget.max_time -= std::chrono::steady_clock::now() - start;
         return published;
     }
 
-    Result<void, Error> AssetManager::publish_script_group(
-        const AssetHandle seed, std::unordered_set<AssetHandle>& processed) {
-        std::map<AssetHandle, ScriptSource> sources;
-        for(auto record : m_database.get_assets()) {
-            if(record.type != AssetType::Script)
-                continue;
-            auto previous = m_registry.resolve<Script>(record.handle);
-            if(!previous && record.handle != seed)
-                continue;
-            const auto handle = record.handle;
-            const auto indexed = m_database.get_import_dependencies(handle);
-            std::set<std::filesystem::path> dependencies(indexed.begin(), indexed.end());
-            if(previous)
-                dependencies.insert(
-                    previous->dependencies().begin(), previous->dependencies().end());
-            sources.emplace(handle, ScriptSource{std::move(record), m_database.get_revision(handle),
-                                        std::move(previous), std::move(dependencies)});
+    AssetManager::ScriptReloadSource AssetManager::script_reload_source(
+        const AssetRecord& record) const {
+        auto previous = m_registry.resolve<Script>(record.handle);
+        const auto indexed = m_database.get_import_dependencies(record.handle);
+        std::set<std::filesystem::path> dependencies(indexed.begin(), indexed.end());
+        if(previous)
+            dependencies.insert(previous->dependencies().begin(), previous->dependencies().end());
+        return {record, m_database.get_revision(record.handle), std::move(previous),
+            std::move(dependencies)};
+    }
+
+    AssetManager::ScriptReloadSources AssetManager::script_reload_sources() const {
+        ScriptReloadSources sources;
+        for(const auto& record : m_database.get_assets()) {
+            if(record.type == AssetType::Script && m_registry.resolve<Script>(record.handle))
+                sources.emplace(record.handle, script_reload_source(record));
         }
-        if(!sources.contains(seed))
-            return Result<void, Error>::failure({"Script asset is no longer indexed"});
+        return sources;
+    }
+
+    Result<void, Error> AssetManager::publish_script_group(const AssetHandle seed,
+        std::unordered_set<AssetHandle>& processed, ScriptReloadSources& sources) {
+        if(!sources.contains(seed)) {
+            const auto* record = m_database.find(seed);
+            if(!record || record->type != AssetType::Script)
+                return Result<void, Error>::failure({"Script asset is no longer indexed"});
+            sources.emplace(seed, script_reload_source(*record));
+        }
 
         std::set<AssetHandle> group{seed};
         std::set<std::filesystem::path> dependencies;

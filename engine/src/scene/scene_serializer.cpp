@@ -7,7 +7,6 @@
 #include "scene/scene.h"
 
 #include <algorithm>
-#include <cmath>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -50,6 +49,9 @@ namespace Comet {
                         return Result<PropertyValue>::failure(object.error());
                     ParameterMap parameters;
                     for(const auto field : object.value()) {
+                        if(parameters.size() >= 128 || !valid_parameter_name(field.key))
+                            return Result<PropertyValue>::failure(
+                                context.error(location, "Invalid or duplicate parameter"));
                         PropertyDescriptor item;
                         if(field.value.is_bool())
                             item.type = PropertyType::Bool;
@@ -88,10 +90,13 @@ namespace Comet {
                                         .second;
                             },
                             value.value());
-                        if(!inserted || !valid_parameters(parameters))
+                        if(!inserted)
                             return Result<PropertyValue>::failure(
                                 context.error(location, "Invalid or duplicate parameter"));
                     }
+                    if(!valid_parameters(parameters))
+                        return Result<PropertyValue>::failure(
+                            context.error(location, "Invalid or duplicate parameter"));
                     return Result<PropertyValue>::success(std::move(parameters));
                 }
                 case PropertyType::Bool: {
@@ -170,17 +175,15 @@ namespace Comet {
             if(!value)
                 return Result<PropertyValue>::failure(
                     context.error(location, "property accessor returned null or unsupported type"));
-            if(const auto* number = std::get_if<float>(&*value); number && !std::isfinite(*number))
-                return Result<PropertyValue>::failure(
-                    context.error(location, "expected a finite number"));
-            if(const auto* vector = std::get_if<Math::Vec3>(&*value);
-                vector && !Math::is_finite(*vector))
-                return Result<PropertyValue>::failure(
-                    context.error(location, "expected finite numbers"));
-            if(const auto* parameters = std::get_if<ParameterMap>(&*value);
-                parameters && !valid_parameters(*parameters))
-                return Result<PropertyValue>::failure(
-                    context.error(location, "Invalid parameters"));
+            if(!property.accepts_value(*value)) {
+                const char* message = "value violates property constraints";
+                if(property.type == PropertyType::Parameters)
+                    message = "Invalid parameters";
+                else if(property.type == PropertyType::Float || property.type == PropertyType::Vec3
+                        || property.type == PropertyType::Vec4)
+                    message = "expected a finite value within property constraints";
+                return Result<PropertyValue>::failure(context.error(location, message));
+            }
             if(const auto* text = std::get_if<std::string>(&*value);
                 text && !simdjson::validate_utf8(*text))
                 return Result<PropertyValue>::failure(context.error(location, "invalid UTF-8"));
@@ -192,9 +195,6 @@ namespace Comet {
                             context.error(location, "invalid UTF-8"));
                 }
             }
-            if(!property.accepts_value(*value))
-                return Result<PropertyValue>::failure(
-                    context.error(location, "value violates property constraints"));
             return Result<PropertyValue>::success(std::move(*value));
         }
 
@@ -725,8 +725,6 @@ namespace Comet {
                     return LoadResult::failure(color.error());
                 environment.background_color = color.value();
             }
-            if(auto valid = environment.validate(); !valid)
-                return LoadResult::failure(context.error("environment", valid.error()));
             content.environment = environment;
         }
         Json::Node post_process_node;
@@ -757,8 +755,6 @@ namespace Comet {
                 return LoadResult::failure(threshold.error());
             const PostProcessSettings settings{
                 exposure.value(), enabled.value(), strength.value(), threshold.value()};
-            if(auto valid = settings.validate(); !valid)
-                return LoadResult::failure(context.error("post_process", valid.error()));
             content.post_process = settings;
         }
         return restore_content(content, source);

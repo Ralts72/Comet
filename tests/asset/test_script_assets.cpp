@@ -194,6 +194,38 @@ namespace Comet::Tests {
             (std::vector<std::filesystem::path>{"scripts/other.module.lua"}));
     }
 
+    TEST_F(ScriptGroupTest, LaterBatchGroupUsesAlreadyPublishedPeerAndItsNewDependencies) {
+        script(first, "return {properties={value=1}}");
+        script(second, "return {properties={value=2}}");
+        script(independent, "return {properties={value=3}}");
+        ASSERT_TRUE(manager.scan().succeeded());
+        const auto old_first = load(first);
+        const auto old_second = load(second);
+        const auto separate = load(independent);
+        ASSERT_TRUE(old_first);
+        ASSERT_TRUE(old_second);
+        ASSERT_TRUE(separate);
+
+        write("scripts/shared.module.lua", "return {value = 10}");
+        constexpr auto source =
+            "local m=require('scripts.shared'); return {properties={value=m.value}}";
+        script(first, source);
+        script(second, source);
+        ASSERT_TRUE(manager.scan().succeeded());
+        const auto next_first = registry.resolve<Script>(first);
+        const auto next_second = registry.resolve<Script>(second);
+        ASSERT_TRUE(next_first);
+        ASSERT_TRUE(next_second);
+        EXPECT_NE(next_first, old_first);
+        EXPECT_NE(next_second, old_second);
+        EXPECT_EQ(registry.resolve<Script>(independent), separate);
+        for(const auto& script : {next_first, next_second}) {
+            EXPECT_FLOAT_EQ(std::get<float>(script->properties().at("value").default_value), 10);
+            EXPECT_EQ(script->dependencies(),
+                (std::vector<std::filesystem::path>{"scripts/shared.module.lua"}));
+        }
+    }
+
     TEST_F(ScriptGroupTest, UnavailableRunningPeerDefersNewInstancesAndRecoversAsAGroup) {
         write("scripts/shared.module.lua", "return {value = 1}");
         script(first);

@@ -859,6 +859,8 @@ return controller
         const auto& action = project.value().input_actions().actions().front();
         click("toggle_binding-" + action.bindings.front().id.to_string());
         auto* live = &document();
+        auto* context = Rml::GetContext(0);
+        auto* focused = context->GetFocusElement();
         for(const auto& script :
             {std::string("return {on_mount=42,model={}}"), std::string("while true do end"),
                 original_controller + "\nerror('candidate failed')"}) {
@@ -868,6 +870,27 @@ return controller
             ASSERT_TRUE(submit_frame());
             EXPECT_TRUE(ui->is_modal());
         }
+        for(unsigned attempt = 0; attempt < 3; ++attempt) {
+            std::string script = "return {model={";
+            for(unsigned field = 0; field < 65; ++field)
+                script +=
+                    "candidate_" + std::to_string(attempt) + "_" + std::to_string(field) + "=0,";
+            script += "},on_mount=function(self,ui) ui.require_element('missing-candidate') end}";
+            write("runtime.ui.lua", script);
+            const auto rejected = ui->reload();
+            ASSERT_FALSE(rejected);
+            EXPECT_NE(rejected.error().find("missing-candidate"), std::string::npos);
+            EXPECT_EQ(Rml::GetContext(0), context);
+            EXPECT_EQ(context->GetFocusElement(), focused);
+            EXPECT_EQ(&document(), live);
+            EXPECT_EQ(Rml::GetNumContexts(), 1);
+            ASSERT_TRUE(submit_frame());
+        }
+        click("next");
+        EXPECT_EQ(document().GetElementById("action-name")->GetInnerRML(),
+            project.value().input_actions().actions()[1].name);
+        click("previous");
+        EXPECT_EQ(document().GetElementById("action-name")->GetInnerRML(), action.name);
         write("runtime.ui.lua", original_controller);
         auto missing = original_document;
         const auto id = missing.find("id=\"apply\"");
@@ -882,8 +905,14 @@ return controller
         EXPECT_NE(rejected.error().find("apply"), std::string::npos);
         EXPECT_EQ(&document(), live);
         write("runtime.rml", original_document);
+        auto extended = original_controller;
+        const auto extra = extended.find("model = {");
+        ASSERT_NE(extra, std::string::npos);
+        extended.insert(extra + std::strlen("model = {"), "reload_probe = 'fresh', ");
+        write("runtime.ui.lua", extended);
         ASSERT_TRUE(ui->reload());
         ASSERT_TRUE(submit_frame());
+        EXPECT_EQ(Rml::GetNumContexts(), 1);
         EXPECT_TRUE(ui->is_modal());
         click("apply");
         ASSERT_EQ(submitted.size(), 1u);
