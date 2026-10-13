@@ -50,6 +50,7 @@ set(UNIT_TEST_SOURCES
         diagnostics/test_profiler.cpp
         diagnostics/test_timing_history.cpp
         editor/core/test_camera_controller.cpp
+        editor/core/test_animation_preview.cpp
         editor/core/test_physics_overlay.cpp
         editor/core/test_command_history.cpp
         editor/core/test_editor_assets.cpp
@@ -138,6 +139,7 @@ set(INTEGRATION_SOURCES
         editor/integration/test_material_editing.cpp
         editor/integration/test_viewport.cpp
         editor/integration/test_game_ui.cpp
+        editor/ui/test_animation_preview.cpp
         graphics/test_creation.cpp
         graphics/test_descriptor_set.cpp
         graphics/test_pipeline_cache.cpp

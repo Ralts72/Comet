@@ -135,6 +135,9 @@ namespace Comet {
         Entity entity, std::shared_ptr<const AnimationPlayback> playback) {
         if(!is_valid(entity))
             return;
+        const auto found = m_animation_playbacks.find(entity.m_handle);
+        if(found != m_animation_playbacks.end() && found->second == playback)
+            return;
         if(!playback && !m_animation_playbacks.erase(entity.m_handle))
             return;
         if(playback)

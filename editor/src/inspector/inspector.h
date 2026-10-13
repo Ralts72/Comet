@@ -3,6 +3,7 @@
 #include "asset/database.h"
 #include "scene/component_registry.h"
 #include "inspector/asset_inspector.h"
+#include "inspector/animation_preview.h"
 #include "ui/editor_panel.h"
 #include "scene/command_history.h"
 #include "scene/scene_settings.h"
@@ -39,10 +40,12 @@ namespace CometEditor {
             const Comet::AssetDatabase& asset_database, const Comet::AssetRegistry& runtime_assets,
             const Comet::MaterialProgramValidator& programs,
             const Comet::SceneRuntime* runtime = nullptr);
+        ~InspectorPanel() override;
 
         void render() override;
         [[nodiscard]] bool finish_edit(bool cancel = false);
         void reset_for_scene_change();
+        void update_animation_preview(double delta_time);
         [[nodiscard]] AssetInspector& asset_inspector() { return m_asset_inspector; }
         [[nodiscard]] std::optional<AssetAssignment> take_asset_assignment();
 
@@ -54,6 +57,9 @@ namespace CometEditor {
         void render_environment(Comet::Scene& scene);
         void render_post_process(Comet::Scene& scene);
         void render_entity(Comet::Entity entity);
+        void render_animation_preview(Comet::Entity entity);
+        [[nodiscard]] bool bind_animation_preview(Comet::Entity entity);
+        void reset_animation_preview();
         void render_property(Comet::Entity entity, const Comet::ComponentDescriptor& component,
             const Comet::PropertyDescriptor& property);
         void render_script_parameters(Comet::Entity entity,
@@ -79,6 +85,9 @@ namespace CometEditor {
         std::shared_ptr<const Comet::Script> m_script_edit_version;
         AssetInspector m_asset_inspector;
         std::optional<AssetAssignment> m_asset_assignment;
+        AnimationPreview m_animation_preview;
+        std::shared_ptr<const Comet::AnimationPlayback> m_preview_publication;
+        bool m_animation_preview_drawn = false;
         uint32_t m_active_item = 0;
         uint32_t m_script_active_item = 0;
     };

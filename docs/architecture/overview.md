@@ -7,6 +7,8 @@ Mesh 导入数据保存顶点权重和不可变 `AnimationData`，骨骼层级�
 `AnimationSystem` 在 Main 普通更新阶段推进实例时间；角色动作取自 Gameplay 的实际移动状态，动画不回写角色的物理位置。
 Scene 保存不可变播放快照，提取／解析交付同一快照给 RenderThread；Stop、销毁及重开清理播放状态，场景文件不保存时间与逐帧姿态。
 播放值未变化时保留原快照，避免零速且过渡已结束的实例重复发布；零速仍允许片段过渡推进。
+Editor 的 `AnimationPreview` 拥有所选模型的预览时钟，Inspector 在 Main 捕获帧前通过 Scene 的瞬时播放接口发布不可变快照，复用正常提取、采样和蒙皮链路。
+预览与 Animator 配置、命令历史及游戏 Runtime 分开；结束时只清理仍属于预览的发布，选择／资源／场景变化和进入 Play 时重置，不新增渲染视口。
 
 RenderThread 采样局部 TRS、混合并合成骨骼矩阵，`SkinningPass` 每帧槽复用角色的调色板和输出顶点缓冲。
 Compute 在绘制前生成普通 Mesh 顶点，主绘制、阴影及项目材质共用结果，不扩展材质顶点接口。

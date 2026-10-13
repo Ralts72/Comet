@@ -123,6 +123,9 @@ namespace Comet {
 
         [[nodiscard]] std::shared_ptr<const AnimationPlayback> get_animation_playback(
             Entity entity) const;
+        // Main 发布瞬时姿态输入；不进入内容序列化，Runtime 开始／停止时清理。
+        void set_animation_playback(
+            Entity entity, std::shared_ptr<const AnimationPlayback> playback);
 
         [[nodiscard]] bool is_valid(Entity entity) const;
 
@@ -143,9 +146,6 @@ namespace Comet {
         [[nodiscard]] bool set_post_process(const PostProcessSettings& settings);
 
     private:
-        friend class AnimationSystem;
-        void set_animation_playback(
-            Entity entity, std::shared_ptr<const AnimationPlayback> playback);
         friend class Entity;
         friend class SceneSerializer;
         friend class SceneRuntime;

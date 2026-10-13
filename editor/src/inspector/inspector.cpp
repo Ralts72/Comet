@@ -240,7 +240,12 @@ namespace CometEditor {
           m_runtime_assets(runtime_assets), m_runtime(runtime),
           m_asset_inspector(asset_database, programs) {}
 
+    InspectorPanel::~InspectorPanel() {
+        reset_animation_preview();
+    }
+
     void InspectorPanel::render() {
+        m_animation_preview_drawn = false;
         m_asset_inspector.select(m_selection.get_selected_asset());
         m_asset_assignment.reset();
         if(m_property_edit.editing_scene()
@@ -248,11 +253,13 @@ namespace CometEditor {
                 || m_selection.get_selected_scene() != m_history.get_scene()))
             static_cast<void>(finish_edit());
         if(!m_user_visible) {
+            reset_animation_preview();
             static_cast<void>(finish_edit());
             return;
         }
 
         if(!ImGui::Begin(window_label().c_str(), &m_user_visible)) {
+            reset_animation_preview();
             static_cast<void>(finish_edit());
             ImGui::End();
             return;
@@ -272,6 +279,8 @@ namespace CometEditor {
             ImGui::TextUnformatted("尚未选中实体或资产");
         }
 
+        if(!m_animation_preview_drawn)
+            reset_animation_preview();
         ImGui::End();
     }
 
@@ -301,6 +310,8 @@ namespace CometEditor {
                 ImGui::EndPopup();
             }
             if(expanded) {
+                if(component_descriptor.id == "animator")
+                    render_animation_preview(entity);
                 if(component_descriptor.id == "character_controller")
                     ImGui::TextWrapped(
                         "脚底为原点，总高须大于直径。角色与刚体不能共用同一实体；保持竖直、无父级和正等比缩放。");
@@ -469,10 +480,108 @@ namespace CometEditor {
     }
 
     void InspectorPanel::reset_for_scene_change() {
+        reset_animation_preview();
         m_asset_assignment.reset();
         m_script_edit_version.reset();
         if(!finish_edit(true))
             LOG_ERROR("Cannot cancel Inspector edit before changing scene");
+    }
+
+    void InspectorPanel::reset_animation_preview() {
+        if(m_preview_publication) {
+            auto& scene = m_selection.get_scene();
+            const auto target = m_animation_preview.target();
+            if(target.scene_lifetime == scene.get_lifetime()) {
+                const auto entity = scene.find_entity(target.entity);
+                if(scene.get_animation_playback(entity) == m_preview_publication)
+                    scene.set_animation_playback(entity, nullptr);
+            }
+        }
+        m_animation_preview.reset();
+        m_preview_publication.reset();
+        m_animation_preview_drawn = false;
+    }
+
+    bool InspectorPanel::bind_animation_preview(Comet::Entity entity) {
+        auto& scene = m_selection.get_scene();
+        if(m_state.mode != EditorMode::Edit || (m_runtime && m_runtime->is_active()) || !entity
+            || !entity.has_component<Comet::AnimatorComponent>()
+            || !entity.has_component<Comet::MeshRendererComponent>()) {
+            reset_animation_preview();
+            return false;
+        }
+        const auto mesh = m_runtime_assets.resolve<Comet::Mesh>(
+            entity.get_component<Comet::MeshRendererComponent>().mesh);
+        if(!mesh || !mesh->animation_data() || mesh->animation_data()->clips.empty()) {
+            reset_animation_preview();
+            return false;
+        }
+        const AnimationPreview::Target target{scene.get_lifetime(), entity.get_uuid()};
+        if(m_animation_preview.target() != target)
+            reset_animation_preview();
+        m_animation_preview.bind(
+            target, mesh->animation_data(), entity.get_component<Comet::AnimatorComponent>().clip);
+        return true;
+    }
+
+    void InspectorPanel::update_animation_preview(double delta_time) {
+        if(!m_animation_preview_drawn) {
+            reset_animation_preview();
+            return;
+        }
+        const auto entity = m_selection.get_selected_entity();
+        if(!bind_animation_preview(entity))
+            return;
+        m_animation_preview.advance(delta_time);
+        m_preview_publication = m_animation_preview.snapshot();
+        m_selection.get_scene().set_animation_playback(entity, m_preview_publication);
+    }
+
+    void InspectorPanel::render_animation_preview(Comet::Entity entity) {
+        if(m_state.mode != EditorMode::Edit)
+            return;
+        ImGui::SeparatorText("动画预览");
+        if(!bind_animation_preview(entity)) {
+            ImGui::TextDisabled("需要已加载且包含动作片段的骨骼网格");
+            return;
+        }
+        m_animation_preview_drawn = true;
+        const auto* selected = m_animation_preview.clip();
+        if(ImGui::BeginCombo("预览片段###Animation Preview Clip", selected->name.c_str())) {
+            for(const auto& clip : m_animation_preview.animation()->clips)
+                if(ImGui::Selectable(clip.name.c_str(), &clip == selected))
+                    static_cast<void>(m_animation_preview.select_clip(clip.name));
+            ImGui::EndCombo();
+        }
+        selected = m_animation_preview.clip();
+        ImGui::BeginDisabled(selected->duration <= 0);
+        if(m_animation_preview.playing()) {
+            if(ImGui::Button("暂停预览###Pause Animation Preview"))
+                m_animation_preview.pause();
+        } else if(ImGui::Button("播放预览###Play Animation Preview")) {
+            static_cast<void>(m_animation_preview.play());
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if(ImGui::Button("结束预览###Stop Animation Preview"))
+            m_animation_preview.stop();
+        ImGui::SameLine();
+        bool loop = m_animation_preview.loop();
+        if(ImGui::Checkbox("循环###Loop Animation Preview", &loop))
+            m_animation_preview.set_loop(loop);
+        float time = float(m_animation_preview.time());
+        ImGui::BeginDisabled(selected->duration <= 0);
+        if(ImGui::SliderFloat("时间 (s)###Animation Preview Time", &time, 0, selected->duration,
+               "%.3f", ImGuiSliderFlags_AlwaysClamp))
+            static_cast<void>(m_animation_preview.seek(time));
+        ImGui::EndDisabled();
+        float speed = m_animation_preview.speed();
+        if(ImGui::DragFloat("预览速度###Animation Preview Speed", &speed, 0.05f, 0, 4, "%.2f",
+               ImGuiSliderFlags_AlwaysClamp))
+            static_cast<void>(m_animation_preview.set_speed(speed));
+        ImGui::TextDisabled(
+            "时长 %.3f s；拖动时间会暂停，结束预览恢复绑定姿态。", selected->duration);
+        ImGui::SeparatorText("播放配置");
     }
 
     void InspectorPanel::render_property(Comet::Entity entity,
