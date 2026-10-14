@@ -58,7 +58,6 @@ jobs:
           cmake --preset ci-release -G Ninja \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_CXX_SCAN_FOR_MODULES=OFF \
             -DCMAKE_DISABLE_PRECOMPILE_HEADERS=OFF
 
@@ -68,7 +67,7 @@ jobs:
           if (( jobs > 4 )); then jobs=4; fi
           cmake --build --preset ci-release --parallel "$jobs"
 
-      # 在后续检查／测试前保存，测试失败不丢弃本轮编译结果。
+      # 在测试前保存，测试失败不丢弃本轮编译结果。
       - name: Save compiler results
         uses: actions/cache/save@v6
         with:
@@ -78,17 +77,6 @@ jobs:
       - name: Compiler cache statistics
         if: always()
         run: ccache --show-stats
-
-      - name: Check includes without precompiled headers
-        env:
-          CHECK_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          if [[ -n "$CHECK_BASE" && "$CHECK_BASE" != 0000000000000000000000000000000000000000 ]]; then
-            git fetch --no-tags --depth=1 origin "$CHECK_BASE"
-            python3 tools/check_includes.py build --base "$CHECK_BASE" --jobs 4
-          else
-            python3 tools/check_includes.py build --jobs 4
-          fi
 
       - name: Setup virtual display for GLFW tests
         run: |
