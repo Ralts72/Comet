@@ -5,6 +5,7 @@
 #include "common/export.h"
 #include "common/parameters.h"
 #include "core/math_utils.h"
+#include "particles/particle_data.h"
 #include "scene/entity_id.h"
 #include "scene/entity_uuid.h"
 #include "scene/scene_settings.h"
@@ -115,6 +116,7 @@ namespace Comet {
         std::is_same_v<std::remove_cvref_t<T>, AnimatorComponent>
         || std::is_same_v<std::remove_cvref_t<T>, MeshRendererComponent>
         || std::is_same_v<std::remove_cvref_t<T>, CameraComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, ParticleEmitterComponent>
         || std::is_same_v<std::remove_cvref_t<T>, LightComponent>;
 
     struct COMET_API CameraControllerComponent {

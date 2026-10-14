@@ -23,6 +23,7 @@
 #include "render/resource/render_resources.h"
 #include "diagnostics/logger.h"
 #include "diagnostics/profiler.h"
+#include "render/passes/particle_pass.h"
 
 #include <algorithm>
 #include <utility>
@@ -40,6 +41,7 @@ namespace Comet {
         std::shared_ptr<RenderTarget> output_target;
         std::unique_ptr<MaterialRenderer> materials;
         std::unique_ptr<DebugRenderer> debug;
+        std::unique_ptr<ParticlePass> particles;
         RenderGraph::Plan graph;
         RenderGraph::Plan shared_shadow_graph;
         bool record_shadow = true;
@@ -169,6 +171,11 @@ namespace Comet {
         if(!debug)
             return Creation::failure(debug.error());
         next->debug = std::move(debug).value();
+        auto particles =
+            ParticlePass::create(m_device, *next->pipelines, m_frame_slot_count, samples);
+        if(!particles)
+            return Creation::failure(particles.error());
+        next->particles = std::move(particles).value();
         if(auto graph = rebuild_graph(*next, m_post_process.uses_bloom()); !graph)
             return Creation::failure(graph.error());
         return Creation::success(std::move(next));
@@ -559,6 +566,13 @@ namespace Comet {
         for(const auto& wait : skybox.value())
             merge_semaphore_wait(waits.value(), wait);
         if(submission.view_project_matrix) {
+            if(submission.world.particles) {
+                if(auto drawn = m_state->particles->render(
+                       frames, *submission.view_project_matrix, *submission.world.particles);
+                    !drawn)
+                    return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
+                        drawn.error());
+            }
             if(auto debug = m_state->debug->render(frames, *submission.view_project_matrix, lines);
                 !debug)
                 return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(

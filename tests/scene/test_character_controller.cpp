@@ -3,6 +3,7 @@
 #include "asset/default_assets.h"
 #include "animation/animation_system.h"
 #include "physics/physics_service.h"
+#include "particles/particle_system.h"
 #include "asset/registry.h"
 #include "asset/script.h"
 #include "asset/import/mesh_importer.h"
@@ -592,6 +593,7 @@ namespace Comet::Tests {
             ASSERT_TRUE(runtime.add_system(std::make_unique<AnimationSystem>(
                 [data = mesh.value().animation](AssetHandle) { return data; },
                 [controller](AssetHandle) { return controller; })));
+            ASSERT_TRUE(runtime.add_system(std::make_unique<ParticleSystem>()));
             ASSERT_TRUE(runtime.add_system(std::make_unique<AudioSystem>(audio)));
             input.focus_event(true);
             if(GetParam())
@@ -819,6 +821,8 @@ namespace Comet::Tests {
             ASSERT_TRUE(player.try_set_transform(transform));
             ASSERT_TRUE(tick(3));
             EXPECT_FALSE(playing->find_entity(*EntityUuid::parse(id)));
+            ASSERT_TRUE(playing->get_particles());
+            EXPECT_GE(playing->get_particles()->instances.size(), 24u);
             ASSERT_TRUE(checkpoint);
             ASSERT_TRUE(game.save_checkpoint(*checkpoint));
             checkpoint.reset();

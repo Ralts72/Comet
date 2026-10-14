@@ -4,6 +4,7 @@ set(SHADER_PROGRAMS
         material/unlit_color
         material/pbr
         debug/line
+        particles/billboard
         post/display
         post/bloom
         environment/skybox

@@ -232,6 +232,7 @@ namespace Comet {
         world.cameras = render_scene.cameras;
         world.lights = render_scene.lights;
         world.post_process = render_scene.post_process;
+        world.particles = render_scene.particles;
         resolve_environment(render_scene, world);
         const auto& items = render_scene.render_items;
         auto& slots = world.render_items;

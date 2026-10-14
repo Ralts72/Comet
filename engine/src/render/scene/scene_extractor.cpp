@@ -8,6 +8,7 @@
 namespace Comet {
     namespace {
         void extract_views(Scene& scene, RenderScene& output, bool interpolating) {
+            output.particles = scene.get_particles();
             output.cameras.clear();
             output.lights.clear();
             output.environment = scene.get_environment();

@@ -110,6 +110,7 @@ set(UNIT_TEST_SOURCES
         scene/test_animation_controller.cpp
         scene/test_animation_events.cpp
         scene/test_audio_system.cpp
+        scene/test_particles.cpp
         scene/test_camera_controller.cpp
         scene/test_character_controller.cpp
         scene/test_component_registry.cpp

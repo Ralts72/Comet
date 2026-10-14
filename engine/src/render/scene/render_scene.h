@@ -4,6 +4,7 @@
 #include "render/lighting.h"
 #include "common/export.h"
 #include "core/math_utils.h"
+#include "particles/particle_data.h"
 #include "scene/entity_id.h"
 #include "scene/scene_settings.h"
 
@@ -116,6 +117,7 @@ namespace Comet {
         SceneEnvironment environment;
         PostProcessSettings post_process;
         RenderItemChanges item_changes;
+        std::shared_ptr<const ParticleSnapshot> particles;
     };
 
     struct RenderView {

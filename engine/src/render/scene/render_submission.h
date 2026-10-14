@@ -51,6 +51,7 @@ namespace Comet {
         uint64_t environment_revision = 0;
         std::shared_ptr<Environment> environment_resource;
         RenderItemChanges item_changes;
+        std::shared_ptr<const ParticleSnapshot> particles;
         // 随世界快照复制，保证独立消费者的解析批次连续性。
         struct ResolutionCache {
             uint64_t asset_revision = 0;
@@ -72,6 +73,7 @@ namespace Comet {
             cameras.clear();
             render_items.clear();
             lights.clear();
+            particles.reset();
             environment = {};
             post_process = {};
             environment_revision = 0;

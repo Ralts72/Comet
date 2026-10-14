@@ -25,6 +25,7 @@ function script:on_trigger_enter(other)
     self.collected = true
     comet.remove_rigid_body(comet.self_entity())
     comet.play_one_shot()
+    comet.emit_particles(24)
     progress.collect(self.parameters.level, self.parameters.goal)
     if self.parameters.beacon:is_valid() then
         self.parameters.beacon:translate(0, 0.6, 0)

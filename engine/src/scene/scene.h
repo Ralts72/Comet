@@ -27,6 +27,7 @@ namespace Comet {
     class SceneRuntime;
     class PhysicsSystem;
     class ScriptSystem;
+    class ParticleSystem;
     class MaterialParameterValidator;
     struct MaterialOverrides;
     struct ModelData;
@@ -84,6 +85,11 @@ namespace Comet {
         [[nodiscard]] bool request_destroy_entity(Entity entity);
         // 仅移除刚体，保留碰撞体配置和其他组件；无刚体或重复请求幂等成功。
         [[nodiscard]] bool request_remove_rigid_body(Entity entity);
+        [[nodiscard]] bool request_particle_burst(Entity entity, uint32_t count);
+        [[nodiscard]] bool request_particle_clear(Entity entity);
+        [[nodiscard]] const std::shared_ptr<const ParticleSnapshot>& get_particles() const {
+            return m_particles;
+        }
 
         // 场景通知不序列化；交付期间发出的新通知留至下一次有效更新。
         [[nodiscard]] bool emit_event(std::string_view name,
@@ -169,6 +175,7 @@ namespace Comet {
         friend class SceneRuntime;
         friend class PhysicsSystem;
         friend class ScriptSystem;
+        friend class ParticleSystem;
         friend class ComponentRegistry;
         friend class SceneExtractor;
         friend class TransformInterpolation;
@@ -196,6 +203,7 @@ namespace Comet {
         [[nodiscard]] bool begin_runtime();
         [[nodiscard]] bool commit_entity_requests();
         [[nodiscard]] std::vector<Event> take_events();
+        void set_particles(std::shared_ptr<const ParticleSnapshot> particles);
         void end_runtime() noexcept;
         void clear_runtime_state() noexcept;
         [[nodiscard]] bool append_contact_event(ContactEvent event);
@@ -277,6 +285,15 @@ namespace Comet {
         void acknowledge_physics_changes();
 
         const uint64_t m_lifetime;
+        struct ParticleRequest {
+            EntityId entity;
+            ParticleEmitterComponent settings;
+            Math::Mat4 pose;
+            uint32_t count;
+            bool clear = false;
+        };
+        std::vector<ParticleRequest> m_particle_requests;
+        std::shared_ptr<const ParticleSnapshot> m_particles;
         uint64_t m_render_revision = 1;
         uint64_t m_transform_revision = 0;
         TransformInterpolation m_transform_interpolation;

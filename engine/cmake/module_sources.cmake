@@ -58,6 +58,7 @@ set(COMET_INPUT_SOURCES
 )
 
 set(COMET_WORLD_SOURCES
+    src/particles/particle_data.cpp
     src/scene/entity.cpp
     src/scene/component_registry.cpp
     src/scene/property.cpp
@@ -73,6 +74,7 @@ set(COMET_WORLD_SOURCES
 )
 
 set(COMET_RUNTIME_SOURCES
+    src/particles/particle_system.cpp
     src/animation/animation_system.cpp
     src/scene/runtime_session.cpp
     src/scene/runtime_session.h
@@ -203,6 +205,7 @@ set(COMET_GRAPHICS_SOURCES
 )
 
 set(COMET_RENDER_SOURCES
+    src/render/passes/particle_pass.cpp
     src/render/passes/skinning_pass.cpp
     src/render/presentation.cpp
     src/render/render_graph.cpp

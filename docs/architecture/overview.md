@@ -339,6 +339,14 @@ Collider 保存摩擦和弹性系数（0～1），默认 0.2／0；PropertyDescr
 动态姿态只回写实际活动或本步状态变化的刚体，沿同一变换校验入口更新场景／渲染，跳过下一步的物理输入通知。
 删除／重建和休眠接触使用有效身份，旧请求不绑定到复用槽位。Jolt 并行尚未实现。
 
+## 粒子模拟与呈现
+
+ParticleEmitterComponent 保存内容配置；ParticleSystem 在固定步维护连续存储的有限粒子池，不为每个粒子创建 Entity。
+Lua 爆发请求在 Scene 内保存触发配置和世界姿态，脚本／动画事件完成后交付；已出生粒子可在源实体销毁后自然消退。
+Scene 只发布不可变 ParticleSnapshot，提取与资产解析沿现有 RenderScene／RenderWorld 传递，不借用模拟容器。
+ParticlePass 在 Render 线程上传当前帧槽的实例缓冲，以一批加法 billboard 在场景深度上合成，随后进入后处理；管线和缓冲沿 FrameSlot 保活。
+暂停／单步与 Stop／切关复用 Runtime 协议；场景保存、克隆和 Prefab 不携带存活粒子。素材与触发规则继续归项目。
+
 ## 音频与运行域
 
 音频源／监听者保存场景配置，AudioSystem 从世界变换同步位置与朝向；AudioService 独占运行域的播放实例、分类音量和一次性请求。

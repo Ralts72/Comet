@@ -6,6 +6,7 @@
 #include "scene/systems/script_system.h"
 #include "scene/systems/physics_system.h"
 #include "scene/systems/audio_system.h"
+#include "particles/particle_system.h"
 #include "scene/systems/camera_controller.h"
 #include "scene/scene_runtime.h"
 #include "scene/component_registry.h"
@@ -1942,6 +1943,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.set_services({.audio = &audio, .physics = &physics}));
         ASSERT_TRUE(runtime.add_system(std::make_unique<CameraControllerSystem>()));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ParticleSystem>()));
         ASSERT_TRUE(runtime.add_system(std::make_unique<AudioSystem>(audio)));
         ASSERT_TRUE(runtime.start(*playing.value()));
 
@@ -1961,6 +1963,8 @@ namespace Comet::Tests {
         for(int frame = 0; frame < 120; ++frame) {
             ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
             if(runtime.get_session().get_value("demo.score")) {
+                ASSERT_TRUE(playing.value()->get_particles());
+                EXPECT_EQ(playing.value()->get_particles()->instances.size(), 24u);
                 EXPECT_FLOAT_EQ(center.get_component<TransformComponent>().translation.y, 0.4f);
                 const auto tint = playing.value()->get_material_overrides(center);
                 ASSERT_TRUE(tint);

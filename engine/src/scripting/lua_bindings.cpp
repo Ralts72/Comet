@@ -351,6 +351,29 @@ namespace Comet::LuaBindings {
                 return luaL_error(state, "Cannot queue rigid body removal");
             return 0;
         }
+        int emit_particles(lua_State* state) {
+            const auto& context = current(state);
+            if(lua_gettop(state) < 1 || lua_gettop(state) > 2)
+                return luaL_error(
+                    state, "comet.emit_particles expects count and an optional entity");
+            const auto count = luaL_checkinteger(state, 1);
+            const auto entity =
+                lua_isnoneornil(state, 2) ? context.entity : require_entity(state, 2);
+            if(count <= 0 || count > ParticleEmitterComponent::MAX_CAPACITY || !context.scene
+                || !context.scene->request_particle_burst(entity, uint32_t(count)))
+                return luaL_error(
+                    state, "Cannot emit particles: invalid emitter, count or request limit");
+            return 0;
+        }
+        int clear_particles(lua_State* state) {
+            const auto& context = current(state);
+            if(lua_gettop(state) > 1)
+                return luaL_error(state, "comet.clear_particles expects an optional entity");
+            const auto entity = lua_isnoneornil(state, 1) ? context.entity : require_entity(state);
+            if(!context.scene || !context.scene->request_particle_clear(entity))
+                return luaL_error(state, "Cannot clear particles for this entity");
+            return 0;
+        }
         int play_one_shot(lua_State* state) {
             const auto& context = current(state);
             if(lua_gettop(state) > 1)
@@ -1143,7 +1166,8 @@ namespace Comet::LuaBindings {
             {"remove_rigid_body", remove_rigid_body}, {"restart_scene", restart_scene},
             {"load_scene", load_scene}, {"save_checkpoint", save_checkpoint},
             {"load_checkpoint", load_checkpoint}, {"checkpoint", checkpoint},
-            {"play_one_shot", play_one_shot}, {"raycast", raycast}, {"shape_cast", shape_cast},
+            {"play_one_shot", play_one_shot}, {"emit_particles", emit_particles},
+            {"clear_particles", clear_particles}, {"raycast", raycast}, {"shape_cast", shape_cast},
             {"get_animation_parameter", get_animation_parameter},
             {"overlap_sphere", overlap_sphere}, {"apply_impulse", apply_impulse},
             {"apply_force", apply_force}, {"apply_impulse_at", apply_impulse_at},

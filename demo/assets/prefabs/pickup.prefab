@@ -51,6 +51,35 @@
             "level": 1,
             "goal": 1
           }
+        },
+        "particle_emitter": {
+          "enabled": true,
+          "capacity": 64,
+          "seed": 7,
+          "burst": 0,
+          "rate": 0,
+          "lifetime": 0.8,
+          "speed": 3,
+          "spread": 65,
+          "acceleration": [
+            0,
+            -3,
+            0
+          ],
+          "start_color": [
+            1,
+            0.75,
+            0.1,
+            1
+          ],
+          "end_color": [
+            1,
+            0.15,
+            0,
+            0
+          ],
+          "start_size": 0.2,
+          "end_size": 0.02
         }
       }
     }

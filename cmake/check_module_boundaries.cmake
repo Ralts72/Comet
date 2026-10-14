@@ -35,15 +35,15 @@ set(ASSET_HEADERS
 set(INPUT_HEADERS "${SERIALIZATION_HEADERS}|input/")
 set(AUDIO_DATA_HEADERS "audio/(audio_category|audio_settings)\\.h$")
 set(WORLD_HEADERS
-    "${ASSET_HEADERS}|${AUDIO_DATA_HEADERS}|scene/(component_registry|components|entity|entity_id|entity_uuid|entity_tree|prefab|material_parameters|property|scene|scene_serializer|scene_settings|script_component|transform_interpolation)\\.h$")
+    "${ASSET_HEADERS}|${AUDIO_DATA_HEADERS}|particles/particle_data\\.h$|scene/(component_registry|components|entity|entity_id|entity_uuid|entity_tree|prefab|material_parameters|property|scene|scene_serializer|scene_settings|script_component|transform_interpolation)\\.h$")
 set(PIPELINE_HEADERS "${ASSET_HEADERS}|asset/(artifact/|import/|(database|product_index)\\.h$)")
 
-set(RUNTIME_HEADERS "${WORLD_HEADERS}|${INPUT_HEADERS}|animation/animation_system\\.h$|audio/audio_commands\\.h$|physics/physics_access\\.h$|scene/(scene_runtime|runtime_session|runtime_services|systems/system)\\.h$")
+set(RUNTIME_HEADERS "${WORLD_HEADERS}|${INPUT_HEADERS}|particles/particle_system\\.h$|animation/animation_system\\.h$|audio/audio_commands\\.h$|physics/physics_access\\.h$|scene/(scene_runtime|runtime_session|runtime_services|systems/system)\\.h$")
 
 set(AUDIO_HEADERS "${RUNTIME_HEADERS}|audio/|scene/systems/audio_system\\.h$")
 
 set(PHYSICS_HEADERS "${RUNTIME_HEADERS}|physics/|scene/systems/physics_system\\.h$")
-set(PHYSICS_BACKEND_HEADERS "${ASSET_HEADERS}|${AUDIO_DATA_HEADERS}|physics/|scene/(components|entity_id|entity_uuid|scene_settings)\\.h$")
+set(PHYSICS_BACKEND_HEADERS "${ASSET_HEADERS}|${AUDIO_DATA_HEADERS}|particles/particle_data\\.h$|physics/|scene/(components|entity_id|entity_uuid|scene_settings)\\.h$")
 set(GAMEPLAY_HEADERS "${RUNTIME_HEADERS}|gameplay/|scene/systems/camera_controller\\.h$")
 set(SCRIPTING_HEADERS "${GAMEPLAY_HEADERS}|scripting/|scene/systems/script_system\\.h$")
 set(RUNTIME_ASSET_HEADERS "${PIPELINE_HEADERS}|${WORLD_HEADERS}|${AUDIO_DATA_HEADERS}|asset/(asset_manager\\.h$|runtime/)|scripting/script_compiler\\.h$|audio/audio\\.h$|graphics/error\\.h$")
@@ -52,7 +52,7 @@ set(PLATFORM_HEADERS "${INPUT_HEADERS}|core/(window|window_settings)\\.h$")
 set(GRAPHICS_HEADERS "${FOUNDATION_HEADERS}|graphics/|${PLATFORM_HEADERS}")
 set(RENDER_HEADERS "${GRAPHICS_HEADERS}|${WORLD_HEADERS}|render/|asset/artifact/shader_program_artifact\\.h$|asset/runtime/render_asset_factory\\.h$")
 set(RENDER_SNAPSHOT_HEADERS
-    "${FOUNDATION_HEADERS}|asset/handle\\.h$|scene/(entity_id|scene_settings)\\.h$|render/(lighting|scene/render_scene)\\.h$")
+    "${FOUNDATION_HEADERS}|particles/particle_data\\.h$|asset/handle\\.h$|scene/(entity_id|scene_settings)\\.h$|render/(lighting|scene/render_scene)\\.h$")
 set(GAME_UI_HEADERS "${RENDER_HEADERS}|${AUDIO_DATA_HEADERS}|config/display_settings\\.h$|ui/|core/project\\.h$")
 
 function(check_module_closure module sources allowed)
@@ -146,7 +146,7 @@ check_includes("${ENGINE_SOURCE}" "${ENGINE_CORE_FILES}" "RmlUi/|ui/rml_"
     "Only the Engine UI module may depend on RmlUi")
 
 set(LOW_LEVEL_FILES)
-foreach(directory common input scene scripting audio physics gameplay animation)
+foreach(directory common input scene scripting audio physics gameplay animation particles)
     file(GLOB_RECURSE files RELATIVE "${ENGINE_SOURCE}"
         "${ENGINE_SOURCE}/${directory}/*.h" "${ENGINE_SOURCE}/${directory}/*.cpp")
     list(APPEND LOW_LEVEL_FILES ${files})

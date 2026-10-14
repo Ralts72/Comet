@@ -309,6 +309,36 @@ namespace Comet {
                 mark_transform_dirty(child);
     }
 
+    bool Scene::request_particle_burst(Entity entity, const uint32_t count) {
+        if(!m_runtime_active || !is_valid(entity)
+            || !entity.has_component<ParticleEmitterComponent>() || count == 0
+            || count > ParticleEmitterComponent::MAX_CAPACITY || m_particle_requests.size() >= 128)
+            return false;
+        const auto& settings = entity.get_component<ParticleEmitterComponent>();
+        if(!settings.enabled || !settings.validate())
+            return false;
+        (void)get_world_matrix(entity);
+        const auto& world = entity.get_component<WorldTransformComponent>();
+        auto pose = world.pose_world_matrix;
+        pose[3] = world.world_matrix[3];
+        m_particle_requests.push_back({entity.get_id(), settings, pose, count});
+        return true;
+    }
+
+    bool Scene::request_particle_clear(Entity entity) {
+        if(!m_runtime_active || !is_valid(entity) || m_particle_requests.size() >= 128)
+            return false;
+        m_particle_requests.push_back({entity.get_id(), {}, Math::Mat4(1), 0, true});
+        return true;
+    }
+
+    void Scene::set_particles(std::shared_ptr<const ParticleSnapshot> particles) {
+        if(m_particles == particles)
+            return;
+        m_particles = std::move(particles);
+        mark_render_dirty();
+    }
+
     bool Scene::begin_runtime() {
         if(m_runtime_active)
             return false;
@@ -475,6 +505,8 @@ namespace Comet {
         m_entity_requests.clear();
         m_contact_events.clear();
         m_events.clear();
+        m_particle_requests.clear();
+        set_particles(nullptr);
         m_dirty_physics_entities.clear();
         m_physics_structure_changed = false;
         m_physics_joints_changed = false;

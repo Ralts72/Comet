@@ -21,6 +21,7 @@ function script:on_trigger_enter(other)
     local score = demo_score.add(1)
     comet.set_input_context("gameplay", false)
     comet.play_one_shot()
+    comet.emit_particles(24)
     local x, y, z = comet.position()
     comet.create_entity("Collected_Goal_" .. score, {
         mesh_source = comet.self_entity(),

@@ -10,6 +10,69 @@
 #include <algorithm>
 
 namespace Comet::Tests {
+    TEST_F(RenderGraphGpuTest, ParticleBillboardsBlendAndRespectDepthAcrossFrameSlots) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        auto mesh = lit_quad();
+        ASSERT_TRUE(mesh);
+        auto material = std::make_shared<Material>("occluder", "unlit_color");
+        ASSERT_TRUE(material->set_vector_property("color", {0, 0, 1, 1}));
+        MaterialPrograms programs;
+        auto scene = create_scene(programs, {33, 33});
+        ASSERT_TRUE(scene);
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        std::array<std::shared_ptr<Readback>, 4> pixels;
+        Format format{};
+        for(unsigned frame = 0; frame < pixels.size(); ++frame) {
+            SCOPED_TRACE(frame);
+            RenderWorld world;
+            if(frame > 0)
+                world.render_items.push_back(
+                    {.entity_id = 1, .mesh = mesh, .material = {.resource = material}});
+            auto particles = std::make_shared<ParticleSnapshot>();
+            // 后方实例应被遮挡；相同位置的红、绿前景实例做加法合成。
+            particles->instances.push_back({{0, 0, 0, 1}, {1, 0, 0, 1}});
+            if(frame > 1) {
+                particles->instances[0].position_size.z = 1;
+                particles->instances.push_back({{0, 0, 1, 1}, {0, 1, 0, 1}});
+            }
+            if(frame == 3)
+                particles->instances.clear();
+            world.particles = particles;
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            RenderSubmission submission{
+                world, ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                           Math::ortho(-1, 1, -1, 1, 0.1f, 10)}};
+            ASSERT_TRUE(scene.value()->prepare_material_programs(world));
+            begin_frame(frames);
+            const auto slot = frames.get_current_frame_slot_index();
+            auto drawn = scene.value()->render(frames, submission, geometry);
+            ASSERT_TRUE(drawn) << drawn.error();
+            pixels[frame] = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), 33 * 33 * 4);
+            const auto output = scene.value()->get_offscreen_color_view(slot);
+            format = output->get_image()->get_info().format;
+            copy_output(frames, output->get_image(), pixels[frame], {33, 33});
+            submit(device, frames, drawn.value());
+        }
+        frames.wait_for_all_slots();
+        const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+        const std::array expected{
+            Math::Vec3{1, 0, 0}, Math::Vec3{0, 0, 1}, Math::Vec3{1, 1, 1}, Math::Vec3{0, 0, 1}};
+        for(unsigned frame = 0; frame < pixels.size(); ++frame) {
+            const auto bytes = pixels[frame]->read();
+            for(unsigned channel = 0; channel < 3; ++channel) {
+                const auto component = bgra ? 2 - channel : channel;
+                EXPECT_NEAR(std::to_integer<int>(bytes[(16 * 33 + 16) * 4 + component]),
+                    mapped_byte(expected[frame][channel]), 2)
+                    << frame;
+            }
+        }
+    }
+
     TEST_F(RenderGraphGpuTest, TwoViewsShareWorldDataWithIndependentCullingPickingAndTargets) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();
