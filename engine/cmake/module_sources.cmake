@@ -11,6 +11,7 @@ set(COMET_FOUNDATION_SOURCES
     src/core/frame_timer.cpp
     src/core/frame_pacer.cpp
     src/core/geometry.cpp
+    src/core/math_utils.cpp
     src/core/task_scheduler.cpp
     src/core/project_paths.cpp
     src/diagnostics/logger.cpp

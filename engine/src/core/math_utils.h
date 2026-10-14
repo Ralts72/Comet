@@ -1,4 +1,6 @@
 #pragma once
+#include "common/export.h"
+
 #define GLM_ENABLE_EXPERIMENTAL
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -153,6 +155,9 @@ namespace Comet::Math {
         matrix = rotate(matrix, radians(wrapped_rotation.x), Vec3(1.0f, 0.0f, 0.0f));
         return scale(matrix, scale_vector);
     }
+
+    // 提取平移与旋转；矩阵不可分解时返回空。
+    [[nodiscard]] COMET_API std::optional<Mat4> without_scale(const Mat4& matrix);
 
     inline Mat4 perspective(float fov_degrees, float aspect, float nearZ, float farZ) {
         return glm::perspective(glm::radians(fov_degrees), aspect, nearZ, farZ);

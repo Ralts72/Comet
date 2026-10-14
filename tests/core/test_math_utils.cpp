@@ -93,6 +93,17 @@ namespace Comet::Tests {
         EXPECT_TRUE(TestUtils::Mat4Equal(wrapped, accumulated));
     }
 
+    TEST(MathUtilsTest, WithoutScalePreservesTranslationAndRotation) {
+        const Math::Vec3 translation{1, -2, 3};
+        const Math::Vec3 rotation{25, -40, 70};
+        const auto matrix = Math::compose_trs(translation, rotation, {2, 3, 4});
+        const auto pose = Math::without_scale(matrix);
+        ASSERT_TRUE(pose);
+        EXPECT_TRUE(
+            TestUtils::Mat4Equal(*pose, Math::compose_trs(translation, rotation, {1, 1, 1})));
+        EXPECT_FALSE(Math::without_scale(Math::scale(Math::Mat4(1), {1, 0, 1})));
+    }
+
     TEST(MathUtilsTest, PerspectiveUsesDegreeFov) {
         constexpr float fov_degrees = 45.0f;
         constexpr float aspect = 16.0f / 9.0f;

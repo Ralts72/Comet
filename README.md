@@ -113,3 +113,4 @@ Windows 可使用相同 CMake preset，随后启动构建目录中的可执行�
 - [路线图](docs/engine-roadmap.md)：待实现能力、优化取舍和验收条件。
 
 C++ 遵循根目录 `.clang-format`；新增源码与测试同步维护所属 CMake 清单。完整回归使用 `ctest --preset dev-debug`。
+CI 完整构建并测试 Release，使用编译缓存与预编译头；对改动的源码额外执行无预编译头检查，头文件或构建规则变化时扩大检查范围。macOS／Linux 本地可用 `python3 tools/check_includes.py build` 执行同样的检查。

@@ -3,7 +3,6 @@
 #include "scene/material_parameters.h"
 #include "asset/data/model_data.h"
 #include "animation/animation_data.h"
-#include <glm/gtx/matrix_decompose.hpp>
 
 #include "diagnostics/logger.h"
 
@@ -790,14 +789,9 @@ namespace Comet {
                     if(data.nodes[data.joints[i].node].name != attachment->bone)
                         continue;
                     const auto& bone = sample->bone_matrices[i];
-                    Math::Vec3 scale, translation, skew;
-                    Math::Vec4 perspective;
-                    Math::Quat rotation;
-                    if(glm::decompose(bone, scale, rotation, translation, skew, perspective)) {
+                    if(const auto bone_pose = Math::without_scale(bone)) {
                         model = bone * model;
-                        pose = (Math::translate(Math::Mat4(1), translation)
-                                   * glm::mat4_cast(glm::normalize(rotation)))
-                               * pose;
+                        pose = *bone_pose * pose;
                     }
                     break;
                 }
