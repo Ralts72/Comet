@@ -56,9 +56,7 @@ namespace Comet {
                     "Animation clip is missing: " + name);
             if(normalized_time)
                 time *= clip->duration;
-            float sample_time = std::clamp(float(time), 0.0f, clip->duration);
-            if(loop && clip->duration > 0)
-                sample_time = float(std::fmod(std::max(time, 0.0), clip->duration));
+            const float sample_time = float(animation_sample_time(time, clip->duration, loop));
             for(const auto& channel : clip->channels) {
                 const auto value = sample_channel(channel, sample_time);
                 auto& node = pose[channel.node];
@@ -104,6 +102,14 @@ namespace Comet {
             blend_pose(pose.value(), second.value(), sample.weight);
             return pose;
         }
+    }
+
+    double animation_sample_time(double time, double duration, bool loop) {
+        if(duration <= 0)
+            return 0;
+        if(loop)
+            return std::fmod(std::max(time, 0.0), duration);
+        return std::clamp(time, 0.0, duration);
     }
 
     Result<AnimationBlend> blend_animation_1d(

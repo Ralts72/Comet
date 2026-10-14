@@ -348,13 +348,10 @@ namespace Comet::Tests {
             EXPECT_EQ(scene.value()->get_entities().size(), count);
             for(auto entity : scene.value()->get_entities())
                 EXPECT_FALSE(entity.has_component<PrefabInstanceComponent>());
-            auto collected = manager.collect_scene_references(*scene.value(), components);
+            auto collected = manager.prepare_scene(*scene.value(), components);
             ASSERT_TRUE(collected) << collected.error().message;
             const auto references = std::move(collected).value();
             EXPECT_TRUE(registry.contains<Prefab>(AssetHandle{7863069821640201103ULL}));
-            const auto prepared = manager.prepare_references(
-                references, AssetManager::MissingAssetPolicy::FailRequired);
-            ASSERT_TRUE(prepared) << prepared.error().message;
             scheduler.wait_idle();
             ASSERT_TRUE(manager.process_completions());
             const auto ready = manager.references_ready(

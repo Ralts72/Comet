@@ -28,12 +28,8 @@ namespace Comet::EntityTrees {
                 if(!value)
                     return false;
                 bool changed = false;
-                if(auto* uuid = std::get_if<EntityUuid>(&*value))
-                    changed = remap_reference(*uuid, remap);
-                else if(auto* parameters = std::get_if<ParameterMap>(&*value))
-                    for(auto& [name, parameter] : *parameters)
-                        if(auto* reference = std::get_if<EntityUuid>(&parameter))
-                            changed |= remap_reference(*reference, remap);
+                visit_entity_references(
+                    *value, [&](EntityUuid& uuid) { changed |= remap_reference(uuid, remap); });
                 if(changed
                     && !component.assign_property(
                         entity, property.id, *value, PropertyDescriptor::WriteMode::Restore))
@@ -267,13 +263,11 @@ namespace Comet::EntityTrees {
                     auto value = property.copy_value(data);
                     if(!value)
                         return false;
-                    if(const auto* uuid = std::get_if<EntityUuid>(&*value); uuid && !valid(*uuid))
+                    bool internal = true;
+                    visit_entity_references(
+                        *value, [&](EntityUuid uuid) { internal &= valid(uuid); });
+                    if(!internal)
                         return false;
-                    if(const auto* parameters = std::get_if<ParameterMap>(&*value))
-                        for(const auto& [name, parameter] : *parameters)
-                            if(const auto* uuid = std::get_if<EntityUuid>(&parameter);
-                                uuid && !valid(*uuid))
-                                return false;
                 }
             }
         }

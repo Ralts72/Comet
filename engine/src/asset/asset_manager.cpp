@@ -225,6 +225,36 @@ namespace Comet {
             policy == MissingAssetPolicy::AllowMissing);
     }
 
+    Result<std::vector<AssetReference>, Error> AssetManager::prepare_scene(
+        Scene& scene, const ComponentRegistry& components) {
+        using Prepared = Result<std::vector<AssetReference>, Error>;
+        auto collected = collect_scene_references(scene, components);
+        if(!collected)
+            return Prepared::failure(collected.error());
+        auto references = std::move(collected).value();
+        if(!m_database.is_read_only()) {
+            std::unordered_set<AssetHandle> imported;
+            for(const auto& reference : references) {
+                const auto* record = m_database.find(reference.handle);
+                if(record && record->source_asset) {
+                    const auto source = record->source_asset;
+                    if(!imported.insert(source).second)
+                        continue;
+                    if(auto result = import_model(source); !result)
+                        return Prepared::failure(result.error());
+                } else if(reference.type == AssetType::Mesh
+                          && imported.insert(reference.handle).second) {
+                    if(auto result = import_mesh(reference.handle); !result)
+                        return Prepared::failure(result.error());
+                }
+            }
+        }
+        if(auto prepared = prepare_references(references, MissingAssetPolicy::FailRequired);
+            !prepared)
+            return Prepared::failure(prepared.error());
+        return Prepared::success(std::move(references));
+    }
+
     Result<std::size_t, Error> AssetManager::prepare_references(
         const std::span<const AssetReference> references, const MissingAssetPolicy policy) {
         std::size_t missing = 0;

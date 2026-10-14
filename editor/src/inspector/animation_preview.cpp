@@ -81,13 +81,9 @@ namespace CometEditor {
         const double next = m_frame.current.time + delta_time * m_speed;
         if(!std::isfinite(next))
             return;
-        if(m_loop)
-            m_frame.current.time = std::fmod(next, double(selected->duration));
-        else {
-            m_frame.current.time = std::min(next, double(selected->duration));
-            if(m_frame.current.time == selected->duration)
-                pause();
-        }
+        m_frame.current.time = Comet::animation_sample_time(next, selected->duration, m_loop);
+        if(!m_loop && m_frame.current.time == selected->duration)
+            pause();
         publish();
     }
 

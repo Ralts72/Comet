@@ -32,6 +32,19 @@ namespace Comet {
     using PropertyValue = std::variant<bool, float, Math::Vec3, Math::Vec4, AssetHandle,
         std::string, ParameterMap, EntityUuid, uint32_t>;
 
+    // 普通引用与脚本参数内的引用使用同一遍历；可修改的快照也用它重映射。
+    template<typename Value, typename Visitor>
+        requires std::is_same_v<std::remove_const_t<Value>, PropertyValue>
+    void visit_entity_references(Value& value, Visitor&& visitor) {
+        if(auto* reference = std::get_if<EntityUuid>(&value)) {
+            visitor(*reference);
+        } else if(auto* parameters = std::get_if<ParameterMap>(&value)) {
+            for(auto& [name, parameter] : *parameters)
+                if(auto* reference = std::get_if<EntityUuid>(&parameter))
+                    visitor(*reference);
+        }
+    }
+
     struct NumericPropertyMetadata {
         float speed = 0.1f;
         std::optional<float> minimum;

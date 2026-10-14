@@ -1,8 +1,36 @@
 #include "asset/default_assets.h"
 #include "support/asset_manager_fixture.h"
 #include "asset/import/import_service.h"
+#include "scene/component_registry.h"
 
 namespace Comet::Tests {
+    TEST(AssetManagerTest, ScenePreparationImportsSharedMeshesBeforeRuntimeLoading) {
+        const TemporaryProject project;
+        const AssetHandle mesh{42};
+        project.add_external_mesh(mesh);
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        Scene scene;
+        const auto components = create_scene_component_registry();
+        for(int instance = 0; instance < 2; ++instance)
+            scene.create_entity("Shared mesh")
+                .add_component<MeshRendererComponent>(mesh, DEFAULT_PBR_MATERIAL);
+        const auto prepared = manager.prepare_scene(scene, components);
+        ASSERT_TRUE(prepared) << prepared.error().message;
+        const auto ready = manager.references_ready(
+            prepared.value(), AssetManager::MissingAssetPolicy::FailRequired);
+        ASSERT_TRUE(ready);
+        EXPECT_TRUE(ready.value());
+        EXPECT_EQ(factory.mesh_creation_count(), 1);
+        EXPECT_TRUE(manager.read_mesh_data(mesh));
+        scene.create_entity("Missing mesh")
+            .add_component<MeshRendererComponent>(AssetHandle{999}, DEFAULT_PBR_MATERIAL);
+        EXPECT_FALSE(manager.prepare_scene(scene, components));
+    }
+
     TEST(AssetManagerTest, ReadsCpuMeshWithoutCreatingOrPublishingRenderResources) {
         const TemporaryProject project;
         const AssetHandle handle{42};

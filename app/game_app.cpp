@@ -23,7 +23,6 @@
 #include <optional>
 #include <string>
 #include <utility>
-#include <unordered_set>
 #include <vector>
 
 namespace {
@@ -95,7 +94,7 @@ namespace {
                 return Init::failure({save_path.error()});
             m_checkpoints.emplace(m_project.id(), std::move(save_path).value());
             configure_checkpoints();
-            auto references = prepare_scene_assets(*scene);
+            auto references = m_asset_manager->prepare_scene(*scene, m_components);
             if(!references)
                 return Init::failure(references.error());
             LOG_INFO("App project '{}', startup scene '{}'", m_project.paths().root().string(),
@@ -406,37 +405,6 @@ namespace {
                 }));
         }
 
-        Comet::Result<std::vector<Comet::AssetReference>, Comet::Error> prepare_scene_assets(
-            Comet::Scene& scene) {
-            using Prepared = Comet::Result<std::vector<Comet::AssetReference>, Comet::Error>;
-            // 开发 App 在关卡加载阶段导入，不把源模型工作放进运行帧。
-            auto collected = m_asset_manager->collect_scene_references(scene, m_components);
-            if(!collected)
-                return Prepared::failure(collected.error());
-            auto references = std::move(collected).value();
-            if(!m_asset_manager->get_database().is_read_only()) {
-                std::unordered_set<Comet::AssetHandle> imported_models;
-                for(const auto& reference : references) {
-                    const auto* record = m_asset_manager->get_database().find(reference.handle);
-                    if(record && record->source_asset) {
-                        const auto source = record->source_asset;
-                        if(imported_models.insert(source).second)
-                            if(auto imported = m_asset_manager->import_model(source); !imported)
-                                return Prepared::failure(imported.error());
-                    } else if(reference.type == Comet::AssetType::Mesh) {
-                        if(auto imported = m_asset_manager->import_mesh(reference.handle);
-                            !imported)
-                            return Prepared::failure(imported.error());
-                    }
-                }
-            }
-            if(auto prepared = m_asset_manager->prepare_references(
-                   references, Comet::AssetManager::MissingAssetPolicy::FailRequired);
-                !prepared)
-                return Prepared::failure(prepared.error());
-            return Prepared::success(std::move(references));
-        }
-
         Comet::Result<void, Comet::Error> request_scene(
             const Comet::RuntimeSession::SceneRequest& request) {
             using Requested = Comet::Result<void, Comet::Error>;
@@ -451,7 +419,7 @@ namespace {
                 return Requested::success();
             }
             auto candidate = std::move(prepared).value();
-            auto references = prepare_scene_assets(*candidate.scene);
+            auto references = m_asset_manager->prepare_scene(*candidate.scene, m_components);
             if(!references) {
                 if(is_device_lost(references.error()))
                     return Requested::failure(references.error());

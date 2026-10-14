@@ -72,6 +72,7 @@ namespace Comet {
         std::span<const AnimationBlendPoint> points, float parameter);
     [[nodiscard]] COMET_API Result<float> animation_duration(
         const AnimationData& data, const AnimationBlend& sample);
+    [[nodiscard]] COMET_API double animation_sample_time(double time, double duration, bool loop);
 
     // 时间和过渡归场景实例；混合空间与状态过渡分别求值，不改变共享片段。
     struct AnimationPlayback {

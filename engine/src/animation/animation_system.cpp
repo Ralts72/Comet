@@ -85,24 +85,27 @@ namespace Comet {
             playback.movement_speed = selection.value().movement_speed;
             frame.current = std::move(next);
             std::shared_ptr<const AnimationData> data;
-            if(frame.current.normalized_time || frame.previous.normalized_time) {
-                if(m_source)
-                    data = m_source(entity.get_component<MeshRendererComponent>().mesh);
-            }
+            if(m_source)
+                data = m_source(entity.get_component<MeshRendererComponent>().mesh);
             const auto advance_sample = [&](AnimationBlend& sample) {
                 if(!sample.has_clip())
                     return;
                 double step = delta * animator.speed;
-                if(sample.normalized_time) {
-                    if(!data)
-                        return;
-                    auto duration = animation_duration(*data, sample);
-                    // 更换模型后缺失的片段继续由姿态采样诊断，不终止整个 Runtime。
-                    if(!duration)
-                        return;
-                    step = duration.value() > 0 ? step / duration.value() : 0;
+                if(!data) {
+                    if(!sample.normalized_time)
+                        sample.time += step;
+                    return;
                 }
-                sample.time += step;
+                const auto duration = animation_duration(*data, sample);
+                // 缺失片段由姿态采样诊断；加载后再推进，避免累计无效时间。
+                if(!duration)
+                    return;
+                double period = duration.value();
+                if(sample.normalized_time) {
+                    step = period > 0 ? step / period : 0;
+                    period = period > 0 ? 1 : 0;
+                }
+                sample.time = animation_sample_time(sample.time + step, period, sample.loop);
             };
             advance_sample(frame.current);
             advance_sample(frame.previous);

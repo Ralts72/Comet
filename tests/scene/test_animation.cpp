@@ -193,6 +193,37 @@ namespace Comet::Tests {
         EXPECT_FALSE(SceneExtractor::extract(*scene).render_items.front().animation);
     }
 
+    TEST(AnimationTest, FinishedClipReusesPlaybackAndRestartsWhenLoopingIsEnabled) {
+        const auto data = std::make_shared<const AnimationData>(simple_animation());
+        Scene scene;
+        auto entity = scene.create_entity("Animated");
+        entity.add_component<MeshRendererComponent>(AssetHandle(1), AssetHandle(2));
+        entity.add_component<AnimatorComponent>(
+            AnimatorComponent{.clip = "move", .loop = false, .transition = 0});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(
+            std::make_unique<AnimationSystem>([&](AssetHandle) { return data; })));
+        ASSERT_TRUE(runtime.start(scene));
+        for(int frame = 0; frame < 12; ++frame)
+            ASSERT_TRUE(runtime.advance(0.1));
+        const auto finished = scene.get_animation_playback(entity);
+        ASSERT_TRUE(finished);
+        EXPECT_DOUBLE_EQ(finished->current.time, 1);
+        const auto revision = scene.get_render_revision();
+        for(int frame = 0; frame < 3; ++frame) {
+            ASSERT_TRUE(runtime.advance(0.1));
+            EXPECT_EQ(scene.get_animation_playback(entity), finished);
+            EXPECT_EQ(scene.get_render_revision(), revision);
+        }
+        entity.edit_component<AnimatorComponent>([](auto& animator) { animator.loop = true; });
+        ASSERT_TRUE(runtime.advance(0.1));
+        const auto looping = scene.get_animation_playback(entity);
+        ASSERT_TRUE(looping);
+        EXPECT_NE(looping, finished);
+        EXPECT_NEAR(looping->current.time, 0.1, 0.00001);
+        EXPECT_DOUBLE_EQ(finished->current.time, 1);
+    }
+
     TEST(AnimationTest, ZeroSpeedReusesPlaybackAndClipEditsKeepCapturedFramesImmutable) {
         Scene scene;
         auto entity = scene.create_entity("Animated");

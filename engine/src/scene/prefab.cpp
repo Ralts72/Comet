@@ -126,14 +126,11 @@ namespace Comet {
                     const auto value = property.copy_value(component.get_component(entity));
                     if(!value)
                         continue;
-                    if(const auto* id = std::get_if<EntityUuid>(&*value);
-                        id && targets.contains(*id))
+                    bool found = false;
+                    visit_entity_references(
+                        *value, [&](EntityUuid uuid) { found |= targets.contains(uuid); });
+                    if(found)
                         return true;
-                    if(const auto* parameters = std::get_if<ParameterMap>(&*value))
-                        for(const auto& [name, item] : *parameters)
-                            if(const auto* id = std::get_if<EntityUuid>(&item);
-                                id && targets.contains(*id))
-                                return true;
                 }
             }
             return false;

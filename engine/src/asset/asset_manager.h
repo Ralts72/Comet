@@ -97,6 +97,9 @@ namespace Comet {
         [[nodiscard]] Result<void, Error> request_load(AssetHandle handle, AssetType expected_type);
         [[nodiscard]] Result<void, Error> request_load(const AssetReference& reference);
         enum class MissingAssetPolicy { FailRequired, AllowMissing };
+        // 入关时准备源资产并提交运行资源加载；是否已就绪由 references_ready 查询。
+        [[nodiscard]] Result<std::vector<AssetReference>, Error> prepare_scene(
+            Scene& scene, const ComponentRegistry& components);
         [[nodiscard]] Result<std::size_t, Error> prepare_references(
             std::span<const AssetReference> references, MissingAssetPolicy policy);
         [[nodiscard]] Result<std::vector<AssetReference>, Error> collect_scene_references(
