@@ -23,10 +23,15 @@ namespace CometEditor {
         Comet::AnimationController after;
     };
 
+    struct AudioEdit {
+        Comet::AudioImportSettings before;
+        Comet::AudioImportSettings after;
+    };
+
     struct AssetEdit {
         enum class Action { Apply, Preview, Commit, Cancel };
         Comet::AssetTarget target;
-        std::variant<MaterialEdit, TextureEdit, AnimationControllerEdit> value;
+        std::variant<MaterialEdit, TextureEdit, AnimationControllerEdit, AudioEdit> value;
         Action action = Action::Apply;
     };
 }

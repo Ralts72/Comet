@@ -4,6 +4,38 @@
 #include "scene/component_registry.h"
 
 namespace Comet::Tests {
+    TEST(AssetManagerTest, AudioImportSwitchesDecodedAndStreamingWithoutLosingTheOldClip) {
+        const TemporaryProject project;
+        const AssetHandle handle{99};
+        const auto path = project.paths().assets() / "music.wav";
+        std::filesystem::copy_file(
+            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/audio/play_chime.wav",
+            path);
+        ASSERT_TRUE(MetadataSerializer{}.save(
+            {.handle = handle, .type = AssetType::Audio}, metadata_path(path)));
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        auto decoded = manager.load_audio(handle);
+        ASSERT_TRUE(decoded);
+        auto streamed = manager.reimport_audio(handle, {true});
+        ASSERT_TRUE(streamed) << streamed.error().message;
+        EXPECT_TRUE(streamed.value()->is_streamed());
+        EXPECT_FALSE(decoded.value()->samples().empty());
+        EXPECT_EQ(registry.resolve<AudioClip>(handle), streamed.value());
+        auto metadata = MetadataSerializer{}.load(metadata_path(path));
+        ASSERT_TRUE(metadata);
+        EXPECT_TRUE(std::get<AudioImportSettings>(metadata.value().import_settings).stream);
+        std::filesystem::remove(path);
+        EXPECT_FALSE(manager.reimport_audio(handle, {false}));
+        EXPECT_EQ(registry.resolve<AudioClip>(handle), streamed.value());
+        EXPECT_TRUE(std::get<AudioImportSettings>(
+            MetadataSerializer{}.load(metadata_path(path)).value().import_settings)
+                .stream);
+    }
+
     TEST(AssetManagerTest, ScenePreparationImportsSharedMeshesBeforeRuntimeLoading) {
         const TemporaryProject project;
         const AssetHandle mesh{42};

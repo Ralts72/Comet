@@ -77,6 +77,7 @@ namespace CometEditor {
         m_selected_asset = handle;
         m_loaded_target = {};
         m_texture_import_settings.reset();
+        m_audio_import_settings.reset();
         m_material_data.reset();
         m_controller_data.reset();
         m_controller_saved.reset();
@@ -209,7 +210,21 @@ namespace CometEditor {
             return;
         }
 
+        if(record->type == Comet::AssetType::Audio) {
+            render_audio(*record);
+            return;
+        }
         ImGui::TextDisabled("%s", "此资产类型暂无属性编辑器");
+    }
+
+    void AssetInspector::render_audio(const Comet::AssetRecord& record) {
+        if(!m_audio_import_settings)
+            return;
+        const auto before = *m_audio_import_settings;
+        if(ImGui::Checkbox("流式播放###Stream Audio", &m_audio_import_settings->stream))
+            m_asset_edit = AssetEdit{{record.handle, m_loaded_target.revision},
+                AudioEdit{before, *m_audio_import_settings}};
+        ImGui::TextWrapped("短音效预先解码；音乐和长音频可开启流式播放，分块读取以减少内存占用。");
     }
 
     void AssetInspector::render_texture(const Comet::AssetRecord& record) {
@@ -498,6 +513,7 @@ namespace CometEditor {
     void AssetInspector::load_asset(const Comet::AssetRecord& record) {
         m_loaded_target = {record.handle, m_asset_database.get_revision(record.handle)};
         m_texture_import_settings.reset();
+        m_audio_import_settings.reset();
         m_material_data.reset();
         m_controller_data.reset();
         m_controller_saved.reset();
@@ -515,6 +531,11 @@ namespace CometEditor {
             return;
         }
 
+        if(record.type == Comet::AssetType::Audio) {
+            const auto* settings = std::get_if<Comet::AudioImportSettings>(&record.import_settings);
+            m_audio_import_settings = settings ? *settings : Comet::AudioImportSettings{};
+            return;
+        }
         if(record.type != Comet::AssetType::Material
             && record.type != Comet::AssetType::AnimationController) {
             return;
@@ -630,6 +651,8 @@ namespace CometEditor {
         }
         if(const auto* material = std::get_if<MaterialEdit>(&edit.value))
             m_material_data = material->before;
+        else if(const auto* audio = std::get_if<AudioEdit>(&edit.value))
+            m_audio_import_settings = audio->before;
         else
             m_texture_import_settings = std::get<TextureEdit>(edit.value).before;
     }

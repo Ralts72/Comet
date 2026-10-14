@@ -51,6 +51,7 @@ namespace CometEditor {
     private:
         void render_animation_controller();
         void render_texture(const Comet::AssetRecord& record);
+        void render_audio(const Comet::AssetRecord& record);
         void render_material(
             const Comet::AssetRecord& record, std::uint64_t generation, bool allow_drop);
         void confirm_material_template();
@@ -70,6 +71,7 @@ namespace CometEditor {
         Comet::AssetHandle m_selected_asset;
         Comet::AssetTarget m_loaded_target;
         std::optional<Comet::TextureImportSettings> m_texture_import_settings;
+        std::optional<Comet::AudioImportSettings> m_audio_import_settings;
         std::optional<Comet::MaterialData> m_material_data;
         std::optional<Comet::MaterialData> m_material_before;
         std::optional<Comet::AnimationController> m_controller_data;

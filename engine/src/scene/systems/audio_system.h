@@ -15,6 +15,7 @@ namespace Comet {
         Result<void, Error> on_start(
             Scene& scene, RuntimeSession&, const RuntimeServices&) override;
         Result<void, Error> update(Scene& scene, const Context& context) override;
+        Result<void, Error> post_update(Scene& scene, const Context& context) override;
         void on_stop(Scene& scene, RuntimeSession&, const RuntimeServices&) noexcept override;
 
     private:
@@ -22,6 +23,7 @@ namespace Comet {
             Entity entity;
             AssetHandle clip;
             uint64_t lifetime;
+            uint64_t revision;
             AudioService::VoiceId voice;
         };
 

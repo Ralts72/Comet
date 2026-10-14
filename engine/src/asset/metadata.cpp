@@ -74,6 +74,8 @@ namespace Comet {
     }
 
     AssetImportSettings make_default_import_settings(const AssetType type) {
+        if(type == AssetType::Audio)
+            return AudioImportSettings{};
         if(type == AssetType::Texture) {
             return TextureImportSettings{};
         }

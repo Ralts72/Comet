@@ -1,4 +1,5 @@
 #include "asset/asset_manager.h"
+#include "audio/audio.h"
 #include "animation/animation_controller.h"
 #include "asset/default_assets.h"
 #include "scene/component_registry.h"
@@ -812,6 +813,32 @@ namespace Comet {
             return Result<std::shared_ptr<Environment>, Error>::failure(
                 {"Environment preparation failed; waiting for source changes"});
         return m_loader->load_environment(handle);
+    }
+
+    Result<std::shared_ptr<AudioClip>, Error> AssetManager::reimport_audio(
+        const AssetHandle handle, const AudioImportSettings settings) {
+        using Reimport = Result<std::shared_ptr<AudioClip>, Error>;
+        const auto* record = m_database.find(handle);
+        if(!record || record->type != AssetType::Audio || m_database.is_read_only())
+            return Reimport::failure({"Audio import requires an editable audio asset"});
+        if(m_registry.contains(handle) && !m_registry.resolve<AudioClip>(handle))
+            return Reimport::failure({"Runtime audio type conflict"});
+        auto path = m_database.paths().resolve_asset_path(record->path);
+        if(!path)
+            return Reimport::failure({path.error()});
+        auto candidate = AudioClip::load(path.value(), settings.stream);
+        if(!candidate)
+            return candidate;
+        if(auto saved = m_database.update_import_settings(handle, settings); !saved)
+            return Reimport::failure({saved.error()});
+        bool published;
+        if(m_registry.contains(handle))
+            published = m_registry.replace_asset(handle, candidate.value());
+        else
+            published = m_registry.register_asset(handle, candidate.value());
+        if(!published)
+            return Reimport::failure({"Cannot publish audio asset"});
+        return candidate;
     }
 
     Result<std::shared_ptr<Texture>, Error> AssetManager::reimport_texture(

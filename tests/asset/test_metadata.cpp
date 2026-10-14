@@ -10,6 +10,23 @@
 #include <string>
 
 namespace Comet::Tests {
+    TEST(AssetMetadataTest, AudioStreamingRoundTripsAndOldMetadataKeepsDecodedLoading) {
+        MetadataSerializer serializer;
+        AssetMetadata metadata{.handle = AssetHandle(99),
+            .type = AssetType::Audio,
+            .import_settings = AudioImportSettings{true}};
+        const auto contents = serializer.serialize(metadata);
+        ASSERT_TRUE(contents);
+        EXPECT_EQ(serializer.deserialize(contents.value()).value(), metadata);
+        auto old = serializer.deserialize(R"({"version":3,"guid":99,"type":"audio"})");
+        ASSERT_TRUE(old);
+        EXPECT_TRUE(std::holds_alternative<std::monostate>(old.value().import_settings));
+        metadata.type = AssetType::Material;
+        EXPECT_FALSE(serializer.serialize(metadata));
+        EXPECT_FALSE(serializer.deserialize(
+            R"({"version":3,"guid":99,"type":"audio","importer":{"stream":"yes"}})"));
+    }
+
     TEST(AssetMetadataTest, ModelSubresourcesRoundTripAndRejectAmbiguousIdentity) {
         AssetMetadata metadata{.handle = AssetHandle{1},
             .type = AssetType::Model,

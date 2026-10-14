@@ -25,5 +25,11 @@ namespace Comet {
         auto operator<=>(const TextureImportSettings&) const noexcept = default;
     };
 
-    using AssetImportSettings = std::variant<std::monostate, TextureImportSettings>;
+    struct AudioImportSettings {
+        bool stream = false;
+        auto operator<=>(const AudioImportSettings&) const noexcept = default;
+    };
+
+    using AssetImportSettings =
+        std::variant<std::monostate, TextureImportSettings, AudioImportSettings>;
 }

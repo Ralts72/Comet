@@ -381,6 +381,11 @@ namespace Comet {
                         .numeric = {.speed = 0.01f, .minimum = 0.01f, .enforce_bounds = true}})}));
 
         register_component(
+            make_component_descriptor<AudioListenerComponent>("audio_listener", "Audio Listener",
+                {make_property_descriptor(
+                    "enabled", "Enabled", &AudioListenerComponent::enabled, {.required = false})}));
+
+        register_component(
             make_component_descriptor<AudioSourceComponent>("audio_source", "Audio Source",
                 {make_property_descriptor("clip", "Audio Clip", &AudioSourceComponent::clip,
                      {.asset_type = AssetType::Audio}),
@@ -396,7 +401,20 @@ namespace Comet {
                         {.numeric = {.speed = 0.01f,
                              .minimum = 0.0f,
                              .maximum = 1.0f,
-                             .enforce_bounds = true}})}));
+                             .enforce_bounds = true}}),
+                    make_property_descriptor("spatial", "Spatial Audio",
+                        &AudioSourceComponent::spatial, {.required = false}),
+                    make_property_descriptor("min_distance", "Min Distance",
+                        &AudioSourceComponent::min_distance,
+                        {.required = false,
+                            .numeric = {.speed = 0.1f, .minimum = 0, .enforce_bounds = true}}),
+                    make_property_descriptor("max_distance", "Max Distance",
+                        &AudioSourceComponent::max_distance,
+                        {.required = false,
+                            .numeric = {.speed = 0.1f, .minimum = 0.01f, .enforce_bounds = true}}),
+                    make_property_descriptor("rolloff", "Rolloff", &AudioSourceComponent::rolloff,
+                        {.required = false,
+                            .numeric = {.speed = 0.05f, .minimum = 0, .enforce_bounds = true}})}));
 
         register_component(make_component_descriptor<RigidBodyComponent>("rigid_body", "Rigid Body",
             {make_enum_property_descriptor<RigidBodyComponent, BodyMotion>("motion", "Motion",

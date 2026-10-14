@@ -73,6 +73,108 @@ namespace Comet::Tests {
         }
     };
 
+    TEST_F(AudioServiceTest, SpatialSourceUsesWorldPositionAndListenerOrientation) {
+        auto listener = scene.create_entity("Listener");
+        listener.add_component<AudioListenerComponent>();
+        auto parent = scene.create_entity("Sound parent");
+        auto source_entity = scene.create_entity("Sound");
+        ASSERT_TRUE(scene.set_parent(source_entity, parent));
+        source_entity.edit_transform([](auto& transform) { transform.translation = {1, 0, -1}; });
+        auto& source = source_entity.add_component<AudioSourceComponent>();
+        source.clip = cue_handle;
+        source.volume = 1;
+        source.loop = true;
+        source.spatial = true;
+        add_audio_system();
+        ASSERT_TRUE(runtime.start(scene));
+        const auto stereo_energy = [&] {
+            Samples samples{};
+            EXPECT_TRUE(audio.read_frames(samples));
+            std::array<double, 2> energy{};
+            for(std::size_t i = 0; i < samples.size(); ++i)
+                energy[i % 2] += double(samples[i]) * samples[i];
+            return energy;
+        };
+        auto energy = stereo_energy();
+        EXPECT_GT(energy[1], energy[0]);
+        parent.edit_transform([](auto& transform) { transform.translation.x = -2; });
+        ASSERT_TRUE(runtime.advance(0));
+        stereo_energy(); // 空间增益在后端平滑过渡，先消费过渡块。
+        energy = stereo_energy();
+        EXPECT_GT(energy[0], energy[1]);
+        listener.edit_transform([](auto& transform) { transform.rotation.y = 180; });
+        ASSERT_TRUE(runtime.advance(0));
+        stereo_energy();
+        energy = stereo_energy();
+        EXPECT_GT(energy[1], energy[0]);
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        Samples paused{};
+        ASSERT_TRUE(audio.read_frames(paused));
+        expect_silence(paused);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Running));
+        energy = stereo_energy();
+        EXPECT_GT(energy[1], energy[0]);
+        const std::weak_ptr<AudioClip> old_clip = assets.resolve<AudioClip>(cue_handle);
+        ASSERT_TRUE(assets.replace_asset(cue_handle, AudioClip::load(cue_path, true).value()));
+        EXPECT_FALSE(old_clip.expired());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_TRUE(old_clip.expired());
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(AudioServiceTest, SpatialAudioRequiresOneListenerAndDuplicateListenersFailClearly) {
+        auto entity = scene.create_entity("Spatial sound");
+        auto& source = entity.add_component<AudioSourceComponent>();
+        source.clip = cue_handle;
+        source.spatial = true;
+        add_audio_system();
+        auto missing = runtime.start(scene);
+        ASSERT_FALSE(missing);
+        EXPECT_NE(missing.error().message.find("Audio Listener"), std::string::npos);
+        auto listener = scene.create_entity("Listener");
+        listener.add_component<AudioListenerComponent>();
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.stop());
+        auto duplicate = scene.create_entity("Duplicate");
+        duplicate.add_component<AudioListenerComponent>();
+        EXPECT_FALSE(runtime.start(scene));
+        duplicate.get_component<AudioListenerComponent>().enabled = false;
+        ASSERT_TRUE(runtime.start(scene));
+    }
+
+    TEST_F(
+        AudioServiceTest, LuaSpatialOneShotKeepsItsTriggerPositionAfterMovingAndDestroyingSource) {
+        scene.create_entity("Listener").add_component<AudioListenerComponent>();
+        auto script = Script::create(R"(return {update = function()
+            local entity = comet.self_entity()
+            comet.play_one_shot(entity)
+            entity:set_position(8, 0, -1)
+            comet.destroy_entity(entity)
+        end})");
+        ASSERT_TRUE(script) << script.error().message;
+        ASSERT_TRUE(assets.register_asset(AssetHandle{42}, script.value()));
+        auto entity = scene.create_entity("Moving sound");
+        entity.edit_transform([](auto& transform) { transform.translation = {-1, 0, -1}; });
+        entity.add_component<ScriptComponent>().asset = AssetHandle{42};
+        auto& source = entity.add_component<AudioSourceComponent>();
+        source.clip = cue_handle;
+        source.spatial = true;
+        source.play_on_start = false;
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
+        add_audio_system();
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_FALSE(entity);
+        Samples samples{};
+        ASSERT_TRUE(audio.read_frames(samples));
+        std::array<double, 2> energy{};
+        for(std::size_t i = 0; i < samples.size(); ++i)
+            energy[i % 2] += double(samples[i]) * samples[i];
+        EXPECT_GT(energy[0], energy[1]);
+    }
+
     TEST_F(AudioServiceTest, CategoryGainsAffectLiveVoicesAndOneShotsWithoutResettingPosition) {
         auto entity = scene.create_entity("Music");
         auto& source = entity.add_component<AudioSourceComponent>();

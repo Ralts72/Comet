@@ -148,7 +148,11 @@
                   "clip": 13857136248767905806,
                   "play_on_start": false,
                   "loop": false,
-                  "volume": 0.35
+                  "volume": 0.35,
+                  "spatial": true,
+                  "min_distance": 1,
+                  "max_distance": 20,
+                  "rolloff": 1
                 }
               },
               "children": [
@@ -225,6 +229,9 @@
               "orbit_max_distance": 12,
               "orbit_zoom_step": 0.5,
               "collision_radius": 0.15
+            },
+            "audio_listener": {
+              "enabled": true
             }
           }
         }
@@ -359,7 +366,11 @@
                       "clip": 13857136248767905806,
                       "play_on_start": false,
                       "loop": false,
-                      "volume": 0.35
+                      "volume": 0.35,
+                      "spatial": true,
+                      "min_distance": 1,
+                      "max_distance": 20,
+                      "rolloff": 1
                     }
                   },
                   "children": [
@@ -436,6 +447,9 @@
                   "orbit_max_distance": 12,
                   "orbit_zoom_step": 0.5,
                   "collision_radius": 0.15
+                },
+                "audio_listener": {
+                  "enabled": true
                 }
               }
             }
@@ -1685,6 +1699,74 @@
           ]
         }
       ]
+    },
+    {
+      "uuid": "87accfe8-785b-4bf7-a105-38c6fb2feac1",
+      "components": {
+        "name": "背景音乐",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "audio_source": {
+          "clip": 13857136248767905807,
+          "play_on_start": true,
+          "loop": true,
+          "volume": 0.35,
+          "category": "music"
+        }
+      }
+    },
+    {
+      "uuid": "87accfe8-785b-4bf7-a105-38c6fb2feac2",
+      "components": {
+        "name": "空间音效示例",
+        "transform": {
+          "translation": [
+            -4,
+            0.5,
+            -4
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            0.5,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6482638524486200214
+        },
+        "audio_source": {
+          "clip": 13857136248767905808,
+          "play_on_start": true,
+          "loop": true,
+          "volume": 0.5,
+          "category": "effects",
+          "spatial": true,
+          "min_distance": 1,
+          "max_distance": 15,
+          "rolloff": 1
+        }
+      }
     }
   ]
 }

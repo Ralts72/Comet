@@ -534,6 +534,20 @@ namespace CometEditor {
         return Comet::Result<void, Comet::Error>::success();
     }
 
+    Comet::Result<void, Comet::Error> EditorAssets::apply_audio_edit(const AssetEdit& edit) {
+        if(!database().is_current(edit.target))
+            return Comet::Result<void, Comet::Error>::failure({"Asset edit revision is stale"});
+        const auto* audio = std::get_if<AudioEdit>(&edit.value);
+        if(!audio)
+            return Comet::Result<void, Comet::Error>::failure({"Asset edit is not an audio edit"});
+        const auto path = database().find(edit.target.handle)->path;
+        if(auto imported = m_manager.reimport_audio(edit.target.handle, audio->after); !imported)
+            return Comet::Result<void, Comet::Error>::failure(imported.error());
+        m_scene_assets.mark_changed(edit.target.handle);
+        acknowledge(Comet::metadata_path(path));
+        return Comet::Result<void, Comet::Error>::success();
+    }
+
     Comet::Result<std::shared_ptr<const Comet::ModelData>, Comet::Error> EditorAssets::load_model(
         const Comet::AssetTarget& target) {
         if(!database().is_current(target))

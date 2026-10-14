@@ -97,7 +97,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
-    TEST(AudioSystemTest, ProcessesOneShotBeforeSourceDestruction) {
+    TEST(AudioSystemTest, OneShotSnapshotSurvivesSourceDestructionAtTheUpdateBoundary) {
         AssetRegistry assets;
         Scene scene;
         auto entity = scene.create_entity("Cue");
@@ -115,9 +115,16 @@ namespace Comet::Tests {
         ASSERT_FALSE(missing);
         EXPECT_NE(missing.error().message.find("Audio clip is unavailable"), std::string::npos);
         EXPECT_FALSE(runtime.is_active());
-        EXPECT_TRUE(entity);
+        EXPECT_FALSE(entity);
 
         ASSERT_TRUE(assets.register_asset(cue_handle, load_cue()));
+        entity = scene.create_entity("Cue");
+        auto& replacement = entity.add_component<AudioSourceComponent>();
+        replacement.clip = cue_handle;
+        replacement.play_on_start = false;
+        ASSERT_TRUE(runtime.clear_systems());
+        ASSERT_TRUE(runtime.add_system(std::make_unique<RequestOneShot>(entity)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<AudioSystem>(audio)));
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(0));
         EXPECT_FALSE(entity);

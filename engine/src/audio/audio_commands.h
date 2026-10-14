@@ -1,7 +1,7 @@
 #pragma once
 
 #include "asset/handle.h"
-#include "audio/audio_category.h"
+#include "audio/audio_settings.h"
 #include "common/export.h"
 
 namespace Comet {
@@ -13,8 +13,8 @@ namespace Comet {
     public:
         virtual ~AudioCommands() = default;
         [[nodiscard]] virtual bool is_bound_to(const Scene& scene) const noexcept = 0;
-        [[nodiscard]] virtual bool request_one_shot(
-            AssetHandle clip, float volume, AudioCategory category = AudioCategory::Effects) = 0;
+        [[nodiscard]] virtual bool request_one_shot(AssetHandle clip, float volume,
+            AudioCategory category = AudioCategory::Effects, AudioSpatialSettings spatial = {}) = 0;
 
     private:
         friend class SceneRuntime;

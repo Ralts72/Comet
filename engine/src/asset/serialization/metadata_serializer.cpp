@@ -40,12 +40,14 @@ namespace Comet {
 
             const auto* texture_settings =
                 std::get_if<TextureImportSettings>(&metadata.import_settings);
+            const auto* audio_settings =
+                std::get_if<AudioImportSettings>(&metadata.import_settings);
             if(metadata.type == AssetType::Texture && !texture_settings) {
                 return Result<void>::failure(context.error(
                     "importer", "expected texture import settings for a texture asset"));
             }
-            if(metadata.type != AssetType::Texture
-                && !std::holds_alternative<std::monostate>(metadata.import_settings)) {
+            if((texture_settings && metadata.type != AssetType::Texture)
+                || (audio_settings && metadata.type != AssetType::Audio)) {
                 return Result<void>::failure(
                     context.error("importer", "import settings do not match asset type '"
                                                   + std::string(to_string(metadata.type)) + "'"));
@@ -62,6 +64,12 @@ namespace Comet {
                 writer.field("flip_y", texture_settings->flip_y);
                 writer.field("generate_mipmaps", texture_settings->generate_mipmaps);
                 writer.field("normal_map", texture_settings->normal_map);
+                writer.end_object();
+            }
+            if(audio_settings) {
+                writer.key("importer");
+                writer.begin_object();
+                writer.field("stream", audio_settings->stream);
                 writer.end_object();
             }
             if(!metadata.subresources.empty()) {
@@ -157,6 +165,13 @@ namespace Comet {
                     .flip_y = flip_y.value(),
                     .generate_mipmaps = mipmaps.value().value_or(true),
                     .normal_map = normal_map.value().value_or(false)};
+            } else if(*type == AssetType::Audio && has_importer) {
+                if(auto valid = context.validate_keys(importer, {"stream"}, "importer"); !valid)
+                    return Result<AssetMetadata>::failure(valid.error());
+                auto stream = context.read_field<bool>(importer, "stream", "a boolean", "importer");
+                if(!stream)
+                    return Result<AssetMetadata>::failure(stream.error());
+                import_settings = AudioImportSettings{stream.value()};
             } else if(has_importer) {
                 return Result<AssetMetadata>::failure(
                     context.error("importer", "import settings are not supported for asset type '"

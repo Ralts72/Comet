@@ -123,10 +123,10 @@ namespace CometEditor {
             static constexpr Caption components[]{{"script", "脚本"}, {"name", "名称"},
                 {"transform", "变换"}, {"mesh_renderer", "网格渲染"}, {"camera", "相机"},
                 {"camera_controller", "相机控制器"}, {"audio_source", "音频源"},
-                {"character_controller", "角色控制器"}, {"rigid_body", "刚体"},
-                {"collider", "碰撞体"}, {"point_joint", "点关节"}, {"hinge_joint", "铰链关节"},
-                {"slider_joint", "滑动关节"}, {"light", "光源"}, {"animator", "动画"},
-                {"character_animation", "角色动画驱动"}};
+                {"audio_listener", "音频监听者"}, {"character_controller", "角色控制器"},
+                {"rigid_body", "刚体"}, {"collider", "碰撞体"}, {"point_joint", "点关节"},
+                {"hinge_joint", "铰链关节"}, {"slider_joint", "滑动关节"}, {"light", "光源"},
+                {"animator", "动画"}, {"character_animation", "角色动画驱动"}};
             static constexpr Caption properties[]{{"animator/enabled", "启用"},
                 {"animator/clip", "播放片段"}, {"animator/speed", "播放速度"},
                 {"animator/loop", "循环"}, {"animator/transition", "过渡时间 (s)"},
@@ -165,9 +165,12 @@ namespace CometEditor {
                 {"character_controller/gravity_scale", "重力倍率"},
                 {"audio_source/clip", "音频片段"}, {"audio_source/play_on_start", "启动时播放"},
                 {"audio_source/loop", "循环"}, {"audio_source/category", "音频分类"},
-                {"audio_source/volume", "音量"}, {"rigid_body/motion", "运动类型"},
-                {"rigid_body/mass_mode", "质量计算"}, {"rigid_body/mass", "质量 (kg)"},
-                {"rigid_body/density", "密度 (kg/m³)"},
+                {"audio_source/volume", "音量"}, {"audio_source/spatial", "空间音效"},
+                {"audio_source/min_distance", "开始衰减距离（米）"},
+                {"audio_source/max_distance", "最大距离（米）"},
+                {"audio_source/rolloff", "衰减强度"}, {"audio_listener/enabled", "启用"},
+                {"rigid_body/motion", "运动类型"}, {"rigid_body/mass_mode", "质量计算"},
+                {"rigid_body/mass", "质量 (kg)"}, {"rigid_body/density", "密度 (kg/m³)"},
                 {"rigid_body/continuous_collision", "连续碰撞 (CCD)"}, {"collider/shape", "形状"},
                 {"collider/collision_layer", "所属碰撞层"},
                 {"collider/collision_mask", "检测碰撞层"},
@@ -739,6 +742,23 @@ namespace CometEditor {
         auto property = source_property;
         if(!property.editable || property.read_only)
             return;
+        const bool audio_distance =
+            component.id == "audio_source"
+            && (property.id == "min_distance" || property.id == "max_distance"
+                || property.id == "rolloff");
+        const bool disabled =
+            audio_distance && std::ranges::all_of(m_entities, [&](Comet::EntityUuid uuid) {
+                return !m_selection.get_scene()
+                            .find_entity(uuid)
+                            .get_component<Comet::AudioSourceComponent>()
+                            .spatial;
+            });
+        if(disabled)
+            ImGui::BeginDisabled();
+        const Comet::ScopeExit enable([&] {
+            if(disabled)
+                ImGui::EndDisabled();
+        });
         auto value = property.copy_value(component.get_component(std::as_const(entity)));
         if(!value)
             return;

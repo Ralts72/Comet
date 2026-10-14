@@ -34,6 +34,7 @@ namespace Comet {
         m_one_shots.clear();
         m_voices.clear();
         m_playback.reset();
+        m_listener.reset();
         m_scene = nullptr;
         m_device_unavailable = false;
         m_paused = false;
@@ -51,12 +52,13 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
-    bool AudioService::request_one_shot(
-        const AssetHandle clip, const float volume, const AudioCategory category) {
+    bool AudioService::request_one_shot(const AssetHandle clip, const float volume,
+        const AudioCategory category, const AudioSpatialSettings spatial) {
         if(!m_scene || !clip || !std::isfinite(volume) || volume < 0 || volume > 1
-            || !valid_audio_category(category) || m_requests.size() >= MAX_REQUESTS)
+            || !valid_audio_category(category) || !spatial.validate()
+            || m_requests.size() >= MAX_REQUESTS)
             return false;
-        m_requests.push_back({clip, volume, category});
+        m_requests.push_back({clip, volume, category, spatial});
         return true;
     }
 
@@ -78,16 +80,29 @@ namespace Comet {
                 return Result<void, Error>::failure({"Audio playback factory returned no output"});
             if(auto applied = m_playback->apply_settings(m_settings); !applied)
                 return applied;
+            if(m_listener)
+                return m_playback->set_listener(*m_listener);
         }
+        return Result<void, Error>::success();
+    }
+
+    Result<void, Error> AudioService::set_listener(std::optional<AudioListenerPose> listener) {
+        m_listener = std::move(listener);
+        if(m_playback && m_listener)
+            return m_playback->set_listener(*m_listener);
         return Result<void, Error>::success();
     }
 
     Result<std::unique_ptr<AudioPlayback::Voice>, Error> AudioService::prepare_voice(
         const AssetHandle handle, const float volume, const bool looping,
-        const AudioCategory category) {
+        const AudioCategory category, const AudioSpatialSettings& spatial) {
         using Prepared = Result<std::unique_ptr<AudioPlayback::Voice>, Error>;
         if(!m_scene)
             return Prepared::failure({"Audio service is inactive"});
+        if(spatial.enabled && !m_listener)
+            return Prepared::failure({"Spatial audio requires one enabled Audio Listener"});
+        if(auto valid = spatial.validate(); !valid)
+            return Prepared::failure({valid.error()});
         if(!std::isfinite(volume) || volume < 0 || volume > 1 || !valid_audio_category(category))
             return Prepared::failure({"Audio source volume must be in [0, 1]"});
         auto clip = m_assets.resolve<AudioClip>(handle);
@@ -98,7 +113,7 @@ namespace Comet {
             return Prepared::failure(ready.error());
         if(m_device_unavailable)
             return Prepared::success(nullptr);
-        auto voice = m_playback->create_voice(std::move(clip), volume, looping, category);
+        auto voice = m_playback->create_voice(std::move(clip), volume, looping, category, spatial);
         if(!voice)
             return voice;
         if(auto started = voice.value()->start(); !started)
@@ -107,11 +122,12 @@ namespace Comet {
     }
 
     Result<AudioService::VoiceId, Error> AudioService::start_voice(const AssetHandle clip,
-        const float volume, const bool looping, const AudioCategory category) {
+        const float volume, const bool looping, const AudioCategory category,
+        const AudioSpatialSettings& spatial) {
         using Started = Result<VoiceId, Error>;
         if(m_next_voice == std::numeric_limits<VoiceId>::max())
             return Started::failure({"Audio voice identifiers exhausted"});
-        auto voice = prepare_voice(clip, volume, looping, category);
+        auto voice = prepare_voice(clip, volume, looping, category, spatial);
         if(!voice)
             return Started::failure(voice.error());
         if(!voice.value())
@@ -125,13 +141,22 @@ namespace Comet {
         return m_voices.contains(voice);
     }
 
-    Result<void, Error> AudioService::update_voice(
-        const VoiceId voice, const float volume, const bool looping, const AudioCategory category) {
+    uint64_t AudioService::clip_revision(const AssetHandle clip) const {
+        return m_assets.get_revision(clip);
+    }
+
+    Result<void, Error> AudioService::update_voice(const VoiceId voice, const float volume,
+        const bool looping, const AudioCategory category, const AudioSpatialSettings& spatial) {
         if(!std::isfinite(volume) || volume < 0 || volume > 1)
             return Result<void, Error>::failure({"Audio source volume must be in [0, 1]"});
         const auto found = m_voices.find(voice);
         if(found == m_voices.end())
             return Result<void, Error>::failure({"Audio voice is unavailable"});
+        if(spatial.enabled && !m_listener)
+            return Result<void, Error>::failure(
+                {"Spatial audio requires one enabled Audio Listener"});
+        if(auto placed = found->second->set_spatial(spatial); !placed)
+            return placed;
         if(auto routed = found->second->set_category(category); !routed)
             return routed;
         found->second->set_volume(volume);
@@ -178,7 +203,8 @@ namespace Comet {
                 }
                 continue;
             }
-            auto voice = prepare_voice(request.clip, request.volume, false, request.category);
+            auto voice = prepare_voice(
+                request.clip, request.volume, false, request.category, request.spatial);
             if(!voice)
                 return Result<void, Error>::failure(voice.error());
             if(voice.value())

@@ -136,10 +136,13 @@ namespace Comet {
                 return Result<void>::failure(path.error());
         }
         for(const auto& product : index.assets) {
-            m_assets.emplace(product.handle, AssetRecord{.handle = product.handle,
-                                                 .type = product.type,
-                                                 .path = product.path,
-                                                 .dependencies = product.dependencies});
+            AssetRecord record{.handle = product.handle,
+                .type = product.type,
+                .path = product.path,
+                .dependencies = product.dependencies};
+            if(product.type == AssetType::Audio)
+                record.import_settings = AudioImportSettings{product.audio_stream};
+            m_assets.emplace(product.handle, std::move(record));
             m_handles_by_path.emplace(product.path, product.handle);
             m_asset_revisions.emplace(product.handle, m_next_revision++);
             for(const auto dependency : product.dependencies)

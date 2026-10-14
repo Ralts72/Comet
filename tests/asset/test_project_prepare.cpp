@@ -200,6 +200,10 @@ namespace Comet::Tests {
         actor.get_component<ScriptComponent>().parameters = {{"speed", 2.0f}};
         actor.add_component<AudioSourceComponent>().clip = AssetHandle(102);
         actor.get_component<AudioSourceComponent>().loop = true;
+        actor.get_component<AudioSourceComponent>().spatial = true;
+        actor.get_component<AudioSourceComponent>().min_distance = 2;
+        actor.get_component<AudioSourceComponent>().max_distance = 20;
+        actor.add_component<AudioListenerComponent>();
         actor.add_component<RigidBodyComponent>(RigidBodyComponent{.mass = 3.0f});
         actor.add_component<ColliderComponent>(ColliderComponent{.radius = 0.75f});
         const auto serialized = serializer.serialize(scene);
@@ -217,6 +221,10 @@ namespace Comet::Tests {
             actor.get_component<ScriptComponent>().parameters);
         EXPECT_EQ(restored.get_component<AudioSourceComponent>().clip, AssetHandle(102));
         EXPECT_TRUE(restored.get_component<AudioSourceComponent>().loop);
+        EXPECT_TRUE(restored.get_component<AudioSourceComponent>().spatial);
+        EXPECT_EQ(restored.get_component<AudioSourceComponent>().min_distance, 2);
+        EXPECT_EQ(restored.get_component<AudioSourceComponent>().max_distance, 20);
+        EXPECT_TRUE(restored.has_component<AudioListenerComponent>());
         EXPECT_FLOAT_EQ(restored.get_component<RigidBodyComponent>().mass, 3.0f);
         EXPECT_FLOAT_EQ(restored.get_component<ColliderComponent>().radius, 0.75f);
     }

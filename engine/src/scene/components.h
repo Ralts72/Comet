@@ -1,7 +1,7 @@
 #pragma once
 
 #include "asset/handle.h"
-#include "audio/audio_category.h"
+#include "audio/audio_settings.h"
 #include "common/export.h"
 #include "common/parameters.h"
 #include "core/math_utils.h"
@@ -147,10 +147,21 @@ namespace Comet {
         bool loop = false;
         float volume = 0.5f;
         AudioCategory category = AudioCategory::Effects;
+        bool spatial = false;
+        float min_distance = 1;
+        float max_distance = 30;
+        float rolloff = 1;
+        [[nodiscard]] AudioSpatialSettings spatial_settings(const Math::Vec3& position) const {
+            return {spatial, position, min_distance, max_distance, rolloff};
+        }
         [[nodiscard]] uint64_t lifetime() const noexcept { return m_lifetime; }
 
     private:
         uint64_t m_lifetime;
+    };
+
+    struct COMET_API AudioListenerComponent {
+        bool enabled = true;
     };
 
     enum class BodyMotion { Static, Dynamic, Kinematic };

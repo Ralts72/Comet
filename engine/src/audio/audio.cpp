@@ -22,7 +22,8 @@ namespace Comet {
         }
     }
 
-    Result<std::shared_ptr<AudioClip>, Error> AudioClip::load(const std::filesystem::path& path) {
+    Result<std::shared_ptr<AudioClip>, Error> AudioClip::load(
+        const std::filesystem::path& path, const bool stream) {
         using Load = Result<std::shared_ptr<AudioClip>, Error>;
         ma_decoder decoder{};
         const auto config = ma_decoder_config_init(ma_format_f32, 0, 0);
@@ -44,9 +45,15 @@ namespace Comet {
         const auto channels = decoder.outputChannels;
         const auto rate = decoder.outputSampleRate;
         if(frames == 0 || channels == 0 || channels > 2 || rate == 0
-            || frames > MAX_DECODED_SAMPLES / channels)
+            || (!stream && frames > MAX_DECODED_SAMPLES / channels))
             return Load::failure(
                 {"Audio clip is empty, has unsupported channels, or is too large"});
+        if(stream) {
+            auto clip = std::shared_ptr<AudioClip>(new AudioClip({}, channels, rate));
+            clip->m_frames = frames;
+            clip->m_source = std::filesystem::absolute(path);
+            return Load::success(std::move(clip));
+        }
         std::vector<float> samples(static_cast<std::size_t>(frames * channels));
         ma_uint64 read = 0;
         const auto decoded = ma_decoder_read_pcm_frames(&decoder, samples.data(), frames, &read);
@@ -60,18 +67,42 @@ namespace Comet {
 
     struct AudioPlayback::Impl {
         ma_engine engine{};
+        ma_resource_manager resource_manager{};
         std::array<ma_sound_group, 2> groups{};
         std::size_t initialized_groups = 0;
         Mode mode = Mode::Realtime;
         double silent_frame_remainder = 0;
         bool paused = false;
         bool initialized = false;
+        bool resource_manager_initialized = false;
+
+        ma_result read_frames(float* samples, ma_uint64 frames) {
+            if(!resource_manager_initialized)
+                return ma_engine_read_pcm_frames(&engine, samples, frames, nullptr);
+            // 离线时由调用者推进解码队列；小块混音让耗尽的页面及时补充。
+            while(frames > 0) {
+                ma_result job;
+                while((job = ma_resource_manager_process_next_job(&resource_manager))
+                      == MA_SUCCESS) {}
+                if(job != MA_NO_DATA_AVAILABLE)
+                    return job;
+                const auto count = std::min<ma_uint64>(frames, 256);
+                const auto result = ma_engine_read_pcm_frames(&engine, samples, count, nullptr);
+                if(result != MA_SUCCESS)
+                    return result;
+                samples += count * ma_engine_get_channels(&engine);
+                frames -= count;
+            }
+            return MA_SUCCESS;
+        }
 
         ~Impl() {
             while(initialized_groups > 0)
                 ma_sound_group_uninit(&groups[--initialized_groups]);
             if(initialized)
                 ma_engine_uninit(&engine);
+            if(resource_manager_initialized)
+                ma_resource_manager_uninit(&resource_manager);
         }
     };
 
@@ -107,6 +138,17 @@ namespace Comet {
             config.noDevice = MA_TRUE;
             config.channels = 2;
             config.sampleRate = 48000;
+            auto resources = ma_resource_manager_config_init();
+            resources.flags = MA_RESOURCE_MANAGER_FLAG_NO_THREADING;
+            resources.jobThreadCount = 0;
+            resources.decodedFormat = ma_format_f32;
+            resources.decodedSampleRate = 48000;
+            const auto result = ma_resource_manager_init(&resources, &impl->resource_manager);
+            if(result != MA_SUCCESS)
+                return Creation::failure(
+                    audio_error("Cannot initialize offline audio resources", result));
+            impl->resource_manager_initialized = true;
+            config.pResourceManager = &impl->resource_manager;
         }
         const auto result = ma_engine_init(&config, &impl->engine);
         if(result != MA_SUCCESS)
@@ -126,32 +168,80 @@ namespace Comet {
 
     Result<std::unique_ptr<AudioPlayback::Voice>, Error> AudioPlayback::create_voice(
         std::shared_ptr<const AudioClip> clip, const float volume, const bool looping,
-        const AudioCategory category) {
+        const AudioCategory category, const AudioSpatialSettings spatial) {
         using Creation = Result<std::unique_ptr<Voice>, Error>;
         if(!clip || !std::isfinite(volume) || volume < 0 || volume > 1
             || !valid_audio_category(category))
             return Creation::failure(
                 {"Audio voice requires a clip, volume in [0, 1] and category"});
+        if(auto valid = spatial.validate(); !valid)
+            return Creation::failure({valid.error()});
         auto impl = std::make_unique<Voice::Impl>();
         impl->playback = m_impl;
         impl->clip = std::move(clip);
         impl->category = category;
-        auto buffer_config = ma_audio_buffer_config_init(ma_format_f32, impl->clip->channels(),
-            impl->clip->frame_count(), impl->clip->samples().data(), nullptr);
-        buffer_config.sampleRate = impl->clip->sample_rate();
-        const auto buffered = ma_audio_buffer_init(&buffer_config, &impl->buffer);
-        if(buffered != MA_SUCCESS)
-            return Creation::failure(audio_error("Cannot create audio buffer", buffered));
-        impl->buffer_initialized = true;
-        const auto created = ma_sound_init_from_data_source(&m_impl->engine, &impl->buffer,
-            MA_SOUND_FLAG_NO_SPATIALIZATION, &m_impl->groups[static_cast<std::size_t>(category)],
-            &impl->sound);
+        auto* group = &m_impl->groups[static_cast<std::size_t>(category)];
+        ma_result created;
+        if(impl->clip->is_streamed()) {
+            auto flags =
+                MA_SOUND_FLAG_STREAM | MA_SOUND_FLAG_WAIT_INIT | MA_SOUND_FLAG_NO_SPATIALIZATION;
+            // 在预读页面前设置循环，避免第一轮结束时才发起异步回卷。
+            if(looping)
+                flags |= MA_SOUND_FLAG_LOOPING;
+#ifdef _WIN32
+            created = ma_sound_init_from_file_w(&m_impl->engine,
+                impl->clip->source_path().wstring().c_str(), flags, group, nullptr, &impl->sound);
+#else
+            created = ma_sound_init_from_file(&m_impl->engine,
+                impl->clip->source_path().string().c_str(), flags, group, nullptr, &impl->sound);
+#endif
+        } else {
+            auto buffer_config = ma_audio_buffer_config_init(ma_format_f32, impl->clip->channels(),
+                impl->clip->frame_count(), impl->clip->samples().data(), nullptr);
+            buffer_config.sampleRate = impl->clip->sample_rate();
+            const auto buffered = ma_audio_buffer_init(&buffer_config, &impl->buffer);
+            if(buffered != MA_SUCCESS)
+                return Creation::failure(audio_error("Cannot create audio buffer", buffered));
+            impl->buffer_initialized = true;
+            created = ma_sound_init_from_data_source(&m_impl->engine, &impl->buffer,
+                MA_SOUND_FLAG_NO_SPATIALIZATION, group, &impl->sound);
+        }
         if(created != MA_SUCCESS)
             return Creation::failure(audio_error("Cannot create audio voice", created));
         impl->sound_initialized = true;
         ma_sound_set_volume(&impl->sound, volume);
         ma_sound_set_looping(&impl->sound, looping ? MA_TRUE : MA_FALSE);
-        return Creation::success(std::unique_ptr<Voice>(new Voice(std::move(impl))));
+        auto voice = std::unique_ptr<Voice>(new Voice(std::move(impl)));
+        if(auto configured = voice->set_spatial(spatial); !configured)
+            return Creation::failure(configured.error());
+        return Creation::success(std::move(voice));
+    }
+
+    Result<void, Error> AudioPlayback::set_listener(const AudioListenerPose& listener) {
+        const auto basis = Math::view_basis(listener.forward, listener.up);
+        if(!Math::is_finite(listener.position) || !basis)
+            return Result<void, Error>::failure(
+                {"Audio listener requires a valid position and orientation"});
+        const auto forward = -(*basis)[2];
+        const auto up = (*basis)[1];
+        const auto& position = listener.position;
+        ma_engine_listener_set_position(&m_impl->engine, 0, position.x, position.y, position.z);
+        ma_engine_listener_set_direction(&m_impl->engine, 0, forward.x, forward.y, forward.z);
+        ma_engine_listener_set_world_up(&m_impl->engine, 0, up.x, up.y, up.z);
+        return Result<void, Error>::success();
+    }
+
+    Result<void, Error> AudioPlayback::Voice::set_spatial(const AudioSpatialSettings& spatial) {
+        if(auto valid = spatial.validate(); !valid)
+            return Result<void, Error>::failure({valid.error()});
+        ma_sound_set_spatialization_enabled(&m_impl->sound, spatial.enabled);
+        ma_sound_set_attenuation_model(&m_impl->sound, ma_attenuation_model_linear);
+        ma_sound_set_min_distance(&m_impl->sound, spatial.min_distance);
+        ma_sound_set_max_distance(&m_impl->sound, spatial.max_distance);
+        ma_sound_set_rolloff(&m_impl->sound, spatial.rolloff);
+        ma_sound_set_position(
+            &m_impl->sound, spatial.position.x, spatial.position.y, spatial.position.z);
+        return Result<void, Error>::success();
     }
 
     Result<void, Error> AudioPlayback::apply_settings(const AudioSettings settings) {
@@ -211,8 +301,7 @@ namespace Comet {
         // 设备回调已停止；主线程独占混音推进，采样不送往设备。
         for(uint64_t remaining = frames; remaining > 0;) {
             const auto count = std::min<uint64_t>(remaining, capacity);
-            const auto result =
-                ma_engine_read_pcm_frames(&m_impl->engine, discarded.data(), count, nullptr);
+            const auto result = m_impl->read_frames(discarded.data(), count);
             if(result != MA_SUCCESS)
                 return Result<void, Error>::failure(audio_error("Cannot advance audio", result));
             remaining -= count;
@@ -232,8 +321,7 @@ namespace Comet {
             std::ranges::fill(samples, 0.0f);
             return Result<void, Error>::success();
         }
-        const auto result =
-            ma_engine_read_pcm_frames(&m_impl->engine, samples.data(), samples.size() / 2, nullptr);
+        const auto result = m_impl->read_frames(samples.data(), samples.size() / 2);
         if(result != MA_SUCCESS)
             return Result<void, Error>::failure(audio_error("Cannot read audio frames", result));
         return Result<void, Error>::success();

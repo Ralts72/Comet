@@ -11,8 +11,9 @@ namespace Comet {
 
     AudioSourceComponent::AudioSourceComponent(const AudioSourceComponent& other)
         : clip(other.clip), play_on_start(other.play_on_start), loop(other.loop),
-          volume(other.volume), category(other.category),
-          m_lifetime(next_audio_source_lifetime.next()) {}
+          volume(other.volume), category(other.category), spatial(other.spatial),
+          min_distance(other.min_distance), max_distance(other.max_distance),
+          rolloff(other.rolloff), m_lifetime(next_audio_source_lifetime.next()) {}
 
     AudioSourceComponent& AudioSourceComponent::operator=(const AudioSourceComponent& other) {
         if(this != &other) {
@@ -21,6 +22,10 @@ namespace Comet {
             loop = other.loop;
             volume = other.volume;
             category = other.category;
+            spatial = other.spatial;
+            min_distance = other.min_distance;
+            max_distance = other.max_distance;
+            rolloff = other.rolloff;
             m_lifetime = next_audio_source_lifetime.next();
         }
         return *this;

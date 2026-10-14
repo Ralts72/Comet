@@ -353,13 +353,19 @@ namespace Comet::LuaBindings {
         }
         int play_one_shot(lua_State* state) {
             const auto& context = current(state);
-            if(!context.scene || !context.scene->is_valid(context.entity)
-                || !context.entity.has_component<AudioSourceComponent>())
-                return luaL_error(state, "Current entity needs a valid Audio Source");
+            if(lua_gettop(state) > 1)
+                return luaL_error(state, "comet.play_one_shot expects an optional entity");
+            const auto entity = lua_isnoneornil(state, 1) ? context.entity : require_entity(state);
+            if(!context.scene || !context.scene->is_valid(entity)
+                || !entity.has_component<AudioSourceComponent>())
+                return luaL_error(state, "Entity needs a valid Audio Source");
             if(!context.audio)
                 return luaL_error(state, "Audio service is unavailable in this runtime");
-            const auto& source = context.entity.get_component<AudioSourceComponent>();
-            if(!context.audio->request_one_shot(source.clip, source.volume, source.category))
+            const auto& source = entity.get_component<AudioSourceComponent>();
+            const auto spatial =
+                source.spatial_settings(Math::Vec3(context.scene->get_world_matrix(entity)[3]));
+            if(!context.audio->request_one_shot(
+                   source.clip, source.volume, source.category, spatial))
                 return luaL_error(
                     state, "Cannot queue one-shot: invalid source or audio request limit reached");
             return 0;

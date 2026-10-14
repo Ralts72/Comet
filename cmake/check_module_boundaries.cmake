@@ -35,7 +35,7 @@ set(ASSET_HEADERS
 set(INPUT_HEADERS "${SERIALIZATION_HEADERS}|input/")
 set(AUDIO_DATA_HEADERS "audio/(audio_category|audio_settings)\\.h$")
 set(WORLD_HEADERS
-    "${ASSET_HEADERS}|audio/audio_category\\.h$|scene/(component_registry|components|entity|entity_id|entity_uuid|entity_tree|prefab|material_parameters|property|scene|scene_serializer|scene_settings|script_component|transform_interpolation)\\.h$")
+    "${ASSET_HEADERS}|${AUDIO_DATA_HEADERS}|scene/(component_registry|components|entity|entity_id|entity_uuid|entity_tree|prefab|material_parameters|property|scene|scene_serializer|scene_settings|script_component|transform_interpolation)\\.h$")
 set(PIPELINE_HEADERS "${ASSET_HEADERS}|asset/(artifact/|import/|(database|product_index)\\.h$)")
 
 set(RUNTIME_HEADERS "${WORLD_HEADERS}|${INPUT_HEADERS}|animation/animation_system\\.h$|audio/audio_commands\\.h$|physics/physics_access\\.h$|scene/(scene_runtime|runtime_session|runtime_services|systems/system)\\.h$")
@@ -43,7 +43,7 @@ set(RUNTIME_HEADERS "${WORLD_HEADERS}|${INPUT_HEADERS}|animation/animation_syste
 set(AUDIO_HEADERS "${RUNTIME_HEADERS}|audio/|scene/systems/audio_system\\.h$")
 
 set(PHYSICS_HEADERS "${RUNTIME_HEADERS}|physics/|scene/systems/physics_system\\.h$")
-set(PHYSICS_BACKEND_HEADERS "${ASSET_HEADERS}|audio/audio_category\\.h$|physics/|scene/(components|entity_id|entity_uuid|scene_settings)\\.h$")
+set(PHYSICS_BACKEND_HEADERS "${ASSET_HEADERS}|${AUDIO_DATA_HEADERS}|physics/|scene/(components|entity_id|entity_uuid|scene_settings)\\.h$")
 set(GAMEPLAY_HEADERS "${RUNTIME_HEADERS}|gameplay/|scene/systems/camera_controller\\.h$")
 set(SCRIPTING_HEADERS "${GAMEPLAY_HEADERS}|scripting/|scene/systems/script_system\\.h$")
 set(RUNTIME_ASSET_HEADERS "${PIPELINE_HEADERS}|${WORLD_HEADERS}|${AUDIO_DATA_HEADERS}|asset/(asset_manager\\.h$|runtime/)|scripting/script_compiler\\.h$|audio/audio\\.h$|graphics/error\\.h$")

@@ -431,6 +431,12 @@ namespace Comet {
                     }
                     case AssetType::AnimationController:
                         break;
+                    case AssetType::Audio: {
+                        const auto* settings =
+                            std::get_if<AudioImportSettings>(&record.import_settings);
+                        product.audio_stream = settings && settings->stream;
+                        break;
+                    }
                     case AssetType::Prefab: {
                         auto prefab = Prefab::load(source, components);
                         if(!prefab)
@@ -449,8 +455,6 @@ namespace Comet {
                         dependencies = get_asset_dependencies(material.value());
                         break;
                     }
-                    case AssetType::Audio:
-                        break;
                     default:
                         return Result<void>::failure("Unsupported runtime product type: "
                                                      + std::string(to_string(record.type)));

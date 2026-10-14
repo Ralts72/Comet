@@ -96,6 +96,8 @@ namespace Comet {
             if(asset.sampler
                 && (asset.type != AssetType::Texture || !valid_sampler(*asset.sampler)))
                 return Result<void>::failure("Invalid product texture sampler");
+            if(asset.audio_stream && asset.type != AssetType::Audio)
+                return Result<void>::failure("Only audio products support streaming");
         }
         for(const auto& asset : assets) {
             std::unordered_set<AssetHandle> dependencies;
@@ -123,6 +125,8 @@ namespace Comet {
             json.field("handle", asset.handle.value());
             json.field("type", to_string(asset.type));
             json.field("path", asset.path.generic_string());
+            if(asset.audio_stream)
+                json.field("audio_stream", true);
             json.key("dependencies");
             json.begin_array();
             for(const auto dependency : asset.dependencies)
@@ -181,7 +185,7 @@ namespace Comet {
         ProductIndex result;
         for(auto entry : array.value()) {
             if(auto keys = context.validate_keys(
-                   entry, {"handle", "type", "path", "dependencies", "sampler"});
+                   entry, {"handle", "type", "path", "dependencies", "sampler", "audio_stream"});
                 !keys)
                 return Read::failure(keys.error());
             auto handle = context.read_field<uint64_t>(entry, "handle", "an unsigned integer");
@@ -197,6 +201,10 @@ namespace Comet {
             if(!type)
                 return Read::failure("Unknown product asset type");
             AssetProduct asset{AssetHandle{handle.value()}, *type, file.value()};
+            auto stream = context.read_optional_field<bool>(entry, "audio_stream", "a boolean");
+            if(!stream)
+                return Read::failure(stream.error());
+            asset.audio_stream = stream.value().value_or(false);
             auto dependencies_node = context.required_child(entry, "dependencies");
             if(!dependencies_node)
                 return Read::failure(dependencies_node.error());

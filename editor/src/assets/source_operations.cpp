@@ -547,7 +547,7 @@ namespace CometEditor::AssetSourceOperations {
                         return Result<void>::failure(controller.error());
                     break;
                 case AssetType::Audio:
-                    if(auto clip = AudioClip::load(source); !clip)
+                    if(auto clip = AudioClip::load(source, true); !clip)
                         return Result<void>::failure(clip.error().message);
                     break;
                 default:

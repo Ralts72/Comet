@@ -3,6 +3,15 @@
 #include <cmath>
 
 namespace Comet {
+    Result<void> AudioSpatialSettings::validate() const {
+        if(!Math::is_finite(position) || !std::isfinite(min_distance)
+            || !std::isfinite(max_distance) || !std::isfinite(rolloff) || min_distance < 0
+            || max_distance <= min_distance || rolloff < 0)
+            return Result<void>::failure(
+                "Spatial audio requires finite values, 0 <= min distance < max distance and rolloff >= 0");
+        return Result<void>::success();
+    }
+
     Result<void> AudioSettings::validate() const {
         for(const auto volume : {master_volume, effects_volume, music_volume}) {
             if(!std::isfinite(volume) || volume < 0 || volume > 1)

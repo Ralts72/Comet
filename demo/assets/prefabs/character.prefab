@@ -128,7 +128,11 @@
                   "clip": 13857136248767905806,
                   "play_on_start": false,
                   "loop": false,
-                  "volume": 0.35
+                  "volume": 0.35,
+                  "spatial": true,
+                  "min_distance": 1,
+                  "max_distance": 20,
+                  "rolloff": 1
                 }
               },
               "children": [
@@ -205,6 +209,9 @@
               "orbit_max_distance": 12,
               "orbit_zoom_step": 0.5,
               "collision_radius": 0.15
+            },
+            "audio_listener": {
+              "enabled": true
             }
           }
         }

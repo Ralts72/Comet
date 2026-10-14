@@ -13,26 +13,29 @@
 #include <vector>
 
 namespace Comet {
-    // 已解码、不可变的短音效；不持有播放设备或文件句柄。
+    // 不可变的音频资源；短音效持有 PCM，流式音频只保存来源与格式。
     class COMET_API AudioClip final {
     public:
         [[nodiscard]] static Result<std::shared_ptr<AudioClip>, Error> load(
-            const std::filesystem::path& path);
+            const std::filesystem::path& path, bool stream = false);
 
         [[nodiscard]] std::span<const float> samples() const noexcept { return m_samples; }
         [[nodiscard]] std::uint32_t channels() const noexcept { return m_channels; }
         [[nodiscard]] std::uint32_t sample_rate() const noexcept { return m_sample_rate; }
-        [[nodiscard]] std::uint64_t frame_count() const noexcept {
-            return m_samples.size() / m_channels;
-        }
+        [[nodiscard]] std::uint64_t frame_count() const noexcept { return m_frames; }
+        [[nodiscard]] bool is_streamed() const noexcept { return !m_source.empty(); }
+        [[nodiscard]] const std::filesystem::path& source_path() const noexcept { return m_source; }
 
     private:
         AudioClip(std::vector<float> samples, std::uint32_t channels, std::uint32_t sample_rate)
-            : m_samples(std::move(samples)), m_channels(channels), m_sample_rate(sample_rate) {}
+            : m_samples(std::move(samples)), m_channels(channels), m_sample_rate(sample_rate),
+              m_frames(m_samples.size() / channels) {}
 
         std::vector<float> m_samples;
         std::uint32_t m_channels;
         std::uint32_t m_sample_rate;
+        std::uint64_t m_frames;
+        std::filesystem::path m_source;
     };
 
     // 一份播放设备可创建多个独立声音实例；实例保活音频数据和设备。
@@ -49,7 +52,8 @@ namespace Comet {
 
         [[nodiscard]] Result<std::unique_ptr<Voice>, Error> create_voice(
             std::shared_ptr<const AudioClip> clip, float volume, bool looping,
-            AudioCategory category = AudioCategory::Effects);
+            AudioCategory category = AudioCategory::Effects, AudioSpatialSettings spatial = {});
+        [[nodiscard]] Result<void, Error> set_listener(const AudioListenerPose& listener);
         [[nodiscard]] Result<void, Error> apply_settings(AudioSettings settings);
         // 暂停设备回调，保留各 Voice 的播放位置和启停状态。
         [[nodiscard]] Result<void, Error> set_paused(bool paused);
@@ -75,6 +79,7 @@ namespace Comet {
         void set_volume(float volume);
         void set_looping(bool looping);
         [[nodiscard]] Result<void, Error> set_category(AudioCategory category);
+        [[nodiscard]] Result<void, Error> set_spatial(const AudioSpatialSettings& spatial);
         [[nodiscard]] bool is_playing() const;
 
     private:

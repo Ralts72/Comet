@@ -1083,6 +1083,8 @@ namespace {
                 return m_material_edits->process(edit);
             if(std::holds_alternative<CometEditor::AnimationControllerEdit>(edit.value))
                 return m_assets->apply_animation_controller_edit(edit);
+            if(std::holds_alternative<CometEditor::AudioEdit>(edit.value))
+                return m_assets->apply_audio_edit(edit);
             return m_assets->apply_texture_edit(edit);
         }
 

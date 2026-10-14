@@ -314,7 +314,8 @@ namespace Comet {
                 auto path = m_database.paths().resolve_asset_path(record.path);
                 if(!path)
                     return Result<std::shared_ptr<AudioClip>, Error>::failure({path.error()});
-                return AudioClip::load(path.value());
+                const auto* settings = std::get_if<AudioImportSettings>(&record.import_settings);
+                return AudioClip::load(path.value(), settings && settings->stream);
             });
     }
 

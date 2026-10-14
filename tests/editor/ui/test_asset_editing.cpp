@@ -62,6 +62,8 @@ namespace CometEditor::Tests {
         bool material_update_success = true;
         Comet::MaterialData submitted_material;
         int controller_updates = 0;
+        int audio_updates = 0;
+        bool audio_update_success = true;
 
         void SetUp() override {
             std::filesystem::create_directories(paths.assets());
@@ -140,6 +142,15 @@ namespace CometEditor::Tests {
                     ++controller_updates;
                     ASSERT_TRUE(database.scan().succeeded());
                     inspector->asset_inspector().complete_asset_edit(*request, true);
+                    return;
+                }
+                if(const auto* audio = std::get_if<AudioEdit>(&request->value)) {
+                    if(audio_update_success)
+                        ASSERT_TRUE(
+                            database.update_import_settings(request->target.handle, audio->after));
+                    inspector->asset_inspector().complete_asset_edit(*request, audio_update_success,
+                        audio_update_success ? "" : "Audio import failed");
+                    ++audio_updates;
                     return;
                 }
                 EXPECT_EQ(request->target.handle, expected_material);
@@ -352,6 +363,42 @@ namespace CometEditor::Tests {
         saved = Comet::AnimationControllerSerializer{}.load(path);
         ASSERT_TRUE(saved);
         EXPECT_FALSE(saved.value().parameters.contains("parameter2"));
+    }
+
+    TEST_F(AssetEditingUiTest, AudioStreamingTogglePersistsAndFailedEditRestoresTheDraft) {
+        const Comet::AssetHandle audio{99};
+        const auto path = paths.assets() / "music.wav";
+        std::ofstream(path) << "audio fixture";
+        ASSERT_TRUE(
+            Comet::MetadataSerializer{}.save({.handle = audio,
+                                                 .type = Comet::AssetType::Audio,
+                                                 .import_settings = Comet::AudioImportSettings{}},
+                Comet::metadata_path(path)));
+        ASSERT_TRUE(database.scan().succeeded());
+        selection.select_asset(audio);
+        frame();
+        frame();
+        const auto activate = [&] {
+            auto* window = ImGui::FindWindowByName("Inspector");
+            ASSERT_NE(window, nullptr);
+            ImGui::ActivateItemByID(window->GetID("流式播放###Stream Audio"));
+            frame();
+            frame();
+        };
+        activate();
+        EXPECT_EQ(audio_updates, 1);
+        EXPECT_TRUE(
+            std::get<Comet::AudioImportSettings>(database.find(audio)->import_settings).stream);
+        audio_update_success = false;
+        activate();
+        EXPECT_EQ(audio_updates, 2);
+        EXPECT_TRUE(
+            std::get<Comet::AudioImportSettings>(database.find(audio)->import_settings).stream);
+        audio_update_success = true;
+        activate();
+        EXPECT_EQ(audio_updates, 3);
+        EXPECT_FALSE(
+            std::get<Comet::AudioImportSettings>(database.find(audio)->import_settings).stream);
     }
 
     TEST_F(AssetEditingUiTest, MixedAssetPickerCanChoosePrimaryValueAndCapturesAllTargets) {

@@ -141,6 +141,8 @@ namespace Comet {
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> load_texture(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Script>, Error> load_script(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<AudioClip>, Error> load_audio(AssetHandle handle);
+        [[nodiscard]] Result<std::shared_ptr<AudioClip>, Error> reimport_audio(
+            AssetHandle handle, AudioImportSettings settings);
         [[nodiscard]] Result<std::shared_ptr<Environment>, Error> load_environment(
             AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> reimport_texture(

@@ -29,6 +29,7 @@
 #include <array>
 #include <cmath>
 #include <utility>
+#include <tuple>
 
 namespace Comet::Tests {
     namespace {
@@ -556,6 +557,13 @@ namespace Comet::Tests {
             ASSERT_TRUE(step) << step.error().message;
             ASSERT_TRUE(assets.register_asset(
                 AssetHandle{13857136248767905806ULL}, std::move(step).value()));
+            for(const auto& [handle, file, stream] :
+                {std::tuple{13857136248767905807ULL, "audio/ambient_loop.wav", true},
+                    std::tuple{13857136248767905808ULL, "audio/spatial_chime.wav", false}}) {
+                auto clip = AudioClip::load(project.value().paths().assets() / file, stream);
+                ASSERT_TRUE(clip) << clip.error().message;
+                ASSERT_TRUE(assets.register_asset(AssetHandle{handle}, std::move(clip).value()));
+            }
             auto loaded = serializer.load(
                 (project.value().paths().assets() / project.value().startup_scene()).string());
             ASSERT_TRUE(loaded) << loaded.error();

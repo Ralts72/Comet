@@ -419,6 +419,11 @@ namespace Comet::Tests {
             EXPECT_TRUE(ready.value());
         }
         auto character = manager.read_mesh_data(DEFAULT_CHARACTER_MESH);
+        auto music = manager.load_audio(AssetHandle{13857136248767905807ULL});
+        ASSERT_TRUE(music) << music.error().message;
+        EXPECT_TRUE(music.value()->is_streamed());
+        EXPECT_TRUE(music.value()->samples().empty());
+        EXPECT_EQ(music.value()->source_path().parent_path(), moved.assets() / "audio");
         ASSERT_TRUE(character) << character.error().message;
         EXPECT_TRUE(character.value().animation);
         EXPECT_TRUE(std::filesystem::exists(moved.assets() / "ui/runtime.rml"));

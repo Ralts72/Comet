@@ -12,6 +12,7 @@ namespace Comet {
         std::filesystem::path path;
         std::vector<AssetHandle> dependencies;
         std::optional<SamplerDesc> sampler;
+        bool audio_stream = false;
     };
 
     // 导出时形成依赖闭包，启动时一次性读取，运行期间不扫描或修改。
