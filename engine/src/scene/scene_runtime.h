@@ -53,8 +53,9 @@ namespace Comet {
         }
 
         // Rebase 在首张授权输入上建立基线，不把开局前的按下／位移重放到新局。
-        Result<void, Error> start(
-            Scene& scene, State state = State::Running, InputStart input = InputStart::Fresh);
+        Result<void, Error> start(Scene& scene, State state = State::Running,
+            InputStart input = InputStart::Fresh, ParameterMap initial_values = {},
+            std::string checkpoint = {});
         Result<void, Error> stop();
         Result<void, Error> set_state(State state);
         Result<void, Error> request_step();
@@ -66,8 +67,9 @@ namespace Comet {
         [[nodiscard]] const Timing& get_timing() const { return m_timing; }
         [[nodiscard]] RuntimeSession& get_session() { return m_session; }
         [[nodiscard]] const RuntimeSession& get_session() const { return m_session; }
-        // 仅宿主更新边界消费；运行回调内不取走本局的重开意图。
-        [[nodiscard]] bool take_restart_request();
+        // 仅宿主更新边界消费；运行回调内不消费游戏请求。
+        [[nodiscard]] std::optional<RuntimeSession::SceneRequest> take_scene_request();
+        [[nodiscard]] std::optional<RuntimeSession::CheckpointRequest> take_checkpoint_request();
         // 当前场景和最近授权输入的意图；不是窗口已经捕获的状态。
         [[nodiscard]] bool wants_cursor_capture() const;
 

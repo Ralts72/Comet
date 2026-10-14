@@ -5,10 +5,12 @@
 #include "graphics/vk_common.h"
 
 #include <string_view>
+#include <span>
 
 namespace Comet {
     class Device;
     class CPUBuffer;
+    class ReadbackBuffer;
 
     class COMET_API Buffer {
     public:
@@ -46,6 +48,9 @@ namespace Comet {
             Flags<BufferUsage> usage, size_t size, bool within_budget,
             std::string_view debug_name = {});
 
+        static GpuResourceResult<std::shared_ptr<ReadbackBuffer>> try_create_readback_buffer(
+            Device& device, size_t size, std::string_view debug_name = {});
+
         [[nodiscard]] vk::Buffer get() const { return m_buffer; }
         [[nodiscard]] size_t get_size() const { return m_size; }
         [[nodiscard]] Device& get_device() const { return m_device; }
@@ -62,6 +67,17 @@ namespace Comet {
         static GpuResourceResult<std::shared_ptr<CPUBuffer>> try_create_mapped_buffer(
             Device& device, Flags<BufferUsage> usage, size_t size, AllocationUsage allocation_usage,
             bool within_budget, const void* data, std::string_view debug_name);
+    };
+
+    class COMET_API ReadbackBuffer final: public Buffer {
+    public:
+        // 调用方先等待写入本 Buffer 的 GPU completion；支持非 coherent 内存。
+        [[nodiscard]] Result<void, GraphicsError> read(std::span<std::byte> output) const;
+
+    private:
+        friend class Buffer;
+        ReadbackBuffer(Device& device, size_t size, Allocator::BufferAllocation allocation);
+        const void* m_mapped_data = nullptr;
     };
 
     class COMET_API CPUBuffer final: public Buffer {

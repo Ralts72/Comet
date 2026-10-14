@@ -1,6 +1,7 @@
 #pragma once
 
 #include "asset/artifact/mesh_artifact.h"
+#include "asset/artifact/model_artifact.h"
 #include "asset/artifact/shader_program_artifact.h"
 #include "asset/database.h"
 #include "asset/data/material_data.h"
@@ -11,6 +12,16 @@
 #include <vector>
 
 namespace Comet {
+    struct ModelImportPrepared {
+        ModelArtifact artifact;
+        AssetMetadata source_metadata;
+        bool from_cache = false;
+    };
+    struct ModelImportCandidate {
+        AssetRecord record;
+        AssetRevision revision = INVALID_ASSET_REVISION;
+        Result<ModelImportPrepared> result;
+    };
     struct MeshArtifactCandidate {
         AssetHandle handle;
         AssetRevision revision = INVALID_ASSET_REVISION;
@@ -63,8 +74,9 @@ namespace Comet {
         Result<ShaderProgramImportPrepared, ShaderProgramImportFailure> result;
     };
     struct AssetImportResult {
-        std::variant<std::monostate, MeshArtifactCandidate, TextureImportCandidate,
-            MaterialImportCandidate, EnvironmentImportCandidate, ShaderProgramImportCandidate>
+        std::variant<std::monostate, ModelImportCandidate, MeshArtifactCandidate,
+            TextureImportCandidate, MaterialImportCandidate, EnvironmentImportCandidate,
+            ShaderProgramImportCandidate>
             candidate;
     };
 }

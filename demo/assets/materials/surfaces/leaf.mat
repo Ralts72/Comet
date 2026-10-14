@@ -1,0 +1,28 @@
+{
+  "version": 2,
+  "template": "pbr",
+  "surface": {
+    "alpha_mode": "mask",
+    "alpha_cutoff": 0.5,
+    "double_sided": true
+  },
+  "properties": {
+    "base_color": {
+      "type": "vector",
+      "value": [
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "roughness": {
+      "type": "scalar",
+      "value": 0.5
+    },
+    "base_color_texture": {
+      "type": "texture",
+      "asset": 5783275031450616073
+    }
+  }
+}

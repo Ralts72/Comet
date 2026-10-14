@@ -5,6 +5,7 @@
 #include "assets/material_editing.h"
 #include "assets/source_operations.h"
 
+#include <imgui.h>
 #include <array>
 #include <map>
 #include <filesystem>
@@ -13,7 +14,15 @@
 #include <variant>
 #include <vector>
 
+namespace Comet {
+    struct TextureData;
+}
+
 namespace CometEditor {
+    namespace Ui {
+        class ImGuiContext;
+    }
+    class AssetThumbnails;
     class SelectionService;
     class CommandHistory;
 
@@ -44,6 +53,8 @@ namespace CometEditor {
             Comet::AssetScanReport scan_report, SelectionService& selection,
             const CommandHistory& history);
 
+        ~ProjectPanel() override;
+        void set_thumbnails(AssetThumbnails& thumbnails, Ui::ImGuiContext& images);
         void render() override;
         void update_scan_report(Comet::AssetScanReport scan_report);
         [[nodiscard]] bool take_refresh_request();
@@ -68,14 +79,23 @@ namespace CometEditor {
             const CreateScriptRequest& request, const Comet::AssetScanReport& report);
         [[nodiscard]] std::optional<std::filesystem::path> take_open_source_request();
         void complete_open_source(const Comet::Result<void>& result);
-        [[nodiscard]] std::optional<Comet::AssetHandle> take_mesh_reimport_request();
+        [[nodiscard]] std::optional<Comet::AssetHandle> take_reimport_request();
         [[nodiscard]] std::optional<std::filesystem::path> file_drop_directory(
             Comet::Math::Vec2 position) const;
 
     private:
+        void render_thumbnail(const Comet::AssetRecord& asset);
+        struct ThumbnailBinding {
+            std::weak_ptr<const Comet::TextureData> source;
+            ImTextureID image = 0;
+        };
+        AssetThumbnails* m_thumbnails = nullptr;
+        Ui::ImGuiContext* m_images = nullptr;
+        std::map<Comet::AssetHandle, ThumbnailBinding> m_thumbnail_bindings;
         struct AssetTreeNode {
             std::map<std::string, AssetTreeNode> directories;
             std::map<std::string, std::optional<Comet::AssetRecord>> files;
+            std::map<Comet::AssetHandle, std::vector<Comet::AssetRecord>> subresources;
         };
         struct DropTarget {
             Comet::Math::Vec2 minimum;
@@ -88,6 +108,9 @@ namespace CometEditor {
         void rebuild_search_tree();
         void record_drop_target(const std::filesystem::path& directory);
         void render_asset_tree(const AssetTreeNode& node, const std::filesystem::path& path);
+        void render_asset_item(const Comet::AssetRecord& asset, const std::string& name,
+            const std::filesystem::path& directory,
+            const std::vector<Comet::AssetRecord>* children = nullptr);
         void accept_internal_drop(const std::filesystem::path& directory);
         void request_rename(const Comet::AssetRecord& record);
         void request_rename(const std::filesystem::path& module);
@@ -107,6 +130,7 @@ namespace CometEditor {
         const Comet::AssetDatabase& m_database;
         std::filesystem::path m_asset_root;
         AssetTreeNode m_tree;
+        std::uint64_t m_tree_generation = 0;
         std::optional<AssetTreeNode> m_filtered_tree;
         std::array<char, 256> m_search{};
         std::vector<DropTarget> m_drop_targets;

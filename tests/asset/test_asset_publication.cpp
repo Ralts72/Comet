@@ -319,7 +319,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(reserved);
 
         BlockedWorker blocker(scheduler);
-        ASSERT_TRUE(manager.import_mesh_async(handle, MeshImportMode::Force));
+        ASSERT_TRUE(manager.import_mesh_async(handle, AssetImportMode::Force));
         EXPECT_EQ(manager.get_async_status().reserved_bytes, reserved.value());
         std::filesystem::resize_file(buffer, 1024 * 1024);
         blocker.release();

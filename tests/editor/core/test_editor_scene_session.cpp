@@ -10,6 +10,8 @@
 #include "scene/systems/script_system.h"
 #include "scene/script_component.h"
 #include "asset/registry.h"
+#include "gameplay/checkpoint_store.h"
+#include "support/temporary_directory.h"
 
 #include <gtest/gtest.h>
 
@@ -72,8 +74,10 @@ namespace CometEditor::Tests {
                 return Activation::success(replace(std::move(candidate)));
             },
             replace,
-            [&](Comet::SceneRuntime::State initial) {
-                return runtime.start(*active_scene, initial);
+            [&](Comet::SceneRuntime::State initial, const Comet::ParameterMap& values,
+                std::string_view checkpoint) {
+                return runtime.start(*active_scene, initial, Comet::SceneRuntime::InputStart::Fresh,
+                    values, std::string(checkpoint));
             });
 
         session.request_mode(EditorMode::Play);
@@ -88,7 +92,7 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(runtime.is_active());
         EXPECT_EQ(active_scene->entity_count(), 1u);
         EXPECT_FALSE(runtime.get_session().get_value("discarded"));
-        EXPECT_FALSE(runtime.take_restart_request());
+        EXPECT_FALSE(runtime.take_scene_request());
         session.request_mode(EditorMode::Edit);
         ASSERT_TRUE(session.apply_mode_request());
         EXPECT_EQ(active_scene.get(), original);
@@ -155,7 +159,12 @@ namespace CometEditor::Tests {
             [&](SceneOwner candidate) {
                 return Activation::success(replace(std::move(candidate)));
             },
-            replace, [&](SceneRuntime::State initial) { return runtime.start(*active, initial); });
+            replace,
+            [&](SceneRuntime::State initial, const Comet::ParameterMap& values,
+                std::string_view checkpoint) {
+                return runtime.start(*active, initial, Comet::SceneRuntime::InputStart::Fresh,
+                    values, std::string(checkpoint));
+            });
         session.request_mode(EditorMode::Play);
         ASSERT_TRUE(session.apply_mode_request());
         ASSERT_TRUE(runtime.advance(0.1));
@@ -219,8 +228,10 @@ namespace CometEditor::Tests {
                 return Activation::success(replace(std::move(candidate), EditorMode::Play));
             },
             [&](SceneOwner retained) { return replace(std::move(retained), EditorMode::Edit); },
-            [&](Comet::SceneRuntime::State initial) {
-                return runtime.start(*active_scene, initial);
+            [&](Comet::SceneRuntime::State initial, const Comet::ParameterMap& values,
+                std::string_view checkpoint) {
+                return runtime.start(*active_scene, initial, Comet::SceneRuntime::InputStart::Fresh,
+                    values, std::string(checkpoint));
             });
 
         session.request_mode(EditorMode::Play);
@@ -320,10 +331,12 @@ namespace CometEditor::Tests {
                 active.swap(retained);
                 return retained;
             },
-            [&](Comet::SceneRuntime::State initial) {
+            [&](Comet::SceneRuntime::State initial, const Comet::ParameterMap& values,
+                std::string_view checkpoint) {
                 events.emplace_back("runtime-start");
                 EXPECT_NE(active.get(), edit_scene);
-                return runtime.start(*active, initial);
+                return runtime.start(*active, initial, Comet::SceneRuntime::InputStart::Fresh,
+                    values, std::string(checkpoint));
             });
 
         session.request_mode(EditorMode::Play);
@@ -368,7 +381,11 @@ namespace CometEditor::Tests {
                 return Activation::success(replace(std::move(candidate)));
             },
             replace,
-            [&](Comet::SceneRuntime::State initial) { return runtime.start(*active, initial); });
+            [&](Comet::SceneRuntime::State initial, const Comet::ParameterMap& values,
+                std::string_view checkpoint) {
+                return runtime.start(*active, initial, Comet::SceneRuntime::InputStart::Fresh,
+                    values, std::string(checkpoint));
+            });
         session.request_mode(EditorMode::Play);
         const auto rejected = session.apply_mode_request();
         ASSERT_FALSE(rejected);
@@ -404,8 +421,10 @@ namespace CometEditor::Tests {
                 return Activation::success(replace(std::move(candidate)));
             },
             replace,
-            [&](Comet::SceneRuntime::State initial) {
-                return runtime.start(*active_scene, initial);
+            [&](Comet::SceneRuntime::State initial, const Comet::ParameterMap& values,
+                std::string_view checkpoint) {
+                return runtime.start(*active_scene, initial, Comet::SceneRuntime::InputStart::Fresh,
+                    values, std::string(checkpoint));
             });
 
         session.request_mode(EditorMode::Play);
@@ -453,7 +472,11 @@ namespace CometEditor::Tests {
                 return Activation::success(replace(std::move(candidate)));
             },
             replace,
-            [&](Comet::SceneRuntime::State initial) { return runtime.start(*active, initial); });
+            [&](Comet::SceneRuntime::State initial, const Comet::ParameterMap& values,
+                std::string_view checkpoint) {
+                return runtime.start(*active, initial, Comet::SceneRuntime::InputStart::Fresh,
+                    values, std::string(checkpoint));
+            });
 
         session.request_mode(EditorMode::Play);
         const auto failed = session.apply_mode_request();
@@ -496,7 +519,11 @@ namespace CometEditor::Tests {
                 return Activation::success(replace(std::move(candidate)));
             },
             replace,
-            [&](Comet::SceneRuntime::State initial) { return runtime.start(*active, initial); });
+            [&](Comet::SceneRuntime::State initial, const Comet::ParameterMap& values,
+                std::string_view checkpoint) {
+                return runtime.start(*active, initial, Comet::SceneRuntime::InputStart::Fresh,
+                    values, std::string(checkpoint));
+            });
 
         session.request_mode(EditorMode::Play);
         EXPECT_FALSE(session.apply_mode_request());
@@ -536,13 +563,24 @@ namespace CometEditor::Tests {
                     ++restorations;
                     return replace(std::move(retained));
                 },
-                [this](Comet::SceneRuntime::State initial) {
+                [this](Comet::SceneRuntime::State initial, const Comet::ParameterMap& values,
+                    std::string_view checkpoint) {
                     ++starts;
                     if(reject_start)
                         return Comet::Result<void, Comet::Error>::failure({"Start failed"});
-                    return runtime.start(*active, initial);
+                    return runtime.start(*active, initial, Comet::SceneRuntime::InputStart::Fresh,
+                        values, std::string(checkpoint));
                 },
-                [this] { return runtime.take_restart_request(); });
+                [this] { return runtime.take_scene_request(); },
+                [this](std::string_view path) -> Comet::Result<SceneOwner> {
+                    if(path == "scenes/first.scene")
+                        return serializer.clone(*original);
+                    if(path != "scenes/second.scene")
+                        return Comet::Result<SceneOwner>::failure("Unknown level");
+                    auto scene = std::make_unique<Comet::Scene>();
+                    scene->create_entity("Second level");
+                    return Comet::Result<SceneOwner>::success(std::move(scene));
+                });
             session->request_mode(EditorMode::Play);
             const auto started = session->apply_mode_request(Comet::SceneRuntime::State::Paused);
             ASSERT_TRUE(started);
@@ -571,6 +609,114 @@ namespace CometEditor::Tests {
         bool reject_start = false;
         std::unique_ptr<EditorSceneSession> session;
     };
+
+    TEST_F(RuntimeRestartTest, SwitchRestartReturnAndStopPreserveEntryValuesAndEditHistory) {
+        ASSERT_TRUE(runtime.get_session().set_value("progress", 3.f));
+        ASSERT_TRUE(runtime.get_session().request_scene("scenes/second.scene"));
+        ASSERT_TRUE(runtime.set_state(Comet::SceneRuntime::State::Paused));
+        ASSERT_TRUE(session->apply_mode_request(runtime.get_state()));
+        EXPECT_EQ(runtime.get_state(), Comet::SceneRuntime::State::Paused);
+        EXPECT_FALSE(active->find_entity(entity_uuid));
+        EXPECT_EQ(active->entity_count(), 1);
+        auto second = active->get_root_entities().front();
+        const auto second_id = second.get_uuid();
+        EXPECT_EQ(second.get_component<Comet::NameComponent>().name, "Second level");
+        EXPECT_EQ(std::get<float>(*runtime.get_session().get_value("progress")), 3.f);
+        second.get_component<Comet::NameComponent>().name = "Modified during play";
+        ASSERT_TRUE(runtime.get_session().set_value("progress", 8.f));
+        ASSERT_TRUE(runtime.get_session().request_restart());
+        ASSERT_TRUE(session->apply_mode_request(runtime.get_state()));
+        ASSERT_TRUE(active->find_entity(second_id));
+        EXPECT_EQ(active->find_entity(second_id).get_component<Comet::NameComponent>().name,
+            "Second level");
+        EXPECT_EQ(std::get<float>(*runtime.get_session().get_value("progress")), 3.f);
+        auto* previous = active.get();
+        ASSERT_TRUE(runtime.get_session().request_scene("scenes/missing.scene"));
+        EXPECT_FALSE(session->apply_mode_request());
+        EXPECT_EQ(active.get(), previous);
+        EXPECT_TRUE(runtime.is_active());
+        ASSERT_TRUE(runtime.get_session().set_value("progress", 9.f));
+        ASSERT_TRUE(runtime.get_session().request_scene("scenes/first.scene"));
+        ASSERT_TRUE(session->apply_mode_request());
+        EXPECT_TRUE(active->find_entity(entity_uuid));
+        EXPECT_EQ(std::get<float>(*runtime.get_session().get_value("progress")), 9.f);
+        EXPECT_EQ(history.get_scene(), original);
+        EXPECT_EQ(history.state_id(), edited_state);
+        ASSERT_TRUE(runtime.get_session().request_scene("scenes/second.scene"));
+        session->request_mode(EditorMode::Edit);
+        ASSERT_TRUE(session->apply_mode_request());
+        EXPECT_EQ(active.get(), original);
+        EXPECT_FALSE(runtime.is_active());
+        EXPECT_FALSE(runtime.take_scene_request());
+        EXPECT_EQ(history.state_id(), edited_state);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(original->find_entity(entity_uuid).get_component<Comet::NameComponent>().name,
+            "Original");
+    }
+
+    TEST_F(
+        RuntimeRestartTest, CheckpointSurvivesStopAndPlayAndRestoresSelectedProgressInSecondLevel) {
+        const Comet::Tests::TemporaryDirectory directory;
+        const Comet::CheckpointStore store(
+            Comet::Uuid::generate(), directory.path() / "checkpoint.json");
+        session->request_mode(EditorMode::Edit);
+        ASSERT_TRUE(session->apply_mode_request());
+        session->set_persistence(
+            store.persistence(
+                [](std::string_view path) {
+                    if(path == "scenes/second.scene")
+                        return Comet::AssetHandle{2};
+                    if(path == "scenes/first.scene")
+                        return Comet::AssetHandle{1};
+                    return Comet::AssetHandle{};
+                },
+                [](Comet::AssetHandle handle) -> std::optional<std::string> {
+                    if(handle == Comet::AssetHandle{2})
+                        return "scenes/second.scene";
+                    if(handle == Comet::AssetHandle{1})
+                        return "scenes/first.scene";
+                    return std::nullopt;
+                }),
+            [&] { return runtime.take_checkpoint_request(); }, [] { return "scenes/first.scene"; });
+        session->request_mode(EditorMode::Play);
+        ASSERT_TRUE(session->apply_mode_request());
+        ASSERT_TRUE(runtime.get_session().request_scene("scenes/second.scene"));
+        ASSERT_TRUE(session->apply_mode_request());
+        ASSERT_TRUE(runtime.get_session().set_value("score", 7.f));
+        ASSERT_TRUE(runtime.get_session().set_value("temporary", true));
+        const std::array<std::string_view, 1> keys{"score"};
+        ASSERT_TRUE(runtime.get_session().request_checkpoint("west", keys));
+        ASSERT_TRUE(session->apply_mode_request());
+        const auto saved = store.load();
+        ASSERT_TRUE(saved);
+        ASSERT_TRUE(saved.value());
+        EXPECT_EQ(saved.value()->scene, Comet::AssetHandle{2});
+        EXPECT_EQ(saved.value()->values, (Comet::ParameterMap{{"score", 7.f}}));
+        ASSERT_TRUE(runtime.get_session().set_value("score", 99.f));
+        ASSERT_TRUE(runtime.get_session().request_checkpoint("discard", keys));
+        session->request_mode(EditorMode::Edit);
+        ASSERT_TRUE(session->apply_mode_request());
+        EXPECT_EQ(active.get(), original);
+        EXPECT_EQ(store.load().value()->marker, "west");
+        EXPECT_EQ(history.state_id(), edited_state);
+        session->request_mode(EditorMode::Play);
+        ASSERT_TRUE(session->apply_mode_request());
+        EXPECT_FALSE(runtime.get_session().get_value("score"));
+        ASSERT_TRUE(runtime.get_session().request_continue());
+        ASSERT_TRUE(session->apply_mode_request());
+        EXPECT_EQ(active->get_root_entities().front().get_component<Comet::NameComponent>().name,
+            "Second level");
+        EXPECT_EQ(runtime.get_session().checkpoint(), "west");
+        EXPECT_EQ(std::get<float>(*runtime.get_session().get_value("score")), 7.f);
+        EXPECT_FALSE(runtime.get_session().get_value("temporary"));
+        session->request_mode(EditorMode::Edit);
+        ASSERT_TRUE(session->apply_mode_request());
+        EXPECT_EQ(active.get(), original);
+        EXPECT_EQ(history.state_id(), edited_state);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(original->find_entity(entity_uuid).get_component<Comet::NameComponent>().name,
+            "Original");
+    }
 
     TEST_F(RuntimeRestartTest, RebuildsFromRetainedEditAndPreservesHistory) {
         auto* previous = active.get();

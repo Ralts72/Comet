@@ -71,6 +71,7 @@ namespace Comet {
 
     private:
         friend class Renderer;
+        friend class ScenePreview;
         struct RenderState;
         SceneRenderer(Device& device, MaterialPrograms& programs, const VulkanSettings& vulkan,
             const RenderSettings& render, std::shared_ptr<ShadowPass> shadow = {});

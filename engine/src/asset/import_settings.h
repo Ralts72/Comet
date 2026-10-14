@@ -18,6 +18,9 @@ namespace Comet {
     struct TextureImportSettings {
         TextureColorSpace color_space = TextureColorSpace::Srgb;
         bool flip_y = false;
+        bool generate_mipmaps = true;
+        // 法线采用线性 RGB 编码；缩小层级按方向平均后归一化。
+        bool normal_map = false;
 
         auto operator<=>(const TextureImportSettings&) const noexcept = default;
     };

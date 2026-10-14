@@ -85,4 +85,34 @@ namespace CometEditor::Tests {
         selection.select_entity(second.get_id());
         EXPECT_EQ(selection.get_selected_entity(), second);
     }
+    TEST(SelectionServiceTest, MultipleSelectionKeepsPrimaryAndPersistentIdentity) {
+        Comet::Scene scene;
+        SelectionService selection(scene);
+        auto first = scene.create_entity("First");
+        auto second = scene.create_entity("Second");
+        const auto first_uuid = first.get_uuid();
+        const auto second_uuid = second.get_uuid();
+        selection.select_entity(first.get_id());
+        selection.toggle_entity(second.get_id());
+        EXPECT_EQ(selection.get_selected_entities(), (std::vector{first_uuid, second_uuid}));
+        EXPECT_EQ(selection.get_selected_entity(), second);
+        selection.toggle_entity(first.get_id());
+        EXPECT_EQ(selection.get_selected_entities(), (std::vector{second_uuid}));
+        selection.select_entities(std::vector{first_uuid, second_uuid, first_uuid});
+        scene.destroy_entity(second);
+        second = scene.create_entity_with_uuid(second_uuid, "Rebuilt");
+        ASSERT_TRUE(second);
+        EXPECT_EQ(selection.get_selected_entity(), second);
+        EXPECT_TRUE(selection.is_selected(second.get_id()));
+        scene.destroy_entity(second);
+        EXPECT_EQ(selection.get_selected_entity(), first);
+        EXPECT_EQ(selection.get_selected_entities(), (std::vector{first_uuid}));
+        selection.select_asset(Comet::AssetHandle(17));
+        EXPECT_TRUE(selection.get_selected_entities().empty());
+        selection.select_entities(std::vector{first_uuid});
+        EXPECT_FALSE(selection.get_selected_asset());
+        selection.select_scene();
+        EXPECT_TRUE(selection.get_selected_entities().empty());
+    }
+
 }

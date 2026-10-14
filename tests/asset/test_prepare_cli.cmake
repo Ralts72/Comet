@@ -41,6 +41,20 @@ if(NOT result EQUAL 0 OR NOT output MATCHES "Project assets ready")
     message(FATAL_ERROR "UI preparation failed: ${result}\n${output}\n${error}")
 endif()
 
+file(WRITE "${TEST_ROOT}/assets/second.scene" [=[{"version":2,"entities":[]}]=])
+file(REMOVE_RECURSE "${TEST_ROOT}/exported")
+execute_process(COMMAND "${PREPARE_TOOL}" "${TEST_ROOT}" --export-assets
+    "${TEST_ROOT}/exported" second.scene
+    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+if(NOT result EQUAL 0 OR NOT output MATCHES "Project assets exported")
+    message(FATAL_ERROR "Asset export failed: ${result}\n${output}\n${error}")
+endif()
+foreach(relative assets.index.json project.json assets/startup.scene assets/second.scene assets/hidden.png)
+    if(NOT EXISTS "${TEST_ROOT}/exported/${relative}")
+        message(FATAL_ERROR "Export is missing ${relative}")
+    endif()
+endforeach()
+
 file(WRITE "${TEST_ROOT}/assets/startup.scene" "invalid scene")
 execute_process(COMMAND "${PREPARE_TOOL}" "${TEST_ROOT}"
     RESULT_VARIABLE result ERROR_VARIABLE error)

@@ -5,6 +5,25 @@
 #include <limits>
 
 namespace {
+
+    TEST(PropertyDescriptorTest, UnsignedMaskPreservesAllBitsAndRejectsFloatAssignment) {
+        const auto registry = Comet::create_scene_component_registry();
+        const auto* component = registry.find_component("collider");
+        ASSERT_TRUE(component);
+        const auto* property = component->find_property("collision_layer");
+        ASSERT_TRUE(property);
+        EXPECT_EQ(property->type, Comet::PropertyType::UInt32);
+        EXPECT_TRUE(property->bitmask);
+        Comet::ColliderComponent collider;
+        EXPECT_EQ(std::get<uint32_t>(*property->copy_value(&collider)), 1u);
+        ASSERT_TRUE(property->assign_value(&collider, uint32_t{0x80000001}));
+        EXPECT_EQ(collider.collision_layer, 0x80000001u);
+        EXPECT_FALSE(property->assign_value(&collider, 1.f));
+        EXPECT_EQ(collider.collision_layer, 0x80000001u);
+        ASSERT_TRUE(property->assign_value(&collider, UINT32_MAX));
+        EXPECT_EQ(std::get<uint32_t>(*property->copy_value(&collider)), UINT32_MAX);
+    }
+
     TEST(PropertyDescriptorTest, Vec4UsesTypedAccessAndValidatesEveryComponent) {
         struct Parameters {
             Comet::Math::Vec4 value{0};
@@ -297,7 +316,8 @@ namespace {
         EXPECT_FALSE(component.remove_component(entity));
         EXPECT_EQ(name->type, Comet::PropertyType::String);
         ASSERT_TRUE(component.assign_property(entity, "name", std::string("名称")));
-        EXPECT_EQ(std::get<std::string>(*name->copy_value(component.get_component(entity))), "名称");
+        EXPECT_EQ(
+            std::get<std::string>(*name->copy_value(component.get_component(entity))), "名称");
         EXPECT_FALSE(component.assign_property(entity, "name", 1.0f));
         EXPECT_EQ(entity.get_component<Comet::NameComponent>().name, "名称");
     }

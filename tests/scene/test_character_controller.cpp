@@ -7,12 +7,16 @@
 #include "core/project.h"
 #include "scene/component_registry.h"
 #include "scene/scene.h"
+#include "scene/prefab.h"
 #include "scene/scene_runtime.h"
 #include "scene/scene_serializer.h"
 #include "scene/script_component.h"
 #include "scene/systems/audio_system.h"
 #include "scene/systems/camera_controller.h"
 #include "gameplay/character_controller.h"
+#include "gameplay/game_session.h"
+#include "gameplay/checkpoint_store.h"
+#include "support/temporary_directory.h"
 #include "scene/systems/physics_system.h"
 #include "scene/systems/script_system.h"
 
@@ -218,6 +222,35 @@ namespace Comet::Tests {
         EXPECT_NEAR(state.value().speed, 0, 0.03f);
     }
 
+    TEST_F(CharacterControllerTest, CharacterMovementRequiresMutualCollisionLayers) {
+        auto wall = box({2, 2, 0}, {0.2f, 2, 4});
+        wall.edit_component<ColliderComponent>([](auto& collider) {
+            collider.collision_layer = 2;
+            collider.collision_mask = 1;
+        });
+        intent->direction = {1, 0};
+        for(const bool detect_wall : {true, false}) {
+            player.edit_component<CharacterControllerComponent>(
+                [&](auto& character) { character.collision_mask = detect_wall ? 3u : 1u; });
+            player.edit_transform([](auto& transform) { transform.translation = {}; });
+            ASSERT_TRUE(runtime.start(scene));
+            ASSERT_TRUE(step(90));
+            const auto x = player.get_component<TransformComponent>().translation.x;
+            if(detect_wall)
+                EXPECT_LT(x, 1.6f);
+            else
+                EXPECT_GT(x, 3);
+            ASSERT_TRUE(runtime.stop());
+        }
+        player.edit_component<CharacterControllerComponent>(
+            [](auto& character) { character.collision_mask = 3; });
+        wall.edit_component<ColliderComponent>([](auto& collider) { collider.collision_mask = 0; });
+        player.edit_transform([](auto& transform) { transform.translation = {}; });
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(step(90));
+        EXPECT_GT(player.get_component<TransformComponent>().translation.x, 3);
+    }
+
     TEST_F(CharacterControllerTest, SphereSweepIgnoresSelfAndSensorsAndStopsBeforeSolidBodies) {
         box({0, 1, 3}, {2, 1, 0.2f});
         auto sensor = box({0, 1, 1}, {2, 1, 0.1f});
@@ -408,6 +441,7 @@ namespace Comet::Tests {
         Input input;
         Input::GamepadSample pad;
         Entity player;
+        std::optional<RuntimeSession::CheckpointRequest> checkpoint;
 
         void SetUp() override {
             const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
@@ -419,6 +453,16 @@ namespace Comet::Tests {
             for(std::size_t index = 0; index < paths.size(); ++index)
                 ASSERT_TRUE(assets.register_asset(
                     AssetHandle{14309634625000312004ULL + index}, scripts.value()[index]));
+            auto gate_script =
+                Script::load(project.value().paths().assets() / "scripts/finish_gate.lua");
+            ASSERT_TRUE(gate_script) << gate_script.error().message;
+            ASSERT_TRUE(
+                assets.register_asset(AssetHandle{14309634625000312008ULL}, gate_script.value()));
+            auto gate = Prefab::load(
+                project.value().paths().assets() / "prefabs/finish_gate.prefab", components);
+            ASSERT_TRUE(gate) << gate.error();
+            ASSERT_TRUE(assets.register_asset(AssetHandle{7863069821640201103ULL},
+                std::make_shared<Prefab>(std::move(gate).value())));
             auto cue = AudioClip::load(project.value().paths().assets() / "audio/play_chime.wav");
             ASSERT_TRUE(cue) << cue.error().message;
             ASSERT_TRUE(
@@ -454,6 +498,8 @@ namespace Comet::Tests {
                     ADD_FAILURE() << result.error().message;
                     return false;
                 }
+                if(auto saved = runtime.take_checkpoint_request())
+                    checkpoint = std::move(saved);
             }
             return true;
         }
@@ -573,9 +619,23 @@ namespace Comet::Tests {
         EXPECT_NEAR(position().x - platform.get_component<TransformComponent>().translation.x,
             offset, 0.1f);
         move(0, 0);
+        ASSERT_TRUE(tick(120));
+        std::size_t gates = 0;
+        for(auto candidate : playing->get_entities()) {
+            if(candidate.get_component<NameComponent>().name != "终点门")
+                continue;
+            ++gates;
+            EXPECT_FALSE(candidate.has_component<PrefabInstanceComponent>());
+            const auto& parameters = candidate.get_component<ScriptComponent>().parameters;
+            const auto panel = playing->find_entity(std::get<EntityUuid>(parameters.at("panel")));
+            ASSERT_TRUE(panel);
+            EXPECT_EQ(playing->get_parent(panel), candidate);
+            EXPECT_NEAR(panel.get_component<TransformComponent>().translation.y, 3.2f, 0.01f);
+        }
+        EXPECT_EQ(gates, 1u);
         button(Input::Key::R, Input::GamepadButton::Start, true);
         ASSERT_TRUE(tick());
-        EXPECT_TRUE(runtime.take_restart_request());
+        EXPECT_TRUE(runtime.take_scene_request());
         ASSERT_TRUE(runtime.stop());
         EXPECT_EQ(serializer.serialize(*edit_scene).value(), edit_before.value());
         EXPECT_EQ(physics.get_statistics().characters, 0u);
@@ -592,12 +652,101 @@ namespace Comet::Tests {
         EXPECT_EQ(playing->find_entity(visual_uuid).get_component<TransformComponent>().rotation,
             Math::Vec3(0));
         ASSERT_TRUE(tick(3));
-        EXPECT_FALSE(runtime.take_restart_request());
+        EXPECT_FALSE(runtime.take_scene_request());
         button(Input::Key::R, Input::GamepadButton::Start, false);
         ASSERT_TRUE(tick());
         ASSERT_TRUE(drive(-1, 5));
         EXPECT_TRUE(physics.get_character_state(player)->grounded);
         ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_P(CharacterDemoTest, TwoLevelsReturnAndContinueSavedCollectionsFromActualProjectScripts) {
+        const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
+        ASSERT_TRUE(project);
+        const auto original = serializer.serialize(*edit_scene).value();
+        TemporaryDirectory directory;
+        const auto save_path = directory.path() / "checkpoint.json";
+        CheckpointStore store(project.value().id(), save_path);
+        GameSession game(serializer);
+        game.begin(*edit_scene, "scenes/character.scene");
+        const auto persistence = [&](const CheckpointStore& source) {
+            return source.persistence(
+                [](std::string_view path) {
+                    return AssetHandle{path == "scenes/character.scene" ? 1u : 2u};
+                },
+                [](AssetHandle handle) -> std::optional<std::string> {
+                    if(handle == AssetHandle{1})
+                        return "scenes/character.scene";
+                    if(handle == AssetHandle{2})
+                        return "scenes/character_second.scene";
+                    return std::nullopt;
+                });
+        };
+        game.set_persistence(persistence(store));
+        const auto transition = [&](std::string_view event) {
+            ASSERT_TRUE(playing->emit_event(event));
+            ASSERT_TRUE(tick(2));
+            auto request = runtime.take_scene_request();
+            ASSERT_TRUE(request);
+            auto prepared = game.prepare(*request, [&](std::string_view path) {
+                return serializer.load((project.value().paths().assets() / path).string());
+            });
+            ASSERT_TRUE(prepared) << prepared.error();
+            ASSERT_TRUE(runtime.stop());
+            playing = std::move(prepared.value().scene);
+            ASSERT_TRUE(runtime.start(*playing, SceneRuntime::State::Running,
+                SceneRuntime::InputStart::Rebase, prepared.value().values,
+                prepared.value().checkpoint));
+            player =
+                playing->find_entity(*EntityUuid::parse("70a518f1-2c0e-4180-9ead-000000000001"));
+            game.accept(std::move(prepared).value());
+            ASSERT_TRUE(tick(2));
+        };
+        const auto collect = [&](const char* id) {
+            const auto goal = playing->find_entity(*EntityUuid::parse(id));
+            ASSERT_TRUE(goal);
+            auto transform = player.get_component<TransformComponent>();
+            transform.translation = goal.get_component<TransformComponent>().translation;
+            ASSERT_TRUE(player.try_set_transform(transform));
+            ASSERT_TRUE(tick(3));
+            EXPECT_FALSE(playing->find_entity(*EntityUuid::parse(id)));
+            ASSERT_TRUE(checkpoint);
+            ASSERT_TRUE(game.save_checkpoint(*checkpoint));
+            checkpoint.reset();
+        };
+        ASSERT_TRUE(playing->emit_event("character.next"));
+        ASSERT_TRUE(tick(2));
+        EXPECT_FALSE(runtime.take_scene_request());
+        ASSERT_NO_FATAL_FAILURE(collect("70a518f1-2c0e-4180-9ead-000000000032"));
+        ASSERT_NO_FATAL_FAILURE(collect("70a518f1-2c0e-4180-9ead-000000000033"));
+        ASSERT_NO_FATAL_FAILURE(collect("70a518f1-2c0e-4180-9ead-000000000034"));
+        EXPECT_EQ(score(), 3);
+        ASSERT_NO_FATAL_FAILURE(transition("character.next"));
+        EXPECT_EQ(game.scene_path(), "scenes/character_second.scene");
+        EXPECT_EQ(score(), 0);
+        ASSERT_NO_FATAL_FAILURE(collect("70a518f1-2c0e-4180-9ead-000000000032"));
+        EXPECT_EQ(score(), 1);
+        // 返回不覆盖自动存档；第一关已经收集的目标不再生成。
+        ASSERT_NO_FATAL_FAILURE(transition("character.return"));
+        EXPECT_EQ(game.scene_path(), "scenes/character.scene");
+        EXPECT_EQ(score(), 3);
+        EXPECT_FALSE(
+            playing->find_entity(*EntityUuid::parse("70a518f1-2c0e-4180-9ead-000000000033")));
+        CheckpointStore reopened(project.value().id(), save_path);
+        game.set_persistence(persistence(reopened));
+        ASSERT_NO_FATAL_FAILURE(transition("character.continue"));
+        EXPECT_EQ(game.scene_path(), "scenes/character_second.scene");
+        EXPECT_EQ(runtime.get_session().checkpoint(), "course_start");
+        EXPECT_EQ(score(), 1);
+        EXPECT_NEAR(position().x, 0, 0.01f);
+        EXPECT_NEAR(position().z, 5, 0.01f);
+        EXPECT_FALSE(
+            playing->find_entity(*EntityUuid::parse("70a518f1-2c0e-4180-9ead-000000000032")));
+        ASSERT_NO_FATAL_FAILURE(collect("70a518f1-2c0e-4180-9ead-000000000033"));
+        ASSERT_NO_FATAL_FAILURE(collect("70a518f1-2c0e-4180-9ead-000000000034"));
+        EXPECT_EQ(score(), 3);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_EQ(serializer.serialize(*edit_scene).value(), original);
     }
 
     TEST_P(CharacterDemoTest, ProjectBindingsRunCrouchAndPassTheTunnelWithoutStandingIntoItsRoof) {
@@ -711,6 +860,12 @@ namespace Comet::Tests {
         const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
         ASSERT_TRUE(project);
         const std::array<std::filesystem::path, 1> path{"scripts/character.lua"};
+        const auto gate = runtime.get_session().get_value("character.gate");
+        ASSERT_TRUE(gate);
+        const auto gate_uuid = EntityUuid::parse(std::get<std::string>(*gate));
+        ASSERT_TRUE(gate_uuid);
+        ASSERT_TRUE(playing->find_entity(*gate_uuid));
+        const auto entity_count = playing->entity_count();
         for(int reload = 0; reload < 3; ++reload) {
             const auto script = Script::load_group(project.value().paths().assets(), path);
             ASSERT_TRUE(script);
@@ -718,6 +873,9 @@ namespace Comet::Tests {
                 assets.replace_asset(AssetHandle{14309634625000312004ULL}, script.value()[0]));
             ASSERT_TRUE(tick(2));
             EXPECT_NEAR(visual.get_component<TransformComponent>().scale.y, 1.0f, 0.001f);
+            EXPECT_EQ(runtime.get_session().get_value("character.gate"), gate);
+            EXPECT_TRUE(playing->find_entity(*gate_uuid));
+            EXPECT_EQ(playing->entity_count(), entity_count);
         }
         button(Input::Key::LeftControl, Input::GamepadButton::RightShoulder, false);
         ASSERT_TRUE(tick());

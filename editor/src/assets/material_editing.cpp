@@ -27,6 +27,8 @@ namespace CometEditor {
 
     Comet::Result<void> validate_material_data(const Comet::MaterialData& data,
         const Comet::MaterialLayout& layout, const Comet::AssetDatabase& database) {
+        if(!data.surface.valid())
+            return Comet::Result<void>::failure("Invalid material surface");
         if(data.template_name != layout.get_name())
             return Comet::Result<void>::failure("Material template does not match its layout");
         if(data.shader_program) {
@@ -82,6 +84,7 @@ namespace CometEditor {
     MaterialTemplateChange change_material_template(const Comet::MaterialData& data,
         const Comet::MaterialLayout* previous, const Comet::MaterialLayout& next) {
         MaterialTemplateChange change{make_material_data(next), {}};
+        change.data.surface = data.surface;
         const auto copy_compatible = [&](const auto& values, const auto& old_properties,
                                          const auto& new_properties, auto& destination,
                                          const auto& compatible) {

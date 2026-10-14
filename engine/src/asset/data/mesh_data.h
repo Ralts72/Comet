@@ -15,6 +15,8 @@ namespace Comet {
         Math::Vec3 position{};
         Math::Vec2 texcoord{};
         Math::Vec3 normal{};
+        // xyz 为切线，w 为副切线方向；零值表示源模型未提供切线。
+        Math::Vec4 tangent{};
     };
 
     struct SkinInfluences {
@@ -22,7 +24,7 @@ namespace Comet {
         Math::Vec4 weights{0};
     };
 
-    static_assert(sizeof(MeshVertex) == 8 * sizeof(float));
+    static_assert(sizeof(MeshVertex) == 12 * sizeof(float));
     static_assert(sizeof(SkinInfluences) == 8 * sizeof(uint32_t));
 
     struct MeshData {

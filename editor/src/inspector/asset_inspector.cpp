@@ -22,6 +22,14 @@ namespace CometEditor {
                     {"intensity", "强度"},
                     {"color", "颜色"},
                     {"base_color_texture", "基础色贴图"},
+                    {"normal_texture", "法线贴图"},
+                    {"metallic_roughness_texture", "金属粗糙度贴图（G 粗糙／B 金属）"},
+                    {"occlusion_texture", "环境遮蔽贴图（R）"},
+                    {"emissive_texture", "自发光贴图"},
+                    {"normal_scale", "法线强度"},
+                    {"occlusion_strength", "环境遮蔽强度"},
+                    {"emissive_color", "自发光颜色"},
+                    {"emissive_strength", "自发光强度"},
                     {"metallic", "金属度"},
                     {"roughness", "粗糙度"},
                     {"base_color", "基础色"},
@@ -135,6 +143,14 @@ namespace CometEditor {
             return;
         }
 
+        if(record->source_asset) {
+            ImGui::Text("源模型：%s", record->path.generic_string().c_str());
+            ImGui::Text("子资源：%s", record->source_key.c_str());
+            ImGui::TextWrapped(
+                "由模型导入生成。请修改源模型后重新导入；实例可在网格渲染组件中替换材质。");
+            return;
+        }
+
         if(m_loaded_target.handle != handle
             || !m_asset_database.is_current(handle, m_loaded_target.revision)) {
             load_asset(*record);
@@ -172,7 +188,15 @@ namespace CometEditor {
 
     void AssetInspector::render_texture(const Comet::AssetRecord& record) {
         std::optional<Comet::TextureImportSettings> previous_settings;
+        bool normal_map = m_texture_import_settings->normal_map;
+        if(ImGui::Checkbox("法线贴图###Normal Map", &normal_map)) {
+            previous_settings = *m_texture_import_settings;
+            m_texture_import_settings->normal_map = normal_map;
+        }
+        ImGui::BeginDisabled(normal_map);
         const char* color_space = texture_color_space_label(m_texture_import_settings->color_space);
+        if(normal_map)
+            color_space = "线性（法线）";
         if(ImGui::BeginCombo("色彩空间###Color Space", color_space)) {
             constexpr std::array color_spaces{
                 Comet::TextureColorSpace::Srgb, Comet::TextureColorSpace::Linear};
@@ -191,6 +215,7 @@ namespace CometEditor {
             }
             ImGui::EndCombo();
         }
+        ImGui::EndDisabled();
 
         bool flip_y = m_texture_import_settings->flip_y;
         if(ImGui::Checkbox("翻转 Y###Flip Y", &flip_y)) {
@@ -198,6 +223,13 @@ namespace CometEditor {
                 previous_settings = *m_texture_import_settings;
             }
             m_texture_import_settings->flip_y = flip_y;
+        }
+
+        bool mipmaps = m_texture_import_settings->generate_mipmaps;
+        if(ImGui::Checkbox("生成 Mipmap###Generate Mipmaps", &mipmaps)) {
+            if(!previous_settings)
+                previous_settings = *m_texture_import_settings;
+            m_texture_import_settings->generate_mipmaps = mipmaps;
         }
 
         if(previous_settings) {
@@ -270,6 +302,18 @@ namespace CometEditor {
             ImGui::EndDisabled();
             return;
         }
+        ImGui::SeparatorText("表面");
+        const char* modes[]{"不透明", "透明裁切", "透明混合"};
+        auto surface = m_material_data->surface;
+        int mode = static_cast<int>(surface.alpha_mode);
+        if(ImGui::Combo("表面模式###Alpha Mode", &mode, modes, 3)) {
+            remember_previous();
+            m_material_data->surface.alpha_mode = static_cast<Comet::AlphaMode>(mode);
+        }
+        if(ImGui::Checkbox("双面绘制###Double Sided", &surface.double_sided)) {
+            remember_previous();
+            m_material_data->surface.double_sided = surface.double_sided;
+        }
         if(!layout->get_textures().empty())
             ImGui::SeparatorText("纹理");
 
@@ -308,6 +352,15 @@ namespace CometEditor {
         }
 
         ImGui::EndDisabled();
+        if(m_material_data->surface.alpha_mode == Comet::AlphaMode::Mask) {
+            float cutoff = m_material_data->surface.alpha_cutoff;
+            if(ImGui::SliderFloat("裁切阈值###Alpha Cutoff", &cutoff, 0, 1, "%.3f")) {
+                remember_previous();
+                m_material_data->surface.alpha_cutoff = cutoff;
+                parameter_changed = true;
+            }
+            parameter_active |= ImGui::IsItemActive();
+        }
         if(!layout->get_scalars().empty() || !layout->get_vectors().empty())
             ImGui::SeparatorText("参数");
         for(const auto& property : layout->get_scalars()) {

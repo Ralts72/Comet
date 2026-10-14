@@ -16,14 +16,24 @@ namespace CometEditor {
 
     Comet::Result<std::size_t, Comet::Error> SceneAssetReferences::prepare_scene(
         Comet::Scene& scene, const Comet::ComponentRegistry& components) {
-        return m_manager.prepare_references(components.collect_asset_references(scene),
-            Comet::AssetManager::MissingAssetPolicy::AllowMissing);
+        auto references = m_manager.collect_scene_references(
+            scene, components, Comet::AssetManager::MissingAssetPolicy::AllowMissing);
+        if(!references)
+            return Comet::Result<std::size_t, Comet::Error>::failure(references.error());
+        return m_manager.prepare_references(
+            references.value(), Comet::AssetManager::MissingAssetPolicy::AllowMissing);
     }
 
     void SceneAssetReferences::track_scene(
         Comet::Scene& scene, const Comet::ComponentRegistry& components) {
-        const auto references = components.collect_asset_references(scene);
-        std::set<Comet::AssetReference> next(references.begin(), references.end());
+        const auto direct = components.collect_asset_references(scene);
+        auto references = m_manager.collect_scene_references(
+            scene, components, Comet::AssetManager::MissingAssetPolicy::AllowMissing);
+        std::set<Comet::AssetReference> next(direct.begin(), direct.end());
+        if(references)
+            next.insert(references.value().begin(), references.value().end());
+        else
+            LOG_WARN("Cannot collect scene dependencies: {}", references.error().message);
         for(const auto& reference : next)
             if(!m_scene_references.contains(reference))
                 m_pending_references.insert(reference);
@@ -72,7 +82,10 @@ namespace CometEditor {
             const auto reference = *m_pending_references.begin();
             m_pending_references.erase(m_pending_references.begin());
             ++processed;
-            auto loaded = m_manager.request_load(reference.handle, reference.type);
+            if(reference.type == Comet::AssetType::Prefab
+                || reference.type == Comet::AssetType::Model)
+                continue;
+            auto loaded = m_manager.request_load(reference);
             if(loaded) {
                 m_unresolved_references.erase(reference);
             } else {

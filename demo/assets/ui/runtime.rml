@@ -9,6 +9,13 @@
         <div>WASD / 左摇杆移动 · 空格 / A 跳跃 · Shift / LB 跑步 · Ctrl / RB 蹲伏</div>
         <div>右键拖动 / 右摇杆转向 · 滚轮 / 方向键上下缩放 · R / Start 重开</div>
     </div>
+    <div id="course-actions" data-if="course_actions">
+        <button id="course-next" data-if="next_level" data-event-click="command('course_next')">进入第二关</button>
+        <button id="course-return" data-if="return_level" data-event-click="command('course_return')">返回第一关</button>
+        <button id="course-save" data-event-click="command('course_save')">保存进度</button>
+        <button id="course-continue" data-event-click="command('course_continue')">继续存档</button>
+        <div class="hint">收集后自动保存；继续时从保存关卡起点出发，保留收集进度。</div>
+    </div>
     <div id="hud">
         <span id="fps">{{ fps_text }}</span>
         <button id="settings" data-event-click="command('open')" data-attrif-disabled="!menu_available"><img class="icon" src="comet://ui/icons/settings.png" />设置 / F1</button>

@@ -1,5 +1,7 @@
 #include "scene/scene.h"
+#include "scene/prefab.h"
 #include "scene/material_parameters.h"
+#include "asset/data/model_data.h"
 
 #include "diagnostics/logger.h"
 
@@ -7,11 +9,23 @@
 #include "common/version.h"
 #include <cmath>
 #include "common/scope_exit.h"
+#include "common/binary.h"
+#include <unordered_set>
 
 namespace Comet {
     namespace {
         VersionSequence next_material_instance;
         VersionSequence next_scene_lifetime;
+
+        EntityUuid model_source_uuid(AssetHandle source, std::string_view key) {
+            const auto hash = Binary::hash_bytes(std::as_bytes(std::span(key.data(), key.size())));
+            EntityUuid::Bytes bytes{};
+            for(std::size_t i = 0; i < 8; ++i) {
+                bytes[i] = static_cast<uint8_t>(source.value() >> (i * 8));
+                bytes[i + 8] = static_cast<uint8_t>(hash >> (i * 8));
+            }
+            return EntityUuid(bytes);
+        }
     }
 
     Scene::Scene() : m_lifetime(next_scene_lifetime.next()) {
@@ -88,6 +102,100 @@ namespace Comet {
         return entity;
     }
 
+    Result<Entity> Scene::instantiate_model(const ModelData& model, const std::string& name,
+        Math::Vec3 position, std::optional<uint32_t> model_scene) {
+        return instantiate_model_content(model, name, position, model_scene, {});
+    }
+
+    Result<Entity> Scene::instantiate_model_content(const ModelData& model, const std::string& name,
+        Math::Vec3 position, std::optional<uint32_t> model_scene, AssetHandle identity_source) {
+        const auto selected = model_scene.value_or(model.default_scene);
+        if(selected >= model.scenes.size() || !Math::is_finite(position))
+            return Result<Entity>::failure("Invalid model scene or placement");
+        std::vector<std::vector<uint32_t>> children(model.nodes.size());
+        std::unordered_set<std::string_view> keys;
+        for(uint32_t index = 0; index < model.nodes.size(); ++index) {
+            const auto& node = model.nodes[index];
+            if(identity_source && (node.key.empty() || !keys.insert(node.key).second))
+                return Result<Entity>::failure("Model source keys must be nonempty and unique");
+            if(node.parent != ModelData::NO_PARENT) {
+                if(node.parent >= model.nodes.size())
+                    return Result<Entity>::failure("Invalid model parent");
+                children[node.parent].push_back(index);
+            }
+            const auto& t = node.transform;
+            if(!Math::is_finite(t.translation) || !Math::is_finite(t.scale)
+                || !Math::is_finite(
+                    Math::Vec4(t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w))
+                || std::abs(glm::length(t.rotation) - 1.f) > 1e-3f)
+                return Result<Entity>::failure("Invalid model transform");
+            for(const auto& part : node.parts)
+                if(!part.mesh || !part.material)
+                    return Result<Entity>::failure("Invalid model part references");
+        }
+        auto order = model.scenes[selected].roots;
+        std::vector<bool> visited(model.nodes.size());
+        for(const auto root : order)
+            if(root >= model.nodes.size() || model.nodes[root].parent != ModelData::NO_PARENT)
+                return Result<Entity>::failure("Invalid model scene root");
+        for(size_t i = 0; i < order.size(); ++i) {
+            const auto node = order[i];
+            if(visited[node])
+                return Result<Entity>::failure("Model contains repeated or cyclic nodes");
+            visited[node] = true;
+            order.insert(order.end(), children[node].begin(), children[node].end());
+        }
+        const auto create = [&](const std::string& label, const std::string& key) {
+            return identity_source
+                       ? create_entity_with_uuid(model_source_uuid(identity_source, key), label)
+                       : create_entity(label);
+        };
+        auto root = create(name, "root");
+        if(!root)
+            return Result<Entity>::failure("Model root identity collision");
+        ScopeExit rollback([&] {
+            if(root)
+                destroy_entity(root);
+        });
+        root.edit_transform([&](TransformComponent& value) { value.translation = position; });
+        std::vector<Entity> entities(model.nodes.size());
+        for(const auto index : order) {
+            const auto& node = model.nodes[index];
+            // 长度前缀区分节点键和 primitive 序号，身份不依赖父节点或遍历顺序。
+            const auto key = "node/" + std::to_string(node.key.size()) + ":" + node.key;
+            auto entity = create(node.name.empty() ? "Node" : node.name, key);
+            if(!entity)
+                return Result<Entity>::failure("Model node identity collision");
+            // 先挂入根，后续失败可以完整撤销整棵候选树。
+            if(!set_parent(entity, root)) {
+                destroy_entity(entity);
+                return Result<Entity>::failure("Cannot attach model node");
+            }
+            entities[index] = entity;
+            entity.edit_transform([&](TransformComponent& value) {
+                value.translation = node.transform.translation;
+                value.rotation = glm::degrees(glm::eulerAngles(node.transform.rotation));
+                value.scale = node.transform.scale;
+            });
+            if(node.parent != ModelData::NO_PARENT && !set_parent(entity, entities[node.parent]))
+                return Result<Entity>::failure("Cannot attach model hierarchy");
+            for(size_t part = 0; part < node.parts.size(); ++part) {
+                auto primitive = create("Primitive " + std::to_string(part + 1),
+                    "part/" + key + "/" + std::to_string(part));
+                if(!primitive)
+                    return Result<Entity>::failure("Model primitive identity collision");
+                if(!set_parent(primitive, entity)) {
+                    destroy_entity(primitive);
+                    return Result<Entity>::failure("Cannot attach model primitive");
+                }
+                primitive.add_component<MeshRendererComponent>(
+                    MeshRendererComponent{node.parts[part].mesh, node.parts[part].material});
+            }
+        }
+        rollback.release();
+        return Result<Entity>::success(root);
+    }
+
     void Scene::destroy_entity(const Entity entity) {
         if(!is_valid(entity)) {
             return;
@@ -155,7 +263,7 @@ namespace Comet {
 
     std::optional<EntityUuid> Scene::request_create_entity(
         const std::string_view name, const EntityCreation& creation) {
-        if(!m_runtime_active || m_entity_requests.size() >= MAX_ENTITY_REQUESTS || name.size() > 128
+        if(!can_queue_entity_creation(1) || name.size() > 128
             || name.find('\0') != std::string_view::npos
             || !Math::is_finite(creation.transform.translation)
             || !Math::is_finite(creation.transform.rotation)
@@ -164,18 +272,53 @@ namespace Comet {
         if(creation.mesh_renderer
             && (!creation.mesh_renderer->mesh || !creation.mesh_renderer->material))
             return std::nullopt;
-        EntityUuid uuid;
-        bool reserved = false;
-        do {
-            uuid = EntityUuid::generate();
-            reserved = std::ranges::any_of(m_entity_requests, [uuid](const EntityRequest& request) {
-                return request.type == EntityRequest::Type::Create && request.uuid == uuid;
-            });
-        } while(find_entity(uuid) || reserved);
+        const auto uuid = reserve_entity_uuid();
         m_entity_requests.push_back({.type = EntityRequest::Type::Create,
             .uuid = uuid,
             .name = std::string(name),
             .creation = creation});
+        return uuid;
+    }
+
+    bool Scene::can_queue_entity_creation(std::size_t count) const {
+        if(!m_runtime_active || count > MAX_ENTITY_REQUESTS
+            || m_entity_requests.size() >= MAX_ENTITY_REQUESTS)
+            return false;
+        auto remaining = MAX_ENTITY_REQUESTS - count;
+        for(const auto& request : m_entity_requests) {
+            const auto queued = request.prefab ? request.prefab->entity_count()
+                                               : static_cast<std::size_t>(
+                                                     request.type == EntityRequest::Type::Create);
+            if(queued > remaining)
+                return false;
+            remaining -= queued;
+        }
+        return true;
+    }
+
+    EntityUuid Scene::reserve_entity_uuid() const {
+        EntityUuid uuid;
+        bool reserved;
+        do {
+            uuid = EntityUuid::generate();
+            reserved = std::ranges::any_of(m_entity_requests,
+                [uuid](const EntityRequest& request) { return request.uuid == uuid; });
+        } while(m_entities_by_uuid.contains(uuid) || reserved);
+        return uuid;
+    }
+
+    std::optional<EntityUuid> Scene::request_instantiate_prefab(
+        std::shared_ptr<const Prefab> prefab, std::shared_ptr<const ComponentRegistry> components,
+        std::optional<Math::Vec3> position) {
+        if(!prefab || !components || !can_queue_entity_creation(prefab->entity_count())
+            || (position && !Math::is_finite(*position)))
+            return std::nullopt;
+        const auto uuid = reserve_entity_uuid();
+        m_entity_requests.push_back({.type = EntityRequest::Type::InstantiatePrefab,
+            .uuid = uuid,
+            .prefab = std::move(prefab),
+            .components = std::move(components),
+            .position = position});
         return uuid;
     }
 
@@ -238,6 +381,15 @@ namespace Comet {
                         entity.add_component<MeshRendererComponent>(
                             *request.creation.mesh_renderer);
                     rollback.release();
+                    break;
+                }
+                case EntityRequest::Type::InstantiatePrefab: {
+                    const auto instance = request.prefab->instantiate(*this, *request.components,
+                        request.position, {}, {}, AssetType::Prefab, request.uuid);
+                    if(!instance) {
+                        LOG_ERROR("Cannot instantiate prefab: {}", instance.error());
+                        return false;
+                    }
                     break;
                 }
                 case EntityRequest::Type::Destroy: {

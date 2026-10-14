@@ -1,15 +1,22 @@
 #pragma once
 
 #include "asset/handle.h"
+#include "asset/data/mesh_data.h"
 #include "common/error.h"
 #include "common/export.h"
 #include "common/result.h"
 
 #include <cstddef>
 #include <memory>
+#include <filesystem>
+#include <unordered_map>
 
 namespace Comet {
     class AssetDatabase;
+    class COMET_API Prefab;
+    class ComponentRegistry;
+    class ModelArtifact;
+    struct ModelData;
     class AssetRegistry;
     class ImportService;
     class RenderAssetFactory;
@@ -30,7 +37,13 @@ namespace Comet {
             RenderAssetFactory& render_factory, std::size_t mesh_bytes, std::size_t texture_bytes,
             std::size_t environment_bytes);
 
+        Result<std::shared_ptr<Prefab>, Error> load_prefab(
+            AssetHandle handle, const ComponentRegistry& components);
+        Result<std::shared_ptr<const ModelData>, Error> load_model(AssetHandle handle);
+        void invalidate_model(AssetHandle handle);
+        bool model_is_loaded(AssetHandle handle) const;
         Result<std::shared_ptr<Mesh>, Error> load_mesh(AssetHandle handle);
+        Result<MeshData, Error> read_mesh_data(AssetHandle handle);
         Result<std::shared_ptr<Texture>, Error> load_texture(AssetHandle handle);
         Result<std::shared_ptr<Material>, Error> load_material(AssetHandle handle);
         Result<std::shared_ptr<Environment>, Error> load_environment(AssetHandle handle);
@@ -44,6 +57,15 @@ namespace Comet {
             const AssetRecord& record, const MaterialData& data);
 
     private:
+        Result<MeshData, Error> read_mesh_data(const AssetRecord& record);
+        Result<std::shared_ptr<const ModelArtifact>, Error> model_artifact(AssetHandle handle);
+        Result<std::filesystem::path, Error> product_path(const AssetRecord& record);
+        struct CachedModel {
+            AssetRevision revision;
+            std::shared_ptr<const ModelArtifact> artifact;
+            std::unordered_map<AssetHandle, std::size_t> children;
+        };
+        std::unordered_map<AssetHandle, CachedModel> m_models;
         AssetDatabase& m_database;
         AssetRegistry& m_registry;
         ImportService& m_imports;

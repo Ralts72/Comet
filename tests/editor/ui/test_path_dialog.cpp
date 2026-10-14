@@ -84,6 +84,32 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(std::filesystem::exists(path));
     }
 
+    TEST_F(PathDialogTest, PrefabSaveUsesProjectAssetPathAndRetainsFailedRequests) {
+        const auto assets = directory.path() / "assets";
+        const auto target = assets / "NewPrefab.prefab";
+        dialog.request(PathDialog::Action::SavePrefab, {}, assets);
+        frame();
+        frame();
+        click("Save Prefab");
+        auto request = dialog.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->action, PathDialog::Action::SavePrefab);
+        EXPECT_EQ(request->path, target.string());
+        EXPECT_FALSE(std::filesystem::exists(target));
+        dialog.complete(Comet::Result<void, Comet::Error>::failure({"File already exists"}));
+        frame();
+        EXPECT_TRUE(ImGui::FindWindowByName("Save Prefab")->Active);
+        click("Save Prefab");
+        request = dialog.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->path, target.string());
+        dialog.complete(Comet::Result<void, Comet::Error>::success());
+        frame();
+        frame();
+        EXPECT_FALSE(ImGui::FindWindowByName("Save Prefab")->Active);
+        EXPECT_EQ(installations, 0);
+    }
+
     TEST_F(PathDialogTest, LongInitialPathIsNotTruncated) {
         auto target = directory.path();
         for(int index = 0; index < 16; ++index)

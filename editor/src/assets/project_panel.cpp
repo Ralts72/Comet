@@ -1,4 +1,6 @@
 #include "assets/project_panel.h"
+#include "assets/asset_thumbnails.h"
+#include "ui/imgui_context.h"
 #include "scene/selection.h"
 #include "assets/asset_reference.h"
 #include "scene/command_history.h"
@@ -57,6 +59,10 @@ namespace CometEditor {
             for(const auto& component : asset.path.parent_path()) {
                 node = &node->directories[component.string()];
             }
+            if(asset.source_asset) {
+                node->subresources[asset.source_asset].push_back(std::move(asset));
+                continue;
+            }
             const std::string filename = asset.path.filename().string();
             node->files.emplace(filename, std::move(asset));
         }
@@ -97,9 +103,19 @@ namespace CometEditor {
             if(directory_matches || !child.files.empty() || !child.directories.empty())
                 filtered.directories.emplace(name, std::move(child));
         }
-        for(const auto& [name, asset] : node.files)
-            if(contains_search(name, query))
+        for(const auto& [name, asset] : node.files) {
+            const auto children =
+                asset ? node.subresources.find(asset->handle) : node.subresources.end();
+            const bool child_matches =
+                children != node.subresources.end()
+                && std::ranges::any_of(children->second,
+                    [&](const auto& child) { return contains_search(child.source_key, query); });
+            if(contains_search(name, query) || child_matches) {
                 filtered.files.emplace(name, asset);
+                if(children != node.subresources.end())
+                    filtered.subresources.insert(*children);
+            }
+        }
         return filtered;
     }
 
@@ -164,40 +180,137 @@ namespace CometEditor {
                 ImGui::PopID();
                 continue;
             }
-            const Comet::AssetRecord& asset = *indexed_asset;
-            ImGui::PushID(std::to_string(asset.handle.value()).c_str());
-            if(ImGui::Selectable(name.c_str(), m_selection.is_selected(asset.handle)))
+            const auto children = node.subresources.find(indexed_asset->handle);
+            render_asset_item(*indexed_asset, name, path,
+                children == node.subresources.end() ? nullptr : &children->second);
+        }
+    }
+
+    void ProjectPanel::render_asset_item(const Comet::AssetRecord& asset, const std::string& name,
+        const std::filesystem::path& directory, const std::vector<Comet::AssetRecord>* children) {
+        ImGui::PushID(std::to_string(asset.handle.value()).c_str());
+        bool open = false;
+        if(children && !children->empty()) {
+            if(m_filtered_tree)
+                ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+            auto flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+            if(m_selection.is_selected(asset.handle))
+                flags |= ImGuiTreeNodeFlags_Selected;
+            open = ImGui::TreeNodeEx(name.c_str(), flags);
+            if(ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
                 m_selection.select_asset(asset.handle);
-            record_drop_target(path);
-            if(ImGui::BeginDragDropSource()) {
-                const AssetDragPayload payload{
-                    {asset.handle, m_database.get_revision(asset.handle)}, m_history.generation(),
-                    asset.type};
-                ImGui::SetDragDropPayload(
-                    AssetDragPayload::TYPE, &payload, sizeof(payload), ImGuiCond_Once);
-                ImGui::TextUnformatted(name.c_str());
-                ImGui::EndDragDropSource();
-            }
-            if(ImGui::BeginPopupContextItem()) {
+        } else if(ImGui::Selectable(name.c_str(), m_selection.is_selected(asset.handle))) {
+            m_selection.select_asset(asset.handle);
+        }
+        record_drop_target(directory);
+        if(ImGui::BeginDragDropSource()) {
+            const AssetDragPayload payload{{asset.handle, m_database.get_revision(asset.handle)},
+                m_history.generation(), asset.type};
+            ImGui::SetDragDropPayload(
+                AssetDragPayload::TYPE, &payload, sizeof(payload), ImGuiCond_Once);
+            ImGui::TextUnformatted(name.c_str());
+            ImGui::EndDragDropSource();
+        }
+        if(ImGui::BeginPopupContextItem()) {
+            if(asset.source_asset) {
+                if(ImGui::MenuItem("重新导入源模型###Reimport"))
+                    m_reimport_request = asset.source_asset;
+            } else {
                 if(AssetSourceOperations::can_open_source(m_database, asset.path)
                     && ImGui::MenuItem("打开源码###Open Source"))
                     m_pending_open_source = asset.path;
-                if(asset.type == Comet::AssetType::Mesh && ImGui::MenuItem("重新导入###Reimport"))
+                if((asset.type == Comet::AssetType::Mesh || asset.type == Comet::AssetType::Model)
+                    && ImGui::MenuItem("重新导入###Reimport"))
                     m_reimport_request = asset.handle;
                 if(ImGui::MenuItem("重命名###Rename"))
                     request_rename(asset);
                 if(ImGui::MenuItem("删除###Delete"))
                     request_delete(asset);
-                if(ImGui::MenuItem("刷新###Refresh"))
-                    m_refresh_requested = true;
-                ImGui::EndPopup();
             }
-            ImGui::SameLine();
-            ImGui::TextDisabled("(%s)", Comet::to_string(asset.type).data());
-            if(ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("%s", asset.path.generic_string().c_str());
-            }
-            ImGui::PopID();
+            if(ImGui::MenuItem("刷新###Refresh"))
+                m_refresh_requested = true;
+            ImGui::EndPopup();
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%s)", Comet::to_string(asset.type).data());
+        if(ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", asset.path.generic_string().c_str());
+        if(m_thumbnails && m_thumbnails->supports(asset.type) && ImGui::IsItemVisible())
+            render_thumbnail(asset);
+        if(open) {
+            for(const auto& child : *children)
+                render_asset_item(child, child.source_key, directory);
+            ImGui::TreePop();
+        }
+        ImGui::PopID();
+    }
+
+    ProjectPanel::~ProjectPanel() {
+        if(m_images)
+            for(const auto& [handle, binding] : m_thumbnail_bindings)
+                m_images->remove_image(binding.image);
+    }
+
+    void ProjectPanel::set_thumbnails(AssetThumbnails& thumbnails, Ui::ImGuiContext& images) {
+        m_thumbnails = &thumbnails;
+        m_images = &images;
+    }
+
+    void ProjectPanel::render_thumbnail(const Comet::AssetRecord& asset) {
+        auto preview = m_thumbnails->request(asset.handle);
+        auto binding = m_thumbnail_bindings.find(asset.handle);
+        if(binding != m_thumbnail_bindings.end()
+            && binding->second.source.lock() != preview.image) {
+            m_images->remove_image(binding->second.image);
+            m_thumbnail_bindings.erase(binding);
+            binding = m_thumbnail_bindings.end();
+        }
+        if(preview.image && binding == m_thumbnail_bindings.end()) {
+            auto image = m_images->add_image(*preview.image);
+            if(image)
+                binding = m_thumbnail_bindings
+                              .emplace(asset.handle, ThumbnailBinding{preview.image, image.value()})
+                              .first;
+            else
+                preview.error = image.error();
+        }
+        ImGui::SameLine();
+        const float size = ImGui::GetTextLineHeight();
+        const auto start = ImGui::GetCursorScreenPos();
+        ImGui::Dummy({size, size});
+        const auto draw = [&](ImVec2 position, float side) {
+            auto* list = ImGui::GetWindowDrawList();
+            constexpr int tiles = 8;
+            for(int y = 0; y < tiles; ++y)
+                for(int x = 0; x < tiles; ++x)
+                    list->AddRectFilled(
+                        {position.x + x * side / tiles, position.y + y * side / tiles},
+                        {position.x + (x + 1) * side / tiles, position.y + (y + 1) * side / tiles},
+                        (x + y) % 2 ? IM_COL32(65, 65, 65, 255) : IM_COL32(100, 100, 100, 255));
+            const auto& image = *preview.image;
+            const float scale = side / std::max(image.width, image.height);
+            const ImVec2 dimensions{image.width * scale, image.height * scale};
+            const ImVec2 top{position.x + (side - dimensions.x) * 0.5f,
+                position.y + (side - dimensions.y) * 0.5f};
+            list->AddImage(
+                binding->second.image, top, {top.x + dimensions.x, top.y + dimensions.y});
+        };
+        if(binding != m_thumbnail_bindings.end())
+            draw(start, size);
+        else
+            ImGui::GetWindowDrawList()->AddRect(
+                start, {start.x + size, start.y + size}, IM_COL32(110, 110, 110, 255));
+        if(ImGui::IsItemHovered()) {
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted(asset.path.generic_string().c_str());
+            if(binding != m_thumbnail_bindings.end()) {
+                const auto point = ImGui::GetCursorScreenPos();
+                ImGui::Dummy({128, 128});
+                draw(point, 128);
+            } else
+                ImGui::TextWrapped(
+                    "%s", preview.error.empty() ? "等待生成缩略图…" : preview.error.c_str());
+            ImGui::EndTooltip();
         }
     }
 
@@ -212,10 +325,24 @@ namespace CometEditor {
     }
 
     void ProjectPanel::render() {
+        if(m_thumbnails) {
+            m_thumbnails->update();
+            std::erase_if(m_thumbnail_bindings, [this](const auto& item) {
+                if(!item.second.source.expired())
+                    return false;
+                m_images->remove_image(item.second.image);
+                return true;
+            });
+        }
         m_drop_targets.clear();
         if(!m_user_visible)
             return;
 
+        if(m_tree_generation != m_database.generation()) {
+            m_tree = build_asset_tree();
+            m_tree_generation = m_database.generation();
+            rebuild_search_tree();
+        }
         if(!ImGui::Begin(window_label().c_str(), &m_user_visible)) {
             ImGui::End();
             return;
@@ -476,7 +603,7 @@ namespace CometEditor {
         }
     }
 
-    std::optional<Comet::AssetHandle> ProjectPanel::take_mesh_reimport_request() {
+    std::optional<Comet::AssetHandle> ProjectPanel::take_reimport_request() {
         return std::exchange(m_reimport_request, std::nullopt);
     }
 
@@ -544,7 +671,7 @@ namespace CometEditor {
                 read_asset_drag_payload(ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE))) {
             const auto& source = *payload;
             const auto* record = m_database.find(source.target.handle);
-            if(record) {
+            if(record && !record->source_asset) {
                 const auto destination = directory / record->path.filename();
                 if(destination != record->path)
                     m_pending_move = MoveRequest{source.target, destination};
@@ -619,6 +746,10 @@ namespace CometEditor {
     }
 
     void ProjectPanel::request_delete(const Comet::AssetRecord& record) {
+        if(record.source_asset) {
+            m_operation_error = "子资源由模型管理，请选择源模型进行文件操作";
+            return;
+        }
         m_delete_target = record.handle;
         m_delete_requested = true;
         m_close_delete = false;
@@ -790,6 +921,7 @@ namespace CometEditor {
         m_scan_report = std::move(scan_report);
         if(m_scan_report.snapshot_updated) {
             m_tree = build_asset_tree();
+            m_tree_generation = m_database.generation();
             rebuild_search_tree();
         }
         const Comet::AssetHandle selected_asset = m_selection.get_selected_asset();

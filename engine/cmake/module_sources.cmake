@@ -4,6 +4,7 @@ set(COMET_FOUNDATION_SOURCES
     src/common/parameters.cpp
     src/common/parameters.h
     src/common/file_io.cpp
+    src/common/executable_path.cpp
     src/common/player_settings_path.cpp
     src/common/retry_backoff.cpp
     src/common/uuid.cpp
@@ -58,6 +59,8 @@ set(COMET_WORLD_SOURCES
     src/scene/component_registry.cpp
     src/scene/property.cpp
     src/scene/scene.cpp
+    src/scene/entity_tree.cpp
+    src/scene/prefab.cpp
     src/scene/transform_interpolation.cpp
     src/scene/transform_interpolation.h
     src/scene/scene_serializer.cpp
@@ -99,6 +102,10 @@ set(COMET_PHYSICS_SOURCES
 )
 
 set(COMET_GAMEPLAY_SOURCES
+    src/gameplay/checkpoint_store.cpp
+    src/gameplay/checkpoint_store.h
+    src/gameplay/game_session.cpp
+    src/gameplay/game_session.h
     src/animation/animation_system.cpp
     src/gameplay/camera_controller.cpp
     src/gameplay/camera_controller.h
@@ -119,13 +126,19 @@ set(COMET_SCRIPTING_SOURCES
 )
 
 set(COMET_ASSET_PIPELINE_SOURCES
+    src/asset/product_index.cpp
     src/asset/database.cpp
     src/asset/database_scan.cpp
+    src/asset/artifact/model_artifact.cpp
     src/asset/artifact/mesh_artifact.cpp
     src/asset/artifact/environment_artifact.cpp
+    src/asset/artifact/texture_artifact.cpp
     src/asset/artifact/shader_program_artifact.cpp
     src/asset/import/input_snapshot.cpp
     src/asset/import/mesh_importer.cpp
+    src/asset/import/mesh_geometry.cpp
+    src/asset/import/gltf_mesh.cpp
+    src/asset/import/model_importer.cpp
     src/asset/import/import_service.cpp
     src/asset/import/asset_task_queue.cpp
     src/asset/import/texture_importer.cpp
@@ -214,6 +227,7 @@ set(COMET_RENDER_SOURCES
     src/render/scene/scene_picking.cpp
     src/render/scene/scene_extractor.cpp
     src/render/scene/scene_renderer.cpp
+    src/render/scene/scene_preview.cpp
     src/render/resource/render_resources.cpp
     src/render/frame_scheduler.cpp
     src/render/material/material.cpp

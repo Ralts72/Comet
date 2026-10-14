@@ -8,6 +8,7 @@ namespace CometEditor {
         Play,
         Structure,
         Rename,
+        SavePrefab,
         MeshDrop,
         AssetAssignment
     };
@@ -18,6 +19,7 @@ namespace CometEditor {
         bool play = false;
         bool structure = false;
         bool rename = false;
+        bool save_prefab = false;
         bool mesh_drop = false;
         bool asset_assignment = false;
         bool document_pending = false;
@@ -41,6 +43,8 @@ namespace CometEditor {
             return SceneRequestKind::Structure;
         if(requests.rename)
             return SceneRequestKind::Rename;
+        if(requests.save_prefab)
+            return SceneRequestKind::SavePrefab;
         if(requests.mesh_drop)
             return SceneRequestKind::MeshDrop;
         if(requests.asset_assignment)

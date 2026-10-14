@@ -175,6 +175,7 @@ namespace Comet {
     private:
         friend class Engine;
         friend class RenderThread;
+        friend class ScenePreview;
         [[nodiscard]] Result<void, GraphicsError> begin_render_loop();
         void end_render_loop();
         void collect_resources();

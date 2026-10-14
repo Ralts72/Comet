@@ -1,6 +1,9 @@
 #include "scene/component_registry.h"
+#include "asset/script.h"
+#include <unordered_set>
 
 #include "scene/components.h"
+#include "scene/prefab.h"
 #include "scene/script_component.h"
 
 #include "diagnostics/logger.h"
@@ -113,6 +116,7 @@ namespace Comet {
                 || (property.asset_type
                     && (property.type != PropertyType::AssetHandle
                         || *property.asset_type == AssetType::Unknown))
+                || (property.asset_cpu_only && property.asset_type != AssetType::Mesh)
                 || !property_ids.insert(property.id).second) {
                 return false;
             }
@@ -153,7 +157,8 @@ namespace Comet {
                 || type == entt::type_hash<UuidComponent>::value()
                 || type == entt::type_hash<NameComponent>::value()
                 || type == entt::type_hash<RelationshipComponent>::value()
-                || type == entt::type_hash<WorldTransformComponent>::value())
+                || type == entt::type_hash<WorldTransformComponent>::value()
+                || type == entt::type_hash<PrefabInstanceComponent>::value())
                 continue;
             bool registered = false;
             for(const auto& component : m_components)
@@ -172,16 +177,24 @@ namespace Comet {
             && (scope == ReferenceScope::All || environment.background || environment.lighting))
             references.push_back({environment.asset, AssetType::Environment, false});
         for(const auto entity : scene.get_entities()) {
+            if(scope == ReferenceScope::All && entity.has_component<PrefabInstanceComponent>()) {
+                const auto& instance = entity.get_component<PrefabInstanceComponent>();
+                references.push_back({instance.asset, instance.source_type, false});
+            }
             for(const auto& component : m_components) {
                 const auto* data = component.get_component(entity);
                 if(!data)
+                    continue;
+                if(scope == ReferenceScope::Runtime && component.id == "collider"
+                    && !entity.get_component<ColliderComponent>().uses_mesh())
                     continue;
                 for(const auto& property : component.properties) {
                     if(property.type != PropertyType::AssetHandle || !property.asset_type)
                         continue;
                     if(const auto value = property.copy_value(data)) {
                         if(const auto handle = std::get<AssetHandle>(*value))
-                            references.push_back({handle, *property.asset_type});
+                            references.push_back(
+                                {handle, *property.asset_type, true, property.asset_cpu_only});
                     }
                 }
             }
@@ -189,6 +202,62 @@ namespace Comet {
         std::ranges::sort(references);
         references.erase(std::unique(references.begin(), references.end()), references.end());
         return references;
+    }
+
+    Result<std::vector<AssetReference>, Error> ComponentRegistry::collect_runtime_references(
+        Scene& scene,
+        const std::function<Result<std::shared_ptr<Script>, Error>(AssetHandle)>& load_script,
+        const std::function<Result<std::shared_ptr<Prefab>, Error>(AssetHandle)>& load_prefab,
+        bool allow_missing) const {
+        using Collected = Result<std::vector<AssetReference>, Error>;
+        std::vector<AssetReference> references;
+        const auto append = [&](Scene& content) -> Result<void, Error> {
+            const auto direct = collect_asset_references(content, ReferenceScope::Runtime);
+            references.insert(references.end(), direct.begin(), direct.end());
+            for(const auto entity : content.get_entities()) {
+                if(!entity.has_component<ScriptComponent>())
+                    continue;
+                const auto& binding = entity.get_component<ScriptComponent>();
+                if(!binding.asset)
+                    continue;
+                auto script = load_script(binding.asset);
+                if(!script) {
+                    if(allow_missing)
+                        continue;
+                    return Result<void, Error>::failure(script.error());
+                }
+                const auto inputs = script.value()->asset_references(binding.parameters);
+                if(!inputs) {
+                    if(allow_missing)
+                        continue;
+                    return Result<void, Error>::failure(inputs.error());
+                }
+                references.insert(references.end(), inputs.value().begin(), inputs.value().end());
+            }
+            return Result<void, Error>::success();
+        };
+        if(auto added = append(scene); !added)
+            return Collected::failure(added.error());
+        std::unordered_set<AssetHandle> prefabs;
+        for(std::size_t index = 0; index < references.size(); ++index) {
+            const auto reference = references[index];
+            if(reference.type != AssetType::Prefab || !prefabs.insert(reference.handle).second)
+                continue;
+            const auto prefab = load_prefab(reference.handle);
+            if(!prefab) {
+                if(allow_missing)
+                    continue;
+                return Collected::failure(prefab.error());
+            }
+            Scene content;
+            if(auto instance = prefab.value()->instantiate(content, *this); !instance)
+                return Collected::failure({instance.error()});
+            if(auto added = append(content); !added)
+                return Collected::failure(added.error());
+        }
+        std::ranges::sort(references);
+        references.erase(std::unique(references.begin(), references.end()), references.end());
+        return Collected::success(std::move(references));
     }
 
     ComponentRegistry create_scene_component_registry() {
@@ -406,6 +475,12 @@ namespace Comet {
                 make_property_descriptor("ground_snap_distance", "Ground Snap Distance",
                     &CharacterControllerComponent::ground_snap_distance,
                     {.numeric = {.speed = 0.01f, .minimum = 0, .enforce_bounds = true}}),
+                make_property_descriptor("collision_layer", "Collision Layer",
+                    &CharacterControllerComponent::collision_layer,
+                    {.required = false, .bitmask = true}),
+                make_property_descriptor("collision_mask", "Collision Mask",
+                    &CharacterControllerComponent::collision_mask,
+                    {.required = false, .bitmask = true}),
                 make_property_descriptor("gravity_scale", "Gravity Scale",
                     &CharacterControllerComponent::gravity_scale,
                     {.numeric = {.speed = 0.1f, .minimum = 0, .enforce_bounds = true}})}));
@@ -414,12 +489,23 @@ namespace Comet {
             {make_enum_property_descriptor<ColliderComponent, ColliderShape>("shape", "Shape",
                  &ColliderComponent::shape,
                  {{ColliderShape::Box, {"box", "Box"}},
-                     {ColliderShape::Sphere, {"sphere", "Sphere"}}}),
+                     {ColliderShape::Sphere, {"sphere", "Sphere"}},
+                     {ColliderShape::Capsule, {"capsule", "Capsule"}},
+                     {ColliderShape::ConvexHull, {"convex_hull", "Convex Hull"}},
+                     {ColliderShape::TriangleMesh, {"triangle_mesh", "Static Triangle Mesh"}}}),
+                make_property_descriptor("mesh", "Collision Mesh", &ColliderComponent::mesh,
+                    {.required = false, .asset_type = AssetType::Mesh, .asset_cpu_only = true}),
+                make_property_descriptor("collision_layer", "Collision Layer",
+                    &ColliderComponent::collision_layer, {.required = false, .bitmask = true}),
+                make_property_descriptor("collision_mask", "Collision Mask",
+                    &ColliderComponent::collision_mask, {.required = false, .bitmask = true}),
                 make_property_descriptor("half_extents", "Box Half Extents",
                     &ColliderComponent::half_extents,
                     {.numeric = {.speed = 0.05f, .minimum = 0.001f}}),
-                make_property_descriptor("radius", "Sphere Radius", &ColliderComponent::radius,
+                make_property_descriptor("radius", "Radius", &ColliderComponent::radius,
                     {.numeric = {.speed = 0.05f, .minimum = 0.001f}}),
+                make_property_descriptor("height", "Capsule Height", &ColliderComponent::height,
+                    {.required = false, .numeric = {.speed = 0.05f, .minimum = 0.001f}}),
                 make_property_descriptor(
                     "is_trigger", "Trigger", &ColliderComponent::is_trigger, {.required = false}),
                 make_property_descriptor("friction", "Friction", &ColliderComponent::friction,

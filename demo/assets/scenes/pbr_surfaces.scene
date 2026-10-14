@@ -1,0 +1,272 @@
+{
+  "version": 2,
+  "post_process": {
+    "exposure": 1,
+    "bloom_enabled": true,
+    "bloom_strength": 0.15,
+    "bloom_threshold": 1
+  },
+  "entities": [
+    {
+      "uuid": "61e9f12a-77da-5790-85f7-f0ab713801c9",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [
+            0,
+            3,
+            12
+          ],
+          "rotation": [
+            -15,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "camera": {
+          "primary": true,
+          "fov": 45,
+          "near_clip": 0.1,
+          "far_clip": 100
+        },
+        "camera_controller": {
+          "enabled": true,
+          "move_speed": 3,
+          "look_sensitivity": 0.2,
+          "look_speed": 120
+        }
+      }
+    },
+    {
+      "uuid": "84cb3994-9cb0-5ba9-b9db-d1223f1a01a1",
+      "components": {
+        "name": "主光",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            -30,
+            -35,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "light": {
+          "type": "directional",
+          "enabled": true,
+          "casts_shadow": true,
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "intensity": 4,
+          "range": 10,
+          "inner_angle": 20,
+          "outer_angle": 30
+        }
+      }
+    },
+    {
+      "uuid": "b2e95a48-ef10-5231-8cf5-22c4deb266d1",
+      "components": {
+        "name": "法线凹凸",
+        "transform": {
+          "translation": [
+            -2.2,
+            0,
+            -1
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.6,
+            1.6,
+            1.6
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 5783275031450616067
+        }
+      }
+    },
+    {
+      "uuid": "ba530a83-0ca6-5d56-a654-ad63a6df190e",
+      "components": {
+        "name": "金属与粗糙度分区",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            -1
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.6,
+            1.6,
+            1.6
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 5783275031450616068
+        }
+      }
+    },
+    {
+      "uuid": "1b8bf832-0c4b-5078-a4fc-2be1559a46b7",
+      "components": {
+        "name": "自发光网格",
+        "transform": {
+          "translation": [
+            2.2,
+            0,
+            -1
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.6,
+            1.6,
+            1.6
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 5783275031450616069
+        }
+      }
+    },
+    {
+      "uuid": "1a869646-1be7-5a33-b9ce-9ba25a399e6b",
+      "components": {
+        "name": "地板",
+        "transform": {
+          "translation": [
+            0,
+            -0.9,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            11,
+            0.1,
+            8
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 5783275031450616070
+        }
+      }
+    },
+    {
+      "uuid": "7b9a5147-833c-5acf-ab42-34a29365c27a",
+      "components": {
+        "name": "双面树叶与裁切阴影",
+        "transform": {
+          "translation": [
+            -2.2,
+            0,
+            1.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.8,
+            1.8,
+            1
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 5783275031450616072,
+          "material": 5783275031450616074
+        }
+      }
+    },
+    {
+      "uuid": "dcb466c6-f1a9-5015-82ce-6847e223d753",
+      "components": {
+        "name": "蓝色透明层",
+        "transform": {
+          "translation": [
+            0.1,
+            0,
+            1.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.8,
+            1.8,
+            1
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 5783275031450616072,
+          "material": 5783275031450616075
+        }
+      }
+    },
+    {
+      "uuid": "c709df0d-fe9b-54de-ac5e-e1aea22cc121",
+      "components": {
+        "name": "红色透明层",
+        "transform": {
+          "translation": [
+            0.6,
+            0,
+            1.8
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.8,
+            1.8,
+            1
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 5783275031450616072,
+          "material": 5783275031450616076
+        }
+      }
+    }
+  ]
+}

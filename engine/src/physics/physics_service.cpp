@@ -16,10 +16,16 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
+#include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/CollideShape.h>
+#include <Jolt/Physics/Collision/CollisionGroup.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Constraints/PointConstraint.h>
@@ -27,6 +33,7 @@
 #include <Jolt/Physics/Constraints/SliderConstraint.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <map>
 #include <mutex>
@@ -62,6 +69,11 @@ namespace Comet {
             }
         }
 
+        struct JoltLifetime {
+            JoltLifetime() { acquire_jolt(); }
+            ~JoltLifetime() { release_jolt(); }
+        };
+
         JPH::RVec3 to_position(const Math::Vec3& value) {
             return {value.x, value.y, value.z};
         }
@@ -82,12 +94,24 @@ namespace Comet {
                 JPH::Vec3(0, height * 0.5f, 0), JPH::Quat::sIdentity(), shape);
         }
 
-        class SolidBodyFilter final: public JPH::IgnoreSingleBodyFilter {
+        class LayerGroupFilter final: public JPH::GroupFilter {
         public:
-            explicit SolidBodyFilter(const JPH::BodyID ignored) : IgnoreSingleBodyFilter(ignored) {}
-            bool ShouldCollideLocked(const JPH::Body& body) const override {
-                return !body.IsSensor();
+            bool CanCollide(const JPH::CollisionGroup& first,
+                const JPH::CollisionGroup& second) const override {
+                return (first.GetGroupID() & second.GetSubGroupID()) != 0
+                       && (second.GetGroupID() & first.GetSubGroupID()) != 0;
             }
+        };
+
+        class LayerBodyFilter final: public JPH::BodyFilter {
+        public:
+            explicit LayerBodyFilter(JPH::CollisionGroup group) : m_group(std::move(group)) {}
+            bool ShouldCollideLocked(const JPH::Body& body) const override {
+                return m_group.CanCollide(body.GetCollisionGroup());
+            }
+
+        private:
+            JPH::CollisionGroup m_group;
         };
 
         JPH::Quat to_rotation(const Math::Vec3& degrees) {
@@ -127,7 +151,9 @@ namespace Comet {
 
         bool same_shape(const ColliderComponent& a, const ColliderComponent& b) {
             return a.shape == b.shape && glm::all(glm::equal(a.half_extents, b.half_extents))
-                   && a.radius == b.radius && a.is_trigger == b.is_trigger;
+                   && a.radius == b.radius && a.height == b.height && a.is_trigger == b.is_trigger
+                   && a.collision_layer == b.collision_layer && a.collision_mask == b.collision_mask
+                   && a.mesh == b.mesh;
         }
 
         bool same_mass_settings(const RigidBodyComponent& a, const RigidBodyComponent& b) {
@@ -138,10 +164,103 @@ namespace Comet {
             return a.density == b.density;
         }
 
+        Result<void, Error> validate_collider_geometry(
+            const TransformComponent& transform, const ColliderComponent& collider) {
+            const auto valid_scale = Math::is_finite(transform.scale)
+                                     && glm::all(glm::greaterThan(transform.scale, Math::Vec3(0)));
+            if(!Math::is_finite(transform.translation) || !Math::is_finite(transform.rotation)
+                || !valid_scale)
+                return Result<void, Error>::failure({"Invalid rigid body transform"});
+            if(collider.shape == ColliderShape::Box) {
+                const auto size = collider.half_extents * transform.scale;
+                if(!Math::is_finite(size) || !glm::all(glm::greaterThan(size, Math::Vec3(0))))
+                    return Result<void, Error>::failure({"Invalid box collider"});
+            } else if(collider.shape == ColliderShape::Sphere
+                      || collider.shape == ColliderShape::Capsule) {
+                const auto radius = collider.radius * transform.scale.x;
+                if(!std::isfinite(radius) || radius <= 0 || transform.scale.x != transform.scale.y
+                    || transform.scale.x != transform.scale.z)
+                    return Result<void, Error>::failure(
+                        {"Sphere/capsule collider requires a finite positive scaled radius and uniform scale"});
+                if(collider.shape == ColliderShape::Capsule) {
+                    const auto height = collider.height * transform.scale.x;
+                    if(!std::isfinite(height) || height <= radius * 2)
+                        return Result<void, Error>::failure(
+                            {"Capsule height must exceed its diameter"});
+                }
+            } else if(collider.uses_mesh()) {
+                if(!collider.mesh)
+                    return Result<void, Error>::failure({"Mesh collider requires a mesh asset"});
+            } else {
+                return Result<void, Error>::failure({"Unknown collider shape"});
+            }
+            return Result<void, Error>::success();
+        }
+        JPH::ShapeRefC create_collider_shape(
+            const ColliderComponent& collider, const Math::Vec3 scale) {
+            if(collider.shape == ColliderShape::Box) {
+                const auto size = collider.half_extents * scale;
+                return new JPH::BoxShape(JPH::Vec3(size.x, size.y, size.z));
+            }
+            if(collider.shape == ColliderShape::Capsule)
+                return new JPH::CapsuleShape((collider.height * 0.5f - collider.radius) * scale.x,
+                    collider.radius * scale.x);
+            return new JPH::SphereShape(collider.radius * scale.x);
+        }
+
+        Result<JPH::ShapeRefC, Error> create_mesh_shape(
+            ColliderShape kind, const MeshData& data, Math::Vec3 scale) {
+            using ShapeResult = Result<JPH::ShapeRefC, Error>;
+            if(kind != ColliderShape::ConvexHull && kind != ColliderShape::TriangleMesh)
+                return ShapeResult::failure({"Expected a mesh collider shape"});
+            if(!Math::is_finite(scale) || !glm::all(glm::greaterThan(scale, Math::Vec3(0))))
+                return ShapeResult::failure({"Mesh collider requires finite positive scale"});
+            if(data.vertices.empty() || data.indices.empty() || data.indices.size() % 3 != 0)
+                return ShapeResult::failure({"Collision mesh requires indexed triangles"});
+            JPH::VertexList vertices;
+            vertices.reserve(data.vertices.size());
+            for(const auto& vertex : data.vertices) {
+                const auto position = vertex.position * scale;
+                if(!Math::is_finite(position))
+                    return ShapeResult::failure({"Collision mesh has nonfinite scaled vertices"});
+                vertices.emplace_back(position.x, position.y, position.z);
+            }
+            for(const auto index : data.indices)
+                if(index >= vertices.size())
+                    return ShapeResult::failure({"Collision mesh index exceeds vertex count"});
+            const auto baked = [&]() -> JPH::Shape::ShapeResult {
+                if(kind == ColliderShape::ConvexHull) {
+                    JPH::Array<JPH::Vec3> points;
+                    points.reserve(data.indices.size());
+                    for(const auto index : data.indices)
+                        points.push_back(
+                            JPH::Vec3(vertices[index].x, vertices[index].y, vertices[index].z));
+                    return JPH::ConvexHullShapeSettings(points).Create();
+                }
+                JPH::IndexedTriangleList triangles;
+                triangles.reserve(data.indices.size() / 3);
+                for(std::size_t index = 0; index < data.indices.size(); index += 3)
+                    triangles.emplace_back(
+                        data.indices[index], data.indices[index + 1], data.indices[index + 2], 0);
+                return JPH::MeshShapeSettings(std::move(vertices), std::move(triangles)).Create();
+            }();
+            if(baked.HasError())
+                return ShapeResult::failure(
+                    {"Cannot build collision mesh: " + std::string(baked.GetError().c_str())});
+            JPH::ShapeRefC shape = baked.Get();
+            if(kind == ColliderShape::ConvexHull
+                && (!std::isfinite(shape->GetVolume()) || shape->GetVolume() <= 0))
+                return ShapeResult::failure({"Convex hull requires a nonzero volume"});
+            return ShapeResult::success(std::move(shape));
+        }
+
         Result<void, Error> validate_body(const EntityUuid uuid,
             const TransformComponent& transform, const ColliderComponent& collider,
             const RigidBodyComponent& rigid) {
             const auto motion = rigid.motion;
+            if(collider.shape == ColliderShape::TriangleMesh && motion != BodyMotion::Static)
+                return Result<void, Error>::failure(
+                    {"Triangle mesh collider requires a static rigid body: " + uuid.to_string()});
             if(motion != BodyMotion::Static && motion != BodyMotion::Dynamic
                 && motion != BodyMotion::Kinematic)
                 return Result<void, Error>::failure(
@@ -161,28 +280,10 @@ namespace Comet {
                 return Result<void, Error>::failure(
                     {"Collider friction and restitution must be finite and between 0 and 1: "
                         + uuid.to_string()});
-            const auto valid_scale = Math::is_finite(transform.scale)
-                                     && glm::all(glm::greaterThan(transform.scale, Math::Vec3(0)));
-            if(!Math::is_finite(transform.translation) || !Math::is_finite(transform.rotation)
-                || !valid_scale)
+            auto geometry = validate_collider_geometry(transform, collider);
+            if(!geometry)
                 return Result<void, Error>::failure(
-                    {"Invalid rigid body transform: " + uuid.to_string()});
-            if(collider.shape == ColliderShape::Box) {
-                const auto size = collider.half_extents * transform.scale;
-                if(!Math::is_finite(size) || !glm::all(glm::greaterThan(size, Math::Vec3(0))))
-                    return Result<void, Error>::failure(
-                        {"Invalid box collider: " + uuid.to_string()});
-            } else if(collider.shape == ColliderShape::Sphere) {
-                const auto radius = collider.radius * transform.scale.x;
-                if(!std::isfinite(radius) || radius <= 0 || transform.scale.x != transform.scale.y
-                    || transform.scale.x != transform.scale.z)
-                    return Result<void, Error>::failure(
-                        {"Sphere collider requires a finite positive scaled radius and uniform scale: "
-                            + uuid.to_string()});
-            } else {
-                return Result<void, Error>::failure(
-                    {"Unknown collider shape: " + uuid.to_string()});
-            }
+                    {geometry.error().message + ": " + uuid.to_string()});
             return Result<void, Error>::success();
         }
 
@@ -212,7 +313,7 @@ namespace Comet {
                     if(!std::isfinite(properties.mInertia(row, column)))
                         return Result<JPH::MassProperties, Error>::failure(
                             {"Invalid rigid body inertia"});
-            // 当前 Box／Sphere 的惯性张量是对角矩阵；逆值也须可表示。
+            // 主对角惯量必须为有限正值；凸包可包含非零交叉项。
             for(unsigned axis = 0; axis < 3; ++axis)
                 if(!valid_inverse(properties.mInertia(axis, axis)))
                     return Result<JPH::MassProperties, Error>::failure(
@@ -406,11 +507,6 @@ namespace Comet {
             std::vector<Pair> active;
         };
 
-        struct JoltLifetime {
-            JoltLifetime() { acquire_jolt(); }
-            ~JoltLifetime() { release_jolt(); }
-        };
-
         struct Body {
             EntityId entity;
             EntityUuid uuid;
@@ -420,6 +516,7 @@ namespace Comet {
             TransformComponent last_transform;
             JPH::Quat last_physics_rotation;
             bool active_this_step = false;
+            AssetRevision mesh_revision = 0;
         };
 
         struct Contact {
@@ -449,6 +546,7 @@ namespace Comet {
             EntityUuid uuid;
             bool trigger;
             bool active_this_step;
+            uint32_t layer;
         };
 
         struct Joint {
@@ -460,7 +558,8 @@ namespace Comet {
         };
         using JointMap = std::map<JointKey, Joint>;
 
-        Impl() : pairs(2), broad_phase(2, 2), jobs(1024) {
+        explicit Impl(const MeshSource& source)
+            : mesh_source(source), pairs(2), broad_phase(2, 2), jobs(1024) {
             pairs.EnableCollision(STATIC_LAYER, MOVING_LAYER);
             pairs.EnableCollision(MOVING_LAYER, MOVING_LAYER);
             broad_phase.MapObjectToBroadPhaseLayer(STATIC_LAYER, JPH::BroadPhaseLayer(0));
@@ -489,22 +588,92 @@ namespace Comet {
             bodies.clear();
         }
 
+        AssetRevision mesh_revision(AssetHandle handle) const {
+            return mesh_source.revision ? mesh_source.revision(handle) : 0;
+        }
+
+        struct CachedShape {
+            ColliderShape kind;
+            Math::Vec3 scale;
+            JPH::ShapeRefC shape;
+        };
+        struct CachedMesh {
+            AssetRevision revision = 0;
+            std::vector<CachedShape> shapes;
+        };
+
+        Result<JPH::ShapeRefC, Error> collider_shape(
+            const ColliderComponent& collider, Math::Vec3 scale) {
+            using ShapeResult = Result<JPH::ShapeRefC, Error>;
+            if(!collider.uses_mesh())
+                return ShapeResult::success(create_collider_shape(collider, scale));
+            if(!mesh_source.read)
+                return ShapeResult::failure({"Mesh collider requires a CPU mesh source"});
+            const auto revision = mesh_revision(collider.mesh);
+            auto& cached = mesh_shapes[collider.mesh];
+            if(cached.revision != revision) {
+                cached.shapes.clear();
+                cached.revision = revision;
+            }
+            for(const auto& candidate : cached.shapes)
+                if(candidate.kind == collider.shape && candidate.scale == scale)
+                    return ShapeResult::success(candidate.shape);
+            auto source = mesh_source.read(collider.mesh);
+            if(!source)
+                return ShapeResult::failure(source.error());
+            auto created = create_mesh_shape(collider.shape, source.value(), scale);
+            if(!created)
+                return created;
+            auto shape = std::move(created).value();
+            if(mesh_revision(collider.mesh) != revision)
+                return ShapeResult::failure({"Collision mesh changed during shape construction"});
+            cached.shapes.push_back({collider.shape, scale, shape});
+            return ShapeResult::success(std::move(shape));
+        }
+
+        Result<bool, Error> synchronize_meshes() {
+            std::vector<EntityId> changed;
+            for(const auto* body : mesh_bodies)
+                if(body->mesh_revision != mesh_revision(body->collider.mesh))
+                    changed.push_back(body->entity);
+            for(const auto entity : changed) {
+                // 重建会销毁旧记录；组件和姿态必须先复制，不能借用被删除的 Body。
+                const auto body = bodies.at(entity);
+                auto result = synchronize_body(
+                    {body.uuid, body.entity, body.last_transform, body.collider, body.rigid});
+                if(!result)
+                    return Result<bool, Error>::failure(result.error());
+            }
+            return Result<bool, Error>::success(!changed.empty());
+        }
+
+        void release_unused_shapes() {
+            for(auto it = mesh_shapes.begin(); it != mesh_shapes.end();) {
+                std::erase_if(it->second.shapes,
+                    [](const CachedShape& shape) { return shape.shape->GetRefCount() == 1; });
+                if(it->second.shapes.empty())
+                    it = mesh_shapes.erase(it);
+                else
+                    ++it;
+            }
+        }
+
         Result<void, Error> add_body(
             const BodyDefinition& definition, const Velocity& velocity = {}) {
             const auto& transform = definition.transform;
             const auto& collider = definition.collider;
             const auto& rigid = definition.rigid;
             const auto motion = rigid.motion;
-            JPH::ShapeRefC shape;
-            if(collider.shape == ColliderShape::Box) {
-                const auto size = collider.half_extents * transform.scale;
-                shape = new JPH::BoxShape(JPH::Vec3(size.x, size.y, size.z));
-            } else {
-                shape = new JPH::SphereShape(collider.radius * transform.scale.x);
-            }
+            auto created = collider_shape(collider, transform.scale);
+            if(!created)
+                return Result<void, Error>::failure(
+                    {created.error().message + ": " + definition.uuid.to_string()});
+            const auto& shape = created.value();
             JPH::BodyCreationSettings settings(shape.GetPtr(), to_position(transform.translation),
                 to_rotation(transform.rotation), to_motion_type(motion),
                 motion == BodyMotion::Static ? STATIC_LAYER : MOVING_LAYER);
+            settings.mCollisionGroup = JPH::CollisionGroup(
+                layer_filter, collider.collision_layer, collider.collision_mask);
             settings.mIsSensor = collider.is_trigger;
             settings.mMotionQuality = to_motion_quality(rigid, collider);
             settings.mFriction = collider.friction;
@@ -532,6 +701,10 @@ namespace Comet {
                 definition.entity, Body{definition.entity, definition.uuid, id, rigid, collider,
                                        transform, world.GetBodyInterface().GetRotation(id)});
             body_lookup[id.GetIndex()] = &inserted.first->second;
+            if(collider.uses_mesh()) {
+                inserted.first->second.mesh_revision = mesh_revision(collider.mesh);
+                mesh_bodies.push_back(&inserted.first->second);
+            }
             if(motion == BodyMotion::Kinematic)
                 kinematic_bodies.push_back(&inserted.first->second);
             if(motion == BodyMotion::Static)
@@ -741,6 +914,8 @@ namespace Comet {
         }
 
         void erase_body(std::unordered_map<EntityId, Body>::iterator it) {
+            if(it->second.collider.uses_mesh())
+                std::erase(mesh_bodies, &it->second);
             auto& interface = world.GetBodyInterface();
             wake_nearby_bodies(it->second.id);
             body_lookup[it->second.id.GetIndex()] = nullptr;
@@ -798,15 +973,34 @@ namespace Comet {
 
         std::optional<ContactBody> find_contact_body(const JPH::BodyID id) {
             if(const auto* body = find_body(id))
-                return ContactBody{
-                    body->entity, body->uuid, body->collider.is_trigger, body->active_this_step};
+                return ContactBody{body->entity, body->uuid, body->collider.is_trigger,
+                    body->active_this_step, body->collider.collision_layer};
             if(id.GetIndex() >= character_lookup.size())
                 return std::nullopt;
             const auto* character = character_lookup[id.GetIndex()];
             if(!character || character->controller->GetInnerBodyID() != id)
                 return std::nullopt;
-            return ContactBody{character->entity, character->uuid, false, true};
+            return ContactBody{character->entity, character->uuid, false, true,
+                character->settings.collision_layer};
         }
+
+        class QueryBodyFilter final: public JPH::BodyFilter {
+        public:
+            QueryBodyFilter(Impl& impl, const QueryFilter& filter)
+                : m_impl(impl), m_filter(filter) {}
+            bool ShouldCollide(const JPH::BodyID& id) const override {
+                const auto owner = m_impl.find_contact_body(id);
+                return owner && owner->uuid != m_filter.ignored
+                       && (owner->layer & m_filter.layers) != 0;
+            }
+            bool ShouldCollideLocked(const JPH::Body& body) const override {
+                return m_filter.include_triggers || !body.IsSensor();
+            }
+
+        private:
+            Impl& m_impl;
+            const QueryFilter& m_filter;
+        };
 
         auto erase_character(std::map<EntityId, Character>::iterator it) {
             character_lookup[it->second.controller->GetInnerBodyID().GetIndex()] = nullptr;
@@ -824,6 +1018,9 @@ namespace Comet {
         Result<ObjectChange, Error> synchronize_character(const CharacterDefinition& definition) {
             const auto& settings = definition.settings;
             const auto& transform = definition.transform;
+            const JPH::CollisionGroup group(
+                layer_filter, settings.collision_layer, settings.collision_mask);
+            const LayerBodyFilter filter(group);
             auto it = characters.find(definition.entity);
             if(!settings.enabled) {
                 if(it != characters.end())
@@ -864,6 +1061,8 @@ namespace Comet {
                     || it->second.settings.radius != settings.radius
                     || it->second.settings.height != settings.height
                     || it->second.settings.crouch_height_ratio != settings.crouch_height_ratio
+                    || it->second.settings.collision_layer != settings.collision_layer
+                    || it->second.settings.collision_mask != settings.collision_mask
                     || it->second.last_transform.scale != transform.scale);
             auto velocity = JPH::Vec3::sZero();
             bool crouched = false;
@@ -890,13 +1089,14 @@ namespace Comet {
                 if(controller->GetInnerBodyID().IsInvalid())
                     return Result<ObjectChange, Error>::failure(
                         {"Physics character capacity exceeded"});
+                world.GetBodyInterface().SetCollisionGroup(controller->GetInnerBodyID(), group);
                 controller->SetLinearVelocity(velocity);
                 const auto [inserted, success] = characters.emplace(definition.entity,
                     Character{definition.entity, definition.uuid, settings, transform, controller,
                         standing, crouching, {}, crouched});
                 character_lookup[controller->GetInnerBodyID().GetIndex()] = &inserted->second;
                 controller->RefreshContacts(world.GetDefaultBroadPhaseLayerFilter(MOVING_LAYER),
-                    world.GetDefaultLayerFilter(MOVING_LAYER), {}, {}, allocator);
+                    world.GetDefaultLayerFilter(MOVING_LAYER), filter, {}, allocator);
                 return Result<ObjectChange, Error>::success(
                     added ? ObjectChange::Added : ObjectChange::Rebuilt);
             }
@@ -909,7 +1109,7 @@ namespace Comet {
                 character.controller->SetRotation(to_rotation(transform.rotation));
                 character.controller->RefreshContacts(
                     world.GetDefaultBroadPhaseLayerFilter(MOVING_LAYER),
-                    world.GetDefaultLayerFilter(MOVING_LAYER), {}, {}, allocator);
+                    world.GetDefaultLayerFilter(MOVING_LAYER), filter, {}, allocator);
             }
             character.last_transform = transform;
             return Result<ObjectChange, Error>::success(ObjectChange::None);
@@ -919,6 +1119,8 @@ namespace Comet {
             for(auto& [entity, character] : characters) {
                 auto& controller = *character.controller;
                 const auto& settings = character.settings;
+                const LayerBodyFilter filter(JPH::CollisionGroup(
+                    layer_filter, settings.collision_layer, settings.collision_mask));
                 const auto request = std::ranges::find(requests, entity, &CharacterRequest::entity);
                 CharacterMove move;
                 if(request != requests.end() && request->uuid == character.uuid)
@@ -929,7 +1131,7 @@ namespace Comet {
                     if(controller.SetShape(shape,
                            1.5f * world.GetPhysicsSettings().mPenetrationSlop,
                            world.GetDefaultBroadPhaseLayerFilter(MOVING_LAYER),
-                           world.GetDefaultLayerFilter(MOVING_LAYER), {}, {}, allocator)) {
+                           world.GetDefaultLayerFilter(MOVING_LAYER), filter, {}, allocator)) {
                         controller.SetInnerBodyShape(shape);
                         character.crouched = move.crouch;
                     }
@@ -968,7 +1170,7 @@ namespace Comet {
                     0, -settings.ground_snap_distance * character.last_transform.scale.x, 0);
                 controller.ExtendedUpdate(delta_time, gravity, update,
                     world.GetDefaultBroadPhaseLayerFilter(MOVING_LAYER),
-                    world.GetDefaultLayerFilter(MOVING_LAYER), {}, {}, allocator);
+                    world.GetDefaultLayerFilter(MOVING_LAYER), filter, {}, allocator);
                 auto transform = character.last_transform;
                 const auto position = controller.GetPosition();
                 const auto actual = JPH::Vec3(position - before) / delta_time;
@@ -1012,6 +1214,8 @@ namespace Comet {
                 !added
                 && (it->second.uuid != definition.uuid || it->second.rigid.motion != rigid.motion
                     || !same_shape(it->second.collider, collider)
+                    || (collider.uses_mesh()
+                        && it->second.mesh_revision != mesh_revision(collider.mesh))
                     || !glm::all(glm::equal(it->second.last_transform.scale, transform.scale)));
             const bool rigid_changed = !added && it->second.rigid != rigid;
             const bool pose_changed = !added && !same_pose(it->second.last_transform, transform);
@@ -1289,7 +1493,10 @@ namespace Comet {
 
         std::vector<Pose> poses;
         std::vector<ContactChange> changes;
+        const MeshSource& mesh_source;
         JoltLifetime lifetime;
+        std::unordered_map<AssetHandle, CachedMesh> mesh_shapes;
+        JPH::Ref<LayerGroupFilter> layer_filter = new LayerGroupFilter;
         JPH::ObjectLayerPairFilterTable pairs;
         JPH::BroadPhaseLayerInterfaceTable broad_phase;
         std::unique_ptr<JPH::ObjectVsBroadPhaseLayerFilterTable> object_filter;
@@ -1297,6 +1504,7 @@ namespace Comet {
         JPH::PhysicsSystem world;
         JPH::TempAllocatorImplWithMallocFallback allocator{SCRATCH_BYTES};
         JPH::JobSystemSingleThreaded jobs;
+        std::vector<Body*> mesh_bodies;
         std::unordered_map<EntityId, Body> bodies;
         std::vector<Body*> body_lookup;
         std::map<EntityId, Character> characters;
@@ -1319,6 +1527,7 @@ namespace Comet {
             m_commands.clear();
             m_character_moves.clear();
         });
+        m_impl->release_unused_shapes();
         m_impl->move_kinematic_bodies(delta_time);
         if(auto applied = m_impl->apply_commands(m_commands, delta_time); !applied)
             return applied;
@@ -1345,7 +1554,46 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
-    PhysicsService::PhysicsService() = default;
+    Result<std::vector<PhysicsService::ColliderEdge>, Error> PhysicsService::mesh_collider_edges(
+        ColliderShape kind, const MeshData& mesh, Math::Vec3 scale) {
+        using Edges = Result<std::vector<ColliderEdge>, Error>;
+        const JoltLifetime lifetime;
+        auto built = create_mesh_shape(kind, mesh, scale);
+        if(!built)
+            return Edges::failure(built.error());
+        const auto& shape = built.value();
+        JPH::Shape::GetTrianglesContext context;
+        shape->GetTrianglesStart(context, JPH::AABox::sBiggest(), shape->GetCenterOfMass(),
+            JPH::Quat::sIdentity(), JPH::Vec3::sOne());
+        // 一个凸包面最多 256 点，单批须能容纳整面，避免误将空批当作结束。
+        constexpr int BATCH_TRIANGLES = 256;
+        std::array<JPH::Float3, BATCH_TRIANGLES * 3> vertices;
+        std::vector<ColliderEdge> edges;
+        const auto key = [](Math::Vec3 point) { return std::tuple{point.x, point.y, point.z}; };
+        while(
+            const auto count = shape->GetTrianglesNext(context, BATCH_TRIANGLES, vertices.data())) {
+            for(int triangle = 0; triangle < count; ++triangle) {
+                const auto* points = vertices.data() + triangle * 3;
+                for(int edge = 0; edge < 3; ++edge) {
+                    const auto& a = points[edge];
+                    const auto& b = points[(edge + 1) % 3];
+                    Math::Vec3 first{a.x, a.y, a.z}, second{b.x, b.y, b.z};
+                    if(!Math::is_finite(first) || !Math::is_finite(second))
+                        return Edges::failure({"Collision outline contains nonfinite vertices"});
+                    if(key(second) < key(first))
+                        std::swap(first, second);
+                    if(first != second)
+                        edges.emplace_back(first, second);
+                }
+            }
+        }
+        std::ranges::sort(edges, {},
+            [&](const ColliderEdge& edge) { return std::pair{key(edge.first), key(edge.second)}; });
+        edges.erase(std::unique(edges.begin(), edges.end()), edges.end());
+        return Edges::success(std::move(edges));
+    }
+
+    PhysicsService::PhysicsService(MeshSource meshes) : m_meshes(std::move(meshes)) {}
     PhysicsService::Statistics PhysicsService::get_statistics() const {
         if(!m_impl)
             return {};
@@ -1394,7 +1642,7 @@ namespace Comet {
             return Result<void, Error>::failure({"Physics service is inactive"});
         if(m_impl)
             return Result<void, Error>::failure({"Physics world is already active"});
-        m_impl = std::make_unique<Impl>();
+        m_impl = std::make_unique<Impl>(m_meshes);
         return Result<void, Error>::success();
     }
 
@@ -1403,6 +1651,10 @@ namespace Comet {
         if(!m_impl)
             return Result<ObjectChange, Error>::failure({"Physics world is not active"});
         return m_impl->synchronize_body(definition);
+    }
+
+    Result<bool, Error> PhysicsService::synchronize_meshes() {
+        return m_impl->synchronize_meshes();
     }
 
     Result<PhysicsService::ObjectChange, Error> PhysicsService::synchronize_character(
@@ -1449,32 +1701,88 @@ namespace Comet {
             height / (character.settings.height * character.last_transform.scale.x)};
     }
 
-    std::optional<float> PhysicsService::cast_sphere(const EntityUuid ignored,
-        const EntityId entity, const Math::Vec3 origin, const Math::Vec3 displacement,
-        const float radius) const {
+    Result<std::optional<PhysicsAccess::QueryHit>> PhysicsService::query_shape(
+        const ColliderComponent& collider, const TransformComponent& transform,
+        Math::Vec3 displacement, const QueryFilter& options) const {
+        using Hits = Result<std::optional<QueryHit>>;
         if(!m_impl)
-            return std::nullopt;
-        JPH::BodyID ignored_body;
-        if(const auto found = m_impl->characters.find(entity);
-            found != m_impl->characters.end() && found->second.uuid == ignored)
-            ignored_body = found->second.controller->GetInnerBodyID();
-        else if(const auto found = m_impl->bodies.find(entity);
-            found != m_impl->bodies.end() && found->second.uuid == ignored)
-            ignored_body = found->second.id;
-        const JPH::SphereShape sphere(radius);
-        const auto start = JPH::RMat44::sTranslation(to_position(origin));
-        const JPH::RShapeCast cast(&sphere, JPH::Vec3::sOne(), start,
+            return Hits::failure("Physics world has not been synchronized");
+        if(auto valid = validate_collider_geometry(transform, collider); !valid)
+            return Hits::failure(valid.error().message);
+        if(collider.shape == ColliderShape::TriangleMesh)
+            return Hits::failure("Shape cast requires a convex shape, not a triangle mesh");
+        auto created = m_impl->collider_shape(collider, transform.scale);
+        if(!created)
+            return Hits::failure(created.error().message);
+        const auto& shape = created.value();
+        const auto origin = to_position(transform.translation);
+        const auto cast = JPH::RShapeCast::sFromWorldTransform(shape, JPH::Vec3::sOne(),
+            JPH::RMat44::sRotationTranslation(to_rotation(transform.rotation), origin),
             JPH::Vec3(displacement.x, displacement.y, displacement.z));
         JPH::ShapeCastSettings settings;
         settings.mBackFaceModeConvex = JPH::EBackFaceMode::CollideWithBackFaces;
+        settings.mReturnDeepestPoint = true;
         JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
-        const SolidBodyFilter filter(ignored_body);
-        m_impl->world.GetNarrowPhaseQuery().CastShape(cast, settings, to_position(origin),
-            collector, m_impl->world.GetDefaultBroadPhaseLayerFilter(MOVING_LAYER),
-            m_impl->world.GetDefaultLayerFilter(MOVING_LAYER), filter);
-        if(collector.HadHit())
-            return std::clamp(collector.mHit.mFraction, 0.0f, 1.0f);
-        return 1.0f;
+        const Impl::QueryBodyFilter filter(*m_impl, options);
+        m_impl->world.GetNarrowPhaseQuery().CastShape(
+            cast, settings, origin, collector, {}, {}, filter);
+        if(!collector.HadHit())
+            return Hits::success(std::nullopt);
+        const auto& hit = collector.mHit;
+        const auto owner = m_impl->find_contact_body(hit.mBodyID2);
+        if(!owner)
+            return Hits::failure("Shape cast body is no longer available");
+        const auto point = origin + hit.mContactPointOn2;
+        const auto normal = -hit.mPenetrationAxis.NormalizedOr(JPH::Vec3::sZero());
+        return Hits::success(QueryHit{owner->uuid, {point.GetX(), point.GetY(), point.GetZ()},
+            {normal.GetX(), normal.GetY(), normal.GetZ()}, std::clamp(hit.mFraction, 0.0f, 1.0f)});
+    }
+
+    Result<std::optional<PhysicsAccess::QueryHit>> PhysicsService::query_ray(
+        Math::Vec3 origin, Math::Vec3 displacement, const QueryFilter& options) const {
+        using Hits = Result<std::optional<QueryHit>>;
+        if(!m_impl)
+            return Hits::failure("Physics world has not been synchronized");
+        const JPH::RRayCast ray(
+            to_position(origin), JPH::Vec3(displacement.x, displacement.y, displacement.z));
+        JPH::RayCastResult hit;
+        const Impl::QueryBodyFilter filter(*m_impl, options);
+        if(!m_impl->world.GetNarrowPhaseQuery().CastRay(ray, hit, {}, {}, filter))
+            return Hits::success(std::nullopt);
+        const auto owner = m_impl->find_contact_body(hit.mBodyID);
+        const JPH::BodyLockRead lock(m_impl->world.GetBodyLockInterface(), hit.mBodyID);
+        if(!owner || !lock.Succeeded())
+            return Hits::failure("Raycast body is no longer available");
+        const auto point = origin + hit.mFraction * displacement;
+        Math::Vec3 normal = -glm::normalize(displacement);
+        if(hit.mFraction > 0) {
+            const auto surface =
+                lock.GetBody().GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, to_position(point));
+            normal = {surface.GetX(), surface.GetY(), surface.GetZ()};
+        }
+        return Hits::success(QueryHit{owner->uuid, point, normal, hit.mFraction});
+    }
+
+    Result<std::vector<EntityUuid>> PhysicsService::query_overlap(
+        Math::Vec3 center, float radius, const QueryFilter& options) const {
+        using Hits = Result<std::vector<EntityUuid>>;
+        if(!m_impl)
+            return Hits::failure("Physics world has not been synchronized");
+        const JPH::SphereShape sphere(radius);
+        const JPH::CollideShapeSettings settings;
+        JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collector;
+        const Impl::QueryBodyFilter filter(*m_impl, options);
+        m_impl->world.GetNarrowPhaseQuery().CollideShape(&sphere, JPH::Vec3::sOne(),
+            JPH::RMat44::sTranslation(to_position(center)), settings, to_position(center),
+            collector, {}, {}, filter);
+        std::vector<EntityUuid> entities;
+        entities.reserve(collector.mHits.size());
+        for(const auto& hit : collector.mHits)
+            if(const auto owner = m_impl->find_contact_body(hit.mBodyID2))
+                entities.push_back(owner->uuid);
+        std::ranges::sort(entities);
+        entities.erase(std::unique(entities.begin(), entities.end()), entities.end());
+        return Hits::success(std::move(entities));
     }
 
     Result<void, Error> PhysicsService::synchronize_joints(

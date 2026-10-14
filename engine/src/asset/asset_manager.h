@@ -2,6 +2,7 @@
 
 #include "asset/database.h"
 #include "asset/data/material_data.h"
+#include "asset/data/mesh_data.h"
 #include "asset/import/asset_task_types.h"
 #include "asset/reference.h"
 #include "common/export.h"
@@ -19,6 +20,10 @@
 
 namespace Comet {
     class AssetRegistry;
+    class Scene;
+    class ComponentRegistry;
+    class COMET_API Prefab;
+    struct ModelData;
     class ImportService;
     class AssetLoader;
     class RenderAssetFactory;
@@ -34,6 +39,7 @@ namespace Comet {
     class AssetTaskQueue;
     struct AssetImportResult;
     struct MeshArtifactCandidate;
+    struct ModelImportCandidate;
     struct MaterialImportCandidate;
     struct TextureImportCandidate;
     struct EnvironmentImportCandidate;
@@ -89,18 +95,29 @@ namespace Comet {
             AssetHandle handle, AssetType expected_type);
         // 环境资源异步准备；成功仅表示已接受加载需求，不保证 GPU 资源已驻留。
         [[nodiscard]] Result<void, Error> request_load(AssetHandle handle, AssetType expected_type);
+        [[nodiscard]] Result<void, Error> request_load(const AssetReference& reference);
         enum class MissingAssetPolicy { FailRequired, AllowMissing };
         [[nodiscard]] Result<std::size_t, Error> prepare_references(
             std::span<const AssetReference> references, MissingAssetPolicy policy);
+        [[nodiscard]] Result<std::vector<AssetReference>, Error> collect_scene_references(
+            Scene& scene, const ComponentRegistry& components,
+            MissingAssetPolicy policy = MissingAssetPolicy::FailRequired);
+        [[nodiscard]] Result<std::shared_ptr<Prefab>, Error> load_prefab(
+            AssetHandle handle, const ComponentRegistry& components);
         // prepare_references 后只读查询；临时环境预览不算完整资源就绪。
         [[nodiscard]] Result<bool, Error> references_ready(
             std::span<const AssetReference> references, MissingAssetPolicy policy) const;
+        [[nodiscard]] Result<void, Error> import_model(AssetHandle handle);
+        [[nodiscard]] bool import_model_async(
+            AssetHandle handle, AssetImportMode mode = AssetImportMode::IfNeeded);
+        [[nodiscard]] Result<std::shared_ptr<const ModelData>, Error> load_model(
+            AssetHandle handle);
         [[nodiscard]] Result<void, Error> import_mesh(AssetHandle handle);
         [[nodiscard]] bool import_mesh_async(
-            AssetHandle handle, MeshImportMode mode = MeshImportMode::IfNeeded);
-        [[nodiscard]] bool is_mesh_import_pending(AssetHandle handle) const;
+            AssetHandle handle, AssetImportMode mode = AssetImportMode::IfNeeded);
+        [[nodiscard]] bool is_import_pending(AssetHandle handle) const;
         // 包含在途和失败的导入；成功确认 Artifact 后移除。
-        [[nodiscard]] std::vector<AssetHandle> mesh_imports_needing_recheck() const;
+        [[nodiscard]] std::vector<AssetHandle> source_imports_needing_recheck() const;
         using ShaderProgramPrepare =
             std::function<Result<ShaderProgramImportPrepared, ShaderProgramImportFailure>()>;
         [[nodiscard]] bool import_shader_program_async(
@@ -112,6 +129,9 @@ namespace Comet {
         [[nodiscard]] Result<std::shared_ptr<ShaderProgramArtifact>, Error> load_shader_program(
             AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Mesh>, Error> load_mesh(AssetHandle handle);
+        // 读取已导入的 CPU 几何；不创建 GPU 资源，也不发布到运行时 Registry。
+        [[nodiscard]] Result<MeshData, Error> read_mesh_data(AssetHandle handle);
+        [[nodiscard]] uint64_t mesh_data_revision(AssetHandle handle) const;
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> load_texture(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Script>, Error> load_script(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<AudioClip>, Error> load_audio(AssetHandle handle);
@@ -158,7 +178,7 @@ namespace Comet {
             AssetHandle handle, const std::vector<std::filesystem::path>& dependencies);
         void complete_mesh_import(AssetHandle handle, AssetRevision revision,
             const std::vector<std::filesystem::path>& dependencies);
-        [[nodiscard]] bool schedule_mesh_task(const AssetRecord& record, MeshImportMode mode);
+        [[nodiscard]] bool schedule_mesh_task(const AssetRecord& record, AssetImportMode mode);
         [[nodiscard]] bool schedule_loaded_texture_refresh(const AssetRecord& record);
         [[nodiscard]] bool schedule_material_refresh(const AssetRecord& record);
         [[nodiscard]] Result<bool, Error> schedule_environment(const AssetRecord& record);
@@ -168,6 +188,8 @@ namespace Comet {
         // 空值表示未发布；Handle 表示已发布；错误表示不能继续处理队列。
         using ImportPublication = Result<std::optional<AssetHandle>, Error>;
         ImportPublication publish_import_result(AssetImportResult& result);
+        void invalidate_model(AssetHandle handle);
+        ImportPublication publish_model_candidate(ModelImportCandidate& candidate);
         ImportPublication publish_mesh_candidate(MeshArtifactCandidate& candidate);
         ImportPublication publish_material_candidate(MaterialImportCandidate& candidate);
         ImportPublication publish_texture_candidate(TextureImportCandidate& candidate);
@@ -175,6 +197,15 @@ namespace Comet {
         ImportPublication publish_shader_program_candidate(ShaderProgramImportCandidate& candidate);
 
         AssetImportLimits m_limits;
+        struct MeshDataState {
+            uint64_t revision = 0;
+            bool available = true;
+            bool prepared = false;
+        };
+        void change_mesh_data(AssetHandle handle, bool available);
+        void publish_model_meshes(AssetHandle model);
+        uint64_t m_mesh_data_revision = 0;
+        std::unordered_map<AssetHandle, MeshDataState> m_mesh_data;
         std::unique_ptr<AssetDatabase> m_owned_database;
         AssetDatabase& m_database;
         std::unique_ptr<ImportService> m_import_service;
@@ -187,7 +218,7 @@ namespace Comet {
         struct PendingEnvironmentPreview;
         std::unordered_map<AssetHandle, std::shared_ptr<PendingEnvironmentPreview>>
             m_environment_previews;
-        std::unordered_set<AssetHandle> m_mesh_imports_needing_recheck;
+        std::unordered_set<AssetHandle> m_source_imports_needing_recheck;
         bool m_processing_completions = false;
     };
 }

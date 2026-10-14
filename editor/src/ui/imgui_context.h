@@ -13,6 +13,7 @@
 #include <vector>
 
 namespace Comet {
+    struct TextureData;
     class RenderContext;
     class RenderPass;
     class Window;
@@ -60,7 +61,7 @@ namespace CometEditor::Ui {
         ImGuiContext& operator=(const ImGuiContext&) = delete;
 
         [[nodiscard]] bool begin_frame();
-        // 交付独立持有的绘制数据和字体像素；录制消费一次并由帧槽保活 GPU 资源。
+        // 交付独立持有的绘制数据、字体和预览像素；录制消费一次并由帧槽保活 GPU 资源。
         std::unique_ptr<Frame> end_frame();
 
         void release_swapchain_resources();
@@ -78,12 +79,16 @@ namespace CometEditor::Ui {
         [[nodiscard]] ImTextureID get_viewport_texture_id(
             uint32_t frame_index, uint32_t view_id = 0) const;
 
+        // CPU 图片在 end_frame 捕获版本，上传和释放仍归绘制线程。
+        [[nodiscard]] Comet::Result<ImTextureID> add_image(Comet::TextureData data);
+        void remove_image(ImTextureID image);
+
     private:
         Comet::Result<void, Comet::GraphicsError> render(
             Comet::OverlayRecordContext& overlay, const Frame& frame);
         class TextureBinding;
-        class FontTexture;
-        struct FontPixels;
+        class PixelTexture;
+        struct ImagePixels;
         struct ViewportImage;
         struct ContextDeleter {
             void operator()(::ImGuiContext* context) const noexcept;
@@ -105,12 +110,14 @@ namespace CometEditor::Ui {
         std::unique_ptr<Comet::RenderTarget> m_render_target;
         std::unique_ptr<Comet::DescriptorPool> m_descriptor_pool;
         std::map<uint32_t, std::vector<std::shared_ptr<const ViewportImage>>> m_viewport_images;
-        ImTextureID m_next_viewport_texture_id = 1;
-        std::map<int, std::shared_ptr<const FontPixels>> m_font_pixels;
+        ImTextureID m_next_texture_id = 1;
+        std::map<int, std::shared_ptr<const ImagePixels>> m_font_pixels;
+        std::map<ImTextureID, std::shared_ptr<const ImagePixels>> m_image_pixels;
+        std::map<ImTextureID, std::shared_ptr<PixelTexture>> m_image_textures;
         std::map<ImTextureID, std::shared_ptr<TextureBinding>> m_viewport_textures;
         std::vector<std::weak_ptr<TextureBinding>> m_viewport_versions;
-        std::map<int, std::shared_ptr<FontTexture>> m_font_textures;
-        std::vector<std::weak_ptr<FontTexture>> m_font_versions;
+        std::map<int, std::shared_ptr<PixelTexture>> m_font_textures;
+        std::vector<std::weak_ptr<PixelTexture>> m_pixel_versions;
         std::uint64_t m_presentation_generation = 0;
         bool m_initialized = false;
         bool m_is_recreating = false;

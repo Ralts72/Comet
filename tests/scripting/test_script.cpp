@@ -504,6 +504,131 @@ return group
         EXPECT_FALSE(Script::load_group(directory.path(), paths));
     }
 
+    TEST(ScriptInvocationTest, SceneSwitchUsesAProjectRelativePathAndCarriesSessionValues) {
+        const auto script = Script::create(R"(
+            local function change()
+                comet.load_scene('scenes/next.scene')
+                comet.session_set('score', 7)
+            end
+            return {on_start = change, on_stop = change, update = change, on_trigger_enter = change}
+        )");
+        ASSERT_TRUE(script);
+        const auto instance = ScriptInstance::create(*script.value());
+        ASSERT_TRUE(instance);
+        Scene scene;
+        const auto actor = scene.create_entity();
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.start(scene));
+        for(const auto phase : {ScriptInstance::Phase::Start, ScriptInstance::Phase::Stop}) {
+            EXPECT_FALSE(instance.value()->invoke(
+                phase, actor, {}, {.scene = &scene, .session = &runtime.get_session()}));
+            EXPECT_FALSE(runtime.take_scene_request());
+        }
+        for(const auto phase :
+            {ScriptInstance::Phase::Update, ScriptInstance::Phase::TriggerEnter}) {
+            ASSERT_TRUE(instance.value()->invoke(phase, actor, {},
+                {.scene = &scene, .session = &runtime.get_session(), .contact_other = actor}));
+            const auto request = runtime.take_scene_request();
+            ASSERT_TRUE(request);
+            EXPECT_EQ(request->kind, RuntimeSession::SceneRequest::Kind::Load);
+            EXPECT_EQ(request->path, "scenes/next.scene");
+            EXPECT_EQ(std::get<float>(request->values.at("score")), 7.f);
+        }
+        for(const auto arguments :
+            {"'../escape.scene'", "'/tmp/absolute.scene'", "17", "'scenes/next.scene', true"}) {
+            const auto invalid =
+                Script::create(std::string("return {update = function() comet.load_scene(")
+                               + arguments + ") end}");
+            ASSERT_TRUE(invalid);
+            const auto invalid_instance = ScriptInstance::create(*invalid.value());
+            ASSERT_TRUE(invalid_instance);
+            EXPECT_FALSE(invalid_instance.value()->invoke(ScriptInstance::Phase::Update, actor, {},
+                {.scene = &scene, .session = &runtime.get_session()}))
+                << arguments;
+            EXPECT_FALSE(runtime.take_scene_request());
+        }
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(ScriptInvocationTest, CheckpointRestorationIsVisibleAtStartAndSavingSelectsExplicitKeys) {
+        const auto script = Script::create(R"(
+            return {
+                on_start = function()
+                    assert(comet.checkpoint() == 'entry')
+                    assert(comet.session_get('score') == 7)
+                end,
+                update = function()
+                    comet.session_set('temporary', true)
+                    comet.save_checkpoint('gate', {'score'})
+                    comet.session_set('score', 9)
+                    comet.load_checkpoint()
+                end
+            }
+        )");
+        ASSERT_TRUE(script);
+        const auto instance = ScriptInstance::create(*script.value());
+        ASSERT_TRUE(instance);
+        Scene scene;
+        const auto actor = scene.create_entity();
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.start(scene, SceneRuntime::State::Running,
+            SceneRuntime::InputStart::Fresh, {{"score", 7.f}}, "entry"));
+        for(const auto phase : {ScriptInstance::Phase::Start, ScriptInstance::Phase::Update}) {
+            const auto invoked = instance.value()->invoke(
+                phase, actor, {}, {.scene = &scene, .session = &runtime.get_session()});
+            ASSERT_TRUE(invoked) << invoked.error().message;
+        }
+        const auto save = runtime.take_checkpoint_request();
+        ASSERT_TRUE(save);
+        EXPECT_EQ(save->marker, "gate");
+        EXPECT_EQ(save->values, (ParameterMap{{"score", 7.f}}));
+        const auto load = runtime.take_scene_request();
+        ASSERT_TRUE(load);
+        EXPECT_EQ(load->kind, RuntimeSession::SceneRequest::Kind::Continue);
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(ScriptInvocationTest, CheckpointRequestsRejectInvalidKeysArgumentsAndStartupPhases) {
+        Scene scene;
+        const auto actor = scene.create_entity();
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.get_session().set_value("score", 7.f));
+        for(const auto call :
+            {"comet.save_checkpoint('', {})", "comet.save_checkpoint('gate', {'missing'})",
+                "comet.save_checkpoint('gate', {'score', 'score'})",
+                "comet.save_checkpoint('gate', {true})",
+                "comet.save_checkpoint('gate', {[2]='score'})",
+                "comet.save_checkpoint('gate', {score=true})",
+                "comet.save_checkpoint('gate', {}, true)", "comet.save_checkpoint('gate')",
+                "comet.load_checkpoint('gate')", "comet.checkpoint(true)"}) {
+            const auto script =
+                Script::create(std::string("return {update=function() ") + call + " end}");
+            ASSERT_TRUE(script);
+            const auto instance = ScriptInstance::create(*script.value());
+            ASSERT_TRUE(instance);
+            EXPECT_FALSE(instance.value()->invoke(ScriptInstance::Phase::Update, actor, {},
+                {.scene = &scene, .session = &runtime.get_session()}))
+                << call;
+            EXPECT_FALSE(runtime.take_checkpoint_request());
+            EXPECT_FALSE(runtime.take_scene_request());
+        }
+        for(const auto call : {"comet.save_checkpoint('gate', {})", "comet.load_checkpoint()"}) {
+            const auto script = Script::create(std::string("local function request() ") + call
+                                               + " end return {on_start=request, on_stop=request}");
+            ASSERT_TRUE(script);
+            const auto instance = ScriptInstance::create(*script.value());
+            ASSERT_TRUE(instance);
+            for(const auto phase : {ScriptInstance::Phase::Start, ScriptInstance::Phase::Stop}) {
+                EXPECT_FALSE(instance.value()->invoke(
+                    phase, actor, {}, {.scene = &scene, .session = &runtime.get_session()}));
+                EXPECT_FALSE(runtime.take_checkpoint_request());
+                EXPECT_FALSE(runtime.take_scene_request());
+            }
+        }
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST(ScriptInvocationTest, RestartRequiresAnActiveRuntimeUpdateAndValidEntity) {
         const auto script = Script::create(R"(
             local function restart()
@@ -524,15 +649,15 @@ return group
         InputState input;
         EXPECT_FALSE(instance.value()->invoke(ScriptInstance::Phase::Update, actor, {},
             {.scene = &scene, .session = &runtime.get_session(), .input = &input}));
-        EXPECT_FALSE(runtime.take_restart_request());
+        EXPECT_FALSE(runtime.take_scene_request());
         ASSERT_TRUE(runtime.start(scene));
         for(const auto phase : {ScriptInstance::Phase::Start, ScriptInstance::Phase::Stop}) {
             EXPECT_FALSE(instance.value()->invoke(
                 phase, actor, {}, {.scene = &scene, .session = &runtime.get_session()}));
-            EXPECT_FALSE(runtime.take_restart_request());
+            EXPECT_FALSE(runtime.take_scene_request());
             EXPECT_FALSE(instance.value()->invoke(phase, actor, {},
                 {.scene = &scene, .session = &runtime.get_session(), .input = &input}));
-            EXPECT_FALSE(runtime.take_restart_request());
+            EXPECT_FALSE(runtime.take_scene_request());
         }
         for(const auto phase : {ScriptInstance::Phase::Update, ScriptInstance::Phase::FixedUpdate,
                 ScriptInstance::Phase::TriggerEnter, ScriptInstance::Phase::TriggerExit,
@@ -540,16 +665,16 @@ return group
             const auto called = instance.value()->invoke(phase, actor, {},
                 {.scene = &scene, .session = &runtime.get_session(), .contact_other = actor});
             ASSERT_TRUE(called) << called.error().message;
-            EXPECT_TRUE(runtime.take_restart_request());
+            EXPECT_TRUE(runtime.take_scene_request());
             EXPECT_TRUE(runtime.get_session().get_value("after.restart"));
         }
         EXPECT_FALSE(instance.value()->invoke(static_cast<ScriptInstance::Phase>(-1), actor, {},
             {.scene = &scene, .session = &runtime.get_session(), .input = &input}));
-        EXPECT_FALSE(runtime.take_restart_request());
+        EXPECT_FALSE(runtime.take_scene_request());
         scene.destroy_entity(actor);
         EXPECT_FALSE(instance.value()->invoke(ScriptInstance::Phase::Update, actor, {},
             {.scene = &scene, .session = &runtime.get_session(), .input = &input}));
-        EXPECT_FALSE(runtime.take_restart_request());
+        EXPECT_FALSE(runtime.take_scene_request());
         ASSERT_TRUE(runtime.stop());
     }
 
@@ -583,8 +708,8 @@ return group
         ASSERT_TRUE(instance.value()->invoke(ScriptInstance::Phase::Update, actor, {},
             {.scene = &scene, .session = &runtime.get_session()}));
         EXPECT_EQ(runtime.get_session().get_value("score"), ParameterValue(3.0f));
-        EXPECT_TRUE(runtime.take_restart_request());
-        EXPECT_FALSE(other_runtime.take_restart_request());
+        EXPECT_TRUE(runtime.take_scene_request());
+        EXPECT_FALSE(other_runtime.take_scene_request());
         // 一次合法调用不能给后续未提供会话的调用遗留权限。
         EXPECT_FALSE(
             instance.value()->invoke(ScriptInstance::Phase::Update, actor, {}, {.scene = &scene}));
@@ -760,7 +885,7 @@ return group
             EXPECT_EQ(disabled_contexts, std::vector<std::string>{"palette"});
             EXPECT_EQ(actor.get_component<TransformComponent>().translation, Math::Vec3(0));
             EXPECT_FALSE(runtime.get_session().get_value("leaked"));
-            EXPECT_FALSE(runtime.take_restart_request());
+            EXPECT_FALSE(runtime.take_scene_request());
         }
         // 输出只属于调用方；未配置 palette 的 Runtime 不应收到这批关闭请求。
         EXPECT_TRUE(runtime.advance(0));
@@ -995,6 +1120,29 @@ return group
             ASSERT_TRUE(second_runtime.stop());
             ASSERT_TRUE(first_runtime.stop());
         }
+    }
+
+    TEST(ScriptSourceTest, PrefabPropertiesKeepExactAssetIdentityAndDeclareDependencies) {
+        const auto script =
+            Script::create("return {properties={unit={type='prefab'}, label='text'}}");
+        ASSERT_TRUE(script) << script.error().message;
+        EXPECT_EQ(
+            script.value()->properties().at("unit").semantic, Script::Property::Semantic::Prefab);
+        EXPECT_EQ(std::get<std::string>(script.value()->properties().at("unit").default_value), "");
+        const std::string identity = "18446744073709551610";
+        const ParameterMap parameters{{"unit", identity}};
+        ASSERT_TRUE(script.value()->validate_overrides(parameters));
+        const auto references = script.value()->asset_references(parameters);
+        ASSERT_TRUE(references);
+        ASSERT_EQ(references.value().size(), 1);
+        EXPECT_EQ(references.value().front().handle, AssetHandle{18446744073709551610ull});
+        EXPECT_EQ(references.value().front().type, AssetType::Prefab);
+        EXPECT_TRUE(script.value()->asset_references({}).value().empty());
+        for(const auto* invalid : {"0", "01", "-1", "+1", " 1", "1x", "18446744073709551616"})
+            EXPECT_FALSE(script.value()->validate_overrides({{"unit", std::string(invalid)}}));
+        EXPECT_FALSE(script.value()->validate_overrides({{"unit", 1.f}}));
+        EXPECT_FALSE(Script::create("return {properties={unit={type='prefab',default='1'}}}"));
+        EXPECT_FALSE(Script::create("return {properties={unit={type='prefab\\0extra'}}}"));
     }
 
     TEST(ScriptSourceTest, EntityPropertiesRequireAnExplicitTypeAndSceneOwnedTarget) {

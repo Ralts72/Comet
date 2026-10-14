@@ -14,6 +14,7 @@ namespace Comet {
             return copy;
         auto copy = std::make_shared<Material>(m_name, m_template_name, m_shader_program);
         copy->m_revision = m_revision;
+        copy->m_surface = m_surface;
         copy->m_texture_properties = m_texture_properties;
         copy->m_scalar_properties = m_scalar_properties;
         copy->m_vector_properties = m_vector_properties;
@@ -57,6 +58,16 @@ namespace Comet {
             return true;
         m_vector_properties[name] = value;
         mark_changed();
+        return true;
+    }
+
+    bool Material::set_surface(const MaterialSurface surface) {
+        if(!surface.valid())
+            return false;
+        if(m_surface != surface) {
+            m_surface = surface;
+            mark_changed();
+        }
         return true;
     }
 

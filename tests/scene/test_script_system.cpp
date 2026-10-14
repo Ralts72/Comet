@@ -892,7 +892,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(runtime.is_active());
         EXPECT_EQ(scene.entity_count(), 1u);
         EXPECT_FALSE(runtime.get_session().get_value("event.called"));
-        EXPECT_FALSE(runtime.take_restart_request());
+        EXPECT_FALSE(runtime.take_scene_request());
         EXPECT_FLOAT_EQ(entity.get_component<TransformComponent>().translation.x, 0);
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(0));
@@ -1079,7 +1079,7 @@ namespace Comet::Tests {
         EXPECT_NE(failed.error().message.find("script failed"), std::string::npos);
         EXPECT_EQ(scene.entity_count(), 1u);
         EXPECT_FALSE(runtime.get_session().get_value("game.score"));
-        EXPECT_FALSE(runtime.take_restart_request());
+        EXPECT_FALSE(runtime.take_scene_request());
         EXPECT_FALSE(runtime.is_active());
     }
 
@@ -1787,7 +1787,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
         control(Input::Key::R, Input::GamepadButton::Start, true);
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
-        EXPECT_TRUE(runtime.take_restart_request());
+        EXPECT_TRUE(runtime.take_scene_request());
         EXPECT_EQ(material->get_revision(), material_revision);
         ASSERT_TRUE(runtime.stop());
         EXPECT_FALSE(scene.get_material_overrides(center));
@@ -2054,7 +2054,7 @@ namespace Comet::Tests {
         control(Input::Key::Right, Input::GamepadButton::DpadRight, false);
         control(Input::Key::R, Input::GamepadButton::Start, true);
         ASSERT_TRUE(runtime.advance(0, &input.publish_frame()));
-        EXPECT_TRUE(runtime.take_restart_request());
+        EXPECT_TRUE(runtime.take_scene_request());
         EXPECT_FALSE(playing.value()->find_entity(*goal_uuid));
         ASSERT_TRUE(runtime.stop());
         EXPECT_TRUE(edit_scene.value()->find_entity(*goal_uuid));
@@ -2080,7 +2080,7 @@ namespace Comet::Tests {
             authored_player_position);
         control(Input::Key::Right, Input::GamepadButton::DpadRight, true);
         ASSERT_TRUE(runtime.advance(0.03, &input.publish_frame()));
-        EXPECT_FALSE(runtime.take_restart_request());
+        EXPECT_FALSE(runtime.take_scene_request());
         EXPECT_GT(restarted_player.get_component<TransformComponent>().translation.x,
             authored_player_position.x);
         control(Input::Key::Right, Input::GamepadButton::DpadRight, false);
@@ -2088,7 +2088,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
         control(Input::Key::R, Input::GamepadButton::Start, true);
         ASSERT_TRUE(runtime.advance(0.01, &input.publish_frame()));
-        EXPECT_TRUE(runtime.take_restart_request());
+        EXPECT_TRUE(runtime.take_scene_request());
         ASSERT_TRUE(runtime.stop());
     }
 

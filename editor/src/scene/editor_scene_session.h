@@ -2,6 +2,7 @@
 
 #include "editor_state.h"
 #include "scene/scene_runtime.h"
+#include "gameplay/game_session.h"
 #include "common/result.h"
 #include "common/error.h"
 
@@ -25,19 +26,26 @@ namespace CometEditor {
         // 恢复保留的 Edit 场景不重新准备资产，并返回待销毁的 Play 场景。
         using RestoreEditScene =
             std::function<std::unique_ptr<Comet::Scene>(std::unique_ptr<Comet::Scene>)>;
-        using TakeRestartRequest = std::function<bool()>;
-        using StartRuntime =
-            std::function<Comet::Result<void, Comet::Error>(Comet::SceneRuntime::State)>;
+        using TakeSceneRequest =
+            std::function<std::optional<Comet::RuntimeSession::SceneRequest>()>;
+        using StartRuntime = std::function<Comet::Result<void, Comet::Error>(
+            Comet::SceneRuntime::State, const Comet::ParameterMap&, std::string_view)>;
 
         EditorSceneSession(EditorState& state, const Comet::SceneSerializer& serializer,
             ActiveSceneGetter get_active_scene, ActivatePlayScene activate_play_scene,
             RestoreEditScene restore_edit_scene, StartRuntime start_runtime,
-            TakeRestartRequest take_restart_request = {});
+            TakeSceneRequest take_scene_request = {},
+            Comet::GameSession::LoadScene load_scene = {});
 
         ~EditorSceneSession();
 
         EditorSceneSession(const EditorSceneSession&) = delete;
         EditorSceneSession& operator=(const EditorSceneSession&) = delete;
+
+        using TakeCheckpointRequest =
+            std::function<std::optional<Comet::RuntimeSession::CheckpointRequest>()>;
+        void set_persistence(Comet::GameSession::Persistence persistence,
+            TakeCheckpointRequest take_request, std::function<std::string()> scene_path);
 
         void request_mode(EditorMode mode);
 
@@ -47,15 +55,20 @@ namespace CometEditor {
     private:
         [[nodiscard]] Comet::Result<bool, Comet::Error> start_play_mode(
             Comet::SceneRuntime::State initial_state);
+        [[nodiscard]] Comet::Result<bool, Comet::Error> transition(
+            const Comet::RuntimeSession::SceneRequest& request, Comet::SceneRuntime::State state);
         [[nodiscard]] Comet::Result<bool, Comet::Error> exit_play_mode();
 
         EditorState& m_state;
-        const Comet::SceneSerializer& m_serializer;
+        Comet::GameSession m_game;
         ActiveSceneGetter m_get_active_scene;
         ActivatePlayScene m_activate_play_scene;
         RestoreEditScene m_restore_edit_scene;
         StartRuntime m_start_runtime;
-        TakeRestartRequest m_take_restart_request;
+        TakeSceneRequest m_take_scene_request;
+        Comet::GameSession::LoadScene m_load_scene;
+        TakeCheckpointRequest m_take_checkpoint_request;
+        std::function<std::string()> m_scene_path;
         std::unique_ptr<Comet::Scene> m_edit_scene;
         std::optional<EditorMode> m_requested_mode;
     };

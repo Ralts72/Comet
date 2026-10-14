@@ -4,8 +4,10 @@
 #include "common/error.h"
 #include "common/result.h"
 #include "scene/components.h"
+#include "asset/data/mesh_data.h"
 
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <span>
 #include <utility>
@@ -25,10 +27,20 @@ namespace Comet {
             std::size_t characters = 0;
         };
 
-        PhysicsService();
+        struct MeshSource {
+            std::function<Result<MeshData, Error>(AssetHandle)> read;
+            // 产品发布或失效时改变；不以源文件扫描版本代替产品版本。
+            std::function<AssetRevision(AssetHandle)> revision;
+        };
+        // 回调只在主线程同步阶段使用；提供者须活到运行系统停止之后。
+        explicit PhysicsService(MeshSource meshes = {});
         ~PhysicsService() override;
         // 主线程在固定步之外读取；pose_updates 对应最近完成的固定步。
         [[nodiscard]] Statistics get_statistics() const;
+        using ColliderEdge = std::pair<Math::Vec3, Math::Vec3>;
+        // 复用实际形状构建，返回相对网格原点、已应用 scale 的去重边；不要求运行世界。
+        [[nodiscard]] static Result<std::vector<ColliderEdge>, Error> mesh_collider_edges(
+            ColliderShape shape, const MeshData& mesh, Math::Vec3 scale);
 
     private:
         friend class PhysicsSystem;
@@ -95,12 +107,18 @@ namespace Comet {
         bool enqueue_character_move(EntityUuid uuid, EntityId entity, CharacterMove move) override;
         std::optional<CharacterState> read_character_state(
             EntityUuid uuid, EntityId entity) const override;
-        std::optional<float> cast_sphere(EntityUuid ignored, EntityId entity, Math::Vec3 origin,
-            Math::Vec3 displacement, float radius) const override;
+        Result<std::optional<QueryHit>> query_shape(const ColliderComponent& shape,
+            const TransformComponent& transform, Math::Vec3 displacement,
+            const QueryFilter& filter) const override;
+        Result<std::optional<QueryHit>> query_ray(
+            Math::Vec3 origin, Math::Vec3 displacement, const QueryFilter& filter) const override;
+        Result<std::vector<EntityUuid>> query_overlap(
+            Math::Vec3 center, float radius, const QueryFilter& filter) const override;
         void reset() noexcept override;
         Result<void, Error> prepare_world();
         // 区分首次登记与重建，重建后需重新绑定关节。
         Result<ObjectChange, Error> synchronize_body(const BodyDefinition& definition);
+        Result<bool, Error> synchronize_meshes();
         Result<ObjectChange, Error> synchronize_character(const CharacterDefinition& definition);
         void remove_characters(std::span<const std::pair<EntityUuid, EntityId>> definitions);
         // 按实体与关节类型排序；仅配置／结构变化或刚体重建时调用。
@@ -112,6 +130,7 @@ namespace Comet {
         [[nodiscard]] std::span<const JointBreak> broken_joints() const;
 
         struct Impl;
+        MeshSource m_meshes;
         std::unique_ptr<Impl> m_impl;
         std::vector<Command> m_commands;
         std::vector<CharacterRequest> m_character_moves;

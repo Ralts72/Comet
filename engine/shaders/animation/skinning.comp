@@ -9,7 +9,7 @@ layout(push_constant) uniform Parameters { uint vertex_count; } parameters;
 void main() {
     uint vertex = gl_GlobalInvocationID.x;
     if(vertex >= parameters.vertex_count) return;
-    uint offset = vertex * 8;
+    uint offset = vertex * 12;
     Influence influence = influences[vertex];
     mat4 skin = influence.weights.x * bones[influence.joints.x]
               + influence.weights.y * bones[influence.joints.y]
@@ -22,6 +22,9 @@ void main() {
     if(abs(determinant(basis)) > 1e-8) transformed_normal = transpose(inverse(basis)) * rest_normal;
     vec3 normal = rest_normal;
     if(dot(transformed_normal, transformed_normal) > 1e-12) normal = normalize(transformed_normal);
+    vec3 tangent = basis * vec3(source[offset + 8], source[offset + 9], source[offset + 10]);
+    target[offset + 8] = tangent.x; target[offset + 9] = tangent.y; target[offset + 10] = tangent.z;
+    target[offset + 11] = source[offset + 11] * sign(determinant(basis));
     target[offset] = position.x; target[offset + 1] = position.y; target[offset + 2] = position.z;
     target[offset + 3] = source[offset + 3]; target[offset + 4] = source[offset + 4];
     target[offset + 5] = normal.x; target[offset + 6] = normal.y; target[offset + 7] = normal.z;

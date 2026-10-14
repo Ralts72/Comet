@@ -10,6 +10,30 @@
 #include <string>
 
 namespace Comet::Tests {
+    TEST(AssetMetadataTest, ModelSubresourcesRoundTripAndRejectAmbiguousIdentity) {
+        AssetMetadata metadata{.handle = AssetHandle{1},
+            .type = AssetType::Model,
+            .subresources = {{"mesh/name:Body/primitive:0", AssetHandle{2}, AssetType::Mesh},
+                {"material/name:Paint", AssetHandle{3}, AssetType::Material},
+                {"texture/name:Paint/srgb", AssetHandle{4}, AssetType::Texture}}};
+        const MetadataSerializer serializer;
+        const auto text = serializer.serialize(metadata);
+        ASSERT_TRUE(text) << text.error();
+        EXPECT_EQ(serializer.deserialize(text.value()).value(), metadata);
+        for(const auto& invalid : {AssetSubresource{"other", AssetHandle{1}, AssetType::Mesh},
+                AssetSubresource{"other", AssetHandle{2}, AssetType::Mesh},
+                AssetSubresource{metadata.subresources[0].key, AssetHandle{9}, AssetType::Mesh},
+                AssetSubresource{"other", AssetHandle{9}, AssetType::Model}}) {
+            auto candidate = metadata;
+            candidate.subresources.push_back(invalid);
+            EXPECT_FALSE(serializer.serialize(candidate));
+        }
+        metadata.type = AssetType::Mesh;
+        EXPECT_FALSE(serializer.serialize(metadata));
+        EXPECT_FALSE(serializer.deserialize(R"({"version":3,"guid":1,"type":"model",
+            "subresources":[{"key":"a","guid":2,"type":"mesh"},{"key":"b","guid":2,"type":"texture"}]})"));
+    }
+
     TEST(AssetMetadataTest, SerializesStableGuidAndType) {
         const AssetMetadata metadata{.handle = AssetHandle(42),
             .type = AssetType::Texture,
@@ -25,7 +49,9 @@ namespace Comet::Tests {
   "type": "texture",
   "importer": {
     "color_space": "linear",
-    "flip_y": true
+    "flip_y": true,
+    "generate_mipmaps": true,
+    "normal_map": false
   }
 }
 )");
@@ -43,6 +69,22 @@ namespace Comet::Tests {
 
         EXPECT_EQ(sidecar_path, directory.path() / "albedo.png.meta");
         EXPECT_EQ(serializer.load(sidecar_path).value(), metadata);
+    }
+
+    TEST(AssetMetadataTest, TextureMipmapSettingDefaultsOnAndRoundTripsOff) {
+        const MetadataSerializer serializer;
+        auto metadata = serializer.deserialize(R"({"version":3,"guid":42,"type":"texture",
+            "importer":{"color_space":"srgb","flip_y":false}})");
+        ASSERT_TRUE(metadata);
+        auto& settings = std::get<TextureImportSettings>(metadata.value().import_settings);
+        EXPECT_TRUE(settings.generate_mipmaps);
+        settings.generate_mipmaps = false;
+        settings.normal_map = true;
+        const auto saved = serializer.serialize(metadata.value());
+        ASSERT_TRUE(saved);
+        EXPECT_EQ(serializer.deserialize(saved.value()).value(), metadata.value());
+        EXPECT_FALSE(serializer.deserialize(R"({"version":3,"guid":42,"type":"texture",
+            "importer":{"color_space":"srgb","flip_y":false,"generate_mipmaps":"false"}})"));
     }
 
     TEST(AssetMetadataTest, PreservesFullGuidRange) {

@@ -35,6 +35,30 @@ namespace {
         }
     };
 
+    TEST_F(CommandHistoryTest, CollisionLayerEditsUndoAndRedoWithoutLosingTheHighestBit) {
+        entity.add_component<ColliderComponent>();
+        const PropertyEditTransaction::Target target{
+            entity.get_uuid(), "collider", "collision_layer"};
+        ASSERT_TRUE(edit.apply(target, uint32_t{0x80000001}));
+        EXPECT_EQ(entity.get_component<ColliderComponent>().collision_layer, 0x80000001u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(entity.get_component<ColliderComponent>().collision_layer, 1u);
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(entity.get_component<ColliderComponent>().collision_layer, 0x80000001u);
+    }
+
+    TEST_F(CommandHistoryTest, CollisionMeshSelectionUsesAssetPropertyUndoAndRedo) {
+        entity.add_component<ColliderComponent>(
+            ColliderComponent{.shape = ColliderShape::ConvexHull, .mesh = AssetHandle{101}});
+        const PropertyEditTransaction::Target target{entity.get_uuid(), "collider", "mesh"};
+        ASSERT_TRUE(edit.apply(target, AssetHandle{202}));
+        EXPECT_EQ(entity.get_component<ColliderComponent>().mesh, AssetHandle{202});
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(entity.get_component<ColliderComponent>().mesh, AssetHandle{101});
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(entity.get_component<ColliderComponent>().mesh, AssetHandle{202});
+    }
+
     TEST_F(CommandHistoryTest, TransformPreviewCancelUndoAndRedoInvalidateDescendants) {
         auto child = scene.create_entity();
         ASSERT_TRUE(scene.set_parent(child, entity));
@@ -434,4 +458,45 @@ namespace {
         ASSERT_TRUE(history.redo());
         EXPECT_EQ(value, 1);
     }
+    TEST_F(CommandHistoryTest, PropertyBatchCommitsOnceAndRejectsPartialPreviewOrUndo) {
+        auto second = scene.create_entity("Second");
+        const std::vector<PropertyEditTransaction::Target> targets{
+            translation(), {second.get_uuid(), "transform", "translation"}};
+        ASSERT_TRUE(edit.begin_many(targets));
+        ASSERT_TRUE(edit.preview_many(
+            std::vector<PropertyValue>{Math::Vec3(3, 0, 0), Math::Vec3(4, 0, 0)}));
+        EXPECT_EQ(history.undo_size(), 0u);
+        EXPECT_FALSE(edit.preview_many(
+            std::vector<PropertyValue>{Math::Vec3(9, 0, 0), std::string("wrong type")}));
+        EXPECT_FLOAT_EQ(x(), 3);
+        EXPECT_FLOAT_EQ(second.get_component<TransformComponent>().translation.x, 4);
+        ASSERT_TRUE(edit.commit());
+        EXPECT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(x(), 0);
+        EXPECT_FLOAT_EQ(second.get_component<TransformComponent>().translation.x, 0);
+        ASSERT_TRUE(history.redo());
+        EXPECT_FLOAT_EQ(x(), 3);
+        scene.destroy_entity(second);
+        const auto cursor = history.state_id();
+        EXPECT_FALSE(history.undo());
+        EXPECT_EQ(history.state_id(), cursor);
+        EXPECT_FLOAT_EQ(x(), 3);
+    }
+
+    TEST_F(CommandHistoryTest, PropertyBatchCancelRestoresSurvivorsAfterMemberDeletion) {
+        auto second = scene.create_entity("Second");
+        const std::vector<PropertyEditTransaction::Target> targets{
+            translation(), {second.get_uuid(), "transform", "translation"}};
+        EXPECT_FALSE(edit.begin_many(std::vector{translation(), translation()}));
+        ASSERT_TRUE(edit.begin_many(targets));
+        ASSERT_TRUE(edit.preview_many(
+            std::vector<PropertyValue>{Math::Vec3(5, 0, 0), Math::Vec3(6, 0, 0)}));
+        scene.destroy_entity(second);
+        EXPECT_FALSE(edit.commit());
+        EXPECT_FALSE(edit.active());
+        EXPECT_FLOAT_EQ(x(), 0);
+        EXPECT_EQ(history.undo_size(), 0u);
+    }
+
 }

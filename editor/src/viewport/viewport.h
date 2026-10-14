@@ -2,6 +2,7 @@
 
 #include "viewport/viewport_panel.h"
 #include "viewport/transform_gizmo.h"
+#include "viewport/physics_overlay.h"
 #include "common/error.h"
 #include "common/result.h"
 #include "render/debug/line_draw_list.h"
@@ -26,7 +27,7 @@ namespace CometEditor {
             const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
             const EditorShortcuts& shortcuts, Comet::Renderer& renderer,
             Comet::AssetRegistry& assets, Ui::ImGuiContext& ui,
-            std::shared_ptr<Comet::Sampler> sampler);
+            std::shared_ptr<Comet::Sampler> sampler, Comet::PhysicsService::MeshSource meshes = {});
 
         Viewport(const Viewport&) = delete;
         Viewport& operator=(const Viewport&) = delete;
@@ -54,5 +55,6 @@ namespace CometEditor {
         TransformGizmo m_gizmo;
         ViewportPanel m_panel;
         Comet::LineDrawList m_feedback_lines;
+        ColliderOverlay m_colliders;
     };
 }

@@ -35,8 +35,8 @@ set(ASSET_HEADERS
 set(INPUT_HEADERS "${SERIALIZATION_HEADERS}|input/")
 set(AUDIO_DATA_HEADERS "audio/(audio_category|audio_settings)\\.h$")
 set(WORLD_HEADERS
-    "${ASSET_HEADERS}|audio/audio_category\\.h$|scene/(component_registry|components|entity|entity_id|entity_uuid|material_parameters|property|scene|scene_serializer|scene_settings|script_component|transform_interpolation)\\.h$")
-set(PIPELINE_HEADERS "${ASSET_HEADERS}|asset/(artifact/|import/|database\\.h$)")
+    "${ASSET_HEADERS}|audio/audio_category\\.h$|scene/(component_registry|components|entity|entity_id|entity_uuid|entity_tree|prefab|material_parameters|property|scene|scene_serializer|scene_settings|script_component|transform_interpolation)\\.h$")
+set(PIPELINE_HEADERS "${ASSET_HEADERS}|asset/(artifact/|import/|(database|product_index)\\.h$)")
 
 set(RUNTIME_HEADERS "${WORLD_HEADERS}|${INPUT_HEADERS}|audio/audio_commands\\.h$|physics/physics_access\\.h$|scene/(scene_runtime|runtime_session|runtime_services|systems/system)\\.h$")
 
@@ -46,7 +46,7 @@ set(PHYSICS_HEADERS "${RUNTIME_HEADERS}|physics/|scene/systems/physics_system\\.
 set(PHYSICS_BACKEND_HEADERS "${ASSET_HEADERS}|audio/audio_category\\.h$|physics/|scene/(components|entity_id|entity_uuid|scene_settings)\\.h$")
 set(GAMEPLAY_HEADERS "${RUNTIME_HEADERS}|gameplay/|animation/animation_system\\.h$|scene/systems/camera_controller\\.h$")
 set(SCRIPTING_HEADERS "${GAMEPLAY_HEADERS}|scripting/|scene/systems/script_system\\.h$")
-set(RUNTIME_ASSET_HEADERS "${PIPELINE_HEADERS}|${AUDIO_DATA_HEADERS}|asset/(asset_manager\\.h$|runtime/)|scripting/script_compiler\\.h$|audio/audio\\.h$|graphics/error\\.h$")
+set(RUNTIME_ASSET_HEADERS "${PIPELINE_HEADERS}|${WORLD_HEADERS}|${AUDIO_DATA_HEADERS}|asset/(asset_manager\\.h$|runtime/)|scripting/script_compiler\\.h$|audio/audio\\.h$|graphics/error\\.h$")
 set(RENDER_ASSET_HEADERS "${FOUNDATION_HEADERS}|animation/animation_data\\.h$|asset/handle\\.h$|asset/data/|asset/runtime/render_asset_factory\\.h$|graphics/|render/(resource/|material/material\\.h$)")
 set(PLATFORM_HEADERS "${INPUT_HEADERS}|core/(window|window_settings)\\.h$")
 set(GRAPHICS_HEADERS "${FOUNDATION_HEADERS}|graphics/|${PLATFORM_HEADERS}")

@@ -84,6 +84,8 @@ namespace Comet {
         void destroy_image(vk::Image image, Allocation& allocation) const;
 
         void flush_memory(const Allocation& allocation, size_t offset, size_t size) const;
+        [[nodiscard]] Result<void, GraphicsError> invalidate_memory(
+            const Allocation& allocation, size_t offset, size_t size) const;
 
         void set_current_frame_index(uint64_t frame_serial) const;
 

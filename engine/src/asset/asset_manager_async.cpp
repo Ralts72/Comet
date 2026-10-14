@@ -1,5 +1,7 @@
 #include "asset/asset_manager.h"
+#include "asset/artifact/environment_artifact.h"
 #include "asset/runtime/render_asset_factory.h"
+#include "asset/runtime/asset_loader.h"
 #include "graphics/error.h"
 
 #include "asset/import/asset_task_queue.h"
@@ -34,14 +36,30 @@ namespace Comet {
         if(!report.snapshot_updated) {
             return;
         }
+        for(const auto handle : report.removed_assets)
+            if(m_mesh_data.contains(handle))
+                change_mesh_data(handle, false);
+        for(const auto handle : report.modified_assets)
+            if(const auto* record = m_database.find(handle);
+                record && record->type == AssetType::Mesh)
+                change_mesh_data(handle, false);
 
         std::unordered_set<AssetHandle> invalidated(
             report.removed_assets.begin(), report.removed_assets.end());
         const std::unordered_set<AssetHandle> removed(
             report.removed_assets.begin(), report.removed_assets.end());
+        for(const AssetHandle handle : report.modified_assets) {
+            const auto* record = m_database.find(handle);
+            if(record && (record->type == AssetType::Model || record->source_asset))
+                invalidated.insert(record->source_asset ? record->source_asset : handle);
+        }
         m_database.include_dependents(invalidated);
         for(const AssetHandle handle : invalidated) {
+            m_loader->invalidate_model(handle);
+            m_refresh_requests.erase(handle);
             const auto* record = m_database.find(handle);
+            if((record && record->type == AssetType::Mesh) || m_mesh_data.contains(handle))
+                change_mesh_data(handle, false);
             // 源资产失效不清掉程序的最后一个成功版本；程序本身删除时才清除。
             if(record && record->type == AssetType::ShaderProgram && !removed.contains(handle))
                 continue;
@@ -50,7 +68,7 @@ namespace Comet {
             m_environment_previews.erase(handle);
         }
         for(const AssetHandle handle : report.removed_assets)
-            m_mesh_imports_needing_recheck.erase(handle);
+            m_source_imports_needing_recheck.erase(handle);
 
         std::vector<AssetHandle> scripts;
         for(const AssetHandle handle : report.modified_assets) {
@@ -93,7 +111,7 @@ namespace Comet {
                 static_cast<void>(m_registry.unregister_asset(record.handle));
                 return RefreshResult::Invalidated;
             case AssetType::Mesh:
-                accepted = schedule_mesh_task(record, MeshImportMode::Force);
+                accepted = schedule_mesh_task(record, AssetImportMode::Force);
                 break;
             case AssetType::Material:
                 accepted = schedule_material_refresh(record);
@@ -247,12 +265,39 @@ namespace Comet {
 
     void AssetManager::complete_mesh_import(const AssetHandle handle, const AssetRevision revision,
         const std::vector<std::filesystem::path>& dependencies) {
+        change_mesh_data(handle, true);
         if(record_import_dependencies(handle, dependencies)
             && !m_task_queue->contains(handle, revision))
-            m_mesh_imports_needing_recheck.erase(handle);
+            m_source_imports_needing_recheck.erase(handle);
     }
 
-    bool AssetManager::schedule_mesh_task(const AssetRecord& record, const MeshImportMode mode) {
+    bool AssetManager::import_model_async(const AssetHandle handle, const AssetImportMode mode) {
+        if(m_database.is_read_only())
+            return false;
+        const auto* record = m_database.find(handle);
+        if(!record || record->type != AssetType::Model || record->source_asset)
+            return false;
+        const auto revision = m_database.get_revision(handle);
+        // 图片逐张解码，与几何阶段共享预算；整个模型占用一个队列任务。
+        const auto budget = std::min(m_limits.mesh_working_bytes, m_task_queue->memory_budget());
+        const bool accepted = m_task_queue->schedule(
+            handle, revision,
+            [paths = m_database.paths(), limits = m_limits, record = *record, revision, budget,
+                mode](AssetImportResult& result) {
+                result.candidate = ModelImportCandidate{record, revision,
+                    ImportService(paths, limits).stage_model(record, budget, mode)};
+            },
+            mode == AssetImportMode::Force, budget);
+        if(accepted)
+            m_source_imports_needing_recheck.insert(handle);
+        return accepted;
+    }
+
+    bool AssetManager::schedule_mesh_task(const AssetRecord& record, const AssetImportMode mode) {
+        if(m_database.is_read_only())
+            return false;
+        if(record.source_asset)
+            return import_model_async(record.source_asset, mode);
         const auto handle = record.handle;
         const auto revision = m_database.get_revision(handle);
         const auto source = m_database.paths().assets() / record.path;
@@ -274,9 +319,9 @@ namespace Comet {
                     result.candidate = MeshArtifactCandidate{
                         handle, revision, path, Result<MeshArtifact>::failure(message)};
                 },
-                mode == MeshImportMode::Force);
+                mode == AssetImportMode::Force);
             if(accepted)
-                m_mesh_imports_needing_recheck.insert(handle);
+                m_source_imports_needing_recheck.insert(handle);
             return accepted;
         }
         const auto budget = estimate.value();
@@ -287,14 +332,16 @@ namespace Comet {
                 result.candidate =
                     ImportService(paths, limits).prepare_mesh(record, revision, mode, budget);
             },
-            mode == MeshImportMode::Force, budget);
+            mode == AssetImportMode::Force, budget);
         if(scheduled)
-            m_mesh_imports_needing_recheck.insert(handle);
+            m_source_imports_needing_recheck.insert(handle);
         return scheduled;
     }
 
     bool AssetManager::import_shader_program_async(
         ShaderProgramImportRequest request, ShaderProgramPrepare prepare) {
+        if(m_database.is_read_only())
+            return false;
         const auto* record = m_database.find(request.handle);
         if(!record || record->type != AssetType::ShaderProgram
             || !m_database.is_current(request.handle, request.revision))
@@ -357,6 +404,34 @@ namespace Comet {
         const auto revision = m_database.get_revision(record.handle);
         if(m_task_queue->contains(record.handle, revision))
             return Result<bool, Error>::success(true);
+        if(m_database.is_read_only()) {
+            auto path = m_database.paths().resolve_asset_path(record.path);
+            if(!path)
+                return Result<bool, Error>::failure({path.error()});
+            std::error_code error;
+            const auto bytes = std::filesystem::file_size(path.value(), error);
+            if(error)
+                return Result<bool, Error>::failure(
+                    {"Cannot read environment product '" + record.path.generic_string()
+                        + "': " + error.message()});
+            if(bytes > m_task_queue->memory_budget())
+                return Result<bool, Error>::failure(
+                    {"Environment product exceeds the asset CPU memory budget"});
+            const auto accepted = m_task_queue->schedule(
+                record.handle, revision,
+                [record, revision, path = std::move(path).value(), bytes](
+                    AssetImportResult& result) {
+                    auto artifact = EnvironmentArtifact::load(path, record.handle, bytes);
+                    auto data = Result<EnvironmentData>::failure(
+                        "Invalid environment product: " + record.path.generic_string());
+                    if(artifact)
+                        data = Result<EnvironmentData>::success(std::move(artifact->data));
+                    result.candidate = EnvironmentImportCandidate{
+                        record.handle, revision, record.path, std::move(data)};
+                },
+                false, static_cast<std::size_t>(bytes));
+            return Result<bool, Error>::success(accepted);
+        }
         auto bytes = EnvironmentImporter::working_bytes(m_database.paths().assets() / record.path);
         if(!bytes)
             return Result<bool, Error>::failure({bytes.error()});

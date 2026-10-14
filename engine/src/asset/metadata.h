@@ -10,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Comet {
     enum class AssetType : std::uint8_t {
@@ -22,7 +23,9 @@ namespace Comet {
         Scene,
         Environment,
         Script,
-        Audio
+        Audio,
+        Model,
+        Prefab
     };
 
     [[nodiscard]] COMET_API std::string_view to_string(AssetType type) noexcept;
@@ -36,10 +39,20 @@ namespace Comet {
     [[nodiscard]] COMET_API bool is_source_only_path(const std::filesystem::path& path);
     [[nodiscard]] COMET_API bool is_lua_module_source(const std::filesystem::path& path);
 
+    struct AssetSubresource {
+        std::string key;
+        AssetHandle handle;
+        AssetType type = AssetType::Unknown;
+
+        auto operator<=>(const AssetSubresource&) const noexcept = default;
+    };
+
     struct AssetMetadata {
         AssetHandle handle;
         AssetType type = AssetType::Unknown;
         AssetImportSettings import_settings;
+        // 模型子资源与源文件共用一份 .meta；key 标识源内容，handle 供场景持久引用。
+        std::vector<AssetSubresource> subresources;
 
         auto operator<=>(const AssetMetadata&) const noexcept = default;
     };

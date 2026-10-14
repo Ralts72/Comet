@@ -1,0 +1,158 @@
+{
+  "version": 2,
+  "entities": [
+    {
+      "uuid": "917c3990-f824-4493-9204-273159f333d8",
+      "components": {
+        "name": "终点门",
+        "transform": {
+          "translation": [
+            0,
+            1.4,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "script": {
+          "asset": 14309634625000312008,
+          "parameters": {
+            "panel": {
+              "entity": "4b51f22c-644c-4b9f-aec9-d6776482022a"
+            }
+          }
+        },
+        "rigid_body": {
+          "motion": "static"
+        },
+        "collider": {
+          "shape": "box",
+          "half_extents": [
+            1.2,
+            1.4,
+            0.125
+          ],
+          "radius": 0.5
+        }
+      },
+      "children": [
+        {
+          "uuid": "4b51f22c-644c-4b9f-aec9-d6776482022a",
+          "components": {
+            "name": "门板",
+            "transform": {
+              "translation": [
+                0,
+                0.0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                2.4,
+                2.8,
+                0.25
+              ]
+            },
+            "mesh_renderer": {
+              "mesh": 7535385251553858160,
+              "material": 1749083215601001004
+            }
+          }
+        },
+        {
+          "uuid": "9777839a-850f-4b23-815f-522b7d2ee723",
+          "components": {
+            "name": "左门柱",
+            "transform": {
+              "translation": [
+                -1.4,
+                0.1,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                0.4,
+                3,
+                0.5
+              ]
+            },
+            "mesh_renderer": {
+              "mesh": 7535385251553858160,
+              "material": 6482638524486200214
+            }
+          }
+        },
+        {
+          "uuid": "a8fe02fd-111c-4685-af16-f741321ea269",
+          "components": {
+            "name": "右门柱",
+            "transform": {
+              "translation": [
+                1.4,
+                0.1,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                0.4,
+                3,
+                0.5
+              ]
+            },
+            "mesh_renderer": {
+              "mesh": 7535385251553858160,
+              "material": 6482638524486200214
+            }
+          }
+        },
+        {
+          "uuid": "9b989009-9e2c-449b-b1e0-e714936fd857",
+          "components": {
+            "name": "横梁",
+            "transform": {
+              "translation": [
+                0,
+                1.8,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                3.2,
+                0.4,
+                0.5
+              ]
+            },
+            "mesh_renderer": {
+              "mesh": 7535385251553858160,
+              "material": 6482638524486200214
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -37,5 +37,7 @@ endif()
 add_custom_target(comet_app_ui_resources
         COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
                 "${CMAKE_SOURCE_DIR}/engine/resources/fonts" "${COMET_APP_RESOURCE_DIRECTORY}/fonts"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+                "${CMAKE_SOURCE_DIR}/engine/resources/ui" "${COMET_APP_RESOURCE_DIRECTORY}/ui"
         VERBATIM)
 add_dependencies(app comet_app_ui_resources)

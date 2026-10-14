@@ -1,6 +1,8 @@
 #pragma once
 
 #include "common/parameters.h"
+#include "asset/reference.h"
+#include <optional>
 #include "common/error.h"
 #include "common/result.h"
 
@@ -20,7 +22,7 @@ namespace Comet {
     class COMET_API Script final {
     public:
         struct Property {
-            enum class Semantic { Default, Color };
+            enum class Semantic { Default, Color, Prefab };
             ParameterValue default_value;
             Semantic semantic = Semantic::Default;
         };
@@ -56,6 +58,10 @@ namespace Comet {
         // 只移除缺失声明或存储类型不匹配的覆盖；值合法性仍由严格校验负责。
         void retain_compatible_overrides(ParameterMap& overrides) const;
         [[nodiscard]] Result<ParameterMap, Error> resolve_parameters(
+            const ParameterMap& overrides) const;
+        // Prefab 参数以十进制身份字符串保存，避免 Lua 数值丢失 64 位精度。
+        [[nodiscard]] static std::optional<AssetHandle> prefab_handle(const ParameterValue& value);
+        [[nodiscard]] Result<std::vector<AssetReference>, Error> asset_references(
             const ParameterMap& overrides) const;
         [[nodiscard]] const PropertyMap& properties() const { return m_properties; }
         [[nodiscard]] const EventHandlers& event_handlers() const { return m_event_handlers; }

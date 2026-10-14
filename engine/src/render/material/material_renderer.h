@@ -141,6 +141,10 @@ namespace Comet {
             RenderResources& resources, uint32_t frame_slot_count, SampleCount samples,
             const MaterialShaders* shaders, std::optional<float> max_anisotropy);
 
+        struct SurfacePipelines {
+            std::shared_ptr<Pipeline> pipeline;
+            std::shared_ptr<Pipeline> instanced_pipeline;
+        };
         struct PipelineState {
             AssetHandle shader_program;
             std::shared_ptr<const MaterialLayout> layout;
@@ -148,6 +152,8 @@ namespace Comet {
             std::shared_ptr<Pipeline> pipeline;
             std::shared_ptr<Pipeline> instanced_pipeline;
             bool static_mesh_bounds = false;
+            SampleCount samples = SampleCount::Count1;
+            std::shared_ptr<Shader> vertex, fragment, instanced_vertex;
         };
         struct MaterialInput {
             std::shared_ptr<const Material> source;
@@ -181,6 +187,8 @@ namespace Comet {
         struct MaterialResources {
             std::shared_ptr<const PipelineState> pipeline;
             std::shared_ptr<const PreparedMaterial> prepared;
+            SurfacePipelines draws;
+            std::optional<SurfacePipelines> mirrored_draws;
             std::vector<std::shared_ptr<Texture>> textures;
             std::shared_ptr<Sampler> sampler;
             std::shared_ptr<CPUBuffer> parameters;
@@ -213,11 +221,17 @@ namespace Comet {
             MaterialRuntimeCache prepared;
             std::map<MaterialInstanceKey, CachedMaterial> materials;
         };
+        struct DrawCandidate {
+            const ResolvedRenderItem* item;
+            bool mirrored;
+        };
         struct DrawItem {
             const ResolvedRenderItem* item;
             std::shared_ptr<MaterialResources> material;
             uint32_t instance_count = 1;
             uint32_t first_instance = 0;
+            bool mirrored = false;
+            float camera_depth = 0;
         };
 
         void sync_world_inputs(const RenderWorld& world);
@@ -226,17 +240,18 @@ namespace Comet {
         void update_frame_resources(FrameScheduler& frames, const RenderSubmission& submission,
             const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map,
             std::vector<QueueSemaphoreSubmit>& waits);
-        Result<void, GraphicsError> prepare_draw_queue(
-            const RenderGeometry& geometry, uint64_t frame_serial, const Frustum* frustum);
+        Result<void, GraphicsError> prepare_draw_queue(const RenderGeometry& geometry,
+            uint64_t frame_serial, const Frustum* frustum, const Math::Mat4& view);
         void collect_visible_draws(const RenderGeometry& geometry, const Frustum* frustum);
-        Result<void, GraphicsError> prepare_draw_materials(uint64_t frame_serial);
+        Result<void, GraphicsError> prepare_draw_materials(
+            uint64_t frame_serial, const Math::Mat4& view);
         [[nodiscard]] const std::shared_ptr<const PipelineState>& find_pipeline(
             const Material& material) const;
         [[nodiscard]] bool can_cull(const MaterialBinding& material) const;
         void record_draws(FrameScheduler& frames, std::span<const DrawItem> queue,
             std::vector<QueueSemaphoreSubmit>& waits);
-        void append_material_draws(std::span<const ResolvedRenderItem*> items,
-            const std::shared_ptr<MaterialResources>& material);
+        void append_material_draws(
+            std::span<DrawCandidate> items, const std::shared_ptr<MaterialResources>& material);
         Result<void, GraphicsError> upload_instances(FrameScheduler& frames);
         void collect_unused_materials(uint64_t frame_serial);
 
@@ -247,6 +262,8 @@ namespace Comet {
             AssetHandle shader_program = INVALID_ASSET_HANDLE,
             const std::shared_ptr<Shader>& instanced_vertex = nullptr,
             bool static_mesh_bounds = false);
+        Result<SurfacePipelines, GraphicsError> create_surface_pipelines(PipelineManager& pipelines,
+            const PipelineState& program, MaterialSurface surface, bool mirrored = false);
         Result<void, GraphicsError> prepare_builtin_pipeline(PipelineManager& pipelines,
             const MaterialShaderDefinition& definition, const MaterialShaderProgram& code,
             SampleCount samples,
@@ -275,6 +292,7 @@ namespace Comet {
         MaterialPrograms* m_programs;
         std::shared_ptr<Sampler> m_sampler;
         std::shared_ptr<Texture> m_white_texture;
+        std::shared_ptr<Texture> m_normal_texture;
         std::shared_ptr<Environment> m_empty_environment;
         std::shared_ptr<DescriptorSetLayout> m_frame_layout;
         std::vector<std::shared_ptr<FrameResources>> m_frames;
@@ -285,7 +303,7 @@ namespace Comet {
         std::map<MaterialInstanceKey, CachedMaterial> m_materials;
         std::unordered_map<AssetHandle, uint64_t> m_unsupported;
         std::vector<size_t> m_material_order;
-        std::vector<const ResolvedRenderItem*> m_draw_candidates;
+        std::vector<DrawCandidate> m_draw_candidates;
         std::vector<DrawItem> m_draw_queue;
         std::vector<Math::Mat4> m_instance_transforms;
         Statistics m_statistics;

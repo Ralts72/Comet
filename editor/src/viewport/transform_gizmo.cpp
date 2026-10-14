@@ -1,4 +1,6 @@
 #include "viewport/transform_gizmo.h"
+#include "scene/entity_tree.h"
+#include <glm/gtx/matrix_decompose.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -95,6 +97,7 @@ namespace CometEditor {
         if(!cancel())
             return false;
         m_settings = settings;
+        m_error.clear();
         return true;
     }
 
@@ -350,41 +353,186 @@ namespace CometEditor {
         return Math::wrap_degrees(glm::eulerAngles(quaternion) * Math::RAD_TO_DEG);
     }
 
+    bool TransformGizmo::begin_group(Drag& drag) {
+        auto& scene = *m_history.get_scene();
+        const auto roots = Comet::EntityTrees::roots(scene, drag.selection);
+        if(!roots)
+            return false;
+        std::vector<PropertyEditTransaction::Target> targets;
+        for(const auto uuid : *roots) {
+            auto entity = scene.find_entity(uuid);
+            if(!entity.has_component<Comet::TransformComponent>())
+                return false;
+            Drag::Member member;
+            member.entity = uuid;
+            member.before = member.last = entity.get_component<Comet::TransformComponent>();
+            member.world = scene.get_world_matrix(entity);
+            if(const auto parent = scene.get_parent(entity)) {
+                member.parent = parent.get_uuid();
+                member.parent_world = scene.get_world_matrix(parent);
+                member.world_to_parent = Comet::Math::inverse(member.parent_world);
+            }
+            if(!finite_matrix(member.world) || !finite_matrix(member.world_to_parent))
+                return false;
+            drag.members.push_back(member);
+            for(const char* property : {"translation", "rotation", "scale"})
+                targets.push_back({uuid, "transform", property});
+        }
+        return m_edit.begin_many(targets);
+    }
+
+    bool TransformGizmo::group_unchanged(const Drag& drag) const {
+        auto& scene = *m_history.get_scene();
+        for(const auto& member : drag.members) {
+            const auto entity = scene.find_entity(member.entity);
+            if(!entity || !entity.has_component<Comet::TransformComponent>())
+                return false;
+            const auto parent = scene.get_parent(entity);
+            if(parent.get_uuid() != member.parent
+                || (parent && scene.get_world_matrix(parent) != member.parent_world))
+                return false;
+            const auto& value = entity.get_component<Comet::TransformComponent>();
+            if(value.translation != member.last.translation
+                || value.rotation != member.last.rotation || value.scale != member.last.scale)
+                return false;
+        }
+        return true;
+    }
+
+    bool TransformGizmo::preview_group(Drag& drag, float parameter) {
+        namespace Math = Comet::Math;
+        Math::Mat4 delta(1);
+        Math::Vec3 displacement{};
+        bool unchanged = false;
+        if(m_settings.mode == Mode::Translate) {
+            const auto translated = preview_value(drag, parameter);
+            displacement = Math::Vec3(
+                drag.context.parent_world * Math::Vec4(translated - drag.context.translation, 0));
+            unchanged = displacement == Math::Vec3{};
+        } else if(m_settings.mode == Mode::Rotate) {
+            static_cast<void>(preview_value(drag, parameter));
+            float degrees = drag.accumulated_angle * Math::RAD_TO_DEG;
+            if(m_settings.snap)
+                degrees = std::round(degrees / m_settings.rotation_step_degrees)
+                          * m_settings.rotation_step_degrees;
+            degrees = Math::wrap_degrees(degrees);
+            unchanged = std::abs(degrees) < 0.0001f;
+            delta = Math::rotate(delta, Math::radians(degrees), axis_direction(drag.axis));
+            if(m_settings.space == Space::Local)
+                delta = Math::Mat4(drag.context.rotation_frame) * delta
+                        * Math::Mat4(drag.context.inverse_rotation_frame);
+        } else {
+            float amount = (parameter - drag.start_parameter) / drag.context.axis_length;
+            if(m_settings.snap)
+                amount = std::round(amount / m_settings.scale_step) * m_settings.scale_step;
+            unchanged = amount == 0;
+            Math::Vec3 factor(1);
+            if(drag.axis == Axis::All)
+                factor = Math::Vec3(1 + amount);
+            else
+                factor[static_cast<int>(drag.axis)] += amount;
+            const auto frame = Math::Mat4(
+                Math::Mat3(drag.context.parent_world
+                           * Math::compose_trs({}, drag.context.rotation, Math::Vec3(1))));
+            delta = frame * Math::scale(Math::Mat4(1), factor) * Math::inverse(frame);
+        }
+        const auto around_pivot = Math::translate(Math::Mat4(1), drag.context.origin) * delta
+                                  * Math::translate(Math::Mat4(1), -drag.context.origin);
+        std::vector<Comet::TransformComponent> after;
+        std::vector<Comet::PropertyValue> values;
+        for(const auto& member : drag.members) {
+            auto transform = member.before;
+            if(!unchanged && m_settings.mode == Mode::Translate) {
+                transform.translation +=
+                    Math::Vec3(member.world_to_parent * Math::Vec4(displacement, 0));
+            } else if(!unchanged) {
+                const auto matrix = member.world_to_parent * around_pivot * member.world;
+                Math::Quat rotation;
+                Math::Vec3 skew;
+                Math::Vec4 perspective;
+                if(!finite_matrix(matrix)
+                    || !glm::decompose(matrix, transform.scale, rotation, transform.translation,
+                        skew, perspective))
+                    return false;
+                transform.rotation =
+                    Math::wrap_degrees(glm::eulerAngles(rotation) * Math::RAD_TO_DEG);
+                const auto recomposed =
+                    Math::compose_trs(transform.translation, transform.rotation, transform.scale);
+                for(int column = 0; column < 4; ++column)
+                    for(int row = 0; row < 4; ++row)
+                        if(!std::isfinite(recomposed[column][row])
+                            || std::abs(recomposed[column][row] - matrix[column][row])
+                                   > 0.0001f * std::max(1.0f, std::abs(matrix[column][row])))
+                            return false;
+            }
+            if(!Math::is_finite(transform.translation) || !Math::is_finite(transform.rotation)
+                || !Math::is_finite(transform.scale))
+                return false;
+            after.push_back(transform);
+            values.insert(
+                values.end(), {transform.translation, transform.rotation, transform.scale});
+        }
+        if(!m_edit.preview_many(values))
+            return false;
+        for(std::size_t i = 0; i < after.size(); ++i)
+            drag.members[i].last = after[i];
+        return true;
+    }
+
     bool TransformGizmo::update(const Comet::EntityUuid selected, const Comet::RenderCamera& camera,
         const ViewportLayout& layout, const Input& input) {
+        return update_selection(std::span(&selected, 1), camera, layout, input);
+    }
+
+    bool TransformGizmo::update_selection(std::span<const Comet::EntityUuid> selection,
+        const Comet::RenderCamera& camera, const ViewportLayout& layout, const Input& input) {
+        const auto selected = selection.empty() ? Comet::EntityUuid{} : selection.back();
         m_hovered_axis.reset();
         const auto context = make_context(selected, camera, layout);
         if(m_drag) {
-            if(input.cancel || !context || selected != m_drag->entity
-                || m_history.generation() != m_drag->generation
-                || context->parent != m_drag->context.parent
-                || context->parent_world != m_drag->context.parent_world
-                || (m_settings.mode == Mode::Translate
-                    && context->directions != m_drag->context.directions)
-                || (m_settings.mode == Mode::Rotate
-                    && (context->origin != m_drag->context.origin
-                        || context->rotation != m_drag->last_value))
-                || (m_settings.mode == Mode::Scale
-                    && (context->origin != m_drag->context.origin
-                        || context->rotation != m_drag->context.rotation
-                        || context->scale != m_drag->last_value))
+            if(input.cancel || !context || !std::ranges::equal(selection, m_drag->selection)
+                || !m_edit.active() || m_history.generation() != m_drag->generation
                 || context->view_projection != m_drag->context.view_projection
                 || !same_layout(context->layout, m_drag->context.layout)
                 || (!input.down && !input.released)) {
                 static_cast<void>(cancel());
                 return true;
             }
-            const auto current_parameter = parameter(m_drag->context, m_drag->axis, input.position);
-            if(!current_parameter) {
+            const bool group = !m_drag->members.empty();
+            bool changed = !group
+                           && (context->parent != m_drag->context.parent
+                               || context->parent_world != m_drag->context.parent_world
+                               || (m_settings.mode == Mode::Translate
+                                   && context->directions != m_drag->context.directions)
+                               || (m_settings.mode == Mode::Rotate
+                                   && (context->origin != m_drag->context.origin
+                                       || context->rotation != m_drag->last_value))
+                               || (m_settings.mode == Mode::Scale
+                                   && (context->origin != m_drag->context.origin
+                                       || context->rotation != m_drag->context.rotation
+                                       || context->scale != m_drag->last_value)));
+            if(group)
+                changed = !group_unchanged(*m_drag);
+            const auto current = parameter(m_drag->context, m_drag->axis, input.position);
+            if(changed || !current) {
                 static_cast<void>(cancel());
                 return true;
             }
-            const auto value = preview_value(*m_drag, *current_parameter);
-            if(!Comet::Math::is_finite(value) || !m_edit.preview(value)) {
+            bool previewed = false;
+            if(group) {
+                previewed = preview_group(*m_drag, *current);
+                if(!previewed)
+                    m_error = "整组变换无法保存为 TRS（可能产生斜切或零缩放），已恢复拖动前状态。";
+            } else {
+                const auto value = preview_value(*m_drag, *current);
+                previewed = Comet::Math::is_finite(value) && m_edit.preview(value);
+                if(previewed)
+                    m_drag->last_value = value;
+            }
+            if(!previewed) {
                 static_cast<void>(cancel());
                 return true;
             }
-            m_drag->last_value = value;
             if(input.released) {
                 if(!m_edit.commit())
                     static_cast<void>(m_edit.cancel());
@@ -422,10 +570,20 @@ namespace CometEditor {
             property = "scale";
             initial = context->scale;
         }
-        if(!start_parameter || !m_edit.begin({selected, "transform", property}))
+        if(!start_parameter)
             return false;
-        m_drag = Drag{selected, m_history.generation(), *m_hovered_axis, *context, *start_parameter,
-            *start_parameter, 0, initial};
+        m_error.clear();
+        Drag drag{selected, m_history.generation(), *m_hovered_axis, *context, *start_parameter,
+            *start_parameter, 0, initial, {selection.begin(), selection.end()}};
+        if(selection.size() > 1) {
+            if(!begin_group(drag)) {
+                m_error = "选中组包含无效变换或不可逆父级，无法开始整组变换。";
+                return true;
+            }
+        } else if(!m_edit.begin({selected, "transform", property})) {
+            return false;
+        }
+        m_drag = std::move(drag);
         return true;
     }
 

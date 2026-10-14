@@ -21,6 +21,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(source.set_scalar_property("roughness", 0.2f));
         ASSERT_TRUE(source.set_vector_property("base_color", {0.3f, 0.4f, 0.5f, 1}));
         source.set_texture_property("base_color_texture", nullptr);
+        ASSERT_TRUE(source.set_surface(
+            {.alpha_mode = AlphaMode::Mask, .alpha_cutoff = 0.25f, .double_sided = true}));
         const auto first = source.snapshot();
         EXPECT_EQ(first, source.snapshot());
         EXPECT_EQ(first, first->snapshot());
@@ -31,9 +33,12 @@ namespace Comet::Tests {
         source.set_texture_property("base_color_texture", nullptr);
         EXPECT_FALSE(
             source.set_scalar_property("roughness", std::numeric_limits<float>::quiet_NaN()));
+        ASSERT_TRUE(source.set_surface(first->get_surface()));
+        EXPECT_FALSE(source.set_surface({.alpha_cutoff = std::numeric_limits<float>::quiet_NaN()}));
         EXPECT_EQ(source.get_revision(), revision);
         EXPECT_EQ(first, source.snapshot());
 
+        ASSERT_TRUE(source.set_surface({.alpha_mode = AlphaMode::Blend}));
         ASSERT_TRUE(source.set_scalar_property("roughness", 0.8f));
         ASSERT_TRUE(source.set_vector_property("base_color", {1, 0, 0, 1}));
         const auto changed = source.snapshot();
@@ -42,6 +47,16 @@ namespace Comet::Tests {
         EXPECT_EQ(first->get_revision(), revision);
         EXPECT_EQ(first->get_scalar_property("roughness"), 0.2f);
         EXPECT_EQ(first->get_vector_property("base_color"), Math::Vec4(0.3f, 0.4f, 0.5f, 1));
+        EXPECT_EQ(first->get_surface().alpha_mode, AlphaMode::Mask);
+        EXPECT_EQ(changed->get_surface().alpha_mode, AlphaMode::Blend);
+        MaterialRuntimeCache cache;
+        const auto layout = MaterialLayout::find_builtin("pbr");
+        const auto old_prepared = cache.prepare(AssetHandle(42), first, layout);
+        const auto new_prepared = cache.prepare(AssetHandle(42), changed, layout);
+        ASSERT_TRUE(old_prepared);
+        ASSERT_TRUE(new_prepared);
+        EXPECT_EQ(old_prepared.value()->surface, first->get_surface());
+        EXPECT_EQ(new_prepared.value()->surface, changed->get_surface());
         EXPECT_EQ(changed->get_scalar_property("roughness"), 0.8f);
         EXPECT_EQ(changed->get_vector_property("base_color"), Math::Vec4(1, 0, 0, 1));
     }
@@ -55,9 +70,9 @@ namespace Comet::Tests {
         const auto reflected = MaterialLayout::reflect(layout, shader.value());
         ASSERT_TRUE(reflected) << reflected.error();
         EXPECT_EQ(reflected.value(), layout);
-        ASSERT_EQ(layout->get_parameter_size(), 32);
-        ASSERT_EQ(layout->get_scalars().size(), 2);
-        ASSERT_EQ(layout->get_textures().size(), 1);
+        ASSERT_EQ(layout->get_parameter_size(), 64);
+        ASSERT_EQ(layout->get_scalars().size(), 5);
+        ASSERT_EQ(layout->get_textures().size(), 5);
         EXPECT_EQ(layout->get_textures()[0].name, "base_color_texture");
         EXPECT_TRUE(layout->get_textures()[0].optional);
         EXPECT_FLOAT_EQ(layout->get_scalars()[1].min_value, 0.045f);
@@ -65,10 +80,10 @@ namespace Comet::Tests {
         auto material = std::make_shared<Material>("pbr", "pbr");
         const auto original = cache.prepare(AssetHandle(782), material, layout);
         ASSERT_TRUE(original);
-        ASSERT_EQ(original.value()->textures.size(), 1);
+        ASSERT_EQ(original.value()->textures.size(), 5);
         EXPECT_EQ(original.value()->textures[0].binding, 1);
         EXPECT_EQ(original.value()->textures[0].texture, nullptr);
-        std::array<float, 8> values{};
+        std::array<float, 16> values{};
         std::memcpy(values.data(), original.value()->parameters.data(), sizeof(values));
         EXPECT_FLOAT_EQ(values[0], 0.8f);
         EXPECT_FLOAT_EQ(values[4], 0);
@@ -83,8 +98,12 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(values[0], 0.3f);
         EXPECT_FLOAT_EQ(values[4], 0.75f);
         EXPECT_FLOAT_EQ(values[5], 0.2f);
-        EXPECT_FLOAT_EQ(values[6], 0);
-        EXPECT_FLOAT_EQ(values[7], 0);
+        EXPECT_FLOAT_EQ(values[6], 1);
+        EXPECT_FLOAT_EQ(values[7], 1);
+        EXPECT_FLOAT_EQ(values[8], 0);
+        EXPECT_FLOAT_EQ(values[9], 0);
+        EXPECT_FLOAT_EQ(values[10], 0);
+        EXPECT_FLOAT_EQ(values[12], 1);
         EXPECT_EQ(next.value(), cache.prepare(AssetHandle(782), material, layout).value());
         std::memcpy(values.data(), original.value()->parameters.data(), sizeof(values));
         EXPECT_FLOAT_EQ(values[4], 0);

@@ -7,6 +7,7 @@
 
 namespace Comet {
     class ImageView;
+    class Sampler;
     class Device;
     class UploadManager;
     struct TextureData;
@@ -18,6 +19,7 @@ namespace Comet {
 
         ~Texture() = default;
 
+        [[nodiscard]] const std::shared_ptr<Sampler>& get_sampler() const { return m_sampler; }
         [[nodiscard]] int get_width() const { return m_width; }
         [[nodiscard]] int get_height() const { return m_height; }
         [[nodiscard]] std::shared_ptr<ImageView> get_image_view() const { return m_image_view; }
@@ -27,11 +29,12 @@ namespace Comet {
 
     private:
         Texture(int width, int height, std::shared_ptr<ImageView> image_view,
-            GpuCompletionPoint ready_completion);
+            GpuCompletionPoint ready_completion, std::shared_ptr<Sampler> sampler);
 
         int m_width;
         int m_height;
         std::shared_ptr<ImageView> m_image_view;
         GpuCompletionPoint m_ready_completion;
+        std::shared_ptr<Sampler> m_sampler;
     };
 }

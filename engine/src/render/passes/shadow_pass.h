@@ -1,6 +1,10 @@
 #pragma once
 
 #include "graphics/queue.h"
+#include "graphics/pipeline/descriptor_set.h"
+
+#include <array>
+#include <map>
 #include "render/scene/render_submission.h"
 #include "render/scene/render_geometry.h"
 #include "render/resource/instance_buffer.h"
@@ -11,6 +15,8 @@ namespace Comet {
     class Pipeline;
     class RenderPass;
     class RenderTarget;
+    class Texture;
+    class Sampler;
 
     // 单方向光深度通道；每个飞行帧槽位拥有独立深度图。
     class COMET_API ShadowPass {
@@ -42,14 +48,39 @@ namespace Comet {
     private:
         ShadowPass(Device& device, uint32_t frame_slots, std::shared_ptr<RenderPass> pass,
             std::shared_ptr<RenderTarget> target, std::shared_ptr<Pipeline> pipeline);
+        struct MaskBinding {
+            std::shared_ptr<Texture> texture;
+            std::shared_ptr<Sampler> sampler;
+            std::shared_ptr<DescriptorSetLayout> layout;
+            std::shared_ptr<DescriptorPool> pool;
+            DescriptorSet descriptor;
+        };
+        struct CachedMask {
+            std::shared_ptr<MaskBinding> binding;
+            bool used = false;
+        };
+        struct DrawItem {
+            const ResolvedRenderItem* item;
+            std::shared_ptr<MaskBinding> mask;
+            float alpha = 1;
+            float cutoff = 0.5f;
+            unsigned orientation = 0; // 双面位与镜像变换位。
+        };
+        Result<std::shared_ptr<MaskBinding>, GraphicsError> prepare_mask(
+            const std::shared_ptr<Texture>& texture);
+        Result<void, GraphicsError> prepare_draws(
+            const LightingData& lighting, const RenderGeometry& geometry);
         Device& m_device;
         uint32_t m_frame_slots;
         std::shared_ptr<RenderPass> m_render_pass;
         std::shared_ptr<RenderTarget> m_target;
-        std::shared_ptr<Pipeline> m_pipeline;
+        std::array<std::shared_ptr<Pipeline>, 4> m_pipelines;
+        std::array<std::shared_ptr<Pipeline>, 4> m_mask_pipelines;
+        std::shared_ptr<DescriptorSetLayout> m_mask_layout;
+        std::shared_ptr<Sampler> m_mask_sampler;
+        std::map<const Texture*, CachedMask> m_masks;
         std::vector<InstanceBuffer> m_instances;
-        std::vector<size_t> m_mesh_order;
-        std::vector<const ResolvedRenderItem*> m_draw_queue;
+        std::vector<DrawItem> m_draw_queue;
         std::vector<Math::Mat4> m_transforms;
         Statistics m_statistics;
         LightingData m_lighting;

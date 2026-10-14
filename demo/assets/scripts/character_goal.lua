@@ -1,13 +1,21 @@
+local progress = require("scripts.character_progress")
 local script = {}
 
 script.properties = {
     player = {type = "entity"},
     beacon = {type = "entity"},
-    target_count = 3,
+    level = 1,
+    goal = 1,
 }
 
 function script:on_start()
+    progress.initialize()
     self.collected = not comet.has_rigid_body(comet.self_entity())
+        or progress.collected(self.parameters.level, self.parameters.goal)
+end
+
+function script:update()
+    if self.collected then comet.destroy_entity(comet.self_entity()) end
 end
 
 function script:on_trigger_enter(other)
@@ -17,14 +25,12 @@ function script:on_trigger_enter(other)
     self.collected = true
     comet.remove_rigid_body(comet.self_entity())
     comet.play_one_shot()
-    local score = (comet.session_get("character.score") or 0) + 1
-    comet.session_set("character.score", score)
+    progress.collect(self.parameters.level, self.parameters.goal)
     if self.parameters.beacon:is_valid() then
         self.parameters.beacon:translate(0, 0.6, 0)
     end
-    if score >= self.parameters.target_count then
-        comet.session_set("character.finished", true)
-        comet.log("角色挑战完成：已收集全部目标。按 R / Start 重新开始。")
+    if comet.session_get("character.finished") then
+        comet.log("挑战完成！可通过 HUD 进入下一关或返回第一关。")
     end
     comet.destroy_entity(comet.self_entity())
 end

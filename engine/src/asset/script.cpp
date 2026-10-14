@@ -2,6 +2,7 @@
 #include "asset/data/script_sources.h"
 
 #include <algorithm>
+#include <charconv>
 
 namespace Comet {
     using namespace ScriptSource;
@@ -77,6 +78,38 @@ namespace Comet {
         return !m_sources || m_sources->inputs_are_current();
     }
 
+    std::optional<AssetHandle> Script::prefab_handle(const ParameterValue& value) {
+        const auto* text = std::get_if<std::string>(&value);
+        if(!text)
+            return std::nullopt;
+        if(text->empty())
+            return AssetHandle{};
+        AssetHandle::ValueType id = 0;
+        const auto parsed = std::from_chars(text->data(), text->data() + text->size(), id);
+        if(parsed.ec != std::errc{} || parsed.ptr != text->data() + text->size() || id == 0
+            || text->front() == '0')
+            return std::nullopt;
+        return AssetHandle{id};
+    }
+
+    Result<std::vector<AssetReference>, Error> Script::asset_references(
+        const ParameterMap& overrides) const {
+        const auto parameters = resolve_parameters(overrides);
+        if(!parameters)
+            return Result<std::vector<AssetReference>, Error>::failure(parameters.error());
+        std::vector<AssetReference> references;
+        for(const auto& [name, property] : m_properties) {
+            if(property.semantic != Property::Semantic::Prefab)
+                continue;
+            const auto handle = prefab_handle(parameters.value().at(name));
+            if(handle && *handle)
+                references.push_back({*handle, AssetType::Prefab});
+        }
+        std::ranges::sort(references);
+        references.erase(std::unique(references.begin(), references.end()), references.end());
+        return Result<std::vector<AssetReference>, Error>::success(std::move(references));
+    }
+
     Result<void, Error> Script::validate_overrides(const ParameterMap& overrides) const {
         if(!valid_parameters(overrides))
             return Result<void, Error>::failure({"Invalid script parameter values"});
@@ -85,6 +118,8 @@ namespace Comet {
             if(found == m_properties.end() || found->second.default_value.index() != value.index())
                 return Result<void, Error>::failure(
                     {"Script parameter no longer matches declaration: " + name});
+            if(found->second.semantic == Property::Semantic::Prefab && !prefab_handle(value))
+                return Result<void, Error>::failure({"Invalid prefab parameter: " + name});
         }
         return Result<void, Error>::success();
     }

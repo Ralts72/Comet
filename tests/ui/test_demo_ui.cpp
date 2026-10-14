@@ -119,6 +119,8 @@ namespace {
             ASSERT_TRUE(constructor);
             ASSERT_TRUE(constructor.Bind("fps_text", &fps));
             ASSERT_TRUE(constructor.Bind("character_game", &available));
+            for(const auto* name : {"course_actions", "next_level", "return_level"})
+                ASSERT_TRUE(constructor.Bind(name, &confirmation_flag));
             ASSERT_TRUE(constructor.Bind("character_status", &display_text));
             ASSERT_TRUE(constructor.Bind("action_name", &action));
             ASSERT_TRUE(constructor.Bind("status_text", &status));

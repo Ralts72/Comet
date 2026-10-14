@@ -14,7 +14,7 @@ namespace Comet {
     struct AssetTaskQueue::AsyncState {
         struct PendingAssetTask {
             AssetRevision revision;
-            bool force_mesh_rebuild = false;
+            bool force_rebuild = false;
         };
         struct ScheduledAssetTask {
             AssetHandle handle;
@@ -108,13 +108,13 @@ namespace Comet {
     }
 
     bool AssetTaskQueue::schedule(const AssetHandle handle, const AssetRevision revision,
-        std::function<void(AssetImportResult&)> task, const bool force_mesh_rebuild,
+        std::function<void(AssetImportResult&)> task, const bool force_rebuild,
         const std::size_t working_bytes) {
         if(working_bytes > m_async_limits.working_bytes)
             return false;
         const auto pending = m_async_state->pending_assets.find(handle);
         if(pending != m_async_state->pending_assets.end() && pending->second.revision == revision
-            && (!force_mesh_rebuild || pending->second.force_mesh_rebuild)) {
+            && (!force_rebuild || pending->second.force_rebuild)) {
             return true;
         }
 
@@ -132,7 +132,7 @@ namespace Comet {
             *queued = {handle, revision, std::move(task), working_bytes};
         else
             queue.push_back({handle, revision, std::move(task), working_bytes});
-        entry->second = {.revision = revision, .force_mesh_rebuild = force_mesh_rebuild};
+        entry->second = {.revision = revision, .force_rebuild = force_rebuild};
         undo_pending_insert.release();
         dispatch_queued_tasks();
         return true;

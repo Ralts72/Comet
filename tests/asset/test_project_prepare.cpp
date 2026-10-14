@@ -1,6 +1,8 @@
 #include "asset/project_prepare.h"
 #include "asset/shader_program_import.h"
 #include "asset/import/import_service.h"
+#include "asset/artifact/texture_artifact.h"
+#include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
 #include "common/file_io.h"
 #include "core/project.h"
@@ -10,6 +12,7 @@
 #include "scene/scene_serializer.h"
 #include "scene/script_component.h"
 #include "support/temporary_directory.h"
+#include "support/asset_manager_fixture.h"
 
 #include <gtest/gtest.h>
 
@@ -86,6 +89,61 @@ namespace Comet::Tests {
         ASSERT_TRUE(repeated);
         EXPECT_EQ(repeated->vertex_words, shader_artifact->vertex_words);
         EXPECT_EQ(repeated->fragment_words, shader_artifact->fragment_words);
+    }
+
+    TEST_F(ProjectPrepareTest, ExportedCustomShaderLoadsWithoutSourceStagesOrDevelopmentCache) {
+        auto project = Project::load(paths.root());
+        ASSERT_TRUE(project);
+        const TemporaryDirectory exported;
+        const ProjectPaths products(exported.path() / "game");
+        auto result = export_project_assets(project.value(), products.root());
+        ASSERT_TRUE(result) << result.error();
+        std::filesystem::remove_all(paths.root());
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(products, registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        EXPECT_TRUE(manager.get_database().is_read_only());
+        EXPECT_TRUE(manager.load_mesh(mesh));
+        auto loaded = manager.load_shader_program(program);
+        ASSERT_TRUE(loaded) << loaded.error().message;
+        auto vertex = ShaderInterface::reflect(loaded.value()->vertex_words);
+        auto fragment = ShaderInterface::reflect(loaded.value()->fragment_words);
+        ASSERT_TRUE(vertex);
+        ASSERT_TRUE(fragment);
+        EXPECT_TRUE(vertex.value().validate_stage_link(fragment.value()));
+        for(const auto& record : manager.get_database().get_assets())
+            EXPECT_NE(record.type, AssetType::Shader);
+        EXPECT_FALSE(std::filesystem::exists(products.assets() / "shaders/stripes.vert"));
+        EXPECT_FALSE(std::filesystem::exists(products.cache()));
+    }
+
+    TEST_F(ProjectPrepareTest, PreparesMaterialTextureDependenciesBeforeAppStartup) {
+        const AssetHandle texture{9321};
+        const auto source = paths.assets() / "color.png";
+        std::filesystem::copy_file(std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
+                                       / "assets/textures/awesomeface.png",
+            source);
+        ASSERT_TRUE(MetadataSerializer{}.save({.handle = texture,
+                                                  .type = AssetType::Texture,
+                                                  .import_settings = TextureImportSettings{}},
+            metadata_path(source)));
+        ASSERT_TRUE(MaterialSerializer{}.save(
+            {.template_name = "pbr", .texture_properties = {{"base_color_texture", texture}}},
+            paths.assets() / "materials/stripes.mat"));
+        auto project = Project::load(paths.root());
+        ASSERT_TRUE(project);
+        ASSERT_TRUE(prepare_project(project.value()));
+        const auto artifact =
+            TextureArtifact::load(ImportService(paths).texture_artifact_path(texture), texture,
+                AssetImportLimits{}.texture_working_bytes);
+        ASSERT_TRUE(artifact);
+        EXPECT_EQ(artifact->data.mip_levels, 10u);
+        ASSERT_TRUE(write_text_file_atomic(source, "invalid texture"));
+        const auto failed = prepare_project(project.value());
+        ASSERT_FALSE(failed);
+        EXPECT_NE(failed.error().find("color.png"), std::string::npos);
     }
 
     TEST_F(ProjectPrepareTest, InvalidSourcePreservesPublishedShaderArtifact) {

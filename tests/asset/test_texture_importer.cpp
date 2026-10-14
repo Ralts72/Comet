@@ -1,10 +1,12 @@
 #include "asset/import/texture_importer.h"
 #include "asset/data/texture_data.h"
+#include "common/file_io.h"
 #include "support/temporary_directory.h"
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -13,6 +15,24 @@
 #include <vector>
 
 namespace Comet::Tests {
+    namespace {
+        void write_rgba(const std::filesystem::path& path, const int width, const int height,
+            const std::vector<std::array<std::uint8_t, 4>>& pixels) {
+            std::array<std::uint8_t, 18> header{};
+            header[2] = 2;
+            header[12] = static_cast<std::uint8_t>(width);
+            header[14] = static_cast<std::uint8_t>(height);
+            header[16] = 32;
+            header[17] = 0x28;
+            std::ofstream output(path, std::ios::binary);
+            output.write(reinterpret_cast<const char*>(header.data()), header.size());
+            for(const auto& rgba : pixels) {
+                const std::array bgra{rgba[2], rgba[1], rgba[0], rgba[3]};
+                output.write(reinterpret_cast<const char*>(bgra.data()), bgra.size());
+            }
+        }
+    }
+
     TEST(TextureImporterTest, DecodesTextureIntoRgbaPixels) {
         const std::filesystem::path source = std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
                                              / "assets/textures/awesomeface.png";
@@ -22,19 +42,24 @@ namespace Comet::Tests {
         EXPECT_EQ(data.width, 512);
         EXPECT_EQ(data.height, 512);
         EXPECT_EQ(data.format, Format::R8G8B8A8_SRGB);
-        EXPECT_EQ(data.pixels.size(), static_cast<std::size_t>(data.width * data.height * 4));
+        EXPECT_EQ(data.mip_levels, 10u);
+        EXPECT_EQ(data.pixels.size(), 1398100u);
     }
 
     TEST(TextureImporterTest, AppliesColorSpaceAndVerticalFlip) {
         const std::filesystem::path source = std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
                                              / "assets/textures/awesomeface.png";
         const TextureImporter importer;
-        const TextureData original =
-            importer.import(source, {.color_space = TextureColorSpace::Linear, .flip_y = false})
-                .value();
-        const TextureData flipped =
-            importer.import(source, {.color_space = TextureColorSpace::Linear, .flip_y = true})
-                .value();
+        const TextureData original = importer
+                                         .import(source, {.color_space = TextureColorSpace::Linear,
+                                                             .flip_y = false,
+                                                             .generate_mipmaps = false})
+                                         .value();
+        const TextureData flipped = importer
+                                        .import(source, {.color_space = TextureColorSpace::Linear,
+                                                            .flip_y = true,
+                                                            .generate_mipmaps = false})
+                                        .value();
 
         EXPECT_EQ(original.format, Format::R8G8B8A8_UNORM);
         EXPECT_EQ(flipped.format, Format::R8G8B8A8_UNORM);
@@ -46,6 +71,96 @@ namespace Comet::Tests {
             flipped.pixels.end() - static_cast<std::ptrdiff_t>(row_size)));
         EXPECT_TRUE(std::equal(original.pixels.end() - static_cast<std::ptrdiff_t>(row_size),
             original.pixels.end(), flipped.pixels.begin()));
+    }
+
+    TEST(TextureImporterTest, EmbeddedBytesShareFileDecodingSettingsAndBudget) {
+        const TemporaryDirectory directory;
+        const auto source = directory.path() / "embedded.tga";
+        write_rgba(source, 2, 2,
+            {{218, 128, 218, 32}, {37, 128, 218, 96}, {128, 218, 218, 160}, {128, 37, 218, 224}});
+        const auto encoded = read_binary_file(source, 1024);
+        ASSERT_TRUE(encoded);
+        const auto memory = std::span<const std::byte>(encoded.value());
+        const auto estimate = TextureImporter::working_bytes(memory);
+        ASSERT_TRUE(estimate);
+        EXPECT_EQ(estimate.value(), TextureImporter::working_bytes(source).value());
+        const TextureImporter importer;
+        for(const bool normal_map : {false, true}) {
+            const TextureImportSettings settings{.flip_y = true, .normal_map = normal_map};
+            const auto file = importer.import(source, settings);
+            const auto embedded = importer.import(memory, settings, estimate.value());
+            ASSERT_TRUE(file) << file.error();
+            ASSERT_TRUE(embedded) << embedded.error();
+            EXPECT_EQ(embedded.value().pixels, file.value().pixels);
+            EXPECT_EQ(embedded.value().mip_levels, 2u);
+            EXPECT_EQ(embedded.value().format, file.value().format);
+        }
+        EXPECT_FALSE(importer.import(memory, {}, estimate.value() - 1));
+        EXPECT_FALSE(importer.import(memory.first(10)));
+        EXPECT_FALSE(importer.import(std::span<const std::byte>{}));
+        AssetImportLimits limits;
+        limits.source_bytes = memory.size() - 1;
+        EXPECT_FALSE(importer.import(memory, {}, estimate.value(), limits));
+    }
+
+    TEST(TextureImporterTest, MipFilteringRespectsColorSpaceAndLinearAlpha) {
+        const TemporaryDirectory directory;
+        const auto source = directory.path() / "color.tga";
+        write_rgba(
+            source, 2, 2, {{0, 0, 0, 0}, {255, 255, 255, 255}, {0, 0, 0, 0}, {255, 255, 255, 255}});
+        for(const auto color_space : {TextureColorSpace::Srgb, TextureColorSpace::Linear}) {
+            const auto result = TextureImporter{}.import(source, {.color_space = color_space});
+            ASSERT_TRUE(result) << result.error();
+            const auto& data = result.value();
+            ASSERT_EQ(data.pixels.size(), 20u);
+            EXPECT_EQ(data.mip_levels, 2u);
+            const int expected = color_space == TextureColorSpace::Srgb ? 188 : 128;
+            for(unsigned channel = 0; channel < 3; ++channel)
+                EXPECT_NEAR(data.pixels[16 + channel], expected, 1);
+            EXPECT_EQ(data.pixels[19], 128);
+        }
+        const auto base = TextureImporter{}.import(source, {.generate_mipmaps = false});
+        ASSERT_TRUE(base);
+        EXPECT_EQ(base.value().mip_levels, 1u);
+        EXPECT_EQ(base.value().pixels.size(), 16u);
+    }
+
+    TEST(TextureImporterTest, NormalMapUsesLinearDataAndRenormalizesMips) {
+        const TemporaryDirectory directory;
+        const auto source = directory.path() / "normal.tga";
+        write_rgba(source, 2, 1, {{218, 128, 218, 32}, {37, 128, 218, 96}});
+        const auto result = TextureImporter{}.import(source, {.normal_map = true});
+        ASSERT_TRUE(result) << result.error();
+        const auto& data = result.value();
+        EXPECT_EQ(data.format, Format::R8G8B8A8_UNORM);
+        ASSERT_EQ(data.pixels.size(), 12u);
+        EXPECT_EQ(data.pixels[0], 218);
+        EXPECT_NEAR(data.pixels[8], 128, 1);
+        EXPECT_NEAR(data.pixels[9], 128, 1);
+        EXPECT_EQ(data.pixels[10], 255);
+        EXPECT_EQ(data.pixels[11], 64);
+        const auto linear =
+            TextureImporter{}.import(source, {.color_space = TextureColorSpace::Linear});
+        ASSERT_TRUE(linear);
+        EXPECT_EQ(linear.value().pixels[10], 218);
+    }
+
+    TEST(TextureImporterTest, MipChainPreservesOddEdgesAndOneDimensionalTextures) {
+        const TemporaryDirectory directory;
+        const auto source = directory.path() / "odd.tga";
+        for(const auto& [width, height] : {std::pair{3, 1}, {1, 3}, {3, 3}, {1, 1}}) {
+            SCOPED_TRACE(std::to_string(width) + "x" + std::to_string(height));
+            std::vector<std::array<std::uint8_t, 4>> pixels(width * height, {0, 0, 0, 255});
+            pixels.back() = {255, 255, 255, 255};
+            write_rgba(source, width, height, pixels);
+            const auto result =
+                TextureImporter{}.import(source, {.color_space = TextureColorSpace::Linear});
+            ASSERT_TRUE(result) << result.error();
+            const auto& data = result.value();
+            EXPECT_EQ(data.mip_levels, width == 1 && height == 1 ? 1u : 2u);
+            EXPECT_NEAR(data.pixels[data.pixels.size() - 4], 255.0 / (width * height), 1);
+            EXPECT_EQ(data.pixels.back(), 255);
+        }
     }
 
     TEST(TextureImporterTest, RespectsDecodedWorkingSetBudget) {

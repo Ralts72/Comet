@@ -3,13 +3,13 @@
 Comet 是供作者个人学习使用的 3D 游戏引擎与编辑器，使用 C++20、CMake 和 Vulkan。
 引擎对外提供一个 `engine` 动态库；ImGui 编辑器与独立 App 共用场景、资产、Gameplay 和 RmlUi 游戏界面。
 
-目前支持场景编辑与撤销、glTF 静态／骨骼模型、基础动画播放与混合、PBR／阴影／IBL／Bloom、Lua 热重载、刚体与角色控制、基础音频和游戏设置。
-独立渲染线程与场景更新重叠执行。Prefab、高级动画、粒子、GI、路径追踪及内容导出继续按路线图推进。
+目前支持场景编辑与撤销、glTF 静态／骨骼模型、基础动画播放与混合、纹理 Mipmap、PBR／阴影／IBL／Bloom、Lua 热重载、刚体、凸包／静态网格碰撞、碰撞层与角色控制、射线／形状扫掠／范围查询、游戏内关卡切换与检查点存档、基础音频和游戏设置。
+独立渲染线程与场景更新重叠执行。Prefab 子树复用、基础覆盖和 Lua 生成已接入；嵌套 Prefab、高级动画、粒子、GI、路径追踪继续按路线图推进；macOS 已支持独立 App 导出。
 
 ## 快速开始
 
 需要 CMake 3.31+、C++20 编译器、Vulkan SDK 和 Git LFS。第三方源码由 Submodule 或仓库内的 vendored source 提供，
-Shader 编译器随项目构建，无需另装 `glslangValidator`。
+Shader 编译器随项目构建，无需另装 `glslangValidator`。macOS 编辑器导出与打包测试还需要 Python 3.9+。
 
 在仓库根目录执行：
 
@@ -39,16 +39,19 @@ macOS／Linux 可用脚本构建并启动：
 | `editor-dev` | Editor，RelWithDebInfo | `build-editor/` |
 | `app-release` | App，Release | `build-release/` |
 
-Windows 可使用相同 CMake preset，随后启动构建目录中的可执行文件。开发构建依赖仓库资源，独立发布包仍在规划中。
+Windows 可使用相同 CMake preset，随后启动构建目录中的可执行文件。开发构建依赖仓库资源；macOS 可通过“项目 → 导出 App”生成可搬移程序，其他平台的完整打包后续接入。
 
 ## 试玩 Demo
 
 默认启动 `demo/assets/scenes/character.scene`。WASD／左摇杆移动，空格／手柄 South 跳跃，R 重开；
 移动以相机朝向为参照；Shift 跑步、Ctrl 蹲伏，鼠标右键拖动／手柄右摇杆转动视角，滚轮缩放。
-引擎内置人形角色和 7 个基础动作；Inspector 可替换网格和动作片段。沿台阶、缓坡和移动平台收集三个目标，低通道需要蹲伏。
+引擎内置人形角色和 7 个基础动作；Inspector 可替换网格和动作片段。第一关沿台阶、缓坡和移动平台收集三个目标，完成后点击“进入第二关”；第二关绕过隔墙收集目标，可返回第一关。
+角色与收集目标使用项目 Prefab，终点门由 Lua 生成，收集完成后打开。
+收集后自动保存，也可点击“保存进度”；“继续存档”回到保存关卡起点并保留两关收集状态。App 与 Editor Play 使用各自的存档。
+两个关卡的起点附近共用一个多材质货车模型；在层级中选中“牛奶货车”可查看来源关联和实例覆盖。
 点击“设置”或按 F1 可修改显示、画质、音量和按键。
 
-编辑器恢复上次打开的场景。通过“文件 → 切换场景”可选择角色场景，或打开 `scenes/default.scene` 查看材质、灯光与关节演示。
+编辑器恢复上次打开的场景。通过“文件 → 切换场景”可选择角色场景，或打开 `scenes/default.scene` 查看材质、灯光与关节演示；`scenes/pbr_surfaces.scene` 展示 PBR 贴图、树叶裁切阴影与透明层叠。
 可选 HDR 环境图通过 `./tools/download_assets.sh` 下载；角色场景不依赖这项下载。
 
 ## 常用操作
@@ -59,12 +62,19 @@ Windows 可使用相同 CMake preset，随后启动构建目录中的可执行�
 | 切换同项目场景 | 文件 → 切换场景；有未保存修改时先确认 |
 | 设置 App 启动场景 | 项目 → 启动场景 |
 | 运行／暂停／单步／停止 | 视口左侧按钮；Stop 恢复 Edit 内容 |
-| 编辑实体与组件 | 层级与 Inspector；Edit 支持撤销 |
+| 编辑实体与组件 | 层级支持 Ctrl/Cmd 多选、Shift 连选；Inspector 批量编辑共同属性，Edit 支持整组撤销 |
+| 资源预览 | 项目面板显示纹理、模型、网格与材质球缩略图，悬停可放大；支持模型内嵌贴图 |
+| 批量搭建 | 层级右键“批量放置”；多选共用变换手柄、包围框与 F 聚焦，整组操作一次撤销 |
+| 查看碰撞形状 | 视口 → 视图 → 碰撞体；支持基础形状、凸包和静态网格线框 |
 | 预览模型动画 | Edit 中选中角色模型，Inspector → 动画 → 动画预览；支持播放与时间定位 |
+| 放置 glTF／GLB 模型 | 文件拖入 Project 后等待导入，再拖入视口；实例根右键可从模型更新并保留本地覆盖 |
+| 保存／复用 Prefab | 层级右键保存子树，Project 拖入视口；实例根右键更新、写回源、恢复覆盖或解除关联 |
 | 创建材质、脚本或 Lua 模块 | Project 面板右键 |
 | 编辑 Lua、Shader、UI 源码 | Project 右键“打开源码”，编辑保存后按对应重载流程生效 |
 | 设置新玩家默认值 | 项目 → 设置 → 显示／画质／音频／输入 |
 | 查看渲染数据与日志 | 渲染统计、Log 面板 |
+| 导出 macOS App | 项目 → 导出 App；先构建 `app-release`，选择额外关卡与新的 `.app` 路径 |
+| 仅导出关卡资源 | `comet_prepare_project <项目> --export-assets <新目录> [其他场景 ...]` |
 
 ## 配置与资源
 
@@ -74,6 +84,7 @@ Windows 可使用相同 CMake preset，随后启动构建目录中的可执行�
 
 默认角色／基础动作、共用字体和基础 UI 图标位于 `engine/resources/`，沿用仓库的 Git LFS 规则。
 引擎还提供默认 PBR／无光照材质，可在 Inspector 的材质下拉框选择；项目材质、页面、主题和玩法素材放在项目的 `assets/`。
+示例货车来自 Cesium 的 [Cesium Milk Truck](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CesiumMilkTruck)，采用 CC BY 4.0；归属、来源版本与标识说明保存在 `demo/sources.json`。
 资源路径、设置存储和脚本接口的具体用法见[使用手册](docs/usage.md)。
 
 ## 目录导航

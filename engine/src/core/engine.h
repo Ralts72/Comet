@@ -1,4 +1,5 @@
 #pragma once
+#include "physics/physics_service.h"
 #include "common/export.h"
 #include "audio/audio_settings.h"
 #include "render/scene/scene_extractor.h"
@@ -68,19 +69,24 @@ namespace Comet {
         [[nodiscard]] const Scene* get_scene() const { return m_scene.get(); }
 
         [[nodiscard]] Result<void, Error> add_system(std::unique_ptr<System> system);
-        [[nodiscard]] Result<void, Error> add_default_scene_systems();
+        [[nodiscard]] Result<void, Error> add_default_scene_systems(
+            PhysicsService::MeshSource meshes = {});
         [[nodiscard]] Result<void, Error> apply_audio_settings(AudioSettings settings);
         [[nodiscard]] const AudioSettings& get_audio_settings() const { return m_audio_settings; }
         [[nodiscard]] Result<void, Error> set_runtime_settings(SceneRuntime::Settings settings);
         [[nodiscard]] Result<void, Error> set_input_actions(InputActions actions);
         [[nodiscard]] Result<void, Error> rebind_input_actions(InputActions actions);
         [[nodiscard]] Result<void, Error> start_scene_runtime(
-            SceneRuntime::State state = SceneRuntime::State::Running);
+            SceneRuntime::State state = SceneRuntime::State::Running,
+            ParameterMap initial_values = {}, std::string checkpoint = {});
         [[nodiscard]] Result<void, Error> stop_scene_runtime();
         [[nodiscard]] Result<void, Error> set_runtime_state(SceneRuntime::State state);
         [[nodiscard]] Result<void, Error> request_runtime_step();
-        [[nodiscard]] bool take_runtime_restart_request() {
-            return m_scene_runtime.take_restart_request();
+        [[nodiscard]] std::optional<RuntimeSession::SceneRequest> take_runtime_scene_request() {
+            return m_scene_runtime.take_scene_request();
+        }
+        [[nodiscard]] std::optional<RuntimeSession::CheckpointRequest> take_checkpoint_request() {
+            return m_scene_runtime.take_checkpoint_request();
         }
         [[nodiscard]] const SceneRuntime& get_scene_runtime() const { return m_scene_runtime; }
         [[nodiscard]] AssetRegistry& get_asset_registry() { return *m_asset_registry; }

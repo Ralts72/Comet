@@ -25,6 +25,13 @@ body {
     font-size: 14dp;
     color: #d1def0;
 }
+#course-actions {
+    position: absolute;
+    top: 18dp;
+    left: 22dp;
+    max-width: 60%;
+    font-size: 14dp;
+}
 #notice { display: block; max-width: 360dp; color: #ffa79c; margin-top: 8dp; }
 button {
     display: inline-block;

@@ -4,6 +4,7 @@
 #include "graphics/device.h"
 #include "graphics/resource/image.h"
 #include "graphics/resource/image_view.h"
+#include "graphics/resource/sampler.h"
 #include "graphics/synchronization/resource_state.h"
 
 #include <limits>
@@ -26,7 +27,7 @@ namespace Comet {
         }
         const auto max_mip_levels = static_cast<uint32_t>(std::bit_width(std::max(width, height)));
         if(data.mip_levels == 0 || data.mip_levels > max_mip_levels
-            || (data.cubemap && width != height) || (!data.cubemap && data.mip_levels != 1))
+            || (data.cubemap && width != height))
             LOG_FATAL("Invalid texture mip count or cubemap dimensions");
         const uint32_t layers = data.cubemap ? 6 : 1;
         size_t expected_size = 0;
@@ -40,6 +41,17 @@ namespace Comet {
         if(data.pixels.size() != expected_size) {
             LOG_FATAL("Texture pixel data size {} does not match expected size {}",
                 data.pixels.size(), expected_size);
+        }
+
+        std::shared_ptr<Sampler> sampler;
+        if(data.sampler) {
+            auto created = Sampler::create(device, *data.sampler);
+            if(!created) {
+                LOG_ERROR("Cannot create texture sampler: {}", created.error().message);
+                return GpuResourceResult<std::shared_ptr<Texture>>::failure(
+                    created.error().result.value_or(vk::Result::eErrorUnknown));
+            }
+            sampler = std::move(created).value();
         }
 
         const ImageSubresourceRange subresources{
@@ -86,13 +98,13 @@ namespace Comet {
         const auto completion = upload_batch.submit();
         if(!completion)
             return GpuResourceResult<std::shared_ptr<Texture>>::failure(completion.result());
-        std::shared_ptr<Texture> texture(
-            new Texture(data.width, data.height, std::move(image_view), completion.value()));
+        std::shared_ptr<Texture> texture(new Texture(data.width, data.height, std::move(image_view),
+            completion.value(), std::move(sampler)));
         return GpuResourceResult<std::shared_ptr<Texture>>::success(std::move(texture));
     }
 
     Texture::Texture(const int width, const int height, std::shared_ptr<ImageView> image_view,
-        const GpuCompletionPoint ready_completion)
+        const GpuCompletionPoint ready_completion, std::shared_ptr<Sampler> sampler)
         : m_width(width), m_height(height), m_image_view(std::move(image_view)),
-          m_ready_completion(ready_completion) {}
+          m_ready_completion(ready_completion), m_sampler(std::move(sampler)) {}
 }

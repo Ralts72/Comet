@@ -535,10 +535,11 @@ namespace Comet::Tests {
         const auto directory = std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/material";
         auto source = read_text_file(directory / "pbr.frag");
         ASSERT_TRUE(source) << source.error();
-        const std::string color = "clamp(result, 0.0, 65504.0)";
+        const std::string color = "clamp(result + emission, 0.0, 65504.0)";
         const auto offset = source.value().find(color);
         ASSERT_NE(offset, std::string::npos);
-        source.value().replace(offset, color.size(), "clamp(result * 0.5, 0.0, 65504.0)");
+        source.value().replace(
+            offset, color.size(), "clamp((result + emission) * 0.5, 0.0, 65504.0)");
         TemporaryDirectory temporary;
         const auto path = temporary.path() / "pbr.frag";
         ASSERT_TRUE(write_text_file_atomic(path, source.value()));

@@ -52,6 +52,9 @@ namespace CometEditor {
         // 坐标使用界面逻辑点；拖出图像仍继续，取消／释放帧也消费指针。
         [[nodiscard]] bool update(Comet::EntityUuid selected, const Comet::RenderCamera& camera,
             const ViewportLayout& layout, const Input& input);
+        [[nodiscard]] bool update_selection(std::span<const Comet::EntityUuid> selected,
+            const Comet::RenderCamera& camera, const ViewportLayout& layout, const Input& input);
+        [[nodiscard]] const std::string& error() const { return m_error; }
         [[nodiscard]] bool cancel();
         [[nodiscard]] bool active() const;
         [[nodiscard]] std::optional<Axis> hovered_axis() const { return m_hovered_axis; }
@@ -78,6 +81,15 @@ namespace CometEditor {
         };
 
         struct Drag {
+            struct Member {
+                Comet::EntityUuid entity;
+                Comet::EntityUuid parent;
+                Comet::Math::Mat4 parent_world{1};
+                Comet::Math::Mat4 world_to_parent{1};
+                Comet::Math::Mat4 world{1};
+                Comet::TransformComponent before;
+                Comet::TransformComponent last;
+            };
             Comet::EntityUuid entity;
             std::uint64_t generation;
             Axis axis;
@@ -86,6 +98,8 @@ namespace CometEditor {
             float last_parameter;
             float accumulated_angle = 0;
             Comet::Math::Vec3 last_value;
+            std::vector<Comet::EntityUuid> selection;
+            std::vector<Member> members;
         };
 
         [[nodiscard]] std::optional<Context> make_context(Comet::EntityUuid selected,
@@ -101,11 +115,15 @@ namespace CometEditor {
         [[nodiscard]] std::optional<float> parameter(
             const Context& context, Axis axis, Comet::Math::Vec2 position) const;
         [[nodiscard]] Comet::Math::Vec3 preview_value(Drag& drag, float parameter) const;
+        [[nodiscard]] bool begin_group(Drag& drag);
+        [[nodiscard]] bool group_unchanged(const Drag& drag) const;
+        [[nodiscard]] bool preview_group(Drag& drag, float parameter);
 
         CommandHistory& m_history;
         PropertyEditTransaction m_edit;
         std::optional<Drag> m_drag;
         std::optional<Axis> m_hovered_axis;
         Settings m_settings;
+        std::string m_error;
     };
 }

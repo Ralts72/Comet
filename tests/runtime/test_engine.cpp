@@ -44,17 +44,32 @@ namespace Comet::Tests {
     using EngineSceneActivationTest = EngineTest;
     using RenderThreadTest = EngineTest;
 
-    TEST_F(EngineSceneActivationTest, CharacterDemoLoadsRealAssetsAndRendersWithDefaultSystems) {
+    static void check_character_demo(Engine* engine, bool exported_products) {
         // 独立项目目录，不能借用本机试玩留下的导入缓存。
         TemporaryDirectory directory;
         const std::filesystem::path sample = COMET_SAMPLE_PROJECT_DIRECTORY;
         std::filesystem::copy_file(sample / "project.json", directory.path() / "project.json");
         std::filesystem::copy(sample / "assets", directory.path() / "assets",
             std::filesystem::copy_options::recursive);
-        const auto project = Project::load(directory.path());
+        auto project = Project::load(directory.path());
         ASSERT_TRUE(project) << project.error();
-        const auto imported = prepare_project(project.value());
-        ASSERT_TRUE(imported) << imported.error();
+        AssetDatabase source_database(project.value().paths());
+        ASSERT_TRUE(source_database.scan().succeeded());
+        const auto* collider_mesh = source_database.find("meshes/cube.gltf");
+        ASSERT_NE(collider_mesh, nullptr);
+        const auto collider_handle = collider_mesh->handle;
+        TemporaryDirectory products;
+        if(exported_products) {
+            const auto exported = export_project_assets(project.value(), products.path() / "built");
+            ASSERT_TRUE(exported) << exported.error();
+            std::filesystem::rename(products.path() / "built", products.path() / "moved");
+            std::filesystem::remove_all(directory.path());
+            project = Project::load(products.path() / "moved");
+            ASSERT_TRUE(project) << project.error();
+        } else {
+            const auto imported = prepare_project(project.value());
+            ASSERT_TRUE(imported) << imported.error();
+        }
         const auto components = create_scene_component_registry();
         auto loaded =
             SceneSerializer(components)
@@ -63,16 +78,30 @@ namespace Comet::Tests {
         ASSERT_TRUE(loaded) << loaded.error();
         auto scene = std::move(loaded).value();
         const auto expected_items = scene->component_count<MeshRendererComponent>();
-        auto references =
-            components.collect_asset_references(*scene, ComponentRegistry::ReferenceScope::Runtime);
         AssetManager assets(project.value().paths(), engine->get_asset_registry(),
             engine->get_render_resource_factory(), engine->get_task_scheduler());
         ASSERT_TRUE(assets.scan().snapshot_updated);
+        EXPECT_EQ(assets.get_database().is_read_only(), exported_products);
+        if(!exported_products)
+            ASSERT_TRUE(assets.import_mesh(collider_handle));
+        auto collision_only = scene->create_entity("Imported static collision");
+        collision_only.edit_transform([](auto& transform) { transform.translation.x = 50; });
+        collision_only.add_component<RigidBodyComponent>(
+            RigidBodyComponent{.motion = BodyMotion::Static});
+        collision_only.add_component<ColliderComponent>(
+            ColliderComponent{.shape = ColliderShape::TriangleMesh, .mesh = collider_handle});
+        auto collected = assets.collect_scene_references(*scene, components);
+        ASSERT_TRUE(collected) << collected.error().message;
+        const auto references = std::move(collected).value();
+        const auto expected_bodies = scene->component_count<RigidBodyComponent>();
         const auto prepared =
             assets.prepare_references(references, AssetManager::MissingAssetPolicy::FailRequired);
         ASSERT_TRUE(prepared) << prepared.error();
         ASSERT_TRUE(engine->set_input_actions(project.value().input_actions()));
-        ASSERT_TRUE(engine->add_default_scene_systems());
+        ASSERT_TRUE(engine->add_default_scene_systems(
+            {.read = [&](AssetHandle handle) { return assets.read_mesh_data(handle); },
+                .revision =
+                    [&](AssetHandle handle) { return assets.mesh_data_revision(handle); }}));
         bool activated = false;
         unsigned frames = 0;
         unsigned active_frames = 0;
@@ -94,11 +123,14 @@ namespace Comet::Tests {
             } else if(++active_frames == 4) {
                 const auto* physics = engine->get_scene_runtime().find_system<PhysicsSystem>();
                 EXPECT_NE(physics, nullptr);
-                if(physics)
+                if(physics) {
                     EXPECT_EQ(physics->get_statistics().characters, 1u);
+                    EXPECT_EQ(physics->get_statistics().bodies, expected_bodies + 1);
+                }
                 const auto& statistics =
                     engine->get_renderer().get_scene_renderer().get_material_statistics();
-                EXPECT_EQ(statistics.render_items, expected_items);
+                // Lua 生成的终点门包含门板和三段门框；物理与渲染均应接纳新子树。
+                EXPECT_EQ(statistics.render_items, expected_items + 4);
                 EXPECT_GT(statistics.draw_calls, 0u);
                 engine->get_window().request_close();
             }
@@ -109,6 +141,14 @@ namespace Comet::Tests {
         ASSERT_TRUE(result) << result.error();
         EXPECT_TRUE(activated);
         EXPECT_EQ(active_frames, 4u);
+    }
+
+    TEST_F(EngineSceneActivationTest, CharacterDemoLoadsRealAssetsAndRendersWithDefaultSystems) {
+        check_character_demo(engine.get(), false);
+    }
+
+    TEST_F(EngineSceneActivationTest, ExportedCharacterDemoRendersAfterSourceAndCacheAreRemoved) {
+        check_character_demo(engine.get(), true);
     }
 
     TEST_F(RenderThreadTest, AssetFactoryRemainsValidBeforeAndAfterRunUntilShutdown) {

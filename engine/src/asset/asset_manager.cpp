@@ -1,5 +1,6 @@
 #include "asset/default_assets.h"
 #include "asset/asset_manager.h"
+#include "scene/component_registry.h"
 #include "asset/runtime/asset_loader.h"
 #include "asset/runtime/render_asset_factory.h"
 #include "graphics/error.h"
@@ -106,6 +107,9 @@ namespace Comet {
 
     Result<void> AssetManager::update_import_dependencies(
         const AssetHandle handle, std::vector<std::filesystem::path> dependencies) {
+        // 导出产品的依赖已固定；加载 Lua 时无需维护编辑器的源文件观察列表。
+        if(m_database.is_read_only())
+            return Result<void>::success();
         return m_database.update_import_dependencies(handle, std::move(dependencies));
     }
 
@@ -128,6 +132,10 @@ namespace Comet {
             return Result<void, Error>::success();
         };
         switch(expected_type) {
+            case AssetType::Prefab:
+                return status(load_prefab(handle, create_scene_component_registry()));
+            case AssetType::Model:
+                return status(load_model(handle));
             case AssetType::Audio:
                 return status(load_audio(handle));
             case AssetType::Script:
@@ -193,11 +201,35 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
+    Result<void, Error> AssetManager::request_load(const AssetReference& reference) {
+        if(!reference.cpu_only)
+            return request_load(reference.handle, reference.type);
+        if(reference.type != AssetType::Mesh)
+            return Result<void, Error>::failure({"CPU-only loading requires a mesh asset"});
+        auto data = read_mesh_data(reference.handle);
+        if(!data)
+            return Result<void, Error>::failure(data.error());
+        return Result<void, Error>::success();
+    }
+
+    Result<std::shared_ptr<Prefab>, Error> AssetManager::load_prefab(
+        AssetHandle handle, const ComponentRegistry& components) {
+        return m_loader->load_prefab(handle, components);
+    }
+
+    Result<std::vector<AssetReference>, Error> AssetManager::collect_scene_references(
+        Scene& scene, const ComponentRegistry& components, MissingAssetPolicy policy) {
+        return components.collect_runtime_references(
+            scene, [this](AssetHandle handle) { return load_script(handle); },
+            [this, &components](AssetHandle handle) { return load_prefab(handle, components); },
+            policy == MissingAssetPolicy::AllowMissing);
+    }
+
     Result<std::size_t, Error> AssetManager::prepare_references(
         const std::span<const AssetReference> references, const MissingAssetPolicy policy) {
         std::size_t missing = 0;
         for(const auto& reference : references) {
-            auto loaded = request_load(reference.handle, reference.type);
+            auto loaded = request_load(reference);
             if(loaded)
                 continue;
             if(is_device_lost(loaded.error())
@@ -213,6 +245,15 @@ namespace Comet {
         const std::span<const AssetReference> references, const MissingAssetPolicy policy) const {
         bool ready = true;
         for(const auto& reference : references) {
+            if(reference.cpu_only) {
+                const auto prepared = m_mesh_data.find(reference.handle);
+                if(reference.type == AssetType::Mesh && prepared != m_mesh_data.end()
+                    && prepared->second.available && prepared->second.prepared)
+                    continue;
+                if(reference.required && policy == MissingAssetPolicy::FailRequired)
+                    return Result<bool, Error>::failure({"CPU mesh data is not prepared"});
+                continue;
+            }
             if(const auto* asset = find_default_asset(reference.handle);
                 asset && asset->type == reference.type) {
                 const bool loaded = reference.type == AssetType::Mesh
@@ -232,7 +273,9 @@ namespace Comet {
             } else {
                 const auto* record = m_database.find(reference.handle);
                 if(record && record->type == reference.type) {
-                    if(m_registry.contains(reference.handle))
+                    if((reference.type == AssetType::Model
+                           && m_loader->model_is_loaded(reference.handle))
+                        || m_registry.contains(reference.handle))
                         continue;
                     const auto revision = m_database.get_revision(reference.handle);
                     const auto deferred = m_refresh_requests.find(reference.handle);
@@ -251,6 +294,8 @@ namespace Comet {
     }
 
     AssetManager::ImportPublication AssetManager::publish_import_result(AssetImportResult& result) {
+        if(auto* candidate = std::get_if<ModelImportCandidate>(&result.candidate))
+            return publish_model_candidate(*candidate);
         if(auto* candidate = std::get_if<MeshArtifactCandidate>(&result.candidate))
             return publish_mesh_candidate(*candidate);
         if(auto* candidate = std::get_if<MaterialImportCandidate>(&result.candidate))
@@ -338,6 +383,7 @@ namespace Comet {
     AssetManager::ImportPublication AssetManager::publish_mesh_candidate(
         MeshArtifactCandidate& candidate) {
         if(!candidate.result) {
+            change_mesh_data(candidate.handle, false);
             LOG_ERROR("Failed to prepare mesh artifact '{}' (handle {}): {}",
                 candidate.relative_path.generic_string(), candidate.handle.value(),
                 candidate.result.error());
@@ -493,14 +539,97 @@ namespace Comet {
         return ImportPublication::success(candidate.handle);
     }
 
+    void AssetManager::invalidate_model(AssetHandle handle) {
+        std::unordered_set<AssetHandle> invalidated{handle};
+        m_database.include_dependents(invalidated);
+        for(const auto child : invalidated) {
+            const auto* record = m_database.find(child);
+            if((record && record->type == AssetType::Mesh) || m_mesh_data.contains(child))
+                change_mesh_data(child, false);
+            static_cast<void>(m_registry.unregister_asset(child));
+            m_refresh_requests.erase(child);
+        }
+        m_loader->invalidate_model(handle);
+    }
+
+    AssetManager::ImportPublication AssetManager::publish_model_candidate(
+        ModelImportCandidate& candidate) {
+        const auto handle = candidate.record.handle;
+        const auto reject = [this, handle](const std::string& error) {
+            invalidate_model(handle);
+            LOG_ERROR("Failed to import model {}: {}", handle.value(), error);
+            return ImportPublication::success(std::nullopt);
+        };
+        if(!candidate.result)
+            return reject(candidate.result.error());
+        if(auto published =
+                m_import_service->publish_model(candidate.record, candidate.result.value());
+            !published)
+            return reject(published.error());
+        const auto report = scan();
+        if(!report.succeeded())
+            return reject("Cannot index imported model products");
+        m_loader->invalidate_model(handle);
+        auto loaded = m_loader->load_model(handle);
+        if(!loaded)
+            return reject(loaded.error().message);
+        publish_model_meshes(handle);
+        m_source_imports_needing_recheck.erase(handle);
+        return ImportPublication::success(handle);
+    }
+
+    Result<void, Error> AssetManager::import_model(const AssetHandle handle) {
+        if(m_database.is_read_only())
+            return Result<void, Error>::failure({"Cannot import into a read-only product index"});
+        const auto* record = find_asset_record(m_database, handle, AssetType::Model);
+        if(!record)
+            return Result<void, Error>::failure({"Model asset record not found"});
+        const auto reject = [this, handle](Error error) {
+            invalidate_model(handle);
+            return Result<void, Error>::failure(std::move(error));
+        };
+        const AssetRecord snapshot = *record;
+        auto prepared = m_import_service->prepare_model(snapshot, m_limits.mesh_working_bytes);
+        // 成功会发布新的子资源身份；失败也接纳源变更，使旧资源不再冒充新版本。
+        const auto report = scan();
+        if(!prepared)
+            return reject({prepared.error()});
+        if(!report.succeeded())
+            return reject({"Cannot index imported model products"});
+        m_loader->invalidate_model(handle);
+        const auto loaded = m_loader->load_model(handle);
+        if(!loaded)
+            return reject(loaded.error());
+        publish_model_meshes(handle);
+        return Result<void, Error>::success();
+    }
+
+    Result<std::shared_ptr<const ModelData>, Error> AssetManager::load_model(AssetHandle handle) {
+        return m_loader->load_model(handle);
+    }
+
     Result<void, Error> AssetManager::import_mesh(const AssetHandle handle) {
+        if(m_database.is_read_only())
+            return Result<void, Error>::failure({"Cannot import into a read-only product index"});
         if(!validate_asset_handle(handle, "import a mesh")) {
             return Result<void, Error>::failure({"Invalid mesh handle"});
         }
+        // 内置网格由 loader 直接加载，不生成项目索引或导入缓存。
+        if(const auto* asset = find_default_asset(handle); asset && asset->type == AssetType::Mesh)
+            return Result<void, Error>::success();
 
         const AssetRecord* record = find_asset_record(m_database, handle, AssetType::Mesh);
         if(!record) {
             return Result<void, Error>::failure({"Mesh asset record not found"});
+        }
+        if(record->source_asset) {
+            auto imported = import_model(record->source_asset);
+            if(!imported)
+                return imported;
+            const auto* current = m_database.find(handle);
+            if(!current || current->type != AssetType::Mesh)
+                return Result<void, Error>::failure({"Model mesh no longer exists after import"});
+            return Result<void, Error>::success();
         }
         const AssetRevision revision = m_database.get_revision(handle);
         const AssetRecord snapshot = *record;
@@ -520,6 +649,7 @@ namespace Comet {
         auto imported = m_import_service->build_mesh_artifact(
             handle, snapshot.path, m_limits.mesh_working_bytes);
         if(!imported) {
+            change_mesh_data(handle, false);
             LOG_ERROR("{}", imported.error());
             return Result<void, Error>::failure({imported.error()});
         }
@@ -571,17 +701,45 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
-    bool AssetManager::import_mesh_async(const AssetHandle handle, const MeshImportMode mode) {
+    uint64_t AssetManager::mesh_data_revision(const AssetHandle handle) const {
+        const auto found = m_mesh_data.find(handle);
+        return found == m_mesh_data.end() ? 0 : found->second.revision;
+    }
+
+    void AssetManager::change_mesh_data(AssetHandle handle, bool available) {
+        m_mesh_data[handle] = {++m_mesh_data_revision, available, false};
+    }
+
+    void AssetManager::publish_model_meshes(AssetHandle model) {
+        for(const auto& record : m_database.get_assets())
+            if(record.source_asset == model && record.type == AssetType::Mesh)
+                change_mesh_data(record.handle, true);
+    }
+
+    Result<MeshData, Error> AssetManager::read_mesh_data(const AssetHandle handle) {
+        auto& state = m_mesh_data[handle];
+        state.prepared = false;
+        if(!state.available)
+            return Result<MeshData, Error>::failure(
+                {"Mesh product is unavailable; import the changed asset before using its geometry"});
+        auto data = m_loader->read_mesh_data(handle);
+        state.prepared = bool(data);
+        return data;
+    }
+
+    bool AssetManager::import_mesh_async(const AssetHandle handle, const AssetImportMode mode) {
         const auto* record = find_asset_record(m_database, handle, AssetType::Mesh);
         return record && schedule_mesh_task(*record, mode);
     }
 
-    bool AssetManager::is_mesh_import_pending(const AssetHandle handle) const {
-        return m_task_queue->contains(handle, m_database.get_revision(handle));
+    bool AssetManager::is_import_pending(const AssetHandle handle) const {
+        const auto* record = m_database.find(handle);
+        const auto source = record && record->source_asset ? record->source_asset : handle;
+        return m_task_queue->contains(source, m_database.get_revision(source));
     }
 
-    std::vector<AssetHandle> AssetManager::mesh_imports_needing_recheck() const {
-        return {m_mesh_imports_needing_recheck.begin(), m_mesh_imports_needing_recheck.end()};
+    std::vector<AssetHandle> AssetManager::source_imports_needing_recheck() const {
+        return {m_source_imports_needing_recheck.begin(), m_source_imports_needing_recheck.end()};
     }
 
     Result<std::shared_ptr<Mesh>, Error> AssetManager::load_mesh(const AssetHandle handle) {
@@ -617,6 +775,9 @@ namespace Comet {
 
     Result<std::shared_ptr<Texture>, Error> AssetManager::reimport_texture(
         const AssetHandle handle, TextureImportSettings import_settings) {
+        if(m_database.is_read_only())
+            return Result<std::shared_ptr<Texture>, Error>::failure(
+                {"Cannot import into a read-only product index"});
         if(!validate_asset_handle(handle, "reimport a texture")) {
             return Result<std::shared_ptr<Texture>, Error>::failure({"Invalid texture handle"});
         }
@@ -627,6 +788,9 @@ namespace Comet {
                 {"Texture is not indexed with the expected type"});
         }
 
+        if(record->source_asset)
+            return Result<std::shared_ptr<Texture>, Error>::failure(
+                {"Texture settings are owned by the source model; reimport that model"});
         const auto runtime =
             find_runtime_asset(m_registry, handle, m_registry.resolve<Texture>(handle));
         if(runtime.type_conflict) {
@@ -697,6 +861,9 @@ namespace Comet {
 
     Result<std::shared_ptr<Material>, Error> AssetManager::reload_material(
         const AssetHandle handle) {
+        if(m_database.is_read_only())
+            return Result<std::shared_ptr<Material>, Error>::failure(
+                {"Cannot reload a read-only product"});
         if(!validate_asset_handle(handle, "reload a material")) {
             return Result<std::shared_ptr<Material>, Error>::failure({"Invalid material handle"});
         }
@@ -705,6 +872,13 @@ namespace Comet {
         if(!record) {
             return Result<std::shared_ptr<Material>, Error>::failure(
                 {"Material is not indexed with the expected type"});
+        }
+
+        if(record->source_asset) {
+            if(auto imported = import_model(record->source_asset); !imported)
+                return Result<std::shared_ptr<Material>, Error>::failure(imported.error());
+            static_cast<void>(m_registry.unregister_asset(handle));
+            return load_material(handle);
         }
 
         const auto runtime =
@@ -747,6 +921,8 @@ namespace Comet {
 
     Result<AssetManager::MaterialUpdate, Error> AssetManager::prepare_material_update(
         const AssetHandle handle, const MaterialData& data) {
+        if(m_database.is_read_only())
+            return Result<MaterialUpdate, Error>::failure({"Cannot edit a read-only product"});
         using Preparation = Result<MaterialUpdate, Error>;
         if(!validate_asset_handle(handle, "update a material")) {
             return Preparation::failure({"Invalid material handle"});
@@ -756,6 +932,10 @@ namespace Comet {
         if(!record) {
             return Preparation::failure({"Material is not indexed with the expected type"});
         }
+
+        if(record->source_asset)
+            return Preparation::failure(
+                {"Imported material is owned by the source model; use a separate material asset"});
 
         const auto runtime =
             find_runtime_asset(m_registry, handle, m_registry.resolve<Material>(handle));
@@ -790,6 +970,9 @@ namespace Comet {
 
     Result<std::shared_ptr<Material>, Error> AssetManager::commit_material_update(
         const MaterialUpdate& update) {
+        if(m_database.is_read_only())
+            return Result<std::shared_ptr<Material>, Error>::failure(
+                {"Cannot edit a read-only product"});
         const auto handle = update.handle();
         if(!material_update_is_current(update))
             return Result<std::shared_ptr<Material>, Error>::failure({"Material update is stale"});

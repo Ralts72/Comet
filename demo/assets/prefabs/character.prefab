@@ -1,0 +1,168 @@
+{
+  "version": 2,
+  "entities": [
+    {
+      "uuid": "d3bb4700-17b7-4112-b03d-44d354eabaae",
+      "components": {
+        "name": "角色",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "character_controller": {
+          "enabled": true,
+          "radius": 0.3,
+          "height": 1.8,
+          "move_speed": 4,
+          "jump_speed": 5,
+          "max_slope_angle": 45,
+          "step_height": 0.3,
+          "ground_snap_distance": 0.3,
+          "gravity_scale": 1,
+          "run_speed": 6,
+          "crouch_speed": 2,
+          "crouch_height_ratio": 0.6,
+          "air_control": 1,
+          "push_force": 100
+        },
+        "script": {
+          "asset": 14309634625000312004,
+          "parameters": {
+            "camera": {
+              "entity": "dd8d0ac8-87a1-485b-96f6-84a127b948a0"
+            },
+            "visual": {
+              "entity": "3078a5ce-543c-4df2-90d1-d8c7b1e2769c"
+            },
+            "finish_gate": "7863069821640201103",
+            "finish_position": [
+              0,
+              1.4,
+              -10
+            ]
+          }
+        },
+        "audio_source": {
+          "clip": 8247160951280394421,
+          "play_on_start": false,
+          "loop": false,
+          "volume": 0.2
+        }
+      },
+      "children": [
+        {
+          "uuid": "3078a5ce-543c-4df2-90d1-d8c7b1e2769c",
+          "components": {
+            "name": "角色外观",
+            "transform": {
+              "translation": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            }
+          },
+          "children": [
+            {
+              "uuid": "8c7518af-a8a2-472c-8f21-d63fc11b2b33",
+              "components": {
+                "name": "角色模型",
+                "transform": {
+                  "translation": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "rotation": [
+                    0,
+                    180,
+                    0
+                  ],
+                  "scale": [
+                    1,
+                    1,
+                    1
+                  ]
+                },
+                "mesh_renderer": {
+                  "mesh": 13857136248767905793,
+                  "material": 13857136248767905794
+                },
+                "animator": {
+                  "character": {
+                    "entity": "d3bb4700-17b7-4112-b03d-44d354eabaae"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "uuid": "dd8d0ac8-87a1-485b-96f6-84a127b948a0",
+          "components": {
+            "name": "跟随相机",
+            "transform": {
+              "translation": [
+                0,
+                3,
+                6
+              ],
+              "rotation": [
+                -18,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "camera": {
+              "primary": true,
+              "fov": 55,
+              "near_clip": 0.1,
+              "far_clip": 100
+            },
+            "camera_controller": {
+              "enabled": true,
+              "mode": "orbit",
+              "move_speed": 3,
+              "look_sensitivity": 0.2,
+              "look_speed": 120,
+              "orbit_distance": 6,
+              "orbit_height": 1.2,
+              "orbit_min_distance": 1.5,
+              "orbit_max_distance": 12,
+              "orbit_zoom_step": 0.5,
+              "collision_radius": 0.15
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

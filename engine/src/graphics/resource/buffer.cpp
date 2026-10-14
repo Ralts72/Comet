@@ -151,6 +151,40 @@ namespace Comet {
         return GpuResourceResult<std::shared_ptr<Buffer>>::success(std::move(buffer));
     }
 
+    GpuResourceResult<std::shared_ptr<ReadbackBuffer>> Buffer::try_create_readback_buffer(
+        Device& device, const size_t size, const std::string_view debug_name) {
+        using Creation = GpuResourceResult<std::shared_ptr<ReadbackBuffer>>;
+        if(size == 0)
+            return Creation::failure(vk::Result::eErrorInitializationFailed);
+        auto allocation = device.get_allocator().try_create_buffer(
+            build_buffer_create_info(Flags<BufferUsage>(BufferUsage::CopyDst), size),
+            {.usage = AllocationUsage::Readback,
+                .persistent_mapping = true,
+                .within_budget = true,
+                .debug_name = debug_name});
+        if(!allocation)
+            return Creation::failure(allocation.result());
+        return Creation::success(std::shared_ptr<ReadbackBuffer>(
+            new ReadbackBuffer(device, size, std::move(allocation).value())));
+    }
+
+    ReadbackBuffer::ReadbackBuffer(
+        Device& device, const size_t size, Allocator::BufferAllocation allocation)
+        : Buffer(device, size), m_mapped_data(allocation.mapped_data) {
+        m_buffer = allocation.buffer;
+        m_allocation = std::move(allocation.allocation);
+    }
+
+    Result<void, GraphicsError> ReadbackBuffer::read(std::span<std::byte> output) const {
+        if(output.size() != m_size)
+            return Result<void, GraphicsError>::failure({"Readback buffer size mismatch"});
+        if(auto invalidated = get_allocator().invalidate_memory(m_allocation, 0, m_size);
+            !invalidated)
+            return invalidated;
+        std::memcpy(output.data(), m_mapped_data, m_size);
+        return Result<void, GraphicsError>::success();
+    }
+
     void CPUBuffer::write(const void* data) const {
         write(data, m_size, 0);
     }

@@ -1,3 +1,4 @@
+#include "gameplay/checkpoint_store.h"
 #include "config/player_settings.h"
 #include "runtime/application.h"
 #include "config/config_loader.h"
@@ -15,6 +16,7 @@
 #include "ui/window_state.h"
 #include "project/recent_projects.h"
 #include "project/project_settings.h"
+#include "project/app_export_dialog.h"
 #include "project/project_creation.h"
 #include "project/editor_paths.h"
 #include "project/project_session.h"
@@ -54,6 +56,8 @@
 #include "scene/scene_serializer.h"
 
 #include <cstdint>
+#include <future>
+#include <chrono>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -134,6 +138,8 @@ namespace {
                 engine.get_asset_registry(), engine.get_render_resource_factory(),
                 engine.get_task_scheduler(), quiet_period, get_config().assets);
             auto initial_asset_scan = m_assets->refresh();
+            m_assets->enable_rendered_previews(
+                engine.get_renderer(), engine.get_render_resource_factory());
             m_property_editor_registry =
                 CometEditor::create_property_editor_registry(m_assets->database());
             Comet::Engine* engine_ptr = &engine;
@@ -163,12 +169,31 @@ namespace {
                 [this](std::unique_ptr<Comet::Scene> scene) {
                     return commit_scene(std::move(scene), CometEditor::EditorMode::Edit);
                 },
-                [this](Comet::SceneRuntime::State state) { return start_play_runtime(state); },
-                [engine_ptr]() { return engine_ptr->take_runtime_restart_request(); });
+                [this](Comet::SceneRuntime::State state, const Comet::ParameterMap& values,
+                    std::string_view checkpoint) {
+                    return start_play_runtime(state, values, checkpoint);
+                },
+                [engine_ptr]() { return engine_ptr->take_runtime_scene_request(); },
+                [this](std::string_view relative) -> Comet::Result<std::unique_ptr<Comet::Scene>> {
+                    auto path = m_project.paths().resolve_asset_path(relative);
+                    if(!path)
+                        return Comet::Result<std::unique_ptr<Comet::Scene>>::failure(path.error());
+                    return m_scene_serializer.load(path.value().string());
+                });
+            configure_play_checkpoints();
             auto& scene = *engine.get_scene();
             if(auto configured = engine.set_input_actions(m_project.input_actions()); !configured)
                 return configured;
-            if(auto added = engine.add_default_scene_systems(); !added)
+            if(auto added = engine.add_default_scene_systems(
+                   {.read =
+                           [this](Comet::AssetHandle handle) {
+                               return m_assets->read_mesh_data(handle);
+                           },
+                       .revision =
+                           [this](Comet::AssetHandle handle) {
+                               return m_assets->mesh_data_revision(handle);
+                           }});
+                !added)
                 return added;
             m_selection.emplace(scene);
             m_scene_editor = std::make_unique<CometEditor::SceneEditor>(m_editor_state,
@@ -423,7 +448,14 @@ namespace {
                         if(!runtime.is_active())
                             return std::nullopt;
                         return runtime.get_session().get_value(key);
-                    }});
+                    },
+                    .emit =
+                        [this](std::string_view event) {
+                            auto& engine = get_engine();
+                            auto* scene = engine.get_scene();
+                            return engine.get_scene_runtime().is_active() && scene
+                                   && scene->emit_event(event);
+                        }});
         }
 
         void setup_render_hooks() {
@@ -623,6 +655,16 @@ namespace {
                             m_project.paths().root(), m_project.paths().root());
                     }
                     break;
+                case CometEditor::MenuBar::Command::ExportApp: {
+                    std::vector<std::filesystem::path> scenes;
+                    for(const auto& record : m_assets->database().get_assets())
+                        if(record.type == Comet::AssetType::Scene)
+                            scenes.push_back(record.path);
+                    m_app_export_dialog.open(m_project.paths().root(),
+                        std::filesystem::path(COMET_CONFIG_FILE).parent_path() / "build-release",
+                        m_project.startup_scene(), std::move(scenes));
+                    break;
+                }
                 case CometEditor::MenuBar::Command::RenameProject:
                     m_project_settings.request_rename();
                     break;
@@ -657,7 +699,8 @@ namespace {
                     break;
                 case CometEditor::MenuBar::Command::CopyEntity:
                     if(const auto entity = m_selection->get_selected_entity(); entity) {
-                        if(!m_scene_editor->copy_entity(get_engine().get_scene(), entity.get_uuid(),
+                        if(!m_scene_editor->copy_entities(get_engine().get_scene(),
+                               m_selection->get_selected_entities(),
                                m_command_history.generation()))
                             LOG_WARN("Cannot copy selected entity");
                     }
@@ -678,9 +721,10 @@ namespace {
                     } else if(const auto entity = m_selection->get_selected_entity(); entity) {
                         const CometEditor::SceneEditor::StructureRequest request{
                             CometEditor::SceneEditor::StructureRequest::Type::Delete,
-                            entity.get_uuid(), {}, m_command_history.generation()};
+                            entity.get_uuid(), {}, m_command_history.generation(),
+                            m_selection->get_selected_entities()};
                         if(!m_scene_editor->execute(get_engine().get_scene(), request))
-                            LOG_WARN("Cannot delete selected entity");
+                            LOG_WARN("Cannot delete selected entities");
                     }
                     break;
                 case CometEditor::MenuBar::Command::NewScene:
@@ -754,7 +798,29 @@ namespace {
             return previous;
         }
 
-        Comet::Result<void, Comet::Error> start_play_runtime(Comet::SceneRuntime::State state) {
+        void configure_play_checkpoints() {
+            m_checkpoints.emplace(
+                m_project.id(), m_project.paths().editor_state() / "checkpoint.json");
+            m_scene_session->set_persistence(
+                m_checkpoints->persistence(
+                    [this](std::string_view path) {
+                        const auto* record = m_assets->database().find(std::filesystem::path(path));
+                        return record && record->type == Comet::AssetType::Scene
+                                   ? record->handle
+                                   : Comet::AssetHandle{};
+                    },
+                    [this](Comet::AssetHandle scene) -> std::optional<std::string> {
+                        const auto* record = m_assets->database().find(scene);
+                        if(!record || record->type != Comet::AssetType::Scene)
+                            return std::nullopt;
+                        return record->path.generic_string();
+                    }),
+                [this] { return get_engine().take_checkpoint_request(); },
+                [this] { return m_scene_document->get_asset_relative_path().generic_string(); });
+        }
+
+        Comet::Result<void, Comet::Error> start_play_runtime(Comet::SceneRuntime::State state,
+            const Comet::ParameterMap& values, std::string_view checkpoint) {
             auto actions = m_project.input_actions();
             auto overrides = load_player_input();
             if(overrides) {
@@ -783,7 +849,7 @@ namespace {
                 return Comet::Result<void, Comet::Error>::failure({audio.error()});
             if(auto applied = get_engine().apply_audio_settings(audio.value()); !applied)
                 return applied;
-            return get_engine().start_scene_runtime(state);
+            return get_engine().start_scene_runtime(state, values, std::string(checkpoint));
         }
 
         Comet::Result<void, Comet::Error> apply_editor_mode_request() {
@@ -883,7 +949,15 @@ namespace {
             m_viewport = std::make_unique<CometEditor::Viewport>(m_editor_state,
                 get_engine().get_scene_runtime(), *m_selection, m_command_history,
                 m_component_registry, m_property_edit, m_shortcuts, get_engine().get_renderer(),
-                get_engine().get_asset_registry(), *m_imgui_context, std::move(sampler).value());
+                get_engine().get_asset_registry(), *m_imgui_context, std::move(sampler).value(),
+                Comet::PhysicsService::MeshSource{.read =
+                                                      [this](Comet::AssetHandle handle) {
+                                                          return m_assets->read_mesh_data(handle);
+                                                      },
+                    .revision =
+                        [this](Comet::AssetHandle handle) {
+                            return m_assets->mesh_data_revision(handle);
+                        }});
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(m_editor_state,
                 *m_selection, m_command_history, m_property_edit, m_component_registry,
                 m_property_editor_registry, m_assets->database(), get_engine().get_asset_registry(),
@@ -891,6 +965,7 @@ namespace {
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>(m_assets->database(),
                 m_project.paths().assets(), std::move(initial_asset_scan), *m_selection,
                 m_command_history);
+            m_project_panel->set_thumbnails(m_assets->thumbnails(), *m_imgui_context);
             m_menu_bar->register_panel(*m_hierarchy_panel);
             m_menu_bar->register_panel(m_viewport->panel());
             m_menu_bar->register_panel(*m_inspector_panel);
@@ -923,6 +998,20 @@ namespace {
             m_console_panel->render();
             m_render_stats->render();
             m_path_dialog.render();
+            if(m_app_export.valid()
+                && m_app_export.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+                m_app_export_dialog.complete(m_app_export.get());
+            m_app_export_dialog.render(m_scene_document->is_modified(),
+                m_editor_state.mode == CometEditor::EditorMode::Edit);
+            if(auto request = m_app_export_dialog.take_request()) {
+                m_app_export = std::async(std::launch::async, [request = std::move(*request)] {
+                    try {
+                        return CometEditor::export_app(request);
+                    } catch(const std::exception& error) {
+                        return Comet::Result<void>::failure(error.what());
+                    }
+                });
+            }
             m_project_settings.render(m_editor_state.mode == CometEditor::EditorMode::Edit, input);
             m_shortcut_settings_dialog.render();
             draw_unsaved_dialog();
@@ -947,7 +1036,7 @@ namespace {
             if(!finish_active_edit())
                 return Comet::Result<void, Comet::Error>::success();
             const auto& asset = request.asset;
-            return m_scene_editor->assign_asset(get_engine().get_scene(), request.target,
+            return m_scene_editor->assign_assets(get_engine().get_scene(), request.targets,
                 {asset.target, asset.generation, asset.type});
         }
 
@@ -956,7 +1045,7 @@ namespace {
             if(!finish_active_edit())
                 return Comet::Result<void, Comet::Error>::success();
             const auto& asset = request.asset;
-            return m_scene_editor->create_mesh(get_engine().get_scene(),
+            return m_scene_editor->place_asset(get_engine().get_scene(),
                 {asset.target, asset.generation, asset.type}, request.position);
         }
 
@@ -1078,13 +1167,24 @@ namespace {
                     LOG_WARN("Drop external files onto a Project folder or its empty area");
                 }
             }
-            if(const auto handle = m_project_panel->take_mesh_reimport_request())
-                m_assets->request_mesh_reimport(*handle);
+            if(const auto handle = m_project_panel->take_reimport_request())
+                m_assets->request_source_reimport(*handle);
             return Comet::Result<void, Comet::Error>::success();
         }
 
         Comet::Result<void, Comet::Error> handle_path_request(
             const CometEditor::PathDialog::Request& request) {
+            if(request.action == CometEditor::PathDialog::Action::SavePrefab) {
+                auto result =
+                    Comet::Result<void, Comet::Error>::failure({"Prefab save request expired"});
+                if(m_pending_prefab && finish_active_edit())
+                    result = m_scene_editor->save_prefab(get_engine().get_scene(),
+                        m_pending_prefab->entity, request.path, m_pending_prefab->generation);
+                m_path_dialog.complete(result);
+                if(result)
+                    m_pending_prefab.reset();
+                return Comet::Result<void, Comet::Error>::success();
+            }
             if(request.action == CometEditor::PathDialog::Action::CreateProject) {
                 if(!finish_active_edit())
                     return Comet::Result<void, Comet::Error>::success();
@@ -1145,6 +1245,7 @@ namespace {
             // 一次取走所有当帧请求；未选中的请求不留到新场景或新模式执行。
             const auto hierarchy_request = m_hierarchy_panel->take_request();
             const auto rename_request = m_hierarchy_panel->take_rename_request();
+            const auto prefab_request = m_hierarchy_panel->take_prefab_request();
             const auto menu_request = m_menu_bar->take_request();
             const auto mesh_drop = m_viewport->panel().take_mesh_drop();
             const auto asset_assignment = m_inspector_panel->take_asset_assignment();
@@ -1155,6 +1256,7 @@ namespace {
                 m_scene_document->decide(CometEditor::SceneDocument::Decision::Cancel);
                 m_next_project.reset();
                 m_pending_project_creation.reset();
+                m_pending_prefab.reset();
             }
 
             using Kind = CometEditor::SceneRequestKind;
@@ -1164,6 +1266,7 @@ namespace {
                 .play = play_command.has_value(),
                 .structure = hierarchy_request.has_value(),
                 .rename = rename_request.has_value(),
+                .save_prefab = prefab_request.has_value(),
                 .mesh_drop = mesh_drop.has_value(),
                 .asset_assignment = asset_assignment.has_value(),
                 .document_pending = m_scene_document->has_pending_request(),
@@ -1198,6 +1301,15 @@ namespace {
                             rename_request->entity, rename_request->name,
                             rename_request->generation))
                         LOG_WARN("Entity rename was rejected or had no effect");
+                    break;
+                case Kind::SavePrefab:
+                    if(m_scene_editor->can_edit(
+                           get_engine().get_scene(), prefab_request->generation)
+                        && finish_active_edit()) {
+                        m_pending_prefab = *prefab_request;
+                        m_path_dialog.request(CometEditor::PathDialog::Action::SavePrefab, {},
+                            m_project.paths().assets());
+                    }
                     break;
                 case Kind::MeshDrop: {
                     auto result = handle_mesh_drop(*mesh_drop);
@@ -1295,6 +1407,7 @@ namespace {
         std::unique_ptr<CometEditor::MaterialShaderReload> m_material_shader_reload;
         std::optional<CometEditor::SelectionService> m_selection;
         Comet::ComponentRegistry m_component_registry = Comet::create_scene_component_registry();
+        std::optional<CometEditor::HierarchyPanel::PrefabRequest> m_pending_prefab;
         CometEditor::CommandHistory m_command_history;
         CometEditor::PropertyEditTransaction m_property_edit{
             m_command_history, m_component_registry};
@@ -1306,7 +1419,10 @@ namespace {
         std::unique_ptr<CometEditor::SceneEditor> m_scene_editor;
         std::unique_ptr<CometEditor::SceneDocument> m_scene_document;
         std::unique_ptr<CometEditor::EditorSceneSession> m_scene_session;
+        std::optional<Comet::CheckpointStore> m_checkpoints;
         CometEditor::PathDialog m_path_dialog;
+        CometEditor::AppExportDialog m_app_export_dialog;
+        std::future<Comet::Result<void>> m_app_export;
         CometEditor::ShortcutSettingsDialog m_shortcut_settings_dialog;
         std::optional<std::filesystem::path> m_next_project;
         std::optional<std::filesystem::path> m_pending_project_creation;

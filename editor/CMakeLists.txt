@@ -14,8 +14,11 @@ add_library(editor_core STATIC
         src/project/recent_projects.cpp
         src/project/editor_paths.cpp
         src/project/project_session.cpp
+        src/project/app_export.cpp
         src/project/project_creation.cpp
         src/project/asset_operations.cpp
+        src/assets/asset_thumbnails.cpp
+        src/assets/thumbnail_renderer.cpp
         src/assets/editor_assets.cpp
         src/assets/scene_asset_references.cpp
         src/assets/source_operations.cpp
@@ -38,6 +41,10 @@ add_library(editor_core STATIC
 )
 target_link_libraries(editor_core PUBLIC engine comet_asset_tools comet_shader_tools PRIVATE fastgltf::fastgltf)
 if(APPLE)
+    find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+    target_compile_definitions(editor_core PRIVATE
+        COMET_EXPORT_PYTHON="${Python3_EXECUTABLE}"
+        COMET_EXPORT_SCRIPT="${CMAKE_SOURCE_DIR}/tools/export_app.py")
     target_link_libraries(editor_core PRIVATE
         "-framework CoreServices" "-framework Foundation" "-framework AppKit")
 elseif(WIN32)
@@ -82,6 +89,7 @@ add_library(editor_ui STATIC
         src/project/audio_settings_panel.cpp
         src/project/input_settings_panel.cpp
         src/project/project_settings.cpp
+        src/project/app_export_dialog.cpp
         src/assets/asset_reference.cpp
         src/assets/project_panel.cpp
         src/inspector/inspector.cpp

@@ -25,11 +25,12 @@ namespace Comet {
         String,
         Enum,
         Parameters,
-        EntityReference
+        EntityReference,
+        UInt32
     };
 
     using PropertyValue = std::variant<bool, float, Math::Vec3, Math::Vec4, AssetHandle,
-        std::string, ParameterMap, EntityUuid>;
+        std::string, ParameterMap, EntityUuid, uint32_t>;
 
     struct NumericPropertyMetadata {
         float speed = 0.1f;
@@ -44,8 +45,10 @@ namespace Comet {
         bool transient = false;
         bool read_only = false;
         bool required = true; // 反序列化时必须存在；可选字段缺失时保留组件默认值。
+        bool bitmask = false;
         NumericPropertyMetadata numeric;
         std::optional<AssetType> asset_type;
+        bool asset_cpu_only = false;
     };
 
     struct PropertyDescriptor {
@@ -68,8 +71,10 @@ namespace Comet {
         bool transient = false;
         bool read_only = false;
         bool required = true;
+        bool bitmask = false;
         NumericPropertyMetadata numeric;
         std::optional<AssetType> asset_type;
+        bool asset_cpu_only = false;
         std::function<void*(void*)> mutable_accessor;
         std::function<const void*(const void*)> const_accessor;
         std::function<void(void*)> on_changed;
@@ -103,6 +108,7 @@ namespace Comet {
         Value Component::* member, PropertyMetadata metadata = {}) {
         using PropertyValue = std::remove_cvref_t<Value>;
         static_assert(std::is_same_v<PropertyValue, bool> || std::is_same_v<PropertyValue, float>
+                          || std::is_same_v<PropertyValue, uint32_t>
                           || std::is_same_v<PropertyValue, Math::Vec3>
                           || std::is_same_v<PropertyValue, Math::Vec4>
                           || std::is_same_v<PropertyValue, AssetHandle>
@@ -114,6 +120,8 @@ namespace Comet {
         constexpr PropertyType type = [] {
             if constexpr(std::is_same_v<PropertyValue, bool>) {
                 return PropertyType::Bool;
+            } else if constexpr(std::is_same_v<PropertyValue, uint32_t>) {
+                return PropertyType::UInt32;
             } else if constexpr(std::is_same_v<PropertyValue, float>) {
                 return PropertyType::Float;
             } else if constexpr(std::is_same_v<PropertyValue, Math::Vec3>) {
@@ -139,8 +147,10 @@ namespace Comet {
             .transient = metadata.transient,
             .read_only = metadata.read_only,
             .required = metadata.required,
+            .bitmask = metadata.bitmask,
             .numeric = std::move(metadata.numeric),
             .asset_type = metadata.asset_type,
+            .asset_cpu_only = metadata.asset_cpu_only,
             .mutable_accessor = [member](void* component) -> void* {
                 return &(static_cast<Component*>(component)->*member);
             },
@@ -174,8 +184,10 @@ namespace Comet {
             .transient = metadata.transient,
             .read_only = metadata.read_only,
             .required = metadata.required,
+            .bitmask = metadata.bitmask,
             .numeric = std::move(metadata.numeric),
             .asset_type = metadata.asset_type,
+            .asset_cpu_only = metadata.asset_cpu_only,
             .mutable_accessor = [member](void* component) -> void* {
                 return &(static_cast<Component*>(component)->*member);
             },

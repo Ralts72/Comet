@@ -1,4 +1,5 @@
 #include "scene/script_component.h"
+#include "asset/data/model_data.h"
 #include "scene/scene_commands.h"
 #include "scene/scene_serializer.h"
 
@@ -206,6 +207,91 @@ namespace CometEditor::Tests {
         EXPECT_EQ(copy.get_component<Comet::PointJointComponent>().connected_body, copied_child);
         EXPECT_TRUE(scene.find_entity(copied_child));
         EXPECT_EQ(copy.get_component<Comet::HingeJointComponent>().connected_body, copied_child);
+    }
+
+    TEST_F(
+        SceneCommandsTest, ModelPlacementPreservesHierarchyMaterialsAndIdentityThroughUndoAndSave) {
+        Comet::ModelData model;
+        model.nodes.resize(3);
+        model.nodes[0].name = "Body";
+        model.nodes[0].transform.translation = {1, 2, 3};
+        model.nodes[0].transform.rotation =
+            Comet::Math::Quat(glm::radians(Comet::Math::Vec3(25, 40, -15)));
+        model.nodes[0].transform.scale = {-2, 3, 0.5f};
+        model.nodes[1].name = "Detail";
+        model.nodes[1].parent = 0;
+        model.nodes[1].transform.translation = {0, 4, 0};
+        model.nodes[1].parts = {{Comet::AssetHandle{8}, Comet::AssetHandle{9}},
+            {Comet::AssetHandle{8}, Comet::AssetHandle{10}}};
+        model.nodes[2].name = "Other scene";
+        model.scenes = {{"Other", {2}}, {"Main", {0}}};
+        model.default_scene = 1;
+        const auto uuid =
+            SceneCommands::create_model_entity(history, registry, model, "Placed", {5, 6, 7});
+        ASSERT_TRUE(uuid);
+        EXPECT_EQ(history.undo_size(), 1);
+        EXPECT_EQ(scene.entity_count(),
+            6); // Existing fixture entity plus wrapper, two nodes and two parts.
+        auto root = scene.find_entity(uuid);
+        const auto nodes = scene.get_children(root);
+        ASSERT_EQ(nodes.size(), 1);
+        auto body = nodes.front();
+        EXPECT_EQ(body.get_component<Comet::NameComponent>().name, "Body");
+        const auto& transform = body.get_component<Comet::TransformComponent>();
+        EXPECT_EQ(transform.translation, model.nodes[0].transform.translation);
+        EXPECT_EQ(transform.scale, model.nodes[0].transform.scale);
+        const auto expected =
+            glm::translate(Comet::Math::Mat4(1), model.nodes[0].transform.translation)
+            * glm::mat4_cast(model.nodes[0].transform.rotation)
+            * glm::scale(Comet::Math::Mat4(1), model.nodes[0].transform.scale);
+        const auto actual = transform.to_matrix();
+        for(int column = 0; column < 4; ++column)
+            for(int row = 0; row < 4; ++row)
+                EXPECT_NEAR(actual[column][row], expected[column][row], 1e-5f);
+        const auto detail = scene.get_children(body);
+        ASSERT_EQ(detail.size(), 1);
+        const auto parts = scene.get_children(detail.front());
+        ASSERT_EQ(parts.size(), 2);
+        const auto detail_uuid = detail.front().get_uuid();
+        const auto body_uuid = body.get_uuid();
+        const auto first = parts[0].get_uuid();
+        const auto second = parts[1].get_uuid();
+        EXPECT_EQ(
+            parts[0].get_component<Comet::MeshRendererComponent>().mesh, Comet::AssetHandle{8});
+        EXPECT_EQ(
+            parts[1].get_component<Comet::MeshRendererComponent>().mesh, Comet::AssetHandle{8});
+        EXPECT_EQ(
+            parts[0].get_component<Comet::MeshRendererComponent>().material, Comet::AssetHandle{9});
+        EXPECT_EQ(parts[1].get_component<Comet::MeshRendererComponent>().material,
+            Comet::AssetHandle{10});
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(scene.entity_count(), 1);
+        ASSERT_TRUE(history.redo());
+        const Comet::SceneSerializer serializer(registry);
+        auto text = serializer.serialize(scene);
+        ASSERT_TRUE(text) << text.error();
+        auto reopened = serializer.deserialize(text.value());
+        ASSERT_TRUE(reopened) << reopened.error();
+        auto& restored = *reopened.value();
+        EXPECT_EQ(restored.entity_count(), 6);
+        EXPECT_EQ(restored.get_children(restored.find_entity(uuid)).front().get_uuid(), body_uuid);
+        EXPECT_EQ(
+            restored.get_children(restored.find_entity(body_uuid)).front().get_uuid(), detail_uuid);
+        EXPECT_EQ(restored.get_children(restored.find_entity(detail_uuid)).size(), 2);
+        EXPECT_EQ(
+            restored.find_entity(second).get_component<Comet::MeshRendererComponent>().material,
+            Comet::AssetHandle{10});
+        EXPECT_EQ(
+            restored.find_entity(first).get_component<Comet::MeshRendererComponent>().material,
+            Comet::AssetHandle{9});
+        EXPECT_EQ(restored.find_entity(uuid).get_component<Comet::TransformComponent>().translation,
+            Comet::Math::Vec3(5, 6, 7));
+
+        const auto before = scene.entity_count();
+        model.nodes[1].parent = 10;
+        EXPECT_FALSE(SceneCommands::create_model_entity(history, registry, model, "Bad", {}));
+        EXPECT_EQ(scene.entity_count(), before);
+        EXPECT_EQ(history.undo_size(), 1);
     }
 
     TEST_F(SceneCommandsTest, MeshPlacementIsOneUndoableSerializableEntity) {
@@ -832,6 +918,143 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(descriptor->restore_component(entity, snapshot));
         EXPECT_NE(entity.get_component<ScriptComponent>().lifetime(), original);
         EXPECT_EQ(entity.get_component<ScriptComponent>().asset, handle);
+    }
+
+    TEST_F(SceneCommandsTest, MultipleTreesShareReferenceRemapAndOneUndoEntry) {
+        const auto group = scene.create_entity("Group");
+        auto second = scene.create_entity("Second");
+        const auto child = scene.create_entity("Child");
+        ASSERT_TRUE(scene.set_parent(entity, group));
+        ASSERT_TRUE(scene.set_parent(child, entity));
+        entity.add_component<Comet::PointJointComponent>(
+            Comet::PointJointComponent{.connected_body = second.get_uuid()});
+        second.add_component<Comet::ScriptComponent>().parameters = {
+            {"inside", child.get_uuid()}, {"outside", group.get_uuid()}};
+        const auto original_count = scene.entity_count();
+        const auto copies = SceneCommands::duplicate_entities(history, registry,
+            std::vector{child.get_uuid(), entity.get_uuid(), second.get_uuid(), entity.get_uuid()});
+        ASSERT_EQ(copies.size(), 2u);
+        EXPECT_EQ(scene.entity_count(), original_count + 3);
+        EXPECT_EQ(history.undo_size(), 1u);
+        auto copy = scene.find_entity(copies[0]);
+        auto second_copy = scene.find_entity(copies[1]);
+        EXPECT_EQ(scene.get_parent(copy), group);
+        EXPECT_FALSE(scene.get_parent(second_copy));
+        const auto copied_child = scene.get_children(copy).front().get_uuid();
+        EXPECT_EQ(copy.get_component<Comet::PointJointComponent>().connected_body, copies[1]);
+        const auto& parameters = second_copy.get_component<Comet::ScriptComponent>().parameters;
+        EXPECT_EQ(std::get<Comet::EntityUuid>(parameters.at("inside")), copied_child);
+        EXPECT_EQ(std::get<Comet::EntityUuid>(parameters.at("outside")), group.get_uuid());
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(scene.entity_count(), original_count);
+        ASSERT_TRUE(history.redo());
+        EXPECT_TRUE(scene.find_entity(copied_child));
+        EXPECT_EQ(
+            scene.find_entity(copies[0]).get_component<Comet::PointJointComponent>().connected_body,
+            copies[1]);
+        ASSERT_TRUE(SceneCommands::delete_entities(history, registry, copies));
+        EXPECT_EQ(scene.entity_count(), original_count);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(scene.entity_count(), original_count + 3);
+        EXPECT_EQ(
+            scene.find_entity(copies[0]).get_component<Comet::PointJointComponent>().connected_body,
+            copies[1]);
+        EXPECT_FALSE(SceneCommands::delete_entities(
+            history, registry, std::vector{copies[0], Comet::EntityUuid::generate()}));
+        EXPECT_EQ(scene.entity_count(), original_count + 3);
+        // 历史之后加入的新子树不能被一次整组撤销误删。
+        const auto unexpected = scene.create_entity("Unexpected");
+        ASSERT_TRUE(scene.set_parent(unexpected, scene.find_entity(copies[1])));
+        const auto cursor = history.undo_size();
+        EXPECT_FALSE(history.undo());
+        EXPECT_EQ(history.undo_size(), cursor);
+        EXPECT_TRUE(scene.find_entity(copies[0]));
+        EXPECT_TRUE(scene.find_entity(copies[1]));
+        EXPECT_TRUE(scene.find_entity(unexpected.get_uuid()));
+    }
+
+    TEST_F(SceneCommandsTest, MultipleTreeClipboardPastesUnderOneParentAndSurvivesSourceDeletion) {
+        auto second = scene.create_entity("Second");
+        const auto child = scene.create_entity("Child");
+        ASSERT_TRUE(scene.set_parent(child, entity));
+        second.add_component<Comet::PointJointComponent>(
+            Comet::PointJointComponent{.connected_body = child.get_uuid()});
+        SceneCommands::EntityClipboard clipboard;
+        ASSERT_TRUE(
+            clipboard.copy(scene, registry, std::vector{entity.get_uuid(), second.get_uuid()}));
+        scene.destroy_entity(entity);
+        scene.destroy_entity(second);
+        const auto parent = scene.create_entity("Destination");
+        const auto pasted = clipboard.paste_entities(history, registry, parent.get_uuid());
+        ASSERT_EQ(pasted.size(), 2u);
+        for(const auto uuid : pasted)
+            EXPECT_EQ(scene.get_parent(scene.find_entity(uuid)), parent);
+        const auto child_copy = scene.get_children(scene.find_entity(pasted[0])).front().get_uuid();
+        EXPECT_EQ(
+            scene.find_entity(pasted[1]).get_component<Comet::PointJointComponent>().connected_body,
+            child_copy);
+        EXPECT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(scene.entity_count(), 1u);
+        ASSERT_TRUE(history.redo());
+        EXPECT_TRUE(scene.find_entity(child_copy));
+        auto serialized = Comet::SceneSerializer(registry).serialize(scene);
+        ASSERT_TRUE(serialized);
+        auto loaded = Comet::SceneSerializer(registry).deserialize(serialized.value());
+        ASSERT_TRUE(loaded);
+        EXPECT_EQ(loaded.value()
+                      ->find_entity(pasted[1])
+                      .get_component<Comet::PointJointComponent>()
+                      .connected_body,
+            child_copy);
+    }
+
+    TEST_F(SceneCommandsTest, BatchPlacementUsesWorldSpacingAndIndependentGroupReferences) {
+        auto parent = scene.create_entity("Rotated parent");
+        ASSERT_TRUE(parent.try_set_transform(Comet::TransformComponent{
+            .translation = {8, 0, 0}, .rotation = {0, 0, 90}, .scale = {2, 2, 2}}));
+        ASSERT_TRUE(scene.set_parent(entity, parent));
+        auto second = scene.create_entity("Other root");
+        second.add_component<Comet::PointJointComponent>(
+            Comet::PointJointComponent{.connected_body = entity.get_uuid()});
+        const auto origin = Comet::Math::Vec3(scene.get_world_matrix(entity)[3]);
+        const auto copies = SceneCommands::duplicate_entities(history, registry,
+            std::vector{entity.get_uuid(), second.get_uuid()},
+            {.copies = 3, .world_step = {4, 0, 1}});
+        ASSERT_EQ(copies.size(), 6u);
+        EXPECT_EQ(history.undo_size(), 1u);
+        for(int index = 0; index < 3; ++index) {
+            const auto first_copy = scene.find_entity(copies[index * 2]);
+            const auto second_copy = scene.find_entity(copies[index * 2 + 1]);
+            EXPECT_EQ(scene.get_parent(first_copy), parent);
+            const auto expected = origin + Comet::Math::Vec3(4, 0, 1) * float(index + 1);
+            EXPECT_NEAR(Comet::Math::length(
+                            Comet::Math::Vec3(scene.get_world_matrix(first_copy)[3]) - expected),
+                0, 0.0001f);
+            EXPECT_EQ(second_copy.get_component<Comet::PointJointComponent>().connected_body,
+                first_copy.get_uuid());
+        }
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(scene.entity_count(), 3u);
+        ASSERT_TRUE(history.redo());
+        for(const auto uuid : copies)
+            EXPECT_TRUE(scene.find_entity(uuid));
+        const auto count = scene.entity_count();
+        const auto cursor = history.undo_size();
+        EXPECT_TRUE(SceneCommands::duplicate_entities(
+            history, registry, std::vector{entity.get_uuid()}, {.copies = 0})
+                .empty());
+        EXPECT_TRUE(
+            SceneCommands::duplicate_entities(history, registry, std::vector{entity.get_uuid()},
+                {.world_step = {std::numeric_limits<float>::infinity(), 0, 0}})
+                .empty());
+        ASSERT_TRUE(parent.try_set_transform(Comet::TransformComponent{.scale = {0, 1, 1}}));
+        EXPECT_TRUE(SceneCommands::duplicate_entities(history, registry,
+            std::vector{entity.get_uuid(), second.get_uuid()},
+            {.copies = 2, .world_step = {1, 0, 0}})
+                .empty());
+        EXPECT_EQ(scene.entity_count(), count);
+        EXPECT_EQ(history.undo_size(), cursor);
     }
 
 }

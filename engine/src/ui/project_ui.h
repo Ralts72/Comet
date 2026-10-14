@@ -32,6 +32,8 @@ namespace Comet::Ui {
             std::function<Result<void>(AudioSettings)> apply_audio;
             // Main 上只读查询本局状态；没有活动游戏或键缺失时返回空值。
             std::function<std::optional<ParameterValue>(std::string_view)> session_get;
+            // 向活动 Scene 排队命名事件；在下一次 Runtime 更新中交给游戏脚本。
+            std::function<bool(std::string_view)> emit;
         };
         struct FrameInfo {
             float fps = 0;

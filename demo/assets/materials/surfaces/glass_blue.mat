@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "template": "pbr",
+  "surface": {
+    "alpha_mode": "blend",
+    "alpha_cutoff": 0.5,
+    "double_sided": true
+  },
+  "properties": {
+    "base_color": {
+      "type": "vector",
+      "value": [
+        0.06,
+        0.35,
+        1,
+        0.35
+      ]
+    },
+    "roughness": {
+      "type": "scalar",
+      "value": 0.5
+    }
+  }
+}

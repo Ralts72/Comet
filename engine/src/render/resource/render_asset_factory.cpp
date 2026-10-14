@@ -51,6 +51,8 @@ namespace Comet {
         using Preparation = Result<std::shared_ptr<Material>, Error>;
         auto material =
             std::make_shared<Material>(std::move(name), data.template_name, data.shader_program);
+        if(!material->set_surface(data.surface))
+            return Preparation::failure({"Invalid material surface"});
         for(const auto& [property, handle] : data.texture_properties) {
             const auto texture = textures.find(property);
             if(!handle || texture == textures.end() || !texture->second)

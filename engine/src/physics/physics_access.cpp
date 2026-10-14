@@ -78,10 +78,45 @@ namespace Comet {
 
     std::optional<float> PhysicsAccess::sweep_sphere(const Entity ignored, const Math::Vec3 origin,
         const Math::Vec3 displacement, const float radius) const {
-        if(!m_scene || (ignored != Entity{} && !m_scene->is_valid(ignored))
-            || !Math::is_finite(origin) || !Math::is_finite(displacement) || !std::isfinite(radius)
-            || radius <= 0)
+        if(!m_scene || (ignored != Entity{} && !m_scene->is_valid(ignored)))
             return std::nullopt;
-        return cast_sphere(ignored.get_uuid(), ignored.get_id(), origin, displacement, radius);
+        const ColliderComponent sphere{.shape = ColliderShape::Sphere, .radius = radius};
+        const auto hit = shape_cast(
+            sphere, {.translation = origin}, displacement, {.ignored = ignored.get_uuid()});
+        if(!hit)
+            return std::nullopt;
+        return hit.value() ? hit.value()->fraction : 1.0f;
+    }
+
+    Result<std::optional<PhysicsAccess::QueryHit>> PhysicsAccess::raycast(
+        Math::Vec3 origin, Math::Vec3 displacement, const QueryFilter& filter) const {
+        const float length_squared = glm::dot(displacement, displacement);
+        if(!m_scene || !Math::is_finite(origin) || !Math::is_finite(displacement)
+            || !Math::is_finite(origin + displacement) || !std::isfinite(length_squared)
+            || length_squared <= 0)
+            return Result<std::optional<QueryHit>>::failure(
+                "Raycast requires an active physics world and a finite nonzero segment");
+        return query_ray(origin, displacement, filter);
+    }
+
+    Result<std::optional<PhysicsAccess::QueryHit>> PhysicsAccess::shape_cast(
+        const ColliderComponent& shape, const TransformComponent& transform,
+        Math::Vec3 displacement, const QueryFilter& filter) const {
+        if(!m_scene || !Math::is_finite(displacement)
+            || !Math::is_finite(transform.translation + displacement)
+            || !std::isfinite(glm::dot(displacement, displacement)))
+            return Result<std::optional<QueryHit>>::failure(
+                "Shape cast requires an active physics world and a finite displacement");
+        return query_shape(shape, transform, displacement, filter);
+    }
+
+    Result<std::vector<EntityUuid>> PhysicsAccess::overlap_sphere(
+        Math::Vec3 center, float radius, const QueryFilter& filter) const {
+        if(!m_scene || !Math::is_finite(center) || !std::isfinite(radius) || radius <= 0
+            || !std::isfinite(radius * radius) || !Math::is_finite(center + Math::Vec3(radius))
+            || !Math::is_finite(center - Math::Vec3(radius)))
+            return Result<std::vector<EntityUuid>>::failure(
+                "Overlap requires an active physics world and a finite positive sphere");
+        return query_overlap(center, radius, filter);
     }
 }

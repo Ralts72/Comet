@@ -1,0 +1,58 @@
+{
+  "version": 2,
+  "entities": [
+    {
+      "uuid": "28392254-047b-4a6a-b13b-3d50384b4b17",
+      "components": {
+        "name": "收集目标",
+        "transform": {
+          "translation": [
+            0,
+            0.7,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.45,
+            0.45,
+            0.45
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 1749083215601001004
+        },
+        "rigid_body": {
+          "motion": "static"
+        },
+        "collider": {
+          "shape": "box",
+          "half_extents": [
+            1,
+            1,
+            1
+          ],
+          "radius": 0.5,
+          "is_trigger": true
+        },
+        "audio_source": {
+          "clip": 8247160951280394421,
+          "play_on_start": false,
+          "loop": false,
+          "volume": 0.5
+        },
+        "script": {
+          "asset": 14309634625000312005,
+          "parameters": {
+            "level": 1,
+            "goal": 1
+          }
+        }
+      }
+    }
+  ]
+}

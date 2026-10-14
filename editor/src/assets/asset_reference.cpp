@@ -3,6 +3,7 @@
 #include "asset/database.h"
 #include "ui/widgets.h"
 #include <imgui.h>
+#include <imgui_internal.h>
 
 namespace CometEditor {
     bool edit_asset_reference(const char* label, Comet::AssetHandle& handle,
@@ -20,13 +21,18 @@ namespace CometEditor {
                 preview = std::string("类型不匹配：") + record->path.generic_string();
             } else {
                 preview = record->path.generic_string();
+                if(record->source_asset)
+                    preview += " / " + record->source_key;
             }
         }
 
+        const bool mixed = ImGui::GetCurrentContext()->CurrentItemFlags & ImGuiItemFlags_MixedValue;
+        if(mixed)
+            preview = "多值";
         bool changed = false;
         if(ImGui::BeginCombo(label, preview.c_str())) {
-            if(allow_none && ImGui::Selectable("无###None", !handle.is_valid())
-                && handle.is_valid()) {
+            if(allow_none && ImGui::Selectable("无###None", !handle.is_valid() && !mixed)
+                && (handle.is_valid() || mixed)) {
                 handle = {};
                 changed = true;
             }
@@ -36,9 +42,11 @@ namespace CometEditor {
                     continue;
                 }
                 has_candidates = true;
-                const bool selected = candidate.handle == handle;
-                const std::string item_label = candidate.path.generic_string() + "###"
-                                               + std::to_string(candidate.handle.value());
+                const bool selected = !mixed && candidate.handle == handle;
+                std::string item_label = candidate.path.generic_string();
+                if(candidate.source_asset)
+                    item_label += " / " + candidate.source_key;
+                item_label += "###" + std::to_string(candidate.handle.value());
                 if(ImGui::Selectable(item_label.c_str(), selected) && !selected) {
                     handle = candidate.handle;
                     changed = true;
@@ -51,7 +59,7 @@ namespace CometEditor {
                 if(type && *type != asset.type)
                     continue;
                 has_candidates = true;
-                const bool selected = handle == asset.handle;
+                const bool selected = !mixed && handle == asset.handle;
                 const std::string item_label =
                     std::string(asset.name) + "###" + std::to_string(asset.handle.value());
                 if(ImGui::Selectable(item_label.c_str(), selected) && !selected) {

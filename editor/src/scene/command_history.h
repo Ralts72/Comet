@@ -8,6 +8,7 @@
 #include <vector>
 #include <variant>
 #include <utility>
+#include <span>
 
 namespace CometEditor {
     class CommandHistory {
@@ -75,13 +76,21 @@ namespace CometEditor {
         PropertyEditTransaction& operator=(const PropertyEditTransaction&) = delete;
 
         [[nodiscard]] bool begin(Target target);
+        [[nodiscard]] bool begin_many(std::span<const Target> targets);
         [[nodiscard]] bool editing_scene() const;
         [[nodiscard]] bool apply(Target target, const Comet::PropertyValue& value);
+        [[nodiscard]] bool apply_many(
+            std::span<const Target> targets, std::span<const Comet::PropertyValue> values);
+        // Play 临时修改复用整批校验／回滚，但不写入 Edit 历史。
+        [[nodiscard]] bool write_many(Comet::Scene& scene, std::span<const Target> targets,
+            std::span<const Comet::PropertyValue> values) const;
         [[nodiscard]] bool preview(const Comet::PropertyValue& value);
+        [[nodiscard]] bool preview_many(std::span<const Comet::PropertyValue> values);
         [[nodiscard]] bool commit();
         [[nodiscard]] bool cancel();
         [[nodiscard]] bool active() const;
         [[nodiscard]] bool targets(const Target& target) const;
+        [[nodiscard]] bool targets_many(std::span<const Target> targets) const;
 
         template<typename Value> [[nodiscard]] bool targets(SceneTarget<Value> target) const {
             if(!editing_scene())
@@ -145,8 +154,8 @@ namespace CometEditor {
         };
 
         struct ComponentEdit {
-            Target target;
-            Comet::PropertyValue before;
+            std::vector<Target> targets;
+            std::vector<Comet::PropertyValue> before;
         };
         struct Edit {
             std::variant<ComponentEdit, std::unique_ptr<SceneEditBase>> change;

@@ -240,7 +240,8 @@ namespace Comet::Tests {
                 auto rendered = scene.render(frames, submission, geometry);
                 ASSERT_TRUE(rendered) << rendered.error();
                 const auto shadow = scene.get_shadow_statistics();
-                EXPECT_EQ(shadow.draw_calls, frame >= 10 ? 2u : 1u);
+                // 镜像变换需要相反的正面绕序，不能与普通实例共用一个剔除批次。
+                EXPECT_EQ(shadow.draw_calls, frame == 2 || frame >= 10 ? 2u : 1u);
                 EXPECT_EQ(shadow.drawn_instances, 3 * counts[frame]);
                 auto output = std::make_shared<Readback>(
                     device, context.get_context().get_physical_device(), 65 * 65 * 4);

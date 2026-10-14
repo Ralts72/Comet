@@ -4,7 +4,9 @@
 #include "scene/entity_reference.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <algorithm>
+#include <cstdio>
 #include <limits>
 #include "diagnostics/logger.h"
 
@@ -31,12 +33,17 @@ namespace CometEditor {
             for(const auto& option : property.enum_options)
                 if(option.id == selected)
                     preview = option.display_name.c_str();
+            const bool mixed =
+                ImGui::GetCurrentContext()->CurrentItemFlags & ImGuiItemFlags_MixedValue;
+            if(mixed)
+                preview = "多值";
             bool changed = false;
             if(ImGui::BeginCombo(property.display_name.c_str(), preview)) {
                 for(const auto& option : property.enum_options) {
                     ImGui::PushID(option.id.c_str());
-                    if(ImGui::Selectable(option.display_name.c_str(), option.id == selected)
-                        && option.id != selected) {
+                    if(ImGui::Selectable(
+                           option.display_name.c_str(), !mixed && option.id == selected)
+                        && (mixed || option.id != selected)) {
                         selected = option.id;
                         changed = true;
                     }
@@ -47,11 +54,50 @@ namespace CometEditor {
             return PropertyEditResult{.changed = changed, .finished = changed};
         }
 
+        PropertyEditResult edit_integer_property(
+            const Comet::PropertyDescriptor& property, void* value) {
+            auto& selected = *static_cast<uint32_t*>(value);
+            if(!property.bitmask)
+                return PropertyEditResult::from_item(ImGui::InputScalar(
+                    property.display_name.c_str(), ImGuiDataType_U32, &selected));
+            char preview[16];
+            std::snprintf(preview, sizeof(preview), "0x%08X", static_cast<unsigned>(selected));
+            const bool mixed =
+                ImGui::GetCurrentContext()->CurrentItemFlags & ImGuiItemFlags_MixedValue;
+            bool changed = false;
+            if(ImGui::BeginCombo(property.display_name.c_str(), mixed ? "多值" : preview)) {
+                if(mixed)
+                    ImGui::TextWrapped("显示主目标的掩码，修改后统一应用到所有选中对象。");
+                ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, false);
+                if(ImGui::Button("全部") && (mixed || selected != UINT32_MAX)) {
+                    selected = UINT32_MAX;
+                    changed = true;
+                }
+                ImGui::SameLine();
+                if(ImGui::Button("清空") && (mixed || selected != 0)) {
+                    selected = 0;
+                    changed = true;
+                }
+                if(ImGui::BeginTable("layers", 4)) {
+                    for(unsigned bit = 0; bit < 32; ++bit) {
+                        ImGui::TableNextColumn();
+                        changed |= ImGui::CheckboxFlags(
+                            std::to_string(bit + 1).c_str(), &selected, uint32_t{1} << bit);
+                    }
+                    ImGui::EndTable();
+                }
+                ImGui::PopItemFlag();
+                ImGui::EndCombo();
+            }
+            return {.changed = changed, .finished = changed};
+        }
+
         template<typename T>
         PropertyEditResult edit_parameter_value(const PropertyEditorRegistry& registry,
             const std::string& name, const Comet::Script::Property& property, T& value,
-            Comet::Scene& scene, const std::optional<std::uint64_t> drop_generation) {
-            Comet::PropertyDescriptor descriptor{.id = name, .display_name = name};
+            Comet::Scene& scene, const std::optional<std::uint64_t> drop_generation, bool mixed) {
+            const auto label = mixed ? name + "（多值）###" + name : name;
+            Comet::PropertyDescriptor descriptor{.id = name, .display_name = label};
             if constexpr(std::is_same_v<T, bool>)
                 descriptor.type = Comet::PropertyType::Bool;
             else if constexpr(std::is_same_v<T, float>)
@@ -60,15 +106,26 @@ namespace CometEditor {
                 descriptor.type = Comet::PropertyType::Vec3;
             else if constexpr(std::is_same_v<T, Comet::Math::Vec4>) {
                 if(property.semantic == Comet::Script::Property::Semantic::Color)
-                    return PropertyEditResult::from_item(ImGui::ColorEdit4(name.c_str(), &value.x,
+                    return PropertyEditResult::from_item(ImGui::ColorEdit4(label.c_str(), &value.x,
                         ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR));
                 descriptor.type = Comet::PropertyType::Vec4;
             } else if constexpr(std::is_same_v<T, Comet::EntityUuid>) {
                 const bool changed =
-                    edit_entity_reference(name.c_str(), value, scene, drop_generation);
+                    edit_entity_reference(label.c_str(), value, scene, drop_generation);
                 return PropertyEditResult{.changed = changed, .finished = changed};
-            } else
+            } else {
+                if(property.semantic == Comet::Script::Property::Semantic::Prefab) {
+                    descriptor.type = Comet::PropertyType::AssetHandle;
+                    descriptor.asset_type = Comet::AssetType::Prefab;
+                    auto handle =
+                        Comet::Script::prefab_handle(value).value_or(Comet::AssetHandle{});
+                    const auto edited = registry.edit_property(descriptor, &handle);
+                    if(edited.changed)
+                        value = handle ? std::to_string(handle.value()) : std::string{};
+                    return edited;
+                }
                 descriptor.type = Comet::PropertyType::String;
+            }
             return registry.edit_property(descriptor, &value);
         }
     }
@@ -105,6 +162,7 @@ namespace CometEditor {
                 return PropertyEditResult::from_item(
                     ImGui::Checkbox(property.display_name.c_str(), static_cast<bool*>(value)));
             });
+        register_editor(Comet::PropertyType::UInt32, edit_integer_property);
         register_editor(
             Comet::PropertyType::Float, [](const Comet::PropertyDescriptor& property, void* value) {
                 const float available = ImGui::GetContentRegionAvail().x;
@@ -150,34 +208,48 @@ namespace CometEditor {
         return registry;
     }
 
-    PropertyEditResult PropertyEditorRegistry::edit_parameters(
+    ParameterEditResult PropertyEditorRegistry::edit_parameters(
         const Comet::Script::PropertyMap& properties, Comet::ParameterMap& overrides,
-        Comet::Scene& scene, const std::optional<std::uint64_t> drop_generation) const {
-        PropertyEditResult result;
+        Comet::Scene& scene, const std::optional<std::uint64_t> drop_generation,
+        std::span<const Comet::ParameterMap* const> peers) const {
+        ParameterEditResult result;
         for(const auto& [name, property] : properties) {
             auto value = property.default_value;
             if(const auto found = overrides.find(name); found != overrides.end())
                 value = found->second;
+            const bool mixed = std::ranges::any_of(peers, [&](const auto* parameters) {
+                const auto found = parameters->find(name);
+                return (found == parameters->end() ? property.default_value : found->second)
+                       != value;
+            });
+            const bool overridden =
+                overrides.contains(name) || std::ranges::any_of(peers, [&](const auto* parameters) {
+                    return parameters->contains(name);
+                });
             ImGui::PushID(name.c_str());
+            ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, mixed);
             ImGui::BeginGroup();
             auto item = std::visit(
                 [&](auto& scalar) {
                     return edit_parameter_value(
-                        *this, name, property, scalar, scene, drop_generation);
+                        *this, name, property, scalar, scene, drop_generation, mixed);
                 },
                 value);
             ImGui::EndGroup();
+            ImGui::PopItemFlag();
             if(item.changed)
                 overrides.insert_or_assign(name, std::move(value));
             if(ImGui::BeginPopupContextItem("Parameter actions",
                    ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverExistingPopup)) {
-                if(ImGui::MenuItem("使用脚本默认值###Use script default", nullptr, false,
-                       overrides.contains(name))) {
+                if(ImGui::MenuItem(
+                       "使用脚本默认值###Use script default", nullptr, false, overridden)) {
                     overrides.erase(name);
                     item = {.changed = true, .finished = true};
                 }
                 ImGui::EndPopup();
             }
+            if(item.changed)
+                result.changed_parameters.push_back(name);
             result.changed |= item.changed;
             result.active |= item.active;
             result.began |= item.began;

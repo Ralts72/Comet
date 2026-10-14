@@ -64,13 +64,16 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
-    Result<void, Error> SceneRuntime::start(
-        Scene& scene, const State state, const InputStart input) {
+    Result<void, Error> SceneRuntime::start(Scene& scene, const State state, const InputStart input,
+        ParameterMap initial_values, std::string checkpoint) {
         if(m_executing || is_active())
             return Result<void, Error>::failure({"Scene runtime is already active or executing"});
         if((state != State::Running && state != State::Paused)
             || (input != InputStart::Fresh && input != InputStart::Rebase))
             return Result<void, Error>::failure({"Invalid runtime start state"});
+        if(!RuntimeSession::valid_values(initial_values)
+            || (!checkpoint.empty() && !valid_parameter_name(checkpoint)))
+            return Result<void, Error>::failure({"Invalid initial session values"});
         if(!scene.begin_runtime())
             return Result<void, Error>::failure({"Scene already has an active runtime"});
         if(m_services.physics && !m_services.physics->begin(scene)) {
@@ -86,7 +89,7 @@ namespace Comet {
                 {"Audio service already belongs to an active runtime"});
         }
         m_scene = &scene;
-        m_session.begin(scene);
+        m_session.begin(scene, std::move(initial_values), std::move(checkpoint));
         m_state = state;
         m_step_pending = false;
         m_input_prepared = false;
@@ -131,8 +134,16 @@ namespace Comet {
         m_executing = false;
     }
 
-    bool SceneRuntime::take_restart_request() {
-        return !m_executing && m_session.take_restart_request();
+    std::optional<RuntimeSession::SceneRequest> SceneRuntime::take_scene_request() {
+        if(m_executing)
+            return std::nullopt;
+        return m_session.take_scene_request();
+    }
+
+    std::optional<RuntimeSession::CheckpointRequest> SceneRuntime::take_checkpoint_request() {
+        if(m_executing)
+            return std::nullopt;
+        return m_session.take_checkpoint_request();
     }
 
     Result<void, Error> SceneRuntime::stop() {

@@ -8,9 +8,12 @@ layout(location = 1) in vec2 texcoord;
 layout(location = 2) in vec3 normal;
 
 #ifdef COMET_MESH_LIGHTING
+layout(location = 7) in vec4 tangent;
 layout(location = 0) out vec3 world_position;
 layout(location = 1) out vec3 world_normal;
 layout(location = 2) out vec2 uv;
+layout(location = 3) out vec4 world_tangent;
+layout(location = 4) out vec3 world_bitangent;
 #endif
 
 #ifdef COMET_MESH_INSTANCED
@@ -33,9 +36,24 @@ void main() {
     world_position = world.xyz;
     uv = texcoord;
     mat3 basis = mat3(model);
+    world_tangent = vec4(0.0);
+    world_bitangent = vec3(0.0);
     world_normal = vec3(0.0);
-    if(abs(determinant(basis)) > 1e-8)
-        world_normal = transpose(inverse(basis)) * normal;
+    float orientation = determinant(basis);
+    if(abs(orientation) > 1e-8) {
+        vec3 transformed_normal = transpose(inverse(basis)) * normal;
+        float normal_length = length(transformed_normal);
+        if(normal_length > 1e-8) {
+            world_normal = transformed_normal / normal_length;
+            vec3 transformed_tangent = basis * tangent.xyz;
+            transformed_tangent -= world_normal * dot(world_normal, transformed_tangent);
+            float tangent_length = length(transformed_tangent);
+            if(tangent.w != 0.0 && tangent_length > 1e-8) {
+                world_tangent = vec4(transformed_tangent / tangent_length, tangent.w * sign(orientation));
+                world_bitangent = cross(world_normal, world_tangent.xyz) * world_tangent.w;
+            }
+        }
+    }
 #endif
 }
 

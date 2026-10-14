@@ -820,4 +820,166 @@ namespace {
         EXPECT_FALSE(history.can_undo());
         EXPECT_FALSE(gizmo.active());
     }
+    class GroupTransformGizmoTest: public TransformGizmoTest {
+    protected:
+        std::vector<EntityUuid> selected;
+        bool update_group(const TransformGizmo::Input& input) {
+            return gizmo.update_selection(selected, camera, layout, input);
+        }
+        TransformGizmo::Handle start_group(int axis, std::size_t segment = 0) {
+            const auto handle = gizmo.handles(selected.back(), camera, layout)[axis];
+            EXPECT_TRUE(handle);
+            if(!handle)
+                return {};
+            const auto position =
+                gizmo.settings().mode == TransformGizmo::Mode::Rotate
+                    ? handle->segments[segment].start
+                    : (handle->segments.front().start + handle->segments.front().end) * 0.5f;
+            EXPECT_TRUE(update_group(
+                {.position = position, .hovered = true, .pressed = true, .down = true}));
+            EXPECT_TRUE(gizmo.active());
+            EXPECT_EQ(gizmo.active_axis(), static_cast<TransformGizmo::Axis>(axis));
+            return *handle;
+        }
+        void expect_world(const Entity entity, const Math::Mat4& expected) {
+            const auto actual = scene.get_world_matrix(entity);
+            for(int column = 0; column < 4; ++column)
+                for(int row = 0; row < 4; ++row)
+                    EXPECT_NEAR(actual[column][row], expected[column][row], 0.0002f);
+        }
+    };
+
+    TEST_F(GroupTransformGizmoTest, WorldTranslationDeduplicatesParentChildAndUndoesOneGesture) {
+        auto parent = scene.create_entity("External parent");
+        parent.set_transform({.rotation = {0, 0, 90}, .scale = {2, 3, 1}});
+        auto second = scene.create_entity("Second");
+        second.set_transform({.translation = {0, -1, 0}});
+        ASSERT_TRUE(scene.set_parent(second, parent));
+        auto child = scene.create_entity("Child");
+        child.set_transform({.translation = {0, 1, 0}});
+        ASSERT_TRUE(scene.set_parent(child, entity));
+        selected = {child.get_uuid(), second.get_uuid(), entity.get_uuid()};
+        const auto second_before = scene.get_world_matrix(second);
+        const auto child_before = scene.get_world_matrix(child);
+        const auto handle = start_group(0);
+        const auto start = (handle.segments.front().start + handle.segments.front().end) * 0.5f;
+        ASSERT_TRUE(update_group({.position = start + Math::Vec2(40, 0), .down = true}));
+        const auto moved = translation();
+        ASSERT_GT(moved.x, 0);
+        expect_world(second, Math::translate(Math::Mat4(1), moved) * second_before);
+        expect_world(child, Math::translate(Math::Mat4(1), moved) * child_before);
+        EXPECT_EQ(child.get_component<TransformComponent>().translation, Math::Vec3(0, 1, 0));
+        EXPECT_EQ(history.undo_size(), 0u);
+        ASSERT_TRUE(update_group({.position = start + Math::Vec2(40, 0), .released = true}));
+        ASSERT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        expect_world(second, second_before);
+        expect_world(child, child_before);
+        ASSERT_TRUE(history.redo());
+        expect_world(second, Math::translate(Math::Mat4(1), moved) * second_before);
+    }
+
+    TEST_F(GroupTransformGizmoTest, RotationUsesPrimaryPivotAndPreservesRelativeWorldTransforms) {
+        auto second = scene.create_entity("Second");
+        second.set_transform(
+            {.translation = {2, 0, 0}, .rotation = {0, 0, 30}, .scale = {-2, 1, 3}});
+        selected = {second.get_uuid(), entity.get_uuid()};
+        const auto before = scene.get_world_matrix(second);
+        ASSERT_TRUE(gizmo.set_settings({.mode = TransformGizmo::Mode::Rotate}));
+        const auto ring = start_group(2, 4);
+        ASSERT_TRUE(update_group({.position = ring.segments[12].start, .down = true}));
+        ASSERT_TRUE(gizmo.active());
+        ASSERT_TRUE(update_group({.position = ring.segments[20].start, .released = true}));
+        EXPECT_TRUE(gizmo.error().empty()) << gizmo.error();
+        expect_world(second, Math::rotate(Math::Mat4(1), Math::radians(90), {0, 0, 1}) * before);
+        EXPECT_NEAR(entity.get_component<TransformComponent>().rotation.z, 90, 0.001f);
+        ASSERT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        expect_world(second, before);
+    }
+
+    TEST_F(GroupTransformGizmoTest, DescendantPrimaryRemainsPivotWhenAncestorIsSelected) {
+        auto child = scene.create_entity("Pivot child");
+        child.set_transform({.translation = {0.5f, 0, 0}});
+        ASSERT_TRUE(scene.set_parent(child, entity));
+        selected = {entity.get_uuid(), child.get_uuid()};
+        const auto pivot = Math::Vec3(scene.get_world_matrix(child)[3]);
+        ASSERT_TRUE(gizmo.set_settings({.mode = TransformGizmo::Mode::Rotate}));
+        const auto ring = start_group(2, 4);
+        ASSERT_TRUE(update_group({.position = ring.segments[12].start, .down = true}));
+        ASSERT_TRUE(gizmo.active());
+        ASSERT_TRUE(update_group({.position = ring.segments[20].start, .released = true}));
+        expect_vector(Math::Vec3(scene.get_world_matrix(child)[3]), pivot);
+        expect_vector(translation(), {0.5f, -0.5f, 0});
+        EXPECT_EQ(child.get_component<TransformComponent>().translation, Math::Vec3(0.5f, 0, 0));
+        ASSERT_EQ(history.undo_size(), 1u);
+    }
+
+    TEST_F(GroupTransformGizmoTest, ScaleMovesMembersAroundPivotAndRejectsShearAtomically) {
+        auto second = scene.create_entity("Second");
+        second.set_transform({.translation = {2, 0, 0}});
+        selected = {second.get_uuid(), entity.get_uuid()};
+        ASSERT_TRUE(gizmo.set_settings({.mode = TransformGizmo::Mode::Scale}));
+        auto handle = start_group(0);
+        auto segment = handle.segments.front();
+        auto start = (segment.start + segment.end) * 0.5f;
+        ASSERT_TRUE(
+            update_group({.position = start + segment.end - segment.start, .released = true}));
+        EXPECT_TRUE(gizmo.error().empty()) << gizmo.error();
+        expect_vector(second.get_component<TransformComponent>().translation, {4, 0, 0});
+        expect_vector(second.get_component<TransformComponent>().scale, {2, 1, 1});
+        ASSERT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        second.edit_transform([](auto& transform) { transform.rotation.z = 45; });
+        const auto before = scene.get_world_matrix(second);
+        handle = start_group(0);
+        segment = handle.segments.front();
+        start = (segment.start + segment.end) * 0.5f;
+        ASSERT_TRUE(
+            update_group({.position = start + segment.end - segment.start, .released = true}));
+        EXPECT_FALSE(gizmo.error().empty());
+        EXPECT_FALSE(gizmo.active());
+        expect_world(second, before);
+        EXPECT_EQ(entity.get_component<TransformComponent>().scale, Math::Vec3(1));
+        EXPECT_EQ(history.undo_size(), 0u);
+    }
+
+    TEST_F(GroupTransformGizmoTest, CancelAndSelectionChangeRestoreTheWholePreview) {
+        auto second = scene.create_entity("Second");
+        selected = {second.get_uuid(), entity.get_uuid()};
+        auto handle = start_group(0);
+        const auto start = (handle.segments.front().start + handle.segments.front().end) * 0.5f;
+        ASSERT_TRUE(update_group({.position = start + Math::Vec2(40, 0), .down = true}));
+        ASSERT_TRUE(update_group({.cancel = true}));
+        EXPECT_EQ(translation(), Math::Vec3{});
+        EXPECT_EQ(second.get_component<TransformComponent>().translation, Math::Vec3{});
+        start_group(0);
+        ASSERT_TRUE(update_group({.position = start + Math::Vec2(40, 0), .down = true}));
+        selected = {entity.get_uuid()};
+        ASSERT_TRUE(update_group({.position = start + Math::Vec2(40, 0), .down = true}));
+        EXPECT_FALSE(gizmo.active());
+        EXPECT_EQ(translation(), Math::Vec3{});
+        EXPECT_EQ(second.get_component<TransformComponent>().translation, Math::Vec3{});
+        EXPECT_EQ(history.undo_size(), 0u);
+    }
+
+    TEST_F(GroupTransformGizmoTest, ParentTranslationDoesNotShiftTheSharedScalePivot) {
+        auto parent = scene.create_entity("Parent");
+        parent.set_transform({.translation = {0.5f, 0, 0}, .scale = {2, 2, 2}});
+        ASSERT_TRUE(scene.set_parent(entity, parent));
+        auto second = scene.create_entity("Second");
+        second.set_transform({.translation = {2.5f, 0, 0}});
+        selected = {second.get_uuid(), entity.get_uuid()};
+        ASSERT_TRUE(gizmo.set_settings({.mode = TransformGizmo::Mode::Scale}));
+        const auto handle = start_group(0);
+        const auto segment = handle.segments.front();
+        const auto start = (segment.start + segment.end) * 0.5f;
+        ASSERT_TRUE(
+            update_group({.position = start + segment.end - segment.start, .released = true}));
+        EXPECT_TRUE(gizmo.error().empty()) << gizmo.error();
+        expect_vector(Math::Vec3(scene.get_world_matrix(entity)[3]), {0.5f, 0, 0});
+        expect_vector(Math::Vec3(scene.get_world_matrix(second)[3]), {4.5f, 0, 0});
+        ASSERT_EQ(history.undo_size(), 1u);
+    }
+
 }

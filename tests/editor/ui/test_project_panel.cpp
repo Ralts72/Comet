@@ -1,3 +1,4 @@
+#include "asset/serialization/metadata_serializer.h"
 #ifdef COMET_TEST_EDITOR_UI
 #include "assets/project_panel.h"
 #include "scene/selection.h"
@@ -730,7 +731,42 @@ namespace CometEditor::Tests {
         EXPECT_EQ(selection.get_selected_asset(), selected);
     }
 
-    TEST_F(ProjectPanelTest, MeshDragKeepsOriginalIdentityAcrossDocumentChanges) {
+    TEST_F(ProjectPanelTest, ModelChildrenRemainGroupedAndCannotDeleteOrMoveTheSource) {
+        const auto source = paths.assets() / "model.gltf";
+        std::ofstream(source) << R"({"asset":{"version":"2.0"}})";
+        const Comet::AssetMetadata metadata{.handle = Comet::AssetHandle{100},
+            .type = Comet::AssetType::Model,
+            .subresources = {{"mesh/body", Comet::AssetHandle{101}, Comet::AssetType::Mesh},
+                {"material/paint", Comet::AssetHandle{102}, Comet::AssetType::Material}}};
+        ASSERT_TRUE(Comet::MetadataSerializer{}.save(metadata, Comet::metadata_path(source)));
+        ASSERT_TRUE(database.scan().succeeded());
+        // Background publication updates database generation without an explicit panel refresh.
+        frame();
+        search("mesh/body");
+        EXPECT_NE(rendered_text.find("model.gltf"), std::string::npos);
+        EXPECT_NE(rendered_text.find("mesh/body"), std::string::npos);
+        EXPECT_NE(rendered_text.find("material/paint"), std::string::npos);
+        selection.select_asset(Comet::AssetHandle{101});
+        project->request_delete_selection();
+        frame();
+        EXPECT_FALSE(project->take_delete_request());
+        EXPECT_FALSE(AssetSourceOperations::move(database, Comet::AssetHandle{101}, "other.gltf")
+                .succeeded());
+        EXPECT_FALSE(AssetSourceOperations::remove_asset(
+            database, Comet::AssetHandle{101}, [this](const auto& path) {
+                return move_to_fake_trash(path);
+            }).succeeded());
+        EXPECT_TRUE(std::filesystem::exists(source));
+        EXPECT_EQ(trash_count, 0);
+        EXPECT_TRUE(AssetSourceOperations::remove_asset(
+            database, metadata.handle, [this](const auto& path) {
+                return move_to_fake_trash(path);
+            }).succeeded());
+        EXPECT_FALSE(database.find(Comet::AssetHandle{101}));
+        EXPECT_FALSE(database.find(Comet::AssetHandle{102}));
+    }
+
+    TEST_F(ProjectPanelTest, ModelDragKeepsOriginalIdentityAcrossDocumentChanges) {
         std::filesystem::copy_file(
             std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/meshes/cube.gltf",
             paths.assets() / "model.gltf");
@@ -748,7 +784,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(source.target.handle, handle);
         EXPECT_EQ(source.target.revision, revision);
         EXPECT_EQ(source.generation, generation);
-        EXPECT_EQ(source.type, Comet::AssetType::Mesh);
+        EXPECT_EQ(source.type, Comet::AssetType::Model);
         history.bind_scene(&scene);
         ASSERT_NE(history.generation(), generation);
         frame();
@@ -948,7 +984,7 @@ namespace CometEditor::Tests {
         selection.select_asset(handle);
         frame();
         EXPECT_EQ(window->DC.CursorMaxPos.y, height);
-        EXPECT_FALSE(project->take_mesh_reimport_request());
+        EXPECT_FALSE(project->take_reimport_request());
         selection.select_asset(texture);
         click(row_point(5), 1);
         auto& context = *ImGui::GetCurrentContext();
@@ -957,11 +993,11 @@ namespace CometEditor::Tests {
         ASSERT_NE(popup, nullptr);
         ImGui::ActivateItemByID(popup->GetID("Reimport"));
         frame();
-        const auto request = project->take_mesh_reimport_request();
+        const auto request = project->take_reimport_request();
         ASSERT_TRUE(request);
         EXPECT_EQ(*request, handle);
         EXPECT_EQ(selection.get_selected_asset(), texture);
-        EXPECT_FALSE(project->take_mesh_reimport_request());
+        EXPECT_FALSE(project->take_reimport_request());
         EXPECT_FALSE(std::filesystem::exists(paths.cache()));
 
         click(row_point(3), 1);
@@ -970,7 +1006,7 @@ namespace CometEditor::Tests {
         ASSERT_NE(popup, nullptr);
         ImGui::ActivateItemByID(popup->GetID("Reimport"));
         frame();
-        EXPECT_FALSE(project->take_mesh_reimport_request());
+        EXPECT_FALSE(project->take_reimport_request());
     }
 
     TEST_F(ProjectPanelTest, SourceMenusRequestTextEditingWithoutChangingSelection) {

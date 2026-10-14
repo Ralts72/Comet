@@ -2,12 +2,35 @@
 #include "common/json.h"
 
 #include <utility>
+#include <unordered_set>
 
 namespace Comet {
     namespace {
 
+        Result<void> validate_subresources(
+            const AssetMetadata& metadata, const Json::Context& context) {
+            if(!metadata.subresources.empty() && metadata.type != AssetType::Model)
+                return Result<void>::failure(
+                    context.error("subresources", "only models own subresources"));
+            std::unordered_set<std::string> keys;
+            std::unordered_set<AssetHandle> handles{metadata.handle};
+            for(const auto& subresource : metadata.subresources) {
+                if(subresource.key.empty() || !keys.insert(subresource.key).second
+                    || !subresource.handle || !handles.insert(subresource.handle).second)
+                    return Result<void>::failure(
+                        context.error("subresources", "keys and non-zero handles must be unique"));
+                if(subresource.type != AssetType::Mesh && subresource.type != AssetType::Material
+                    && subresource.type != AssetType::Texture)
+                    return Result<void>::failure(
+                        context.error("subresources", "expected a mesh, material or texture"));
+            }
+            return Result<void>::success();
+        }
+
         Result<void> encode_metadata(
             const AssetMetadata& metadata, const Json::Context& context, Json::Writer& writer) {
+            if(auto valid = validate_subresources(metadata, context); !valid)
+                return valid;
             if(!metadata.handle) {
                 return Result<void>::failure(context.error("guid", "expected a non-zero value"));
             }
@@ -37,7 +60,21 @@ namespace Comet {
                 writer.begin_object();
                 writer.field("color_space", to_string(texture_settings->color_space));
                 writer.field("flip_y", texture_settings->flip_y);
+                writer.field("generate_mipmaps", texture_settings->generate_mipmaps);
+                writer.field("normal_map", texture_settings->normal_map);
                 writer.end_object();
+            }
+            if(!metadata.subresources.empty()) {
+                writer.key("subresources");
+                writer.begin_array();
+                for(const auto& resource : metadata.subresources) {
+                    writer.begin_object();
+                    writer.field("key", resource.key);
+                    writer.field("guid", resource.handle.value());
+                    writer.field("type", to_string(resource.type));
+                    writer.end_object();
+                }
+                writer.end_array();
             }
             writer.end_object();
 
@@ -46,7 +83,8 @@ namespace Comet {
 
         Result<AssetMetadata> decode_metadata(
             const Json::Node& root, const Json::Context& context) {
-            if(auto valid = context.validate_keys(root, {"version", "guid", "type", "importer"});
+            if(auto valid = context.validate_keys(
+                   root, {"version", "guid", "type", "importer", "subresources"});
                 !valid)
                 return Result<AssetMetadata>::failure(valid.error());
 
@@ -88,8 +126,8 @@ namespace Comet {
                     return Result<AssetMetadata>::failure(
                         context.error("<root>", "missing required field 'importer'"));
                 }
-                if(auto valid =
-                        context.validate_keys(importer, {"color_space", "flip_y"}, "importer");
+                if(auto valid = context.validate_keys(importer,
+                       {"color_space", "flip_y", "generate_mipmaps", "normal_map"}, "importer");
                     !valid)
                     return Result<AssetMetadata>::failure(valid.error());
 
@@ -107,16 +145,59 @@ namespace Comet {
                     context.read_field<bool>(importer, "flip_y", "a boolean", "importer");
                 if(!flip_y)
                     return Result<AssetMetadata>::failure(flip_y.error());
-                import_settings =
-                    TextureImportSettings{.color_space = *color_space, .flip_y = flip_y.value()};
+                const auto mipmaps = context.read_optional_field<bool>(
+                    importer, "generate_mipmaps", "a boolean", "importer");
+                if(!mipmaps)
+                    return Result<AssetMetadata>::failure(mipmaps.error());
+                const auto normal_map = context.read_optional_field<bool>(
+                    importer, "normal_map", "a boolean", "importer");
+                if(!normal_map)
+                    return Result<AssetMetadata>::failure(normal_map.error());
+                import_settings = TextureImportSettings{.color_space = *color_space,
+                    .flip_y = flip_y.value(),
+                    .generate_mipmaps = mipmaps.value().value_or(true),
+                    .normal_map = normal_map.value().value_or(false)};
             } else if(has_importer) {
                 return Result<AssetMetadata>::failure(
                     context.error("importer", "import settings are not supported for asset type '"
                                                   + std::string(to_string(*type)) + "'"));
             }
 
-            return Result<AssetMetadata>::success(AssetMetadata{
-                .handle = handle, .type = *type, .import_settings = std::move(import_settings)});
+            AssetMetadata result{
+                .handle = handle, .type = *type, .import_settings = std::move(import_settings)};
+            Json::Node children;
+            if(!root["subresources"].get(children)) {
+                auto array = context.array(children, "subresources");
+                if(!array)
+                    return Result<AssetMetadata>::failure(array.error());
+                for(const auto child : array.value()) {
+                    if(auto valid =
+                            context.validate_keys(child, {"key", "guid", "type"}, "subresources");
+                        !valid)
+                        return Result<AssetMetadata>::failure(valid.error());
+                    const auto key = context.read_field<std::string>(
+                        child, "key", "a source key", "subresources");
+                    const auto id = context.read_field<uint64_t>(
+                        child, "guid", "an asset handle", "subresources");
+                    const auto type_name = context.read_field<std::string>(
+                        child, "type", "an asset type", "subresources");
+                    if(!key)
+                        return Result<AssetMetadata>::failure(key.error());
+                    if(!id)
+                        return Result<AssetMetadata>::failure(id.error());
+                    if(!type_name)
+                        return Result<AssetMetadata>::failure(type_name.error());
+                    const auto child_type = asset_type_from_string(type_name.value());
+                    if(!child_type)
+                        return Result<AssetMetadata>::failure(
+                            context.error("subresources.type", "unknown asset type"));
+                    result.subresources.push_back(
+                        {key.value(), AssetHandle{id.value()}, *child_type});
+                }
+            }
+            if(auto valid = validate_subresources(result, context); !valid)
+                return Result<AssetMetadata>::failure(valid.error());
+            return Result<AssetMetadata>::success(std::move(result));
         }
     }
 

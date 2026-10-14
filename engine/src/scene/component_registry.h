@@ -1,6 +1,7 @@
 #pragma once
 
 #include "asset/reference.h"
+#include "common/error.h"
 #include "scene/property.h"
 #include "common/export.h"
 #include "scene/scene.h"
@@ -14,6 +15,8 @@
 #include <vector>
 
 namespace Comet {
+    class Script;
+    class COMET_API Prefab;
     struct ComponentDescriptor {
         std::string id;
         std::string display_name;
@@ -88,6 +91,13 @@ namespace Comet {
         [[nodiscard]] bool covers_entity(const Entity& entity) const;
         [[nodiscard]] std::vector<AssetReference> collect_asset_references(
             Scene& scene, ReferenceScope scope = ReferenceScope::All) const;
+
+        // 展开脚本参数与可生成子树的资源闭包；宿主决定从源项目或只读产品加载。
+        [[nodiscard]] Result<std::vector<AssetReference>, Error> collect_runtime_references(
+            Scene& scene,
+            const std::function<Result<std::shared_ptr<Script>, Error>(AssetHandle)>& load_script,
+            const std::function<Result<std::shared_ptr<Prefab>, Error>(AssetHandle)>& load_prefab,
+            bool allow_missing = false) const;
 
         [[nodiscard]] const std::vector<ComponentDescriptor>& components() const {
             return m_components;

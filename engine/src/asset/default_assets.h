@@ -11,6 +11,9 @@ namespace Comet {
     inline constexpr AssetHandle DEFAULT_PBR_MATERIAL{0xc04e700000000002ull};
     inline constexpr AssetHandle DEFAULT_UNLIT_MATERIAL{0xc04e700000000003ull};
 
+    // 开发导入与内容导出共用；只读产品运行时不访问源文件。
+    [[nodiscard]] COMET_API std::filesystem::path default_character_source();
+
     struct DefaultAsset {
         AssetHandle handle;
         AssetType type;

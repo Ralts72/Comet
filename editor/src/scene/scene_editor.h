@@ -16,11 +16,23 @@ namespace CometEditor {
     class SceneEditor {
     public:
         struct StructureRequest {
-            enum class Type { Create, Delete, Reparent, Duplicate, Paste };
+            enum class Type {
+                Create,
+                Delete,
+                Reparent,
+                Duplicate,
+                Paste,
+                UpdatePrefab,
+                RevertPrefab,
+                ApplyPrefab,
+                DetachPrefab
+            };
             Type type;
             Comet::EntityUuid entity;
             Comet::EntityUuid parent;
             std::uint64_t generation;
+            std::vector<Comet::EntityUuid> entities;
+            SceneCommands::DuplicateOptions duplicate;
         };
         struct AssetInput {
             Comet::AssetTarget target;
@@ -40,6 +52,8 @@ namespace CometEditor {
         }
         [[nodiscard]] bool copy_entity(
             Comet::Scene* scene, Comet::EntityUuid entity, std::uint64_t generation);
+        [[nodiscard]] bool copy_entities(Comet::Scene* scene,
+            std::span<const Comet::EntityUuid> entities, std::uint64_t generation);
         [[nodiscard]] bool execute(Comet::Scene* scene, const StructureRequest& request);
         [[nodiscard]] bool rename_entity(Comet::Scene* scene, Comet::EntityUuid entity,
             const std::string& name, std::uint64_t generation);
@@ -47,7 +61,11 @@ namespace CometEditor {
         [[nodiscard]] bool redo(Comet::Scene* scene);
         [[nodiscard]] Comet::Result<void, Comet::Error> assign_asset(Comet::Scene* scene,
             const PropertyEditTransaction::Target& target, const AssetInput& asset);
-        [[nodiscard]] Comet::Result<void, Comet::Error> create_mesh(
+        [[nodiscard]] Comet::Result<void, Comet::Error> assign_assets(Comet::Scene* scene,
+            std::span<const PropertyEditTransaction::Target> targets, const AssetInput& asset);
+        [[nodiscard]] Comet::Result<void, Comet::Error> save_prefab(Comet::Scene* scene,
+            Comet::EntityUuid root, const std::filesystem::path& path, std::uint64_t generation);
+        [[nodiscard]] Comet::Result<void, Comet::Error> place_asset(
             Comet::Scene* scene, const AssetInput& asset, Comet::Math::Vec3 position);
 
     private:

@@ -42,6 +42,10 @@ namespace Comet::DrawOrder {
         return std::less<const ResolvedRenderItem*>{}(&a, &b);
     }
 
+    inline bool reverses_winding(const ResolvedRenderItem& item) {
+        return glm::determinant(glm::mat3(item.model_matrix)) < 0;
+    }
+
     inline bool by_mesh(const ResolvedRenderItem& a, const ResolvedRenderItem& b) {
         if(a.mesh != b.mesh)
             return std::less<const Mesh*>{}(a.mesh.get(), b.mesh.get());

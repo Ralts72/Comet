@@ -9,6 +9,9 @@ namespace Comet {
     namespace {
         Result<void> validate_material_data(
             const MaterialData& data, const Json::Context& context) {
+            if(!data.surface.valid())
+                return Result<void>::failure(
+                    context.error("surface", "invalid alpha mode or cutoff"));
             if(data.template_name.empty()) {
                 return Result<void>::failure(
                     context.error("template", "expected a non-empty string"));
@@ -58,6 +61,15 @@ namespace Comet {
             if(data.shader_program)
                 writer.field("shader_program", data.shader_program.value());
 
+            if(data.surface != MaterialSurface{}) {
+                writer.key("surface");
+                writer.begin_object();
+                constexpr const char* modes[]{"opaque", "mask", "blend"};
+                writer.field("alpha_mode", modes[static_cast<unsigned>(data.surface.alpha_mode)]);
+                writer.field("alpha_cutoff", data.surface.alpha_cutoff);
+                writer.field("double_sided", data.surface.double_sided);
+                writer.end_object();
+            }
             writer.key("properties");
             writer.begin_object();
             for(const auto& [property_name, texture_handle] : data.texture_properties) {
@@ -90,7 +102,7 @@ namespace Comet {
 
         Result<MaterialData> decode_material(const Json::Node& root, const Json::Context& context) {
             if(auto valid = context.validate_keys(
-                   root, {"version", "template", "shader_program", "properties"});
+                   root, {"version", "template", "shader_program", "properties", "surface"});
                 !valid)
                 return Result<MaterialData>::failure(valid.error());
 
@@ -126,6 +138,39 @@ namespace Comet {
                         context.error("shader_program", "expected a non-zero value"));
             }
 
+            Json::Node surface;
+            if(!root["surface"].get(surface)) {
+                if(auto valid = context.validate_keys(
+                       surface, {"alpha_mode", "alpha_cutoff", "double_sided"}, "surface");
+                    !valid)
+                    return Result<MaterialData>::failure(valid.error());
+                const auto mode = context.read_field<std::string>(
+                    surface, "alpha_mode", "opaque, mask or blend", "surface");
+                const auto cutoff = context.read_field<float>(
+                    surface, "alpha_cutoff", "a number in [0, 1]", "surface");
+                const auto sided =
+                    context.read_field<bool>(surface, "double_sided", "a boolean", "surface");
+                if(!mode)
+                    return Result<MaterialData>::failure(mode.error());
+                if(!cutoff)
+                    return Result<MaterialData>::failure(cutoff.error());
+                if(!sided)
+                    return Result<MaterialData>::failure(sided.error());
+                if(mode.value() == "opaque")
+                    data.surface.alpha_mode = AlphaMode::Opaque;
+                else if(mode.value() == "mask")
+                    data.surface.alpha_mode = AlphaMode::Mask;
+                else if(mode.value() == "blend")
+                    data.surface.alpha_mode = AlphaMode::Blend;
+                else
+                    return Result<MaterialData>::failure(
+                        context.error("surface.alpha_mode", "expected opaque, mask or blend"));
+                data.surface.alpha_cutoff = cutoff.value();
+                data.surface.double_sided = sided.value();
+                if(!data.surface.valid())
+                    return Result<MaterialData>::failure(
+                        context.error("surface.alpha_cutoff", "expected a number in [0, 1]"));
+            }
             const auto properties = context.required_child(root, "properties");
             if(!properties)
                 return Result<MaterialData>::failure(properties.error());

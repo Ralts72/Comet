@@ -11,7 +11,10 @@
 #include "scene/systems/script_system.h"
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <limits>
+#include <unordered_map>
+#include <cmath>
 #include <utility>
 
 namespace Comet::Tests {
@@ -48,6 +51,237 @@ namespace Comet::Tests {
         };
     }
 
+    class MeshColliderTest: public testing::Test {
+    protected:
+        static constexpr AssetHandle ground_mesh{501}, box_mesh{502};
+        std::unordered_map<AssetHandle, MeshData> meshes;
+        AssetRevision revision = 1;
+        int reads = 0;
+        bool fail_read = false;
+        PhysicsService physics{{.read = [this](AssetHandle handle) -> Result<MeshData, Error> {
+                                    ++reads;
+                                    if(fail_read || !meshes.contains(handle))
+                                        return Result<MeshData, Error>::failure(
+                                            {"Missing collision geometry"});
+                                    return Result<MeshData, Error>::success(meshes.at(handle));
+                                },
+            .revision = [this](AssetHandle) { return revision; }}};
+        Scene scene;
+        SceneRuntime runtime;
+        Entity floor, body;
+
+        void SetUp() override {
+            auto& ground = meshes[ground_mesh];
+            for(const auto position : {Math::Vec3(-5, 0, -5), Math::Vec3(-5, 0, 5),
+                    Math::Vec3(5, 0, 5), Math::Vec3(5, 0, -5)})
+                ground.vertices.push_back({.position = position});
+            ground.indices = {0, 1, 2, 0, 2, 3};
+            auto& cube = meshes[box_mesh];
+            for(float x : {-0.5f, 0.5f})
+                for(float y : {-0.5f, 0.5f})
+                    for(float z : {-0.5f, 0.5f})
+                        cube.vertices.push_back({.position = {x, y, z}});
+            cube.indices = {0, 1, 3, 0, 3, 2, 4, 6, 7, 4, 7, 5, 0, 4, 5, 0, 5, 1, 2, 3, 7, 2, 7, 6,
+                0, 2, 6, 0, 6, 4, 1, 5, 7, 1, 7, 3};
+            floor = scene.create_entity("Mesh floor");
+            floor.add_component<RigidBodyComponent>(
+                RigidBodyComponent{.motion = BodyMotion::Static});
+            floor.add_component<ColliderComponent>(
+                ColliderComponent{.shape = ColliderShape::TriangleMesh, .mesh = ground_mesh});
+            body = scene.create_entity("Convex body");
+            body.add_component<RigidBodyComponent>();
+            body.add_component<ColliderComponent>(
+                ColliderComponent{.shape = ColliderShape::ConvexHull, .mesh = box_mesh});
+            body.edit_transform([](auto& pose) { pose.translation.y = 3; });
+            ASSERT_TRUE(runtime.set_services({.physics = &physics}));
+            ASSERT_TRUE(runtime.set_settings({.fixed_delta = 0.01}));
+            ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        }
+    };
+
+    TEST_F(MeshColliderTest, MeshOutlinesUseCookedFacesAndPreserveScaledMeshOrigin) {
+        auto data = meshes.at(box_mesh);
+        data.vertices.push_back({.position = {0.1f, 0.1f, 0.1f}});
+        data.vertices.push_back({.position = {0.2f, 0.1f, 0.1f}});
+        data.vertices.push_back({.position = {0.1f, 0.2f, 0.1f}});
+        data.indices.insert(data.indices.end(), {8, 9, 10});
+        for(auto& vertex : data.vertices)
+            vertex.position.x += 2;
+        const Math::Vec3 scale(2, 3, 4);
+        const auto hull =
+            PhysicsService::mesh_collider_edges(ColliderShape::ConvexHull, data, scale);
+        ASSERT_TRUE(hull) << hull.error().message;
+        ASSERT_FALSE(hull.value().empty());
+        auto bounds = BoundingBox::from_point(hull.value().front().first);
+        for(const auto& [first, second] : hull.value()) {
+            bounds.include(first);
+            bounds.include(second);
+            EXPECT_TRUE(first.x == 3 || first.x == 5);
+            EXPECT_TRUE(second.x == 3 || second.x == 5);
+        }
+        EXPECT_LT(Math::length(bounds.minimum - Math::Vec3(3, -1.5f, -2)), 1e-5f);
+        EXPECT_LT(Math::length(bounds.maximum - Math::Vec3(5, 1.5f, 2)), 1e-5f);
+        const auto triangles =
+            PhysicsService::mesh_collider_edges(ColliderShape::TriangleMesh, data, scale);
+        ASSERT_TRUE(triangles) << triangles.error().message;
+        EXPECT_TRUE(std::ranges::any_of(triangles.value(),
+            [](const auto& edge) { return edge.first.x > 3 && edge.first.x < 5; }));
+        const auto floor_edges = PhysicsService::mesh_collider_edges(
+            ColliderShape::TriangleMesh, meshes.at(ground_mesh), Math::Vec3(1));
+        ASSERT_TRUE(floor_edges);
+        EXPECT_EQ(floor_edges.value().size(), 5u);
+        EXPECT_FALSE(
+            PhysicsService::mesh_collider_edges(ColliderShape::ConvexHull, data, Math::Vec3(-1)));
+        EXPECT_FALSE(PhysicsService::mesh_collider_edges(ColliderShape::Box, data, Math::Vec3(1)));
+        // 无世界预览不得影响后续建世界，也不得提前释放仍在运行的 Jolt 状态。
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_TRUE(PhysicsService::mesh_collider_edges(ColliderShape::ConvexHull, data, scale));
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_TRUE(physics.get_velocity(body));
+    }
+
+    TEST_F(MeshColliderTest, ConvexBodiesLandOnTriangleMeshAndShareCookedGeometry) {
+        auto second = scene.create_entity("Shared hull");
+        second.add_component<RigidBodyComponent>();
+        second.add_component<ColliderComponent>(body.get_component<ColliderComponent>());
+        second.edit_transform([](auto& pose) { pose.translation = {2, 4, 0}; });
+        auto started = runtime.start(scene);
+        ASSERT_TRUE(started) << started.error().message;
+        EXPECT_EQ(reads, 2);
+        for(int frame = 0; frame < 200; ++frame)
+            ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_NEAR(body.get_component<TransformComponent>().translation.y, 0.5f, 0.05f);
+        EXPECT_NEAR(second.get_component<TransformComponent>().translation.y, 0.5f, 0.05f);
+        EXPECT_EQ(reads, 2);
+        const auto ray = physics.raycast({4, 3, 0}, {0, -6, 0}, {});
+        ASSERT_TRUE(ray);
+        ASSERT_TRUE(ray.value());
+        EXPECT_EQ(ray.value()->entity, floor.get_uuid());
+        EXPECT_NEAR(ray.value()->fraction, 0.5f, 0.001f);
+        EXPECT_NEAR(ray.value()->normal.y, 1, 0.001f);
+        TransformComponent probe;
+        probe.translation = {4, 3, 0};
+        const auto cast =
+            physics.shape_cast(ColliderComponent{.shape = ColliderShape::Sphere, .radius = 0.25f},
+                probe, {0, -6, 0}, {});
+        ASSERT_TRUE(cast);
+        ASSERT_TRUE(cast.value());
+        EXPECT_EQ(cast.value()->entity, floor.get_uuid());
+        EXPECT_NEAR(cast.value()->fraction, 2.75f / 6, 0.01f);
+    }
+
+    TEST_F(MeshColliderTest, CharacterControllerStandsOnTheTriangleSurface) {
+        auto character = scene.create_entity("Character");
+        character.add_component<CharacterControllerComponent>();
+        character.edit_transform([](auto& transform) { transform.translation = {-2, 3, 0}; });
+        ASSERT_TRUE(runtime.start(scene));
+        for(int frame = 0; frame < 200; ++frame)
+            ASSERT_TRUE(runtime.advance(0.01));
+        const auto state = physics.get_character_state(character);
+        ASSERT_TRUE(state);
+        EXPECT_TRUE(state->grounded);
+        EXPECT_NEAR(character.get_component<TransformComponent>().translation.y, 0, 0.05f);
+    }
+
+    TEST_F(MeshColliderTest, GeometryRevisionRebuildsAtFixedBoundaryAndKeepsBodyVelocity) {
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(physics.request_impulse(body, {2, 0, 0}));
+        ASSERT_TRUE(runtime.advance(0.01));
+        for(auto& vertex : meshes[ground_mesh].vertices)
+            vertex.position.y = 1;
+        ++revision;
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(reads, 4);
+        const auto ray = physics.raycast({4, 4, 0}, {0, -6, 0}, {});
+        ASSERT_TRUE(ray);
+        ASSERT_TRUE(ray.value());
+        EXPECT_NEAR(ray.value()->position.y, 1, 0.001f);
+        const auto velocity = physics.get_velocity(body);
+        ASSERT_TRUE(velocity);
+        EXPECT_NEAR(velocity->linear.x, 2, 0.01f);
+        EXPECT_GT(body.get_component<TransformComponent>().translation.x, 0.03f);
+        fail_read = true;
+        ++revision;
+        EXPECT_FALSE(runtime.advance(0.01));
+        EXPECT_FALSE(physics.is_bound_to(scene));
+    }
+
+    TEST_F(MeshColliderTest, OffsetHullCastAndBodyUseMeshOriginInsteadOfCenterOfMass) {
+        for(auto& vertex : meshes[box_mesh].vertices)
+            vertex.position.x += 2;
+        body.edit_component<RigidBodyComponent>(
+            [](auto& rigid) { rigid.motion = BodyMotion::Static; });
+        body.edit_transform([](auto& pose) { pose.translation = {10, 2, 0}; });
+        ASSERT_TRUE(runtime.start(scene));
+        const auto ray = physics.raycast({12, 5, 0}, {0, -6, 0}, {});
+        ASSERT_TRUE(ray);
+        ASSERT_TRUE(ray.value());
+        EXPECT_EQ(ray.value()->entity, body.get_uuid());
+        EXPECT_NEAR(ray.value()->position.y, 2.5f, 0.01f);
+        TransformComponent pose;
+        pose.translation = {4, 2, 0};
+        const auto cast =
+            physics.shape_cast(body.get_component<ColliderComponent>(), pose, {10, 0, 0}, {});
+        ASSERT_TRUE(cast) << cast.error();
+        ASSERT_TRUE(cast.value());
+        EXPECT_EQ(cast.value()->entity, body.get_uuid());
+        EXPECT_NEAR(cast.value()->fraction, 0.5f, 0.01f);
+        EXPECT_FALSE(
+            physics.shape_cast(floor.get_component<ColliderComponent>(), pose, {10, 0, 0}, {}));
+    }
+
+    TEST_F(MeshColliderTest, PositiveNonuniformScaleAndRotationApplyToTriangleGeometry) {
+        body.edit_transform([](auto& pose) { pose.translation = {20, 3, 0}; });
+        floor.edit_transform([](auto& pose) {
+            pose.translation = {10, 2, 0};
+            pose.rotation = {0, 0, 30};
+            pose.scale = {2, 1, 3};
+        });
+        ASSERT_TRUE(runtime.start(scene));
+        const auto ray = physics.raycast({10, 5, 0}, {0, -6, 0}, {});
+        ASSERT_TRUE(ray);
+        ASSERT_TRUE(ray.value());
+        EXPECT_EQ(ray.value()->entity, floor.get_uuid());
+        EXPECT_NEAR(ray.value()->position.y, 2, 0.001f);
+        EXPECT_NEAR(ray.value()->normal.x, -0.5f, 0.001f);
+        EXPECT_NEAR(ray.value()->normal.y, std::sqrt(0.75f), 0.001f);
+    }
+
+    TEST_F(MeshColliderTest, RejectsMovingTriangleMeshesAndMalformedOrFlatHulls) {
+        for(const auto motion : {BodyMotion::Dynamic, BodyMotion::Kinematic}) {
+            floor.edit_component<RigidBodyComponent>([&](auto& rigid) { rigid.motion = motion; });
+            auto started = runtime.start(scene);
+            ASSERT_FALSE(started);
+            EXPECT_NE(started.error().message.find("static rigid body"), std::string::npos);
+        }
+        floor.edit_component<RigidBodyComponent>(
+            [](auto& rigid) { rigid.motion = BodyMotion::Static; });
+        const auto valid = meshes[box_mesh];
+        for(int malformed = 0; malformed < 5; ++malformed) {
+            auto& mesh = meshes[box_mesh];
+            mesh = valid;
+            if(malformed == 0)
+                mesh.indices.clear();
+            if(malformed == 1)
+                mesh.indices[0] = 999;
+            if(malformed == 2)
+                mesh.vertices[0].position.x = std::numeric_limits<float>::infinity();
+            if(malformed == 3)
+                for(auto& vertex : mesh.vertices)
+                    vertex.position.y = 0;
+            if(malformed == 4)
+                for(auto& vertex : mesh.vertices)
+                    vertex.position = Math::Vec3(0);
+            EXPECT_FALSE(runtime.start(scene)) << malformed;
+        }
+        meshes[box_mesh] = valid;
+        meshes[ground_mesh].indices = {0, 0, 0};
+        EXPECT_FALSE(runtime.start(scene));
+        meshes[ground_mesh].indices = {0, 1, 2, 0, 2, 3};
+        body.edit_component<ColliderComponent>([](auto& collider) { collider.mesh = {}; });
+        EXPECT_FALSE(runtime.start(scene));
+    }
+
     class PhysicsServiceTest: public testing::Test {
     protected:
         AssetRegistry assets;
@@ -69,6 +303,380 @@ namespace Comet::Tests {
 
         float position_x() const { return body.get_component<TransformComponent>().translation.x; }
     };
+
+    TEST_F(PhysicsServiceTest, CollisionResponseRequiresBothMasksAndUpdatesDuringPlay) {
+        auto floor = scene.create_entity("Floor");
+        configure_body(floor);
+        floor.edit_component<RigidBodyComponent>(
+            [](auto& rigid) { rigid.motion = BodyMotion::Static; });
+        floor.edit_component<ColliderComponent>([](auto& collider) {
+            collider.half_extents = {10, 0.5f, 10};
+            collider.collision_layer = 2;
+            collider.collision_mask = 1;
+        });
+        floor.edit_transform([](auto& transform) { transform.translation.y = -0.5f; });
+        body.edit_component<ColliderComponent>([](auto& collider) { collider.collision_mask = 2; });
+        body.edit_transform([](auto& transform) { transform.translation.y = 2; });
+        add_physics_system();
+        ASSERT_TRUE(runtime.start(scene));
+        for(int frame = 0; frame < 150; ++frame)
+            ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_NEAR(body.get_component<TransformComponent>().translation.y, 0.5f, 0.04f);
+        // 仅接收方关闭掩码，也必须解除碰撞；下一固定步生效。
+        floor.edit_component<ColliderComponent>(
+            [](auto& collider) { collider.collision_mask = 0; });
+        for(int frame = 0; frame < 100; ++frame)
+            ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_LT(body.get_component<TransformComponent>().translation.y, -2);
+        ASSERT_TRUE(runtime.stop());
+        floor.edit_component<ColliderComponent>(
+            [](auto& collider) { collider.collision_mask = 1; });
+        body.edit_component<ColliderComponent>([](auto& collider) { collider.collision_mask = 1; });
+        body.edit_transform([](auto& transform) { transform.translation.y = 2; });
+        ASSERT_TRUE(runtime.start(scene));
+        for(int frame = 0; frame < 150; ++frame)
+            ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_LT(body.get_component<TransformComponent>().translation.y, -2);
+    }
+
+    TEST_F(PhysicsServiceTest, QueryLayerMasksRetainHighestBitAndApplyToAllQueryKinds) {
+        body.edit_component<RigidBodyComponent>(
+            [](auto& rigid) { rigid.motion = BodyMotion::Static; });
+        body.edit_component<ColliderComponent>([](auto& collider) {
+            collider.collision_layer = 0x80000000u;
+            collider.collision_mask = 0;
+        });
+        auto observer = scene.create_entity("Observer");
+        add_physics_system();
+        ASSERT_TRUE(runtime.start(scene));
+        const ColliderComponent sphere{.shape = ColliderShape::Sphere, .radius = 0.25f};
+        for(const uint32_t layers : {uint32_t{0}, uint32_t{1}, uint32_t{0x80000000}, UINT32_MAX}) {
+            const PhysicsAccess::QueryFilter filter{.layers = layers};
+            const bool matches = (layers & 0x80000000u) != 0;
+            auto ray = physics.raycast({-2, 0, 0}, {4, 0, 0}, filter);
+            ASSERT_TRUE(ray);
+            EXPECT_EQ(ray.value().has_value(), matches);
+            auto shape = physics.shape_cast(sphere, {.translation = {-2, 0, 0}}, {4, 0, 0}, filter);
+            ASSERT_TRUE(shape);
+            EXPECT_EQ(shape.value().has_value(), matches);
+            auto overlap = physics.overlap_sphere({}, 1, filter);
+            ASSERT_TRUE(overlap);
+            EXPECT_EQ(overlap.value().size(), matches ? 1u : 0u);
+        }
+        const auto script = Script::create(R"(return {update=function()
+            assert(comet.raycast({-2,0,0},{4,0,0},{layers=0x80000000}) ~= nil)
+            assert(comet.raycast({-2,0,0},{4,0,0},{layers=1}) == nil)
+            assert(#comet.overlap_sphere({0,0,0},1,{layers=0xffffffff}) == 1)
+            assert(comet.shape_cast({shape='sphere'}, {-2,0,0}, {4,0,0}, {layers=1}) == nil)
+        end})");
+        ASSERT_TRUE(script);
+        const auto instance = ScriptInstance::create(*script.value());
+        ASSERT_TRUE(instance);
+        const auto called = instance.value()->invoke(ScriptInstance::Phase::Update, observer, {},
+            {.scene = &scene, .session = &runtime.get_session(), .physics = &physics});
+        ASSERT_TRUE(called) << called.error().message;
+    }
+
+    TEST_F(PhysicsServiceTest, TriggerEventsRespectMasksAndReportExitWhenFilteringChanges) {
+        auto trigger = scene.create_entity("Trigger");
+        configure_body(trigger);
+        trigger.edit_component<RigidBodyComponent>(
+            [](auto& rigid) { rigid.motion = BodyMotion::Static; });
+        trigger.edit_component<ColliderComponent>([](auto& collider) {
+            collider.is_trigger = true;
+            collider.half_extents = Math::Vec3(3);
+            collider.collision_layer = 2;
+            collider.collision_mask = 1;
+        });
+        body.edit_component<ColliderComponent>([](auto& collider) { collider.collision_mask = 1; });
+        const auto script = Script::create(R"(return {
+            on_trigger_enter=function() comet.session_set('entered', true) end,
+            on_trigger_exit=function() comet.session_set('exited', true) end
+        })");
+        ASSERT_TRUE(script);
+        ASSERT_TRUE(assets.register_asset(AssetHandle{91}, script.value()));
+        body.add_component<ScriptComponent>().asset = AssetHandle{91};
+        add_physics_system();
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_FALSE(runtime.get_session().get_value("entered"));
+        body.edit_component<ColliderComponent>([](auto& collider) { collider.collision_mask = 2; });
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(runtime.get_session().get_value("entered"), std::optional<ParameterValue>(true));
+        trigger.edit_component<ColliderComponent>(
+            [](auto& collider) { collider.collision_mask = 0; });
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_EQ(runtime.get_session().get_value("exited"), std::optional<ParameterValue>(true));
+    }
+
+    TEST_F(PhysicsServiceTest, QueriesReturnNearestGeometryAndFilterTriggersAndIgnoredEntity) {
+        body.edit_component<RigidBodyComponent>(
+            [](auto& rigid) { rigid.motion = BodyMotion::Static; });
+        body.edit_component<ColliderComponent>([](auto& collider) {
+            collider.shape = ColliderShape::Capsule;
+            collider.radius = 0.5f;
+            collider.height = 4;
+        });
+        auto further = scene.create_entity("Further");
+        configure_body(further);
+        further.edit_component<RigidBodyComponent>(
+            [](auto& rigid) { rigid.motion = BodyMotion::Static; });
+        further.edit_transform([](auto& transform) { transform.translation = {4, 1, 0}; });
+        auto trigger = scene.create_entity("Trigger");
+        configure_body(trigger);
+        trigger.edit_component<RigidBodyComponent>(
+            [](auto& rigid) { rigid.motion = BodyMotion::Static; });
+        trigger.edit_component<ColliderComponent>(
+            [](auto& collider) { collider.is_trigger = true; });
+        trigger.edit_transform([](auto& transform) { transform.translation = {-2, 1, 0}; });
+        EXPECT_FALSE(physics.raycast({-5, 1, 0}, {10, 0, 0}, {}));
+        add_physics_system();
+        ASSERT_TRUE(runtime.start(scene));
+        auto ray = physics.raycast({-5, 1, 0}, {10, 0, 0}, {});
+        ASSERT_TRUE(ray);
+        ASSERT_TRUE(ray.value());
+        EXPECT_EQ(ray.value()->entity, body.get_uuid());
+        EXPECT_NEAR(ray.value()->fraction, 0.45f, 1e-5f);
+        EXPECT_LT(glm::length(ray.value()->position - Math::Vec3(-0.5f, 1, 0)), 1e-5f);
+        EXPECT_LT(glm::length(ray.value()->normal - Math::Vec3(-1, 0, 0)), 1e-5f);
+        ray = physics.raycast({-5, 1, 0}, {10, 0, 0}, {.include_triggers = true});
+        ASSERT_TRUE(ray && ray.value());
+        EXPECT_EQ(ray.value()->entity, trigger.get_uuid());
+        ray = physics.raycast({-5, 1, 0}, {10, 0, 0}, {.ignored = body.get_uuid()});
+        ASSERT_TRUE(ray && ray.value());
+        EXPECT_EQ(ray.value()->entity, further.get_uuid());
+        ray = physics.raycast({0, 0, 0}, {0, 3, 0}, {});
+        ASSERT_TRUE(ray && ray.value());
+        EXPECT_FLOAT_EQ(ray.value()->fraction, 0);
+        EXPECT_EQ(ray.value()->normal, Math::Vec3(0, -1, 0));
+        ray = physics.raycast({-5, 10, 0}, {10, 0, 0}, {});
+        ASSERT_TRUE(ray);
+        EXPECT_FALSE(ray.value());
+        auto overlap = physics.overlap_sphere({0, 1, 0}, 0.8f, {});
+        ASSERT_TRUE(overlap);
+        EXPECT_EQ(overlap.value(), (std::vector<EntityUuid>{body.get_uuid()}));
+        EXPECT_TRUE(
+            physics.overlap_sphere({0, 1, 0}, 0.8f, {.ignored = body.get_uuid()}).value().empty());
+        overlap = physics.overlap_sphere({0, 1, 0}, 5, {.include_triggers = true});
+        ASSERT_TRUE(overlap);
+        std::vector<EntityUuid> expected{body.get_uuid(), trigger.get_uuid(), further.get_uuid()};
+        std::ranges::sort(expected);
+        EXPECT_EQ(overlap.value(), expected);
+        EXPECT_EQ(physics.overlap_sphere({0, 1, 0}, 5, {}).value().size(), 2);
+        // 同步后的形状修改必须立刻反映到查询中。
+        body.edit_transform([](auto& transform) { transform.translation = {0, 10, 0}; });
+        ASSERT_TRUE(runtime.advance(0.01));
+        EXPECT_TRUE(physics.overlap_sphere({0, 1, 0}, 0.8f, {}).value().empty());
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(physics.overlap_sphere({0, 1, 0}, 1, {}));
+    }
+
+    TEST_F(PhysicsServiceTest, ShapeCastUsesTargetContactPointsAndSupportsRotationAndFiltering) {
+        body.edit_component<RigidBodyComponent>(
+            [](auto& rigid) { rigid.motion = BodyMotion::Static; });
+        body.edit_transform([](auto& transform) { transform.translation = {103, 4, -9}; });
+        auto sensor = scene.create_entity("Sensor");
+        configure_body(sensor);
+        sensor.edit_component<RigidBodyComponent>(
+            [](auto& rigid) { rigid.motion = BodyMotion::Static; });
+        sensor.edit_component<ColliderComponent>([](auto& collider) {
+            collider.half_extents = Math::Vec3(0.2f);
+            collider.is_trigger = true;
+        });
+        sensor.edit_transform([](auto& transform) { transform.translation = {101, 4, -9}; });
+        add_physics_system();
+        ASSERT_TRUE(runtime.start(scene));
+        TransformComponent start{.translation = {100, 4, -9}};
+        ColliderComponent shape{.shape = ColliderShape::Sphere, .radius = 0.5f};
+        auto cast = physics.shape_cast(shape, start, {5, 0, 0}, {});
+        ASSERT_TRUE(cast && cast.value());
+        EXPECT_EQ(cast.value()->entity, body.get_uuid());
+        EXPECT_NEAR(cast.value()->fraction, 0.4f, 0.002f);
+        EXPECT_NEAR(cast.value()->position.x, 102.5f, 0.002f);
+        EXPECT_NEAR(cast.value()->position.y, 4, 0.002f);
+        EXPECT_NEAR(cast.value()->position.z, -9, 0.002f);
+        EXPECT_LT(glm::length(cast.value()->normal - Math::Vec3(-1, 0, 0)), 0.002f);
+        EXPECT_TRUE(
+            physics.shape_cast(shape, start, {5, 0, 0}, {.ignored = body.get_uuid()}).value()
+            == std::nullopt);
+        cast = physics.shape_cast(shape, start, {5, 0, 0}, {.include_triggers = true});
+        ASSERT_TRUE(cast && cast.value());
+        EXPECT_EQ(cast.value()->entity, sensor.get_uuid());
+        EXPECT_NEAR(cast.value()->fraction, 0.06f, 0.002f);
+        shape.shape = ColliderShape::Box;
+        shape.half_extents = {0.25f, 0.75f, 0.25f};
+        cast = physics.shape_cast(shape, start, {5, 0, 0}, {});
+        ASSERT_TRUE(cast && cast.value());
+        EXPECT_NEAR(cast.value()->fraction, 0.45f, 0.002f);
+        start.rotation.z = 90;
+        cast = physics.shape_cast(shape, start, {5, 0, 0}, {});
+        ASSERT_TRUE(cast && cast.value());
+        EXPECT_NEAR(cast.value()->fraction, 0.35f, 0.002f);
+        shape.shape = ColliderShape::Capsule;
+        shape.radius = 0.25f;
+        shape.height = 2;
+        cast = physics.shape_cast(shape, start, {5, 0, 0}, {});
+        ASSERT_TRUE(cast && cast.value());
+        EXPECT_NEAR(cast.value()->fraction, 0.3f, 0.002f);
+        start.rotation = {};
+        cast = physics.shape_cast(shape, start, {5, 0, 0}, {});
+        ASSERT_TRUE(cast && cast.value());
+        EXPECT_NEAR(cast.value()->fraction, 0.45f, 0.002f);
+        cast = physics.shape_cast(shape, {.translation = {103, 4, -9}}, {}, {});
+        ASSERT_TRUE(cast && cast.value());
+        EXPECT_FLOAT_EQ(cast.value()->fraction, 0);
+        EXPECT_TRUE(Math::is_finite(cast.value()->position));
+        EXPECT_TRUE(Math::is_finite(cast.value()->normal));
+        EXPECT_FALSE(physics.shape_cast(shape, {.scale = {1, 2, 1}}, {1, 0, 0}, {}));
+        shape.height = shape.radius * 2;
+        EXPECT_FALSE(physics.shape_cast(shape, start, {5, 0, 0}, {}));
+        shape.shape = static_cast<ColliderShape>(-1);
+        EXPECT_FALSE(physics.shape_cast(shape, start, {5, 0, 0}, {}));
+    }
+
+    TEST_F(PhysicsServiceTest, EditingCapsuleHeightRebuildsItsCollisionShapeAtTheNextFixedStep) {
+        body.edit_component<RigidBodyComponent>(
+            [](auto& rigid) { rigid.motion = BodyMotion::Static; });
+        body.edit_component<ColliderComponent>([](auto& collider) {
+            collider.shape = ColliderShape::Capsule;
+            collider.radius = 0.25f;
+            collider.height = 1;
+        });
+        add_physics_system();
+        ASSERT_TRUE(runtime.start(scene));
+        auto ray = physics.raycast({-2, 1, 0}, {4, 0, 0}, {});
+        ASSERT_TRUE(ray);
+        EXPECT_FALSE(ray.value());
+        body.edit_component<ColliderComponent>([](auto& collider) { collider.height = 4; });
+        ASSERT_TRUE(runtime.advance(0.01));
+        ray = physics.raycast({-2, 1, 0}, {4, 0, 0}, {});
+        ASSERT_TRUE(ray && ray.value());
+        EXPECT_EQ(ray.value()->entity, body.get_uuid());
+        EXPECT_NEAR(ray.value()->position.x, -0.25f, 0.001f);
+    }
+
+    TEST_F(PhysicsServiceTest, QueriesRejectInvalidGeometryAndIncludeCharacterBodies) {
+        auto character = scene.create_entity("Character");
+        character.add_component<CharacterControllerComponent>();
+        character.edit_transform([](auto& transform) { transform.translation = {3, 0, 0}; });
+        add_physics_system();
+        ASSERT_TRUE(runtime.start(scene));
+        const float infinite = std::numeric_limits<float>::infinity();
+        EXPECT_FALSE(physics.raycast({}, {}, {}));
+        EXPECT_FALSE(physics.raycast({infinite, 0, 0}, {1, 0, 0}, {}));
+        EXPECT_FALSE(physics.raycast({}, {infinite, 0, 0}, {}));
+        for(const auto radius : {0.f, -1.f, infinite})
+            EXPECT_FALSE(physics.overlap_sphere({}, radius, {}));
+        EXPECT_FALSE(physics.overlap_sphere({infinite, 0, 0}, 1, {}));
+        const auto ray = physics.raycast({1, 1, 0}, {4, 0, 0}, {});
+        ASSERT_TRUE(ray && ray.value());
+        EXPECT_EQ(ray.value()->entity, character.get_uuid());
+        EXPECT_NEAR(ray.value()->position.x, 2.7f, 0.01f);
+        const auto overlap = physics.overlap_sphere({3, 1, 0}, 0.2f, {});
+        ASSERT_TRUE(overlap);
+        EXPECT_EQ(overlap.value(), (std::vector<EntityUuid>{character.get_uuid()}));
+        EXPECT_TRUE(physics.overlap_sphere({3, 1, 0}, 0.2f, {.ignored = character.get_uuid()})
+                .value()
+                .empty());
+    }
+
+    TEST_F(PhysicsServiceTest, CapsuleRestsOnItsEndsAndSideAndRejectsInvalidDimensions) {
+        auto floor = scene.create_entity("Floor");
+        configure_body(floor);
+        floor.edit_component<RigidBodyComponent>(
+            [](auto& rigid) { rigid.motion = BodyMotion::Static; });
+        floor.edit_component<ColliderComponent>(
+            [](auto& collider) { collider.half_extents = {20, 0.5f, 20}; });
+        floor.edit_transform([](auto& transform) { transform.translation.y = -0.5f; });
+        body.edit_component<ColliderComponent>([](auto& collider) {
+            collider.shape = ColliderShape::Capsule;
+            collider.radius = 0.5f;
+            collider.height = 3;
+        });
+        add_physics_system();
+        for(const float rotation : {0.f, 90.f}) {
+            body.edit_transform([&](auto& transform) {
+                transform.translation = {0, 4, 0};
+                transform.rotation = {0, 0, rotation};
+            });
+            ASSERT_TRUE(runtime.start(scene));
+            for(int step = 0; step < 250; ++step)
+                ASSERT_TRUE(runtime.advance(0.01));
+            EXPECT_NEAR(body.get_component<TransformComponent>().translation.y,
+                rotation == 0 ? 1.5f : 0.5f, 0.04f);
+            ASSERT_TRUE(runtime.stop());
+        }
+        for(const float height : {0.f, 1.f, std::numeric_limits<float>::infinity()}) {
+            body.edit_component<ColliderComponent>(
+                [&](auto& collider) { collider.height = height; });
+            EXPECT_FALSE(runtime.start(scene));
+            EXPECT_FALSE(runtime.is_active());
+        }
+        body.edit_component<ColliderComponent>([](auto& collider) { collider.height = 3; });
+        body.edit_transform([](auto& transform) { transform.scale = {1, 2, 1}; });
+        EXPECT_FALSE(runtime.start(scene));
+    }
+
+    TEST_F(PhysicsServiceTest, LuaQueriesReturnEntityReferencesAndValidateFilters) {
+        body.edit_component<RigidBodyComponent>(
+            [](auto& rigid) { rigid.motion = BodyMotion::Static; });
+        auto observer = scene.create_entity("Observer");
+        add_physics_system();
+        ASSERT_TRUE(runtime.start(scene));
+        const auto script = Script::create(R"(return {update=function()
+            local hit = comet.raycast({-2,0,0}, {4,0,0})
+            assert(hit and hit.entity:is_valid())
+            assert(math.abs(hit.fraction - 0.375) < 0.0001)
+            assert(math.abs(hit.position[1] + 0.5) < 0.0001)
+            assert(hit.normal[1] == -1)
+            local swept = comet.shape_cast({shape='sphere', radius=0.25}, {-2,0,0}, {4,0,0})
+            assert(swept and swept.entity == hit.entity)
+            assert(math.abs(swept.fraction - 0.3125) < 0.002)
+            assert(math.abs(swept.position[1] + 0.5) < 0.002)
+            assert(comet.shape_cast({shape='capsule',radius=0.2,height=1,rotation={0,0,90}},
+                {-2,0,0}, {4,0,0}, {ignore=hit.entity}) == nil)
+            assert(comet.raycast({-2,0,0}, {4,0,0}, {ignore=hit.entity}) == nil)
+            local entities = comet.overlap_sphere({0,0,0}, 1)
+            assert(#entities == 1 and entities[1] == hit.entity)
+            assert(#comet.overlap_sphere({0,0,0}, 1, {ignore=hit.entity}) == 0)
+        end})");
+        ASSERT_TRUE(script);
+        const auto instance = ScriptInstance::create(*script.value());
+        ASSERT_TRUE(instance);
+        auto invoked = instance.value()->invoke(ScriptInstance::Phase::Update, observer, {},
+            {.scene = &scene, .session = &runtime.get_session(), .physics = &physics});
+        ASSERT_TRUE(invoked) << invoked.error().message;
+        for(const auto call : {"comet.raycast({0,0,0},{0,0,0})", "comet.raycast({0,0},{1,0,0})",
+                "comet.raycast({0,0,0},{1,0,0},{include_triggers=1})",
+                "comet.overlap_sphere({0,0,0},-1)", "comet.overlap_sphere({0,0,0},1,{layers=-1})",
+                "comet.overlap_sphere({0,0,0},1,{layers=1.5})",
+                "comet.overlap_sphere({0,0,0},1,{layers=0x100000000})",
+                "comet.overlap_sphere({0,0,0},1,{unknown=true})",
+                "comet.shape_cast({shape='unknown'}, {0,0,0}, {1,0,0})",
+                "comet.shape_cast({shape='box',half_extents={0,1,1}}, {0,0,0}, {1,0,0})",
+                "comet.shape_cast({shape='capsule',height=0.5}, {0,0,0}, {1,0,0})",
+                "comet.shape_cast({shape='sphere'}, {0,0,0}, {1,0,0}, {include_triggers=1})"}) {
+            const auto invalid =
+                Script::create(std::string("return {update=function() ") + call + " end}");
+            ASSERT_TRUE(invalid);
+            const auto invalid_instance = ScriptInstance::create(*invalid.value());
+            ASSERT_TRUE(invalid_instance);
+            EXPECT_FALSE(invalid_instance.value()->invoke(ScriptInstance::Phase::Update, observer,
+                {}, {.scene = &scene, .session = &runtime.get_session(), .physics = &physics}))
+                << call;
+        }
+        const auto self = Script::create(R"(return {update=function()
+            assert(comet.raycast({-2,0,0}, {4,0,0}) == nil)
+            assert(comet.raycast({-2,0,0}, {4,0,0}, {ignore=false}).entity == comet.self_entity())
+        end})");
+        ASSERT_TRUE(self);
+        const auto self_instance = ScriptInstance::create(*self.value());
+        ASSERT_TRUE(self_instance);
+        invoked = self_instance.value()->invoke(ScriptInstance::Phase::Update, body, {},
+            {.scene = &scene, .session = &runtime.get_session(), .physics = &physics});
+        ASSERT_TRUE(invoked) << invoked.error().message;
+    }
 
     TEST_F(PhysicsServiceTest, RuntimeDomainsKeepBodiesImpulsesAndJoltLifetimeIndependent) {
         Scene other_scene;

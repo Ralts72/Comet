@@ -17,8 +17,7 @@ namespace Comet {
     class COMET_API ScriptSystem final: public System {
     public:
         explicit ScriptSystem(
-            const AssetRegistry& assets, const MaterialParameterValidator* materials = nullptr)
-            : m_assets(assets), m_materials(materials) {}
+            const AssetRegistry& assets, const MaterialParameterValidator* materials = nullptr);
         ~ScriptSystem() override;
         [[nodiscard]] std::shared_ptr<const Script> running_script(Entity entity) const;
         Result<void, Error> on_start(
@@ -72,6 +71,7 @@ namespace Comet {
         void stop_all() noexcept;
 
         const AssetRegistry& m_assets;
+        std::shared_ptr<const ComponentRegistry> m_components;
         const MaterialParameterValidator* m_materials;
         std::map<Key, Entry> m_entries;
         std::vector<Key> m_start_order;

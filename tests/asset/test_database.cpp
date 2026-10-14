@@ -71,6 +71,80 @@ namespace Comet::Tests {
         EXPECT_EQ(texture->import_settings, metadata.import_settings);
     }
 
+    TEST(AssetDatabaseTest, IndexesModelChildrenByHandleAndTracksTheirSharedSource) {
+        const TemporaryProject project;
+        const auto source = project.add_file("model.glb");
+        project.add_file("model.bin", "first");
+        AssetMetadata metadata{.handle = AssetHandle{100},
+            .type = AssetType::Model,
+            .subresources = {{"mesh/body", AssetHandle{101}, AssetType::Mesh},
+                {"material/paint", AssetHandle{102}, AssetType::Material},
+                {"texture/paint", AssetHandle{103}, AssetType::Texture}}};
+        const MetadataSerializer serializer;
+        ASSERT_TRUE(serializer.save(metadata, metadata_path(source)));
+        AssetDatabase database(project.paths());
+        const auto scanned = database.scan();
+        ASSERT_TRUE(scanned.succeeded());
+        EXPECT_EQ(scanned.indexed_assets, 4u);
+        ASSERT_NE(database.find("model.glb"), nullptr);
+        EXPECT_EQ(database.find("model.glb")->handle, metadata.handle);
+        for(const auto& child : metadata.subresources) {
+            const auto* record = database.find(child.handle);
+            ASSERT_NE(record, nullptr);
+            EXPECT_EQ(record->source_asset, metadata.handle);
+            EXPECT_EQ(record->source_key, child.key);
+            EXPECT_EQ(record->type, child.type);
+        }
+        EXPECT_FALSE(database.update_import_settings(AssetHandle{103}, TextureImportSettings{}));
+        EXPECT_EQ(serializer.load(metadata_path(source)).value(), metadata);
+        ASSERT_TRUE(database.update_import_dependencies(metadata.handle, {"model.bin"}));
+        ASSERT_TRUE(database.scan().succeeded());
+        const auto old_revision = database.get_revision(AssetHandle{101});
+        project.add_file("model.bin", "second, larger content");
+        const std::array changed{std::filesystem::path("model.bin")};
+        const auto report = database.scan_changed_sources(changed);
+        ASSERT_TRUE(report);
+        EXPECT_EQ(report->modified_assets,
+            (std::vector{AssetHandle{100}, AssetHandle{101}, AssetHandle{102}, AssetHandle{103}}));
+        EXPECT_NE(database.get_revision(AssetHandle{101}), old_revision);
+        EXPECT_TRUE(database.scan().modified_assets.empty());
+
+        metadata.subresources.erase(metadata.subresources.begin() + 1);
+        ASSERT_TRUE(serializer.save(metadata, metadata_path(source)));
+        const auto removed = database.scan();
+        EXPECT_EQ(removed.removed_assets, std::vector{AssetHandle{102}});
+        EXPECT_EQ(database.find(AssetHandle{101})->source_key, "mesh/body");
+        EXPECT_EQ(database.find("model.glb")->handle, metadata.handle);
+    }
+
+    TEST(AssetDatabaseTest, RejectsModelChildIdentityConflictsWithoutPublishingPartialIndex) {
+        const TemporaryProject project;
+        const auto model = project.add_file("a.glb");
+        const auto texture = project.add_file("z.png");
+        const MetadataSerializer serializer;
+        const AssetMetadata metadata{.handle = AssetHandle{100},
+            .type = AssetType::Model,
+            .subresources = {{"mesh/body", AssetHandle{101}, AssetType::Mesh}}};
+        ASSERT_TRUE(serializer.save(metadata, metadata_path(model)));
+        ASSERT_TRUE(serializer.save({.handle = AssetHandle{200},
+                                        .type = AssetType::Texture,
+                                        .import_settings = TextureImportSettings{}},
+            metadata_path(texture)));
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        const auto generation = database.generation();
+        ASSERT_TRUE(serializer.save({.handle = AssetHandle{101},
+                                        .type = AssetType::Texture,
+                                        .import_settings = TextureImportSettings{}},
+            metadata_path(texture)));
+        const auto conflict = database.scan();
+        EXPECT_FALSE(conflict.succeeded());
+        EXPECT_FALSE(conflict.snapshot_updated);
+        EXPECT_EQ(database.generation(), generation);
+        EXPECT_NE(database.find(AssetHandle{200}), nullptr);
+        EXPECT_EQ(database.find(AssetHandle{101})->type, AssetType::Mesh);
+    }
+
     TEST(AssetDatabaseTest, PreparationDoesNotWriteMetadataUntilPublication) {
         const TemporaryProject project;
         const auto source = project.add_file("new.png");

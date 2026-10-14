@@ -430,14 +430,140 @@ namespace Comet::Tests {
         EXPECT_FALSE(runtime.is_active());
     }
 
+    TEST_F(SceneRuntimeTest, SceneRequestsCaptureEndOfPhaseValuesAndSeedBeforeStartup) {
+        auto* requester = add("requester");
+        requester->start = [&](Scene&) {
+            EXPECT_EQ(std::get<float>(*runtime.get_session().get_value("score")), 3.f);
+            return UpdateResult::success();
+        };
+        requester->update_frame = [&](Scene&, const System::Context& context) {
+            EXPECT_TRUE(context.session.request_scene("scenes/./next.scene"));
+            EXPECT_TRUE(context.session.request_scene("scenes/next.scene"));
+            EXPECT_FALSE(context.session.request_scene("scenes/different.scene"));
+            EXPECT_FALSE(context.session.request_restart());
+            EXPECT_FALSE(runtime.take_scene_request());
+            EXPECT_TRUE(context.session.set_value("score", 9.f));
+            return UpdateResult::success();
+        };
+        ASSERT_TRUE(runtime.start(
+            scene, State::Running, SceneRuntime::InputStart::Fresh, {{"score", 3.f}}));
+        advance(0);
+        auto request = runtime.take_scene_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->kind, RuntimeSession::SceneRequest::Kind::Load);
+        EXPECT_EQ(request->path, "scenes/next.scene");
+        EXPECT_EQ(std::get<float>(request->values.at("score")), 9.f);
+        EXPECT_FALSE(runtime.take_scene_request());
+        EXPECT_TRUE(runtime.get_session().request_restart());
+        EXPECT_FALSE(runtime.get_session().request_scene("next.scene"));
+        request = runtime.take_scene_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->kind, RuntimeSession::SceneRequest::Kind::Restart);
+        EXPECT_TRUE(request->values.empty());
+        EXPECT_TRUE(runtime.get_session().request_scene("next.scene"));
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(runtime.take_scene_request());
+        EXPECT_FALSE(runtime.get_session().request_scene("next.scene"));
+    }
+
+    TEST_F(SceneRuntimeTest, RejectsInvalidTransitionPathsAndSessionSeedsBeforeStartingSystems) {
+        add("observer");
+        for(const auto& invalid :
+            {ParameterValue{EntityUuid::generate()}, ParameterValue{Math::Vec4(1)},
+                ParameterValue{std::numeric_limits<float>::infinity()}}) {
+            EXPECT_FALSE(runtime.start(
+                scene, State::Running, SceneRuntime::InputStart::Fresh, {{"bad", invalid}}));
+            EXPECT_FALSE(runtime.is_active());
+            EXPECT_TRUE(calls.order.empty());
+        }
+        ASSERT_TRUE(runtime.start(scene));
+        for(const auto path : {"", "../other.scene", "scenes/../other.scene", "/tmp/other.scene",
+                "other.json", "scenes\\other.scene"}) {
+            EXPECT_FALSE(runtime.get_session().request_scene(path)) << path;
+            EXPECT_FALSE(runtime.take_scene_request());
+        }
+        EXPECT_FALSE(runtime.get_session().request_scene(std::string_view("bad\0.scene", 10)));
+        EXPECT_TRUE(runtime.get_session().request_scene("scenes/下一关.scene"));
+        EXPECT_TRUE(runtime.take_scene_request());
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(SceneRuntimeTest, CheckpointCapturesSelectedValuesAtRequestAndPublishesOnlyAfterUpdate) {
+        const std::array<std::string_view, 1> keys{"score"};
+        auto* requester = add();
+        requester->start = [&](Scene&) {
+            EXPECT_EQ(runtime.get_session().checkpoint(), "entry");
+            EXPECT_EQ(std::get<float>(*runtime.get_session().get_value("score")), 3.f);
+            return UpdateResult::success();
+        };
+        requester->update_frame = [&](Scene&, const System::Context& context) {
+            EXPECT_TRUE(context.session.request_checkpoint("gate", keys));
+            EXPECT_TRUE(context.session.request_checkpoint("gate", keys));
+            EXPECT_FALSE(runtime.take_checkpoint_request());
+            EXPECT_TRUE(context.session.set_value("score", 9.f));
+            EXPECT_FALSE(context.session.request_checkpoint("gate", keys));
+            EXPECT_FALSE(context.session.request_checkpoint("other", keys));
+            const std::array<std::string_view, 2> duplicates{"score", "score"};
+            EXPECT_FALSE(context.session.request_checkpoint("gate", duplicates));
+            const std::array<std::string_view, 1> missing{"missing"};
+            EXPECT_FALSE(context.session.request_checkpoint("gate", missing));
+            return UpdateResult::success();
+        };
+        ASSERT_TRUE(runtime.start(scene, State::Running, SceneRuntime::InputStart::Fresh,
+            {{"score", 3.f}, {"temporary", true}}, "entry"));
+        advance(0);
+        const auto request = runtime.take_checkpoint_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->marker, "gate");
+        EXPECT_EQ(request->values, (ParameterMap{{"score", 3.f}}));
+        EXPECT_FALSE(runtime.take_checkpoint_request());
+        EXPECT_EQ(runtime.get_session().checkpoint(), "entry");
+        EXPECT_TRUE(runtime.get_session().request_checkpoint("marker-only", {}));
+        EXPECT_TRUE(runtime.take_checkpoint_request()->values.empty());
+        EXPECT_TRUE(runtime.get_session().request_continue());
+        EXPECT_TRUE(runtime.get_session().request_continue());
+        EXPECT_FALSE(runtime.get_session().request_restart());
+        EXPECT_FALSE(runtime.get_session().request_scene("next.scene"));
+        const auto next = runtime.take_scene_request();
+        ASSERT_TRUE(next);
+        EXPECT_EQ(next->kind, RuntimeSession::SceneRequest::Kind::Continue);
+        EXPECT_TRUE(next->values.empty());
+        EXPECT_TRUE(runtime.get_session().request_restart());
+        EXPECT_FALSE(runtime.get_session().request_continue());
+        EXPECT_TRUE(runtime.get_session().request_checkpoint("discard-on-stop", keys));
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(runtime.take_checkpoint_request());
+        EXPECT_FALSE(runtime.take_scene_request());
+        EXPECT_TRUE(runtime.get_session().checkpoint().empty());
+        EXPECT_FALSE(runtime.get_session().request_checkpoint("gate", keys));
+        EXPECT_FALSE(runtime.get_session().request_continue());
+    }
+
+    TEST_F(SceneRuntimeTest, InvalidCheckpointSeedDoesNotStartAndFailedUpdateDiscardsSave) {
+        auto* requester = add();
+        EXPECT_FALSE(runtime.start(
+            scene, State::Running, SceneRuntime::InputStart::Fresh, {}, std::string(129, 'x')));
+        EXPECT_TRUE(calls.order.empty());
+        requester->update_frame = [&](Scene&, const System::Context& context) {
+            EXPECT_TRUE(context.session.request_checkpoint("not-committed", {}));
+            EXPECT_TRUE(context.session.request_continue());
+            return UpdateResult::failure({"script failed after requesting save"});
+        };
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_FALSE(runtime.advance(0));
+        EXPECT_FALSE(runtime.is_active());
+        EXPECT_FALSE(runtime.take_checkpoint_request());
+        EXPECT_FALSE(runtime.take_scene_request());
+    }
+
     TEST_F(SceneRuntimeTest, RestartRequestsCoalesceWithoutInterruptingTheCurrentPhase) {
         EXPECT_FALSE(runtime.get_session().request_restart());
-        EXPECT_FALSE(runtime.take_restart_request());
+        EXPECT_FALSE(runtime.take_scene_request());
         const auto entity = scene.create_entity("Unchanged until host restart");
         auto* requester = add("requester");
         requester->update_frame = [&](Scene&, const System::Context& context) {
             EXPECT_TRUE(context.session.request_restart());
-            EXPECT_FALSE(runtime.take_restart_request());
+            EXPECT_FALSE(runtime.take_scene_request());
             EXPECT_TRUE(context.session.request_restart());
             EXPECT_TRUE(context.session.set_value("after.request", true));
             return UpdateResult::success();
@@ -451,23 +577,23 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.start(scene));
         advance(0);
         EXPECT_TRUE(runtime.is_active());
-        EXPECT_TRUE(runtime.take_restart_request());
-        EXPECT_FALSE(runtime.take_restart_request());
+        EXPECT_TRUE(runtime.take_scene_request());
+        EXPECT_FALSE(runtime.take_scene_request());
 
         ASSERT_TRUE(runtime.set_state(State::Paused));
         advance(1);
-        EXPECT_FALSE(runtime.take_restart_request());
+        EXPECT_FALSE(runtime.take_scene_request());
         ASSERT_TRUE(runtime.request_step());
         advance(0);
         EXPECT_EQ(runtime.get_state(), State::Paused);
-        EXPECT_TRUE(runtime.take_restart_request());
-        EXPECT_FALSE(runtime.take_restart_request());
+        EXPECT_TRUE(runtime.take_scene_request());
+        EXPECT_FALSE(runtime.take_scene_request());
         EXPECT_TRUE(runtime.get_session().request_restart());
         ASSERT_TRUE(runtime.stop());
-        EXPECT_FALSE(runtime.take_restart_request());
+        EXPECT_FALSE(runtime.take_scene_request());
         EXPECT_FALSE(runtime.get_session().request_restart());
         ASSERT_TRUE(runtime.start(scene));
-        EXPECT_FALSE(runtime.take_restart_request());
+        EXPECT_FALSE(runtime.take_scene_request());
         ASSERT_TRUE(runtime.stop());
     }
 
@@ -692,7 +818,7 @@ namespace Comet::Tests {
             EXPECT_FALSE(runtime.is_active());
             EXPECT_FALSE(scene.request_create_entity("Inactive"));
             EXPECT_FALSE(runtime.get_session().get_value("game.score"));
-            EXPECT_FALSE(runtime.take_restart_request());
+            EXPECT_FALSE(runtime.take_scene_request());
         }
     }
 
@@ -1018,8 +1144,8 @@ namespace Comet::Tests {
         EXPECT_FALSE(jump);
         ASSERT_TRUE(other_runtime.advance(0, &input.get_frame()));
         EXPECT_TRUE(other_jump);
-        EXPECT_FALSE(other_runtime.take_restart_request());
-        EXPECT_TRUE(runtime.take_restart_request());
+        EXPECT_FALSE(other_runtime.take_scene_request());
+        EXPECT_TRUE(runtime.take_scene_request());
 
         // Stop 丢弃尚未消费的控制请求；新一局恢复默认输入组。
         ASSERT_TRUE(session.request_restart());
@@ -1029,7 +1155,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(session.get_value("score"));
         EXPECT_FALSE(session.request_restart());
         EXPECT_FALSE(session.request_input_context("gameplay", true));
-        EXPECT_FALSE(runtime.take_restart_request());
+        EXPECT_FALSE(runtime.take_scene_request());
         EXPECT_EQ(other_session.get_value("score"), ParameterValue(2.0f));
         ASSERT_TRUE(runtime.start(scene));
         EXPECT_FALSE(session.get_value("score"));

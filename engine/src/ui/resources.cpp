@@ -1,11 +1,18 @@
 #include "ui/resources.h"
+#include "common/executable_path.h"
 
 #include <algorithm>
 #include <string>
 
 namespace Comet::Ui {
     const std::filesystem::path& builtin_resource_directory() {
-        static const std::filesystem::path directory(COMET_UI_RESOURCE_DIRECTORY);
+        static const std::filesystem::path directory = [] {
+            const auto resources = executable_resource_directory();
+            std::error_code error;
+            if(!resources.empty() && std::filesystem::is_directory(resources / "ui", error))
+                return resources / "ui";
+            return std::filesystem::path(COMET_UI_RESOURCE_DIRECTORY);
+        }();
         return directory;
     }
 

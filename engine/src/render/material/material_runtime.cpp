@@ -44,6 +44,7 @@ namespace Comet {
         }
         auto prepared = std::make_shared<PreparedMaterial>();
         prepared->layout = layout;
+        prepared->surface = material->get_surface();
         prepared->parameters.resize(layout->get_parameter_size());
         for(const auto& property : layout->get_scalars()) {
             float value =

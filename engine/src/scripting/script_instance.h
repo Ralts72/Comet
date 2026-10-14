@@ -5,6 +5,8 @@
 
 namespace Comet {
     class InputState;
+    class AssetRegistry;
+    class ComponentRegistry;
     class MaterialParameterValidator;
     class Scene;
     class RuntimeSession;
@@ -32,6 +34,8 @@ namespace Comet {
             AudioCommands* audio = nullptr;
             PhysicsAccess* physics = nullptr;
             const InputState* input = nullptr;
+            const AssetRegistry* assets = nullptr;
+            std::shared_ptr<const ComponentRegistry> components;
             Entity contact_other;
             const MaterialParameterValidator* materials = nullptr;
             std::string_view event_handler;

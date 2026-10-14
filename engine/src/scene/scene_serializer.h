@@ -21,6 +21,8 @@ namespace Comet {
         explicit SceneSerializer(const ComponentRegistry& component_registry);
 
         [[nodiscard]] Result<std::string> serialize(const Scene& scene) const;
+        // 子树资产与场景共用实体格式，不携带关卡环境或后处理。
+        [[nodiscard]] Result<std::string> serialize_entities(const Scene& scene) const;
 
         [[nodiscard]] Result<std::unique_ptr<Scene>> deserialize(
             std::string_view contents, std::string_view source = "<memory>") const;
@@ -33,6 +35,8 @@ namespace Comet {
 
     private:
         struct ContentSnapshot;
+        [[nodiscard]] Result<std::string> serialize_content(
+            const ContentSnapshot& content, bool include_scene_settings) const;
         [[nodiscard]] Result<ContentSnapshot> capture_content(const Scene& scene) const;
         [[nodiscard]] Result<std::unique_ptr<Scene>> restore_content(
             const ContentSnapshot& content, std::string_view source) const;

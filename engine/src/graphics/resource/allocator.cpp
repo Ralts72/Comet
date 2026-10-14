@@ -170,6 +170,17 @@ namespace Comet {
         }
     }
 
+    Result<void, GraphicsError> Allocator::invalidate_memory(
+        const Allocation& allocation, const size_t offset, const size_t size) const {
+        if(!allocation)
+            return Result<void, GraphicsError>::failure({"Cannot invalidate null allocation"});
+        const auto result = static_cast<vk::Result>(
+            vmaInvalidateAllocation(m_allocator, allocation.m_handle, offset, size));
+        if(result != vk::Result::eSuccess)
+            return Result<void, GraphicsError>::failure({"Cannot read GPU memory", result});
+        return Result<void, GraphicsError>::success();
+    }
+
     void Allocator::set_current_frame_index(const uint64_t frame_serial) const {
         if(!m_memory_budget_enabled) {
             return;

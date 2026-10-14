@@ -19,6 +19,7 @@ namespace CometEditor {
             NewProject,
             OpenProject,
             RenameProject,
+            ExportApp,
             ProjectInputSettings,
             ProjectDisplaySettings,
             ProjectQualitySettings,

@@ -54,10 +54,10 @@ namespace Comet::Tests {
         ASSERT_TRUE(solid) << solid.error();
         ASSERT_TRUE(debug) << debug.error();
         ASSERT_TRUE(triangle) << triangle.error();
-        ASSERT_EQ(mesh.value().get_inputs().size(), 3u);
+        ASSERT_EQ(mesh.value().get_inputs().size(), 4u);
         EXPECT_EQ(mesh.value().get_inputs()[0].location, 0u);
         EXPECT_EQ(mesh.value().get_inputs()[0].format, Format::R32G32B32_SFLOAT);
-        ASSERT_EQ(mesh.value().get_outputs().size(), 3u);
+        ASSERT_EQ(mesh.value().get_outputs().size(), 5u);
         EXPECT_EQ(mesh.value().get_outputs()[0].format, Format::R32G32B32_SFLOAT);
         EXPECT_EQ(mesh.value().get_outputs()[2].format, Format::R32G32_SFLOAT);
         const auto unlit = ShaderInterface::reflect(UNLIT_COLOR_VERT);
@@ -137,7 +137,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(fragment_result) << fragment_result.error();
         const auto fragment = std::move(fragment_result).value();
         EXPECT_EQ(fragment.get_stage(), ShaderStage::Fragment);
-        ASSERT_EQ(fragment.get_bindings().size(), 8u);
+        ASSERT_EQ(fragment.get_bindings().size(), 12u);
         for(uint32_t index = 3; index <= 5; ++index) {
             const auto binding = std::ranges::find_if(fragment.get_bindings(),
                 [index](const auto& value) { return value.set == 0 && value.binding == index; });
@@ -152,8 +152,8 @@ namespace Comet::Tests {
         const auto& parameters = *parameter_binding;
         EXPECT_EQ(parameters.set, 1u);
         EXPECT_EQ(parameters.binding, 0u);
-        EXPECT_EQ(parameters.block_size, 32u);
-        ASSERT_EQ(parameters.members.size(), 3u);
+        EXPECT_EQ(parameters.block_size, 64u);
+        ASSERT_EQ(parameters.members.size(), 7u);
         EXPECT_EQ(parameters.members[0].name, "base_color");
         EXPECT_EQ(parameters.members[0].offset, 0u);
         EXPECT_EQ(parameters.members[0].format, Format::R32G32B32A32_SFLOAT);

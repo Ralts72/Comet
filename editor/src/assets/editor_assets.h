@@ -2,8 +2,10 @@
 
 #include "asset/asset_manager.h"
 #include "assets/source_operations.h"
+#include "scene/prefab.h"
 #include "assets/source_monitor.h"
 #include "assets/asset_edit.h"
+#include "assets/asset_thumbnails.h"
 #include "assets/scene_asset_references.h"
 #include "file_recheck_trigger.h"
 #include <chrono>
@@ -52,6 +54,12 @@ namespace CometEditor {
         [[nodiscard]] Comet::Result<void, Comet::Error> restore_material_preview(
             const Comet::AssetManager::MaterialUpdate& update,
             const std::shared_ptr<Comet::Material>& previous);
+        [[nodiscard]] Comet::AssetScanReport create_prefab(const std::filesystem::path& destination,
+            const Comet::Prefab& prefab, const Comet::ComponentRegistry& registry);
+        [[nodiscard]] Comet::Result<void> save_prefab(const Comet::AssetTarget& target,
+            const Comet::Prefab& prefab, const Comet::ComponentRegistry& registry);
+        [[nodiscard]] Comet::Result<Comet::Prefab> load_prefab(
+            const Comet::AssetTarget& target, const Comet::ComponentRegistry& registry);
         [[nodiscard]] Comet::AssetScanReport create_material(
             const std::filesystem::path& destination, const Comet::MaterialData& data);
         [[nodiscard]] Comet::AssetScanReport create_script(const std::filesystem::path& destination,
@@ -65,8 +73,22 @@ namespace CometEditor {
         void track_scene(Comet::Scene& scene, const Comet::ComponentRegistry& components);
         [[nodiscard]] Comet::Result<std::size_t, Comet::Error> restore_references(
             Comet::AssetCompletionBudget budget = {});
-        void request_mesh_reimport(Comet::AssetHandle handle);
+        void request_source_reimport(Comet::AssetHandle handle);
+        [[nodiscard]] Comet::Result<std::shared_ptr<const Comet::ModelData>, Comet::Error>
+        load_model(const Comet::AssetTarget& target);
+        [[nodiscard]] AssetThumbnails& thumbnails() { return m_thumbnails; }
+        void enable_rendered_previews(
+            Comet::Renderer& renderer, Comet::RenderResourceFactory& factory) {
+            m_thumbnails.enable_rendered_previews(renderer, factory);
+        }
         [[nodiscard]] const Comet::AssetDatabase& database() const { return m_database; }
+        [[nodiscard]] uint64_t mesh_data_revision(Comet::AssetHandle handle) const {
+            return m_manager.mesh_data_revision(handle);
+        }
+        [[nodiscard]] Comet::Result<Comet::MeshData, Comet::Error> read_mesh_data(
+            Comet::AssetHandle handle) {
+            return m_manager.read_mesh_data(handle);
+        }
         [[nodiscard]] std::shared_ptr<const Comet::ShaderProgramArtifact> compiled_shader_program(
             Comet::AssetHandle handle) const;
 
@@ -96,12 +118,15 @@ namespace CometEditor {
         void advance_file_import(std::optional<Comet::AssetScanReport>& report);
         void submit_pending_scan();
         void schedule_shader_program_imports(Clock::time_point now);
-        void schedule_mesh_imports();
+        void schedule_source_imports();
+        void queue_source_import(const Comet::AssetRecord& record,
+            Comet::AssetImportMode mode = Comet::AssetImportMode::IfNeeded);
         Comet::AssetImportLimits m_limits;
         AssetSourceOperations::TrashMover m_trash_mover;
         Comet::AssetDatabase m_database;
         Comet::AssetManager m_manager;
         SceneAssetReferences m_scene_assets;
+        AssetThumbnails m_thumbnails;
         AssetSourceMonitor m_monitor;
         Comet::TaskScheduler& m_scheduler;
         std::optional<PendingScan> m_pending_scan;
@@ -111,7 +136,7 @@ namespace CometEditor {
         Clock::time_point m_full_scan_change_time{};
         std::chrono::milliseconds m_quiet_period;
         std::unordered_map<Comet::AssetHandle, Clock::time_point> m_pending_shader_programs;
-        std::unordered_map<Comet::AssetHandle, Comet::MeshImportMode> m_pending_mesh_imports;
+        std::unordered_map<Comet::AssetHandle, Comet::AssetImportMode> m_pending_source_imports;
         std::string m_monitor_error;
     };
 }

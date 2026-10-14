@@ -1,14 +1,19 @@
 #include "asset/default_assets.h"
 #include "asset/import/mesh_importer.h"
 #include "asset/runtime/asset_loader.h"
+#include "scene/prefab.h"
 
 #include "asset/artifact/mesh_artifact.h"
+#include "asset/artifact/environment_artifact.h"
+#include "asset/artifact/model_artifact.h"
+#include "asset/artifact/texture_artifact.h"
 #include "asset/artifact/shader_program_artifact.h"
 #include "asset/database.h"
 #include "asset/import/import_service.h"
 #include "asset/registry.h"
 #include "asset/runtime/render_asset_factory.h"
 #include "asset/serialization/material_serializer.h"
+#include "asset/serialization/metadata_serializer.h"
 #include "audio/audio.h"
 #include "diagnostics/logger.h"
 
@@ -70,35 +75,184 @@ namespace Comet {
           m_render_factory(render_factory), m_mesh_bytes(mesh_bytes),
           m_texture_bytes(texture_bytes), m_environment_bytes(environment_bytes) {}
 
-    Result<std::shared_ptr<Mesh>, Error> AssetLoader::load_mesh(const AssetHandle handle) {
-        if(handle == DEFAULT_CHARACTER_MESH) {
-            return load_default_asset<Mesh>(m_registry, handle, [this] {
-                static const auto imported = MeshImporter{}.import(COMET_DEFAULT_CHARACTER_FILE);
-                if(!imported)
-                    return Result<std::shared_ptr<Mesh>, Error>::failure({imported.error()});
-                return m_render_factory.prepare(imported.value());
-            });
+    Result<std::shared_ptr<const ModelArtifact>, Error> AssetLoader::model_artifact(
+        const AssetHandle handle) {
+        using Loaded = Result<std::shared_ptr<const ModelArtifact>, Error>;
+        const auto* record = m_database.find(handle);
+        if(!record || record->type != AssetType::Model || record->source_asset)
+            return Loaded::failure({"Model is not indexed with the expected type"});
+        const auto revision = m_database.get_revision(handle);
+        if(const auto cached = m_models.find(handle);
+            cached != m_models.end() && cached->second.revision == revision)
+            return Loaded::success(cached->second.artifact);
+        m_models.erase(handle);
+        auto artifact = ModelArtifact::load(m_imports.model_artifact_path(handle), handle);
+        if(!artifact || artifact->importer_version != ModelArtifact::IMPORTER_VERSION
+            || artifact->source_inputs.files.front().relative_path
+                   != record->path.lexically_normal()
+            || !import_inputs_are_current(m_database.paths().assets(), artifact->source_inputs))
+            return Loaded::failure(
+                {"Model artifact is missing or stale; import the model before loading: "
+                    + record->path.generic_string()});
+        const auto metadata =
+            MetadataSerializer{}.load(metadata_path(m_database.paths().assets() / record->path));
+        if(!metadata || metadata.value() != artifact->metadata)
+            return Loaded::failure({"Model artifact metadata is stale"});
+        std::unordered_map<AssetHandle, std::size_t> children;
+        for(const auto& child : artifact->metadata.subresources) {
+            const auto* indexed = m_database.find(child.handle);
+            if(!indexed || indexed->source_asset != handle || indexed->source_key != child.key
+                || indexed->type != child.type)
+                return Loaded::failure(
+                    {"Model products do not match the indexed child identities"});
+            children.emplace(child.handle, children.size());
         }
-        return load_runtime_asset<Mesh>(m_database, m_registry, handle, AssetType::Mesh,
-            [this](const AssetRecord& record) -> Result<std::shared_ptr<Mesh>, Error> {
-                auto artifact = MeshArtifact::load(
-                    m_imports.mesh_artifact_path(record.handle), record.handle, m_mesh_bytes);
-                if(!artifact)
-                    return Result<std::shared_ptr<Mesh>, Error>::failure(
-                        {"Mesh artifact is missing or invalid; import the asset before loading: "
-                            + record.path.generic_string()});
-                if(auto updated = m_database.update_import_dependencies(
-                       record.handle, artifact->source_dependencies());
-                    !updated)
-                    LOG_WARN("Could not index import dependencies for asset handle {}: {}",
-                        record.handle.value(), updated.error());
-                return m_render_factory.prepare(std::move(artifact->data));
+        // 伴随文件归源模型所有；其变更由数据库传播至全部子资源。
+        std::vector<std::filesystem::path> dependencies;
+        for(const auto& input : artifact->source_inputs.files)
+            dependencies.push_back(input.relative_path);
+        if(auto updated = m_database.update_import_dependencies(handle, std::move(dependencies));
+            !updated)
+            return Loaded::failure({updated.error()});
+        auto shared = std::make_shared<const ModelArtifact>(std::move(*artifact));
+        m_models.insert_or_assign(handle, CachedModel{revision, shared, std::move(children)});
+        return Loaded::success(std::move(shared));
+    }
+
+    Result<std::shared_ptr<Prefab>, Error> AssetLoader::load_prefab(
+        AssetHandle handle, const ComponentRegistry& components) {
+        return load_runtime_asset<Prefab>(m_database, m_registry, handle, AssetType::Prefab,
+            [&](const AssetRecord& record) -> Result<std::shared_ptr<Prefab>, Error> {
+                auto path = m_database.paths().resolve_asset_path(record.path);
+                if(!path)
+                    return Result<std::shared_ptr<Prefab>, Error>::failure({path.error()});
+                auto prefab = Prefab::load(path.value(), components);
+                if(!prefab)
+                    return Result<std::shared_ptr<Prefab>, Error>::failure({prefab.error()});
+                return Result<std::shared_ptr<Prefab>, Error>::success(
+                    std::make_shared<Prefab>(std::move(prefab).value()));
             });
+    }
+
+    Result<std::shared_ptr<const ModelData>, Error> AssetLoader::load_model(AssetHandle handle) {
+        auto artifact = model_artifact(handle);
+        if(!artifact)
+            return Result<std::shared_ptr<const ModelData>, Error>::failure(artifact.error());
+        const auto* data = &artifact.value()->model;
+        return Result<std::shared_ptr<const ModelData>, Error>::success(
+            std::shared_ptr<const ModelData>(std::move(artifact).value(), data));
+    }
+
+    bool AssetLoader::model_is_loaded(AssetHandle handle) const {
+        const auto cached = m_models.find(handle);
+        return cached != m_models.end() && m_database.is_current(handle, cached->second.revision);
+    }
+
+    void AssetLoader::invalidate_model(AssetHandle handle) {
+        m_models.erase(handle);
+    }
+
+    Result<std::filesystem::path, Error> AssetLoader::product_path(const AssetRecord& record) {
+        auto artifact = model_artifact(record.source_asset);
+        if(!artifact)
+            return Result<std::filesystem::path, Error>::failure(artifact.error());
+        const auto& children = m_models.at(record.source_asset).children;
+        const auto found = children.find(record.handle);
+        if(found == children.end())
+            return Result<std::filesystem::path, Error>::failure({"Model child identity is stale"});
+        const auto& child = artifact.value()->metadata.subresources[found->second];
+        if(child.key != record.source_key || child.type != record.type)
+            return Result<std::filesystem::path, Error>::failure({"Model child identity is stale"});
+        return Result<std::filesystem::path, Error>::success(artifact.value()->product_path(
+            m_imports.model_artifact_path(record.source_asset), record.handle));
+    }
+
+    Result<MeshData, Error> AssetLoader::read_mesh_data(const AssetHandle handle) {
+        if(handle == DEFAULT_CHARACTER_MESH && !m_database.is_read_only()) {
+            static const auto imported = MeshImporter{}.import(default_character_source());
+            if(!imported)
+                return Result<MeshData, Error>::failure({imported.error()});
+            return Result<MeshData, Error>::success(imported.value());
+        }
+        const auto* record = m_database.find(handle);
+        if(!record || record->type != AssetType::Mesh)
+            return Result<MeshData, Error>::failure(
+                {"Mesh is not indexed with the expected type: " + std::to_string(handle.value())});
+        // 模型依赖加载可能修改索引，读取期间保留自己的记录。
+        const AssetRecord snapshot = *record;
+        return read_mesh_data(snapshot);
+    }
+
+    Result<MeshData, Error> AssetLoader::read_mesh_data(const AssetRecord& record) {
+        auto path = m_imports.mesh_artifact_path(record.handle);
+        if(m_database.is_read_only()) {
+            auto product = m_database.paths().resolve_asset_path(record.path);
+            if(!product)
+                return Result<MeshData, Error>::failure({product.error()});
+            path = std::move(product).value();
+        }
+        if(record.source_asset) {
+            auto product = product_path(record);
+            if(!product)
+                return Result<MeshData, Error>::failure(product.error());
+            path = std::move(product).value();
+        }
+        auto artifact = MeshArtifact::load(path, record.handle, m_mesh_bytes);
+        if(!artifact)
+            return Result<MeshData, Error>::failure(
+                {"Mesh artifact is missing or invalid; import the asset before loading: "
+                    + record.path.generic_string()});
+        if(!record.source_asset && !m_database.is_read_only())
+            if(auto updated = m_database.update_import_dependencies(
+                   record.handle, artifact->source_dependencies());
+                !updated)
+                LOG_WARN("Could not index import dependencies for asset handle {}: {}",
+                    record.handle.value(), updated.error());
+        return Result<MeshData, Error>::success(std::move(artifact->data));
+    }
+
+    Result<std::shared_ptr<Mesh>, Error> AssetLoader::load_mesh(const AssetHandle handle) {
+        const auto create = [this](Result<MeshData, Error> data) {
+            if(!data)
+                return Result<std::shared_ptr<Mesh>, Error>::failure(data.error());
+            return m_render_factory.prepare(std::move(data).value());
+        };
+        if(handle == DEFAULT_CHARACTER_MESH)
+            return load_default_asset<Mesh>(
+                m_registry, handle, [&] { return create(read_mesh_data(handle)); });
+        return load_runtime_asset<Mesh>(m_database, m_registry, handle, AssetType::Mesh,
+            [&](const AssetRecord& record) { return create(read_mesh_data(record)); });
     }
 
     Result<std::shared_ptr<Texture>, Error> AssetLoader::load_texture(const AssetHandle handle) {
         return load_runtime_asset<Texture>(m_database, m_registry, handle, AssetType::Texture,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Texture>, Error> {
+                if(m_database.is_read_only()) {
+                    auto path = m_database.paths().resolve_asset_path(record.path);
+                    if(!path)
+                        return Result<std::shared_ptr<Texture>, Error>::failure({path.error()});
+                    auto product =
+                        TextureArtifact::load(path.value(), record.handle, m_texture_bytes);
+                    if(!product)
+                        return Result<std::shared_ptr<Texture>, Error>::failure(
+                            {"Texture product is missing or invalid"});
+                    if(const auto* sampler = m_database.product_sampler(record.handle))
+                        product->data.sampler = *sampler;
+                    return m_render_factory.prepare(std::move(product->data));
+                }
+                if(record.source_asset) {
+                    auto path = product_path(record);
+                    if(!path)
+                        return Result<std::shared_ptr<Texture>, Error>::failure(path.error());
+                    auto texture =
+                        TextureArtifact::load(path.value(), record.handle, m_texture_bytes);
+                    if(!texture)
+                        return Result<std::shared_ptr<Texture>, Error>::failure(
+                            {"Model texture product is missing or invalid"});
+                    const auto& model = m_models.at(record.source_asset).artifact;
+                    texture->data.sampler = model->texture_samplers.at(record.handle);
+                    return m_render_factory.prepare(std::move(texture->data));
+                }
                 const auto* settings = std::get_if<TextureImportSettings>(&record.import_settings);
                 if(!settings) {
                     return Result<std::shared_ptr<Texture>, Error>::failure(
@@ -111,11 +265,20 @@ namespace Comet {
     Result<std::shared_ptr<ShaderProgramArtifact>, Error> AssetLoader::load_shader_program(
         const AssetHandle handle) {
         return load_runtime_asset<ShaderProgramArtifact>(m_database, m_registry, handle,
-            AssetType::ShaderProgram, [this, handle](const AssetRecord&) {
-                auto artifact = ShaderProgramArtifact::load(
-                    m_imports.shader_program_artifact_path(handle), handle);
+            AssetType::ShaderProgram, [this, handle](const AssetRecord& record) {
+                auto path = m_imports.shader_program_artifact_path(handle);
+                if(m_database.is_read_only()) {
+                    auto product = m_database.paths().resolve_asset_path(record.path);
+                    if(!product)
+                        return Result<std::shared_ptr<ShaderProgramArtifact>, Error>::failure(
+                            {product.error()});
+                    path = std::move(product).value();
+                }
+                auto artifact = ShaderProgramArtifact::load(path, handle);
                 if(!artifact
-                    || !import_inputs_are_current(m_database.paths().assets(), artifact->inputs))
+                    || (!m_database.is_read_only()
+                        && !import_inputs_are_current(
+                            m_database.paths().assets(), artifact->inputs)))
                     return Result<std::shared_ptr<ShaderProgramArtifact>, Error>::failure(
                         {"Current compiled Shader program artifact is unavailable"});
                 return Result<std::shared_ptr<ShaderProgramArtifact>, Error>::success(
@@ -144,8 +307,14 @@ namespace Comet {
         }
         return load_runtime_asset<Material>(m_database, m_registry, handle, AssetType::Material,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Material>, Error> {
-                const auto data =
-                    MaterialSerializer{}.load(m_database.paths().assets() / record.path);
+                auto path = m_database.paths().assets() / record.path;
+                if(record.source_asset) {
+                    auto product = product_path(record);
+                    if(!product)
+                        return Result<std::shared_ptr<Material>, Error>::failure(product.error());
+                    path = std::move(product).value();
+                }
+                const auto data = MaterialSerializer{}.load(path);
                 if(!data)
                     return Result<std::shared_ptr<Material>, Error>::failure({data.error()});
                 return prepare_material(record, data.value());
@@ -157,6 +326,17 @@ namespace Comet {
         return load_runtime_asset<Environment>(m_database, m_registry, handle,
             AssetType::Environment,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Environment>, Error> {
+                if(m_database.is_read_only()) {
+                    auto path = m_database.paths().resolve_asset_path(record.path);
+                    if(!path)
+                        return Result<std::shared_ptr<Environment>, Error>::failure({path.error()});
+                    auto product =
+                        EnvironmentArtifact::load(path.value(), record.handle, m_environment_bytes);
+                    if(!product)
+                        return Result<std::shared_ptr<Environment>, Error>::failure(
+                            {"Environment product is missing or invalid"});
+                    return m_render_factory.prepare(std::move(product->data));
+                }
                 auto prepared = m_imports.prepare_environment(record, m_environment_bytes);
                 if(!prepared)
                     return Result<std::shared_ptr<Environment>, Error>::failure({prepared.error()});

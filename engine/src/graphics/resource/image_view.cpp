@@ -36,11 +36,10 @@ namespace Comet {
         vk::ImageSubresourceRange subresource_range = {};
         subresource_range.aspectMask = Graphics::image_aspect_to_vk(aspect);
         subresource_range.baseMipLevel = 0;
-        subresource_range.levelCount = 1;
+        subresource_range.levelCount = image->get_info().mip_levels;
         subresource_range.baseArrayLayer = 0;
         subresource_range.layerCount = 1;
         if(image->get_info().cubemap) {
-            subresource_range.levelCount = image->get_info().mip_levels;
             subresource_range.layerCount = 6;
         }
         create_info.subresourceRange = subresource_range;

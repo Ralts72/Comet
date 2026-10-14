@@ -436,12 +436,15 @@ namespace Comet {
                     const bool entity_reference =
                         lua_type(state, -1) == LUA_TSTRING && lua_rawlen(state, -1) == 6
                         && std::string_view(lua_tostring(state, -1)) == "entity";
+                    const bool prefab = lua_type(state, -1) == LUA_TSTRING
+                                        && lua_rawlen(state, -1) == 6
+                                        && std::string_view(lua_tostring(state, -1)) == "prefab";
                     const bool color = lua_type(state, -1) == LUA_TSTRING
                                        && lua_rawlen(state, -1) == 5
                                        && std::string_view(lua_tostring(state, -1)) == "color";
                     lua_pop(state, 1);
                     if(declared) {
-                        if(!entity_reference && !color)
+                        if(!entity_reference && !color && !prefab)
                             return luaL_error(state, "Unknown script property type");
                         lua_pushnil(state);
                         while(lua_next(state, -2)) {
@@ -457,7 +460,7 @@ namespace Comet {
                                     return luaL_error(
                                         state, "Color property only accepts type and default");
                                 return luaL_error(state,
-                                    "Entity property only accepts type; assign its target in the scene");
+                                    "Reference property only accepts type; assign its target in the scene");
                             }
                             lua_pop(state, 1);
                         }
@@ -466,6 +469,9 @@ namespace Comet {
                             read_vector_value(state, value, true);
                             lua_pop(state, 1);
                             property.semantic = Property::Semantic::Color;
+                        } else if(prefab) {
+                            value = std::string{};
+                            property.semantic = Property::Semantic::Prefab;
                         } else {
                             value = EntityUuid{};
                         }
@@ -570,6 +576,8 @@ namespace Comet {
             invocation.physics = nullptr;
             invocation.input = nullptr;
             invocation.materials = nullptr;
+            invocation.assets = nullptr;
+            invocation.components.reset();
         }
         if(invocation.session
             && (!invocation.scene || !invocation.session->is_bound_to(*invocation.scene)))
@@ -607,9 +615,11 @@ namespace Comet {
             .audio = invocation.audio,
             .physics = invocation.physics,
             .input = invocation.input,
+            .assets = invocation.assets,
+            .components = invocation.components,
             .scene_generation = m_impl->scene_generation,
             .materials = invocation.materials,
-            .can_request_restart = phase != Phase::Start && phase != Phase::Stop,
+            .can_request_scene = phase != Phase::Start && phase != Phase::Stop,
             .can_log = true,
         };
         if(phase == Phase::Stop)

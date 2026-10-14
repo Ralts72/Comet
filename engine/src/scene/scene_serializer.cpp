@@ -1,4 +1,5 @@
 #include "scene/scene_serializer.h"
+#include "scene/prefab.h"
 
 #include "common/file_io.h"
 #include "common/json.h"
@@ -27,11 +28,20 @@ namespace Comet {
             std::vector<PropertyRecord> properties;
         };
 
+        struct PrefabRecord;
         struct EntityRecord {
             EntityUuid uuid;
             std::optional<EntityUuid> parent;
             std::string name;
             std::vector<ComponentRecord> components;
+            std::shared_ptr<PrefabRecord> prefab;
+        };
+
+        struct PrefabRecord {
+            AssetHandle asset;
+            EntityTrees::ReferenceRemap entities;
+            std::vector<EntityRecord> base;
+            AssetType source_type = AssetType::Prefab;
         };
 
         void write_entity_reference(Json::Writer& writer, const EntityUuid value) {
@@ -83,7 +93,8 @@ namespace Comet {
                             [&](const auto& scalar) {
                                 using T = std::remove_cvref_t<decltype(scalar)>;
                                 if constexpr(std::is_same_v<T, AssetHandle>
-                                             || std::is_same_v<T, ParameterMap>)
+                                             || std::is_same_v<T, ParameterMap>
+                                             || std::is_same_v<T, uint32_t>)
                                     return false;
                                 else
                                     return parameters.emplace(std::string(field.key), scalar)
@@ -116,6 +127,13 @@ namespace Comet {
                         return Result<PropertyValue>::failure(
                             context.error(location, "unknown enum name: " + value.value()));
                     return Result<PropertyValue>::success(std::move(value).value());
+                }
+                case PropertyType::UInt32: {
+                    auto value =
+                        context.read_scalar<uint32_t>(node, location, "an unsigned 32-bit integer");
+                    if(!value)
+                        return Result<PropertyValue>::failure(value.error());
+                    return Result<PropertyValue>::success(value.value());
                 }
                 case PropertyType::Float: {
                     auto value = context.read_scalar<float>(node, location, "a finite number");
@@ -206,6 +224,8 @@ namespace Comet {
                         Json::write_vector(writer, value);
                     else if constexpr(std::is_same_v<T, AssetHandle>)
                         writer.value(value.value());
+                    else if constexpr(std::is_same_v<T, uint32_t>)
+                        writer.value(uint64_t{value});
                     else if constexpr(std::is_same_v<T, EntityUuid>)
                         write_entity_reference(writer, value);
                     else if constexpr(std::is_same_v<T, ParameterMap>) {
@@ -238,10 +258,79 @@ namespace Comet {
             return "entities[" + std::to_string(index) + "]";
         }
 
-        Result<EntityRecord> read_entity_record(const Json::Node& node, const std::string& location,
-            const Json::Context& context, const ComponentRegistry& component_registry) {
+        Result<void> read_entity_tree(Json::Node node, std::optional<EntityUuid> parent,
+            const std::string& location, const Json::Context& context,
+            const ComponentRegistry& component_registry, std::vector<EntityRecord>& records,
+            std::unordered_set<EntityUuid>& uuids, std::size_t depth, bool allow_prefab = true);
+
+        Result<std::shared_ptr<PrefabRecord>> read_prefab_record(Json::Node node,
+            const std::string& location, const Json::Context& context,
+            const ComponentRegistry& registry) {
+            using Read = Result<std::shared_ptr<PrefabRecord>>;
             if(auto valid =
-                    context.validate_keys(node, {"uuid", "components", "children"}, location);
+                    context.validate_keys(node, {"asset", "base", "entities", "type"}, location);
+                !valid)
+                return Read::failure(valid.error());
+            auto asset =
+                context.read_field<std::uint64_t>(node, "asset", "an asset handle", location);
+            if(!asset)
+                return Read::failure(asset.error());
+            if(!asset.value())
+                return Read::failure(context.error(location, "prefab asset must not be zero"));
+            auto result = std::make_shared<PrefabRecord>();
+            result->asset = AssetHandle(asset.value());
+            if(node["type"].error() != simdjson::NO_SUCH_FIELD) {
+                auto type =
+                    context.read_field<std::string>(node, "type", "a source type", location);
+                if(!type)
+                    return Read::failure(type.error());
+                if(type.value() == "model")
+                    result->source_type = AssetType::Model;
+                else if(type.value() != "prefab")
+                    return Read::failure(context.error(location, "invalid prefab source type"));
+            }
+            auto base = context.required_child(node, "base", location);
+            if(!base)
+                return Read::failure(base.error());
+            std::unordered_set<EntityUuid> uuids;
+            if(auto parsed = read_entity_tree(base.value(), {}, location + ".base", context,
+                   registry, result->base, uuids, 1, false);
+                !parsed)
+                return Read::failure(parsed.error());
+            auto mapping = context.required_child(node, "entities", location);
+            if(!mapping)
+                return Read::failure(mapping.error());
+            auto entries = context.array(mapping.value(), location + ".entities");
+            if(!entries)
+                return Read::failure(entries.error());
+            std::unordered_set<EntityUuid> targets;
+            for(const auto entry : entries.value()) {
+                if(auto valid = context.validate_keys(entry, {"source", "instance"}, location);
+                    !valid)
+                    return Read::failure(valid.error());
+                auto source = context.read_field<std::string>(entry, "source", "a UUID", location);
+                auto instance =
+                    context.read_field<std::string>(entry, "instance", "a UUID", location);
+                if(!source)
+                    return Read::failure(source.error());
+                if(!instance)
+                    return Read::failure(instance.error());
+                const auto from = EntityUuid::parse(source.value());
+                const auto to = EntityUuid::parse(instance.value());
+                if(!from || !*from || !to || !*to || !uuids.contains(*from)
+                    || !result->entities.emplace(*from, *to).second || !targets.insert(*to).second)
+                    return Read::failure(context.error(location, "invalid prefab entity mapping"));
+            }
+            if(result->entities.size() != result->base.size())
+                return Read::failure(context.error(location, "incomplete prefab entity mapping"));
+            return Read::success(std::move(result));
+        }
+
+        Result<EntityRecord> read_entity_record(const Json::Node& node, const std::string& location,
+            const Json::Context& context, const ComponentRegistry& component_registry,
+            bool allow_prefab) {
+            if(auto valid = context.validate_keys(
+                   node, {"uuid", "components", "children", "prefab"}, location);
                 !valid)
                 return Result<EntityRecord>::failure(valid.error());
 
@@ -255,6 +344,17 @@ namespace Comet {
                 return Result<EntityRecord>::failure(
                     context.error(location + ".uuid", "expected a non-nil canonical UUID"));
             record.uuid = *uuid;
+            Json::Node prefab;
+            if(const auto error = node["prefab"].get(prefab); error != simdjson::NO_SUCH_FIELD) {
+                if(error || !allow_prefab)
+                    return Result<EntityRecord>::failure(
+                        context.error(location, "nested prefab metadata is not supported"));
+                auto parsed =
+                    read_prefab_record(prefab, location + ".prefab", context, component_registry);
+                if(!parsed)
+                    return Result<EntityRecord>::failure(parsed.error());
+                record.prefab = std::move(parsed).value();
+            }
 
             const auto components_node = context.required_child(node, "components", location);
             if(!components_node)
@@ -331,11 +431,12 @@ namespace Comet {
         Result<void> read_entity_tree(const Json::Node node, const std::optional<EntityUuid> parent,
             const std::string& location, const Json::Context& context,
             const ComponentRegistry& component_registry, std::vector<EntityRecord>& records,
-            std::unordered_set<EntityUuid>& uuids, const std::size_t depth) {
+            std::unordered_set<EntityUuid>& uuids, const std::size_t depth, bool allow_prefab) {
             if(depth > SceneSerializer::MAX_HIERARCHY_DEPTH)
                 return Result<void>::failure(
                     context.error(location, "maximum hierarchy depth exceeded"));
-            auto parsed = read_entity_record(node, location, context, component_registry);
+            auto parsed =
+                read_entity_record(node, location, context, component_registry, allow_prefab);
             if(!parsed)
                 return Result<void>::failure(parsed.error());
             auto record = std::move(parsed).value();
@@ -356,7 +457,7 @@ namespace Comet {
                 for(const auto child : array.value()) {
                     auto result = read_entity_tree(child, uuid,
                         children_location + "[" + std::to_string(index++) + "]", context,
-                        component_registry, records, uuids, depth + 1);
+                        component_registry, records, uuids, depth + 1, allow_prefab);
                     if(!result)
                         return result;
                 }
@@ -415,6 +516,36 @@ namespace Comet {
                 }
             }
 
+            std::unordered_set<EntityUuid> instance_members;
+            for(const auto& record : records) {
+                if(!record.prefab)
+                    continue;
+                const auto& prefab = *record.prefab;
+                if((prefab.source_type != AssetType::Prefab
+                       && prefab.source_type != AssetType::Model)
+                    || !prefab.asset || prefab.base.empty()
+                    || prefab.entities.size() != prefab.base.size())
+                    return Result<void>::failure(
+                        context.error(record.uuid.to_string(), "incomplete prefab identity"));
+                std::size_t roots = 0;
+                for(const auto& source : prefab.base) {
+                    const auto found = prefab.entities.find(source.uuid);
+                    if(found == prefab.entities.end() || !found->second
+                        || !instance_members.insert(found->second).second || source.prefab)
+                        return Result<void>::failure(context.error(
+                            record.uuid.to_string(), "invalid or overlapping prefab identity"));
+                    if(!source.parent) {
+                        ++roots;
+                        if(found->second != record.uuid)
+                            return Result<void>::failure(context.error(
+                                record.uuid.to_string(), "prefab root identity mismatch"));
+                    }
+                }
+                if(roots != 1)
+                    return Result<void>::failure(
+                        context.error(record.uuid.to_string(), "prefab must have one root"));
+            }
+
             for(std::size_t index = 0; index < records.size(); ++index) {
                 if(records[index].parent && !indices.contains(*records[index].parent)) {
                     return Result<void>::failure(context.error(entity_location(index) + ".parent",
@@ -443,6 +574,38 @@ namespace Comet {
                     context.error(record.uuid.to_string(), "maximum hierarchy depth exceeded"));
             writer.begin_object();
             writer.field("uuid", record.uuid.to_string());
+            if(record.prefab) {
+                writer.key("prefab");
+                writer.begin_object();
+                writer.field("asset", record.prefab->asset.value());
+                if(record.prefab->source_type != AssetType::Prefab)
+                    writer.field("type", to_string(record.prefab->source_type));
+                writer.key("base");
+                ChildrenIndex base_children;
+                const auto& base = record.prefab->base;
+                for(std::size_t index = 0; index < base.size(); ++index)
+                    base_children[base[index].parent.value_or(INVALID_ENTITY_UUID)].push_back(
+                        index);
+                const auto& roots = base_children[INVALID_ENTITY_UUID];
+                if(roots.size() != 1)
+                    return Result<void>::failure("Prefab baseline must have exactly one root");
+                if(auto written =
+                        write_entity_tree(writer, base[roots.front()], base, base_children, 1);
+                    !written)
+                    return written;
+                writer.key("entities");
+                writer.begin_array();
+                std::map<EntityUuid, EntityUuid> mapping(
+                    record.prefab->entities.begin(), record.prefab->entities.end());
+                for(const auto& [source, instance] : mapping) {
+                    writer.begin_object();
+                    writer.field("source", source.to_string());
+                    writer.field("instance", instance.to_string());
+                    writer.end_object();
+                }
+                writer.end_array();
+                writer.end_object();
+            }
 
             writer.key("components");
             writer.begin_object();
@@ -521,6 +684,19 @@ namespace Comet {
 
             EntityRecord record{.uuid = uuid->uuid, .name = name->name};
             const Entity entity(handle, const_cast<Scene*>(&scene));
+            if(entity.has_component<PrefabInstanceComponent>()) {
+                const auto& instance = entity.get_component<PrefabInstanceComponent>();
+                if(!instance.asset || !instance.base)
+                    return Result<ContentSnapshot>::failure("Prefab instance has no source");
+                Scene base;
+                if(!EntityTrees::restore(base, m_component_registry, instance.base->m_entities))
+                    return Result<ContentSnapshot>::failure("Cannot restore prefab baseline");
+                auto captured = capture_content(base);
+                if(!captured)
+                    return Result<ContentSnapshot>::failure(captured.error());
+                record.prefab = std::make_shared<PrefabRecord>(PrefabRecord{instance.asset,
+                    instance.entities, std::move(captured).value().entities, instance.source_type});
+            }
             for(const ComponentDescriptor& component_descriptor :
                 m_component_registry.components()) {
                 if(!component_descriptor.serializable
@@ -587,7 +763,18 @@ namespace Comet {
         auto captured = capture_content(scene);
         if(!captured)
             return Result<std::string>::failure(captured.error());
-        const auto& content = captured.value();
+        return serialize_content(captured.value(), true);
+    }
+
+    Result<std::string> SceneSerializer::serialize_entities(const Scene& scene) const {
+        auto captured = capture_content(scene);
+        if(!captured)
+            return Result<std::string>::failure(captured.error());
+        return serialize_content(captured.value(), false);
+    }
+
+    Result<std::string> SceneSerializer::serialize_content(
+        const ContentSnapshot& content, bool include_scene_settings) const {
         const auto& records = content.entities;
         ChildrenIndex children;
         for(std::size_t index = 0; index < records.size(); ++index)
@@ -596,26 +783,28 @@ namespace Comet {
         Json::Writer writer;
         writer.begin_object();
         writer.field("version", std::uint64_t(FORMAT_VERSION));
-        const auto& environment = content.environment;
-        writer.key("environment");
-        writer.begin_object();
-        writer.field("asset", environment.asset.value());
-        writer.field("background", environment.background);
-        writer.field("intensity", environment.intensity);
-        writer.field("rotation", environment.rotation);
-        writer.field("lighting", environment.lighting);
-        writer.field("lighting_intensity", environment.lighting_intensity);
-        writer.key("background_color");
-        Json::write_vector(writer, environment.background_color);
-        writer.end_object();
-        const auto& post_process = content.post_process;
-        writer.key("post_process");
-        writer.begin_object();
-        writer.field("exposure", post_process.exposure);
-        writer.field("bloom_enabled", post_process.bloom_enabled);
-        writer.field("bloom_strength", post_process.bloom_strength);
-        writer.field("bloom_threshold", post_process.bloom_threshold);
-        writer.end_object();
+        if(include_scene_settings) {
+            const auto& environment = content.environment;
+            writer.key("environment");
+            writer.begin_object();
+            writer.field("asset", environment.asset.value());
+            writer.field("background", environment.background);
+            writer.field("intensity", environment.intensity);
+            writer.field("rotation", environment.rotation);
+            writer.field("lighting", environment.lighting);
+            writer.field("lighting_intensity", environment.lighting_intensity);
+            writer.key("background_color");
+            Json::write_vector(writer, environment.background_color);
+            writer.end_object();
+            const auto& post_process = content.post_process;
+            writer.key("post_process");
+            writer.begin_object();
+            writer.field("exposure", post_process.exposure);
+            writer.field("bloom_enabled", post_process.bloom_enabled);
+            writer.field("bloom_strength", post_process.bloom_strength);
+            writer.field("bloom_threshold", post_process.bloom_threshold);
+            writer.end_object();
+        }
         writer.key("entities");
         writer.begin_array();
         for(const auto index : children[INVALID_ENTITY_UUID]) {
@@ -764,6 +953,8 @@ namespace Comet {
         const ContentSnapshot& content, const std::string_view source) const {
         using LoadResult = Result<std::unique_ptr<Scene>>;
         const Json::Context context("scene", source);
+        if(auto valid = validate_records(content.entities, context); !valid)
+            return LoadResult::failure(valid.error());
         if(auto valid = content.environment.validate(); !valid)
             return LoadResult::failure(context.error("environment", valid.error()));
         if(auto valid = content.post_process.validate(); !valid)
@@ -852,6 +1043,22 @@ namespace Comet {
                 return LoadResult::failure(context.error(
                     record.uuid.to_string(), "failed to restore parent relationship"));
             }
+        }
+        for(const auto& record : records) {
+            if(!record.prefab)
+                continue;
+            ContentSnapshot base_content{.entities = record.prefab->base};
+            auto base_scene = restore_content(base_content, source);
+            if(!base_scene)
+                return LoadResult::failure(base_scene.error());
+            const auto root = base_scene.value()->get_root_entities().front();
+            auto base = Prefab::capture(*base_scene.value(), m_component_registry, root);
+            if(!base)
+                return LoadResult::failure(base.error());
+            loaded_entities.at(record.uuid)
+                .add_component<PrefabInstanceComponent>(PrefabInstanceComponent{
+                    record.prefab->asset, std::make_shared<const Prefab>(std::move(base).value()),
+                    record.prefab->entities, record.prefab->source_type});
         }
         scene->update_world_transforms();
         return Result<std::unique_ptr<Scene>>::success(std::move(scene));

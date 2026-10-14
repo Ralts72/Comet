@@ -1,0 +1,11 @@
+{
+  "version": 3,
+  "guid": 5783275031450616066,
+  "type": "texture",
+  "importer": {
+    "color_space": "srgb",
+    "flip_y": false,
+    "generate_mipmaps": true,
+    "normal_map": false
+  }
+}

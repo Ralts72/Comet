@@ -9,7 +9,7 @@ Shift／LeftShoulder 跑步，Ctrl／RightShoulder 蹲伏；右键拖动／右�
 
 在层级中选中“角色模型”：
 
-- “网格渲染 → 网格”可在引擎默认角色与项目导入的 glTF／GLB 之间选择。
+- “网格渲染 → 网格”可选择引擎默认角色、已有单网格资产或模型内的子网格；完整模型从 Project 拖入视口。
 - “网格渲染 → 材质”可选择引擎默认 PBR／无光照材质；默认角色使用中性的 PBR。修改配色、贴图或参数时，在项目中创建自己的材质并替换该引用。
 - “动画”中选择片段、播放速度、循环与过渡时间；片段下拉框来自当前模型，空选择表示绑定姿态。
 - 指定“驱动角色”后，根据角色的实际移动状态选择对应动作，各动作可独立替换；清空该引用后按“播放片段”播放。
@@ -93,19 +93,44 @@ App 的普通窗口尺寸属于玩家显示设置。项目配置、玩家设置�
 Editor 使用一个视口：Edit 为编辑相机，Play 为运行副本的主相机；Stop 恢复 Edit 内容和历史。
 左侧按钮提供运行、停止、暂停／继续和单步。“预览”选择分辨率与适应／1:1 显示；Play 游戏 UI 使用同一项目页面。
 
-Edit 中右键或 Option/Alt+左键环绕，中键或 Option/Alt+Shift+左键平移，滚轮缩放；左键选择，F 聚焦选中网格。
+Edit 中右键或 Option/Alt+左键环绕，中键或 Option/Alt+Shift+左键平移，滚轮缩放；左键选择，F 聚焦选中组及其子树中的网格。
 编辑相机默认从 `(10, 8, 12)` 斜上方看向世界原点；项目的游戏相机位置由场景决定。
 工具菜单选择移动／旋转／缩放、世界／局部空间和吸附。缩放使用局部空间；Esc、失焦或隐藏视口取消拖动。
-“视图 → 碰撞体”显示盒、球、角色胶囊和关节反馈；关节字段旁“对齐”按钮调整锚点／方向，Edit 支持撤销。
+多选手柄以最后选中的实体为支点，统一移动、旋转或按比例缩放；选中的父子不会被重复变换，一次手势只记一条撤销。
+非均匀缩放与不同朝向的组合可能产生 TRS 无法表示的斜切，此时整组恢复拖动前状态并显示提示；可使用等比缩放或分别编辑。
+“视图 → 碰撞体”显示盒、球、普通／角色胶囊、凸包／静态网格线框和关节反馈；关节字段旁“对齐”按钮调整锚点／方向，Edit 支持撤销。
 
 Edit 属性修改及结构操作支持 Undo／Redo，一次拖动记一条历史；Play 修改仅用于运行调试。
 默认快捷键为 Ctrl+Z／Ctrl+Y，macOS 为 Cmd+Z／Cmd+Shift+Z；可在“编辑 → 快捷键设置”修改。
 
 ### 实体、资产与材质
 
-Hierarchy 右键创建、重命名、复制或删除实体子树；拖动修改父级并保留本地 Transform。
-Ctrl/Cmd+C、Ctrl/Cmd+V 使用进程内子树剪贴板；粘贴生成新 UUID。Ctrl+Backspace／Cmd+Backspace 删除选中子树。
+Hierarchy 用 Ctrl/Cmd 点击增减选择，Shift 点击连续选择可见行；最后选择的实体作为 Inspector 多值显示的主目标和整组变换手柄的支点。
+右键选中项可复制／删除整组选中子树；右键未选中项只处理该项。父子同时选中不会重复处理。
+Ctrl/Cmd+C、Ctrl/Cmd+V 使用进程内多子树剪贴板；粘贴生成新 UUID，组内关节／脚本引用一起重映射，组外引用保持。
+Ctrl+Backspace／Cmd+Backspace 删除选中组。复制、粘贴、删除整组都只产生一条撤销记录。
+右键“批量放置…”输入新增份数与每份 XYZ 世界间距，按选中组为单位生成阵列；每份的内部引用和 Prefab 来源独立，父级不变。
+例如份数 3、间距 `(2, 0, 0)` 会在原组的世界 X 方向 2、4、6 处新增三组；取消不改场景，确认后一次撤销可移除整个阵列。
+右键仍可创建／重命名单个实体；拖动修改被拖实体的父级并保留本地 Transform。
+Project 中纹理、模型、网格与材质条目带缩略图，悬停图片可看放大预览；模型展开后的子贴图也支持透明棋盘背景。
+模型按默认场景显示节点与材质，单个网格使用默认材质，材质在球体上预览。三维预览使用固定灯光与自动取景，不改变当前关卡。
+预览按导入设置生成，保存或重新导入后更新；损坏资源显示原因，不保留旧图冒充新结果。缩略图仅为编辑器缓存，不打包进游戏。
 Inspector 提供组件、参数和按类型过滤的资源引用，Edit 支持从 Project 拖入引用。
+多选时只显示共同组件与共同适用的字段，差异标为“多值”；修改数值统一应用，向量仅同步修改的轴，其他轴保持各自值。
+资源替换与同脚本参数编辑共用整组撤销；参数只同步当前修改项，“使用脚本默认值”清除该项在所有选中对象中的覆盖。
+碰撞层／掩码修改统一替换整份掩码；关节“对齐”按每个对象各自坐标计算。添加／移除组件和动画预览仍在单选时操作。
+Edit 拖动过程中 Esc 恢复整组；切换选择结束原有修改。Play 批量修改仅影响运行副本，不写 Edit 历史。
+
+层级右键“保存为 Prefab…”把当前实体及后代保存到项目 `assets/` 下的 `.prefab` 文件；文件已存在时不会覆盖。
+Prefab 不能引用子树外的实体。将它从 Project 拖入视口可创建独立实例，内部关节／脚本实体引用自动映射；一次放置可撤销。
+实例根右键“从 Prefab 更新（保留覆盖）”读取当前源文件，保留实体 UUID、放置变换和本地属性／脚本参数修改；成功更新可撤销／重做。
+源删除若影响本地修改、额外子节点或关卡引用，会报错并保持原场景。“解除 Prefab 关联”保留实体内容，且可以撤销。
+关联及源内容基线随场景保存，Play 使用已展开的实体；另存为 Prefab 会展开已有实例，不创建嵌套依赖。
+制作 Prefab 使用现有场景视口与 Inspector：拖入实例、编辑子树，再在实例根右键“写回 Prefab 源”。
+写回保持源节点身份和 `.meta` 句柄，新增节点获得源身份；场景根的放置变换不写回。写回前先合入源的新内容，再保留本实例修改。
+源文件与当前实例关联记为一条撤销；Undo／Redo 同时恢复两者。其他实例通过“从 Prefab 更新”接纳变化，不自动覆盖。
+“恢复 Prefab 源内容”清除本地属性、结构覆盖，恢复被本地删除的节点，保留放置变换；也支持撤销。
+若被清除的本地实体仍被关卡引用，先解除引用再恢复。Play 禁用这些制作操作。
 
 Project 右键可新建 Material、Script 或 Lua Module；搜索按文件名／目录名筛选，Refresh 重扫，Reimport 重建产物。
 移动／改名资产时保留 `.meta` 身份，场景移动同步更新保存路径、启动场景和会话；删除经确认后送入系统回收站。
@@ -113,9 +138,28 @@ Project 右键可新建 Material、Script 或 Lua Module；搜索按文件名／
 资产删除独立于场景 Undo。
 
 系统文件管理器可拖入 PNG/JPEG、HDR、glTF/GLB。glTF 连同相对依赖复制到项目，获得新身份。
-暂不导入整个目录或 Lua 多文件依赖包。Mesh 拖入视口后，在 Inspector 指定材质；当前 glTF 导入为静态网格。
+暂不导入整个目录或 Lua 多文件依赖包。新 glTF／GLB 按完整模型在后台导入，Project 展开模型可查看其网格、材质和纹理。
+模型拖入视口后按默认 glTF 场景生成实体子树，保留节点局部变换、多 primitive 与材质关联；一次撤销删除整棵放置子树，保存重开仍保持引用。
+已有 Mesh 资产继续使用单网格路径，放置后可在 Inspector 指定材质。模型子资源由源文件管理，不能独立删除、移动或编辑；模型右键“重新导入”更新产品，实例可替换自己的材质引用。
+重新导入完成后，层级中的模型实例根右键“从模型更新（保留覆盖）”，接纳源节点的增删、父子关系和属性变化；实例 UUID、放置变换和本地覆盖保持，更新可以撤销。
+“恢复模型源内容”清除本地覆盖，“解除模型关联”保留当前实体内容；模型不提供写回 glTF，可另存为独立 Prefab。关联随场景保存，旧版已放置的普通实体不会自动获得来源关系。
+Demo 的 `models/milk_truck.glb` 是下载的四材质 glTF 样例，含内嵌贴图；`character.scene` 与 `character_second.scene` 都保存其模型实例，位置和朝向各自覆盖，几何／材质共用。层级中的“牛奶货车”可用于尝试源更新、恢复与解除；模型按静态布景使用，不播放原模型的车轮节点动画。GLB 走 Git LFS，许可与来源记录在项目根目录的 `sources.json`。
+唯一名称的节点在重排和换父级后保持来源身份；节点改名视为删除后新增，无名／重名节点按源下标识别，primitive 按节点内序号识别，重排这些内容可能改变对应关系。删除与本地修改或外部引用冲突时拒绝更新。
+骨骼子网格的动画仍通过动画组件配置。
 
-基础材质模板为 `pbr` 和 `unlit_color`。PBR 包含基础颜色／纹理、金属度和粗糙度，支持直接光、方向光阴影与全局 IBL。
+选中纹理资产可在 Inspector 修改色彩空间、法线用途、翻转 Y 和“生成 Mipmap”，修改后立即重新导入并保存到 `.meta`。
+导入结果缓存在项目 `.comet/cache/imported/texture` 下，源文件或导入设置改变后重建；缓存可删除。
+普通二维纹理默认生成完整 mip 链以减轻远处闪烁；颜色／自发光纹理选择 sRGB，金属粗糙度与 AO 选择线性。
+勾选“法线贴图”后固定使用线性 RGB 法线编码，mip 按方向平均并归一化；取消后恢复原色彩空间选择。像素风或需要原始采样的纹理可关闭 Mipmap。
+
+基础材质模板为 `pbr` 和 `unlit_color`。PBR 支持基础色、法线、金属粗糙度、AO 与自发光贴图，支持直接光、方向光阴影与全局 IBL。
+金属粗糙度贴图采用 glTF 通道约定（G 粗糙度、B 金属度），乘以对应材质参数；AO 使用 R 通道，仅作用于间接光。
+法线使用切线空间 RGB／+Y 约定；glTF 自带的 `TANGENT` 会保留到缓存与 GPU 蒙皮，实例化及镜像缩放同样适用。有 UV 但未提供切线的 glTF 使用 MikkTSpace 生成，接缝会拆分顶点并保留蒙皮权重；缺少法线时生成逐面法线。无 UV 的网格保留几何法线，程序网格未指定切线时仍沿用 UV 导数重建。强度为 0 时恢复几何法线；自发光为贴图 × 颜色 × 强度，无需光源，亮部参与 Bloom。
+Inspector 的“表面模式”提供不透明、透明裁切和透明混合；“双面绘制”控制背面是否可见，PBR 背面法线随之翻转。
+不透明忽略基础色 Alpha；裁切使用基础色颜色 Alpha × 贴图 Alpha，低于阈值的像素同时从画面和方向光阴影中移除。
+透明混合保留深度测试、关闭深度写入，在不透明物体之后按相机深度从远到近绘制，首版不投射方向光实心阴影。
+透明排序以物体包围盒中心为依据；互相穿插的透明网格或同一网格内的透明三角形仍可能排序不准确，当前不做折射或 OIT。
+项目 Shader 需要沿用 `common/surface.glsl` 的 `surface_alpha` 才支持引擎裁切模式；标准阴影裁切沿用 PBR 的 `base_color`／`base_color_texture` 或无光照 `color` 约定。
 材质参数拖动实时预览，松手保存；Esc 取消。材质资产使用独立 Undo 历史，模板切换保留兼容参数并提示不兼容项。
 
 选中 Hierarchy 的“场景”，可编辑 Environment、曝光与 Bloom。背景和环境照明分别控制，隐藏天空盒仍可保留照明。
@@ -123,13 +167,32 @@ Project 右键可新建 Material、Script 或 Lua Module；搜索按文件名／
 
 ### 示例场景
 
+通过“文件 → 切换场景”打开 `scenes/pbr_surfaces.scene`，后排从左到右展示法线凹凸、金属粗糙度分区和自发光网格；前排展示双面树叶裁切／阴影，以及红蓝透明层叠。
+这些贴图由数学图案生成，随仓库保存，不需要额外下载；可直接选择对应材质／纹理检查参数和重载。
+
 `scenes/character.scene` 提供角色移动、跳跃、台阶、坡度、移动平台及三目标收集；WASD／左摇杆移动，空格／South 跳跃，R 重开。
+完成后 HUD 显示“进入第二关”，进入 `scenes/character_second.scene` 的隔墙收集关卡；第二关可随时返回第一关，两关收集记录分别保留。
+收集后自动保存，HUD 也提供“保存进度”和“继续存档”；恢复从保存关卡起点出发，已收集目标不会重生。R 重开恢复本次入关的进度基线。首次尚无存档时先保存；失败原因查看日志。
+App 和 Play 的存档隔离；Play Stop 后恢复原编辑场景，跨关和收集不会写回场景资源。
 Gameplay 负责动作读取与跳跃请求，Physics 负责胶囊求解；Demo Lua 保存计分、完成、声音和重开规则。
 角色以脚底为原点，使用无父级的竖直胶囊和正等比缩放；外观与跟随相机作为子实体。
 移动以相机的水平朝向为参照，前方标记随外观转向，相机不会跟着外观旋转。
 
 `scenes/default.scene` 保留刚体、关节、材质和脚本演示：左右方向键移动，Space／South 切换旋转，J／K 施加冲量／力，
 Tab／North 开关调色，R 重开。开启调色时相关动作由输入组消费，公共动作仍可使用。
+
+### P1 操作验收
+
+自动测试覆盖确定性的内容、运行逻辑和 GPU 结果；下列实际操作由使用者确认。编辑实验建议先“另存为场景”，避免改动 Demo 原件。
+
+| 操作 | 应看到的结果 |
+| --- | --- |
+| 打开 `pbr_surfaces.scene`，Edit／Play 查看；修改材质和纹理导入设置，保存重开 | 法线、金属粗糙度、自发光、树叶裁切阴影和透明层叠正确，保存后仍一致；裁切同时影响主画面与阴影，混合材质不投实心阴影 |
+| 将货车模型与 Prefab 拖入临时场景，修改实例位置／材质；更新或恢复来源，再撤销 | 源更新保留合法本地覆盖；恢复清除覆盖但保持放置；撤销能恢复原状态；保存重开保留关联 |
+| 选中多个实体，移动／旋转／等比缩放、修改共同字段、批量放置，再撤销 | 父子不重复变换，向量未修改轴保持各自值，一次操作一条撤销；缩略图可预览且修改后更新 |
+| 在 App 与 Editor Play 分别完成第一关、进入第二关、返回、保存；退出再启动并“继续存档” | 两关收集记录保持，继续回到保存关卡起点；R 恢复本次入关基线；App 与 Play 存档互不影响 |
+| Play 中暂停／单步、切关，再 Stop 并再次 Play | 暂停与单步正确，Stop 恢复原编辑场景，运行时修改不会写回场景 |
+| “项目 → 导出 App”包含第二关，搬到仓库外启动并试玩 | 能显示角色、货车和游戏 UI，切关／继续可用；程序目录不产生日志、缓存或存档 |
 
 ## 输入与玩家设置
 
@@ -202,16 +265,17 @@ return script
 ```
 
 `properties` 声明 bool、float、string、Vec3、Vec4 和实体引用，Inspector 只保存编辑过的参数覆盖。
-`self.parameters` 为只读配置；三／四分量数组表示 Vec3／Vec4，颜色及实体引用显式声明：
+`self.parameters` 为只读配置；三／四分量数组表示 Vec3／Vec4，颜色、实体引用与 Prefab 引用显式声明：
 
 ```lua
 script.properties = {
     tint = {type = "color", default = {0.2, 1, 0.25, 1}},
     target = {type = "entity"},
+    unit = {type = "prefab"},
 }
 ```
 
-颜色按线性 RGBA 使用，不根据变量名猜测类型。实体字段支持下拉选择和 Hierarchy 拖入。
+颜色按线性 RGBA 使用，不根据变量名猜测类型。实体字段支持下拉选择和 Hierarchy 拖入。Prefab 字段在 Inspector 下拉选择项目资产，默认未分配；内部使用精确资产身份，Lua 无需填写 ID。
 参数右键“使用脚本默认值”删除单项覆盖；“恢复默认参数”或“移除不兼容参数覆盖”支持场景撤销。
 
 Project 右键“打开源码”使用外部编辑器；macOS 优先 VS Code。Lua 支持 UTF-8、可选文件头 BOM、LF／CRLF。
@@ -224,19 +288,94 @@ Editor 保存源码后重载关联行为：暂停时等待继续或单步；成�
 | --- | --- |
 | `comet.self_entity()`／`comet.find_entity(uuid)` | 获取本实体或 UUID 引用；引用提供 `:is_valid()`、`:position()`、`:translate()`、`:rotate()` |
 | `comet.position()`／`translate(x,y,z)`／`rotate(x,y,z)` | 查询／修改本实体变换；角度为度 |
+| `comet.instantiate_prefab(asset, position)` | 从已分配的 Prefab 参数生成完整子树，返回预留的根实体 UUID；position 是可选 Vec3 |
 | `comet.create_entity(name, options)`／`destroy_entity(entity)` | 阶段末创建实体或删除子树，只修改运行场景 |
 | `comet.has_rigid_body(entity)`／`remove_rigid_body(entity)` | 查询／阶段末移除刚体，保留实体及其他组件 |
 | `comet.apply_impulse(x,y,z)` | 本实体质心处的世界空间冲量 |
 | `comet.apply_force(x,y,z)`／`apply_torque(x,y,z)` | 下一固定步的世界空间力／力矩 |
 | `comet.apply_impulse_at(ix,iy,iz,px,py,pz)`／`apply_force_at(...)` | 在指定世界位置施加冲量／力 |
 | `comet.linear_velocity()`／`angular_velocity()` | 查询最近模拟速度的三个分量 |
+| `comet.raycast(origin, displacement, options)` | 查询最近射线命中；返回实体、世界位置／法线和线段比例，无命中为 nil |
+| `comet.overlap_sphere(center, radius, options)` | 返回球形范围内去重后的实体引用数组，无命中为空数组 |
+| `comet.shape_cast(shape, origin, displacement, options)` | 平移盒／球／胶囊，返回最近命中的实体、目标表面接触点、法线与移动比例 |
 | `comet.move_character(x,z,jump)`／`character_grounded()` | 提交角色移动意图／查询落地状态 |
 | `comet.control_character(enabled, options)` | 使用基础 Gameplay 控制器，返回是否提交地面跳跃请求 |
-| `comet.session_set(key,value)`／`session_get(key)` | 本局共享 bool、有限数值、string、Vec3；nil 删除 |
-| `comet.restart_scene()` | 恢复本局启动内容基线 |
+| `comet.session_set(key,value)`／`session_get(key)` | 本次游戏共享 bool、有限数值、string、Vec3；切关保留，nil 删除 |
+| `comet.restart_scene()` | 恢复当前关卡的初始内容和入关时的会话值 |
+| `comet.load_scene("scenes/next.scene")` | 请求加载同项目关卡，切换时携带当前会话值 |
+| `comet.save_checkpoint("gate", {"score"})` | 请求保存当前场景、检查点名称及指定会话值 |
+| `comet.load_checkpoint()`／`checkpoint()` | 请求从存档继续／读取本次恢复的检查点名称，无存档恢复时返回 nil |
 | `comet.emit(name,value)` | 发送场景通知；脚本通过 `events` 声明接收方法 |
 | `comet.play_one_shot()` | 使用本实体 Audio Source 播放短音效 |
 | `comet.log(text)` | 带源码位置的 Info 日志，仅在回调中使用 |
+
+重开和切关在更新／固定更新／接触／事件回调中发起，不能在 `on_start` 或 `on_stop` 中请求。同帧首个请求优先，同一请求可以合并。
+切关路径相对于项目 `assets/`，只接受 `.scene`，不允许绝对路径或 `..`。当前阶段完成后才切换，会话值在该帧结束时采集，并在下一关 `on_start` 前恢复；脚本的 `self` 和实体运行状态不会跨关携带。
+将跨关进度放进会话值，关卡局部状态放进 `self` 或组件。App 先准备候选资产、等待就绪，再启动下一关；加载失败会记录错误并保留当前关卡。
+Editor Play 可以切关，重开使用当前关卡初始内容，Stop 始终恢复进入 Play 前的编辑场景与历史。
+
+检查点是单槽进度存档：保存时显式选择会话键，值在调用时复制；只接受已有且不重复的键，空列表表示仅保存检查点名称。
+脚本调用只提交请求，宿主在帧边界执行磁盘读写并记录成功／失败；同帧脚本失败或 Editor Stop 会丢弃待处理请求。保存和继续同样不能在 `on_start`／`on_stop` 中请求。
+恢复通过持久场景身份定位关卡，因此项目内保留 `.meta` 的场景改名不影响存档；场景缺失、坏存档或版本不支持会报错并保留当前关卡。
+进度值和 `comet.checkpoint()` 在恢复场景的 `on_start` 前就绪，项目脚本负责据此选择出生点、隐藏已收集物等；运行时 ECS、物理状态和 Lua `self` 不序列化。
+`restart_scene()` 重开的是入关状态；要回到最近保存的检查点，使用 `load_checkpoint()`。普通切关不会携带检查点名称。
+
+App 存档位于玩家设置目录的 `saves/checkpoint.json`（按项目 UUID 隔离）；Editor Play 使用项目 `.comet/editor/checkpoint.json`，不会覆盖 App 进度。尚未保存的编辑场景不能存档。
+
+```lua
+local script = {}
+script.events = {save_progress = "save_progress", continue_game = "continue_game"}
+
+function script:on_start()
+    if comet.checkpoint() == "west_gate" then
+        comet.self_entity():set_position(-6, 2, 0) -- 项目定义的检查点出生位置
+    end
+end
+
+function script:save_progress()
+    comet.save_checkpoint("west_gate", {"score", "collected"})
+end
+
+function script:continue_game()
+    comet.load_checkpoint()
+end
+
+return script
+```
+
+示例中的 `score`／`collected` 须先由玩法脚本写入会话；关卡自身的数值与规则仍由项目定义。
+
+普通 Collider 支持盒、球、胶囊、凸包和静态三角网格。胶囊以实体原点为中心，沿本地 Y 轴，可随实体旋转；总高度须大于直径。球／胶囊要求正的等比缩放；角色控制器的胶囊仍以脚底为原点，两者不混用。
+
+凸包／静态三角网格在 Inspector 的“形状”下拉中选择，并指定“碰撞网格”，可引用模型子网格，且不要求同实体有 Mesh Renderer。
+凸包包住网格的所有有效顶点，可用于动态／运动学／静态刚体；凹槽不会保留，复杂模型宜另做低面碰撞网格。静态三角网格保留凹面，仅允许静态刚体，按三角形逆时针正面响应碰撞。
+两者沿用网格原点，支持正非等比缩放；使用绑定姿态，不随蒙皮动画变形，仍不支持有父级的刚体。空几何、坏索引、无体积凸包和超出后端凸包上限的几何会报错。
+修改碰撞网格、缩放或已索引的源版本后在下一固定步重建，动态凸包保留速度；源未成功重新导入或构建失败会中止当前运行，不继续沿用旧碰撞。
+只用于碰撞的网格不上传 GPU；同版本、形状与缩放共用物理形状。视口线框使用构建后的物理形状：凸包显示包络，静态网格显示去重后的三角形边。几何不可用时显示红色十字并记录原因，不保留旧线框；不支持的刚体运动类型／父级配置用红色线框标记。
+
+Collider 与 Character Controller 的“所属碰撞层”和“检测碰撞层”均支持 32 层勾选，默认属于第 1 层并检测全部层。
+碰撞和触发器要求双向匹配：A 检测 B 所属层，且 B 也检测 A 所属层；关闭任一方检测即可禁止这对接触。角色的移动、蹲伏空间检查和刚体响应沿同一规则。
+运行中修改层／掩码在下一次固定同步生效；Play 修改不会写回 Edit，Edit 修改支持撤销。存储使用无符号 32 位整数，第 32 层对应 `0x80000000`，不经过浮点转换。
+
+射线／形状扫掠／重叠查询读取最近一次同步的物理世界，暂停时不会自动推进；使用世界坐标，向量为 `{x,y,z}`。
+射线第二参数是完整位移而非单位方向；零长度或非有限参数会报错。射线从实体内部出发时命中比例为 0，法线取射线反方向。
+`options` 可省略；Lua 默认忽略自身且不命中触发器，`{ignore = other_entity, include_triggers = true}` 可覆盖，`ignore = false` 表示也检测自身。
+查询可设置 `layers` 掩码（默认 `0xffffffff`），只检查目标所属层，不使用目标的“检测碰撞层”；例如 `{layers = 0x80000000}` 只查询第 32 层，`layers = 0` 不命中任何实体。
+返回实体引用仍需按正常实体生命周期使用；C++ 接口在 `PhysicsAccess`，过滤条件显式传入，默认空 UUID 表示不忽略实体。
+形状扫掠以原点为形状中心，支持 `shape = "box"` 的 `half_extents`、`"sphere"` 的 `radius`、`"capsule"` 的 `radius`／`height`；可选 `rotation = {x,y,z}` 为欧拉角度。
+扫掠过程中姿态固定，只沿位移平移；起点重叠时返回比例 0，接触点仍属于目标表面。C++ 复用 Collider 的几何字段与 Transform，并可用已配置 CPU 网格来源的凸包扫掠；三角网格不能作为扫掠形状。查询不会创建场景实体。
+
+```lua
+local x, y, z = comet.position()
+local hit = comet.raycast({x, y + 1, z}, {0, -3, 0})
+if hit then
+    comet.log("地面距离：" .. (3 * hit.fraction))
+end
+local nearby = comet.overlap_sphere({x, y, z}, 4, {include_triggers = true})
+local blocked = comet.shape_cast(
+    {shape = "capsule", radius = 0.3, height = 1.8},
+    {x, y + 0.9, z}, {0, 0, -2})
+```
 
 施力要求动态刚体和碰撞体，持续力在 `fixed_update` 逐步提交，无需乘 dt；物理状态不等于插值后的呈现姿态。
 角色与动态刚体分别拥有位置写入权，不同时让脚本变换和物理控制同一位置。
@@ -268,6 +407,26 @@ local jumped = comet.control_character(true, self.controls)
 角色控制在固定步调用；相机控制在普通更新调用。游戏相机默认经 CameraControllerSystem 选择主相机，也可由 C++ 调用 `Gameplay::CameraController::update(scene, camera, input, delta_time, physics)`，显式控制指定实体。
 相机配置仍在 CameraControllerComponent 中；输入读取和方向计算与角色共用，编辑器导航沿用自己的拖动、聚焦和缩放规则。
 停用控制或失焦提交零移动意图，重力与平台跟随继续运行。
+
+运行时复用内容使用 Prefab 参数：
+
+```lua
+script.properties = {unit = {type = "prefab"}}
+function script:on_start()
+    self.spawned = comet.instantiate_prefab(self.parameters.unit, {0, 1, 0})
+end
+function script:update()
+    local unit = comet.find_entity(self.spawned)
+    if unit then -- 阶段末完成生成后才能查到实体
+        -- 使用生成的实体
+    end
+end
+```
+
+App、Editor Play 和导出共用依赖收集：脚本声明引用的 Prefab 及其网格、材质、脚本在入关前准备。
+生成复用编辑器的子树实例化与内部引用重映射；运行实例不携带编辑器源基线，Stop 丢弃尚未提交的请求。
+不能从任意文件路径临时加载 Prefab。未分配、资源缺失或超出单阶段生成预算会明确报错。
+Demo 的 `prefabs/` 保存角色、拾取物和终点门；两关角色脚本生成终点门，收集完成后打开，重载角色脚本不会重复生成。
 
 创建实体可提供初始本地变换和网格／材质来源，不等同于 Prefab：
 
@@ -336,6 +495,8 @@ return ui.settings {
 改键默认启用，其余面板默认关闭；`input=false` 制作仅含显示／音量的设置页。
 `elements` 配置控件 ID，`shortcuts` 配置快捷键，`quality.presets` 定义档位，`render_bindings` 可调整绑定行布局。
 模型通过 `data-model="ui"` 绑定，控件通过 `command(...)` 发送事件；`api.session_get(key)` 只读本局标量，用于 HUD。
+`api.emit(name)` 向当前活动场景排队命名事件，返回是否接受；游戏脚本通过 `events` 表处理，下一次 Runtime 更新才执行。
+例如项目 UI 发送 `api.emit("character.next")`，Demo 的角色脚本检查通关条件后调用 `comet.load_scene`。无游戏时返回 false；候选 UI 准备期不能发送事件。
 
 基础图标选自“570+ 图标 v1.0.3”，15 张 PNG 保存到 `engine/resources/ui/icons/`，与字体一起沿用 Git LFS。
 构建复制共用资源，Editor 打包到 ImGui 图集，项目页面通过内置路径引用：
@@ -381,6 +542,32 @@ Project 右键 Shader 源码或程序描述选择“打开源码”。Editor 监
 
 准备工具增量生成启动场景所需产物，并验证项目 UI 的静态文件引用；`release.sh` 自动调用。
 资源缓存位于项目 `.comet/cache/imported/`，可删除重建；构建和启动不自动下载资源。
+
+导出启动场景及额外关卡的运行资源：
+
+```bash
+./build/tools/asset/comet_prepare_project ./demo --export-assets /tmp/comet-game-assets scenes/character_second.scene
+```
+
+目标目录必须不存在；失败会清理本次临时目录，不覆盖已有导出。输出包含 `project.json`、`assets.index.json` 和 `assets/`，
+资产身份及场景路径保持稳定，模型／图片／Shader 转为运行产品，场景去掉编辑器来源基线，不携带 `.meta` 或开发缓存。
+导出包含所选场景依赖、UI 静态引用和全部项目 Lua 模块；脚本切换的其他关卡须显式列出，动态拼接的 UI 图片路径尚无额外包含入口。
+素材来源说明随资源保留。上述命令只交付资源目录；macOS 可进一步打包为独立 App：
+
+```bash
+cmake --preset app-release
+cmake --build --preset app-release --parallel
+python3 tools/export_app.py ./demo /tmp/CometGame.app --scene scenes/character_second.scene
+```
+
+也可从编辑器“项目 → 导出 App”选择 Release 构建目录、输出路径及额外关卡。当前场景须先保存，导出期间界面显示等待状态，完成或失败后可继续操作。
+默认仅包含启动场景，双关卡 Demo 还须选择 `character_second.scene`。工具不自动构建引擎；引擎更新后先重新构建 Release。
+打包需要 Python 3.9+、CMake、macOS 命令行工具及构建时的 Vulkan SDK；导出产物包含 Vulkan Loader／MoltenVK、动态库、引擎字体／图标及运行配置，可搬移运行。
+使用本机架构与临时签名，不包含跨架构构建、Developer ID 签名或公证流程。
+
+包内 `Contents/Resources/game` 为只读运行资源；日志、缓存和存档写入用户目录 `~/Library/Application Support/Comet/players/<项目 UUID>/default/`，不写回 App。
+`ctest --preset dev-debug -R packaged_app` 在 macOS 上验证搬移后的真实程序：禁止读取源码、构建目录与全局 SDK 驱动，也禁止写入 App；验证 UI 加载、运行帧和存档。
+该测试覆盖重复输出、缺失关卡和缺失内置 UI 资源的失败路径；窗口交互与关闭由用户验收。
 
 下载脚本获取 Small Hangar 01 的 1K／2K／4K／8K HDR，并校验 SHA-256；依赖 curl 和 sha256sum／shasum。
 `scenes/default.scene` 使用 4K，角色场景无需下载。源图来自 [Poly Haven](https://polyhaven.com/a/small_hangar_01)，

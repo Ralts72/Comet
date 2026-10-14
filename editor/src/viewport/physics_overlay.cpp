@@ -1,6 +1,7 @@
 #include "viewport/physics_overlay.h"
 #include "render/debug/line_draw_list.h"
 #include "scene/scene.h"
+#include "diagnostics/logger.h"
 
 namespace CometEditor {
     namespace {
@@ -17,7 +18,14 @@ namespace CometEditor {
             return entity.get_component<RelationshipComponent>().parent == INVALID_ENTITY_ID
                    && positive_scale
                    && (collider.shape == ColliderShape::Box
-                       || (collider.shape == ColliderShape::Sphere && uniform_scale));
+                       || (collider.uses_mesh() && collider.mesh
+                           && (collider.shape != ColliderShape::TriangleMesh
+                               || !entity.has_component<RigidBodyComponent>()
+                               || entity.get_component<RigidBodyComponent>().motion
+                                      == BodyMotion::Static))
+                       || ((collider.shape == ColliderShape::Sphere
+                               || collider.shape == ColliderShape::Capsule)
+                           && uniform_scale));
         }
 
         bool supported_joint_body(const Comet::Entity entity) {
@@ -243,7 +251,9 @@ namespace CometEditor {
         }
     }
 
-    void append_collider_outlines(Comet::Scene& scene, Comet::LineDrawList& lines) {
+    void ColliderOverlay::append(Comet::Scene& scene, Comet::LineDrawList& lines) {
+        for(auto& [key, outline] : m_cache)
+            outline.used = false;
         scene.each<const Comet::TransformComponent, const Comet::CharacterControllerComponent>(
             [&](const Comet::Entity entity, const Comet::TransformComponent& transform,
                 const Comet::CharacterControllerComponent& character) {
@@ -277,11 +287,64 @@ namespace CometEditor {
                                                                 .maximum = collider.half_extents},
                                 matrix, color));
                         break;
+                    case Comet::ColliderShape::Capsule:
+                        static_cast<void>(lines.add_capsule(collider.radius,
+                            collider.height * 0.5f - collider.radius, matrix, color));
+                        break;
                     case Comet::ColliderShape::Sphere:
                         static_cast<void>(lines.add_sphere(collider.radius, matrix, color));
                         break;
+                    case Comet::ColliderShape::ConvexHull:
+                    case Comet::ColliderShape::TriangleMesh:
+                        append_mesh(collider, transform.scale, matrix, color, lines);
+                        break;
                 }
             });
+        std::erase_if(m_cache, [](const auto& pair) { return !pair.second.used; });
+    }
+
+    void ColliderOverlay::append_mesh(const Comet::ColliderComponent& collider,
+        Comet::Math::Vec3 scale, const Comet::Math::Mat4& matrix, Comet::Math::Vec4 color,
+        Comet::LineDrawList& lines) {
+        using namespace Comet;
+        if(!Math::is_finite(scale) || !glm::all(glm::greaterThan(scale, Math::Vec3(0)))) {
+            append_joint_anchor(lines, Math::Vec3(matrix[3]), INVALID_COLOR);
+            return;
+        }
+        const Key key{collider.mesh, collider.shape, scale.x, scale.y, scale.z};
+        const auto revision = m_meshes.revision ? m_meshes.revision(collider.mesh) : 0;
+        auto [it, inserted] = m_cache.try_emplace(key);
+        auto& outline = it->second;
+        if(inserted || outline.revision != revision) {
+            outline.revision = revision;
+            outline.edges.clear();
+            auto build = [&]() -> Result<std::vector<PhysicsService::ColliderEdge>, Error> {
+                if(!m_meshes.read)
+                    return Result<std::vector<PhysicsService::ColliderEdge>, Error>::failure(
+                        {"Collision preview requires a CPU mesh source"});
+                auto mesh = m_meshes.read(collider.mesh);
+                if(!mesh)
+                    return Result<std::vector<PhysicsService::ColliderEdge>, Error>::failure(
+                        mesh.error());
+                return PhysicsService::mesh_collider_edges(collider.shape, mesh.value(), scale);
+            }();
+            if(build)
+                outline.edges = std::move(build).value();
+            else
+                LOG_WARN("Cannot preview collision mesh {}: {}", collider.mesh.value(),
+                    build.error().message);
+        }
+        outline.used = true;
+        if(outline.edges.empty()) {
+            append_joint_anchor(lines, Math::Vec3(matrix[3]), INVALID_COLOR);
+            return;
+        }
+        // 构建时已应用本地缩放，呈现矩阵仅负责剩余的姿态和父级变换。
+        const auto pose = matrix * glm::scale(Math::Mat4(1), Math::Vec3(1) / scale);
+        for(const auto& [first, second] : outline.edges)
+            if(!lines.add_line(Math::Vec3(pose * Math::Vec4(first, 1)),
+                   Math::Vec3(pose * Math::Vec4(second, 1)), color))
+                return;
     }
 
     void append_joint_anchors(Comet::Scene& scene, Comet::LineDrawList& lines) {

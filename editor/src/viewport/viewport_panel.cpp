@@ -224,6 +224,9 @@ namespace CometEditor {
         if(settings.mode == TransformGizmo::Mode::Rotate
             && settings.space == TransformGizmo::Space::World)
             ImGui::TextDisabled("世界旋转要求父级均匀缩放。\n非均匀缩放时请选择局部空间。");
+        if(m_selection.get_selected_entities().size() > 1)
+            ImGui::TextDisabled(
+                "多选围绕最后选中的实体变换，缩放按比例应用。\n产生斜切时会取消整次操作。");
         if(changed)
             static_cast<void>(m_gizmo.set_settings(settings));
         ImGui::PopItemFlag();
@@ -382,7 +385,9 @@ namespace CometEditor {
             if(map_viewport_point_to_pixel(m_layout, point)) {
                 if(const auto payload = read_asset_drag_payload(ImGui::GetDragDropPayload())) {
                     const auto& asset = *payload;
-                    if(asset.type == Comet::AssetType::Mesh
+                    if((asset.type == Comet::AssetType::Mesh
+                           || asset.type == Comet::AssetType::Model
+                           || asset.type == Comet::AssetType::Prefab)
                         && ImGui::AcceptDragDropPayload(AssetDragPayload::TYPE)) {
                         const auto uv = (point - m_layout.image_display_rect.min) / display_size;
                         if(const auto position = camera_focus_plane_point(
@@ -436,20 +441,21 @@ namespace CometEditor {
         // Image 没有可聚焦的 item；先接收从其他面板进入的点击，再判断拖动失焦。
         if(pressed)
             ImGui::SetWindowFocus();
-        const auto entity = m_selection.get_selected_entity();
-        const bool consumed = m_gizmo.update(entity.get_uuid(), m_state.camera.snapshot(), m_layout,
-            {
-                .position = mouse_position,
-                .hovered = available,
-                .pressed = pressed,
-                .down = ImGui::IsMouseDown(ImGuiMouseButton_Left),
-                .released = ImGui::IsMouseReleased(ImGuiMouseButton_Left),
-                .cancel = ImGui::IsKeyPressed(ImGuiKey_Escape, false) || io.AppFocusLost
-                          || !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
-                          || ImGui::IsPopupOpen(
-                              nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)
-                          || m_texture_id == ImTextureID_Invalid,
-            });
+        const auto selected = m_selection.get_selected_entities();
+        const bool consumed =
+            m_gizmo.update_selection(selected, m_state.camera.snapshot(), m_layout,
+                {
+                    .position = mouse_position,
+                    .hovered = available,
+                    .pressed = pressed,
+                    .down = ImGui::IsMouseDown(ImGuiMouseButton_Left),
+                    .released = ImGui::IsMouseReleased(ImGuiMouseButton_Left),
+                    .cancel = ImGui::IsKeyPressed(ImGuiKey_Escape, false) || io.AppFocusLost
+                              || !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+                              || ImGui::IsPopupOpen(nullptr,
+                                  ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)
+                              || m_texture_id == ImTextureID_Invalid,
+                });
         if(m_gizmo.active()) {
             ImGui::SetActiveID(m_interaction_id, ImGui::GetCurrentWindow());
             ImGui::KeepAliveID(m_interaction_id);
@@ -620,6 +626,15 @@ namespace CometEditor {
         const auto& clip = m_layout.image_visible_rect;
         draw_list->PushClipRect(
             ImVec2(clip.min.x, clip.min.y), ImVec2(clip.max.x, clip.max.y), true);
+        if(!m_gizmo.error().empty()) {
+            const float width = std::max(1.0f, clip.size().x - 24);
+            const ImVec2 position(clip.min.x + 12, clip.min.y + 12);
+            const auto size = ImGui::CalcTextSize(m_gizmo.error().c_str(), nullptr, false, width);
+            draw_list->AddRectFilled({position.x - 4, position.y - 4},
+                {position.x + size.x + 4, position.y + size.y + 4}, IM_COL32(20, 20, 20, 220), 4);
+            draw_list->AddText(ImGui::GetFont(), ImGui::GetFontSize(), position,
+                IM_COL32(255, 180, 100, 255), m_gizmo.error().c_str(), nullptr, width);
+        }
         for(const auto& handle : handles) {
             if(!handle) {
                 continue;

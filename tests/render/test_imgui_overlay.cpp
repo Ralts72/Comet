@@ -1,5 +1,10 @@
 #ifdef COMET_TEST_EDITOR_IMGUI
 #include "ui/imgui_context.h"
+#include "assets/project_panel.h"
+#include "assets/asset_thumbnails.h"
+#include "scene/selection.h"
+#include "scene/command_history.h"
+#include "support/temporary_directory.h"
 #include "imgui_hdr_frag.h"
 #include "support/render_gpu_test.h"
 #include "common/scope_exit.h"
@@ -679,6 +684,108 @@ namespace Comet::Tests {
         renderer.wait_idle();
         EXPECT_TRUE(old_image.expired());
         EXPECT_EQ(reused, renderer.get_frame_scheduler().get_frame_slot_count());
+    }
+
+    TEST_F(ImGuiOverlayGpuTest, ProjectPanelCapturesTextureThumbnailBeforePanelDestruction) {
+        create_ui();
+        ASSERT_TRUE(ui);
+        TemporaryDirectory directory;
+        ProjectPaths paths{directory.path()};
+        std::filesystem::create_directories(paths.assets());
+        std::filesystem::copy_file(std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY)
+                                       / "assets/textures/awesomeface.png",
+            paths.assets() / "face.png");
+        AssetDatabase database(paths);
+        auto report = database.scan();
+        ASSERT_TRUE(report.succeeded());
+        const auto* record = database.find("face.png");
+        ASSERT_NE(record, nullptr);
+        TaskScheduler scheduler(1);
+        CometEditor::AssetThumbnails thumbnails(database, scheduler);
+        EXPECT_FALSE(thumbnails.request(record->handle).image);
+        scheduler.wait_idle();
+        thumbnails.update();
+        ASSERT_TRUE(thumbnails.request(record->handle).image);
+        Scene scene;
+        CometEditor::CommandHistory history;
+        CometEditor::SelectionService selection(scene);
+        auto panel = std::make_unique<CometEditor::ProjectPanel>(
+            database, paths.assets(), std::move(report), selection, history);
+        panel->set_thumbnails(thumbnails, *ui);
+        auto& renderer = engine->get_renderer();
+        auto prepared = render_frontend->prepare_frame();
+        ASSERT_TRUE(prepared) << prepared.error();
+        ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
+        const auto capture = [&] {
+            EXPECT_TRUE(ui->begin_frame());
+            ImGui::SetNextWindowPos({0, 0});
+            ImGui::SetNextWindowSize({280, 240});
+            panel->render();
+            return ui->end_frame();
+        };
+        auto warmup = capture();
+        warmup.reset();
+        ui_frame = capture();
+        bool image_drawn = false;
+        for(const auto* list : ImGui::GetDrawData()->CmdLists)
+            for(const auto& command : list->CmdBuffer)
+                if(!command.TexRef._TexData && command.GetTexID() != ImTextureID_Invalid
+                    && command.ElemCount > 0)
+                    image_drawn = true;
+        EXPECT_TRUE(image_drawn);
+        panel.reset();
+        Comet::Tests::set_test_overlay(renderer, {.render = [&](OverlayRecordContext& overlay) {
+            return Comet::Tests::record_draw_frame(overlay, std::move(ui_frame));
+        }});
+        ASSERT_TRUE(renderer.render_frame({}));
+        renderer.wait_idle();
+    }
+
+    TEST_F(ImGuiOverlayGpuTest, CpuImageSurvivesRemovalAfterCaptureAndReusesItsGpuBinding) {
+        create_ui();
+        ASSERT_TRUE(ui);
+        EXPECT_FALSE(ui->add_image({}));
+        EXPECT_FALSE(ui->add_image({.width = 1, .height = 1, .pixels = {255}}));
+        auto registered =
+            ui->add_image({.width = 2, .height = 1, .pixels = {255, 0, 0, 255, 0, 0, 255, 255}});
+        ASSERT_TRUE(registered) << registered.error();
+        const auto image = registered.value();
+        auto& renderer = engine->get_renderer();
+        ImTextureID descriptor = ImTextureID_Invalid;
+        const auto capture = [&] {
+            EXPECT_TRUE(ui->begin_frame());
+            auto* list = ImGui::GetBackgroundDrawList();
+            list->AddImage(image, {8, 8}, {100, 80});
+            auto* observation = &descriptor;
+            list->AddCallback(
+                [](const ImDrawList* recorded, const ImDrawCmd* callback) {
+                    auto* target = *static_cast<ImTextureID* const*>(callback->UserCallbackData);
+                    *target = recorded->CmdBuffer.front().GetTexID();
+                },
+                &observation, sizeof(observation));
+            return ui->end_frame();
+        };
+        Comet::Tests::set_test_overlay(renderer, {.render = [&](OverlayRecordContext& overlay) {
+            return Comet::Tests::record_draw_frame(overlay, std::move(ui_frame));
+        }});
+        ImTextureID first = ImTextureID_Invalid;
+        for(int index = 0; index < 3; ++index) {
+            const auto prepared = render_frontend->prepare_frame();
+            ASSERT_TRUE(prepared) << prepared.error();
+            ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
+            ui_frame = capture();
+            if(index == 2)
+                ui->remove_image(image);
+            ASSERT_TRUE(renderer.render_frame({}));
+            EXPECT_NE(descriptor, ImTextureID_Invalid);
+            EXPECT_NE(descriptor, image);
+            if(index == 0)
+                first = descriptor;
+            else
+                EXPECT_EQ(descriptor, first);
+        }
+        ASSERT_TRUE(presentation_frame(true));
+        renderer.wait_idle();
     }
 
     TEST_F(ImGuiOverlayGpuTest, ViewportPacketRejectsImagesFromAnotherFrameSlot) {

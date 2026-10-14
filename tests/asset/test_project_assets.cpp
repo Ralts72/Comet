@@ -2,6 +2,7 @@
 #include "asset/database.h"
 #include "asset/import/environment_importer.h"
 #include "asset/import/mesh_importer.h"
+#include "asset/import/model_importer.h"
 #include "asset/serialization/material_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
 #include "core/project.h"
@@ -10,6 +11,7 @@
 
 #include <gtest/gtest.h>
 #include <set>
+#include <map>
 
 namespace Comet::Tests {
     TEST(ProjectAssetsTest, DemoCubeNormalsPointOutwards) {
@@ -35,37 +37,67 @@ namespace Comet::Tests {
             ASSERT_TRUE(metadata) << metadata.error();
             EXPECT_TRUE(metadata.value().handle);
             EXPECT_TRUE(identities.insert(metadata.value().handle).second);
+            for(const auto& child : metadata.value().subresources) {
+                EXPECT_TRUE(child.handle);
+                EXPECT_TRUE(identities.insert(child.handle).second);
+            }
         }
         AssetDatabase database(project.value().paths());
         ASSERT_TRUE(database.scan().snapshot_updated);
         const auto registry = create_scene_component_registry();
-        const auto scene =
-            SceneSerializer(registry).load((root / project.value().startup_scene()).string());
-        ASSERT_TRUE(scene) << scene.error();
-        for(const auto& reference : registry.collect_asset_references(*scene.value())) {
-            if(const auto* asset = find_default_asset(reference.handle)) {
-                EXPECT_EQ(reference.type, asset->type);
-                EXPECT_FALSE(database.find(reference.handle));
+        for(const auto& asset : database.get_assets()) {
+            if(asset.type != AssetType::Scene)
                 continue;
+            SCOPED_TRACE(asset.path.string());
+            const auto scene = SceneSerializer(registry).load((root / asset.path).string());
+            ASSERT_TRUE(scene) << scene.error();
+            for(const auto& reference : registry.collect_asset_references(*scene.value())) {
+                if(const auto* builtin = find_default_asset(reference.handle)) {
+                    EXPECT_EQ(reference.type, builtin->type);
+                    EXPECT_FALSE(database.find(reference.handle));
+                    continue;
+                }
+                EXPECT_TRUE(identities.contains(reference.handle));
+                const auto* record = database.find(reference.handle);
+                if(reference.required)
+                    ASSERT_NE(record, nullptr);
+                if(record)
+                    EXPECT_EQ(record->type, reference.type);
             }
-            EXPECT_TRUE(identities.contains(reference.handle));
-            const auto* record = database.find(reference.handle);
-            if(reference.required)
-                ASSERT_NE(record, nullptr);
-            if(record)
-                EXPECT_EQ(record->type, reference.type);
+        }
+        std::map<AssetHandle, MaterialData> model_materials;
+        for(const auto& record : database.get_assets()) {
+            if(record.type != AssetType::Model)
+                continue;
+            const auto metadata = MetadataSerializer{}.load(metadata_path(root / record.path));
+            ASSERT_TRUE(metadata);
+            auto imported = ModelImporter{}.import(root / record.path);
+            ASSERT_TRUE(imported) << imported.error();
+            auto bound = ModelImporter::bind(std::move(imported).value(), metadata.value());
+            ASSERT_TRUE(bound) << bound.error();
+            for(auto& material : bound.value().materials)
+                EXPECT_TRUE(
+                    model_materials.emplace(material.handle, std::move(material.data)).second);
         }
         for(const auto& record : database.get_assets()) {
             if(record.type != AssetType::Material)
                 continue;
-            const auto material = MaterialSerializer{}.load(root / record.path);
-            ASSERT_TRUE(material) << material.error();
-            EXPECT_FALSE(material.value().template_name.empty());
-            for(const auto dependency : get_asset_dependencies(material.value())) {
+            MaterialData data;
+            if(record.source_asset) {
+                const auto found = model_materials.find(record.handle);
+                ASSERT_NE(found, model_materials.end());
+                data = found->second;
+            } else {
+                const auto material = MaterialSerializer{}.load(root / record.path);
+                ASSERT_TRUE(material) << material.error();
+                data = material.value();
+            }
+            EXPECT_FALSE(data.template_name.empty());
+            for(const auto dependency : get_asset_dependencies(data)) {
                 const auto* asset = database.find(dependency);
                 ASSERT_NE(asset, nullptr);
                 auto expected = AssetType::Texture;
-                if(dependency == material.value().shader_program)
+                if(dependency == data.shader_program)
                     expected = AssetType::ShaderProgram;
                 EXPECT_EQ(asset->type, expected);
             }

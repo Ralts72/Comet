@@ -1,4 +1,5 @@
 #include "ui/imgui_context.h"
+#include "asset/data/texture_data.h"
 #include "ui/resources.h"
 #include "common/scope_exit.h"
 #include "graphics/context.h"
@@ -127,16 +128,16 @@ namespace CometEditor::Ui {
         VkDescriptorSet m_descriptor_set = VK_NULL_HANDLE;
     };
 
-    struct ImGuiContext::FontPixels {
+    struct ImGuiContext::ImagePixels {
         int width = 0;
         int height = 0;
         ImTextureFormat format = ImTextureFormat_RGBA32;
         std::vector<unsigned char> pixels;
     };
 
-    class ImGuiContext::FontTexture final {
+    class ImGuiContext::PixelTexture final {
     public:
-        FontTexture(::ImGuiContext* context, std::shared_ptr<const FontPixels> source)
+        PixelTexture(::ImGuiContext* context, std::shared_ptr<const ImagePixels> source)
             : m_context(context), m_source(source) {
             const CurrentContext current(m_context);
             m_texture.Create(source->format, source->width, source->height);
@@ -144,7 +145,7 @@ namespace CometEditor::Ui {
             ImGui_ImplVulkan_UpdateTexture(&m_texture);
             m_texture.DestroyPixels();
         }
-        ~FontTexture() { release(); }
+        ~PixelTexture() { release(); }
 
         void release() {
             if(!m_texture.BackendUserData)
@@ -156,14 +157,15 @@ namespace CometEditor::Ui {
             ImGui_ImplVulkan_UpdateTexture(&m_texture);
         }
 
-        [[nodiscard]] bool matches(const std::shared_ptr<const FontPixels>& source) const {
+        [[nodiscard]] bool matches(const std::shared_ptr<const ImagePixels>& source) const {
             return m_source.lock() == source;
         }
+        [[nodiscard]] bool expired() const { return m_source.expired(); }
         [[nodiscard]] ImTextureID id() const { return m_texture.GetTexID(); }
 
     private:
         ::ImGuiContext* m_context;
-        std::weak_ptr<const FontPixels> m_source;
+        std::weak_ptr<const ImagePixels> m_source;
         ImTextureData m_texture;
     };
 
@@ -175,10 +177,11 @@ namespace CometEditor::Ui {
         }
 
         ImDrawData draw;
-        std::map<int, std::shared_ptr<const FontPixels>> fonts;
+        std::map<int, std::shared_ptr<const ImagePixels>> fonts;
+        std::map<ImTextureID, std::shared_ptr<const ImagePixels>> images;
         std::vector<std::pair<ImDrawCmd*, int>> font_commands;
         std::map<ImTextureID, std::shared_ptr<const ViewportImage>> viewport_images;
-        std::vector<std::pair<ImDrawCmd*, ImTextureID>> viewport_commands;
+        std::vector<std::pair<ImDrawCmd*, ImTextureID>> image_commands;
         std::uint64_t presentation_generation = 0;
         std::string error;
     };
@@ -393,11 +396,12 @@ namespace CometEditor::Ui {
                 texture->release();
         m_viewport_textures.clear();
         m_viewport_versions.clear();
-        for(const auto& version : m_font_versions)
+        for(const auto& version : m_pixel_versions)
             if(auto texture = version.lock())
                 texture->release();
         m_font_textures.clear();
-        m_font_versions.clear();
+        m_image_textures.clear();
+        m_pixel_versions.clear();
         ImGui_ImplVulkan_Shutdown();
     }
 
@@ -411,6 +415,7 @@ namespace CometEditor::Ui {
         }
         shutdown_gpu();
         m_font_pixels.clear();
+        m_image_pixels.clear();
         m_frontend_context.reset();
         m_viewport_images.clear();
 
@@ -471,7 +476,7 @@ namespace CometEditor::Ui {
                 auto& pixels = m_font_pixels[texture->UniqueID];
                 if(!pixels || texture->Status == ImTextureStatus_WantCreate
                     || texture->Status == ImTextureStatus_WantUpdates) {
-                    auto candidate = std::make_shared<FontPixels>();
+                    auto candidate = std::make_shared<ImagePixels>();
                     candidate->width = texture->Width;
                     candidate->height = texture->Height;
                     candidate->format = texture->Format;
@@ -486,7 +491,7 @@ namespace CometEditor::Ui {
         }
         std::erase_if(m_font_pixels,
             [&](const auto& entry) { return !captured.fonts.contains(entry.first); });
-        std::set<ImTextureID> viewport_ids;
+        std::set<ImTextureID> image_ids;
         for(const auto* list : source.CmdLists) {
             auto* copy = list->CloneOutput();
             captured.draw.CmdLists.push_back(copy);
@@ -505,15 +510,18 @@ namespace CometEditor::Ui {
                         &command, command.TexRef._TexData->UniqueID);
                     command.TexRef = ImTextureRef{};
                 } else {
-                    viewport_ids.insert(command.GetTexID());
-                    captured.viewport_commands.emplace_back(&command, command.GetTexID());
+                    image_ids.insert(command.GetTexID());
+                    captured.image_commands.emplace_back(&command, command.GetTexID());
                 }
             }
         }
         for(const auto& [view, images] : m_viewport_images)
             for(const auto& image : images)
-                if(image && viewport_ids.contains(image->id))
+                if(image && image_ids.contains(image->id))
                     captured.viewport_images.emplace(image->id, image);
+        for(const auto id : image_ids)
+            if(const auto pixels = m_image_pixels.find(id); pixels != m_image_pixels.end())
+                captured.images.emplace(id, pixels->second);
         return frame;
     }
 
@@ -549,18 +557,34 @@ namespace CometEditor::Ui {
                     m_viewport_versions.push_back(texture);
                 }
             }
-            for(const auto& [command, id] : captured.viewport_commands)
+            std::erase_if(
+                m_image_textures, [](const auto& entry) { return entry.second->expired(); });
+            for(const auto& [id, pixels] : captured.images) {
+                auto& texture = m_image_textures[id];
+                if(!texture) {
+                    texture = std::make_shared<PixelTexture>(m_backend_context.get(), pixels);
+                    std::erase_if(
+                        m_pixel_versions, [](const auto& version) { return version.expired(); });
+                    m_pixel_versions.push_back(texture);
+                }
+            }
+            for(const auto& [command, id] : captured.image_commands) {
                 if(captured.viewport_images.contains(id))
                     command->TexRef = m_viewport_textures.at(id)->get_texture_id();
+                else if(captured.images.contains(id))
+                    command->TexRef = m_image_textures.at(id)->id();
+                else
+                    return RenderResult::failure({"ImGui frame has no captured image"});
+            }
             std::erase_if(m_font_textures,
                 [&](const auto& entry) { return !captured.fonts.contains(entry.first); });
             for(const auto& [id, pixels] : captured.fonts) {
                 auto& texture = m_font_textures[id];
                 if(!texture || !texture->matches(pixels)) {
-                    texture = std::make_shared<FontTexture>(m_backend_context.get(), pixels);
+                    texture = std::make_shared<PixelTexture>(m_backend_context.get(), pixels);
                     std::erase_if(
-                        m_font_versions, [](const auto& version) { return version.expired(); });
-                    m_font_versions.push_back(texture);
+                        m_pixel_versions, [](const auto& version) { return version.expired(); });
+                    m_pixel_versions.push_back(texture);
                 }
             }
             for(const auto& [command, id] : captured.font_commands) {
@@ -580,6 +604,8 @@ namespace CometEditor::Ui {
                 overlay.retain(m_font_textures.at(id));
             for(const auto& [id, image] : frame.m_data->viewport_images)
                 overlay.retain(m_viewport_textures.at(id));
+            for(const auto& [id, pixels] : frame.m_data->images)
+                overlay.retain(m_image_textures.at(id));
         }
 
         m_render_target->end_render_target(command_buffer);
@@ -639,6 +665,27 @@ namespace CometEditor::Ui {
         return Comet::Result<void, Comet::GraphicsError>::success();
     }
 
+    Comet::Result<ImTextureID> ImGuiContext::add_image(Comet::TextureData data) {
+        using Result = Comet::Result<ImTextureID>;
+        if(data.width <= 0 || data.height <= 0 || data.width > 4096 || data.height > 4096
+            || data.cubemap || data.mip_levels != 1
+            || (data.format != Comet::Format::R8G8B8A8_UNORM
+                && data.format != Comet::Format::R8G8B8A8_SRGB)
+            || data.pixels.size() != std::size_t(data.width) * data.height * 4)
+            return Result::failure("ImGui image requires a bounded RGBA8 image without mipmaps");
+        auto pixels = std::make_shared<ImagePixels>();
+        pixels->width = data.width;
+        pixels->height = data.height;
+        pixels->pixels = std::move(data.pixels);
+        const auto id = m_next_texture_id++;
+        m_image_pixels.emplace(id, std::move(pixels));
+        return Result::success(id);
+    }
+
+    void ImGuiContext::remove_image(ImTextureID image) {
+        m_image_pixels.erase(image);
+    }
+
     void ImGuiContext::set_viewport_image(const uint32_t frame_slot_index,
         std::shared_ptr<Comet::ImageView> image_view, std::shared_ptr<Comet::Sampler> sampler,
         const uint32_t view_id) {
@@ -650,7 +697,7 @@ namespace CometEditor::Ui {
         auto& image = images[frame_slot_index];
         if(image && image->image_view == image_view && image->sampler == sampler)
             return;
-        const auto id = image ? image->id : m_next_viewport_texture_id++;
+        const auto id = image ? image->id : m_next_texture_id++;
         image = std::make_shared<const ViewportImage>(
             ViewportImage{id, frame_slot_index, std::move(image_view), std::move(sampler)});
     }

@@ -531,6 +531,71 @@ namespace Comet::Tests {
         }
     }
 
+    TEST(SceneSerializerTest, CollisionMasksRoundTripExactIntegersForBodiesAndCharacters) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        Scene scene;
+        auto body = scene.create_entity("Body");
+        body.add_component<ColliderComponent>(
+            ColliderComponent{.collision_layer = 0x80000001u, .collision_mask = 0x80000000u});
+        auto character = scene.create_entity("Character");
+        character.add_component<CharacterControllerComponent>(CharacterControllerComponent{
+            .collision_layer = 0x80000000u, .collision_mask = UINT32_MAX});
+        auto encoded = serializer.serialize(scene);
+        ASSERT_TRUE(encoded);
+        auto loaded = serializer.deserialize(encoded.value());
+        ASSERT_TRUE(loaded) << loaded.error();
+        EXPECT_EQ(loaded.value()->find_entity(body.get_uuid()).get_component<ColliderComponent>(),
+            body.get_component<ColliderComponent>());
+        EXPECT_EQ(loaded.value()
+                      ->find_entity(character.get_uuid())
+                      .get_component<CharacterControllerComponent>(),
+            character.get_component<CharacterControllerComponent>());
+        for(const auto invalid : {"-1", "1.5", "4294967296", "1e100"}) {
+            auto text = encoded.value();
+            const auto at = text.find("2147483649");
+            ASSERT_NE(at, std::string::npos);
+            text.replace(at, 10, invalid);
+            EXPECT_FALSE(serializer.deserialize(text)) << invalid;
+        }
+    }
+
+    TEST(SceneSerializerTest, MeshCollidersPersistCloneAndCollectTheirAssetDependencies) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        Scene scene;
+        auto convex = scene.create_entity("Convex");
+        auto triangles = scene.create_entity("Triangles");
+        convex.add_component<ColliderComponent>(
+            ColliderComponent{.shape = ColliderShape::ConvexHull, .mesh = AssetHandle{701}});
+        triangles.add_component<ColliderComponent>(
+            ColliderComponent{.shape = ColliderShape::TriangleMesh, .mesh = AssetHandle{702}});
+        const auto encoded = serializer.serialize(scene);
+        ASSERT_TRUE(encoded);
+        const auto loaded = serializer.deserialize(encoded.value());
+        ASSERT_TRUE(loaded) << loaded.error();
+        const auto clone = serializer.clone(*loaded.value());
+        ASSERT_TRUE(clone) << clone.error();
+        for(const auto entity : {convex, triangles})
+            EXPECT_EQ(
+                clone.value()->find_entity(entity.get_uuid()).get_component<ColliderComponent>(),
+                entity.get_component<ColliderComponent>());
+        const auto references = registry.collect_asset_references(*clone.value());
+        EXPECT_TRUE(std::ranges::any_of(references, [](const auto& ref) {
+            return ref.handle == AssetHandle{701} && ref.type == AssetType::Mesh && ref.cpu_only;
+        }));
+        EXPECT_TRUE(std::ranges::any_of(references, [](const auto& ref) {
+            return ref.handle == AssetHandle{702} && ref.type == AssetType::Mesh && ref.cpu_only;
+        }));
+        convex.edit_component<ColliderComponent>(
+            [](auto& collider) { collider.shape = ColliderShape::Box; });
+        const auto runtime_refs =
+            registry.collect_asset_references(scene, ComponentRegistry::ReferenceScope::Runtime);
+        EXPECT_FALSE(std::ranges::any_of(
+            runtime_refs, [](const auto& ref) { return ref.handle == AssetHandle{701}; }));
+        EXPECT_EQ(registry.collect_asset_references(scene).size(), 2u);
+    }
+
     TEST(SceneSerializerTest, ColliderSurfaceParametersPersistCloneAndDefaultWhenOmitted) {
         const auto registry = create_scene_component_registry();
         const SceneSerializer serializer(registry);
@@ -542,7 +607,10 @@ namespace Comet::Tests {
         auto body = defaults.value()->get_entities().front();
         EXPECT_FLOAT_EQ(body.get_component<ColliderComponent>().friction, 0.2f);
         EXPECT_FLOAT_EQ(body.get_component<ColliderComponent>().restitution, 0);
+        EXPECT_FLOAT_EQ(body.get_component<ColliderComponent>().height, 2);
         body.edit_component<ColliderComponent>([](auto& collider) {
+            collider.shape = ColliderShape::Capsule;
+            collider.height = 3.5f;
             collider.friction = 0.6f;
             collider.restitution = 0.8f;
         });
@@ -552,6 +620,8 @@ namespace Comet::Tests {
         auto loaded = serializer.load(path);
         ASSERT_TRUE(loaded) << loaded.error();
         const auto loaded_body = loaded.value()->find_entity(body.get_uuid());
+        EXPECT_EQ(loaded_body.get_component<ColliderComponent>().shape, ColliderShape::Capsule);
+        EXPECT_FLOAT_EQ(loaded_body.get_component<ColliderComponent>().height, 3.5f);
         EXPECT_FLOAT_EQ(loaded_body.get_component<ColliderComponent>().friction, 0.6f);
         EXPECT_FLOAT_EQ(loaded_body.get_component<ColliderComponent>().restitution, 0.8f);
         auto clone = serializer.clone(*loaded.value());
@@ -1073,14 +1143,14 @@ namespace Comet::Tests {
         EXPECT_TRUE(cloned.value()->find_entity(actor.get_uuid()));
         EXPECT_FALSE(cloned.value()->find_entity(*queued));
         SceneRuntime clone_runtime;
-        EXPECT_FALSE(clone_runtime.take_restart_request());
+        EXPECT_FALSE(clone_runtime.take_scene_request());
         EXPECT_FALSE(clone_runtime.get_session().set_value("score", 8.0f));
         ASSERT_TRUE(clone_runtime.start(*cloned.value()));
         EXPECT_FALSE(clone_runtime.get_session().get_value("score"));
         ASSERT_TRUE(clone_runtime.advance(1.0 / 60.0));
         EXPECT_EQ(cloned.value()->entity_count(), 1u);
         EXPECT_EQ(source_runtime.get_session().get_value("score"), ParameterValue(7.0f));
-        EXPECT_TRUE(source_runtime.take_restart_request());
+        EXPECT_TRUE(source_runtime.take_scene_request());
         ASSERT_TRUE(source_runtime.advance(1.0 / 60.0));
         EXPECT_TRUE(scene.find_entity(*queued));
     }

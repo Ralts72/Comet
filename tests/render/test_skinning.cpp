@@ -2,6 +2,7 @@
 #include "asset/data/mesh_data.h"
 #include "render/material/material.h"
 #include "asset/registry.h"
+#include "asset/data/texture_data.h"
 #include "render/resource/mesh.h"
 namespace Comet::Tests {
     class SkinningGpuTest: public RenderGpuTest {
@@ -105,6 +106,79 @@ namespace Comet::Tests {
             messages.clear();
         }
     };
+    TEST_F(SkinningGpuTest, SkinnedNormalMapMatchesBakedTangentsAcrossBoneTransforms) {
+        auto& assets = engine->get_asset_registry();
+        auto& resources = engine->get_render_resources();
+        const auto normal =
+            resources.try_create_texture({.width = 1, .height = 1, .pixels = {204, 179, 230, 255}});
+        ASSERT_TRUE(normal);
+        auto material = std::make_shared<Material>("mapped skin", "pbr");
+        ASSERT_TRUE(material->set_vector_property("base_color", {.6f, .4f, .2f, 1}));
+        ASSERT_TRUE(material->set_scalar_property("roughness", 1));
+        ASSERT_TRUE(material->set_surface({.double_sided = true}));
+        material->set_texture_property("normal_texture", normal.value());
+        ASSERT_TRUE(assets.replace_asset(AssetHandle(11), material));
+        m_scene.lights = {{.direction = {-.6f, -.3f, -.8f}, .intensity = Math::PI},
+            {.direction = {-.6f, -.3f, .8f}, .intensity = Math::PI}};
+        const auto capture = [&] {
+            render_and_copy(engine->get_renderer(), m_scene, *m_readback_frames, m_readback);
+            m_readback_frames->wait_for_all_slots();
+            return m_readback->read();
+        };
+        for(const float scale : {1.5f, -1.5f}) {
+            SCOPED_TRACE(scale);
+            auto source = m_source;
+            // 镜像骨骼改变三角形绕序；此例保持变形后的正面朝向相机，单独验证切线基。
+            if(scale < 0)
+                std::swap(source.indices[1], source.indices[2]);
+            for(auto& vertex : source.vertices)
+                vertex.tangent = {0, 1, 0, -1};
+            auto skeleton = std::make_shared<AnimationData>(*source.animation);
+            skeleton->clips.clear();
+            skeleton->nodes[1].rest.rotation = glm::angleAxis(Math::PI / 4, Math::Vec3(0, 0, 1));
+            skeleton->nodes[1].rest.scale = {scale, .75f, 1};
+            source.animation = skeleton;
+            const auto skinned = resources.try_create_mesh(source);
+            ASSERT_TRUE(skinned);
+            ASSERT_TRUE(assets.replace_asset(AssetHandle(10), skinned.value()));
+            m_scene.render_items[0].mesh_handle = AssetHandle(10);
+            const auto actual = capture();
+            const auto transform =
+                Math::scale(glm::mat4_cast(skeleton->nodes[1].rest.rotation), {scale, .75f, 1});
+            const auto basis = Math::Mat3(transform);
+            auto baked = source;
+            baked.animation.reset();
+            baked.skin.clear();
+            for(auto& vertex : baked.vertices) {
+                vertex.position = Math::Vec3(transform * Math::Vec4(vertex.position, 1));
+                vertex.normal = glm::normalize(glm::transpose(glm::inverse(basis)) * vertex.normal);
+                vertex.tangent = Math::Vec4(basis * Math::Vec3(vertex.tangent),
+                    vertex.tangent.w * (scale < 0 ? -1.f : 1.f));
+            }
+            const auto reference = resources.try_create_mesh(baked);
+            ASSERT_TRUE(reference);
+            ASSERT_TRUE(assets.replace_asset(AssetHandle(10), reference.value()));
+            const auto expected = capture();
+            ASSERT_EQ(actual.size(), expected.size());
+            int maximum_error = 0;
+            for(size_t index = 0; index < actual.size(); ++index)
+                maximum_error =
+                    std::max(maximum_error, std::abs(std::to_integer<int>(actual[index])
+                                                     - std::to_integer<int>(expected[index])));
+            EXPECT_LE(maximum_error, 2);
+            // 同时确认图像受切线法线影响，防止两条路径均未绘制而误通过。
+            ASSERT_TRUE(material->set_scalar_property("normal_scale", 0));
+            const auto geometric = capture();
+            size_t changed = 0;
+            for(size_t index = 0; index < actual.size(); ++index)
+                changed += std::abs(std::to_integer<int>(actual[index])
+                                    - std::to_integer<int>(geometric[index]))
+                           > 4;
+            EXPECT_GT(changed, 30u);
+            ASSERT_TRUE(material->set_scalar_property("normal_scale", 1));
+        }
+    }
+
     TEST_F(SkinningGpuTest, GpuPoseMovesPixelsAndSharedMeshInstancesKeepIndependentPoses) {
         const double first = centroid(0);
         const double second = centroid(1);

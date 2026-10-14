@@ -162,7 +162,7 @@ namespace Comet {
         bool operator==(const RigidBodyComponent&) const = default;
     };
 
-    enum class ColliderShape { Box, Sphere };
+    enum class ColliderShape { Box, Sphere, Capsule, ConvexHull, TriangleMesh };
 
     struct COMET_API ColliderComponent {
         ColliderShape shape = ColliderShape::Box;
@@ -172,6 +172,15 @@ namespace Comet {
         // 接触响应系数，范围 [0, 1]；触发器只保存配置，不参与碰撞响应。
         float friction = 0.2f;
         float restitution = 0.0f;
+        // 胶囊沿本地 Y 轴，原点为中心；总高度包含两端半球。
+        float height = 2.0f;
+        uint32_t collision_layer = 1;
+        uint32_t collision_mask = UINT32_MAX;
+        // 网格碰撞使用绑定姿态的几何；不跟随蒙皮动画变形。
+        AssetHandle mesh;
+        [[nodiscard]] bool uses_mesh() const {
+            return shape == ColliderShape::ConvexHull || shape == ColliderShape::TriangleMesh;
+        }
         bool operator==(const ColliderComponent&) const = default;
     };
 
@@ -192,6 +201,8 @@ namespace Comet {
         float step_height = 0.3f;
         float ground_snap_distance = 0.3f;
         float gravity_scale = 1.0f;
+        uint32_t collision_layer = 1;
+        uint32_t collision_mask = UINT32_MAX;
         bool operator==(const CharacterControllerComponent&) const = default;
     };
 

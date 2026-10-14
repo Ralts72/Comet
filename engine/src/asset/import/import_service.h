@@ -2,6 +2,7 @@
 
 #include "asset/artifact/mesh_artifact.h"
 #include "asset/artifact/environment_artifact.h"
+#include "asset/artifact/model_artifact.h"
 #include "asset/import/import_candidate.h"
 #include "asset/import/asset_task_types.h"
 #include "asset/import/environment_importer.h"
@@ -18,6 +19,16 @@ namespace Comet {
     public:
         explicit ImportService(ProjectPaths paths, AssetImportLimits limits = {});
 
+        [[nodiscard]] std::filesystem::path model_artifact_path(AssetHandle handle) const;
+        // 后台只写未发布的产品；.meta 和可见索引由 owner 发布。
+        [[nodiscard]] Result<ModelImportPrepared> stage_model(const AssetRecord& record,
+            std::size_t memory_budget, AssetImportMode mode = AssetImportMode::IfNeeded) const;
+        [[nodiscard]] Result<void> publish_model(
+            const AssetRecord& record, const ModelImportPrepared& prepared) const;
+        // 同步内容导入：成功后模型 .meta 可能新增子资源，索引 owner 需接纳一次扫描。
+        [[nodiscard]] Result<ModelArtifact> prepare_model(
+            const AssetRecord& record, std::size_t memory_budget) const;
+
         [[nodiscard]] std::filesystem::path mesh_artifact_path(AssetHandle handle) const;
         [[nodiscard]] std::filesystem::path shader_program_artifact_path(AssetHandle handle) const;
         [[nodiscard]] std::optional<MeshArtifact> find_current_mesh_artifact(AssetHandle handle,
@@ -25,9 +36,10 @@ namespace Comet {
         [[nodiscard]] Result<MeshArtifact> build_mesh_artifact(AssetHandle handle,
             const std::filesystem::path& source_path, std::size_t memory_budget) const;
         [[nodiscard]] MeshArtifactCandidate prepare_mesh(const AssetRecord& record,
-            AssetRevision revision, MeshImportMode mode, std::size_t memory_budget) const;
+            AssetRevision revision, AssetImportMode mode, std::size_t memory_budget) const;
         [[nodiscard]] Result<TextureData> prepare_texture(const AssetRecord& record,
             const TextureImportSettings& settings, std::size_t memory_budget) const;
+        [[nodiscard]] std::filesystem::path texture_artifact_path(AssetHandle handle) const;
         [[nodiscard]] std::filesystem::path environment_artifact_path(AssetHandle handle) const;
         [[nodiscard]] Result<EnvironmentArtifact> prepare_environment(const AssetRecord& record,
             std::size_t memory_budget, EnvironmentImporter::Preview* preview = nullptr) const;

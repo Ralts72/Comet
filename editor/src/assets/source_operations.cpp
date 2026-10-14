@@ -1,11 +1,12 @@
 #include "assets/source_operations.h"
+#include "scene/prefab.h"
 
 #include "common/result.h"
 #include "common/file_io.h"
 #include "common/scope_exit.h"
 #include "asset/serialization/metadata_serializer.h"
 #include "asset/serialization/material_serializer.h"
-#include "asset/import/mesh_importer.h"
+#include "asset/import/model_importer.h"
 #include "asset/import/texture_importer.h"
 #include "asset/import/environment_importer.h"
 #include "asset/script.h"
@@ -26,6 +27,7 @@
 #include <system_error>
 #include <type_traits>
 #include <utility>
+#include <unordered_set>
 #include <vector>
 #include <variant>
 
@@ -43,10 +45,11 @@ namespace CometEditor::AssetSourceOperations {
     using Comet::is_source_only_path;
     using Comet::MaterialData;
     using Comet::MaterialSerializer;
-    using Comet::MeshImporter;
     using Comet::metadata_path;
     using Comet::MetadataSerializer;
+    using Comet::ModelImporter;
     using Comet::ProjectPaths;
+    using Comet::read_text_file;
     using Comet::Result;
     using Comet::ScopeExit;
     using Comet::Script;
@@ -118,7 +121,7 @@ namespace CometEditor::AssetSourceOperations {
             if(!type)
                 return std::nullopt;
             switch(*type) {
-                case AssetType::Mesh:
+                case AssetType::Model:
                 case AssetType::Texture:
                 case AssetType::Environment:
                 case AssetType::Script:
@@ -462,7 +465,7 @@ namespace CometEditor::AssetSourceOperations {
                     return result;
                 if(std::ranges::find(roots, relative) == roots.end())
                     roots.push_back(relative);
-                if(*type != AssetType::Mesh)
+                if(*type != AssetType::Model)
                     continue;
                 if(auto result = add_model_dependencies(source); !result)
                     return result;
@@ -504,7 +507,7 @@ namespace CometEditor::AssetSourceOperations {
                 return Result<void>::failure("Unsupported import source: " + relative.string());
             const auto source = staging / relative;
             switch(*type) {
-                case AssetType::Mesh: {
+                case AssetType::Model: {
                     // 再检查暂存副本，拒绝复制期间改变了依赖列表的源文件。
                     const auto dependencies = gltf_dependencies(source);
                     if(!dependencies)
@@ -515,7 +518,7 @@ namespace CometEditor::AssetSourceOperations {
                                 "glTF dependencies changed during copy; retry import");
                     }
                     if(auto result =
-                            MeshImporter{}.import(source, limits.mesh_working_bytes, limits);
+                            ModelImporter{}.import(source, limits.mesh_working_bytes, limits);
                         !result)
                         return Result<void>::failure(result.error());
                     break;
@@ -855,6 +858,46 @@ namespace CometEditor::AssetSourceOperations {
         }
     }
 
+    AssetScanReport create_prefab(AssetDatabase& database, const std::filesystem::path& destination,
+        const Comet::Prefab& prefab, const Comet::ComponentRegistry& registry) {
+        auto serialized = prefab.serialize(registry);
+        if(!serialized)
+            return operation_error(destination, serialized.error());
+        return create_text_asset(
+            database, destination, serialized.value(), AssetType::Prefab, ".prefab", "Prefab");
+    }
+
+    AssetScanReport save_prefab(AssetDatabase& database, const Comet::AssetTarget& target,
+        const Comet::Prefab& prefab, const Comet::ComponentRegistry& registry) {
+        const auto* record = database.find(target.handle);
+        if(!record || record->type != AssetType::Prefab || !database.is_current(target))
+            return operation_error({}, "Prefab identity is stale or invalid");
+        const auto relative = record->path;
+        const auto path = database.paths().assets() / relative;
+        auto text = prefab.serialize(registry);
+        if(!text)
+            return operation_error(relative, text.error());
+        auto previous = read_text_file(path);
+        if(!previous)
+            return operation_error(relative, previous.error());
+        if(auto saved = write_text_file_atomic(path, text.value()); !saved)
+            return operation_error(relative, saved.error());
+        auto candidate = database;
+        auto report = candidate.scan();
+        const auto* updated = candidate.find(target.handle);
+        if(report.succeeded() && report.snapshot_updated && updated
+            && updated->type == AssetType::Prefab && updated->path == relative) {
+            database = std::move(candidate);
+            return report;
+        }
+        discard_scan_updates(report, database);
+        report.issues.push_back({relative, "Cannot index prefab update; restoring source"});
+        if(auto restored = write_text_file_atomic(path, previous.value()); !restored)
+            report.issues.push_back(
+                {relative, "Cannot restore prefab source: " + restored.error()});
+        return report;
+    }
+
     AssetScanReport create_material(AssetDatabase& database,
         const std::filesystem::path& destination, const MaterialData& data) {
         auto serialized = MaterialSerializer{}.serialize(data);
@@ -1184,10 +1227,20 @@ return script
         if(!indexed)
             return operation_error({}, "Asset is not indexed");
         const AssetRecord record = *indexed;
+        if(record.source_asset)
+            return operation_error(
+                record.path, "Model subresources cannot be removed independently");
         if(!move_to_trash)
             return operation_error(record.path, "System trash is unavailable");
-        if(!database.get_dependents(handle).empty())
-            return operation_error(record.path, "Asset is referenced by another indexed asset");
+        std::unordered_set<AssetHandle> dependents{handle};
+        database.include_dependents(dependents);
+        for(const auto dependent : dependents) {
+            if(dependent == handle)
+                continue;
+            const auto* owner = database.find(dependent);
+            if(!owner || owner->source_asset != handle)
+                return operation_error(record.path, "Asset is referenced by another indexed asset");
+        }
         if(!is_safe_destination(record.path))
             return operation_error(record.path, "Asset path is not a safe relative path");
 
@@ -1257,6 +1310,8 @@ return script
                 destination, "asset handle " + std::to_string(handle.value()) + " is not indexed");
         }
         const AssetRecord record = *indexed_record;
+        if(record.source_asset)
+            return operation_error(record.path, "Model subresources cannot be moved independently");
         if(record.type == AssetType::Script && is_lua_module_source(destination))
             return operation_error(destination,
                 "Script assets cannot be renamed to source-only Lua modules (.module.lua)");

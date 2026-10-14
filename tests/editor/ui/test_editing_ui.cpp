@@ -304,6 +304,57 @@ namespace CometEditor::Tests {
         }
     };
 
+    TEST_F(EditingUiTest, HierarchySupportsToggleAndVisibleRangeSelection) {
+        scene.create_entity("Second");
+        scene.create_entity("Third");
+        const auto roots = scene.get_root_entities();
+        ASSERT_EQ(roots.size(), 3u);
+        show_hierarchy();
+        click(hierarchy_root_point(roots[0]));
+        EXPECT_EQ(selection.get_selected_entities(), (std::vector{roots[0].get_uuid()}));
+        auto& io = ImGui::GetIO();
+        io.ConfigMacOSXBehaviors = false;
+        io.AddKeyEvent(ImGuiMod_Ctrl, true);
+        click(hierarchy_root_point(roots[2]));
+        EXPECT_EQ(selection.get_selected_entities(),
+            (std::vector{roots[0].get_uuid(), roots[2].get_uuid()}));
+        click(hierarchy_root_point(roots[2]));
+        EXPECT_EQ(selection.get_selected_entities(), (std::vector{roots[0].get_uuid()}));
+        io.AddKeyEvent(ImGuiMod_Ctrl, false);
+        click(hierarchy_root_point(roots[0]));
+        io.AddKeyEvent(ImGuiMod_Shift, true);
+        click(hierarchy_root_point(roots[2]));
+        EXPECT_EQ(selection.get_selected_entities(),
+            (std::vector{roots[0].get_uuid(), roots[1].get_uuid(), roots[2].get_uuid()}));
+        EXPECT_EQ(selection.get_selected_entity(), roots[2]);
+        // 保持起点，缩短连续选择范围。
+        click(hierarchy_root_point(roots[1]));
+        EXPECT_EQ(selection.get_selected_entities(),
+            (std::vector{roots[0].get_uuid(), roots[1].get_uuid()}));
+        io.AddKeyEvent(ImGuiMod_Shift, false);
+        io.ConfigMacOSXBehaviors = true;
+        io.AddKeyEvent(ImGuiMod_Super, true);
+        click(hierarchy_root_point(roots[2]));
+        EXPECT_TRUE(selection.is_selected(roots[2].get_id()));
+        io.AddKeyEvent(ImGuiMod_Super, false);
+        frame();
+        click(hierarchy_root_point(roots[1]), ImGuiMouseButton_Right);
+        frame();
+        ASSERT_FALSE(GImGui->OpenPopupStack.empty());
+        auto* popup = GImGui->OpenPopupStack.back().Window;
+        ASSERT_NE(popup, nullptr);
+        ImGui::ActivateItemByID(popup->GetID("Duplicate"));
+        frame();
+        const auto request = hierarchy->take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->entities, selection.get_selected_entities());
+        EXPECT_EQ(request->entities.size(), 3u);
+        selection.clear();
+        EXPECT_EQ(request->entities.size(), 3u);
+        EXPECT_EQ(scene.entity_count(), 3u);
+        EXPECT_FALSE(history.can_undo());
+    }
+
     TEST_F(EditingUiTest, HierarchyDragKeepsInspectorTargetAndAssignsOneUndoableReference) {
         auto script = Comet::Script::create("return {properties = {player = {type = 'entity'}}}");
         ASSERT_TRUE(script);
@@ -1718,6 +1769,133 @@ namespace CometEditor::Tests {
         EXPECT_EQ(scene.entity_count(), 1);
     }
 
+    TEST_F(HierarchyUiTest, BatchPlacementDialogCapturesTargetsAndRejectsPlay) {
+        const auto open = [&] {
+            auto* window = ImGui::FindWindowByName("Hierarchy");
+            auto& io = ImGui::GetIO();
+            io.AddMousePosEvent(window->WorkRect.Min.x + 70,
+                window->DC.CursorPosPrevLine.y + ImGui::GetTextLineHeight() * 0.5f);
+            draw();
+            io.AddMouseButtonEvent(1, true);
+            draw();
+            io.AddMouseButtonEvent(1, false);
+            draw();
+            draw();
+            ASSERT_EQ(GImGui->OpenPopupStack.Size, 1);
+            auto* popup = GImGui->OpenPopupStack.back().Window;
+            ASSERT_NE(popup, nullptr);
+            ImGui::ActivateItemByID(popup->GetID("Place Copies"));
+            draw();
+            draw();
+        };
+        ASSERT_NO_FATAL_FAILURE(open());
+        auto* dialog = ImGui::FindWindowByName("Place Copies");
+        ASSERT_NE(dialog, nullptr);
+        ASSERT_TRUE(dialog->Active);
+        EXPECT_FALSE(hierarchy.take_request());
+        selection.clear();
+        ImGui::ActivateItemByID(dialog->GetID("Place"));
+        draw();
+        const auto request = hierarchy.take_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->type, HierarchyPanel::Request::Type::Duplicate);
+        EXPECT_EQ(request->entities, (std::vector{entity.get_uuid()}));
+        EXPECT_EQ(request->duplicate.copies, 3);
+        EXPECT_EQ(request->duplicate.world_step, Comet::Math::Vec3(2, 0, 0));
+        EXPECT_EQ(scene.entity_count(), 1u);
+        draw();
+        ASSERT_NO_FATAL_FAILURE(open());
+        state.mode = EditorMode::Play;
+        draw();
+        EXPECT_FALSE(hierarchy.take_request());
+        EXPECT_TRUE(GImGui->OpenPopupStack.empty());
+    }
+
+    TEST_F(HierarchyUiTest, PrefabRequestUsesClickedEntityAndRejectsPlayOrChangedScene) {
+        selection.clear();
+        const auto choose = [&](const char* action) {
+            if(!GImGui->OpenPopupStack.empty())
+                ImGui::ClosePopupToLevel(0, true);
+            auto* window = ImGui::FindWindowByName("Hierarchy");
+            auto& io = ImGui::GetIO();
+            io.AddMousePosEvent(window->WorkRect.Min.x + 70,
+                window->DC.CursorPosPrevLine.y + ImGui::GetTextLineHeight() * 0.5f);
+            draw();
+            io.AddMouseButtonEvent(1, true);
+            draw();
+            io.AddMouseButtonEvent(1, false);
+            draw();
+            draw();
+            ASSERT_EQ(GImGui->OpenPopupStack.Size, 1);
+            auto* popup = GImGui->OpenPopupStack.back().Window;
+            ASSERT_NE(popup, nullptr);
+            ImGui::ActivateItemByID(popup->GetID(action));
+            draw();
+        };
+        choose("Save Prefab");
+        const auto request = hierarchy.take_prefab_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->entity, entity.get_uuid());
+        EXPECT_EQ(request->generation, history.generation());
+        EXPECT_FALSE(hierarchy.take_prefab_request());
+        EXPECT_FALSE(selection.get_selected_entity());
+        EXPECT_EQ(history.undo_size(), 0);
+        const auto prefab = Comet::Prefab::capture(scene, components, entity);
+        ASSERT_TRUE(prefab);
+        entity.add_component<Comet::PrefabInstanceComponent>(Comet::PrefabInstanceComponent{
+            Comet::AssetHandle{13}, std::make_shared<const Comet::Prefab>(prefab.value()),
+            {{entity.get_uuid(), entity.get_uuid()}}});
+        choose("Update Prefab");
+        auto structural = hierarchy.take_request();
+        ASSERT_TRUE(structural);
+        EXPECT_EQ(structural->type, HierarchyPanel::Request::Type::UpdatePrefab);
+        EXPECT_EQ(structural->entity, entity.get_uuid());
+        choose("Detach Prefab");
+        structural = hierarchy.take_request();
+        ASSERT_TRUE(structural);
+        EXPECT_EQ(structural->type, HierarchyPanel::Request::Type::DetachPrefab);
+        for(const auto& [label, type] :
+            {std::pair{"Apply Prefab", HierarchyPanel::Request::Type::ApplyPrefab},
+                std::pair{"Revert Prefab", HierarchyPanel::Request::Type::RevertPrefab}}) {
+            choose(label);
+            structural = hierarchy.take_request();
+            ASSERT_TRUE(structural);
+            EXPECT_EQ(structural->type, type);
+            EXPECT_EQ(structural->entity, entity.get_uuid());
+        }
+        EXPECT_TRUE(entity.has_component<Comet::PrefabInstanceComponent>());
+        entity.get_component<Comet::PrefabInstanceComponent>().source_type =
+            Comet::AssetType::Model;
+        choose("Apply Prefab");
+        EXPECT_FALSE(hierarchy.take_request());
+        for(const auto& [label, type] :
+            {std::pair{"Update Prefab", HierarchyPanel::Request::Type::UpdatePrefab},
+                std::pair{"Revert Prefab", HierarchyPanel::Request::Type::RevertPrefab},
+                std::pair{"Detach Prefab", HierarchyPanel::Request::Type::DetachPrefab}}) {
+            choose(label);
+            structural = hierarchy.take_request();
+            ASSERT_TRUE(structural);
+            EXPECT_EQ(structural->type, type);
+        }
+        state.mode = EditorMode::Play;
+        choose("Save Prefab");
+        EXPECT_FALSE(hierarchy.take_prefab_request());
+        choose("Update Prefab");
+        EXPECT_FALSE(hierarchy.take_request());
+        choose("Detach Prefab");
+        EXPECT_FALSE(hierarchy.take_request());
+        for(const auto* label : {"Apply Prefab", "Revert Prefab"}) {
+            choose(label);
+            EXPECT_FALSE(hierarchy.take_request());
+        }
+        state.mode = EditorMode::Edit;
+        choose("Save Prefab");
+        Comet::Scene next;
+        history.bind_scene(&next);
+        EXPECT_FALSE(hierarchy.take_prefab_request());
+        EXPECT_EQ(scene.entity_count(), 1);
+    }
+
     TEST_F(HierarchyUiTest, PasteContextMenuTargetsTheCurrentScene) {
         auto* window = ImGui::FindWindowByName("Hierarchy");
         ASSERT_NE(window, nullptr);
@@ -1894,6 +2072,193 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(same_uuid.has_component<Comet::CameraComponent>());
         EXPECT_FALSE(history.can_undo());
         history.bind_scene(&scene);
+    }
+
+    TEST_F(EditingUiTest, MultiSelectionDragPreservesOtherAxesAndMakesOneUndoRecord) {
+        auto peer = scene.create_entity();
+        entity.edit_transform([](auto& value) { value.translation = {1, 2, 3}; });
+        peer.edit_transform([](auto& value) { value.translation = {10, 20, 30}; });
+        selection.select_entities(std::array{peer.get_uuid(), entity.get_uuid()});
+        frame();
+        drag();
+        const auto primary_after = entity.get_component<Comet::TransformComponent>().translation;
+        const auto peer_after = peer.get_component<Comet::TransformComponent>().translation;
+        EXPECT_NE(primary_after.x, 1);
+        EXPECT_EQ(primary_after, Comet::Math::Vec3(primary_after.x, 2, 3));
+        EXPECT_EQ(peer_after, Comet::Math::Vec3(primary_after.x, 20, 30));
+        EXPECT_EQ(history.undo_size(), 0u);
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        ASSERT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(entity.get_component<Comet::TransformComponent>().translation,
+            Comet::Math::Vec3(1, 2, 3));
+        EXPECT_EQ(peer.get_component<Comet::TransformComponent>().translation,
+            Comet::Math::Vec3(10, 20, 30));
+        ASSERT_TRUE(history.redo());
+        EXPECT_EQ(entity.get_component<Comet::TransformComponent>().translation, primary_after);
+        EXPECT_EQ(peer.get_component<Comet::TransformComponent>().translation, peer_after);
+    }
+
+    TEST_F(EditingUiTest, MultiSelectionEscapeRestoresAllWithoutHistory) {
+        auto peer = scene.create_entity();
+        peer.edit_transform([](auto& value) { value.translation = {10, 20, 30}; });
+        selection.select_entities(std::array{peer.get_uuid(), entity.get_uuid()});
+        frame();
+        drag();
+        EXPECT_NE(x(), 0);
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, true);
+        frame();
+        EXPECT_FLOAT_EQ(x(), 0);
+        EXPECT_EQ(peer.get_component<Comet::TransformComponent>().translation,
+            Comet::Math::Vec3(10, 20, 30));
+        EXPECT_FALSE(history.can_undo());
+        EXPECT_FALSE(edit.active());
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, false);
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+    }
+
+    TEST_F(EditingUiTest, MultiSelectionPlayEditsAllWithoutHistory) {
+        auto peer = scene.create_entity();
+        peer.edit_transform([](auto& value) { value.translation = {10, 20, 30}; });
+        selection.select_entities(std::array{peer.get_uuid(), entity.get_uuid()});
+        frame();
+        history.bind_scene(nullptr);
+        state.mode = EditorMode::Play;
+        drag();
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_NE(x(), 0);
+        EXPECT_EQ(peer.get_component<Comet::TransformComponent>().translation,
+            Comet::Math::Vec3(x(), 20, 30));
+        EXPECT_FALSE(history.can_undo());
+    }
+
+    TEST_F(EditingUiTest, MultiSelectionOnlyShowsCommonComponentsAndApplicableFields) {
+        auto peer = scene.create_entity();
+        entity.add_component<Comet::ColliderComponent>(
+            Comet::ColliderComponent{.shape = Comet::ColliderShape::Capsule});
+        selection.select_entities(std::array{peer.get_uuid(), entity.get_uuid()});
+        std::vector<std::string> fields;
+        ASSERT_TRUE(widgets.register_editor(
+            Comet::PropertyType::Float, [&](const Comet::PropertyDescriptor& property, void*) {
+                fields.push_back(property.id);
+                return PropertyEditResult{};
+            }));
+        frame();
+        EXPECT_TRUE(fields.empty());
+        peer.add_component<Comet::ColliderComponent>(
+            Comet::ColliderComponent{.shape = Comet::ColliderShape::Sphere});
+        frame();
+        EXPECT_NE(std::find(fields.begin(), fields.end(), "radius"), fields.end());
+        EXPECT_EQ(std::find(fields.begin(), fields.end(), "height"), fields.end());
+        EXPECT_FALSE(history.can_undo());
+    }
+
+    TEST_F(EditingUiTest, ChangingSelectionCommitsTheOldGroupWithoutEditingTheNewTarget) {
+        auto peer = scene.create_entity();
+        auto next = scene.create_entity();
+        selection.select_entities(std::array{peer.get_uuid(), entity.get_uuid()});
+        frame();
+        drag();
+        const auto changed = x();
+        ASSERT_NE(changed, 0);
+        selection.select_entity(next.get_id());
+        frame();
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        EXPECT_FALSE(edit.active());
+        EXPECT_FLOAT_EQ(next.get_component<Comet::TransformComponent>().translation.x, 0);
+        EXPECT_FLOAT_EQ(peer.get_component<Comet::TransformComponent>().translation.x, changed);
+        ASSERT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(x(), 0);
+        EXPECT_FLOAT_EQ(peer.get_component<Comet::TransformComponent>().translation.x, 0);
+    }
+
+    TEST_F(EditingUiTest, MultiSelectionJointAlignmentUsesEachObjectsOwnAnchor) {
+        auto peer = scene.create_entity();
+        entity.edit_transform([](auto& value) { value.translation = {1, 2, 3}; });
+        peer.edit_transform([](auto& value) { value.translation = {10, 20, 30}; });
+        entity.add_component<Comet::PointJointComponent>(
+            Comet::PointJointComponent{.anchor = {1, 0, 0}});
+        peer.add_component<Comet::PointJointComponent>(
+            Comet::PointJointComponent{.anchor = {0, 2, 0}});
+        selection.select_entities(std::array{peer.get_uuid(), entity.get_uuid()});
+        frame();
+        ASSERT_NO_FATAL_FAILURE(align_joint_anchor());
+        EXPECT_EQ(entity.get_component<Comet::PointJointComponent>().connected_anchor,
+            Comet::Math::Vec3(2, 2, 3));
+        EXPECT_EQ(peer.get_component<Comet::PointJointComponent>().connected_anchor,
+            Comet::Math::Vec3(10, 22, 30));
+        ASSERT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(entity.get_component<Comet::PointJointComponent>().connected_anchor,
+            Comet::Math::Vec3(0));
+        EXPECT_EQ(peer.get_component<Comet::PointJointComponent>().connected_anchor,
+            Comet::Math::Vec3(0));
+    }
+
+    TEST_F(EditingUiTest, MultiSelectionParametersPreservePeersAndResetEvenWhenPrimaryInherits) {
+        const Comet::AssetHandle handle{1234};
+        auto script = Comet::Script::create("return {properties = {speed = 100, enabled = true}}");
+        ASSERT_TRUE(script);
+        ASSERT_TRUE(runtime_assets.register_asset(handle, script.value()));
+        auto peer = scene.create_entity();
+        entity.add_component<Comet::ScriptComponent>().asset = handle;
+        peer.add_component<Comet::ScriptComponent>().asset = handle;
+        auto& primary = entity.get_component<Comet::ScriptComponent>();
+        auto& other = peer.get_component<Comet::ScriptComponent>();
+        primary.parameters = {{"enabled", false}};
+        other.parameters = {{"speed", 200.0f}, {"enabled", true}};
+        const auto primary_before = primary.parameters;
+        const auto peer_before = other.parameters;
+        selection.select_entities(std::array{peer.get_uuid(), entity.get_uuid()});
+        ImVec2 label_point;
+        bool assign = false;
+        bool mixed = false;
+        ASSERT_TRUE(widgets.register_editor(Comet::PropertyType::Float,
+            [&, builtin = create_property_editor_registry(assets)](
+                const Comet::PropertyDescriptor& property, void* value) {
+                mixed = (GImGui->CurrentItemFlags & ImGuiItemFlags_MixedValue) != 0;
+                auto result = builtin.edit_property(property, value);
+                const auto maximum = ImGui::GetItemRectMax();
+                label_point = {maximum.x - 2, maximum.y - ImGui::GetTextLineHeight() * 0.5f};
+                if(std::exchange(assign, false)) {
+                    // Choosing the displayed value still changes peers with another value.
+                    *static_cast<float*>(value) = 100.0f;
+                    result = {.changed = true, .finished = true};
+                }
+                return result;
+            }));
+        frame();
+        EXPECT_TRUE(mixed);
+        ASSERT_NO_FATAL_FAILURE(parameter_menu(label_point, "speed"));
+        EXPECT_EQ(primary.parameters, primary_before);
+        EXPECT_FALSE(other.parameters.contains("speed"));
+        EXPECT_TRUE(std::get<bool>(other.parameters.at("enabled")));
+        ASSERT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(other.parameters, peer_before);
+        frame();
+        assign = true;
+        frame();
+        EXPECT_EQ(std::get<float>(primary.parameters.at("speed")), 100);
+        EXPECT_EQ(std::get<float>(other.parameters.at("speed")), 100);
+        EXPECT_FALSE(std::get<bool>(primary.parameters.at("enabled")));
+        EXPECT_TRUE(std::get<bool>(other.parameters.at("enabled")));
+        ASSERT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(primary.parameters, primary_before);
+        EXPECT_EQ(other.parameters, peer_before);
+        frame();
+        restore_parameters();
+        EXPECT_TRUE(primary.parameters.empty());
+        EXPECT_TRUE(other.parameters.empty());
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(primary.parameters, primary_before);
+        EXPECT_EQ(other.parameters, peer_before);
     }
 
     TEST_F(EditingUiTest, DragFloat3CommitsOneRecordOnRelease) {

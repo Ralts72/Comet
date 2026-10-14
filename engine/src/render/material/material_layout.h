@@ -19,12 +19,13 @@ namespace Comet {
     class COMET_API MaterialLayout {
     public:
         struct TextureProperty {
+            enum class Fallback { White, Normal };
             std::string name;
             uint32_t binding;
             std::string display_name;
             std::string shader_name;
-            // 未指定的可选纹理由渲染端绑定白色纹理。
             bool optional = false;
+            Fallback fallback = Fallback::White;
         };
         struct ScalarProperty {
             std::string name;

@@ -13,7 +13,8 @@ namespace Comet::Tests {
     // Mesh／Texture 是身份占位符，只能比较身份，不能解引用或打印对象内容。
     class FakeRenderResourceFactory final: public RenderResourceFactory {
     public:
-        GpuResourceResult<std::shared_ptr<Texture>> try_create_texture(TextureData) override {
+        GpuResourceResult<std::shared_ptr<Texture>> try_create_texture(TextureData data) override {
+            m_last_texture_sampler = data.sampler;
             ++m_texture_creation_count;
             if(m_on_texture_creation) {
                 auto callback = std::exchange(m_on_texture_creation, {});
@@ -67,7 +68,12 @@ namespace Comet::Tests {
             return m_texture_creation_count;
         }
 
+        [[nodiscard]] std::optional<SamplerDesc> last_texture_sampler() const {
+            return m_last_texture_sampler;
+        }
+
     private:
+        std::optional<SamplerDesc> m_last_texture_sampler;
         vk::Result m_failure_result = vk::Result::eErrorOutOfDeviceMemory;
         bool m_fail_mesh_creation = false;
         bool m_fail_texture_creation = false;

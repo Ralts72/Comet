@@ -27,6 +27,7 @@ namespace Comet {
         };
 
         struct Publications {
+            uint64_t builtin_revision = 0;
             std::map<std::pair<AssetHandle, std::string>, Published> programs;
             [[nodiscard]] const Published* published(
                 AssetHandle handle, const std::string& template_name) const;

@@ -1,3 +1,4 @@
+#include "asset/serialization/metadata_serializer.h"
 #include "assets/editor_assets.h"
 #include "scene/editor_scene_session.h"
 #include "scene/scene_document.h"
@@ -41,6 +42,10 @@ namespace CometEditor::Tests {
             std::filesystem::copy_file(
                 std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/meshes/cube.gltf",
                 paths.assets() / "cube.gltf");
+            ASSERT_TRUE(Comet::MetadataSerializer{}.save(
+                Comet::AssetMetadata{
+                    .handle = Comet::AssetHandle::generate(), .type = Comet::AssetType::Mesh},
+                Comet::metadata_path(paths.assets() / "cube.gltf")));
             assets = std::make_unique<EditorAssets>(paths, registry, factory, scheduler);
             ASSERT_TRUE(assets->refresh().succeeded());
             mesh = assets->database().find("cube.gltf")->handle;
@@ -163,7 +168,11 @@ namespace CometEditor::Tests {
             state, serializer, [this] { return active.get(); },
             [this](Owner candidate) { return activate(std::move(candidate), EditorMode::Play); },
             [this](Owner retained) { return replace(std::move(retained), EditorMode::Edit); },
-            [this](Comet::SceneRuntime::State initial) { return runtime.start(*active, initial); });
+            [this](Comet::SceneRuntime::State initial, const Comet::ParameterMap& values,
+                std::string_view checkpoint) {
+                return runtime.start(*active, initial, Comet::SceneRuntime::InputStart::Fresh,
+                    values, std::string(checkpoint));
+            });
         session.request_mode(EditorMode::Play);
         EXPECT_FALSE(session.apply_mode_request());
         EXPECT_EQ(installations, 2);

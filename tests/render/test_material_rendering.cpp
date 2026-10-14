@@ -48,6 +48,58 @@
 #include <string_view>
 
 namespace Comet::Tests {
+    TEST_F(RenderGpuTest, MaterialMinificationSamplesUploadedTwoDimensionalMips) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        MaterialPrograms programs;
+        const Math::Vec2u size{9, 9};
+        auto scene = create_scene(programs, size);
+        ASSERT_TRUE(scene) << scene.error();
+        // 基级红色、后两级绿色／蓝色；UV 的大梯度必须选中最后一级。
+        TextureData data{.width = 4, .height = 4, .mip_levels = 3};
+        for(const auto& [extent, color] : {std::pair{4, std::array<uint8_t, 4>{255, 0, 0, 255}},
+                {2, {0, 255, 0, 255}}, {1, {0, 0, 255, 255}}})
+            for(int i = 0; i < extent * extent; ++i)
+                data.pixels.insert(data.pixels.end(), color.begin(), color.end());
+        auto texture = engine->get_render_resources().try_create_texture(data);
+        ASSERT_TRUE(texture) << texture.error();
+        const auto mesh = engine->get_render_resources().try_create_mesh(
+            {.vertices = {{{-1, -1, 0.5f}, {0, 0}, {0, 0, 1}}, {{1, -1, 0.5f}, {128, 0}, {0, 0, 1}},
+                 {{1, 1, 0.5f}, {128, 128}, {0, 0, 1}}, {{-1, 1, 0.5f}, {0, 128}, {0, 0, 1}}},
+                .indices = {0, 1, 2, 2, 3, 0}});
+        ASSERT_TRUE(mesh);
+        auto material = std::make_shared<Material>("mip test", "pbr");
+        material->set_texture_property("base_color_texture", texture.value());
+        ASSERT_TRUE(material->set_vector_property("base_color", {1, 1, 1, 1}));
+        ASSERT_TRUE(material->set_scalar_property("roughness", 1));
+        RenderWorld world{
+            .render_items = {{.mesh = mesh.value(), .material = {AssetHandle{9400}, material}}},
+            .lights = {{.intensity = Math::PI}}};
+        RenderSubmission submission{
+            world, ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                       Math::ortho(-1, 1, -1, 1, 0.1f, 10)}};
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        begin_frame(frames);
+        RenderGeometry geometry;
+        geometry.prepare(world);
+        auto drawn = scene.value()->render(frames, submission, geometry);
+        ASSERT_TRUE(drawn) << drawn.error();
+        auto output = std::make_shared<Readback>(
+            device, context.get_context().get_physical_device(), 9 * 9 * 4);
+        const auto view =
+            scene.value()->get_offscreen_color_view(frames.get_current_frame_slot_index());
+        const auto format = view->get_image()->get_info().format;
+        finish_readback(*scene.value(), frames, output, size, drawn.value());
+        const auto bytes = output->read();
+        const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+        const auto center = (4 * 9 + 4) * 4;
+        const auto blue = std::to_integer<int>(bytes[center + (bgra ? 0 : 2)]);
+        EXPECT_GT(blue, std::to_integer<int>(bytes[center + (bgra ? 2 : 0)]) + 100);
+        EXPECT_GT(blue, std::to_integer<int>(bytes[center + 1]) + 100);
+    }
+
     class MaterialRenderingTest: public EngineTest {
     protected:
         bool draw(const RenderScene& scene) {
@@ -732,11 +784,18 @@ namespace Comet::Tests {
             result->handle = program_handle;
             result->vertex_words.assign(PBR_VERT.begin(), PBR_VERT.end());
             result->fragment_words.assign(PBR_FRAG.begin(), PBR_FRAG.end());
-            result->material =
-                ShaderProgramMaterial{.textures = {{"base_color_texture", "Base Color", optional}},
-                    .scalars = {{"metallic", "Metallic", 0, 0, 1, 0.01f},
-                        {"roughness", "Roughness", 0.5f, 0.045f, 1, 0.01f}},
-                    .vectors = {{"base_color", "Base Color", {0.8f, 0.8f, 0.8f, 1}, true}}};
+            result->material.emplace();
+            const auto layout = MaterialLayout::find_builtin("pbr");
+            for(const auto& texture : layout->get_textures())
+                result->material->textures.push_back({texture.name, texture.display_name,
+                    texture.name == "base_color_texture" ? optional : true});
+            for(const auto& scalar : layout->get_scalars())
+                result->material->scalars.push_back({scalar.name, scalar.display_name,
+                    scalar.default_value, scalar.min_value, scalar.max_value, scalar.step});
+            for(const auto& vector : layout->get_vectors())
+                result->material->vectors.push_back(
+                    {vector.name, vector.display_name, vector.default_value,
+                        vector.semantic == MaterialLayout::VectorProperty::Semantic::Color});
             return result;
         }
 
@@ -1406,6 +1465,8 @@ namespace Comet::Tests {
             device, context.get_context().get_physical_device(), 4 * 64 * 32 * 4);
         ASSERT_TRUE(readback.get());
         TemporaryDirectory sources;
+        const auto shader_directory =
+            std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/material";
         auto solid_source = read_text_file(
             std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/material/unlit_color.frag");
         ASSERT_TRUE(solid_source) << solid_source.error();
@@ -1413,8 +1474,9 @@ namespace Comet::Tests {
         ASSERT_NE(expression, std::string::npos);
         solid_source.value().insert(expression, "0.5 * ");
         ASSERT_TRUE(write_text_file_atomic(sources.path() / "solid.frag", solid_source.value()));
-        const auto compiled = ShaderCompiler::compile(
-            {.source = sources.path() / "solid.frag", .stage = ShaderStage::Fragment});
+        const auto compiled = ShaderCompiler::compile({.source = sources.path() / "solid.frag",
+            .stage = ShaderStage::Fragment,
+            .include_directories = {shader_directory}});
         ASSERT_TRUE(compiled.succeeded()) << compiled.diagnostics;
         const MaterialShaders updated{{"pbr", {{std::begin(PBR_VERT), std::end(PBR_VERT)},
                                                   {std::begin(PBR_FRAG), std::end(PBR_FRAG)}}},
@@ -1424,8 +1486,6 @@ namespace Comet::Tests {
             std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/material/pbr.frag");
         ASSERT_TRUE(textured_source) << textured_source.error();
         auto relocated_source = textured_source.value();
-        const auto shader_directory =
-            std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/material";
         const auto assignment = textured_source.value().find("color = ");
         ASSERT_NE(assignment, std::string::npos);
         textured_source.value().insert(assignment + std::string_view("color = ").size(), "0.5 * ");
@@ -1442,8 +1502,9 @@ namespace Comet::Tests {
         broken_solid.insert(
             broken_solid.find("color = ") + std::string_view("color = ").size(), "missing * ");
         ASSERT_TRUE(write_text_file_atomic(sources.path() / "broken.frag", broken_solid));
-        const auto broken = ShaderCompiler::compile(
-            {.source = sources.path() / "broken.frag", .stage = ShaderStage::Fragment});
+        const auto broken = ShaderCompiler::compile({.source = sources.path() / "broken.frag",
+            .stage = ShaderStage::Fragment,
+            .include_directories = {shader_directory}});
         ASSERT_TRUE(broken.succeeded()) << broken.diagnostics;
         EXPECT_FALSE(materials->reload_shaders(pipelines,
             {{"pbr", {updated.at("pbr").vertex, changed_textured.words}},
@@ -1454,7 +1515,7 @@ namespace Comet::Tests {
             "layout(set=1,binding=5,std140) uniform MaterialData {float intensity;"
             "layout(offset=32) vec4 color;} material;"
             "void main(){color=vec4(material.color.rgb*material.intensity*0.5,material.color.a);}"));
-        for(const auto& [from, to] : {std::pair{"binding = 0, std140", "binding = 3, std140"},
+        for(const auto& [from, to] : {std::pair{"binding = 0, std140", "binding = 6, std140"},
                 {"vec4 base_color;\n    float metallic;\n    float roughness;",
                     "float metallic;\n    float roughness;\n    layout(offset=32) vec4 base_color;"},
                 {"binding = 1) uniform sampler2D", "binding = 7) uniform sampler2D"}}) {
@@ -1509,9 +1570,10 @@ namespace Comet::Tests {
                         EXPECT_EQ(layout, MaterialLayout::find_builtin(layout->get_name()));
                         continue;
                     }
-                    EXPECT_EQ(layout->get_parameter_size(), 48u);
+                    EXPECT_EQ(
+                        layout->get_parameter_size(), layout->get_name() == "pbr" ? 96u : 48u);
                     if(layout->get_name() == "pbr") {
-                        ASSERT_EQ(layout->get_textures().size(), 1u);
+                        ASSERT_EQ(layout->get_textures().size(), 5u);
                         EXPECT_EQ(layout->get_textures()[0].name, "base_color_texture");
                         EXPECT_EQ(layout->get_textures()[0].binding, 7u);
                         EXPECT_TRUE(layout->get_textures()[0].optional);
@@ -1626,7 +1688,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(rebuilt) << rebuilt.error();
         for(const auto& layout : rebuilt.value()->get_material_layouts()) {
             if(layout->get_name() == "pbr" || layout->get_name() == "unlit_color")
-                EXPECT_EQ(layout->get_parameter_size(), 48u);
+                EXPECT_EQ(layout->get_parameter_size(), layout->get_name() == "pbr" ? 96u : 48u);
             else
                 EXPECT_EQ(layout, MaterialLayout::find_builtin(layout->get_name()));
         }

@@ -24,12 +24,15 @@ set(UNIT_TEST_SOURCES
         asset/test_mesh_artifact.cpp
         asset/test_mesh_data.cpp
         asset/test_mesh_importer.cpp
+        asset/test_model_importer.cpp
         asset/test_metadata.cpp
         asset/test_project_assets.cpp
+        asset/test_product_index.cpp
         asset/test_project_prepare.cpp
         asset/test_registry.cpp
         asset/test_script_assets.cpp
         asset/test_texture_importer.cpp
+        asset/test_texture_artifact.cpp
         common/test_file_io.cpp
         common/test_result.cpp
         common/test_retry_backoff.cpp
@@ -54,6 +57,7 @@ set(UNIT_TEST_SOURCES
         editor/core/test_physics_overlay.cpp
         editor/core/test_command_history.cpp
         editor/core/test_editor_assets.cpp
+        editor/core/test_asset_thumbnails.cpp
         editor/core/test_external_file_import.cpp
         editor/core/test_editor_request_policy.cpp
         editor/core/test_editor_scene_session.cpp
@@ -63,6 +67,7 @@ set(UNIT_TEST_SOURCES
         editor/core/test_window_state.cpp
         editor/core/test_project_session.cpp
         editor/core/test_project_creation.cpp
+        editor/core/test_app_export.cpp
         editor/core/test_project_asset_operations.cpp
         editor/core/test_property_editor_registry.cpp
         editor/core/test_scene_commands.cpp
@@ -77,6 +82,7 @@ set(UNIT_TEST_SOURCES
         editor/core/test_viewport_layout.cpp
         graphics/test_allocator.cpp
         gameplay/test_character_controller.cpp
+        gameplay/test_game_session.cpp
         graphics/test_barrier.cpp
         graphics/test_device_capability.cpp
         graphics/test_queue.cpp
@@ -109,6 +115,7 @@ set(UNIT_TEST_SOURCES
         scene/test_physics_system.cpp
         scene/test_physics_joints.cpp
         scene/test_scene.cpp
+        scene/test_prefab.cpp
         scene/test_scene_runtime.cpp
         scene/test_transform_interpolation.cpp
         scene/test_script_system.cpp
@@ -126,6 +133,7 @@ set(EDITOR_UI_SOURCES
         editor/ui/test_project_settings.cpp
         editor/ui/test_player_input_panel.cpp
         editor/ui/test_path_dialog.cpp
+        editor/ui/test_app_export_dialog.cpp
         editor/ui/test_shortcuts.cpp
         editor/ui/test_unsaved_scene_dialog.cpp
         editor/ui/test_viewport_gizmo_ui.cpp
@@ -137,6 +145,7 @@ set(INTEGRATION_SOURCES
         ui/test_rml_context.cpp
         ui/test_rml_platform.cpp
         editor/integration/test_material_editing.cpp
+        editor/integration/test_asset_thumbnails.cpp
         editor/integration/test_viewport.cpp
         editor/integration/test_game_ui.cpp
         editor/ui/test_animation_preview.cpp
@@ -167,6 +176,7 @@ set(INTEGRATION_SOURCES
         render/test_render_pipeline_gpu.cpp
         render/test_instanced_rendering.cpp
         render/test_environment_rendering.cpp
+        render/test_pbr_surfaces.cpp
         render/test_scene_resolver.cpp
         render/test_script_material.cpp
         runtime/test_engine.cpp
@@ -335,3 +345,12 @@ if (TARGET render_benchmark)
     set_tests_properties(render_benchmark_smoke PROPERTIES
             RESOURCE_LOCK comet_gpu TIMEOUT 90 LABELS "integration;gpu")
 endif ()
+
+if(APPLE AND COMET_BUILD_APP)
+    find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME packaged_app COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_packaged_app.py"
+        --root "${CMAKE_SOURCE_DIR}" --build "${CMAKE_BINARY_DIR}")
+    set_tests_properties(packaged_app PROPERTIES LABELS "integration;gpu"
+        RESOURCE_LOCK comet_gpu TIMEOUT 180)
+endif()

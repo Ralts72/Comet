@@ -50,7 +50,8 @@ namespace Comet::Tests {
         [[nodiscard]] MeshData make_mesh_data() {
             const MeshVertex vertex{.position = {1.0f, 2.0f, 3.0f},
                 .texcoord = {0.25f, 0.75f},
-                .normal = {0.0f, 1.0f, 0.0f}};
+                .normal = {0.0f, 1.0f, 0.0f},
+                .tangent = {1, 0, 0, -1}};
             return {.vertices = {vertex, vertex, vertex}, .indices = {0, 1, 2}};
         }
 
@@ -60,6 +61,7 @@ namespace Comet::Tests {
             EXPECT_EQ(actual.vertices.front().position, expected.vertices.front().position);
             EXPECT_EQ(actual.vertices.front().texcoord, expected.vertices.front().texcoord);
             EXPECT_EQ(actual.vertices.front().normal, expected.vertices.front().normal);
+            EXPECT_EQ(actual.vertices.front().tangent, expected.vertices.front().tangent);
         }
     }
 

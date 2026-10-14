@@ -22,11 +22,14 @@
 
 namespace Comet {
     class SceneSerializer;
+    class Prefab;
+    class ComponentRegistry;
     class SceneRuntime;
     class PhysicsSystem;
     class ScriptSystem;
     class MaterialParameterValidator;
     struct MaterialOverrides;
+    struct ModelData;
 
     struct AnimationPlayback;
 
@@ -64,10 +67,17 @@ namespace Comet {
             EntityUuid uuid, const std::string& name = "Entity");
 
         void destroy_entity(Entity entity);
+        [[nodiscard]] Result<Entity> instantiate_model(const ModelData& model,
+            const std::string& name = "Model", Math::Vec3 position = {},
+            std::optional<uint32_t> model_scene = std::nullopt);
 
         // 仅活动 Runtime 可请求；结构变更在当前启动／更新阶段结束后统一提交。
         [[nodiscard]] std::optional<EntityUuid> request_create_entity(
             std::string_view name = "Entity", const EntityCreation& creation = {});
+        [[nodiscard]] std::optional<EntityUuid> request_instantiate_prefab(
+            std::shared_ptr<const Prefab> prefab,
+            std::shared_ptr<const ComponentRegistry> components,
+            std::optional<Math::Vec3> position = std::nullopt);
         [[nodiscard]] bool request_destroy_entity(Entity entity);
         // 仅移除刚体，保留碰撞体配置和其他组件；无刚体或重复请求幂等成功。
         [[nodiscard]] bool request_remove_rigid_body(Entity entity);
@@ -146,6 +156,7 @@ namespace Comet {
         [[nodiscard]] bool set_post_process(const PostProcessSettings& settings);
 
     private:
+        friend class Prefab;
         friend class Entity;
         friend class SceneSerializer;
         friend class SceneRuntime;
@@ -155,17 +166,26 @@ namespace Comet {
         friend class SceneExtractor;
         friend class TransformInterpolation;
 
+        [[nodiscard]] Result<Entity> instantiate_model_content(const ModelData& model,
+            const std::string& name, Math::Vec3 position, std::optional<uint32_t> model_scene,
+            AssetHandle identity_source);
+
         static constexpr std::size_t MAX_ENTITY_REQUESTS = 1024;
         static constexpr std::size_t MAX_EVENTS = 1024;
 
         struct EntityRequest {
-            enum class Type { Create, Destroy, RemoveRigidBody } type;
+            enum class Type { Create, InstantiatePrefab, Destroy, RemoveRigidBody } type;
             EntityUuid uuid;
             EntityId id = INVALID_ENTITY_ID;
             std::string name;
             EntityCreation creation;
+            std::shared_ptr<const Prefab> prefab;
+            std::shared_ptr<const ComponentRegistry> components;
+            std::optional<Math::Vec3> position;
         };
 
+        [[nodiscard]] bool can_queue_entity_creation(std::size_t count) const;
+        [[nodiscard]] EntityUuid reserve_entity_uuid() const;
         [[nodiscard]] bool begin_runtime();
         [[nodiscard]] bool commit_entity_requests();
         [[nodiscard]] std::vector<Event> take_events();

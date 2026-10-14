@@ -1,6 +1,7 @@
 #pragma once
 
 #include "asset/metadata.h"
+#include "asset/product_index.h"
 #include "common/result.h"
 #include "common/export.h"
 #include "core/project_paths.h"
@@ -24,6 +25,9 @@ namespace Comet {
         std::filesystem::path path;
         AssetImportSettings import_settings;
         std::vector<AssetHandle> dependencies;
+        // 子资源借用模型源路径；按路径查询只返回源资产。
+        AssetHandle source_asset;
+        std::string source_key;
 
         auto operator<=>(const AssetRecord&) const noexcept = default;
     };
@@ -51,6 +55,10 @@ namespace Comet {
 
         explicit AssetDatabase(ProjectPaths paths);
         [[nodiscard]] const ProjectPaths& paths() const noexcept { return m_paths; }
+
+        [[nodiscard]] bool is_read_only() const noexcept { return m_read_only; }
+        [[nodiscard]] Result<void> open_product_index(const ProductIndex& index);
+        [[nodiscard]] const SamplerDesc* product_sampler(AssetHandle handle) const;
 
         [[nodiscard]] AssetScanReport scan();
         // 只读准备可在 Worker 执行；发布必须由数据库 owner 串行调用。
@@ -111,6 +119,8 @@ namespace Comet {
             const FileStates* files = nullptr);
 
         ProjectPaths m_paths;
+        bool m_read_only = false;
+        std::unordered_map<AssetHandle, SamplerDesc> m_product_samplers;
         std::unordered_map<AssetHandle, AssetRecord> m_assets;
         std::unordered_map<std::filesystem::path, AssetHandle> m_handles_by_path;
         std::unordered_map<AssetHandle, std::vector<AssetHandle>> m_dependents_by_dependency;

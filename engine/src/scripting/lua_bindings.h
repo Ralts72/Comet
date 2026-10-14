@@ -12,6 +12,8 @@ struct lua_State;
 
 namespace Comet {
     class InputState;
+    class AssetRegistry;
+    class ComponentRegistry;
     class MaterialParameterValidator;
     class Scene;
     class RuntimeSession;
@@ -25,11 +27,14 @@ namespace Comet {
             AudioCommands* audio = nullptr;
             PhysicsAccess* physics = nullptr;
             const InputState* input = nullptr;
+            const AssetRegistry* assets = nullptr;
+            std::shared_ptr<const ComponentRegistry> components;
             std::uint64_t scene_generation = 0;
             // 由 lua_pcall 外的宿主持有，Lua 内存错误不能跳过 C++ 对象析构。
             std::optional<ParameterValue> return_value;
+            std::vector<EntityUuid> query_entities;
             const MaterialParameterValidator* materials = nullptr;
-            bool can_request_restart = false;
+            bool can_request_scene = false;
             std::vector<std::string>* disabled_input_contexts = nullptr;
             bool can_log = false;
             unsigned log_messages = 0;

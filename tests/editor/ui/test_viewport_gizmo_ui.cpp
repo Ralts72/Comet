@@ -29,6 +29,63 @@ namespace CometEditor::Tests {
         }
     }
 
+    TEST_F(ViewportGizmoUiTest, MultipleSelectionDragsTogetherAndEscapeRestoresBoth) {
+        auto other = scene.create_entity("Other");
+        other.set_transform({.translation = {0, 2, 0}});
+        selection.select_entities(std::vector{other.get_uuid(), entity.get_uuid()});
+        frame();
+        drag();
+        ASSERT_TRUE(gizmo.active());
+        ASSERT_GT(x(), 0);
+        EXPECT_NEAR(other.get_component<Comet::TransformComponent>().translation.x, x(), 0.0001f);
+        ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+        frame();
+        ASSERT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(x(), 0);
+        EXPECT_EQ(other.get_component<Comet::TransformComponent>().translation,
+            Comet::Math::Vec3(0, 2, 0));
+        drag();
+        ASSERT_GT(x(), 0);
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, true);
+        frame();
+        EXPECT_FALSE(gizmo.active());
+        EXPECT_FLOAT_EQ(x(), 0);
+        EXPECT_EQ(other.get_component<Comet::TransformComponent>().translation,
+            Comet::Math::Vec3(0, 2, 0));
+        EXPECT_EQ(history.undo_size(), 0u);
+        EXPECT_FALSE(viewport.take_pick_request());
+    }
+
+    TEST_F(ViewportGizmoUiTest, RejectedGroupScaleKeepsViewportLayoutAndAllowsImmediateRetry) {
+        state.camera.perspective.position = {0, 0, 3};
+        state.camera.target = {};
+        auto other = scene.create_entity("Rotated");
+        other.set_transform({.translation = {0, 2, 0}, .rotation = {0, 0, 45}});
+        selection.select_entities(std::vector{other.get_uuid(), entity.get_uuid()});
+        ASSERT_TRUE(gizmo.set_settings({.mode = TransformGizmo::Mode::Scale}));
+        frame();
+        const auto rect = viewport.get_layout().image_display_rect;
+        drag();
+        EXPECT_FALSE(gizmo.active());
+        EXPECT_FALSE(gizmo.error().empty());
+        ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+        frame();
+        EXPECT_EQ(viewport.get_layout().image_display_rect.min, rect.min);
+        EXPECT_EQ(viewport.get_layout().image_display_rect.max, rect.max);
+        EXPECT_EQ(history.undo_size(), 0u);
+        other.edit_transform([](auto& transform) { transform.rotation = {}; });
+        drag();
+        ASSERT_TRUE(gizmo.active());
+        EXPECT_TRUE(gizmo.error().empty());
+        ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+        frame();
+        EXPECT_EQ(history.undo_size(), 1u);
+        EXPECT_GT(entity.get_component<Comet::TransformComponent>().scale.x, 1);
+        EXPECT_EQ(viewport.get_layout().image_display_rect.min, rect.min);
+        EXPECT_EQ(viewport.get_layout().image_display_rect.max, rect.max);
+    }
+
     TEST_F(ViewportGizmoUiTest, ToolMenuChangesInteractionPolicyWithoutEditingScene) {
         auto* window = ImGui::FindWindowByName("Viewport");
         ASSERT_NE(window, nullptr);

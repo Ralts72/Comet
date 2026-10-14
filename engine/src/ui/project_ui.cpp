@@ -85,7 +85,8 @@ namespace Comet::Ui {
             QualityApply,
             AudioSettings,
             AudioApply,
-            SessionGet
+            SessionGet,
+            Emit
         };
         static bool allowed_before_publication(const Api operation) {
             switch(operation) {
@@ -140,7 +141,8 @@ namespace Comet::Ui {
                             {"quality_apply", static_cast<int>(Api::QualityApply)},
                             {"audio_settings", static_cast<int>(Api::AudioSettings)},
                             {"audio_apply", static_cast<int>(Api::AudioApply)},
-                            {"session_get", static_cast<int>(Api::SessionGet)}},
+                            {"session_get", static_cast<int>(Api::SessionGet)},
+                            {"emit", static_cast<int>(Api::Emit)}},
                       [this](lua_State* state, int api) {
                           return m_host.api(*this, state, static_cast<Api>(api));
                       }) {}
@@ -413,6 +415,18 @@ namespace Comet::Ui {
             return luaL_error(state, "Player input transaction has not been opened");
         auto element = [&](const char* id) { return vm.m_document->GetElementById(id); };
         switch(operation) {
+            case Api::Emit: {
+                if(lua_gettop(state) != 1 || lua_type(state, 1) != LUA_TSTRING)
+                    return luaL_error(state, "ui.emit expects one event name");
+                std::size_t length = 0;
+                const auto* name = lua_tolstring(state, 1, &length);
+                const std::string_view event(name, length);
+                if(!valid_parameter_name(event))
+                    return luaL_error(state, "Expected an event name of at most 128 bytes");
+                lua_pushboolean(
+                    state, m_info.game_available && m_services.emit && m_services.emit(event));
+                return 1;
+            }
             case Api::SessionGet: {
                 std::size_t length = 0;
                 const auto* name = luaL_checklstring(state, 1, &length);

@@ -49,6 +49,8 @@ add_subdirectory(entt EXCLUDE_FROM_ALL)
 block(SCOPE_FOR VARIABLES)
     set(JPH_BUILD_SHARED_LIBS OFF)
     set(OVERRIDE_CXX_FLAGS OFF)
+    # Comet 继承 GroupFilter，须与引擎保持一致的 C++ RTTI。
+    set(CPP_RTTI_ENABLED ON)
     set(INTERPROCEDURAL_OPTIMIZATION OFF)
     set(ENABLE_ALL_WARNINGS OFF)
     set(ENABLE_INSTALL OFF)
@@ -85,6 +87,11 @@ set(SIMDJSON_BUILD_STATIC_LIB OFF CACHE BOOL "" FORCE)
 set(SIMDJSON_ENABLE_THREADS ON CACHE BOOL "" FORCE)
 set(SIMDJSON_INSTALL ON)
 add_subdirectory(simdjson EXCLUDE_FROM_ALL)
+
+# MikkTSpace, pinned upstream 3e895b49d05ea07e4c2133156cfa94369e19e409.
+add_library(comet_mikktspace STATIC MikkTSpace/mikktspace.c)
+target_include_directories(comet_mikktspace PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/MikkTSpace")
+set_target_properties(comet_mikktspace PROPERTIES POSITION_INDEPENDENT_CODE ON C_VISIBILITY_PRESET hidden)
 
 # fastgltf
 set(FASTGLTF_ENABLE_TESTS OFF CACHE BOOL "" FORCE)

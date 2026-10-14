@@ -28,5 +28,5 @@ namespace Comet {
         std::size_t max_results = 2;
         std::chrono::nanoseconds max_time = std::chrono::milliseconds(2);
     };
-    enum class MeshImportMode { IfNeeded, Force };
+    enum class AssetImportMode { IfNeeded, Force };
 }

@@ -1,0 +1,36 @@
+{
+  "version": 2,
+  "template": "pbr",
+  "properties": {
+    "base_color": {
+      "type": "vector",
+      "value": [
+        0.025,
+        0.025,
+        0.025,
+        1
+      ]
+    },
+    "roughness": {
+      "type": "scalar",
+      "value": 0.8
+    },
+    "emissive_color": {
+      "type": "vector",
+      "value": [
+        0.1,
+        0.5,
+        1,
+        1
+      ]
+    },
+    "emissive_strength": {
+      "type": "scalar",
+      "value": 5
+    },
+    "emissive_texture": {
+      "type": "texture",
+      "asset": 5783275031450616066
+    }
+  }
+}

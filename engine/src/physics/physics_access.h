@@ -1,16 +1,20 @@
 #pragma once
 
 #include "common/export.h"
+#include "common/result.h"
 #include "core/math_utils.h"
 #include "scene/entity_id.h"
 #include "scene/entity_uuid.h"
 #include <optional>
+#include <vector>
 
 namespace Comet {
     class Entity;
     class Scene;
     class SceneRuntime;
     class PhysicsService;
+    struct ColliderComponent;
+    struct TransformComponent;
 
     // 玩法借用的物理接口；世界创建、同步与步进仍由 PhysicsService／PhysicsSystem 拥有。
     class COMET_API PhysicsAccess {
@@ -35,6 +39,17 @@ namespace Comet {
             bool run = false;
             bool crouch = false;
         };
+        struct QueryFilter {
+            EntityUuid ignored;
+            bool include_triggers = false;
+            uint32_t layers = UINT32_MAX;
+        };
+        struct QueryHit {
+            EntityUuid entity;
+            Math::Vec3 position{0};
+            Math::Vec3 normal{0};
+            float fraction = 0;
+        };
         virtual ~PhysicsAccess() = default;
         PhysicsAccess(const PhysicsAccess&) = delete;
         PhysicsAccess& operator=(const PhysicsAccess&) = delete;
@@ -57,6 +72,18 @@ namespace Comet {
         // 同步球体扫掠，忽略指定实体和触发器；无命中返回 1，无运行域或无效参数返回空值。
         [[nodiscard]] std::optional<float> sweep_sphere(
             Entity ignored, Math::Vec3 origin, Math::Vec3 displacement, float radius) const;
+        // 最近同步的物理世界；displacement 是完整线段，结果为世界坐标。
+        // 射线从实体内部出发时 fraction 为 0，normal 取线段反方向。
+        [[nodiscard]] Result<std::optional<QueryHit>> raycast(
+            Math::Vec3 origin, Math::Vec3 displacement, const QueryFilter& filter) const;
+        // 按固定姿态平移盒／球／胶囊；仅使用 Collider 的几何字段。
+        // 命中 position 位于目标表面，fraction 为形状中心走过的位移比例。
+        [[nodiscard]] Result<std::optional<QueryHit>> shape_cast(const ColliderComponent& shape,
+            const TransformComponent& transform, Math::Vec3 displacement,
+            const QueryFilter& filter) const;
+        // 返回按 UUID 排序且去重的命中实体；空结果与无效查询通过 Result 区分。
+        [[nodiscard]] Result<std::vector<EntityUuid>> overlap_sphere(
+            Math::Vec3 center, float radius, const QueryFilter& filter) const;
 
     protected:
         PhysicsAccess() = default;
@@ -78,8 +105,13 @@ namespace Comet {
             EntityUuid uuid, EntityId entity, CharacterMove move) = 0;
         virtual std::optional<CharacterState> read_character_state(
             EntityUuid uuid, EntityId entity) const = 0;
-        virtual std::optional<float> cast_sphere(EntityUuid ignored, EntityId entity,
-            Math::Vec3 origin, Math::Vec3 displacement, float radius) const = 0;
+        virtual Result<std::optional<QueryHit>> query_shape(const ColliderComponent& shape,
+            const TransformComponent& transform, Math::Vec3 displacement,
+            const QueryFilter& filter) const = 0;
+        virtual Result<std::optional<QueryHit>> query_ray(
+            Math::Vec3 origin, Math::Vec3 displacement, const QueryFilter& filter) const = 0;
+        virtual Result<std::vector<EntityUuid>> query_overlap(
+            Math::Vec3 center, float radius, const QueryFilter& filter) const = 0;
         virtual void reset() noexcept = 0;
 
         const Scene* m_scene = nullptr;

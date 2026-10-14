@@ -19,7 +19,7 @@ namespace Comet {
     namespace {
         constexpr std::array<std::byte, 8> MAGIC{std::byte{'C'}, std::byte{'O'}, std::byte{'M'},
             std::byte{'E'}, std::byte{'T'}, std::byte{'M'}, std::byte{'S'}, std::byte{'H'}};
-        constexpr std::uint32_t FORMAT_VERSION = 3;
+        constexpr std::uint32_t FORMAT_VERSION = 4;
         constexpr std::uint32_t MAX_INPUT_COUNT = 1024;
         constexpr std::uint32_t MAX_PATH_LENGTH = 16 * 1024;
         bool write_animation(Binary::Writer& writer, const MeshData& mesh) {
@@ -203,14 +203,17 @@ namespace Comet {
                    && reader.read_float(vertex.position.z) && reader.read_float(vertex.texcoord.x)
                    && reader.read_float(vertex.texcoord.y) && reader.read_float(vertex.normal.x)
                    && reader.read_float(vertex.normal.y) && reader.read_float(vertex.normal.z)
-                   && Math::is_finite(vertex.position) && Math::is_finite(vertex.texcoord)
-                   && Math::is_finite(vertex.normal);
+                   && reader.read_float(vertex.tangent.x) && reader.read_float(vertex.tangent.y)
+                   && reader.read_float(vertex.tangent.z) && reader.read_float(vertex.tangent.w)
+                   && Math::is_finite(vertex.tangent) && Math::is_finite(vertex.position)
+                   && Math::is_finite(vertex.texcoord) && Math::is_finite(vertex.normal);
         }
 
         bool write_vertex(Binary::Writer& writer, const MeshVertex& vertex) {
             const std::array values{vertex.position.x, vertex.position.y, vertex.position.z,
                 vertex.texcoord.x, vertex.texcoord.y, vertex.normal.x, vertex.normal.y,
-                vertex.normal.z};
+                vertex.normal.z, vertex.tangent.x, vertex.tangent.y, vertex.tangent.z,
+                vertex.tangent.w};
             if(!std::ranges::all_of(
                    values, [](const float value) { return std::isfinite(value); })) {
                 return false;
@@ -282,7 +285,7 @@ namespace Comet {
             return std::nullopt;
         }
 
-        constexpr std::uint64_t SERIALIZED_VERTEX_SIZE = 8 * sizeof(float);
+        constexpr std::uint64_t SERIALIZED_VERTEX_SIZE = 12 * sizeof(float);
         const std::uint64_t expected_mesh_size =
             static_cast<std::uint64_t>(vertex_count) * SERIALIZED_VERTEX_SIZE
             + static_cast<std::uint64_t>(index_count) * sizeof(std::uint32_t);

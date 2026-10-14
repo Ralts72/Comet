@@ -6,6 +6,7 @@
 #include "scene/scene_commands.h"
 #include "scene/entity_reference.h"
 #include "diagnostics/logger.h"
+#include "common/scope_exit.h"
 
 #include "scene/component_registry.h"
 #include "scene/script_component.h"
@@ -168,7 +169,12 @@ namespace CometEditor {
                 {"rigid_body/mass_mode", "质量计算"}, {"rigid_body/mass", "质量 (kg)"},
                 {"rigid_body/density", "密度 (kg/m³)"},
                 {"rigid_body/continuous_collision", "连续碰撞 (CCD)"}, {"collider/shape", "形状"},
-                {"collider/half_extents", "盒体半尺寸"}, {"collider/radius", "球体半径"},
+                {"collider/collision_layer", "所属碰撞层"},
+                {"collider/collision_mask", "检测碰撞层"},
+                {"character_controller/collision_layer", "所属碰撞层"},
+                {"character_controller/collision_mask", "检测碰撞层"},
+                {"collider/half_extents", "盒体半尺寸"}, {"collider/radius", "球／胶囊半径"},
+                {"collider/height", "胶囊总高度"}, {"collider/mesh", "碰撞网格"},
                 {"collider/is_trigger", "触发器"}, {"collider/friction", "摩擦系数"},
                 {"collider/restitution", "弹性系数"}, {"light/type", "类型"},
                 {"light/enabled", "启用"}, {"light/casts_shadow", "投射阴影（方向光）"},
@@ -178,7 +184,8 @@ namespace CometEditor {
             static constexpr Caption enum_options[]{{"perspective", "透视"},
                 {"orthographic", "正交"}, {"effects", "音效"}, {"music", "音乐"},
                 {"static", "静态"}, {"dynamic", "动态"}, {"kinematic", "运动学"}, {"box", "盒体"},
-                {"sphere", "球体"}, {"directional", "方向光"}, {"point", "点光源"},
+                {"sphere", "球体"}, {"capsule", "胶囊"}, {"convex_hull", "凸包"},
+                {"triangle_mesh", "静态三角网格"}, {"directional", "方向光"}, {"point", "点光源"},
                 {"spot", "聚光灯"}, {"mass", "指定质量"}, {"density", "按密度计算"},
                 {"velocity", "速度"}, {"position", "位置"}, {"free", "自由"}, {"orbit", "环绕"}};
             static constexpr Caption joint_properties[]{{"enabled", "启用"},
@@ -226,6 +233,100 @@ namespace CometEditor {
 
     }
 
+    namespace {
+        template<typename Value>
+        Value merge_edited_value(const Value& before, const Value& after, Value current) {
+            if(before.index() != after.index() || current.index() != after.index())
+                return after;
+            std::visit(
+                [&](auto& value) {
+                    using T = std::decay_t<decltype(value)>;
+                    if constexpr(std::is_same_v<T, Comet::Math::Vec3>
+                                 || std::is_same_v<T, Comet::Math::Vec4>) {
+                        const auto& previous = std::get<T>(before);
+                        const auto& next = std::get<T>(after);
+                        for(int axis = 0; axis < T::length(); ++axis)
+                            if(previous[axis] != next[axis])
+                                value[axis] = next[axis];
+                    } else
+                        value = std::get<T>(after);
+                },
+                current);
+            return current;
+        }
+
+        Comet::ParameterMap merge_parameters(const Comet::Script& script,
+            const Comet::ParameterMap& before, const Comet::ParameterMap& after,
+            Comet::ParameterMap current, std::span<const std::string> changed) {
+            for(const auto& name : changed) {
+                const auto edited = after.find(name);
+                if(edited == after.end()) {
+                    current.erase(name);
+                    continue;
+                }
+                const auto& value = edited->second;
+                const auto previous = before.find(name);
+                const auto& fallback = script.properties().at(name).default_value;
+                const auto local = current.find(name);
+                current.insert_or_assign(
+                    name, merge_edited_value(previous == before.end() ? fallback : previous->second,
+                              value, local == current.end() ? fallback : local->second));
+            }
+            return current;
+        }
+
+        bool property_visible(
+            Comet::Entity entity, std::string_view component, std::string_view property) {
+            if(component == "collider") {
+                const auto& collider = entity.get_component<Comet::ColliderComponent>();
+                if(property == "mesh")
+                    return collider.uses_mesh();
+                if(property == "half_extents")
+                    return collider.shape == Comet::ColliderShape::Box;
+                if(property == "height")
+                    return collider.shape == Comet::ColliderShape::Capsule;
+                if(property == "radius")
+                    return collider.shape == Comet::ColliderShape::Sphere
+                           || collider.shape == Comet::ColliderShape::Capsule;
+            }
+            if(component == "camera_controller"
+                && (property.starts_with("orbit_") || property == "collision_radius"))
+                return entity.get_component<Comet::CameraControllerComponent>().mode
+                       == Comet::CameraControllerComponent::Mode::Orbit;
+            if(component == "rigid_body") {
+                const auto mode = entity.get_component<Comet::RigidBodyComponent>().mass_mode;
+                if(property == "mass")
+                    return mode != Comet::BodyMassMode::Density;
+                if(property == "density")
+                    return mode == Comet::BodyMassMode::Density;
+            }
+            if(component == "hinge_joint")
+                return joint_property_visible(
+                    entity.get_component<Comet::HingeJointComponent>(), property);
+            if(component == "slider_joint")
+                return joint_property_visible(
+                    entity.get_component<Comet::SliderJointComponent>(), property);
+            if(component == "animator") {
+                const bool driven =
+                    bool(entity.get_component<Comet::AnimatorComponent>().character);
+                if(property == "clip" || property == "loop")
+                    return !driven;
+                if(property == "idle" || property == "walk" || property == "run"
+                    || property == "crouch" || property == "crouch_walk" || property == "jump"
+                    || property == "fall")
+                    return driven;
+            }
+            return true;
+        }
+
+        std::string mixed_label(std::string_view label) {
+            const auto split = label.find("###");
+            const auto visible = label.substr(0, split);
+            const auto id = split == std::string_view::npos ? label : label.substr(split + 3);
+            return std::string(visible) + "（多值）###" + std::string(id);
+        }
+    }
+
     InspectorPanel::InspectorPanel(const EditorState& state, SelectionService& selection,
         CommandHistory& history, PropertyEditTransaction& property_edit,
         const Comet::ComponentRegistry& component_registry,
@@ -246,6 +347,12 @@ namespace CometEditor {
 
     void InspectorPanel::render() {
         m_animation_preview_drawn = false;
+        auto selected = m_selection.get_selected_entities();
+        if(selected != m_entities) {
+            if(!finish_edit())
+                return;
+            m_entities = std::move(selected);
+        }
         m_asset_inspector.select(m_selection.get_selected_asset());
         m_asset_assignment.reset();
         if(m_property_edit.editing_scene()
@@ -266,6 +373,9 @@ namespace CometEditor {
         }
 
         if(Comet::Entity entity = m_selection.get_selected_entity()) {
+            if(m_entities.size() > 1)
+                ImGui::TextWrapped("共同属性 · %zu 个实体。多值以主目标显示，修改一轴保留其他轴。",
+                    m_entities.size());
             render_entity(entity);
         } else if(m_selection.get_selected_asset()) {
             static_cast<void>(m_property_edit.commit());
@@ -287,13 +397,15 @@ namespace CometEditor {
     void InspectorPanel::render_entity(Comet::Entity entity) {
         bool active_property_visible = false;
         const bool edit_structure =
-            m_state.mode == EditorMode::Edit && m_history.get_scene()
+            m_entities.size() == 1 && m_state.mode == EditorMode::Edit && m_history.get_scene()
             && m_history.get_scene()->find_entity(entity.get_uuid()) == entity;
         const Comet::ComponentDescriptor* remove = nullptr;
         for(const Comet::ComponentDescriptor& component_descriptor : m_component_descriptions) {
-            if(!component_descriptor.has_component(entity)) {
+            if(!std::ranges::all_of(m_entities, [&](auto uuid) {
+                   return component_descriptor.has_component(
+                       m_selection.get_scene().find_entity(uuid));
+               }))
                 continue;
-            }
 
             ImGui::PushID(component_descriptor.id.c_str());
             if(component_descriptor.id == "name") {
@@ -310,31 +422,21 @@ namespace CometEditor {
                 ImGui::EndPopup();
             }
             if(expanded) {
-                if(component_descriptor.id == "animator")
+                if(component_descriptor.id == "animator" && m_entities.size() == 1)
                     render_animation_preview(entity);
                 if(component_descriptor.id == "character_controller")
                     ImGui::TextWrapped(
                         "脚底为原点，总高须大于直径。角色与刚体不能共用同一实体；保持竖直、无父级和正等比缩放。");
+                if(component_descriptor.id == "collider"
+                    && entity.get_component<Comet::ColliderComponent>().uses_mesh())
+                    ImGui::TextWrapped(
+                        "凸包适合可移动刚体；三角网格仅支持静态刚体，三角形正面参与碰撞。"
+                        "使用网格原点与绑定姿态，支持正非等比缩放，不随骨骼动画变形。");
                 for(const Comet::PropertyDescriptor& property : component_descriptor.properties) {
-                    if(component_descriptor.id == "camera_controller"
-                        && (property.id.starts_with("orbit_") || property.id == "collision_radius")
-                        && entity.get_component<Comet::CameraControllerComponent>().mode
-                               != Comet::CameraControllerComponent::Mode::Orbit)
-                        continue;
-                    if(component_descriptor.id == "rigid_body") {
-                        const auto mode =
-                            entity.get_component<Comet::RigidBodyComponent>().mass_mode;
-                        if((property.id == "mass" && mode == Comet::BodyMassMode::Density)
-                            || (property.id == "density" && mode == Comet::BodyMassMode::Mass))
-                            continue;
-                    }
-                    if(component_descriptor.id == "hinge_joint"
-                        && !joint_property_visible(
-                            entity.get_component<Comet::HingeJointComponent>(), property.id))
-                        continue;
-                    if(component_descriptor.id == "slider_joint"
-                        && !joint_property_visible(
-                            entity.get_component<Comet::SliderJointComponent>(), property.id))
+                    if(!std::ranges::all_of(m_entities, [&](auto uuid) {
+                           return property_visible(m_selection.get_scene().find_entity(uuid),
+                               component_descriptor.id, property.id);
+                       }))
                         continue;
                     ImGui::PushID(property.id.c_str());
                     if(component_descriptor.id == "script"
@@ -342,8 +444,8 @@ namespace CometEditor {
                         render_script_parameters(entity, component_descriptor, property);
                     else
                         render_property(entity, component_descriptor, property);
-                    active_property_visible |= m_property_edit.targets(
-                        {entity.get_uuid(), component_descriptor.id, property.id});
+                    active_property_visible |= m_property_edit.targets_many(
+                        property_targets(component_descriptor.id, property.id));
                     ImGui::PopID();
                 }
             }
@@ -357,6 +459,8 @@ namespace CometEditor {
         ImGui::BeginDisabled(!edit_structure);
         if(ImGui::Button("添加组件###Add Component"))
             ImGui::OpenPopup("Add Component");
+        if(m_entities.size() > 1 && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("添加或移除组件请先选择单个实体");
         if(ImGui::BeginPopup("Add Component")) {
             for(const auto& component : m_component_descriptions) {
                 const bool conflicting =
@@ -483,6 +587,7 @@ namespace CometEditor {
         reset_animation_preview();
         m_asset_assignment.reset();
         m_script_edit_version.reset();
+        m_entities.clear();
         if(!finish_edit(true))
             LOG_ERROR("Cannot cancel Inspector edit before changing scene");
     }
@@ -585,21 +690,23 @@ namespace CometEditor {
     }
 
     void InspectorPanel::render_property(Comet::Entity entity,
-        const Comet::ComponentDescriptor& component, const Comet::PropertyDescriptor& property) {
+        const Comet::ComponentDescriptor& component,
+        const Comet::PropertyDescriptor& source_property) {
+        auto property = source_property;
         if(!property.editable || property.read_only)
             return;
         auto value = property.copy_value(component.get_component(std::as_const(entity)));
         if(!value)
             return;
-        if(component.id == "animator") {
-            const bool driven = bool(entity.get_component<Comet::AnimatorComponent>().character);
-            const bool motion = property.id == "idle" || property.id == "walk"
-                                || property.id == "run" || property.id == "crouch"
-                                || property.id == "crouch_walk" || property.id == "jump"
-                                || property.id == "fall";
-            if((driven && (property.id == "clip" || property.id == "loop")) || (!driven && motion))
-                return;
-        }
+        const bool mixed = std::ranges::any_of(m_entities, [&](auto uuid) {
+            return property.copy_value(
+                       component.get_component(m_selection.get_scene().find_entity(uuid)))
+                   != value;
+        });
+        if(mixed)
+            property.display_name = mixed_label(property.display_name);
+        ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, mixed);
+        const Comet::ScopeExit pop_mixed([] { ImGui::PopItemFlag(); });
         const bool joint = is_joint_component(component.id);
         const bool align_joint =
             joint
@@ -624,16 +731,30 @@ namespace CometEditor {
                 else if(!mesh->animation_data()->find_clip(clip))
                     preview = "片段已丢失：" + clip;
                 if(ImGui::BeginCombo(property.display_name.c_str(), preview.c_str())) {
-                    if(ImGui::Selectable("绑定姿态", clip.empty()) && !clip.empty()) {
+                    if(ImGui::Selectable("绑定姿态", clip.empty() && !mixed)
+                        && (!clip.empty() || mixed)) {
                         clip.clear();
                         result.changed = true;
                     }
-                    for(const auto& candidate : clips)
-                        if(ImGui::Selectable(candidate.name.c_str(), candidate.name == clip)
-                            && candidate.name != clip) {
+                    for(const auto& candidate : clips) {
+                        const bool available =
+                            std::ranges::all_of(m_entities, [&](Comet::EntityUuid uuid) {
+                                const auto other = m_selection.get_scene().find_entity(uuid);
+                                if(!other.has_component<Comet::MeshRendererComponent>())
+                                    return false;
+                                const auto source = m_runtime_assets.resolve<Comet::Mesh>(
+                                    other.get_component<Comet::MeshRendererComponent>().mesh);
+                                return source && source->animation_data()
+                                       && source->animation_data()->find_clip(candidate.name);
+                            });
+                        if(available
+                            && ImGui::Selectable(
+                                candidate.name.c_str(), !mixed && candidate.name == clip)
+                            && (mixed || candidate.name != clip)) {
                             clip = candidate.name;
                             result.changed = true;
                         }
+                    }
                     ImGui::EndCombo();
                 }
                 result.finished = result.changed;
@@ -746,14 +867,21 @@ namespace CometEditor {
                 "软限位的阻尼只在越界时生效；刚体本身的阻尼独立于此参数。");
         if(align_joint) {
             const bool direction = property.id != "connected_anchor";
-            const auto aligned = aligned_joint_value(m_selection.get_scene(), entity, component,
-                std::string_view(property.id).substr(std::string_view("connected_").size()));
+            std::vector<Comet::PropertyValue> aligned;
+            for(auto uuid : m_entities) {
+                const auto value = aligned_joint_value(m_selection.get_scene(),
+                    m_selection.get_scene().find_entity(uuid), component,
+                    std::string_view(property.id).substr(std::string_view("connected_").size()));
+                if(!value)
+                    break;
+                aligned.emplace_back(*value);
+            }
             ImGui::SameLine();
-            ImGui::BeginDisabled(!aligned);
+            ImGui::BeginDisabled(aligned.size() != m_entities.size());
             if(ImGui::Button("对齐###Align joint")) {
                 if(m_property_edit.commit())
-                    apply_property_edit(
-                        entity, component, property, *aligned, {.changed = true, .finished = true});
+                    apply_property_values(property_targets(component.id, property.id), aligned,
+                        {.changed = true, .finished = true});
                 else
                     LOG_ERROR("Cannot finish property edit before aligning joint");
             }
@@ -793,9 +921,9 @@ namespace CometEditor {
             }
         } else
             script = m_runtime_assets.resolve<Comet::Script>(binding.asset);
-        const PropertyEditTransaction::Target target{entity.get_uuid(), component.id, property.id};
+        const auto targets = property_targets(component.id, property.id);
         if(m_script_edit_version != script) {
-            if(m_property_edit.targets(target) && !m_property_edit.cancel()) {
+            if(m_property_edit.targets_many(targets) && !m_property_edit.cancel()) {
                 LOG_ERROR("Cannot cancel parameter edit after script definition changed");
                 return;
             }
@@ -812,75 +940,129 @@ namespace CometEditor {
             ImGui::TextDisabled("%s", "脚本未加载，请查看日志");
             return;
         }
-        if(ImGui::Button("恢复默认参数###Restore default parameters")) {
-            apply_property_edit(entity, component, property, Comet::ParameterMap{},
-                {.changed = true, .finished = true});
-            return;
-        }
-        if(auto checked = script->validate_overrides(binding.parameters); !checked) {
-            ImGui::TextWrapped("%s", checked.error().message.c_str());
-            auto compatible = binding.parameters;
-            script->retain_compatible_overrides(compatible);
-            if(compatible.size() != binding.parameters.size()
-                && script->validate_overrides(compatible)
-                && ImGui::Button("移除不兼容参数覆盖###Remove incompatible overrides")) {
-                apply_property_edit(
-                    entity, component, property, compatible, {.changed = true, .finished = true});
+        std::vector<const Comet::ParameterMap*> peers;
+        for(auto uuid : m_entities) {
+            const auto other = m_selection.get_scene().find_entity(uuid);
+            if(other.get_component<Comet::ScriptComponent>().asset != binding.asset) {
+                ImGui::TextDisabled("不同脚本的参数请单独编辑");
+                return;
             }
+            if(m_state.mode == EditorMode::Play && m_runtime) {
+                const auto* scripts = m_runtime->find_system<Comet::ScriptSystem>();
+                if(!scripts || scripts->running_script(other) != script) {
+                    ImGui::TextDisabled("运行中的脚本版本不同，请单独编辑参数");
+                    return;
+                }
+            }
+            peers.push_back(&other.get_component<Comet::ScriptComponent>().parameters);
+        }
+        if(ImGui::Button("恢复默认参数###Restore default parameters")) {
+            const std::vector<Comet::PropertyValue> values(targets.size(), Comet::ParameterMap{});
+            apply_property_values(targets, values, {.changed = true, .finished = true});
             return;
         }
+        bool compatible = true;
+        bool repairable = true;
+        bool mixed = false;
+        std::vector<Comet::PropertyValue> repaired;
+        for(auto uuid : m_entities) {
+            const auto other = m_selection.get_scene().find_entity(uuid);
+            const auto& parameters = other.get_component<Comet::ScriptComponent>().parameters;
+            mixed |= parameters != binding.parameters;
+            if(const auto checked = script->validate_overrides(parameters); !checked) {
+                ImGui::TextWrapped("%s: %s",
+                    other.get_component<Comet::NameComponent>().name.c_str(),
+                    checked.error().message.c_str());
+                compatible = false;
+            }
+            auto value = parameters;
+            script->retain_compatible_overrides(value);
+            repairable &= bool(script->validate_overrides(value));
+            repaired.emplace_back(std::move(value));
+        }
+        if(!compatible) {
+            if(repairable && ImGui::Button("移除不兼容参数覆盖###Remove incompatible overrides"))
+                apply_property_values(targets, repaired, {.changed = true, .finished = true});
+            return;
+        }
+        if(mixed)
+            ImGui::TextDisabled("参数包含多值；仅同步修改的参数，其他覆盖保持各自配置");
         auto overrides = binding.parameters;
         std::optional<std::uint64_t> drop_generation;
         if(m_state.mode == EditorMode::Edit && m_history.get_scene() == &m_selection.get_scene())
             drop_generation = m_history.generation();
         const auto result = m_property_editor_registry.edit_parameters(
-            script->properties(), overrides, m_selection.get_scene(), drop_generation);
-        apply_property_edit(entity, component, property, overrides, result);
+            script->properties(), overrides, m_selection.get_scene(), drop_generation, peers);
+        std::vector<Comet::PropertyValue> values;
+        if(result.changed)
+            for(const auto* parameters : peers)
+                values.emplace_back(merge_parameters(*script, binding.parameters, overrides,
+                    *parameters, result.changed_parameters));
+        apply_property_values(targets, values, result);
         m_script_active_item = result.active ? m_active_item : 0;
+    }
+
+    std::vector<PropertyEditTransaction::Target> InspectorPanel::property_targets(
+        std::string_view component, std::string_view property) const {
+        std::vector<PropertyEditTransaction::Target> targets;
+        targets.reserve(m_entities.size());
+        for(auto uuid : m_entities)
+            targets.push_back({uuid, std::string(component), std::string(property)});
+        return targets;
     }
 
     void InspectorPanel::apply_property_edit(Comet::Entity entity,
         const Comet::ComponentDescriptor& component, const Comet::PropertyDescriptor& property,
         const Comet::PropertyValue& value, const PropertyEditResult& result) {
-        const PropertyEditTransaction::Target target{entity.get_uuid(), component.id, property.id};
-        const bool changed = result.changed;
-        const bool active = result.active;
-        const bool activated = result.began;
-        const bool deactivated = result.finished;
-        if(active) {
+        const auto targets = property_targets(component.id, property.id);
+        std::vector<Comet::PropertyValue> values;
+        if(result.changed) {
+            const auto before = property.copy_value(component.get_component(entity));
+            if(!before)
+                return;
+            for(const auto& target : targets) {
+                const auto current = property.copy_value(
+                    component.get_component(m_selection.get_scene().find_entity(target.entity)));
+                if(!current)
+                    return;
+                values.push_back(merge_edited_value(*before, value, *current));
+            }
+        }
+        apply_property_values(targets, values, result);
+    }
+
+    void InspectorPanel::apply_property_values(
+        std::span<const PropertyEditTransaction::Target> targets,
+        std::span<const Comet::PropertyValue> values, const PropertyEditResult& result) {
+        if(result.active) {
             m_active_item = result.active_item;
             if(!m_active_item)
                 m_active_item = ImGui::GetItemID();
         }
         if(m_state.mode == EditorMode::Play) {
-            // Play 中仍可调试 Runtime 属性，但不写入 Edit 文档历史。
-            if(changed && !component.assign_property(entity, property.id, value)) {
-                LOG_ERROR("Cannot update runtime property");
-            }
+            if(result.changed
+                && !m_property_edit.write_many(m_selection.get_scene(), targets, values))
+                LOG_ERROR("Cannot update runtime properties");
             return;
         }
-
-        if((activated || changed) && !m_property_edit.targets(target)) {
-            if(!m_property_edit.begin(target)) {
-                LOG_ERROR("Cannot begin edit of {}.{}", component.id, property.id);
+        if((result.began || result.changed) && !m_property_edit.targets_many(targets)) {
+            if(!m_property_edit.begin_many(targets)) {
+                LOG_ERROR("Cannot begin property edit");
                 return;
             }
         }
-        if(m_property_edit.targets(target)) {
-            if(ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-                if(!m_property_edit.cancel())
-                    LOG_ERROR("Cannot cancel property edit");
-                ImGui::ClearActiveID();
-                return;
-            }
-            if(changed && !m_property_edit.preview(value)) {
-                LOG_ERROR("Cannot preview edit of {}.{}", component.id, property.id);
-            }
-            if(deactivated || (changed && !active)) {
-                if(!m_property_edit.commit())
-                    LOG_ERROR("Cannot commit property edit");
-            }
+        if(!m_property_edit.targets_many(targets))
+            return;
+        if(ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            if(!m_property_edit.cancel())
+                LOG_ERROR("Cannot cancel property edit");
+            ImGui::ClearActiveID();
+            return;
         }
+        if(result.changed && !m_property_edit.preview_many(values))
+            LOG_ERROR("Cannot preview property edit");
+        if((result.finished || (result.changed && !result.active)) && !m_property_edit.commit())
+            LOG_ERROR("Cannot commit property edit");
     }
 
     std::optional<InspectorPanel::AssetAssignment> InspectorPanel::take_asset_assignment() {
@@ -901,10 +1083,15 @@ namespace CometEditor {
         const auto type = *property.asset_type;
         if(edit_asset_reference(property.display_name.c_str(), selected, m_asset_database, type))
             m_asset_assignment =
-                AssetAssignment{target, {{selected, m_asset_database.get_revision(selected)},
-                                            m_history.generation(), type}};
-        if(const auto asset = accept_asset_drop(type); asset && asset->target.handle != handle)
-            m_asset_assignment = AssetAssignment{target, *asset};
+                AssetAssignment{property_targets(target.component, target.property),
+                    {{selected, m_asset_database.get_revision(selected)}, m_history.generation(),
+                        type}};
+        if(const auto asset = accept_asset_drop(type);
+            asset
+            && (asset->target.handle != handle
+                || (ImGui::GetCurrentContext()->CurrentItemFlags & ImGuiItemFlags_MixedValue)))
+            m_asset_assignment =
+                AssetAssignment{property_targets(target.component, target.property), *asset};
     }
 
 }

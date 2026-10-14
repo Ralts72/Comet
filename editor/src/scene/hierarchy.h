@@ -23,6 +23,10 @@ namespace CometEditor {
     class HierarchyPanel: public EditorPanel {
     public:
         using Request = SceneEditor::StructureRequest;
+        struct PrefabRequest {
+            Comet::EntityUuid entity;
+            std::uint64_t generation;
+        };
         struct RenameRequest {
             Comet::EntityUuid entity;
             std::string name;
@@ -36,6 +40,7 @@ namespace CometEditor {
 
         void reset_for_scene_change();
         [[nodiscard]] std::optional<Request> take_request();
+        [[nodiscard]] std::optional<PrefabRequest> take_prefab_request();
         [[nodiscard]] std::optional<RenameRequest> take_rename_request();
 
     private:
@@ -43,6 +48,8 @@ namespace CometEditor {
         void render_entity_node(Comet::Entity entity);
         void render_context_menu(Comet::Entity entity);
         void render_rename_dialog();
+        void render_placement_dialog();
+        void apply_selection();
 
         void accept_reparent_drop(Comet::Entity parent);
 
@@ -51,12 +58,19 @@ namespace CometEditor {
         const EditorState& m_state;
         const SceneCommands::EntityClipboard& m_clipboard;
         std::optional<Request> m_request;
+        std::optional<PrefabRequest> m_prefab_request;
         std::optional<RenameRequest> m_rename_request;
         Comet::EntityUuid m_renaming_entity;
         std::uint64_t m_rename_generation = 0;
         std::string m_rename_name;
         bool m_open_rename = false;
         Comet::EntityUuid m_expand_entity;
+        std::vector<Comet::EntityUuid> m_visible_entities;
+        Comet::EntityUuid m_selection_anchor;
+        Comet::EntityUuid m_clicked_entity;
+        Comet::EntityUuid m_pressed_entity;
+        std::optional<Request> m_placement_request;
+        bool m_open_placement = false;
     };
 
 }

@@ -106,7 +106,9 @@ namespace Comet {
         const ImportDependenciesByAsset& import_dependencies_by_asset,
         const std::unordered_map<AssetHandle, AssetRecord>& assets, const FileStates* files) {
         std::uint64_t signature = asset_source_signature(assets_root / record.path, assets_root,
-            find_import_dependencies(import_dependencies_by_asset, record.handle), files);
+            find_import_dependencies(import_dependencies_by_asset,
+                record.source_asset ? record.source_asset : record.handle),
+            files);
         if(record.type != AssetType::ShaderProgram)
             return signature;
 
@@ -124,8 +126,41 @@ namespace Comet {
 
     AssetDatabase::AssetDatabase(ProjectPaths paths) : m_paths(std::move(paths)) {}
 
+    Result<void> AssetDatabase::open_product_index(const ProductIndex& index) {
+        if(m_generation != 0 || !m_assets.empty())
+            return Result<void>::failure("Product index must be opened before using the database");
+        if(auto valid = index.validate(); !valid)
+            return valid;
+        for(const auto& product : index.assets) {
+            if(auto path = m_paths.resolve_asset_path(product.path); !path)
+                return Result<void>::failure(path.error());
+        }
+        for(const auto& product : index.assets) {
+            m_assets.emplace(product.handle, AssetRecord{.handle = product.handle,
+                                                 .type = product.type,
+                                                 .path = product.path,
+                                                 .dependencies = product.dependencies});
+            m_handles_by_path.emplace(product.path, product.handle);
+            m_asset_revisions.emplace(product.handle, m_next_revision++);
+            for(const auto dependency : product.dependencies)
+                m_dependents_by_dependency[dependency].push_back(product.handle);
+            if(product.sampler)
+                m_product_samplers.emplace(product.handle, *product.sampler);
+        }
+        m_read_only = true;
+        ++m_generation;
+        return Result<void>::success();
+    }
+
+    const SamplerDesc* AssetDatabase::product_sampler(AssetHandle handle) const {
+        const auto found = m_product_samplers.find(handle);
+        return found == m_product_samplers.end() ? nullptr : &found->second;
+    }
+
     std::optional<AssetScanReport> AssetDatabase::scan_changed_sources(
         const std::span<const std::filesystem::path> paths) {
+        if(m_read_only)
+            return AssetScanReport{.indexed_assets = m_assets.size()};
         PROFILE_SCOPE("AssetDatabase::scan_changed_sources");
         std::unordered_set<AssetHandle> affected;
         const auto root = m_paths.assets();
@@ -159,7 +194,8 @@ namespace Comet {
             if(dependents == m_dependents_by_dependency.end())
                 continue;
             for(const AssetHandle dependent : dependents->second) {
-                if(m_assets.at(dependent).type == AssetType::ShaderProgram)
+                if(m_assets.at(dependent).type == AssetType::ShaderProgram
+                    || m_assets.at(dependent).source_asset == handle)
                     affected.insert(dependent);
             }
         }
@@ -192,6 +228,8 @@ namespace Comet {
 
     Result<void> AssetDatabase::update_import_settings(
         const AssetHandle handle, AssetImportSettings import_settings) {
+        if(m_read_only)
+            return Result<void>::failure("Product index is read-only");
         const auto asset = m_assets.find(handle);
         if(asset == m_assets.end())
             return Result<void>::failure(
@@ -199,6 +237,9 @@ namespace Comet {
                 + std::to_string(handle.value()));
 
         auto& record = asset->second;
+        if(record.source_asset || record.type == AssetType::Model)
+            return Result<void>::failure(
+                "Model subresource settings are owned by the model importer");
         const auto signature = record_source_signature(record, record.dependencies,
             m_paths.assets(), m_import_dependencies_by_asset, m_assets);
         const auto previous = m_asset_source_signatures.find(handle);
@@ -224,6 +265,8 @@ namespace Comet {
 
     Result<void> AssetDatabase::update_dependencies(
         const AssetHandle handle, std::vector<AssetHandle> dependencies) {
+        if(m_read_only)
+            return Result<void>::failure("Product index is read-only");
         const auto asset = m_assets.find(handle);
         if(asset == m_assets.end()) {
             return Result<void>::failure("Cannot update dependencies for an unindexed asset handle "
@@ -235,6 +278,8 @@ namespace Comet {
             return Result<void>::failure("Cannot register an invalid dependency for asset handle "
                                          + std::to_string(handle.value()));
         }
+        if(asset->second.source_asset)
+            dependencies.push_back(asset->second.source_asset);
         std::ranges::sort(dependencies);
         const auto duplicate = std::ranges::unique(dependencies);
         dependencies.erase(duplicate.begin(), duplicate.end());
@@ -278,6 +323,8 @@ namespace Comet {
 
     Result<void> AssetDatabase::update_import_dependencies(
         const AssetHandle handle, std::vector<std::filesystem::path> dependencies) {
+        if(m_read_only)
+            return Result<void>::failure("Product index is read-only");
         const auto asset = m_assets.find(handle);
         if(asset == m_assets.end()) {
             return Result<void>::failure(
@@ -335,6 +382,12 @@ namespace Comet {
 
         m_asset_source_signatures[handle] = record_source_signature(asset->second,
             asset->second.dependencies, m_paths.assets(), m_import_dependencies_by_asset, m_assets);
+        if(asset->second.type == AssetType::Model)
+            for(const auto child_handle : get_dependents(handle)) {
+                const auto* child = find(child_handle);
+                if(child && child->source_asset == handle)
+                    m_asset_source_signatures[child_handle] = m_asset_source_signatures[handle];
+            }
         ++m_generation;
         return Result<void>::success();
     }
@@ -400,8 +453,13 @@ namespace Comet {
         for(const auto& entry : m_assets) {
             assets.push_back(entry.second);
         }
-        std::ranges::sort(
-            assets, {}, [](const AssetRecord& asset) { return asset.path.generic_string(); });
+        std::ranges::sort(assets, [](const AssetRecord& left, const AssetRecord& right) {
+            const auto left_path = left.path.generic_string(),
+                       right_path = right.path.generic_string();
+            if(left_path == right_path)
+                return left.source_key < right.source_key;
+            return left_path < right_path;
+        });
         return assets;
     }
 

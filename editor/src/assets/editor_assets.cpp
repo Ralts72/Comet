@@ -20,8 +20,9 @@ namespace CometEditor {
         AssetSourceOperations::TrashMover trash_mover)
         : m_limits(limits), m_trash_mover(std::move(trash_mover)), m_database(std::move(paths)),
           m_manager(m_database, registry, factory, scheduler, m_limits),
-          m_scene_assets(m_database, m_manager), m_monitor(m_database.paths().assets()),
-          m_scheduler(scheduler), m_quiet_period(quiet_period) {
+          m_scene_assets(m_database, m_manager), m_thumbnails(m_database, scheduler),
+          m_monitor(m_database.paths().assets()), m_scheduler(scheduler),
+          m_quiet_period(quiet_period) {
         if(!m_trash_mover)
             m_trash_mover = SystemTrash::move;
         std::error_code error;
@@ -75,8 +76,7 @@ namespace CometEditor {
                 const auto* record = database().find(handle);
                 if(!record)
                     continue;
-                if(record->type == Comet::AssetType::Mesh)
-                    m_pending_mesh_imports.try_emplace(handle, Comet::MeshImportMode::IfNeeded);
+                queue_source_import(*record);
                 if(record->type == Comet::AssetType::ShaderProgram) {
                     auto& due = m_pending_shader_programs[handle];
                     if(change_time)
@@ -87,13 +87,15 @@ namespace CometEditor {
             }
             for(const auto handle : report.removed_assets)
                 m_pending_shader_programs.erase(handle);
-            std::erase_if(m_pending_mesh_imports, [&](const auto& entry) {
+            std::erase_if(m_pending_source_imports, [&](const auto& entry) {
                 const auto* record = database().find(entry.first);
-                return !record || record->type != Comet::AssetType::Mesh;
+                return !record || record->source_asset
+                       || (record->type != Comet::AssetType::Mesh
+                           && record->type != Comet::AssetType::Model);
             });
             // 首次导入失败时依赖可能尚未入库，后续文件变化仍需重试它。
-            for(const auto handle : m_manager.mesh_imports_needing_recheck())
-                m_pending_mesh_imports.try_emplace(handle, Comet::MeshImportMode::IfNeeded);
+            for(const auto handle : m_manager.source_imports_needing_recheck())
+                m_pending_source_imports.try_emplace(handle, Comet::AssetImportMode::IfNeeded);
         }
         m_scene_assets.accept_scan(report);
         if(report.generated_metadata) {
@@ -115,9 +117,7 @@ namespace CometEditor {
         accept_scan(report);
         if(report.snapshot_updated) {
             for(const auto& record : database().get_assets()) {
-                if(record.type == Comet::AssetType::Mesh)
-                    m_pending_mesh_imports.try_emplace(
-                        record.handle, Comet::MeshImportMode::IfNeeded);
+                queue_source_import(record);
             }
         }
         return report;
@@ -130,11 +130,17 @@ namespace CometEditor {
         advance_file_import(report);
         submit_pending_scan();
         schedule_shader_program_imports(now);
-        schedule_mesh_imports();
+        schedule_source_imports();
         auto completed = m_manager.process_completions();
         if(!completed)
             return Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error>::failure(
                 completed.error());
+        for(const auto handle : completed.value()) {
+            m_thumbnails.invalidate(handle);
+            if(const auto* record = database().find(handle);
+                record && record->type == Comet::AssetType::Model)
+                acknowledge(Comet::metadata_path(record->path));
+        }
         m_scene_assets.mark_changed(completed.value());
         return Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error>::success(
             std::move(report));
@@ -237,21 +243,39 @@ namespace CometEditor {
         }
     }
 
-    void EditorAssets::schedule_mesh_imports() {
-        for(auto request = m_pending_mesh_imports.begin();
-            request != m_pending_mesh_imports.end();) {
+    void EditorAssets::queue_source_import(
+        const Comet::AssetRecord& record, Comet::AssetImportMode mode) {
+        if(!record.source_asset && record.type != Comet::AssetType::Mesh
+            && record.type != Comet::AssetType::Model)
+            return;
+        const auto source = record.source_asset ? record.source_asset : record.handle;
+        if(mode == Comet::AssetImportMode::Force)
+            m_pending_source_imports[source] = mode;
+        else
+            m_pending_source_imports.try_emplace(source, mode);
+    }
+
+    void EditorAssets::schedule_source_imports() {
+        for(auto request = m_pending_source_imports.begin();
+            request != m_pending_source_imports.end();) {
             const auto* record = database().find(request->first);
-            if(!record || record->type != Comet::AssetType::Mesh) {
-                request = m_pending_mesh_imports.erase(request);
+            if(!record
+                || (record->type != Comet::AssetType::Mesh
+                    && record->type != Comet::AssetType::Model)) {
+                request = m_pending_source_imports.erase(request);
                 continue;
             }
-            if(m_manager.is_mesh_import_pending(request->first)) {
+            if(m_manager.is_import_pending(request->first)) {
                 ++request;
                 continue;
             }
-            if(!m_manager.import_mesh_async(request->first, request->second))
+            const bool accepted =
+                record->type == Comet::AssetType::Model
+                    ? m_manager.import_model_async(request->first, request->second)
+                    : m_manager.import_mesh_async(request->first, request->second);
+            if(!accepted)
                 break;
-            request = m_pending_mesh_imports.erase(request);
+            request = m_pending_source_imports.erase(request);
         }
     }
 
@@ -340,6 +364,46 @@ namespace CometEditor {
         return Comet::Result<void>::success();
     }
 
+    Comet::AssetScanReport EditorAssets::create_prefab(const std::filesystem::path& destination,
+        const Comet::Prefab& prefab, const Comet::ComponentRegistry& registry) {
+        auto report =
+            AssetSourceOperations::create_prefab(m_database, destination, prefab, registry);
+        if(report.snapshot_updated) {
+            acknowledge(destination);
+            acknowledge(Comet::metadata_path(destination));
+        }
+        accept_scan(report);
+        return report;
+    }
+
+    Comet::Result<void> EditorAssets::save_prefab(const Comet::AssetTarget& target,
+        const Comet::Prefab& prefab, const Comet::ComponentRegistry& registry) {
+        auto report = AssetSourceOperations::save_prefab(m_database, target, prefab, registry);
+        if(const auto* record = m_database.find(target.handle))
+            acknowledge(record->path);
+        accept_scan(report);
+        if(!report.succeeded() || !report.snapshot_updated)
+            return Comet::Result<void>::failure(
+                report.issues.empty() ? "Cannot save prefab" : report.issues.front().message);
+        return Comet::Result<void>::success();
+    }
+
+    Comet::Result<Comet::Prefab> EditorAssets::load_prefab(
+        const Comet::AssetTarget& target, const Comet::ComponentRegistry& registry) {
+        const auto* record = m_database.find(target.handle);
+        if(!record || !m_database.is_current(target))
+            return Comet::Result<Comet::Prefab>::failure("Prefab identity is stale or invalid");
+        if(record->type == Comet::AssetType::Prefab)
+            return Comet::Prefab::load(m_database.paths().assets() / record->path, registry);
+        if(record->type != Comet::AssetType::Model)
+            return Comet::Result<Comet::Prefab>::failure("Asset is not a prefab or model source");
+        const auto name = record->path.stem().string();
+        auto model = m_manager.load_model(target.handle);
+        if(!model)
+            return Comet::Result<Comet::Prefab>::failure(model.error().message);
+        return Comet::Prefab::from_model(*model.value(), target.handle, registry, name);
+    }
+
     Comet::AssetScanReport EditorAssets::create_material(
         const std::filesystem::path& destination, const Comet::MaterialData& data) {
         auto report = AssetSourceOperations::create_material(m_database, destination, data);
@@ -425,14 +489,20 @@ namespace CometEditor {
         return Comet::Result<void, Comet::Error>::success();
     }
 
-    void EditorAssets::request_mesh_reimport(const Comet::AssetHandle handle) {
+    Comet::Result<std::shared_ptr<const Comet::ModelData>, Comet::Error> EditorAssets::load_model(
+        const Comet::AssetTarget& target) {
+        if(!database().is_current(target))
+            return Comet::Result<std::shared_ptr<const Comet::ModelData>, Comet::Error>::failure(
+                {"Model insertion request is stale"});
+        return m_manager.load_model(target.handle);
+    }
+
+    void EditorAssets::request_source_reimport(const Comet::AssetHandle handle) {
         const auto* record = database().find(handle);
-        if(!record || record->type != Comet::AssetType::Mesh)
+        if(!record)
             return;
-        if(m_manager.import_mesh_async(handle, Comet::MeshImportMode::Force))
-            m_pending_mesh_imports.erase(handle);
-        else
-            m_pending_mesh_imports[handle] = Comet::MeshImportMode::Force;
+        queue_source_import(*record, Comet::AssetImportMode::Force);
+        schedule_source_imports();
     }
 
     Comet::Result<void, Comet::Error> EditorAssets::load_reference(const Comet::AssetHandle handle,

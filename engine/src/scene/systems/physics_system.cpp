@@ -59,6 +59,10 @@ namespace Comet {
             joints_changed |= scene.m_registry.all_of<RigidBodyComponent>(handle)
                               && result.value() != PhysicsService::ObjectChange::None;
         }
+        const auto mesh_changes = m_physics.synchronize_meshes();
+        if(!mesh_changes)
+            return Result<void, Error>::failure(mesh_changes.error());
+        joints_changed |= mesh_changes.value();
         if(joints_changed) {
             if(auto result = synchronize_joints(scene); !result)
                 return result;

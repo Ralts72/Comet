@@ -2,6 +2,7 @@
 
 #include "common/export.h"
 #include "asset/handle.h"
+#include "asset/data/material_data.h"
 #include "core/math_utils.h"
 
 #include <cstdint>
@@ -25,6 +26,9 @@ namespace Comet {
         [[nodiscard]] const std::string& get_template_name() const { return m_template_name; }
         [[nodiscard]] AssetHandle get_shader_program() const { return m_shader_program; }
 
+        [[nodiscard]] const MaterialSurface& get_surface() const { return m_surface; }
+        [[nodiscard]] bool set_surface(MaterialSurface surface);
+
         // Main 捕获独立参数版本；同版本复用，之后修改不影响旧快照。
         [[nodiscard]] std::shared_ptr<const Material> snapshot() const;
 
@@ -44,6 +48,7 @@ namespace Comet {
         std::string m_template_name;
         AssetHandle m_shader_program;
         uint64_t m_revision = 1;
+        MaterialSurface m_surface;
         std::map<std::string, std::shared_ptr<Texture>> m_texture_properties;
         std::map<std::string, float> m_scalar_properties;
         std::map<std::string, Math::Vec4> m_vector_properties;

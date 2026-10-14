@@ -1,7 +1,103 @@
 #include "asset/default_assets.h"
 #include "support/asset_manager_fixture.h"
+#include "asset/import/import_service.h"
 
 namespace Comet::Tests {
+    TEST(AssetManagerTest, ReadsCpuMeshWithoutCreatingOrPublishingRenderResources) {
+        const TemporaryProject project;
+        const AssetHandle handle{42};
+        const auto buffer = project.add_external_mesh(handle);
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        EXPECT_FALSE(manager.read_mesh_data(handle));
+        ASSERT_TRUE(manager.import_mesh(handle));
+        const std::array cpu_references{AssetReference{handle, AssetType::Mesh, true, true}};
+        EXPECT_FALSE(manager.references_ready(
+            cpu_references, AssetManager::MissingAssetPolicy::FailRequired));
+        ASSERT_TRUE(manager.prepare_references(
+            cpu_references, AssetManager::MissingAssetPolicy::FailRequired));
+        const auto ready = manager.references_ready(
+            cpu_references, AssetManager::MissingAssetPolicy::FailRequired);
+        ASSERT_TRUE(ready);
+        EXPECT_TRUE(ready.value());
+        const auto first = manager.read_mesh_data(handle);
+        ASSERT_TRUE(first) << first.error().message;
+        const auto first_revision = manager.mesh_data_revision(handle);
+        ASSERT_EQ(first.value().vertices.size(), 3u);
+        EXPECT_EQ(first.value().vertices[1].position, Math::Vec3(1, 0, 0));
+        EXPECT_EQ(first.value().indices, (std::vector<uint32_t>{0, 1, 2}));
+        EXPECT_FALSE(registry.contains(handle));
+        EXPECT_EQ(factory.mesh_creation_count(), 0u);
+
+        TemporaryProject::write_external_mesh_buffer(buffer, true);
+        ASSERT_TRUE(manager.scan().succeeded());
+        EXPECT_FALSE(manager.read_mesh_data(handle));
+        const auto invalid_revision = manager.mesh_data_revision(handle);
+        EXPECT_NE(invalid_revision, first_revision);
+        EXPECT_FALSE(manager.references_ready(
+            cpu_references, AssetManager::MissingAssetPolicy::FailRequired));
+        ASSERT_TRUE(manager.import_mesh(handle));
+        const auto second = manager.read_mesh_data(handle);
+        ASSERT_TRUE(second) << second.error().message;
+        EXPECT_NE(manager.mesh_data_revision(handle), invalid_revision);
+        EXPECT_EQ(second.value().vertices[1].position, Math::Vec3(2, 0, 0));
+        EXPECT_EQ(first.value().vertices[1].position, Math::Vec3(1, 0, 0));
+        EXPECT_EQ(factory.mesh_creation_count(), 0u);
+        EXPECT_FALSE(registry.contains(handle));
+        EXPECT_FALSE(manager.read_mesh_data({}));
+        EXPECT_FALSE(manager.read_mesh_data(DEFAULT_PBR_MATERIAL));
+        EXPECT_FALSE(manager.read_mesh_data(AssetHandle{999}));
+
+        ImportService imports(project.paths());
+        ASSERT_TRUE(write_text_file_atomic(imports.mesh_artifact_path(handle), "corrupt"));
+        EXPECT_FALSE(manager.read_mesh_data(handle));
+        EXPECT_EQ(factory.mesh_creation_count(), 0u);
+        EXPECT_FALSE(manager.references_ready(
+            cpu_references, AssetManager::MissingAssetPolicy::FailRequired));
+    }
+
+    TEST(AssetManagerTest, DefaultCharacterSupportsStartupImportWithoutProjectFiles) {
+        const TemporaryProject project;
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+
+        ASSERT_TRUE(manager.import_mesh(DEFAULT_CHARACTER_MESH));
+        EXPECT_FALSE(manager.get_database().find(DEFAULT_CHARACTER_MESH));
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
+        const auto geometry = manager.read_mesh_data(DEFAULT_CHARACTER_MESH);
+        ASSERT_TRUE(geometry) << geometry.error().message;
+        EXPECT_FALSE(geometry.value().vertices.empty());
+        EXPECT_FALSE(geometry.value().indices.empty());
+        EXPECT_TRUE(geometry.value().animation);
+        EXPECT_FALSE(registry.contains(DEFAULT_CHARACTER_MESH));
+        EXPECT_EQ(factory.mesh_creation_count(), 0);
+        EXPECT_FALSE(manager.import_mesh(DEFAULT_PBR_MATERIAL));
+        EXPECT_FALSE(manager.import_mesh({}));
+        EXPECT_FALSE(manager.import_mesh(AssetHandle{999}));
+
+        const std::array references{AssetReference{DEFAULT_CHARACTER_MESH, AssetType::Mesh},
+            AssetReference{DEFAULT_PBR_MATERIAL, AssetType::Material}};
+        ASSERT_TRUE(
+            manager.prepare_references(references, AssetManager::MissingAssetPolicy::FailRequired));
+        const auto ready =
+            manager.references_ready(references, AssetManager::MissingAssetPolicy::FailRequired);
+        ASSERT_TRUE(ready);
+        EXPECT_TRUE(ready.value());
+        const auto mesh = registry.resolve<Mesh>(DEFAULT_CHARACTER_MESH);
+        ASSERT_TRUE(mesh);
+        EXPECT_GT(factory.last_mesh_vertex_count(), 0);
+        EXPECT_EQ(factory.mesh_creation_count(), 1);
+        EXPECT_TRUE(manager.import_mesh(DEFAULT_CHARACTER_MESH));
+        EXPECT_EQ(manager.load_mesh(DEFAULT_CHARACTER_MESH).value(), mesh);
+        EXPECT_EQ(factory.mesh_creation_count(), 1);
+    }
+
     TEST(AssetManagerTest, DefaultMaterialsLoadWithoutProjectFilesAndRetainTypedIdentity) {
         const TemporaryProject project;
         AssetRegistry registry;
@@ -64,7 +160,7 @@ namespace Comet::Tests {
 
     class MeshAsyncImportTest: public ::testing::Test {
     protected:
-        using Mode = MeshImportMode;
+        using Mode = AssetImportMode;
         static constexpr AssetHandle handle{42};
         TemporaryProject project;
         AssetRegistry registry;

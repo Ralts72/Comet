@@ -616,4 +616,16 @@ namespace Comet {
         Fifo = 2,
         FifoRelaxed = 3,
     };
+    struct SamplerDesc {
+        Filter mag_filter = Filter::Linear;
+        Filter min_filter = Filter::Linear;
+        SamplerMipmapMode mipmap_mode = SamplerMipmapMode::Linear;
+        SamplerAddressMode address_mode_u = SamplerAddressMode::Repeat;
+        SamplerAddressMode address_mode_v = SamplerAddressMode::Repeat;
+        SamplerAddressMode address_mode_w = SamplerAddressMode::Repeat;
+        float max_anisotropy = 1.0f;
+
+        bool operator==(const SamplerDesc&) const = default;
+    };
+
 }

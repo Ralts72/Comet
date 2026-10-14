@@ -108,6 +108,26 @@ namespace Comet {
 
     AssetScanReport AssetDatabase::scan() {
         PROFILE_SCOPE("AssetDatabase::scan");
+        if(m_read_only)
+            return AssetScanReport{.indexed_assets = m_assets.size()};
+        const auto index_path = m_paths.root() / ProductIndex::FILENAME;
+        std::error_code error;
+        const bool product = std::filesystem::exists(index_path, error);
+        if(error)
+            return AssetScanReport{.issues = {{index_path, error.message()}}};
+        if(product) {
+            auto index = ProductIndex::load(index_path);
+            if(!index)
+                return AssetScanReport{.issues = {{index_path, index.error()}}};
+            auto opened = open_product_index(index.value());
+            if(!opened)
+                return AssetScanReport{.issues = {{index_path, opened.error()}}};
+            AssetScanReport report{.indexed_assets = m_assets.size(), .snapshot_updated = true};
+            for(const auto& asset : index.value().assets)
+                report.added_assets.push_back(asset.handle);
+            return report;
+        }
+
         for(int attempt = 0; attempt < 2; ++attempt) {
             if(auto report = publish_scan(prepare_scan(m_paths, m_generation)))
                 return std::move(*report);
@@ -259,6 +279,11 @@ namespace Comet {
                 }
                 candidate.metadata = std::move(metadata).value();
 
+                // 已有单网格资产保留身份；新 glTF 默认导入完整模型。
+                if(candidate.expected_type == AssetType::Model
+                    && candidate.metadata->type == AssetType::Mesh)
+                    candidate.expected_type = AssetType::Mesh;
+
                 if(candidate.metadata->type != candidate.expected_type) {
                     add_issue(report, sidecar->second.lexically_relative(assets_root),
                         "metadata type '" + std::string(to_string(candidate.metadata->type))
@@ -300,6 +325,10 @@ namespace Comet {
     std::optional<AssetScanReport> AssetDatabase::publish_scan(
         std::shared_ptr<PreparedScan> prepared) {
         PROFILE_SCOPE("AssetDatabase::publish_scan");
+        if(m_read_only)
+            return AssetScanReport{.indexed_assets = m_assets.size(),
+                .issues = {{m_paths.root(), "Product index is read-only"}}};
+
         if(!prepared || prepared->assets_root != m_paths.assets()
             || prepared->database_generation != m_generation)
             return std::nullopt;
@@ -350,6 +379,8 @@ namespace Comet {
                 add_issue(report, candidate.relative_path,
                     "duplicate guid " + std::to_string(handle.value()) + "; already used by '"
                         + path_text(existing->second) + "'");
+                if(assets.at(handle).source_asset || !candidate.metadata->subresources.empty())
+                    identity_conflict = true;
                 continue;
             }
 
@@ -359,6 +390,32 @@ namespace Comet {
                 .import_settings = candidate.metadata->import_settings};
             assets.emplace(handle, record);
             handles_by_path.emplace(record.path, handle);
+            for(const auto& child : candidate.metadata->subresources) {
+                const auto previous_child = m_assets.find(child.handle);
+                if(previous_child != m_assets.end()
+                    && (previous_child->second.type != child.type
+                        || previous_child->second.source_asset != handle)) {
+                    add_issue(report, candidate.relative_path,
+                        "model subresource guid cannot change type or source asset");
+                    identity_conflict = true;
+                    continue;
+                }
+                if(!known_handles.emplace(child.handle, candidate.relative_path).second) {
+                    add_issue(report, candidate.relative_path,
+                        "duplicate model subresource guid " + std::to_string(child.handle.value()));
+                    identity_conflict = true;
+                    continue;
+                }
+                assets.emplace(
+                    child.handle, AssetRecord{.handle = child.handle,
+                                      .type = child.type,
+                                      .path = record.path,
+                                      .import_settings = make_default_import_settings(child.type),
+                                      .dependencies = {handle},
+                                      .source_asset = handle,
+                                      .source_key = child.key});
+                dependents_by_dependency[handle].push_back(child.handle);
+            }
         }
 
         if(identity_conflict) {

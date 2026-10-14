@@ -14,6 +14,8 @@ namespace Comet {
                 return *static_cast<const ParameterMap*>(value);
             case PropertyType::Bool:
                 return *static_cast<const bool*>(value);
+            case PropertyType::UInt32:
+                return *static_cast<const uint32_t*>(value);
             case PropertyType::Float:
                 return *static_cast<const float*>(value);
             case PropertyType::Vec3:
@@ -35,7 +37,7 @@ namespace Comet {
     }
 
     bool PropertyDescriptor::accepts_value(const PropertyValue& value) const {
-        const auto in_bounds = [this](const float number) {
+        const auto in_bounds = [this](const double number) {
             return !numeric.enforce_bounds
                    || ((!numeric.minimum || number >= *numeric.minimum)
                        && (!numeric.maximum || number <= *numeric.maximum));
@@ -45,6 +47,8 @@ namespace Comet {
                 using Value = std::remove_cvref_t<decltype(source)>;
                 if constexpr(std::is_same_v<Value, bool>)
                     return type == PropertyType::Bool;
+                else if constexpr(std::is_same_v<Value, uint32_t>)
+                    return type == PropertyType::UInt32 && in_bounds(source);
                 else if constexpr(std::is_same_v<Value, float>)
                     return type == PropertyType::Float && std::isfinite(source)
                            && in_bounds(source);

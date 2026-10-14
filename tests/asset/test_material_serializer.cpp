@@ -24,6 +24,36 @@ namespace Comet::Tests {
         EXPECT_EQ(get_asset_dependencies(decoded.value()), std::vector{AssetHandle(73)});
     }
 
+    TEST(MaterialSerializerTest, RoundTripsSurfaceModesAndRejectsInvalidSurfaceValues) {
+        const MaterialSerializer serializer;
+        for(const auto mode : {AlphaMode::Opaque, AlphaMode::Mask, AlphaMode::Blend}) {
+            MaterialData data{.template_name = "pbr",
+                .surface = {.alpha_mode = mode, .alpha_cutoff = 0.25f, .double_sided = true}};
+            const auto encoded = serializer.serialize(data);
+            ASSERT_TRUE(encoded) << encoded.error();
+            const auto decoded = serializer.deserialize(encoded.value());
+            ASSERT_TRUE(decoded) << decoded.error();
+            EXPECT_EQ(decoded.value(), data);
+        }
+        const auto legacy =
+            serializer.deserialize(R"({"version":2,"template":"pbr","properties":{}})");
+        ASSERT_TRUE(legacy);
+        EXPECT_EQ(legacy.value().surface, MaterialSurface{});
+        for(const auto surface :
+            {R"({"alpha_mode":"unknown","alpha_cutoff":0.5,"double_sided":false})",
+                R"({"alpha_mode":"mask","alpha_cutoff":-0.1,"double_sided":false})",
+                R"({"alpha_mode":"mask","alpha_cutoff":1.1,"double_sided":false})",
+                R"({"alpha_mode":"mask","alpha_cutoff":0.5,"double_sided":1})",
+                R"({"alpha_mode":"mask","alpha_cutoff":0.5,"double_sided":false,"typo":true})"}) {
+            const auto decoded = serializer.deserialize(
+                std::string(R"({"version":2,"template":"pbr","properties":{},"surface":)") + surface
+                + "}");
+            EXPECT_FALSE(decoded) << surface;
+        }
+        EXPECT_FALSE(serializer.serialize(
+            {.template_name = "pbr", .surface = {.alpha_mode = static_cast<AlphaMode>(255)}}));
+    }
+
     TEST(MaterialSerializerTest, ProjectShaderProgramIsAnOptionalStableDependency) {
         MaterialData data{.template_name = "pbr",
             .shader_program = AssetHandle(91),

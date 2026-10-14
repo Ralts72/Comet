@@ -1,0 +1,57 @@
+{
+  "version": 3,
+  "guid": 7863069821640201001,
+  "type": "model",
+  "subresources": [
+    {
+      "key": "material/name/11:window_trim",
+      "guid": 10080528509593984676,
+      "type": "material"
+    },
+    {
+      "key": "material/name/5:glass",
+      "guid": 12135040647712799479,
+      "type": "material"
+    },
+    {
+      "key": "material/name/5:truck",
+      "guid": 660478130742692556,
+      "type": "material"
+    },
+    {
+      "key": "material/name/6:wheels",
+      "guid": 2693862291763048025,
+      "type": "material"
+    },
+    {
+      "key": "mesh/name/17:Cesium_Milk_Truck/primitive/0",
+      "guid": 7908696694457961539,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/17:Cesium_Milk_Truck/primitive/1",
+      "guid": 16759137080073690721,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/17:Cesium_Milk_Truck/primitive/2",
+      "guid": 10373782156231216819,
+      "type": "mesh"
+    },
+    {
+      "key": "mesh/name/6:Wheels/primitive/0",
+      "guid": 14287684256376487537,
+      "type": "mesh"
+    },
+    {
+      "key": "texture/index/0/srgb",
+      "guid": 11446216693505509626,
+      "type": "texture"
+    },
+    {
+      "key": "texture/index/1/srgb",
+      "guid": 17880595786883929742,
+      "type": "texture"
+    }
+  ]
+}

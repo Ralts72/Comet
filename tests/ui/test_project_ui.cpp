@@ -48,6 +48,7 @@ namespace Comet::Tests {
         AudioSettings saved_audio;
         unsigned audio_applications = 0;
         ParameterMap session_values;
+        std::vector<std::string> game_events;
         std::string settings_load_error;
 
         void SetUp() override {
@@ -75,6 +76,10 @@ namespace Comet::Tests {
                 if(found == session_values.end())
                     return std::nullopt;
                 return found->second;
+            };
+            services.emit = [this](std::string_view event) {
+                game_events.emplace_back(event);
+                return true;
             };
             services.load_input = [this] {
                 ++loads;
@@ -316,6 +321,37 @@ namespace Comet::Tests {
         session_values.clear();
         ASSERT_TRUE(submit_frame());
         EXPECT_FALSE(hint->IsVisible());
+    }
+
+    TEST_F(ProjectUiGpuTest, CourseButtonsSendEventsAndHideBehindSettingsOrWhenStopped) {
+        session_values["character.level"] = 1.0f;
+        session_values["character.score"] = 3.0f;
+        session_values["character.finished"] = true;
+        ASSERT_TRUE(submit_frame());
+        EXPECT_TRUE(document().GetElementById("course-next")->IsVisible());
+        EXPECT_FALSE(document().GetElementById("course-return")->IsVisible());
+        click("course-next");
+        ASSERT_EQ(game_events.size(), 1u);
+        EXPECT_EQ(game_events.back(), "character.next");
+        session_values["character.level"] = 2.0f;
+        session_values["character.score"] = 1.0f;
+        session_values["character.finished"] = false;
+        ASSERT_TRUE(submit_frame());
+        EXPECT_FALSE(document().GetElementById("course-next")->IsVisible());
+        EXPECT_TRUE(document().GetElementById("course-return")->IsVisible());
+        click("course-save");
+        EXPECT_EQ(game_events.back(), "character.save");
+        click("course-continue");
+        EXPECT_EQ(game_events.back(), "character.continue");
+        click("course-return");
+        EXPECT_EQ(game_events.back(), "character.return");
+        click("settings");
+        EXPECT_FALSE(document().GetElementById("course-actions")->IsVisible());
+        click("cancel");
+        session_values.clear();
+        ASSERT_TRUE(submit_frame());
+        EXPECT_FALSE(document().GetElementById("course-actions")->IsVisible());
+        EXPECT_EQ(game_events.size(), 4u);
     }
 
     TEST_F(ProjectUiGpuTest, MenuFocusIsCapturedBeforeGpuRecording) {
@@ -1194,7 +1230,7 @@ return controller
         EXPECT_EQ(live->GetElementById("readback")->GetInnerRML(), "ready");
         for(const auto* mutation : {"ui.audio_apply(1, 1, 1)", "ui.quality_apply(1, 1, 1)",
                 "ui.display_apply(800, 600, 'windowed', true)", "ui.display_confirm()",
-                "ui.display_revert()"}) {
+                "ui.display_revert()", "ui.emit('character.next')"}) {
             SCOPED_TRACE(mutation);
             write("other.ui.lua", controller(mutation));
             const auto rejected = ui->reload();

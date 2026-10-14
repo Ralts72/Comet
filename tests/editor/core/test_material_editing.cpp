@@ -40,7 +40,9 @@ namespace CometEditor::Tests {
         data.texture_properties["base_color_texture"] = Comet::AssetHandle(42);
         const auto change = change_material_template(data, pbr.get(), *unlit);
         EXPECT_EQ(change.data, make_material_data(*unlit));
-        EXPECT_EQ(change.discarded_properties.size(), 4);
+        EXPECT_EQ(change.discarded_properties.size(), data.scalar_properties.size()
+                                                          + data.vector_properties.size()
+                                                          + data.texture_properties.size());
         EXPECT_EQ(data.template_name, "pbr");
         EXPECT_EQ(data.texture_properties.at("base_color_texture"), Comet::AssetHandle(42));
     }

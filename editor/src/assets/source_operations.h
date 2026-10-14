@@ -12,6 +12,11 @@
 #include <span>
 #include <vector>
 
+namespace Comet {
+    class Prefab;
+    class ComponentRegistry;
+}
+
 namespace CometEditor::AssetSourceOperations {
     using TrashMover = std::function<Comet::Result<void>(const std::filesystem::path&)>;
 
@@ -36,6 +41,14 @@ namespace CometEditor::AssetSourceOperations {
         explicit PreparedFileImport(std::unique_ptr<State> state);
         std::unique_ptr<State> m_state;
     };
+
+    [[nodiscard]] Comet::AssetScanReport create_prefab(Comet::AssetDatabase& database,
+        const std::filesystem::path& destination, const Comet::Prefab& prefab,
+        const Comet::ComponentRegistry& registry);
+
+    [[nodiscard]] Comet::AssetScanReport save_prefab(Comet::AssetDatabase& database,
+        const Comet::AssetTarget& target, const Comet::Prefab& prefab,
+        const Comet::ComponentRegistry& registry);
 
     [[nodiscard]] Comet::AssetScanReport create_material(Comet::AssetDatabase& database,
         const std::filesystem::path& destination, const Comet::MaterialData& data);

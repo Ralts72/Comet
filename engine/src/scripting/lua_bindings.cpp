@@ -1,4 +1,7 @@
 #include "scripting/lua_bindings.h"
+#include "asset/registry.h"
+#include "asset/script.h"
+#include "scene/prefab.h"
 #include "gameplay/character_controller.h"
 #include "audio/audio_commands.h"
 #include "physics/physics_access.h"
@@ -13,6 +16,7 @@ extern "C" {
 #include <lauxlib.h>
 }
 
+#include <array>
 #include <cmath>
 #include <algorithm>
 #include <cstdint>
@@ -139,9 +143,68 @@ namespace Comet::LuaBindings {
         }
         int restart_scene(lua_State* state) {
             const auto& context = current(state);
-            if(!context.can_request_restart || !context.scene || !context.session
+            if(!context.can_request_scene || !context.scene || !context.session
                 || !context.scene->is_valid(context.entity) || !context.session->request_restart())
                 return luaL_error(state, "Scene restart requires an active runtime update");
+            return 0;
+        }
+        int load_scene(lua_State* state) {
+            if(lua_gettop(state) != 1 || lua_type(state, 1) != LUA_TSTRING)
+                return luaL_error(
+                    state, "comet.load_scene expects one project-relative .scene path");
+            size_t length = 0;
+            const char* path = lua_tolstring(state, 1, &length);
+            const auto& context = current(state);
+            if(!context.can_request_scene || !context.scene || !context.session
+                || !context.scene->is_valid(context.entity)
+                || !context.session->request_scene(std::string_view(path, length)))
+                return luaL_error(state,
+                    "Cannot request scene transition in this runtime phase or with this path");
+            return 0;
+        }
+        int load_checkpoint(lua_State* state) {
+            const auto& context = current(state);
+            if(lua_gettop(state) != 0 || !context.can_request_scene || !context.scene
+                || !context.session || !context.scene->is_valid(context.entity)
+                || !context.session->request_continue())
+                return luaL_error(state,
+                    "comet.load_checkpoint requires an active runtime update and no arguments");
+            return 0;
+        }
+        int save_checkpoint(lua_State* state) {
+            if(lua_gettop(state) != 2 || lua_type(state, 1) != LUA_TSTRING
+                || !lua_istable(state, 2))
+                return luaL_error(
+                    state, "comet.save_checkpoint expects a name and an array of session keys");
+            size_t length = 0;
+            const char* marker = lua_tolstring(state, 1, &length);
+            const auto count = lua_rawlen(state, 2);
+            if(count > 128)
+                return luaL_error(state, "Checkpoint has too many session keys");
+            std::array<std::string_view, 128> keys;
+            for(size_t i = 0; i < count; ++i) {
+                lua_rawgeti(state, 2, static_cast<lua_Integer>(i + 1));
+                if(lua_type(state, -1) != LUA_TSTRING)
+                    return luaL_error(state, "Checkpoint keys must be a dense string array");
+                size_t size = 0;
+                const char* key = lua_tolstring(state, -1, &size);
+                keys[i] = std::string_view(key, size);
+                lua_pop(state, 1);
+            }
+            lua_pushnil(state);
+            while(lua_next(state, 2)) {
+                if(!lua_isinteger(state, -2) || lua_tointeger(state, -2) < 1
+                    || static_cast<lua_Unsigned>(lua_tointeger(state, -2)) > count)
+                    return luaL_error(state, "Checkpoint keys must be a dense string array");
+                lua_pop(state, 1);
+            }
+            const auto& context = current(state);
+            if(!context.can_request_scene || !context.scene || !context.session
+                || !context.scene->is_valid(context.entity)
+                || !context.session->request_checkpoint(
+                    std::string_view(marker, length), std::span(keys.data(), count)))
+                return luaL_error(state,
+                    "Cannot queue checkpoint: invalid phase, name, missing or duplicate session key");
             return 0;
         }
         int find_entity(lua_State* state) {
@@ -235,6 +298,38 @@ namespace Comet::LuaBindings {
             lua_pushlstring(state, value.data(), value.size());
             return 1;
         }
+        std::optional<EntityUuid> queue_prefab(
+            Context& context, std::string_view identity, std::optional<Math::Vec3> position) {
+            const auto handle = Script::prefab_handle(std::string(identity));
+            if(!handle || !*handle)
+                return std::nullopt;
+            const auto prefab = context.assets->resolve<Prefab>(*handle);
+            return context.scene->request_instantiate_prefab(prefab, context.components, position);
+        }
+
+        int instantiate_prefab(lua_State* state) {
+            auto& context = current(state);
+            if(!context.scene || !context.scene->is_valid(context.entity) || !context.assets
+                || !context.components)
+                return luaL_error(state, "Prefab instantiation requires an active runtime entity");
+            if(lua_gettop(state) < 1 || lua_gettop(state) > 2 || lua_type(state, 1) != LUA_TSTRING)
+                return luaL_error(
+                    state, "instantiate_prefab expects a prefab parameter and optional position");
+            size_t length = 0;
+            const char* identity = lua_tolstring(state, 1, &length);
+            std::optional<Math::Vec3> position;
+            if(!lua_isnoneornil(state, 2))
+                position = read_vector3(state, 2);
+            const auto uuid = queue_prefab(context, std::string_view(identity, length), position);
+            if(!uuid)
+                return luaL_error(state,
+                    "Prefab is unassigned, not prepared, or exceeds the entity request budget");
+            context.return_value = uuid->to_string();
+            const auto& value = std::get<std::string>(*context.return_value);
+            lua_pushlstring(state, value.data(), value.size());
+            return 1;
+        }
+
         int destroy_entity(lua_State* state) {
             auto* scene = current(state).scene;
             if(!scene)
@@ -275,6 +370,193 @@ namespace Comet::LuaBindings {
             if(!context.physics)
                 luaL_error(state, "Physics service is unavailable in this runtime");
             return *context.physics;
+        }
+
+        PhysicsAccess::QueryFilter query_filter(lua_State* state, int index = 3) {
+            PhysicsAccess::QueryFilter filter{.ignored = current(state).entity.get_uuid()};
+            if(lua_isnoneornil(state, index))
+                return filter;
+            luaL_checktype(state, index, LUA_TTABLE);
+            lua_pushnil(state);
+            while(lua_next(state, index)) {
+                if(lua_type(state, -2) != LUA_TSTRING)
+                    luaL_error(state, "Query option names must be strings");
+                size_t name_length = 0;
+                const char* name_data = lua_tolstring(state, -2, &name_length);
+                const std::string_view name(name_data, name_length);
+                if(name == "ignore") {
+                    if(lua_type(state, -1) == LUA_TBOOLEAN && !lua_toboolean(state, -1))
+                        filter.ignored = {};
+                    else
+                        filter.ignored = require_entity(state, -1).get_uuid();
+                } else if(name == "layers") {
+                    if(!lua_isinteger(state, -1) || lua_tointeger(state, -1) < 0
+                        || static_cast<lua_Unsigned>(lua_tointeger(state, -1)) > UINT32_MAX)
+                        luaL_error(state, "Query layers must be an unsigned 32-bit integer");
+                    filter.layers = static_cast<uint32_t>(lua_tointeger(state, -1));
+                } else if(name == "include_triggers") {
+                    luaL_checktype(state, -1, LUA_TBOOLEAN);
+                    filter.include_triggers = lua_toboolean(state, -1);
+                } else {
+                    luaL_error(state, "Unknown query option: %s", name.data());
+                }
+                lua_pop(state, 1);
+            }
+            return filter;
+        }
+
+        void push_vector3(lua_State* state, Math::Vec3 value) {
+            lua_createtable(state, 3, 0);
+            for(int axis = 0; axis < 3; ++axis) {
+                lua_pushnumber(state, value[axis]);
+                lua_rawseti(state, -2, axis + 1);
+            }
+        }
+
+        int push_query_hit(lua_State* state, const std::optional<PhysicsAccess::QueryHit>& hit) {
+            auto& context = current(state);
+            const auto entity = hit ? context.scene->find_entity(hit->entity) : Entity{};
+            if(!entity) {
+                lua_pushnil(state);
+                return 1;
+            }
+            lua_createtable(state, 0, 4);
+            push_entity_reference(state, entity, context.scene_generation);
+            lua_setfield(state, -2, "entity");
+            push_vector3(state, hit->position);
+            lua_setfield(state, -2, "position");
+            push_vector3(state, hit->normal);
+            lua_setfield(state, -2, "normal");
+            lua_pushnumber(state, hit->fraction);
+            lua_setfield(state, -2, "fraction");
+            return 1;
+        }
+
+        int raycast(lua_State* state) {
+            if(lua_gettop(state) < 2 || lua_gettop(state) > 3)
+                return luaL_error(
+                    state, "raycast expects origin, displacement and optional filter");
+            const auto origin = read_vector3(state, 1);
+            const auto displacement = read_vector3(state, 2);
+            const auto filter = query_filter(state);
+            auto& physics = require_physics(state);
+            auto& context = current(state);
+            context.return_value.reset();
+            std::optional<PhysicsAccess::QueryHit> hit;
+            {
+                auto result = physics.raycast(origin, displacement, filter);
+                if(result)
+                    hit = result.value();
+                else
+                    context.return_value = result.error();
+            }
+            if(context.return_value)
+                return luaL_error(
+                    state, "%s", std::get<std::string>(*context.return_value).c_str());
+            return push_query_hit(state, hit);
+        }
+
+        ColliderComponent read_query_shape(lua_State* state, TransformComponent& transform) {
+            luaL_checktype(state, 1, LUA_TTABLE);
+            ColliderComponent shape;
+            bool named = false;
+            lua_pushnil(state);
+            while(lua_next(state, 1)) {
+                if(lua_type(state, -2) != LUA_TSTRING)
+                    luaL_error(state, "Shape fields must have string names");
+                size_t length = 0;
+                const char* data = lua_tolstring(state, -2, &length);
+                const std::string_view key(data, length);
+                if(key == "shape") {
+                    if(lua_type(state, -1) != LUA_TSTRING)
+                        luaL_error(state, "Shape must be box, sphere or capsule");
+                    const char* type_data = lua_tolstring(state, -1, &length);
+                    const std::string_view type(type_data, length);
+                    if(type == "box")
+                        shape.shape = ColliderShape::Box;
+                    else if(type == "sphere")
+                        shape.shape = ColliderShape::Sphere;
+                    else if(type == "capsule")
+                        shape.shape = ColliderShape::Capsule;
+                    else
+                        luaL_error(state, "Shape must be box, sphere or capsule");
+                    named = true;
+                } else if(key == "half_extents") {
+                    shape.half_extents = read_vector3(state, -1);
+                } else if(key == "radius") {
+                    shape.radius = number(state, -1);
+                } else if(key == "height") {
+                    shape.height = number(state, -1);
+                } else if(key == "rotation") {
+                    transform.rotation = read_vector3(state, -1);
+                } else {
+                    luaL_error(state, "Unknown shape field: %s", key.data());
+                }
+                lua_pop(state, 1);
+            }
+            if(!named)
+                luaL_error(state, "Shape descriptor requires a shape name");
+            return shape;
+        }
+
+        int shape_cast(lua_State* state) {
+            if(lua_gettop(state) < 3 || lua_gettop(state) > 4)
+                return luaL_error(
+                    state, "shape_cast expects shape, origin, displacement and optional filter");
+            TransformComponent transform;
+            const auto shape = read_query_shape(state, transform);
+            transform.translation = read_vector3(state, 2);
+            const auto displacement = read_vector3(state, 3);
+            const auto filter = query_filter(state, 4);
+            auto& physics = require_physics(state);
+            auto& context = current(state);
+            context.return_value.reset();
+            std::optional<PhysicsAccess::QueryHit> hit;
+            {
+                auto result = physics.shape_cast(shape, transform, displacement, filter);
+                if(result)
+                    hit = result.value();
+                else
+                    context.return_value = result.error();
+            }
+            if(context.return_value)
+                return luaL_error(
+                    state, "%s", std::get<std::string>(*context.return_value).c_str());
+            return push_query_hit(state, hit);
+        }
+
+        int overlap_sphere(lua_State* state) {
+            if(lua_gettop(state) < 2 || lua_gettop(state) > 3)
+                return luaL_error(
+                    state, "overlap_sphere expects center, radius and optional filter");
+            const auto center = read_vector3(state, 1);
+            const auto radius = number(state, 2);
+            const auto filter = query_filter(state);
+            auto& physics = require_physics(state);
+            auto& context = current(state);
+            context.return_value.reset();
+            context.query_entities.clear();
+            {
+                auto result = physics.overlap_sphere(center, radius, filter);
+                if(result)
+                    context.query_entities = std::move(result).value();
+                else
+                    context.return_value = result.error();
+            }
+            if(context.return_value)
+                return luaL_error(
+                    state, "%s", std::get<std::string>(*context.return_value).c_str());
+            lua_createtable(state, static_cast<int>(context.query_entities.size()), 0);
+            int index = 1;
+            for(const auto uuid : context.query_entities) {
+                const auto entity = context.scene->find_entity(uuid);
+                if(!entity)
+                    continue;
+                push_entity_reference(state, entity, context.scene_generation);
+                lua_rawseti(state, -2, index++);
+            }
+            context.query_entities.clear();
+            return 1;
         }
 
         template<typename Request>
@@ -533,6 +815,16 @@ namespace Comet::LuaBindings {
                 luaL_error(state, "Session state requires an active runtime");
             return *session;
         }
+        int checkpoint(lua_State* state) {
+            if(lua_gettop(state) != 0)
+                return luaL_error(state, "comet.checkpoint expects no arguments");
+            const auto marker = runtime_session(state).checkpoint();
+            if(marker.empty())
+                lua_pushnil(state);
+            else
+                lua_pushlstring(state, marker.data(), marker.size());
+            return 1;
+        }
         int session_get(lua_State* state) {
             const auto key = session_key(state);
             auto& value = current(state).return_value;
@@ -554,13 +846,8 @@ namespace Comet::LuaBindings {
                         luaL_error(state, "Entity references are not session values");
                     else if constexpr(std::is_same_v<T, Math::Vec4>)
                         luaL_error(state, "Four-component vectors are not session values");
-                    else {
-                        lua_createtable(state, 3, 0);
-                        for(int i = 0; i < 3; ++i) {
-                            lua_pushnumber(state, item[i]);
-                            lua_rawseti(state, -2, i + 1);
-                        }
-                    }
+                    else
+                        push_vector3(state, item);
                 },
                 *value);
             return 1;
@@ -761,20 +1048,23 @@ namespace Comet::LuaBindings {
         lua_pushlightuserdata(state, &context);
         const luaL_Reg api[]{{"log", log_message}, {"rotate", rotate}, {"translate", translate},
             {"position", position}, {"self_entity", self_entity}, {"find_entity", find_entity},
-            {"create_entity", create_entity}, {"destroy_entity", destroy_entity},
-            {"has_rigid_body", has_rigid_body}, {"remove_rigid_body", remove_rigid_body},
-            {"restart_scene", restart_scene}, {"play_one_shot", play_one_shot},
-            {"apply_impulse", apply_impulse}, {"apply_force", apply_force},
-            {"apply_impulse_at", apply_impulse_at}, {"apply_force_at", apply_force_at},
-            {"apply_torque", apply_torque}, {"linear_velocity", linear_velocity},
-            {"angular_velocity", angular_velocity}, {"set_material_scalar", set_material_scalar},
-            {"move_character", move_character}, {"character_grounded", character_grounded},
-            {"character_state", character_state}, {"control_character", control_character},
-            {"set_material_vector", set_material_vector}, {"session_get", session_get},
-            {"session_set", session_set}, {"emit", emit}, {"set_input_context", set_input_context},
-            {"action_value", action_value}, {"action_down", action_down},
-            {"action_pressed", action_pressed}, {"action_released", action_released},
-            {nullptr, nullptr}};
+            {"create_entity", create_entity}, {"instantiate_prefab", instantiate_prefab},
+            {"destroy_entity", destroy_entity}, {"has_rigid_body", has_rigid_body},
+            {"remove_rigid_body", remove_rigid_body}, {"restart_scene", restart_scene},
+            {"load_scene", load_scene}, {"save_checkpoint", save_checkpoint},
+            {"load_checkpoint", load_checkpoint}, {"checkpoint", checkpoint},
+            {"play_one_shot", play_one_shot}, {"raycast", raycast}, {"shape_cast", shape_cast},
+            {"overlap_sphere", overlap_sphere}, {"apply_impulse", apply_impulse},
+            {"apply_force", apply_force}, {"apply_impulse_at", apply_impulse_at},
+            {"apply_force_at", apply_force_at}, {"apply_torque", apply_torque},
+            {"linear_velocity", linear_velocity}, {"angular_velocity", angular_velocity},
+            {"set_material_scalar", set_material_scalar}, {"move_character", move_character},
+            {"character_grounded", character_grounded}, {"character_state", character_state},
+            {"control_character", control_character}, {"set_material_vector", set_material_vector},
+            {"session_get", session_get}, {"session_set", session_set}, {"emit", emit},
+            {"set_input_context", set_input_context}, {"action_value", action_value},
+            {"action_down", action_down}, {"action_pressed", action_pressed},
+            {"action_released", action_released}, {nullptr, nullptr}};
         luaL_setfuncs(state, api, 1);
         lua_setglobal(state, "comet");
     }

@@ -5,10 +5,17 @@
 #include "scene/scene.h"
 #include "diagnostics/logger.h"
 #include "scene/runtime_session.h"
+#include "scene/component_registry.h"
 
 #include <algorithm>
 
 namespace Comet {
+    ScriptSystem::ScriptSystem(
+        const AssetRegistry& assets, const MaterialParameterValidator* materials)
+        : m_assets(assets),
+          m_components(std::make_shared<ComponentRegistry>(create_scene_component_registry())),
+          m_materials(materials) {}
+
     ScriptSystem::~ScriptSystem() {
         stop_all();
     }
@@ -73,6 +80,8 @@ namespace Comet {
         }
         ScriptInstance::Invocation invocation;
         invocation.scene = m_scene;
+        invocation.assets = &m_assets;
+        invocation.components = m_components;
         invocation.session = m_session;
         invocation.audio = m_audio;
         invocation.physics = m_physics;

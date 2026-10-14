@@ -126,7 +126,7 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
-    Result<void, Error> Engine::add_default_scene_systems() {
+    Result<void, Error> Engine::add_default_scene_systems(PhysicsService::MeshSource meshes) {
         if(m_shutdown_prepared)
             return Result<void, Error>::failure({"Engine is shutting down"});
         if(!m_audio_service) {
@@ -135,7 +135,7 @@ namespace Comet {
                 return applied;
         }
         if(!m_physics_service)
-            m_physics_service = std::make_unique<PhysicsService>();
+            m_physics_service = std::make_unique<PhysicsService>(std::move(meshes));
         if(auto configured = m_scene_runtime.set_services(
                {.audio = m_audio_service.get(), .physics = m_physics_service.get()});
             !configured)
@@ -160,13 +160,15 @@ namespace Comet {
         return m_scene_runtime.set_settings(settings);
     }
 
-    Result<void, Error> Engine::start_scene_runtime(const SceneRuntime::State state) {
+    Result<void, Error> Engine::start_scene_runtime(
+        const SceneRuntime::State state, ParameterMap initial_values, std::string checkpoint) {
         if(m_shutdown_prepared)
             return Result<void, Error>::failure({"Engine is shutting down"});
         if(!m_scene)
             return Result<void, Error>::failure({"Cannot start runtime without an active scene"});
         m_material_parameters->accept(m_renderer->get_material_program_feedback());
-        return m_scene_runtime.start(*m_scene, state, SceneRuntime::InputStart::Rebase);
+        return m_scene_runtime.start(*m_scene, state, SceneRuntime::InputStart::Rebase,
+            std::move(initial_values), std::move(checkpoint));
     }
 
     Result<void, Error> Engine::set_input_actions(InputActions actions) {

@@ -18,7 +18,7 @@ namespace Comet {
 
     class COMET_API MeshImporter final {
     public:
-        static constexpr std::uint32_t VERSION = 2;
+        static constexpr std::uint32_t VERSION = 4;
         [[nodiscard]] static Result<std::size_t> working_bytes(
             const std::filesystem::path& source_path, const AssetImportLimits& limits = {});
         [[nodiscard]] Result<MeshData> import(const std::filesystem::path& source_path,

@@ -11,18 +11,6 @@
 namespace Comet {
     class Device;
 
-    struct SamplerDesc {
-        Filter mag_filter = Filter::Linear;
-        Filter min_filter = Filter::Linear;
-        SamplerMipmapMode mipmap_mode = SamplerMipmapMode::Linear;
-        SamplerAddressMode address_mode_u = SamplerAddressMode::Repeat;
-        SamplerAddressMode address_mode_v = SamplerAddressMode::Repeat;
-        SamplerAddressMode address_mode_w = SamplerAddressMode::Repeat;
-        float max_anisotropy = 1.0f;
-
-        bool operator==(const SamplerDesc&) const = default;
-    };
-
     class COMET_API Sampler {
     public:
         static Result<std::shared_ptr<Sampler>, GraphicsError> create(

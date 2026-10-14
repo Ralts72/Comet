@@ -143,6 +143,14 @@ namespace Comet {
         if(!white)
             return Result<void, GraphicsError>::failure(white.error());
         m_white_texture = std::move(white).value();
+        // 半精度精确表示 (0.5, 0.5, 1, 1)，默认法线不引入 RGBA8 量化倾斜。
+        auto normal = resources.try_create_texture({.width = 1,
+            .height = 1,
+            .format = Format::R16G16B16A16_SFLOAT,
+            .pixels = {0, 0x38, 0, 0x38, 0, 0x3c, 0, 0x3c}});
+        if(!normal)
+            return Result<void, GraphicsError>::failure(normal.error());
+        m_normal_texture = std::move(normal).value();
         auto black_cube = resources.try_create_texture({.width = 1,
             .height = 1,
             .format = Format::R16G16B16A16_SFLOAT,
@@ -512,6 +520,7 @@ namespace Comet {
         auto state = std::make_shared<PipelineState>();
         state->shader_program = shader_program;
         state->static_mesh_bounds = static_mesh_bounds;
+        state->samples = samples;
         state->layout = std::move(layout);
         if(!material_layout) {
             DescriptorSetLayoutBindings bindings;
@@ -529,8 +538,25 @@ namespace Comet {
             material_layout = std::move(created).value();
         }
         state->material_layout = std::move(material_layout);
+        state->vertex = vertex;
+        state->fragment = fragment;
+        state->instanced_vertex = instanced_vertex;
+        auto defaults = create_surface_pipelines(pipelines, *state, {});
+        if(!defaults)
+            return Creation::failure(defaults.error());
+        state->pipeline = defaults.value().pipeline;
+        state->instanced_pipeline = defaults.value().instanced_pipeline;
+        return Creation::success(std::move(state));
+    }
+
+    Result<MaterialRenderer::SurfacePipelines, GraphicsError> MaterialRenderer::
+        create_surface_pipelines(PipelineManager& pipelines, const PipelineState& program,
+            const MaterialSurface surface, const bool mirrored) {
+        using Creation = Result<SurfacePipelines, GraphicsError>;
+        if(!surface.valid())
+            return Creation::failure({"Invalid material surface"});
         ShaderLayout shader_layout;
-        shader_layout.descriptor_set_layouts = {m_frame_layout, state->material_layout};
+        shader_layout.descriptor_set_layouts = {m_frame_layout, program.material_layout};
         shader_layout.push_constants.push_back(
             std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, sizeof(PushConstant)));
         VertexInputDescription input;
@@ -538,27 +564,54 @@ namespace Comet {
         input.add_attribute(0, 0, Format::R32G32B32_SFLOAT, offsetof(MeshVertex, position));
         input.add_attribute(1, 0, Format::R32G32_SFLOAT, offsetof(MeshVertex, texcoord));
         input.add_attribute(2, 0, Format::R32G32B32_SFLOAT, offsetof(MeshVertex, normal));
+        if(std::ranges::any_of(program.vertex->get_interface().get_inputs(),
+               [](const auto& attribute) { return attribute.location == 7; }))
+            input.add_attribute(7, 0, Format::R32G32B32A32_SFLOAT, offsetof(MeshVertex, tangent));
         PipelineConfig config;
         config.set_vertex_input_state(input);
         config.set_input_assembly_state(Topology::TriangleList);
         config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
         config.enable_depth_test();
-        config.set_multisample_state(samples, false, 0.2f);
+        config.rasterization_state.front_face = mirrored ? FrontFace::CW : FrontFace::CCW;
+        config.set_multisample_state(program.samples, false, 0.2f);
+        config.rasterization_state.cull_mode =
+            surface.double_sided ? CullMode::None : CullMode::Back;
+        if(surface.alpha_mode == AlphaMode::Blend) {
+            config.enable_alpha_blend();
+            config.depth_stencil_state.depth_write_enable = false;
+        }
+        bool has_mode = false, has_cutoff = false;
+        for(const auto& constant :
+            program.fragment->get_interface().get_specialization_constants()) {
+            if(constant.name == "comet_alpha_mode") {
+                config.fragment_specialization.emplace(
+                    constant.id, static_cast<uint32_t>(surface.alpha_mode));
+                has_mode = true;
+            } else if(constant.name == "comet_alpha_cutoff") {
+                if(surface.alpha_mode == AlphaMode::Mask)
+                    config.fragment_specialization.emplace(constant.id, surface.alpha_cutoff);
+                has_cutoff = true;
+            } else if(constant.name == "comet_double_sided")
+                config.fragment_specialization.emplace(constant.id, surface.double_sided);
+        }
+        if(surface.alpha_mode == AlphaMode::Mask && (!has_mode || !has_cutoff))
+            return Creation::failure({"Alpha Mask Shader must implement common/surface.glsl"});
+        SurfacePipelines result;
         auto pipeline = pipelines.create_pipeline(
-            state->layout->get_name(), shader_layout, config, vertex, fragment);
+            program.layout->get_name(), shader_layout, config, program.vertex, program.fragment);
         if(!pipeline)
             return Creation::failure(pipeline.error());
-        state->pipeline = std::move(pipeline).value();
-        if(instanced_vertex) {
+        result.pipeline = std::move(pipeline).value();
+        if(program.instanced_vertex && surface.alpha_mode != AlphaMode::Blend) {
             InstanceBuffer::describe(input);
             config.set_vertex_input_state(input);
-            auto instanced = pipelines.create_pipeline(state->layout->get_name() + " instanced",
-                shader_layout, config, instanced_vertex, fragment);
+            auto instanced = pipelines.create_pipeline(program.layout->get_name() + " instanced",
+                shader_layout, config, program.instanced_vertex, program.fragment);
             if(!instanced)
                 return Creation::failure(instanced.error());
-            state->instanced_pipeline = std::move(instanced).value();
+            result.instanced_pipeline = std::move(instanced).value();
         }
-        return Creation::success(std::move(state));
+        return Creation::success(std::move(result));
     }
 
     Result<std::shared_ptr<MaterialRenderer::MaterialResources>, GraphicsError> MaterialRenderer::
@@ -646,15 +699,26 @@ namespace Comet {
             const std::shared_ptr<const PipelineState>& pipeline,
             const std::shared_ptr<MaterialResources>& previous) {
         using Creation = Result<std::shared_ptr<MaterialResources>, GraphicsError>;
+        SurfacePipelines draws{pipeline->pipeline, pipeline->instanced_pipeline};
+        if(prepared->surface != MaterialSurface{}) {
+            auto selected =
+                create_surface_pipelines(m_pipeline_manager, *pipeline, prepared->surface);
+            if(!selected)
+                return Creation::failure(selected.error());
+            draws = std::move(selected).value();
+        }
         if(previous && previous->prepared == prepared
             && previous->pipeline->material_layout == pipeline->material_layout) {
             auto candidate = std::make_shared<MaterialResources>(*previous);
             candidate->pipeline = pipeline;
+            candidate->draws = std::move(draws);
+            candidate->mirrored_draws.reset();
             return Creation::success(std::move(candidate));
         }
         auto candidate = std::make_shared<MaterialResources>();
         candidate->pipeline = pipeline;
         candidate->prepared = prepared;
+        candidate->draws = std::move(draws);
         candidate->sampler = m_sampler;
         DescriptorPoolSizes sizes;
         if(!prepared->parameters.empty()) {
@@ -688,9 +752,17 @@ namespace Comet {
         images.reserve(prepared->textures.size());
         for(const auto& binding : prepared->textures) {
             auto texture = binding.texture;
-            if(!texture)
+            if(!texture) {
                 texture = m_white_texture;
-            images.push_back({binding.binding, *texture->get_image_view(), *m_sampler});
+                const auto& properties = prepared->layout->get_textures();
+                const auto property = std::ranges::find(
+                    properties, binding.binding, &MaterialLayout::TextureProperty::binding);
+                if(property != properties.end()
+                    && property->fallback == MaterialLayout::TextureProperty::Fallback::Normal)
+                    texture = m_normal_texture;
+            }
+            const auto& sampler = texture->get_sampler() ? texture->get_sampler() : m_sampler;
+            images.push_back({binding.binding, *texture->get_image_view(), *sampler});
             candidate->textures.push_back(std::move(texture));
         }
         candidate->descriptor->update(m_device, buffers, images);
@@ -710,8 +782,8 @@ namespace Comet {
         if(submission.view_project_matrix) {
             const auto& matrices = *submission.view_project_matrix;
             const auto frustum = Frustum::from_view_projection(matrices.projection * matrices.view);
-            auto queue = prepare_draw_queue(
-                geometry, frames.get_current_frame_serial(), frustum ? &*frustum : nullptr);
+            auto queue = prepare_draw_queue(geometry, frames.get_current_frame_serial(),
+                frustum ? &*frustum : nullptr, matrices.view);
             if(!queue)
                 return Draw::failure(queue.error());
             if(auto instances = upload_instances(frames); !instances) {
@@ -808,8 +880,8 @@ namespace Comet {
         for(const auto& draw : queue) {
             const auto& material = draw.material;
             const bool instanced = draw.instance_count > 1;
-            const auto& pipeline =
-                instanced ? material->pipeline->instanced_pipeline : material->pipeline->pipeline;
+            const auto& pipelines = draw.mirrored ? *material->mirrored_draws : material->draws;
+            const auto& pipeline = instanced ? pipelines.instanced_pipeline : pipelines.pipeline;
             if(active_pipeline != pipeline.get()) {
                 command.bind_pipeline(*pipeline);
                 active_pipeline = pipeline.get();

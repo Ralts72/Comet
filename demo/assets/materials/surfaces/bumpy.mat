@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "template": "pbr",
+  "properties": {
+    "base_color": {
+      "type": "vector",
+      "value": [
+        0.18,
+        0.45,
+        0.8,
+        1
+      ]
+    },
+    "roughness": {
+      "type": "scalar",
+      "value": 0.45
+    },
+    "normal_scale": {
+      "type": "scalar",
+      "value": 1.5
+    },
+    "normal_texture": {
+      "type": "texture",
+      "asset": 5783275031450616064
+    }
+  }
+}

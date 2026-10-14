@@ -1,9 +1,11 @@
+#include "support/blocked_worker.h"
 #include "asset/default_assets.h"
 #include "render/resource/environment.h"
 #include "assets/editor_assets.h"
 #include "assets/material_editing.h"
 #include "asset/serialization/metadata_serializer.h"
 #include "asset/artifact/mesh_artifact.h"
+#include "asset/artifact/model_artifact.h"
 #include "asset/registry.h"
 #include "core/task_scheduler.h"
 #include "core/project.h"
@@ -60,6 +62,10 @@ namespace CometEditor::Tests {
             std::filesystem::copy_file(
                 std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/meshes/cube.gltf",
                 directory / "model.gltf");
+            ASSERT_TRUE(Comet::MetadataSerializer{}.save(
+                Comet::AssetMetadata{
+                    .handle = Comet::AssetHandle::generate(), .type = Comet::AssetType::Mesh},
+                Comet::metadata_path(directory / "model.gltf")));
             assets = std::make_unique<EditorAssets>(Comet::ProjectPaths(root), runtime, factory,
                 scheduler, DEFAULT_FILE_CHANGE_QUIET_PERIOD, Comet::AssetImportLimits{},
                 [this](const std::filesystem::path& entry) -> Comet::Result<void> {
@@ -135,6 +141,558 @@ namespace CometEditor::Tests {
             return record->handle;
         }
     };
+
+    TEST_F(EditorAssetsTest, CollisionOnlyScenePreparationAndRestoreDoNotUploadAMesh) {
+        using namespace Comet;
+        complete_imports();
+        Scene scene;
+        const auto components = create_scene_component_registry();
+        auto entity = scene.create_entity("Collision only");
+        entity.add_component<RigidBodyComponent>(RigidBodyComponent{.motion = BodyMotion::Static});
+        entity.add_component<ColliderComponent>(
+            ColliderComponent{.shape = ColliderShape::TriangleMesh, .mesh = mesh});
+        auto prepared = assets->prepare_scene(scene, components);
+        ASSERT_TRUE(prepared) << prepared.error().message;
+        EXPECT_EQ(prepared.value(), 0u);
+        assets->track_scene(scene, components);
+        ASSERT_TRUE(assets->restore_references());
+        EXPECT_EQ(factory.mesh_creation_count(), 0u);
+        EXPECT_FALSE(runtime.contains(mesh));
+        auto geometry = assets->read_mesh_data(mesh);
+        ASSERT_TRUE(geometry) << geometry.error().message;
+        EXPECT_FALSE(geometry.value().indices.empty());
+        entity.add_component<MeshRendererComponent>(
+            MeshRendererComponent{mesh, DEFAULT_PBR_MATERIAL});
+        assets->track_scene(scene, components);
+        ASSERT_TRUE(assets->restore_references());
+        EXPECT_EQ(factory.mesh_creation_count(), 1u);
+        EXPECT_TRUE(runtime.contains(mesh));
+    }
+
+    class PrefabEditingTest: public EditorAssetsTest {
+    protected:
+        using Type = SceneEditor::StructureRequest::Type;
+        Comet::Scene scene;
+        Comet::ComponentRegistry components = Comet::create_scene_component_registry();
+        CommandHistory history;
+        PropertyEditTransaction edit{history, components};
+        SelectionService selection{scene};
+        EditorState state;
+        std::unique_ptr<SceneEditor> editor;
+        Comet::AssetHandle prefab;
+        Comet::EntityUuid source_root, source_child, first, second;
+        std::filesystem::path path;
+        void SetUp() override {
+            EditorAssetsTest::SetUp();
+            history.bind_scene(&scene);
+            editor =
+                std::make_unique<SceneEditor>(state, history, edit, components, selection, *assets);
+            auto root = scene.create_entity("Platform");
+            auto child = scene.create_entity("Anchor");
+            ASSERT_TRUE(scene.set_parent(child, root));
+            source_root = root.get_uuid();
+            source_child = child.get_uuid();
+            path = Comet::ProjectPaths(EditorAssetsTest::root).assets() / "platform.prefab";
+            ASSERT_TRUE(editor->save_prefab(&scene, source_root, path, history.generation()));
+            prefab = assets->database().find("platform.prefab")->handle;
+            const SceneEditor::AssetInput input{{prefab, assets->database().get_revision(prefab)},
+                history.generation(), Comet::AssetType::Prefab};
+            ASSERT_TRUE(editor->place_asset(&scene, input, {3, 0, 0}));
+            first = selection.get_selected_entity().get_uuid();
+            ASSERT_TRUE(editor->place_asset(&scene, input, {9, 0, 0}));
+            second = selection.get_selected_entity().get_uuid();
+        }
+        bool operate(Type type, Comet::EntityUuid entity) {
+            return editor->execute(&scene, {type, entity, {}, history.generation()});
+        }
+        Comet::EntityUuid child_of(Comet::EntityUuid root) {
+            return scene.find_entity(root)
+                .get_component<Comet::PrefabInstanceComponent>()
+                .entities.at(source_child);
+        }
+        std::string contents() { return Comet::read_text_file(path).value(); }
+        std::string scene_contents() {
+            return Comet::SceneSerializer(components).serialize(scene).value();
+        }
+    };
+
+    TEST_F(PrefabEditingTest,
+        MultiSelectionSurvivesPrefabUpdatesAndBatchPlacementUsesOneHistoryEntry) {
+        selection.select_entities(std::vector{first, second});
+        ASSERT_TRUE(operate(Type::UpdatePrefab, first));
+        EXPECT_EQ(selection.get_selected_entities(), (std::vector{first, second}));
+        ASSERT_TRUE(editor->undo(&scene));
+        EXPECT_EQ(selection.get_selected_entities(), (std::vector{first, second}));
+        const auto before = scene.entity_count();
+        const auto cursor = history.undo_size();
+        SceneEditor::StructureRequest request{Type::Duplicate, second, {}, history.generation(),
+            selection.get_selected_entities(), {.copies = 2, .world_step = {0, 0, 3}}};
+        selection.clear();
+        ASSERT_TRUE(editor->execute(&scene, request));
+        const auto placed = selection.get_selected_entities();
+        ASSERT_EQ(placed.size(), 4u);
+        EXPECT_EQ(scene.entity_count(), before + 8);
+        EXPECT_EQ(history.undo_size(), cursor + 1);
+        std::unordered_set<Comet::EntityUuid> children;
+        for(const auto uuid : placed) {
+            const auto entity = scene.find_entity(uuid);
+            ASSERT_TRUE(entity.has_component<Comet::PrefabInstanceComponent>());
+            const auto& link = entity.get_component<Comet::PrefabInstanceComponent>();
+            EXPECT_EQ(link.asset, prefab);
+            EXPECT_EQ(link.entities.at(source_root), uuid);
+            EXPECT_TRUE(children.insert(link.entities.at(source_child)).second);
+            EXPECT_EQ(scene.get_parent(scene.find_entity(link.entities.at(source_child))), entity);
+        }
+        ASSERT_TRUE(editor->copy_entities(&scene, placed, history.generation()));
+        ASSERT_TRUE(editor->undo(&scene));
+        EXPECT_EQ(scene.entity_count(), before);
+        EXPECT_TRUE(selection.get_selected_entities().empty());
+        ASSERT_TRUE(editor->redo(&scene));
+        for(const auto uuid : placed)
+            EXPECT_TRUE(scene.find_entity(uuid));
+        request.type = Type::Delete;
+        request.entities = placed;
+        state.mode = EditorMode::Play;
+        EXPECT_FALSE(editor->execute(&scene, request));
+        state.mode = EditorMode::Edit;
+        ASSERT_TRUE(editor->execute(&scene, request));
+        EXPECT_EQ(scene.entity_count(), before);
+        ASSERT_TRUE(editor->undo(&scene));
+        EXPECT_EQ(scene.entity_count(), before + 8);
+        ++request.generation;
+        EXPECT_FALSE(editor->execute(&scene, request));
+    }
+
+    TEST_F(PrefabEditingTest, ApplyAndUpdateOtherInstanceUndoBothSourceAndInstanceState) {
+        const auto before = contents();
+        const auto metadata = Comet::read_text_file(Comet::metadata_path(path)).value();
+        const auto first_child = child_of(first), second_child = child_of(second);
+        ASSERT_TRUE(
+            edit.apply({first_child, "transform", "translation"}, Comet::Math::Vec3(0, 4, 0)));
+        ASSERT_TRUE(edit.apply({second_child, "transform", "scale"}, Comet::Math::Vec3(2, 2, 2)));
+        const auto extra = SceneCommands::create_entity(history, components, "New anchor", first);
+        ASSERT_TRUE(extra);
+        scene.find_entity(extra).add_component<Comet::PointJointComponent>(
+            Comet::PointJointComponent{.connected_body = first_child});
+        selection.select_entity(scene.find_entity(first).get_id());
+        const auto scene_before = scene_contents();
+        const auto undo_before = history.undo_size();
+        ASSERT_TRUE(operate(Type::ApplyPrefab, first));
+        EXPECT_EQ(history.undo_size(), undo_before + 1);
+        EXPECT_EQ(selection.get_selected_entity().get_uuid(), first);
+        const auto written = contents();
+        EXPECT_NE(written, before);
+        EXPECT_EQ(Comet::read_text_file(Comet::metadata_path(path)).value(), metadata);
+        auto source =
+            assets->load_prefab({prefab, assets->database().get_revision(prefab)}, components);
+        ASSERT_TRUE(source);
+        EXPECT_EQ(source.value().root_uuid(), source_root);
+        Comet::Scene fresh;
+        auto instantiated = source.value().instantiate(fresh, components);
+        ASSERT_TRUE(instantiated);
+        EXPECT_EQ(instantiated.value().get_component<Comet::TransformComponent>().translation,
+            Comet::Math::Vec3(0));
+        const auto first_link =
+            scene.find_entity(first).get_component<Comet::PrefabInstanceComponent>();
+        EXPECT_EQ(first_link.entities.at(source_child), first_child);
+        Comet::EntityUuid extra_source;
+        for(const auto& [source, target] : first_link.entities)
+            if(target == extra)
+                extra_source = source;
+        ASSERT_TRUE(extra_source);
+        ASSERT_TRUE(operate(Type::UpdatePrefab, second));
+        const auto second_extra =
+            scene.find_entity(second).get_component<Comet::PrefabInstanceComponent>().entities.at(
+                extra_source);
+        EXPECT_NE(second_extra, extra);
+        EXPECT_EQ(scene.find_entity(second_extra)
+                      .get_component<Comet::PointJointComponent>()
+                      .connected_body,
+            second_child);
+        EXPECT_EQ(scene.find_entity(second_child)
+                      .get_component<Comet::TransformComponent>()
+                      .translation.y,
+            4);
+        EXPECT_EQ(scene.find_entity(second_child).get_component<Comet::TransformComponent>().scale,
+            Comet::Math::Vec3(2));
+        ASSERT_TRUE(editor->undo(&scene));
+        EXPECT_EQ(contents(), written);
+        ASSERT_TRUE(editor->undo(&scene));
+        EXPECT_EQ(contents(), before);
+        EXPECT_EQ(scene_contents(), scene_before);
+        ASSERT_TRUE(editor->redo(&scene));
+        EXPECT_EQ(contents(), written);
+        ASSERT_TRUE(editor->redo(&scene));
+        EXPECT_TRUE(scene.find_entity(second_extra));
+        EXPECT_EQ(
+            scene.find_entity(first).get_component<Comet::PrefabInstanceComponent>().entities.at(
+                extra_source),
+            extra);
+        auto roundtrip = Comet::SceneSerializer(components).deserialize(scene_contents());
+        ASSERT_TRUE(roundtrip);
+        EXPECT_TRUE(roundtrip.value()->find_entity(extra));
+        EXPECT_TRUE(roundtrip.value()->find_entity(second_extra));
+    }
+
+    TEST_F(PrefabEditingTest, SaveFailureRestoresFileSceneSelectionAndUndoCursor) {
+        const auto before = contents();
+        ASSERT_TRUE(
+            edit.apply({child_of(first), "transform", "translation"}, Comet::Math::Vec3(0, 8, 0)));
+        selection.select_entity(scene.find_entity(first).get_id());
+        const auto scene_before = scene_contents();
+        const auto undo_before = history.undo_size();
+        const auto revision = assets->database().get_revision(prefab);
+        const auto directory = path.parent_path();
+        std::ofstream(directory / "broken.mat")
+            << R"({"version":2,"template":"pbr","properties":{}})";
+        std::ofstream(directory / "broken.mat.meta") << "invalid metadata";
+        EXPECT_FALSE(operate(Type::ApplyPrefab, first));
+        EXPECT_EQ(contents(), before);
+        EXPECT_EQ(scene_contents(), scene_before);
+        EXPECT_EQ(history.undo_size(), undo_before);
+        EXPECT_EQ(selection.get_selected_entity().get_uuid(), first);
+        EXPECT_EQ(assets->database().get_revision(prefab), revision);
+        std::filesystem::remove(directory / "broken.mat");
+        std::filesystem::remove(directory / "broken.mat.meta");
+        state.mode = EditorMode::Play;
+        EXPECT_FALSE(operate(Type::ApplyPrefab, first));
+        EXPECT_FALSE(operate(Type::RevertPrefab, first));
+        state.mode = EditorMode::Edit;
+        ASSERT_TRUE(operate(Type::ApplyPrefab, first));
+        EXPECT_NE(contents(), before);
+        // 其他资产编辑更改了来源时，旧撤销不能覆盖新的源内容。
+        auto different = Comet::Prefab::capture(scene, components, scene.find_entity(source_root));
+        ASSERT_TRUE(different);
+        ASSERT_TRUE(assets->save_prefab(
+            {prefab, assets->database().get_revision(prefab)}, different.value(), components));
+        const auto changed_source = contents();
+        const auto changed_scene = scene_contents();
+        EXPECT_FALSE(editor->undo(&scene));
+        EXPECT_EQ(contents(), changed_source);
+        EXPECT_EQ(scene_contents(), changed_scene);
+    }
+
+    TEST_F(PrefabEditingTest, RevertRestoresDeletedMembersAndRejectsDanglingLevelReferences) {
+        const auto before = contents();
+        const auto original_child = child_of(first);
+        ASSERT_TRUE(SceneCommands::delete_entity(history, components, original_child));
+        const auto added = SceneCommands::create_entity(history, components, "Extra", first);
+        ASSERT_TRUE(added);
+        auto outside = scene.create_entity("Outside");
+        outside.add_component<Comet::ScriptComponent>().parameters["target"] = added;
+        EXPECT_FALSE(operate(Type::RevertPrefab, first));
+        EXPECT_TRUE(scene.find_entity(added));
+        EXPECT_FALSE(scene.find_entity(original_child));
+        scene.destroy_entity(outside);
+        const auto modified = scene_contents();
+        ASSERT_TRUE(operate(Type::RevertPrefab, first));
+        EXPECT_FALSE(scene.find_entity(added));
+        EXPECT_TRUE(scene.find_entity(original_child));
+        EXPECT_EQ(scene.find_entity(first).get_component<Comet::TransformComponent>().translation,
+            Comet::Math::Vec3(3, 0, 0));
+        EXPECT_EQ(contents(), before);
+        ASSERT_TRUE(editor->undo(&scene));
+        EXPECT_EQ(scene_contents(), modified);
+        ASSERT_TRUE(editor->redo(&scene));
+        EXPECT_TRUE(scene.find_entity(original_child));
+        EXPECT_EQ(contents(), before);
+    }
+
+    TEST_F(EditorAssetsTest, PrefabSaveAndPlacementShareProjectIdentityAndSceneHistory) {
+        Comet::Scene scene;
+        auto parent = scene.create_entity("Outside");
+        auto source = scene.create_entity("Platform");
+        auto child = scene.create_entity("Anchor");
+        ASSERT_TRUE(scene.set_parent(source, parent));
+        ASSERT_TRUE(scene.set_parent(child, source));
+        source.add_component<Comet::PointJointComponent>(
+            Comet::PointJointComponent{.connected_body = child.get_uuid()});
+        child.edit_transform([](auto& transform) { transform.translation = {0, 2, 0}; });
+        auto components = Comet::create_scene_component_registry();
+        CommandHistory history;
+        history.bind_scene(&scene);
+        PropertyEditTransaction edit(history, components);
+        SelectionService selection(scene);
+        EditorState state;
+        SceneEditor editor(state, history, edit, components, selection, *assets);
+        const auto generation = history.generation();
+        const auto path = Comet::ProjectPaths(root).assets() / "platform.prefab";
+        ASSERT_TRUE(editor.save_prefab(&scene, source.get_uuid(), path, generation));
+        const auto* record = assets->database().find("platform.prefab");
+        ASSERT_NE(record, nullptr);
+        EXPECT_EQ(record->type, Comet::AssetType::Prefab);
+        const auto handle = record->handle;
+        const SceneEditor::AssetInput input{{handle, assets->database().get_revision(handle)},
+            generation, Comet::AssetType::Prefab};
+        EXPECT_TRUE(std::filesystem::exists(Comet::metadata_path(path)));
+        EXPECT_EQ(history.undo_size(), 0);
+        EXPECT_EQ(scene.get_parent(source), parent);
+        EXPECT_FALSE(editor.save_prefab(&scene, source.get_uuid(), path, generation));
+        EXPECT_FALSE(
+            editor.save_prefab(&scene, source.get_uuid(), root / "outside.prefab", generation));
+        EXPECT_FALSE(std::filesystem::exists(root / "outside.prefab"));
+        EXPECT_FALSE(editor.save_prefab(&scene, source.get_uuid(), "stale.prefab", generation + 1));
+        EXPECT_FALSE(assets->database().find("stale.prefab"));
+        auto stale = input;
+        ++stale.target.revision;
+        EXPECT_FALSE(editor.place_asset(&scene, stale, {}));
+        state.mode = EditorMode::Play;
+        EXPECT_FALSE(editor.place_asset(&scene, input, {}));
+        EXPECT_FALSE(editor.save_prefab(&scene, source.get_uuid(), "play.prefab", generation));
+        EXPECT_FALSE(assets->database().find("play.prefab"));
+        state.mode = EditorMode::Edit;
+        ASSERT_TRUE(editor.place_asset(&scene, input, {3, 0, 4}));
+        const auto instance = selection.get_selected_entity();
+        const auto uuid = instance.get_uuid();
+        EXPECT_NE(uuid, source.get_uuid());
+        EXPECT_FALSE(scene.get_parent(instance));
+        EXPECT_EQ(instance.get_component<Comet::TransformComponent>().translation,
+            Comet::Math::Vec3(3, 0, 4));
+        const auto children = scene.get_children(instance);
+        ASSERT_EQ(children.size(), 1);
+        const auto anchor = children.front().get_uuid();
+        EXPECT_NE(anchor, child.get_uuid());
+        EXPECT_EQ(instance.get_component<Comet::PointJointComponent>().connected_body, anchor);
+        EXPECT_EQ(history.undo_size(), 1);
+        ASSERT_TRUE(editor.undo(&scene));
+        EXPECT_FALSE(scene.find_entity(uuid));
+        EXPECT_EQ(scene.entity_count(), 3);
+        ASSERT_TRUE(editor.redo(&scene));
+        EXPECT_EQ(
+            scene.find_entity(uuid).get_component<Comet::PointJointComponent>().connected_body,
+            anchor);
+        Comet::SceneSerializer serializer(components);
+        auto serialized = serializer.serialize(scene);
+        ASSERT_TRUE(serialized);
+        auto reopened = serializer.deserialize(serialized.value());
+        ASSERT_TRUE(reopened);
+        EXPECT_EQ(reopened.value()
+                      ->find_entity(uuid)
+                      .get_component<Comet::PointJointComponent>()
+                      .connected_body,
+            anchor);
+        EXPECT_TRUE(reopened.value()->find_entity(anchor));
+        EXPECT_EQ(assets->database().find("platform.prefab")->handle, handle);
+        child.edit_transform([](auto& value) { value.translation.y = 5; });
+        auto updated = Comet::Prefab::capture(scene, components, source);
+        ASSERT_TRUE(updated);
+        ASSERT_TRUE(updated.value().save(path, components));
+        ASSERT_TRUE(assets->refresh().succeeded());
+        selection.select_entity(scene.find_entity(uuid).get_id());
+        SceneEditor::StructureRequest update{
+            SceneEditor::StructureRequest::Type::UpdatePrefab, uuid, {}, history.generation()};
+        state.mode = EditorMode::Play;
+        EXPECT_FALSE(editor.execute(&scene, update));
+        state.mode = EditorMode::Edit;
+        ASSERT_TRUE(editor.execute(&scene, update));
+        EXPECT_EQ(selection.get_selected_entity().get_uuid(), uuid);
+        EXPECT_EQ(
+            scene.find_entity(anchor).get_component<Comet::TransformComponent>().translation.y, 5);
+        ASSERT_TRUE(editor.undo(&scene));
+        EXPECT_EQ(selection.get_selected_entity().get_uuid(), uuid);
+        EXPECT_EQ(
+            scene.find_entity(anchor).get_component<Comet::TransformComponent>().translation.y, 2);
+        ASSERT_TRUE(editor.redo(&scene));
+        EXPECT_EQ(selection.get_selected_entity().get_uuid(), uuid);
+        EXPECT_EQ(
+            scene.find_entity(anchor).get_component<Comet::TransformComponent>().translation.y, 5);
+        const auto entity_count = scene.entity_count();
+        ASSERT_TRUE(editor.execute(&scene,
+            {SceneEditor::StructureRequest::Type::DetachPrefab, uuid, {}, history.generation()}));
+        EXPECT_FALSE(scene.find_entity(uuid).has_component<Comet::PrefabInstanceComponent>());
+        EXPECT_EQ(scene.entity_count(), entity_count);
+        ASSERT_TRUE(editor.undo(&scene));
+        ASSERT_TRUE(scene.find_entity(uuid).has_component<Comet::PrefabInstanceComponent>());
+        EXPECT_EQ(
+            scene.find_entity(uuid).get_component<Comet::PrefabInstanceComponent>().asset, handle);
+        ASSERT_TRUE(editor.redo(&scene));
+        EXPECT_FALSE(scene.find_entity(uuid).has_component<Comet::PrefabInstanceComponent>());
+    }
+
+    TEST_F(EditorAssetsTest, ModelReimportUpdatesLinkedInstancesThroughSaveAndUndo) {
+        require_external_mesh_buffer();
+        add_external_mesh_buffer();
+        const auto directory = Comet::ProjectPaths(root).assets();
+        const auto source = directory / "linked.gltf";
+        auto mesh_text = Comet::read_text_file(directory / "model.gltf");
+        ASSERT_TRUE(mesh_text);
+        mesh_text.value().pop_back();
+        const auto write_model = [&](int height) {
+            return Comet::write_text_file_atomic(source,
+                mesh_text.value() + R"(,"nodes":[{"name":"Body","mesh":0,"translation":[0,)"
+                    + std::to_string(height) + R"(,0]}],"scenes":[{"nodes":[0]}],"scene":0})");
+        };
+        ASSERT_TRUE(write_model(1));
+        ASSERT_TRUE(assets->refresh().succeeded());
+        complete_imports();
+        const auto handle = assets->database().find("linked.gltf")->handle;
+        Comet::Scene scene;
+        auto components = Comet::create_scene_component_registry();
+        CommandHistory history;
+        history.bind_scene(&scene);
+        PropertyEditTransaction edit(history, components);
+        SelectionService selection(scene);
+        EditorState state;
+        SceneEditor editor(state, history, edit, components, selection, *assets);
+        const SceneEditor::AssetInput input{{handle, assets->database().get_revision(handle)},
+            history.generation(), Comet::AssetType::Model};
+        ASSERT_TRUE(editor.place_asset(&scene, input, {2, 0, 3}));
+        const auto first = selection.get_selected_entity().get_uuid();
+        ASSERT_TRUE(editor.place_asset(&scene, input, {-2, 0, 3}));
+        const auto second = selection.get_selected_entity().get_uuid();
+        const auto first_child = scene.get_children(scene.find_entity(first)).front().get_uuid();
+        const auto second_child = scene.get_children(scene.find_entity(second)).front().get_uuid();
+        scene.find_entity(first_child).edit_transform([](auto& t) { t.scale = {2, 2, 2}; });
+        const Comet::SceneSerializer serializer(components);
+        auto saved = serializer.serialize(scene);
+        ASSERT_TRUE(saved);
+        auto reopened = serializer.deserialize(saved.value());
+        ASSERT_TRUE(reopened);
+        editor.bind_scene(*reopened.value(), EditorMode::Edit);
+        auto* level = reopened.value().get();
+        const auto before = serializer.serialize(*level).value();
+        ASSERT_TRUE(write_model(5));
+        assets->request_source_reimport(handle);
+        complete_imports();
+        EXPECT_EQ(assets->database().find("linked.gltf")->handle, handle);
+        const auto source_text = Comet::read_text_file(source).value();
+        using Type = SceneEditor::StructureRequest::Type;
+        EXPECT_FALSE(editor.execute(level, {Type::ApplyPrefab, first, {}, history.generation()}));
+        EXPECT_EQ(history.undo_size(), 0);
+        EXPECT_EQ(Comet::read_text_file(source).value(), source_text);
+        EXPECT_EQ(serializer.serialize(*level).value(), before);
+        ASSERT_TRUE(editor.execute(level, {Type::UpdatePrefab, first, {}, history.generation()}));
+        EXPECT_EQ(level->find_entity(first_child)
+                      .get_component<Comet::TransformComponent>()
+                      .translation.y,
+            5);
+        EXPECT_EQ(level->find_entity(first_child).get_component<Comet::TransformComponent>().scale,
+            Comet::Math::Vec3(2));
+        EXPECT_EQ(level->find_entity(second_child)
+                      .get_component<Comet::TransformComponent>()
+                      .translation.y,
+            1);
+        EXPECT_EQ(level->find_entity(first).get_component<Comet::TransformComponent>().translation,
+            Comet::Math::Vec3(2, 0, 3));
+        ASSERT_TRUE(editor.undo(level));
+        EXPECT_EQ(serializer.serialize(*level).value(), before);
+        ASSERT_TRUE(editor.redo(level));
+        ASSERT_TRUE(editor.execute(level, {Type::UpdatePrefab, second, {}, history.generation()}));
+        EXPECT_EQ(level->find_entity(second_child)
+                      .get_component<Comet::TransformComponent>()
+                      .translation.y,
+            5);
+        ASSERT_TRUE(editor.execute(level, {Type::RevertPrefab, first, {}, history.generation()}));
+        EXPECT_EQ(level->find_entity(first_child).get_component<Comet::TransformComponent>().scale,
+            Comet::Math::Vec3(1));
+        EXPECT_EQ(
+            level->find_entity(first).get_component<Comet::PrefabInstanceComponent>().source_type,
+            Comet::AssetType::Model);
+        ASSERT_TRUE(editor.execute(level, {Type::DetachPrefab, first, {}, history.generation()}));
+        EXPECT_FALSE(level->find_entity(first).has_component<Comet::PrefabInstanceComponent>());
+        ASSERT_TRUE(editor.undo(level));
+        EXPECT_EQ(
+            level->find_entity(first).get_component<Comet::PrefabInstanceComponent>().source_type,
+            Comet::AssetType::Model);
+        EXPECT_EQ(Comet::read_text_file(source).value(), source_text);
+        EXPECT_TRUE(assets->prepare_scene(*level, components));
+    }
+
+    TEST_F(EditorAssetsTest, ModelTextureThumbnailsFollowPublishedProductsWithoutGpuUploads) {
+        const auto source = Comet::ProjectPaths(root).assets() / "truck.glb";
+        std::filesystem::copy_file(
+            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/models/milk_truck.glb",
+            source);
+        ASSERT_TRUE(assets->refresh().succeeded());
+        complete_imports();
+        const auto model = assets->database().find("truck.glb")->handle;
+        Comet::AssetHandle texture;
+        for(const auto& record : assets->database().get_assets())
+            if(record.source_asset == model && record.type == Comet::AssetType::Texture) {
+                texture = record.handle;
+                break;
+            }
+        ASSERT_TRUE(texture);
+        auto& thumbnails = assets->thumbnails();
+        thumbnails.update();
+        EXPECT_FALSE(thumbnails.request(texture).image);
+        scheduler.wait_idle();
+        thumbnails.update();
+        auto first = thumbnails.request(texture);
+        ASSERT_TRUE(first.image) << first.error;
+        EXPECT_LE(first.image->width, AssetThumbnails::IMAGE_SIZE);
+        EXPECT_LE(first.image->height, AssetThumbnails::IMAGE_SIZE);
+        EXPECT_FALSE(runtime.contains(texture));
+        assets->request_source_reimport(model);
+        complete_imports();
+        thumbnails.update();
+        EXPECT_FALSE(thumbnails.request(texture).image);
+        scheduler.wait_idle();
+        thumbnails.update();
+        auto next = thumbnails.request(texture);
+        ASSERT_TRUE(next.image) << next.error;
+        EXPECT_NE(next.image, first.image);
+        EXPECT_EQ(next.image->pixels, first.image->pixels);
+        EXPECT_FALSE(runtime.contains(texture));
+    }
+
+    TEST_F(EditorAssetsTest, ImportsModelAsOneBackgroundGroupAndIndexesChildrenBeforeLoading) {
+        const auto source = Comet::ProjectPaths(root).assets() / "complete.gltf";
+        std::filesystem::copy_file(source.parent_path() / "model.gltf", source);
+        ASSERT_TRUE(assets->refresh().succeeded());
+        const auto model = assets->database().find("complete.gltf")->handle;
+        EXPECT_EQ(assets->database().find(model)->type, Comet::AssetType::Model);
+        {
+            Comet::Tests::BlockedWorker blocked(scheduler);
+            ASSERT_TRUE(assets->update());
+            blocked.release();
+            scheduler.wait_idle();
+            const auto staged = Comet::MetadataSerializer{}.load(Comet::metadata_path(source));
+            ASSERT_TRUE(staged);
+            EXPECT_TRUE(staged.value().subresources.empty());
+        }
+        complete_imports();
+        const auto published = Comet::MetadataSerializer{}.load(Comet::metadata_path(source));
+        ASSERT_TRUE(published);
+        ASSERT_FALSE(published.value().subresources.empty());
+        for(const auto& child : published.value().subresources) {
+            const auto* record = assets->database().find(child.handle);
+            ASSERT_NE(record, nullptr);
+            EXPECT_EQ(record->source_asset, model);
+            EXPECT_TRUE(assets->load_reference(
+                child.handle, child.type, assets->database().get_revision(child.handle)));
+            EXPECT_FALSE(assets->move(child.handle, "moved.gltf").succeeded());
+        }
+        Comet::Scene scene;
+        auto components = Comet::create_scene_component_registry();
+        CommandHistory history;
+        history.bind_scene(&scene);
+        PropertyEditTransaction edit(history, components);
+        SelectionService selection(scene);
+        EditorState state;
+        SceneEditor editor(state, history, edit, components, selection, *assets);
+        const SceneEditor::AssetInput input{{model, assets->database().get_revision(model)},
+            history.generation(), Comet::AssetType::Model};
+        auto placed = editor.place_asset(&scene, input, {2, 0, 3});
+        ASSERT_TRUE(placed) << placed.error().message;
+        EXPECT_EQ(history.undo_size(), 1);
+        EXPECT_GT(scene.entity_count(), 1);
+        const auto selected = scene.find_entity(selection.get_selected_entity_id()).get_uuid();
+        const auto count = scene.entity_count();
+        auto stale = input;
+        ++stale.target.revision;
+        EXPECT_FALSE(editor.place_asset(&scene, stale, {}));
+        state.mode = EditorMode::Play;
+        EXPECT_FALSE(editor.place_asset(&scene, input, {}));
+        EXPECT_EQ(scene.entity_count(), count);
+        EXPECT_EQ(scene.find_entity(selection.get_selected_entity_id()).get_uuid(), selected);
+        state.mode = EditorMode::Edit;
+        ASSERT_TRUE(editor.undo(&scene));
+        EXPECT_EQ(scene.entity_count(), 0);
+        ASSERT_TRUE(editor.redo(&scene));
+        EXPECT_TRUE(scene.find_entity(selected));
+        EXPECT_EQ(scene.entity_count(), count);
+    }
 
     TEST_F(EditorAssetsTest, SceneEditingRejectsStaleAndPlayRequestsWithoutChangingSelection) {
         Comet::Scene scene;
@@ -408,6 +966,101 @@ namespace CometEditor::Tests {
             EXPECT_FALSE(assets->load_reference(handle, Comet::AssetType::Material, 1));
             EXPECT_FALSE(assets->load_reference(handle, Comet::AssetType::Mesh, 0));
         }
+    }
+
+    TEST_F(EditorAssetsTest, BatchAssetAssignmentIsAtomicAndUndoRestoresDistinctValues) {
+        const auto material = add_material();
+        Comet::Scene scene;
+        auto first = scene.create_entity();
+        auto second = scene.create_entity();
+        first.add_component<Comet::MeshRendererComponent>(mesh, Comet::DEFAULT_PBR_MATERIAL);
+        second.add_component<Comet::MeshRendererComponent>(mesh, Comet::DEFAULT_UNLIT_MATERIAL);
+        auto components = Comet::create_scene_component_registry();
+        CommandHistory history;
+        history.bind_scene(&scene);
+        PropertyEditTransaction edit(history, components);
+        SelectionService selection(scene);
+        EditorState state;
+        SceneEditor editor(state, history, edit, components, selection, *assets);
+        SceneEditor::AssetInput input{{material, assets->database().get_revision(material)},
+            history.generation(), Comet::AssetType::Material};
+        std::array targets{
+            PropertyEditTransaction::Target{first.get_uuid(), "mesh_renderer", "material"},
+            PropertyEditTransaction::Target{second.get_uuid(), "mesh_renderer", "material"}};
+        ASSERT_TRUE(editor.assign_assets(&scene, targets, input));
+        EXPECT_EQ(first.get_component<Comet::MeshRendererComponent>().material, material);
+        EXPECT_EQ(second.get_component<Comet::MeshRendererComponent>().material, material);
+        ASSERT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(editor.undo(&scene));
+        EXPECT_EQ(first.get_component<Comet::MeshRendererComponent>().material,
+            Comet::DEFAULT_PBR_MATERIAL);
+        EXPECT_EQ(second.get_component<Comet::MeshRendererComponent>().material,
+            Comet::DEFAULT_UNLIT_MATERIAL);
+        ASSERT_TRUE(editor.redo(&scene));
+        ASSERT_TRUE(editor.undo(&scene));
+        const auto cursor = history.state_id();
+        ++input.generation;
+        EXPECT_FALSE(editor.assign_assets(&scene, targets, input));
+        --input.generation;
+        auto missing = scene.create_entity();
+        targets[1].entity = missing.get_uuid();
+        EXPECT_FALSE(editor.assign_assets(&scene, targets, input));
+        EXPECT_EQ(first.get_component<Comet::MeshRendererComponent>().material,
+            Comet::DEFAULT_PBR_MATERIAL);
+        EXPECT_EQ(history.state_id(), cursor);
+        targets[1].entity = second.get_uuid();
+        state.mode = EditorMode::Play;
+        ASSERT_TRUE(editor.assign_assets(&scene, targets, input));
+        EXPECT_EQ(first.get_component<Comet::MeshRendererComponent>().material, material);
+        EXPECT_EQ(second.get_component<Comet::MeshRendererComponent>().material, material);
+        EXPECT_EQ(history.state_id(), cursor);
+    }
+
+    TEST_F(EditorAssetsTest, BatchScriptAssignmentRestoresEachBindingsParametersOnUndo) {
+        const auto path = Comet::ProjectPaths(root).assets();
+        ASSERT_TRUE(
+            Comet::write_text_file_atomic(path / "a.lua", "return {properties = {speed = 1}}"));
+        ASSERT_TRUE(Comet::write_text_file_atomic(
+            path / "b.lua", "return {properties = {enabled = true}}"));
+        ASSERT_TRUE(assets->refresh().succeeded());
+        const auto a = assets->database().find("a.lua")->handle;
+        const auto b = assets->database().find("b.lua")->handle;
+        Comet::Scene scene;
+        auto first = scene.create_entity();
+        auto second = scene.create_entity();
+        first.add_component<Comet::ScriptComponent>().asset = a;
+        second.add_component<Comet::ScriptComponent>().asset = a;
+        auto& one = first.get_component<Comet::ScriptComponent>();
+        auto& two = second.get_component<Comet::ScriptComponent>();
+        one.parameters = {{"speed", 10.0f}};
+        two.parameters = {{"speed", 20.0f}};
+        const auto first_before = one.parameters, second_before = two.parameters;
+        auto components = Comet::create_scene_component_registry();
+        CommandHistory history;
+        history.bind_scene(&scene);
+        PropertyEditTransaction edit(history, components);
+        SelectionService selection(scene);
+        EditorState state;
+        SceneEditor editor(state, history, edit, components, selection, *assets);
+        const SceneEditor::AssetInput input{{b, assets->database().get_revision(b)},
+            history.generation(), Comet::AssetType::Script};
+        const std::array targets{
+            PropertyEditTransaction::Target{first.get_uuid(), "script", "asset"},
+            PropertyEditTransaction::Target{second.get_uuid(), "script", "asset"}};
+        ASSERT_TRUE(editor.assign_assets(&scene, targets, input));
+        EXPECT_EQ(one.asset, b);
+        EXPECT_EQ(two.asset, b);
+        EXPECT_TRUE(one.parameters.empty());
+        EXPECT_TRUE(two.parameters.empty());
+        ASSERT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(editor.undo(&scene));
+        EXPECT_EQ(one.asset, a);
+        EXPECT_EQ(two.asset, a);
+        EXPECT_EQ(one.parameters, first_before);
+        EXPECT_EQ(two.parameters, second_before);
+        ASSERT_TRUE(editor.redo(&scene));
+        EXPECT_TRUE(one.parameters.empty());
+        EXPECT_TRUE(two.parameters.empty());
     }
 
     TEST_F(EditorAssetsTest, AssetAssignmentUsesHistoryOnlyForTheEditScene) {
@@ -1284,6 +1937,10 @@ namespace CometEditor::Tests {
     TEST_F(EditorAssetsTest, ReferenceRecoveryUsesCachedReferencesAndHonorsBudget) {
         const auto source = Comet::ProjectPaths(root).assets() / "model.gltf";
         std::filesystem::copy_file(source, source.parent_path() / "second.gltf");
+        ASSERT_TRUE(Comet::MetadataSerializer{}.save(
+            Comet::AssetMetadata{
+                .handle = Comet::AssetHandle::generate(), .type = Comet::AssetType::Mesh},
+            Comet::metadata_path(source.parent_path() / "second.gltf")));
         ASSERT_TRUE(assets->refresh().succeeded());
         const auto second = assets->database().find("second.gltf")->handle;
         complete_imports();
@@ -1326,7 +1983,7 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(Comet::is_device_lost(restored.error()));
     }
 
-    TEST_F(EditorAssetsTest, AutomaticMeshImportsSurviveDefaultQueueCapacity) {
+    TEST_F(EditorAssetsTest, AutomaticModelAndMeshImportsSurviveDefaultQueueCapacity) {
         const auto source = Comet::ProjectPaths(root).assets() / "model.gltf";
         for(int i = 0; i < 140; ++i)
             std::filesystem::copy_file(
@@ -1337,11 +1994,14 @@ namespace CometEditor::Tests {
             scheduler.wait_idle();
         }
         for(const auto& record : assets->database().get_assets()) {
-            if(record.type != Comet::AssetType::Mesh)
+            if(record.source_asset)
                 continue;
-            EXPECT_TRUE(
-                std::filesystem::exists(Comet::ProjectPaths(root).cache() / "imported/mesh"
-                                        / (std::to_string(record.handle.value()) + ".bin")));
+            if(record.type == Comet::AssetType::Model) {
+                EXPECT_TRUE(assets->load_model(
+                    {record.handle, assets->database().get_revision(record.handle)}));
+            } else if(record.type == Comet::AssetType::Mesh) {
+                EXPECT_TRUE(Comet::MeshArtifact::load(artifact_path(), record.handle));
+            }
         }
         EXPECT_EQ(factory.mesh_creation_count(), 0);
     }
@@ -1366,7 +2026,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(original);
         factory.fail_mesh_creation(true);
         factory.set_failure_result(vk::Result::eErrorDeviceLost);
-        assets->request_mesh_reimport(mesh);
+        assets->request_source_reimport(mesh);
         scheduler.wait_idle();
 
         const auto result = assets->update();
@@ -1447,7 +2107,8 @@ namespace CometEditor::Tests {
         const auto startup = serializer.load(path);
         ASSERT_TRUE(startup) << startup.error();
         const auto initial_entities = startup.value()->entity_count();
-        const auto expected_references = components.collect_asset_references(*startup.value());
+        const auto expected_references = components.collect_asset_references(
+            *startup.value(), Comet::ComponentRegistry::ReferenceScope::Runtime);
         const auto expected_meshes = std::ranges::count_if(expected_references,
             [](const auto& reference) { return reference.type == Comet::AssetType::Mesh; });
         const auto default_meshes = std::ranges::count_if(expected_references, [](const auto& ref) {
@@ -1457,7 +2118,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(document.open(project.startup_scene().string()));
         ASSERT_NE(active, nullptr);
         EXPECT_EQ(document.get_path(), path);
-        // 项目 Mesh 与 Shader 材质等待导入；内置资源可直接加载。
+        // 项目 Mesh、模型子材质与 Shader 材质等待导入；内置资源可直接加载。
         const auto deferred_assets =
             std::ranges::count_if(expected_references, [&](const auto& ref) {
                 if(Comet::find_default_asset(ref.handle))
@@ -1465,6 +2126,8 @@ namespace CometEditor::Tests {
                 if(ref.type == Comet::AssetType::Mesh)
                     return true;
                 const auto* record = assets->database().find(ref.handle);
+                if(record && record->source_asset)
+                    return true;
                 return ref.type == Comet::AssetType::Material && record
                        && std::ranges::any_of(record->dependencies, [&](const auto dependency) {
                               const auto* input = assets->database().find(dependency);
@@ -1474,7 +2137,8 @@ namespace CometEditor::Tests {
         EXPECT_EQ(missing, deferred_assets);
         EXPECT_EQ(factory.mesh_creation_count(), default_meshes);
         EXPECT_EQ(active->entity_count(), initial_entities);
-        const auto references = components.collect_asset_references(*active);
+        const auto references = components.collect_asset_references(
+            *active, Comet::ComponentRegistry::ReferenceScope::Runtime);
         EXPECT_EQ(references, expected_references);
         for(const auto& reference : references) {
             if(Comet::find_default_asset(reference.handle))
@@ -1651,10 +2315,9 @@ namespace CometEditor::Tests {
         const auto* record = assets->database().find("external.gltf");
         ASSERT_NE(record, nullptr);
         const auto handle = record->handle;
-        const auto artifact =
-            artifact_path().parent_path() / (std::to_string(handle.value()) + ".bin");
+        EXPECT_EQ(record->type, Comet::AssetType::Model);
         complete_imports();
-        EXPECT_TRUE(Comet::MeshArtifact::load(artifact, handle));
+        EXPECT_TRUE(assets->load_model({handle, assets->database().get_revision(handle)}));
         EXPECT_FALSE(runtime.contains(handle));
         EXPECT_EQ(factory.mesh_creation_count(), 0);
         EXPECT_TRUE(std::filesystem::exists(source));
@@ -1773,7 +2436,7 @@ namespace CometEditor::Tests {
         complete_imports();
         EXPECT_EQ(std::filesystem::last_write_time(artifact_path()), stamp);
         EXPECT_EQ(factory.mesh_creation_count(), 1);
-        assets->request_mesh_reimport(mesh);
+        assets->request_source_reimport(mesh);
         complete_imports();
         EXPECT_EQ(factory.mesh_creation_count(), 2);
         EXPECT_NE(std::filesystem::last_write_time(artifact_path()), stamp);
@@ -1793,9 +2456,9 @@ namespace CometEditor::Tests {
         complete_imports();
         const auto* added = assets->database().find("second.gltf");
         ASSERT_NE(added, nullptr);
-        const auto second_artifact =
-            artifact_path().parent_path() / (std::to_string(added->handle.value()) + ".bin");
-        EXPECT_TRUE(Comet::MeshArtifact::load(second_artifact, added->handle));
+        EXPECT_EQ(added->type, Comet::AssetType::Model);
+        EXPECT_TRUE(
+            assets->load_model({added->handle, assets->database().get_revision(added->handle)}));
         EXPECT_NE(std::filesystem::last_write_time(artifact_path()), stamp);
         EXPECT_EQ(factory.mesh_creation_count(), 0);
     }

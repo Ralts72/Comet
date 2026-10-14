@@ -6,21 +6,50 @@
 #include "render/renderer.h"
 #include "render/resource/mesh.h"
 #include "scene/selection.h"
+#include "scene/entity_tree.h"
 #include "ui/imgui_context.h"
 
 #include <algorithm>
 #include <utility>
 
 namespace CometEditor {
+    namespace {
+        template<typename Function>
+        void for_selected_meshes(Comet::Scene& scene, const SelectionService& selection,
+            const Comet::AssetRegistry& assets, Function&& visit) {
+            if(&selection.get_scene() != &scene)
+                return;
+            const auto roots = Comet::EntityTrees::roots(scene, selection.get_selected_entities());
+            if(!roots)
+                return;
+            std::vector<Comet::Entity> pending;
+            for(const auto uuid : *roots)
+                pending.push_back(scene.find_entity(uuid));
+            for(std::size_t i = 0; i < pending.size(); ++i) {
+                const auto entity = pending[i];
+                if(entity.has_component<Comet::MeshRendererComponent>()) {
+                    const auto mesh = assets.resolve<Comet::Mesh>(
+                        entity.get_component<Comet::MeshRendererComponent>().mesh);
+                    if(mesh)
+                        visit(entity, *mesh);
+                }
+                const auto children = scene.get_children(entity);
+                pending.insert(pending.end(), children.begin(), children.end());
+            }
+        }
+    }
+
     Viewport::Viewport(EditorState& state, const Comet::SceneRuntime& runtime,
         SelectionService& selection, CommandHistory& history,
         const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
         const EditorShortcuts& shortcuts, Comet::Renderer& renderer, Comet::AssetRegistry& assets,
-        Ui::ImGuiContext& ui, std::shared_ptr<Comet::Sampler> sampler)
+        Ui::ImGuiContext& ui, std::shared_ptr<Comet::Sampler> sampler,
+        Comet::PhysicsService::MeshSource meshes)
         : m_state(state), m_selection(selection), m_renderer(renderer), m_assets(assets), m_ui(ui),
           m_sampler(std::move(sampler)), m_gizmo(history, components),
           m_panel(state, runtime, selection, m_gizmo, inspector_edit,
-              std::min(renderer.max_render_target_dimension(), std::uint32_t{4096}), shortcuts) {
+              std::min(renderer.max_render_target_dimension(), std::uint32_t{4096}), shortcuts),
+          m_colliders(std::move(meshes)) {
         if(!m_sampler)
             LOG_FATAL("Viewport requires a prepared sampler");
     }
@@ -56,16 +85,20 @@ namespace CometEditor {
     }
 
     void Viewport::focus_selection(Comet::Scene* scene) {
-        const auto entity = m_selection.get_selected_entity();
-        if(!scene || !scene->is_valid(entity)
-            || !entity.has_component<Comet::MeshRendererComponent>())
+        if(!scene)
             return;
-        const auto mesh = m_assets.resolve<Comet::Mesh>(
-            entity.get_component<Comet::MeshRendererComponent>().mesh);
-        if(!mesh)
-            return;
-        const auto bounds =
-            Comet::transform_box(mesh->get_local_bounds(), scene->get_world_matrix(entity));
+        std::optional<Comet::BoundingBox> bounds;
+        for_selected_meshes(
+            *scene, m_selection, m_assets, [&](Comet::Entity entity, const Comet::Mesh& mesh) {
+                const auto world =
+                    Comet::transform_box(mesh.get_local_bounds(), scene->get_world_matrix(entity));
+                if(!world)
+                    return;
+                if(bounds)
+                    bounds->include(*world);
+                else
+                    bounds = world;
+            });
         const auto resolution = m_panel.get_layout().image_resolution;
         if(bounds && resolution.x > 0 && resolution.y > 0)
             focus_editor_camera(
@@ -73,20 +106,17 @@ namespace CometEditor {
     }
 
     void Viewport::append_selection_bounds(Comet::Scene& scene) {
-        const auto entity = m_selection.get_selected_entity();
-        if(!scene.is_valid(entity) || !entity.has_component<Comet::MeshRendererComponent>())
-            return;
-        const auto mesh = m_assets.resolve<Comet::Mesh>(
-            entity.get_component<Comet::MeshRendererComponent>().mesh);
-        if(!mesh)
-            return;
-        static_cast<void>(m_feedback_lines.add_box(mesh->get_local_bounds(),
-            scene.get_world_matrix(entity), Comet::Math::Vec4(1.0f, 0.65f, 0.1f, 1.0f)));
+        for_selected_meshes(
+            scene, m_selection, m_assets, [&](Comet::Entity entity, const Comet::Mesh& mesh) {
+                static_cast<void>(m_feedback_lines.add_box(mesh.get_local_bounds(),
+                    scene.get_world_matrix(entity), Comet::Math::Vec4(1.0f, 0.65f, 0.1f, 1.0f)));
+            });
     }
 
     void Viewport::submit_feedback(Comet::Scene* scene) {
         m_feedback_lines.clear();
         if(!scene || !m_panel.is_visible()) {
+            m_colliders.clear();
             m_renderer.cancel_viewport_pick();
             return;
         }
@@ -99,7 +129,9 @@ namespace CometEditor {
             m_renderer.cancel_viewport_pick();
         }
         if(m_panel.shows_colliders())
-            append_collider_outlines(*scene, m_feedback_lines);
+            m_colliders.append(*scene, m_feedback_lines);
+        else
+            m_colliders.clear();
         if(m_panel.shows_joints())
             append_joint_anchors(*scene, m_feedback_lines);
         m_renderer.submit_lines(m_feedback_lines);

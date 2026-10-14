@@ -3,6 +3,7 @@
 #include "graphics/enums.h"
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace Comet {
@@ -14,5 +15,7 @@ namespace Comet {
         // 像素按 mip 层级连续存储；每级立方体贴图的面顺序为 +X、-X、+Y、-Y、+Z、-Z。
         uint32_t mip_levels = 1;
         bool cubemap = false;
+        // 源模型可指定采样方式；缺省沿用渲染器的画质设置。
+        std::optional<SamplerDesc> sampler;
     };
 }

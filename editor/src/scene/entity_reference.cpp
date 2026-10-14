@@ -3,6 +3,7 @@
 #include "ui/widgets.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -48,9 +49,12 @@ namespace CometEditor {
             if(entity)
                 preview = entity_path(scene, entity);
         }
+        const bool mixed = ImGui::GetCurrentContext()->CurrentItemFlags & ImGuiItemFlags_MixedValue;
+        if(mixed)
+            preview = "多值";
         bool changed = false;
         if(ImGui::BeginCombo(label, preview.c_str())) {
-            if(ImGui::Selectable("无###None", !reference) && reference) {
+            if(ImGui::Selectable("无###None", !reference && !mixed) && (reference || mixed)) {
                 reference = {};
                 changed = true;
             }
@@ -59,7 +63,7 @@ namespace CometEditor {
                 candidates.emplace_back(entity_path(scene, entity), entity.get_uuid());
             std::ranges::sort(candidates);
             for(const auto& [path, uuid] : candidates) {
-                const bool selected = uuid == reference;
+                const bool selected = !mixed && uuid == reference;
                 const std::string item = path + "###" + uuid.to_string();
                 if(ImGui::Selectable(item.c_str(), selected) && !selected) {
                     reference = uuid;
@@ -72,7 +76,7 @@ namespace CometEditor {
         }
         if(drop_generation) {
             if(const auto dropped = accept_entity_drop(scene, *drop_generation);
-                dropped && *dropped != reference) {
+                dropped && (*dropped != reference || mixed)) {
                 reference = *dropped;
                 changed = true;
             }

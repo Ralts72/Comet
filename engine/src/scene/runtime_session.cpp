@@ -3,18 +3,23 @@
 #include "input/input_actions.h"
 
 #include <utility>
+#include <filesystem>
 
 namespace Comet {
-    void RuntimeSession::begin(Scene& scene) {
+    void RuntimeSession::begin(Scene& scene, ParameterMap values, std::string checkpoint) {
         end();
         m_scene = &scene;
+        m_values.merge(values);
+        m_checkpoint = std::move(checkpoint);
     }
 
     void RuntimeSession::end() noexcept {
         m_scene = nullptr;
         m_values.clear();
         m_input_context_requests.clear();
-        m_restart_requested = false;
+        m_scene_request.reset();
+        m_checkpoint_request.reset();
+        m_checkpoint.clear();
     }
 
     std::optional<ParameterValue> RuntimeSession::get_value(const std::string_view key) const {
@@ -45,15 +50,79 @@ namespace Comet {
         return true;
     }
 
-    bool RuntimeSession::request_restart() {
-        if(!is_active())
+    bool RuntimeSession::valid_values(const ParameterMap& values) {
+        if(!valid_parameters(values))
             return false;
-        m_restart_requested = true;
+        for(const auto& [key, value] : values)
+            if(std::holds_alternative<Uuid>(value) || std::holds_alternative<Math::Vec4>(value))
+                return false;
         return true;
     }
 
-    bool RuntimeSession::take_restart_request() {
-        return std::exchange(m_restart_requested, false);
+    bool RuntimeSession::request_restart() {
+        if(!is_active())
+            return false;
+        if(m_scene_request)
+            return m_scene_request->kind == SceneRequest::Kind::Restart;
+        m_scene_request = SceneRequest{};
+        return true;
+    }
+
+    bool RuntimeSession::request_scene(std::string_view asset_path) {
+        if(!is_active() || asset_path.empty() || asset_path.size() > 4096
+            || asset_path.find('\0') != std::string_view::npos
+            || asset_path.find('\\') != std::string_view::npos)
+            return false;
+        const std::filesystem::path path(asset_path);
+        if(path.is_absolute() || path.has_root_name() || path.extension() != ".scene")
+            return false;
+        for(const auto& part : path)
+            if(part == "..")
+                return false;
+        const auto normalized = path.lexically_normal().generic_string();
+        if(m_scene_request)
+            return m_scene_request->kind == SceneRequest::Kind::Load
+                   && m_scene_request->path == normalized;
+        m_scene_request = SceneRequest{SceneRequest::Kind::Load, normalized, {}};
+        return true;
+    }
+
+    bool RuntimeSession::request_continue() {
+        if(!is_active())
+            return false;
+        if(m_scene_request)
+            return m_scene_request->kind == SceneRequest::Kind::Continue;
+        m_scene_request = SceneRequest{SceneRequest::Kind::Continue, {}, {}, {}};
+        return true;
+    }
+
+    bool RuntimeSession::request_checkpoint(
+        std::string_view marker, std::span<const std::string_view> keys) {
+        if(!is_active() || !valid_parameter_name(marker) || keys.size() > 128)
+            return false;
+        CheckpointRequest request{std::string(marker), {}};
+        for(const auto key : keys) {
+            const auto found = m_values.find(key);
+            if(found == m_values.end()
+                || !request.values.emplace(found->first, found->second).second)
+                return false;
+        }
+        if(m_checkpoint_request)
+            return m_checkpoint_request->marker == request.marker
+                   && m_checkpoint_request->values == request.values;
+        m_checkpoint_request = std::move(request);
+        return true;
+    }
+
+    std::optional<RuntimeSession::CheckpointRequest> RuntimeSession::take_checkpoint_request() {
+        return std::exchange(m_checkpoint_request, std::nullopt);
+    }
+
+    std::optional<RuntimeSession::SceneRequest> RuntimeSession::take_scene_request() {
+        auto request = std::exchange(m_scene_request, std::nullopt);
+        if(request && request->kind == SceneRequest::Kind::Load)
+            request->values.insert(m_values.begin(), m_values.end());
+        return request;
     }
 
     bool RuntimeSession::request_input_context(const std::string_view name, const bool enabled) {

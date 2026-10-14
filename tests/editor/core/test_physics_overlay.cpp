@@ -9,7 +9,98 @@
 namespace CometEditor::Tests {
     using namespace Comet;
 
-    TEST(PhysicsOverlayTest, SliderRailUsesConnectedFrameAndDistancesIgnoreScale) {
+    class PhysicsOverlayTest: public testing::Test {
+    protected:
+        ColliderOverlay overlay;
+    };
+
+    TEST_F(PhysicsOverlayTest, MeshOutlinesShareCacheAndRefreshWithoutGpuOrAWorld) {
+        MeshData mesh{.vertices = {{{1, 0, 1}}, {{3, 0, 1}}, {{3, 0, 3}}, {{1, 0, 3}}},
+            .indices = {0, 2, 1, 0, 3, 2}};
+        uint64_t revision = 1;
+        int reads = 0;
+        bool missing = false;
+        ColliderOverlay mesh_overlay({.read = [&](AssetHandle) -> Result<MeshData, Error> {
+                                          ++reads;
+                                          if(missing)
+                                              return Result<MeshData, Error>::failure(
+                                                  {"Missing mesh"});
+                                          return Result<MeshData, Error>::success(mesh);
+                                      },
+            .revision = [&](AssetHandle) { return revision; }});
+        Scene scene;
+        auto first = scene.create_entity("First mesh");
+        auto second = scene.create_entity("Shared mesh");
+        const ColliderComponent collider{
+            .shape = ColliderShape::TriangleMesh, .mesh = AssetHandle{42}};
+        for(auto entity : {first, second}) {
+            entity.add_component<ColliderComponent>(collider);
+            entity.add_component<RigidBodyComponent>(
+                RigidBodyComponent{.motion = BodyMotion::Static});
+            entity.edit_transform([](auto& transform) {
+                transform.translation = {2, 3, 4};
+                transform.rotation.z = 90;
+                transform.scale = {2, 1, 0.5f};
+            });
+        }
+        second.edit_transform([](auto& transform) { transform.translation.y += 10; });
+        LineDrawList lines;
+        const auto draw = [&] {
+            lines.clear();
+            mesh_overlay.append(scene, lines);
+        };
+        draw();
+        EXPECT_EQ(reads, 1);
+        ASSERT_EQ(lines.line_count(), 10u);
+        auto bounds = BoundingBox::from_point(lines.vertices().front().position);
+        for(const auto& vertex : lines.vertices()) {
+            bounds.include(vertex.position);
+            EXPECT_EQ(vertex.color, Math::Vec4(0.25f, 0.55f, 1, 1));
+        }
+        EXPECT_LT(Math::length(bounds.minimum - Math::Vec3(2, 5, 4.5f)), 1e-5f);
+        EXPECT_LT(Math::length(bounds.maximum - Math::Vec3(2, 19, 5.5f)), 1e-5f);
+        first.edit_transform([](auto& transform) { transform.translation.z += 1; });
+        draw();
+        EXPECT_EQ(reads, 1);
+        for(auto& vertex : mesh.vertices)
+            vertex.position.x += 1;
+        ++revision;
+        draw();
+        EXPECT_EQ(reads, 2);
+        first.edit_transform([](auto& transform) { transform.scale.x = 3; });
+        draw();
+        EXPECT_EQ(reads, 3);
+        first.remove_component<ColliderComponent>();
+        second.remove_component<ColliderComponent>();
+        draw();
+        EXPECT_TRUE(lines.empty());
+        first.add_component<ColliderComponent>(collider);
+        draw();
+        EXPECT_EQ(reads, 4);
+        mesh_overlay.clear();
+        draw();
+        EXPECT_EQ(reads, 5);
+        missing = true;
+        ++revision;
+        draw();
+        EXPECT_EQ(reads, 6);
+        ASSERT_EQ(lines.line_count(), 3u);
+        EXPECT_EQ(lines.vertices().front().color, Math::Vec4(1, 0.2f, 0.2f, 1));
+        draw();
+        EXPECT_EQ(reads, 6);
+        missing = false;
+        ++revision;
+        draw();
+        EXPECT_EQ(reads, 7);
+        EXPECT_EQ(lines.line_count(), 5u);
+        first.edit_component<RigidBodyComponent>(
+            [](auto& body) { body.motion = BodyMotion::Dynamic; });
+        draw();
+        EXPECT_EQ(reads, 7);
+        EXPECT_EQ(lines.vertices().front().color, Math::Vec4(1, 0.2f, 0.2f, 1));
+    }
+
+    TEST_F(PhysicsOverlayTest, SliderRailUsesConnectedFrameAndDistancesIgnoreScale) {
         Scene scene;
         auto actor = scene.create_entity();
         actor.edit_transform([](auto& value) {
@@ -66,7 +157,7 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(rail().empty());
     }
 
-    TEST(PhysicsOverlayTest, OutlinesUseColliderDimensionsWithoutRequiringMeshes) {
+    TEST_F(PhysicsOverlayTest, OutlinesUseColliderDimensionsWithoutRequiringMeshes) {
         Scene scene;
         auto box = scene.create_entity();
         box.add_component<ColliderComponent>(ColliderComponent{.half_extents = {1, 2, 3}});
@@ -76,7 +167,7 @@ namespace CometEditor::Tests {
             value.scale = {2, 1, 0.5f};
         });
         LineDrawList lines;
-        append_collider_outlines(scene, lines);
+        overlay.append(scene, lines);
         ASSERT_EQ(lines.line_count(), 12u);
         EXPECT_LT(Math::length(lines.vertices()[0].position - Math::Vec3(4, 1, 2.5f)), 1e-5f);
         EXPECT_EQ(lines.vertices()[0].color, Math::Vec4(0.6f, 0.6f, 0.6f, 1));
@@ -86,13 +177,41 @@ namespace CometEditor::Tests {
         });
         box.edit_transform([](auto& value) { value.scale = Math::Vec3(3); });
         lines.clear();
-        append_collider_outlines(scene, lines);
+        overlay.append(scene, lines);
         ASSERT_EQ(lines.line_count(), 96u);
         for(const auto& vertex : lines.vertices())
             EXPECT_NEAR(Math::length(vertex.position - Math::Vec3(2, 3, 4)), 6, 1e-5f);
     }
 
-    TEST(PhysicsOverlayTest, CharacterOutlineUsesFootOriginAndLocalCapsuleDimensions) {
+    TEST_F(PhysicsOverlayTest, CapsuleColliderOutlineUsesCenterOriginRotationAndUniformScale) {
+        Scene scene;
+        auto capsule = scene.create_entity();
+        capsule.add_component<ColliderComponent>(
+            ColliderComponent{.shape = ColliderShape::Capsule, .radius = 0.5f, .height = 3});
+        capsule.add_component<RigidBodyComponent>();
+        capsule.edit_transform([](auto& transform) {
+            transform.translation = {2, 3, 4};
+            transform.rotation = {0, 0, 90};
+            transform.scale = Math::Vec3(2);
+        });
+        LineDrawList lines;
+        overlay.append(scene, lines);
+        ASSERT_EQ(lines.line_count(), 132u);
+        float minimum = std::numeric_limits<float>::max();
+        float maximum = std::numeric_limits<float>::lowest();
+        for(const auto& vertex : lines.vertices()) {
+            minimum = std::min(minimum, vertex.position.x);
+            maximum = std::max(maximum, vertex.position.x);
+        }
+        EXPECT_NEAR(minimum, -1, 1e-5f);
+        EXPECT_NEAR(maximum, 5, 1e-5f);
+        capsule.edit_transform([](auto& transform) { transform.scale.y = 1; });
+        lines.clear();
+        overlay.append(scene, lines);
+        EXPECT_EQ(lines.vertices().front().color, Math::Vec4(1, 0.2f, 0.2f, 1));
+    }
+
+    TEST_F(PhysicsOverlayTest, CharacterOutlineUsesFootOriginAndLocalCapsuleDimensions) {
         Scene scene;
         auto character = scene.create_entity();
         character.add_component<CharacterControllerComponent>();
@@ -101,7 +220,7 @@ namespace CometEditor::Tests {
             t.scale = Math::Vec3(2);
         });
         LineDrawList lines;
-        append_collider_outlines(scene, lines);
+        overlay.append(scene, lines);
         ASSERT_EQ(lines.line_count(), 132u);
         float minimum = std::numeric_limits<float>::max();
         float maximum = std::numeric_limits<float>::lowest();
@@ -113,18 +232,18 @@ namespace CometEditor::Tests {
         EXPECT_NEAR(maximum, 6.6f, 1e-5f);
         character.edit_component<CharacterControllerComponent>([](auto& c) { c.enabled = false; });
         lines.clear();
-        append_collider_outlines(scene, lines);
+        overlay.append(scene, lines);
         EXPECT_EQ(lines.vertices().front().color, Math::Vec4(0.6f, 0.6f, 0.6f, 1));
     }
 
-    TEST(PhysicsOverlayTest, ColorsDistinguishBodyKindsAndUnsupportedConfiguration) {
+    TEST_F(PhysicsOverlayTest, ColorsDistinguishBodyKindsAndUnsupportedConfiguration) {
         Scene scene;
         auto entity = scene.create_entity();
         entity.add_component<ColliderComponent>();
         entity.add_component<RigidBodyComponent>();
         const auto color = [&] {
             LineDrawList lines;
-            append_collider_outlines(scene, lines);
+            overlay.append(scene, lines);
             return lines.vertices().front().color;
         };
         for(const auto& [motion, expected] :
@@ -148,7 +267,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(color(), Math::Vec4(1, 0.2f, 0.2f, 1));
     }
 
-    TEST(PhysicsOverlayTest, WorldJointShowsScaledRotatedLocalAnchorAndPositionGap) {
+    TEST_F(PhysicsOverlayTest, WorldJointShowsScaledRotatedLocalAnchorAndPositionGap) {
         Scene scene;
         auto entity = scene.create_entity();
         entity.add_component<RigidBodyComponent>();
@@ -175,7 +294,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(entity.get_component<TransformComponent>().translation, Math::Vec3(2, 3, 4));
     }
 
-    TEST(PhysicsOverlayTest,
+    TEST_F(PhysicsOverlayTest,
         ConnectedAnchorFollowsTargetAndMissingReferenceDoesNotBecomeWorldPoint) {
         Scene scene;
         auto entity = scene.create_entity();
@@ -210,7 +329,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(entity.get_component<PointJointComponent>().connected_body, reference);
     }
 
-    TEST(PhysicsOverlayTest, DisabledAndUnsupportedJointsAreMarkedWithoutInvalidVertices) {
+    TEST_F(PhysicsOverlayTest, DisabledAndUnsupportedJointsAreMarkedWithoutInvalidVertices) {
         Scene scene;
         auto entity = scene.create_entity();
         entity.add_component<RigidBodyComponent>();
@@ -255,7 +374,7 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(lines.empty());
     }
 
-    TEST(PhysicsOverlayTest, HingeAxesUseUnscaledRotationsAndInvalidDirectionsAreMarked) {
+    TEST_F(PhysicsOverlayTest, HingeAxesUseUnscaledRotationsAndInvalidDirectionsAreMarked) {
         Scene scene;
         auto entity = scene.create_entity();
         entity.add_component<RigidBodyComponent>();
@@ -316,7 +435,7 @@ namespace CometEditor::Tests {
         }
     }
 
-    TEST(PhysicsOverlayTest, HingeLimitArcUsesConnectedZeroDirectionAndUnscaledPose) {
+    TEST_F(PhysicsOverlayTest, HingeLimitArcUsesConnectedZeroDirectionAndUnscaledPose) {
         Scene scene;
         auto entity = scene.create_entity();
         entity.add_component<RigidBodyComponent>();
@@ -374,7 +493,8 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(arc().empty());
     }
 
-    TEST(PhysicsOverlayTest, PositionTargetsUseConnectedFrameClampToLimitsAndRespectDisabledColor) {
+    TEST_F(
+        PhysicsOverlayTest, PositionTargetsUseConnectedFrameClampToLimitsAndRespectDisabledColor) {
         const auto check = []<typename Joint>() {
             Scene scene;
             auto actor = scene.create_entity();
@@ -454,7 +574,7 @@ namespace CometEditor::Tests {
         check.template operator()<SliderJointComponent>();
     }
 
-    TEST(PhysicsOverlayTest, HingeAxisPreviewUsesInterpolatedRotation) {
+    TEST_F(PhysicsOverlayTest, HingeAxisPreviewUsesInterpolatedRotation) {
         class Rotate final: public System {
         public:
             Result<void, Error> fixed_update(Scene& scene, const Context&) override {
@@ -485,7 +605,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(runtime.stop());
     }
 
-    TEST(PhysicsOverlayTest, CaptureUsesInterpolatedPoseAndPauseStepWithoutMutatingSceneState) {
+    TEST_F(PhysicsOverlayTest, CaptureUsesInterpolatedPoseAndPauseStepWithoutMutatingSceneState) {
         class Move final: public System {
         public:
             Result<void, Error> fixed_update(Scene& scene, const Context&) override {
@@ -506,7 +626,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(runtime.advance(0.15));
         LineDrawList lines;
-        append_collider_outlines(scene, lines);
+        overlay.append(scene, lines);
         ASSERT_EQ(lines.line_count(), 12u);
         EXPECT_NEAR(lines.vertices()[0].position.x, 4.5f, 1e-5f);
         EXPECT_FLOAT_EQ(entity.get_component<TransformComponent>().translation.x, 10);
@@ -519,7 +639,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(runtime.request_step());
         ASSERT_TRUE(runtime.advance(0));
         lines.clear();
-        append_collider_outlines(scene, lines);
+        overlay.append(scene, lines);
         EXPECT_FLOAT_EQ(lines.vertices()[0].position.x, 19.5f);
         joints.clear();
         append_joint_anchors(scene, joints);
@@ -528,7 +648,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(runtime.stop());
         scene.destroy_entity(entity);
         lines.clear();
-        append_collider_outlines(scene, lines);
+        overlay.append(scene, lines);
         EXPECT_TRUE(lines.empty());
         joints.clear();
         append_joint_anchors(scene, joints);

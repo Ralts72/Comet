@@ -6,6 +6,9 @@
 #include <functional>
 #include <cstdint>
 #include <optional>
+#include <span>
+#include <string>
+#include <vector>
 #include <unordered_map>
 #include <utility>
 
@@ -23,6 +26,10 @@ namespace CometEditor {
         uint32_t active_item = 0;
         [[nodiscard]] static PropertyEditResult from_item(bool changed);
         void include_item(bool item_changed);
+    };
+
+    struct ParameterEditResult: PropertyEditResult {
+        std::vector<std::string> changed_parameters;
     };
 
     class PropertyEditorRegistry {
@@ -50,9 +57,10 @@ namespace CometEditor {
         [[nodiscard]] bool contains(const Comet::PropertyType type) const {
             return m_editors.contains(type);
         }
-        [[nodiscard]] PropertyEditResult edit_parameters(
+        [[nodiscard]] ParameterEditResult edit_parameters(
             const Comet::Script::PropertyMap& properties, Comet::ParameterMap& overrides,
-            Comet::Scene& scene, std::optional<std::uint64_t> drop_generation = std::nullopt) const;
+            Comet::Scene& scene, std::optional<std::uint64_t> drop_generation = std::nullopt,
+            std::span<const Comet::ParameterMap* const> peers = {}) const;
 
     private:
         std::unordered_map<Comet::PropertyType, PropertyEditor> m_editors;

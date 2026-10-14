@@ -30,7 +30,7 @@ namespace CometEditor {
     class InspectorPanel: public EditorPanel {
     public:
         struct AssetAssignment {
-            PropertyEditTransaction::Target target;
+            std::vector<PropertyEditTransaction::Target> targets;
             AssetDragPayload asset;
         };
         InspectorPanel(const EditorState& state, SelectionService& selection,
@@ -67,6 +67,10 @@ namespace CometEditor {
         void apply_property_edit(Comet::Entity entity, const Comet::ComponentDescriptor& component,
             const Comet::PropertyDescriptor& property, const Comet::PropertyValue& value,
             const PropertyEditResult& result);
+        [[nodiscard]] std::vector<PropertyEditTransaction::Target> property_targets(
+            std::string_view component, std::string_view property) const;
+        void apply_property_values(std::span<const PropertyEditTransaction::Target> targets,
+            std::span<const Comet::PropertyValue> values, const PropertyEditResult& result);
         void render_asset_property(const PropertyEditTransaction::Target& target,
             const Comet::PropertyDescriptor& property, Comet::AssetHandle handle);
         [[nodiscard]] std::optional<AssetDragPayload> accept_asset_drop(
@@ -85,6 +89,7 @@ namespace CometEditor {
         std::shared_ptr<const Comet::Script> m_script_edit_version;
         AssetInspector m_asset_inspector;
         std::optional<AssetAssignment> m_asset_assignment;
+        std::vector<Comet::EntityUuid> m_entities;
         AnimationPreview m_animation_preview;
         std::shared_ptr<const Comet::AnimationPlayback> m_preview_publication;
         bool m_animation_preview_drawn = false;

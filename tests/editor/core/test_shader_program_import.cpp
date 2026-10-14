@@ -1,3 +1,4 @@
+#include "asset/serialization/metadata_serializer.h"
 #include "asset/shader_program_import.h"
 #include "asset/project_prepare.h"
 #include "assets/editor_assets.h"
@@ -109,6 +110,10 @@ namespace CometEditor::Tests {
         std::filesystem::copy_file(
             std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/meshes/cube.gltf",
             paths.assets() / "cube.gltf");
+        ASSERT_TRUE(Comet::MetadataSerializer{}.save(
+            Comet::AssetMetadata{
+                .handle = Comet::AssetHandle::generate(), .type = Comet::AssetType::Mesh},
+            Comet::metadata_path(paths.assets() / "cube.gltf")));
         ASSERT_TRUE(database.scan().succeeded());
         Comet::Scene scene;
         const auto environment = database.find("studio.hdr")->handle;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "asset/handle.h"
+#include "asset/data/material_data.h"
 #include "asset/registry.h"
 #include "common/export.h"
 #include "common/result.h"
@@ -28,7 +29,7 @@ namespace Comet {
     struct PreparedMaterial {
         struct TextureBinding {
             uint32_t binding;
-            std::shared_ptr<Texture> texture; // 空值表示可选槽位使用白色默认纹理。
+            std::shared_ptr<Texture> texture; // 空值使用布局指定的默认纹理。
 
             bool operator==(const TextureBinding&) const = default;
         };
@@ -36,6 +37,7 @@ namespace Comet {
         std::shared_ptr<const MaterialLayout> layout;
         std::vector<TextureBinding> textures;
         std::vector<std::byte> parameters;
+        MaterialSurface surface;
     };
 
     // 仅所属线程可访问；源对象跟踪版本，准备结果不可变。

@@ -11,6 +11,8 @@
 #include "asset/serialization/metadata_serializer.h"
 #include "render/material/material.h"
 #include "asset/registry.h"
+#include "asset/script.h"
+#include "scene/script_component.h"
 #include "asset/artifact/shader_program_artifact.h"
 #include "asset/serialization/shader_program_serializer.h"
 #include "shader/compiler.h"
@@ -276,6 +278,101 @@ namespace CometEditor::Tests {
             return request;
         }
     };
+
+    TEST_F(AssetEditingUiTest, MixedAssetPickerCanChoosePrimaryValueAndCapturesAllTargets) {
+        auto peer = scene.create_entity();
+        peer.add_component<Comet::MeshRendererComponent>(mesh, material);
+        selection.select_entities(std::array{peer.get_uuid(), entity.get_uuid()});
+        frame();
+        auto* window = ImGui::FindWindowByName("Inspector");
+        const auto group = ImHashStr("material", 0, window->GetID("mesh_renderer"));
+        ImGui::ActivateItemByID(ImHashStr("Material", 0, group));
+        frame();
+        frame();
+        const auto* popup = ImGui::FindWindowByName("##Combo_00");
+        ASSERT_NE(popup, nullptr);
+        ASSERT_TRUE(popup->Active);
+        auto request = click({popup->DC.CursorStartPos.x + 20,
+            popup->DC.CursorStartPos.y + ImGui::GetTextLineHeight() * 0.5f});
+        ASSERT_TRUE(request);
+        EXPECT_FALSE(request->asset.target.handle);
+        ASSERT_EQ(request->targets.size(), 2u);
+        EXPECT_EQ(request->targets[0].entity, peer.get_uuid());
+        EXPECT_EQ(request->targets[1].entity, entity.get_uuid());
+        selection.clear();
+        const std::vector<Comet::PropertyValue> values(
+            request->targets.size(), Comet::AssetHandle{});
+        ASSERT_TRUE(edit.apply_many(request->targets, values));
+        EXPECT_FALSE(peer.get_component<Comet::MeshRendererComponent>().material);
+        EXPECT_FALSE(entity.get_component<Comet::MeshRendererComponent>().material);
+        ASSERT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(peer.get_component<Comet::MeshRendererComponent>().material, material);
+        EXPECT_FALSE(entity.get_component<Comet::MeshRendererComponent>().material);
+    }
+
+    TEST_F(AssetEditingUiTest, PrefabScriptParameterUsesAssetPickerAndUndoWithoutNumericRounding) {
+        using namespace Comet;
+        const AssetHandle prefab{18446744073709551610ull}, script_handle{71};
+        std::ofstream(paths.assets() / "unit.prefab") << "{}";
+        ASSERT_TRUE(MetadataSerializer{}.save({.handle = prefab, .type = AssetType::Prefab},
+            metadata_path(paths.assets() / "unit.prefab")));
+        ASSERT_TRUE(database.scan().succeeded());
+        auto script = Script::create("return {properties = {unit = {type = 'prefab'}}}");
+        ASSERT_TRUE(script);
+        ASSERT_TRUE(runtime_assets.register_asset(script_handle, script.value()));
+        registry = create_scene_component_registry();
+        entity.remove_component<MeshRendererComponent>();
+        widgets = create_property_editor_registry(database);
+        auto& binding = entity.add_component<ScriptComponent>();
+        binding.asset = script_handle;
+        inspector = std::make_unique<InspectorPanel>(
+            state, selection, history, edit, registry, widgets, database, runtime_assets, programs);
+        frame();
+        frame();
+        const auto parameter_point = [&]() {
+            auto* window = ImGui::FindWindowByName("Inspector");
+            auto id = window->GetID("script");
+            for(const auto* part : {"parameters", "unit", "unit"})
+                id = ImHashStr(part, 0, id);
+            for(float y = window->WorkRect.Min.y; y < window->WorkRect.Max.y; y += 3) {
+                ImVec2 point{window->WorkRect.Min.x + 40, y};
+                ImGui::GetIO().AddMousePosEvent(point.x, point.y);
+                frame();
+                if(GImGui->HoveredId == id)
+                    return point;
+            }
+            ADD_FAILURE() << "Prefab parameter picker not found";
+            return ImVec2{};
+        };
+        const auto point = parameter_point();
+        click_item(point);
+        frame();
+        const auto label = "unit.prefab###" + std::to_string(prefab.value());
+        click_item(widget_point("##Combo_00", label.c_str()));
+        ASSERT_TRUE(binding.parameters.contains("unit"));
+        EXPECT_EQ(
+            std::get<std::string>(binding.parameters.at("unit")), std::to_string(prefab.value()));
+        EXPECT_EQ(history.undo_size(), 1u);
+        ASSERT_TRUE(history.undo());
+        EXPECT_TRUE(binding.parameters.empty());
+        ASSERT_TRUE(history.redo());
+        const auto saved = SceneSerializer(registry).serialize(scene);
+        ASSERT_TRUE(saved);
+        const auto restored = SceneSerializer(registry).deserialize(saved.value());
+        ASSERT_TRUE(restored);
+        EXPECT_EQ(restored.value()
+                      ->find_entity(entity.get_uuid())
+                      .get_component<ScriptComponent>()
+                      .parameters,
+            binding.parameters);
+        // A different asset kind must not overwrite the typed Prefab field.
+        payload = drag_asset(mesh, AssetType::Mesh);
+        EXPECT_FALSE(drop(parameter_point()));
+        EXPECT_EQ(
+            std::get<std::string>(binding.parameters.at("unit")), std::to_string(prefab.value()));
+        EXPECT_EQ(history.undo_size(), 1u);
+    }
 
     TEST_F(AssetEditingUiTest, SceneEnvironmentPickerAndBackgroundUseSceneHistory) {
         Comet::Tests::write_hdr(paths.assets() / "studio.hdr");
@@ -874,13 +971,17 @@ namespace CometEditor::Tests {
         const auto request = inspector->take_asset_assignment();
         ASSERT_TRUE(request);
         EXPECT_EQ(request->asset.target.handle, mesh);
-        EXPECT_EQ(request->target.entity, entity.get_uuid());
+        EXPECT_EQ(request->targets.front().entity, entity.get_uuid());
         EXPECT_FALSE(entity.get_component<Comet::MeshRendererComponent>().mesh);
     }
 
     TEST_F(AssetEditingUiTest, PickerFiltersTypesAndDistinguishesSameFilenamePaths) {
         std::filesystem::create_directories(paths.assets() / "nested");
         std::ofstream(paths.assets() / "nested/mesh.gltf") << R"({"asset":{"version":"2.0"}})";
+        ASSERT_TRUE(Comet::MetadataSerializer{}.save(
+            Comet::AssetMetadata{
+                .handle = Comet::AssetHandle::generate(), .type = Comet::AssetType::Mesh},
+            Comet::metadata_path(paths.assets() / "nested/mesh.gltf")));
         ASSERT_TRUE(database.scan().succeeded());
         auto request = choose(0, 2);
         ASSERT_TRUE(request);
@@ -907,7 +1008,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(request);
         EXPECT_FALSE(request->asset.target.handle);
         EXPECT_EQ(request->asset.target.revision, Comet::INVALID_ASSET_REVISION);
-        ASSERT_TRUE(edit.apply(request->target, request->asset.target.handle));
+        ASSERT_TRUE(edit.apply(request->targets.front(), request->asset.target.handle));
         EXPECT_FALSE(renderer.mesh);
         ASSERT_TRUE(history.undo());
         EXPECT_EQ(renderer.mesh, Comet::AssetHandle(999));
@@ -946,7 +1047,7 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(request);
         EXPECT_EQ(request->asset.target.handle, material);
         EXPECT_EQ(request->asset.generation, generation);
-        EXPECT_EQ(request->target.entity, entity.get_uuid());
+        EXPECT_EQ(request->targets.front().entity, entity.get_uuid());
         ASSERT_TRUE(queue_choice(1, 1));
 
         // 模拟 UI 结束后 Play 失败回退，在下一次 render 前就会消费请求。
@@ -971,12 +1072,12 @@ namespace CometEditor::Tests {
             payload = drag_asset(handle, type);
             const auto request = drop(property_point(index));
             ASSERT_TRUE(request);
-            EXPECT_EQ(request->target.entity, entity.get_uuid());
-            EXPECT_EQ(request->target.component, "mesh_renderer");
-            EXPECT_EQ(request->target.property, index == 0 ? "mesh" : "material");
+            EXPECT_EQ(request->targets.front().entity, entity.get_uuid());
+            EXPECT_EQ(request->targets.front().component, "mesh_renderer");
+            EXPECT_EQ(request->targets.front().property, index == 0 ? "mesh" : "material");
             EXPECT_EQ(request->asset.target.handle, handle);
             EXPECT_EQ(history.undo_size(), 0);
-            ASSERT_TRUE(edit.apply(request->target, request->asset.target.handle));
+            ASSERT_TRUE(edit.apply(request->targets.front(), request->asset.target.handle));
             EXPECT_EQ(history.undo_size(), 1);
             ASSERT_TRUE(history.undo());
             const auto& renderer = entity.get_component<Comet::MeshRendererComponent>();
@@ -1092,6 +1193,40 @@ namespace CometEditor::Tests {
         EXPECT_EQ(history.undo_size(), 0);
     }
 
+    TEST_F(AssetEditingUiTest, SurfaceControlsSubmitAndReloadAsMaterialProperties) {
+        selection.select_asset(material);
+        frame();
+        frame();
+        click(widget_point("Inspector", "Alpha Mode"));
+        frame();
+        const auto* popup = ImGui::FindWindowByName("##Combo_00");
+        ASSERT_NE(popup, nullptr);
+        ASSERT_TRUE(popup->Active);
+        click({popup->DC.CursorStartPos.x + 20, popup->DC.CursorStartPos.y
+                                                    + ImGui::GetTextLineHeightWithSpacing()
+                                                    + ImGui::GetTextLineHeight() * 0.5f});
+        ASSERT_EQ(material_updates, 1);
+        EXPECT_EQ(submitted_material.surface.alpha_mode, Comet::AlphaMode::Mask);
+        click(widget_point("Inspector", "Double Sided"));
+        ASSERT_EQ(material_updates, 2);
+        EXPECT_TRUE(submitted_material.surface.double_sided);
+        // 此夹具仅接收保存请求；在这里模拟宿主落盘，再检验重新选中资产。
+        ASSERT_TRUE(
+            Comet::MaterialSerializer{}.save(submitted_material, paths.assets() / "material.mat"));
+        const auto saved = Comet::MaterialSerializer{}.load(paths.assets() / "material.mat");
+        ASSERT_TRUE(saved);
+        EXPECT_EQ(saved.value().surface, submitted_material.surface);
+        selection.select_entity(entity.get_id());
+        frame();
+        selection.select_asset(material);
+        frame();
+        frame();
+        click(widget_point("Inspector", "Double Sided"));
+        ASSERT_EQ(material_updates, 3);
+        EXPECT_EQ(submitted_material.surface.alpha_mode, Comet::AlphaMode::Mask);
+        EXPECT_FALSE(submitted_material.surface.double_sided);
+    }
+
     TEST_F(AssetEditingUiTest, FailedScalarSaveKeepsDraftAndAllowsRetry) {
         selection.select_asset(material);
         frame();
@@ -1107,6 +1242,10 @@ namespace CometEditor::Tests {
             frame();
         EXPECT_EQ(material_updates, failed_updates);
         material_update_success = true;
+        auto* window = ImGui::FindWindowByName("Inspector");
+        ImGui::SetScrollY(window, window->ScrollMax.y);
+        frame();
+        frame();
         click_item(widget_point("Inspector", "Retry Save"));
         EXPECT_EQ(material_updates, failed_updates + 1);
         EXPECT_EQ(submitted_material, draft);
