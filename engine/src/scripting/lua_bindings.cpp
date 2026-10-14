@@ -830,6 +830,41 @@ namespace Comet::LuaBindings {
                     state, "%s", std::get<std::string>(*context.return_value).c_str());
             return 0;
         }
+        int get_animation_parameter(lua_State* state) {
+            if(lua_gettop(state) != 2 || lua_type(state, 2) != LUA_TSTRING)
+                return luaL_error(state, "get_animation_parameter expects entity and name");
+            const auto entity = require_entity(state);
+            if(!entity.has_component<AnimatorComponent>())
+                return luaL_error(state, "Animation parameter requires an Animator");
+            size_t length = 0;
+            const char* key = lua_tolstring(state, 2, &length);
+            if(!valid_parameter_name({key, length}))
+                return luaL_error(state, "Animation parameter requires a valid name");
+            auto& context = current(state);
+            bool found = false;
+            {
+                const auto& animator = entity.get_component<AnimatorComponent>();
+                const auto controller =
+                    context.assets
+                        ? context.assets->resolve<AnimationController>(animator.controller)
+                        : nullptr;
+                if(controller) {
+                    if(const auto* value = controller->parameter(key, animator.parameters)) {
+                        if(const auto* flag = std::get_if<bool>(value)) {
+                            lua_pushboolean(state, *flag);
+                            found = true;
+                        } else if(const auto* number = std::get_if<float>(value)) {
+                            lua_pushnumber(state, *number);
+                            found = true;
+                        }
+                    }
+                }
+            }
+            if(!found)
+                return luaL_error(
+                    state, "Unknown animation parameter or unloaded controller: %s", key);
+            return 1;
+        }
         int set_material_vector(lua_State* state) {
             auto& context = current(state);
             if(!context.scene || !context.materials)
@@ -1103,6 +1138,7 @@ namespace Comet::LuaBindings {
             {"load_scene", load_scene}, {"save_checkpoint", save_checkpoint},
             {"load_checkpoint", load_checkpoint}, {"checkpoint", checkpoint},
             {"play_one_shot", play_one_shot}, {"raycast", raycast}, {"shape_cast", shape_cast},
+            {"get_animation_parameter", get_animation_parameter},
             {"overlap_sphere", overlap_sphere}, {"apply_impulse", apply_impulse},
             {"apply_force", apply_force}, {"apply_impulse_at", apply_impulse_at},
             {"apply_force_at", apply_force_at}, {"apply_torque", apply_torque},

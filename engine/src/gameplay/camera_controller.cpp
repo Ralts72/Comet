@@ -29,7 +29,7 @@ namespace Comet::Gameplay {
             ControlledCamera result;
             if(auto parent = scene.get_parent(camera)) {
                 result.parent = parent;
-                result.world_to_parent = Math::inverse(scene.get_world_matrix(parent));
+                result.world_to_parent = Math::inverse(scene.get_parent_matrix(camera));
                 result.parent_pose =
                     parent.get_component<WorldTransformComponent>().pose_world_matrix;
                 for(int column = 0; column < 4; ++column)

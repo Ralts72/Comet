@@ -51,6 +51,7 @@ namespace CometEditor {
         void select_state(std::size_t index);
         void render_parameters(Comet::AnimationController& data);
         void render_state(Comet::AnimationController& data, std::size_t index);
+        void render_events(Comet::AnimationController::State& state);
         void render_transition(Comet::AnimationController& data, std::size_t index);
         void render_parameter(Comet::AnimationController& data, const std::string& name);
         void render_graph(Comet::AnimationController& data);
@@ -66,6 +67,7 @@ namespace CometEditor {
         Comet::AssetHandle m_controller;
         std::string m_error;
         std::optional<std::size_t> m_state;
+        std::optional<std::size_t> m_event;
         std::optional<std::size_t> m_preview_index;
         std::optional<std::size_t> m_transition;
         std::string m_parameter;

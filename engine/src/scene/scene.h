@@ -30,6 +30,8 @@ namespace Comet {
     class MaterialParameterValidator;
     struct MaterialOverrides;
     struct ModelData;
+    struct AnimationData;
+    struct AnimationPose;
 
     struct AnimationPlayback;
 
@@ -47,6 +49,7 @@ namespace Comet {
         struct Event {
             std::string name;
             std::optional<ParameterValue> value;
+            EntityUuid target;
         };
 
         Scene();
@@ -83,8 +86,8 @@ namespace Comet {
         [[nodiscard]] bool request_remove_rigid_body(Entity entity);
 
         // 场景通知不序列化；交付期间发出的新通知留至下一次有效更新。
-        [[nodiscard]] bool emit_event(
-            std::string_view name, std::optional<ParameterValue> value = std::nullopt);
+        [[nodiscard]] bool emit_event(std::string_view name,
+            std::optional<ParameterValue> value = std::nullopt, Entity target = {});
 
         // 仅当前 Runtime 的实体材质覆盖；快照不修改共享资产，不序列化。
         [[nodiscard]] Result<void> set_material_scalar(Entity entity, std::string_view name,
@@ -109,6 +112,8 @@ namespace Comet {
 
         // 即时查询：仅同步该实体的脏祖先链，不刷新无关分支。
         [[nodiscard]] const Math::Mat4& get_world_matrix(Entity entity);
+        // 本地变换所依赖的世界基底，包含可选骨骼挂点；供编辑反算本地偏移。
+        [[nodiscard]] Math::Mat4 get_parent_matrix(Entity entity);
         // 只读呈现姿态；脚本、物理和保存继续使用真实 Transform／WorldTransform。
         [[nodiscard]] const WorldTransformComponent& get_render_transform(Entity entity);
 
@@ -136,6 +141,8 @@ namespace Comet {
         // Main 发布瞬时姿态输入；不进入内容序列化，Runtime 开始／停止时清理。
         void set_animation_playback(
             Entity entity, std::shared_ptr<const AnimationPlayback> playback);
+        // 宿主解析挂点父实体的网格；Scene 只缓存其 CPU 动画数据与绑定姿态。
+        void set_animation_source(Entity entity, std::shared_ptr<const AnimationData> source);
 
         [[nodiscard]] bool is_valid(Entity entity) const;
 
@@ -212,6 +219,9 @@ namespace Comet {
                 m_dirty_physics_entities.push(handle);
         }
         void update_world_transform(entt::entity handle);
+        void mark_attachments_dirty(entt::entity parent);
+        void apply_parent_transform(entt::entity child, const WorldTransformComponent& parent,
+            Math::Mat4& model, Math::Mat4& pose) const;
         std::size_t sync_transform_chain(entt::entity handle);
         void mark_render_dirty() { ++m_render_revision; }
         void mark_render_entity_changed(entt::entity handle);
@@ -219,7 +229,8 @@ namespace Comet {
 
         template<typename Component>
         void component_changed(entt::entity handle, bool structure_changed) {
-            if constexpr(std::is_same_v<Component, TransformComponent>)
+            if constexpr(std::is_same_v<Component, TransformComponent>
+                         || std::is_same_v<Component, BoneAttachmentComponent>)
                 mark_transform_dirty(handle);
             else if constexpr(is_scene_render_component_v<Component>)
                 mark_render_entity_changed(handle);
@@ -289,6 +300,11 @@ namespace Comet {
             m_material_overrides;
         std::unordered_map<entt::entity, std::shared_ptr<const AnimationPlayback>>
             m_animation_playbacks;
+        struct AnimationSource {
+            std::shared_ptr<const AnimationData> data;
+            std::shared_ptr<const AnimationPose> bind_pose;
+        };
+        std::unordered_map<entt::entity, AnimationSource> m_animation_sources;
         entt::registry m_registry;
         std::unordered_map<EntityId, entt::entity> m_entities_by_id;
         std::unordered_map<EntityUuid, entt::entity> m_entities_by_uuid;

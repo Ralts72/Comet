@@ -111,6 +111,10 @@ namespace CometEditor::Tests {
 
     TEST_F(AnimationPreviewUiTest,
         ControllerPreviewUsesTheExistingSceneAndYieldsToPlayAndSceneChanges) {
+        auto item = scene.create_entity("Held item");
+        item.add_component<Comet::BoneAttachmentComponent>(
+            Comet::BoneAttachmentComponent{"hand_r"});
+        ASSERT_TRUE(scene.set_parent(item, entity));
         Comet::AnimationController definition;
         definition.parameters = {{"speed", 0.f}};
         definition.states.front().parameter = "speed";
@@ -129,6 +133,7 @@ namespace CometEditor::Tests {
         frame();
         frame(.1);
         ASSERT_TRUE(scene.get_animation_playback(entity));
+        ASSERT_TRUE(scene.get_animation_playback(entity)->pose);
         EXPECT_EQ(Comet::SceneSerializer(registry).serialize(scene).value(), content.value());
         inspector->asset_inspector().controller_editor().close();
         frame();

@@ -78,6 +78,11 @@ namespace Comet {
         EntityUuid character;
         bool operator==(const CharacterAnimationComponent&) const = default;
     };
+    // 父实体为蒙皮模型；本地 Transform 表示骨骼空间偏移。
+    struct COMET_API BoneAttachmentComponent {
+        std::string bone;
+        bool operator==(const BoneAttachmentComponent&) const = default;
+    };
 
     struct COMET_API LightComponent {
         LightType type = LightType::Directional;
@@ -303,7 +308,8 @@ namespace Comet {
 
     template<typename T>
     inline constexpr bool is_scene_tracked_component_v =
-        is_scene_render_component_v<T> || is_scene_physics_component_v<T>;
+        is_scene_render_component_v<T> || is_scene_physics_component_v<T>
+        || std::is_same_v<std::remove_cvref_t<T>, BoneAttachmentComponent>;
 
     template<typename T>
     inline constexpr bool is_scene_read_only_component_v =

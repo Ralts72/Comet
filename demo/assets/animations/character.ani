@@ -25,6 +25,18 @@
           "threshold": 6,
           "clip": "run"
         }
+      ],
+      "events": [
+        {
+          "phase": 0.2,
+          "name": "footstep",
+          "value": "left"
+        },
+        {
+          "phase": 0.7,
+          "name": "footstep",
+          "value": "right"
+        }
       ]
     },
     {
@@ -40,6 +52,18 @@
         {
           "threshold": 2,
           "clip": "crouch_walk"
+        }
+      ],
+      "events": [
+        {
+          "phase": 0.2,
+          "name": "footstep",
+          "value": "left"
+        },
+        {
+          "phase": 0.7,
+          "name": "footstep",
+          "value": "right"
         }
       ]
     },

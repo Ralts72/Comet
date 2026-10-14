@@ -381,6 +381,8 @@ namespace Comet {
         const auto events = scene.take_events();
         for(const auto& event : events) {
             for(auto& [key, entry] : m_entries) {
+                if((event.target && event.target != key.entity) || !is_live(key, entry))
+                    continue;
                 const auto& handlers = entry.script->event_handlers();
                 const auto handler = handlers.find(event.name);
                 if(handler == handlers.end())
@@ -395,8 +397,9 @@ namespace Comet {
         return Result<void, Error>::success();
     }
     Result<void, Error> ScriptSystem::update(Scene& scene, const Context& context) {
-        if(auto updated = dispatch(scene, context, ScriptInstance::Phase::Update); !updated)
-            return updated;
+        return dispatch(scene, context, ScriptInstance::Phase::Update);
+    }
+    Result<void, Error> ScriptSystem::post_update(Scene& scene, const Context& context) {
         return dispatch_events(scene, context);
     }
     void ScriptSystem::on_stop(Scene&, RuntimeSession&, const RuntimeServices&) noexcept {

@@ -374,18 +374,22 @@ Lua 的 `comet.control_character(enabled, options)` 调用相同 C++ 控制器�
 
 Mesh 导入数据保存顶点权重和不可变 `AnimationData`，骨骼层级、绑定矩阵及片段属于资产，沿 Mesh Artifact 保存、校验与加载。
 `AnimatorComponent` 保存控制器引用、初始参数覆盖和单片段播放配置，复用组件描述符的保存、克隆、引用重映射与 Inspector 撤销。
-`.ani` 是不可变 `AnimationController` 定义的项目资产，包含参数、状态、1D 混合与有序条件过渡；复用 Metadata、Registry 和只读导出索引。引擎提供默认角色预设，项目可保存自己的副本。
+`.ani` 是不可变 `AnimationController` 定义的项目资产，包含参数、状态、1D 混合、事件时间轴与有序条件过渡；复用 Metadata、Registry 和只读导出索引。引擎提供默认角色预设，项目可保存自己的副本。
 `AnimationSystem` 属于 Runtime：只读取控制器和参数、推进实例状态／时间，不依赖 Gameplay 或 Physics。播放完成条件单独记录本状态进度，不从已回绕的采样时间推断。
 Gameplay 的 `CharacterAnimationSystem` 在物理更新后读取实际移动状态，通过 `CharacterAnimationComponent` 将四个角色参数写入 Animator；不选择动作、不维护动画时钟。Lua 可通过 `comet.set_animation_parameter` 驱动其他对象。
 `blend_animation_1d` 只按有序阈值选择相邻片段及权重，不依赖角色、场景或渲染。
 混合空间内共享归一化周期，时长按当前片段权重插值；System 通过组合层注入的只读资产查询取得定义与片段时长，不依赖 GPU Mesh。数值参数按状态定义指数平滑，跨阈值保持相位；状态切换分别保留旧／新混合输入，再按过渡时间混合。
 Scene 保存不可变播放快照，提取／解析交付同一快照给 RenderThread；Stop、销毁及重开清理播放状态，场景文件不保存时间与逐帧姿态。
 Runtime、预览和姿态采样共用循环／终点时间规则。非循环片段到达终点后保留原快照，零速且过渡已结束的实例也不重复发布；零速仍允许片段过渡推进。
+动画事件使用实际推进区间处理跨帧与循环，1D 混合共用状态标记，逻辑切换后只交付目标状态的事件。Scene 沿用命名事件队列并支持实体目标；`System::post_update` 在所有普通更新后交付事件，消除脚本与动画的注册顺序依赖。
+
+`BoneAttachmentComponent` 使用父模型的骨骼及子实体本地偏移，不再保存另一份目标引用。组合层解析挂点父模型的 CPU 动画数据，Scene 保存绑定姿态；有挂点的实例在 Main 采样并发布不可变姿态，SkinningPass 直接借用，其他实例继续在 Render 采样。World 与固定步呈现插值共用父骨骼变换，不写回挂载物的本地 Transform。绑定姿态、当前姿态和来源替换分别失效，均不写入场景内容。
+
 Editor 的 `AnimationControllerEditor` 只管理状态图布局、选中项、草稿撤销及试播参数；`AssetInspector` 仍拥有资产草稿与保存请求，文件读写由宿主执行。布局与试播参数不写入 `.ani`。Play 从 Scene 的不可变播放快照读取状态与过渡进度。
 Editor 的 `AnimationPreview` 拥有所选模型的预览时钟，Inspector 在 Main 捕获帧前通过 Scene 的瞬时播放接口发布不可变快照，复用正常提取、采样和蒙皮链路。
 预览与 Animator 配置、命令历史及游戏 Runtime 分开；结束时只清理仍属于预览的发布，选择／资源／场景变化和进入 Play 时重置，不新增渲染视口。
 
-RenderThread 采样局部 TRS、混合并合成骨骼矩阵，`SkinningPass` 每帧槽复用角色的调色板和输出顶点缓冲。
+姿态采样统一处理局部 TRS、混合与骨骼矩阵；有挂点的实例在 Main 求值，其他实例在 RenderThread 求值。`SkinningPass` 每帧槽复用角色的调色板和输出顶点缓冲。
 Compute 在绘制前生成普通 Mesh 顶点，主绘制、阴影及项目材质共用结果，不扩展材质顶点接口。
 按每个关节影响的顶点界限计算保守姿态界限，供裁剪和阴影范围使用；在途帧保留输入资产、输出缓冲和 descriptor owner。
 同一帧槽复用未变化播放快照的调色板和局部界限；替换 Mesh owner 后重新采样。GPU dispatch 与同步保持逐帧录制，避免把取消录制当作已经生成顶点。

@@ -83,6 +83,19 @@ namespace Comet {
             for(const auto& motion : state.motions)
                 if(motion.clip.empty())
                     return Result<void>::failure("Animation state needs a clip: " + state.name);
+            if(state.events.size() > 128)
+                return Result<void>::failure("Too many animation events: " + state.name);
+            float previous = -1;
+            for(const auto& event : state.events) {
+                if(!std::isfinite(event.phase) || event.phase < 0 || event.phase > 1
+                    || event.phase < previous || !valid_parameter_name(event.name)
+                    || !valid_parameter_value(event.value)
+                    || (!std::holds_alternative<bool>(event.value)
+                        && !std::holds_alternative<float>(event.value)
+                        && !std::holds_alternative<std::string>(event.value)))
+                    return Result<void>::failure("Invalid animation event: " + state.name);
+                previous = event.phase;
+            }
         }
         for(const auto& transition : transitions) {
             if((!transition.from.empty() && !find_state(transition.from))

@@ -891,10 +891,8 @@ namespace Comet::Tests {
     }
 
     TEST_F(RenderGraphGpuTest, ConfirmsSyncValidationWithUnsubmittedMissingBarrierControl) {
-        const auto* enabled = std::getenv("VK_LAYER_ENABLES");
-        if(!enabled
-            || std::string_view(enabled).find("SYNCHRONIZATION_VALIDATION")
-                   == std::string_view::npos)
+        const auto* enabled = std::getenv("VK_VALIDATION_VALIDATE_SYNC");
+        if(!enabled || std::string_view(enabled) != "1")
             GTEST_SKIP() << "Runs under render_graph_sync_validation CTest environment";
         auto& device = engine->get_renderer().get_render_context().get_device();
         auto source =

@@ -127,7 +127,7 @@ namespace CometEditor {
         context.origin = Comet::Math::Vec3(world_origin) / world_origin.w;
         if(const auto parent = scene->get_parent(entity)) {
             context.parent = parent.get_uuid();
-            context.parent_world = scene->get_world_matrix(parent);
+            context.parent_world = scene->get_parent_matrix(entity);
             context.world_to_parent = Comet::Math::inverse(context.parent_world);
         }
         if(!finite_matrix(context.parent_world) || !finite_matrix(context.world_to_parent))
@@ -369,7 +369,7 @@ namespace CometEditor {
             member.world = scene.get_world_matrix(entity);
             if(const auto parent = scene.get_parent(entity)) {
                 member.parent = parent.get_uuid();
-                member.parent_world = scene.get_world_matrix(parent);
+                member.parent_world = scene.get_parent_matrix(entity);
                 member.world_to_parent = Comet::Math::inverse(member.parent_world);
             }
             if(!finite_matrix(member.world) || !finite_matrix(member.world_to_parent))
@@ -389,7 +389,7 @@ namespace CometEditor {
                 return false;
             const auto parent = scene.get_parent(entity);
             if(parent.get_uuid() != member.parent
-                || (parent && scene.get_world_matrix(parent) != member.parent_world))
+                || (parent && scene.get_parent_matrix(entity) != member.parent_world))
                 return false;
             const auto& value = entity.get_component<Comet::TransformComponent>();
             if(value.translation != member.last.translation

@@ -533,6 +533,7 @@ namespace CometEditor {
         ImGui::BeginDisabled(!can_edit);
         auto environment = scene.get_environment();
         PropertyEditResult result;
+
         result.changed = edit_asset_reference("HDR 贴图###HDR map", environment.asset,
             m_asset_database, Comet::AssetType::Environment);
         if(const auto asset = accept_asset_drop(Comet::AssetType::Environment)) {
@@ -632,6 +633,7 @@ namespace CometEditor {
             reset_animation_preview();
         m_animation_preview.bind(
             target, mesh->animation_data(), entity.get_component<Comet::AnimatorComponent>().clip);
+        scene.set_animation_source(entity, mesh->animation_data());
         return true;
     }
 
@@ -681,6 +683,7 @@ namespace CometEditor {
         m_animation_preview.advance(delta_time);
         m_preview_publication = m_animation_preview.snapshot();
         m_selection.get_scene().set_animation_playback(entity, m_preview_publication);
+        m_preview_publication = m_selection.get_scene().get_animation_playback(entity);
     }
 
     void InspectorPanel::render_animation_preview(Comet::Entity entity) {
@@ -759,6 +762,39 @@ namespace CometEditor {
             return;
         }
         PropertyEditResult result;
+        if(component.id == "bone_attachment" && property.id == "bone") {
+            auto parent = m_selection.get_scene().get_parent(entity);
+            std::shared_ptr<const Comet::AnimationData> data;
+            if(parent && parent.has_component<Comet::MeshRendererComponent>()) {
+                const auto mesh = m_runtime_assets.resolve<Comet::Mesh>(
+                    parent.get_component<Comet::MeshRendererComponent>().mesh);
+                if(mesh)
+                    data = mesh->animation_data();
+            }
+            auto& name = std::get<std::string>(*value);
+            if(data
+                && ImGui::BeginCombo(
+                    property.display_name.c_str(), name.empty() ? "选择骨骼" : name.c_str())) {
+                for(const auto& joint : data->joints) {
+                    const auto& bone = data->nodes[joint.node].name;
+                    if(ImGui::Selectable(bone.c_str(), !mixed && bone == name)) {
+                        name = bone;
+                        result.changed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if(!data)
+                ImGui::TextWrapped("请先在层级中将此物体拖到角色模型下，再选择骨骼。");
+            else if(!name.empty() && std::ranges::none_of(data->joints, [&](const auto& joint) {
+                        return data->nodes[joint.node].name == name;
+                    }))
+                ImGui::TextColored({1, .45f, .35f, 1}, "骨骼已丢失：%s", name.c_str());
+            ImGui::TextWrapped("本地变换是骨骼空间的偏移；暂停时保留姿态，Stop 恢复绑定姿态。");
+            result.finished = result.changed;
+            apply_property_edit(entity, component, property, *value, result);
+            return;
+        }
         if(component.id == "animator" && property.type == Comet::PropertyType::String
             && entity.has_component<Comet::MeshRendererComponent>()) {
             auto mesh = m_runtime_assets.resolve<Comet::Mesh>(

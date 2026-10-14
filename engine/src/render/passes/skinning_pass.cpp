@@ -149,30 +149,28 @@ namespace Comet {
             }
             if(!instance->pose_bounds || instance->playback != item.animation) {
                 const auto& data = *item.mesh->m_animation;
-                auto pose = sample_animation(data, item.animation.get());
                 std::string error;
-                if(!pose) {
-                    error = pose.error();
-                    // 更换模型后旧过渡片段可能不存在；目的片段仍可独立播放。
-                    if(item.animation && item.animation->blend < 1
-                        && item.animation->previous.has_clip()) {
-                        auto current = *item.animation;
-                        current.previous = {};
-                        current.blend = 1;
-                        pose = sample_animation(data, &current);
-                    }
-                    if(!pose)
-                        pose = sample_animation(data, nullptr);
+                std::optional<AnimationPose> sampled;
+                const AnimationPose* pose = nullptr;
+                if(item.animation && item.animation->pose
+                    && item.animation->pose_source == item.mesh->m_animation) {
+                    pose = item.animation->pose.get();
+                    error = item.animation->pose_error;
+                } else {
+                    auto resolved =
+                        resolve_animation_pose(data, item.animation.get(), error, false);
+                    if(!resolved)
+                        return Result<void, GraphicsError>::failure({resolved.error()});
+                    sampled = std::move(resolved).value();
+                    pose = &*sampled;
                 }
                 if(error != instance->animation_error) {
                     if(!error.empty())
                         LOG_ERROR("Animation for entity {}: {}", item.entity_id, error);
                     instance->animation_error = std::move(error);
                 }
-                if(!pose)
-                    return Result<void, GraphicsError>::failure({pose.error()});
-                instance->palette->write(pose.value().matrices.data());
-                instance->pose_bounds = pose.value().bounds;
+                instance->palette->write(pose->matrices.data());
+                instance->pose_bounds = pose->bounds;
                 instance->playback = item.animation;
             }
             const auto& ready = item.mesh->m_ready_completion;

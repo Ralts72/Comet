@@ -34,7 +34,9 @@ namespace Comet {
             float transition_time = 0;
             float transition_duration = 0;
             double progress = 0;
+            bool events_started = false;
         };
+        Result<void, Error> emit_events(Scene&, EntityId, Playback&, double from, double to);
         Result<Selection, Error> select(const AnimatorComponent&, Playback&, double delta);
         Result<void, Error> advance(Scene&, double delta);
         Source m_source;

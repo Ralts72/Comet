@@ -236,7 +236,9 @@ namespace CometEditor::SceneCommands {
                 const auto group_roots = Comet::EntityTrees::roots(snapshots);
                 const std::unordered_set<Comet::EntityUuid> root_ids(
                     group_roots.begin(), group_roots.end());
-                for(auto& snapshot : snapshots) {
+                for(std::size_t snapshot_index = 0; snapshot_index < snapshots.size();
+                    ++snapshot_index) {
+                    auto& snapshot = snapshots[snapshot_index];
                     if(!root_ids.contains(snapshot.uuid))
                         continue;
                     if(snapshot.name.empty())
@@ -248,9 +250,15 @@ namespace CometEditor::SceneCommands {
                             const auto parent_entity = scene->find_entity(snapshot.parent);
                             if(!parent_entity)
                                 return {};
+                            auto basis = scene->get_world_matrix(parent_entity);
+                            if(!parent) {
+                                const auto original =
+                                    scene->find_entity(source[snapshot_index].uuid);
+                                if(original)
+                                    basis = scene->get_parent_matrix(original);
+                            }
                             offset = Comet::Math::Vec3(
-                                Comet::Math::inverse(scene->get_world_matrix(parent_entity))
-                                * Comet::Math::Vec4(offset, 0));
+                                Comet::Math::inverse(basis) * Comet::Math::Vec4(offset, 0));
                         }
                         const auto component =
                             std::find_if(snapshot.components.begin(), snapshot.components.end(),

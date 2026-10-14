@@ -36,6 +36,10 @@ namespace Comet {
         virtual Result<void, Error> update(Scene&, const Context&) {
             return Result<void, Error>::success();
         }
+        // 所有普通更新及结构提交完成后执行，消费本帧产生的事件。
+        virtual Result<void, Error> post_update(Scene&, const Context&) {
+            return Result<void, Error>::success();
+        }
         // 只表达当前场景与授权动作的意图；窗口捕获仍由宿主决定。
         [[nodiscard]] virtual bool wants_cursor_capture(Scene&, const InputState&) const {
             return false;

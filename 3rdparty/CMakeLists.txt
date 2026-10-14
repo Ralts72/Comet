@@ -32,6 +32,11 @@ add_subdirectory(glm EXCLUDE_FROM_ALL)
 # stb_image
 add_library(stb_image STATIC stb_image.cpp)
 target_include_directories(stb_image SYSTEM PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/stb")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 15
+        AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16)
+    # GCC 15 miscompiles the flat HDR goto path at O2/O3: nothings/stb#1884.
+    target_compile_options(stb_image PRIVATE "$<$<NOT:$<CONFIG:Debug>>:-O1>")
+endif()
 
 # glfw
 option(GLFW_BUILD_DOCS OFF)

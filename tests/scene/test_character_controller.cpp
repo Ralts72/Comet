@@ -547,6 +547,15 @@ namespace Comet::Tests {
             ASSERT_TRUE(cue) << cue.error().message;
             ASSERT_TRUE(
                 assets.register_asset(AssetHandle{8247160951280394421ULL}, std::move(cue).value()));
+            auto feedback =
+                Script::load(project.value().paths().assets() / "scripts/character_feedback.lua");
+            ASSERT_TRUE(feedback) << feedback.error().message;
+            ASSERT_TRUE(
+                assets.register_asset(AssetHandle{13857136248767905805ULL}, feedback.value()));
+            auto step = AudioClip::load(project.value().paths().assets() / "audio/footstep.wav");
+            ASSERT_TRUE(step) << step.error().message;
+            ASSERT_TRUE(assets.register_asset(
+                AssetHandle{13857136248767905806ULL}, std::move(step).value()));
             auto loaded = serializer.load(
                 (project.value().paths().assets() / project.value().startup_scene()).string());
             ASSERT_TRUE(loaded) << loaded.error();
@@ -570,6 +579,7 @@ namespace Comet::Tests {
                 project.value().paths().assets() / "animations/character.ani");
             ASSERT_TRUE(definition) << definition.error();
             auto controller = std::make_shared<AnimationController>(std::move(definition).value());
+            ASSERT_TRUE(assets.register_asset(AssetHandle{13857136248767905804ULL}, controller));
             ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::CharacterAnimationSystem>()));
             ASSERT_TRUE(runtime.add_system(std::make_unique<AnimationSystem>(
                 [data = mesh.value().animation](AssetHandle) { return data; },

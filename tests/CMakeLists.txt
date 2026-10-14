@@ -108,6 +108,7 @@ set(UNIT_TEST_SOURCES
         render/test_scene_picking.cpp
         scene/test_animation.cpp
         scene/test_animation_controller.cpp
+        scene/test_animation_events.cpp
         scene/test_audio_system.cpp
         scene/test_camera_controller.cpp
         scene/test_character_controller.cpp
@@ -322,7 +323,7 @@ set_tests_properties(pipeline_cache_process swapchain_recovery
 add_test(NAME render_graph_sync_validation COMMAND integration_testing
         "--gtest_filter=${SYNC_VALIDATION_FILTER}" ${TEST_PLATFORM_ARGS})
 set_tests_properties(render_graph_sync_validation PROPERTIES
-        ENVIRONMENT "VK_LAYER_ENABLES=VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT"
+        ENVIRONMENT "VK_VALIDATION_VALIDATE_SYNC=1"
         RESOURCE_LOCK comet_gpu TIMEOUT 90 LABELS "integration;gpu")
 
 add_executable(post_process_recovery test.cpp render/test_post_process_recovery.cpp

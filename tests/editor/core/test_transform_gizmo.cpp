@@ -1,6 +1,7 @@
 #include "viewport/transform_gizmo.h"
 #include "render/scene/scene_extractor.h"
 #include "scene/scene_serializer.h"
+#include "animation/animation_data.h"
 
 #include <gtest/gtest.h>
 #include <limits>
@@ -980,6 +981,28 @@ namespace {
         expect_vector(Math::Vec3(scene.get_world_matrix(entity)[3]), {0.5f, 0, 0});
         expect_vector(Math::Vec3(scene.get_world_matrix(second)[3]), {4.5f, 0, 0});
         ASSERT_EQ(history.undo_size(), 1u);
+    }
+
+    TEST_F(TransformGizmoTest, BoneAttachmentWorldDragEditsBoneLocalOffsetAndCanUndo) {
+        auto data = std::make_shared<AnimationData>();
+        data->mesh_node = 0;
+        data->nodes = {{"Mesh"}, {"Joint"}};
+        data->nodes[1].rest.rotation = glm::angleAxis(Math::PI / 2, Math::Vec3(0, 0, 1));
+        data->evaluation_order = {0, 1};
+        data->joints = {{.node = 1, .bounds = BoundingBox::from_point({0, 0, 0})}};
+        auto parent = scene.create_entity("Model");
+        entity.add_component<BoneAttachmentComponent>(BoneAttachmentComponent{"Joint"});
+        ASSERT_TRUE(scene.set_parent(entity, parent));
+        scene.set_animation_source(parent, data);
+        const auto start = begin_x();
+        ASSERT_TRUE(gizmo.active());
+        EXPECT_TRUE(update({.position = start + Math::Vec2(30, 0), .down = true}));
+        EXPECT_TRUE(update({.position = start + Math::Vec2(30, 0), .released = true}));
+        EXPECT_GT(scene.get_world_matrix(entity)[3].x, 0);
+        EXPECT_NEAR(translation().x, 0, .0001f);
+        EXPECT_LT(translation().y, 0);
+        EXPECT_TRUE(history.undo());
+        expect_vector(translation(), Math::Vec3(0));
     }
 
 }

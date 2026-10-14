@@ -142,5 +142,18 @@ namespace CometEditor::Tests {
         EXPECT_EQ(editor.model()->playback, source.playback);
         EXPECT_EQ(data, saved);
     }
+    TEST_F(AnimationControllerEditorUiTest, EditsTimelineMarkersWithControllerUndoAndRedo) {
+        activate("Controller properties", "添加事件");
+        ASSERT_EQ(data.states[0].events.size(), 1u);
+        EXPECT_EQ(data.states[0].events[0].phase, .5f);
+        EXPECT_EQ(data.states[0].events[0].name, "event");
+        EXPECT_NE(data, saved);
+        activate("Controller properties", "删除事件");
+        EXPECT_TRUE(data.states[0].events.empty());
+        EXPECT_TRUE(editor.undo(data));
+        ASSERT_EQ(data.states[0].events.size(), 1u);
+        EXPECT_TRUE(editor.redo(data));
+        EXPECT_TRUE(data.states[0].events.empty());
+    }
 }
 #endif

@@ -184,8 +184,7 @@ namespace Comet {
                 cached != m_presented.end()
                     ? cached->second.world
                     : scene.m_registry.get<WorldTransformComponent>(parent_handle);
-            model = parent_world.world_matrix * model;
-            pose = parent_world.pose_world_matrix * pose;
+            scene.apply_parent_transform(handle, parent_world, model, pose);
         }
         pose[3] = model[3];
         auto& output = presented.world;

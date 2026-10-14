@@ -24,6 +24,12 @@ namespace Comet {
         }
         Result<ParameterValue> scalar(
             Json::Node node, const Json::Context& context, std::string_view key) {
+            if(node.is_string()) {
+                auto value = context.read_scalar<std::string>(node, key, "a string");
+                if(!value)
+                    return Result<ParameterValue>::failure(value.error());
+                return Result<ParameterValue>::success(std::move(value).value());
+            }
             if(node.is_bool()) {
                 auto value = context.read_scalar<bool>(node, key, "a boolean");
                 if(!value)
@@ -38,6 +44,8 @@ namespace Comet {
         void write_scalar(Json::Writer& writer, const ParameterValue& value) {
             if(const auto* boolean = std::get_if<bool>(&value))
                 writer.value(*boolean);
+            else if(const auto* text = std::get_if<std::string>(&value))
+                writer.value(*text);
             else
                 writer.value(std::get<float>(value));
         }
@@ -70,8 +78,8 @@ namespace Comet {
             for(const auto node : states.value()) {
                 AnimationController::State state;
                 state.motions.clear();
-                for(auto read : {context.validate_keys(
-                                     node, {"name", "motions", "parameter", "smoothing", "loop"}),
+                for(auto read : {context.validate_keys(node, {"name", "motions", "parameter",
+                                                                 "smoothing", "loop", "events"}),
                         field(node, context, "name", state.name),
                         field(node, context, "parameter", state.parameter),
                         field(node, context, "smoothing", state.smoothing),
@@ -89,6 +97,31 @@ namespace Comet {
                         if(!read)
                             return Read::failure(read.error());
                     state.motions.push_back(std::move(point));
+                }
+                auto events_node = context.find(node, "events");
+                if(!events_node)
+                    return Read::failure(events_node.error());
+                if(events_node.value()) {
+                    auto events = context.array(*events_node.value(), "events");
+                    if(!events)
+                        return Read::failure(events.error());
+                    for(const auto event_node : events.value()) {
+                        AnimationController::Event event;
+                        for(auto read :
+                            {context.validate_keys(event_node, {"phase", "name", "value"}),
+                                field(event_node, context, "phase", event.phase),
+                                field(event_node, context, "name", event.name)})
+                            if(!read)
+                                return Read::failure(read.error());
+                        auto value_node = context.required_child(event_node, "value");
+                        if(!value_node)
+                            return Read::failure(value_node.error());
+                        auto value = scalar(value_node.value(), context, "value");
+                        if(!value)
+                            return Read::failure(value.error());
+                        event.value = std::move(value).value();
+                        state.events.push_back(std::move(event));
+                    }
                 }
                 result.states.push_back(std::move(state));
             }
@@ -174,6 +207,19 @@ namespace Comet {
                 writer.end_object();
             }
             writer.end_array();
+            if(!state.events.empty()) {
+                writer.key("events");
+                writer.begin_array();
+                for(const auto& event : state.events) {
+                    writer.begin_object();
+                    writer.field("phase", event.phase);
+                    writer.field("name", event.name);
+                    writer.key("value");
+                    write_scalar(writer, event.value);
+                    writer.end_object();
+                }
+                writer.end_array();
+            }
             writer.end_object();
         }
         writer.end_array();

@@ -6,12 +6,19 @@
 namespace Comet {
     // 共享定义只描述参数、采样和过渡；角色／物理条件由 Gameplay 提供。
     struct COMET_API AnimationController {
+        struct Event {
+            float phase = 0;
+            std::string name;
+            ParameterValue value = std::string{};
+            bool operator==(const Event&) const = default;
+        };
         struct State {
             std::string name;
             std::vector<AnimationBlendPoint> motions{{0, "idle"}};
             std::string parameter;
             float smoothing = 0;
             bool loop = true;
+            std::vector<Event> events;
             bool operator==(const State&) const = default;
         };
         struct Condition {

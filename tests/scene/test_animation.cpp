@@ -9,6 +9,7 @@
 #include "render/scene/scene_extractor.h"
 #include "support/temporary_directory.h"
 #include <gtest/gtest.h>
+#include <algorithm>
 namespace Comet::Tests {
     namespace {
         std::filesystem::path default_character() {
@@ -62,6 +63,10 @@ namespace Comet::Tests {
         auto sampled = sample_animation(data, &playback);
         ASSERT_TRUE(sampled);
         EXPECT_NEAR(sampled.value().matrices[0][3].x, 0.5f, 0.0001f);
+        const auto skin_only = sample_animation(data, &playback, false);
+        ASSERT_TRUE(skin_only);
+        EXPECT_TRUE(skin_only.value().bone_matrices.empty());
+        EXPECT_EQ(skin_only.value().matrices, sampled.value().matrices);
         playback.current.time = 1.25;
         EXPECT_NEAR(sample_animation(data, &playback).value().matrices[0][3].x, 0.5f, 0.0001f);
         playback.current.loop = false;
@@ -263,4 +268,109 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.stop());
         EXPECT_FALSE(scene.get_animation_playback(entity));
     }
+    TEST(AnimationTest, BoneAttachmentSharesSkinPoseAndKeepsOffsetsSnapshotsAndStopIndependent) {
+        auto data = std::make_shared<AnimationData>(simple_animation());
+        data->joints[0].inverse_bind = Math::translate(Math::Mat4(1), {-.3f, 0, 0});
+        Scene scene;
+        auto model = scene.create_entity("Model");
+        model.add_component<MeshRendererComponent>(
+            MeshRendererComponent{AssetHandle{1}, AssetHandle{2}});
+        model.add_component<AnimatorComponent>(AnimatorComponent{.clip = "move"});
+        model.edit_transform([](auto& transform) {
+            transform.translation.x = 10;
+            transform.scale = Math::Vec3(2);
+        });
+        auto item = scene.create_entity("Held item");
+        item.add_component<BoneAttachmentComponent>(BoneAttachmentComponent{"Joint"});
+        item.add_component<MeshRendererComponent>(
+            MeshRendererComponent{AssetHandle{3}, AssetHandle{2}});
+        item.edit_transform([](auto& transform) { transform.translation.x = .2f; });
+        ASSERT_TRUE(scene.set_parent(item, model));
+        scene.set_animation_source(model, data);
+        EXPECT_NEAR(scene.get_world_matrix(item)[3].x, 10.4, .0001);
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(
+            std::make_unique<AnimationSystem>([data](AssetHandle) { return data; })));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(.25));
+        const auto captured = scene.get_animation_playback(model);
+        ASSERT_TRUE(captured->pose);
+        EXPECT_EQ(captured->pose_source, data);
+        EXPECT_NEAR(captured->pose->matrices[0][3].x, .2f, .0001);
+        EXPECT_NEAR(captured->pose->bone_matrices[0][3].x, .5f, .0001);
+        EXPECT_NEAR(scene.get_world_matrix(item)[3].x, 11.4f, .0001);
+        const auto output = SceneExtractor{}.extract(scene);
+        const auto found =
+            std::ranges::find(output.render_items, item.get_id(), &RenderItem::entity_id);
+        ASSERT_NE(found, output.render_items.end());
+        EXPECT_EQ(found->model_matrix, scene.get_world_matrix(item));
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        ASSERT_TRUE(runtime.advance(1));
+        EXPECT_EQ(scene.get_animation_playback(model), captured);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_GT(scene.get_world_matrix(item)[3].x, 11.4f);
+        EXPECT_EQ(captured->pose->bone_matrices[0][3].x, .5f);
+        EXPECT_EQ(item.get_component<TransformComponent>().translation.x, .2f);
+        const auto components = create_scene_component_registry();
+        auto cloned = SceneSerializer(components).clone(scene);
+        ASSERT_TRUE(cloned) << cloned.error();
+        EXPECT_EQ(cloned.value()
+                      ->find_entity(item.get_uuid())
+                      .get_component<BoneAttachmentComponent>()
+                      .bone,
+            "Joint");
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(scene.get_animation_playback(model));
+        EXPECT_NEAR(scene.get_world_matrix(item)[3].x, 10.4f, .0001);
+        item.edit_component<BoneAttachmentComponent>(
+            [](auto& attachment) { attachment.bone = "missing"; });
+        EXPECT_NEAR(scene.get_world_matrix(item)[3].x, 10.4f, .0001);
+        ASSERT_TRUE(scene.clear_parent(item));
+        EXPECT_NEAR(scene.get_world_matrix(item)[3].x, .2f, .0001);
+    }
+    TEST(AnimationTest, BoneAttachmentUsesInterpolatedParentAndModelReimportInvalidatesPose) {
+        auto data = std::make_shared<AnimationData>(simple_animation());
+        Scene scene;
+        auto model = scene.create_entity();
+        model.add_component<MeshRendererComponent>();
+        model.add_component<AnimatorComponent>(AnimatorComponent{.clip = "move"});
+        auto item = scene.create_entity();
+        item.add_component<BoneAttachmentComponent>(BoneAttachmentComponent{"Joint"});
+        ASSERT_TRUE(scene.set_parent(item, model));
+        scene.set_animation_source(model, data);
+        class MoveModel final: public System {
+        public:
+            explicit MoveModel(Entity target) : m_target(target) {}
+            Result<void, Error> fixed_update(Scene&, const Context&) override {
+                m_target.edit_transform([](auto& value) { value.translation.x += 1; });
+                return Result<void, Error>::success();
+            }
+
+        private:
+            Entity m_target;
+        };
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(std::make_unique<MoveModel>(model)));
+        ASSERT_TRUE(runtime.add_system(
+            std::make_unique<AnimationSystem>([data](AssetHandle) { return data; })));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(.025));
+        auto frame = scene.get_animation_playback(model);
+        ASSERT_TRUE(frame->pose);
+        const auto expected =
+            scene.get_render_transform(model).world_matrix * frame->pose->bone_matrices[0];
+        EXPECT_EQ(scene.get_render_transform(item).world_matrix, expected);
+        EXPECT_NE(scene.get_render_transform(item).world_matrix, scene.get_world_matrix(item));
+        auto changed = std::make_shared<AnimationData>(*data);
+        changed->clips[0].channels[0].values[1].x = 4;
+        scene.set_animation_source(model, changed);
+        EXPECT_EQ(scene.get_animation_playback(model)->pose_source, changed);
+        EXPECT_NE(scene.get_animation_playback(model)->pose, frame->pose);
+        EXPECT_NEAR(scene.get_animation_playback(model)->pose->bone_matrices[0][3].x, .1, .0001);
+        EXPECT_NEAR(frame->pose->bone_matrices[0][3].x, .05, .0001);
+        scene.set_animation_source(model, nullptr);
+        EXPECT_EQ(scene.get_world_matrix(item), scene.get_world_matrix(model));
+    }
+
 }

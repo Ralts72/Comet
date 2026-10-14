@@ -138,8 +138,50 @@
                   "character": {
                     "entity": "70a518f1-2c0e-4180-9ead-000000000001"
                   }
+                },
+                "script": {
+                  "asset": 13857136248767905805,
+                  "parameters": {}
+                },
+                "audio_source": {
+                  "clip": 13857136248767905806,
+                  "play_on_start": false,
+                  "loop": false,
+                  "volume": 0.35
                 }
-              }
+              },
+              "children": [
+                {
+                  "uuid": "88eedc2e-c2d4-51da-8328-de251790c82b",
+                  "components": {
+                    "name": "手持物（骨骼挂点）",
+                    "transform": {
+                      "translation": [
+                        0,
+                        0.07,
+                        0
+                      ],
+                      "rotation": [
+                        0,
+                        0,
+                        0
+                      ],
+                      "scale": [
+                        0.055,
+                        0.18,
+                        0.055
+                      ]
+                    },
+                    "bone_attachment": {
+                      "bone": "hand_r"
+                    },
+                    "mesh_renderer": {
+                      "mesh": 7535385251553858160,
+                      "material": 6482638524486200214
+                    }
+                  }
+                }
+              ]
             }
           ]
         },
@@ -307,8 +349,50 @@
                       "character": {
                         "entity": "d3bb4700-17b7-4112-b03d-44d354eabaae"
                       }
+                    },
+                    "script": {
+                      "asset": 13857136248767905805,
+                      "parameters": {}
+                    },
+                    "audio_source": {
+                      "clip": 13857136248767905806,
+                      "play_on_start": false,
+                      "loop": false,
+                      "volume": 0.35
                     }
-                  }
+                  },
+                  "children": [
+                    {
+                      "uuid": "13b86d6a-a8ca-5d82-ac2b-0ca987fd6ac7",
+                      "components": {
+                        "name": "手持物（骨骼挂点）",
+                        "transform": {
+                          "translation": [
+                            0,
+                            0.07,
+                            0
+                          ],
+                          "rotation": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "scale": [
+                            0.055,
+                            0.18,
+                            0.055
+                          ]
+                        },
+                        "bone_attachment": {
+                          "bone": "hand_r"
+                        },
+                        "mesh_renderer": {
+                          "mesh": 7535385251553858160,
+                          "material": 6482638524486200214
+                        }
+                      }
+                    }
+                  ]
                 }
               ]
             },
@@ -372,6 +456,10 @@
           {
             "source": "dd8d0ac8-87a1-485b-96f6-84a127b948a0",
             "instance": "70a518f1-2c0e-4180-9ead-000000000003"
+          },
+          {
+            "source": "13b86d6a-a8ca-5d82-ac2b-0ca987fd6ac7",
+            "instance": "88eedc2e-c2d4-51da-8328-de251790c82b"
           }
         ]
       }

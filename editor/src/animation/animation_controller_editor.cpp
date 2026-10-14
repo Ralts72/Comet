@@ -20,6 +20,8 @@ namespace CometEditor {
         void value_widget(const char* label, Comet::ParameterValue& value) {
             if(auto* boolean = std::get_if<bool>(&value))
                 ImGui::Checkbox(label, boolean);
+            else if(auto* text = std::get_if<std::string>(&value))
+                Ui::input_text(label, *text);
             else
                 ImGui::DragFloat(label, &std::get<float>(value), .05f);
         }
@@ -69,6 +71,7 @@ namespace CometEditor {
 
     void AnimationControllerEditor::reset(const Controller& data) {
         m_state.reset();
+        m_event.reset();
         const auto found = std::ranges::find(data.states, data.initial, &Controller::State::name);
         if(found != data.states.end())
             m_state = std::size_t(found - data.states.begin());
@@ -162,6 +165,8 @@ namespace CometEditor {
     }
 
     void AnimationControllerEditor::select_state(std::size_t index) {
+        if(m_state != index)
+            m_event.reset();
         m_state = index;
         m_preview_index = index;
         m_transition.reset();
@@ -375,6 +380,7 @@ namespace CometEditor {
             if(ImGui::Button("按阈值排序"))
                 std::ranges::sort(state.motions, {}, &Comet::AnimationBlendPoint::threshold);
         }
+        render_events(state);
         ImGui::SeparatorText("离开此状态的切换");
         for(std::size_t i = 0; i < data.transitions.size(); ++i) {
             const auto& edge = data.transitions[i];
@@ -395,6 +401,83 @@ namespace CometEditor {
         if(ImGui::Button("删除状态及关联切换"))
             remove_state(data, index);
         ImGui::EndDisabled();
+    }
+
+    void AnimationControllerEditor::render_events(Controller::State& state) {
+        ImGui::SeparatorText("动画事件");
+        ImGui::TextWrapped(
+            "点击标记编辑，拖动调整时机；双击时间轴添加。时间按一个周期的比例保存。");
+        const auto origin = ImGui::GetCursorScreenPos();
+        const float width = std::max(60.f, ImGui::GetContentRegionAvail().x - 20);
+        auto* draw = ImGui::GetWindowDrawList();
+        draw->AddLine({origin.x + 10, origin.y + 25}, {origin.x + width + 10, origin.y + 25},
+            IM_COL32(155, 160, 170, 255), 2);
+        draw->AddText(origin, IM_COL32_WHITE, "0%");
+        draw->AddText({origin.x + width - 10, origin.y}, IM_COL32_WHITE, "100%");
+        const auto insert = [&](float phase) {
+            state.events.push_back({phase, "event", std::string{}});
+            std::stable_sort(state.events.begin(), state.events.end(),
+                [](const auto& a, const auto& b) { return a.phase < b.phase; });
+            m_event = std::size_t(std::ranges::find_if(state.events, [&](const auto& event) {
+                return event.phase == phase && event.name == "event";
+            }) - state.events.begin());
+        };
+        ImGui::SetNextItemAllowOverlap();
+        ImGui::InvisibleButton("Event timeline", {width + 20, 54});
+        if(ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+            insert(std::clamp((ImGui::GetMousePos().x - origin.x - 10) / width, 0.f, 1.f));
+        bool sort = false;
+        for(std::size_t i = 0; i < state.events.size(); ++i) {
+            auto& event = state.events[i];
+            const float x = origin.x + 10 + event.phase * width;
+            draw->AddTriangleFilled({x, origin.y + 19}, {x - 6, origin.y + 33},
+                {x + 6, origin.y + 33},
+                m_event == i ? IM_COL32(255, 200, 75, 255) : IM_COL32(80, 170, 240, 255));
+            ImGui::SetCursorScreenPos({x - 7, origin.y + 17});
+            ImGui::PushID(int(i));
+            ImGui::InvisibleButton("Event marker", {14, 20});
+            if(ImGui::IsItemClicked())
+                m_event = i;
+            if(ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+                event.phase =
+                    std::clamp((ImGui::GetMousePos().x - origin.x - 10) / width, 0.f, 1.f);
+            sort |= ImGui::IsItemDeactivated();
+            ImGui::SetItemTooltip("%s · %.1f%%", event.name.c_str(), double(event.phase * 100));
+            ImGui::PopID();
+        }
+        ImGui::SetCursorScreenPos({origin.x, origin.y + 54});
+        if(ImGui::Button("添加事件"))
+            insert(.5f);
+        if(m_event && *m_event < state.events.size()) {
+            auto& event = state.events[*m_event];
+            Ui::input_text("事件名", event.name);
+            ImGui::SliderFloat("触发比例", &event.phase, 0, 1, "%.3f");
+            sort |= ImGui::IsItemDeactivatedAfterEdit();
+            int type = 0;
+            if(std::holds_alternative<float>(event.value))
+                type = 1;
+            else if(std::holds_alternative<bool>(event.value))
+                type = 2;
+            if(ImGui::Combo("事件参数类型", &type, "文本\0数值\0开关\0")) {
+                if(type == 0)
+                    event.value = std::string{};
+                else if(type == 1)
+                    event.value = 0.f;
+                else
+                    event.value = false;
+            }
+            value_widget("事件参数", event.value);
+            if(ImGui::Button("删除事件")) {
+                state.events.erase(state.events.begin() + *m_event);
+                m_event.reset();
+            }
+        }
+        if(sort && m_event && *m_event < state.events.size()) {
+            const auto selected = state.events[*m_event];
+            std::stable_sort(state.events.begin(), state.events.end(),
+                [](const auto& a, const auto& b) { return a.phase < b.phase; });
+            m_event = std::size_t(std::ranges::find(state.events, selected) - state.events.begin());
+        }
     }
 
     void AnimationControllerEditor::render_transition(Controller& data, std::size_t index) {

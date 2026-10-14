@@ -2,7 +2,33 @@
 #include "scene/scene.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 namespace Comet {
+    Result<void, Error> AnimationSystem::emit_events(
+        Scene& scene, EntityId id, Playback& playback, double from, double to) {
+        if(!playback.controller || to <= from)
+            return Result<void, Error>::success();
+        const auto* state = playback.controller->find_state(playback.state);
+        auto entity = scene.find_entity(id);
+        const bool entering = !std::exchange(playback.events_started, true);
+        if(state->events.empty())
+            return Result<void, Error>::success();
+        if(to - from > 1024)
+            return Result<void, Error>::failure({"Animation event limit reached"});
+        // 使用推进前后的区间；不从取模后的时间反推，跨多圈也不漏事件。
+        constexpr double epsilon = std::numeric_limits<float>::epsilon();
+        const auto last_cycle = state->loop ? std::floor(to + epsilon) : 0;
+        for(double cycle = std::floor(from); cycle <= last_cycle; cycle += 1) {
+            for(const auto& event : state->events) {
+                const double time = cycle + event.phase;
+                if(time > to + epsilon || (time <= from + epsilon && !(entering && time == 0)))
+                    continue;
+                if(!scene.emit_event(event.name, event.value, entity))
+                    return Result<void, Error>::failure({"Animation event limit reached"});
+            }
+        }
+        return Result<void, Error>::success();
+    }
     Result<AnimationSystem::Selection, Error> AnimationSystem::select(
         const AnimatorComponent& animator, Playback& playback, double delta) {
         using Selected = Result<Selection, Error>;
@@ -80,6 +106,7 @@ namespace Comet {
                 frame.previous_state = frame.state;
                 playback.transition_time = 0;
                 playback.progress = 0;
+                playback.events_started = false;
                 playback.transition_duration = selection.value().transition;
             } else {
                 // 同一混合空间跨阈值时保持周期相位，不把权重变化当作状态切换。
@@ -92,6 +119,8 @@ namespace Comet {
             std::shared_ptr<const AnimationData> data;
             if(m_source)
                 data = m_source(entity.get_component<MeshRendererComponent>().mesh);
+            if(m_source)
+                scene.set_animation_source(entity, data);
             const auto advance_sample = [&](AnimationBlend& sample, bool current) {
                 if(!sample.has_clip())
                     return;
@@ -106,6 +135,13 @@ namespace Comet {
                 if(!duration)
                     return;
                 double period = duration.value();
+                if(current && period > 0 && step > 0) {
+                    const double phase =
+                        sample.normalized_time ? sample.time : sample.time / period;
+                    const double end =
+                        sample.loop ? phase + step / period : std::min(phase + step / period, 1.0);
+                    result = emit_events(scene, entity.get_id(), playback, phase, end);
+                }
                 if(current) {
                     // 完成条件独立于循环采样时间；每帧至多选择一次过渡。
                     playback.progress =

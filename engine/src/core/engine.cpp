@@ -337,6 +337,16 @@ namespace Comet {
         }
 
         m_frame_diagnostics.mark_prepare();
+        if(m_scene) {
+            m_scene->each<const BoneAttachmentComponent>([&](Entity child, const auto&) {
+                auto parent = m_scene->get_parent(child);
+                if(!parent || !parent.has_component<MeshRendererComponent>())
+                    return;
+                const auto mesh = m_asset_registry->resolve<Mesh>(
+                    parent.get_component<MeshRendererComponent>().mesh);
+                m_scene->set_animation_source(parent, mesh ? mesh->animation_data() : nullptr);
+            });
+        }
         std::optional<Input::Frame> runtime_input;
         if(callbacks.runtime_input)
             runtime_input = callbacks.runtime_input(frame);

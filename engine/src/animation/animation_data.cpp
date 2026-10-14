@@ -215,7 +215,7 @@ namespace Comet {
         return Result<void>::success();
     }
     Result<AnimationPose> sample_animation(
-        const AnimationData& data, const AnimationPlayback* playback) {
+        const AnimationData& data, const AnimationPlayback* playback, bool include_bones) {
         if(playback
             && (!std::isfinite(playback->blend) || playback->blend < 0 || playback->blend > 1))
             return Result<AnimationPose>::failure("Invalid animation playback time");
@@ -241,12 +241,17 @@ namespace Comet {
         AnimationPose output;
         std::optional<BoundingBox> bounds;
         output.matrices.reserve(data.joints.size());
+        if(include_bones)
+            output.bone_matrices.reserve(data.joints.size());
         for(const auto& joint : data.joints) {
-            const auto matrix = mesh_inverse * world[joint.node] * joint.inverse_bind;
+            const auto bone = mesh_inverse * world[joint.node];
+            const auto matrix = bone * joint.inverse_bind;
             if(!finite_matrix(matrix))
                 return Result<AnimationPose>::failure(
                     "Animation produced a non-finite skin matrix");
             output.matrices.push_back(matrix);
+            if(include_bones)
+                output.bone_matrices.push_back(bone);
             if(joint.bounds) {
                 const auto transformed = transform_box(*joint.bounds, matrix);
                 if(!transformed)
@@ -261,5 +266,20 @@ namespace Comet {
             return Result<AnimationPose>::failure("Skin has no weighted vertices");
         output.bounds = *bounds;
         return Result<AnimationPose>::success(std::move(output));
+    }
+    Result<AnimationPose> resolve_animation_pose(const AnimationData& data,
+        const AnimationPlayback* playback, std::string& error, bool include_bones) {
+        error.clear();
+        auto pose = sample_animation(data, playback, include_bones);
+        if(pose)
+            return pose;
+        error = pose.error();
+        if(playback && playback->blend < 1 && playback->previous.has_clip()) {
+            auto current = *playback;
+            current.previous = {};
+            current.blend = 1;
+            pose = sample_animation(data, &current, include_bones);
+        }
+        return pose ? std::move(pose) : sample_animation(data, nullptr, include_bones);
     }
 }

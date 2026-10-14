@@ -2,6 +2,8 @@
 #include "scene/prefab.h"
 #include "scene/material_parameters.h"
 #include "asset/data/model_data.h"
+#include "animation/animation_data.h"
+#include <glm/gtx/matrix_decompose.hpp>
 
 #include "diagnostics/logger.h"
 
@@ -229,6 +231,7 @@ namespace Comet {
                    *it))
                 m_physics_joints_changed = true;
             m_animation_playbacks.erase(*it);
+            m_animation_sources.erase(*it);
             m_registry.destroy(*it);
         }
     }
@@ -244,13 +247,67 @@ namespace Comet {
         if(!is_valid(entity))
             return;
         const auto found = m_animation_playbacks.find(entity.m_handle);
-        if(found != m_animation_playbacks.end() && found->second == playback)
+        if(found != m_animation_playbacks.end() && playback && *found->second == *playback)
             return;
         if(!playback && !m_animation_playbacks.erase(entity.m_handle))
             return;
-        if(playback)
+        if(playback) {
+            if(const auto binding = m_animation_sources.find(entity.m_handle);
+                binding != m_animation_sources.end()) {
+                auto frame = std::make_shared<AnimationPlayback>(*playback);
+                frame->pose_source = binding->second.data;
+                auto pose =
+                    resolve_animation_pose(*frame->pose_source, frame.get(), frame->pose_error);
+                frame->pose =
+                    pose ? std::make_shared<const AnimationPose>(std::move(pose).value()) : nullptr;
+                playback = std::move(frame);
+            }
             m_animation_playbacks.insert_or_assign(entity.m_handle, std::move(playback));
+        }
         mark_render_entity_changed(entity.m_handle);
+        mark_attachments_dirty(entity.m_handle);
+    }
+    void Scene::set_animation_source(Entity entity, std::shared_ptr<const AnimationData> source) {
+        if(!is_valid(entity))
+            return;
+        const auto children = m_children_by_parent.find(entity.get_id());
+        if(children == m_children_by_parent.end()
+            || std::ranges::none_of(children->second,
+                [&](auto child) { return m_registry.any_of<BoneAttachmentComponent>(child); }))
+            source.reset();
+        const auto found = m_animation_sources.find(entity.m_handle);
+        if(found == m_animation_sources.end() && !source)
+            return;
+        if(found != m_animation_sources.end() && found->second.data == source)
+            return;
+        if(source) {
+            auto pose = sample_animation(*source, nullptr);
+            m_animation_sources.insert_or_assign(entity.m_handle,
+                AnimationSource{
+                    source, pose ? std::make_shared<const AnimationPose>(std::move(pose).value())
+                                 : nullptr});
+        } else {
+            m_animation_sources.erase(entity.m_handle);
+        }
+        // 模型重导入使当前采样失效，保持时钟并重新求值。
+        const auto current = get_animation_playback(entity);
+        if(current) {
+            auto input = std::make_shared<AnimationPlayback>(*current);
+            input->pose.reset();
+            input->pose_source.reset();
+            input->pose_error.clear();
+            m_animation_playbacks.erase(entity.m_handle);
+            set_animation_playback(entity, std::move(input));
+        }
+        mark_attachments_dirty(entity.m_handle);
+    }
+    void Scene::mark_attachments_dirty(entt::entity parent) {
+        const auto children = m_children_by_parent.find(m_registry.get<IdComponent>(parent).id);
+        if(children == m_children_by_parent.end())
+            return;
+        for(const auto child : children->second)
+            if(m_registry.any_of<BoneAttachmentComponent>(child))
+                mark_transform_dirty(child);
     }
 
     bool Scene::begin_runtime() {
@@ -427,17 +484,23 @@ namespace Comet {
             m_render_full_update = true;
         }
         m_material_overrides.clear();
+        for(const auto& [handle, playback] : m_animation_playbacks)
+            mark_attachments_dirty(handle);
         m_animation_playbacks.clear();
     }
 
-    bool Scene::emit_event(const std::string_view name, std::optional<ParameterValue> value) {
+    bool Scene::emit_event(
+        const std::string_view name, std::optional<ParameterValue> value, Entity target) {
         if(!m_runtime_active || m_events.size() >= MAX_EVENTS || !valid_parameter_name(name))
             return false;
         if(value
             && (!valid_parameter_value(*value) || std::holds_alternative<EntityUuid>(*value)
                 || std::holds_alternative<Math::Vec4>(*value)))
             return false;
-        m_events.push_back({std::string(name), std::move(value)});
+        if(target && !is_valid(target))
+            return false;
+        m_events.push_back(
+            {std::string(name), std::move(value), target ? target.get_uuid() : EntityUuid{}});
         return true;
     }
 
@@ -704,11 +767,44 @@ namespace Comet {
         world.world_matrix = local_matrix;
         world.pose_world_matrix = pose_local;
         if(parent_world) {
-            world.world_matrix = parent_world->world_matrix * local_matrix;
-            world.pose_world_matrix = parent_world->pose_world_matrix * pose_local;
+            apply_parent_transform(
+                handle, *parent_world, world.world_matrix, world.pose_world_matrix);
         }
         world.pose_world_matrix[3] = world.world_matrix[3];
         world.revision = ++m_transform_revision;
+    }
+    void Scene::apply_parent_transform(entt::entity child, const WorldTransformComponent& parent,
+        Math::Mat4& model, Math::Mat4& pose) const {
+        const auto* attachment = m_registry.try_get<BoneAttachmentComponent>(child);
+        if(attachment && !attachment->bone.empty()) {
+            const auto id = m_registry.get<RelationshipComponent>(child).parent;
+            const auto handle = m_entities_by_id.at(id);
+            const auto source = m_animation_sources.find(handle);
+            if(source != m_animation_sources.end() && source->second.bind_pose) {
+                const auto& data = *source->second.data;
+                const auto frame = m_animation_playbacks.find(handle);
+                const auto& sample = frame != m_animation_playbacks.end() && frame->second->pose
+                                         ? frame->second->pose
+                                         : source->second.bind_pose;
+                for(std::size_t i = 0; i < data.joints.size(); ++i) {
+                    if(data.nodes[data.joints[i].node].name != attachment->bone)
+                        continue;
+                    const auto& bone = sample->bone_matrices[i];
+                    Math::Vec3 scale, translation, skew;
+                    Math::Vec4 perspective;
+                    Math::Quat rotation;
+                    if(glm::decompose(bone, scale, rotation, translation, skew, perspective)) {
+                        model = bone * model;
+                        pose = (Math::translate(Math::Mat4(1), translation)
+                                   * glm::mat4_cast(glm::normalize(rotation)))
+                               * pose;
+                    }
+                    break;
+                }
+            }
+        }
+        model = parent.world_matrix * model;
+        pose = parent.pose_world_matrix * pose;
     }
 
     std::size_t Scene::sync_transform_chain(entt::entity handle) {
@@ -748,6 +844,16 @@ namespace Comet {
 
         sync_transform_chain(entity.m_handle);
         return m_registry.get<WorldTransformComponent>(entity.m_handle).world_matrix;
+    }
+    Math::Mat4 Scene::get_parent_matrix(Entity entity) {
+        const auto parent = get_parent(entity);
+        if(!parent)
+            return Math::Mat4(1);
+        sync_transform_chain(parent.m_handle);
+        Math::Mat4 model(1), pose(1);
+        apply_parent_transform(
+            entity.m_handle, m_registry.get<WorldTransformComponent>(parent.m_handle), model, pose);
+        return model;
     }
 
     const WorldTransformComponent& Scene::get_render_transform(const Entity entity) {

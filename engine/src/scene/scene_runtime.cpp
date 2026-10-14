@@ -275,6 +275,11 @@ namespace Comet {
                 return result;
         if(!m_scene->commit_entity_requests())
             return Result<void, Error>::failure({"Cannot commit update entity requests"});
+        for(auto& system : m_systems)
+            if(auto result = system->post_update(*m_scene, context); !result)
+                return result;
+        if(!m_scene->commit_entity_requests())
+            return Result<void, Error>::failure({"Cannot commit post-update entity requests"});
         if(stepping)
             m_scene->m_transform_interpolation.reset(*m_scene);
         else

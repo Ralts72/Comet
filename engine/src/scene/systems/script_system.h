@@ -25,6 +25,7 @@ namespace Comet {
         Result<void, Error> fixed_update(Scene& scene, const Context& context) override;
         Result<void, Error> post_fixed_update(Scene& scene, const Context& context) override;
         Result<void, Error> update(Scene& scene, const Context& context) override;
+        Result<void, Error> post_update(Scene& scene, const Context& context) override;
         void on_stop(Scene&, RuntimeSession&, const RuntimeServices&) noexcept override;
 
     private:

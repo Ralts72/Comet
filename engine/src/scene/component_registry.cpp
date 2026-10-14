@@ -314,6 +314,9 @@ namespace Comet {
             "character_animation", "Character Animation",
             {make_property_descriptor(
                 "character", "Character", &CharacterAnimationComponent::character)}));
+        register_component(
+            make_component_descriptor<BoneAttachmentComponent>("bone_attachment", "骨骼挂点",
+                {make_property_descriptor("bone", "骨骼", &BoneAttachmentComponent::bone)}));
 
         register_component(make_component_descriptor<CameraComponent>("camera", "Camera",
             {make_property_descriptor("primary", "Primary", &CameraComponent::primary),

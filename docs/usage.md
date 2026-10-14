@@ -40,7 +40,37 @@ comet.set_animation_parameter(comet.self_entity(), "open", true)
 ```
 
 参数必须先在该实体引用的控制器中声明，值为匹配类型的布尔或数值；对象引用沿用脚本的活动场景校验。
-动画事件、骨骼挂点、2D 混合与分层继续按路线图推进。
+`comet.get_animation_parameter(entity, name)` 读取实例覆盖或控制器默认值。
+
+### 动画事件与骨骼挂点
+
+选中状态后，Inspector 的“动画事件”显示一个周期的时间轴。双击添加标记，点击选择、拖动调整时机；
+也可使用“添加事件”和“触发比例”。事件保存名称与文本／数值／开关参数，沿用控制器的保存、撤销与重做。
+
+事件按推进前后的时间区间依次触发，跨帧或跨多圈也会交付；0% 在开始推进及每次循环时触发，100% 在周期结束时触发。
+1D 混合共用状态时间轴，标记只交付一次。切换后的逻辑状态产生事件，淡出的旧状态不再产生事件。
+零速、普通暂停和拖动 Edit 预览时间不触发游戏事件；Play 单步触发跨过的标记。Stop／重开清除待交付事件与播放进度。
+
+事件只送给播放动画的模型实体，不广播到其他角色；在该实体上挂脚本：
+
+```lua
+local script = {events = {footstep = "on_footstep"}}
+function script:on_footstep(foot)
+    if comet.get_animation_parameter(comet.self_entity(), "speed") > 0.2 then
+        comet.play_one_shot() -- 使用该实体的音频源
+    end
+end
+return script
+```
+
+将物体在层级中拖到蒙皮模型实体下，添加“骨骼挂点”组件，从下拉框选择骨骼；本地 Transform 即骨骼空间的位置、旋转与缩放偏移。
+挂点沿用场景父子关系，支持保存、Prefab 和撤销。Edit／Stop 使用绑定姿态，动画预览和 Play 使用当前混合姿态；
+主绘制、阴影和挂点共用采样结果，挂点也继承父角色的固定步呈现插值。
+无骨骼父模型或已丢失的骨骼会在 Inspector 提示，此时使用普通父子变换，配置保留待修正。
+
+Demo 的角色模型挂 `character_feedback.lua`，移动时按左右脚标记播放项目内的合成脚步声；`hand_r` 挂一个手持物。
+声音、动作标记和手持物属于项目内容，Engine 不包含武器、伤害或脚步声音规则。
+2D 混合、独立动画库、分层与 root motion 继续按路线图推进。
 
 首版 Mesh 资产支持一个 mesh／skin、每顶点最多四个骨骼权重，以及 TRS 的 Linear／Step／CubicSpline 动画。
 同一 Mesh 的多个实体独立播放，主绘制和阴影共用 GPU 蒙皮结果。模型内多个 primitive 使用所指定的同一个材质。

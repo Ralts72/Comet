@@ -9,6 +9,7 @@
 #include <string>
 #include <string_view>
 #include <span>
+#include <memory>
 #include <vector>
 
 namespace Comet {
@@ -76,20 +77,32 @@ namespace Comet {
     [[nodiscard]] COMET_API double animation_sample_time(double time, double duration, bool loop);
 
     // 时间和过渡归场景实例；混合空间与状态过渡分别求值，不改变共享片段。
+    struct AnimationPose;
     struct AnimationPlayback {
         AnimationBlend current;
         AnimationBlend previous;
         float blend = 1;
         std::string state;
         std::string previous_state;
-
-        bool operator==(const AnimationPlayback&) const = default;
+        // 有挂点的实例在 Main 采样，渲染线程借用同一份不可变姿态。
+        std::shared_ptr<const AnimationData> pose_source;
+        std::shared_ptr<const AnimationPose> pose;
+        std::string pose_error;
+        bool operator==(const AnimationPlayback& other) const {
+            return current == other.current && previous == other.previous && blend == other.blend
+                   && state == other.state && previous_state == other.previous_state;
+        }
     };
     struct AnimationPose {
         std::vector<Math::Mat4> matrices;
+        // 与 joints 同序，网格局部空间，不含 inverse_bind，供骨骼挂点使用。
+        std::vector<Math::Mat4> bone_matrices;
         BoundingBox bounds;
     };
     [[nodiscard]] COMET_API Result<void> validate_animation(const AnimationData& data);
     [[nodiscard]] COMET_API Result<AnimationPose> sample_animation(
-        const AnimationData& data, const AnimationPlayback* playback);
+        const AnimationData& data, const AnimationPlayback* playback, bool include_bones = true);
+    // 模型替换后的旧过渡可缺失；返回可显示姿态，并保留原始诊断。
+    [[nodiscard]] COMET_API Result<AnimationPose> resolve_animation_pose(const AnimationData& data,
+        const AnimationPlayback* playback, std::string& error, bool include_bones = true);
 }
