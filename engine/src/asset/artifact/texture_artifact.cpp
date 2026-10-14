@@ -26,7 +26,7 @@ namespace Comet {
             const uint64_t levels, const bool mipmaps) {
             if(width == 0 || height == 0 || width > INT32_MAX || height > INT32_MAX)
                 return std::nullopt;
-            const auto expected_levels = mipmaps ? std::bit_width(std::max(width, height)) : 1;
+            const uint64_t expected_levels = mipmaps ? std::bit_width(std::max(width, height)) : 1;
             if(levels != expected_levels)
                 return std::nullopt;
             uint64_t total = 0;

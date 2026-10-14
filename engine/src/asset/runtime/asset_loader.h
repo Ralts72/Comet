@@ -1,5 +1,6 @@
 #pragma once
 
+#include "animation/animation_controller.h"
 #include "asset/handle.h"
 #include "asset/data/mesh_data.h"
 #include "common/error.h"
@@ -37,6 +38,8 @@ namespace Comet {
             RenderAssetFactory& render_factory, std::size_t mesh_bytes, std::size_t texture_bytes,
             std::size_t environment_bytes);
 
+        [[nodiscard]] Result<std::shared_ptr<AnimationController>, Error> load_animation_controller(
+            AssetHandle handle);
         Result<std::shared_ptr<Prefab>, Error> load_prefab(
             AssetHandle handle, const ComponentRegistry& components);
         Result<std::shared_ptr<const ModelData>, Error> load_model(AssetHandle handle);

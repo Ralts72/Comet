@@ -306,32 +306,14 @@ namespace Comet {
                 make_property_descriptor("transition", "transition", &AnimatorComponent::transition,
                     {.required = false,
                         .numeric = {.speed = 0.01f, .minimum = 0, .enforce_bounds = true}}),
-                make_property_descriptor(
-                    "character", "character", &AnimatorComponent::character, {.required = false}),
-                make_property_descriptor(
-                    "idle", "idle", &AnimatorComponent::idle, {.required = false}),
-                make_property_descriptor(
-                    "walk", "walk", &AnimatorComponent::walk, {.required = false}),
-                make_property_descriptor(
-                    "run", "run", &AnimatorComponent::run, {.required = false}),
-                make_property_descriptor(
-                    "crouch", "crouch", &AnimatorComponent::crouch, {.required = false}),
-                make_property_descriptor("crouch_walk", "crouch_walk",
-                    &AnimatorComponent::crouch_walk, {.required = false}),
-                make_property_descriptor(
-                    "jump", "jump", &AnimatorComponent::jump, {.required = false}),
-                make_property_descriptor(
-                    "fall", "fall", &AnimatorComponent::fall, {.required = false}),
-                make_property_descriptor("walk_speed", "walk_speed", &AnimatorComponent::walk_speed,
-                    {.required = false,
-                        .numeric = {.speed = 0.1f, .minimum = 0.001f, .enforce_bounds = true}}),
-                make_property_descriptor("run_speed", "run_speed", &AnimatorComponent::run_speed,
-                    {.required = false,
-                        .numeric = {.speed = 0.1f, .minimum = 0.001f, .enforce_bounds = true}}),
-                make_property_descriptor("crouch_speed", "crouch_speed",
-                    &AnimatorComponent::crouch_speed,
-                    {.required = false,
-                        .numeric = {.speed = 0.1f, .minimum = 0.001f, .enforce_bounds = true}})}));
+                make_property_descriptor("controller", "Controller", &AnimatorComponent::controller,
+                    {.required = false, .asset_type = AssetType::AnimationController}),
+                make_property_descriptor("parameters", "Parameters", &AnimatorComponent::parameters,
+                    {.required = false})}));
+        register_component(make_component_descriptor<CharacterAnimationComponent>(
+            "character_animation", "Character Animation",
+            {make_property_descriptor(
+                "character", "Character", &CharacterAnimationComponent::character)}));
 
         register_component(make_component_descriptor<CameraComponent>("camera", "Camera",
             {make_property_descriptor("primary", "Primary", &CameraComponent::primary),

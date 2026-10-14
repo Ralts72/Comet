@@ -3,6 +3,7 @@
 #include "asset/handle.h"
 #include "audio/audio_category.h"
 #include "common/export.h"
+#include "common/parameters.h"
 #include "core/math_utils.h"
 #include "scene/entity_id.h"
 #include "scene/entity_uuid.h"
@@ -68,14 +69,14 @@ namespace Comet {
         float speed = 1;
         bool loop = true;
         float transition = 0.15f;
-        // 非空时按所引用角色的实际移动状态选择动作。
-        EntityUuid character;
-        std::string idle = "idle", walk = "walk", run = "run";
-        std::string crouch = "crouch", crouch_walk = "crouch_walk";
-        std::string jump = "jump", fall = "fall";
-        // 片段达到完整步幅时的速度，单位 m/s；不改变角色物理移动速度。
-        float walk_speed = 4, run_speed = 6, crouch_speed = 2;
+        AssetHandle controller;
+        ParameterMap parameters;
         bool operator==(const AnimatorComponent&) const = default;
+    };
+
+    struct COMET_API CharacterAnimationComponent {
+        EntityUuid character;
+        bool operator==(const CharacterAnimationComponent&) const = default;
     };
 
     struct COMET_API LightComponent {

@@ -1,3 +1,4 @@
+#include "asset/serialization/animation_controller_serializer.h"
 #include "support/blocked_worker.h"
 #include "asset/default_assets.h"
 #include "render/resource/environment.h"
@@ -141,6 +142,38 @@ namespace CometEditor::Tests {
             return record->handle;
         }
     };
+
+    TEST_F(
+        EditorAssetsTest, AnimationControllerSavePreservesIdentityAndRejectsStaleOrInvalidDrafts) {
+        const std::filesystem::path path = "character.ani";
+        ASSERT_TRUE(assets->create_animation_controller(path).succeeded());
+        const auto* record = assets->database().find(path);
+        ASSERT_TRUE(record);
+        const Comet::AssetTarget target{
+            record->handle, assets->database().get_revision(record->handle)};
+        auto loaded = assets->read_animation_controller(target);
+        ASSERT_TRUE(loaded) << loaded.error();
+        auto edited = loaded.value();
+        edited.states[0].motions[1].threshold = 3;
+        const AssetEdit edit{target, AnimationControllerEdit{loaded.value(), edited}};
+        ASSERT_TRUE(assets->apply_animation_controller_edit(edit));
+        const auto published = runtime.resolve<Comet::AnimationController>(target.handle);
+        ASSERT_TRUE(published);
+        EXPECT_EQ(*published, edited);
+        EXPECT_FALSE(assets->apply_animation_controller_edit(edit));
+        const Comet::AssetTarget current{
+            target.handle, assets->database().get_revision(target.handle)};
+        auto invalid = edited;
+        invalid.transitions[0].to = "missing";
+        EXPECT_FALSE(assets->apply_animation_controller_edit(
+            {current, AnimationControllerEdit{edited, invalid}}));
+        EXPECT_EQ(assets->read_animation_controller(current).value(), edited);
+        EXPECT_EQ(runtime.resolve<Comet::AnimationController>(target.handle), published);
+        auto reopened =
+            Comet::AnimationControllerSerializer{}.load(Comet::ProjectPaths(root).assets() / path);
+        ASSERT_TRUE(reopened);
+        EXPECT_EQ(reopened.value(), edited);
+    }
 
     TEST_F(EditorAssetsTest, CollisionOnlyScenePreparationAndRestoreDoNotUploadAMesh) {
         using namespace Comet;

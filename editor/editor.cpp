@@ -550,7 +550,8 @@ namespace {
 
         bool finish_active_edit() {
             m_viewport->cancel_interaction();
-            if(m_inspector_panel->finish_edit() && process_asset_edit())
+            if(m_inspector_panel->asset_inspector().finish_controller_edit()
+                && m_inspector_panel->finish_edit() && process_asset_edit())
                 return true;
             LOG_ERROR("Cannot finish active property edit; editor request rejected");
             return false;
@@ -1072,6 +1073,8 @@ namespace {
         Comet::Result<void, Comet::Error> apply_asset_edit(const CometEditor::AssetEdit& edit) {
             if(std::holds_alternative<CometEditor::MaterialEdit>(edit.value))
                 return m_material_edits->process(edit);
+            if(std::holds_alternative<CometEditor::AnimationControllerEdit>(edit.value))
+                return m_assets->apply_animation_controller_edit(edit);
             return m_assets->apply_texture_edit(edit);
         }
 
@@ -1101,9 +1104,21 @@ namespace {
                 if(!opened)
                     LOG_WARN("Cannot open source '{}': {}", source->string(), opened.error());
             }
-            if(const auto request = m_inspector_panel->asset_inspector().take_asset_read())
-                m_inspector_panel->asset_inspector().complete_asset_read(
-                    *request, m_assets->read_material(*request));
+            if(const auto request = m_inspector_panel->asset_inspector().take_asset_read()) {
+                const auto* record = m_assets->database().find(request->handle);
+                if(record && record->type == Comet::AssetType::AnimationController)
+                    m_inspector_panel->asset_inspector().complete_asset_read(
+                        *request, m_assets->read_animation_controller(*request));
+                else
+                    m_inspector_panel->asset_inspector().complete_asset_read(
+                        *request, m_assets->read_material(*request));
+            }
+            if(const auto destination =
+                    m_project_panel->take_create_animation_controller_request()) {
+                auto report = m_assets->create_animation_controller(*destination);
+                m_project_panel->complete_create_animation_controller(*destination, report);
+                accept_asset_report(std::move(report));
+            }
             if(const auto create = m_project_panel->take_create_material_request()) {
                 auto report = m_assets->create_material(create->destination, create->data);
                 m_project_panel->complete_create_material(*create, report);

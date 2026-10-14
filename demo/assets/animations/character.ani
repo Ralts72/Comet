@@ -1,0 +1,145 @@
+{
+  "initial": "ground",
+  "parameters": {
+    "speed": 0.0,
+    "grounded": true,
+    "rising": false,
+    "crouched": false
+  },
+  "states": [
+    {
+      "name": "ground",
+      "parameter": "speed",
+      "smoothing": 0.15,
+      "loop": true,
+      "motions": [
+        {
+          "threshold": 0,
+          "clip": "idle"
+        },
+        {
+          "threshold": 4,
+          "clip": "walk"
+        },
+        {
+          "threshold": 6,
+          "clip": "run"
+        }
+      ]
+    },
+    {
+      "name": "crouch",
+      "parameter": "speed",
+      "smoothing": 0.15,
+      "loop": true,
+      "motions": [
+        {
+          "threshold": 0,
+          "clip": "crouch"
+        },
+        {
+          "threshold": 2,
+          "clip": "crouch_walk"
+        }
+      ]
+    },
+    {
+      "name": "jump",
+      "parameter": "",
+      "smoothing": 0,
+      "loop": false,
+      "motions": [
+        {
+          "threshold": 0,
+          "clip": "jump"
+        }
+      ]
+    },
+    {
+      "name": "fall",
+      "parameter": "",
+      "smoothing": 0,
+      "loop": false,
+      "motions": [
+        {
+          "threshold": 0,
+          "clip": "fall"
+        }
+      ]
+    }
+  ],
+  "transitions": [
+    {
+      "from": "",
+      "to": "jump",
+      "duration": 0.15,
+      "after_finished": false,
+      "conditions": [
+        {
+          "parameter": "grounded",
+          "compare": "==",
+          "value": false
+        },
+        {
+          "parameter": "rising",
+          "compare": "==",
+          "value": true
+        }
+      ]
+    },
+    {
+      "from": "",
+      "to": "fall",
+      "duration": 0.15,
+      "after_finished": false,
+      "conditions": [
+        {
+          "parameter": "grounded",
+          "compare": "==",
+          "value": false
+        },
+        {
+          "parameter": "rising",
+          "compare": "==",
+          "value": false
+        }
+      ]
+    },
+    {
+      "from": "",
+      "to": "crouch",
+      "duration": 0.15,
+      "after_finished": false,
+      "conditions": [
+        {
+          "parameter": "grounded",
+          "compare": "==",
+          "value": true
+        },
+        {
+          "parameter": "crouched",
+          "compare": "==",
+          "value": true
+        }
+      ]
+    },
+    {
+      "from": "",
+      "to": "ground",
+      "duration": 0.15,
+      "after_finished": false,
+      "conditions": [
+        {
+          "parameter": "grounded",
+          "compare": "==",
+          "value": true
+        },
+        {
+          "parameter": "crouched",
+          "compare": "==",
+          "value": false
+        }
+      ]
+    }
+  ]
+}

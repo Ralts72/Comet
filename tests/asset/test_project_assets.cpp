@@ -43,7 +43,10 @@ namespace Comet::Tests {
             }
         }
         AssetDatabase database(project.value().paths());
-        ASSERT_TRUE(database.scan().snapshot_updated);
+        const auto scan = database.scan();
+        for(const auto& issue : scan.issues)
+            ADD_FAILURE() << issue.message;
+        ASSERT_TRUE(scan.succeeded());
         const auto registry = create_scene_component_registry();
         for(const auto& asset : database.get_assets()) {
             if(asset.type != AssetType::Scene)
@@ -57,8 +60,9 @@ namespace Comet::Tests {
                     EXPECT_FALSE(database.find(reference.handle));
                     continue;
                 }
-                EXPECT_TRUE(identities.contains(reference.handle));
                 const auto* record = database.find(reference.handle);
+                if(reference.required || record)
+                    EXPECT_TRUE(identities.contains(reference.handle));
                 if(reference.required)
                     ASSERT_NE(record, nullptr);
                 if(record)

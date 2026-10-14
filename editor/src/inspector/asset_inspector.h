@@ -31,8 +31,16 @@ namespace CometEditor {
             const Comet::AssetTarget& request, Comet::Result<Comet::MaterialData> result);
         void complete_asset_edit(const AssetEdit& edit, bool succeeded, std::string error = {});
         void finish_material_edit(bool cancel = false);
+        void complete_asset_read(
+            const Comet::AssetTarget& request, Comet::Result<Comet::AnimationController> result);
+        [[nodiscard]] std::optional<Comet::AssetHandle> take_selection_request();
+        [[nodiscard]] bool finish_controller_edit();
+        [[nodiscard]] bool controller_selection_pending() const {
+            return m_controller_data.has_value() && m_next_asset.has_value();
+        }
 
     private:
+        void render_animation_controller();
         void render_texture(const Comet::AssetRecord& record);
         void render_material(
             const Comet::AssetRecord& record, std::uint64_t generation, bool allow_drop);
@@ -55,6 +63,9 @@ namespace CometEditor {
         std::optional<Comet::TextureImportSettings> m_texture_import_settings;
         std::optional<Comet::MaterialData> m_material_data;
         std::optional<Comet::MaterialData> m_material_before;
+        std::optional<Comet::AnimationController> m_controller_data;
+        std::optional<Comet::AnimationController> m_controller_saved;
+        std::optional<Comet::AssetHandle> m_selection_request;
         std::optional<Comet::AssetHandle> m_next_asset;
         unsigned m_material_active_item = 0;
         std::vector<std::shared_ptr<const Comet::MaterialLayout>> m_material_layouts;

@@ -88,7 +88,10 @@ namespace Comet {
                 || to_string(asset.type) == "unknown")
                 return Result<void>::failure("Product index contains a source-only asset type");
             if(const auto* builtin = find_default_asset(asset.handle);
-                builtin && (builtin->type != asset.type || asset.type != AssetType::Mesh))
+                builtin
+                && (builtin->type != asset.type
+                    || (asset.type != AssetType::Mesh
+                        && asset.type != AssetType::AnimationController)))
                 return Result<void>::failure("Product redefines an embedded default asset");
             if(asset.sampler
                 && (asset.type != AssetType::Texture || !valid_sampler(*asset.sampler)))

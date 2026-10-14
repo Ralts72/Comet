@@ -1,5 +1,6 @@
 #pragma once
 
+#include "animation/animation_controller.h"
 #include "asset/database.h"
 #include "asset/data/material_data.h"
 #include "asset/data/mesh_data.h"
@@ -105,6 +106,8 @@ namespace Comet {
         [[nodiscard]] Result<std::vector<AssetReference>, Error> collect_scene_references(
             Scene& scene, const ComponentRegistry& components,
             MissingAssetPolicy policy = MissingAssetPolicy::FailRequired);
+        [[nodiscard]] Result<std::shared_ptr<AnimationController>, Error> load_animation_controller(
+            AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Prefab>, Error> load_prefab(
             AssetHandle handle, const ComponentRegistry& components);
         // prepare_references 后只读查询；临时环境预览不算完整资源就绪。

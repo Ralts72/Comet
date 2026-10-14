@@ -1,3 +1,4 @@
+#include "animation/animation_controller.h"
 #include "render/resource/mesh.h"
 #include "animation/animation_data.h"
 #include "inspector/inspector.h"
@@ -124,17 +125,13 @@ namespace CometEditor {
                 {"camera_controller", "相机控制器"}, {"audio_source", "音频源"},
                 {"character_controller", "角色控制器"}, {"rigid_body", "刚体"},
                 {"collider", "碰撞体"}, {"point_joint", "点关节"}, {"hinge_joint", "铰链关节"},
-                {"slider_joint", "滑动关节"}, {"light", "光源"}, {"animator", "动画"}};
+                {"slider_joint", "滑动关节"}, {"light", "光源"}, {"animator", "动画"},
+                {"character_animation", "角色动画驱动"}};
             static constexpr Caption properties[]{{"animator/enabled", "启用"},
                 {"animator/clip", "播放片段"}, {"animator/speed", "播放速度"},
                 {"animator/loop", "循环"}, {"animator/transition", "过渡时间 (s)"},
-                {"animator/character", "驱动角色"}, {"animator/idle", "待机动作"},
-                {"animator/walk", "行走动作"}, {"animator/run", "跑步动作"},
-                {"animator/crouch", "蹲伏动作"}, {"animator/crouch_walk", "蹲伏移动动作"},
-                {"animator/jump", "跳跃动作"}, {"animator/fall", "下落动作"},
-                {"animator/walk_speed", "行走动画标定速度 (m/s)"},
-                {"animator/run_speed", "跑步动画标定速度 (m/s)"},
-                {"animator/crouch_speed", "蹲行动画标定速度 (m/s)"}, {"script/asset", "脚本"},
+                {"animator/controller", "动画控制器"}, {"animator/parameters", "参数"},
+                {"character_animation/character", "驱动角色"}, {"script/asset", "脚本"},
                 {"script/parameters", "参数"}, {"name/name", "名称"},
                 {"transform/translation", "位置"}, {"transform/rotation", "旋转"},
                 {"transform/scale", "缩放"}, {"mesh_renderer/mesh", "网格"},
@@ -280,6 +277,14 @@ namespace CometEditor {
 
         bool property_visible(
             Comet::Entity entity, std::string_view component, std::string_view property) {
+            if(component == "animator") {
+                const bool controlled =
+                    bool(entity.get_component<Comet::AnimatorComponent>().controller);
+                if(property == "clip" || property == "loop" || property == "transition")
+                    return !controlled;
+                if(property == "parameters")
+                    return controlled;
+            }
             if(component == "collider") {
                 const auto& collider = entity.get_component<Comet::ColliderComponent>();
                 if(property == "mesh")
@@ -309,17 +314,6 @@ namespace CometEditor {
             if(component == "slider_joint")
                 return joint_property_visible(
                     entity.get_component<Comet::SliderJointComponent>(), property);
-            if(component == "animator") {
-                const bool driven =
-                    bool(entity.get_component<Comet::AnimatorComponent>().character);
-                if(property == "clip" || property == "loop")
-                    return !driven;
-                if(property == "idle" || property == "walk" || property == "run"
-                    || property == "crouch" || property == "crouch_walk" || property == "jump"
-                    || property == "fall" || property == "walk_speed" || property == "run_speed"
-                    || property == "crouch_speed")
-                    return driven;
-            }
             return true;
         }
 
@@ -376,7 +370,9 @@ namespace CometEditor {
             return;
         }
 
-        if(Comet::Entity entity = m_selection.get_selected_entity()) {
+        if(m_asset_inspector.controller_selection_pending()) {
+            m_asset_inspector.render(m_history.generation(), m_state.mode == EditorMode::Edit);
+        } else if(Comet::Entity entity = m_selection.get_selected_entity()) {
             if(m_entities.size() > 1)
                 ImGui::TextWrapped("共同属性 · %zu 个实体。多值以主目标显示，修改一轴保留其他轴。",
                     m_entities.size());
@@ -393,6 +389,8 @@ namespace CometEditor {
             ImGui::TextUnformatted("尚未选中实体或资产");
         }
 
+        if(auto selected = m_asset_inspector.take_selection_request())
+            m_selection.select_asset(*selected);
         if(!m_animation_preview_drawn)
             reset_animation_preview();
         ImGui::End();
@@ -446,6 +444,9 @@ namespace CometEditor {
                     if(component_descriptor.id == "script"
                         && property.type == Comet::PropertyType::Parameters)
                         render_script_parameters(entity, component_descriptor, property);
+                    else if(component_descriptor.id == "animator"
+                            && property.type == Comet::PropertyType::Parameters)
+                        render_animation_parameters(entity, component_descriptor, property);
                     else
                         render_property(entity, component_descriptor, property);
                     active_property_visible |= m_property_edit.targets_many(
@@ -912,6 +913,50 @@ namespace CometEditor {
             ImGui::SetItemTooltip(
                 "范围 0～1，0 为无弹性反弹，1 为完全弹性；两物体取较大值。\n"
                 "下一固定步生效；低速接触仍按后端阈值抑制反弹，触发器不参与碰撞响应。");
+    }
+
+    void InspectorPanel::render_animation_parameters(Comet::Entity entity,
+        const Comet::ComponentDescriptor& component, const Comet::PropertyDescriptor& property) {
+        if(m_entities.size() != 1) {
+            ImGui::TextDisabled("动画参数请单独编辑");
+            return;
+        }
+        const auto& animator = entity.get_component<Comet::AnimatorComponent>();
+        const auto controller =
+            m_runtime_assets.resolve<Comet::AnimationController>(animator.controller);
+        if(!controller) {
+            ImGui::TextDisabled("动画控制器未加载，请查看日志");
+            return;
+        }
+        if(entity.has_component<Comet::CharacterAnimationComponent>())
+            ImGui::TextWrapped(
+                "运行时角色驱动提供 speed、grounded、rising、crouched；动作和阈值在控制器资产中编辑。");
+        if(ImGui::Button("恢复默认参数###Restore animation parameters")) {
+            apply_property_edit(entity, component, property, Comet::ParameterMap{},
+                {.changed = true, .finished = true});
+            return;
+        }
+        if(auto valid = controller->validate_parameters(animator.parameters); !valid) {
+            ImGui::TextWrapped("%s", valid.error().c_str());
+            return;
+        }
+        for(const auto& [name, initial] : controller->parameters) {
+            auto value = *controller->parameter(name, animator.parameters);
+            bool changed = false;
+            if(auto* boolean = std::get_if<bool>(&value))
+                changed = ImGui::Checkbox(name.c_str(), boolean);
+            else if(auto* number = std::get_if<float>(&value))
+                changed = ImGui::DragFloat(name.c_str(), number, .05f);
+            const auto result = PropertyEditResult::from_item(changed);
+            auto parameters = animator.parameters;
+            if(changed) {
+                if(value == initial)
+                    parameters.erase(name);
+                else
+                    parameters[name] = value;
+            }
+            apply_property_edit(entity, component, property, parameters, result);
+        }
     }
 
     void InspectorPanel::render_script_parameters(Comet::Entity entity,

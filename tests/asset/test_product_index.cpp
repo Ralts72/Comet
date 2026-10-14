@@ -1,4 +1,6 @@
+#include "support/asset_manager_fixture.h"
 #include "asset/default_assets.h"
+#include "asset/serialization/animation_controller_serializer.h"
 #include "asset/import/import_service.h"
 #include "asset/product_index.h"
 #include "asset/project_prepare.h"
@@ -10,7 +12,6 @@
 #include "scene/script_component.h"
 #include "scene/scene_runtime.h"
 #include "scene/systems/script_system.h"
-#include "support/asset_manager_fixture.h"
 
 namespace Comet::Tests {
     TEST(ProductIndexTest, RoundTripPreservesIdentityDependenciesAndSamplerWithoutSourceMetadata) {
@@ -191,6 +192,64 @@ namespace Comet::Tests {
         ASSERT_TRUE(write_text_file_atomic(product.paths().assets() / "texture.bin", "corrupt"));
         EXPECT_FALSE(reopened.load_texture(texture));
         EXPECT_FALSE(empty_registry.contains(texture));
+    }
+
+    TEST(ProductIndexTest, ExportsBuiltinAndProjectControllersWithoutSourceFallback) {
+        const TemporaryProject source;
+        const TemporaryDirectory outputs;
+        const auto components = create_scene_component_registry();
+        const AssetHandle custom{42};
+        AnimationController definition;
+        definition.parameters = {{"open", false}};
+        const auto custom_path = source.paths().assets() / "door.ani";
+        ASSERT_TRUE(AnimationControllerSerializer{}.save(definition, custom_path));
+        ASSERT_TRUE(
+            MetadataSerializer{}.save({.handle = custom, .type = AssetType::AnimationController},
+                metadata_path(custom_path)));
+        Scene scene;
+        scene.create_entity("Door").add_component<AnimatorComponent>(
+            AnimatorComponent{.controller = custom});
+        scene.create_entity("Character")
+            .add_component<AnimatorComponent>(
+                AnimatorComponent{.controller = DEFAULT_CHARACTER_ANIMATION});
+        ASSERT_TRUE(
+            SceneSerializer(components).save(scene, source.paths().assets() / "main.scene"));
+        ASSERT_TRUE(write_text_file_atomic(source.paths().root() / "project.json", R"({
+            "version":2,"id":"00000000-0000-4000-8000-000000000001",
+            "name":"Controllers","startup_scene":"main.scene"})"));
+        const auto project = Project::load(source.paths().root());
+        ASSERT_TRUE(project) << project.error();
+        const auto exported = outputs.path() / "game";
+        const auto result = export_project_assets(project.value(), exported, {});
+        ASSERT_TRUE(result) << result.error();
+        std::filesystem::remove_all(source.paths().root());
+        const ProjectPaths paths(exported);
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(paths, registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        ASSERT_TRUE(manager.get_database().is_read_only());
+        const auto loaded = manager.load_animation_controller(custom);
+        ASSERT_TRUE(loaded) << loaded.error().message;
+        EXPECT_EQ(*loaded.value(), definition);
+        auto builtin = manager.load_animation_controller(DEFAULT_CHARACTER_ANIMATION);
+        ASSERT_TRUE(builtin) << builtin.error().message;
+        EXPECT_TRUE(builtin.value()->parameters.contains("grounded"));
+        const auto product = manager.get_database().find(DEFAULT_CHARACTER_ANIMATION);
+        ASSERT_NE(product, nullptr);
+        ASSERT_TRUE(
+            AnimationControllerSerializer{}.save(definition, paths.assets() / product->path));
+        AssetRegistry other_registry;
+        AssetManager reopened(paths, other_registry, factory, scheduler);
+        ASSERT_TRUE(reopened.scan().succeeded());
+        builtin = reopened.load_animation_controller(DEFAULT_CHARACTER_ANIMATION);
+        ASSERT_TRUE(builtin) << builtin.error().message;
+        EXPECT_EQ(*builtin.value(), definition);
+        std::filesystem::remove(paths.assets() / product->path);
+        ASSERT_TRUE(other_registry.unregister_asset(DEFAULT_CHARACTER_ANIMATION));
+        EXPECT_FALSE(reopened.load_animation_controller(DEFAULT_CHARACTER_ANIMATION));
+        EXPECT_FALSE(std::filesystem::exists(paths.cache()));
     }
 
     TEST(ProductIndexTest, ExportedLuaPrefabSpawnsUsePreparedAssetsAfterSourceDeletion) {

@@ -16,10 +16,10 @@
 | AssetData | Handle、Registry、CPU 产品数据、脚本定义和资产字段序列化 | Serialization、ShaderContracts |
 | Input | 采样值、动作、输入组、运行域求值、改键草稿和覆盖 | Serialization |
 | World | 实体、组件、描述符、层级、呈现变换、场景内容保存与复制 | AssetData、EnTT |
-| Runtime | 时间、暂停／单步、会话与 System 生命周期 | World、Input |
+| Runtime | 时间、暂停／单步、会话、System 生命周期与通用动画实例推进 | World、Input |
 | Audio | AudioService、Voice、播放设备与 AudioSystem | Runtime、miniaudio |
 | Physics | PhysicsService、刚体世界与 PhysicsSystem | Runtime、Jolt |
-| Gameplay | 可复用角色／相机控制及动画实例推进，借用输入快照和 PhysicsAccess | Runtime |
+| Gameplay | 可复用角色／相机控制及角色动画参数驱动，借用输入快照和 PhysicsAccess | Runtime |
 | Scripting | 行为 VM、Lua 校验与 ScriptSystem，以及 Gameplay 桥接 | Runtime、Gameplay、Lua |
 | AssetPipeline | 扫描、索引、源导入、Artifact 与任务队列 | AssetData、stb_image、fastgltf |
 | RuntimeAssets | 需求、加载、失效、版本编排和资源发布契约 | AssetPipeline、Audio／Script 定义 |
@@ -373,10 +373,12 @@ Lua 的 `comet.control_character(enabled, options)` 调用相同 C++ 控制器�
 ## 骨骼与动画
 
 Mesh 导入数据保存顶点权重和不可变 `AnimationData`，骨骼层级、绑定矩阵及片段属于资产，沿 Mesh Artifact 保存、校验与加载。
-`AnimatorComponent` 只保存播放配置和角色动作映射，复用组件描述符的保存、克隆、引用重映射与 Inspector 撤销。
-`AnimationSystem` 在 Main 普通更新阶段推进实例时间；角色动作取自 Gameplay 的实际移动状态，动画不回写角色的物理位置。
-`blend_animation_1d` 只按有序阈值选择相邻片段及权重，不依赖角色、场景或渲染。角色地面／蹲伏移动使用实际相对速度和 Animator 标定值驱动，跳跃／下落保持独立状态。
-混合空间内共享归一化周期，时长按当前片段权重插值；System 通过组合层注入的只读 AnimationData 查询取得时长，不依赖 GPU Mesh。速度参数按过渡时间作指数平滑，跨阈值保持相位；状态切换分别保留旧／新混合输入，再按过渡时间混合。
+`AnimatorComponent` 保存控制器引用、初始参数覆盖和单片段播放配置，复用组件描述符的保存、克隆、引用重映射与 Inspector 撤销。
+`.ani` 是不可变 `AnimationController` 定义的项目资产，包含参数、状态、1D 混合与有序条件过渡；复用 Metadata、Registry 和只读导出索引。引擎提供默认角色预设，项目可保存自己的副本。
+`AnimationSystem` 属于 Runtime：只读取控制器和参数、推进实例状态／时间，不依赖 Gameplay 或 Physics。播放完成条件单独记录本状态进度，不从已回绕的采样时间推断。
+Gameplay 的 `CharacterAnimationSystem` 在物理更新后读取实际移动状态，通过 `CharacterAnimationComponent` 将四个角色参数写入 Animator；不选择动作、不维护动画时钟。Lua 可通过 `comet.set_animation_parameter` 驱动其他对象。
+`blend_animation_1d` 只按有序阈值选择相邻片段及权重，不依赖角色、场景或渲染。
+混合空间内共享归一化周期，时长按当前片段权重插值；System 通过组合层注入的只读资产查询取得定义与片段时长，不依赖 GPU Mesh。数值参数按状态定义指数平滑，跨阈值保持相位；状态切换分别保留旧／新混合输入，再按过渡时间混合。
 Scene 保存不可变播放快照，提取／解析交付同一快照给 RenderThread；Stop、销毁及重开清理播放状态，场景文件不保存时间与逐帧姿态。
 Runtime、预览和姿态采样共用循环／终点时间规则。非循环片段到达终点后保留原快照，零速且过渡已结束的实例也不重复发布；零速仍允许片段过渡推进。
 Editor 的 `AnimationPreview` 拥有所选模型的预览时钟，Inspector 在 Main 捕获帧前通过 Scene 的瞬时播放接口发布不可变快照，复用正常提取、采样和蒙皮链路。

@@ -95,6 +95,7 @@ add_library(editor_ui STATIC
         src/assets/project_panel.cpp
         src/inspector/inspector.cpp
         src/inspector/asset_inspector.cpp
+        src/inspector/asset_inspector_animation.cpp
         src/inspector/property_editor_registry.cpp
         src/scene/hierarchy.cpp
         src/scene/entity_reference.cpp

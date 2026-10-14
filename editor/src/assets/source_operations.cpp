@@ -1,4 +1,5 @@
 #include "assets/source_operations.h"
+#include "asset/serialization/animation_controller_serializer.h"
 #include "scene/prefab.h"
 
 #include "common/result.h"
@@ -32,12 +33,15 @@
 #include <variant>
 
 namespace CometEditor::AssetSourceOperations {
+    using Comet::AnimationController;
+    using Comet::AnimationControllerSerializer;
     using Comet::asset_type_from_path;
     using Comet::AssetDatabase;
     using Comet::AssetHandle;
     using Comet::AssetImportLimits;
     using Comet::AssetRecord;
     using Comet::AssetScanReport;
+    using Comet::AssetTarget;
     using Comet::AssetType;
     using Comet::AudioClip;
     using Comet::EnvironmentImporter;
@@ -126,6 +130,7 @@ namespace CometEditor::AssetSourceOperations {
                 case AssetType::Environment:
                 case AssetType::Script:
                 case AssetType::Audio:
+                case AssetType::AnimationController:
                     return type;
                 default:
                     return std::nullopt;
@@ -472,7 +477,7 @@ namespace CometEditor::AssetSourceOperations {
             }
             if(roots.empty())
                 return Result<void>::failure(
-                    "Drop PNG/JPEG textures, HDR environments, Lua scripts, WAV audio or glTF/GLB models (not directories)");
+                    "Drop PNG/JPEG textures, HDR environments, Lua scripts, WAV audio, animation controllers or glTF/GLB models (not directories)");
             for(const auto& source : sources) {
                 if(external_import_type(source))
                     continue;
@@ -536,6 +541,10 @@ namespace CometEditor::AssetSourceOperations {
                         return Result<void>::failure(
                             "Cannot validate standalone Lua import: " + script.error().message
                             + "; scripts requiring project modules must be created inside project assets");
+                    break;
+                case AssetType::AnimationController:
+                    if(auto controller = AnimationControllerSerializer{}.load(source); !controller)
+                        return Result<void>::failure(controller.error());
                     break;
                 case AssetType::Audio:
                     if(auto clip = AudioClip::load(source); !clip)
@@ -867,35 +876,58 @@ namespace CometEditor::AssetSourceOperations {
             database, destination, serialized.value(), AssetType::Prefab, ".prefab", "Prefab");
     }
 
-    AssetScanReport save_prefab(AssetDatabase& database, const Comet::AssetTarget& target,
-        const Comet::Prefab& prefab, const Comet::ComponentRegistry& registry) {
-        const auto* record = database.find(target.handle);
-        if(!record || record->type != AssetType::Prefab || !database.is_current(target))
-            return operation_error({}, "Prefab identity is stale or invalid");
-        const auto relative = record->path;
-        const auto path = database.paths().assets() / relative;
-        auto text = prefab.serialize(registry);
-        if(!text)
-            return operation_error(relative, text.error());
-        auto previous = read_text_file(path);
-        if(!previous)
-            return operation_error(relative, previous.error());
-        if(auto saved = write_text_file_atomic(path, text.value()); !saved)
-            return operation_error(relative, saved.error());
-        auto candidate = database;
-        auto report = candidate.scan();
-        const auto* updated = candidate.find(target.handle);
-        if(report.succeeded() && report.snapshot_updated && updated
-            && updated->type == AssetType::Prefab && updated->path == relative) {
-            database = std::move(candidate);
+    namespace {
+        AssetScanReport save_text_asset(AssetDatabase& database, const AssetTarget& target,
+            AssetType type, std::string_view contents) {
+            const auto* record = database.find(target.handle);
+            if(!record || record->type != type || !database.is_current(target))
+                return operation_error({}, "Asset identity is stale or invalid");
+            const auto relative = record->path;
+            const auto path = database.paths().assets() / relative;
+            auto previous = read_text_file(path);
+            if(!previous)
+                return operation_error(relative, previous.error());
+            if(auto saved = write_text_file_atomic(path, contents); !saved)
+                return operation_error(relative, saved.error());
+            auto candidate = database;
+            auto report = candidate.scan();
+            const auto* updated = candidate.find(target.handle);
+            if(report.succeeded() && report.snapshot_updated && updated && updated->type == type
+                && updated->path == relative) {
+                database = std::move(candidate);
+                return report;
+            }
+            discard_scan_updates(report, database);
+            report.issues.push_back({relative, "Cannot index asset update; restoring source"});
+            if(auto restored = write_text_file_atomic(path, previous.value()); !restored)
+                report.issues.push_back(
+                    {relative, "Cannot restore asset source: " + restored.error()});
             return report;
         }
-        discard_scan_updates(report, database);
-        report.issues.push_back({relative, "Cannot index prefab update; restoring source"});
-        if(auto restored = write_text_file_atomic(path, previous.value()); !restored)
-            report.issues.push_back(
-                {relative, "Cannot restore prefab source: " + restored.error()});
-        return report;
+
+    }
+    AssetScanReport save_prefab(AssetDatabase& database, const AssetTarget& target,
+        const Comet::Prefab& prefab, const Comet::ComponentRegistry& registry) {
+        auto serialized = prefab.serialize(registry);
+        if(!serialized)
+            return operation_error({}, serialized.error());
+        return save_text_asset(database, target, AssetType::Prefab, serialized.value());
+    }
+    AssetScanReport create_animation_controller(AssetDatabase& database,
+        const std::filesystem::path& destination, const AnimationController& data) {
+        auto serialized = AnimationControllerSerializer{}.serialize(data);
+        if(!serialized)
+            return operation_error(destination, serialized.error());
+        return create_text_asset(database, destination, serialized.value(),
+            AssetType::AnimationController, ".ani", "Animation Controller");
+    }
+    AssetScanReport save_animation_controller(
+        AssetDatabase& database, const AssetTarget& target, const AnimationController& data) {
+        auto serialized = AnimationControllerSerializer{}.serialize(data);
+        if(!serialized)
+            return operation_error({}, serialized.error());
+        return save_text_asset(
+            database, target, AssetType::AnimationController, serialized.value());
     }
 
     AssetScanReport create_material(AssetDatabase& database,
@@ -941,6 +973,8 @@ return script
             return false;
         if(extension == ".lua")
             return record->type == AssetType::Script;
+        if(extension == ".ani")
+            return record->type == AssetType::AnimationController;
         if(extension == ".shader")
             return record->type == AssetType::ShaderProgram;
         return record->type == AssetType::Shader

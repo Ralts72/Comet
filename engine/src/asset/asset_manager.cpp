@@ -1,5 +1,6 @@
-#include "asset/default_assets.h"
 #include "asset/asset_manager.h"
+#include "animation/animation_controller.h"
+#include "asset/default_assets.h"
 #include "scene/component_registry.h"
 #include "asset/runtime/asset_loader.h"
 #include "asset/runtime/render_asset_factory.h"
@@ -132,6 +133,8 @@ namespace Comet {
             return Result<void, Error>::success();
         };
         switch(expected_type) {
+            case AssetType::AnimationController:
+                return status(load_animation_controller(handle));
             case AssetType::Prefab:
                 return status(load_prefab(handle, create_scene_component_registry()));
             case AssetType::Model:
@@ -212,6 +215,11 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
+    Result<std::shared_ptr<AnimationController>, Error> AssetManager::load_animation_controller(
+        AssetHandle handle) {
+        return m_loader->load_animation_controller(handle);
+    }
+
     Result<std::shared_ptr<Prefab>, Error> AssetManager::load_prefab(
         AssetHandle handle, const ComponentRegistry& components) {
         return m_loader->load_prefab(handle, components);
@@ -286,9 +294,12 @@ namespace Comet {
             }
             if(const auto* asset = find_default_asset(reference.handle);
                 asset && asset->type == reference.type) {
-                const bool loaded = reference.type == AssetType::Mesh
-                                        ? m_registry.contains<Mesh>(reference.handle)
-                                        : m_registry.contains<Material>(reference.handle);
+                const bool loaded =
+                    (asset->type == AssetType::Mesh && m_registry.contains<Mesh>(reference.handle))
+                    || (asset->type == AssetType::Material
+                        && m_registry.contains<Material>(reference.handle))
+                    || (asset->type == AssetType::AnimationController
+                        && m_registry.contains<AnimationController>(reference.handle));
                 if(loaded)
                     continue;
             }

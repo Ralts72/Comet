@@ -8,6 +8,7 @@
 #include "scene/selection.h"
 #include "scene/scene_serializer.h"
 #include "asset/serialization/material_serializer.h"
+#include "asset/serialization/animation_controller_serializer.h"
 #include "asset/serialization/metadata_serializer.h"
 #include "render/material/material.h"
 #include "asset/registry.h"
@@ -60,6 +61,7 @@ namespace CometEditor::Tests {
         int material_cancels = 0;
         bool material_update_success = true;
         Comet::MaterialData submitted_material;
+        int controller_updates = 0;
 
         void SetUp() override {
             std::filesystem::create_directories(paths.assets());
@@ -121,11 +123,25 @@ namespace CometEditor::Tests {
                 project->render();
             }
             ImGui::Render();
-            if(const auto request = inspector->asset_inspector().take_asset_read())
-                inspector->asset_inspector().complete_asset_read(
-                    *request, Comet::MaterialSerializer{}.load(
-                                  paths.assets() / database.find(request->handle)->path));
+            if(const auto request = inspector->asset_inspector().take_asset_read()) {
+                const auto* record = database.find(request->handle);
+                if(record->type == Comet::AssetType::AnimationController)
+                    inspector->asset_inspector().complete_asset_read(*request,
+                        Comet::AnimationControllerSerializer{}.load(paths.assets() / record->path));
+                else
+                    inspector->asset_inspector().complete_asset_read(
+                        *request, Comet::MaterialSerializer{}.load(paths.assets() / record->path));
+            }
             if(const auto request = inspector->asset_inspector().take_asset_edit()) {
+                if(const auto* controller = std::get_if<AnimationControllerEdit>(&request->value)) {
+                    auto saved = Comet::AnimationControllerSerializer{}.save(controller->after,
+                        paths.assets() / database.find(request->target.handle)->path);
+                    ASSERT_TRUE(saved) << saved.error();
+                    ++controller_updates;
+                    ASSERT_TRUE(database.scan().succeeded());
+                    inspector->asset_inspector().complete_asset_edit(*request, true);
+                    return;
+                }
                 EXPECT_EQ(request->target.handle, expected_material);
                 EXPECT_EQ(request->target.revision, database.get_revision(request->target.handle));
                 const auto* update = std::get_if<MaterialEdit>(&request->value);
@@ -278,6 +294,54 @@ namespace CometEditor::Tests {
             return request;
         }
     };
+
+    TEST_F(
+        AssetEditingUiTest, ControllerDraftPromptsOnSelectionChangeAndCommitsBeforeLeavingEditor) {
+        const Comet::AssetHandle controller{50};
+        const auto path = paths.assets() / "door.ani";
+        ASSERT_TRUE(Comet::AnimationControllerSerializer{}.save({}, path));
+        ASSERT_TRUE(Comet::MetadataSerializer{}.save(
+            {.handle = controller, .type = Comet::AssetType::AnimationController},
+            Comet::metadata_path(path)));
+        ASSERT_TRUE(database.scan().succeeded());
+        selection.select_asset(controller);
+        frame();
+        frame();
+        auto activate = [&](const char* window, const char* label) {
+            auto* found = ImGui::FindWindowByName(window);
+            ASSERT_NE(found, nullptr);
+            ImGui::ActivateItemByID(found->GetID(label));
+            frame();
+            frame();
+        };
+        activate("Inspector", "添加参数");
+        EXPECT_EQ(controller_updates, 0);
+        selection.select_entity(entity.get_id());
+        frame();
+        frame();
+        const auto* prompt = ImGui::FindWindowByName("未保存的动画控制器");
+        ASSERT_NE(prompt, nullptr);
+        ASSERT_TRUE(prompt->Active);
+        activate("未保存的动画控制器", "继续编辑");
+        EXPECT_EQ(selection.get_selected_asset(), controller);
+        EXPECT_EQ(controller_updates, 0);
+        ASSERT_TRUE(inspector->asset_inspector().finish_controller_edit());
+        frame();
+        EXPECT_EQ(controller_updates, 1);
+        auto saved = Comet::AnimationControllerSerializer{}.load(path);
+        ASSERT_TRUE(saved);
+        EXPECT_TRUE(saved.value().parameters.contains("parameter1"));
+        activate("Inspector", "添加参数");
+        selection.select_asset(material);
+        frame();
+        frame();
+        activate("未保存的动画控制器", "放弃并切换");
+        EXPECT_EQ(selection.get_selected_asset(), material);
+        EXPECT_EQ(controller_updates, 1);
+        saved = Comet::AnimationControllerSerializer{}.load(path);
+        ASSERT_TRUE(saved);
+        EXPECT_FALSE(saved.value().parameters.contains("parameter2"));
+    }
 
     TEST_F(AssetEditingUiTest, MixedAssetPickerCanChoosePrimaryValueAndCapturesAllTargets) {
         auto peer = scene.create_entity();

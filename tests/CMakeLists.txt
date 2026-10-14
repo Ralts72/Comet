@@ -107,6 +107,7 @@ set(UNIT_TEST_SOURCES
         render/test_scene_extractor.cpp
         render/test_scene_picking.cpp
         scene/test_animation.cpp
+        scene/test_animation_controller.cpp
         scene/test_audio_system.cpp
         scene/test_camera_controller.cpp
         scene/test_character_controller.cpp

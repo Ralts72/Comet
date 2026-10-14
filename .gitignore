@@ -8,6 +8,5 @@ build-release/
 .codegraph/
 .comet/
 
-# Optional demo assets fetched by tools/download_assets.sh; keep their .meta files.
+# Optional demo assets and their metadata are installed together by tools/download_assets.sh.
 /demo/assets/environments/*
-!/demo/assets/environments/*.meta

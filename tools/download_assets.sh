@@ -62,16 +62,25 @@ download() {
     echo "Installed: $relative_path"
 }
 
-# 固定资源地址和校验和；来源与许可记录在 README.md。
-download "demo/assets/environments/small_hangar_01_1k.hdr" \
+download_environment() {
+    download "$1" "$2" "$3"
+    local metadata="$ROOT_DIR/$1.meta"
+    # 下载成功后才建立索引；保留场景中的固定 ID，不覆盖已有导入设置。
+    if [[ ! -f "$metadata" ]]; then
+        printf '{\n  "version": 3,\n  "guid": %s,\n  "type": "environment"\n}\n' "$4" > "$metadata"
+    fi
+}
+
+# 固定资源地址、校验和及场景引用 ID。
+download_environment "demo/assets/environments/small_hangar_01_1k.hdr" \
     "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/small_hangar_01_1k.hdr" \
-    "2ddc8b58715d325fde50f35bafe3cbe37434252bb51e1b744697f902bfebfb98"
-download "demo/assets/environments/small_hangar_01_2k.hdr" \
+    "2ddc8b58715d325fde50f35bafe3cbe37434252bb51e1b744697f902bfebfb98" 10578362481739062541
+download_environment "demo/assets/environments/small_hangar_01_2k.hdr" \
     "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/small_hangar_01_2k.hdr" \
-    "cb7d97c4896891579ed92c306949acf8d1c18510905e8d5e5041716fbd12d036"
-download "demo/assets/environments/small_hangar_01_4k.hdr" \
+    "cb7d97c4896891579ed92c306949acf8d1c18510905e8d5e5041716fbd12d036" 12987634150623891742
+download_environment "demo/assets/environments/small_hangar_01_4k.hdr" \
     "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/small_hangar_01_4k.hdr" \
-    "02f7cf6027d1b3310ca7625b71131e9b2750c4041f23a4e08e8cf36a5a4c352e"
-download "demo/assets/environments/small_hangar_01_8k.hdr" \
+    "02f7cf6027d1b3310ca7625b71131e9b2750c4041f23a4e08e8cf36a5a4c352e" 11764928350182740632
+download_environment "demo/assets/environments/small_hangar_01_8k.hdr" \
     "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/8k/small_hangar_01_8k.hdr" \
-    "50fd89b033db5026b6a999b82d29fcd53158664c2cb3d829d29d4b03143e97f7"
+    "50fd89b033db5026b6a999b82d29fcd53158664c2cb3d829d29d4b03143e97f7" 14892063751428609375

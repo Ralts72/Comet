@@ -132,6 +132,10 @@
                   "material": 13857136248767905794
                 },
                 "animator": {
+                  "controller": 13857136248767905804,
+                  "parameters": {}
+                },
+                "character_animation": {
                   "character": {
                     "entity": "70a518f1-2c0e-4180-9ead-000000000001"
                   }
@@ -297,6 +301,10 @@
                       "material": 13857136248767905794
                     },
                     "animator": {
+                      "controller": 13857136248767905804,
+                      "parameters": {}
+                    },
+                    "character_animation": {
                       "character": {
                         "entity": "d3bb4700-17b7-4112-b03d-44d354eabaae"
                       }

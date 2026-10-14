@@ -1,3 +1,4 @@
+#include "asset/serialization/animation_controller_serializer.h"
 #include "asset/default_assets.h"
 #include "asset/project_prepare.h"
 #include "asset/shader_program_import.h"
@@ -124,6 +125,13 @@ namespace Comet {
                         return prepared.value().artifact.publish_atomic(
                             imports.shader_program_artifact_path(record.handle));
                     }
+                    break;
+                }
+                case AssetType::AnimationController: {
+                    auto controller =
+                        AnimationControllerSerializer{}.load(paths.assets() / record.path);
+                    if(!controller)
+                        return Result<void>::failure(controller.error());
                     break;
                 }
                 case AssetType::Material: {
@@ -333,6 +341,20 @@ namespace Comet {
                     exported.emplace(reference.handle, reference.type);
                     if(builtin->type == AssetType::Material)
                         continue;
+                    if(builtin->type == AssetType::AnimationController) {
+                        auto data = AnimationControllerSerializer{}.load(
+                            default_character_source().parent_path() / "default.ani");
+                        if(!data)
+                            return Result<void>::failure(data.error());
+                        AssetProduct product{reference.handle, reference.type,
+                            ".products/" + std::to_string(reference.handle.value()) + ".ani"};
+                        if(auto saved = AnimationControllerSerializer{}.save(
+                               data.value(), output.assets() / product.path);
+                            !saved)
+                            return saved;
+                        index.assets.push_back(std::move(product));
+                        continue;
+                    }
                     const auto source = default_character_source();
                     auto inputs = capture_import_inputs(source.parent_path(), source, {});
                     if(!inputs)
@@ -407,6 +429,8 @@ namespace Comet {
                             return Result<void>::failure(script.error().message);
                         break;
                     }
+                    case AssetType::AnimationController:
+                        break;
                     case AssetType::Prefab: {
                         auto prefab = Prefab::load(source, components);
                         if(!prefab)

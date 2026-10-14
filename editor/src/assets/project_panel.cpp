@@ -386,6 +386,8 @@ namespace CometEditor {
             if(ImGui::MenuItem(
                    "新建材质...###New Material...", nullptr, false, !m_material_layouts.empty()))
                 request_create_material({});
+            if(ImGui::MenuItem("新建动画控制器###New Animation Controller"))
+                request_create_animation_controller({});
             if(ImGui::MenuItem("新建脚本...###New Script..."))
                 request_create_script({});
             if(ImGui::MenuItem("新建 Lua 模块...###New Lua Module..."))
@@ -417,6 +419,8 @@ namespace CometEditor {
             if(ImGui::MenuItem(
                    "新建材质...###New Material...", nullptr, false, !m_material_layouts.empty()))
                 request_create_material(directory);
+            if(ImGui::MenuItem("新建动画控制器###New Animation Controller"))
+                request_create_animation_controller(directory);
             if(ImGui::MenuItem("新建脚本...###New Script..."))
                 request_create_script(directory);
             if(ImGui::MenuItem("新建 Lua 模块...###New Lua Module..."))
@@ -434,6 +438,29 @@ namespace CometEditor {
         m_operation_error.clear();
         m_close_create = false;
         m_create_requested = true;
+    }
+
+    void ProjectPanel::request_create_animation_controller(const std::filesystem::path& directory) {
+        std::filesystem::path destination;
+        for(unsigned index = 1;; ++index) {
+            destination = directory / ("AnimationController" + std::to_string(index) + ".ani");
+            if(!m_database.find(destination)
+                && !std::filesystem::exists(m_asset_root / destination))
+                break;
+        }
+        m_pending_animation_create = destination;
+    }
+    std::optional<std::filesystem::path> ProjectPanel::take_create_animation_controller_request() {
+        return std::exchange(m_pending_animation_create, std::nullopt);
+    }
+    void ProjectPanel::complete_create_animation_controller(
+        const std::filesystem::path& path, const Comet::AssetScanReport& report) {
+        m_operation_error.clear();
+        if(!report.succeeded()) {
+            if(!report.issues.empty())
+                m_operation_error = report.issues.front().message;
+        } else if(const auto* record = m_database.find(path))
+            m_selection.select_asset(record->handle);
     }
 
     void ProjectPanel::request_create_script(

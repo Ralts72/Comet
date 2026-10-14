@@ -1,5 +1,6 @@
-#include "asset/default_assets.h"
 #include "assets/editor_assets.h"
+#include "asset/serialization/animation_controller_serializer.h"
+#include "asset/default_assets.h"
 #include "asset/shader_program_import.h"
 #include "assets/system_trash.h"
 #include "diagnostics/logger.h"
@@ -33,6 +34,50 @@ namespace CometEditor {
                 pending.string());
         if(!m_monitor.uses_native_notifications())
             LOG_WARN("Asset source monitor is using periodic fallback scans");
+    }
+
+    Comet::Result<Comet::AnimationController> EditorAssets::read_animation_controller(
+        const Comet::AssetTarget& target) const {
+        const auto* record = m_database.find(target.handle);
+        if(!record || record->type != Comet::AssetType::AnimationController
+            || !m_database.is_current(target))
+            return Comet::Result<Comet::AnimationController>::failure(
+                "Animation controller read is stale");
+        return Comet::AnimationControllerSerializer{}.load(
+            m_database.paths().assets() / record->path);
+    }
+    Comet::AssetScanReport EditorAssets::create_animation_controller(
+        const std::filesystem::path& destination) {
+        auto data = Comet::AnimationControllerSerializer{}.load(
+            Comet::default_character_source().parent_path() / "default.ani");
+        if(!data) {
+            Comet::AssetScanReport report;
+            report.issues.push_back({destination, data.error()});
+            return report;
+        }
+        auto report = AssetSourceOperations::create_animation_controller(
+            m_database, destination, data.value());
+        accept_scan(report);
+        if(report.succeeded())
+            acknowledge(destination);
+        return report;
+    }
+    Comet::Result<void, Comet::Error> EditorAssets::apply_animation_controller_edit(
+        const AssetEdit& edit) {
+        const auto* value = std::get_if<AnimationControllerEdit>(&edit.value);
+        const auto* record = m_database.find(edit.target.handle);
+        if(!value || edit.action != AssetEdit::Action::Apply || !record
+            || !m_database.is_current(edit.target))
+            return Comet::Result<void, Comet::Error>::failure(
+                {"Animation controller edit is stale or invalid"});
+        const auto path = record->path;
+        auto report =
+            AssetSourceOperations::save_animation_controller(m_database, edit.target, value->after);
+        accept_scan(report);
+        if(!report.succeeded())
+            return Comet::Result<void, Comet::Error>::failure({report.issues.front().message});
+        acknowledge(path);
+        return m_manager.ensure_loaded(edit.target.handle, Comet::AssetType::AnimationController);
     }
 
     Comet::Result<Comet::MaterialData> EditorAssets::read_material(

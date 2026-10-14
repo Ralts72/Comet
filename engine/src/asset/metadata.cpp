@@ -15,6 +15,8 @@ namespace Comet {
 
     std::string_view to_string(const AssetType type) noexcept {
         switch(type) {
+            case AssetType::AnimationController:
+                return "animation_controller";
             case AssetType::Prefab:
                 return "prefab";
             case AssetType::Model:
@@ -44,6 +46,8 @@ namespace Comet {
     }
 
     std::optional<AssetType> asset_type_from_string(const std::string_view value) noexcept {
+        if(value == "animation_controller")
+            return AssetType::AnimationController;
         if(value == "prefab")
             return AssetType::Prefab;
         if(value == "model")
@@ -114,6 +118,8 @@ namespace Comet {
             return AssetType::Script;
         if(extension == ".wav")
             return AssetType::Audio;
+        if(extension == ".ani")
+            return AssetType::AnimationController;
         if(extension == ".prefab")
             return AssetType::Prefab;
         if(extension == ".scene")

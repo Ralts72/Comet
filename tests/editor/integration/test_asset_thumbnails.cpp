@@ -1,7 +1,7 @@
+#include "asset/asset_manager.h"
 #include "support/render_graph_gpu_fixture.h"
 #include "assets/asset_thumbnails.h"
 #include "render/scene/scene_preview.h"
-#include "asset/asset_manager.h"
 #include "asset/serialization/material_serializer.h"
 #include "core/task_scheduler.h"
 

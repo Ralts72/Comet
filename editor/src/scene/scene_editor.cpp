@@ -1,8 +1,8 @@
+#include "assets/editor_assets.h"
 #include "scene/scene_editor.h"
 
 #include "scene/scene_commands.h"
 #include "scene/selection.h"
-#include "assets/editor_assets.h"
 #include "scene/script_component.h"
 #include "diagnostics/logger.h"
 #include "common/scope_exit.h"

@@ -66,7 +66,8 @@ namespace Comet {
     };
     struct AnimationBlendPoint {
         float threshold;
-        std::string_view clip;
+        std::string clip;
+        bool operator==(const AnimationBlendPoint&) const = default;
     };
     [[nodiscard]] COMET_API Result<AnimationBlend> blend_animation_1d(
         std::span<const AnimationBlendPoint> points, float parameter);

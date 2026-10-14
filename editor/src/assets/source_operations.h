@@ -13,6 +13,7 @@
 #include <vector>
 
 namespace Comet {
+    struct AnimationController;
     class Prefab;
     class ComponentRegistry;
 }
@@ -50,6 +51,10 @@ namespace CometEditor::AssetSourceOperations {
         const Comet::AssetTarget& target, const Comet::Prefab& prefab,
         const Comet::ComponentRegistry& registry);
 
+    [[nodiscard]] Comet::AssetScanReport create_animation_controller(Comet::AssetDatabase& database,
+        const std::filesystem::path& destination, const Comet::AnimationController& data);
+    [[nodiscard]] Comet::AssetScanReport save_animation_controller(Comet::AssetDatabase& database,
+        const Comet::AssetTarget& target, const Comet::AnimationController& data);
     [[nodiscard]] Comet::AssetScanReport create_material(Comet::AssetDatabase& database,
         const std::filesystem::path& destination, const Comet::MaterialData& data);
 

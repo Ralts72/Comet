@@ -43,6 +43,12 @@ namespace CometEditor {
         [[nodiscard]] Comet::Result<void> queue_import_files(
             std::span<const std::filesystem::path> sources, const std::filesystem::path& directory);
         [[nodiscard]] Comet::Result<void, Comet::Error> apply_texture_edit(const AssetEdit& edit);
+        [[nodiscard]] Comet::Result<Comet::AnimationController> read_animation_controller(
+            const Comet::AssetTarget& request) const;
+        [[nodiscard]] Comet::Result<void, Comet::Error> apply_animation_controller_edit(
+            const AssetEdit& edit);
+        [[nodiscard]] Comet::AssetScanReport create_animation_controller(
+            const std::filesystem::path& destination);
         [[nodiscard]] Comet::Result<Comet::MaterialData> read_material(
             const Comet::AssetTarget& request) const;
         [[nodiscard]] Comet::Result<Comet::AssetManager::MaterialUpdate, Comet::Error>

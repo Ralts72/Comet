@@ -53,3 +53,5 @@ probe_dependency("src/scene/scene.cpp" "\"scene/runtime_session.h\""
     "World violates module dependencies")
 probe_dependency("src/gameplay/character_controller.cpp" "\"physics/physics_service.h\""
     "Gameplay violates module dependencies")
+probe_dependency("src/animation/animation_system.cpp" "\"gameplay/character_controller.h\""
+    "Runtime violates module dependencies")

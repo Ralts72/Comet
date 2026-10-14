@@ -29,6 +29,8 @@ set(COMET_SHADER_CONTRACTS_SOURCES
 
 set(COMET_ASSET_DATA_SOURCES
     src/animation/animation_data.cpp
+    src/animation/animation_controller.cpp
+    src/asset/serialization/animation_controller_serializer.cpp
     src/asset/data/import_input_snapshot.h
     src/asset/script.cpp
     src/asset/script.h
@@ -70,6 +72,7 @@ set(COMET_WORLD_SOURCES
 )
 
 set(COMET_RUNTIME_SOURCES
+    src/animation/animation_system.cpp
     src/scene/runtime_session.cpp
     src/scene/runtime_session.h
     src/scene/runtime_services.h
@@ -102,11 +105,11 @@ set(COMET_PHYSICS_SOURCES
 )
 
 set(COMET_GAMEPLAY_SOURCES
+    src/gameplay/character_animation.cpp
     src/gameplay/checkpoint_store.cpp
     src/gameplay/checkpoint_store.h
     src/gameplay/game_session.cpp
     src/gameplay/game_session.h
-    src/animation/animation_system.cpp
     src/gameplay/camera_controller.cpp
     src/gameplay/camera_controller.h
     src/gameplay/character_controller.cpp

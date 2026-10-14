@@ -1,4 +1,5 @@
 #include "scripting/lua_bindings.h"
+#include "animation/animation_controller.h"
 #include "asset/registry.h"
 #include "asset/script.h"
 #include "scene/prefab.h"
@@ -781,6 +782,54 @@ namespace Comet::LuaBindings {
                     state, "%s", std::get<std::string>(*context.return_value).c_str());
             return 0;
         }
+        int set_animation_parameter(lua_State* state) {
+            if(lua_gettop(state) != 3 || lua_type(state, 2) != LUA_TSTRING)
+                return luaL_error(
+                    state, "set_animation_parameter expects entity, name, boolean or number");
+            const auto entity = require_entity(state);
+            size_t length = 0;
+            const char* key = lua_tolstring(state, 2, &length);
+            if(!entity.has_component<AnimatorComponent>() || !valid_parameter_name({key, length}))
+                return luaL_error(state, "Animation parameter requires an Animator and valid name");
+            // 所有 Lua 参数先检查完，再创建 C++ 自有值，避免 longjmp 越过析构。
+            bool boolean = false;
+            float numeric = 0;
+            const bool is_boolean = lua_type(state, 3) == LUA_TBOOLEAN;
+            if(is_boolean)
+                boolean = lua_toboolean(state, 3);
+            else if(lua_type(state, 3) == LUA_TNUMBER)
+                numeric = number(state, 3);
+            else
+                return luaL_error(state, "Animation parameter must be a boolean or finite number");
+            auto& context = current(state);
+            context.return_value.reset();
+            {
+                const auto& animator = entity.get_component<AnimatorComponent>();
+                const auto controller =
+                    context.assets
+                        ? context.assets->resolve<AnimationController>(animator.controller)
+                        : nullptr;
+                const std::string name(key, length);
+                const ParameterValue value =
+                    is_boolean ? ParameterValue(boolean) : ParameterValue(numeric);
+                if(!controller)
+                    context.return_value = std::string("Animation controller is not loaded");
+                else if(const auto found = controller->parameters.find(name);
+                    found == controller->parameters.end() || found->second.index() != value.index())
+                    context.return_value =
+                        std::string("Unknown or mistyped animation parameter: ") + name;
+                else {
+                    const auto previous = animator.parameters.find(name);
+                    if(previous == animator.parameters.end() || previous->second != value)
+                        entity.edit_component<AnimatorComponent>(
+                            [&](auto& target) { target.parameters[name] = value; });
+                }
+            }
+            if(context.return_value)
+                return luaL_error(
+                    state, "%s", std::get<std::string>(*context.return_value).c_str());
+            return 0;
+        }
         int set_material_vector(lua_State* state) {
             auto& context = current(state);
             if(!context.scene || !context.materials)
@@ -1058,6 +1107,7 @@ namespace Comet::LuaBindings {
             {"apply_force", apply_force}, {"apply_impulse_at", apply_impulse_at},
             {"apply_force_at", apply_force_at}, {"apply_torque", apply_torque},
             {"linear_velocity", linear_velocity}, {"angular_velocity", angular_velocity},
+            {"set_animation_parameter", set_animation_parameter},
             {"set_material_scalar", set_material_scalar}, {"move_character", move_character},
             {"character_grounded", character_grounded}, {"character_state", character_state},
             {"control_character", control_character}, {"set_material_vector", set_material_vector},

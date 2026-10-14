@@ -1,3 +1,6 @@
+#include "gameplay/character_animation.h"
+#include "asset/serialization/animation_controller_serializer.h"
+#include "asset/default_assets.h"
 #include "animation/animation_system.h"
 #include "physics/physics_service.h"
 #include "asset/registry.h"
@@ -109,9 +112,18 @@ namespace Comet::Tests {
         auto visual = scene.create_entity("Animated visual");
         visual.add_component<MeshRendererComponent>();
         visual.add_component<AnimatorComponent>(
-            AnimatorComponent{.transition = 0, .character = player.get_uuid()});
+            AnimatorComponent{.controller = DEFAULT_CHARACTER_ANIMATION});
+        visual.add_component<CharacterAnimationComponent>(player.get_uuid());
+        auto definition = AnimationControllerSerializer{}.load(
+            default_character_source().parent_path() / "default.ani");
+        ASSERT_TRUE(definition) << definition.error();
+        auto controller = std::make_shared<AnimationController>(std::move(definition).value());
+        for(auto& state : controller->states)
+            state.smoothing = 0;
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::CharacterAnimationSystem>()));
         ASSERT_TRUE(runtime.add_system(
-            std::make_unique<AnimationSystem>([data](AssetHandle) { return data; })));
+            std::make_unique<AnimationSystem>([data](AssetHandle) { return data; },
+                [controller](AssetHandle) { return controller; })));
         ASSERT_TRUE(runtime.start(scene));
         ASSERT_TRUE(step(12));
         auto idle = scene.get_animation_playback(visual);
@@ -134,8 +146,8 @@ namespace Comet::Tests {
         EXPECT_NEAR(run->current.weight, .5f, .01f);
         EXPECT_GT(run->current.time, walk->current.time);
         EXPECT_TRUE(run->previous.clip.empty());
-        visual.edit_component<AnimatorComponent>(
-            [](auto& animation) { animation.transition = .15f; });
+        for(auto& state : controller->states)
+            state.smoothing = .15f;
         intent->direction = {0, 0};
         ASSERT_TRUE(step());
         const auto slowing = scene.get_animation_playback(visual);
@@ -554,8 +566,14 @@ namespace Comet::Tests {
                 std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY).parent_path()
                 / "engine/resources/characters/default.glb");
             ASSERT_TRUE(mesh) << mesh.error();
+            auto definition = AnimationControllerSerializer{}.load(
+                project.value().paths().assets() / "animations/character.ani");
+            ASSERT_TRUE(definition) << definition.error();
+            auto controller = std::make_shared<AnimationController>(std::move(definition).value());
+            ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::CharacterAnimationSystem>()));
             ASSERT_TRUE(runtime.add_system(std::make_unique<AnimationSystem>(
-                [data = mesh.value().animation](AssetHandle) { return data; })));
+                [data = mesh.value().animation](AssetHandle) { return data; },
+                [controller](AssetHandle) { return controller; })));
             ASSERT_TRUE(runtime.add_system(std::make_unique<AudioSystem>(audio)));
             input.focus_event(true);
             if(GetParam())

@@ -1,6 +1,7 @@
+#include "asset/runtime/asset_loader.h"
+#include "asset/serialization/animation_controller_serializer.h"
 #include "asset/default_assets.h"
 #include "asset/import/mesh_importer.h"
-#include "asset/runtime/asset_loader.h"
 #include "scene/prefab.h"
 
 #include "asset/artifact/mesh_artifact.h"
@@ -117,6 +118,27 @@ namespace Comet {
         auto shared = std::make_shared<const ModelArtifact>(std::move(*artifact));
         m_models.insert_or_assign(handle, CachedModel{revision, shared, std::move(children)});
         return Loaded::success(std::move(shared));
+    }
+
+    Result<std::shared_ptr<AnimationController>, Error> AssetLoader::load_animation_controller(
+        AssetHandle handle) {
+        using Loaded = Result<std::shared_ptr<AnimationController>, Error>;
+        const auto load = [](const std::filesystem::path& path) -> Loaded {
+            auto data = AnimationControllerSerializer{}.load(path);
+            if(!data)
+                return Loaded::failure({data.error()});
+            return Loaded::success(std::make_shared<AnimationController>(std::move(data).value()));
+        };
+        if(handle == DEFAULT_CHARACTER_ANIMATION && !m_database.is_read_only())
+            return load_default_asset<AnimationController>(m_registry, handle,
+                [&] { return load(default_character_source().parent_path() / "default.ani"); });
+        return load_runtime_asset<AnimationController>(m_database, m_registry, handle,
+            AssetType::AnimationController, [&](const AssetRecord& record) -> Loaded {
+                auto path = m_database.paths().resolve_asset_path(record.path);
+                if(!path)
+                    return Loaded::failure({path.error()});
+                return load(path.value());
+            });
     }
 
     Result<std::shared_ptr<Prefab>, Error> AssetLoader::load_prefab(

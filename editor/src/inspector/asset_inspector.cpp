@@ -63,6 +63,10 @@ namespace CometEditor {
             m_next_asset.reset();
             return;
         }
+        if(m_controller_data && m_controller_saved && *m_controller_data != *m_controller_saved) {
+            m_next_asset = handle;
+            return;
+        }
         if(m_material_before) {
             if(m_next_asset && *m_next_asset == handle)
                 return;
@@ -74,6 +78,8 @@ namespace CometEditor {
         m_loaded_target = {};
         m_texture_import_settings.reset();
         m_material_data.reset();
+        m_controller_data.reset();
+        m_controller_saved.reset();
         m_asset_error.clear();
         m_template_change.reset();
         m_asset_read.reset();
@@ -164,6 +170,13 @@ namespace CometEditor {
             ImGui::TextColored(ImVec4(0.9f, 0.25f, 0.2f, 1.0f), "%s", m_asset_error.c_str());
         }
 
+        if(record->type == Comet::AssetType::AnimationController) {
+            if(m_controller_data)
+                render_animation_controller();
+            else if(ImGui::Button("重试加载###Retry Load"))
+                load_asset(*record);
+            return;
+        }
         if(record->type == Comet::AssetType::Material) {
             if(m_material_data) {
                 render_material(*record, generation, allow_drop);
@@ -473,6 +486,8 @@ namespace CometEditor {
         m_loaded_target = {record.handle, m_asset_database.get_revision(record.handle)};
         m_texture_import_settings.reset();
         m_material_data.reset();
+        m_controller_data.reset();
+        m_controller_saved.reset();
         m_template_change.reset();
         m_asset_error.clear();
 
@@ -487,7 +502,8 @@ namespace CometEditor {
             return;
         }
 
-        if(record.type != Comet::AssetType::Material) {
+        if(record.type != Comet::AssetType::Material
+            && record.type != Comet::AssetType::AnimationController) {
             return;
         }
 
@@ -507,6 +523,21 @@ namespace CometEditor {
             m_material_data = std::move(result).value();
         else
             m_asset_error = result.error();
+    }
+
+    void AssetInspector::complete_asset_read(
+        const Comet::AssetTarget& request, Comet::Result<Comet::AnimationController> result) {
+        if(request != m_loaded_target || m_selected_asset != request.handle
+            || !m_asset_database.is_current(request))
+            return;
+        if(result) {
+            m_controller_data = std::move(result).value();
+            m_controller_saved = m_controller_data;
+        } else
+            m_asset_error = result.error();
+    }
+    std::optional<Comet::AssetHandle> AssetInspector::take_selection_request() {
+        return std::exchange(m_selection_request, std::nullopt);
     }
 
     void AssetInspector::reimport_texture(
@@ -553,6 +584,18 @@ namespace CometEditor {
         if(m_loaded_target != edit.target)
             return;
         m_asset_error = std::move(error);
+        if(const auto* controller = std::get_if<AnimationControllerEdit>(&edit.value)) {
+            if(succeeded) {
+                m_controller_saved = controller->after;
+                m_loaded_target.revision = m_asset_database.get_revision(edit.target.handle);
+                if(m_next_asset) {
+                    const auto next = *m_next_asset;
+                    m_next_asset.reset();
+                    select(next);
+                }
+            }
+            return;
+        }
         if(edit.action == AssetEdit::Action::Preview)
             return;
         if(edit.action == AssetEdit::Action::Commit || edit.action == AssetEdit::Action::Cancel) {

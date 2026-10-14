@@ -1,5 +1,6 @@
-#include "animation/animation_system.h"
 #include "engine.h"
+#include "gameplay/character_animation.h"
+#include "animation/animation_system.h"
 #include "common/scope_exit.h"
 #include "config/config.h"
 #include "core/window.h"
@@ -150,10 +151,16 @@ namespace Comet {
             return added;
         if(auto added = add_system(std::make_unique<PhysicsSystem>(*m_physics_service)); !added)
             return added;
-        if(auto added = add_system(std::make_unique<AnimationSystem>([this](AssetHandle handle) {
-               auto mesh = m_asset_registry->resolve<Mesh>(handle);
-               return mesh ? mesh->animation_data() : nullptr;
-           }));
+        if(auto added = add_system(std::make_unique<Gameplay::CharacterAnimationSystem>()); !added)
+            return added;
+        if(auto added = add_system(std::make_unique<AnimationSystem>(
+               [this](AssetHandle handle) {
+                   auto mesh = m_asset_registry->resolve<Mesh>(handle);
+                   return mesh ? mesh->animation_data() : nullptr;
+               },
+               [this](AssetHandle handle) {
+                   return m_asset_registry->resolve<AnimationController>(handle);
+               }));
             !added)
             return added;
         return add_system(std::make_unique<AudioSystem>(*m_audio_service));

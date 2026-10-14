@@ -56,6 +56,10 @@ namespace CometEditor {
         ~ProjectPanel() override;
         void set_thumbnails(AssetThumbnails& thumbnails, Ui::ImGuiContext& images);
         void render() override;
+        [[nodiscard]] std::optional<std::filesystem::path>
+        take_create_animation_controller_request();
+        void complete_create_animation_controller(
+            const std::filesystem::path& path, const Comet::AssetScanReport& report);
         void update_scan_report(Comet::AssetScanReport scan_report);
         [[nodiscard]] bool take_refresh_request();
         [[nodiscard]] std::optional<MoveRequest> take_move_request();
@@ -84,6 +88,8 @@ namespace CometEditor {
             Comet::Math::Vec2 position) const;
 
     private:
+        void request_create_animation_controller(const std::filesystem::path& directory);
+        std::optional<std::filesystem::path> m_pending_animation_create;
         void render_thumbnail(const Comet::AssetRecord& asset);
         struct ThumbnailBinding {
             std::weak_ptr<const Comet::TextureData> source;
