@@ -75,6 +75,8 @@ namespace Comet::Tests {
         EXPECT_EQ(scene.get_animation_playback(first)->current.clip, "open");
         EXPECT_EQ(scene.get_animation_playback(second)->current.clip, "idle");
         EXPECT_EQ(captured->current.clip, "idle");
+        EXPECT_EQ(captured->state, "idle");
+        EXPECT_EQ(scene.get_animation_playback(first)->state, "opening");
         first.edit_component<AnimatorComponent>(
             [](auto& animator) { animator.parameters["open"] = false; });
         ASSERT_TRUE(runtime.advance(.1));

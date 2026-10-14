@@ -81,6 +81,7 @@ target_compile_definitions(editor_imgui PRIVATE
 target_compile_options(editor_imgui PUBLIC "$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
 
 add_library(editor_ui STATIC
+        src/animation/animation_controller_editor.cpp
         src/project/game_ui.cpp
         src/project/player_input_panel.cpp
         src/project/input_widgets.cpp

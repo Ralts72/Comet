@@ -683,14 +683,19 @@ namespace {
                     m_shortcut_settings_dialog.request(m_shortcuts);
                     break;
                 case CometEditor::MenuBar::Command::Undo:
-                    if(const auto asset = m_selection->get_selected_asset(); asset) {
+                    if(m_inspector_panel->asset_inspector().controller_active()) {
+                        static_cast<void>(m_inspector_panel->asset_inspector().undo_controller());
+                    } else if(const auto asset = m_selection->get_selected_asset(); asset) {
                         if(auto result = m_material_edits->undo(asset); !result)
                             LOG_WARN("Cannot undo material edit: {}", result.error().message);
                     } else if(!m_scene_editor->undo(get_engine().get_scene()))
                         LOG_WARN("Cannot undo scene edit");
                     break;
                 case CometEditor::MenuBar::Command::Redo:
-                    if(const auto asset = m_selection->get_selected_asset(); asset) {
+                    if(m_inspector_panel->asset_inspector().controller_active()) {
+                        static_cast<void>(
+                            m_inspector_panel->asset_inspector().undo_controller(true));
+                    } else if(const auto asset = m_selection->get_selected_asset(); asset) {
                         if(auto result = m_material_edits->redo(asset); !result)
                             LOG_WARN("Cannot redo material edit: {}", result.error().message);
                     } else if(!m_scene_editor->redo(get_engine().get_scene()))
@@ -1012,7 +1017,10 @@ namespace {
         }
 
         void update_undo_state() {
-            if(const auto asset = m_selection->get_selected_asset(); asset)
+            if(m_inspector_panel->asset_inspector().controller_active()) {
+                const auto& editor = m_inspector_panel->asset_inspector().controller_editor();
+                m_menu_bar->set_undo_state(editor.can_undo(), editor.can_redo());
+            } else if(const auto asset = m_selection->get_selected_asset(); asset)
                 m_menu_bar->set_undo_state(
                     m_material_edits->can_undo(asset), m_material_edits->can_redo(asset));
             else
@@ -1092,6 +1100,10 @@ namespace {
         }
 
         Comet::Result<void, Comet::Error> process_asset_requests() {
+            if(const auto controller = m_project_panel->take_open_controller_request()) {
+                m_selection->select_asset(*controller);
+                m_inspector_panel->asset_inspector().open_controller(*controller);
+            }
             if(const auto source = m_project_panel->take_open_source_request()) {
                 const auto resolved = CometEditor::AssetSourceOperations::resolve_source_file(
                     m_assets->database(), *source);

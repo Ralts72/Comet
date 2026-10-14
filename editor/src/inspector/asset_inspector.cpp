@@ -80,11 +80,24 @@ namespace CometEditor {
         m_material_data.reset();
         m_controller_data.reset();
         m_controller_saved.reset();
+        m_controller_editor.close();
         m_asset_error.clear();
         m_template_change.reset();
         m_asset_read.reset();
         m_asset_edit.reset();
         m_next_asset.reset();
+    }
+
+    void AssetInspector::open_controller(Comet::AssetHandle handle) {
+        select(handle);
+        if(m_selected_asset != handle)
+            return;
+        const auto* record = m_asset_database.find(handle);
+        if(!record || record->type != Comet::AssetType::AnimationController)
+            return;
+        if(m_loaded_target.handle != handle || !m_asset_database.is_current(m_loaded_target))
+            load_asset(*record);
+        m_controller_editor.open();
     }
 
     void AssetInspector::set_material_layouts(
@@ -533,6 +546,7 @@ namespace CometEditor {
         if(result) {
             m_controller_data = std::move(result).value();
             m_controller_saved = m_controller_data;
+            m_controller_editor.reset(*m_controller_data);
         } else
             m_asset_error = result.error();
     }

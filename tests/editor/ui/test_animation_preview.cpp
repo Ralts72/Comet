@@ -6,6 +6,7 @@
 #include "asset/asset_manager.h"
 #include "asset/default_assets.h"
 #include "asset/registry.h"
+#include "asset/serialization/animation_controller_serializer.h"
 #include "render/resource/mesh.h"
 #include "scene/scene_serializer.h"
 #include "support/engine_fixture.h"
@@ -67,6 +68,13 @@ namespace CometEditor::Tests {
             ImGui::SetNextWindowSize({700, 840});
             inspector->render();
             ImGui::Render();
+            if(const auto request = inspector->asset_inspector().take_asset_read()) {
+                const auto* record = database.find(request->handle);
+                ASSERT_NE(record, nullptr);
+                inspector->asset_inspector().complete_asset_read(
+                    *request, Comet::AnimationControllerSerializer{}.load(
+                                  database.paths().assets() / record->path));
+            }
             inspector->update_animation_preview(delta);
         }
 
@@ -100,6 +108,57 @@ namespace CometEditor::Tests {
             frame();
         }
     };
+
+    TEST_F(AnimationPreviewUiTest,
+        ControllerPreviewUsesTheExistingSceneAndYieldsToPlayAndSceneChanges) {
+        Comet::AnimationController definition;
+        definition.parameters = {{"speed", 0.f}};
+        definition.states.front().parameter = "speed";
+        definition.states.front().motions = {{0, "idle"}, {4, "walk"}};
+        const auto path = database.paths().assets() / "character.ani";
+        ASSERT_TRUE(Comet::AnimationControllerSerializer{}.save(definition, path));
+        ASSERT_TRUE(database.scan().succeeded());
+        const auto handle = database.find("character.ani")->handle;
+        entity.edit_component<Comet::AnimatorComponent>(
+            [&](auto& animator) { animator.controller = handle; });
+        const auto registry = Comet::create_scene_component_registry();
+        const auto content = Comet::SceneSerializer(registry).serialize(scene);
+        ASSERT_TRUE(content);
+        selection.select_asset(handle);
+        frame();
+        frame();
+        frame(.1);
+        ASSERT_TRUE(scene.get_animation_playback(entity));
+        EXPECT_EQ(Comet::SceneSerializer(registry).serialize(scene).value(), content.value());
+        inspector->asset_inspector().controller_editor().close();
+        frame();
+        EXPECT_FALSE(scene.get_animation_playback(entity));
+        inspector->asset_inspector().controller_editor().open();
+        frame();
+        ASSERT_TRUE(scene.get_animation_playback(entity));
+        auto controller = std::make_shared<const Comet::AnimationController>(definition);
+        const auto animation = engine->get_asset_registry()
+                                   .resolve<Comet::Mesh>(Comet::DEFAULT_CHARACTER_MESH)
+                                   ->animation_data();
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Comet::AnimationSystem>(
+            [animation](Comet::AssetHandle) { return animation; },
+            [controller](Comet::AssetHandle) { return controller; })));
+        ASSERT_TRUE(runtime.start(scene));
+        state.mode = EditorMode::Play;
+        const auto running = scene.get_animation_playback(entity);
+        ASSERT_TRUE(running);
+        frame(.2);
+        EXPECT_EQ(scene.get_animation_playback(entity), running);
+        EXPECT_EQ(running->state, "idle");
+        ASSERT_TRUE(runtime.stop());
+        state.mode = EditorMode::Edit;
+        frame();
+        inspector->reset_for_scene_change();
+        selection.set_scene(replacement);
+        frame();
+        EXPECT_FALSE(scene.get_animation_playback(entity));
+        EXPECT_EQ(Comet::SceneSerializer(registry).serialize(scene).value(), content.value());
+    }
 
     TEST_F(AnimationPreviewUiTest, ControlsPublishPreviewWithoutChangingContentOrUndo) {
         const auto builtins = Comet::create_scene_component_registry();

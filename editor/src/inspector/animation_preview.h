@@ -20,6 +20,8 @@ namespace CometEditor {
             std::string_view initial_clip);
         void reset();
         [[nodiscard]] bool select_clip(std::string_view name);
+        [[nodiscard]] bool select_sample(Comet::AnimationBlend sample, bool restart = false);
+        [[nodiscard]] double duration() const;
         [[nodiscard]] bool seek(double time);
         [[nodiscard]] bool play();
         void pause() { m_playing = false; }

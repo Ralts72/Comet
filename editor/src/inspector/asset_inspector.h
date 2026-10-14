@@ -3,6 +3,7 @@
 #include "asset/database.h"
 #include "assets/asset_edit.h"
 #include "assets/material_editing.h"
+#include "animation/animation_controller_editor.h"
 
 #include <cstdint>
 #include <memory>
@@ -35,6 +36,14 @@ namespace CometEditor {
             const Comet::AssetTarget& request, Comet::Result<Comet::AnimationController> result);
         [[nodiscard]] std::optional<Comet::AssetHandle> take_selection_request();
         [[nodiscard]] bool finish_controller_edit();
+        void render_controller_window(AnimationPreview* preview);
+        void open_controller(Comet::AssetHandle handle);
+        [[nodiscard]] AnimationControllerEditor& controller_editor() { return m_controller_editor; }
+        [[nodiscard]] bool controller_active() const { return m_controller_data.has_value(); }
+        bool undo_controller(bool redo = false);
+        [[nodiscard]] Comet::AssetHandle controller_handle() const {
+            return m_loaded_target.handle;
+        }
         [[nodiscard]] bool controller_selection_pending() const {
             return m_controller_data.has_value() && m_next_asset.has_value();
         }
@@ -65,6 +74,7 @@ namespace CometEditor {
         std::optional<Comet::MaterialData> m_material_before;
         std::optional<Comet::AnimationController> m_controller_data;
         std::optional<Comet::AnimationController> m_controller_saved;
+        AnimationControllerEditor m_controller_editor;
         std::optional<Comet::AssetHandle> m_selection_request;
         std::optional<Comet::AssetHandle> m_next_asset;
         unsigned m_material_active_item = 0;

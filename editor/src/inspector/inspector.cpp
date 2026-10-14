@@ -345,6 +345,11 @@ namespace CometEditor {
 
     void InspectorPanel::render() {
         m_animation_preview_drawn = false;
+        const Comet::ScopeExit finish_preview([&] {
+            render_controller_editor();
+            if(!m_animation_preview_drawn)
+                reset_animation_preview();
+        });
         auto selected = m_selection.get_selected_entities();
         if(selected != m_entities) {
             if(!finish_edit())
@@ -358,13 +363,11 @@ namespace CometEditor {
                 || m_selection.get_selected_scene() != m_history.get_scene()))
             static_cast<void>(finish_edit());
         if(!m_user_visible) {
-            reset_animation_preview();
             static_cast<void>(finish_edit());
             return;
         }
 
         if(!ImGui::Begin(window_label().c_str(), &m_user_visible)) {
-            reset_animation_preview();
             static_cast<void>(finish_edit());
             ImGui::End();
             return;
@@ -391,8 +394,6 @@ namespace CometEditor {
 
         if(auto selected = m_asset_inspector.take_selection_request())
             m_selection.select_asset(*selected);
-        if(!m_animation_preview_drawn)
-            reset_animation_preview();
         ImGui::End();
     }
 
@@ -634,12 +635,47 @@ namespace CometEditor {
         return true;
     }
 
+    void InspectorPanel::render_controller_editor() {
+        auto& assets = m_asset_inspector;
+        if(!assets.controller_active())
+            return;
+        auto& editor = assets.controller_editor();
+        std::vector<AnimationControllerEditor::Model> models;
+        auto& scene = m_selection.get_scene();
+        scene.each<const Comet::AnimatorComponent, const Comet::MeshRendererComponent>(
+            [&](Comet::Entity entity, const auto& animator, const auto& renderer) {
+                auto mesh = m_runtime_assets.resolve<Comet::Mesh>(renderer.mesh);
+                if(!mesh || !mesh->animation_data() || mesh->animation_data()->clips.empty())
+                    return;
+                models.push_back(
+                    {entity.get_uuid(), entity.get_component<Comet::NameComponent>().name,
+                        animator.controller, mesh->animation_data(),
+                        scene.get_animation_playback(entity), animator.parameters});
+            });
+        const bool runtime = m_state.mode != EditorMode::Edit;
+        editor.set_models(std::move(models), assets.controller_handle(), runtime);
+        AnimationPreview* preview = nullptr;
+        if(editor.is_open() && !runtime && editor.model()) {
+            const auto entity = scene.find_entity(editor.model()->entity);
+            if(bind_animation_preview(entity)) {
+                preview = &m_animation_preview;
+                m_animation_preview_drawn = true;
+            }
+        }
+        assets.render_controller_window(preview);
+        if(!editor.is_open())
+            m_animation_preview_drawn = false;
+    }
+
     void InspectorPanel::update_animation_preview(double delta_time) {
         if(!m_animation_preview_drawn) {
             reset_animation_preview();
             return;
         }
-        const auto entity = m_selection.get_selected_entity();
+        auto entity = m_selection.get_selected_entity();
+        const auto& controller = m_asset_inspector.controller_editor();
+        if(m_asset_inspector.controller_active() && controller.is_open() && controller.model())
+            entity = m_selection.get_scene().find_entity(controller.model()->entity);
         if(!bind_animation_preview(entity))
             return;
         m_animation_preview.advance(delta_time);

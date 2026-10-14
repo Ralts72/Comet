@@ -314,7 +314,18 @@ namespace CometEditor::Tests {
             frame();
             frame();
         };
-        activate("Inspector", "添加参数");
+        auto add_parameter = [&] {
+            auto* context = ImGui::GetCurrentContext();
+            ImGuiWindow* window = nullptr;
+            for(auto* candidate : context->Windows)
+                if(std::string_view(candidate->Name).starts_with("动画控制器/Parameters"))
+                    window = candidate;
+            ASSERT_NE(window, nullptr);
+            ImGui::ActivateItemByID(window->GetID("添加参数"));
+            frame();
+            frame();
+        };
+        add_parameter();
         EXPECT_EQ(controller_updates, 0);
         selection.select_entity(entity.get_id());
         frame();
@@ -331,7 +342,7 @@ namespace CometEditor::Tests {
         auto saved = Comet::AnimationControllerSerializer{}.load(path);
         ASSERT_TRUE(saved);
         EXPECT_TRUE(saved.value().parameters.contains("parameter1"));
-        activate("Inspector", "添加参数");
+        add_parameter();
         selection.select_asset(material);
         frame();
         frame();

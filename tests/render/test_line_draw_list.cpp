@@ -1,4 +1,5 @@
 #include "render/debug/line_draw_list.h"
+#include <algorithm>
 
 #include <gtest/gtest.h>
 

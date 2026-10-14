@@ -202,6 +202,9 @@ namespace CometEditor {
         } else if(ImGui::Selectable(name.c_str(), m_selection.is_selected(asset.handle))) {
             m_selection.select_asset(asset.handle);
         }
+        if(asset.type == Comet::AssetType::AnimationController && ImGui::IsItemHovered()
+            && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+            m_pending_open_controller = asset.handle;
         record_drop_target(directory);
         if(ImGui::BeginDragDropSource()) {
             const AssetDragPayload payload{{asset.handle, m_database.get_revision(asset.handle)},
@@ -216,6 +219,9 @@ namespace CometEditor {
                 if(ImGui::MenuItem("重新导入源模型###Reimport"))
                     m_reimport_request = asset.source_asset;
             } else {
+                if(asset.type == Comet::AssetType::AnimationController
+                    && ImGui::MenuItem("编辑动画控制器"))
+                    m_pending_open_controller = asset.handle;
                 if(AssetSourceOperations::can_open_source(m_database, asset.path)
                     && ImGui::MenuItem("打开源码###Open Source"))
                     m_pending_open_source = asset.path;
@@ -249,6 +255,10 @@ namespace CometEditor {
         if(m_images)
             for(const auto& [handle, binding] : m_thumbnail_bindings)
                 m_images->remove_image(binding.image);
+    }
+
+    std::optional<Comet::AssetHandle> ProjectPanel::take_open_controller_request() {
+        return std::exchange(m_pending_open_controller, std::nullopt);
     }
 
     void ProjectPanel::set_thumbnails(AssetThumbnails& thumbnails, Ui::ImGuiContext& images) {

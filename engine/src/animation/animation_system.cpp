@@ -77,6 +77,7 @@ namespace Comet {
                                  || (!animator.controller && next.clip != frame.current.clip);
             if(changed) {
                 frame.previous = frame.current;
+                frame.previous_state = frame.state;
                 playback.transition_time = 0;
                 playback.progress = 0;
                 playback.transition_duration = selection.value().transition;
@@ -85,6 +86,7 @@ namespace Comet {
                 next.time = frame.current.time;
             }
             playback.state = selection.value().state;
+            frame.state = playback.state;
             playback.parameter = selection.value().parameter;
             frame.current = std::move(next);
             std::shared_ptr<const AnimationData> data;
@@ -122,8 +124,10 @@ namespace Comet {
             if(playback.transition_duration > 0 && frame.previous.has_clip())
                 frame.blend =
                     std::min(playback.transition_time / playback.transition_duration, 1.0f);
-            if(frame.blend == 1)
+            if(frame.blend == 1) {
                 frame.previous = {};
+                frame.previous_state.clear();
+            }
             const auto published = scene.get_animation_playback(entity);
             if(!published || *published != frame)
                 scene.set_animation_playback(

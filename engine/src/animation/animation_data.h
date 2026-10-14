@@ -80,6 +80,8 @@ namespace Comet {
         AnimationBlend current;
         AnimationBlend previous;
         float blend = 1;
+        std::string state;
+        std::string previous_state;
 
         bool operator==(const AnimationPlayback&) const = default;
     };

@@ -60,6 +60,7 @@ namespace CometEditor {
         void render_animation_preview(Comet::Entity entity);
         [[nodiscard]] bool bind_animation_preview(Comet::Entity entity);
         void reset_animation_preview();
+        void render_controller_editor();
         void render_property(Comet::Entity entity, const Comet::ComponentDescriptor& component,
             const Comet::PropertyDescriptor& property);
         void render_animation_parameters(Comet::Entity entity,

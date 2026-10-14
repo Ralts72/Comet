@@ -82,6 +82,7 @@ namespace CometEditor {
         void complete_create_script(
             const CreateScriptRequest& request, const Comet::AssetScanReport& report);
         [[nodiscard]] std::optional<std::filesystem::path> take_open_source_request();
+        [[nodiscard]] std::optional<Comet::AssetHandle> take_open_controller_request();
         void complete_open_source(const Comet::Result<void>& result);
         [[nodiscard]] std::optional<Comet::AssetHandle> take_reimport_request();
         [[nodiscard]] std::optional<std::filesystem::path> file_drop_directory(
@@ -170,5 +171,6 @@ namespace CometEditor {
             AssetSourceOperations::ScriptKind::Component;
         std::optional<CreateScriptRequest> m_pending_script_create;
         std::optional<std::filesystem::path> m_pending_open_source;
+        std::optional<Comet::AssetHandle> m_pending_open_controller;
     };
 }

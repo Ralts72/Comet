@@ -40,11 +40,33 @@ namespace CometEditor {
         return seek(0);
     }
 
+    bool AnimationPreview::select_sample(Comet::AnimationBlend sample, bool restart) {
+        if(!m_animation || !Comet::animation_duration(*m_animation, sample))
+            return false;
+        if(!restart && sample.normalized_time == m_frame.current.normalized_time)
+            sample.time = m_frame.current.time;
+        if(sample == m_frame.current)
+            return true;
+        m_frame.current = std::move(sample);
+        m_loop = m_frame.current.loop;
+        publish();
+        return true;
+    }
+
+    double AnimationPreview::duration() const {
+        if(!m_animation)
+            return 0;
+        const auto duration = Comet::animation_duration(*m_animation, m_frame.current);
+        if(!duration)
+            return 0;
+        return m_frame.current.normalized_time ? 1 : duration.value();
+    }
+
     bool AnimationPreview::seek(double time) {
         const auto* selected = clip();
         if(!selected || !std::isfinite(time))
             return false;
-        m_frame.current.time = std::clamp(time, 0.0, double(selected->duration));
+        m_frame.current.time = std::clamp(time, 0.0, duration());
         pause();
         publish();
         return true;
@@ -52,9 +74,9 @@ namespace CometEditor {
 
     bool AnimationPreview::play() {
         const auto* selected = clip();
-        if(!selected || selected->duration <= 0)
+        if(!selected || duration() <= 0)
             return false;
-        if(m_frame.current.time >= selected->duration)
+        if(m_frame.current.time >= duration())
             m_frame.current.time = 0;
         m_playing = true;
         publish();
@@ -78,11 +100,18 @@ namespace CometEditor {
         const auto* selected = clip();
         if(!m_playing || !selected || !std::isfinite(delta_time) || delta_time <= 0)
             return;
-        const double next = m_frame.current.time + delta_time * m_speed;
+        double step = delta_time * m_speed;
+        if(m_frame.current.normalized_time) {
+            const auto period = Comet::animation_duration(*m_animation, m_frame.current);
+            if(!period || period.value() <= 0)
+                return;
+            step /= period.value();
+        }
+        const double next = m_frame.current.time + step;
         if(!std::isfinite(next))
             return;
-        m_frame.current.time = Comet::animation_sample_time(next, selected->duration, m_loop);
-        if(!m_loop && m_frame.current.time == selected->duration)
+        m_frame.current.time = Comet::animation_sample_time(next, duration(), m_loop);
+        if(!m_loop && m_frame.current.time == duration())
             pause();
         publish();
     }

@@ -126,6 +126,7 @@ set(UNIT_TEST_SOURCES
         shader/test_compiler.cpp)
 set(EDITOR_UI_SOURCES
         editor/ui/test_asset_editing.cpp
+        editor/ui/test_animation_controller_editor.cpp
         editor/ui/test_console_panel.cpp
         editor/ui/test_editing_ui.cpp
         editor/ui/test_icons.cpp
