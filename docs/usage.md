@@ -3,7 +3,7 @@
 ## 骨骼角色与动画
 
 角色场景使用引擎内置的 Quaternius 人形模型和 `idle`、`walk`、`run`、`crouch`、`crouch_walk`、`jump`、`fall` 七个动作。
-资源位于 `engine/resources/characters/default.glb`，由 Git LFS 保存，启动不需要联网；来源与裁剪说明见同目录 `source.json`。
+资源位于 `engine/resources/characters/default.glb`，由 Git LFS 保存，启动不需要联网。
 Shift／LeftShoulder 跑步，Ctrl／RightShoulder 蹲伏；右键拖动／右摇杆转动相机，滚轮或 PageUp／PageDown／D-pad 上下缩放。
 相机遇到墙壁会缩短距离，离开障碍后恢复。
 
@@ -12,8 +12,14 @@ Shift／LeftShoulder 跑步，Ctrl／RightShoulder 蹲伏；右键拖动／右�
 - “网格渲染 → 网格”可选择引擎默认角色、已有单网格资产或模型内的子网格；完整模型从 Project 拖入视口。
 - “网格渲染 → 材质”可选择引擎默认 PBR／无光照材质；默认角色使用中性的 PBR。修改配色、贴图或参数时，在项目中创建自己的材质并替换该引用。
 - “动画”中选择片段、播放速度、循环与过渡时间；片段下拉框来自当前模型，空选择表示绑定姿态。
-- 指定“驱动角色”后，根据角色的实际移动状态选择对应动作，各动作可独立替换；清空该引用后按“播放片段”播放。
+- 指定“驱动角色”后，地面移动按实际水平速度混合待机／行走／跑步，蹲伏按实际速度混合静止／移动动作；跳跃与下落仍按状态选择。各动作可独立替换；清空该引用后按“播放片段”播放。
 - Edit 修改可保存、撤销；Play 中的时间和姿态只属于运行副本，暂停停止推进，单步推进一次。
+
+“行走／跑步／蹲行动画标定速度”表示对应动作完整步幅的速度，默认 4／6／2 m/s；它们不改变角色控制器的物理移动速度。
+行走标定速度须大于 0，跑步须高于行走，蹲行须大于 0。两档之间线性混合，超出范围使用端点动作。
+例如实际速度为 2 m/s 时混合待机与行走，5 m/s 时混合行走与跑步；撞墙减速、摇杆半推也使用实际速度。
+混合片段按归一化周期同步，速度跨档时不重置步态相位；周期长度按片段时长和权重插值。“过渡时间”也用于平滑速度参数，避免键盘按下／松开时动作突变；设为 0 可直接跟随实际速度。蹲伏、起跳和落地按该时间过渡，播放速度为 0 时相位停止而过渡仍可结束。
+这项能力先服务现有角色；通用参数化状态机、可编辑混合空间资产、动画事件与骨骼挂点继续按路线图推进。
 
 首版 Mesh 资产支持一个 mesh／skin、每顶点最多四个骨骼权重，以及 TRS 的 Linear／Step／CubicSpline 动画。
 同一 Mesh 的多个实体独立播放，主绘制和阴影共用 GPU 蒙皮结果。模型内多个 primitive 使用所指定的同一个材质。
@@ -143,7 +149,7 @@ Project 右键可新建 Material、Script 或 Lua Module；搜索按文件名／
 已有 Mesh 资产继续使用单网格路径，放置后可在 Inspector 指定材质。模型子资源由源文件管理，不能独立删除、移动或编辑；模型右键“重新导入”更新产品，实例可替换自己的材质引用。
 重新导入完成后，层级中的模型实例根右键“从模型更新（保留覆盖）”，接纳源节点的增删、父子关系和属性变化；实例 UUID、放置变换和本地覆盖保持，更新可以撤销。
 “恢复模型源内容”清除本地覆盖，“解除模型关联”保留当前实体内容；模型不提供写回 glTF，可另存为独立 Prefab。关联随场景保存，旧版已放置的普通实体不会自动获得来源关系。
-Demo 的 `models/milk_truck.glb` 是下载的四材质 glTF 样例，含内嵌贴图；`character.scene` 与 `character_second.scene` 都保存其模型实例，位置和朝向各自覆盖，几何／材质共用。层级中的“牛奶货车”可用于尝试源更新、恢复与解除；模型按静态布景使用，不播放原模型的车轮节点动画。GLB 走 Git LFS，许可与来源记录在项目根目录的 `sources.json`。
+Demo 的 `models/milk_truck.glb` 是下载的四材质 glTF 样例，含内嵌贴图；`character.scene` 与 `character_second.scene` 都保存其模型实例，位置和朝向各自覆盖，几何／材质共用。层级中的“牛奶货车”可用于尝试源更新、恢复与解除；模型按静态布景使用，不播放原模型的车轮节点动画。GLB 走 Git LFS。
 唯一名称的节点在重排和换父级后保持来源身份；节点改名视为删除后新增，无名／重名节点按源下标识别，primitive 按节点内序号识别，重排这些内容可能改变对应关系。删除与本地修改或外部引用冲突时拒绝更新。
 骨骼子网格的动画仍通过动画组件配置。
 
@@ -552,22 +558,21 @@ Project 右键 Shader 源码或程序描述选择“打开源码”。Editor 监
 目标目录必须不存在；失败会清理本次临时目录，不覆盖已有导出。输出包含 `project.json`、`assets.index.json` 和 `assets/`，
 资产身份及场景路径保持稳定，模型／图片／Shader 转为运行产品，场景去掉编辑器来源基线，不携带 `.meta` 或开发缓存。
 导出包含所选场景依赖、UI 静态引用和全部项目 Lua 模块；脚本切换的其他关卡须显式列出，动态拼接的 UI 图片路径尚无额外包含入口。
-素材来源说明随资源保留。上述命令只交付资源目录；macOS 可进一步打包为独立 App：
+上述命令只交付资源目录；macOS 可进一步打包为独立 App：
 
 ```bash
-cmake --preset app-release
-cmake --build --preset app-release --parallel
 python3 tools/export_app.py ./demo /tmp/CometGame.app --scene scenes/character_second.scene
 ```
 
-也可从编辑器“项目 → 导出 App”选择 Release 构建目录、输出路径及额外关卡。当前场景须先保存，导出期间界面显示等待状态，完成或失败后可继续操作。
-默认仅包含启动场景，双关卡 Demo 还须选择 `character_second.scene`。工具不自动构建引擎；引擎更新后先重新构建 Release。
+也可从编辑器“项目 → 导出 App”选择输出路径及额外关卡。当前场景须先保存；界面实时显示构建、资源准备、打包和签名阶段，失败时展开可复制的日志。
+两种入口都会自动配置并增量构建 `app-release`，复用 `build-release/`；构建失败立即停止，不打包旧程序。首次构建可能较慢。
+默认仅包含启动场景，双关卡 Demo 还须选择 `character_second.scene`。
 打包需要 Python 3.9+、CMake、macOS 命令行工具及构建时的 Vulkan SDK；导出产物包含 Vulkan Loader／MoltenVK、动态库、引擎字体／图标及运行配置，可搬移运行。
 使用本机架构与临时签名，不包含跨架构构建、Developer ID 签名或公证流程。
 
 包内 `Contents/Resources/game` 为只读运行资源；日志、缓存和存档写入用户目录 `~/Library/Application Support/Comet/players/<项目 UUID>/default/`，不写回 App。
 `ctest --preset dev-debug -R packaged_app` 在 macOS 上验证搬移后的真实程序：禁止读取源码、构建目录与全局 SDK 驱动，也禁止写入 App；验证 UI 加载、运行帧和存档。
-该测试覆盖重复输出、缺失关卡和缺失内置 UI 资源的失败路径；窗口交互与关闭由用户验收。
+该测试覆盖构建失败、重复输出、缺失关卡和缺失内置 UI 资源的失败路径；窗口交互与关闭由用户验收。
 
 下载脚本获取 Small Hangar 01 的 1K／2K／4K／8K HDR，并校验 SHA-256；依赖 curl 和 sha256sum／shasum。
 `scenes/default.scene` 使用 4K，角色场景无需下载。源图来自 [Poly Haven](https://polyhaven.com/a/small_hangar_01)，

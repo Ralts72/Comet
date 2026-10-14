@@ -10,6 +10,7 @@
 #include "render/render_diagnostics.h"
 #include "render/render_context.h"
 #include "render/resource/render_resources.h"
+#include "render/resource/mesh.h"
 #include "asset/registry.h"
 #include "core/task_scheduler.h"
 #include "diagnostics/logger.h"
@@ -149,7 +150,11 @@ namespace Comet {
             return added;
         if(auto added = add_system(std::make_unique<PhysicsSystem>(*m_physics_service)); !added)
             return added;
-        if(auto added = add_system(std::make_unique<AnimationSystem>()); !added)
+        if(auto added = add_system(std::make_unique<AnimationSystem>([this](AssetHandle handle) {
+               auto mesh = m_asset_registry->resolve<Mesh>(handle);
+               return mesh ? mesh->animation_data() : nullptr;
+           }));
+            !added)
             return added;
         return add_system(std::make_unique<AudioSystem>(*m_audio_service));
     }

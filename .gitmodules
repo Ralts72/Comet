@@ -37,3 +37,18 @@
 [submodule "3rdparty/freetype"]
 	path = 3rdparty/freetype
 	url = https://github.com/freetype/freetype.git
+[submodule "3rdparty/imgui"]
+	path = 3rdparty/imgui
+	url = https://github.com/ocornut/imgui.git
+[submodule "3rdparty/stb"]
+	path = 3rdparty/stb
+	url = https://github.com/nothings/stb.git
+[submodule "3rdparty/MikkTSpace"]
+	path = 3rdparty/MikkTSpace
+	url = https://github.com/mmikk/MikkTSpace.git
+[submodule "3rdparty/VulkanMemoryAllocator"]
+	path = 3rdparty/VulkanMemoryAllocator
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+[submodule "3rdparty/entt"]
+	path = 3rdparty/entt
+	url = https://github.com/skypjack/entt.git

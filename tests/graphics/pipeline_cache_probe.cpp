@@ -1,4 +1,5 @@
 #include "runtime/application.h"
+#include "config/config_loader.h"
 #include "core/window.h"
 #include "graphics/device.h"
 #include "render/renderer.h"
@@ -51,9 +52,16 @@ int main(int argc, char** argv) {
         expected = Comet::PipelineCache::LoadStatus::Restored;
     else if(std::string_view(argv[3]) != "missing")
         return 2;
-    const auto result = Comet::run(&app, {.config_file = argv[1], .config_profile = "probe"});
+    auto config = Comet::ConfigLoader{}.load(argv[1], "probe");
+    if(!config) {
+        std::cerr << config.error() << '\n';
+        return 1;
+    }
+    const auto result = app.run(std::move(config).value());
+    if(!result)
+        std::cerr << result.error() << '\n';
     std::cout << "cache status=" << static_cast<int>(app.status) << '\n';
-    return result != 0 || !app.rendered || app.status != expected
+    return !result || !app.rendered || app.status != expected
            || app.path.parent_path() != std::filesystem::path(argv[2]) / "vulkan"
            || !std::filesystem::is_regular_file(app.path);
 }

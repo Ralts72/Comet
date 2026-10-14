@@ -15,7 +15,6 @@
 #include "render/scene/render_submission.h"
 #include "asset/data/texture_data.h"
 #include "render/resource/texture.h"
-#include "graphics/resource/sampler.h"
 
 #include <GLFW/glfw3.h>
 #include <glm/gtc/packing.hpp>
@@ -386,7 +385,8 @@ namespace Comet::Tests {
                     owned.output->store(owned.value);
                 },
                 &payload, sizeof(payload));
-            ImGui::GetWindowDrawList()->AddCallback(ImDrawCallback_ResetRenderState, nullptr);
+            ImGui::GetWindowDrawList()->AddCallback(
+                ImGui::GetPlatformIO().DrawCallback_ResetRenderState, nullptr);
             ImGui::End();
         };
         ASSERT_TRUE(ui->begin_frame());
@@ -605,13 +605,10 @@ namespace Comet::Tests {
             resources.try_create_texture({.width = 1, .height = 1, .pixels = {255, 0, 0, 255}});
         auto next_result =
             resources.try_create_texture({.width = 1, .height = 1, .pixels = {0, 0, 255, 255}});
-        auto sampler_result = resources.get_sampler_manager().get_nearest_clamp();
         ASSERT_TRUE(old_result) << old_result.error();
         ASSERT_TRUE(next_result) << next_result.error();
-        ASSERT_TRUE(sampler_result) << sampler_result.error();
         auto old = std::move(old_result).value();
         auto next = std::move(next_result).value();
-        auto sampler = std::move(sampler_result).value();
         const auto old_ready = old->get_ready_completion();
         const std::weak_ptr<ImageView> old_image = old->get_image_view();
         ImTextureID descriptor = ImTextureID_Invalid;
@@ -628,8 +625,12 @@ namespace Comet::Tests {
                 [](const ImDrawList* recorded, const ImDrawCmd* callback) {
                     const auto& observed =
                         *static_cast<const Observation*>(callback->UserCallbackData);
-                    ASSERT_GT(recorded->CmdBuffer.Size, 0);
-                    const auto actual = recorded->CmdBuffer.front().GetTexID();
+                    const auto* draw = std::find_if(recorded->CmdBuffer.begin(),
+                        recorded->CmdBuffer.end(), [](const ImDrawCmd& command) {
+                            return !command.UserCallback && command.ElemCount > 0;
+                        });
+                    ASSERT_NE(draw, recorded->CmdBuffer.end());
+                    const auto actual = draw->GetTexID();
                     EXPECT_NE(actual, ImTextureID_Invalid);
                     EXPECT_NE(actual, observed.logical);
                     *observed.descriptor = actual;
@@ -641,11 +642,11 @@ namespace Comet::Tests {
         ASSERT_TRUE(prepared) << prepared.error();
         ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
         const auto slot = renderer.get_frame_scheduler().get_current_frame_slot_index();
-        ui->set_viewport_image(slot, old->get_image_view(), sampler);
+        ui->set_viewport_image(slot, old->get_image_view());
         const auto logical = ui->get_viewport_texture_id(slot);
         ASSERT_NE(logical, ImTextureID_Invalid);
         ui_frame = capture(logical);
-        ui->set_viewport_image(slot, next->get_image_view(), sampler);
+        ui->set_viewport_image(slot, next->get_image_view());
         EXPECT_EQ(ui->get_viewport_texture_id(slot), logical);
         auto newer = capture(logical);
         newer.reset();
@@ -669,7 +670,7 @@ namespace Comet::Tests {
             ASSERT_TRUE(ready) << ready.error();
             ASSERT_EQ(ready.value(), Renderer::FramePreparation::Ready);
             const auto frame_slot = renderer.get_frame_scheduler().get_current_frame_slot_index();
-            ui->set_viewport_image(frame_slot, next->get_image_view(), sampler);
+            ui->set_viewport_image(frame_slot, next->get_image_view());
             const auto id = ui->get_viewport_texture_id(frame_slot);
             ui_frame = capture(id);
             descriptor = ImTextureID_Invalid;
@@ -794,14 +795,12 @@ namespace Comet::Tests {
         auto& renderer = engine->get_renderer();
         auto texture = engine->get_render_resources().try_create_texture(
             {.width = 1, .height = 1, .pixels = {255, 255, 255, 255}});
-        auto sampler = engine->get_render_resources().get_sampler_manager().get_nearest_clamp();
         ASSERT_TRUE(texture) << texture.error();
-        ASSERT_TRUE(sampler) << sampler.error();
         const auto prepared = render_frontend->prepare_frame();
         ASSERT_TRUE(prepared) << prepared.error();
         ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
         const auto slot = renderer.get_frame_scheduler().get_current_frame_slot_index() + 1;
-        ui->set_viewport_image(slot, texture.value()->get_image_view(), sampler.value());
+        ui->set_viewport_image(slot, texture.value()->get_image_view());
         ASSERT_TRUE(ui->begin_frame());
         ImGui::GetBackgroundDrawList()->AddImage(
             ui->get_viewport_texture_id(slot), {8, 8}, {100, 80});
@@ -855,9 +854,9 @@ namespace Comet::Tests {
             // 此例直接验证第三方后端的离屏混合；生产快照路径另有交接回归。
             ImGui::Render();
             if(index == 1)
-                EXPECT_EQ(ImGui::GetDrawData()->CmdListsCount, 0);
+                EXPECT_EQ(ImGui::GetDrawData()->CmdLists.Size, 0);
             if(index == 2)
-                EXPECT_GT(ImGui::GetDrawData()->CmdListsCount, 0);
+                EXPECT_GT(ImGui::GetDrawData()->CmdLists.Size, 0);
             frames.wait_for_current_slot();
             frames.begin_frame(0);
             frames.get_current_command_buffer().begin();

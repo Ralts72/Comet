@@ -132,7 +132,10 @@ namespace CometEditor {
                 {"animator/walk", "行走动作"}, {"animator/run", "跑步动作"},
                 {"animator/crouch", "蹲伏动作"}, {"animator/crouch_walk", "蹲伏移动动作"},
                 {"animator/jump", "跳跃动作"}, {"animator/fall", "下落动作"},
-                {"script/asset", "脚本"}, {"script/parameters", "参数"}, {"name/name", "名称"},
+                {"animator/walk_speed", "行走动画标定速度 (m/s)"},
+                {"animator/run_speed", "跑步动画标定速度 (m/s)"},
+                {"animator/crouch_speed", "蹲行动画标定速度 (m/s)"}, {"script/asset", "脚本"},
+                {"script/parameters", "参数"}, {"name/name", "名称"},
                 {"transform/translation", "位置"}, {"transform/rotation", "旋转"},
                 {"transform/scale", "缩放"}, {"mesh_renderer/mesh", "网格"},
                 {"mesh_renderer/material", "材质"}, {"camera/primary", "主相机"},
@@ -313,7 +316,8 @@ namespace CometEditor {
                     return !driven;
                 if(property == "idle" || property == "walk" || property == "run"
                     || property == "crouch" || property == "crouch_walk" || property == "jump"
-                    || property == "fall")
+                    || property == "fall" || property == "walk_speed" || property == "run_speed"
+                    || property == "crouch_speed")
                     return driven;
             }
             return true;

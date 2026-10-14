@@ -3,13 +3,15 @@
 Comet 是供作者个人学习使用的 3D 游戏引擎与编辑器，使用 C++20、CMake 和 Vulkan。
 引擎对外提供一个 `engine` 动态库；ImGui 编辑器与独立 App 共用场景、资产、Gameplay 和 RmlUi 游戏界面。
 
-目前支持场景编辑与撤销、glTF 静态／骨骼模型、基础动画播放与混合、纹理 Mipmap、PBR／阴影／IBL／Bloom、Lua 热重载、刚体、凸包／静态网格碰撞、碰撞层与角色控制、射线／形状扫掠／范围查询、游戏内关卡切换与检查点存档、基础音频和游戏设置。
+目前支持场景编辑与撤销、glTF 静态／骨骼模型、动画播放与 1D 移动混合、纹理 Mipmap、PBR／阴影／IBL／Bloom、Lua 热重载、刚体、凸包／静态网格碰撞、碰撞层与角色控制、射线／形状扫掠／范围查询、游戏内关卡切换与检查点存档、基础音频和游戏设置。
 独立渲染线程与场景更新重叠执行。Prefab 子树复用、基础覆盖和 Lua 生成已接入；嵌套 Prefab、高级动画、粒子、GI、路径追踪继续按路线图推进；macOS 已支持独立 App 导出。
 
 ## 快速开始
 
-需要 CMake 3.31+、C++20 编译器、Vulkan SDK 和 Git LFS。第三方源码由 Submodule 或仓库内的 vendored source 提供，
+需要 CMake 3.31+、C++20 编译器、Vulkan SDK 和 Git LFS。第三方源码统一由 Git Submodule 固定版本，
 Shader 编译器随项目构建，无需另装 `glslangValidator`。macOS 编辑器导出与打包测试还需要 Python 3.9+。
+
+构建适配集中在 `3rdparty/CMakeLists.txt`，stb／VMA 的实现入口也由主仓维护；各依赖子仓保留上游原貌。
 
 在仓库根目录执行：
 
@@ -32,6 +34,7 @@ macOS／Linux 可用脚本构建并启动：
 ```
 
 脚本也接受 `project.json` 路径；相对路径以调用者的工作目录为基准。可执行文件的 `--help` 显示用法。
+源码入口为 `app/main.cpp` 和 `editor/main.cpp`；共用命令行入口后，分别由 `run_game`、`run_editor` 加载项目并运行会话。
 
 | Preset | 用途 | 构建目录 |
 | --- | --- | --- |
@@ -73,7 +76,7 @@ Windows 可使用相同 CMake preset，随后启动构建目录中的可执行�
 | 编辑 Lua、Shader、UI 源码 | Project 右键“打开源码”，编辑保存后按对应重载流程生效 |
 | 设置新玩家默认值 | 项目 → 设置 → 显示／画质／音频／输入 |
 | 查看渲染数据与日志 | 渲染统计、Log 面板 |
-| 导出 macOS App | 项目 → 导出 App；先构建 `app-release`，选择额外关卡与新的 `.app` 路径 |
+| 导出 macOS App | 项目 → 导出 App；选择额外关卡与新的 `.app` 路径，自动构建并打包 |
 | 仅导出关卡资源 | `comet_prepare_project <项目> --export-assets <新目录> [其他场景 ...]` |
 
 ## 配置与资源
@@ -84,7 +87,7 @@ Windows 可使用相同 CMake preset，随后启动构建目录中的可执行�
 
 默认角色／基础动作、共用字体和基础 UI 图标位于 `engine/resources/`，沿用仓库的 Git LFS 规则。
 引擎还提供默认 PBR／无光照材质，可在 Inspector 的材质下拉框选择；项目材质、页面、主题和玩法素材放在项目的 `assets/`。
-示例货车来自 Cesium 的 [Cesium Milk Truck](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CesiumMilkTruck)，采用 CC BY 4.0；归属、来源版本与标识说明保存在 `demo/sources.json`。
+示例货车来自 Cesium 的 [Cesium Milk Truck](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CesiumMilkTruck)，采用 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)。
 资源路径、设置存储和脚本接口的具体用法见[使用手册](docs/usage.md)。
 
 ## 目录导航

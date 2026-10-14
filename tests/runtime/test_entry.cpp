@@ -1,4 +1,5 @@
 #include "runtime/entry.h"
+#include "runtime/application.h"
 #include "common/scope_exit.h"
 #include "common/file_io.h"
 #include "core/project_paths.h"
@@ -16,87 +17,89 @@
 #endif
 
 #include <gtest/gtest.h>
-#include <random>
 #include <vector>
 
 namespace Comet::Tests {
     using RunResult = Result<void, Error>;
     class EntryTest: public ::testing::Test {
     protected:
-        class DefaultApplication final: public Application {
-        public:
-            inline static int constructions = 0;
-            inline static int destructions = 0;
+        inline static std::optional<LaunchOptions> received;
+        inline static bool fail = false;
 
-            DefaultApplication() { ++constructions; }
-            ~DefaultApplication() override { ++destructions; }
-            RunResult on_init() override {
-                ADD_FAILURE() << "Graphics must not be initialized";
-                return RunResult::failure({"Graphics must not be initialized"});
-            }
-            void on_shutdown() override {}
-        };
-
-        inline static std::vector<std::string> received;
-
-        static Result<std::unique_ptr<Application>> create_default(ApplicationArguments arguments) {
-            if(!arguments.empty())
-                return Result<std::unique_ptr<Application>>::failure(
-                    "This application does not accept command-line arguments");
-            return Result<std::unique_ptr<Application>>::success(
-                std::make_unique<DefaultApplication>());
+        static RunResult run_host(const LaunchOptions& options) {
+            received = options;
+            if(fail)
+                return RunResult::failure({"Project validation failed"});
+            return RunResult::success();
         }
 
-        static Result<std::unique_ptr<Application>> create_from_project(
-            ApplicationArguments arguments) {
-            received.assign(arguments.begin(), arguments.end());
-            return Result<std::unique_ptr<Application>>::failure("Project validation failed");
-        }
-
-        LaunchOptions options{
-            .config_file = std::filesystem::temp_directory_path()
-                           / ("comet_entry_missing_" + std::to_string(std::random_device{}()))
-                           / "config.json",
-            .config_profile = "test"};
+        LaunchOptions options{.config_file = "missing/config.json", .config_profile = "test"};
 
         void SetUp() override {
-            DefaultApplication::constructions = 0;
-            DefaultApplication::destructions = 0;
-            received.clear();
-            ASSERT_FALSE(std::filesystem::exists(options.config_file));
+            received.reset();
+            fail = false;
         }
     };
 
-    TEST_F(EntryTest, HelpDoesNotConstructApplicationOrReadConfiguration) {
-        const char* arguments[]{"CometEditor", "--help"};
+    TEST_F(EntryTest, HelpDoesNotStartHostOrReadConfiguration) {
+        const char* arguments[]{"/Applications/CometEditor", "--help"};
         ::testing::internal::CaptureStdout();
-        const int result = launch(2, arguments, options, "[project]", create_default);
+        const int result = launch(2, arguments, options, run_host);
         const auto output = ::testing::internal::GetCapturedStdout();
         EXPECT_EQ(result, 0);
-        EXPECT_EQ(output, "Usage: CometEditor [project]\n");
-        EXPECT_EQ(DefaultApplication::constructions, 0);
+        EXPECT_EQ(output, "Usage: CometEditor [project-directory | project.json]\n");
+        EXPECT_FALSE(received);
     }
 
-    TEST_F(EntryTest, ForwardsArgumentsWithoutExecutableAndReportsProjectFailure) {
-        const char* arguments[]{"CometEditor", "projects/My Game/project.json"};
-        ::testing::internal::CaptureStderr();
-        const int result = launch(2, arguments, options, "[project]", create_from_project);
-        const auto error = ::testing::internal::GetCapturedStderr();
-        EXPECT_EQ(result, 1);
-        EXPECT_EQ(received, std::vector<std::string>{"projects/My Game/project.json"});
-        EXPECT_NE(error.find("Project validation failed"), std::string::npos);
+    TEST_F(EntryTest, InvalidArgumentsDoNotStartHost) {
+        for(const std::vector<const char*>& arguments :
+            {std::vector<const char*>{"Comet", "--unknown"}, {"Comet", "first", "second"},
+                {"Comet", "--help", "project"}}) {
+            ::testing::internal::CaptureStderr();
+            const int result =
+                launch(static_cast<int>(arguments.size()), arguments.data(), options, run_host);
+            const auto error = ::testing::internal::GetCapturedStderr();
+            EXPECT_EQ(result, 1);
+            EXPECT_NE(
+                error.find("Expected a project directory or project.json"), std::string::npos);
+            EXPECT_FALSE(received);
+        }
     }
 
-    TEST_F(EntryTest, ConfigurationFailureDestroysConstructedApplication) {
-        const char* arguments[]{"Game"};
+    TEST_F(EntryTest, DefaultProjectSelectionBelongsToHost) {
+        const char* arguments[]{"Comet"};
+        EXPECT_EQ(launch(1, arguments, options, run_host), 0);
+        ASSERT_TRUE(received);
+        EXPECT_FALSE(received->project_path);
+        EXPECT_EQ(received->config_file, options.config_file);
+        EXPECT_EQ(received->config_profile, options.config_profile);
+    }
+
+    TEST_F(EntryTest, ForwardsExplicitProjectWithoutChangingWorkingDirectory) {
+        const auto working_directory = std::filesystem::current_path();
+        for(const auto* project : {"projects/My Game", "项目/游戏/project.json"}) {
+            const char* arguments[]{"CometEditor", project};
+            EXPECT_EQ(launch(2, arguments, options, run_host), 0);
+            ASSERT_TRUE(received);
+            EXPECT_EQ(received->project_path, std::filesystem::path(project));
+            EXPECT_EQ(received->config_file, options.config_file);
+            EXPECT_EQ(received->config_profile, options.config_profile);
+            EXPECT_EQ(std::filesystem::current_path(), working_directory);
+        }
+    }
+
+    TEST_F(EntryTest, ReportsHostFailureOnceAndReturnsNonzero) {
+        const char* arguments[]{"Comet", "project.json"};
+        fail = true;
         ::testing::internal::CaptureStderr();
-        const int result = launch(1, arguments, options, {}, create_default);
+        const int result = launch(2, arguments, options, run_host);
         const auto error = ::testing::internal::GetCapturedStderr();
         EXPECT_EQ(result, 1);
-        EXPECT_NE(error.find(options.config_file.string()), std::string::npos);
-        EXPECT_EQ(DefaultApplication::constructions, 1);
-        EXPECT_EQ(DefaultApplication::destructions, 1);
+        EXPECT_EQ(error, "Application failed: Project validation failed\n");
+        ASSERT_TRUE(received);
+        EXPECT_EQ(received->project_path, std::filesystem::path("project.json"));
     }
+
     TEST(ApplicationCreationTest, FailedEngineCreationSkipsHooksAndAllowsRetry) {
         class App final: public Application {
         public:

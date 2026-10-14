@@ -6,13 +6,11 @@
 
 namespace CometEditor {
     void AppExportDialog::open(const std::filesystem::path& project,
-        const std::filesystem::path& build, const std::filesystem::path& startup,
-        std::vector<std::filesystem::path> scenes) {
+        const std::filesystem::path& startup, std::vector<std::filesystem::path> scenes) {
         if(m_busy)
             return;
         m_project = project;
         m_startup = startup;
-        m_build = build.string();
         m_destination = (project.parent_path() / (project.filename().string() + ".app")).string();
         std::ranges::sort(scenes);
         m_scenes.clear();
@@ -20,6 +18,8 @@ namespace CometEditor {
             if(path != startup)
                 m_scenes.push_back({std::move(path), false});
         m_message.clear();
+        m_log.clear();
+        m_open_log = false;
         m_request.reset();
         m_open_requested = true;
     }
@@ -37,29 +37,27 @@ namespace CometEditor {
         ImGui::BeginDisabled(m_busy);
         ImGui::SetNextItemWidth(500);
         Ui::input_text("输出 .app###Destination", m_destination);
-        ImGui::SetNextItemWidth(500);
-        Ui::input_text("Release 构建目录###Build", m_build);
-        ImGui::TextWrapped("首次导出或引擎改动后，先构建 app-release。输出目录必须不存在。");
+        ImGui::TextWrapped("自动构建运行程序并打包资源。首次导出可能较慢，输出目录必须不存在。");
         if(!m_scenes.empty()) {
             ImGui::BeginChild("Scenes", {0, 130}, ImGuiChildFlags_Borders);
             for(auto& scene : m_scenes)
                 ImGui::Checkbox(scene.path.generic_string().c_str(), &scene.selected);
             ImGui::EndChild();
         }
-        const bool can_export =
-            !scene_modified && edit_mode && !m_destination.empty() && !m_build.empty();
+        const bool can_export = !scene_modified && edit_mode && !m_destination.empty();
         if(scene_modified)
             ImGui::TextWrapped("当前场景有未保存修改，请关闭此窗口并保存后再导出。");
         if(!edit_mode)
             ImGui::TextUnformatted("请停止 Play 后再导出。");
         ImGui::BeginDisabled(!can_export);
         if(ImGui::Button("导出###Export")) {
-            AppExportRequest request{m_project, m_build, m_destination, {}};
+            AppExportRequest request{m_project, m_destination, {}};
             for(const auto& scene : m_scenes)
                 if(scene.selected)
                     request.scenes.push_back(scene.path);
             m_request = std::move(request);
             m_busy = true;
+            m_log.clear();
             m_message = "正在导出，请稍候…";
         }
         ImGui::EndDisabled();
@@ -74,7 +72,38 @@ namespace CometEditor {
             ImGui::TextWrapped("%s", m_message.c_str());
             ImGui::PopTextWrapPos();
         }
+        if(!m_log.empty()) {
+            if(std::exchange(m_open_log, false))
+                ImGui::SetNextItemOpen(true);
+            if(ImGui::CollapsingHeader("导出日志###ExportLogHeader")) {
+                if(ImGui::Button("复制日志###CopyLog"))
+                    ImGui::SetClipboardText(m_log.c_str());
+                ImGui::BeginChild("ExportLog", {0, 180}, ImGuiChildFlags_Borders,
+                    ImGuiWindowFlags_HorizontalScrollbar);
+                const bool at_bottom = ImGui::GetScrollY() >= ImGui::GetScrollMaxY();
+                ImGui::TextUnformatted(m_log.c_str());
+                if(at_bottom)
+                    ImGui::SetScrollHereY(1.0f);
+                ImGui::EndChild();
+            }
+        }
         ImGui::EndPopup();
+    }
+
+    void AppExportDialog::append_output(std::string_view output) {
+        if(output.empty())
+            return;
+        m_log.append(output);
+        if(m_log.size() > 65536)
+            m_log.erase(0, m_log.size() - 65536);
+        constexpr std::string_view prefix = "[Comet export] ";
+        const auto stage = m_log.rfind(prefix);
+        if(stage == std::string::npos)
+            return;
+        const auto start = stage + prefix.size();
+        const auto end = m_log.find('\n', start);
+        if(end != std::string::npos)
+            m_message = m_log.substr(start, end - start);
     }
 
     std::optional<AppExportRequest> AppExportDialog::take_request() {
@@ -83,6 +112,10 @@ namespace CometEditor {
 
     void AppExportDialog::complete(const Comet::Result<void>& result) {
         m_busy = false;
-        m_message = result ? "导出完成：" + m_destination : "导出失败：" + result.error();
+        m_message = result ? "导出完成：" + m_destination : "导出失败，请查看日志。";
+        if(!result) {
+            m_log = result.error();
+            m_open_log = true;
+        }
     }
 }

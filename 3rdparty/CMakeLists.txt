@@ -30,7 +30,8 @@ option(GLM_BUILD_LIBRARY OFF)  # glm is header-only, no need to build library
 add_subdirectory(glm EXCLUDE_FROM_ALL)
 
 # stb_image
-add_subdirectory(stb_image EXCLUDE_FROM_ALL)
+add_library(stb_image STATIC stb_image.cpp)
+target_include_directories(stb_image SYSTEM PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/stb")
 
 # glfw
 option(GLFW_BUILD_DOCS OFF)
@@ -40,10 +41,18 @@ option(GLFW_INSTALL OFF)
 add_subdirectory(glfw EXCLUDE_FROM_ALL)
 
 # Vulkan Memory Allocator
-add_subdirectory(VulkanMemoryAllocator EXCLUDE_FROM_ALL)
+add_library(VulkanMemoryAllocator STATIC vk_mem_alloc.cpp)
+add_library(GPUOpen::VulkanMemoryAllocator ALIAS VulkanMemoryAllocator)
+target_include_directories(VulkanMemoryAllocator SYSTEM PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/VulkanMemoryAllocator/include")
+target_link_libraries(VulkanMemoryAllocator PUBLIC Vulkan::Vulkan)
 
 # EnTT
-add_subdirectory(entt EXCLUDE_FROM_ALL)
+add_library(entt INTERFACE)
+add_library(EnTT::EnTT ALIAS entt)
+target_include_directories(entt SYSTEM INTERFACE
+    "${CMAKE_CURRENT_SOURCE_DIR}/entt/single_include/entt")
+target_compile_features(entt INTERFACE cxx_std_20)
 
 # Jolt Physics: only the CPU rigid-body library is needed by the runtime.
 block(SCOPE_FOR VARIABLES)
@@ -88,7 +97,7 @@ set(SIMDJSON_ENABLE_THREADS ON CACHE BOOL "" FORCE)
 set(SIMDJSON_INSTALL ON)
 add_subdirectory(simdjson EXCLUDE_FROM_ALL)
 
-# MikkTSpace, pinned upstream 3e895b49d05ea07e4c2133156cfa94369e19e409.
+# MikkTSpace
 add_library(comet_mikktspace STATIC MikkTSpace/mikktspace.c)
 target_include_directories(comet_mikktspace PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/MikkTSpace")
 set_target_properties(comet_mikktspace PROPERTIES POSITION_INDEPENDENT_CODE ON C_VISIBILITY_PRESET hidden)
@@ -130,7 +139,18 @@ endif()
 
 # imgui
 if (COMET_BUILD_EDITOR)
-    add_subdirectory(imgui EXCLUDE_FROM_ALL)
+    add_library(imgui STATIC
+        imgui/imgui.cpp
+        imgui/imgui_draw.cpp
+        imgui/imgui_tables.cpp
+        imgui/imgui_widgets.cpp
+        imgui/backends/imgui_impl_glfw.cpp
+        imgui/backends/imgui_impl_vulkan.cpp)
+    target_include_directories(imgui SYSTEM PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/imgui"
+        "${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends")
+    target_link_libraries(imgui PUBLIC glfw Vulkan::Vulkan)
+    target_compile_features(imgui PUBLIC cxx_std_20)
     target_include_directories(imgui PUBLIC "${CMAKE_SOURCE_DIR}/editor/src/ui")
     target_compile_definitions(imgui PUBLIC IMGUI_USER_CONFIG="imgui_config.h")
 endif ()

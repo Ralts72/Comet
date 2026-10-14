@@ -43,20 +43,16 @@ namespace CometEditor {
         SelectionService& selection, CommandHistory& history,
         const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
         const EditorShortcuts& shortcuts, Comet::Renderer& renderer, Comet::AssetRegistry& assets,
-        Ui::ImGuiContext& ui, std::shared_ptr<Comet::Sampler> sampler,
-        Comet::PhysicsService::MeshSource meshes)
+        Ui::ImGuiContext& ui, Comet::PhysicsService::MeshSource meshes)
         : m_state(state), m_selection(selection), m_renderer(renderer), m_assets(assets), m_ui(ui),
-          m_sampler(std::move(sampler)), m_gizmo(history, components),
+          m_gizmo(history, components),
           m_panel(state, runtime, selection, m_gizmo, inspector_edit,
               std::min(renderer.max_render_target_dimension(), std::uint32_t{4096}), shortcuts),
-          m_colliders(std::move(meshes)) {
-        if(!m_sampler)
-            LOG_FATAL("Viewport requires a prepared sampler");
-    }
+          m_colliders(std::move(meshes)) {}
 
     void Viewport::update_texture() {
         const auto frame = m_renderer.get_offscreen_frame();
-        m_ui.set_viewport_image(frame.slot, frame.color_view, m_sampler);
+        m_ui.set_viewport_image(frame.slot, frame.color_view);
         m_panel.set_texture_id(
             m_ui.get_viewport_texture_id(frame.slot), frame.size.x, frame.size.y);
     }

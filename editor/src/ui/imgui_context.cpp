@@ -9,7 +9,6 @@
 #include "graphics/attachment.h"
 #include "graphics/resource/image.h"
 #include "graphics/resource/image_view.h"
-#include "graphics/resource/sampler.h"
 #include "graphics/swapchain.h"
 #include "graphics/enums.h"
 #include "graphics/pipeline/descriptor_set.h"
@@ -80,18 +79,16 @@ namespace CometEditor::Ui {
         ImTextureID id;
         uint32_t frame_slot;
         std::shared_ptr<Comet::ImageView> image_view;
-        std::shared_ptr<Comet::Sampler> sampler;
     };
 
     class ImGuiContext::TextureBinding final {
     public:
         TextureBinding(::ImGuiContext* context, const std::shared_ptr<const ViewportImage>& source)
-            : m_context(context), m_source(source), m_image_view(source->image_view),
-              m_sampler(source->sampler) {
+            : m_context(context), m_source(source), m_image_view(source->image_view) {
             const CurrentContext current(m_context);
-            m_descriptor_set = ImGui_ImplVulkan_AddTexture(static_cast<VkSampler>(m_sampler->get()),
-                static_cast<VkImageView>(m_image_view->get()),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            m_descriptor_set =
+                ImGui_ImplVulkan_AddTexture(static_cast<VkImageView>(m_image_view->get()),
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         }
 
         ~TextureBinding() { release(); }
@@ -124,7 +121,6 @@ namespace CometEditor::Ui {
         ::ImGuiContext* m_context;
         std::weak_ptr<const ViewportImage> m_source;
         std::shared_ptr<Comet::ImageView> m_image_view;
-        std::shared_ptr<Comet::Sampler> m_sampler;
         VkDescriptorSet m_descriptor_set = VK_NULL_HANDLE;
     };
 
@@ -298,6 +294,16 @@ namespace CometEditor::Ui {
         if(auto result = init_vulkan(); !result)
             return result;
 
+        {
+            const CurrentContext backend(m_backend_context.get());
+            const auto& callbacks = ImGui::GetPlatformIO();
+            const CurrentContext frontend(m_frontend_context.get());
+            auto& target = ImGui::GetPlatformIO();
+            // 只交付静态回调；执行时使用绘制线程当前的后端上下文。
+            target.DrawCallback_ResetRenderState = callbacks.DrawCallback_ResetRenderState;
+            target.DrawCallback_SetSamplerLinear = callbacks.DrawCallback_SetSamplerLinear;
+            target.DrawCallback_SetSamplerNearest = callbacks.DrawCallback_SetSamplerNearest;
+        }
         m_initialized = true;
         LOG_INFO("ImGui layer initialized successfully");
         return Comet::Result<void, Comet::GraphicsError>::success();
@@ -346,9 +352,12 @@ namespace CometEditor::Ui {
         }
 
         Comet::DescriptorPoolSizes pool_sizes;
-        pool_sizes.add_pool_size(Comet::DescriptorType::CombinedImageSampler, 100);
+        pool_sizes.add_pool_size(Comet::DescriptorType::SampledImage, 100);
+        pool_sizes.add_pool_size(
+            Comet::DescriptorType::Sampler, IMGUI_IMPL_VULKAN_MINIMUM_SAMPLER_POOL_SIZE);
 
-        auto pool = Comet::DescriptorPool::create(device, 100, pool_sizes,
+        auto pool = Comet::DescriptorPool::create(device,
+            100 + IMGUI_IMPL_VULKAN_MINIMUM_SAMPLER_POOL_SIZE, pool_sizes,
             Comet::Flags<Comet::DescriptorPoolCreateFlag>(
                 Comet::DescriptorPoolCreateFlag::FreeDescriptorSet));
         if(!pool)
@@ -462,7 +471,6 @@ namespace CometEditor::Ui {
         captured.presentation_generation = m_presentation_generation;
         const auto& source = *ImGui::GetDrawData();
         captured.draw.Valid = source.Valid;
-        captured.draw.CmdListsCount = source.CmdListsCount;
         captured.draw.TotalVtxCount = source.TotalVtxCount;
         captured.draw.TotalIdxCount = source.TotalIdxCount;
         captured.draw.DisplayPos = source.DisplayPos;
@@ -491,19 +499,47 @@ namespace CometEditor::Ui {
         }
         std::erase_if(m_font_pixels,
             [&](const auto& entry) { return !captured.fonts.contains(entry.first); });
+        std::set<ImTextureID> viewport_ids;
+        for(const auto& [view, images] : m_viewport_images)
+            for(const auto& image : images)
+                if(image)
+                    viewport_ids.insert(image->id);
+        const auto is_viewport = [&](const ImDrawCmd& command) {
+            return !command.UserCallback && !command.TexRef._TexData
+                   && viewport_ids.contains(command.GetTexID());
+        };
         std::set<ImTextureID> image_ids;
         for(const auto* list : source.CmdLists) {
             auto* copy = list->CloneOutput();
             captured.draw.CmdLists.push_back(copy);
             copy->_CallbacksDataBuf = list->_CallbacksDataBuf;
+            const auto viewport_count =
+                std::count_if(copy->CmdBuffer.begin(), copy->CmdBuffer.end(), is_viewport);
+            if(viewport_count > 0) {
+                // 新后端的采样器独立于纹理；视口绘制后恢复字体／缩略图的线性采样。
+                ImVector<ImDrawCmd> commands;
+                commands.reserve(copy->CmdBuffer.Size + static_cast<int>(viewport_count) * 2);
+                ImDrawCmd nearest, linear;
+                nearest.UserCallback = ImGui::GetPlatformIO().DrawCallback_SetSamplerNearest;
+                linear.UserCallback = ImGui::GetPlatformIO().DrawCallback_SetSamplerLinear;
+                for(const auto& command : copy->CmdBuffer) {
+                    const bool viewport = is_viewport(command);
+                    if(viewport)
+                        commands.push_back(nearest);
+                    commands.push_back(command);
+                    if(viewport)
+                        commands.push_back(linear);
+                }
+                copy->CmdBuffer.swap(commands);
+            }
             for(auto& command : copy->CmdBuffer) {
-                if(command.UserCallback
-                    && command.UserCallback != ImDrawCallback_ResetRenderState) {
+                if(command.UserCallback) {
                     if(command.UserCallbackDataSize > 0)
                         command.UserCallbackData =
                             copy->_CallbacksDataBuf.Data + command.UserCallbackDataOffset;
                     else if(command.UserCallbackData)
                         captured.error = "ImGui draw callbacks must own their payload";
+                    continue;
                 }
                 if(command.TexRef._TexData) {
                     captured.font_commands.emplace_back(
@@ -536,7 +572,7 @@ namespace CometEditor::Ui {
             frame.m_data->presentation_generation == m_presentation_generation;
         if(current_frame && !frame.m_data->error.empty())
             return RenderResult::failure({frame.m_data->error});
-        const bool has_draw_data = current_frame && frame.m_data->draw.CmdListsCount > 0;
+        const bool has_draw_data = current_frame && !frame.m_data->draw.CmdLists.empty();
         if(m_options.composition == Composition::Preserve && !has_draw_data)
             return RenderResult::success();
 
@@ -687,19 +723,18 @@ namespace CometEditor::Ui {
     }
 
     void ImGuiContext::set_viewport_image(const uint32_t frame_slot_index,
-        std::shared_ptr<Comet::ImageView> image_view, std::shared_ptr<Comet::Sampler> sampler,
-        const uint32_t view_id) {
-        if(!image_view || !sampler)
-            LOG_FATAL("Viewport texture binding requires a valid image view and sampler");
+        std::shared_ptr<Comet::ImageView> image_view, const uint32_t view_id) {
+        if(!image_view)
+            LOG_FATAL("Viewport texture binding requires a valid image view");
         auto& images = m_viewport_images[view_id];
         if(frame_slot_index >= images.size())
             images.resize(frame_slot_index + 1);
         auto& image = images[frame_slot_index];
-        if(image && image->image_view == image_view && image->sampler == sampler)
+        if(image && image->image_view == image_view)
             return;
         const auto id = image ? image->id : m_next_texture_id++;
         image = std::make_shared<const ViewportImage>(
-            ViewportImage{id, frame_slot_index, std::move(image_view), std::move(sampler)});
+            ViewportImage{id, frame_slot_index, std::move(image_view)});
     }
 
     ImTextureID ImGuiContext::get_viewport_texture_id(

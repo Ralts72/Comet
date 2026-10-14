@@ -1,9 +1,9 @@
+#include "editor.h"
 #include "gameplay/checkpoint_store.h"
 #include "config/player_settings.h"
 #include "runtime/application.h"
 #include "config/config_loader.h"
 #include "render/resource/render_resources.h"
-#include "graphics/resource/sampler.h"
 #include "assets/editor_assets.h"
 #include "assets/system_text_editor.h"
 #include "assets/material_editing.h"
@@ -56,7 +56,6 @@
 #include "scene/scene_serializer.h"
 
 #include <cstdint>
-#include <future>
 #include <chrono>
 #include <filesystem>
 #include <iostream>
@@ -660,9 +659,8 @@ namespace {
                     for(const auto& record : m_assets->database().get_assets())
                         if(record.type == Comet::AssetType::Scene)
                             scenes.push_back(record.path);
-                    m_app_export_dialog.open(m_project.paths().root(),
-                        std::filesystem::path(COMET_CONFIG_FILE).parent_path() / "build-release",
-                        m_project.startup_scene(), std::move(scenes));
+                    m_app_export_dialog.open(
+                        m_project.paths().root(), m_project.startup_scene(), std::move(scenes));
                     break;
                 }
                 case CometEditor::MenuBar::Command::RenameProject:
@@ -937,10 +935,6 @@ namespace {
         Comet::Result<void, Comet::Error> setup_panels(Comet::AssetScanReport initial_asset_scan) {
             m_material_edits = std::make_unique<CometEditor::MaterialEditSession>(
                 *m_assets, get_engine().get_renderer());
-            auto sampler =
-                get_engine().get_render_resources().get_sampler_manager().get_nearest_clamp();
-            if(!sampler)
-                return Comet::Result<void, Comet::Error>::failure(sampler.error().as_error());
             m_menu_bar = std::make_unique<CometEditor::MenuBar>(
                 m_editor_state, m_command_history, m_shortcuts);
 
@@ -949,7 +943,7 @@ namespace {
             m_viewport = std::make_unique<CometEditor::Viewport>(m_editor_state,
                 get_engine().get_scene_runtime(), *m_selection, m_command_history,
                 m_component_registry, m_property_edit, m_shortcuts, get_engine().get_renderer(),
-                get_engine().get_asset_registry(), *m_imgui_context, std::move(sampler).value(),
+                get_engine().get_asset_registry(), *m_imgui_context,
                 Comet::PhysicsService::MeshSource{.read =
                                                       [this](Comet::AssetHandle handle) {
                                                           return m_assets->read_mesh_data(handle);
@@ -998,20 +992,14 @@ namespace {
             m_console_panel->render();
             m_render_stats->render();
             m_path_dialog.render();
-            if(m_app_export.valid()
-                && m_app_export.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
-                m_app_export_dialog.complete(m_app_export.get());
+            const auto export_result = m_app_export.take_result();
+            m_app_export_dialog.append_output(m_app_export.take_output());
+            if(export_result)
+                m_app_export_dialog.complete(*export_result);
             m_app_export_dialog.render(m_scene_document->is_modified(),
                 m_editor_state.mode == CometEditor::EditorMode::Edit);
-            if(auto request = m_app_export_dialog.take_request()) {
-                m_app_export = std::async(std::launch::async, [request = std::move(*request)] {
-                    try {
-                        return CometEditor::export_app(request);
-                    } catch(const std::exception& error) {
-                        return Comet::Result<void>::failure(error.what());
-                    }
-                });
-            }
+            if(auto request = m_app_export_dialog.take_request())
+                m_app_export.start(std::move(*request));
             m_project_settings.render(m_editor_state.mode == CometEditor::EditorMode::Edit, input);
             m_shortcut_settings_dialog.render();
             draw_unsaved_dialog();
@@ -1422,7 +1410,7 @@ namespace {
         std::optional<Comet::CheckpointStore> m_checkpoints;
         CometEditor::PathDialog m_path_dialog;
         CometEditor::AppExportDialog m_app_export_dialog;
-        std::future<Comet::Result<void>> m_app_export;
+        CometEditor::AppExportTask m_app_export;
         CometEditor::ShortcutSettingsDialog m_shortcut_settings_dialog;
         std::optional<std::filesystem::path> m_next_project;
         std::optional<std::filesystem::path> m_pending_project_creation;
@@ -1440,48 +1428,34 @@ namespace {
 
 }
 
-int main(int argc, char** argv) {
-    if(argc == 2 && std::string_view(argv[1]) == "--help") {
-        std::cout << "Usage: " << std::filesystem::path(argv[0]).filename().string()
-                  << " [project-directory | project.json]\n";
-        return 0;
-    }
-    if(argc > 2 || (argc == 2 && std::string_view(argv[1]).starts_with('-'))) {
-        std::cerr << "Application failed: Expected a project directory or project.json\n";
-        return 1;
-    }
-    std::filesystem::path path = argc == 2 ? argv[1] : COMET_SAMPLE_PROJECT_DIRECTORY;
-    const auto state_directory = CometEditor::editor_user_state_directory();
-    if(!state_directory) {
-        std::cerr << "Application failed: " << state_directory.error() << '\n';
-        return 1;
-    }
-    const auto window_state_path = state_directory.value() / "window.json";
-    while(true) {
-        auto project = Comet::Project::load(path);
-        if(!project) {
-            std::cerr << "Application failed: " << project.error() << '\n';
-            return 1;
+namespace CometEditor {
+    Comet::Result<void, Comet::Error> run_editor(const Comet::LaunchOptions& options) {
+        using RunResult = Comet::Result<void, Comet::Error>;
+        auto path = options.project_path.value_or(COMET_SAMPLE_PROJECT_DIRECTORY);
+        const auto state_directory = editor_user_state_directory();
+        if(!state_directory)
+            return RunResult::failure({state_directory.error()});
+        const auto window_state_path = state_directory.value() / "window.json";
+        while(true) {
+            auto project = Comet::Project::load(path);
+            if(!project)
+                return RunResult::failure({project.error()});
+            auto config =
+                Comet::ConfigLoader{}.load(options.config_file.string(), options.config_profile);
+            if(!config)
+                return RunResult::failure({config.error()});
+            const auto window_state = WindowState::load(window_state_path);
+            if(!window_state)
+                std::cerr << "Cannot restore editor window state: " << window_state.error() << '\n';
+            else if(window_state.value())
+                window_state.value()->apply_to(config.value().window);
+            Editor editor(std::move(project).value(), window_state_path);
+            if(auto result = editor.run(std::move(config).value()); !result)
+                return result;
+            const auto next = editor.take_next_project();
+            if(!next)
+                return RunResult::success();
+            path = *next;
         }
-        auto config = Comet::ConfigLoader{}.load(COMET_CONFIG_FILE, COMET_CONFIG_PROFILE);
-        if(!config) {
-            std::cerr << "Application failed: " << config.error() << '\n';
-            return 1;
-        }
-        const auto window_state = CometEditor::WindowState::load(window_state_path);
-        if(!window_state)
-            std::cerr << "Cannot restore editor window state: " << window_state.error() << '\n';
-        else if(window_state.value())
-            window_state.value()->apply_to(config.value().window);
-        auto editor = std::make_unique<Editor>(std::move(project).value(), window_state_path);
-        const auto run = editor->run(std::move(config).value());
-        if(!run)
-            std::cerr << "Application failed: " << run.error().message << '\n';
-        const int result = run ? 0 : 1;
-        const auto next = editor->take_next_project();
-        editor.reset();
-        if(result != 0 || !next)
-            return result;
-        path = *next;
     }
 }

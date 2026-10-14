@@ -38,13 +38,13 @@ namespace CometEditor::Tests {
         const auto frozen = preview.snapshot();
         ASSERT_TRUE(frozen);
         EXPECT_FALSE(preview.playing());
-        EXPECT_FALSE(frozen->loop);
+        EXPECT_FALSE(frozen->current.loop);
         ASSERT_TRUE(preview.seek(5));
         auto pose = Comet::sample_animation(*data, preview.snapshot().get());
         ASSERT_TRUE(pose);
         EXPECT_DOUBLE_EQ(preview.time(), 1);
         EXPECT_FLOAT_EQ(pose.value().matrices.front()[3].x, 2);
-        EXPECT_DOUBLE_EQ(frozen->time, 0.5);
+        EXPECT_DOUBLE_EQ(frozen->current.time, 0.5);
         ASSERT_TRUE(preview.seek(-1));
         EXPECT_DOUBLE_EQ(preview.time(), 0);
         EXPECT_FALSE(preview.select_clip("missing"));
@@ -101,7 +101,7 @@ namespace CometEditor::Tests {
         ++target.scene_lifetime;
         preview.bind(target, replacement, "walk");
         EXPECT_FALSE(preview.snapshot());
-        EXPECT_DOUBLE_EQ(frozen->time, 0.25);
+        EXPECT_DOUBLE_EQ(frozen->current.time, 0.25);
     }
 
     TEST_F(AnimationPreviewTest, ScenePublicationAffectsRenderingAndNeverEntersSavedContent) {
@@ -125,7 +125,7 @@ namespace CometEditor::Tests {
         EXPECT_EQ(scene.get_render_revision(), revision);
         ASSERT_TRUE(preview.seek(1));
         scene.set_animation_playback(entity, preview.snapshot());
-        EXPECT_DOUBLE_EQ(frozen.render_items.front().animation->time, 0.5);
+        EXPECT_DOUBLE_EQ(frozen.render_items.front().animation->current.time, 0.5);
         EXPECT_EQ(serializer.serialize(scene).value(), content.value());
         auto clone = serializer.clone(scene);
         ASSERT_TRUE(clone);

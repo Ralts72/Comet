@@ -1,7 +1,8 @@
 #version 450 core
 
 layout(location = 0) out vec4 fColor;
-layout(set = 0, binding = 0) uniform sampler2D sTexture;
+layout(set = 0, binding = 0) uniform texture2D ui_texture;
+layout(set = 1, binding = 0) uniform sampler ui_sampler;
 layout(location = 0) in struct { vec4 Color; vec2 UV; } In;
 
 vec3 srgb_to_linear(vec3 color) {
@@ -10,7 +11,7 @@ vec3 srgb_to_linear(vec3 color) {
 }
 
 void main() {
-    vec4 color = In.Color * texture(sTexture, In.UV.st);
+    vec4 color = In.Color * texture(sampler2D(ui_texture, ui_sampler), In.UV.st);
     // UI 的白色仍为 SDR 白；仅 RGB 解码，透明度不作色彩转换。
     fColor = vec4(srgb_to_linear(color.rgb), color.a);
 }

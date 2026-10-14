@@ -73,6 +73,8 @@ namespace Comet {
         std::string idle = "idle", walk = "walk", run = "run";
         std::string crouch = "crouch", crouch_walk = "crouch_walk";
         std::string jump = "jump", fall = "fall";
+        // 片段达到完整步幅时的速度，单位 m/s；不改变角色物理移动速度。
+        float walk_speed = 4, run_speed = 6, crouch_speed = 2;
         bool operator==(const AnimatorComponent&) const = default;
     };
 

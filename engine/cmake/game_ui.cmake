@@ -27,8 +27,7 @@ file(CONFIGURE OUTPUT "${COMET_UI_LUA_INCLUDE_DIRECTORY}/ui/settings_source.h"
 target_include_directories(comet_game_ui PRIVATE "${COMET_UI_LUA_INCLUDE_DIRECTORY}")
 add_dependencies(comet_game_ui comet_game_ui_shaders comet_game_ui_resources)
 target_include_directories(comet_game_ui PRIVATE "${COMET_UI_SHADER_DIRECTORY}/include")
-target_include_directories(comet_game_ui SYSTEM PRIVATE "${CMAKE_SOURCE_DIR}/3rdparty/stb_image")
-target_link_libraries(comet_game_ui PRIVATE comet_render comet_platform RmlUi::Core comet_lua)
+target_link_libraries(comet_game_ui PRIVATE comet_render comet_platform RmlUi::Core comet_lua stb_image)
 target_compile_definitions(comet_game_ui PRIVATE
         COMET_UI_FONT_DIRECTORY="${COMET_UI_FONT_DIRECTORY}"
         COMET_UI_RESOURCE_DIRECTORY="${COMET_UI_RESOURCE_DIRECTORY}")

@@ -19,7 +19,6 @@ namespace Comet {
     class Window;
     class DescriptorPool;
     class RenderTarget;
-    class Sampler;
     class ImageView;
     struct SwapchainCompatibility;
     class OverlayRecordContext;
@@ -70,10 +69,9 @@ namespace CometEditor::Ui {
         Comet::Result<void, Comet::GraphicsError> rebuild_swapchain_resources(
             const Comet::SwapchainCompatibility& compatibility);
 
-        // 前端只保存图片引用；同一 View／帧槽的标识稳定，end_frame 固定当时的图片版本。
+        // 视口使用最近邻采样；同一 View／帧槽的标识稳定，end_frame 固定图片版本。
         void set_viewport_image(uint32_t frame_slot_index,
-            std::shared_ptr<Comet::ImageView> image_view, std::shared_ptr<Comet::Sampler> sampler,
-            uint32_t view_id = 0);
+            std::shared_ptr<Comet::ImageView> image_view, uint32_t view_id = 0);
 
         // 仅用于本上下文的 ImGui 图片绘制；此标识不是 Vulkan descriptor。
         [[nodiscard]] ImTextureID get_viewport_texture_id(

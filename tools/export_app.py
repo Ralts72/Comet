@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""将已构建的 macOS App 与所选关卡导出到新的 .app 目录。"""
+"""增量构建 Release，并将所选关卡导出到新的独立 macOS App。"""
 
 import argparse
 import json
@@ -12,11 +12,22 @@ import sys
 import tempfile
 
 
-def run(*arguments):
-    result = subprocess.run(arguments, text=True, capture_output=True)
-    if result.returncode:
-        raise RuntimeError(f"Command failed: {arguments[0]}\n{result.stdout}\n{result.stderr}")
-    return result.stdout
+def run(*arguments, cwd=None, stream=False):
+    output = ""
+    with subprocess.Popen(arguments, cwd=cwd, text=True, encoding="utf-8", errors="replace",
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as process:
+        for line in process.stdout:
+            output += line
+            if stream:
+                print(line, end="", flush=True)
+                output = output[-65536:]
+        if process.wait():
+            raise RuntimeError(f"Command failed: {arguments[0]}\n{output}")
+    return output
+
+
+def stage(message):
+    print(f"[Comet export] {message}", flush=True)
 
 
 def cmake_cache(build):
@@ -82,7 +93,7 @@ def bundle_libraries(bundle, build, cache, temporary):
         f"fixup_bundle({cmake_string(bundle)} {cmake_string(bundled_driver)} "
         f"{cmake_string(';'.join(map(str, directories)))})\n"
     )
-    run(cache["CMAKE_COMMAND"], "-P", str(recipe))
+    run(cache["CMAKE_COMMAND"], "-P", str(recipe), stream=True)
     # fixup_bundle 重写依赖；同时清除旧开发 RPATH，缺失产品不能回退到构建机。
     binaries = [bundle / "Contents/MacOS/Comet"]
     binaries.extend(path for path in frameworks.iterdir() if path.is_file() and not path.is_symlink())
@@ -90,20 +101,43 @@ def bundle_libraries(bundle, build, cache, temporary):
         for rpath in list(macho_rpaths(binary)):
             if not rpath.startswith("@"):
                 run("install_name_tool", "-delete_rpath", rpath, str(binary))
-    run("codesign", "--force", "--deep", "--sign", "-", str(bundle))
+    stage("正在签名并验证 App…")
+    run("codesign", "--force", "--deep", "--sign", "-", str(bundle), stream=True)
     run("codesign", "--verify", "--deep", "--strict", str(bundle))
 
 
-def export_app(project, build, destination, scenes):
+def validate_request(project, destination):
     if sys.platform != "darwin":
         raise RuntimeError("App packaging currently supports macOS; asset-only export works on other platforms")
-    root = Path(__file__).resolve().parent.parent
-    build, project = build.resolve(), project.resolve()
-    destination = destination.absolute()
     if destination.suffix != ".app":
         raise RuntimeError("Destination must end in .app")
     if destination.exists() or destination.is_symlink():
         raise RuntimeError(f"Destination already exists: {destination}")
+    manifest = project if project.is_file() else project / "project.json"
+    if not manifest.is_file():
+        raise RuntimeError(f"Project file not found: {manifest}")
+    for reserved in (manifest.parent / "assets", manifest.parent / ".comet"):
+        if destination.resolve().is_relative_to(reserved.resolve()):
+            raise RuntimeError("Destination must be outside source assets and caches")
+
+
+def export_app(project, destination, scenes, cmake="cmake"):
+    stage("正在检查导出设置…")
+    validate_request(project, destination)
+    root = Path(__file__).resolve().parent.parent
+    stage("正在配置 Release…")
+    run(cmake, "--preset", "app-release", cwd=root, stream=True)
+    stage("正在构建运行程序…")
+    run(cmake, "--build", "--preset", "app-release", "--target", "app", "comet_prepare_project",
+        "--parallel", str(min(8, os.cpu_count() or 1)), cwd=root, stream=True)
+    return package_app(project, root / "build-release", destination, scenes)
+
+
+def package_app(project, build, destination, scenes):
+    root = Path(__file__).resolve().parent.parent
+    build, project = build.resolve(), project.resolve()
+    destination = destination.absolute()
+    validate_request(project, destination)
     cache = cmake_cache(build)
     if Path(cache["CMAKE_HOME_DIRECTORY"]).resolve() != root:
         raise RuntimeError("Build directory belongs to another source repository")
@@ -111,18 +145,17 @@ def export_app(project, build, destination, scenes):
     prepare = build / "tools/asset/comet_prepare_project"
     if not (source / "Contents/MacOS/Comet").is_file() or not prepare.is_file():
         raise RuntimeError("Build app and comet_prepare_project before exporting")
-    project_root = project.parent if project.is_file() else project
-    for reserved in (project_root / "assets", project_root / ".comet", source):
-        if destination.resolve().is_relative_to(reserved.resolve()):
-            raise RuntimeError("Destination must be outside source assets, caches and the development App")
+    if destination.resolve().is_relative_to(source):
+        raise RuntimeError("Destination must be outside the development App")
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".comet-app-", dir=destination.parent) as directory:
         temporary = Path(directory)
         bundle = temporary / destination.name
         shutil.copytree(source, bundle, symlinks=True)
         resources = bundle / "Contents/Resources"
+        stage("正在准备所选关卡与资源…")
         # 开发 Bundle 不携带项目；若用户选错曾打包过的输入，不静默覆盖内容。
-        run(str(prepare), str(project), "--export-assets", str(resources / "game"), *scenes)
+        run(str(prepare), str(project), "--export-assets", str(resources / "game"), *scenes, stream=True)
         profile = json.loads((root / "config.json").read_text()).get("app-release", {})
         (resources / "config.json").write_text(json.dumps({"app-release": profile}, indent=2) + "\n")
         for folder in ("fonts", "ui"):
@@ -146,6 +179,7 @@ def export_app(project, build, destination, scenes):
                     output = notices / dependency.name / license_file.name
                     output.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(license_file, output)
+        stage("正在打包运行依赖…")
         bundle_libraries(bundle, build, cache, temporary)
         if destination.exists() or destination.is_symlink():
             raise RuntimeError(f"Destination appeared during export: {destination}")
@@ -157,11 +191,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("project", type=Path, help="project directory or project.json")
     parser.add_argument("destination", type=Path, help="new .app directory")
-    parser.add_argument("--build", type=Path, default=Path(__file__).resolve().parent.parent / "build-release")
+    parser.add_argument("--cmake", default="cmake", help="CMake executable (Editor supplies its configured path)")
     parser.add_argument("--scene", action="append", default=[], help="additional scene relative to assets/")
     args = parser.parse_args()
     try:
-        output = export_app(args.project, args.build, args.destination, args.scene)
+        output = export_app(args.project, args.destination, args.scene, args.cmake)
     except (OSError, ValueError, KeyError, RuntimeError) as error:
         print(f"App export failed: {error}", file=sys.stderr)
         return 1

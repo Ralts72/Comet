@@ -348,9 +348,6 @@ namespace Comet {
                         std::move(inputs).value(), std::move(mesh).value()};
                     if(auto saved = artifact.publish_atomic(output.assets() / product.path); !saved)
                         return saved;
-                    std::filesystem::create_directories(staging / "licenses");
-                    std::filesystem::copy_file(source.parent_path() / "source.json",
-                        staging / "licenses/default_character.json");
                     index.assets.push_back(std::move(product));
                     continue;
                 }
@@ -485,8 +482,6 @@ namespace Comet {
                     return written;
             }
             std::filesystem::copy_file(paths.root() / "project.json", staging / "project.json");
-            if(std::filesystem::exists(paths.root() / "sources.json"))
-                std::filesystem::copy_file(paths.root() / "sources.json", staging / "sources.json");
             std::ranges::sort(index.assets, {}, &AssetProduct::handle);
             if(auto saved = index.save(staging / ProductIndex::FILENAME); !saved)
                 return saved;

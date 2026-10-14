@@ -154,10 +154,10 @@ namespace Comet {
                 if(!pose) {
                     error = pose.error();
                     // 更换模型后旧过渡片段可能不存在；目的片段仍可独立播放。
-                    if(item.animation && !item.animation->previous_clip.empty()
-                        && !data.find_clip(item.animation->previous_clip)) {
+                    if(item.animation && item.animation->blend < 1
+                        && item.animation->previous.has_clip()) {
                         auto current = *item.animation;
-                        current.previous_clip.clear();
+                        current.previous = {};
                         current.blend = 1;
                         pose = sample_animation(data, &current);
                     }

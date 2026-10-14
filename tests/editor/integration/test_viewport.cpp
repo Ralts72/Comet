@@ -11,7 +11,6 @@
 #include "render/resource/mesh.h"
 #include "core/window.h"
 #include "graphics/swapchain.h"
-#include "graphics/resource/sampler.h"
 #include "ui/imgui_context.h"
 #include "ui/shortcuts.h"
 #include "scene/selection.h"
@@ -253,10 +252,8 @@ namespace CometEditor::Tests {
         PropertyEditTransaction edit(history, components);
         EditorState state;
         EditorShortcuts shortcuts;
-        auto sampler = renderer.get_render_resources().get_sampler_manager().get_nearest_clamp();
-        ASSERT_TRUE(sampler) << sampler.error();
         Viewport viewport(state, engine.get_scene_runtime(), selection, history, components, edit,
-            shortcuts, renderer, engine.get_asset_registry(), ui, std::move(sampler).value());
+            shortcuts, renderer, engine.get_asset_registry(), ui);
         Comet::RenderThread render_thread(renderer);
         renderer.set_overlay({.capture = [&] {
             Comet::OverlayDrawList draws;

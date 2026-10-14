@@ -12,11 +12,6 @@
 #include <string>
 
 namespace Comet {
-    struct LaunchOptions {
-        std::filesystem::path config_file;
-        std::string config_profile;
-    };
-
     class COMET_API Application {
     public:
         struct Options {
@@ -70,6 +65,4 @@ namespace Comet {
         std::unique_ptr<Diagnostics> m_diagnostics;
         std::unique_ptr<Engine> m_engine;
     };
-
-    COMET_API int run(Application* app, const LaunchOptions& options);
 }

@@ -10,7 +10,6 @@
 #include "scene/component_registry.h"
 #include "core/window.h"
 #include "common/scope_exit.h"
-#include "graphics/resource/sampler.h"
 #include "input/player_input_settings.h"
 #include "viewport/viewport_panel.h"
 #include "viewport/transform_gizmo.h"
@@ -31,7 +30,6 @@ namespace CometEditor::Tests {
         std::unique_ptr<GameUi> game;
         std::unique_ptr<Ui::ImGuiContext> editor;
         std::unique_ptr<Ui::ImGuiContext::Frame> editor_frame;
-        std::shared_ptr<Comet::Sampler> sampler;
         bool visible = true;
         bool docked = false;
         std::optional<Comet::Math::Vec2> pointer;
@@ -58,9 +56,6 @@ namespace CometEditor::Tests {
                     {.composition = Ui::ImGuiContext::Composition::Clear});
             ASSERT_TRUE(created) << created.error();
             editor = std::move(created).value();
-            auto sampling = Comet::Sampler::create(renderer.get_render_context().get_device());
-            ASSERT_TRUE(sampling) << sampling.error();
-            sampler = std::move(sampling).value();
             auto settings = Comet::PlayerInputSettings::load(
                 project->id(), documents.path() / "player/input.json");
             ASSERT_TRUE(settings) << settings.error();
@@ -103,7 +98,6 @@ namespace CometEditor::Tests {
             game.reset();
             editor_frame.reset();
             editor.reset();
-            sampler.reset();
             RenderGpuTest::TearDown();
         }
 
@@ -142,7 +136,7 @@ namespace CometEditor::Tests {
                 }
                 const auto output = renderer.get_offscreen_frame();
                 ASSERT_TRUE(editor->begin_frame());
-                editor->set_viewport_image(output.slot, output.color_view, sampler);
+                editor->set_viewport_image(output.slot, output.color_view);
                 auto input = window.publish_input_frame();
                 std::optional<Comet::Ui::View> view;
                 if(viewport) {
@@ -341,7 +335,7 @@ namespace CometEditor::Tests {
                     if(!editor->begin_frame())
                         return Comet::Result<void, Comet::Error>::failure(
                             {"Cannot begin editor UI frame"});
-                    editor->set_viewport_image(output.slot, output.color_view, sampler);
+                    editor->set_viewport_image(output.slot, output.color_view);
                     ImGui::Begin("Game preview");
                     ImGui::Image(editor->get_viewport_texture_id(output.slot), {120, 90});
                     ImGui::End();
@@ -478,7 +472,7 @@ namespace CometEditor::Tests {
         const auto output = renderer.get_offscreen_frame();
         ASSERT_TRUE(editor->begin_frame());
         const Comet::ScopeExit finish_editor([&] { editor_frame = editor->end_frame(); });
-        editor->set_viewport_image(output.slot, output.color_view, sampler);
+        editor->set_viewport_image(output.slot, output.color_view);
         ImGui::Begin("Game preview");
         ImGui::Image(editor->get_viewport_texture_id(output.slot), {120, 90});
         ImGui::End();

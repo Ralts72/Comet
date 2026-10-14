@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -26,6 +27,25 @@ def main():
     try:
         with tempfile.TemporaryDirectory(prefix="comet-bundle-test-") as directory:
             temporary = Path(directory).resolve()
+            # 通过真实命令行注入失败的 CMake，确认不会回退打包 build-release 中的旧程序。
+            for fail_at in ("--preset", "--build"):
+                cmake = temporary / "failing cmake"
+                cmake.write_text(f"#!{sys.executable}\nimport sys\n"
+                                 f"if sys.argv[1] == {fail_at!r}:\n"
+                                 "    print('COMET_TEST_BUILD_FAILED', flush=True)\n"
+                                 "    sys.exit(23)\n")
+                cmake.chmod(0o755)
+                destination = temporary / "BuildFailure.app"
+                failed_build = subprocess.run(
+                    [sys.executable, str(root / "tools/export_app.py"), str(root / "demo"),
+                     str(destination), "--cmake", str(cmake)],
+                    text=True, capture_output=True, timeout=30)
+                assert failed_build.returncode != 0
+                assert "COMET_TEST_BUILD_FAILED" in failed_build.stdout, failed_build.stdout
+                assert "Command failed" in failed_build.stderr, failed_build.stderr
+                assert "正在准备所选关卡" not in failed_build.stdout
+                assert ("正在构建运行程序" in failed_build.stdout) == (fail_at == "--build")
+                assert not destination.exists()
             source = temporary / "source"
             shutil.copytree(root / "demo/assets", source / "assets")
             project = json.loads((root / "demo/project.json").read_text())
@@ -78,11 +98,12 @@ def main():
                 end
                 return controller
             """)
-            built = exporter.export_app(source, args.build, temporary / "Built.app",
+            # 用本次 CTest 的已构建程序验证打包，避免测试启动另一轮全量 Release 构建。
+            built = exporter.package_app(source, args.build, temporary / "Built.app",
                                         ["scenes/character_second.scene"])
             original_executable = (built / "Contents/MacOS/Comet").read_bytes()
             try:
-                exporter.export_app(source, args.build, built, [])
+                exporter.package_app(source, args.build, built, [])
             except RuntimeError as error:
                 assert "already exists" in str(error)
             else:
@@ -90,7 +111,7 @@ def main():
             assert (built / "Contents/MacOS/Comet").read_bytes() == original_executable
             failed = temporary / "MissingScene.app"
             try:
-                exporter.export_app(source, args.build, failed, ["scenes/missing.scene"])
+                exporter.package_app(source, args.build, failed, ["scenes/missing.scene"])
             except RuntimeError as error:
                 assert "Command failed" in str(error)
             else:

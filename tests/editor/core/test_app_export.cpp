@@ -11,19 +11,24 @@ namespace CometEditor::Tests {
         std::filesystem::create_directory(destination);
         const auto marker = destination / "preserve.txt";
         ASSERT_TRUE(Comet::write_text_file_atomic(marker, "previous export"));
-        const AppExportRequest request{COMET_SAMPLE_PROJECT_DIRECTORY,
-            temporary.path() / "missing build", destination, {"scenes/character_second.scene"}};
-        const auto existing = export_app(request);
+        const AppExportRequest request{
+            COMET_SAMPLE_PROJECT_DIRECTORY, destination, {"scenes/character_second.scene"}};
+        std::string output;
+        const auto existing =
+            export_app(request, [&](std::string_view text) { output.append(text); });
         ASSERT_FALSE(existing);
         EXPECT_NE(existing.error().find("Destination already exists"), std::string::npos);
         EXPECT_NE(existing.error().find(destination.string()), std::string::npos);
         EXPECT_EQ(std::filesystem::file_size(marker), 15);
+        EXPECT_NE(output.find("[Comet export]"), std::string::npos);
+        EXPECT_NE(output.find("Destination already exists"), std::string::npos);
 
         auto missing = request;
         missing.destination = temporary.path() / "New.app";
+        missing.project = temporary.path() / "missing project";
         const auto failed = export_app(missing);
         ASSERT_FALSE(failed);
-        EXPECT_NE(failed.error().find("CMakeCache.txt"), std::string::npos);
+        EXPECT_NE(failed.error().find("Project file not found"), std::string::npos);
         EXPECT_FALSE(std::filesystem::exists(missing.destination));
     }
 }

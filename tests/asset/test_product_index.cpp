@@ -301,7 +301,6 @@ namespace Comet::Tests {
         std::filesystem::copy(
             demo / "assets", source.assets(), std::filesystem::copy_options::recursive);
         std::filesystem::copy_file(demo / "project.json", source.root() / "project.json");
-        std::filesystem::copy_file(demo / "sources.json", source.root() / "sources.json");
         auto project = Project::load(source.root());
         ASSERT_TRUE(project) << project.error();
         const auto original_id = project.value().id();
@@ -370,7 +369,6 @@ namespace Comet::Tests {
         EXPECT_TRUE(std::filesystem::exists(moved.assets() / "ui/runtime.ui.lua"));
         EXPECT_TRUE(
             std::filesystem::exists(moved.assets() / "scripts/character_progress.module.lua"));
-        EXPECT_TRUE(std::filesystem::exists(moved.root() / "sources.json"));
         EXPECT_FALSE(std::filesystem::exists(moved.local_data()));
         for(const auto& entry : std::filesystem::recursive_directory_iterator(moved.assets())) {
             const auto extension = entry.path().extension();

@@ -86,7 +86,7 @@ namespace Comet::Tests {
 
         double centroid(const double time) {
             m_scene.render_items[0].animation = std::make_shared<const AnimationPlayback>(
-                AnimationPlayback{.clip = "move", .time = time, .loop = false});
+                AnimationPlayback{.current = {.clip = "move", .time = time, .loop = false}});
             return centroid();
         }
         void consume_missing_clip_diagnostics(const std::string& clip) {
@@ -186,7 +186,7 @@ namespace Comet::Tests {
         m_scene.render_items.push_back(m_scene.render_items.front());
         m_scene.render_items[1].entity_id = 2;
         m_scene.render_items[1].animation = std::make_shared<AnimationPlayback>(
-            AnimationPlayback{.clip = "move", .time = 1, .loop = false});
+            AnimationPlayback{.current = {.clip = "move", .time = 1, .loop = false}});
         const double both = centroid(0);
         EXPECT_NEAR(both, (first + second) / 2, 1);
         m_scene.render_items.pop_back();
@@ -209,7 +209,7 @@ namespace Comet::Tests {
         const double first = centroid(0);
         const double second = centroid(1);
         m_scene.render_items[0].animation = std::make_shared<const AnimationPlayback>(
-            AnimationPlayback{.clip = "missing", .time = 1, .loop = false});
+            AnimationPlayback{.current = {.clip = "missing", .time = 1, .loop = false}});
         const double bind = centroid();
         EXPECT_NEAR(bind, (first + second) / 2, 1);
         for(int frame = 0; frame < 6; ++frame)
@@ -229,19 +229,45 @@ namespace Comet::Tests {
         EXPECT_FALSE(m_source.animation->find_clip("missing"));
         EXPECT_TRUE(messages.str().empty()) << messages.str();
     }
+    TEST_F(SkinningGpuTest, SynchronizedBlendSpaceAndTransitionReachSkinnedVertices) {
+        // 当前两个片段的半周期位置为 0 与 .25；再与旧位置 -.5 混合得到 -.1875。
+        const double expected = centroid(.3125);
+        auto data = std::make_shared<AnimationData>(*m_source.animation);
+        auto second = data->clips.front();
+        second.name = "long";
+        second.duration = 2;
+        second.channels.front().times.back() = 2;
+        second.channels.front().values.back().x *= 2;
+        data->clips.push_back(second);
+        m_source.animation = data;
+        auto mesh = engine->get_render_resources().try_create_mesh(m_source);
+        ASSERT_TRUE(mesh);
+        ASSERT_TRUE(engine->get_asset_registry().replace_asset(AssetHandle(10), mesh.value()));
+        const auto frozen = std::make_shared<const AnimationPlayback>(
+            AnimationPlayback{.current = {.clip = "move",
+                                  .time = .5,
+                                  .second_clip = "long",
+                                  .weight = .5f,
+                                  .normalized_time = true},
+                .previous = {.clip = "move", .time = 0},
+                .blend = .5f});
+        m_scene.render_items[0].animation = frozen;
+        for(int frame = 0; frame < 4; ++frame)
+            EXPECT_NEAR(centroid(), expected, 1);
+        EXPECT_EQ(frozen->current.time, .5);
+        EXPECT_TRUE(messages.str().empty()) << messages.str();
+    }
+
     TEST_F(SkinningGpuTest, CorrectDestinationPlaysWithoutAnInvalidTransitionSource) {
         const double destination = centroid(1);
-        m_scene.render_items[0].animation =
-            std::make_shared<const AnimationPlayback>(AnimationPlayback{.clip = "move",
-                .time = 1,
-                .loop = false,
-                .previous_clip = "old_model_clip",
-                .previous_time = 0,
+        m_scene.render_items[0].animation = std::make_shared<const AnimationPlayback>(
+            AnimationPlayback{.current = {.clip = "move", .time = 1, .loop = false},
+                .previous = {.clip = "old_model_clip", .time = 0},
                 .blend = 0.1f});
         for(int frame = 0; frame < 4; ++frame)
             EXPECT_NEAR(centroid(), destination, 1);
         consume_missing_clip_diagnostics("old_model_clip");
-        EXPECT_EQ(m_scene.render_items[0].animation->previous_clip, "old_model_clip");
+        EXPECT_EQ(m_scene.render_items[0].animation->previous.clip, "old_model_clip");
         EXPECT_EQ(m_scene.render_items[0].animation->blend, 0.1f);
     }
 

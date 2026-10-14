@@ -91,7 +91,11 @@ Main 接纳索引和任务结果，RenderThread 创建 GPU 候选并返回，Mai
 
 ## 应用启动与失败清理
 
-启动入口加载当前 Profile。App 再合成项目默认值与玩家选择；Editor 合成本地窗口状态，游戏显示设置只用于项目视口。
+`app/main.cpp` 与 `editor/main.cpp` 显式提供配置路径和 Profile，调用同一个 `Comet::launch`。
+launch 只处理可选项目路径、`--help`、错误输出和退出码；帮助／参数错误不加载配置或创建窗口。
+App 的 `run_game` 选择开发项目或导出包，加载 Profile 与玩家设置后运行一个 GameApp。
+Editor 的 `run_editor` 加载项目、Profile 与本地窗口状态；切换项目时完整结束并销毁旧会话，再创建下一次会话。
+`Application::run(Config)` 统一管理 Engine 生命周期和宿主钩子，游戏显示设置在 Editor 中只用于项目视口。
 Engine／Renderer／设备等工厂先准备完整 owner，成功后交付；部分准备失败随局部对象清理，不发布空句柄成功对象。
 `on_init` 开始后，预期错误沿 Result 返回，关闭顺序为 Engine 停止准备、宿主清理、Engine 销毁、Diagnostics 释放。
 宿主关闭钩子只执行一次，并能清理部分初始化。未预期宿主异常不由 run／launch 捕获；第三方解析异常在对应适配层转换，渲染线程异常在帧交接处转为错误回传。
@@ -208,7 +212,7 @@ TextureArtifact 保存导入设置与完整二维 mip 链，ImportService 按源
 TextureImporter 的文件与内存入口共用解码、用途设置和 mip 生成，GLB 内嵌图片无需先写临时文件。
 纹理产物发布不等于运行资源发布，AssetManager 仍在 GPU 候选完成后复核 revision。开发模式需要源文件复核。
 导出项目以根目录 `assets.index.json` 初始化同一 AssetDatabase 的只读模式：稳定身份、运行文件、依赖及纹理采样方式一次读取，不扫描源文件或写 sidecar。
-桌面打包由 `tools/export_app.py` 组合既有 App 构建与资源导出；Editor 仅收集路径／关卡并后台调用同一工具。macOS 随包携带动态库、MoltenVK、配置、字体与图标，运行时通过可执行文件位置解析资源；产品日志／缓存写入项目 UUID 对应的用户目录。
+桌面打包由 `tools/export_app.py` 自动增量构建既有 `app-release`，再组合资源导出；构建失败即停止。Editor 仅收集输出路径／关卡，在后台调用同一工具，并在主线程显示阶段与日志。macOS 随包携带动态库、MoltenVK、配置、字体与图标，运行时通过可执行文件位置解析资源；产品日志／缓存写入项目 UUID 对应的用户目录。
 AssetLoader 直接读索引中的 Mesh／Texture／Environment／ShaderProgram 产品；模型子资源已展开，场景中的 Prefab 来源基线不进入运行产品。
 环境产品继续使用任务队列与 CPU 预算，Lua 模块保持项目内相对路径。导出工具负责内容转换和依赖闭包，宿主打包层仍需交付可执行文件、动态库、引擎字体与图标。
 
@@ -368,6 +372,8 @@ Lua 的 `comet.control_character(enabled, options)` 调用相同 C++ 控制器�
 Mesh 导入数据保存顶点权重和不可变 `AnimationData`，骨骼层级、绑定矩阵及片段属于资产，沿 Mesh Artifact 保存、校验与加载。
 `AnimatorComponent` 只保存播放配置和角色动作映射，复用组件描述符的保存、克隆、引用重映射与 Inspector 撤销。
 `AnimationSystem` 在 Main 普通更新阶段推进实例时间；角色动作取自 Gameplay 的实际移动状态，动画不回写角色的物理位置。
+`blend_animation_1d` 只按有序阈值选择相邻片段及权重，不依赖角色、场景或渲染。角色地面／蹲伏移动使用实际相对速度和 Animator 标定值驱动，跳跃／下落保持独立状态。
+混合空间内共享归一化周期，时长按当前片段权重插值；System 通过组合层注入的只读 AnimationData 查询取得时长，不依赖 GPU Mesh。速度参数按过渡时间作指数平滑，跨阈值保持相位；状态切换分别保留旧／新混合输入，再按过渡时间混合。
 Scene 保存不可变播放快照，提取／解析交付同一快照给 RenderThread；Stop、销毁及重开清理播放状态，场景文件不保存时间与逐帧姿态。
 播放值未变化时保留原快照，避免零速且过渡已结束的实例重复发布；零速仍允许片段过渡推进。
 Editor 的 `AnimationPreview` 拥有所选模型的预览时钟，Inspector 在 Main 捕获帧前通过 Scene 的瞬时播放接口发布不可变快照，复用正常提取、采样和蒙皮链路。

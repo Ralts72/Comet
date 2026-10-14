@@ -7,12 +7,9 @@
 #include "common/result.h"
 #include "render/debug/line_draw_list.h"
 
-#include <memory>
-
 namespace Comet {
     class AssetRegistry;
     class Renderer;
-    class Sampler;
 }
 
 namespace CometEditor::Ui {
@@ -27,7 +24,7 @@ namespace CometEditor {
             const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
             const EditorShortcuts& shortcuts, Comet::Renderer& renderer,
             Comet::AssetRegistry& assets, Ui::ImGuiContext& ui,
-            std::shared_ptr<Comet::Sampler> sampler, Comet::PhysicsService::MeshSource meshes = {});
+            Comet::PhysicsService::MeshSource meshes = {});
 
         Viewport(const Viewport&) = delete;
         Viewport& operator=(const Viewport&) = delete;
@@ -51,7 +48,6 @@ namespace CometEditor {
         Comet::Renderer& m_renderer;
         Comet::AssetRegistry& m_assets;
         Ui::ImGuiContext& m_ui;
-        std::shared_ptr<Comet::Sampler> m_sampler;
         TransformGizmo m_gizmo;
         ViewportPanel m_panel;
         Comet::LineDrawList m_feedback_lines;

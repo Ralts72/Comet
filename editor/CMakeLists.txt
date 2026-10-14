@@ -44,6 +44,7 @@ if(APPLE)
     find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
     target_compile_definitions(editor_core PRIVATE
         COMET_EXPORT_PYTHON="${Python3_EXECUTABLE}"
+        COMET_EXPORT_CMAKE="${CMAKE_COMMAND}"
         COMET_EXPORT_SCRIPT="${CMAKE_SOURCE_DIR}/tools/export_app.py")
     target_link_libraries(editor_core PRIVATE
         "-framework CoreServices" "-framework Foundation" "-framework AppKit")
@@ -111,7 +112,7 @@ add_library(editor_ui STATIC
 target_link_libraries(editor_ui PUBLIC editor_core editor_imgui)
 target_compile_options(editor_ui PUBLIC "$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
 
-add_executable(editor editor.cpp)
+add_executable(editor main.cpp editor.cpp)
 if (APPLE)
     set_target_properties(editor PROPERTIES
             MACOSX_BUNDLE TRUE

@@ -1,10 +1,8 @@
 #include "runtime/application.h"
 #include "config/config.h"
 
-#include "config/config_loader.h"
 #include "diagnostics/logger.h"
 
-#include <iostream>
 #include <utility>
 
 namespace Comet {
@@ -81,18 +79,5 @@ namespace Comet {
         m_engine.reset();
         m_diagnostics.reset();
         return result;
-    }
-
-    int run(Application* app, const LaunchOptions& options) {
-        auto config = ConfigLoader{}.load(options.config_file.string(), options.config_profile);
-        if(!config) {
-            std::cerr << "Application failed: " << config.error() << '\n';
-            return 1;
-        }
-        if(auto result = app->run(std::move(config).value()); !result) {
-            std::cerr << "Application failed: " << result.error().message << '\n';
-            return 1;
-        }
-        return 0;
     }
 }

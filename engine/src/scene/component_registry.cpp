@@ -321,7 +321,17 @@ namespace Comet {
                 make_property_descriptor(
                     "jump", "jump", &AnimatorComponent::jump, {.required = false}),
                 make_property_descriptor(
-                    "fall", "fall", &AnimatorComponent::fall, {.required = false})}));
+                    "fall", "fall", &AnimatorComponent::fall, {.required = false}),
+                make_property_descriptor("walk_speed", "walk_speed", &AnimatorComponent::walk_speed,
+                    {.required = false,
+                        .numeric = {.speed = 0.1f, .minimum = 0.001f, .enforce_bounds = true}}),
+                make_property_descriptor("run_speed", "run_speed", &AnimatorComponent::run_speed,
+                    {.required = false,
+                        .numeric = {.speed = 0.1f, .minimum = 0.001f, .enforce_bounds = true}}),
+                make_property_descriptor("crouch_speed", "crouch_speed",
+                    &AnimatorComponent::crouch_speed,
+                    {.required = false,
+                        .numeric = {.speed = 0.1f, .minimum = 0.001f, .enforce_bounds = true}})}));
 
         register_component(make_component_descriptor<CameraComponent>("camera", "Camera",
             {make_property_descriptor("primary", "Primary", &CameraComponent::primary),

@@ -8,6 +8,7 @@
 #include <limits>
 #include <string>
 #include <string_view>
+#include <span>
 #include <vector>
 
 namespace Comet {
@@ -50,14 +51,32 @@ namespace Comet {
 
         [[nodiscard]] COMET_API const AnimationClip* find_clip(std::string_view name) const;
     };
-    // 时间和过渡归场景实例；片段、骨架和权重归不可变资产。
-    struct AnimationPlayback {
+    // 一个片段，或共享相位的两个片段；normalized_time 为真时 time 的单位为周期。
+    struct AnimationBlend {
         std::string clip;
         double time = 0;
         bool loop = true;
-        std::string previous_clip;
-        double previous_time = 0;
-        bool previous_loop = true;
+        std::string second_clip;
+        float weight = 0;
+        bool normalized_time = false;
+        [[nodiscard]] bool has_clip() const {
+            return !clip.empty() || (weight > 0 && !second_clip.empty());
+        }
+        bool operator==(const AnimationBlend&) const = default;
+    };
+    struct AnimationBlendPoint {
+        float threshold;
+        std::string_view clip;
+    };
+    [[nodiscard]] COMET_API Result<AnimationBlend> blend_animation_1d(
+        std::span<const AnimationBlendPoint> points, float parameter);
+    [[nodiscard]] COMET_API Result<float> animation_duration(
+        const AnimationData& data, const AnimationBlend& sample);
+
+    // 时间和过渡归场景实例；混合空间与状态过渡分别求值，不改变共享片段。
+    struct AnimationPlayback {
+        AnimationBlend current;
+        AnimationBlend previous;
         float blend = 1;
 
         bool operator==(const AnimationPlayback&) const = default;

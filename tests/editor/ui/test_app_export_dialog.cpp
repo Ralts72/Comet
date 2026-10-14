@@ -17,7 +17,7 @@ namespace CometEditor::Tests {
             ImGui::Render();
         }
         void SetUp() override {
-            dialog.open("/projects/中文 game", "/build/Release", "scenes/start.scene",
+            dialog.open("/projects/中文 game", "scenes/start.scene",
                 {"scenes/second.scene", "scenes/start.scene"});
             frame();
             frame();
@@ -44,11 +44,14 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(request);
         EXPECT_EQ(request->project, "/projects/中文 game");
         EXPECT_EQ(request->destination, "/projects/中文 game.app");
-        EXPECT_EQ(request->build, "/build/Release");
         EXPECT_TRUE(request->scenes.empty());
         activate("Export");
         EXPECT_FALSE(dialog.take_request());
+        dialog.append_output("[Comet export] 正在构建运行程序…\ncompiler output\n");
         dialog.complete(Comet::Result<void>::failure("Destination exists"));
+        frame();
+        activate("CopyLog");
+        EXPECT_STREQ(ImGui::GetClipboardText(), "Destination exists");
         activate("Export");
         EXPECT_TRUE(dialog.take_request());
         dialog.complete(Comet::Result<void>::success());

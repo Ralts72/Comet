@@ -45,7 +45,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(validate_animation(*mesh.animation));
         for(const auto& clip : mesh.animation->clips) {
             EXPECT_GT(clip.duration, 0);
-            const AnimationPlayback playback{.clip = clip.name, .time = clip.duration * 0.4};
+            const AnimationPlayback playback{
+                .current = {.clip = clip.name, .time = clip.duration * 0.4}};
             auto sampled = sample_animation(*mesh.animation, &playback);
             ASSERT_TRUE(sampled) << clip.name << ": " << sampled.error();
             EXPECT_EQ(sampled.value().matrices.size(), 65);
@@ -57,20 +58,20 @@ namespace Comet::Tests {
         ASSERT_TRUE(validate_animation(data));
         ASSERT_NE(data.find_clip("move"), nullptr);
         EXPECT_FALSE(data.find_clip("missing"));
-        AnimationPlayback playback{.clip = "move", .time = 0.25};
+        AnimationPlayback playback{.current = {.clip = "move", .time = 0.25}};
         auto sampled = sample_animation(data, &playback);
         ASSERT_TRUE(sampled);
         EXPECT_NEAR(sampled.value().matrices[0][3].x, 0.5f, 0.0001f);
-        playback.time = 1.25;
+        playback.current.time = 1.25;
         EXPECT_NEAR(sample_animation(data, &playback).value().matrices[0][3].x, 0.5f, 0.0001f);
-        playback.loop = false;
+        playback.current.loop = false;
         EXPECT_NEAR(sample_animation(data, &playback).value().matrices[0][3].x, 2, 0.0001f);
-        playback.previous_clip = "move";
-        playback.previous_time = 0;
+        playback.previous.clip = "move";
+        playback.previous.time = 0;
         playback.blend = 0.25f;
         EXPECT_NEAR(sample_animation(data, &playback).value().matrices[0][3].x, 0.5f, 0.0001f);
         EXPECT_EQ(data.nodes[1].rest.translation, Math::Vec3(0));
-        playback.clip = "missing";
+        playback.current.clip = "missing";
         EXPECT_FALSE(sample_animation(data, &playback));
         data.nodes[0].parent = 1;
         EXPECT_FALSE(validate_animation(data));
@@ -91,12 +92,75 @@ namespace Comet::Tests {
         EXPECT_EQ(loaded->data.animation->clips.size(), 7);
         EXPECT_EQ(loaded->data.skin.front().joints, artifact.data.skin.front().joints);
         EXPECT_EQ(loaded->data.skin.front().weights, artifact.data.skin.front().weights);
-        AnimationPlayback playback{.clip = "run", .time = 0.15};
+        AnimationPlayback playback{.current = {.clip = "run", .time = 0.15}};
         auto before = sample_animation(*artifact.data.animation, &playback);
         auto after = sample_animation(*loaded->data.animation, &playback);
         ASSERT_TRUE(before);
         ASSERT_TRUE(after);
         EXPECT_EQ(before.value().matrices, after.value().matrices);
+    }
+
+    TEST(AnimationTest, BlendSpaceInterpolatesNeighborsAndClampsWithoutExtrapolation) {
+        const std::array points{AnimationBlendPoint{0, "idle"}, AnimationBlendPoint{4, "walk"},
+            AnimationBlendPoint{6, "run"}};
+        const auto idle = blend_animation_1d(points, -1);
+        ASSERT_TRUE(idle);
+        EXPECT_EQ(idle.value().clip, "idle");
+        EXPECT_TRUE(idle.value().second_clip.empty());
+        const auto between = blend_animation_1d(points, 5);
+        ASSERT_TRUE(between);
+        EXPECT_EQ(between.value().clip, "walk");
+        EXPECT_EQ(between.value().second_clip, "run");
+        EXPECT_FLOAT_EQ(between.value().weight, .5f);
+        EXPECT_TRUE(between.value().normalized_time);
+        EXPECT_EQ(blend_animation_1d(points, 20).value().clip, "run");
+        EXPECT_EQ(blend_animation_1d(points, 4).value().clip, "walk");
+        EXPECT_FLOAT_EQ(blend_animation_1d(points, 4).value().weight, 0);
+        EXPECT_FALSE(blend_animation_1d({}, 0));
+        EXPECT_FALSE(blend_animation_1d(points, std::numeric_limits<float>::infinity()));
+        auto invalid = points;
+        invalid[1].threshold = 0;
+        EXPECT_FALSE(blend_animation_1d(invalid, 1));
+        invalid[1].threshold = -1;
+        EXPECT_FALSE(blend_animation_1d(invalid, 1));
+        invalid = points;
+        invalid[1].threshold = std::numeric_limits<float>::quiet_NaN();
+        EXPECT_FALSE(blend_animation_1d(invalid, 1));
+    }
+
+    TEST(AnimationTest, BlendSpaceSynchronizesUnequalDurationsBeforeStateTransition) {
+        auto data = simple_animation();
+        auto other = data.clips.front();
+        other.name = "slow";
+        other.duration = 2;
+        other.channels.front().times.back() = 2;
+        other.channels.front().values.back().x = 8;
+        data.clips.push_back(other);
+        const std::array points{AnimationBlendPoint{0, "move"}, AnimationBlendPoint{4, "slow"}};
+        AnimationPlayback playback{.current = blend_animation_1d(points, 1).value()};
+        playback.current.time = .5;
+        EXPECT_FLOAT_EQ(animation_duration(data, playback.current).value(), 1.25f);
+        // 相同半周期分别采样到 1 和 4，先按混合空间权重求得 1.75。
+        auto sampled = sample_animation(data, &playback);
+        ASSERT_TRUE(sampled);
+        EXPECT_NEAR(sampled.value().matrices[0][3].x, 1.75f, .0001f);
+        playback.current.time = 1.5;
+        EXPECT_NEAR(sample_animation(data, &playback).value().matrices[0][3].x, 1.75f, .0001f);
+        playback.previous = {.clip = "move", .time = 0};
+        playback.blend = .5f;
+        EXPECT_NEAR(sample_animation(data, &playback).value().matrices[0][3].x, .875f, .0001f);
+        playback.current.second_clip = "missing";
+        EXPECT_FALSE(sample_animation(data, &playback));
+        EXPECT_FALSE(animation_duration(data, playback.current));
+        playback.current.weight = std::numeric_limits<float>::quiet_NaN();
+        EXPECT_FALSE(sample_animation(data, &playback));
+        EXPECT_EQ(data.clips.front().duration, 1);
+        EXPECT_EQ(data.clips.back().duration, 2);
+        const std::array rest{AnimationBlendPoint{0, ""}, AnimationBlendPoint{4, "move"}};
+        playback = {.current = blend_animation_1d(rest, 2).value()};
+        playback.current.time = .5;
+        EXPECT_FLOAT_EQ(animation_duration(data, playback.current).value(), 1);
+        EXPECT_NEAR(sample_animation(data, &playback).value().matrices[0][3].x, .5f, .0001f);
     }
     TEST(AnimationTest, PauseStepStopAndFrozenRenderSnapshotKeepPlaybackOutOfContent) {
         auto scene = std::make_shared<Scene>();
@@ -113,16 +177,16 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.advance(0.1));
         auto frozen = SceneExtractor::extract(*scene);
         ASSERT_TRUE(frozen.render_items.front().animation);
-        const double time = frozen.render_items.front().animation->time;
+        const double time = frozen.render_items.front().animation->current.time;
         const auto paused_playback = scene->get_animation_playback(entity);
         ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
         ASSERT_TRUE(runtime.advance(0.1));
-        EXPECT_EQ(scene->get_animation_playback(entity)->time, time);
+        EXPECT_EQ(scene->get_animation_playback(entity)->current.time, time);
         EXPECT_EQ(scene->get_animation_playback(entity), paused_playback);
         ASSERT_TRUE(runtime.request_step());
         ASSERT_TRUE(runtime.advance(0.1));
-        EXPECT_GT(scene->get_animation_playback(entity)->time, time);
-        EXPECT_EQ(frozen.render_items.front().animation->time, time);
+        EXPECT_GT(scene->get_animation_playback(entity)->current.time, time);
+        EXPECT_EQ(frozen.render_items.front().animation->current.time, time);
         EXPECT_EQ(serializer.serialize(*scene).value(), content);
         ASSERT_TRUE(runtime.stop());
         EXPECT_FALSE(scene->get_animation_playback(entity));
@@ -152,16 +216,16 @@ namespace Comet::Tests {
         const auto changed = scene.get_animation_playback(entity);
         ASSERT_TRUE(changed);
         EXPECT_NE(changed, frozen);
-        EXPECT_EQ(changed->clip, "walk");
-        EXPECT_EQ(changed->previous_clip, "idle");
+        EXPECT_EQ(changed->current.clip, "walk");
+        EXPECT_EQ(changed->previous.clip, "idle");
         EXPECT_LT(changed->blend, 1);
-        EXPECT_EQ(frozen->clip, "idle");
+        EXPECT_EQ(frozen->current.clip, "idle");
         ASSERT_TRUE(runtime.advance(0.1));
         const auto settled = scene.get_animation_playback(entity);
         ASSERT_TRUE(settled);
         EXPECT_NE(settled, changed);
         EXPECT_EQ(settled->blend, 1);
-        EXPECT_TRUE(settled->previous_clip.empty());
+        EXPECT_TRUE(settled->previous.clip.empty());
         EXPECT_LT(changed->blend, 1);
         ASSERT_TRUE(runtime.advance(0.1));
         EXPECT_EQ(scene.get_animation_playback(entity), settled);

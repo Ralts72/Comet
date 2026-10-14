@@ -1,22 +1,23 @@
 #pragma once
 
-#include "application.h"
+#include "common/error.h"
+#include "common/export.h"
 #include "common/result.h"
 
-#include <span>
-#include <string_view>
+#include <filesystem>
+#include <optional>
+#include <string>
 
 namespace Comet {
-    using ApplicationArguments = std::span<const std::string_view>;
-    using ApplicationFactory = Result<std::unique_ptr<Application>> (*)(ApplicationArguments);
+    struct LaunchOptions {
+        std::filesystem::path config_file;
+        std::string config_profile;
+        std::optional<std::filesystem::path> project_path;
+    };
 
-    COMET_API int launch(int argc, const char* const* argv, const LaunchOptions& options,
-        std::string_view arguments_usage, ApplicationFactory create_application);
+    using ApplicationEntry = Result<void, Error> (*)(const LaunchOptions&);
+
+    // App／Editor 共用命令行和退出码；项目加载、配置合成与会话归宿主。
+    COMET_API int launch(
+        int argc, const char* const* argv, LaunchOptions options, ApplicationEntry run_application);
 }
-
-#define RUN_APP(Factory, ...)                                                                      \
-    int main(int argc, char** argv) {                                                              \
-        return Comet::launch(argc, argv,                                                           \
-            {.config_file = COMET_CONFIG_FILE, .config_profile = COMET_CONFIG_PROFILE},            \
-            std::string_view{__VA_ARGS__}, Factory);                                               \
-    }

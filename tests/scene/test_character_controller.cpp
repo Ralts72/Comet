@@ -2,6 +2,7 @@
 #include "physics/physics_service.h"
 #include "asset/registry.h"
 #include "asset/script.h"
+#include "asset/import/mesh_importer.h"
 #include "audio/audio.h"
 #include "audio/audio_service.h"
 #include "core/project.h"
@@ -96,6 +97,73 @@ namespace Comet::Tests {
                 return player.get_component<TransformComponent>().translation;
             }
         };
+    }
+
+    TEST_F(CharacterControllerTest,
+        ActualSpeedDrivesContinuousAnimationAndKeepsPhaseAcrossThresholds) {
+        auto imported = MeshImporter{}.import(
+            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY).parent_path()
+            / "engine/resources/characters/default.glb");
+        ASSERT_TRUE(imported) << imported.error();
+        const auto data = imported.value().animation;
+        auto visual = scene.create_entity("Animated visual");
+        visual.add_component<MeshRendererComponent>();
+        visual.add_component<AnimatorComponent>(
+            AnimatorComponent{.transition = 0, .character = player.get_uuid()});
+        ASSERT_TRUE(runtime.add_system(
+            std::make_unique<AnimationSystem>([data](AssetHandle) { return data; })));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(step(12));
+        auto idle = scene.get_animation_playback(visual);
+        ASSERT_TRUE(idle);
+        EXPECT_EQ(idle->current.clip, "idle");
+        intent->direction = {.5f, 0};
+        ASSERT_TRUE(step());
+        auto walk = scene.get_animation_playback(visual);
+        EXPECT_EQ(walk->current.clip, "idle");
+        EXPECT_EQ(walk->current.second_clip, "walk");
+        EXPECT_NEAR(walk->current.weight, .5f, .01f);
+        EXPECT_GT(walk->current.time, idle->current.time);
+        EXPECT_TRUE(walk->previous.clip.empty());
+        intent->run = true;
+        intent->direction = {5.f / 6, 0};
+        ASSERT_TRUE(step());
+        auto run = scene.get_animation_playback(visual);
+        EXPECT_EQ(run->current.clip, "walk");
+        EXPECT_EQ(run->current.second_clip, "run");
+        EXPECT_NEAR(run->current.weight, .5f, .01f);
+        EXPECT_GT(run->current.time, walk->current.time);
+        EXPECT_TRUE(run->previous.clip.empty());
+        visual.edit_component<AnimatorComponent>(
+            [](auto& animation) { animation.transition = .15f; });
+        intent->direction = {0, 0};
+        ASSERT_TRUE(step());
+        const auto slowing = scene.get_animation_playback(visual);
+        EXPECT_EQ(slowing->current.clip, "walk");
+        EXPECT_EQ(slowing->current.second_clip, "run");
+        const float speed = 5 * std::exp(-1.f / 60 / .15f);
+        EXPECT_NEAR(slowing->current.weight, (speed - 4) / 2, .01f);
+        EXPECT_GT(slowing->current.time, run->current.time);
+        intent->crouch = true;
+        intent->direction = {.5f, 0};
+        ASSERT_TRUE(step());
+        auto crouch = scene.get_animation_playback(visual);
+        EXPECT_EQ(crouch->current.clip, "crouch");
+        EXPECT_EQ(crouch->current.second_clip, "crouch_walk");
+        EXPECT_NEAR(crouch->current.weight, .5f, .01f);
+        EXPECT_EQ(crouch->previous.clip, "walk");
+        EXPECT_EQ(crouch->previous.second_clip, "run");
+        EXPECT_LT(crouch->blend, 1);
+        ASSERT_TRUE(sample_animation(*data, crouch.get()));
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        ASSERT_TRUE(step());
+        EXPECT_EQ(scene.get_animation_playback(visual), crouch);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(step());
+        EXPECT_GT(scene.get_animation_playback(visual)->current.time, crouch->current.time);
+        EXPECT_NEAR(walk->current.weight, .5f, .01f);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(scene.get_animation_playback(visual));
     }
 
     TEST_F(CharacterControllerTest, FallsLandsAndJumpsOnlyFromWalkableGround) {
@@ -482,7 +550,12 @@ namespace Comet::Tests {
             ASSERT_TRUE(runtime.add_system(std::make_unique<CameraControllerSystem>()));
             ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(assets)));
             ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
-            ASSERT_TRUE(runtime.add_system(std::make_unique<AnimationSystem>()));
+            auto mesh = MeshImporter{}.import(
+                std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY).parent_path()
+                / "engine/resources/characters/default.glb");
+            ASSERT_TRUE(mesh) << mesh.error();
+            ASSERT_TRUE(runtime.add_system(std::make_unique<AnimationSystem>(
+                [data = mesh.value().animation](AssetHandle) { return data; })));
             ASSERT_TRUE(runtime.add_system(std::make_unique<AudioSystem>(audio)));
             input.focus_event(true);
             if(GetParam())

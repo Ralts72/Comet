@@ -14,15 +14,15 @@ namespace CometEditor {
         if(!m_animation || m_animation->clips.empty())
             return;
         if(m_animation->find_clip(initial_clip))
-            m_frame.clip = initial_clip;
+            m_frame.current.clip = initial_clip;
         else
-            m_frame.clip = m_animation->clips.front().name;
+            m_frame.current.clip = m_animation->clips.front().name;
     }
 
     void AnimationPreview::reset() {
         m_target = {};
         m_animation.reset();
-        m_frame = {.loop = false};
+        m_frame = {.current = {.loop = false}};
         m_snapshot.reset();
         m_playing = false;
         m_loop = true;
@@ -30,13 +30,13 @@ namespace CometEditor {
     }
 
     const Comet::AnimationClip* AnimationPreview::clip() const {
-        return m_animation ? m_animation->find_clip(m_frame.clip) : nullptr;
+        return m_animation ? m_animation->find_clip(m_frame.current.clip) : nullptr;
     }
 
     bool AnimationPreview::select_clip(std::string_view name) {
         if(!m_animation || !m_animation->find_clip(name))
             return false;
-        m_frame.clip = name;
+        m_frame.current.clip = name;
         return seek(0);
     }
 
@@ -44,7 +44,7 @@ namespace CometEditor {
         const auto* selected = clip();
         if(!selected || !std::isfinite(time))
             return false;
-        m_frame.time = std::clamp(time, 0.0, double(selected->duration));
+        m_frame.current.time = std::clamp(time, 0.0, double(selected->duration));
         pause();
         publish();
         return true;
@@ -54,8 +54,8 @@ namespace CometEditor {
         const auto* selected = clip();
         if(!selected || selected->duration <= 0)
             return false;
-        if(m_frame.time >= selected->duration)
-            m_frame.time = 0;
+        if(m_frame.current.time >= selected->duration)
+            m_frame.current.time = 0;
         m_playing = true;
         publish();
         return true;
@@ -63,7 +63,7 @@ namespace CometEditor {
 
     void AnimationPreview::stop() {
         pause();
-        m_frame.time = 0;
+        m_frame.current.time = 0;
         m_snapshot.reset();
     }
 
@@ -78,14 +78,14 @@ namespace CometEditor {
         const auto* selected = clip();
         if(!m_playing || !selected || !std::isfinite(delta_time) || delta_time <= 0)
             return;
-        const double next = m_frame.time + delta_time * m_speed;
+        const double next = m_frame.current.time + delta_time * m_speed;
         if(!std::isfinite(next))
             return;
         if(m_loop)
-            m_frame.time = std::fmod(next, double(selected->duration));
+            m_frame.current.time = std::fmod(next, double(selected->duration));
         else {
-            m_frame.time = std::min(next, double(selected->duration));
-            if(m_frame.time == selected->duration)
+            m_frame.current.time = std::min(next, double(selected->duration));
+            if(m_frame.current.time == selected->duration)
                 pause();
         }
         publish();

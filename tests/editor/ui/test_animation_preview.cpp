@@ -112,14 +112,14 @@ namespace CometEditor::Tests {
         frame(0.1);
         auto playing = scene.get_animation_playback(entity);
         ASSERT_TRUE(playing);
-        EXPECT_NEAR(playing->time, 0.1, 0.0001);
+        EXPECT_NEAR(playing->current.time, 0.1, 0.0001);
         click("###Animation Preview Time", 180);
         const auto positioned = scene.get_animation_playback(entity);
         ASSERT_TRUE(positioned);
-        EXPECT_GT(positioned->time, playing->time);
+        EXPECT_GT(positioned->current.time, playing->current.time);
         frame(0.5);
         EXPECT_EQ(scene.get_animation_playback(entity), positioned);
-        EXPECT_NEAR(playing->time, 0.1, 0.0001);
+        EXPECT_NEAR(playing->current.time, 0.1, 0.0001);
         click("###Play Animation Preview");
         frame(0.1);
         playing = scene.get_animation_playback(entity);
@@ -170,7 +170,7 @@ namespace CometEditor::Tests {
         frame();
         EXPECT_FALSE(scene.get_animation_playback(entity));
         EXPECT_FALSE(replacement.get_animation_playback(next));
-        EXPECT_DOUBLE_EQ(preview->time, 0.1);
+        EXPECT_DOUBLE_EQ(preview->current.time, 0.1);
     }
 
     TEST_F(AnimationPreviewUiTest, MissingMeshEndsPreviewAndReloadStartsWithFreshTime) {
@@ -189,8 +189,8 @@ namespace CometEditor::Tests {
         EXPECT_FALSE(scene.get_animation_playback(entity));
         click("###Play Animation Preview");
         ASSERT_TRUE(scene.get_animation_playback(entity));
-        EXPECT_DOUBLE_EQ(scene.get_animation_playback(entity)->time, 0);
-        EXPECT_DOUBLE_EQ(frozen->time, 0.1);
+        EXPECT_DOUBLE_EQ(scene.get_animation_playback(entity)->current.time, 0);
+        EXPECT_DOUBLE_EQ(frozen->current.time, 0.1);
     }
 }
 #endif

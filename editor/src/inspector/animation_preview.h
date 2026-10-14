@@ -31,7 +31,7 @@ namespace CometEditor {
         [[nodiscard]] Target target() const { return m_target; }
         [[nodiscard]] const Comet::AnimationData* animation() const { return m_animation.get(); }
         [[nodiscard]] const Comet::AnimationClip* clip() const;
-        [[nodiscard]] double time() const { return m_frame.time; }
+        [[nodiscard]] double time() const { return m_frame.current.time; }
         [[nodiscard]] bool playing() const { return m_playing; }
         [[nodiscard]] float speed() const { return m_speed; }
         [[nodiscard]] bool loop() const { return m_loop; }

@@ -2,9 +2,7 @@ if(NOT COMET_BUILD_APP)
     return()
 endif()
 
-set(SOURCES main.cpp)
-
-add_executable(app ${SOURCES})
+add_executable(app main.cpp game_app.cpp)
 target_link_libraries(app PRIVATE engine)
 comet_copy_runtime_dependencies(app)
 target_compile_definitions(app PRIVATE
