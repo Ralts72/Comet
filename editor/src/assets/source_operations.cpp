@@ -1,4 +1,5 @@
 #include "assets/source_operations.h"
+#include "asset/data/game_data.h"
 #include "asset/serialization/animation_controller_serializer.h"
 #include "scene/prefab.h"
 
@@ -45,6 +46,7 @@ namespace CometEditor::AssetSourceOperations {
     using Comet::AssetType;
     using Comet::AudioClip;
     using Comet::EnvironmentImporter;
+    using Comet::GameData;
     using Comet::is_lua_module_source;
     using Comet::is_source_only_path;
     using Comet::MaterialData;
@@ -131,6 +133,7 @@ namespace CometEditor::AssetSourceOperations {
                 case AssetType::Script:
                 case AssetType::Audio:
                 case AssetType::AnimationController:
+                case AssetType::Data:
                     return type;
                 default:
                     return std::nullopt;
@@ -470,6 +473,12 @@ namespace CometEditor::AssetSourceOperations {
                     return result;
                 if(std::ranges::find(roots, relative) == roots.end())
                     roots.push_back(relative);
+                if(*type == AssetType::Data && source_extension(source) == ".csv") {
+                    if(auto result = add_file(
+                           GameData::schema_path(source), GameData::schema_path(relative));
+                        !result)
+                        return result;
+                }
                 if(*type != AssetType::Model)
                     continue;
                 if(auto result = add_model_dependencies(source); !result)
@@ -541,6 +550,10 @@ namespace CometEditor::AssetSourceOperations {
                         return Result<void>::failure(
                             "Cannot validate standalone Lua import: " + script.error().message
                             + "; scripts requiring project modules must be created inside project assets");
+                    break;
+                case AssetType::Data:
+                    if(auto data = GameData::load(source); !data)
+                        return Result<void>::failure(data.error());
                     break;
                 case AssetType::AnimationController:
                     if(auto controller = AnimationControllerSerializer{}.load(source); !controller)
@@ -966,11 +979,14 @@ return script
 
     bool can_open_source(const AssetDatabase& database, const std::filesystem::path& source) {
         const auto extension = source_extension(source);
-        if(is_lua_module_source(source) || extension == ".glsl")
+        if(is_lua_module_source(source) || extension == ".glsl"
+            || source.filename().string().ends_with(".csv.schema.json"))
             return true;
         const auto* record = database.find(source);
         if(!record)
             return false;
+        if(record->type == AssetType::Data)
+            return true;
         if(extension == ".lua")
             return record->type == AssetType::Script;
         if(extension == ".ani")
@@ -1290,7 +1306,11 @@ return script
         if(error)
             return operation_error(
                 record.path, "Cannot resolve assets directory: " + error.message());
-        for(const auto& path : {source, metadata_file}) {
+        std::vector<std::filesystem::path> relative_files{record.path, metadata_path(record.path)};
+        if(record.type == AssetType::Data && source_extension(record.path) == ".csv")
+            relative_files.push_back(GameData::schema_path(record.path));
+        for(const auto& relative : relative_files) {
+            const auto path = paths.assets() / relative;
             if(auto valid = validate_inside(assets_root, path); !valid)
                 return operation_error(record.path, valid.error());
             const auto status = std::filesystem::symlink_status(path, error);
@@ -1299,8 +1319,7 @@ return script
                     record.path, "Asset source and metadata must be regular files");
         }
 
-        return remove_source_files(
-            database, std::array{record.path, metadata_path(record.path)}, handle, move_to_trash);
+        return remove_source_files(database, relative_files, handle, move_to_trash);
     }
 
     AssetScanReport remove_module(AssetDatabase& database, const std::filesystem::path& source,
@@ -1426,20 +1445,28 @@ return script
             }
             created_directories.push_back(directory);
         }
-        bool source_moved = false;
-        bool metadata_moved = false;
-        std::string source_rollback_error;
-        std::string metadata_rollback_error;
+        struct MoveFile {
+            std::filesystem::path source, target;
+            bool moved = false;
+        };
+        std::vector<MoveFile> files{{source, target}, {source_metadata, target_metadata}};
+        if(record.type == AssetType::Data && source_extension(source) == ".csv") {
+            const auto schema_source = GameData::schema_path(source);
+            const auto schema_target = GameData::schema_path(target);
+            if(auto valid = validate_inside(canonical_root, schema_source); !valid)
+                return operation_error(record.path, valid.error());
+            if(auto valid = validate_rename_destination(schema_source, schema_target); !valid)
+                return operation_error(destination_relative, valid.error());
+            files.push_back({schema_source, schema_target});
+        }
+        std::string rollback_error;
         const auto rollback = [&] {
-            if(metadata_moved) {
-                if(auto restored = rename_source_file(target_metadata, source_metadata); !restored)
-                    metadata_rollback_error = restored.error();
-                metadata_moved = false;
-            }
-            if(source_moved) {
-                if(auto restored = rename_source_file(target, source); !restored)
-                    source_rollback_error = restored.error();
-                source_moved = false;
+            for(auto it = files.rbegin(); it != files.rend(); ++it) {
+                if(!it->moved)
+                    continue;
+                if(auto restored = rename_source_file(it->target, it->source); !restored)
+                    rollback_error += restored.error() + "; ";
+                it->moved = false;
             }
             remove_created_directories(created_directories);
         };
@@ -1449,16 +1476,12 @@ return script
             if(error)
                 return operation_error(destination_relative,
                     "failed to create destination directory: " + error.message());
-
-            if(auto moved = rename_source_file(source, target); !moved)
-                return operation_error(
-                    destination_relative, "failed to move asset source: " + moved.error());
-            source_moved = true;
-
-            if(auto moved = rename_source_file(source_metadata, target_metadata); !moved)
-                return operation_error(
-                    destination_relative, "failed to move asset metadata: " + moved.error());
-            metadata_moved = true;
+            for(auto& file : files) {
+                if(auto moved = rename_source_file(file.source, file.target); !moved)
+                    return operation_error(
+                        destination_relative, "failed to move asset file: " + moved.error());
+                file.moved = true;
+            }
 
             auto report = candidate_database.scan();
             const AssetRecord* moved_record = candidate_database.find(handle);
@@ -1480,17 +1503,13 @@ return script
             return report;
         }
 
-        const bool files_changed = source_moved || metadata_moved;
+        const bool files_changed = std::ranges::any_of(files, &MoveFile::moved);
         rollback();
         rollback_on_exit.release();
         discard_scan_updates(report, database);
-        if(!metadata_rollback_error.empty() || !source_rollback_error.empty()) {
-            std::string message = "asset move failed and file rollback was incomplete";
-            if(!metadata_rollback_error.empty())
-                message += "; metadata: " + metadata_rollback_error;
-            if(!source_rollback_error.empty())
-                message += "; source: " + source_rollback_error;
-            report.issues.push_back({.path = destination_relative, .message = std::move(message)});
+        if(!rollback_error.empty()) {
+            report.issues.push_back({destination_relative,
+                "asset move failed and file rollback was incomplete: " + rollback_error});
         } else if(files_changed) {
             report.issues.push_back({.path = destination_relative,
                 .message =

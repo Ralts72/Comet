@@ -1,4 +1,6 @@
 #include "scripting/lua_bindings.h"
+#include "asset/data/game_data.h"
+#include <charconv>
 #include "animation/animation_controller.h"
 #include "asset/registry.h"
 #include "asset/script.h"
@@ -42,6 +44,85 @@ namespace Comet::LuaBindings {
         Context& current(lua_State* state) {
             return *static_cast<Context*>(lua_touserdata(state, lua_upvalueindex(1)));
         }
+        const GameData& data_asset(lua_State* state) {
+            if(lua_type(state, 1) != LUA_TSTRING)
+                luaL_error(state, "Data asset requires an identity string");
+            size_t size = 0;
+            const char* text = lua_tolstring(state, 1, &size);
+            uint64_t identity = 0;
+            const auto parsed = std::from_chars(text, text + size, identity);
+            if(!size || parsed.ec != std::errc{} || parsed.ptr != text + size || !identity
+                || *text == '0')
+                luaL_error(state, "Invalid data asset identity");
+            auto& context = current(state);
+            context.return_data =
+                context.assets ? context.assets->resolve<GameData>(AssetHandle(identity)) : nullptr;
+            if(!context.return_data)
+                luaL_error(state, "Data asset is not loaded; assign a data property in the scene");
+            return *context.return_data;
+        }
+
+        void push_data_value(lua_State* state, const GameDataValue& value);
+        void push_data_record(lua_State* state, const GameDataValue::Object& record) {
+            lua_createtable(state, 0, int(record.size()));
+            for(const auto& [key, value] : record) {
+                lua_pushlstring(state, key.data(), key.size());
+                push_data_value(state, value);
+                lua_rawset(state, -3);
+            }
+        }
+        void push_data_value(lua_State* state, const GameDataValue& value) {
+            if(!lua_checkstack(state, 4))
+                luaL_error(state, "Data nesting exceeds Lua stack capacity");
+            std::visit(
+                [&](const auto& data) {
+                    using T = std::decay_t<decltype(data)>;
+                    if constexpr(std::is_same_v<T, GameDataValue::Object>)
+                        push_data_record(state, data);
+                    else if constexpr(std::is_same_v<T, GameDataValue::Array>) {
+                        lua_createtable(state, int(data.size()), 0);
+                        lua_Integer index = 1;
+                        for(const auto& item : data) {
+                            push_data_value(state, item);
+                            lua_rawseti(state, -2, index++);
+                        }
+                    } else if constexpr(std::is_same_v<T, std::string>)
+                        lua_pushlstring(state, data.data(), data.size());
+                    else if constexpr(std::is_same_v<T, bool>)
+                        lua_pushboolean(state, data);
+                    else if constexpr(std::is_same_v<T, int64_t>)
+                        lua_pushinteger(state, data);
+                    else
+                        lua_pushnumber(state, data);
+                },
+                value.value);
+        }
+        int data_get(lua_State* state) {
+            if(lua_gettop(state) != 2 || lua_type(state, 2) != LUA_TSTRING)
+                return luaL_error(state, "data_get expects a data asset and record id");
+            const auto& data = data_asset(state);
+            size_t size = 0;
+            const char* id = lua_tolstring(state, 2, &size);
+            const auto* record = data.find(std::string_view(id, size));
+            if(record)
+                push_data_record(state, *record);
+            else
+                lua_pushnil(state);
+            return 1;
+        }
+        int data_ids(lua_State* state) {
+            if(lua_gettop(state) != 1)
+                return luaL_error(state, "data_ids expects one data asset");
+            const auto& data = data_asset(state);
+            lua_createtable(state, int(data.records().size()), 0);
+            lua_Integer index = 1;
+            for(const auto& [id, record] : data.records()) {
+                lua_pushlstring(state, id.data(), id.size());
+                lua_rawseti(state, -2, index++);
+            }
+            return 1;
+        }
+
         int log_message(lua_State* state) {
             if(lua_gettop(state) != 1 || lua_type(state, 1) != LUA_TSTRING)
                 return luaL_error(state, "comet.log expects exactly one string");
@@ -301,7 +382,7 @@ namespace Comet::LuaBindings {
         }
         std::optional<EntityUuid> queue_prefab(
             Context& context, std::string_view identity, std::optional<Math::Vec3> position) {
-            const auto handle = Script::prefab_handle(std::string(identity));
+            const auto handle = Script::asset_handle(std::string(identity));
             if(!handle || !*handle)
                 return std::nullopt;
             const auto prefab = context.assets->resolve<Prefab>(*handle);
@@ -1161,13 +1242,14 @@ namespace Comet::LuaBindings {
         lua_pushlightuserdata(state, &context);
         const luaL_Reg api[]{{"log", log_message}, {"rotate", rotate}, {"translate", translate},
             {"position", position}, {"self_entity", self_entity}, {"find_entity", find_entity},
-            {"create_entity", create_entity}, {"instantiate_prefab", instantiate_prefab},
-            {"destroy_entity", destroy_entity}, {"has_rigid_body", has_rigid_body},
-            {"remove_rigid_body", remove_rigid_body}, {"restart_scene", restart_scene},
-            {"load_scene", load_scene}, {"save_checkpoint", save_checkpoint},
-            {"load_checkpoint", load_checkpoint}, {"checkpoint", checkpoint},
-            {"play_one_shot", play_one_shot}, {"emit_particles", emit_particles},
-            {"clear_particles", clear_particles}, {"raycast", raycast}, {"shape_cast", shape_cast},
+            {"data_get", data_get}, {"data_ids", data_ids}, {"create_entity", create_entity},
+            {"instantiate_prefab", instantiate_prefab}, {"destroy_entity", destroy_entity},
+            {"has_rigid_body", has_rigid_body}, {"remove_rigid_body", remove_rigid_body},
+            {"restart_scene", restart_scene}, {"load_scene", load_scene},
+            {"save_checkpoint", save_checkpoint}, {"load_checkpoint", load_checkpoint},
+            {"checkpoint", checkpoint}, {"play_one_shot", play_one_shot},
+            {"emit_particles", emit_particles}, {"clear_particles", clear_particles},
+            {"raycast", raycast}, {"shape_cast", shape_cast},
             {"get_animation_parameter", get_animation_parameter},
             {"overlap_sphere", overlap_sphere}, {"apply_impulse", apply_impulse},
             {"apply_force", apply_force}, {"apply_impulse_at", apply_impulse_at},

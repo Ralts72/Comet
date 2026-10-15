@@ -439,12 +439,15 @@ namespace Comet {
                     const bool prefab = lua_type(state, -1) == LUA_TSTRING
                                         && lua_rawlen(state, -1) == 6
                                         && std::string_view(lua_tostring(state, -1)) == "prefab";
+                    const bool data = lua_type(state, -1) == LUA_TSTRING
+                                      && lua_rawlen(state, -1) == 4
+                                      && std::string_view(lua_tostring(state, -1)) == "data";
                     const bool color = lua_type(state, -1) == LUA_TSTRING
                                        && lua_rawlen(state, -1) == 5
                                        && std::string_view(lua_tostring(state, -1)) == "color";
                     lua_pop(state, 1);
                     if(declared) {
-                        if(!entity_reference && !color && !prefab)
+                        if(!entity_reference && !color && !prefab && !data)
                             return luaL_error(state, "Unknown script property type");
                         lua_pushnil(state);
                         while(lua_next(state, -2)) {
@@ -469,9 +472,10 @@ namespace Comet {
                             read_vector_value(state, value, true);
                             lua_pop(state, 1);
                             property.semantic = Property::Semantic::Color;
-                        } else if(prefab) {
+                        } else if(prefab || data) {
                             value = std::string{};
-                            property.semantic = Property::Semantic::Prefab;
+                            property.semantic =
+                                prefab ? Property::Semantic::Prefab : Property::Semantic::Data;
                         } else {
                             value = EntityUuid{};
                         }

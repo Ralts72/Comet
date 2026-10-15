@@ -707,6 +707,7 @@
         "script": {
           "asset": 14309634625000312005,
           "parameters": {
+            "collection": "6729301842000000001",
             "player": {
               "entity": "70a518f1-2c0e-4180-9ead-000000000001"
             },
@@ -798,6 +799,7 @@
             "script": {
               "asset": 14309634625000312005,
               "parameters": {
+                "collection": "6729301842000000001",
                 "level": 1,
                 "goal": 1
               }
@@ -889,6 +891,7 @@
         "script": {
           "asset": 14309634625000312005,
           "parameters": {
+            "collection": "6729301842000000001",
             "player": {
               "entity": "70a518f1-2c0e-4180-9ead-000000000001"
             },
@@ -980,6 +983,7 @@
             "script": {
               "asset": 14309634625000312005,
               "parameters": {
+                "collection": "6729301842000000001",
                 "level": 1,
                 "goal": 1
               }
@@ -1071,6 +1075,7 @@
         "script": {
           "asset": 14309634625000312005,
           "parameters": {
+            "collection": "6729301842000000001",
             "player": {
               "entity": "70a518f1-2c0e-4180-9ead-000000000001"
             },
@@ -1162,6 +1167,7 @@
             "script": {
               "asset": 14309634625000312005,
               "parameters": {
+                "collection": "6729301842000000001",
                 "level": 1,
                 "goal": 1
               }

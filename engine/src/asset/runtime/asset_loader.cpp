@@ -1,4 +1,5 @@
 #include "asset/runtime/asset_loader.h"
+#include "asset/data/game_data.h"
 #include "asset/serialization/animation_controller_serializer.h"
 #include "asset/default_assets.h"
 #include "asset/import/mesh_importer.h"
@@ -138,6 +139,20 @@ namespace Comet {
                 if(!path)
                     return Loaded::failure({path.error()});
                 return load(path.value());
+            });
+    }
+
+    Result<std::shared_ptr<GameData>, Error> AssetLoader::load_data(AssetHandle handle) {
+        return load_runtime_asset<GameData>(m_database, m_registry, handle, AssetType::Data,
+            [&](const AssetRecord& record) -> Result<std::shared_ptr<GameData>, Error> {
+                auto path = m_database.paths().resolve_asset_path(record.path);
+                if(!path)
+                    return Result<std::shared_ptr<GameData>, Error>::failure({path.error()});
+                auto data = GameData::load(path.value());
+                if(!data)
+                    return Result<std::shared_ptr<GameData>, Error>::failure({data.error()});
+                return Result<std::shared_ptr<GameData>, Error>::success(
+                    std::make_shared<GameData>(std::move(data).value()));
             });
     }
 

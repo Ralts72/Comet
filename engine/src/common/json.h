@@ -143,6 +143,7 @@ namespace Comet::Json {
         void value(std::uint64_t value);
         void value(std::int64_t value);
         void value(float value);
+        void value(double value);
 
         template<typename T> void field(std::string_view name, const T& data) {
             key(name);

@@ -1120,7 +1120,10 @@ namespace {
             }
             if(const auto request = m_inspector_panel->asset_inspector().take_asset_read()) {
                 const auto* record = m_assets->database().find(request->handle);
-                if(record && record->type == Comet::AssetType::AnimationController)
+                if(record && record->type == Comet::AssetType::Data)
+                    m_inspector_panel->asset_inspector().complete_asset_read(
+                        *request, m_assets->read_data(*request));
+                else if(record && record->type == Comet::AssetType::AnimationController)
                     m_inspector_panel->asset_inspector().complete_asset_read(
                         *request, m_assets->read_animation_controller(*request));
                 else

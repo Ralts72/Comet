@@ -1100,6 +1100,7 @@
         "script": {
           "asset": 14309634625000312005,
           "parameters": {
+            "collection": "6729301842000000001",
             "player": {
               "entity": "70a518f1-2c0e-4180-9ead-000000000001"
             },
@@ -1190,6 +1191,7 @@
             "script": {
               "asset": 14309634625000312005,
               "parameters": {
+                "collection": "6729301842000000001",
                 "level": 1,
                 "goal": 1
               }
@@ -1281,6 +1283,7 @@
         "script": {
           "asset": 14309634625000312005,
           "parameters": {
+            "collection": "6729301842000000001",
             "player": {
               "entity": "70a518f1-2c0e-4180-9ead-000000000001"
             },
@@ -1371,6 +1374,7 @@
             "script": {
               "asset": 14309634625000312005,
               "parameters": {
+                "collection": "6729301842000000001",
                 "level": 1,
                 "goal": 1
               }
@@ -1462,6 +1466,7 @@
         "script": {
           "asset": 14309634625000312005,
           "parameters": {
+            "collection": "6729301842000000001",
             "player": {
               "entity": "70a518f1-2c0e-4180-9ead-000000000001"
             },
@@ -1552,6 +1557,7 @@
             "script": {
               "asset": 14309634625000312005,
               "parameters": {
+                "collection": "6729301842000000001",
                 "level": 1,
                 "goal": 1
               }
@@ -2509,6 +2515,33 @@
           "end_size": 1.3,
           "texture": 0,
           "blend": "alpha"
+        }
+      }
+    },
+    {
+      "uuid": "fc7e4e9d-56b4-41ab-bd86-21747bd59454",
+      "components": {
+        "name": "烟雾排序示例：透明面板",
+        "transform": {
+          "translation": [
+            -2,
+            0.9,
+            4
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.2,
+            1
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 5783275031450616072,
+          "material": 5783275031450616075
         }
       }
     }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "asset/data/game_data.h"
+
 #include "asset/asset_manager.h"
 #include "assets/source_operations.h"
 #include "scene/prefab.h"
@@ -33,6 +35,8 @@ namespace CometEditor {
             Comet::AssetImportLimits limits = {},
             AssetSourceOperations::TrashMover trash_mover = {});
 
+        [[nodiscard]] Comet::Result<Comet::GameData> read_data(
+            const Comet::AssetTarget& target) const;
         [[nodiscard]] Comet::AssetScanReport refresh();
         [[nodiscard]] Comet::Result<std::optional<Comet::AssetScanReport>, Comet::Error> update(
             Clock::time_point now = Clock::now());

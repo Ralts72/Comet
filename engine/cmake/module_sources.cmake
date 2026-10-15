@@ -42,6 +42,7 @@ set(COMET_ASSET_DATA_SOURCES
     src/asset/metadata.cpp
     src/asset/registry.cpp
     src/asset/data/material_data.cpp
+    src/asset/data/game_data.cpp
     src/asset/serialization/material_serializer.cpp
     src/asset/serialization/metadata_serializer.cpp
     src/asset/serialization/shader_program_serializer.cpp

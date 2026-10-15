@@ -1,3 +1,5 @@
+#include "asset/data/game_data.h"
+#include "asset/default_assets.h"
 #include "asset/database.h"
 #include "asset/data/material_data.h"
 #include "asset/data/shader_program_data.h"
@@ -23,7 +25,7 @@ namespace Comet {
             std::filesystem::path relative_path;
             AssetType expected_type = AssetType::Unknown;
             std::optional<AssetMetadata> metadata;
-            std::variant<std::monostate, MaterialData, ShaderProgramData, std::string>
+            std::variant<std::monostate, MaterialData, ShaderProgramData, GameData, std::string>
                 parsed_source;
         };
 
@@ -292,7 +294,13 @@ namespace Comet {
                     continue;
                 }
             }
-            if(candidate.expected_type == AssetType::Material) {
+            if(candidate.expected_type == AssetType::Data) {
+                auto data = GameData::load(source);
+                if(data)
+                    candidate.parsed_source = std::move(data).value();
+                else
+                    candidate.parsed_source = data.error();
+            } else if(candidate.expected_type == AssetType::Material) {
                 auto material = MaterialSerializer{}.load(source);
                 if(material)
                     candidate.parsed_source = std::move(material).value();
@@ -508,12 +516,46 @@ namespace Comet {
                 std::ranges::unique(record.dependencies).begin(), record.dependencies.end());
         }
 
+        for(const AssetCandidate& candidate : candidates) {
+            if(candidate.expected_type != AssetType::Data)
+                continue;
+            const auto found = handles_by_path.find(candidate.relative_path);
+            if(found == handles_by_path.end())
+                continue;
+            auto& record = assets.at(found->second);
+            if(source_extension(record.path) == ".csv") {
+                const auto schema = GameData::schema_path(record.path);
+                import_dependencies_by_asset[record.handle] = {schema};
+                import_dependents_by_source[schema].push_back(record.handle);
+            }
+            const auto* data = std::get_if<GameData>(&candidate.parsed_source);
+            if(!data) {
+                add_issue(report, record.path, std::get<std::string>(candidate.parsed_source));
+                continue;
+            }
+            for(const auto& reference : data->references()) {
+                const auto input = assets.find(reference.handle);
+                const auto* builtin = find_default_asset(reference.handle);
+                if((input == assets.end() && (!builtin || builtin->type != reference.type))
+                    || (input != assets.end() && input->second.type != reference.type))
+                    add_issue(report, record.path,
+                        "Missing or mistyped data reference: "
+                            + std::to_string(reference.handle.value()));
+                record.dependencies.push_back(reference.handle);
+                dependents_by_dependency[reference.handle].push_back(record.handle);
+            }
+            std::ranges::sort(record.dependencies);
+            record.dependencies.erase(
+                std::unique(record.dependencies.begin(), record.dependencies.end()),
+                record.dependencies.end());
+        }
+
         for(auto& dependency : dependents_by_dependency) {
             std::ranges::sort(dependency.second);
         }
 
         for(const auto& [handle, dependencies] : m_import_dependencies_by_asset) {
-            if(!assets.contains(handle)) {
+            if(!assets.contains(handle) || assets.at(handle).type == AssetType::Data) {
                 continue;
             }
             import_dependencies_by_asset.emplace(handle, dependencies);

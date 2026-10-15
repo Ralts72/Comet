@@ -106,6 +106,7 @@ namespace Comet {
     AssetManager::RefreshResult AssetManager::schedule_refresh(const AssetRecord& record) {
         bool accepted = false;
         switch(record.type) {
+            case AssetType::Data:
             case AssetType::AnimationController:
             case AssetType::Audio:
                 // 活动实例保留旧资源；下次准备场景时加载新版，不在运行中替换实例。

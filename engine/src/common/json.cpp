@@ -206,6 +206,24 @@ namespace Comet::Json {
         m_output.append(buffer, end);
     }
 
+    void Writer::value(double data) {
+        if(!m_error.empty())
+            return;
+        if(!std::isfinite(data)) {
+            m_error = "Cannot serialize a non-finite JSON number";
+            return;
+        }
+        char buffer[64];
+        const auto [end, error] = std::to_chars(buffer, buffer + sizeof(buffer), data);
+        if(error != std::errc{}) {
+            m_error = "Cannot serialize JSON number";
+            return;
+        }
+        if(!before_value())
+            return;
+        m_output.append(buffer, end);
+    }
+
     Result<std::string> Writer::finish() && {
         if(!m_error.empty())
             return Result<std::string>::failure(std::move(m_error));

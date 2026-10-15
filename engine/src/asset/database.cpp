@@ -183,12 +183,17 @@ namespace Comet {
                 return std::nullopt;
             if(asset != m_handles_by_path.end()) {
                 const auto type = m_assets.at(asset->second).type;
-                if(type == AssetType::Material || type == AssetType::ShaderProgram)
+                if(type == AssetType::Material || type == AssetType::ShaderProgram
+                    || type == AssetType::Data)
                     return std::nullopt;
                 affected.insert(asset->second);
             }
-            if(importers != m_import_dependents_by_source.end())
+            if(importers != m_import_dependents_by_source.end()) {
+                for(const auto handle : importers->second)
+                    if(m_assets.at(handle).type == AssetType::Data)
+                        return std::nullopt;
                 affected.insert(importers->second.begin(), importers->second.end());
+            }
         }
 
         const std::vector<AssetHandle> direct(affected.begin(), affected.end());

@@ -26,7 +26,8 @@ namespace Comet {
         Audio,
         Model,
         Prefab,
-        AnimationController
+        AnimationController,
+        Data
     };
 
     [[nodiscard]] COMET_API std::string_view to_string(AssetType type) noexcept;

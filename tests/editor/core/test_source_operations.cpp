@@ -1,3 +1,4 @@
+#include "asset/data/game_data.h"
 #include "assets/source_operations.h"
 #include "asset/serialization/shader_program_serializer.h"
 #include "support/asset_manager_fixture.h"
@@ -7,6 +8,48 @@
 
 namespace Comet::Tests {
     namespace SourceOperations = CometEditor::AssetSourceOperations;
+
+    TEST(AssetDataSourceTest, CsvImportMoveAndDeleteKeepSchemaWithTheAsset) {
+        TemporaryProject project;
+        TemporaryDirectory external;
+        const auto source = external.path() / "stats.csv";
+        ASSERT_TRUE(write_text_file_atomic(source, "id,hp\nhero,100\n"));
+        ASSERT_TRUE(write_text_file_atomic(
+            GameData::schema_path(source), R"({"fields":{"hp":{"type":"integer","min":1}}})"));
+        AssetDatabase database(project.paths());
+        ASSERT_TRUE(database.scan().succeeded());
+        const std::array inputs{source};
+        auto imported = SourceOperations::import_files(database, inputs, {}, {});
+        ASSERT_TRUE(imported.succeeded()) << imported.issues.front().message;
+        const auto* record = database.find("stats.csv");
+        ASSERT_NE(record, nullptr);
+        const auto handle = record->handle;
+        EXPECT_TRUE(SourceOperations::can_open_source(database, "stats.csv"));
+        EXPECT_TRUE(SourceOperations::can_open_source(database, "stats.csv.schema.json"));
+        EXPECT_EQ(database.size(), 1u);
+        auto moved = SourceOperations::move(database, handle, "data/units.csv");
+        ASSERT_TRUE(moved.succeeded()) << moved.issues.front().message;
+        EXPECT_EQ(database.find(handle)->path, "data/units.csv");
+        EXPECT_FALSE(std::filesystem::exists(project.paths().assets() / "stats.csv.schema.json"));
+        EXPECT_TRUE(GameData::load(project.paths().assets() / "data/units.csv"));
+        // 已占用的字段说明不能被覆盖；失败保持完整的原资产。
+        ASSERT_TRUE(
+            write_text_file_atomic(project.paths().assets() / "occupied.csv.schema.json", "{}"));
+        EXPECT_FALSE(SourceOperations::move(database, handle, "occupied.csv").succeeded());
+        EXPECT_EQ(database.find(handle)->path, "data/units.csv");
+        EXPECT_TRUE(GameData::load(project.paths().assets() / "data/units.csv"));
+        int deleted = 0;
+        auto removed = SourceOperations::remove_asset(database, handle, [&](const auto& path) {
+            ++deleted;
+            std::filesystem::remove(path);
+            return Result<void>::success();
+        });
+        ASSERT_TRUE(removed.succeeded()) << removed.issues.front().message;
+        EXPECT_EQ(deleted, 3);
+        EXPECT_FALSE(
+            std::filesystem::exists(project.paths().assets() / "data/units.csv.schema.json"));
+        EXPECT_EQ(database.find(handle), nullptr);
+    }
 
     class AssetSourceCaseRenameTest: public ::testing::TestWithParam<bool> {
     protected:

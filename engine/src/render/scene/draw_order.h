@@ -7,8 +7,15 @@
 #include <algorithm>
 #include <functional>
 #include <numeric>
+#include <cmath>
 
 namespace Comet::DrawOrder {
+    // 视空间 -Z 朝前，升序即从远到近；透视与正交共用。
+    inline float camera_depth(const Math::Mat4& view, const Math::Vec4& world_position) {
+        const float depth = (view * world_position).z;
+        return std::isfinite(depth) ? depth : 0.0f;
+    }
+
     template<typename Range, typename Compare> void sort_if_needed(Range& items, Compare less) {
         if(!std::is_sorted(items.begin(), items.end(), less))
             std::sort(items.begin(), items.end(), less);

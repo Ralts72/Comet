@@ -126,10 +126,21 @@ namespace Comet {
             std::span<MaterialRenderer* const> renderers, const RenderWorld& world);
         // 调用方须先等待槽位、开启场景通道并设置视口与裁剪区域。
         // shadow_map 必须已处于片元 SampledRead；即使关闭阴影也需有效采样绑定。
-        [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render(
+        [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> prepare(
             FrameScheduler& frames, const RenderSubmission& submission,
             const RenderGeometry& geometry, const LightingData& lighting,
             const std::shared_ptr<ImageView>& shadow_map);
+        // 准备一次、按透明深度分段录制；本帧结束后释放借用的世界数据。
+        [[nodiscard]] std::span<const float> transparent_depths() const {
+            return m_transparent_depths;
+        }
+        void record_opaque(FrameScheduler& frames, std::vector<QueueSemaphoreSubmit>& waits);
+        void record_transparent(FrameScheduler& frames, size_t first, size_t count,
+            std::vector<QueueSemaphoreSubmit>& waits);
+        void clear_draws() {
+            m_draw_queue.clear();
+            m_transparent_depths.clear();
+        }
         [[nodiscard]] Statistics get_statistics() const;
         void reset_statistics() { m_statistics = {}; }
         void remove_assets(const AssetRegistry::Removals& removals);
@@ -305,6 +316,7 @@ namespace Comet {
         std::vector<size_t> m_material_order;
         std::vector<DrawCandidate> m_draw_candidates;
         std::vector<DrawItem> m_draw_queue;
+        std::vector<float> m_transparent_depths;
         std::vector<Math::Mat4> m_instance_transforms;
         Statistics m_statistics;
         bool m_has_runtime_instances = false;

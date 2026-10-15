@@ -319,10 +319,10 @@ Demo 双关卡包含流式背景音乐、空间脚步声和“空间音效示例
 “粒子纹理”可选择或拖入普通纹理，RGB 与粒子颜色相乘，Alpha 控制贡献；不指定时使用柔边圆形。
 纹理沿正常资产导入、热重载与导出链路使用；指定的纹理缺失时记录错误并跳过该批粒子。
 “混合方式”默认加法，适合火花与发光反馈；Alpha 适合烟雾和半透明色层，用当前颜色覆盖一部分背景。
-Billboard 面向相机，深度测试且不写深度，参与现有 HDR／Bloom。纯加法粒子按纹理合批；
-有 Alpha 粒子时，所有粒子按当前相机深度从远到近排列，只合并排序后相邻的同纹理／混合模式实例。
+Billboard 面向相机，深度测试且不写深度，参与现有 HDR／Bloom。纯加法且没有透明网格时按纹理合批；
+有 Alpha 粒子或透明网格时，所有粒子按当前相机深度从远到近排列，与透明网格交替绘制，只合并排序后连续的同状态实例。
 排序跨发射器，也包含加法粒子，因此烟雾能衰减后方火花；相机切换与暂停观察都会重新确定绘制顺序。
-当前粒子在普通透明网格之后绘制，尚未与玻璃等网格联合排序，交错时可能遮挡错误；不支持 soft particles 的表面柔化。
+透明网格按包围盒中心、粒子按中心深度联合排序；同深度先画网格。倾斜／相交网格和跨过大面积透明面的粒子仍可能出现局部错误，尚无 OIT 或 soft particles 表面柔化。
 单发射器最多 4096 个、单场景最多 65536 个粒子，满额请求直接丢弃，不延迟补发。
 模拟走固定步、暂停／单步与 Stop／切关清理；场景和 Prefab 只保存配置，不保存存活粒子。
 
@@ -330,8 +330,8 @@ Edit 中选中单个发射器，在 Inspector 的“粒子预览”点击播放�
 爆发使用配置数量；数量为 0 时预览发射最多 32 个。未播放时爆发停留在出生瞬间，可继续播放或单步观察。
 预览只模拟该发射器，不运行游戏脚本，也不修改场景内容或撤销历史；选择其他实体、折叠组件或进入 Play 会清理预览。
 Demo 双关卡使用 `textures/particles/spark.png` 展示收集火花，`default.scene` 保留无纹理圆形反馈。
-第一关起点旁的“烟雾示例（Alpha）”可在 App／Play 观察，也可选中后在 Edit 预览。
-粒子与透明网格联合排序、碰撞和 GPU 模拟继续按路线图扩展。
+第一关起点旁的“烟雾示例（Alpha）”与“烟雾排序示例：透明面板”可在 App／Play 转动相机观察，也可选中发射器在 Edit 预览。
+OIT、碰撞和 GPU 模拟继续按路线图扩展。
 
 ### 玩家改键与保存
 
@@ -364,22 +364,84 @@ return script
 ```
 
 `properties` 声明 bool、float、string、Vec3、Vec4 和实体引用，Inspector 只保存编辑过的参数覆盖。
-`self.parameters` 为只读配置；三／四分量数组表示 Vec3／Vec4，颜色、实体引用与 Prefab 引用显式声明：
+`self.parameters` 为只读配置；三／四分量数组表示 Vec3／Vec4，颜色、实体引用与资产引用显式声明：
 
 ```lua
 script.properties = {
     tint = {type = "color", default = {0.2, 1, 0.25, 1}},
     target = {type = "entity"},
     unit = {type = "prefab"},
+    stats = {type = "data"},
 }
 ```
 
-颜色按线性 RGBA 使用，不根据变量名猜测类型。实体字段支持下拉选择和 Hierarchy 拖入。Prefab 字段在 Inspector 下拉选择项目资产，默认未分配；内部使用精确资产身份，Lua 无需填写 ID。
+颜色按线性 RGBA 使用，不根据变量名猜测类型。实体字段支持下拉选择和 Hierarchy 拖入。Prefab／Data 字段在 Inspector 下拉选择对应类型的项目资产，默认未分配；内部使用精确资产身份，Lua 无需填写 ID。
 参数右键“使用脚本默认值”删除单项覆盖；“恢复默认参数”或“移除不兼容参数覆盖”支持场景撤销。
 
 Project 右键“打开源码”使用外部编辑器；macOS 优先 VS Code。Lua 支持 UTF-8、可选文件头 BOM、LF／CRLF。
 Editor 保存源码后重载关联行为：暂停时等待继续或单步；成功重建实例并重新执行 `on_start`，会话值保留，任意 `self` 状态不迁移。
 语法／声明错误保留旧版本并报告；新实例的启动执行错误会停止 Runtime，Editor 恢复 Edit。独立 App 不自动监视源码。
+
+### 游戏数值资产
+
+平面数值使用 UTF-8 CSV，例如 `assets/data/characters.csv`：
+
+```csv
+id,name,hp,speed
+hero,主角,100,4.5
+slime,史莱姆,20,1.5
+```
+
+同目录的 `characters.csv.schema.json` 声明字段类型与范围，`id` 是必需且唯一的字符串，不重复声明：
+
+```json
+{
+  "fields": {
+    "name": {"type": "string"},
+    "hp": {"type": "integer", "min": 1, "max": 10000},
+    "speed": {"type": "number", "min": 0}
+  }
+}
+```
+
+复杂数据使用 `*.data.json`，同一文件保存 `fields` 与 `rows`：
+
+```json
+{
+  "fields": {"effects": {"type": "json"}},
+  "rows": [{"id": "slash", "effects": [{"kind": "damage", "amount": 10}]}]
+}
+```
+
+字段支持 `string`、`bool`、`integer`、`number`、`json` 和 `asset`。`json` 接受嵌套对象／数组，里面的技能规则由项目解释；
+`asset` 额外声明 `asset_type`（如 `data`、`prefab`、`audio`），值为十进制资产身份字符串，引用随依赖闭包加载和导出。
+仅声明为 `asset` 的顶层字段参与资源依赖提取，嵌套 JSON 内的普通字符串不会自动成为资产引用。
+所有声明字段必填，未知字段、重复 ID／键、错误类型、越界和缺失／错类型资产引用会报错；无效数据不会当作默认值继续导出。
+CSV 支持 BOM、CRLF、引号内逗号／换行与双引号转义；布尔写 `true`／`false`，数字使用小数点。
+数值整数限于 ±(2⁵³−1)，完整 64 位资产身份使用字符串。嵌套值不支持 `null`，可省略嵌套对象中的可选键。
+单文件最多 16 MiB、10000 条记录、63 个声明字段、100000 个数据节点和 32 层嵌套。
+
+把文件放入项目 `assets/` 并刷新资源，或拖入 CSV／JSON 文件导入；CSV 的字段说明会随源文件复制、移动和删除。
+只有数据源生成 `.meta`，字段说明没有独立资产身份。选中数据源可在 Inspector 查看表格；资源右键“打开源码”修改内容，CSV 字段说明也能打开。
+首版提供只读预览，CSV 可用表格工具编辑，JSON 用代码编辑器。修改后刷新资源并重新进入 Play，验证新值；不自动重置游戏中的当前属性。
+
+```lua
+local script = {properties = {stats = {type = "data"}}}
+
+function script:on_start()
+    -- 在 Inspector 中为 stats 选择数据资产。
+    self.base = assert(comet.data_get(self.parameters.stats, "hero"), "缺少 hero 数值")
+    self.hp = self.base.hp
+    -- comet.data_ids(self.parameters.stats) 返回按 ID 排序的记录列表。
+end
+
+return script
+```
+
+查询只访问已经加载的资产，不在 Lua 回调中读文件；缺失记录返回 `nil`，未加载／错类型的资产报错。
+返回值是独立 Lua 表，修改它不会影响共享基础数据或其他实体；建议在初始化时读取，当前生命值、装备和 Buff 由项目维护。
+导出将 CSV 与 JSON 统一写为规范化 JSON 产品，保留身份与依赖，不携带 CSV 或字段说明文件，也不依赖开发机缓存。
+Demo 的 `collection.csv` 控制收集粒子数，并引用 `feedback.data.json` 的信标位移；两个关卡共用这些基础数值。
 
 ### Lua 实体与会话
 

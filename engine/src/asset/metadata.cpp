@@ -15,6 +15,8 @@ namespace Comet {
 
     std::string_view to_string(const AssetType type) noexcept {
         switch(type) {
+            case AssetType::Data:
+                return "data";
             case AssetType::AnimationController:
                 return "animation_controller";
             case AssetType::Prefab:
@@ -46,6 +48,8 @@ namespace Comet {
     }
 
     std::optional<AssetType> asset_type_from_string(const std::string_view value) noexcept {
+        if(value == "data")
+            return AssetType::Data;
         if(value == "animation_controller")
             return AssetType::AnimationController;
         if(value == "prefab")
@@ -92,6 +96,8 @@ namespace Comet {
 
     bool is_source_only_path(const std::filesystem::path& path) {
         const auto extension = source_extension(path);
+        if(lowercase(path.filename().string()).ends_with(".schema.json"))
+            return true;
         if(extension == ".bin" || extension == ".glsl" || extension == ".rml"
             || extension == ".rcss")
             return true;
@@ -103,6 +109,8 @@ namespace Comet {
 
     std::optional<AssetType> asset_type_from_path(const std::filesystem::path& path) {
         const auto extension = source_extension(path);
+        if(extension == ".csv" || lowercase(path.filename().string()).ends_with(".data.json"))
+            return AssetType::Data;
         if(extension == ".hdr")
             return AssetType::Environment;
         if(extension == ".png" || extension == ".jpg" || extension == ".jpeg")

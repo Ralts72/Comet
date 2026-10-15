@@ -113,6 +113,7 @@ namespace Comet {
             CommandBuffer& command, const RenderSubmission& submission,
             const RenderGeometry& geometry, const LineDrawList& lines,
             const LightingData& lighting);
+        void record_transparent(FrameScheduler& frames, std::vector<QueueSemaphoreSubmit>& waits);
 
         Device& m_device;
         MaterialPrograms& m_programs;

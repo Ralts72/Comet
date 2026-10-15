@@ -17,6 +17,7 @@
 namespace Comet {
     class Script;
     class COMET_API Prefab;
+    class COMET_API GameData;
     struct ComponentDescriptor {
         std::string id;
         std::string display_name;
@@ -97,6 +98,7 @@ namespace Comet {
             Scene& scene,
             const std::function<Result<std::shared_ptr<Script>, Error>(AssetHandle)>& load_script,
             const std::function<Result<std::shared_ptr<Prefab>, Error>(AssetHandle)>& load_prefab,
+            const std::function<Result<std::shared_ptr<GameData>, Error>(AssetHandle)>& load_data,
             bool allow_missing = false) const;
 
         [[nodiscard]] const std::vector<ComponentDescriptor>& components() const {

@@ -36,6 +36,13 @@ namespace CometEditor {
             LOG_WARN("Asset source monitor is using periodic fallback scans");
     }
 
+    Comet::Result<Comet::GameData> EditorAssets::read_data(const Comet::AssetTarget& target) const {
+        const auto* record = m_database.find(target.handle);
+        if(!record || record->type != Comet::AssetType::Data || !m_database.is_current(target))
+            return Comet::Result<Comet::GameData>::failure("Data read is stale");
+        return Comet::GameData::load(m_database.paths().assets() / record->path);
+    }
+
     Comet::Result<Comet::AnimationController> EditorAssets::read_animation_controller(
         const Comet::AssetTarget& target) const {
         const auto* record = m_database.find(target.handle);

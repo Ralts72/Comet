@@ -13,6 +13,7 @@ struct lua_State;
 namespace Comet {
     class InputState;
     class AssetRegistry;
+    class COMET_API GameData;
     class ComponentRegistry;
     class MaterialParameterValidator;
     class Scene;
@@ -32,6 +33,7 @@ namespace Comet {
             std::uint64_t scene_generation = 0;
             // 由 lua_pcall 外的宿主持有，Lua 内存错误不能跳过 C++ 对象析构。
             std::optional<ParameterValue> return_value;
+            std::shared_ptr<const GameData> return_data;
             std::vector<EntityUuid> query_entities;
             const MaterialParameterValidator* materials = nullptr;
             bool can_request_scene = false;

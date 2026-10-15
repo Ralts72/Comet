@@ -1613,9 +1613,13 @@ namespace Comet::Tests {
                 draw_world, ViewProjectMatrix{.view = Math::Mat4(1), .projection = Math::Mat4(1)}};
             RenderGeometry geometry;
             geometry.prepare(draw_world);
-            const auto waits = materials->render(frames, draw_submission, geometry, lighting,
+            auto waits = materials->prepare(frames, draw_submission, geometry, lighting,
                 shadow_input.value()->get_image_view());
             ASSERT_TRUE(waits) << waits.error();
+            materials->record_opaque(frames, waits.value());
+            materials->record_transparent(
+                frames, 0, materials->transparent_depths().size(), waits.value());
+            materials->clear_draws();
             EXPECT_EQ(materials->get_statistics().drawn_instances, 6u);
             EXPECT_EQ(materials->get_statistics().draw_calls, iteration == 3 ? 2u : 3u);
             EXPECT_EQ(materials->get_statistics().instanced_draw_calls,

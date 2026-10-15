@@ -79,6 +79,7 @@ namespace CometEditor {
         m_texture_import_settings.reset();
         m_audio_import_settings.reset();
         m_material_data.reset();
+        m_data.reset();
         m_controller_data.reset();
         m_controller_saved.reset();
         m_controller_editor.close();
@@ -184,6 +185,10 @@ namespace CometEditor {
             ImGui::TextColored(ImVec4(0.9f, 0.25f, 0.2f, 1.0f), "%s", m_asset_error.c_str());
         }
 
+        if(record->type == Comet::AssetType::Data) {
+            render_data();
+            return;
+        }
         if(record->type == Comet::AssetType::AnimationController) {
             if(m_controller_data)
                 render_animation_controller();
@@ -215,6 +220,63 @@ namespace CometEditor {
             return;
         }
         ImGui::TextDisabled("%s", "此资产类型暂无属性编辑器");
+    }
+
+    void AssetInspector::complete_asset_read(
+        const Comet::AssetTarget& request, Comet::Result<Comet::GameData> result) {
+        if(request != m_loaded_target || m_selected_asset != request.handle
+            || !m_asset_database.is_current(request))
+            return;
+        if(result)
+            m_data = std::move(result).value();
+        else
+            m_asset_error = result.error();
+    }
+
+    void AssetInspector::render_data() {
+        if(!m_data)
+            return;
+        ImGui::Text("记录：%zu  字段：%zu", m_data->records().size(), m_data->fields().size());
+        ImGui::TextWrapped(
+            "只读预览。通过资源菜单打开源码修改；CSV 字段说明保存在同名 .schema.json 中。修改后刷新资源，再重新进入 Play。运行中的副本不会改写基础数值。");
+        if(!ImGui::BeginTable("Data records", int(m_data->fields().size() + 1),
+               ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollX
+                   | ImGuiTableFlags_ScrollY,
+               ImVec2(0, 300)))
+            return;
+        ImGui::TableSetupScrollFreeze(1, 1);
+        ImGui::TableSetupColumn("ID");
+        for(const auto& [key, field] : m_data->fields())
+            ImGui::TableSetupColumn(key.c_str());
+        ImGui::TableHeadersRow();
+        ImGuiListClipper clipper;
+        clipper.Begin(int(m_data->records().size()));
+        while(clipper.Step()) {
+            auto record = m_data->records().begin();
+            std::advance(record, clipper.DisplayStart);
+            for(int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row, ++record) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(record->first.c_str());
+                for(const auto& [key, field] : m_data->fields()) {
+                    ImGui::TableNextColumn();
+                    std::visit(
+                        [](const auto& value) {
+                            using T = std::decay_t<decltype(value)>;
+                            if constexpr(std::is_same_v<T, std::string>)
+                                ImGui::TextUnformatted(value.c_str());
+                            else if constexpr(std::is_same_v<T, bool>)
+                                ImGui::TextUnformatted(value ? "true" : "false");
+                            else if constexpr(std::is_arithmetic_v<T>)
+                                ImGui::Text("%.12g", double(value));
+                            else
+                                ImGui::Text("%zu 项（打开 JSON 查看）", value.size());
+                        },
+                        record->second.at(key).value);
+                }
+            }
+        }
+        ImGui::EndTable();
     }
 
     void AssetInspector::render_audio(const Comet::AssetRecord& record) {
@@ -515,6 +577,7 @@ namespace CometEditor {
         m_texture_import_settings.reset();
         m_audio_import_settings.reset();
         m_material_data.reset();
+        m_data.reset();
         m_controller_data.reset();
         m_controller_saved.reset();
         m_template_change.reset();
@@ -537,7 +600,8 @@ namespace CometEditor {
             return;
         }
         if(record.type != Comet::AssetType::Material
-            && record.type != Comet::AssetType::AnimationController) {
+            && record.type != Comet::AssetType::AnimationController
+            && record.type != Comet::AssetType::Data) {
             return;
         }
 

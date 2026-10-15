@@ -10,6 +10,95 @@
 #include <algorithm>
 
 namespace Comet::Tests {
+    TEST_F(RenderGraphGpuTest, ParticlesAndTransparentMeshesShareDepthOrderAndSurvivePassSwitches) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        auto mesh = lit_quad();
+        ASSERT_TRUE(mesh);
+        auto green = std::make_shared<Material>("glass green", "unlit_color");
+        auto blue = std::make_shared<Material>("glass blue", "unlit_color");
+        ASSERT_TRUE(green->set_vector_property("color", {0, 1, 0, .5}));
+        ASSERT_TRUE(blue->set_vector_property("color", {0, 0, 1, .5}));
+        const MaterialSurface transparent{.alpha_mode = AlphaMode::Blend, .double_sided = true};
+        ASSERT_TRUE(green->set_surface(transparent));
+        ASSERT_TRUE(blue->set_surface(transparent));
+        auto particles = std::make_shared<ParticleSnapshot>();
+        particles->instances = {{{0, 0, 1, 1}, {1, 0, 0, .5}}, {{0, 0, -2, 1}, {1, 0, 0, .5}},
+            {{0, 0, -.5, 1}, {1, 1, 0, .25}}};
+        particles->batches = {
+            {{}, 0, 2, ParticleBlend::Alpha}, {{}, 2, 1, ParticleBlend::Additive}};
+        const auto original = particles->instances;
+        auto additive = std::make_shared<ParticleSnapshot>(*particles);
+        additive->batches[0].blend = ParticleBlend::Additive;
+        MaterialPrograms programs;
+        auto scene = create_scene(programs, {33, 33});
+        ASSERT_TRUE(scene);
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        std::array<std::shared_ptr<Readback>, 7> pixels;
+        Format format{};
+        for(unsigned frame = 0; frame < pixels.size(); ++frame) {
+            SCOPED_TRACE(frame);
+            if(frame == 5)
+                ASSERT_TRUE(green->set_surface({.double_sided = true}));
+            if(frame == 6) {
+                ASSERT_TRUE(green->set_surface(transparent));
+                scene = create_scene(programs, {33, 33}, SampleCount::Count4);
+                ASSERT_TRUE(scene);
+            }
+            RenderWorld world;
+            if(frame != 3) {
+                world.render_items = {
+                    {.entity_id = 1,
+                        .model_matrix = Math::translate(Math::Mat4(1), {0, 0, -.5f}),
+                        .mesh = mesh,
+                        .material = {.resource = green}},
+                    {.entity_id = 2,
+                        .model_matrix = Math::translate(Math::Mat4(1), {0, 0, -1.5f}),
+                        .mesh = mesh,
+                        .material = {.resource = blue}}};
+            }
+            if(frame != 4) {
+                world.particles = frame == 2 ? additive : particles;
+                world.particle_textures.resize(2);
+            }
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            const float camera_z = frame == 1 ? -4 : 4;
+            RenderSubmission submission{
+                world, ViewProjectMatrix{Math::look_at({0, 0, camera_z}, {0, 0, 0}, {0, 1, 0}),
+                           Math::ortho(-1, 1, -1, 1, .1f, 10)}};
+            ASSERT_TRUE(scene.value()->prepare_material_programs(world));
+            begin_frame(frames);
+            const auto slot = frames.get_current_frame_slot_index();
+            auto drawn = scene.value()->render(frames, submission, geometry);
+            ASSERT_TRUE(drawn) << drawn.error();
+            EXPECT_EQ(scene.value()->get_material_statistics().draw_calls, frame == 3 ? 0u : 2u);
+            pixels[frame] = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), 33 * 33 * 4);
+            const auto output = scene.value()->get_offscreen_color_view(slot);
+            format = output->get_image()->get_info().format;
+            copy_output(frames, output->get_image(), pixels[frame], {33, 33});
+            submit(device, frames, drawn.value());
+        }
+        frames.wait_for_all_slots();
+        EXPECT_EQ(particles->instances, original);
+        const std::array expected{Math::Vec3{.625, .3125, .125}, Math::Vec3{.625, .1875, .25},
+            Math::Vec3{.75, .625, .25}, Math::Vec3{.875, .125, 0}, Math::Vec3{0, .5, .25},
+            Math::Vec3{.5, .5, 0}, Math::Vec3{.625, .3125, .125}};
+        const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+        for(unsigned frame = 0; frame < pixels.size(); ++frame) {
+            const auto bytes = pixels[frame]->read();
+            for(unsigned channel = 0; channel < 3; ++channel) {
+                const auto component = bgra ? 2 - channel : channel;
+                EXPECT_NEAR(std::to_integer<int>(bytes[(16 * 33 + 16) * 4 + component]),
+                    mapped_byte(expected[frame][channel]), 2)
+                    << frame;
+            }
+        }
+    }
+
     TEST_F(RenderGraphGpuTest, ParticleAlphaSortsAcrossTexturesAndBlendsForEachCamera) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();

@@ -114,11 +114,14 @@ namespace CometEditor {
                     edit_entity_reference(label.c_str(), value, scene, drop_generation);
                 return PropertyEditResult{.changed = changed, .finished = changed};
             } else {
-                if(property.semantic == Comet::Script::Property::Semantic::Prefab) {
+                if(property.semantic == Comet::Script::Property::Semantic::Prefab
+                    || property.semantic == Comet::Script::Property::Semantic::Data) {
                     descriptor.type = Comet::PropertyType::AssetHandle;
-                    descriptor.asset_type = Comet::AssetType::Prefab;
-                    auto handle =
-                        Comet::Script::prefab_handle(value).value_or(Comet::AssetHandle{});
+                    descriptor.asset_type =
+                        property.semantic == Comet::Script::Property::Semantic::Prefab
+                            ? Comet::AssetType::Prefab
+                            : Comet::AssetType::Data;
+                    auto handle = Comet::Script::asset_handle(value).value_or(Comet::AssetHandle{});
                     const auto edited = registry.edit_property(descriptor, &handle);
                     if(edited.changed)
                         value = handle ? std::to_string(handle.value()) : std::string{};

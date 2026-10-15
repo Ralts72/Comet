@@ -1,0 +1,13 @@
+{
+  "fields": {
+    "particles": {
+      "type": "integer",
+      "min": 0,
+      "max": 64
+    },
+    "feedback": {
+      "type": "asset",
+      "asset_type": "data"
+    }
+  }
+}

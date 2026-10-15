@@ -9,7 +9,6 @@
 #include "common/scope_exit.h"
 
 #include <algorithm>
-#include <cmath>
 #include <functional>
 #include <tuple>
 
@@ -119,8 +118,8 @@ namespace Comet {
         for(auto& draw : queue) {
             if(draw.material->prepared->surface.alpha_mode == AlphaMode::Blend) {
                 const auto center = draw.item->mesh->get_local_bounds().center();
-                const auto position = view * draw.item->model_matrix * Math::Vec4(center, 1);
-                draw.camera_depth = std::isfinite(position.z) ? position.z : 0.0f;
+                draw.camera_depth =
+                    DrawOrder::camera_depth(view, draw.item->model_matrix * Math::Vec4(center, 1));
             }
             if(draw.mirrored && !draw.material->mirrored_draws) {
                 auto pipelines = create_surface_pipelines(m_pipeline_manager,

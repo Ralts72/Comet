@@ -1,4 +1,5 @@
 #include "scene/component_registry.h"
+#include "asset/data/game_data.h"
 #include "asset/script.h"
 #include <unordered_set>
 
@@ -212,6 +213,7 @@ namespace Comet {
         Scene& scene,
         const std::function<Result<std::shared_ptr<Script>, Error>(AssetHandle)>& load_script,
         const std::function<Result<std::shared_ptr<Prefab>, Error>(AssetHandle)>& load_prefab,
+        const std::function<Result<std::shared_ptr<GameData>, Error>(AssetHandle)>& load_data,
         bool allow_missing) const {
         using Collected = Result<std::vector<AssetReference>, Error>;
         std::vector<AssetReference> references;
@@ -242,11 +244,24 @@ namespace Comet {
         };
         if(auto added = append(scene); !added)
             return Collected::failure(added.error());
-        std::unordered_set<AssetHandle> prefabs;
+        std::unordered_set<AssetHandle> expanded;
         for(std::size_t index = 0; index < references.size(); ++index) {
             const auto reference = references[index];
-            if(reference.type != AssetType::Prefab || !prefabs.insert(reference.handle).second)
+            if(reference.type != AssetType::Prefab && reference.type != AssetType::Data)
                 continue;
+            if(!expanded.insert(reference.handle).second)
+                continue;
+            if(reference.type == AssetType::Data) {
+                auto data = load_data(reference.handle);
+                if(!data) {
+                    if(allow_missing)
+                        continue;
+                    return Collected::failure(data.error());
+                }
+                const auto& inputs = data.value()->references();
+                references.insert(references.end(), inputs.begin(), inputs.end());
+                continue;
+            }
             const auto prefab = load_prefab(reference.handle);
             if(!prefab) {
                 if(allow_missing)

@@ -1,4 +1,5 @@
 #include "asset/asset_manager.h"
+#include "asset/data/game_data.h"
 #include "audio/audio.h"
 #include "animation/animation_controller.h"
 #include "asset/default_assets.h"
@@ -134,6 +135,8 @@ namespace Comet {
             return Result<void, Error>::success();
         };
         switch(expected_type) {
+            case AssetType::Data:
+                return status(load_data(handle));
             case AssetType::AnimationController:
                 return status(load_animation_controller(handle));
             case AssetType::Prefab:
@@ -221,6 +224,10 @@ namespace Comet {
         return m_loader->load_animation_controller(handle);
     }
 
+    Result<std::shared_ptr<GameData>, Error> AssetManager::load_data(AssetHandle handle) {
+        return m_loader->load_data(handle);
+    }
+
     Result<std::shared_ptr<Prefab>, Error> AssetManager::load_prefab(
         AssetHandle handle, const ComponentRegistry& components) {
         return m_loader->load_prefab(handle, components);
@@ -231,6 +238,7 @@ namespace Comet {
         return components.collect_runtime_references(
             scene, [this](AssetHandle handle) { return load_script(handle); },
             [this, &components](AssetHandle handle) { return load_prefab(handle, components); },
+            [this](AssetHandle handle) { return load_data(handle); },
             policy == MissingAssetPolicy::AllowMissing);
     }
 

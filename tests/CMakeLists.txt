@@ -16,6 +16,7 @@ set(UNIT_TEST_SOURCES
         asset/test_asset_publication.cpp
         asset/test_asset_task_queue.cpp
         asset/test_database.cpp
+        asset/test_game_data.cpp
         asset/test_environment_artifact.cpp
         asset/test_environment_importer.cpp
         asset/test_handle.cpp

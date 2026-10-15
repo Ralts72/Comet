@@ -1,3 +1,4 @@
+#include "asset/data/game_data.h"
 #include "gameplay/character_animation.h"
 #include "asset/serialization/animation_controller_serializer.h"
 #include "asset/default_assets.h"
@@ -528,6 +529,14 @@ namespace Comet::Tests {
         void SetUp() override {
             const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);
             ASSERT_TRUE(project) << project.error();
+            for(const auto& [handle, path] :
+                {std::pair{6729301842000000001ULL, "data/collection.csv"},
+                    std::pair{6729301842000000002ULL, "data/feedback.data.json"}}) {
+                auto data = GameData::load(project.value().paths().assets() / path);
+                ASSERT_TRUE(data) << data.error();
+                ASSERT_TRUE(assets.register_asset(
+                    AssetHandle(handle), std::make_shared<GameData>(std::move(data).value())));
+            }
             const std::array<std::filesystem::path, 3> paths{"scripts/character.lua",
                 "scripts/character_goal.lua", "scripts/moving_platform.lua"};
             auto scripts = Script::load_group(project.value().paths().assets(), paths);

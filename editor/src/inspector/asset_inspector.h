@@ -1,5 +1,7 @@
 #pragma once
 
+#include "asset/data/game_data.h"
+
 #include "asset/database.h"
 #include "assets/asset_edit.h"
 #include "assets/material_editing.h"
@@ -23,6 +25,8 @@ namespace CometEditor {
         AssetInspector(
             const Comet::AssetDatabase& database, const Comet::MaterialProgramValidator& programs);
         void select(Comet::AssetHandle handle);
+        void complete_asset_read(
+            const Comet::AssetTarget& request, Comet::Result<Comet::GameData> result);
         void render(std::uint64_t generation, bool allow_drop);
         void set_material_layouts(
             std::vector<std::shared_ptr<const Comet::MaterialLayout>> layouts);
@@ -50,6 +54,7 @@ namespace CometEditor {
 
     private:
         void render_animation_controller();
+        void render_data();
         void render_texture(const Comet::AssetRecord& record);
         void render_audio(const Comet::AssetRecord& record);
         void render_material(
@@ -73,6 +78,7 @@ namespace CometEditor {
         std::optional<Comet::TextureImportSettings> m_texture_import_settings;
         std::optional<Comet::AudioImportSettings> m_audio_import_settings;
         std::optional<Comet::MaterialData> m_material_data;
+        std::optional<Comet::GameData> m_data;
         std::optional<Comet::MaterialData> m_material_before;
         std::optional<Comet::AnimationController> m_controller_data;
         std::optional<Comet::AnimationController> m_controller_saved;

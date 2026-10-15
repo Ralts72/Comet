@@ -1,0 +1,19 @@
+{
+  "fields": {
+    "beacon": {
+      "type": "json"
+    }
+  },
+  "rows": [
+    {
+      "id": "goal",
+      "beacon": {
+        "translation": [
+          0,
+          0.6,
+          0
+        ]
+      }
+    }
+  ]
+}

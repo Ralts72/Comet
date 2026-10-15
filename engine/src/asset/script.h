@@ -22,7 +22,7 @@ namespace Comet {
     class COMET_API Script final {
     public:
         struct Property {
-            enum class Semantic { Default, Color, Prefab };
+            enum class Semantic { Default, Color, Prefab, Data };
             ParameterValue default_value;
             Semantic semantic = Semantic::Default;
         };
@@ -59,8 +59,8 @@ namespace Comet {
         void retain_compatible_overrides(ParameterMap& overrides) const;
         [[nodiscard]] Result<ParameterMap, Error> resolve_parameters(
             const ParameterMap& overrides) const;
-        // Prefab 参数以十进制身份字符串保存，避免 Lua 数值丢失 64 位精度。
-        [[nodiscard]] static std::optional<AssetHandle> prefab_handle(const ParameterValue& value);
+        // 资产参数以十进制身份字符串保存，避免 Lua 数值丢失 64 位精度。
+        [[nodiscard]] static std::optional<AssetHandle> asset_handle(const ParameterValue& value);
         [[nodiscard]] Result<std::vector<AssetReference>, Error> asset_references(
             const ParameterMap& overrides) const;
         [[nodiscard]] const PropertyMap& properties() const { return m_properties; }

@@ -24,6 +24,7 @@ namespace Comet {
     class Scene;
     class ComponentRegistry;
     class COMET_API Prefab;
+    class COMET_API GameData;
     struct ModelData;
     class ImportService;
     class AssetLoader;
@@ -106,6 +107,7 @@ namespace Comet {
         [[nodiscard]] Result<std::vector<AssetReference>, Error> collect_scene_references(
             Scene& scene, const ComponentRegistry& components,
             MissingAssetPolicy policy = MissingAssetPolicy::FailRequired);
+        [[nodiscard]] Result<std::shared_ptr<GameData>, Error> load_data(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<AnimationController>, Error> load_animation_controller(
             AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Prefab>, Error> load_prefab(

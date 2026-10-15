@@ -78,7 +78,7 @@ namespace Comet {
         return !m_sources || m_sources->inputs_are_current();
     }
 
-    std::optional<AssetHandle> Script::prefab_handle(const ParameterValue& value) {
+    std::optional<AssetHandle> Script::asset_handle(const ParameterValue& value) {
         const auto* text = std::get_if<std::string>(&value);
         if(!text)
             return std::nullopt;
@@ -99,11 +99,14 @@ namespace Comet {
             return Result<std::vector<AssetReference>, Error>::failure(parameters.error());
         std::vector<AssetReference> references;
         for(const auto& [name, property] : m_properties) {
-            if(property.semantic != Property::Semantic::Prefab)
+            if(property.semantic != Property::Semantic::Prefab
+                && property.semantic != Property::Semantic::Data)
                 continue;
-            const auto handle = prefab_handle(parameters.value().at(name));
+            const auto handle = asset_handle(parameters.value().at(name));
             if(handle && *handle)
-                references.push_back({*handle, AssetType::Prefab});
+                references.push_back(
+                    {*handle, property.semantic == Property::Semantic::Prefab ? AssetType::Prefab
+                                                                              : AssetType::Data});
         }
         std::ranges::sort(references);
         references.erase(std::unique(references.begin(), references.end()), references.end());
@@ -118,8 +121,10 @@ namespace Comet {
             if(found == m_properties.end() || found->second.default_value.index() != value.index())
                 return Result<void, Error>::failure(
                     {"Script parameter no longer matches declaration: " + name});
-            if(found->second.semantic == Property::Semantic::Prefab && !prefab_handle(value))
-                return Result<void, Error>::failure({"Invalid prefab parameter: " + name});
+            if((found->second.semantic == Property::Semantic::Prefab
+                   || found->second.semantic == Property::Semantic::Data)
+                && !asset_handle(value))
+                return Result<void, Error>::failure({"Invalid asset parameter: " + name});
         }
         return Result<void, Error>::success();
     }

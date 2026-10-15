@@ -1,6 +1,7 @@
+#include "asset/project_prepare.h"
+#include "asset/data/game_data.h"
 #include "asset/serialization/animation_controller_serializer.h"
 #include "asset/default_assets.h"
-#include "asset/project_prepare.h"
 #include "asset/shader_program_import.h"
 #include "asset/database.h"
 #include "asset/import/import_service.h"
@@ -52,6 +53,16 @@ namespace Comet {
                     if(!prefab)
                         return Loaded::failure({prefab.error()});
                     return Loaded::success(std::make_shared<Prefab>(std::move(prefab).value()));
+                },
+                [&](AssetHandle handle) -> Result<std::shared_ptr<GameData>, Error> {
+                    using Loaded = Result<std::shared_ptr<GameData>, Error>;
+                    const auto* record = database.find(handle);
+                    if(!record || record->type != AssetType::Data)
+                        return Loaded::failure({"Data dependency is missing or mistyped"});
+                    auto data = GameData::load(database.paths().assets() / record->path);
+                    if(!data)
+                        return Loaded::failure({data.error()});
+                    return Loaded::success(std::make_shared<GameData>(std::move(data).value()));
                 });
             if(!references)
                 return Result<std::vector<AssetReference>>::failure(references.error().message);
@@ -63,6 +74,12 @@ namespace Comet {
             const auto& paths = database.paths();
             const ImportService imports(paths, limits);
             switch(record.type) {
+                case AssetType::Data: {
+                    auto data = GameData::load(paths.assets() / record.path);
+                    if(!data)
+                        return Result<void>::failure(data.error());
+                    break;
+                }
                 case AssetType::Model: {
                     auto prepared = imports.prepare_model(record, limits.mesh_working_bytes);
                     if(!prepared)
@@ -408,6 +425,21 @@ namespace Comet {
                     return Result<void>::failure(
                         record.path.generic_string() + ": " + prepared.error());
                 switch(record.type) {
+                    case AssetType::Data: {
+                        auto data = GameData::load(source);
+                        if(!data)
+                            return Result<void>::failure(data.error());
+                        auto serialized = data.value().serialize();
+                        if(!serialized)
+                            return Result<void>::failure(serialized.error());
+                        product.path =
+                            ".products/" + std::to_string(record.handle.value()) + ".data.json";
+                        if(auto saved = write_text_file_atomic(
+                               output.assets() / product.path, serialized.value());
+                            !saved)
+                            return saved;
+                        break;
+                    }
                     case AssetType::Mesh:
                         if(!record.source_asset)
                             source = imports.mesh_artifact_path(record.handle);
@@ -464,8 +496,9 @@ namespace Comet {
                     || record.type == AssetType::ShaderProgram)
                     product.path = ".products/" + std::to_string(record.handle.value()) + "."
                                    + std::string(to_string(record.type));
-                if(auto written = copy(source, product.path); !written)
-                    return written;
+                if(record.type != AssetType::Data)
+                    if(auto written = copy(source, product.path); !written)
+                        return written;
                 for(const auto dependency : dependencies) {
                     if(dependency == record.source_asset)
                         continue;

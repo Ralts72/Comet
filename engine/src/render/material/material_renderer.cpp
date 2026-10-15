@@ -769,10 +769,11 @@ namespace Comet {
         return Creation::success(std::move(candidate));
     }
 
-    Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> MaterialRenderer::render(
+    Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> MaterialRenderer::prepare(
         FrameScheduler& frames, const RenderSubmission& submission, const RenderGeometry& geometry,
         const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map) {
         using Draw = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
+        clear_draws();
         if(!frames.is_recording_frame() || &frames.get_device() != &m_device
             || frames.get_current_frame_slot_index() >= m_frames.size() || !shadow_map)
             return Draw::failure({"Invalid material render frame or shadow input"});
@@ -790,13 +791,25 @@ namespace Comet {
                 m_draw_queue.clear();
                 return Draw::failure(instances.error());
             }
-            record_draws(frames, m_draw_queue, waits);
-            m_draw_queue.clear();
-            std::erase_if(
-                waits, [](const auto& wait) { return wait.semaphore->has_reached(wait.value); });
+            for(const auto& draw : m_draw_queue)
+                if(draw.material->prepared->surface.alpha_mode == AlphaMode::Blend)
+                    m_transparent_depths.push_back(draw.camera_depth);
         }
         collect_unused_materials(frames.get_current_frame_serial());
         return Draw::success(std::move(waits));
+    }
+
+    void MaterialRenderer::record_opaque(
+        FrameScheduler& frames, std::vector<QueueSemaphoreSubmit>& waits) {
+        record_draws(frames,
+            std::span(m_draw_queue).first(m_draw_queue.size() - m_transparent_depths.size()),
+            waits);
+    }
+
+    void MaterialRenderer::record_transparent(FrameScheduler& frames, const size_t first,
+        const size_t count, std::vector<QueueSemaphoreSubmit>& waits) {
+        const auto offset = m_draw_queue.size() - m_transparent_depths.size();
+        record_draws(frames, std::span(m_draw_queue).subspan(offset + first, count), waits);
     }
 
     void MaterialRenderer::update_frame_resources(FrameScheduler& frames,

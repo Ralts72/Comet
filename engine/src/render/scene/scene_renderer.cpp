@@ -549,6 +549,10 @@ namespace Comet {
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> SceneRenderer::draw_scene(
         FrameScheduler& frames, CommandBuffer& command, const RenderSubmission& submission,
         const RenderGeometry& geometry, const LineDrawList& lines, const LightingData& lighting) {
+        const ScopeExit clear_draws([&] {
+            m_state->materials->clear_draws();
+            m_state->particles->clear_draws();
+        });
         m_state->hdr_target->set_clear_value(
             ClearValue(Math::Vec4(submission.world.environment.background_color, 1.0f)));
         m_state->hdr_target->begin_render_target(command, frames.get_current_frame_slot_index());
@@ -560,27 +564,65 @@ namespace Comet {
         auto skybox = m_state->skybox_pass->render(frames, submission);
         if(!skybox)
             return skybox;
-        auto waits = m_state->materials->render(frames, submission, geometry, lighting,
+        auto waits = m_state->materials->prepare(frames, submission, geometry, lighting,
             m_shadow->get_depth_view(frames.get_current_frame_slot_index()));
         if(!waits)
             return waits;
         for(const auto& wait : skybox.value())
             merge_semaphore_wait(waits.value(), wait);
         if(submission.view_project_matrix) {
-            auto drawn = m_state->particles->render(
-                frames, *submission.view_project_matrix, submission.world);
-            if(!drawn)
+            auto particles = m_state->particles->prepare(frames, *submission.view_project_matrix,
+                submission.world, !m_state->materials->transparent_depths().empty());
+            if(!particles)
                 return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
-                    drawn.error());
-            for(const auto& wait : drawn.value())
+                    particles.error());
+            for(const auto& wait : particles.value())
                 merge_semaphore_wait(waits.value(), wait);
+            m_state->materials->record_opaque(frames, waits.value());
+            record_transparent(frames, waits.value());
             if(auto debug = m_state->debug->render(frames, *submission.view_project_matrix, lines);
                 !debug)
                 return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
                     debug.error());
-        }
+        } else
+            m_state->particles->reset();
         m_state->hdr_target->end_render_target(command);
+        std::erase_if(waits.value(),
+            [](const auto& wait) { return wait.semaphore->has_reached(wait.value); });
         return waits;
+    }
+
+    void SceneRenderer::record_transparent(
+        FrameScheduler& frames, std::vector<QueueSemaphoreSubmit>& waits) {
+        const auto meshes = m_state->materials->transparent_depths();
+        const auto particles = m_state->particles->depths();
+        if(meshes.empty()) {
+            m_state->particles->record(frames, 0, m_state->particles->instance_count());
+            return;
+        }
+        if(particles.empty()) {
+            m_state->materials->record_transparent(frames, 0, meshes.size(), waits);
+            return;
+        }
+        // 两条有序深度流线性归并；连续同类区间保持批次，网格可切开粒子批次。
+        size_t mesh = 0;
+        uint32_t particle = 0;
+        while(mesh < meshes.size() || particle < particles.size()) {
+            if(particle == particles.size()
+                || (mesh < meshes.size() && meshes[mesh] <= particles[particle])) {
+                const auto first = mesh++;
+                while(mesh < meshes.size()
+                      && (particle == particles.size() || meshes[mesh] <= particles[particle]))
+                    ++mesh;
+                m_state->materials->record_transparent(frames, first, mesh - first, waits);
+            } else {
+                const auto first = particle++;
+                while(particle < particles.size()
+                      && (mesh == meshes.size() || particles[particle] < meshes[mesh]))
+                    ++particle;
+                m_state->particles->record(frames, first, particle - first);
+            }
+        }
     }
 
     Result<void, GraphicsError> SceneRenderer::resize_offscreen_target(
