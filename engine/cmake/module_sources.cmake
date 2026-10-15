@@ -217,6 +217,7 @@ set(COMET_RENDER_SOURCES
     src/render/passes/output_pass.cpp
     src/render/passes/bloom_pass.cpp
     src/render/passes/skybox_pass.cpp
+    src/render/passes/depth_pass.cpp
     src/render/passes/shadow_pass.cpp
     src/render/renderer.cpp
     src/render/render_thread.cpp

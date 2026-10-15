@@ -102,6 +102,8 @@ namespace {
         const auto original = scene.get_post_process();
         auto settings = original;
         settings.bloom_enabled = true;
+        settings.ao_enabled = true;
+        settings.ao_radius = 0.8f;
         ASSERT_TRUE(edit.begin(post_process_target));
         ASSERT_TRUE(edit.preview(post_process_target, settings));
         settings.exposure = 2;

@@ -130,7 +130,8 @@ namespace Comet {
         [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> prepare(
             FrameScheduler& frames, const RenderSubmission& submission,
             const RenderGeometry& geometry, const LightingData& lighting,
-            const std::shared_ptr<ImageView>& shadow_map);
+            const std::shared_ptr<ImageView>& shadow_map,
+            const std::shared_ptr<ImageView>& ao_depth = {});
         // 准备一次、按透明深度分段录制；本帧结束后释放借用的世界数据。
         [[nodiscard]] std::span<const float> transparent_depths() const {
             return m_transparent_depths;
@@ -192,6 +193,7 @@ namespace Comet {
             std::shared_ptr<CPUBuffer> lighting;
             std::shared_ptr<Sampler> shadow_sampler;
             std::shared_ptr<ImageView> shadow_map;
+            std::shared_ptr<ImageView> ao_depth;
             std::shared_ptr<Sampler> environment_sampler;
             std::shared_ptr<Environment> environment;
             std::optional<DescriptorSet> descriptor;
@@ -252,7 +254,7 @@ namespace Comet {
         void sync_program_inputs();
         void update_frame_resources(FrameScheduler& frames, const RenderSubmission& submission,
             const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map,
-            std::vector<QueueSemaphoreSubmit>& waits);
+            const std::shared_ptr<ImageView>& ao_depth, std::vector<QueueSemaphoreSubmit>& waits);
         Result<void, GraphicsError> prepare_draw_queue(const RenderGeometry& geometry,
             uint64_t frame_serial, const Frustum* frustum, const Math::Mat4& view);
         void collect_visible_draws(const RenderGeometry& geometry, const Frustum* frustum);

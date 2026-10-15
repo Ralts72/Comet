@@ -26,6 +26,7 @@ namespace CometEditor {
                 {"Geometry bounds", "世界界限计算"},
                 {"Lighting prep", "光源与阴影准备"},
                 {"shadow", "场景阴影"},
+                {"ao depth", "环境遮蔽预深度"},
                 {"Submission prep", "提交准备"},
                 {"Queue submit", "队列提交"},
                 {"Present", "呈现调用"},

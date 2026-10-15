@@ -38,6 +38,8 @@ layout(set = 0, binding = 1, std140) uniform LightingData {
     float point_shadow_count;
     float excess_point_shadows;
     vec2 shadow_reserved;
+    mat4 ao_inverse_view_projection;
+    vec4 ao_parameters;
     vec4 environment; // intensity, max LOD, sin(rotation), cos(rotation)
 } lighting;
 layout(set = 0, binding = 2) uniform sampler2D shadow_map;

@@ -1,0 +1,251 @@
+{
+  "version": 2,
+  "environment": {
+    "asset": 11764928350182740632,
+    "background": false,
+    "intensity": 1,
+    "rotation": 0,
+    "lighting": true,
+    "lighting_intensity": 0.8,
+    "background_color": [
+      0.035,
+      0.035,
+      0.035
+    ]
+  },
+  "post_process": {
+    "exposure": 1,
+    "bloom_enabled": false,
+    "bloom_strength": 0.15,
+    "bloom_threshold": 1,
+    "ao_enabled": true,
+    "ao_radius": 1,
+    "ao_strength": 1.5
+  },
+  "entities": [
+    {
+      "uuid": "4eea7e7e-cc05-5144-9eca-a0e7d11d140f",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [
+            5,
+            4,
+            8
+          ],
+          "rotation": [
+            -20,
+            30,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "camera": {
+          "primary": true,
+          "fov": 45,
+          "near_clip": 0.1,
+          "far_clip": 100
+        },
+        "camera_controller": {
+          "enabled": true,
+          "move_speed": 5,
+          "look_sensitivity": 0.2,
+          "look_speed": 120
+        }
+      }
+    },
+    {
+      "uuid": "4a1b0a96-4266-51c5-8d57-20f55f5d3846",
+      "components": {
+        "name": "地面",
+        "transform": {
+          "translation": [
+            0,
+            -0.25,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            10,
+            0.5,
+            10
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "7690c5dd-d88a-5c0d-8730-aa603c5b5cc3",
+      "components": {
+        "name": "后墙",
+        "transform": {
+          "translation": [
+            0,
+            2,
+            -2
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            8,
+            4,
+            0.3
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "82419b9f-08a2-5f50-befd-453d8c89d805",
+      "components": {
+        "name": "左墙",
+        "transform": {
+          "translation": [
+            -4,
+            2,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.3,
+            4,
+            4
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "bf8fb4dc-7f2b-5cc8-8746-a22eae2d6b79",
+      "components": {
+        "name": "贴地立方体",
+        "transform": {
+          "translation": [
+            0,
+            0.5,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "fb1c539d-0247-5e5b-86ae-8e92278f315b",
+      "components": {
+        "name": "贴墙立柱",
+        "transform": {
+          "translation": [
+            -1,
+            1,
+            -1.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.7,
+            2,
+            0.7
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "16c7500a-4ee2-50ea-8ea0-784cd4b36de8",
+      "components": {
+        "name": "接触台阶",
+        "transform": {
+          "translation": [
+            1.5,
+            0.2,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.5,
+            0.4,
+            1.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "d7f35adc-5b06-507e-ada3-cf5d1d0d3cbc",
+      "components": {
+        "name": "台阶上方方块",
+        "transform": {
+          "translation": [
+            1.5,
+            0.9,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.8,
+            1,
+            0.8
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    }
+  ]
+}

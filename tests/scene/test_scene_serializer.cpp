@@ -768,7 +768,10 @@ namespace Comet::Tests {
         const PostProcessSettings settings{.exposure = 0.75f,
             .bloom_enabled = true,
             .bloom_strength = 0.5f,
-            .bloom_threshold = 2.0f};
+            .bloom_threshold = 2.0f,
+            .ao_enabled = true,
+            .ao_radius = 1.2f,
+            .ao_strength = 1.5f};
         ASSERT_TRUE(scene.set_post_process(settings));
         scene.create_entity("Camera").add_component<CameraComponent>(
             CameraComponent{.primary = true});
@@ -806,8 +809,10 @@ namespace Comet::Tests {
         auto& scene = *loaded.value();
         EXPECT_EQ(scene.get_post_process(), PostProcessSettings{});
         EXPECT_FALSE(scene.get_post_process().uses_bloom());
+        EXPECT_FALSE(scene.get_post_process().uses_ao());
         for(auto field : {&PostProcessSettings::exposure, &PostProcessSettings::bloom_strength,
-                &PostProcessSettings::bloom_threshold}) {
+                &PostProcessSettings::bloom_threshold, &PostProcessSettings::ao_radius,
+                &PostProcessSettings::ao_strength}) {
             for(float invalid : {-1.0f, 100000.0f, std::numeric_limits<float>::quiet_NaN(),
                     std::numeric_limits<float>::infinity()}) {
                 auto value = scene.get_post_process();

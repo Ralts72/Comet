@@ -20,6 +20,10 @@ namespace Comet {
     }
 
     Result<void> PostProcessSettings::validate() const {
+        if(!std::isfinite(ao_radius) || ao_radius < 0.01f || ao_radius > 10)
+            return Result<void>::failure("ao_radius must be finite and between 0.01 and 10");
+        if(!std::isfinite(ao_strength) || ao_strength < 0 || ao_strength > 2)
+            return Result<void>::failure("ao_strength must be finite and between 0 and 2");
         if(!std::isfinite(exposure) || exposure < 0 || exposure > MAX_EXPOSURE)
             return Result<void>::failure("exposure must be finite and between 0 and 100");
         if(!std::isfinite(bloom_strength) || bloom_strength < 0

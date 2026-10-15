@@ -73,6 +73,8 @@ namespace Comet {
         float point_shadow_count = 0;
         float excess_point_shadows = 0;
         Math::Vec2 shadow_reserved{};
+        Math::Mat4 ao_inverse_view_projection{1};
+        Math::Vec4 ao_parameters{};         // 世界半径、强度；半径为零表示关闭。
         Math::Vec4 environment{0, 0, 0, 1}; // 强度、最大 LOD、旋转角正弦、旋转角余弦。
         [[nodiscard]] static LightingData prepare(std::span<const RenderLight> lights);
         void prepare_shadow(const BoundingBox& world_bounds, uint32_t resolution,

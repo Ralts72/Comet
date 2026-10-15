@@ -29,7 +29,7 @@ namespace Comet {
     static_assert(offsetof(LightingData, shadow_cascade_count)
                   == LightingData::MAX_LIGHTS * 64 + 48 + LightingData::MAX_SHADOW_VIEWS * 96);
     static_assert(sizeof(LightingData)
-                  == LightingData::MAX_LIGHTS * 64 + 96 + LightingData::MAX_SHADOW_VIEWS * 96);
+                  == LightingData::MAX_LIGHTS * 64 + 176 + LightingData::MAX_SHADOW_VIEWS * 96);
 
     static Math::Mat4 light_view_matrix(
         const Math::Vec3& direction, const Math::Vec3& position = {}) {

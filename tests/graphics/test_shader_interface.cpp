@@ -137,8 +137,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(fragment_result) << fragment_result.error();
         const auto fragment = std::move(fragment_result).value();
         EXPECT_EQ(fragment.get_stage(), ShaderStage::Fragment);
-        ASSERT_EQ(fragment.get_bindings().size(), 12u);
-        for(uint32_t index = 3; index <= 5; ++index) {
+        ASSERT_EQ(fragment.get_bindings().size(), 13u);
+        for(uint32_t index = 3; index <= 6; ++index) {
             const auto binding = std::ranges::find_if(fragment.get_bindings(),
                 [index](const auto& value) { return value.set == 0 && value.binding == index; });
             ASSERT_NE(binding, fragment.get_bindings().end());

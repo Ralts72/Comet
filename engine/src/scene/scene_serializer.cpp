@@ -803,6 +803,9 @@ namespace Comet {
             writer.field("bloom_enabled", post_process.bloom_enabled);
             writer.field("bloom_strength", post_process.bloom_strength);
             writer.field("bloom_threshold", post_process.bloom_threshold);
+            writer.field("ao_enabled", post_process.ao_enabled);
+            writer.field("ao_radius", post_process.ao_radius);
+            writer.field("ao_strength", post_process.ao_strength);
             writer.end_object();
         }
         writer.key("entities");
@@ -922,7 +925,8 @@ namespace Comet {
             if(error)
                 return LoadResult::failure(context.error("post_process", "invalid object"));
             if(auto valid = context.validate_keys(post_process_node,
-                   {"exposure", "bloom_enabled", "bloom_strength", "bloom_threshold"},
+                   {"exposure", "bloom_enabled", "bloom_strength", "bloom_threshold", "ao_enabled",
+                       "ao_radius", "ao_strength"},
                    "post_process");
                 !valid)
                 return LoadResult::failure(valid.error());
@@ -942,8 +946,23 @@ namespace Comet {
                 return LoadResult::failure(strength.error());
             if(!threshold)
                 return LoadResult::failure(threshold.error());
-            const PostProcessSettings settings{
+            PostProcessSettings settings{
                 exposure.value(), enabled.value(), strength.value(), threshold.value()};
+            const auto ao_enabled = context.read_optional_field<bool>(
+                post_process_node, "ao_enabled", "a boolean", "post_process");
+            const auto ao_radius = context.read_optional_field<float>(
+                post_process_node, "ao_radius", "a finite number", "post_process");
+            const auto ao_strength = context.read_optional_field<float>(
+                post_process_node, "ao_strength", "a finite number", "post_process");
+            if(!ao_enabled)
+                return LoadResult::failure(ao_enabled.error());
+            if(!ao_radius)
+                return LoadResult::failure(ao_radius.error());
+            if(!ao_strength)
+                return LoadResult::failure(ao_strength.error());
+            settings.ao_enabled = ao_enabled.value().value_or(settings.ao_enabled);
+            settings.ao_radius = ao_radius.value().value_or(settings.ao_radius);
+            settings.ao_strength = ao_strength.value().value_or(settings.ao_strength);
             content.post_process = settings;
         }
         return restore_content(content, source);

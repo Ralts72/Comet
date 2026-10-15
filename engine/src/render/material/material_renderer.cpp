@@ -181,7 +181,7 @@ namespace Comet {
             1, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Fragment));
         frame_bindings.add_binding(
             2, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
-        for(uint32_t binding = 3; binding <= 5; ++binding)
+        for(uint32_t binding = 3; binding <= 6; ++binding)
             frame_bindings.add_binding(binding, DescriptorType::CombinedImageSampler,
                 Flags<ShaderStage>(ShaderStage::Fragment));
         auto frame_layout = DescriptorSetLayout::create(device, frame_bindings);
@@ -190,7 +190,7 @@ namespace Comet {
         m_frame_layout = std::move(frame_layout).value();
         DescriptorPoolSizes pool_sizes;
         pool_sizes.add_pool_size(DescriptorType::UniformBuffer, frame_slot_count * 2);
-        pool_sizes.add_pool_size(DescriptorType::CombinedImageSampler, frame_slot_count * 4);
+        pool_sizes.add_pool_size(DescriptorType::CombinedImageSampler, frame_slot_count * 5);
         auto pool_result = DescriptorPool::create(device, frame_slot_count, pool_sizes);
         if(!pool_result)
             return Result<void, GraphicsError>::failure(pool_result.error());
@@ -771,7 +771,8 @@ namespace Comet {
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> MaterialRenderer::prepare(
         FrameScheduler& frames, const RenderSubmission& submission, const RenderGeometry& geometry,
-        const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map) {
+        const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map,
+        const std::shared_ptr<ImageView>& ao_depth) {
         using Draw = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
         clear_draws();
         if(!frames.is_recording_frame() || &frames.get_device() != &m_device
@@ -779,7 +780,7 @@ namespace Comet {
             return Draw::failure({"Invalid material render frame or shadow input"});
 
         std::vector<QueueSemaphoreSubmit> waits;
-        update_frame_resources(frames, submission, lighting, shadow_map, waits);
+        update_frame_resources(frames, submission, lighting, shadow_map, ao_depth, waits);
         if(submission.view_project_matrix) {
             const auto& matrices = *submission.view_project_matrix;
             const auto frustum = Frustum::from_view_projection(matrices.projection * matrices.view);
@@ -816,7 +817,8 @@ namespace Comet {
 
     void MaterialRenderer::update_frame_resources(FrameScheduler& frames,
         const RenderSubmission& submission, const LightingData& lighting,
-        const std::shared_ptr<ImageView>& shadow_map, std::vector<QueueSemaphoreSubmit>& waits) {
+        const std::shared_ptr<ImageView>& shadow_map, const std::shared_ptr<ImageView>& ao_depth,
+        std::vector<QueueSemaphoreSubmit>& waits) {
         const auto previous_omissions =
             std::pair(m_statistics.excess_lights, m_statistics.invalid_lights);
         m_statistics = {};
@@ -860,6 +862,12 @@ namespace Comet {
             const DescriptorSet::ImageSamplerWrite write{2, *shadow_map, *frame->shadow_sampler};
             frame->descriptor->update(m_device, {}, std::span(&write, 1));
             frame->shadow_map = shadow_map;
+        }
+        const auto& depth = ao_depth ? ao_depth : shadow_map;
+        if(frame->ao_depth != depth) {
+            const DescriptorSet::ImageSamplerWrite write{6, *depth, *frame->shadow_sampler};
+            frame->descriptor->update(m_device, {}, std::span(&write, 1));
+            frame->ao_depth = depth;
         }
         m_statistics.light_count = static_cast<uint32_t>(lighting.light_count);
         m_statistics.excess_lights = static_cast<uint32_t>(lighting.excess_lights);

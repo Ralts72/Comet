@@ -188,6 +188,9 @@ namespace Comet::Tests {
             std::pair{"point_shadow_count", offsetof(LightingData, point_shadow_count)},
             std::pair{"excess_point_shadows", offsetof(LightingData, excess_point_shadows)},
             std::pair{"shadow_reserved", offsetof(LightingData, shadow_reserved)},
+            std::pair{
+                "ao_inverse_view_projection", offsetof(LightingData, ao_inverse_view_projection)},
+            std::pair{"ao_parameters", offsetof(LightingData, ao_parameters)},
             std::pair{"environment", offsetof(LightingData, environment)}};
         ASSERT_EQ(found->members.size(), fields.size());
         for(size_t index = 0; index < fields.size(); ++index) {

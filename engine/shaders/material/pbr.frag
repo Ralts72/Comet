@@ -3,6 +3,7 @@
 #include "../common/frame.glsl"
 #include "../common/surface.glsl"
 #include "../lighting/forward.glsl"
+#include "../lighting/ambient_occlusion.glsl"
 #include "../environment/lighting.glsl"
 
 layout(location = 0) in vec3 world_position;
@@ -104,14 +105,18 @@ void main() {
     vec3 result = vec3(0.0);
     if(normal_length > 1e-6 && view_length > 1e-6
         && !isinf(normal_length) && !isinf(view_length)) {
-        vec3 normal = mapped_normal(world_normal / normal_length, normal_sample,
+        vec3 geometric_normal = world_normal / normal_length;
+        vec3 normal = mapped_normal(geometric_normal, normal_sample,
             position_dx, position_dy, uv_dx, uv_dy);
-        if(comet_double_sided && !gl_FrontFacing)
+        if(comet_double_sided && !gl_FrontFacing) {
             normal = -normal;
+            geometric_normal = -geometric_normal;
+        }
         vec3 view = view_vector / view_length;
         float metallic = clamp(material.metallic * metal_roughness.x, 0.0, 1.0);
         float roughness = clamp(material.roughness * metal_roughness.y, 0.045, 1.0);
-        result = evaluate_environment(normal, view, base_color, metallic, roughness) * occlusion;
+        result = evaluate_environment(normal, view, base_color, metallic, roughness)
+            * occlusion * ambient_visibility(world_position, geometric_normal);
         for(int index = 0; index < int(lighting.light_count); ++index) {
             vec3 direction, radiance;
             if(!sample_light(index, world_position, direction, radiance))

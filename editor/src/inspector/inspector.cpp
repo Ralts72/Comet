@@ -578,7 +578,7 @@ namespace CometEditor {
     }
 
     void InspectorPanel::render_post_process(Comet::Scene& scene) {
-        ImGui::SeparatorText("后处理");
+        ImGui::SeparatorText("画面效果");
         const bool can_edit = m_state.mode == EditorMode::Edit && m_history.get_scene() == &scene;
         ImGui::BeginDisabled(!can_edit);
         auto settings = scene.get_post_process();
@@ -595,6 +595,18 @@ namespace CometEditor {
         result.include_item(ImGui::DragFloat("泛光阈值###Bloom threshold",
             &settings.bloom_threshold, 0.05f, 0.0f, Comet::PostProcessSettings::MAX_BLOOM_THRESHOLD,
             "%.2f", ImGuiSliderFlags_AlwaysClamp));
+        ImGui::EndDisabled();
+        const bool ao_toggled =
+            ImGui::Checkbox("环境遮蔽###Ambient occlusion", &settings.ao_enabled);
+        result.changed |= ao_toggled;
+        result.finished |= ao_toggled;
+        if(ImGui::IsItemHovered())
+            ImGui::SetTooltip("屏幕空间遮蔽只影响环境光；需启用环境光照，直接光和自发光保持不变。");
+        ImGui::BeginDisabled(!settings.ao_enabled);
+        result.include_item(ImGui::DragFloat("遮蔽半径###AO radius", &settings.ao_radius, 0.01f,
+            0.01f, 10.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp));
+        result.include_item(ImGui::DragFloat("遮蔽强度###AO strength", &settings.ao_strength, 0.01f,
+            0.0f, 2.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp));
         ImGui::EndDisabled();
         apply_scene_edit(post_process_target, settings, result, can_edit);
         ImGui::EndDisabled();

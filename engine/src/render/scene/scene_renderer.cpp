@@ -36,6 +36,7 @@ namespace Comet {
         std::unique_ptr<PipelineManager> pipelines;
         std::unique_ptr<OutputPass> output_pass;
         std::unique_ptr<BloomPass> bloom;
+        std::unique_ptr<DepthPass> ao_depth;
         std::unique_ptr<SkyboxPass> skybox_pass;
         std::shared_ptr<RenderTarget> hdr_target;
         std::shared_ptr<RenderTarget> output_target;
@@ -50,6 +51,8 @@ namespace Comet {
         RenderGraph::PassId scene_pass_id;
         RenderGraph::PassId output_pass_id;
         std::optional<BloomPass::Passes> bloom_passes;
+        std::optional<RenderGraph::ResourceId> ao_depth_resource;
+        std::optional<RenderGraph::PassId> ao_depth_pass;
         bool offscreen = false;
         QualitySettings quality;
     };
@@ -173,13 +176,13 @@ namespace Comet {
         if(!particles)
             return Creation::failure(particles.error());
         next->particles = std::move(particles).value();
-        if(auto graph = rebuild_graph(*next, m_post_process.uses_bloom()); !graph)
+        if(auto graph = rebuild_graph(*next, m_post_process); !graph)
             return Creation::failure(graph.error());
         return Creation::success(std::move(next));
     }
 
     Result<void, GraphicsError> SceneRenderer::rebuild_graph(
-        RenderState& state, const bool bloom_enabled) {
+        RenderState& state, const PostProcessSettings& settings) {
         RenderGraph graph;
         // 丢弃旧内容仍需等待上一轮附件写入与片段采样。
         auto shadow_access = *resolve_resource_state(ResourceUsage::DepthStencilAttachmentWrite);
@@ -190,7 +193,17 @@ namespace Comet {
         RenderGraph::Pass shadow_pass{"shadow", {}};
         shadow_pass.uses.push_back({shadow, ResourceUsage::DepthStencilAttachmentWrite, {}});
         const auto shadow_pass_id = graph.add_pass(std::move(shadow_pass));
+        std::optional<RenderGraph::ResourceId> ao_depth_resource;
+        std::optional<RenderGraph::PassId> ao_depth_pass;
+        if(settings.uses_ao()) {
+            ao_depth_resource = graph.import_image("ao depth", shadow_initial);
+            ao_depth_pass = graph.add_pass({"ao depth",
+                {{*ao_depth_resource, ResourceUsage::DepthStencilAttachmentWrite, {}}}});
+        }
         RenderGraph::Pass scene{"scene", {}};
+        if(ao_depth_resource)
+            scene.uses.push_back({*ao_depth_resource, ResourceUsage::SampledRead,
+                Flags<PipelineStage>(PipelineStage::FragmentShader)});
         std::vector<RenderGraph::ResourceId> scene_attachments;
         RenderGraph::ResourceId output;
         for(const auto& attachment : state.scene_pass->get_attachments()) {
@@ -218,7 +231,7 @@ namespace Comet {
         RenderGraph::Pass display{
             "display", {{output, ResourceUsage::SampledRead,
                            Flags<PipelineStage>(PipelineStage::FragmentShader)}}};
-        if(bloom_enabled) {
+        if(settings.uses_bloom()) {
             bloom_passes = BloomPass::append_passes(graph, output);
             display.uses.push_back({bloom_passes->output, ResourceUsage::SampledRead,
                 Flags<PipelineStage>(PipelineStage::FragmentShader)});
@@ -234,6 +247,8 @@ namespace Comet {
         state.scene_pass_id = scene_pass_id;
         state.output_pass_id = output_pass_id;
         state.bloom_passes = bloom_passes;
+        state.ao_depth_resource = ao_depth_resource;
+        state.ao_depth_pass = ao_depth_pass;
         return Result<void, GraphicsError>::success();
     }
 
@@ -244,7 +259,8 @@ namespace Comet {
         if(!m_state)
             return Result<void, GraphicsError>::failure({"Scene renderer is not configured"});
         const auto size = m_state->output_target->get_size();
-        if(settings.uses_bloom() == m_post_process.uses_bloom()) {
+        if(settings.uses_bloom() == m_post_process.uses_bloom()
+            && settings.uses_ao() == m_post_process.uses_ao()) {
             m_post_process_failure.reset();
             m_post_process = settings;
             return Result<void, GraphicsError>::success();
@@ -253,7 +269,7 @@ namespace Comet {
             m_post_process_failure.reset();
         if(m_post_process_failure && !m_post_process_failure->retry.consume(now))
             return Result<void, GraphicsError>::success();
-        const auto prepared = configure_bloom(settings.uses_bloom());
+        const auto prepared = configure_effects(settings);
         if(prepared) {
             m_post_process = settings;
             m_post_process_failure.reset();
@@ -279,9 +295,10 @@ namespace Comet {
         return m_state->materials->prepare_programs(world);
     }
 
-    Result<void, GraphicsError> SceneRenderer::configure_bloom(const bool enabled) {
+    Result<void, GraphicsError> SceneRenderer::configure_effects(
+        const PostProcessSettings& settings) {
         std::unique_ptr<BloomPass> candidate;
-        if(enabled) {
+        if(settings.uses_bloom()) {
             auto* bloom = m_state->bloom.get();
             if(!bloom) {
                 auto created = BloomPass::create(m_device, m_frame_slot_count);
@@ -293,8 +310,24 @@ namespace Comet {
             if(auto resized = bloom->resize(m_state->hdr_target->get_size()); !resized)
                 return resized;
         }
-        if(auto graph = rebuild_graph(*m_state, enabled); !graph)
+        std::unique_ptr<DepthPass> depth_candidate;
+        if(settings.uses_ao()) {
+            auto* depth = m_state->ao_depth.get();
+            if(!depth) {
+                auto created = DepthPass::create(
+                    m_device, m_frame_slot_count, m_state->hdr_target->get_size(), 1);
+                if(!created)
+                    return Result<void, GraphicsError>::failure(created.error());
+                depth_candidate = std::move(created).value();
+                depth = depth_candidate.get();
+            }
+            if(auto resized = depth->resize(m_state->hdr_target->get_size()); !resized)
+                return resized;
+        }
+        if(auto graph = rebuild_graph(*m_state, settings); !graph)
             return graph;
+        if(depth_candidate)
+            m_state->ao_depth = std::move(depth_candidate);
         if(candidate)
             m_state->bloom = std::move(candidate);
         return Result<void, GraphicsError>::success();
@@ -327,11 +360,21 @@ namespace Comet {
                 return Result<void, GraphicsError>::failure(candidate.error());
             output = std::move(candidate).value();
         }
+        std::unique_ptr<DepthPass> ao_depth;
+        if(m_post_process.uses_ao()) {
+            auto candidate =
+                DepthPass::create(m_device, m_frame_slot_count, state.quality.scene_size(size), 1);
+            if(!candidate)
+                return Result<void, GraphicsError>::failure(candidate.error());
+            ao_depth = std::move(candidate).value();
+        }
         if(m_post_process.uses_bloom()) {
             if(auto bloom = state.bloom->resize(state.quality.scene_size(size)); !bloom)
                 return bloom;
         }
         // 所有候选均成功后再发布，不改变在途帧保留的旧目标。
+        if(ao_depth)
+            state.ao_depth = std::move(ao_depth);
         state.hdr_target = std::move(hdr).value();
         state.output_target = std::move(output);
         return Result<void, GraphicsError>::success();
@@ -462,9 +505,14 @@ namespace Comet {
         frames.retain_current_frame_resource(m_state->hdr_target);
         const auto image = frames.get_current_frame_slot_index();
         frames.retain_current_frame_resource(m_shadow);
-        const auto lighting = RenderDiagnostics::measure_preparation(diagnostics,
+        auto lighting = RenderDiagnostics::measure_preparation(diagnostics,
             RenderDiagnostics::PreparationPhase::Lighting,
             [&] { return ShadowPass::prepare(submission, geometry); });
+        if(m_post_process.uses_ao() && submission.view_project_matrix) {
+            const auto& camera = *submission.view_project_matrix;
+            lighting.ao_inverse_view_projection = Math::inverse(camera.projection * camera.view);
+            lighting.ao_parameters = {m_post_process.ao_radius, m_post_process.ao_strength, 0, 0};
+        }
         const auto& graph = m_state->graph;
         auto& bindings = m_state->bindings;
         bindings.resize(graph.resource_count());
@@ -473,6 +521,9 @@ namespace Comet {
         const auto& attachments = m_state->hdr_target->get_framebuffer(image)->get_attachments();
         for(std::size_t index = 0; index < attachments.size(); ++index)
             bindings[m_state->scene_attachments[index].index] = attachments[index]->get_image();
+        if(m_state->ao_depth_resource)
+            bindings[m_state->ao_depth_resource->index] =
+                m_state->ao_depth->get_depth_view(image)->get_image();
         if(m_state->bloom_passes)
             m_state->bloom->bind_resources(bindings, *m_state->bloom_passes, image);
         std::vector<QueueSemaphoreSubmit> waits;
@@ -510,7 +561,14 @@ namespace Comet {
                 frames, m_state->output_target, hdr, m_post_process, bloom);
         }
         auto drawn = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::success({});
-        if(pass == m_state->shadow_pass_id) {
+        if(m_state->ao_depth_pass && pass == *m_state->ao_depth_pass) {
+            DepthPass::View view;
+            view.enabled = bool(submission.view_project_matrix);
+            if(view.enabled)
+                view.view_projection = submission.view_project_matrix->projection
+                                       * submission.view_project_matrix->view;
+            drawn = m_state->ao_depth->render(frames, std::span(&view, 1), geometry);
+        } else if(pass == m_state->shadow_pass_id) {
             drawn = m_shadow->render(frames, lighting, geometry);
         } else if(pass == m_state->scene_pass_id)
             drawn = draw_scene(
@@ -546,7 +604,10 @@ namespace Comet {
         if(!skybox)
             return skybox;
         auto waits = m_state->materials->prepare(frames, submission, geometry, lighting,
-            m_shadow->get_depth_view(frames.get_current_frame_slot_index()));
+            m_shadow->get_depth_view(frames.get_current_frame_slot_index()),
+            m_state->ao_depth_resource
+                ? m_state->ao_depth->get_depth_view(frames.get_current_frame_slot_index())
+                : nullptr);
         if(!waits)
             return waits;
         for(const auto& wait : skybox.value())

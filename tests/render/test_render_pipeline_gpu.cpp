@@ -1173,4 +1173,88 @@ namespace Comet::Tests {
             }
         }
     }
+    TEST_F(RenderGraphGpuTest, AmbientOcclusionAffectsOnlyEnvironmentAndTracksMasksResizeAndMsaa) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        TemporaryDirectory directory;
+        write_hdr(directory.path() / "white.hdr", 16, 8,
+            [](int, int) { return std::array<unsigned char, 4>{128, 128, 128, 129}; });
+        auto imported = EnvironmentImporter{}.import(directory.path() / "white.hdr");
+        ASSERT_TRUE(imported);
+        auto environment =
+            Environment::try_create(engine->get_render_resources(), imported.value());
+        ASSERT_TRUE(environment);
+        auto material = std::make_shared<Material>("receiver", "pbr");
+        auto occluder = std::make_shared<Material>("occluder", "pbr");
+        const auto mesh = lit_quad();
+        RenderWorld world{
+            .render_items = {{.entity_id = 1,
+                                 .mesh = mesh,
+                                 .material = {AssetHandle(1524), material}},
+                {.entity_id = 2, .mesh = mesh, .material = {AssetHandle(1525), occluder}}},
+            .environment = {{}, false, 0, 0, true, 1},
+            .environment_resource = environment.value()};
+        for(const auto samples : {SampleCount::Count1, SampleCount::Count4}) {
+            MaterialPrograms programs;
+            auto scene = create_scene(programs, {33, 33}, samples);
+            ASSERT_TRUE(scene) << scene.error();
+            FrameScheduler frames(device, 2);
+            frames.initialize_swapchain_images(2);
+            FrameWait wait{device, frames};
+            for(bool perspective : {false, true}) {
+                SCOPED_TRACE(perspective);
+                RenderSubmission submission{
+                    world, ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                               perspective ? Math::perspective(45, 1, .1f, 10)
+                                           : Math::ortho(-1, 1, -1, 1, .1f, 10)}};
+                std::array<int, 11> centers{};
+                for(unsigned frame = 0; frame < centers.size(); ++frame) {
+                    SCOPED_TRACE(frame);
+                    const Math::Vec2u size = frame % 2 ? Math::Vec2u(65, 65) : Math::Vec2u(33, 33);
+                    PostProcessSettings settings{
+                        .ao_enabled = frame != 0 && frame != 7 && frame != 9,
+                        .ao_radius = 1,
+                        .ao_strength = frame == 2 ? 0.0f : 2.0f};
+                    ASSERT_TRUE(scene.value()->prepare_post_process(settings));
+                    ASSERT_TRUE(scene.value()->resize_offscreen_target(size));
+                    world.environment.lighting = frame < 6 || frame == 10;
+                    world.lights.clear();
+                    if(frame == 6 || frame == 7)
+                        world.lights.push_back({.intensity = 1.5f});
+                    ASSERT_TRUE(material->set_scalar_property(
+                        "emissive_strength", frame == 8 || frame == 9 ? 2.0f : 0.0f));
+                    ASSERT_TRUE(material->set_vector_property("emissive_color", {1, 1, 1, 1}));
+                    ASSERT_TRUE(occluder->set_surface(
+                        {.alpha_mode = frame == 10 ? AlphaMode::Blend : AlphaMode::Mask}));
+                    ASSERT_TRUE(occluder->set_vector_property(
+                        "base_color", {1, 1, 1, frame == 3 ? 0.0f : 1.0f}));
+                    world.render_items[1].model_matrix = Math::scale(
+                        Math::translate(Math::Mat4(1), {frame == 4 ? 3.0f : .6f, 0, .65f}),
+                        Math::Vec3(.4f));
+                    begin_frame(frames);
+                    RenderGeometry geometry;
+                    geometry.prepare(world);
+                    auto drawn = scene.value()->render(frames, submission, geometry);
+                    ASSERT_TRUE(drawn) << drawn.error();
+                    auto output = std::make_shared<Readback>(
+                        device, context.get_context().get_physical_device(), size.x * size.y * 4);
+                    ASSERT_NO_FATAL_FAILURE(
+                        finish_readback(*scene.value(), frames, output, size, drawn.value()));
+                    const auto pixels = output->read();
+                    centers[frame] =
+                        std::to_integer<int>(pixels[((size.y / 2) * size.x + size.x / 2) * 4]);
+                }
+                EXPECT_GT(centers[0], 80);
+                EXPECT_LT(centers[1], centers[0] - 5);
+                EXPECT_LT(centers[5], centers[0] - 5);
+                for(unsigned unchanged : {2u, 3u, 4u, 10u})
+                    EXPECT_NEAR(centers[unchanged], centers[0], 2);
+                EXPECT_NEAR(centers[6], centers[7], 2);
+                EXPECT_NEAR(centers[8], centers[9], 2);
+                EXPECT_GT(centers[6], 80);
+                EXPECT_GT(centers[8], 80);
+            }
+        }
+    }
+
 }
