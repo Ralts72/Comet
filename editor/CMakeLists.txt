@@ -9,6 +9,7 @@ endif()
 add_library(editor_core STATIC
         src/editor_state.cpp
         src/inspector/animation_preview.cpp
+        src/inspector/particle_preview.cpp
         src/ui/window_state.cpp
         src/file_recheck_trigger.cpp
         src/project/recent_projects.cpp

@@ -128,7 +128,8 @@ namespace CometEditor {
                 {"collider", "碰撞体"}, {"point_joint", "点关节"}, {"hinge_joint", "铰链关节"},
                 {"slider_joint", "滑动关节"}, {"light", "光源"}, {"animator", "动画"},
                 {"character_animation", "角色动画驱动"}};
-            static constexpr Caption properties[]{{"particle_emitter/enabled", "启用发射"},
+            static constexpr Caption properties[]{{"particle_emitter/texture", "粒子纹理"},
+                {"particle_emitter/enabled", "启用发射"},
                 {"particle_emitter/capacity", "最大粒子数"}, {"particle_emitter/seed", "随机种子"},
                 {"particle_emitter/burst", "启动爆发数量"}, {"particle_emitter/rate", "每秒发射数"},
                 {"particle_emitter/lifetime", "寿命（秒）"},
@@ -355,14 +356,18 @@ namespace CometEditor {
 
     InspectorPanel::~InspectorPanel() {
         reset_animation_preview();
+        reset_particle_preview();
     }
 
     void InspectorPanel::render() {
         m_animation_preview_drawn = false;
+        m_particle_preview_drawn = false;
         const Comet::ScopeExit finish_preview([&] {
             render_controller_editor();
             if(!m_animation_preview_drawn)
                 reset_animation_preview();
+            if(!m_particle_preview_drawn)
+                reset_particle_preview();
         });
         auto selected = m_selection.get_selected_entities();
         if(selected != m_entities) {
@@ -441,6 +446,8 @@ namespace CometEditor {
             if(expanded) {
                 if(component_descriptor.id == "animator" && m_entities.size() == 1)
                     render_animation_preview(entity);
+                if(component_descriptor.id == "particle_emitter" && m_entities.size() == 1)
+                    render_particle_preview(entity);
                 if(component_descriptor.id == "character_controller")
                     ImGui::TextWrapped(
                         "脚底为原点，总高须大于直径。角色与刚体不能共用同一实体；保持竖直、无父级和正等比缩放。");
@@ -606,6 +613,7 @@ namespace CometEditor {
 
     void InspectorPanel::reset_for_scene_change() {
         reset_animation_preview();
+        reset_particle_preview();
         m_asset_assignment.reset();
         m_script_edit_version.reset();
         m_entities.clear();
@@ -681,6 +689,92 @@ namespace CometEditor {
         assets.render_controller_window(preview);
         if(!editor.is_open())
             m_animation_preview_drawn = false;
+    }
+
+    void InspectorPanel::reset_particle_preview() {
+        auto& scene = m_selection.get_scene();
+        if(m_particle_publication
+            && m_particle_preview.target().scene_lifetime == scene.get_lifetime()
+            && scene.get_particles() == m_particle_publication)
+            scene.set_particles(nullptr);
+        m_particle_preview.reset();
+        m_particle_publication.reset();
+        m_particle_preview_drawn = false;
+    }
+
+    bool InspectorPanel::bind_particle_preview(Comet::Entity entity) {
+        auto& scene = m_selection.get_scene();
+        if(m_state.mode != EditorMode::Edit || (m_runtime && m_runtime->is_active()) || !entity
+            || !entity.has_component<Comet::ParticleEmitterComponent>()) {
+            reset_particle_preview();
+            return false;
+        }
+        const ParticlePreview::Target target{scene.get_lifetime(), entity.get_uuid()};
+        if(m_particle_preview.target() != target)
+            reset_particle_preview();
+        (void)scene.get_world_matrix(entity);
+        const auto& world = entity.get_component<Comet::WorldTransformComponent>();
+        auto pose = world.pose_world_matrix;
+        pose[3] = world.world_matrix[3];
+        auto bound = m_particle_preview.bind(
+            target, entity.get_component<Comet::ParticleEmitterComponent>(), pose);
+        if(!bound) {
+            reset_particle_preview();
+            return false;
+        }
+        return true;
+    }
+
+    void InspectorPanel::render_particle_preview(Comet::Entity entity) {
+        if(m_state.mode != EditorMode::Edit)
+            return;
+        ImGui::SeparatorText("粒子预览");
+        if(!bind_particle_preview(entity)) {
+            ImGui::TextDisabled("粒子配置无效，请检查参数");
+            return;
+        }
+        m_particle_preview_drawn = true;
+        if(m_particle_preview.playing()) {
+            if(ImGui::Button("暂停###Pause Particle Preview"))
+                m_particle_preview.pause();
+        } else if(ImGui::Button("播放###Play Particle Preview")) {
+            if(auto played = m_particle_preview.play(); !played)
+                LOG_ERROR("Particle preview: {}", played.error().message);
+        }
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!entity.get_component<Comet::ParticleEmitterComponent>().enabled);
+        if(ImGui::Button("爆发###Burst Particle Preview"))
+            if(auto emitted = m_particle_preview.burst(); !emitted)
+                LOG_ERROR("Particle preview: {}", emitted.error().message);
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if(ImGui::Button("单步###Step Particle Preview"))
+            if(auto stepped = m_particle_preview.step(); !stepped)
+                LOG_ERROR("Particle preview: {}", stepped.error().message);
+        ImGui::SameLine();
+        if(ImGui::Button("结束###Stop Particle Preview"))
+            m_particle_preview.stop();
+        const auto frame = m_particle_preview.snapshot();
+        ImGui::TextDisabled(
+            "存活 %zu；预览不运行游戏脚本，也不写入场景。", frame ? frame->instances.size() : 0);
+        ImGui::SeparatorText("发射配置");
+    }
+
+    void InspectorPanel::update_previews(double delta_time) {
+        update_animation_preview(delta_time);
+        if(!m_particle_preview_drawn) {
+            reset_particle_preview();
+            return;
+        }
+        if(!bind_particle_preview(m_selection.get_selected_entity()))
+            return;
+        if(auto advanced = m_particle_preview.advance(delta_time); !advanced) {
+            LOG_ERROR("Particle preview: {}", advanced.error().message);
+            reset_particle_preview();
+            return;
+        }
+        m_particle_publication = m_particle_preview.snapshot();
+        m_selection.get_scene().set_particles(m_particle_publication);
     }
 
     void InspectorPanel::update_animation_preview(double delta_time) {

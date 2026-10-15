@@ -28,12 +28,14 @@ namespace Comet {
     private:
         RenderWorld& writable_output();
         void resolve_environment(const RenderScene& scene, RenderWorld& world);
+        void resolve_particles(const RenderScene& scene, RenderWorld& world);
         [[nodiscard]] MaterialBinding resolve_material(
             AssetHandle handle, RenderWorld& world) const;
         const AssetRegistry& m_asset_registry;
         std::shared_ptr<RenderWorld> m_output;
         std::unordered_map<AssetHandle, bool> m_missing_mesh_handles;
         std::unordered_map<AssetHandle, bool> m_missing_material_handles;
+        std::unordered_map<AssetHandle, bool> m_missing_particle_textures;
         AssetHandle m_invalid_environment;
     };
 

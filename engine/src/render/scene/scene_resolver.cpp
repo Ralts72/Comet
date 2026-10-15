@@ -7,6 +7,7 @@
 #include "render/material/material.h"
 #include "render/resource/mesh.h"
 #include "render/resource/environment.h"
+#include "render/resource/texture.h"
 
 #include <algorithm>
 #include <array>
@@ -86,6 +87,8 @@ namespace Comet {
     void SceneResolver::refresh_assets(RenderWorld& world) const {
         const auto revision = m_asset_registry.get_revision();
         const bool published = world.resolution.asset_revision != revision;
+        if(published)
+            std::ranges::fill(world.particle_textures, nullptr);
         auto& materials = world.resolution.material_sources;
         bool edited = false;
         // 每个材质身份只检查一次；参数没变时不扫描物体或复制参数。
@@ -227,12 +230,38 @@ namespace Comet {
         m_invalid_environment = invalid_environment;
     }
 
+    void SceneResolver::resolve_particles(const RenderScene& scene, RenderWorld& world) {
+        world.particles = scene.particles;
+        world.particle_textures.clear();
+        for(auto& [handle, used] : m_missing_particle_textures)
+            used = false;
+        if(scene.particles) {
+            world.particle_textures.reserve(scene.particles->batches.size());
+            for(const auto& batch : scene.particles->batches) {
+                std::shared_ptr<Texture> texture;
+                if(batch.texture) {
+                    texture = m_asset_registry.resolve<Texture>(batch.texture);
+                    if(!texture) {
+                        const auto [entry, inserted] =
+                            m_missing_particle_textures.try_emplace(batch.texture, true);
+                        entry->second = true;
+                        if(inserted)
+                            LOG_ERROR("Particle emitter references missing texture handle {}",
+                                batch.texture.value());
+                    }
+                }
+                world.particle_textures.push_back(std::move(texture));
+            }
+        }
+        std::erase_if(m_missing_particle_textures, [](const auto& entry) { return !entry.second; });
+    }
+
     void SceneResolver::resolve(const RenderScene& render_scene, RenderWorld& world) {
         refresh_assets(world);
         world.cameras = render_scene.cameras;
         world.lights = render_scene.lights;
         world.post_process = render_scene.post_process;
-        world.particles = render_scene.particles;
+        resolve_particles(render_scene, world);
         resolve_environment(render_scene, world);
         const auto& items = render_scene.render_items;
         auto& slots = world.render_items;

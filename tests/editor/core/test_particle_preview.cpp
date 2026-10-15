@@ -1,0 +1,108 @@
+#include "inspector/particle_preview.h"
+#include "scene/component_registry.h"
+#include "scene/scene.h"
+#include "scene/scene_serializer.h"
+#include "scene/script_component.h"
+
+#include <gtest/gtest.h>
+
+namespace CometEditor::Tests {
+    TEST(ParticlePreviewTest, UsesOnlyAnIsolatedEmitterAndDoesNotSaveItsLiveParticles) {
+        Comet::Scene scene;
+        auto entity = scene.create_entity("effect");
+        Comet::ParticleEmitterComponent settings;
+        settings.rate = 0;
+        settings.burst = 8;
+        settings.spread = 0;
+        settings.acceleration = {};
+        entity.add_component<Comet::ParticleEmitterComponent>(settings);
+        entity.add_component<Comet::ScriptComponent>().asset = Comet::AssetHandle{99999};
+        entity.edit_transform([](auto& transform) {
+            transform.translation = {5, 3, 0};
+            transform.rotation = {0, 0, 90};
+        });
+        ParticlePreview preview;
+        ASSERT_TRUE(preview.bind(
+            {scene.get_lifetime(), entity.get_uuid()}, settings, scene.get_world_matrix(entity)));
+        ASSERT_TRUE(preview.play());
+        ASSERT_TRUE(preview.advance(0.05));
+        const auto snapshot = preview.snapshot();
+        ASSERT_TRUE(snapshot);
+        ASSERT_EQ(snapshot->instances.size(), 8u);
+        EXPECT_LT(snapshot->instances.front().position_size.x, 5);
+        EXPECT_NEAR(snapshot->instances.front().position_size.y, 3, 1e-5);
+        EXPECT_FALSE(scene.get_particles());
+        EXPECT_FALSE(scene.request_particle_burst(entity, 1));
+        scene.set_particles(snapshot);
+        auto components = Comet::create_scene_component_registry();
+        Comet::SceneSerializer serializer(components);
+        auto cloned = serializer.clone(scene);
+        ASSERT_TRUE(cloned);
+        EXPECT_FALSE(cloned.value()->get_particles());
+        EXPECT_EQ(cloned.value()
+                      ->find_entity(entity.get_uuid())
+                      .get_component<Comet::ParticleEmitterComponent>(),
+            settings);
+    }
+
+    TEST(ParticlePreviewTest, PauseStepAndConfigurationChangesPreserveTimeAndOldSnapshots) {
+        Comet::Scene scene;
+        auto entity = scene.create_entity();
+        const ParticlePreview::Target target{scene.get_lifetime(), entity.get_uuid()};
+        Comet::ParticleEmitterComponent settings;
+        settings.rate = 0;
+        settings.burst = 4;
+        settings.texture = Comet::AssetHandle{11};
+        ParticlePreview preview;
+        ASSERT_TRUE(preview.bind(target, settings, Comet::Math::Mat4(1)));
+        ASSERT_TRUE(preview.play());
+        preview.pause();
+        const auto first = preview.snapshot();
+        ASSERT_TRUE(preview.advance(1));
+        EXPECT_EQ(preview.snapshot(), first);
+        settings.texture = Comet::AssetHandle{12};
+        settings.start_color = {0, 0, 1, 1};
+        ASSERT_TRUE(preview.bind(target, settings, Comet::Math::Mat4(1)));
+        EXPECT_FALSE(preview.playing());
+        const auto updated = preview.snapshot();
+        ASSERT_TRUE(updated);
+        EXPECT_EQ(updated->instances.front().position_size, first->instances.front().position_size);
+        EXPECT_EQ(updated->batches.front().texture, Comet::AssetHandle{12});
+        EXPECT_EQ(first->batches.front().texture, Comet::AssetHandle{11});
+        EXPECT_EQ(updated->instances.front().color, (Comet::Math::Vec4{0, 0, 1, 1}));
+        ASSERT_TRUE(preview.step());
+        EXPECT_NE(preview.snapshot()->instances.front().position_size,
+            updated->instances.front().position_size);
+        EXPECT_FALSE(preview.playing());
+        preview.stop();
+        EXPECT_FALSE(preview.snapshot());
+    }
+
+    TEST(ParticlePreviewTest, BurstUsesStartupCountOnceAndTargetSwitchDiscardsTheOldPreview) {
+        Comet::Scene scene;
+        auto a = scene.create_entity(), b = scene.create_entity();
+        Comet::ParticleEmitterComponent settings;
+        settings.rate = 0;
+        settings.burst = 10;
+        settings.capacity = 16;
+        ParticlePreview preview;
+        EXPECT_FALSE(preview.play());
+        ASSERT_TRUE(
+            preview.bind({scene.get_lifetime(), a.get_uuid()}, settings, Comet::Math::Mat4(1)));
+        ASSERT_TRUE(preview.burst());
+        ASSERT_EQ(preview.snapshot()->instances.size(), 10u);
+        ASSERT_TRUE(preview.burst());
+        EXPECT_EQ(preview.snapshot()->instances.size(), 16u);
+        const auto previous = preview.snapshot();
+        ASSERT_TRUE(
+            preview.bind({scene.get_lifetime(), b.get_uuid()}, settings, Comet::Math::Mat4(1)));
+        EXPECT_FALSE(preview.playing());
+        EXPECT_FALSE(preview.snapshot());
+        EXPECT_EQ(previous->instances.size(), 16u);
+        settings.enabled = false;
+        ASSERT_TRUE(preview.bind(preview.target(), settings, Comet::Math::Mat4(1)));
+        EXPECT_FALSE(preview.burst());
+        preview.reset();
+        EXPECT_FALSE(preview.step());
+    }
+}

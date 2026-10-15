@@ -171,8 +171,8 @@ namespace Comet {
         if(!debug)
             return Creation::failure(debug.error());
         next->debug = std::move(debug).value();
-        auto particles =
-            ParticlePass::create(m_device, *next->pipelines, m_frame_slot_count, samples);
+        auto particles = ParticlePass::create(
+            m_device, *next->pipelines, resources, m_frame_slot_count, samples);
         if(!particles)
             return Creation::failure(particles.error());
         next->particles = std::move(particles).value();
@@ -465,6 +465,7 @@ namespace Comet {
 
     void SceneRenderer::skip_frame() {
         m_state->materials->reset_statistics();
+        m_state->particles->reset();
     }
 
     void SceneRenderer::remove_assets(const AssetRegistry::Removals& removals) {
@@ -566,13 +567,13 @@ namespace Comet {
         for(const auto& wait : skybox.value())
             merge_semaphore_wait(waits.value(), wait);
         if(submission.view_project_matrix) {
-            if(submission.world.particles) {
-                if(auto drawn = m_state->particles->render(
-                       frames, *submission.view_project_matrix, *submission.world.particles);
-                    !drawn)
-                    return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
-                        drawn.error());
-            }
+            auto drawn = m_state->particles->render(
+                frames, *submission.view_project_matrix, submission.world);
+            if(!drawn)
+                return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
+                    drawn.error());
+            for(const auto& wait : drawn.value())
+                merge_semaphore_wait(waits.value(), wait);
             if(auto debug = m_state->debug->render(frames, *submission.view_project_matrix, lines);
                 !debug)
                 return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(

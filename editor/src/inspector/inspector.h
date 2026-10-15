@@ -4,6 +4,7 @@
 #include "scene/component_registry.h"
 #include "inspector/asset_inspector.h"
 #include "inspector/animation_preview.h"
+#include "inspector/particle_preview.h"
 #include "ui/editor_panel.h"
 #include "scene/command_history.h"
 #include "scene/scene_settings.h"
@@ -45,7 +46,7 @@ namespace CometEditor {
         void render() override;
         [[nodiscard]] bool finish_edit(bool cancel = false);
         void reset_for_scene_change();
-        void update_animation_preview(double delta_time);
+        void update_previews(double delta_time);
         [[nodiscard]] AssetInspector& asset_inspector() { return m_asset_inspector; }
         [[nodiscard]] std::optional<AssetAssignment> take_asset_assignment();
 
@@ -60,6 +61,10 @@ namespace CometEditor {
         void render_animation_preview(Comet::Entity entity);
         [[nodiscard]] bool bind_animation_preview(Comet::Entity entity);
         void reset_animation_preview();
+        void update_animation_preview(double delta_time);
+        void render_particle_preview(Comet::Entity entity);
+        bool bind_particle_preview(Comet::Entity entity);
+        void reset_particle_preview();
         void render_controller_editor();
         void render_property(Comet::Entity entity, const Comet::ComponentDescriptor& component,
             const Comet::PropertyDescriptor& property);
@@ -96,6 +101,9 @@ namespace CometEditor {
         AnimationPreview m_animation_preview;
         std::shared_ptr<const Comet::AnimationPlayback> m_preview_publication;
         bool m_animation_preview_drawn = false;
+        ParticlePreview m_particle_preview;
+        std::shared_ptr<const Comet::ParticleSnapshot> m_particle_publication;
+        bool m_particle_preview_drawn = false;
         uint32_t m_active_item = 0;
         uint32_t m_script_active_item = 0;
     };

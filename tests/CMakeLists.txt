@@ -54,6 +54,7 @@ set(UNIT_TEST_SOURCES
         diagnostics/test_timing_history.cpp
         editor/core/test_camera_controller.cpp
         editor/core/test_animation_preview.cpp
+        editor/core/test_particle_preview.cpp
         editor/core/test_physics_overlay.cpp
         editor/core/test_command_history.cpp
         editor/core/test_editor_assets.cpp

@@ -305,7 +305,7 @@ namespace {
         }
 
         void on_frame_capture(const Comet::Engine::FrameContext& frame) override {
-            m_inspector_panel->update_animation_preview(frame.update.delta_time);
+            m_inspector_panel->update_previews(frame.update.delta_time);
             m_viewport->submit_feedback(get_engine().get_scene());
         }
 

@@ -90,6 +90,8 @@ namespace Comet {
         [[nodiscard]] const std::shared_ptr<const ParticleSnapshot>& get_particles() const {
             return m_particles;
         }
+        // Main 发布 Runtime／编辑预览的瞬时数据，不进入场景保存或克隆。
+        void set_particles(std::shared_ptr<const ParticleSnapshot> particles);
 
         // 场景通知不序列化；交付期间发出的新通知留至下一次有效更新。
         [[nodiscard]] bool emit_event(std::string_view name,
@@ -203,7 +205,6 @@ namespace Comet {
         [[nodiscard]] bool begin_runtime();
         [[nodiscard]] bool commit_entity_requests();
         [[nodiscard]] std::vector<Event> take_events();
-        void set_particles(std::shared_ptr<const ParticleSnapshot> particles);
         void end_runtime() noexcept;
         void clear_runtime_state() noexcept;
         [[nodiscard]] bool append_contact_event(ContactEvent event);

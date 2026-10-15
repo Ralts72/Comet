@@ -17,6 +17,7 @@ namespace Comet {
     struct AnimationPlayback;
     class Mesh;
     class Material;
+    class Texture;
     class ShaderProgramArtifact;
     struct MaterialOverrides;
     struct Environment;
@@ -52,6 +53,7 @@ namespace Comet {
         std::shared_ptr<Environment> environment_resource;
         RenderItemChanges item_changes;
         std::shared_ptr<const ParticleSnapshot> particles;
+        std::vector<std::shared_ptr<Texture>> particle_textures;
         // 随世界快照复制，保证独立消费者的解析批次连续性。
         struct ResolutionCache {
             uint64_t asset_revision = 0;
@@ -74,6 +76,7 @@ namespace Comet {
             render_items.clear();
             lights.clear();
             particles.reset();
+            particle_textures.clear();
             environment = {};
             post_process = {};
             environment_revision = 0;

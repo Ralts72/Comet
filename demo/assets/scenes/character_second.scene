@@ -744,7 +744,8 @@
             0
           ],
           "start_size": 0.2,
-          "end_size": 0.02
+          "end_size": 0.02,
+          "texture": 13857136248767905809
         }
       },
       "prefab": {
@@ -828,7 +829,8 @@
                 0
               ],
               "start_size": 0.2,
-              "end_size": 0.02
+              "end_size": 0.02,
+              "texture": 13857136248767905809
             }
           }
         },
@@ -924,7 +926,8 @@
             0
           ],
           "start_size": 0.2,
-          "end_size": 0.02
+          "end_size": 0.02,
+          "texture": 13857136248767905809
         }
       },
       "prefab": {
@@ -1008,7 +1011,8 @@
                 0
               ],
               "start_size": 0.2,
-              "end_size": 0.02
+              "end_size": 0.02,
+              "texture": 13857136248767905809
             }
           }
         },
@@ -1104,7 +1108,8 @@
             0
           ],
           "start_size": 0.2,
-          "end_size": 0.02
+          "end_size": 0.02,
+          "texture": 13857136248767905809
         }
       },
       "prefab": {
@@ -1188,7 +1193,8 @@
                 0
               ],
               "start_size": 0.2,
-              "end_size": 0.02
+              "end_size": 0.02,
+              "texture": 13857136248767905809
             }
           }
         },

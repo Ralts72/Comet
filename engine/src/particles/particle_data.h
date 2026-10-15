@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "asset/handle.h"
 #include "common/result.h"
 #include "core/math_utils.h"
 
@@ -23,6 +24,7 @@ namespace Comet {
         Math::Vec4 end_color{1, 0.2f, 0, 0};
         float start_size = 0.15f;
         float end_size = 0;
+        AssetHandle texture;
 
         [[nodiscard]] Result<void> validate() const;
         bool operator==(const ParticleEmitterComponent&) const = default;
@@ -36,7 +38,13 @@ namespace Comet {
 
     // Main 发布的世界空间数据；Render 只上传，不访问实体或模拟状态。
     struct ParticleSnapshot {
+        struct Batch {
+            AssetHandle texture;
+            uint32_t first;
+            uint32_t count;
+        };
         static constexpr uint32_t MAX_PARTICLES = 65536;
         std::vector<ParticleInstance> instances;
+        std::vector<Batch> batches;
     };
 }

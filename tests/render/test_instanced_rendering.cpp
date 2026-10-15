@@ -10,6 +10,85 @@
 #include <algorithm>
 
 namespace Comet::Tests {
+    TEST_F(RenderGraphGpuTest, ParticleTexturesReloadAndKeepEarlierFrameBindingsAlive) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        auto& assets = engine->get_asset_registry();
+        const AssetHandle handle{9950};
+        const auto texture = [&](std::vector<uint8_t> pixel) {
+            auto uploaded = engine->get_render_resources().try_create_texture(
+                TextureData{.width = 1, .height = 1, .pixels = std::move(pixel)});
+            EXPECT_TRUE(uploaded);
+            return uploaded.value();
+        };
+        ASSERT_TRUE(assets.register_asset(handle, texture({255, 0, 0, 128})));
+        auto particles = std::make_shared<ParticleSnapshot>();
+        particles->instances.push_back({{0, 0, 0, 1}, {1, 1, 1, 1}});
+        particles->batches.push_back({handle, 0, 1});
+        RenderScene input{.scene_lifetime = 1, .particles = particles};
+        input.item_changes.begin_update(true);
+        SceneResolver resolver(assets);
+        MaterialPrograms programs;
+        auto scene = create_scene(programs, {33, 33});
+        ASSERT_TRUE(scene);
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        std::array<std::shared_ptr<Readback>, 4> pixels;
+        std::shared_ptr<const RenderWorld> old_world;
+        Format format{};
+        for(unsigned frame = 0; frame < pixels.size(); ++frame) {
+            SCOPED_TRACE(frame);
+            if(frame == 1)
+                ASSERT_TRUE(assets.replace_asset(handle, texture({0, 255, 0, 64})));
+            else if(frame == 2)
+                ASSERT_TRUE(assets.unregister_asset(handle));
+            else if(frame == 3)
+                ASSERT_TRUE(assets.register_asset(handle, texture({0, 0, 255, 255})));
+            auto world = resolver.update(input);
+            if(frame == 0)
+                old_world = world;
+            else
+                EXPECT_NE(old_world->particle_textures.front(), world->particle_textures.front());
+            RenderGeometry geometry;
+            geometry.prepare(*world);
+            RenderSubmission submission{
+                *world, ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                            Math::ortho(-1, 1, -1, 1, 0.1f, 10)}};
+            begin_frame(frames);
+            const auto slot = frames.get_current_frame_slot_index();
+            auto drawn = scene.value()->render(frames, submission, geometry);
+            ASSERT_TRUE(drawn) << drawn.error();
+            pixels[frame] = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), 33 * 33 * 4);
+            const auto output = scene.value()->get_offscreen_color_view(slot);
+            format = output->get_image()->get_info().format;
+            copy_output(frames, output->get_image(), pixels[frame], {33, 33});
+            submit(device, frames, drawn.value());
+        }
+        frames.wait_for_all_slots();
+        const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+        const std::array expected{Math::Vec3{128.f / 255, 0, 0}, Math::Vec3{0, 64.f / 255, 0},
+            Math::Vec3{0}, Math::Vec3{0, 0, 1}};
+        for(unsigned frame = 0; frame < pixels.size(); ++frame) {
+            const auto bytes = pixels[frame]->read();
+            for(unsigned channel = 0; channel < 3; ++channel) {
+                const auto component = bgra ? 2 - channel : channel;
+                EXPECT_NEAR(std::to_integer<int>(bytes[(16 * 33 + 16) * 4 + component]),
+                    mapped_byte(expected[frame][channel]), 2)
+                    << frame;
+            }
+        }
+        const auto diagnostics = messages.str();
+        EXPECT_NE(diagnostics.find("Particle emitter references missing texture handle 9950"),
+            std::string::npos);
+        EXPECT_EQ(std::count(diagnostics.begin(), diagnostics.end(), '\n'), 1);
+        EXPECT_EQ(diagnostics.find("VUID-"), std::string::npos);
+        EXPECT_EQ(diagnostics.find("Validation Error"), std::string::npos);
+        messages.str({});
+        messages.clear();
+    }
+
     TEST_F(RenderGraphGpuTest, ParticleBillboardsBlendAndRespectDepthAcrossFrameSlots) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();

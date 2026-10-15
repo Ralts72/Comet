@@ -14,6 +14,30 @@
 #include <limits>
 
 namespace Comet::Tests {
+    TEST(ParticleSystemTest, AdditiveParticlesWithTheSameTextureShareOneBatch) {
+        Scene scene;
+        for(const auto texture : {AssetHandle{11}, AssetHandle{}, AssetHandle{11}}) {
+            ParticleEmitterComponent settings;
+            settings.texture = texture;
+            settings.rate = 0;
+            settings.burst = 4;
+            scene.create_entity().add_component<ParticleEmitterComponent>(settings);
+        }
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ParticleSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        const auto frame = scene.get_particles();
+        ASSERT_TRUE(frame);
+        EXPECT_EQ(frame->instances.size(), 12u);
+        ASSERT_EQ(frame->batches.size(), 2u);
+        EXPECT_EQ(frame->batches[0].texture, AssetHandle{});
+        EXPECT_EQ(frame->batches[0].first, 0u);
+        EXPECT_EQ(frame->batches[0].count, 4u);
+        EXPECT_EQ(frame->batches[1].texture, AssetHandle{11});
+        EXPECT_EQ(frame->batches[1].first, 4u);
+        EXPECT_EQ(frame->batches[1].count, 8u);
+    }
+
     TEST(ParticleSystemTest, LuaBurstIsDeliveredInTheSameFrameAfterTheEmitterIsDestroyed) {
         AssetRegistry assets;
         auto source = Script::create(R"(
@@ -112,6 +136,7 @@ namespace Comet::Tests {
         emitter.speed = 0;
         emitter.acceleration = {};
         emitter.lifetime = 0.1f;
+        emitter.texture = AssetHandle{42};
         entity.add_component<ParticleEmitterComponent>(emitter);
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.add_system(std::make_unique<ParticleSystem>()));
@@ -126,6 +151,12 @@ namespace Comet::Tests {
             (Math::Vec3{12, 3, 0}));
         auto render_scene = SceneExtractor::extract(scene);
         EXPECT_EQ(render_scene.particles, scene.get_particles());
+        auto components = create_scene_component_registry();
+        const auto references =
+            components.collect_asset_references(scene, ComponentRegistry::ReferenceScope::Runtime);
+        ASSERT_EQ(references.size(), 1u);
+        EXPECT_EQ(references.front().handle, AssetHandle{42});
+        EXPECT_TRUE(components.collect_asset_references(scene).empty());
         ASSERT_TRUE(runtime.advance(0.2));
         EXPECT_FALSE(scene.get_particles());
         ASSERT_TRUE(render_scene.particles);
@@ -166,6 +197,7 @@ namespace Comet::Tests {
         settings.seed = 123;
         settings.burst = 12;
         settings.spread = 90;
+        settings.texture = AssetHandle{987};
         entity.add_component<ParticleEmitterComponent>(settings);
         auto components = create_scene_component_registry();
         SceneRuntime runtime;

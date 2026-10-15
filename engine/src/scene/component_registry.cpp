@@ -172,6 +172,10 @@ namespace Comet {
     std::vector<AssetReference> ComponentRegistry::collect_asset_references(
         Scene& scene, const ReferenceScope scope) const {
         std::vector<AssetReference> references;
+        if(scope == ReferenceScope::Runtime && scene.get_particles())
+            for(const auto& batch : scene.get_particles()->batches)
+                if(batch.texture)
+                    references.push_back({batch.texture, AssetType::Texture, true});
         const auto& environment = scene.get_environment();
         if(environment.asset
             && (scope == ReferenceScope::All || environment.background || environment.lighting))
@@ -382,8 +386,11 @@ namespace Comet {
 
         register_component(make_component_descriptor<ParticleEmitterComponent>("particle_emitter",
             "Particle Emitter",
-            {make_property_descriptor(
-                 "enabled", "Enabled", &ParticleEmitterComponent::enabled, {.required = false}),
+            {make_property_descriptor("texture", "Particle Texture",
+                 &ParticleEmitterComponent::texture,
+                 {.required = false, .asset_type = AssetType::Texture}),
+                make_property_descriptor(
+                    "enabled", "Enabled", &ParticleEmitterComponent::enabled, {.required = false}),
                 make_property_descriptor("capacity", "Capacity",
                     &ParticleEmitterComponent::capacity,
                     {.required = false,

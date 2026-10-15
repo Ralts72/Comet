@@ -14,6 +14,7 @@
 #include "support/temporary_directory.h"
 
 #include <imgui_internal.h>
+#include "particles/particle_system.h"
 
 namespace CometEditor::Tests {
     class AnimationPreviewUiTest: public Comet::Tests::EngineTest {
@@ -46,6 +47,8 @@ namespace CometEditor::Tests {
             entity.add_component<Comet::AnimatorComponent>();
             const auto builtins = Comet::create_scene_component_registry();
             ASSERT_TRUE(components.register_component(*builtins.find_component("animator")));
+            ASSERT_TRUE(
+                components.register_component(*builtins.find_component("particle_emitter")));
             widgets = create_property_editor_registry(database);
             history.bind_scene(&scene);
             selection.select_entity(entity.get_id());
@@ -75,16 +78,16 @@ namespace CometEditor::Tests {
                     *request, Comet::AnimationControllerSerializer{}.load(
                                   database.paths().assets() / record->path));
             }
-            inspector->update_animation_preview(delta);
+            inspector->update_previews(delta);
         }
 
-        ImVec2 widget_point(const char* label) {
+        ImVec2 widget_point(const char* label, const char* component_id = "animator") {
             auto* window = ImGui::FindWindowByName("Inspector");
             if(!window) {
                 ADD_FAILURE() << "Inspector is missing";
                 return {};
             }
-            const auto component = ImHashStr("animator", 0, window->ID);
+            const auto component = ImHashStr(component_id, 0, window->ID);
             const auto id = ImHashStr(label, 0, component);
             for(float y = window->WorkRect.Min.y; y < window->WorkRect.Max.y; y += 3) {
                 const ImVec2 point{window->WorkRect.Min.x + 12, y};
@@ -203,6 +206,62 @@ namespace CometEditor::Tests {
         selection.clear();
         frame();
         EXPECT_FALSE(scene.get_animation_playback(entity));
+    }
+
+    TEST_F(AnimationPreviewUiTest, ParticleControlsDoNotChangeContentUndoOrThePlaySimulation) {
+        Comet::ParticleEmitterComponent settings;
+        settings.rate = 0;
+        settings.burst = 8;
+        entity.add_component<Comet::ParticleEmitterComponent>(settings);
+        const auto builtins = Comet::create_scene_component_registry();
+        const Comet::SceneSerializer serializer(builtins);
+        const auto before = serializer.serialize(scene).value();
+        const auto history_state = history.state_id();
+        frame();
+        const auto particle_click = [&](unsigned column) {
+            auto point = widget_point("###Play Particle Preview", "particle_emitter");
+            const auto width = ImGui::CalcTextSize("播放").x + ImGui::GetStyle().FramePadding.x * 2
+                               + ImGui::GetStyle().ItemSpacing.x;
+            point.x += column * width;
+            auto& io = ImGui::GetIO();
+            io.AddMousePosEvent(point.x, point.y);
+            io.AddMouseButtonEvent(0, true);
+            frame();
+            io.AddMouseButtonEvent(0, false);
+            frame();
+        };
+        particle_click(1);
+        ASSERT_TRUE(scene.get_particles());
+        ASSERT_EQ(scene.get_particles()->instances.size(), 8u);
+        const auto paused = scene.get_particles();
+        frame(.2);
+        EXPECT_EQ(scene.get_particles(), paused);
+        particle_click(2);
+        ASSERT_TRUE(scene.get_particles());
+        EXPECT_NE(scene.get_particles()->instances.front().position_size,
+            paused->instances.front().position_size);
+        EXPECT_EQ(serializer.serialize(scene).value(), before);
+        EXPECT_EQ(history.state_id(), history_state);
+        EXPECT_FALSE(history.can_undo());
+        particle_click(3);
+        EXPECT_FALSE(scene.get_particles());
+        particle_click(1);
+        ASSERT_TRUE(scene.get_particles());
+        inspector->reset_for_scene_change();
+        EXPECT_FALSE(scene.get_particles());
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Comet::ParticleSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        state.mode = EditorMode::Play;
+        const auto game = scene.get_particles();
+        ASSERT_TRUE(game);
+        frame(.2);
+        EXPECT_EQ(scene.get_particles(), game);
+        ASSERT_TRUE(runtime.stop());
+        state.mode = EditorMode::Edit;
+        frame();
+        selection.clear();
+        frame();
+        EXPECT_FALSE(scene.get_particles());
     }
 
     TEST_F(AnimationPreviewUiTest, PlayAndSceneReplacementDoNotKeepOrOverwritePreviewState) {

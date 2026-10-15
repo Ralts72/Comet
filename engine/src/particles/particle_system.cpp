@@ -122,6 +122,8 @@ namespace Comet {
     }
 
     Result<void, Error> ParticleSystem::post_update(Scene& scene, const Context&) {
+        if(auto synced = synchronize(scene); !synced)
+            return synced;
         for(const auto& request : std::exchange(scene.m_particle_requests, {})) {
             auto [found, inserted] = m_emitters.try_emplace(request.entity);
             auto& emitter = found->second;
@@ -151,8 +153,23 @@ namespace Comet {
         }
         auto snapshot = std::make_shared<ParticleSnapshot>();
         snapshot->instances.reserve(m_count);
-        for(const auto& [id, emitter] : m_emitters) {
+        std::vector<const Emitter*> emitters;
+        emitters.reserve(m_emitters.size());
+        for(const auto& [id, emitter] : m_emitters)
+            if(!emitter.particles.empty())
+                emitters.push_back(&emitter);
+        // 加法混合可按纹理合批，保持同纹理内的稳定发射器顺序。
+        std::stable_sort(emitters.begin(), emitters.end(),
+            [](const auto* a, const auto* b) { return a->settings.texture < b->settings.texture; });
+        for(const auto* source : emitters) {
+            const auto& emitter = *source;
             const auto& settings = emitter.settings;
+            const auto count = uint32_t(emitter.particles.size());
+            if(!snapshot->batches.empty() && snapshot->batches.back().texture == settings.texture)
+                snapshot->batches.back().count += count;
+            else
+                snapshot->batches.push_back(
+                    {settings.texture, uint32_t(snapshot->instances.size()), count});
             for(const auto& particle : emitter.particles) {
                 const float phase = std::clamp(float(particle.age / settings.lifetime), 0.0f, 1.0f);
                 snapshot->instances.push_back(
