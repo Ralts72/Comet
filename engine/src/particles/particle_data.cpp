@@ -4,6 +4,8 @@
 
 namespace Comet {
     Result<void> ParticleEmitterComponent::validate() const {
+        if(blend != ParticleBlend::Additive && blend != ParticleBlend::Alpha)
+            return Result<void>::failure("Invalid particle blend mode");
         if(capacity == 0 || capacity > MAX_CAPACITY || burst > MAX_CAPACITY || !std::isfinite(rate)
             || rate < 0 || rate > 10000 || !std::isfinite(lifetime) || lifetime < 0.01f
             || lifetime > 60 || !std::isfinite(speed) || speed < 0 || speed > 1000

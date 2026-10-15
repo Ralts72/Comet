@@ -343,9 +343,11 @@ Collider 保存摩擦和弹性系数（0～1），默认 0.2／0；PropertyDescr
 
 ParticleEmitterComponent 保存内容配置；ParticleSystem 在固定步维护连续存储的有限粒子池，不为每个粒子创建 Entity。
 Lua 爆发请求在 Scene 内保存触发配置和世界姿态，脚本／动画事件完成后交付；已出生粒子可在源实体销毁后自然消退。
-Scene 只发布不可变 ParticleSnapshot，按纹理聚合加法实例；提取与资产解析沿现有 RenderScene／RenderWorld 传递，不借用模拟容器。
+Scene 只发布不可变 ParticleSnapshot，按混合方式与纹理分组；提取与资产解析沿现有 RenderScene／RenderWorld 传递，不借用模拟容器。
 纹理引用归 Emitter 配置，源实体销毁后的存活粒子仍参与运行时资产需求；SceneResolver 在 Main 解析纹理，RenderWorld 保留该帧资源。
-ParticlePass 在 Render 线程上传当前帧槽的实例缓冲，按纹理绘制加法 billboard，随后进入后处理；管线、缓冲和不可变纹理绑定沿 FrameSlot 保活。
+ParticlePass 在 Render 线程上传当前帧槽的实例缓冲，支持加法／Alpha billboard，随后进入后处理；管线、缓冲和不可变纹理绑定沿 FrameSlot 保活。
+纯加法直接上传快照；存在 Alpha 时，在 Render 私有可复用数组按相机深度排序全部粒子，再合并连续同状态实例。相同深度使用原快照次序，不改写 Main 数据。
+混合排序包含前后火花，普通透明网格仍在粒子之前绘制，联合排序另行扩展。
 纹理上传完成信号参与提交等待，替换资源不改写在途描述符。未指定纹理使用柔边圆形，显式引用缺失时诊断并跳过对应批次。
 暂停／单步与 Stop／切关复用 Runtime 协议；场景保存、克隆和 Prefab 不携带存活粒子。素材与触发规则继续归项目。
 Editor 的 ParticlePreview 只持有单发射器代理 Scene 和 ParticleSystem，以现有 Runtime 推进并发布到 Edit 视口；不启动游戏脚本、物理或音频，不写撤销历史。

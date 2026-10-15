@@ -389,6 +389,11 @@ namespace Comet {
             {make_property_descriptor("texture", "Particle Texture",
                  &ParticleEmitterComponent::texture,
                  {.required = false, .asset_type = AssetType::Texture}),
+                make_enum_property_descriptor<ParticleEmitterComponent, ParticleBlend>("blend",
+                    "Blend", &ParticleEmitterComponent::blend,
+                    {{ParticleBlend::Additive, {"additive", "加法（火花／发光）"}},
+                        {ParticleBlend::Alpha, {"alpha", "Alpha（烟雾／半透明）"}}},
+                    {.required = false}),
                 make_property_descriptor(
                     "enabled", "Enabled", &ParticleEmitterComponent::enabled, {.required = false}),
                 make_property_descriptor("capacity", "Capacity",

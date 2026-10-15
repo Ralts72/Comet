@@ -158,18 +158,22 @@ namespace Comet {
         for(const auto& [id, emitter] : m_emitters)
             if(!emitter.particles.empty())
                 emitters.push_back(&emitter);
-        // 加法混合可按纹理合批，保持同纹理内的稳定发射器顺序。
-        std::stable_sort(emitters.begin(), emitters.end(),
-            [](const auto* a, const auto* b) { return a->settings.texture < b->settings.texture; });
+        // 快照按状态分组；Alpha 的相机相关顺序由 Render 生成。
+        std::stable_sort(emitters.begin(), emitters.end(), [](const auto* a, const auto* b) {
+            if(a->settings.blend != b->settings.blend)
+                return a->settings.blend < b->settings.blend;
+            return a->settings.texture < b->settings.texture;
+        });
         for(const auto* source : emitters) {
             const auto& emitter = *source;
             const auto& settings = emitter.settings;
             const auto count = uint32_t(emitter.particles.size());
-            if(!snapshot->batches.empty() && snapshot->batches.back().texture == settings.texture)
+            if(!snapshot->batches.empty() && snapshot->batches.back().texture == settings.texture
+                && snapshot->batches.back().blend == settings.blend)
                 snapshot->batches.back().count += count;
             else
-                snapshot->batches.push_back(
-                    {settings.texture, uint32_t(snapshot->instances.size()), count});
+                snapshot->batches.push_back({settings.texture, uint32_t(snapshot->instances.size()),
+                    count, settings.blend});
             for(const auto& particle : emitter.particles) {
                 const float phase = std::clamp(float(particle.age / settings.lifetime), 0.0f, 1.0f);
                 snapshot->instances.push_back(

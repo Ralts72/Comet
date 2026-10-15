@@ -10,6 +10,74 @@
 #include <algorithm>
 
 namespace Comet::Tests {
+    TEST_F(RenderGraphGpuTest, ParticleAlphaSortsAcrossTexturesAndBlendsForEachCamera) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        auto& assets = engine->get_asset_registry();
+        for(const auto handle : {AssetHandle{9951}, AssetHandle{9952}}) {
+            auto texture = engine->get_render_resources().try_create_texture(
+                TextureData{.width = 1, .height = 1, .pixels = {255, 255, 255, 255}});
+            ASSERT_TRUE(texture);
+            ASSERT_TRUE(assets.register_asset(handle, texture.value()));
+        }
+        auto particles = std::make_shared<ParticleSnapshot>();
+        particles->instances = {{{0, 0, 1, 1}, {1, 0, 0, .5}}, {{0, 0, -1, 1}, {0, 0, 1, .5}},
+            {{0, 0, 0, 1}, {0, 1, 0, .5}}, {{0, 0, -2, 1}, {1, 1, 0, .5}}};
+        particles->batches = {{AssetHandle{9951}, 0, 2, ParticleBlend::Alpha},
+            {AssetHandle{9952}, 2, 1, ParticleBlend::Alpha},
+            {AssetHandle{9951}, 3, 1, ParticleBlend::Additive}};
+        const auto original = particles->instances;
+        auto additive = std::make_shared<ParticleSnapshot>(*particles);
+        for(auto& batch : additive->batches)
+            batch.blend = ParticleBlend::Additive;
+        RenderScene input{.scene_lifetime = 1};
+        input.item_changes.begin_update(true);
+        SceneResolver resolver(assets);
+        MaterialPrograms programs;
+        auto scene = create_scene(programs, {33, 33});
+        ASSERT_TRUE(scene);
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        std::array<std::shared_ptr<Readback>, 4> pixels;
+        Format format{};
+        for(unsigned frame = 0; frame < pixels.size(); ++frame) {
+            SCOPED_TRACE(frame);
+            input.particles = frame == 2 ? additive : particles;
+            auto world = resolver.update(input);
+            RenderGeometry geometry;
+            geometry.prepare(*world);
+            const float camera_z = frame == 1 ? -3 : 3;
+            RenderSubmission submission{
+                *world, ViewProjectMatrix{Math::look_at({0, 0, camera_z}, {0, 0, 0}, {0, 1, 0}),
+                            Math::ortho(-1, 1, -1, 1, .1f, 10)}};
+            begin_frame(frames);
+            const auto slot = frames.get_current_frame_slot_index();
+            auto drawn = scene.value()->render(frames, submission, geometry);
+            ASSERT_TRUE(drawn) << drawn.error();
+            pixels[frame] = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), 33 * 33 * 4);
+            const auto output = scene.value()->get_offscreen_color_view(slot);
+            format = output->get_image()->get_info().format;
+            copy_output(frames, output->get_image(), pixels[frame], {33, 33});
+            submit(device, frames, drawn.value());
+        }
+        frames.wait_for_all_slots();
+        EXPECT_EQ(particles->instances, original);
+        const std::array expected{Math::Vec3{.5625, .3125, .125}, Math::Vec3{.625, .75, .5},
+            Math::Vec3{1, 1, .5}, Math::Vec3{.5625, .3125, .125}};
+        const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+        for(unsigned frame = 0; frame < pixels.size(); ++frame) {
+            const auto bytes = pixels[frame]->read();
+            for(unsigned channel = 0; channel < 3; ++channel) {
+                const auto component = bgra ? 2 - channel : channel;
+                EXPECT_NEAR(std::to_integer<int>(bytes[(16 * 33 + 16) * 4 + component]),
+                    mapped_byte(expected[frame][channel]), 2)
+                    << frame;
+            }
+        }
+    }
+
     TEST_F(RenderGraphGpuTest, ParticleTexturesReloadAndKeepEarlierFrameBindingsAlive) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();
@@ -102,7 +170,7 @@ namespace Comet::Tests {
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
-        std::array<std::shared_ptr<Readback>, 4> pixels;
+        std::array<std::shared_ptr<Readback>, 5> pixels;
         Format format{};
         for(unsigned frame = 0; frame < pixels.size(); ++frame) {
             SCOPED_TRACE(frame);
@@ -119,6 +187,14 @@ namespace Comet::Tests {
             }
             if(frame == 3)
                 particles->instances.clear();
+            if(frame == 4) {
+                particles->instances[0].color.w = .5f;
+                particles->instances[1].color.w = .5f;
+                particles->instances[1].position_size.z = .5f;
+                particles->instances.push_back({{0, 0, -1, 1}, {1000, 1000, 1000, 1}});
+                particles->batches.push_back({{}, 0, 3, ParticleBlend::Alpha});
+                world.particle_textures.resize(1);
+            }
             world.particles = particles;
             RenderGeometry geometry;
             geometry.prepare(world);
@@ -139,8 +215,8 @@ namespace Comet::Tests {
         }
         frames.wait_for_all_slots();
         const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
-        const std::array expected{
-            Math::Vec3{1, 0, 0}, Math::Vec3{0, 0, 1}, Math::Vec3{1, 1, 1}, Math::Vec3{0, 0, 1}};
+        const std::array expected{Math::Vec3{1, 0, 0}, Math::Vec3{0, 0, 1}, Math::Vec3{1, 1, 1},
+            Math::Vec3{0, 0, 1}, Math::Vec3{.5, .25, .25}};
         for(unsigned frame = 0; frame < pixels.size(); ++frame) {
             const auto bytes = pixels[frame]->read();
             for(unsigned channel = 0; channel < 3; ++channel) {

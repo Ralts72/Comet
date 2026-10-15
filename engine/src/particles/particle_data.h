@@ -9,6 +9,8 @@
 #include <vector>
 
 namespace Comet {
+    enum class ParticleBlend { Additive, Alpha };
+
     struct COMET_API ParticleEmitterComponent {
         static constexpr uint32_t MAX_CAPACITY = 4096;
         bool enabled = true;
@@ -25,6 +27,7 @@ namespace Comet {
         float start_size = 0.15f;
         float end_size = 0;
         AssetHandle texture;
+        ParticleBlend blend = ParticleBlend::Additive;
 
         [[nodiscard]] Result<void> validate() const;
         bool operator==(const ParticleEmitterComponent&) const = default;
@@ -42,6 +45,7 @@ namespace Comet {
             AssetHandle texture;
             uint32_t first;
             uint32_t count;
+            ParticleBlend blend = ParticleBlend::Additive;
         };
         static constexpr uint32_t MAX_PARTICLES = 65536;
         std::vector<ParticleInstance> instances;

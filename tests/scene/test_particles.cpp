@@ -38,6 +38,32 @@ namespace Comet::Tests {
         EXPECT_EQ(frame->batches[1].count, 8u);
     }
 
+    TEST(ParticleSystemTest, BlendModesRemainSeparateAndLiveChangesKeepOldSnapshots) {
+        Scene scene;
+        ParticleEmitterComponent settings;
+        settings.texture = AssetHandle{11};
+        settings.rate = 0;
+        settings.burst = 4;
+        auto spark = scene.create_entity();
+        spark.add_component<ParticleEmitterComponent>(settings);
+        settings.blend = ParticleBlend::Alpha;
+        scene.create_entity().add_component<ParticleEmitterComponent>(settings);
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ParticleSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        const auto first = scene.get_particles();
+        ASSERT_EQ(first->batches.size(), 2u);
+        EXPECT_EQ(first->batches[0].blend, ParticleBlend::Additive);
+        EXPECT_EQ(first->batches[1].blend, ParticleBlend::Alpha);
+        ASSERT_TRUE(spark.try_set_component(settings));
+        ASSERT_TRUE(runtime.advance(0));
+        ASSERT_EQ(scene.get_particles()->batches.size(), 1u);
+        EXPECT_EQ(scene.get_particles()->batches[0].blend, ParticleBlend::Alpha);
+        EXPECT_EQ(scene.get_particles()->batches[0].count, 8u);
+        EXPECT_EQ(first->batches[0].blend, ParticleBlend::Additive);
+        EXPECT_EQ(first->instances.size(), 8u);
+    }
+
     TEST(ParticleSystemTest, LuaBurstIsDeliveredInTheSameFrameAfterTheEmitterIsDestroyed) {
         AssetRegistry assets;
         auto source = Script::create(R"(
@@ -187,6 +213,9 @@ namespace Comet::Tests {
         invalid = {};
         invalid.start_color.w = 2;
         EXPECT_FALSE(invalid.validate());
+        invalid = {};
+        invalid.blend = static_cast<ParticleBlend>(99);
+        EXPECT_FALSE(invalid.validate());
     }
 
     TEST(ParticleSystemTest, SceneRoundTripKeepsConfigurationAndDropsLiveParticles) {
@@ -198,6 +227,7 @@ namespace Comet::Tests {
         settings.burst = 12;
         settings.spread = 90;
         settings.texture = AssetHandle{987};
+        settings.blend = ParticleBlend::Alpha;
         entity.add_component<ParticleEmitterComponent>(settings);
         auto components = create_scene_component_registry();
         SceneRuntime runtime;

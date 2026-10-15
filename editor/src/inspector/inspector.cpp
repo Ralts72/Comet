@@ -129,7 +129,7 @@ namespace CometEditor {
                 {"slider_joint", "滑动关节"}, {"light", "光源"}, {"animator", "动画"},
                 {"character_animation", "角色动画驱动"}};
             static constexpr Caption properties[]{{"particle_emitter/texture", "粒子纹理"},
-                {"particle_emitter/enabled", "启用发射"},
+                {"particle_emitter/blend", "混合方式"}, {"particle_emitter/enabled", "启用发射"},
                 {"particle_emitter/capacity", "最大粒子数"}, {"particle_emitter/seed", "随机种子"},
                 {"particle_emitter/burst", "启动爆发数量"}, {"particle_emitter/rate", "每秒发射数"},
                 {"particle_emitter/lifetime", "寿命（秒）"},

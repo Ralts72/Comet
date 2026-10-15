@@ -23,6 +23,7 @@
 #include <utility>
 #include <unordered_set>
 #include <algorithm>
+#include <cmath>
 
 namespace Comet {
     namespace {
@@ -35,9 +36,8 @@ namespace Comet {
         static_assert(sizeof(ParticleInstance) == 32);
     }
 
-    ParticlePass::ParticlePass(
-        Device& device, std::shared_ptr<Pipeline> pipeline, const uint32_t frame_slots)
-        : m_device(device), m_pipeline(std::move(pipeline)), m_buffers(frame_slots) {}
+    ParticlePass::ParticlePass(Device& device, const uint32_t frame_slots)
+        : m_device(device), m_buffers(frame_slots) {}
 
     Result<std::unique_ptr<ParticlePass>, GraphicsError> ParticlePass::create(Device& device,
         PipelineManager& pipelines, RenderResources& resources, const uint32_t frame_slots,
@@ -74,16 +74,22 @@ namespace Comet {
         config.set_depth_stencil_state({.depth_test_enable = true,
             .depth_write_enable = false,
             .depth_compare_op = CompareOp::LessEqual});
-        config.set_color_blend_attachment_state({.blend_enable = true,
-            .src_color_blend_factor = BlendFactor::SrcAlpha,
-            .dst_color_blend_factor = BlendFactor::One,
-            .src_alpha_blend_factor = BlendFactor::Zero,
-            .dst_alpha_blend_factor = BlendFactor::One});
         config.set_dynamic_state({DynamicState::Viewport, DynamicState::Scissor});
-        auto pipeline = pipelines.create_pipeline(
-            "particle_billboards", layout, config, vertex.value(), fragment.value());
-        if(!pipeline)
-            return Creation::failure(pipeline.error());
+        auto pass = std::unique_ptr<ParticlePass>(new ParticlePass(device, frame_slots));
+        for(const auto blend : {ParticleBlend::Additive, ParticleBlend::Alpha}) {
+            const bool alpha = blend == ParticleBlend::Alpha;
+            config.set_color_blend_attachment_state({.blend_enable = true,
+                .src_color_blend_factor = BlendFactor::SrcAlpha,
+                .dst_color_blend_factor = alpha ? BlendFactor::OneMinusSrcAlpha : BlendFactor::One,
+                .src_alpha_blend_factor = BlendFactor::Zero,
+                .dst_alpha_blend_factor = BlendFactor::One});
+            auto pipeline =
+                pipelines.create_pipeline(alpha ? "particle_alpha" : "particle_additive", layout,
+                    config, vertex.value(), fragment.value());
+            if(!pipeline)
+                return Creation::failure(pipeline.error());
+            pass->m_pipelines[static_cast<size_t>(blend)] = std::move(pipeline).value();
+        }
         auto white = resources.try_create_texture(
             TextureData{.width = 1, .height = 1, .pixels = {255, 255, 255, 255}});
         if(!white)
@@ -94,12 +100,64 @@ namespace Comet {
                                         .address_mode_w = SamplerAddressMode::ClampToEdge});
         if(!sampler)
             return Creation::failure(sampler.error());
-        auto pass = std::unique_ptr<ParticlePass>(
-            new ParticlePass(device, std::move(pipeline).value(), frame_slots));
         pass->m_layout = std::move(image_layout).value();
         pass->m_white = std::move(white).value();
         pass->m_sampler = std::move(sampler).value();
         return Creation::success(std::move(pass));
+    }
+
+    Result<void, GraphicsError> ParticlePass::prepare_instances(const ParticleSnapshot& particles,
+        std::span<const ParticleSnapshot::Batch> batches, const Math::Mat4& view) {
+        using Prepared = Result<void, GraphicsError>;
+        m_order.clear();
+        m_sorted_instances.clear();
+        m_draw_batches.clear();
+        uint32_t covered = 0;
+        bool ordered = false;
+        for(const auto& batch : batches) {
+            if(batch.first != covered || batch.count > particles.instances.size() - covered)
+                return Prepared::failure({"Invalid particle batch range"});
+            if(batch.blend != ParticleBlend::Additive && batch.blend != ParticleBlend::Alpha)
+                return Prepared::failure({"Invalid particle blend mode"});
+            covered += batch.count;
+            ordered |= batch.blend == ParticleBlend::Alpha && batch.count != 0;
+        }
+        if(covered != particles.instances.size())
+            return Prepared::failure({"Particle batches do not cover the snapshot"});
+        if(!ordered) {
+            for(uint32_t source = 0; source < batches.size(); ++source) {
+                const auto& batch = batches[source];
+                if(batch.count)
+                    m_draw_batches.push_back({batch.first, batch.count, source});
+            }
+            return Prepared::success();
+        }
+        // Alpha 会衰减后方火花，因此混合场景中的加法粒子也参与排序。
+        // 只重排 Render 私有上传数据，Main 快照可继续被其他相机使用。
+        m_order.reserve(covered);
+        for(uint32_t source = 0; source < batches.size(); ++source) {
+            const auto& batch = batches[source];
+            for(uint32_t index = batch.first; index < batch.first + batch.count; ++index) {
+                const auto position =
+                    Math::Vec4(Math::Vec3(particles.instances[index].position_size), 1);
+                const float depth = (view * position).z;
+                m_order.push_back({index, source, std::isfinite(depth) ? depth : 0});
+            }
+        }
+        std::sort(m_order.begin(), m_order.end(), [](const auto& a, const auto& b) {
+            if(a.depth != b.depth)
+                return a.depth < b.depth;
+            return a.instance < b.instance;
+        });
+        m_sorted_instances.reserve(covered);
+        for(const auto& entry : m_order) {
+            if(!m_draw_batches.empty() && m_draw_batches.back().source == entry.batch)
+                ++m_draw_batches.back().count;
+            else
+                m_draw_batches.push_back({uint32_t(m_sorted_instances.size()), 1, entry.batch});
+            m_sorted_instances.push_back(particles.instances[entry.instance]);
+        }
+        return Prepared::success();
     }
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> ParticlePass::render(
@@ -117,6 +175,14 @@ namespace Comet {
         }
         if(count > ParticleSnapshot::MAX_PARTICLES)
             return Draw::failure({"Particle snapshot exceeds scene capacity"});
+        const ParticleSnapshot::Batch untextured{{}, 0, uint32_t(count)};
+        auto batches = std::span(particles.batches);
+        if(batches.empty())
+            batches = std::span(&untextured, 1);
+        else if(world.particle_textures.size() != batches.size())
+            return Draw::failure({"Particle texture bindings do not match the snapshot"});
+        if(auto prepared = prepare_instances(particles, batches, camera.view); !prepared)
+            return Draw::failure(prepared.error());
         auto& buffer = m_buffers.at(frames.get_current_frame_slot_index());
         const auto bytes = count * sizeof(ParticleInstance);
         if(!buffer || buffer->get_size() < bytes) {
@@ -127,22 +193,22 @@ namespace Comet {
                 return Draw::failure(allocated.error());
             buffer = std::move(allocated).value();
         }
-        buffer->write(particles.instances.data(), bytes);
+        auto instances = std::span(particles.instances);
+        if(!m_sorted_instances.empty())
+            instances = m_sorted_instances;
+        buffer->write(instances.data(), bytes);
         frames.retain_current_frame_resource(buffer);
-        frames.retain_current_frame_resource(m_pipeline);
         const auto pose = Math::inverse(camera.view);
         const BillboardCamera constants{camera.projection * camera.view, pose[0], pose[1]};
         const auto& command = frames.get_current_command_buffer();
-        command.bind_pipeline(*m_pipeline);
         command.bind_vertex_buffer({*buffer, 0});
-        command.push_constants(*m_pipeline->get_layout(), Flags<ShaderStage>(ShaderStage::Vertex),
-            0, &constants, sizeof(constants));
+        const auto& layout = *m_pipelines.front()->get_layout();
+        command.push_constants(
+            layout, Flags<ShaderStage>(ShaderStage::Vertex), 0, &constants, sizeof(constants));
         std::vector<QueueSemaphoreSubmit> waits;
         std::unordered_set<AssetHandle> used;
-        const auto draw = [&](const ParticleSnapshot::Batch& batch,
+        const auto draw = [&](const ParticleSnapshot::Batch& batch, const DrawBatch& range,
                               std::shared_ptr<Texture> texture) -> Result<void, GraphicsError> {
-            if(batch.first > count || batch.count > count - batch.first)
-                return Result<void, GraphicsError>::failure({"Invalid particle batch range"});
             if(batch.texture && !texture)
                 return Result<void, GraphicsError>::success();
             if(!batch.texture)
@@ -164,12 +230,14 @@ namespace Comet {
                 binding = std::move(candidate).value();
             }
             frames.retain_current_frame_resource(binding);
-            command.bind_descriptor_sets(
-                *m_pipeline->get_layout(), std::span(&binding->descriptor, 1));
+            const auto& pipeline = m_pipelines[static_cast<size_t>(batch.blend)];
+            frames.retain_current_frame_resource(pipeline);
+            command.bind_pipeline(*pipeline);
+            command.bind_descriptor_sets(layout, std::span(&binding->descriptor, 1));
             const uint32_t textured = batch.texture ? 1 : 0;
-            command.push_constants(*m_pipeline->get_layout(),
-                Flags<ShaderStage>(ShaderStage::Fragment), 96, &textured, sizeof(textured));
-            command.draw(6, batch.count, 0, batch.first);
+            command.push_constants(
+                layout, Flags<ShaderStage>(ShaderStage::Fragment), 96, &textured, sizeof(textured));
+            command.draw(6, range.count, 0, range.first);
             const auto& completion = texture->get_ready_completion();
             if(completion.is_valid())
                 merge_semaphore_wait(
@@ -177,16 +245,12 @@ namespace Comet {
                                completion, Flags<PipelineStage>(PipelineStage::FragmentShader)));
             return Result<void, GraphicsError>::success();
         };
-        if(particles.batches.empty()) {
-            if(auto result = draw({{}, 0, uint32_t(count)}, nullptr); !result)
+        for(const auto& range : m_draw_batches) {
+            std::shared_ptr<Texture> texture;
+            if(!particles.batches.empty())
+                texture = world.particle_textures[range.source];
+            if(auto result = draw(batches[range.source], range, std::move(texture)); !result)
                 return Draw::failure(result.error());
-        } else {
-            if(world.particle_textures.size() != particles.batches.size())
-                return Draw::failure({"Particle texture bindings do not match the snapshot"});
-            for(std::size_t index = 0; index < particles.batches.size(); ++index)
-                if(auto result = draw(particles.batches[index], world.particle_textures[index]);
-                    !result)
-                    return Draw::failure(result.error());
         }
         std::erase_if(m_bindings, [&](const auto& entry) { return !used.contains(entry.first); });
         return Draw::success(std::move(waits));
