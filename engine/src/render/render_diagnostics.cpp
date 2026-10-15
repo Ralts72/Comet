@@ -134,6 +134,8 @@ namespace Comet {
 
     void RenderDiagnostics::skip_frame() {
         m_snapshot.scene_rendered = false;
+        m_snapshot.scene_triangles = 0;
+        m_snapshot.shadow_triangles = 0;
         m_snapshot.cpu.reset();
         m_snapshot.frame.reset();
         m_snapshot.gpu.reset();

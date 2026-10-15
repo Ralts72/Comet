@@ -237,10 +237,12 @@ namespace Comet::Tests {
             EXPECT_FALSE(renderer.take_viewport_pick_result());
             EXPECT_FALSE(renderer.take_viewport_pick_result(second));
             const auto shadow = renderer.get_scene_renderer().get_shadow_statistics();
-            EXPECT_EQ(shadow.draw_calls, 1u);
-            EXPECT_EQ(shadow.drawn_instances, 2u);
-            EXPECT_EQ(renderer.get_scene_renderer(second).get_shadow_statistics().drawn_instances,
-                shadow.drawn_instances);
+            EXPECT_EQ(shadow.draw_calls, shadow.cascades);
+            EXPECT_EQ(shadow.cascades, frame == 3 ? 0u : 4u);
+            EXPECT_EQ(shadow.drawn_instances, shadow.cascades);
+            const auto other_shadow = renderer.get_scene_renderer(second).get_shadow_statistics();
+            EXPECT_EQ(other_shadow.cascades, 4u);
+            EXPECT_EQ(other_shadow.drawn_instances, 4u);
             if(frame == 3)
                 EXPECT_EQ(renderer.get_scene_renderer().get_material_statistics().draw_calls, 0u);
             else
@@ -652,9 +654,9 @@ namespace Comet::Tests {
             uint64_t upload_bytes;
         };
         const std::array samples{Sample{false, 1, -0.5f, false, 0},
-            Sample{true, 1, -0.5f, true, 128}, Sample{true, 1, -0.5f, true, 128},
-            Sample{true, -1, -0.5f, false, 128}, Sample{true, 1, -0.5f, true, 0},
-            Sample{true, -1, 0.5f, true, 128}, Sample{true, 1, 0.5f, false, 128},
+            Sample{true, 1, -0.5f, true, 320}, Sample{true, 1, -0.5f, true, 320},
+            Sample{true, -1, -0.5f, false, 320}, Sample{true, 1, -0.5f, true, 0},
+            Sample{true, -1, 0.5f, true, 320}, Sample{true, 1, 0.5f, false, 320},
             Sample{true, -1, 0.5f, true, 0}};
         std::array<std::vector<std::byte>, samples.size()> pixels;
         for(size_t index = 0; index < samples.size(); ++index) {
@@ -674,8 +676,8 @@ namespace Comet::Tests {
                 scene.get_material_statistics().material_bindings_created, index == 0 ? 1 : 0);
             EXPECT_EQ(scene.get_material_statistics().draw_calls, 1u);
             EXPECT_EQ(scene.get_material_statistics().drawn_instances, 2u);
-            EXPECT_EQ(scene.get_shadow_statistics().draw_calls, sample.casts_shadow ? 1u : 0u);
-            EXPECT_EQ(scene.get_shadow_statistics().drawn_instances, sample.casts_shadow ? 2u : 0u);
+            EXPECT_EQ(scene.get_shadow_statistics().draw_calls, sample.casts_shadow ? 3u : 0u);
+            EXPECT_EQ(scene.get_shadow_statistics().drawn_instances, sample.casts_shadow ? 5u : 0u);
             EXPECT_EQ(scene.get_shadow_statistics().instance_upload_bytes, sample.upload_bytes);
             auto output = std::make_shared<Readback>(
                 device, context.get_context().get_physical_device(), 33 * 33 * 4);
@@ -698,6 +700,60 @@ namespace Comet::Tests {
                     std::to_integer<int>(pixels[index][lit]), 2);
             }
         }
+    }
+
+    TEST_F(RenderGraphGpuTest, ShadowAtlasCoversEveryCascadeAndBlendsAtDistanceLimit) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        MaterialPrograms programs;
+        auto owner = create_scene(programs, {33, 33});
+        ASSERT_TRUE(owner) << owner.error();
+        auto& scene = *owner.value();
+        const auto mesh = lit_quad();
+        auto material = std::make_shared<Material>("pbr", "pbr");
+        RenderWorld world{
+            .render_items = {{.mesh = mesh, .material = {AssetHandle(781), material}},
+                {.model_matrix = Math::scale(
+                     Math::translate(Math::Mat4(1), {-0.5f, 0, 0.875f}), {0.25f, 0.25f, 0.25f}),
+                    .mesh = mesh,
+                    .material = {AssetHandle(781), material}}},
+            .lights = {{.direction = {1, 0, -1},
+                .intensity = 4,
+                .casts_shadow = true,
+                .shadow_distance = 8}}};
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        // 正交相机每两米一级；覆盖各级内部、交界两侧和最后 10% 的淡出。
+        const std::array depths{1.0f, 1.9f, 2.1f, 3.9f, 4.1f, 5.9f, 6.1f, 7.7f, 7.9f, 8.2f};
+        std::array<int, depths.size()> centers{};
+        for(size_t index = 0; index < depths.size(); ++index) {
+            SCOPED_TRACE(depths[index]);
+            const float eye = 0.6f + depths[index];
+            RenderSubmission submission{
+                world, ViewProjectMatrix{Math::look_at({0, 0, eye}, {0, 0, 0}, {0, 1, 0}),
+                           Math::ortho(-1, 1, -1, 1, 0.1f, 10)}};
+            begin_frame(frames);
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            auto drawn = scene.render(frames, submission, geometry);
+            ASSERT_TRUE(drawn) << drawn.error();
+            EXPECT_EQ(scene.get_shadow_statistics().cascades, 4u);
+            auto output = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), 33 * 33 * 4);
+            ASSERT_NO_FATAL_FAILURE(
+                finish_readback(scene, frames, output, {33, 33}, drawn.value()));
+            const auto pixels = output->read();
+            centers[index] = std::to_integer<int>(pixels[(16 * 33 + 16) * 4]);
+            const auto lit = std::to_integer<int>(pixels[(4 * 33 + 16) * 4]);
+            EXPECT_GT(lit, 50);
+            if(index < 8)
+                EXPECT_LE(centers[index], 3);
+            if(index == depths.size() - 1)
+                EXPECT_NEAR(centers[index], lit, 2);
+        }
+        EXPECT_GT(centers[8], centers[7] + 10);
+        EXPECT_LT(centers[8], centers[9] - 10);
     }
 
     TEST_F(RenderGraphGpuTest, ForwardLightsProduceExpectedPixelsAndReuseMaterialBindings) {

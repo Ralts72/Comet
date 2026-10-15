@@ -585,6 +585,8 @@ namespace {
             report.imbue(std::locale::classic());
             report << "# build=" << COMET_BENCHMARK_BUILD_TYPE << " validation_request=off\n";
             report << "# timing_model=render-thread-v2\n";
+            report << "# shadow_model=cascaded-v1 cascades=" << Comet::LightingData::SHADOW_CASCADES
+                   << " tile_resolution=" << Comet::ShadowPass::RESOLUTION << '\n';
             report << "# motion_model=runtime-v1\n";
 #ifdef __APPLE__
             report << "# cpu_qos_request=user_interactive\n";
@@ -704,7 +706,9 @@ namespace {
                 || stats.render_items != m_options.objects + 1
                 || stats.culled_items != m_options.objects - visible_objects
                 || stats.draw_calls != draws || stats.drawn_instances != visible_objects + 1
-                || shadow.draw_calls != meshes || shadow.drawn_instances != m_options.objects + 1
+                || shadow.cascades != Comet::LightingData::SHADOW_CASCADES || shadow.draw_calls == 0
+                || shadow.draw_calls > meshes * shadow.cascades || shadow.drawn_instances == 0
+                || shadow.drawn_instances > (m_options.objects + 1) * shadow.cascades
                 || stats.light_count != 3 || stats.pipeline_binds != pipeline_binds
                 || stats.material_binds != visible_materials
                 || stats.material_preparations != visible_materials || stats.mesh_binds != meshes
@@ -723,10 +727,11 @@ namespace {
                     return Result<void>::failure("Non-physics benchmark unexpectedly ran physics");
                 const auto& renderer = m_engine.get_renderer().get_scene_renderer();
                 if(m_options.workload == Workload::Moving) {
-                    const auto bytes = (m_options.objects + 1) * sizeof(Comet::Math::Mat4);
+                    const auto shadow = renderer.get_shadow_statistics();
+                    const auto bytes = shadow.drawn_instances * sizeof(Comet::Math::Mat4);
                     if(renderer.get_material_statistics().instance_upload_bytes
                             != m_expected_instance_bytes
-                        || renderer.get_shadow_statistics().instance_upload_bytes != bytes)
+                        || shadow.instance_upload_bytes != bytes)
                         return Result<void>::failure(
                             "Moving benchmark did not upload changed transforms");
                 }

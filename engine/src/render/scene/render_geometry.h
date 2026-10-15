@@ -4,6 +4,8 @@
 #include "common/version.h"
 #include "core/geometry.h"
 #include "scene/entity_id.h"
+#include "render/scene/render_submission.h"
+#include <unordered_map>
 
 #include <span>
 #include <vector>
@@ -12,7 +14,7 @@ namespace Comet {
     struct ResolvedRenderItem;
     struct RenderWorld;
 
-    // 只借用世界数据；未变界限按场景、实体和版本复用，不保留组件指针。
+    // 缓存世界界限；逐视图选级仅持有本帧绘制项，不保留组件指针。
     class COMET_API RenderGeometry {
     public:
         struct Item {
@@ -25,6 +27,13 @@ namespace Comet {
         RenderGeometry& operator=(const RenderGeometry&) = delete;
 
         void prepare(const RenderWorld& world);
+        // 每个 View 独立保存滞回历史；输出先选级，再交给现有剔除／实例化队列。
+        const RenderGeometry& prepare_view(
+            const RenderGeometry& world, const Math::Mat4& view_projection);
+        [[nodiscard]] static float projected_height(
+            const BoundingBox& bounds, const Math::Mat4& view_projection);
+        [[nodiscard]] static int select_lod(
+            const MeshLod& settings, float height, int previous = -1);
         void replace_skinned(
             std::size_t index, const ResolvedRenderItem& item, const BoundingBox& bounds);
         void clear_frame();
@@ -41,9 +50,18 @@ namespace Comet {
             uint64_t transform_revision = 0;
             uint64_t mesh_revision = 0;
             std::optional<BoundingBox> bounds;
+            bool had_lod = false;
         };
 
+        struct LodHistory {
+            MeshLod settings;
+            int level = -1;
+            bool used = false;
+        };
+        std::unordered_map<EntityId, LodHistory> m_lod_history;
+        std::vector<ResolvedRenderItem> m_selected_items;
         std::vector<Item> m_items;
+        std::size_t m_lod_count = 0;
         std::vector<BoundingBox> m_skin_bounds;
         std::vector<CachedBounds> m_bounds;
         std::optional<BoundingBox> m_scene_bounds;

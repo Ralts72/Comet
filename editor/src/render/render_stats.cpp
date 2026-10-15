@@ -116,6 +116,8 @@ namespace CometEditor {
         m_display.gpu = summarize(m_render.gpu_history());
         const auto& snapshot = m_render.get_snapshot();
         m_display.scene_rendered = snapshot.scene_rendered;
+        m_display.scene_triangles = snapshot.scene_triangles;
+        m_display.shadow_triangles = snapshot.shadow_triangles;
         m_display.memory = snapshot.memory;
         m_display.has_memory = snapshot.memory_samples > 0;
         m_display.gpu_supported = snapshot.gpu_supported;
@@ -148,8 +150,7 @@ namespace CometEditor {
         else if(!capturing)
             ImGui::TextWrapped("%s", "已停止采集，显示最后的采样。");
         ImGui::TextWrapped("%s", "近 1 秒均值 / 峰值；显示每 250 毫秒刷新。");
-        ImGui::TextWrapped(
-            "%s", "渲染图统计优先采集游戏视图，游戏隐藏时采集场景视图；整帧时间包含所有视图。");
+        ImGui::TextWrapped("%s", "渲染图统计采集首个可见视图；整帧时间包含所有视图。");
         if(capturing && !m_paused && !m_display.scene_rendered)
             ImGui::TextWrapped("%s", "当前未绘制场景；图耗时仅展示近期历史。");
 
@@ -164,6 +165,10 @@ namespace CometEditor {
             ImGui::TextWrapped("%s", "设备不支持 GPU 计时，仍可采集 CPU 耗时。");
         else if(!m_display.gpu_error.empty())
             ImGui::TextWrapped("GPU 计时已停用：%s", m_display.gpu_error.c_str());
+        ImGui::SeparatorText("已提交网格三角形（最近一帧）");
+        ImGui::Text("主绘制 %llu / 各级阴影合计 %llu",
+            static_cast<unsigned long long>(m_display.scene_triangles),
+            static_cast<unsigned long long>(m_display.shadow_triangles));
         ImGui::SeparatorText("显存堆");
         constexpr double mib = 1024.0 * 1024.0;
         double usage = 0;

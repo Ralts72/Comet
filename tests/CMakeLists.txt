@@ -42,6 +42,7 @@ set(UNIT_TEST_SOURCES
         config/test_display_settings.cpp
         config/test_display_settings_preview.cpp
         config/test_player_settings.cpp
+        render/test_mesh_lod.cpp
         core/test_geometry.cpp
         core/test_math_utils.cpp
         core/test_project.cpp

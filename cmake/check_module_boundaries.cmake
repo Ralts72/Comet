@@ -52,7 +52,7 @@ set(PLATFORM_HEADERS "${INPUT_HEADERS}|core/(window|window_settings)\\.h$")
 set(GRAPHICS_HEADERS "${FOUNDATION_HEADERS}|graphics/|${PLATFORM_HEADERS}")
 set(RENDER_HEADERS "${GRAPHICS_HEADERS}|${WORLD_HEADERS}|render/|asset/artifact/shader_program_artifact\\.h$|asset/runtime/render_asset_factory\\.h$")
 set(RENDER_SNAPSHOT_HEADERS
-    "${FOUNDATION_HEADERS}|particles/particle_data\\.h$|asset/handle\\.h$|scene/(entity_id|scene_settings)\\.h$|render/(lighting|scene/render_scene)\\.h$")
+    "${FOUNDATION_HEADERS}|particles/particle_data\\.h$|asset/(handle|data/mesh_lod)\\.h$|scene/(entity_id|scene_settings)\\.h$|render/(lighting|scene/render_scene)\\.h$")
 set(GAME_UI_HEADERS "${RENDER_HEADERS}|${AUDIO_DATA_HEADERS}|config/display_settings\\.h$|ui/|core/project\\.h$")
 
 function(check_module_closure module sources allowed)

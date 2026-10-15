@@ -1,6 +1,7 @@
 #pragma once
 
 #include "asset/handle.h"
+#include "asset/data/mesh_lod.h"
 #include "audio/audio_settings.h"
 #include "common/export.h"
 #include "common/parameters.h"
@@ -58,6 +59,8 @@ namespace Comet {
         || std::is_same_v<std::remove_cvref_t<T>, RelationshipComponent>
         || std::is_same_v<std::remove_cvref_t<T>, WorldTransformComponent>;
 
+    using MeshLodComponent = MeshLod;
+
     struct COMET_API MeshRendererComponent {
         AssetHandle mesh;
         AssetHandle material;
@@ -113,6 +116,7 @@ namespace Comet {
         float inner_angle = 20.0f;
         float outer_angle = 30.0f;
         bool casts_shadow = false;
+        float shadow_distance = 100;
         bool operator==(const LightComponent&) const = default;
     };
 
@@ -133,6 +137,7 @@ namespace Comet {
     inline constexpr bool is_scene_render_component_v =
         std::is_same_v<std::remove_cvref_t<T>, AnimatorComponent>
         || std::is_same_v<std::remove_cvref_t<T>, MeshRendererComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, MeshLodComponent>
         || std::is_same_v<std::remove_cvref_t<T>, CameraComponent>
         || std::is_same_v<std::remove_cvref_t<T>, ParticleEmitterComponent>
         || std::is_same_v<std::remove_cvref_t<T>, LightComponent>;

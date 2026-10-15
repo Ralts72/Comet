@@ -62,6 +62,7 @@ namespace Comet {
             uint32_t culled_items = 0;
             uint32_t draw_calls = 0;
             uint32_t drawn_instances = 0;
+            uint64_t drawn_triangles = 0;
             uint32_t instanced_draw_calls = 0;
             uint64_t instance_upload_bytes = 0;
             uint32_t pipeline_binds = 0;
@@ -139,6 +140,7 @@ namespace Comet {
             std::vector<QueueSemaphoreSubmit>& waits);
         void clear_draws() {
             m_draw_queue.clear();
+            m_view_geometry.clear_frame();
             m_transparent_depths.clear();
         }
         [[nodiscard]] Statistics get_statistics() const;
@@ -318,6 +320,7 @@ namespace Comet {
         std::vector<DrawItem> m_draw_queue;
         std::vector<float> m_transparent_depths;
         std::vector<Math::Mat4> m_instance_transforms;
+        RenderGeometry m_view_geometry;
         Statistics m_statistics;
         bool m_has_runtime_instances = false;
     };

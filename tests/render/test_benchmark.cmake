@@ -91,6 +91,7 @@ foreach(case static-0 static-1 scaled multi moving moving-singles script-moving 
         endif()
     endforeach()
     if(NOT csv MATCHES "timing_model=render-thread-v2"
+            OR NOT csv MATCHES "shadow_model=cascaded-v1 cascades=4 tile_resolution=1024"
             OR NOT csv MATCHES "motion_model=runtime-v1"
             OR NOT csv MATCHES "scene_draws=${draws} lights=3 msaa=${msaa} bloom=${bloom}"
             OR NOT csv MATCHES "render_items=9 culled_items=${culled}"
@@ -118,15 +119,20 @@ foreach(case static-0 static-1 scaled multi moving moving-singles script-moving 
     endif()
     math(EXPR instances "9 - ${culled}")
     if(NOT csv MATCHES "drawn_instances=${instances} instanced_draws="
-            OR NOT csv MATCHES "shadow_draws=1 shadow_instances=9 shadow_upload_bytes=[0-9]+")
+            OR NOT csv MATCHES "shadow_draws=4 shadow_instances=([0-9]+) shadow_upload_bytes=[0-9]+")
         message(FATAL_ERROR "Invalid instance or shadow counts\n${csv}")
     endif()
+    set(shadow_instances ${CMAKE_MATCH_1})
+    if(shadow_instances LESS 4 OR shadow_instances GREATER 36)
+        message(FATAL_ERROR "Invalid culled cascade instance count\n${csv}")
+    endif()
+    math(EXPR shadow_upload_bytes "${shadow_instances} * 64")
     if(case STREQUAL "light-moving")
-        if(NOT csv MATCHES "shadow_upload_bytes=576" OR NOT csv MATCHES "instance_upload_bytes=0")
+        if(NOT csv MATCHES "shadow_upload_bytes=${shadow_upload_bytes}" OR NOT csv MATCHES "instance_upload_bytes=0")
             message(FATAL_ERROR "Light changes did not update only shadow transforms\n${csv}")
         endif()
     elseif(case STREQUAL "active" OR case MATCHES "^(moving|script-moving)")
-        if(NOT csv MATCHES "shadow_upload_bytes=576" OR NOT csv MATCHES "instance_upload_bytes=[1-9][0-9]*")
+        if(NOT csv MATCHES "shadow_upload_bytes=${shadow_upload_bytes}" OR NOT csv MATCHES "instance_upload_bytes=[1-9][0-9]*")
             message(FATAL_ERROR "Moving instances were not uploaded\n${csv}")
         endif()
     elseif(NOT csv MATCHES "instance_upload_bytes=0" OR NOT csv MATCHES "shadow_upload_bytes=0")

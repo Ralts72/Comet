@@ -30,6 +30,9 @@ namespace Comet {
         [[nodiscard]] const GpuCompletionPoint& get_ready_completion() const {
             return m_ready_completion;
         }
+        [[nodiscard]] uint32_t get_triangle_count() const {
+            return (m_index_count ? m_index_count : m_vertex_count) / 3;
+        }
         [[nodiscard]] bool is_skinned() const { return bool(m_animation); }
         [[nodiscard]] const std::shared_ptr<const AnimationData>& animation_data() const {
             return m_animation;

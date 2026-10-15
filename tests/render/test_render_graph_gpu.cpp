@@ -544,7 +544,8 @@ namespace Comet::Tests {
                     world.lights.front().direction = {1, 0, -1};
                 RenderGeometry geometry;
                 geometry.prepare(world);
-                const auto lighting = ShadowPass::prepare(world, geometry);
+                const auto lighting = ShadowPass::prepare(
+                    {world, ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)}}, geometry);
                 const bool shadow_enabled =
                     scenario != Scenario::ShadowsDisabled && scenario != Scenario::NoLights;
                 EXPECT_EQ(lighting.shadow_light_index, shadow_enabled ? 0 : -1);
@@ -633,7 +634,8 @@ namespace Comet::Tests {
             .render_items = {{.mesh = lit_quad()}}, .lights = {{.casts_shadow = true}}};
         RenderGeometry geometry;
         geometry.prepare(world);
-        const auto lighting = ShadowPass::prepare(world, geometry);
+        const auto lighting =
+            ShadowPass::prepare({world, ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)}}, geometry);
         ASSERT_EQ(lighting.shadow_light_index, 0);
         RenderGraph graph;
         const auto depth = graph.import_image(

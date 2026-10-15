@@ -117,8 +117,7 @@ namespace Comet {
         settings.render.hdr_headroom = m_output.hdr_headroom;
         settings.render.hdr_white_level = m_output.hdr_white_level;
         auto scene = SceneRenderer::create(m_render_context->get_device(), *m_programs,
-            *m_render_resources, settings.vulkan, settings.render, initial_size,
-            get_view(DEFAULT_VIEW).scene->get_shadow_pass());
+            *m_render_resources, settings.vulkan, settings.render, initial_size);
         if(!scene)
             return Creation::failure(scene.error());
         const auto id = m_next_view_id++;
@@ -315,7 +314,6 @@ namespace Comet {
             return Result<void, GraphicsError>::failure({"No matching prepared render frame"});
         PROFILE_SCOPE("render frame");
         if(!frame.has_visible_view()) {
-            get_view(DEFAULT_VIEW).scene->get_shadow_pass()->reset_statistics();
             for(auto& [id, view] : m_views) {
                 view.pick_result.reset();
                 view.scene->skip_frame();

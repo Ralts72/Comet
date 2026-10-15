@@ -49,7 +49,8 @@ namespace Comet {
                         .range = light.range,
                         .inner_angle = light.inner_angle,
                         .outer_angle = light.outer_angle,
-                        .casts_shadow = light.casts_shadow});
+                        .casts_shadow = light.casts_shadow,
+                        .shadow_distance = light.shadow_distance});
                 });
         }
 
@@ -60,6 +61,9 @@ namespace Comet {
             item.animation = scene.get_animation_playback(entity);
             item.entity_id = id;
             item.transform_revision = world.revision;
+            item.lod.reset();
+            if(entity.has_component<MeshLodComponent>())
+                item.lod = entity.get_component<MeshLodComponent>();
             item.mesh_handle = mesh.mesh;
             item.material_handle = mesh.material;
             const auto overrides = scene.get_material_overrides(entity);

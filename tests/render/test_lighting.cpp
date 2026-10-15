@@ -152,6 +152,19 @@ namespace Comet::Tests {
         EXPECT_EQ(invalid.invalid_lights, 3);
     }
 
+    TEST(LightingTest, ShadowDistanceIsValidatedOnlyForShadowCastingDirectionalLights) {
+        RenderLight light{.casts_shadow = true};
+        for(float distance : {0.0f, -1.0f, 10001.0f, std::numeric_limits<float>::quiet_NaN()}) {
+            light.shadow_distance = distance;
+            EXPECT_EQ(LightingData::prepare(std::span(&light, 1)).invalid_lights, 1);
+        }
+        light.casts_shadow = false;
+        EXPECT_EQ(LightingData::prepare(std::span(&light, 1)).light_count, 1);
+        light.casts_shadow = true;
+        light.type = LightType::Point;
+        EXPECT_EQ(LightingData::prepare(std::span(&light, 1)).light_count, 1);
+    }
+
     TEST(LightingTest, ShaderFrameBlockMatchesCpuPacking) {
         const auto reflected = ShaderInterface::reflect(PBR_FRAG);
         ASSERT_TRUE(reflected) << reflected.error();
@@ -166,10 +179,13 @@ namespace Comet::Tests {
             std::pair{"invalid_lights", offsetof(LightingData, invalid_lights)},
             std::pair{"reserved", offsetof(LightingData, reserved)},
             std::pair{"shadow_view_projection", offsetof(LightingData, shadow_view_projection)},
-            std::pair{"shadow_light_index", offsetof(LightingData, shadow_light_index)},
+            std::pair{"shadow_splits", offsetof(LightingData, shadow_splits)},
             std::pair{"shadow_depth_bias", offsetof(LightingData, shadow_depth_bias)},
+            std::pair{"shadow_camera_depth", offsetof(LightingData, shadow_camera_depth)},
+            std::pair{"shadow_light_index", offsetof(LightingData, shadow_light_index)},
+            std::pair{"shadow_cascade_count", offsetof(LightingData, shadow_cascade_count)},
             std::pair{"shadow_texel_size", offsetof(LightingData, shadow_texel_size)},
-            std::pair{"shadow_reserved", offsetof(LightingData, shadow_reserved)},
+            std::pair{"shadow_blend", offsetof(LightingData, shadow_blend)},
             std::pair{"environment", offsetof(LightingData, environment)}};
         ASSERT_EQ(found->members.size(), fields.size());
         for(size_t index = 0; index < fields.size(); ++index) {
@@ -187,7 +203,7 @@ namespace Comet::Tests {
             std::pair{"inner_cone_cos", offsetof(LightingData::Light, inner_cone_cos)},
             std::pair{"outer_cone_cos", offsetof(LightingData::Light, outer_cone_cos)},
             std::pair{"casts_shadow", offsetof(LightingData::Light, casts_shadow)},
-            std::pair{"reserved", offsetof(LightingData::Light, reserved)}};
+            std::pair{"shadow_distance", offsetof(LightingData::Light, shadow_distance)}};
         EXPECT_EQ(found->members.front().shape.array_stride, sizeof(LightingData::Light));
         EXPECT_EQ(found->members.front().shape.array_dimensions,
             (std::vector<uint32_t>{LightingData::MAX_LIGHTS}));
@@ -200,28 +216,74 @@ namespace Comet::Tests {
         }
     }
 
-    TEST(LightingTest, FitsDirectionalShadowBoundsAndHandlesVerticalDirections) {
-        const BoundingBox bounds{{-3, -1, -8}, {7, 4, 2}};
-        for(const Math::Vec3 direction : {Math::Vec3(0, 0, -1), Math::Vec3(0, -1, 0),
-                Math::Vec3(0, 1, 0), Math::Vec3(1, -2, 3)}) {
-            RenderLight light{.direction = direction, .casts_shadow = true};
+    TEST(LightingTest, CascadesCoverOverlappingCameraSlicesForEveryLightDirection) {
+        const BoundingBox bounds{{-100, -10, -150}, {100, 80, 20}};
+        RenderCamera camera{
+            .view_matrix = Math::look_at({0, 2, 8}, {0, 0, 0}, {0, 1, 0}), .far_clip = 200};
+        const auto projection = *camera.projection_matrix(16.0f / 9);
+        const auto inverse = Math::inverse(projection * camera.view_matrix);
+        for(const auto direction : {Math::Vec3(0, 0, -1), Math::Vec3(0, -1, 0), Math::Vec3(0, 1, 0),
+                Math::Vec3(1, -2, 3)}) {
+            const RenderLight light{
+                .direction = direction, .casts_shadow = true, .shadow_distance = 60};
             auto data = LightingData::prepare(std::span(&light, 1));
-            data.prepare_shadow(bounds, 1024);
-            ASSERT_EQ(data.shadow_light_index, 0);
+            data.prepare_shadow(bounds, 1024, camera.view_matrix, projection);
+            ASSERT_EQ(data.shadow_cascade_count, 4);
+            EXPECT_FLOAT_EQ(data.shadow_splits.w, 60);
             EXPECT_FLOAT_EQ(data.shadow_texel_size, 1.0f / 1024);
-            for(int corner = 0; corner < 8; ++corner) {
-                auto point = bounds.minimum;
-                for(int axis = 0; axis < 3; ++axis)
-                    if(corner & (1 << axis))
-                        point[axis] = bounds.maximum[axis];
-                const auto clip = data.shadow_view_projection * Math::Vec4(point, 1);
-                ASSERT_TRUE(Math::is_finite(clip));
-                EXPECT_LT(std::abs(clip.x), 1);
-                EXPECT_LT(std::abs(clip.y), 1);
-                EXPECT_GT(clip.z, 0);
-                EXPECT_LT(clip.z, 1);
+            float previous = 0, previous_start = 0;
+            for(unsigned cascade = 0; cascade < 4; ++cascade) {
+                EXPECT_GT(data.shadow_splits[cascade], previous);
+                const float start = previous - (previous - previous_start) * data.shadow_blend;
+                for(unsigned corner = 0; corner < 4; ++corner) {
+                    auto near =
+                        inverse * Math::Vec4(corner & 1 ? 1 : -1, corner & 2 ? 1 : -1, 0, 1);
+                    auto far = inverse * Math::Vec4(corner & 1 ? 1 : -1, corner & 2 ? 1 : -1, 1, 1);
+                    near /= near.w;
+                    far /= far.w;
+                    for(float depth : {start, data.shadow_splits[cascade]}) {
+                        const auto point =
+                            near + (far - near) * (depth / (camera.far_clip - camera.near_clip));
+                        const auto clip = data.shadow_view_projection[cascade] * point;
+                        EXPECT_LE(std::abs(clip.x), 1.0001f);
+                        EXPECT_LE(std::abs(clip.y), 1.0001f);
+                        EXPECT_GE(clip.z, 0);
+                        EXPECT_LE(clip.z, 1);
+                        EXPECT_NEAR(
+                            Math::dot(Math::Vec3(data.shadow_camera_depth), Math::Vec3(point))
+                                + data.shadow_camera_depth.w,
+                            depth, .01f);
+                    }
+                }
+                previous_start = previous;
+                previous = data.shadow_splits[cascade];
             }
         }
+    }
+
+    TEST(LightingTest, CascadeProjectionSnapsSmallCameraMotionAndRejectsInvalidCamera) {
+        const RenderLight light{.casts_shadow = true};
+        auto first = LightingData::prepare(std::span(&light, 1));
+        const BoundingBox bounds{{-50, -50, -100}, {50, 50, 50}};
+        RenderCamera camera{
+            .view_matrix = Math::look_at({0, 0, 5}, {0, 0, 0}, {0, 1, 0}), .far_clip = 200};
+        const auto projection = *camera.projection_matrix(1);
+        first.prepare_shadow(bounds, 1024, camera.view_matrix, projection);
+        auto next = first;
+        camera.view_matrix = Math::look_at({.00001f, 0, 5}, {.00001f, 0, 0}, {0, 1, 0});
+        next.prepare_shadow(bounds, 1024, camera.view_matrix, projection);
+        for(unsigned cascade = 0; cascade < 4; ++cascade)
+            for(unsigned column = 0; column < 4; ++column)
+                for(unsigned row = 0; row < 2; ++row)
+                    EXPECT_NEAR(first.shadow_view_projection[cascade][column][row],
+                        next.shadow_view_projection[cascade][column][row], 1e-6f);
+        camera.projection = RenderCamera::Projection::Orthographic;
+        next.prepare_shadow(bounds, 1024, camera.view_matrix, *camera.projection_matrix(1));
+        EXPECT_EQ(next.shadow_cascade_count, 4);
+        EXPECT_NEAR(next.shadow_splits.x, 25, 1e-4f);
+        next.prepare_shadow(bounds, 1024, camera.view_matrix, Math::Mat4(0));
+        EXPECT_EQ(next.shadow_light_index, -1);
+        EXPECT_EQ(next.shadow_cascade_count, 0);
     }
 
     TEST(LightingTest, ShadowSelectsOnlyRetainedDirectionalLightAndResetsInvalidFit) {
@@ -231,23 +293,23 @@ namespace Comet::Tests {
             {.entity_id = 6, .casts_shadow = true}};
         auto data = LightingData::prepare(lights);
         const BoundingBox bounds{{-1, -1, -1}, {1, 1, 1}};
-        data.prepare_shadow(bounds, 1024);
+        data.prepare_shadow(bounds, 1024, Math::Mat4(1), Math::Mat4(1));
         EXPECT_EQ(data.shadow_light_index, 3);
-        data.prepare_shadow(bounds, 0);
+        data.prepare_shadow(bounds, 0, Math::Mat4(1), Math::Mat4(1));
         EXPECT_EQ(data.shadow_light_index, -1);
-        data.prepare_shadow(BoundingBox::from_point({0, 0, 0}), 1024);
+        data.prepare_shadow(BoundingBox::from_point({0, 0, 0}), 1024, Math::Mat4(1), Math::Mat4(1));
         EXPECT_EQ(data.shadow_light_index, -1);
-        data.prepare_shadow({{2, 0, 0}, {1, 1, 1}}, 1024);
+        data.prepare_shadow({{2, 0, 0}, {1, 1, 1}}, 1024, Math::Mat4(1), Math::Mat4(1));
         EXPECT_EQ(data.shadow_light_index, -1);
         lights.clear();
         for(uint32_t id = 0; id < 33; ++id)
             lights.push_back({.entity_id = id, .casts_shadow = id == 32});
         data = LightingData::prepare(lights);
-        data.prepare_shadow(bounds, 1024);
+        data.prepare_shadow(bounds, 1024, Math::Mat4(1), Math::Mat4(1));
         EXPECT_EQ(data.shadow_light_index, -1);
     }
 
-    TEST(LightingTest, ShadowFlagUsesPropertyUndoSerializationAndLegacyDefault) {
+    TEST(LightingTest, ShadowSettingsUsePropertyUndoSerializationAndLegacyDefault) {
         auto registry = create_scene_component_registry();
         SceneSerializer serializer(registry);
         Scene scene;
@@ -263,12 +325,36 @@ namespace Comet::Tests {
         ASSERT_TRUE(history.undo());
         EXPECT_FALSE(light.get_component<LightComponent>().casts_shadow);
         ASSERT_TRUE(history.redo());
+        ASSERT_TRUE(edit.begin({light.get_uuid(), "light", "shadow_distance"}));
+        ASSERT_TRUE(edit.preview(60.0f));
+        ASSERT_TRUE(edit.commit());
+        EXPECT_EQ(light.get_component<LightComponent>().shadow_distance, 60);
+        ASSERT_TRUE(history.undo());
+        EXPECT_EQ(light.get_component<LightComponent>().shadow_distance, 100);
+        ASSERT_TRUE(history.redo());
+        const auto extracted = SceneExtractor::extract(scene);
+        ASSERT_EQ(extracted.lights.size(), 1u);
+        EXPECT_EQ(extracted.lights.front().shadow_distance, 60);
         auto cloned = serializer.clone(scene);
         ASSERT_TRUE(cloned) << cloned.error();
         EXPECT_TRUE(cloned.value()
                 ->find_entity(light.get_uuid())
                 .get_component<LightComponent>()
                 .casts_shadow);
+        EXPECT_EQ(cloned.value()
+                      ->find_entity(light.get_uuid())
+                      .get_component<LightComponent>()
+                      .shadow_distance,
+            60);
+        auto saved = serializer.serialize(scene);
+        ASSERT_TRUE(saved) << saved.error();
+        auto reopened = serializer.deserialize(saved.value());
+        ASSERT_TRUE(reopened) << reopened.error();
+        EXPECT_EQ(reopened.value()
+                      ->find_entity(light.get_uuid())
+                      .get_component<LightComponent>()
+                      .shadow_distance,
+            60);
         auto legacy = serializer.deserialize(R"({"version": 2, "entities": [{
             "uuid": "672cd0cc-501f-419e-af5e-a883a0cd3d03",
             "components": {"name": "Legacy light", "light": {
@@ -281,6 +367,9 @@ namespace Comet::Tests {
         ASSERT_TRUE(legacy_id);
         EXPECT_FALSE(
             legacy.value()->find_entity(*legacy_id).get_component<LightComponent>().casts_shadow);
+        EXPECT_EQ(
+            legacy.value()->find_entity(*legacy_id).get_component<LightComponent>().shadow_distance,
+            100);
     }
 
     TEST(LightingTest, TypedEnumRoundTripsAndUsesExistingPropertyUndoAndClone) {

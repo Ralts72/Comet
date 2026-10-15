@@ -52,7 +52,7 @@ namespace Comet {
         if(!pass)
             return Creation::failure(pass.error());
         auto target = RenderTarget::try_create_multi_target(
-            device, *pass.value(), {RESOLUTION, RESOLUTION}, frame_slots);
+            device, *pass.value(), {RESOLUTION * 2, RESOLUTION * 2}, frame_slots);
         if(!target)
             return Creation::failure(target.error());
         auto vertex = Shader::create(device, "directional shadow vertex", DIRECTIONAL_VERT);
@@ -126,20 +126,15 @@ namespace Comet {
         return m_target->get_framebuffer(slot)->get_attachments().front();
     }
 
-    LightingData ShadowPass::prepare(const RenderWorld& world, const RenderGeometry& geometry) {
-        auto lighting = LightingData::prepare(world.lights);
-        if(geometry.get_scene_bounds())
-            lighting.prepare_shadow(*geometry.get_scene_bounds(), RESOLUTION);
-        return lighting;
-    }
-
-    const LightingData& ShadowPass::prepare_frame(
-        const uint64_t serial, const RenderWorld& world, const RenderGeometry& geometry) {
-        if(m_prepared_serial != serial) {
-            m_lighting = prepare(world, geometry);
-            m_prepared_serial = serial;
+    LightingData ShadowPass::prepare(
+        const RenderSubmission& submission, const RenderGeometry& geometry) {
+        auto lighting = LightingData::prepare(submission.world.lights);
+        if(geometry.get_scene_bounds() && submission.view_project_matrix) {
+            const auto& camera = *submission.view_project_matrix;
+            lighting.prepare_shadow(
+                *geometry.get_scene_bounds(), RESOLUTION, camera.view, camera.projection);
         }
-        return m_lighting;
+        return lighting;
     }
 
     Result<std::shared_ptr<ShadowPass::MaskBinding>, GraphicsError> ShadowPass::prepare_mask(
@@ -176,48 +171,58 @@ namespace Comet {
             [&] { std::erase_if(m_masks, [](const auto& entry) { return !entry.second.used; }); });
         if(lighting.shadow_light_index < 0)
             return Preparation::success();
-        for(const auto& prepared : geometry.get_items()) {
-            if(!prepared.world_bounds)
-                continue;
-            const auto& input = prepared.source->material;
-            const auto& source = input.resource;
-            const auto surface = source ? source->get_surface() : MaterialSurface{};
-            if(surface.alpha_mode == AlphaMode::Blend)
-                continue;
-            DrawItem draw{prepared.source, {}, 1, 0.5f,
-                unsigned(surface.double_sided)
-                    | (unsigned(DrawOrder::reverses_winding(*prepared.source)) << 1)};
-            if(surface.alpha_mode == AlphaMode::Mask) {
-                const std::string property =
-                    source->get_template_name() == "pbr" ? "base_color" : "color";
-                auto color = source->get_vector_property(property).value_or(Math::Vec4(1));
-                if(input.overrides) {
-                    const auto value = input.overrides->vector_properties.find(property);
-                    if(value != input.overrides->vector_properties.end())
-                        color = value->second;
+        for(unsigned cascade = 0; cascade < unsigned(lighting.shadow_cascade_count); ++cascade) {
+            const auto& matrix = lighting.shadow_view_projection[cascade];
+            const auto frustum = Frustum::from_view_projection(matrix);
+            const auto& selected = m_view_geometry[cascade].prepare_view(geometry, matrix);
+            for(const auto& prepared : selected.get_items()) {
+                if(!prepared.world_bounds
+                    || (frustum && !frustum->intersects(*prepared.world_bounds)))
+                    continue;
+                const auto& input = prepared.source->material;
+                const auto& source = input.resource;
+                const auto surface = source ? source->get_surface() : MaterialSurface{};
+                if(surface.alpha_mode == AlphaMode::Blend)
+                    continue;
+                DrawItem draw{prepared.source, {}, 1, 0.5f,
+                    unsigned(surface.double_sided)
+                        | (unsigned(DrawOrder::reverses_winding(*prepared.source)) << 1),
+                    cascade};
+                if(surface.alpha_mode == AlphaMode::Mask) {
+                    const std::string property =
+                        source->get_template_name() == "pbr" ? "base_color" : "color";
+                    auto color = source->get_vector_property(property).value_or(Math::Vec4(1));
+                    if(input.overrides) {
+                        const auto value = input.overrides->vector_properties.find(property);
+                        if(value != input.overrides->vector_properties.end())
+                            color = value->second;
+                    }
+                    auto texture = source->get_texture_property("base_color_texture");
+                    if(!texture) {
+                        if(std::clamp(color.a, 0.0f, 1.0f) < surface.alpha_cutoff)
+                            continue;
+                    } else {
+                        auto binding = prepare_mask(texture);
+                        if(!binding)
+                            return Preparation::failure(binding.error());
+                        draw.mask = std::move(binding).value();
+                        draw.alpha = color.a;
+                        draw.cutoff = surface.alpha_cutoff;
+                    }
                 }
-                auto texture = source->get_texture_property("base_color_texture");
-                if(!texture) {
-                    if(std::clamp(color.a, 0.0f, 1.0f) < surface.alpha_cutoff)
-                        continue;
-                } else {
-                    auto binding = prepare_mask(texture);
-                    if(!binding)
-                        return Preparation::failure(binding.error());
-                    draw.mask = std::move(binding).value();
-                    draw.alpha = color.a;
-                    draw.cutoff = surface.alpha_cutoff;
-                }
+                m_draw_queue.push_back(std::move(draw));
             }
-            m_draw_queue.push_back(std::move(draw));
         }
         DrawOrder::sort_if_needed(m_draw_queue, [](const DrawItem& a, const DrawItem& b) {
-            return std::tuple(a.orientation, a.mask.get(), a.alpha, a.cutoff, a.item->mesh.get())
-                   < std::tuple(b.orientation, b.mask.get(), b.alpha, b.cutoff, b.item->mesh.get());
+            return std::tuple(a.cascade, a.orientation, a.mask.get(), a.alpha, a.cutoff,
+                       a.item->mesh.get())
+                   < std::tuple(b.cascade, b.orientation, b.mask.get(), b.alpha, b.cutoff,
+                       b.item->mesh.get());
         });
         m_transforms.reserve(m_draw_queue.size());
         for(const auto& draw : m_draw_queue)
-            m_transforms.push_back(lighting.shadow_view_projection * draw.item->model_matrix);
+            m_transforms.push_back(
+                lighting.shadow_view_projection[draw.cascade] * draw.item->model_matrix);
         return Preparation::success();
     }
 
@@ -228,9 +233,14 @@ namespace Comet {
             || frames.get_current_frame_slot_index() >= m_frame_slots)
             return Draw::failure({"Invalid shadow pass frame"});
         m_statistics = {};
+        m_statistics.cascades = uint32_t(lighting.shadow_cascade_count);
         m_draw_queue.clear();
         m_transforms.clear();
-        const ScopeExit release_draws([&] { m_draw_queue.clear(); });
+        const ScopeExit release_draws([&] {
+            m_draw_queue.clear();
+            for(auto& view : m_view_geometry)
+                view.clear_frame();
+        });
         if(auto prepared = prepare_draws(lighting, geometry); !prepared)
             return Draw::failure(prepared.error());
         auto& instances = m_instances.at(frames.get_current_frame_slot_index());
@@ -245,8 +255,7 @@ namespace Comet {
         frames.retain_current_frame_resource(m_target);
 
         m_target->begin_render_target(command, frames.get_current_frame_slot_index());
-        command.set_viewport(vk::Viewport(0, 0, RESOLUTION, RESOLUTION, 0, 1));
-        command.set_scissor(vk::Rect2D({0, 0}, {RESOLUTION, RESOLUTION}));
+
         std::vector<QueueSemaphoreSubmit> waits;
         if(!m_draw_queue.empty()) {
 
@@ -255,6 +264,11 @@ namespace Comet {
             for(size_t first = 0; first < m_draw_queue.size();) {
                 const auto& draw = m_draw_queue[first];
                 const auto& mesh = draw.item->mesh;
+                const auto x = (draw.cascade % 2) * RESOLUTION;
+                const auto y = (draw.cascade / 2) * RESOLUTION;
+                command.set_viewport(
+                    vk::Viewport(float(x), float(y), RESOLUTION, RESOLUTION, 0, 1));
+                command.set_scissor(vk::Rect2D({int32_t(x), int32_t(y)}, {RESOLUTION, RESOLUTION}));
                 const auto& pipeline =
                     draw.mask ? m_mask_pipelines[draw.orientation] : m_pipelines[draw.orientation];
                 command.bind_pipeline(*pipeline);
@@ -276,9 +290,9 @@ namespace Comet {
                 size_t end = first + 1;
                 while(end < m_draw_queue.size()) {
                     const auto& next = m_draw_queue[end];
-                    if(next.item->mesh != mesh || next.orientation != draw.orientation
-                        || next.mask != draw.mask || next.alpha != draw.alpha
-                        || next.cutoff != draw.cutoff)
+                    if(next.cascade != draw.cascade || next.item->mesh != mesh
+                        || next.orientation != draw.orientation || next.mask != draw.mask
+                        || next.alpha != draw.alpha || next.cutoff != draw.cutoff)
                         break;
                     ++end;
                 }
@@ -293,12 +307,12 @@ namespace Comet {
                 mesh->draw(command, count, static_cast<uint32_t>(first));
                 ++m_statistics.draw_calls;
                 m_statistics.drawn_instances += count;
+                m_statistics.drawn_triangles += uint64_t(mesh->get_triangle_count()) * count;
                 first = end;
             }
         }
         m_target->end_render_target(command);
         m_draw_queue.clear();
-        m_rendered_serial = frames.get_current_frame_serial();
         return Draw::success(std::move(waits));
     }
 }

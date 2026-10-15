@@ -151,6 +151,17 @@ namespace Comet {
                     changed = true;
                 }
             }
+            if(item.lod && published) {
+                const auto& lod = *item.lod;
+                const std::array handles{lod.settings.level1, lod.settings.level2};
+                for(std::size_t level = 0; level < handles.size(); ++level) {
+                    if(handles[level] && get_revision(handles[level]) != lod.revisions[level]) {
+                        item.lod.reset();
+                        changed = true;
+                        break;
+                    }
+                }
+            }
             if(item.material.resource) {
                 if(material_handle != item.material.material_handle) {
                     material_handle = item.material.material_handle;
@@ -275,19 +286,41 @@ namespace Comet {
         std::shared_ptr<Mesh> mesh;
         uint64_t mesh_revision = 0;
         MaterialBinding material;
-        enum class MissingResource { None, Mesh, Material };
+        enum class MissingResource { None, Mesh, Material, Lod };
+        AssetHandle invalid_lod;
         const auto resolve_item = [&](const RenderItem& item, ResolvedRenderItem& resolved) {
             if(!resolved.mesh || resolved.mesh_handle != item.mesh_handle) {
                 if(mesh_handle != item.mesh_handle) {
                     mesh_handle = item.mesh_handle;
                     mesh = m_asset_registry.resolve<Mesh>(mesh_handle, &mesh_revision);
                 }
+                resolved.lod.reset();
                 resolved.mesh = mesh;
                 resolved.mesh_handle = item.mesh_handle;
                 resolved.mesh_revision = mesh_revision;
             }
             if(!resolved.mesh)
                 return MissingResource::Mesh;
+            if(!item.lod) {
+                resolved.lod.reset();
+            } else if(!resolved.lod || resolved.lod->settings != *item.lod) {
+                invalid_lod = item.mesh_handle;
+                if(resolved.mesh->is_skinned())
+                    return MissingResource::Lod;
+                auto lod = std::make_shared<ResolvedMeshLod>();
+                lod->settings = *item.lod;
+                const std::array handles{item.lod->level1, item.lod->level2};
+                for(std::size_t level = 0; level < handles.size(); ++level) {
+                    if(!handles[level])
+                        continue;
+                    invalid_lod = handles[level];
+                    lod->meshes[level] =
+                        m_asset_registry.resolve<Mesh>(handles[level], &lod->revisions[level]);
+                    if(!lod->meshes[level] || lod->meshes[level]->is_skinned())
+                        return MissingResource::Lod;
+                }
+                resolved.lod = std::move(lod);
+            }
             if(!resolved.material.resource
                 || resolved.material.material_handle != item.material_handle) {
                 materials_changed = true;
@@ -373,15 +406,22 @@ namespace Comet {
             auto& resolved = slots[item_count];
             const auto missing = resolve_item(item, resolved);
             if(missing != MissingResource::None) {
-                const bool mesh_missing = missing == MissingResource::Mesh;
-                const auto handle = mesh_missing ? item.mesh_handle : item.material_handle;
+                const bool mesh_missing = missing != MissingResource::Material;
+                auto handle = mesh_missing ? item.mesh_handle : item.material_handle;
+                if(missing == MissingResource::Lod)
+                    handle = invalid_lod;
                 auto& diagnostics =
                     mesh_missing ? m_missing_mesh_handles : m_missing_material_handles;
                 const auto [entry, inserted] = diagnostics.try_emplace(handle, true);
                 entry->second = true;
-                if(inserted)
-                    LOG_ERROR("Render item references missing {} handle {}",
-                        mesh_missing ? "mesh" : "material", handle.value());
+                if(inserted) {
+                    if(missing == MissingResource::Lod)
+                        LOG_ERROR("Static LOD requires a loaded, non-skinned mesh (handle {})",
+                            handle.value());
+                    else
+                        LOG_ERROR("Render item references missing {} handle {}",
+                            mesh_missing ? "mesh" : "material", handle.value());
+                }
                 continue;
             }
             update_item_values(item, same_scene, resolved);

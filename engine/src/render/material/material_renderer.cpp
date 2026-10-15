@@ -783,7 +783,9 @@ namespace Comet {
         if(submission.view_project_matrix) {
             const auto& matrices = *submission.view_project_matrix;
             const auto frustum = Frustum::from_view_projection(matrices.projection * matrices.view);
-            auto queue = prepare_draw_queue(geometry, frames.get_current_frame_serial(),
+            const auto& selected =
+                m_view_geometry.prepare_view(geometry, matrices.projection * matrices.view);
+            auto queue = prepare_draw_queue(selected, frames.get_current_frame_serial(),
                 frustum ? &*frustum : nullptr, matrices.view);
             if(!queue)
                 return Draw::failure(queue.error());
@@ -930,6 +932,8 @@ namespace Comet {
             draw.item->mesh->draw(command, draw.instance_count, draw.first_instance);
             ++m_statistics.draw_calls;
             m_statistics.drawn_instances += draw.instance_count;
+            m_statistics.drawn_triangles +=
+                uint64_t(draw.item->mesh->get_triangle_count()) * draw.instance_count;
         }
     }
 

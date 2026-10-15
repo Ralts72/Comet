@@ -21,11 +21,13 @@ namespace Comet {
         float inner_angle = 20;
         float outer_angle = 30;
         bool casts_shadow = false;
+        float shadow_distance = 100;
     };
 
     // 与 forward.glsl 的 std140 布局匹配；不是 Scene 组件或 GPU owner。
     struct alignas(16) COMET_API LightingData {
         static constexpr uint32_t MAX_LIGHTS = 32;
+        static constexpr uint32_t SHADOW_CASCADES = 4;
         struct alignas(16) Light {
             Math::Vec3 position{};
             float type = 0;
@@ -36,20 +38,24 @@ namespace Comet {
             float inner_cone_cos = 0;
             float outer_cone_cos = 0;
             float casts_shadow = 0;
-            float reserved = 0;
+            float shadow_distance = 100;
         };
         std::array<Light, MAX_LIGHTS> lights{};
         float light_count = 0;
         float excess_lights = 0;
         float invalid_lights = 0;
         float reserved = 0;
-        Math::Mat4 shadow_view_projection{1};
+        std::array<Math::Mat4, SHADOW_CASCADES> shadow_view_projection{};
+        Math::Vec4 shadow_splits{};
+        Math::Vec4 shadow_depth_bias{};
+        Math::Vec4 shadow_camera_depth{};
         float shadow_light_index = -1;
-        float shadow_depth_bias = 0;
+        float shadow_cascade_count = 0;
         float shadow_texel_size = 0;
-        float shadow_reserved = 0;
+        float shadow_blend = 0.1f;
         Math::Vec4 environment{0, 0, 0, 1}; // 强度、最大 LOD、旋转角正弦、旋转角余弦。
         [[nodiscard]] static LightingData prepare(std::span<const RenderLight> lights);
-        void prepare_shadow(const BoundingBox& world_bounds, uint32_t resolution);
+        void prepare_shadow(const BoundingBox& world_bounds, uint32_t resolution,
+            const Math::Mat4& view, const Math::Mat4& projection);
     };
 }

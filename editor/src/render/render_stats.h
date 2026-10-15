@@ -28,6 +28,8 @@ namespace CometEditor {
             Comet::TimingHistory::Summary submission;
             Comet::TimingHistory::Summary gpu;
             Comet::MemoryBudgetSnapshot memory;
+            uint64_t scene_triangles = 0;
+            uint64_t shadow_triangles = 0;
             bool has_memory = false;
             bool gpu_supported = false;
             bool truncated = false;

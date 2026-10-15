@@ -8,6 +8,7 @@
 #include "render/lighting.h"
 #include "scene/scene_settings.h"
 
+#include <array>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -30,6 +31,12 @@ namespace Comet {
         std::shared_ptr<const ShaderProgramArtifact> program_source;
     };
 
+    struct ResolvedMeshLod {
+        MeshLod settings;
+        std::array<std::shared_ptr<Mesh>, 2> meshes;
+        std::array<uint64_t, 2> revisions{};
+    };
+
     struct ResolvedRenderItem {
         EntityId entity_id = INVALID_ENTITY_ID;
         uint64_t transform_revision = 0;
@@ -39,6 +46,7 @@ namespace Comet {
         uint64_t mesh_revision = 0;
         std::shared_ptr<Mesh> mesh;
         MaterialBinding material;
+        std::shared_ptr<const ResolvedMeshLod> lod;
     };
 
     // 与视图选择和输出目标无关的持久世界数据；资源引用由世界和在途 FrameSlot 保活。

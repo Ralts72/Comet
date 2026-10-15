@@ -36,8 +36,7 @@ namespace Comet {
         // 显式创建指定尺寸的离屏输出。
         static Result<std::unique_ptr<SceneRenderer>, GraphicsError> create(Device& device,
             MaterialPrograms& programs, RenderResources& resources, const VulkanSettings& vulkan,
-            const RenderSettings& render, Math::Vec2u size,
-            std::shared_ptr<ShadowPass> shadow = {});
+            const RenderSettings& render, Math::Vec2u size);
         // 按 scene_output 选择输出；离屏模式以交换链尺寸初始化。
         static Result<std::unique_ptr<SceneRenderer>, GraphicsError> create(Device& device,
             MaterialPrograms& programs, RenderResources& resources, const VulkanSettings& vulkan,
@@ -74,10 +73,9 @@ namespace Comet {
         friend class ScenePreview;
         struct RenderState;
         SceneRenderer(Device& device, MaterialPrograms& programs, const VulkanSettings& vulkan,
-            const RenderSettings& render, std::shared_ptr<ShadowPass> shadow = {});
+            const RenderSettings& render);
         void skip_frame();
         MaterialRenderer& get_material_renderer();
-        const std::shared_ptr<ShadowPass>& get_shadow_pass() const { return m_shadow; }
         void remove_assets(const AssetRegistry::Removals& removals);
         Result<void, GraphicsError> configure_bloom(bool enabled);
         Result<void, GraphicsError> validate_quality_settings(

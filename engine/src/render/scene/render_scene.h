@@ -1,6 +1,7 @@
 #pragma once
 
 #include "asset/handle.h"
+#include "asset/data/mesh_lod.h"
 #include "render/lighting.h"
 #include "common/export.h"
 #include "core/math_utils.h"
@@ -47,6 +48,7 @@ namespace Comet {
         uint64_t transform_revision = 0;
         std::shared_ptr<const AnimationPlayback> animation;
         Math::Mat4 model_matrix = Math::Mat4(1.0f);
+        std::optional<MeshLod> lod;
         AssetHandle mesh_handle = INVALID_ASSET_HANDLE;
         AssetHandle material_handle = INVALID_ASSET_HANDLE;
         std::shared_ptr<const MaterialOverrides> material_overrides;

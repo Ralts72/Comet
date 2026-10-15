@@ -53,6 +53,8 @@ namespace Comet {
             std::optional<SubmissionTiming> submission;
             MemoryBudgetSnapshot memory;
             uint64_t memory_samples = 0;
+            uint64_t scene_triangles = 0;
+            uint64_t shadow_triangles = 0;
             bool gpu_supported = false;
             std::string gpu_error;
         };
@@ -80,6 +82,12 @@ namespace Comet {
         void poll_memory(Clock::time_point now = Clock::now());
         [[nodiscard]] Result<void, GraphicsError> collect_completed();
         void skip_frame();
+        void record_geometry(uint64_t scene_triangles, uint64_t shadow_triangles) {
+            if(m_enabled) {
+                m_snapshot.scene_triangles = scene_triangles;
+                m_snapshot.shadow_triangles = shadow_triangles;
+            }
+        }
         // 仅在成功提交后与同帧场景图配对；分开命令结束、提交和呈现。
         void record_submission(double finalize_ms, double submit_ms, double present_ms);
         // 覆盖世界准备、全部 View、UI 和 submit/present；由成功绘制的所属线程发布。

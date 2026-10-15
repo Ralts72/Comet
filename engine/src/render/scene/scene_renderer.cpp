@@ -43,8 +43,6 @@ namespace Comet {
         std::unique_ptr<DebugRenderer> debug;
         std::unique_ptr<ParticlePass> particles;
         RenderGraph::Plan graph;
-        RenderGraph::Plan shared_shadow_graph;
-        bool record_shadow = true;
         std::vector<RenderGraph::Binding> bindings;
         RenderGraph::ResourceId shadow_resource;
         std::vector<RenderGraph::ResourceId> scene_attachments;
@@ -58,10 +56,10 @@ namespace Comet {
 
     Result<std::unique_ptr<SceneRenderer>, GraphicsError> SceneRenderer::create(Device& device,
         MaterialPrograms& programs, RenderResources& resources, const VulkanSettings& vulkan,
-        const RenderSettings& render, Math::Vec2u size, std::shared_ptr<ShadowPass> shadow) {
+        const RenderSettings& render, Math::Vec2u size) {
         using Creation = Result<std::unique_ptr<SceneRenderer>, GraphicsError>;
-        auto scene = std::unique_ptr<SceneRenderer>(
-            new SceneRenderer(device, programs, vulkan, render, std::move(shadow)));
+        auto scene =
+            std::unique_ptr<SceneRenderer>(new SceneRenderer(device, programs, vulkan, render));
         if(auto configured = scene->configure_offscreen(resources, size); !configured)
             return Creation::failure(configured.error());
         return Creation::success(std::move(scene));
@@ -82,15 +80,14 @@ namespace Comet {
     }
 
     SceneRenderer::SceneRenderer(Device& device, MaterialPrograms& programs,
-        const VulkanSettings& vulkan, const RenderSettings& render,
-        std::shared_ptr<ShadowPass> shadow)
+        const VulkanSettings& vulkan, const RenderSettings& render)
         : m_device(device), m_programs(programs), m_offscreen_format(vulkan.surface_format),
           m_hdr_headroom(render.hdr_headroom), m_hdr_white_level(render.hdr_white_level),
           m_depth_format(vulkan.depth_format),
           m_quality{static_cast<uint32_t>(vulkan.msaa_samples),
               std::min(render.max_anisotropy, device.get_capability().max_sampler_anisotropy),
               render.render_scale},
-          m_frame_slot_count(render.max_frames_in_flight), m_shadow(std::move(shadow)) {}
+          m_frame_slot_count(render.max_frames_in_flight) {}
 
     Result<std::shared_ptr<SceneRenderer::RenderState>, GraphicsError> SceneRenderer::create_state(
         RenderResources& resources, Swapchain* swapchain, Math::Vec2u size,
@@ -183,79 +180,61 @@ namespace Comet {
 
     Result<void, GraphicsError> SceneRenderer::rebuild_graph(
         RenderState& state, const bool bloom_enabled) {
-        const auto build = [&](const bool shared_shadow) -> Result<void, GraphicsError> {
-            RenderGraph graph;
-            // 丢弃旧内容仍需等待上一轮附件写入与片段采样。
-            auto shadow_access =
-                *resolve_resource_state(ResourceUsage::DepthStencilAttachmentWrite);
-            shadow_access.stages |= PipelineStage::FragmentShader;
-            ImageState shadow_initial{.resource = shadow_access,
-                .subresources = {.aspects = Flags<ImageAspect>(ImageAspect::Depth)}};
-            if(shared_shadow)
-                shadow_initial =
-                    *resolve_image_state(ResourceUsage::SampledRead, shadow_initial.subresources,
-                        Flags<PipelineStage>(PipelineStage::FragmentShader));
-            const auto shadow = graph.import_image("shadow depth", shadow_initial);
-            RenderGraph::Pass shadow_pass{"directional shadow", {}};
-            if(!shared_shadow)
-                shadow_pass.uses.push_back(
-                    {shadow, ResourceUsage::DepthStencilAttachmentWrite, {}});
-            const auto shadow_pass_id = graph.add_pass(std::move(shadow_pass));
-            RenderGraph::Pass scene{"scene", {}};
-            std::vector<RenderGraph::ResourceId> scene_attachments;
-            RenderGraph::ResourceId output;
-            for(const auto& attachment : state.scene_pass->get_attachments()) {
-                const bool is_depth =
-                    Graphics::is_depth_stencil_format(attachment.description.format);
-                auto aspects =
-                    Flags<ImageAspect>(is_depth ? ImageAspect::Depth : ImageAspect::Color);
-                if(is_depth && !Graphics::is_depth_only_format(attachment.description.format))
-                    aspects |= ImageAspect::Stencil;
-                auto usage = ResourceUsage::ColorAttachmentWrite;
-                if(is_depth)
-                    usage = ResourceUsage::DepthStencilAttachmentWrite;
-                auto previous_access = *resolve_resource_state(usage);
-                if(!is_depth)
-                    previous_access.stages |= PipelineStage::FragmentShader;
-                const auto id =
-                    graph.import_image("attachment " + std::to_string(scene.uses.size()),
-                        {.resource = previous_access, .subresources = {.aspects = aspects}});
-                scene_attachments.push_back(id);
-                scene.uses.push_back({id, usage, {}});
-                if(!is_depth)
-                    output = id;
-            }
-            scene.uses.push_back({shadow, ResourceUsage::SampledRead,
+        RenderGraph graph;
+        // 丢弃旧内容仍需等待上一轮附件写入与片段采样。
+        auto shadow_access = *resolve_resource_state(ResourceUsage::DepthStencilAttachmentWrite);
+        shadow_access.stages |= PipelineStage::FragmentShader;
+        ImageState shadow_initial{.resource = shadow_access,
+            .subresources = {.aspects = Flags<ImageAspect>(ImageAspect::Depth)}};
+        const auto shadow = graph.import_image("shadow depth", shadow_initial);
+        RenderGraph::Pass shadow_pass{"directional shadow", {}};
+        shadow_pass.uses.push_back({shadow, ResourceUsage::DepthStencilAttachmentWrite, {}});
+        const auto shadow_pass_id = graph.add_pass(std::move(shadow_pass));
+        RenderGraph::Pass scene{"scene", {}};
+        std::vector<RenderGraph::ResourceId> scene_attachments;
+        RenderGraph::ResourceId output;
+        for(const auto& attachment : state.scene_pass->get_attachments()) {
+            const bool is_depth = Graphics::is_depth_stencil_format(attachment.description.format);
+            auto aspects = Flags<ImageAspect>(is_depth ? ImageAspect::Depth : ImageAspect::Color);
+            if(is_depth && !Graphics::is_depth_only_format(attachment.description.format))
+                aspects |= ImageAspect::Stencil;
+            auto usage = ResourceUsage::ColorAttachmentWrite;
+            if(is_depth)
+                usage = ResourceUsage::DepthStencilAttachmentWrite;
+            auto previous_access = *resolve_resource_state(usage);
+            if(!is_depth)
+                previous_access.stages |= PipelineStage::FragmentShader;
+            const auto id = graph.import_image("attachment " + std::to_string(scene.uses.size()),
+                {.resource = previous_access, .subresources = {.aspects = aspects}});
+            scene_attachments.push_back(id);
+            scene.uses.push_back({id, usage, {}});
+            if(!is_depth)
+                output = id;
+        }
+        scene.uses.push_back({shadow, ResourceUsage::SampledRead,
+            Flags<PipelineStage>(PipelineStage::FragmentShader)});
+        const auto scene_pass_id = graph.add_pass(std::move(scene));
+        std::optional<BloomPass::Passes> bloom_passes;
+        RenderGraph::Pass display{
+            "display", {{output, ResourceUsage::SampledRead,
+                           Flags<PipelineStage>(PipelineStage::FragmentShader)}}};
+        if(bloom_enabled) {
+            bloom_passes = BloomPass::append_passes(graph, output);
+            display.uses.push_back({bloom_passes->output, ResourceUsage::SampledRead,
                 Flags<PipelineStage>(PipelineStage::FragmentShader)});
-            const auto scene_pass_id = graph.add_pass(std::move(scene));
-            std::optional<BloomPass::Passes> bloom_passes;
-            RenderGraph::Pass display{
-                "display", {{output, ResourceUsage::SampledRead,
-                               Flags<PipelineStage>(PipelineStage::FragmentShader)}}};
-            if(bloom_enabled) {
-                bloom_passes = BloomPass::append_passes(graph, output);
-                display.uses.push_back({bloom_passes->output, ResourceUsage::SampledRead,
-                    Flags<PipelineStage>(PipelineStage::FragmentShader)});
-            }
-            const auto output_pass_id = graph.add_pass(std::move(display));
-            auto compiled = graph.compile();
-            if(!compiled)
-                return Result<void, GraphicsError>::failure({compiled.error()});
-            if(shared_shadow)
-                state.shared_shadow_graph = std::move(compiled).value();
-            else
-                state.graph = std::move(compiled).value();
-            state.shadow_resource = shadow;
-            state.scene_attachments = std::move(scene_attachments);
-            state.shadow_pass_id = shadow_pass_id;
-            state.scene_pass_id = scene_pass_id;
-            state.output_pass_id = output_pass_id;
-            state.bloom_passes = bloom_passes;
-            return Result<void, GraphicsError>::success();
-        };
-        if(auto built = build(false); !built)
-            return built;
-        return build(true);
+        }
+        const auto output_pass_id = graph.add_pass(std::move(display));
+        auto compiled = graph.compile();
+        if(!compiled)
+            return Result<void, GraphicsError>::failure({compiled.error()});
+        state.graph = std::move(compiled).value();
+        state.shadow_resource = shadow;
+        state.scene_attachments = std::move(scene_attachments);
+        state.shadow_pass_id = shadow_pass_id;
+        state.scene_pass_id = scene_pass_id;
+        state.output_pass_id = output_pass_id;
+        state.bloom_passes = bloom_passes;
+        return Result<void, GraphicsError>::success();
     }
 
     Result<void, GraphicsError> SceneRenderer::prepare_post_process(
@@ -465,6 +444,7 @@ namespace Comet {
 
     void SceneRenderer::skip_frame() {
         m_state->materials->reset_statistics();
+        m_shadow->reset_statistics();
         m_state->particles->reset();
     }
 
@@ -481,14 +461,11 @@ namespace Comet {
         frames.retain_current_frame_resource(m_state->output_target);
         frames.retain_current_frame_resource(m_state->hdr_target);
         const auto image = frames.get_current_frame_slot_index();
-        const auto serial = frames.get_current_frame_serial();
         frames.retain_current_frame_resource(m_shadow);
-        m_state->record_shadow = !m_shadow->rendered_in_frame(serial);
-        const auto& lighting = RenderDiagnostics::measure_preparation(diagnostics,
-            RenderDiagnostics::PreparationPhase::Lighting, [&]() -> const LightingData& {
-                return m_shadow->prepare_frame(serial, submission.world, geometry);
-            });
-        const auto& graph = m_state->record_shadow ? m_state->graph : m_state->shared_shadow_graph;
+        const auto lighting = RenderDiagnostics::measure_preparation(diagnostics,
+            RenderDiagnostics::PreparationPhase::Lighting,
+            [&] { return ShadowPass::prepare(submission, geometry); });
+        const auto& graph = m_state->graph;
         auto& bindings = m_state->bindings;
         bindings.resize(graph.resource_count());
         const ScopeExit release_bindings([&] { bindings.clear(); });
@@ -510,6 +487,9 @@ namespace Comet {
             recorded = graph.record(frames, bindings, recorder);
         if(!recorded)
             return RenderResult::failure(recorded.error());
+        if(diagnostics)
+            diagnostics->record_geometry(
+                get_material_statistics().drawn_triangles, get_shadow_statistics().drawn_triangles);
         return RenderResult::success(std::move(waits));
     }
 
@@ -528,8 +508,6 @@ namespace Comet {
         }
         auto drawn = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::success({});
         if(pass == m_state->shadow_pass_id) {
-            if(!m_state->record_shadow)
-                return Result<void, GraphicsError>::success();
             drawn = m_shadow->render(frames, lighting, geometry);
         } else if(pass == m_state->scene_pass_id)
             drawn = draw_scene(

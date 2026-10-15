@@ -1,0 +1,1083 @@
+{
+  "version": 2,
+  "post_process": {
+    "exposure": 1,
+    "bloom_enabled": true,
+    "bloom_strength": 0.15,
+    "bloom_threshold": 1
+  },
+  "entities": [
+    {
+      "uuid": "61e9f12a-77da-5790-85f7-f0ab713801c9",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [
+            0,
+            5,
+            15
+          ],
+          "rotation": [
+            -12,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "camera": {
+          "primary": true,
+          "fov": 45,
+          "near_clip": 0.1,
+          "far_clip": 200
+        },
+        "camera_controller": {
+          "enabled": true,
+          "move_speed": 10,
+          "look_sensitivity": 0.2,
+          "look_speed": 120
+        }
+      }
+    },
+    {
+      "uuid": "84cb3994-9cb0-5ba9-b9db-d1223f1a01a1",
+      "components": {
+        "name": "主光",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            -40,
+            -30,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "light": {
+          "type": "directional",
+          "enabled": true,
+          "casts_shadow": true,
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "intensity": 4,
+          "range": 10,
+          "inner_angle": 20,
+          "outer_angle": 30,
+          "shadow_distance": 100
+        }
+      }
+    },
+    {
+      "uuid": "31b9287b-3aba-4a58-a2d5-44be3c0d9c45",
+      "components": {
+        "name": "投影柱 -5 / 3",
+        "transform": {
+          "translation": [
+            -5,
+            2,
+            3
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "389b1715-7e22-4c7c-9d72-032e90059c90",
+      "components": {
+        "name": "细横梁 -5 / 3",
+        "transform": {
+          "translation": [
+            -5,
+            3.8,
+            3
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "f4838fe7-3d25-41cd-8041-40596126b691",
+      "components": {
+        "name": "投影柱 0 / 3",
+        "transform": {
+          "translation": [
+            0,
+            2,
+            3
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "3fd0659d-10d4-4747-b9c4-2a3334ffcbf4",
+      "components": {
+        "name": "细横梁 0 / 3",
+        "transform": {
+          "translation": [
+            0,
+            3.8,
+            3
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "9fce3c4d-5929-4540-bf3d-91e57eacb86e",
+      "components": {
+        "name": "投影柱 5 / 3",
+        "transform": {
+          "translation": [
+            5,
+            2,
+            3
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "a904be82-b5cf-428f-907b-5e34feccedb2",
+      "components": {
+        "name": "细横梁 5 / 3",
+        "transform": {
+          "translation": [
+            5,
+            3.8,
+            3
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "d1a1b324-871e-4874-83ec-11bfc39ce520",
+      "components": {
+        "name": "投影柱 -5 / -8",
+        "transform": {
+          "translation": [
+            -5,
+            2,
+            -8
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "a4f4449c-1653-41bc-ac20-6a0bb6849c35",
+      "components": {
+        "name": "细横梁 -5 / -8",
+        "transform": {
+          "translation": [
+            -5,
+            3.8,
+            -8
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "ea3f47cc-6140-40e7-bb4d-218ee9884c3b",
+      "components": {
+        "name": "投影柱 0 / -8",
+        "transform": {
+          "translation": [
+            0,
+            2,
+            -8
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "2b1dd396-9d4c-4edb-812d-0f037e2a342f",
+      "components": {
+        "name": "细横梁 0 / -8",
+        "transform": {
+          "translation": [
+            0,
+            3.8,
+            -8
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "0b49113f-3b07-4b1e-a967-3cccc6ff3709",
+      "components": {
+        "name": "投影柱 5 / -8",
+        "transform": {
+          "translation": [
+            5,
+            2,
+            -8
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "f5bb4b3f-af13-428d-b5d7-d6271504539d",
+      "components": {
+        "name": "细横梁 5 / -8",
+        "transform": {
+          "translation": [
+            5,
+            3.8,
+            -8
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "36fcaae8-b216-462e-8681-fb3377e04f63",
+      "components": {
+        "name": "投影柱 -5 / -22",
+        "transform": {
+          "translation": [
+            -5,
+            2,
+            -22
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "f352d33f-fb09-4641-931c-324fa32d0504",
+      "components": {
+        "name": "细横梁 -5 / -22",
+        "transform": {
+          "translation": [
+            -5,
+            3.8,
+            -22
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "4e86dddd-206a-4a9b-b344-8f4b47b1d836",
+      "components": {
+        "name": "投影柱 0 / -22",
+        "transform": {
+          "translation": [
+            0,
+            2,
+            -22
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "7a4f700e-be0b-4b0f-98e6-633872725b43",
+      "components": {
+        "name": "细横梁 0 / -22",
+        "transform": {
+          "translation": [
+            0,
+            3.8,
+            -22
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "c46baea0-2d1e-49c8-919c-29dc0df20602",
+      "components": {
+        "name": "投影柱 5 / -22",
+        "transform": {
+          "translation": [
+            5,
+            2,
+            -22
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "006eafbe-e07a-49ca-8f76-0887c3a687cd",
+      "components": {
+        "name": "细横梁 5 / -22",
+        "transform": {
+          "translation": [
+            5,
+            3.8,
+            -22
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "334e9abb-6ad0-4a1a-a429-754cda6e546c",
+      "components": {
+        "name": "投影柱 -5 / -45",
+        "transform": {
+          "translation": [
+            -5,
+            2,
+            -45
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "d6c25a91-07a3-4e99-98be-9c29906b6951",
+      "components": {
+        "name": "细横梁 -5 / -45",
+        "transform": {
+          "translation": [
+            -5,
+            3.8,
+            -45
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "2745771c-dcc5-4fe1-b393-7a840a8cf4a9",
+      "components": {
+        "name": "投影柱 0 / -45",
+        "transform": {
+          "translation": [
+            0,
+            2,
+            -45
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "89befaf2-b012-4fc8-a35e-b68cf6d4c930",
+      "components": {
+        "name": "细横梁 0 / -45",
+        "transform": {
+          "translation": [
+            0,
+            3.8,
+            -45
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "ef8b4e64-f529-44e6-9a87-b6ea8ce242c1",
+      "components": {
+        "name": "投影柱 5 / -45",
+        "transform": {
+          "translation": [
+            5,
+            2,
+            -45
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "32ceb1d4-0d4a-4b85-9ddb-60e48d927238",
+      "components": {
+        "name": "细横梁 5 / -45",
+        "transform": {
+          "translation": [
+            5,
+            3.8,
+            -45
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "7a7f4eca-5c52-47c5-98e7-1c009b99dd93",
+      "components": {
+        "name": "投影柱 -5 / -75",
+        "transform": {
+          "translation": [
+            -5,
+            2,
+            -75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "deac97aa-d6c7-4b90-8710-ebf31c16c5aa",
+      "components": {
+        "name": "细横梁 -5 / -75",
+        "transform": {
+          "translation": [
+            -5,
+            3.8,
+            -75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "580be3f4-c837-4e59-acf5-f2c29c17d323",
+      "components": {
+        "name": "投影柱 0 / -75",
+        "transform": {
+          "translation": [
+            0,
+            2,
+            -75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "9118dbed-9fa6-411c-95c6-7ee254bafae4",
+      "components": {
+        "name": "细横梁 0 / -75",
+        "transform": {
+          "translation": [
+            0,
+            3.8,
+            -75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "dd31fd48-6b2f-4aeb-9802-c038a12ec753",
+      "components": {
+        "name": "投影柱 5 / -75",
+        "transform": {
+          "translation": [
+            5,
+            2,
+            -75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "331fac89-9320-4ae4-88c7-b8d266c5a3c9",
+      "components": {
+        "name": "细横梁 5 / -75",
+        "transform": {
+          "translation": [
+            5,
+            3.8,
+            -75
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "bfeb79b3-3a54-4d9a-a5e4-1c5e0d4ac17f",
+      "components": {
+        "name": "投影柱 -5 / -105",
+        "transform": {
+          "translation": [
+            -5,
+            2,
+            -105
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "835480a5-7e78-44af-a9fc-1f95bbffd904",
+      "components": {
+        "name": "细横梁 -5 / -105",
+        "transform": {
+          "translation": [
+            -5,
+            3.8,
+            -105
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "9e7d17b3-660e-491e-8ca4-51be46ef5512",
+      "components": {
+        "name": "投影柱 0 / -105",
+        "transform": {
+          "translation": [
+            0,
+            2,
+            -105
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "0ff6d16a-8150-4e5d-858c-18dd27e2825d",
+      "components": {
+        "name": "细横梁 0 / -105",
+        "transform": {
+          "translation": [
+            0,
+            3.8,
+            -105
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "ef2c066d-d483-4bf5-b2a7-37464b9d1092",
+      "components": {
+        "name": "投影柱 5 / -105",
+        "transform": {
+          "translation": [
+            5,
+            2,
+            -105
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            4,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "bdb18f8b-0ace-46fe-b44c-8825dbd62535",
+      "components": {
+        "name": "细横梁 5 / -105",
+        "transform": {
+          "translation": [
+            5,
+            3.8,
+            -105
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            3,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "3785a6d4-3e3e-4f8a-9daf-88ecc59b5d1e",
+      "components": {
+        "name": "接收阴影的地面",
+        "transform": {
+          "translation": [
+            0,
+            -0.25,
+            -45
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            35,
+            0.5,
+            150
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 5783275031450616070
+        }
+      }
+    }
+  ]
+}

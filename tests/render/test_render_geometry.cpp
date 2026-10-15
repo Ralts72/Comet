@@ -527,4 +527,77 @@ namespace Comet::Tests {
         resolve();
         EXPECT_TRUE(world.render_items.empty());
     }
+    TEST_F(RenderGeometryTest, LodReloadUpdatesUnionBoundsAndKeepsViewsAndOldSnapshotsIndependent) {
+        const auto make_mesh = [&](float radius) {
+            return engine->get_render_resources()
+                .try_create_mesh({.vertices = {{{-radius, -radius, 0}}, {{radius, -radius, 0}},
+                                      {{0, radius, 0}}},
+                    .indices = {0, 1, 2}})
+                .value();
+        };
+        AssetRegistry assets;
+        auto high = make_mesh(1);
+        auto low = make_mesh(2);
+        ASSERT_TRUE(assets.register_asset(AssetHandle{10}, high));
+        ASSERT_TRUE(assets.register_asset(AssetHandle{11}, low));
+        ASSERT_TRUE(
+            assets.register_asset(AssetHandle{20}, std::make_shared<Material>("LOD", "pbr")));
+        RenderScene scene{.scene_lifetime = 1};
+        scene.item_changes.begin_update(true);
+        scene.render_items = {{.entity_id = 1,
+            .transform_revision = 1,
+            .lod = MeshLod{.level1 = AssetHandle{11}},
+            .mesh_handle = AssetHandle{10},
+            .material_handle = AssetHandle{20}}};
+        SceneResolver resolver(assets);
+        auto world = resolver.update(scene);
+        RenderGeometry geometry, near_view, far_view;
+        geometry.prepare(*world);
+        ASSERT_TRUE(geometry.get_scene_bounds());
+        EXPECT_EQ(geometry.get_scene_bounds()->maximum, Math::Vec3(2, 2, 0));
+        const auto view = Math::look_at({0, 0, 10}, {0, 0, 0}, {0, 1, 0});
+        near_view.prepare_view(geometry, Math::ortho(-4, 4, -4, 4, .1f, 100) * view);
+        far_view.prepare_view(geometry, Math::ortho(-20, 20, -20, 20, .1f, 100) * view);
+        EXPECT_EQ(near_view.get_items()[0].source->mesh, high);
+        EXPECT_EQ(far_view.get_items()[0].source->mesh, low);
+        // 同一阈值附近，两个 View 各自保持原层级。
+        const auto boundary = Math::ortho(-8, 8, -8, 8, .1f, 100) * view;
+        near_view.prepare_view(geometry, boundary);
+        far_view.prepare_view(geometry, boundary);
+        EXPECT_EQ(near_view.get_items()[0].source->mesh, high);
+        EXPECT_EQ(far_view.get_items()[0].source->mesh, low);
+        const auto old_world = world;
+        auto replacement = make_mesh(3);
+        ASSERT_TRUE(assets.replace_asset(AssetHandle{11}, replacement));
+        world = resolver.update(scene);
+        ASSERT_FALSE(world->item_changes.full_update);
+        EXPECT_EQ(old_world->render_items[0].lod->meshes[0], low);
+        EXPECT_EQ(world->render_items[0].lod->meshes[0], replacement);
+        geometry.prepare(*world);
+        EXPECT_EQ(geometry.get_scene_bounds()->maximum, Math::Vec3(3, 3, 0));
+        ASSERT_TRUE(assets.unregister_asset(AssetHandle{11}));
+        EXPECT_TRUE(resolver.update(scene)->render_items.empty());
+        ASSERT_TRUE(assets.register_asset(AssetHandle{11}, low));
+        EXPECT_EQ(resolver.update(scene)->render_items.size(), 1u);
+        scene.render_items[0].lod.reset();
+        scene.item_changes.begin_update(false);
+        scene.item_changes.slots = {0};
+        world = resolver.update(scene);
+        geometry.prepare(*world);
+        EXPECT_EQ(geometry.get_scene_bounds()->maximum, Math::Vec3(1, 1, 0));
+        EXPECT_FALSE(world->render_items[0].lod);
+        EXPECT_EQ(&near_view.prepare_view(geometry, boundary), &geometry);
+        EXPECT_TRUE(near_view.get_items().empty());
+
+        MeshData skinned{.vertices = {{{0, 0, 0}}, {{1, 0, 0}}, {{0, 1, 0}}},
+            .skin = std::vector<SkinInfluences>(3),
+            .animation = std::make_shared<AnimationData>()};
+        const auto uploaded = engine->get_render_resources().try_create_mesh(skinned);
+        ASSERT_TRUE(uploaded);
+        ASSERT_TRUE(assets.replace_asset(AssetHandle{11}, uploaded.value()));
+        scene.render_items[0].lod = MeshLod{.level1 = AssetHandle{11}};
+        scene.item_changes.begin_update(false);
+        scene.item_changes.slots = {0};
+        EXPECT_TRUE(resolver.update(scene)->render_items.empty());
+    }
 }

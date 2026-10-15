@@ -11,7 +11,7 @@ struct Light {
     float inner_cone_cos;
     float outer_cone_cos;
     float casts_shadow;
-    float reserved;
+    float shadow_distance;
 };
 layout(set = 0, binding = 1, std140) uniform LightingData {
     Light lights[32];
@@ -19,24 +19,28 @@ layout(set = 0, binding = 1, std140) uniform LightingData {
     float excess_lights;
     float invalid_lights;
     float reserved;
-    mat4 shadow_view_projection;
+    mat4 shadow_view_projection[4];
+    vec4 shadow_splits;
+    vec4 shadow_depth_bias;
+    vec4 shadow_camera_depth;
     float shadow_light_index;
-    float shadow_depth_bias;
+    float shadow_cascade_count;
     float shadow_texel_size;
-    float shadow_reserved;
+    float shadow_blend;
     vec4 environment; // intensity, max LOD, sin(rotation), cos(rotation)
 } lighting;
 layout(set = 0, binding = 2) uniform sampler2D shadow_map;
 
-float shadow_visibility(int index, vec3 position, float n_dot_l) {
-    if(index != int(lighting.shadow_light_index))
-        return 1.0;
-    vec3 projected = (lighting.shadow_view_projection * vec4(position, 1.0)).xyz;
+float sample_shadow_cascade(int cascade, vec3 position, vec3 position_dx, vec3 position_dy, float n_dot_l) {
+    mat4 matrix = lighting.shadow_view_projection[cascade];
+    vec3 projected = (matrix * vec4(position, 1.0)).xyz;
     vec2 uv = projected.xy * 0.5 + 0.5;
-    vec2 uv_dx = dFdx(uv);
-    vec2 uv_dy = dFdy(uv);
-    float depth_dx = dFdx(projected.z);
-    float depth_dy = dFdy(projected.z);
+    vec3 projected_dx = mat3(matrix) * position_dx;
+    vec3 projected_dy = mat3(matrix) * position_dy;
+    vec2 uv_dx = projected_dx.xy * 0.5;
+    vec2 uv_dy = projected_dy.xy * 0.5;
+    float depth_dx = projected_dx.z;
+    float depth_dy = projected_dy.z;
     float determinant = uv_dx.x * uv_dy.y - uv_dx.y * uv_dy.x;
     vec2 depth_gradient = vec2(0.0);
     if(abs(determinant) > 1e-12)
@@ -45,7 +49,7 @@ float shadow_visibility(int index, vec3 position, float n_dot_l) {
     if(projected.z < 0.0 || projected.z > 1.0
         || any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))))
         return 1.0;
-    float bias = lighting.shadow_depth_bias * (1.0 + 4.0 * (1.0 - n_dot_l));
+    float bias = lighting.shadow_depth_bias[cascade] * (1.0 + 4.0 * (1.0 - n_dot_l));
     // Compensate nearest-texel quantization on the receiver plane.
     bias += 0.5 * lighting.shadow_texel_size * dot(abs(depth_gradient), vec2(1.0));
     float visible = 0.0;
@@ -57,12 +61,42 @@ float shadow_visibility(int index, vec3 position, float n_dot_l) {
                 visible += 1.0;
             else {
                 float receiver_depth = projected.z + dot(depth_gradient, offset) - bias;
-                float sampled_depth = textureLod(shadow_map, sample_uv, 0.0).r;
+                // Clamp inside this tile: the PCF kernel must never read a neighbouring cascade.
+                float inset = 0.5 * lighting.shadow_texel_size;
+                sample_uv = clamp(sample_uv, vec2(inset), vec2(1.0 - inset));
+                vec2 tile = vec2(cascade & 1, cascade >> 1);
+                float sampled_depth = textureLod(shadow_map, (sample_uv + tile) * 0.5, 0.0).r;
                 visible += receiver_depth <= sampled_depth ? 1.0 : 0.0;
             }
         }
     }
     return visible / 9.0;
+}
+
+float shadow_visibility(int index, vec3 position, float n_dot_l) {
+    // Compute derivatives before the per-fragment cascade branch.
+    vec3 position_dx = dFdx(position);
+    vec3 position_dy = dFdy(position);
+    if(index != int(lighting.shadow_light_index) || lighting.shadow_cascade_count < 1.0)
+        return 1.0;
+    float depth = dot(lighting.shadow_camera_depth, vec4(position, 1.0));
+    int count = int(lighting.shadow_cascade_count);
+    if(depth > lighting.shadow_splits[count - 1])
+        return 1.0;
+    int cascade = 0;
+    while(cascade + 1 < count && depth > lighting.shadow_splits[cascade])
+        ++cascade;
+    float visible = sample_shadow_cascade(cascade, position, position_dx, position_dy, n_dot_l);
+    float start = cascade == 0 ? 0.0 : lighting.shadow_splits[cascade - 1];
+    float end = lighting.shadow_splits[cascade];
+    float blend_start = end - (end - start) * lighting.shadow_blend;
+    if(depth > blend_start) {
+        float next = 1.0;
+        if(cascade + 1 < count)
+            next = sample_shadow_cascade(cascade + 1, position, position_dx, position_dy, n_dot_l);
+        visible = mix(visible, next, smoothstep(blend_start, end, depth));
+    }
+    return visible;
 }
 
 bool sample_light(int index, vec3 position, out vec3 direction, out vec3 radiance) {

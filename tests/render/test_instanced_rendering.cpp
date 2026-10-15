@@ -548,8 +548,11 @@ namespace Comet::Tests {
                 ASSERT_TRUE(rendered) << rendered.error();
                 const auto shadow = scene.get_shadow_statistics();
                 // 镜像变换需要相反的正面绕序，不能与普通实例共用一个剔除批次。
-                EXPECT_EQ(shadow.draw_calls, frame == 2 || frame >= 10 ? 2u : 1u);
-                EXPECT_EQ(shadow.drawn_instances, 3 * counts[frame]);
+                EXPECT_EQ(shadow.cascades, 4u);
+                EXPECT_EQ(
+                    shadow.draw_calls, (frame == 2 || frame >= 10 ? 2u : 1u) * shadow.cascades);
+                // 每组的一半物体落在三个级联内，其余落在四个级联内。
+                EXPECT_EQ(shadow.drawn_instances, 3 * counts[frame] / 2 * 7);
                 auto output = std::make_shared<Readback>(
                     device, context.get_context().get_physical_device(), 65 * 65 * 4);
                 copy_output(frames,
@@ -890,5 +893,58 @@ namespace Comet::Tests {
         }
         ASSERT_TRUE(rebuilt);
         check(*rebuilt, {1, 0, 1});
+    }
+    TEST_F(RenderGraphGpuTest, StaticLodSelectsBeforeInstancingAndShadowUsesItsOwnProjection) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        auto high = lit_quad();
+        auto low = engine->get_render_resources()
+                       .try_create_mesh({.vertices = {{{-1, -1, 0}}, {{1, -1, 0}}, {{0, 1, 0}}}})
+                       .value();
+        ASSERT_EQ(high->get_triangle_count(), 2u);
+        ASSERT_EQ(low->get_triangle_count(), 1u);
+        auto material = std::make_shared<Material>("LOD", "unlit_color");
+        ASSERT_TRUE(material->set_surface({.double_sided = true}));
+        auto lod = std::make_shared<ResolvedMeshLod>();
+        lod->settings.level1 = AssetHandle{11};
+        lod->settings.level1_height = .1f;
+        lod->meshes[0] = low;
+        RenderWorld world{.scene_lifetime = 1};
+        for(unsigned index = 0; index < 4; ++index)
+            world.render_items.push_back({.entity_id = index + 1,
+                .model_matrix = Math::translate(Math::Mat4(1), {float(index) * 3 - 4.5f, 0, 0}),
+                .mesh = high,
+                .material = {.resource = material},
+                .lod = lod});
+        world.lights.push_back(
+            {.type = LightType::Directional, .direction = {0, 0, -1}, .casts_shadow = true});
+        MaterialPrograms programs;
+        auto scene = create_scene(programs, {65, 65});
+        ASSERT_TRUE(scene);
+        RenderGeometry geometry;
+        geometry.prepare(world);
+        ASSERT_TRUE(scene.value()->prepare_material_programs(world));
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        for(unsigned frame = 0; frame < 3; ++frame) {
+            const float half_height = frame == 1 ? 6.0f : 20.0f;
+            RenderSubmission submission{world,
+                ViewProjectMatrix{Math::look_at({0, 0, 10}, {0, 0, 0}, {0, 1, 0}),
+                    Math::ortho(-half_height, half_height, -half_height, half_height, .1f, 100)}};
+            begin_frame(frames);
+            auto drawn = scene.value()->render(frames, submission, geometry);
+            ASSERT_TRUE(drawn) << drawn.error();
+            const auto stats = scene.value()->get_material_statistics();
+            EXPECT_EQ(stats.draw_calls, 1u);
+            EXPECT_EQ(stats.drawn_instances, 4u);
+            EXPECT_EQ(stats.drawn_triangles, frame == 1 ? 8u : 4u);
+            const auto shadow = scene.value()->get_shadow_statistics();
+            EXPECT_EQ(shadow.cascades, 4u);
+            EXPECT_EQ(shadow.draw_calls, 4u);
+            EXPECT_EQ(shadow.drawn_instances, 16u);
+            // 各级的投影范围比主相机大，近景主绘制恢复原网格时阴影仍用简化网格。
+            EXPECT_EQ(shadow.drawn_triangles, 16u);
+            submit(device, frames, drawn.value());
+        }
     }
 }

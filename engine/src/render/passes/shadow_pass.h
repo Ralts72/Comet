@@ -18,12 +18,14 @@ namespace Comet {
     class Texture;
     class Sampler;
 
-    // 单方向光深度通道；每个飞行帧槽位拥有独立深度图。
+    // 每个 View 的四级方向光阴影；每个飞行帧槽位拥有独立深度图集。
     class COMET_API ShadowPass {
     public:
         struct Statistics {
+            uint32_t cascades = 0;
             uint32_t draw_calls = 0;
             uint32_t drawn_instances = 0;
+            uint64_t drawn_triangles = 0;
             uint64_t instance_upload_bytes = 0;
         };
         static constexpr uint32_t RESOLUTION = 1024;
@@ -32,13 +34,7 @@ namespace Comet {
         ShadowPass(const ShadowPass&) = delete;
         ShadowPass& operator=(const ShadowPass&) = delete;
         [[nodiscard]] static LightingData prepare(
-            const RenderWorld& world, const RenderGeometry& geometry);
-        // 同一世界帧共享准备结果和深度图；后续 View 只采样已完成的通道。
-        [[nodiscard]] const LightingData& prepare_frame(
-            uint64_t serial, const RenderWorld& world, const RenderGeometry& geometry);
-        [[nodiscard]] bool rendered_in_frame(uint64_t serial) const {
-            return m_rendered_serial == serial;
-        }
+            const RenderSubmission& submission, const RenderGeometry& geometry);
         [[nodiscard]] std::shared_ptr<ImageView> get_depth_view(uint32_t slot) const;
         [[nodiscard]] Statistics get_statistics() const { return m_statistics; }
         void reset_statistics() { m_statistics = {}; }
@@ -65,6 +61,7 @@ namespace Comet {
             float alpha = 1;
             float cutoff = 0.5f;
             unsigned orientation = 0; // 双面位与镜像变换位。
+            unsigned cascade = 0;
         };
         Result<std::shared_ptr<MaskBinding>, GraphicsError> prepare_mask(
             const std::shared_ptr<Texture>& texture);
@@ -82,9 +79,7 @@ namespace Comet {
         std::vector<InstanceBuffer> m_instances;
         std::vector<DrawItem> m_draw_queue;
         std::vector<Math::Mat4> m_transforms;
+        std::array<RenderGeometry, LightingData::SHADOW_CASCADES> m_view_geometry;
         Statistics m_statistics;
-        LightingData m_lighting;
-        uint64_t m_prepared_serial = 0;
-        uint64_t m_rendered_serial = 0;
     };
 }
