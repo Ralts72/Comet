@@ -786,7 +786,7 @@ namespace Comet {
                  {{LightType::Directional, {"directional", "Directional"}},
                      {LightType::Point, {"point", "Point"}}, {LightType::Spot, {"spot", "Spot"}}}),
                 make_property_descriptor("enabled", "Enabled", &LightComponent::enabled),
-                make_property_descriptor("casts_shadow", "Cast shadow (directional)",
+                make_property_descriptor("casts_shadow", "Cast shadow (directional / spot)",
                     &LightComponent::casts_shadow, {.required = false}),
                 make_property_descriptor("shadow_distance", "方向光阴影距离（米）",
                     &LightComponent::shadow_distance,

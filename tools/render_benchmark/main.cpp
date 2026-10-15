@@ -461,7 +461,7 @@ namespace {
                 if(instances > 1)
                     m_expected_instance_bytes += instances * sizeof(Comet::Math::Mat4);
             }
-            m_passes = {"directional shadow", "scene"};
+            m_passes = {"shadow", "scene"};
             if(options.bloom)
                 m_passes.insert(
                     m_passes.end(), {"bloom extract", "bloom horizontal", "bloom vertical"});
@@ -585,8 +585,10 @@ namespace {
             report.imbue(std::locale::classic());
             report << "# build=" << COMET_BENCHMARK_BUILD_TYPE << " validation_request=off\n";
             report << "# timing_model=render-thread-v2\n";
-            report << "# shadow_model=cascaded-v1 cascades=" << Comet::LightingData::SHADOW_CASCADES
-                   << " tile_resolution=" << Comet::ShadowPass::RESOLUTION << '\n';
+            report << "# shadow_model=atlas-v2 cascades=" << Comet::LightingData::SHADOW_CASCADES
+                   << " tile_resolution=" << Comet::ShadowPass::RESOLUTION
+                   << " spot_slots=" << Comet::LightingData::MAX_SPOT_SHADOWS
+                   << " spot_resolution=" << Comet::ShadowPass::RESOLUTION / 2 << '\n';
             report << "# motion_model=runtime-v1\n";
 #ifdef __APPLE__
             report << "# cpu_qos_request=user_interactive\n";
@@ -650,6 +652,11 @@ namespace {
                    << renderer.get_scene_renderer().get_shadow_statistics().drawn_instances
                    << " shadow_upload_bytes="
                    << renderer.get_scene_renderer().get_shadow_statistics().instance_upload_bytes
+                   << '\n'
+                   << "# spot_shadows="
+                   << renderer.get_scene_renderer().get_shadow_statistics().spot_lights
+                   << " excess_spot_shadows="
+                   << renderer.get_scene_renderer().get_shadow_statistics().excess_spot_lights
                    << '\n'
                    << "# window=" << m_options.width << 'x' << m_options.height
                    << " framebuffer=" << m_size.x << 'x' << m_size.y

@@ -13,30 +13,43 @@ struct Light {
     float casts_shadow;
     float shadow_distance;
 };
+struct Shadow {
+    mat4 view_projection;
+    vec4 atlas_rect;
+    float depth_bias;
+    float texel_size;
+    float light_index;
+    float reserved;
+};
 layout(set = 0, binding = 1, std140) uniform LightingData {
     Light lights[32];
     float light_count;
     float excess_lights;
     float invalid_lights;
     float reserved;
-    mat4 shadow_view_projection[4];
+    Shadow shadows[8];
     vec4 shadow_splits;
-    vec4 shadow_depth_bias;
     vec4 shadow_camera_depth;
-    float shadow_light_index;
     float shadow_cascade_count;
-    float shadow_texel_size;
+    float spot_shadow_count;
+    float excess_spot_shadows;
     float shadow_blend;
     vec4 environment; // intensity, max LOD, sin(rotation), cos(rotation)
 } lighting;
 layout(set = 0, binding = 2) uniform sampler2D shadow_map;
 
-float sample_shadow_cascade(int cascade, vec3 position, vec3 position_dx, vec3 position_dy, float n_dot_l) {
-    mat4 matrix = lighting.shadow_view_projection[cascade];
-    vec3 projected = (matrix * vec4(position, 1.0)).xyz;
+float sample_shadow_view(int shadow_view, vec3 position, vec3 position_dx, vec3 position_dy, float n_dot_l) {
+    Shadow shadow = lighting.shadows[shadow_view];
+    mat4 matrix = shadow.view_projection;
+    vec4 clip = matrix * vec4(position, 1.0);
+    if(clip.w <= 0.0)
+        return 1.0;
+    vec3 projected = clip.xyz / clip.w;
     vec2 uv = projected.xy * 0.5 + 0.5;
-    vec3 projected_dx = mat3(matrix) * position_dx;
-    vec3 projected_dy = mat3(matrix) * position_dy;
+    vec4 clip_dx = matrix * vec4(position_dx, 0.0);
+    vec4 clip_dy = matrix * vec4(position_dy, 0.0);
+    vec3 projected_dx = (clip_dx.xyz - projected * clip_dx.w) / clip.w;
+    vec3 projected_dy = (clip_dy.xyz - projected * clip_dy.w) / clip.w;
     vec2 uv_dx = projected_dx.xy * 0.5;
     vec2 uv_dy = projected_dy.xy * 0.5;
     float depth_dx = projected_dx.z;
@@ -49,23 +62,23 @@ float sample_shadow_cascade(int cascade, vec3 position, vec3 position_dx, vec3 p
     if(projected.z < 0.0 || projected.z > 1.0
         || any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))))
         return 1.0;
-    float bias = lighting.shadow_depth_bias[cascade] * (1.0 + 4.0 * (1.0 - n_dot_l));
+    float bias = (shadow.depth_bias / clip.w) * (1.0 + 4.0 * (1.0 - n_dot_l));
     // Compensate nearest-texel quantization on the receiver plane.
-    bias += 0.5 * lighting.shadow_texel_size * dot(abs(depth_gradient), vec2(1.0));
+    bias += 0.5 * shadow.texel_size * dot(abs(depth_gradient), vec2(1.0));
     float visible = 0.0;
     for(int y = -1; y <= 1; ++y) {
         for(int x = -1; x <= 1; ++x) {
-            vec2 offset = vec2(x, y) * lighting.shadow_texel_size;
+            vec2 offset = vec2(x, y) * shadow.texel_size;
             vec2 sample_uv = uv + offset;
             if(any(lessThan(sample_uv, vec2(0.0))) || any(greaterThan(sample_uv, vec2(1.0))))
                 visible += 1.0;
             else {
                 float receiver_depth = projected.z + dot(depth_gradient, offset) - bias;
-                // Clamp inside this tile: the PCF kernel must never read a neighbouring cascade.
-                float inset = 0.5 * lighting.shadow_texel_size;
+                // Clamp inside this tile: PCF must not read another light or cascade.
+                float inset = 0.5 * shadow.texel_size;
                 sample_uv = clamp(sample_uv, vec2(inset), vec2(1.0 - inset));
-                vec2 tile = vec2(cascade & 1, cascade >> 1);
-                float sampled_depth = textureLod(shadow_map, (sample_uv + tile) * 0.5, 0.0).r;
+                vec2 atlas_uv = sample_uv * shadow.atlas_rect.xy + shadow.atlas_rect.zw;
+                float sampled_depth = textureLod(shadow_map, atlas_uv, 0.0).r;
                 visible += receiver_depth <= sampled_depth ? 1.0 : 0.0;
             }
         }
@@ -73,11 +86,17 @@ float sample_shadow_cascade(int cascade, vec3 position, vec3 position_dx, vec3 p
     return visible / 9.0;
 }
 
-float shadow_visibility(int index, vec3 position, float n_dot_l) {
-    // Compute derivatives before the per-fragment cascade branch.
-    vec3 position_dx = dFdx(position);
-    vec3 position_dy = dFdy(position);
-    if(index != int(lighting.shadow_light_index) || lighting.shadow_cascade_count < 1.0)
+// Position derivatives must be computed before divergent light/range branches.
+float shadow_visibility(int index, vec3 position, vec3 position_dx, vec3 position_dy, float n_dot_l) {
+    if(lighting.lights[index].type == LIGHT_SPOT) {
+        for(int slot = 0; slot < int(lighting.spot_shadow_count); ++slot) {
+            int shadow_view = 4 + slot;
+            if(index == int(lighting.shadows[shadow_view].light_index))
+                return sample_shadow_view(shadow_view, position, position_dx, position_dy, n_dot_l);
+        }
+        return 1.0;
+    }
+    if(lighting.shadow_cascade_count < 1.0 || index != int(lighting.shadows[0].light_index))
         return 1.0;
     float depth = dot(lighting.shadow_camera_depth, vec4(position, 1.0));
     int count = int(lighting.shadow_cascade_count);
@@ -86,14 +105,14 @@ float shadow_visibility(int index, vec3 position, float n_dot_l) {
     int cascade = 0;
     while(cascade + 1 < count && depth > lighting.shadow_splits[cascade])
         ++cascade;
-    float visible = sample_shadow_cascade(cascade, position, position_dx, position_dy, n_dot_l);
+    float visible = sample_shadow_view(cascade, position, position_dx, position_dy, n_dot_l);
     float start = cascade == 0 ? 0.0 : lighting.shadow_splits[cascade - 1];
     float end = lighting.shadow_splits[cascade];
     float blend_start = end - (end - start) * lighting.shadow_blend;
     if(depth > blend_start) {
         float next = 1.0;
         if(cascade + 1 < count)
-            next = sample_shadow_cascade(cascade + 1, position, position_dx, position_dy, n_dot_l);
+            next = sample_shadow_view(cascade + 1, position, position_dx, position_dy, n_dot_l);
         visible = mix(visible, next, smoothstep(blend_start, end, depth));
     }
     return visible;

@@ -30,6 +30,8 @@ namespace CometEditor {
             Comet::MemoryBudgetSnapshot memory;
             uint64_t scene_triangles = 0;
             uint64_t shadow_triangles = 0;
+            uint32_t spot_shadows = 0;
+            uint32_t excess_spot_shadows = 0;
             bool has_memory = false;
             bool gpu_supported = false;
             bool truncated = false;

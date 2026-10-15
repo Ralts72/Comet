@@ -187,7 +187,7 @@ namespace Comet {
         ImageState shadow_initial{.resource = shadow_access,
             .subresources = {.aspects = Flags<ImageAspect>(ImageAspect::Depth)}};
         const auto shadow = graph.import_image("shadow depth", shadow_initial);
-        RenderGraph::Pass shadow_pass{"directional shadow", {}};
+        RenderGraph::Pass shadow_pass{"shadow", {}};
         shadow_pass.uses.push_back({shadow, ResourceUsage::DepthStencilAttachmentWrite, {}});
         const auto shadow_pass_id = graph.add_pass(std::move(shadow_pass));
         RenderGraph::Pass scene{"scene", {}};
@@ -487,9 +487,11 @@ namespace Comet {
             recorded = graph.record(frames, bindings, recorder);
         if(!recorded)
             return RenderResult::failure(recorded.error());
-        if(diagnostics)
-            diagnostics->record_geometry(
-                get_material_statistics().drawn_triangles, get_shadow_statistics().drawn_triangles);
+        if(diagnostics) {
+            const auto shadow = get_shadow_statistics();
+            diagnostics->record_draw_statistics(get_material_statistics().drawn_triangles,
+                shadow.drawn_triangles, shadow.spot_lights, shadow.excess_spot_lights);
+        }
         return RenderResult::success(std::move(waits));
     }
 

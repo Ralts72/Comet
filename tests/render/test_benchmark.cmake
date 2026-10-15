@@ -85,13 +85,14 @@ foreach(case static-0 static-1 scaled multi moving moving-singles script-moving 
             cpu_render_wait cpu_render_thread
             cpu_scene_extract cpu_asset_resolution cpu_material_programs cpu_geometry cpu_lighting
             cpu_submission_prep cpu_queue_submit cpu_present cpu_render_prepare_record cpu_graph
-            "cpu_directional shadow" cpu_scene cpu_display)
+            "cpu_shadow" cpu_scene cpu_display)
         if(NOT csv MATCHES "\n${metric},16,[0-9.eE+-]+,[0-9.eE+-]+,[0-9.eE+-]+,[0-9.eE+-]+\n")
             message(FATAL_ERROR "Missing complete metric: ${metric}\n${csv}")
         endif()
     endforeach()
     if(NOT csv MATCHES "timing_model=render-thread-v2"
-            OR NOT csv MATCHES "shadow_model=cascaded-v1 cascades=4 tile_resolution=1024"
+            OR NOT csv MATCHES "shadow_model=atlas-v2 cascades=4 tile_resolution=1024 spot_slots=4 spot_resolution=512"
+            OR NOT csv MATCHES "spot_shadows=0 excess_spot_shadows=0"
             OR NOT csv MATCHES "motion_model=runtime-v1"
             OR NOT csv MATCHES "scene_draws=${draws} lights=3 msaa=${msaa} bloom=${bloom}"
             OR NOT csv MATCHES "render_items=9 culled_items=${culled}"

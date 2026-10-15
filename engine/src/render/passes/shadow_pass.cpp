@@ -13,9 +13,9 @@
 #include "render/render_target.h"
 #include "render/resource/mesh.h"
 #include "render/scene/draw_order.h"
-#include "directional_vert.h"
-#include "directional_frag.h"
-#include "directional_mask_frag.h"
+#include "depth_vert.h"
+#include "depth_frag.h"
+#include "depth_mask_frag.h"
 #include "graphics/resource/sampler.h"
 #include "render/material/material.h"
 #include "render/resource/texture.h"
@@ -24,6 +24,7 @@
 #include <tuple>
 
 #include <algorithm>
+#include <cmath>
 
 namespace Comet {
     ShadowPass::ShadowPass(Device& device, const uint32_t frame_slots,
@@ -51,14 +52,15 @@ namespace Comet {
         auto pass = RenderPass::create(device, {depth}, {subpass});
         if(!pass)
             return Creation::failure(pass.error());
+        // 上方 2×2 方向光级联，下方一行四块半分辨率的聚光灯阴影。
         auto target = RenderTarget::try_create_multi_target(
-            device, *pass.value(), {RESOLUTION * 2, RESOLUTION * 2}, frame_slots);
+            device, *pass.value(), {RESOLUTION * 2, RESOLUTION * 5 / 2}, frame_slots);
         if(!target)
             return Creation::failure(target.error());
-        auto vertex = Shader::create(device, "directional shadow vertex", DIRECTIONAL_VERT);
+        auto vertex = Shader::create(device, "shadow depth vertex", DEPTH_VERT);
         if(!vertex)
             return Creation::failure(vertex.error());
-        auto fragment = Shader::create(device, "directional shadow fragment", DIRECTIONAL_FRAG);
+        auto fragment = Shader::create(device, "shadow depth fragment", DEPTH_FRAG);
         if(!fragment)
             return Creation::failure(fragment.error());
         ShaderLayout layout;
@@ -74,7 +76,7 @@ namespace Comet {
         config.rasterization_state.cull_mode = CullMode::Back;
         PipelineManager pipelines(device, *pass.value());
         auto pipeline = pipelines.create_pipeline(
-            "directional shadow", layout, config, vertex.value(), fragment.value());
+            "shadow depth", layout, config, vertex.value(), fragment.value());
         if(!pipeline)
             return Creation::failure(pipeline.error());
         auto result = std::unique_ptr<ShadowPass>(new ShadowPass(device, frame_slots,
@@ -85,7 +87,7 @@ namespace Comet {
             config.rasterization_state.front_face =
                 (orientation & 2) ? FrontFace::CCW : FrontFace::CW;
             auto created = pipelines.create_pipeline(
-                "directional shadow", layout, config, vertex.value(), fragment.value());
+                "shadow depth", layout, config, vertex.value(), fragment.value());
             if(!created)
                 return Creation::failure(created.error());
             result->m_pipelines[orientation] = std::move(created).value();
@@ -101,8 +103,7 @@ namespace Comet {
         if(!sampler)
             return Creation::failure(sampler.error());
         result->m_mask_sampler = std::move(sampler).value();
-        auto mask_fragment =
-            Shader::create(device, "directional mask fragment", DIRECTIONAL_MASK_FRAG);
+        auto mask_fragment = Shader::create(device, "shadow mask fragment", DEPTH_MASK_FRAG);
         if(!mask_fragment)
             return Creation::failure(mask_fragment.error());
         layout.descriptor_set_layouts = {result->m_mask_layout};
@@ -114,7 +115,7 @@ namespace Comet {
             config.rasterization_state.front_face =
                 (orientation & 2) ? FrontFace::CCW : FrontFace::CW;
             auto masked = pipelines.create_pipeline(
-                "directional shadow mask", layout, config, vertex.value(), mask_fragment.value());
+                "shadow depth mask", layout, config, vertex.value(), mask_fragment.value());
             if(!masked)
                 return Creation::failure(masked.error());
             result->m_mask_pipelines[orientation] = std::move(masked).value();
@@ -169,12 +170,13 @@ namespace Comet {
             cached.used = false;
         const ScopeExit collect_masks(
             [&] { std::erase_if(m_masks, [](const auto& entry) { return !entry.second.used; }); });
-        if(lighting.shadow_light_index < 0)
-            return Preparation::success();
-        for(unsigned cascade = 0; cascade < unsigned(lighting.shadow_cascade_count); ++cascade) {
-            const auto& matrix = lighting.shadow_view_projection[cascade];
+        for(unsigned shadow_view = 0; shadow_view < lighting.shadows.size(); ++shadow_view) {
+            const auto& shadow = lighting.shadows[shadow_view];
+            if(shadow.light_index < 0)
+                continue;
+            const auto& matrix = shadow.view_projection;
             const auto frustum = Frustum::from_view_projection(matrix);
-            const auto& selected = m_view_geometry[cascade].prepare_view(geometry, matrix);
+            const auto& selected = m_view_geometry[shadow_view].prepare_view(geometry, matrix);
             for(const auto& prepared : selected.get_items()) {
                 if(!prepared.world_bounds
                     || (frustum && !frustum->intersects(*prepared.world_bounds)))
@@ -187,7 +189,7 @@ namespace Comet {
                 DrawItem draw{prepared.source, {}, 1, 0.5f,
                     unsigned(surface.double_sided)
                         | (unsigned(DrawOrder::reverses_winding(*prepared.source)) << 1),
-                    cascade};
+                    shadow_view};
                 if(surface.alpha_mode == AlphaMode::Mask) {
                     const std::string property =
                         source->get_template_name() == "pbr" ? "base_color" : "color";
@@ -214,15 +216,15 @@ namespace Comet {
             }
         }
         DrawOrder::sort_if_needed(m_draw_queue, [](const DrawItem& a, const DrawItem& b) {
-            return std::tuple(a.cascade, a.orientation, a.mask.get(), a.alpha, a.cutoff,
+            return std::tuple(a.shadow_view, a.orientation, a.mask.get(), a.alpha, a.cutoff,
                        a.item->mesh.get())
-                   < std::tuple(b.cascade, b.orientation, b.mask.get(), b.alpha, b.cutoff,
+                   < std::tuple(b.shadow_view, b.orientation, b.mask.get(), b.alpha, b.cutoff,
                        b.item->mesh.get());
         });
         m_transforms.reserve(m_draw_queue.size());
         for(const auto& draw : m_draw_queue)
             m_transforms.push_back(
-                lighting.shadow_view_projection[draw.cascade] * draw.item->model_matrix);
+                lighting.shadows[draw.shadow_view].view_projection * draw.item->model_matrix);
         return Preparation::success();
     }
 
@@ -234,6 +236,8 @@ namespace Comet {
             return Draw::failure({"Invalid shadow pass frame"});
         m_statistics = {};
         m_statistics.cascades = uint32_t(lighting.shadow_cascade_count);
+        m_statistics.spot_lights = uint32_t(lighting.spot_shadow_count);
+        m_statistics.excess_spot_lights = uint32_t(lighting.excess_spot_shadows);
         m_draw_queue.clear();
         m_transforms.clear();
         const ScopeExit release_draws([&] {
@@ -264,11 +268,15 @@ namespace Comet {
             for(size_t first = 0; first < m_draw_queue.size();) {
                 const auto& draw = m_draw_queue[first];
                 const auto& mesh = draw.item->mesh;
-                const auto x = (draw.cascade % 2) * RESOLUTION;
-                const auto y = (draw.cascade / 2) * RESOLUTION;
+                const auto& rect = lighting.shadows[draw.shadow_view].atlas_rect;
+                const auto size = m_target->get_size();
+                const uint32_t x = uint32_t(std::round(rect.z * size.x));
+                const uint32_t y = uint32_t(std::round(rect.w * size.y));
+                const uint32_t width = uint32_t(std::round(rect.x * size.x));
+                const uint32_t height = uint32_t(std::round(rect.y * size.y));
                 command.set_viewport(
-                    vk::Viewport(float(x), float(y), RESOLUTION, RESOLUTION, 0, 1));
-                command.set_scissor(vk::Rect2D({int32_t(x), int32_t(y)}, {RESOLUTION, RESOLUTION}));
+                    vk::Viewport(float(x), float(y), float(width), float(height), 0, 1));
+                command.set_scissor(vk::Rect2D({int32_t(x), int32_t(y)}, {width, height}));
                 const auto& pipeline =
                     draw.mask ? m_mask_pipelines[draw.orientation] : m_pipelines[draw.orientation];
                 command.bind_pipeline(*pipeline);
@@ -290,7 +298,7 @@ namespace Comet {
                 size_t end = first + 1;
                 while(end < m_draw_queue.size()) {
                     const auto& next = m_draw_queue[end];
-                    if(next.cascade != draw.cascade || next.item->mesh != mesh
+                    if(next.shadow_view != draw.shadow_view || next.item->mesh != mesh
                         || next.orientation != draw.orientation || next.mask != draw.mask
                         || next.alpha != draw.alpha || next.cutoff != draw.cutoff)
                         break;

@@ -55,6 +55,8 @@ namespace Comet {
             uint64_t memory_samples = 0;
             uint64_t scene_triangles = 0;
             uint64_t shadow_triangles = 0;
+            uint32_t spot_shadows = 0;
+            uint32_t excess_spot_shadows = 0;
             bool gpu_supported = false;
             std::string gpu_error;
         };
@@ -82,10 +84,13 @@ namespace Comet {
         void poll_memory(Clock::time_point now = Clock::now());
         [[nodiscard]] Result<void, GraphicsError> collect_completed();
         void skip_frame();
-        void record_geometry(uint64_t scene_triangles, uint64_t shadow_triangles) {
+        void record_draw_statistics(uint64_t scene_triangles, uint64_t shadow_triangles,
+            uint32_t spot_shadows, uint32_t excess_spot_shadows) {
             if(m_enabled) {
                 m_snapshot.scene_triangles = scene_triangles;
                 m_snapshot.shadow_triangles = shadow_triangles;
+                m_snapshot.spot_shadows = spot_shadows;
+                m_snapshot.excess_spot_shadows = excess_spot_shadows;
             }
         }
         // 仅在成功提交后与同帧场景图配对；分开命令结束、提交和呈现。

@@ -28,6 +28,16 @@ namespace Comet {
     struct alignas(16) COMET_API LightingData {
         static constexpr uint32_t MAX_LIGHTS = 32;
         static constexpr uint32_t SHADOW_CASCADES = 4;
+        static constexpr uint32_t MAX_SPOT_SHADOWS = 4;
+        static constexpr uint32_t MAX_SHADOW_VIEWS = SHADOW_CASCADES + MAX_SPOT_SHADOWS;
+        struct alignas(16) Shadow {
+            Math::Mat4 view_projection{};
+            Math::Vec4 atlas_rect{}; // UV 缩放 xy、偏移 zw。
+            float depth_bias = 0;
+            float texel_size = 0;
+            float light_index = -1;
+            float reserved = 0;
+        };
         struct alignas(16) Light {
             Math::Vec3 position{};
             float type = 0;
@@ -45,17 +55,22 @@ namespace Comet {
         float excess_lights = 0;
         float invalid_lights = 0;
         float reserved = 0;
-        std::array<Math::Mat4, SHADOW_CASCADES> shadow_view_projection{};
+        std::array<Shadow, MAX_SHADOW_VIEWS> shadows{};
         Math::Vec4 shadow_splits{};
-        Math::Vec4 shadow_depth_bias{};
         Math::Vec4 shadow_camera_depth{};
-        float shadow_light_index = -1;
         float shadow_cascade_count = 0;
-        float shadow_texel_size = 0;
+        float spot_shadow_count = 0;
+        float excess_spot_shadows = 0;
         float shadow_blend = 0.1f;
         Math::Vec4 environment{0, 0, 0, 1}; // 强度、最大 LOD、旋转角正弦、旋转角余弦。
         [[nodiscard]] static LightingData prepare(std::span<const RenderLight> lights);
         void prepare_shadow(const BoundingBox& world_bounds, uint32_t resolution,
             const Math::Mat4& view, const Math::Mat4& projection);
+
+    private:
+        void prepare_directional_shadow(const BoundingBox& world_bounds, uint32_t resolution,
+            const Math::Mat4& view, const Math::Mat4& projection);
+        void prepare_spot_shadows(
+            const BoundingBox& world_bounds, uint32_t resolution, const Frustum& camera_frustum);
     };
 }

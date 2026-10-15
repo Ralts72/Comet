@@ -117,7 +117,8 @@ void main() {
             if(!sample_light(index, world_position, direction, radiance))
                 continue;
             result += radiance * evaluate_brdf(normal, view, direction, base_color, metallic, roughness)
-                * shadow_visibility(index, world_position, max(dot(normal, direction), 0.0));
+                * shadow_visibility(index, world_position, position_dx, position_dy,
+                    max(dot(normal, direction), 0.0));
         }
     }
     // The scene target is RGBA16F; keep intense specular highlights finite.

@@ -17,15 +17,24 @@ namespace Comet {
     static_assert(offsetof(LightingData, light_count) == LightingData::MAX_LIGHTS * 64);
     static_assert(offsetof(LightingData, excess_lights) == LightingData::MAX_LIGHTS * 64 + 4);
     static_assert(offsetof(LightingData, invalid_lights) == LightingData::MAX_LIGHTS * 64 + 8);
+    static_assert(sizeof(LightingData::Shadow) == 96);
+    static_assert(offsetof(LightingData::Shadow, atlas_rect) == 64);
+    static_assert(offsetof(LightingData::Shadow, depth_bias) == 80);
+    static_assert(offsetof(LightingData::Shadow, light_index) == 88);
+    static_assert(offsetof(LightingData, shadows) == LightingData::MAX_LIGHTS * 64 + 16);
+    static_assert(offsetof(LightingData, shadow_splits) == LightingData::MAX_LIGHTS * 64 + 784);
     static_assert(
-        offsetof(LightingData, shadow_view_projection) == LightingData::MAX_LIGHTS * 64 + 16);
-    static_assert(offsetof(LightingData, shadow_splits) == LightingData::MAX_LIGHTS * 64 + 272);
-    static_assert(offsetof(LightingData, shadow_depth_bias) == LightingData::MAX_LIGHTS * 64 + 288);
+        offsetof(LightingData, shadow_camera_depth) == LightingData::MAX_LIGHTS * 64 + 800);
     static_assert(
-        offsetof(LightingData, shadow_camera_depth) == LightingData::MAX_LIGHTS * 64 + 304);
-    static_assert(
-        offsetof(LightingData, shadow_light_index) == LightingData::MAX_LIGHTS * 64 + 320);
-    static_assert(sizeof(LightingData) == LightingData::MAX_LIGHTS * 64 + 352);
+        offsetof(LightingData, shadow_cascade_count) == LightingData::MAX_LIGHTS * 64 + 816);
+    static_assert(sizeof(LightingData) == LightingData::MAX_LIGHTS * 64 + 848);
+
+    static Math::Mat4 light_view_matrix(
+        const Math::Vec3& direction, const Math::Vec3& position = {}) {
+        const auto up = std::abs(direction.y) > 0.95f ? Math::Vec3(1, 0, 0) : Math::Vec3(0, 1, 0);
+        return Math::look_at(Math::Vec3(0), direction, up)
+               * Math::translate(Math::Mat4(1), -position);
+    }
 
     static bool is_valid_light(const RenderLight& light) {
         if(light.type != LightType::Directional && light.type != LightType::Point
@@ -115,16 +124,25 @@ namespace Comet {
 
     void LightingData::prepare_shadow(const BoundingBox& world_bounds, const uint32_t resolution,
         const Math::Mat4& camera_view, const Math::Mat4& camera_projection) {
-        shadow_view_projection = {};
+        shadows = {};
         shadow_splits = {};
-        shadow_depth_bias = {};
         shadow_camera_depth = {};
-        shadow_light_index = -1;
         shadow_cascade_count = 0;
-        shadow_texel_size = 0;
+        spot_shadow_count = 0;
+        excess_spot_shadows = 0;
         if(!world_bounds.is_valid() || resolution < 4 || !std::isfinite(light_count)
             || Math::length(world_bounds.size()) < 1e-5f)
             return;
+        const auto camera_frustum = Frustum::from_view_projection(camera_projection * camera_view);
+        if(!camera_frustum)
+            return;
+        prepare_directional_shadow(world_bounds, resolution, camera_view, camera_projection);
+        prepare_spot_shadows(world_bounds, resolution / 2, *camera_frustum);
+    }
+
+    void LightingData::prepare_directional_shadow(const BoundingBox& world_bounds,
+        const uint32_t resolution, const Math::Mat4& camera_view,
+        const Math::Mat4& camera_projection) {
         const auto count = uint32_t(std::clamp(light_count, 0.0f, float(MAX_LIGHTS)));
         uint32_t selected = count;
         for(uint32_t index = 0; index < count; ++index) {
@@ -164,11 +182,8 @@ namespace Comet {
             return;
         shadow_camera_depth = Math::transpose(camera_view) * Math::Vec4(forward, 0);
         shadow_camera_depth.w -= near_depth;
-        const auto direction = lights[selected].direction;
-        const Math::Vec3 up =
-            std::abs(direction.y) > 0.95f ? Math::Vec3(1, 0, 0) : Math::Vec3(0, 1, 0);
         // 固定光源基底；只吸附投影中心，不让相机平移改变光源坐标原点。
-        const auto light_view = Math::look_at(Math::Vec3(0), direction, up);
+        const auto light_view = light_view_matrix(lights[selected].direction);
         const auto caster_bounds = transform_box(world_bounds, light_view);
         if(!caster_bounds)
             return;
@@ -212,15 +227,58 @@ namespace Comet {
             const float padding = std::max(radius * 0.05f, 0.01f);
             const float near_plane = -depth.maximum.z - padding;
             const float far_plane = -depth.minimum.z + padding;
-            shadow_view_projection[cascade] =
+            auto& shadow = shadows[cascade];
+            shadow.view_projection =
                 Math::ortho(x - radius, x + radius, y - radius, y + radius, near_plane, far_plane)
                 * light_view;
-            shadow_depth_bias[cascade] = 0.25f * texel / (far_plane - near_plane);
+            shadow.depth_bias = 0.25f * texel / (far_plane - near_plane);
+            shadow.texel_size = 1.0f / resolution;
+            shadow.atlas_rect = {0.5f, 0.4f, float(cascade % 2) * 0.5f, float(cascade / 2) * 0.4f};
             previous_start = previous;
             previous = split;
         }
-        shadow_light_index = float(selected);
+        for(unsigned cascade = 0; cascade < SHADOW_CASCADES; ++cascade)
+            shadows[cascade].light_index = float(selected);
         shadow_cascade_count = SHADOW_CASCADES;
-        shadow_texel_size = 1.0f / resolution;
+    }
+
+    void LightingData::prepare_spot_shadows(
+        const BoundingBox& world_bounds, const uint32_t resolution, const Frustum& camera_frustum) {
+        const auto count = uint32_t(std::clamp(light_count, 0.0f, float(MAX_LIGHTS)));
+        for(uint32_t index = 0; index < count; ++index) {
+            const auto& light = lights[index];
+            if(light.type != float(LightType::Spot) || light.casts_shadow == 0
+                || light.intensity <= 0)
+                continue;
+            const float angle = std::acos(std::clamp(light.outer_cone_cos, -1.0f, 1.0f));
+            const float tangent = std::tan(angle);
+            if(!std::isfinite(tangent) || tangent <= 0)
+                continue;
+            const auto view = light_view_matrix(light.direction, light.position);
+            const float radius = light.range * tangent;
+            const auto bounds = transform_box(
+                {{-radius, -radius, -light.range}, {radius, radius, 0}}, Math::inverse(view));
+            if(!bounds || !camera_frustum.intersects(*bounds))
+                continue;
+            const float near_plane = std::min(0.05f, light.range * 0.01f);
+            const auto matrix =
+                Math::perspective(2 * angle * Math::RAD_TO_DEG, 1, near_plane, light.range) * view;
+            const auto frustum = Frustum::from_view_projection(matrix);
+            if(!frustum || !frustum->intersects(world_bounds))
+                continue;
+            if(spot_shadow_count >= MAX_SPOT_SHADOWS) {
+                ++excess_spot_shadows;
+                continue;
+            }
+            const auto slot = uint32_t(spot_shadow_count++);
+            auto& shadow = shadows[SHADOW_CASCADES + slot];
+            shadow.view_projection = matrix;
+            shadow.atlas_rect = {0.25f, 0.2f, float(slot) * 0.25f, 0.8f};
+            shadow.texel_size = 1.0f / resolution;
+            shadow.light_index = float(index);
+            // 透视投影下一个世界纹素的深度偏移；Shader 再除以接收点的 clip.w。
+            shadow.depth_bias = 0.5f * tangent * near_plane * light.range
+                                / (resolution * (light.range - near_plane));
+        }
     }
 }

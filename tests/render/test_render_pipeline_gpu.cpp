@@ -756,6 +756,147 @@ namespace Comet::Tests {
         EXPECT_LT(centers[8], centers[9] - 10);
     }
 
+    TEST_F(RenderGraphGpuTest, SpotShadowAtlasKeepsLightsMasksAndInFlightFramesIndependent) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        MaterialPrograms programs;
+        auto scene = create_scene(programs, {33, 33});
+        ASSERT_TRUE(scene);
+        const auto mesh = lit_quad();
+        auto receiver = std::make_shared<Material>("receiver", "pbr");
+        auto masked = std::make_shared<Material>("mask", "pbr");
+        ASSERT_TRUE(masked->set_surface({.alpha_mode = AlphaMode::Mask}));
+        RenderWorld world{
+            .render_items = {{.mesh = mesh, .material = {AssetHandle(782), receiver}}},
+            .lights = {{.entity_id = 1, .intensity = .1f, .casts_shadow = true}}};
+        const std::array<unsigned, 4> columns{6, 13, 19, 26};
+        for(unsigned index = 0; index < columns.size(); ++index) {
+            const float x = 2 * (columns[index] + .5f) / 33 - 1;
+            world.render_items.push_back({.entity_id = index + 1,
+                .model_matrix =
+                    Math::scale(Math::translate(Math::Mat4(1), {x, 0, .95f}), {.1f, .1f, .1f}),
+                .mesh = mesh,
+                .material = {AssetHandle(index == 2 ? 783 : 782), index == 2 ? masked : receiver}});
+            world.lights.push_back({.entity_id = 10 + index,
+                .type = LightType::Spot,
+                .position = {x, 0, 2.5f},
+                .intensity = 20,
+                .range = 5,
+                .inner_angle = 7,
+                .outer_angle = 8,
+                .casts_shadow = true});
+        }
+        // 投射者在主相机近裁剪面之外，只有阴影影响接收面。
+        RenderSubmission submission{
+            world, ViewProjectMatrix{Math::look_at({0, 0, .8f}, {0, 0, 0}, {0, 1, 0}),
+                       Math::ortho(-1, 1, -1, 1, .1f, 1)}};
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        std::array<std::shared_ptr<Readback>, 4> outputs;
+        for(unsigned frame = 0; frame < outputs.size(); ++frame) {
+            SCOPED_TRACE(frame);
+            world.lights[1].casts_shadow = frame != 1;
+            ASSERT_TRUE(
+                masked->set_vector_property("base_color", {1, 1, 1, frame == 2 ? 0.0f : 1.0f}));
+            if(frame == 3)
+                world.render_items[1].model_matrix[3].x += .25f;
+            begin_frame(frames);
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            auto drawn = scene.value()->render(frames, submission, geometry);
+            ASSERT_TRUE(drawn) << drawn.error();
+            const auto stats = scene.value()->get_shadow_statistics();
+            EXPECT_EQ(stats.cascades, 4u);
+            EXPECT_EQ(stats.spot_lights, frame == 1 ? 3u : 4u);
+            EXPECT_EQ(stats.excess_spot_lights, 0u);
+            outputs[frame] = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), 33 * 33 * 4);
+            copy_output(frames,
+                scene.value()
+                    ->get_offscreen_color_view(frames.get_current_frame_slot_index())
+                    ->get_image(),
+                outputs[frame], {33, 33});
+            submit(device, frames, drawn.value());
+        }
+        frames.wait_for_all_slots();
+        for(unsigned frame = 0; frame < outputs.size(); ++frame) {
+            SCOPED_TRACE(frame);
+            const auto pixels = outputs[frame]->read();
+            for(unsigned index = 0; index < columns.size(); ++index) {
+                SCOPED_TRACE(index);
+                const auto value = std::to_integer<int>(pixels[(16 * 33 + columns[index]) * 4]);
+                const bool lit =
+                    (index == 0 && (frame == 1 || frame == 3)) || (index == 2 && frame == 2);
+                if(lit)
+                    EXPECT_GT(value, 50);
+                else
+                    EXPECT_LE(value, 3);
+            }
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest, SpotShadowFollowsLightPoseRangeAndCone) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        MaterialPrograms programs;
+        auto scene = create_scene(programs, {33, 33});
+        ASSERT_TRUE(scene);
+        const auto mesh = lit_quad();
+        auto material = std::make_shared<Material>("pbr", "pbr");
+        RenderWorld world{.render_items = {{.mesh = mesh, .material = {AssetHandle(784), material}},
+                              {.mesh = mesh, .material = {AssetHandle(784), material}}},
+            .lights = {{.type = LightType::Spot,
+                .position = {-.5f, 0, 2},
+                .direction = {.5f, 0, -1.5f},
+                .intensity = 10,
+                .range = 5,
+                .inner_angle = 40,
+                .outer_angle = 45,
+                .casts_shadow = true}}};
+        RenderSubmission submission{
+            world, ViewProjectMatrix{Math::look_at({0, 0, .8f}, {0, 0, 0}, {0, 1, 0}),
+                       Math::ortho(-1, 1, -1, 1, .1f, 1)}};
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        for(unsigned frame = 0; frame < 5; ++frame) {
+            SCOPED_TRACE(frame);
+            auto& light = world.lights.front();
+            if(frame == 1) {
+                light.position.x = .5f;
+                light.direction.x = -.5f;
+            }
+            if(frame == 3)
+                light.range = 1;
+            if(frame == 4) {
+                light.range = 5;
+                light.inner_angle = 7;
+                light.outer_angle = 8;
+                light.direction = {1, 0, -1};
+            }
+            world.render_items[1].model_matrix =
+                Math::scale(Math::translate(Math::Mat4(1), {frame < 2 ? -.2f : .2f, 0, 1.05f}),
+                    {.1f, .1f, .1f});
+            begin_frame(frames);
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            auto drawn = scene.value()->render(frames, submission, geometry);
+            ASSERT_TRUE(drawn) << drawn.error();
+            EXPECT_EQ(scene.value()->get_shadow_statistics().cascades, 0u);
+            auto output = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), 33 * 33 * 4);
+            ASSERT_NO_FATAL_FAILURE(
+                finish_readback(*scene.value(), frames, output, {33, 33}, drawn.value()));
+            const auto pixels = output->read();
+            const auto center = std::to_integer<int>(pixels[(16 * 33 + 16) * 4]);
+            if(frame == 1)
+                EXPECT_GT(center, 50);
+            else
+                EXPECT_LE(center, 3);
+        }
+    }
+
     TEST_F(RenderGraphGpuTest, ForwardLightsProduceExpectedPixelsAndReuseMaterialBindings) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();

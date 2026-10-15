@@ -192,7 +192,7 @@ namespace CometEditor {
                 {"collider/height", "胶囊总高度"}, {"collider/mesh", "碰撞网格"},
                 {"collider/is_trigger", "触发器"}, {"collider/friction", "摩擦系数"},
                 {"collider/restitution", "弹性系数"}, {"light/type", "类型"},
-                {"light/enabled", "启用"}, {"light/casts_shadow", "投射阴影（方向光）"},
+                {"light/enabled", "启用"}, {"light/casts_shadow", "投射阴影（方向光／聚光灯）"},
                 {"light/color", "颜色（线性）"}, {"light/intensity", "强度"},
                 {"light/range", "范围"}, {"light/inner_angle", "内角"},
                 {"light/outer_angle", "外角"}};

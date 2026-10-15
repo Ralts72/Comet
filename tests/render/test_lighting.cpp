@@ -178,13 +178,12 @@ namespace Comet::Tests {
             std::pair{"excess_lights", offsetof(LightingData, excess_lights)},
             std::pair{"invalid_lights", offsetof(LightingData, invalid_lights)},
             std::pair{"reserved", offsetof(LightingData, reserved)},
-            std::pair{"shadow_view_projection", offsetof(LightingData, shadow_view_projection)},
+            std::pair{"shadows", offsetof(LightingData, shadows)},
             std::pair{"shadow_splits", offsetof(LightingData, shadow_splits)},
-            std::pair{"shadow_depth_bias", offsetof(LightingData, shadow_depth_bias)},
             std::pair{"shadow_camera_depth", offsetof(LightingData, shadow_camera_depth)},
-            std::pair{"shadow_light_index", offsetof(LightingData, shadow_light_index)},
             std::pair{"shadow_cascade_count", offsetof(LightingData, shadow_cascade_count)},
-            std::pair{"shadow_texel_size", offsetof(LightingData, shadow_texel_size)},
+            std::pair{"spot_shadow_count", offsetof(LightingData, spot_shadow_count)},
+            std::pair{"excess_spot_shadows", offsetof(LightingData, excess_spot_shadows)},
             std::pair{"shadow_blend", offsetof(LightingData, shadow_blend)},
             std::pair{"environment", offsetof(LightingData, environment)}};
         ASSERT_EQ(found->members.size(), fields.size());
@@ -192,6 +191,22 @@ namespace Comet::Tests {
             SCOPED_TRACE(fields[index].first);
             EXPECT_EQ(found->members[index].name, fields[index].first);
             EXPECT_EQ(found->members[index].offset, fields[index].second);
+        }
+        const auto& shadows = found->members[5];
+        EXPECT_EQ(shadows.shape.array_stride, sizeof(LightingData::Shadow));
+        EXPECT_EQ(shadows.shape.array_dimensions,
+            (std::vector<uint32_t>{LightingData::MAX_SHADOW_VIEWS}));
+        const std::array shadow_fields{
+            std::pair{"view_projection", offsetof(LightingData::Shadow, view_projection)},
+            std::pair{"atlas_rect", offsetof(LightingData::Shadow, atlas_rect)},
+            std::pair{"depth_bias", offsetof(LightingData::Shadow, depth_bias)},
+            std::pair{"texel_size", offsetof(LightingData::Shadow, texel_size)},
+            std::pair{"light_index", offsetof(LightingData::Shadow, light_index)},
+            std::pair{"reserved", offsetof(LightingData::Shadow, reserved)}};
+        ASSERT_EQ(shadows.members.size(), shadow_fields.size());
+        for(size_t index = 0; index < shadow_fields.size(); ++index) {
+            EXPECT_EQ(shadows.members[index].name, shadow_fields[index].first);
+            EXPECT_EQ(shadows.members[index].offset, shadow_fields[index].second);
         }
         const std::array light_fields{
             std::pair{"position", offsetof(LightingData::Light, position)},
@@ -230,7 +245,7 @@ namespace Comet::Tests {
             data.prepare_shadow(bounds, 1024, camera.view_matrix, projection);
             ASSERT_EQ(data.shadow_cascade_count, 4);
             EXPECT_FLOAT_EQ(data.shadow_splits.w, 60);
-            EXPECT_FLOAT_EQ(data.shadow_texel_size, 1.0f / 1024);
+            EXPECT_FLOAT_EQ(data.shadows[0].texel_size, 1.0f / 1024);
             float previous = 0, previous_start = 0;
             for(unsigned cascade = 0; cascade < 4; ++cascade) {
                 EXPECT_GT(data.shadow_splits[cascade], previous);
@@ -244,7 +259,7 @@ namespace Comet::Tests {
                     for(float depth : {start, data.shadow_splits[cascade]}) {
                         const auto point =
                             near + (far - near) * (depth / (camera.far_clip - camera.near_clip));
-                        const auto clip = data.shadow_view_projection[cascade] * point;
+                        const auto clip = data.shadows[cascade].view_projection * point;
                         EXPECT_LE(std::abs(clip.x), 1.0001f);
                         EXPECT_LE(std::abs(clip.y), 1.0001f);
                         EXPECT_GE(clip.z, 0);
@@ -275,14 +290,14 @@ namespace Comet::Tests {
         for(unsigned cascade = 0; cascade < 4; ++cascade)
             for(unsigned column = 0; column < 4; ++column)
                 for(unsigned row = 0; row < 2; ++row)
-                    EXPECT_NEAR(first.shadow_view_projection[cascade][column][row],
-                        next.shadow_view_projection[cascade][column][row], 1e-6f);
+                    EXPECT_NEAR(first.shadows[cascade].view_projection[column][row],
+                        next.shadows[cascade].view_projection[column][row], 1e-6f);
         camera.projection = RenderCamera::Projection::Orthographic;
         next.prepare_shadow(bounds, 1024, camera.view_matrix, *camera.projection_matrix(1));
         EXPECT_EQ(next.shadow_cascade_count, 4);
         EXPECT_NEAR(next.shadow_splits.x, 25, 1e-4f);
         next.prepare_shadow(bounds, 1024, camera.view_matrix, Math::Mat4(0));
-        EXPECT_EQ(next.shadow_light_index, -1);
+        EXPECT_EQ(next.shadows[0].light_index, -1);
         EXPECT_EQ(next.shadow_cascade_count, 0);
     }
 
@@ -294,19 +309,80 @@ namespace Comet::Tests {
         auto data = LightingData::prepare(lights);
         const BoundingBox bounds{{-1, -1, -1}, {1, 1, 1}};
         data.prepare_shadow(bounds, 1024, Math::Mat4(1), Math::Mat4(1));
-        EXPECT_EQ(data.shadow_light_index, 3);
+        EXPECT_EQ(data.shadows[0].light_index, 3);
         data.prepare_shadow(bounds, 0, Math::Mat4(1), Math::Mat4(1));
-        EXPECT_EQ(data.shadow_light_index, -1);
+        EXPECT_EQ(data.shadows[0].light_index, -1);
         data.prepare_shadow(BoundingBox::from_point({0, 0, 0}), 1024, Math::Mat4(1), Math::Mat4(1));
-        EXPECT_EQ(data.shadow_light_index, -1);
+        EXPECT_EQ(data.shadows[0].light_index, -1);
         data.prepare_shadow({{2, 0, 0}, {1, 1, 1}}, 1024, Math::Mat4(1), Math::Mat4(1));
-        EXPECT_EQ(data.shadow_light_index, -1);
+        EXPECT_EQ(data.shadows[0].light_index, -1);
         lights.clear();
         for(uint32_t id = 0; id < 33; ++id)
             lights.push_back({.entity_id = id, .casts_shadow = id == 32});
         data = LightingData::prepare(lights);
         data.prepare_shadow(bounds, 1024, Math::Mat4(1), Math::Mat4(1));
-        EXPECT_EQ(data.shadow_light_index, -1);
+        EXPECT_EQ(data.shadows[0].light_index, -1);
+    }
+
+    TEST(LightingTest, SpotShadowBudgetIsDeterministicViewCulledAndIndependentOfDirectionalLight) {
+        std::vector<RenderLight> lights;
+        for(unsigned index = 1; index <= 6; ++index)
+            lights.push_back({.entity_id = index,
+                .type = LightType::Spot,
+                .position = {0, 0, 3},
+                .range = 10,
+                .casts_shadow = true});
+        lights.push_back({.entity_id = 0,
+            .type = LightType::Spot,
+            .position = {100, 0, 3},
+            .range = 10,
+            .casts_shadow = true});
+        lights.push_back({.entity_id = 10, .casts_shadow = true});
+        const BoundingBox bounds{{-150, -5, -20}, {150, 5, 1}};
+        RenderCamera camera{.view_matrix = Math::look_at({0, 0, 5}, {0, 0, 0}, {0, 1, 0}),
+            .projection = RenderCamera::Projection::Orthographic,
+            .orthographic_height = 10};
+        auto data = LightingData::prepare(lights);
+        data.prepare_shadow(bounds, 1024, camera.view_matrix, *camera.projection_matrix(1));
+        EXPECT_EQ(data.shadow_cascade_count, 4);
+        ASSERT_EQ(data.spot_shadow_count, 4);
+        EXPECT_EQ(data.excess_spot_shadows, 2);
+        for(unsigned slot = 0; slot < 4; ++slot) {
+            const auto& shadow = data.shadows[LightingData::SHADOW_CASCADES + slot];
+            EXPECT_EQ(shadow.light_index, slot + 1);
+            EXPECT_EQ(shadow.texel_size, 1.0f / 512);
+            EXPECT_EQ(shadow.atlas_rect, Math::Vec4(.25f, .2f, slot * .25f, .8f));
+            const auto near = shadow.view_projection * Math::Vec4(0, 0, 2.95f, 1);
+            const auto far = shadow.view_projection * Math::Vec4(0, 0, -7, 1);
+            EXPECT_NEAR(near.z / near.w, 0, 1e-5f);
+            EXPECT_NEAR(far.z / far.w, 1, 1e-5f);
+            // 外角定义阴影透视视锥，而非相机投影或方向光覆盖距离。
+            const auto edge =
+                shadow.view_projection * Math::Vec4(2 * std::tan(Math::radians(30)), 0, 1, 1);
+            EXPECT_NEAR(edge.x / edge.w, 1, 1e-5f);
+            EXPECT_GT(shadow.depth_bias, 0);
+        }
+        std::reverse(lights.begin(), lights.end());
+        auto reordered = LightingData::prepare(lights);
+        reordered.prepare_shadow(bounds, 1024, camera.view_matrix, *camera.projection_matrix(1));
+        for(unsigned slot = 4; slot < 8; ++slot) {
+            EXPECT_EQ(reordered.shadows[slot].light_index, data.shadows[slot].light_index);
+            EXPECT_EQ(reordered.shadows[slot].view_projection, data.shadows[slot].view_projection);
+        }
+        camera.view_matrix = Math::look_at({100, 0, 5}, {100, 0, 0}, {0, 1, 0});
+        data.prepare_shadow(bounds, 1024, camera.view_matrix, *camera.projection_matrix(1));
+        EXPECT_EQ(data.spot_shadow_count, 1);
+        EXPECT_EQ(data.excess_spot_shadows, 0);
+        EXPECT_EQ(data.shadows[4].light_index, 0);
+        EXPECT_EQ(data.shadows[5].light_index, -1);
+        for(auto& light : lights)
+            light.casts_shadow = false;
+        data = LightingData::prepare(lights);
+        data.prepare_shadow(bounds, 1024, camera.view_matrix, *camera.projection_matrix(1));
+        EXPECT_EQ(data.shadow_cascade_count, 0);
+        EXPECT_EQ(data.spot_shadow_count, 0);
+        for(const auto& shadow : data.shadows)
+            EXPECT_EQ(shadow.light_index, -1);
     }
 
     TEST(LightingTest, ShadowSettingsUsePropertyUndoSerializationAndLegacyDefault) {

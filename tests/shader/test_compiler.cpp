@@ -6,8 +6,8 @@
 #include "common/file_io.h"
 #include "support/temporary_directory.h"
 #include "unlit_color_vert.h"
-#include "directional_vert.h"
-#include "directional_frag.h"
+#include "depth_vert.h"
+#include "depth_frag.h"
 #include "unlit_color_frag.h"
 #include "line_vert.h"
 #include "line_frag.h"
@@ -263,8 +263,8 @@ namespace Comet::Tests {
         compare("debug/line.frag", ShaderStage::Fragment, LINE_FRAG);
         compare("post/display.vert", ShaderStage::Vertex, DISPLAY_VERT);
         compare("post/display.frag", ShaderStage::Fragment, DISPLAY_FRAG);
-        compare("shadow/directional.vert", ShaderStage::Vertex, DIRECTIONAL_VERT);
-        compare("shadow/directional.frag", ShaderStage::Fragment, DIRECTIONAL_FRAG);
+        compare("shadow/depth.vert", ShaderStage::Vertex, DEPTH_VERT);
+        compare("shadow/depth.frag", ShaderStage::Fragment, DEPTH_FRAG);
     }
 
     TEST_F(ShaderCompilerTest, HonorsStageEntryAndTarget) {

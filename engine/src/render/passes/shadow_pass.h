@@ -18,11 +18,13 @@ namespace Comet {
     class Texture;
     class Sampler;
 
-    // 每个 View 的四级方向光阴影；每个飞行帧槽位拥有独立深度图集。
+    // 每个 View 的方向光级联与聚光灯阴影；每个飞行帧槽位拥有独立深度图集。
     class COMET_API ShadowPass {
     public:
         struct Statistics {
             uint32_t cascades = 0;
+            uint32_t spot_lights = 0;
+            uint32_t excess_spot_lights = 0;
             uint32_t draw_calls = 0;
             uint32_t drawn_instances = 0;
             uint64_t drawn_triangles = 0;
@@ -61,7 +63,7 @@ namespace Comet {
             float alpha = 1;
             float cutoff = 0.5f;
             unsigned orientation = 0; // 双面位与镜像变换位。
-            unsigned cascade = 0;
+            unsigned shadow_view = 0;
         };
         Result<std::shared_ptr<MaskBinding>, GraphicsError> prepare_mask(
             const std::shared_ptr<Texture>& texture);
@@ -79,7 +81,7 @@ namespace Comet {
         std::vector<InstanceBuffer> m_instances;
         std::vector<DrawItem> m_draw_queue;
         std::vector<Math::Mat4> m_transforms;
-        std::array<RenderGeometry, LightingData::SHADOW_CASCADES> m_view_geometry;
+        std::array<RenderGeometry, LightingData::MAX_SHADOW_VIEWS> m_view_geometry;
         Statistics m_statistics;
     };
 }

@@ -8,7 +8,7 @@ set(SHADER_PROGRAMS
         post/display
         post/bloom
         environment/skybox
-        shadow/directional
+        shadow/depth
 )
 set(SHADER_FILES)
 foreach(PROGRAM IN LISTS SHADER_PROGRAMS)
@@ -18,7 +18,7 @@ foreach(PROGRAM IN LISTS SHADER_PROGRAMS)
 endforeach()
 list(APPEND SHADER_FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/animation/skinning.comp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/shadow/directional_mask.frag"
+        "${CMAKE_CURRENT_SOURCE_DIR}/shadow/depth_mask.frag"
         "${CMAKE_CURRENT_SOURCE_DIR}/material/pbr_instanced.vert"
         "${CMAKE_CURRENT_SOURCE_DIR}/material/unlit_color_instanced.vert")
 
