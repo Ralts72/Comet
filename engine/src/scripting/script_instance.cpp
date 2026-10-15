@@ -618,6 +618,7 @@ namespace Comet {
             .session = invocation.session,
             .audio = invocation.audio,
             .physics = invocation.physics,
+            .navigation = phase == Phase::FixedUpdate ? invocation.navigation : nullptr,
             .input = invocation.input,
             .assets = invocation.assets,
             .components = invocation.components,

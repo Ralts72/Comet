@@ -6,6 +6,7 @@
 #include "asset/script.h"
 #include "scene/prefab.h"
 #include "gameplay/character_controller.h"
+#include "gameplay/navigation_system.h"
 #include "audio/audio_commands.h"
 #include "physics/physics_access.h"
 #include "scene/scene.h"
@@ -748,6 +749,37 @@ namespace Comet::LuaBindings {
                 return luaL_error(state, "move_character needs an enabled Character Controller");
             return 0;
         }
+        int navigate_to(lua_State* state) {
+            const auto count = lua_gettop(state);
+            if(count != 3 && count != 4)
+                return luaL_error(
+                    state, "navigate_to expects target X/Y/Z and optional run boolean");
+            const Math::Vec3 target{number(state, 1), number(state, 2), number(state, 3)};
+            if(count == 4)
+                luaL_checktype(state, 4, LUA_TBOOLEAN);
+            auto& context = current(state);
+            if(!context.navigation || !context.scene)
+                return luaL_error(
+                    state, "navigate_to is only available in fixed_update with navigation enabled");
+            auto& physics = require_physics(state);
+            const char* status = nullptr;
+            context.return_value.reset();
+            {
+                auto result = context.navigation->move_to(
+                    *context.scene, context.entity, physics, target, lua_toboolean(state, 4));
+                if(result)
+                    status = Gameplay::NavigationSystem::name(result.value());
+                else
+                    context.return_value = result.error();
+            }
+            if(context.return_value) {
+                const auto& error = std::get<std::string>(*context.return_value);
+                lua_pushlstring(state, error.data(), error.size());
+                return lua_error(state);
+            }
+            lua_pushstring(state, status);
+            return 1;
+        }
         int character_grounded(lua_State* state) {
             if(lua_gettop(state) != 0)
                 return luaL_error(state, "character_grounded takes no arguments");
@@ -1257,12 +1289,13 @@ namespace Comet::LuaBindings {
             {"linear_velocity", linear_velocity}, {"angular_velocity", angular_velocity},
             {"set_animation_parameter", set_animation_parameter},
             {"set_material_scalar", set_material_scalar}, {"move_character", move_character},
-            {"character_grounded", character_grounded}, {"character_state", character_state},
-            {"control_character", control_character}, {"set_material_vector", set_material_vector},
-            {"session_get", session_get}, {"session_set", session_set}, {"emit", emit},
-            {"set_input_context", set_input_context}, {"action_value", action_value},
-            {"action_down", action_down}, {"action_pressed", action_pressed},
-            {"action_released", action_released}, {nullptr, nullptr}};
+            {"navigate_to", navigate_to}, {"character_grounded", character_grounded},
+            {"character_state", character_state}, {"control_character", control_character},
+            {"set_material_vector", set_material_vector}, {"session_get", session_get},
+            {"session_set", session_set}, {"emit", emit}, {"set_input_context", set_input_context},
+            {"action_value", action_value}, {"action_down", action_down},
+            {"action_pressed", action_pressed}, {"action_released", action_released},
+            {nullptr, nullptr}};
         luaL_setfuncs(state, api, 1);
         lua_setglobal(state, "comet");
     }

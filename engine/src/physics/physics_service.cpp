@@ -1593,6 +1593,36 @@ namespace Comet {
         return Edges::success(std::move(edges));
     }
 
+    Result<std::vector<Math::Vec3>, Error> PhysicsService::static_triangles(
+        Math::Vec3 minimum, Math::Vec3 maximum) const {
+        using Output = Result<std::vector<Math::Vec3>, Error>;
+        if(!m_impl || !has_binding() || !Math::is_finite(minimum) || !Math::is_finite(maximum)
+            || !glm::all(glm::lessThan(minimum, maximum)))
+            return Output::failure({"Static geometry requires an active world and valid bounds"});
+        std::vector<Math::Vec3> output;
+        const JPH::AABox bounds(
+            JPH::Vec3(minimum.x, minimum.y, minimum.z), JPH::Vec3(maximum.x, maximum.y, maximum.z));
+        // 稳定顺序使同一内容的导航构建可复现。
+        std::vector<const Impl::Body*> bodies;
+        for(const auto& [id, body] : m_impl->bodies)
+            if(body.rigid.motion == BodyMotion::Static && !body.collider.is_trigger)
+                bodies.push_back(&body);
+        std::ranges::sort(bodies, {}, [](const auto* body) { return body->uuid; });
+        for(const auto* body : bodies) {
+            const auto shape = m_impl->world.GetBodyInterface().GetTransformedShape(body->id);
+            JPH::TransformedShape::GetTrianglesContext context;
+            shape.GetTrianglesStart(context, bounds, JPH::RVec3::sZero());
+            std::array<JPH::Float3, 768> vertices;
+            while(const int count = shape.GetTrianglesNext(context, 256, vertices.data())) {
+                if(output.size() + count * 3 > 3000000)
+                    return Output::failure({"Navigation geometry exceeds one million triangles"});
+                for(int i = 0; i < count * 3; ++i)
+                    output.emplace_back(vertices[i].x, vertices[i].y, vertices[i].z);
+            }
+        }
+        return Output::success(std::move(output));
+    }
+
     PhysicsService::PhysicsService(MeshSource meshes) : m_meshes(std::move(meshes)) {}
     PhysicsService::Statistics PhysicsService::get_statistics() const {
         if(!m_impl)

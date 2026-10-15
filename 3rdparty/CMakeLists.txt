@@ -1,5 +1,20 @@
 set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "Enable -fPIC for all 3rd party libraries")
 
+# Recast / Detour：只编译导航核心，不构建上游演示程序。
+block(SCOPE_FOR VARIABLES)
+    set(BUILD_SHARED_LIBS OFF)
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.15)
+    set(RECASTNAVIGATION_DEMO OFF)
+    set(RECASTNAVIGATION_TESTS OFF)
+    set(RECASTNAVIGATION_EXAMPLES OFF)
+    add_subdirectory(recastnavigation EXCLUDE_FROM_ALL)
+    set_target_properties(Recast Detour PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        # 1.6 的 dtMeshTile 只有标量／指针；私有拷贝声明触发新版 Clang 的 memset 诊断。
+        target_compile_options(Detour PRIVATE -Wno-nontrivial-memcall)
+    endif()
+endblock()
+
 # Lua
 set(LUA_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lua")
 set(LUA_SOURCES

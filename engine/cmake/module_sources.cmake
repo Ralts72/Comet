@@ -110,6 +110,8 @@ set(COMET_PHYSICS_SOURCES
 )
 
 set(COMET_GAMEPLAY_SOURCES
+    src/gameplay/navigation_mesh.cpp
+    src/gameplay/navigation_system.cpp
     src/gameplay/character_animation.cpp
     src/gameplay/checkpoint_store.cpp
     src/gameplay/checkpoint_store.h

@@ -83,6 +83,7 @@ set(UNIT_TEST_SOURCES
         editor/core/test_transform_gizmo.cpp
         editor/core/test_viewport_layout.cpp
         graphics/test_allocator.cpp
+        gameplay/test_navigation.cpp
         gameplay/test_character_controller.cpp
         gameplay/test_game_session.cpp
         graphics/test_barrier.cpp

@@ -94,8 +94,8 @@ namespace Comet::Gameplay {
                     return Result<bool>::failure(movement.error());
                 direction = movement.value();
             }
-            if(visual && !visual.try_set_transform(facing_transform(scene, visual, direction)))
-                return Result<bool>::failure("Cannot update character facing transform");
+            if(auto faced = face_movement(scene, facing, direction); !faced)
+                return Result<bool>::failure(faced.error());
         }
         if(!physics.request_character_move(entity, {.direction = direction,
                                                        .jump = jump_requested,
@@ -103,6 +103,20 @@ namespace Comet::Gameplay {
                                                        .crouch = crouching}))
             return Result<bool>::failure("Cannot submit character movement to the active runtime");
         return Result<bool>::success(jump_requested);
+    }
+
+    Result<void> CharacterController::face_movement(
+        Scene& scene, EntityUuid uuid, Math::Vec2 direction) {
+        if(!uuid || direction == Math::Vec2(0))
+            return Result<void>::success();
+        const auto visual = scene.find_entity(uuid);
+        if(!visual || visual.has_component<RigidBodyComponent>()
+            || visual.has_component<CharacterControllerComponent>() || !Math::is_finite(direction))
+            return Result<void>::failure(
+                "Character facing requires a nonphysical visual entity and finite direction");
+        if(!visual.try_set_transform(facing_transform(scene, visual, direction)))
+            return Result<void>::failure("Cannot update character facing transform");
+        return Result<void>::success();
     }
 
     Result<CharacterController::State> CharacterController::get_state(

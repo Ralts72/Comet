@@ -19,7 +19,7 @@
 | Runtime | 时间、暂停／单步、会话、System 生命周期与通用动画实例推进 | World、Input |
 | Audio | AudioService、Voice、播放设备与 AudioSystem | Runtime、miniaudio |
 | Physics | PhysicsService、刚体世界与 PhysicsSystem | Runtime、Jolt |
-| Gameplay | 可复用角色／相机控制及角色动画参数驱动，借用输入快照和 PhysicsAccess | Runtime |
+| Gameplay | 可复用角色／相机控制、角色动画参数与导航，借用输入快照和 PhysicsAccess | Runtime、Recast／Detour |
 | Scripting | 行为 VM、Lua 校验与 ScriptSystem，以及 Gameplay 桥接 | Runtime、Gameplay、Lua |
 | AssetPipeline | 扫描、索引、源导入、Artifact 与任务队列 | AssetData、stb_image、fastgltf |
 | RuntimeAssets | 需求、加载、失效、版本编排和资源发布契约 | AssetPipeline、Audio／Script 定义 |
@@ -276,6 +276,8 @@ RuntimeSession 只收集保存／继续意图，GameSession 在帧边界调用�
 父子关系只由 Scene 修改并保持无环；子树删除直接遍历子节点索引，收集完毕后从后代向祖先清理。
 Runtime 统一控制系统启停、部分启动失败、暂停和单步；System 不重复实现生命周期状态机。
 每个固定步先按注册顺序执行 `fixed_update` 并提交结构请求，再执行 `post_fixed_update` 并提交本阶段的请求；最后才进入每帧 `update`。
+NavigationSystem 在首个固定步读取 PhysicsService 提供的静态碰撞三角形构建导航网格，之后只重置查询预算和回收角色路径。NavigationMesh 封装 Recast／Detour，公开头文件不暴露第三方类型；NavigationSystem 持有运行域路径缓存，Lua 只提交目标，Demo 决定巡逻／追逐规则。静态碰撞几何来源由 Engine 注入，Gameplay 不依赖 Jolt 或 PhysicsService 实现。Stop 清理网格与缓存，路径不进入场景序列化。
+
 默认 ScriptSystem 先执行固定步玩法，PhysicsSystem 同步配置并模拟／回写；接触在该步的后置阶段交付脚本，阶段结束即清空。
 固定更新中删除的实体不再收到接触；接触回调的结构请求在下一固定步前生效。后置阶段复用本步时间和输入，不再次消费边沿。
 普通更新执行相机、脚本玩法／自定义事件和声音源同步，不重复交付接触。暂停不执行更新，单步完整执行一次固定、后置和普通阶段。

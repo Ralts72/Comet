@@ -75,6 +75,24 @@ namespace Comet {
         bool operator==(const AnimatorComponent&) const = default;
     };
 
+    // 单个场景一个轴对齐区域；尺寸为世界米数，中心取实体世界位置。
+    struct COMET_API NavigationRegionComponent {
+        Math::Vec3 half_extents{20, 5, 20};
+        float cell_size = 0.2f;
+        float agent_radius = 0.4f;
+        float agent_height = 1.8f;
+        float max_climb = 0.3f;
+        float max_slope = 45;
+        bool operator==(const NavigationRegionComponent&) const = default;
+    };
+    struct COMET_API NavigationAgentComponent {
+        bool enabled = true;
+        EntityUuid facing;
+        float arrival_distance = 0.35f;
+        float repath_interval = 0.4f;
+        bool operator==(const NavigationAgentComponent&) const = default;
+    };
+
     struct COMET_API CharacterAnimationComponent {
         EntityUuid character;
         bool operator==(const CharacterAnimationComponent&) const = default;

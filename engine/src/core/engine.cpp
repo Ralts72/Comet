@@ -1,4 +1,5 @@
 #include "engine.h"
+#include "gameplay/navigation_system.h"
 #include "gameplay/character_animation.h"
 #include "animation/animation_system.h"
 #include "particles/particle_system.h"
@@ -139,8 +140,16 @@ namespace Comet {
         }
         if(!m_physics_service)
             m_physics_service = std::make_unique<PhysicsService>(std::move(meshes));
-        if(auto configured = m_scene_runtime.set_services(
-               {.audio = m_audio_service.get(), .physics = m_physics_service.get()});
+        auto navigation = std::make_unique<Gameplay::NavigationSystem>(
+            [this](Math::Vec3 minimum, Math::Vec3 maximum) {
+                return m_physics_service->static_triangles(minimum, maximum);
+            });
+        auto* navigation_service = navigation.get();
+        if(auto added = add_system(std::move(navigation)); !added)
+            return added;
+        if(auto configured = m_scene_runtime.set_services({.audio = m_audio_service.get(),
+               .physics = m_physics_service.get(),
+               .navigation = navigation_service});
             !configured)
             return configured;
         // 注册顺序也是各更新阶段的执行顺序；SceneRuntime 停止时按逆序清理。

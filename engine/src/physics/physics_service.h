@@ -37,6 +37,9 @@ namespace Comet {
         ~PhysicsService() override;
         // 主线程在固定步之外读取；pose_updates 对应最近完成的固定步。
         [[nodiscard]] Statistics get_statistics() const;
+        // 最近同步的静态非触发碰撞面，世界坐标三角形列表；供导航烘焙复用真实形状。
+        [[nodiscard]] Result<std::vector<Math::Vec3>, Error> static_triangles(
+            Math::Vec3 minimum, Math::Vec3 maximum) const;
         using ColliderEdge = std::pair<Math::Vec3, Math::Vec3>;
         // 复用实际形状构建，返回相对网格原点、已应用 scale 的去重边；不要求运行世界。
         [[nodiscard]] static Result<std::vector<ColliderEdge>, Error> mesh_collider_edges(

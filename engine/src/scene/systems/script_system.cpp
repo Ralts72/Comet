@@ -90,6 +90,7 @@ namespace Comet {
         invocation.event_handler = event_handler;
         invocation.event_value = event_value;
         if(context) {
+            invocation.navigation = context->services.navigation;
             invocation.delta_time = context->delta_time;
             invocation.input = &context->input;
         }

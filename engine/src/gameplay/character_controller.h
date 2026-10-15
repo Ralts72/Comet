@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/export.h"
+#include "core/math_utils.h"
 #include "common/result.h"
 #include "scene/entity_uuid.h"
 
@@ -36,6 +37,8 @@ namespace Comet::Gameplay {
         EntityUuid movement_reference{};
         EntityUuid facing{};
 
+        [[nodiscard]] static COMET_API Result<void> face_movement(
+            Scene& scene, EntityUuid visual, Math::Vec2 direction);
         // 每个固定步调用；返回是否提交了地面跳跃请求，供玩法触发声音等反馈。
         [[nodiscard]] COMET_API Result<bool> update(Scene& scene, Entity entity,
             const InputState& input, PhysicsAccess& physics, bool enabled = true) const;
