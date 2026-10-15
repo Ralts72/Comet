@@ -161,6 +161,9 @@ namespace Comet {
                },
                [this](AssetHandle handle) {
                    return m_asset_registry->resolve<AnimationController>(handle);
+               },
+               [this](AssetHandle handle) {
+                   return m_asset_registry->resolve<AnimationLibrary>(handle);
                }));
             !added)
             return added;

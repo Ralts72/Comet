@@ -2,6 +2,7 @@
 
 #include "animation/animation_controller.h"
 #include "asset/handle.h"
+#include "asset/data/animation_library.h"
 #include "scene/entity_uuid.h"
 
 #include <imgui.h>
@@ -29,6 +30,14 @@ namespace CometEditor {
         enum class Action { None, Save, Discard };
 
         void reset(const Comet::AnimationController& data);
+        void set_library(
+            std::shared_ptr<const Comet::AnimationLibrary> library, std::string error = {}) {
+            m_library = std::move(library);
+            m_library_error = std::move(error);
+        }
+        void set_library_choices(std::vector<std::pair<Comet::AssetHandle, std::string>> choices) {
+            m_libraries = std::move(choices);
+        }
         void set_models(std::vector<Model> models, Comet::AssetHandle controller, bool runtime);
         [[nodiscard]] const Model* model() const;
         [[nodiscard]] bool is_open() const { return m_open; }
@@ -51,6 +60,7 @@ namespace CometEditor {
         void select_state(std::size_t index);
         void render_parameters(Comet::AnimationController& data);
         void render_state(Comet::AnimationController& data, std::size_t index);
+        void render_layers(Comet::AnimationController& data);
         void render_events(Comet::AnimationController::State& state);
         void render_transition(Comet::AnimationController& data, std::size_t index);
         void render_parameter(Comet::AnimationController& data, const std::string& name);
@@ -66,6 +76,9 @@ namespace CometEditor {
         bool m_runtime = false;
         Comet::AssetHandle m_controller;
         std::string m_error;
+        std::shared_ptr<const Comet::AnimationLibrary> m_library;
+        std::string m_library_error;
+        std::vector<std::pair<Comet::AssetHandle, std::string>> m_libraries;
         std::optional<std::size_t> m_state;
         std::optional<std::size_t> m_event;
         std::optional<std::size_t> m_preview_index;

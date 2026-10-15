@@ -78,7 +78,13 @@ namespace Comet {
                     return Result<void>::failure(
                         "Unknown numeric blend parameter: " + state.parameter);
             }
-            if(auto blend = blend_animation_1d(state.motions, 0); !blend)
+            if(!state.parameter_y.empty()) {
+                const auto* value = parameter(state.parameter_y, {});
+                if(state.parameter.empty() || !value || !std::holds_alternative<float>(*value))
+                    return Result<void>::failure(
+                        "Unknown numeric Y blend parameter: " + state.parameter_y);
+            }
+            if(auto blend = sample(state, {}); !blend)
                 return Result<void>::failure(blend.error());
             for(const auto& motion : state.motions)
                 if(motion.clip.empty())
@@ -96,6 +102,25 @@ namespace Comet {
                     return Result<void>::failure("Invalid animation event: " + state.name);
                 previous = event.phase;
             }
+        }
+        if(layers.size() > 8)
+            return Result<void>::failure("At most 8 animation layers are supported");
+        names.clear();
+        for(const auto& layer : layers) {
+            if(!valid_parameter_name(layer.name) || !names.insert(layer.name).second
+                || !find_state(layer.state) || !std::isfinite(layer.weight) || layer.weight < 0
+                || layer.weight > 1 || layer.mask.size() > 128)
+                return Result<void>::failure("Invalid animation layer: " + layer.name);
+            if(!layer.weight_parameter.empty()) {
+                const auto* value = parameter(layer.weight_parameter, {});
+                if(!value || !std::holds_alternative<float>(*value))
+                    return Result<void>::failure(
+                        "Unknown layer weight parameter: " + layer.weight_parameter);
+            }
+            std::unordered_set<std::string> roots;
+            for(const auto& root : layer.mask)
+                if(root.empty() || !roots.insert(root).second)
+                    return Result<void>::failure("Invalid bone mask: " + layer.name);
         }
         for(const auto& transition : transitions) {
             if((!transition.from.empty() && !find_state(transition.from))
@@ -130,5 +155,29 @@ namespace Comet {
                 return &transition;
         }
         return nullptr;
+    }
+}
+
+namespace Comet {
+    Math::Vec2 AnimationController::blend_parameters(
+        const State& state, const ParameterMap& overrides) const {
+        const auto number = [&](const std::string& name) {
+            const auto* value = parameter(name, overrides);
+            const auto* scalar = value ? std::get_if<float>(value) : nullptr;
+            return scalar ? *scalar : 0.f;
+        };
+        return {number(state.parameter), number(state.parameter_y)};
+    }
+    Result<AnimationBlend> AnimationController::sample(const State& state, Math::Vec2 value) const {
+        if(state.motions.empty())
+            return Result<AnimationBlend>::failure("Animation state has no motion");
+        if(state.parameter.empty())
+            return Result<AnimationBlend>::success(
+                {.clip = state.motions.front().clip, .loop = state.loop});
+        auto mixed = state.parameter_y.empty() ? blend_animation_1d(state.motions, value.x)
+                                               : blend_animation_2d(state.motions, value);
+        if(mixed)
+            mixed.value().loop = state.loop;
+        return mixed;
     }
 }

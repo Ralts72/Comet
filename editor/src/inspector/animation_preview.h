@@ -1,6 +1,7 @@
 #pragma once
 
 #include "animation/animation_data.h"
+#include "asset/data/animation_library.h"
 #include "scene/entity_uuid.h"
 
 #include <memory>
@@ -19,6 +20,12 @@ namespace CometEditor {
         void bind(Target target, std::shared_ptr<const Comet::AnimationData> animation,
             std::string_view initial_clip);
         void reset();
+        [[nodiscard]] Comet::Result<void> set_library(
+            std::shared_ptr<const Comet::AnimationLibrary> library);
+        void set_layers(std::vector<Comet::AnimationLayer> layers);
+        [[nodiscard]] const Comet::AnimationData* clips() const {
+            return m_frame.clips ? m_frame.clips.get() : m_animation.get();
+        }
         [[nodiscard]] bool select_clip(std::string_view name);
         [[nodiscard]] bool select_sample(Comet::AnimationBlend sample, bool restart = false);
         [[nodiscard]] double duration() const;
@@ -47,6 +54,7 @@ namespace CometEditor {
         Target m_target;
         std::shared_ptr<const Comet::AnimationData> m_animation;
         Comet::AnimationPlayback m_frame;
+        std::shared_ptr<const Comet::AnimationLibrary> m_library;
         std::shared_ptr<const Comet::AnimationPlayback> m_snapshot;
         bool m_playing = false;
         bool m_loop = true;

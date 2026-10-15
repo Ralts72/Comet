@@ -43,6 +43,15 @@ namespace CometEditor {
         return Comet::GameData::load(m_database.paths().assets() / record->path);
     }
 
+    Comet::Result<Comet::AnimationLibrary> EditorAssets::read_animation_library(
+        const Comet::AssetTarget& target) const {
+        const auto* record = m_database.find(target.handle);
+        if(!record || record->type != Comet::AssetType::AnimationLibrary
+            || !m_database.is_current(target))
+            return Comet::Result<Comet::AnimationLibrary>::failure(
+                "Animation library read is stale");
+        return Comet::AnimationLibrary::load(m_database.paths().assets() / record->path);
+    }
     Comet::Result<Comet::AnimationController> EditorAssets::read_animation_controller(
         const Comet::AssetTarget& target) const {
         const auto* record = m_database.find(target.handle);

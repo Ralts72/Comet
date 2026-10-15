@@ -1,6 +1,7 @@
 #include "asset/serialization/animation_controller_serializer.h"
 #include "common/json.h"
 #include <array>
+#include <charconv>
 
 namespace Comet {
     namespace {
@@ -53,12 +54,53 @@ namespace Comet {
             using Read = Result<AnimationController>;
             AnimationController result;
             result.states.clear();
-            auto keys =
-                context.validate_keys(root, {"initial", "parameters", "states", "transitions"});
+            auto keys = context.validate_keys(
+                root, {"initial", "parameters", "states", "transitions", "library", "layers"});
             if(!keys)
                 return Read::failure(keys.error());
             if(auto initial = field(root, context, "initial", result.initial); !initial)
                 return Read::failure(initial.error());
+            std::string library;
+            if(auto read = field(root, context, "library", library); !read)
+                return Read::failure(read.error());
+            if(!library.empty()) {
+                uint64_t handle = 0;
+                const auto parsed =
+                    std::from_chars(library.data(), library.data() + library.size(), handle);
+                if(parsed.ec != std::errc{} || parsed.ptr != library.data() + library.size()
+                    || !handle)
+                    return Read::failure("Invalid animation library handle");
+                result.library = AssetHandle(handle);
+            }
+            auto layer_node = context.find(root, "layers");
+            if(!layer_node)
+                return Read::failure(layer_node.error());
+            if(layer_node.value()) {
+                auto layers = context.array(*layer_node.value(), "layers");
+                if(!layers)
+                    return Read::failure(layers.error());
+                for(const auto node : layers.value()) {
+                    AnimationController::Layer layer;
+                    for(auto read : {context.validate_keys(node,
+                                         {"name", "state", "weight", "weight_parameter", "mask"}),
+                            field(node, context, "name", layer.name),
+                            field(node, context, "state", layer.state),
+                            field(node, context, "weight", layer.weight),
+                            field(node, context, "weight_parameter", layer.weight_parameter)})
+                        if(!read)
+                            return Read::failure(read.error());
+                    auto mask = array(node, "mask", context);
+                    if(!mask)
+                        return Read::failure(mask.error());
+                    for(const auto bone : mask.value()) {
+                        auto name = context.read_scalar<std::string>(bone, "mask", "a node name");
+                        if(!name)
+                            return Read::failure(name.error());
+                        layer.mask.push_back(std::move(name).value());
+                    }
+                    result.layers.push_back(std::move(layer));
+                }
+            }
             auto parameters_node = context.required_child(root, "parameters");
             if(!parameters_node)
                 return Read::failure(parameters_node.error());
@@ -78,10 +120,12 @@ namespace Comet {
             for(const auto node : states.value()) {
                 AnimationController::State state;
                 state.motions.clear();
-                for(auto read : {context.validate_keys(node, {"name", "motions", "parameter",
-                                                                 "smoothing", "loop", "events"}),
+                for(auto read :
+                    {context.validate_keys(node, {"name", "motions", "parameter", "smoothing",
+                                                     "loop", "events", "parameter_y"}),
                         field(node, context, "name", state.name),
                         field(node, context, "parameter", state.parameter),
+                        field(node, context, "parameter_y", state.parameter_y),
                         field(node, context, "smoothing", state.smoothing),
                         field(node, context, "loop", state.loop)})
                     if(!read)
@@ -91,8 +135,9 @@ namespace Comet {
                     return Read::failure(motions.error());
                 for(const auto motion : motions.value()) {
                     AnimationBlendPoint point{0, {}};
-                    for(auto read : {context.validate_keys(motion, {"threshold", "clip"}),
+                    for(auto read : {context.validate_keys(motion, {"threshold", "clip", "y"}),
                             field(motion, context, "threshold", point.threshold),
+                            field(motion, context, "y", point.y),
                             field(motion, context, "clip", point.clip)})
                         if(!read)
                             return Read::failure(read.error());
@@ -183,6 +228,26 @@ namespace Comet {
         Json::Writer writer;
         writer.begin_object();
         writer.field("initial", data.initial);
+        if(data.library)
+            writer.field("library", std::to_string(data.library.value()));
+        if(!data.layers.empty()) {
+            writer.key("layers");
+            writer.begin_array();
+            for(const auto& layer : data.layers) {
+                writer.begin_object();
+                writer.field("name", layer.name);
+                writer.field("state", layer.state);
+                writer.field("weight", layer.weight);
+                writer.field("weight_parameter", layer.weight_parameter);
+                writer.key("mask");
+                writer.begin_array();
+                for(const auto& bone : layer.mask)
+                    writer.value(bone);
+                writer.end_array();
+                writer.end_object();
+            }
+            writer.end_array();
+        }
         writer.key("parameters");
         writer.begin_object();
         for(const auto& [name, value] : data.parameters) {
@@ -196,6 +261,8 @@ namespace Comet {
             writer.begin_object();
             writer.field("name", state.name);
             writer.field("parameter", state.parameter);
+            if(!state.parameter_y.empty())
+                writer.field("parameter_y", state.parameter_y);
             writer.field("smoothing", state.smoothing);
             writer.field("loop", state.loop);
             writer.key("motions");
@@ -203,6 +270,8 @@ namespace Comet {
             for(const auto& motion : state.motions) {
                 writer.begin_object();
                 writer.field("threshold", motion.threshold);
+                if(!state.parameter_y.empty() || motion.y != 0)
+                    writer.field("y", motion.y);
                 writer.field("clip", motion.clip);
                 writer.end_object();
             }

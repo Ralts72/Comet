@@ -1,0 +1,60 @@
+{
+  "initial": "move",
+  "library": "6729301842000000011",
+  "parameters": {
+    "pace": 0.5,
+    "crouch": 0.35,
+    "upper": 0.5
+  },
+  "states": [
+    {
+      "name": "move",
+      "parameter": "pace",
+      "parameter_y": "crouch",
+      "smoothing": 0.15,
+      "motions": [
+        {
+          "threshold": 0,
+          "y": 0,
+          "clip": "idle"
+        },
+        {
+          "threshold": 1,
+          "y": 0,
+          "clip": "walk"
+        },
+        {
+          "threshold": 0,
+          "y": 1,
+          "clip": "crouch"
+        },
+        {
+          "threshold": 1,
+          "y": 1,
+          "clip": "crouch_walk"
+        }
+      ]
+    },
+    {
+      "name": "upper",
+      "motions": [
+        {
+          "threshold": 0,
+          "clip": "run"
+        }
+      ]
+    }
+  ],
+  "layers": [
+    {
+      "name": "upper_body",
+      "state": "upper",
+      "weight": 1,
+      "weight_parameter": "upper",
+      "mask": [
+        "spine_01"
+      ]
+    }
+  ],
+  "transitions": []
+}

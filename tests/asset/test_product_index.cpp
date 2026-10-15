@@ -1,6 +1,7 @@
 #include "support/asset_manager_fixture.h"
 #include "asset/default_assets.h"
 #include "asset/serialization/animation_controller_serializer.h"
+#include "asset/data/animation_library.h"
 #include "asset/import/import_service.h"
 #include "asset/product_index.h"
 #include "asset/project_prepare.h"
@@ -194,6 +195,48 @@ namespace Comet::Tests {
         EXPECT_FALSE(empty_registry.contains(texture));
     }
 
+    TEST(ProductIndexTest, LibraryImportsAnUnrenderedMeshAndInvalidatesItsController) {
+        const TemporaryProject project;
+        const AssetHandle mesh{41}, library_handle{42}, controller_handle{43};
+        const auto source = project.paths().assets() / "motions.glb";
+        std::filesystem::copy_file(default_character_source(), source);
+        ASSERT_TRUE(MetadataSerializer{}.save(
+            {.handle = mesh, .type = AssetType::Mesh}, metadata_path(source)));
+        AnimationLibrary library;
+        library.entries = {{"shared", mesh, "walk"}};
+        const auto library_path = project.paths().assets() / "motions.anilib";
+        ASSERT_TRUE(library.save(library_path));
+        ASSERT_TRUE(MetadataSerializer{}.save(
+            {.handle = library_handle, .type = AssetType::AnimationLibrary},
+            metadata_path(library_path)));
+        AnimationController controller;
+        controller.library = library_handle;
+        controller.states.front().motions = {{0, "shared"}};
+        const auto controller_path = project.paths().assets() / "actor.ani";
+        ASSERT_TRUE(AnimationControllerSerializer{}.save(controller, controller_path));
+        ASSERT_TRUE(MetadataSerializer{}.save(
+            {.handle = controller_handle, .type = AssetType::AnimationController},
+            metadata_path(controller_path)));
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        auto loaded = manager.load_animation_controller(controller_handle);
+        ASSERT_TRUE(loaded) << loaded.error().message;
+        auto motions = registry.resolve<AnimationLibrary>(library_handle);
+        ASSERT_TRUE(motions);
+        ASSERT_TRUE(motions->sources.contains(mesh));
+        EXPECT_FALSE(registry.contains<Mesh>(mesh));
+        EXPECT_TRUE(motions->bind(*motions->sources.at(mesh)));
+        library.entries.push_back({"missing", mesh, "missing"});
+        ASSERT_TRUE(library.save(library_path));
+        ASSERT_TRUE(manager.scan().succeeded());
+        EXPECT_FALSE(registry.contains(controller_handle));
+        EXPECT_FALSE(manager.load_animation_controller(controller_handle));
+        EXPECT_TRUE(motions->bind(*motions->sources.at(mesh))); // 已发布快照仍持有原始定义。
+    }
+
     TEST(ProductIndexTest, ExportsBuiltinAndProjectControllersWithoutSourceFallback) {
         const TemporaryProject source;
         const TemporaryDirectory outputs;
@@ -201,6 +244,15 @@ namespace Comet::Tests {
         const AssetHandle custom{42};
         AnimationController definition;
         definition.parameters = {{"open", false}};
+        const AssetHandle library_handle{43};
+        AnimationLibrary library;
+        library.entries = {{"idle", DEFAULT_CHARACTER_MESH, "idle"}};
+        const auto library_path = source.paths().assets() / "shared.anilib";
+        ASSERT_TRUE(library.save(library_path));
+        ASSERT_TRUE(MetadataSerializer{}.save(
+            {.handle = library_handle, .type = AssetType::AnimationLibrary},
+            metadata_path(library_path)));
+        definition.library = library_handle;
         const auto custom_path = source.paths().assets() / "door.ani";
         ASSERT_TRUE(AnimationControllerSerializer{}.save(definition, custom_path));
         ASSERT_TRUE(
@@ -220,6 +272,7 @@ namespace Comet::Tests {
         const auto project = Project::load(source.paths().root());
         ASSERT_TRUE(project) << project.error();
         const auto exported = outputs.path() / "game";
+        ASSERT_TRUE(prepare_project(project.value(), {}));
         const auto result = export_project_assets(project.value(), exported, {});
         ASSERT_TRUE(result) << result.error();
         std::filesystem::remove_all(source.paths().root());
@@ -233,6 +286,10 @@ namespace Comet::Tests {
         const auto loaded = manager.load_animation_controller(custom);
         ASSERT_TRUE(loaded) << loaded.error().message;
         EXPECT_EQ(*loaded.value(), definition);
+        const auto shared_library = registry.resolve<AnimationLibrary>(library_handle);
+        ASSERT_TRUE(shared_library);
+        EXPECT_TRUE(shared_library->bind(*shared_library->sources.at(DEFAULT_CHARACTER_MESH)));
+        EXPECT_FALSE(registry.contains<Mesh>(DEFAULT_CHARACTER_MESH));
         auto builtin = manager.load_animation_controller(DEFAULT_CHARACTER_ANIMATION);
         ASSERT_TRUE(builtin) << builtin.error().message;
         EXPECT_TRUE(builtin.value()->parameters.contains("grounded"));
@@ -310,6 +367,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(project) << project.error();
         ASSERT_TRUE(prepare_project(project.value()));
         const auto exported = outputs.path() / "game";
+        ASSERT_TRUE(prepare_project(project.value(), {}));
         const auto result = export_project_assets(project.value(), exported, {});
         ASSERT_TRUE(result) << result.error();
         std::filesystem::remove_all(source.paths().root());

@@ -2544,6 +2544,37 @@
           "material": 5783275031450616075
         }
       }
+    },
+    {
+      "uuid": "70a518f1-2c0e-4180-9ead-000000000160",
+      "components": {
+        "name": "动画分层示例",
+        "transform": {
+          "translation": [
+            3,
+            0,
+            5
+          ],
+          "rotation": [
+            0,
+            180,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 13857136248767905793,
+          "material": 13857136248767905794
+        },
+        "animator": {
+          "controller": 6729301842000000012,
+          "parameters": {}
+        }
+      }
     }
   ]
 }

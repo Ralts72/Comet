@@ -1,4 +1,5 @@
 #include "asset/asset_manager.h"
+#include "asset/data/animation_library.h"
 #include "asset/data/game_data.h"
 #include "audio/audio.h"
 #include "animation/animation_controller.h"
@@ -135,6 +136,8 @@ namespace Comet {
             return Result<void, Error>::success();
         };
         switch(expected_type) {
+            case AssetType::AnimationLibrary:
+                return status(load_animation_library(handle));
             case AssetType::Data:
                 return status(load_data(handle));
             case AssetType::AnimationController:
@@ -219,8 +222,38 @@ namespace Comet {
         return Result<void, Error>::success();
     }
 
+    Result<std::shared_ptr<AnimationLibrary>, Error> AssetManager::load_animation_library(
+        AssetHandle handle) {
+        using Loaded = Result<std::shared_ptr<AnimationLibrary>, Error>;
+        if(!m_database.is_read_only() && !m_registry.contains<AnimationLibrary>(handle)) {
+            const auto* record = m_database.find(handle);
+            if(record && record->type == AssetType::AnimationLibrary) {
+                const auto dependencies = record->dependencies;
+                std::unordered_set<AssetHandle> imported;
+                for(const auto mesh : dependencies) {
+                    const auto* source = m_database.find(mesh);
+                    const auto owner = source && source->source_asset ? source->source_asset : mesh;
+                    if(!imported.insert(owner).second)
+                        continue;
+                    if(auto prepared = import_mesh(mesh); !prepared)
+                        return Loaded::failure(prepared.error());
+                }
+            }
+        }
+        return m_loader->load_animation_library(handle);
+    }
     Result<std::shared_ptr<AnimationController>, Error> AssetManager::load_animation_controller(
         AssetHandle handle) {
+        if(!m_registry.contains<AnimationController>(handle)) {
+            if(const auto* record = m_database.find(handle);
+                record && record->type == AssetType::AnimationController) {
+                const auto dependencies = record->dependencies;
+                for(const auto library : dependencies)
+                    if(auto loaded = load_animation_library(library); !loaded)
+                        return Result<std::shared_ptr<AnimationController>, Error>::failure(
+                            loaded.error());
+            }
+        }
         return m_loader->load_animation_controller(handle);
     }
 

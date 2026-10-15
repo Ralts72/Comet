@@ -50,7 +50,9 @@ namespace Comet {
             report.removed_assets.begin(), report.removed_assets.end());
         for(const AssetHandle handle : report.modified_assets) {
             const auto* record = m_database.find(handle);
-            if(record && (record->type == AssetType::Model || record->source_asset))
+            if(record
+                && (record->type == AssetType::Model || record->type == AssetType::AnimationLibrary
+                    || record->source_asset))
                 invalidated.insert(record->source_asset ? record->source_asset : handle);
         }
         m_database.include_dependents(invalidated);
@@ -106,6 +108,7 @@ namespace Comet {
     AssetManager::RefreshResult AssetManager::schedule_refresh(const AssetRecord& record) {
         bool accepted = false;
         switch(record.type) {
+            case AssetType::AnimationLibrary:
             case AssetType::Data:
             case AssetType::AnimationController:
             case AssetType::Audio:

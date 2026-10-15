@@ -130,6 +130,31 @@ namespace CometEditor::Tests {
         EXPECT_EQ(data, saved);
     }
 
+    TEST_F(AnimationControllerEditorUiTest, TwoDimensionalStateAndLayerEditsReuseControllerUndo) {
+        data.parameters["y"] = .25f;
+        data.states[0].parameter_y = "y";
+        data.states[0].motions.push_back({0, "jump", 1});
+        editor.reset(data);
+        editor.set_models({source}, Comet::AssetHandle{42}, false);
+        frame();
+        activate("Controller properties", "动画库与分层");
+        activate("Controller properties", "添加动画层");
+        ASSERT_EQ(data.layers.size(), 1u);
+        EXPECT_EQ(data.layers.front().state, "ground");
+        EXPECT_TRUE(data.validate());
+        activate("动画控制器", "###Play Controller Preview");
+        ASSERT_TRUE(preview.playing());
+        ASSERT_TRUE(preview.snapshot());
+        ASSERT_EQ(preview.snapshot()->layers.size(), 1u);
+        const auto frozen = preview.snapshot();
+        preview.advance(.1);
+        EXPECT_GT(preview.snapshot()->layers[0].sample.time, frozen->layers[0].sample.time);
+        ASSERT_TRUE(editor.undo(data));
+        EXPECT_TRUE(data.layers.empty());
+        ASSERT_TRUE(editor.redo(data));
+        EXPECT_EQ(data.layers.size(), 1u);
+    }
+
     TEST_F(
         AnimationControllerEditorUiTest, PlayUsesReadOnlyInstanceFeedbackAndNeverPublishesPreview) {
         source.playback = std::make_shared<const Comet::AnimationPlayback>(

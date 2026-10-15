@@ -16,6 +16,7 @@ namespace Comet {
     class AssetDatabase;
     class COMET_API Prefab;
     class COMET_API GameData;
+    struct AnimationLibrary;
     class ComponentRegistry;
     class ModelArtifact;
     struct ModelData;
@@ -40,6 +41,8 @@ namespace Comet {
             std::size_t environment_bytes);
 
         [[nodiscard]] Result<std::shared_ptr<GameData>, Error> load_data(AssetHandle handle);
+        [[nodiscard]] Result<std::shared_ptr<AnimationLibrary>, Error> load_animation_library(
+            AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<AnimationController>, Error> load_animation_controller(
             AssetHandle handle);
         Result<std::shared_ptr<Prefab>, Error> load_prefab(

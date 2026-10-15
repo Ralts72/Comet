@@ -1,6 +1,7 @@
 #include "asset/project_prepare.h"
 #include "asset/data/game_data.h"
 #include "asset/serialization/animation_controller_serializer.h"
+#include "asset/data/animation_library.h"
 #include "asset/default_assets.h"
 #include "asset/shader_program_import.h"
 #include "asset/database.h"
@@ -144,6 +145,12 @@ namespace Comet {
                     }
                     break;
                 }
+                case AssetType::AnimationLibrary: {
+                    auto library = AnimationLibrary::load(paths.assets() / record.path);
+                    if(!library)
+                        return Result<void>::failure(library.error());
+                    break;
+                }
                 case AssetType::AnimationController: {
                     auto controller =
                         AnimationControllerSerializer{}.load(paths.assets() / record.path);
@@ -230,6 +237,8 @@ namespace Comet {
                     return Result<void>::failure("Asset disappeared during preparation");
             }
             for(const auto dependency : record->dependencies) {
+                if(find_default_asset(dependency))
+                    continue;
                 const auto* input = database.find(dependency);
                 if(!input)
                     return Result<void>::failure(
@@ -461,6 +470,7 @@ namespace Comet {
                             return Result<void>::failure(script.error().message);
                         break;
                     }
+                    case AssetType::AnimationLibrary:
                     case AssetType::AnimationController:
                         break;
                     case AssetType::Audio: {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "asset/data/game_data.h"
+#include "asset/data/animation_library.h"
 
 #include "asset/asset_manager.h"
 #include "assets/source_operations.h"
@@ -35,6 +36,8 @@ namespace CometEditor {
             Comet::AssetImportLimits limits = {},
             AssetSourceOperations::TrashMover trash_mover = {});
 
+        [[nodiscard]] Comet::Result<Comet::AnimationLibrary> read_animation_library(
+            const Comet::AssetTarget& target) const;
         [[nodiscard]] Comet::Result<Comet::GameData> read_data(
             const Comet::AssetTarget& target) const;
         [[nodiscard]] Comet::AssetScanReport refresh();

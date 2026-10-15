@@ -4,6 +4,7 @@
 #include "asset/registry.h"
 #include "asset/data/texture_data.h"
 #include "render/resource/mesh.h"
+#include "asset/data/animation_library.h"
 namespace Comet::Tests {
     class SkinningGpuTest: public RenderGpuTest {
     protected:
@@ -243,18 +244,57 @@ namespace Comet::Tests {
         auto mesh = engine->get_render_resources().try_create_mesh(m_source);
         ASSERT_TRUE(mesh);
         ASSERT_TRUE(engine->get_asset_registry().replace_asset(AssetHandle(10), mesh.value()));
-        const auto frozen = std::make_shared<const AnimationPlayback>(
-            AnimationPlayback{.current = {.clip = "move",
-                                  .time = .5,
-                                  .second_clip = "long",
-                                  .weight = .5f,
-                                  .normalized_time = true},
-                .previous = {.clip = "move", .time = 0},
-                .blend = .5f});
+        const auto frozen = std::make_shared<const AnimationPlayback>(AnimationPlayback{
+            .current =
+                {.clip = "move", .time = .5, .blends = {{"long", .5f}}, .normalized_time = true},
+            .previous = {.clip = "move", .time = 0},
+            .blend = .5f});
         m_scene.render_items[0].animation = frozen;
         for(int frame = 0; frame < 4; ++frame)
             EXPECT_NEAR(centroid(), expected, 1);
         EXPECT_EQ(frozen->current.time, .5);
+        EXPECT_TRUE(messages.str().empty()) << messages.str();
+    }
+
+    TEST_F(SkinningGpuTest, LibraryTwoDimensionalBlendAndMaskedLayerReachTheSameGpuPose) {
+        // 三个同步片段得到 .15，40% 的覆盖层将其推进至 .29。
+        const double expected = centroid(.79);
+        auto source = std::make_shared<AnimationData>(*m_source.animation);
+        auto second = source->clips.front();
+        second.name = "long";
+        second.duration = 2;
+        second.channels.front().times.back() = 2;
+        second.channels.front().values.back().x = 1;
+        auto third = source->clips.front();
+        third.name = "third";
+        third.channels.front().values.back().x = 1.5f;
+        source->clips.push_back(second);
+        source->clips.push_back(third);
+        AnimationLibrary library;
+        library.entries = {{"a", AssetHandle(7), "move"}, {"b", AssetHandle(7), "long"},
+            {"c", AssetHandle(7), "third"}};
+        library.sources = {{AssetHandle(7), source}};
+        const auto target = m_source.animation;
+        auto bound = library.bind(*target);
+        ASSERT_TRUE(bound) << bound.error();
+        const std::vector<AnimationBlendPoint> points{{0, "a", 0}, {1, "b", 0}, {0, "c", 1}};
+        auto blend = blend_animation_2d(points, {.25f, .25f});
+        ASSERT_TRUE(blend);
+        AnimationPlayback frame{.current = blend.value()};
+        frame.current.time = .5;
+        frame.clips = std::make_shared<const AnimationData>(std::move(bound).value());
+        frame.clips_target = target;
+        frame.layers = {{{.clip = "a", .time = 1, .loop = false}, .4f, {"Bone"}}};
+        m_scene.render_items[0].animation = std::make_shared<const AnimationPlayback>(frame);
+        for(int i = 0; i < 4; ++i)
+            EXPECT_NEAR(centroid(), expected, 1);
+        auto pose = sample_animation(*target, &frame);
+        ASSERT_TRUE(pose);
+        frame.pose_source = target;
+        frame.pose = std::make_shared<const AnimationPose>(std::move(pose).value());
+        m_scene.render_items[0].animation = std::make_shared<const AnimationPlayback>(frame);
+        for(int i = 0; i < 4; ++i)
+            EXPECT_NEAR(centroid(), expected, 1);
         EXPECT_TRUE(messages.str().empty()) << messages.str();
     }
 

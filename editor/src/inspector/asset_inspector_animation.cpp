@@ -3,6 +3,15 @@
 #include <imgui.h>
 
 namespace CometEditor {
+    void AssetInspector::complete_asset_read(
+        const Comet::AssetTarget& request, Comet::Result<Comet::AnimationLibrary> result) {
+        if(request != m_loaded_target || !m_asset_database.is_current(request))
+            return;
+        if(result)
+            m_library_data = std::move(result).value();
+        else
+            m_asset_error = result.error();
+    }
     bool AssetInspector::finish_controller_edit() {
         if(!m_controller_data || !m_controller_saved || *m_controller_data == *m_controller_saved)
             return true;
@@ -23,6 +32,18 @@ namespace CometEditor {
                     : m_controller_editor.undo(*m_controller_data);
     }
 
+    std::optional<Comet::AssetTarget> AssetInspector::take_library_read() {
+        const auto handle = m_controller_data ? m_controller_data->library : Comet::AssetHandle{};
+        const Comet::AssetTarget target{handle, m_asset_database.get_revision(handle)};
+        if(target == m_library_target)
+            return std::nullopt;
+        m_library_target = target;
+        if(!handle) {
+            m_controller_editor.set_library(nullptr);
+            return std::nullopt;
+        }
+        return target;
+    }
     void AssetInspector::render_controller_window(AnimationPreview* preview) {
         if(!m_controller_data || !m_asset_database.is_current(m_loaded_target))
             return;
@@ -39,6 +60,11 @@ namespace CometEditor {
 
     void AssetInspector::render_animation_controller() {
         auto& data = *m_controller_data;
+        std::vector<std::pair<Comet::AssetHandle, std::string>> libraries;
+        for(const auto& record : m_asset_database.get_assets())
+            if(record.type == Comet::AssetType::AnimationLibrary)
+                libraries.emplace_back(record.handle, record.path.generic_string());
+        m_controller_editor.set_library_choices(std::move(libraries));
         if(ImGui::Button("打开动画控制器###Open Animation Controller"))
             m_controller_editor.open();
         m_controller_editor.render_details(data);

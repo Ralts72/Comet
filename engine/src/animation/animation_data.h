@@ -52,26 +52,38 @@ namespace Comet {
 
         [[nodiscard]] COMET_API const AnimationClip* find_clip(std::string_view name) const;
     };
-    // 一个片段，或共享相位的两个片段；normalized_time 为真时 time 的单位为周期。
+    struct AnimationBlendWeight {
+        std::string clip;
+        float weight = 0;
+        bool operator==(const AnimationBlendWeight&) const = default;
+    };
+    // clip 使用剩余权重；blends 保存额外片段。所有片段共享时间／周期相位。
     struct AnimationBlend {
         std::string clip;
         double time = 0;
         bool loop = true;
-        std::string second_clip;
-        float weight = 0;
+        std::vector<AnimationBlendWeight> blends;
         bool normalized_time = false;
-        [[nodiscard]] bool has_clip() const {
-            return !clip.empty() || (weight > 0 && !second_clip.empty());
-        }
+        [[nodiscard]] bool has_clip() const { return !clip.empty() || !blends.empty(); }
         bool operator==(const AnimationBlend&) const = default;
     };
     struct AnimationBlendPoint {
         float threshold;
         std::string clip;
+        float y = 0;
         bool operator==(const AnimationBlendPoint&) const = default;
     };
     [[nodiscard]] COMET_API Result<AnimationBlend> blend_animation_1d(
         std::span<const AnimationBlendPoint> points, float parameter);
+    [[nodiscard]] COMET_API Result<AnimationBlend> blend_animation_2d(
+        std::span<const AnimationBlendPoint> points, Math::Vec2 parameter);
+    struct AnimationLayer {
+        AnimationBlend sample;
+        float weight = 1;
+        // 命名节点及其全部后代；空遮罩覆盖全身。
+        std::vector<std::string> mask;
+        bool operator==(const AnimationLayer&) const = default;
+    };
     [[nodiscard]] COMET_API Result<float> animation_duration(
         const AnimationData& data, const AnimationBlend& sample);
     [[nodiscard]] COMET_API double animation_sample_time(double time, double duration, bool loop);
@@ -84,13 +96,19 @@ namespace Comet {
         float blend = 1;
         std::string state;
         std::string previous_state;
+        std::vector<AnimationLayer> layers;
+        // 动画库绑定后的只读片段，节点顺序与目标网格一致。
+        std::shared_ptr<const AnimationData> clips;
+        std::shared_ptr<const AnimationData> clips_target;
         // 有挂点的实例在 Main 采样，渲染线程借用同一份不可变姿态。
         std::shared_ptr<const AnimationData> pose_source;
         std::shared_ptr<const AnimationPose> pose;
         std::string pose_error;
         bool operator==(const AnimationPlayback& other) const {
             return current == other.current && previous == other.previous && blend == other.blend
-                   && state == other.state && previous_state == other.previous_state;
+                   && state == other.state && previous_state == other.previous_state
+                   && layers == other.layers && clips == other.clips
+                   && clips_target == other.clips_target;
         }
     };
     struct AnimationPose {

@@ -186,6 +186,9 @@ namespace CometEditor {
             m_connect_from = name;
         if(data.initial == previous)
             data.initial = name;
+        for(auto& layer : data.layers)
+            if(layer.state == previous)
+                layer.state = name;
         for(auto& transition : data.transitions) {
             if(transition.from == previous)
                 transition.from = name;
@@ -202,6 +205,11 @@ namespace CometEditor {
         if(data.states.size() <= 1)
             return;
         const auto name = data.states[index].name;
+        if(std::ranges::any_of(
+               data.layers, [&](const auto& layer) { return layer.state == name; })) {
+            m_error = "此状态仍被动画层引用，请先修改或删除对应层。";
+            return;
+        }
         data.states.erase(data.states.begin() + index);
         std::erase_if(data.transitions,
             [&](const auto& edge) { return edge.from == name || edge.to == name; });
@@ -215,6 +223,15 @@ namespace CometEditor {
 
     void AnimationControllerEditor::clip_choice(const char* label, std::string& name) {
         const auto* source = model();
+        if(m_library) {
+            if(ImGui::BeginCombo(label, name.c_str())) {
+                for(const auto& entry : m_library->entries)
+                    if(ImGui::Selectable(entry.name.c_str(), name == entry.name))
+                        name = entry.name;
+                ImGui::EndCombo();
+            }
+            return;
+        }
         if(!source) {
             Ui::input_text(label, name);
             ImGui::TextDisabled("选择预览角色后可从真实动作列表选择。");
@@ -241,9 +258,15 @@ namespace CometEditor {
             auto entry = data.parameters.extract(name);
             entry.key() = edited;
             data.parameters.insert(std::move(entry));
-            for(auto& state : data.states)
+            for(auto& state : data.states) {
                 if(state.parameter == name)
                     state.parameter = edited;
+                if(state.parameter_y == name)
+                    state.parameter_y = edited;
+            }
+            for(auto& layer : data.layers)
+                if(layer.weight_parameter == name)
+                    layer.weight_parameter = edited;
             for(auto& transition : data.transitions)
                 for(auto& condition : transition.conditions)
                     if(condition.parameter == name)
@@ -255,8 +278,11 @@ namespace CometEditor {
             m_parameter = edited;
             return;
         }
-        const bool blended = std::ranges::any_of(
-            data.states, [&](const auto& state) { return state.parameter == name; });
+        const bool blended = std::ranges::any_of(data.states, [&](const auto& state) {
+            return state.parameter == name || state.parameter_y == name;
+        }) || std::ranges::any_of(data.layers, [&](const auto& layer) {
+            return layer.weight_parameter == name;
+        });
         auto& value = found->second;
         int type = std::holds_alternative<bool>(value) ? 0 : 1;
         ImGui::BeginDisabled(blended);
@@ -298,8 +324,9 @@ namespace CometEditor {
             ImGui::TextColored({.4f, .85f, .45f, 1}, "初始状态");
         else if(ImGui::Button("设为初始状态"))
             data.initial = state.name;
-        int type = state.parameter.empty() ? 0 : 1;
-        if(ImGui::Combo("播放方式", &type, "单动画\0一维混合（1D）\0")) {
+        int type = state.parameter.empty() ? 0 : (state.parameter_y.empty() ? 1 : 2);
+        if(ImGui::Combo("播放方式", &type, "单动画\0一维混合（1D）\0二维混合（2D）\0")) {
+            state.parameter_y.clear();
             if(type == 0) {
                 state.parameter.clear();
                 state.motions.resize(1);
@@ -320,6 +347,13 @@ namespace CometEditor {
                 }
             }
         }
+        if(type == 2 && state.parameter_y.empty()) {
+            std::string name = "blend_y";
+            for(unsigned i = 1; data.parameters.contains(name); ++i)
+                name = "blend_y" + std::to_string(i);
+            data.parameters.emplace(name, 0.f);
+            state.parameter_y = name;
+        }
         ImGui::Checkbox("循环播放", &state.loop);
         if(state.parameter.empty()) {
             if(state.motions.empty())
@@ -333,9 +367,47 @@ namespace CometEditor {
                         state.parameter = key;
                 ImGui::EndCombo();
             }
+            if(type == 2 && ImGui::BeginCombo("Y 驱动参数", state.parameter_y.c_str())) {
+                for(const auto& [key, value] : data.parameters)
+                    if(std::holds_alternative<float>(value)
+                        && ImGui::Selectable(key.c_str(), key == state.parameter_y))
+                        state.parameter_y = key;
+                ImGui::EndCombo();
+            }
             ImGui::DragFloat("参数平滑 (s)", &state.smoothing, .01f, 0, 10);
-            ImGui::TextWrapped("参数落在两个点之间时混合相邻动画；阈值需递增。");
-            if(!state.motions.empty()) {
+            ImGui::TextWrapped(
+                type == 2 ? "X/Y 参数共同决定动作权重；采样位置不能重复，轴应使用相近量纲。"
+                          : "参数落在两个点之间时混合相邻动画；阈值需递增。");
+            if(type == 2 && !state.motions.empty()) {
+                const auto origin = ImGui::GetCursorScreenPos();
+                const float width = std::max(100.f, ImGui::GetContentRegionAvail().x);
+                float min_x = state.motions.front().threshold, max_x = min_x,
+                      min_y = state.motions.front().y, max_y = min_y;
+                for(const auto& p : state.motions) {
+                    min_x = std::min(min_x, p.threshold);
+                    max_x = std::max(max_x, p.threshold);
+                    min_y = std::min(min_y, p.y);
+                    max_y = std::max(max_y, p.y);
+                }
+                const auto position = [&](float x, float y) {
+                    return add(
+                        origin, {15 + (width - 30) * (x - min_x) / std::max(.001f, max_x - min_x),
+                                    135 - 120 * (y - min_y) / std::max(.001f, max_y - min_y)});
+                };
+                auto* draw = ImGui::GetWindowDrawList();
+                draw->AddRectFilled(origin, add(origin, {width, 150}), IM_COL32(30, 35, 42, 255));
+                for(const auto& p : state.motions) {
+                    const auto pos = position(p.threshold, p.y);
+                    draw->AddCircleFilled(pos, 4, IM_COL32(80, 170, 240, 255));
+                    draw->AddText(add(pos, {6, -12}), IM_COL32_WHITE, p.clip.c_str());
+                }
+                const auto value = data.blend_parameters(state, m_preview_values);
+                draw->AddCircle(
+                    position(std::clamp(value.x, min_x, max_x), std::clamp(value.y, min_y, max_y)),
+                    7, IM_COL32(250, 190, 75, 255));
+                ImGui::Dummy({width, 155});
+            }
+            if(type != 2 && !state.motions.empty()) {
                 const auto origin = ImGui::GetCursorScreenPos();
                 const float width = std::max(80.f, ImGui::GetContentRegionAvail().x - 30);
                 auto* draw = ImGui::GetWindowDrawList();
@@ -361,7 +433,9 @@ namespace CometEditor {
             for(std::size_t i = 0; i < state.motions.size(); ++i) {
                 ImGui::PushID(int(i));
                 ImGui::SetNextItemWidth(85);
-                ImGui::DragFloat("阈值", &state.motions[i].threshold, .1f);
+                ImGui::DragFloat(type == 2 ? "X" : "阈值", &state.motions[i].threshold, .1f);
+                if(type == 2)
+                    ImGui::DragFloat("Y", &state.motions[i].y, .1f);
                 clip_choice("动画片段", state.motions[i].clip);
                 if(state.motions.size() > 1 && ImGui::SmallButton("移除片段"))
                     removed = i;
@@ -541,8 +615,100 @@ namespace CometEditor {
         }
     }
 
+    void AnimationControllerEditor::render_layers(Controller& data) {
+        std::string selected = "使用模型自带片段";
+        for(const auto& [handle, name] : m_libraries)
+            if(handle == data.library)
+                selected = name;
+        if(data.library && selected == "使用模型自带片段")
+            selected = "缺失动画库";
+        if(ImGui::BeginCombo("动画库", selected.c_str())) {
+            if(ImGui::Selectable("使用模型自带片段", !data.library)) {
+                data.library = {};
+                m_library.reset();
+            }
+            for(const auto& [handle, name] : m_libraries)
+                if(ImGui::Selectable(name.c_str(), handle == data.library)
+                    && handle != data.library) {
+                    data.library = handle;
+                    m_library.reset();
+                }
+            ImGui::EndCombo();
+        }
+        ImGui::TextWrapped(
+            "层按列表顺序覆盖基础状态。遮罩节点包含全部后代；空遮罩覆盖全身。层共用参数，独立播放；事件只来自基础状态。");
+        std::optional<std::size_t> removed;
+        for(std::size_t i = 0; i < data.layers.size(); ++i) {
+            auto& layer = data.layers[i];
+            ImGui::PushID(int(i));
+            Ui::input_text("层名称", layer.name);
+            state_choice("动作状态", layer.state, data, false);
+            ImGui::SliderFloat("权重", &layer.weight, 0, 1);
+            if(ImGui::BeginCombo("权重参数",
+                   layer.weight_parameter.empty() ? "固定权重" : layer.weight_parameter.c_str())) {
+                if(ImGui::Selectable("固定权重", layer.weight_parameter.empty()))
+                    layer.weight_parameter.clear();
+                for(const auto& [name, value] : data.parameters)
+                    if(std::holds_alternative<float>(value)
+                        && ImGui::Selectable(name.c_str(), name == layer.weight_parameter))
+                        layer.weight_parameter = name;
+                ImGui::EndCombo();
+            }
+            std::optional<std::size_t> remove_bone;
+            for(std::size_t j = 0; j < layer.mask.size(); ++j) {
+                ImGui::PushID(int(j));
+                if(const auto* source = model()) {
+                    if(ImGui::BeginCombo("遮罩根节点", layer.mask[j].c_str())) {
+                        for(const auto& node : source->animation->nodes)
+                            if(ImGui::Selectable(node.name.c_str(), layer.mask[j] == node.name))
+                                layer.mask[j] = node.name;
+                        ImGui::EndCombo();
+                    }
+                    if(std::ranges::find(
+                           source->animation->nodes, layer.mask[j], &Comet::AnimationNode::name)
+                        == source->animation->nodes.end())
+                        ImGui::TextColored({1, .45f, .35f, 1}, "预览模型缺少此节点");
+                } else
+                    Ui::input_text("遮罩根节点", layer.mask[j]);
+                ImGui::SameLine();
+                if(ImGui::SmallButton("移除"))
+                    remove_bone = j;
+                ImGui::PopID();
+            }
+            if(remove_bone)
+                layer.mask.erase(layer.mask.begin() + *remove_bone);
+            if(ImGui::SmallButton("添加遮罩节点"))
+                layer.mask.emplace_back();
+            ImGui::SameLine();
+            if(ImGui::SmallButton("删除层"))
+                removed = i;
+            if(i > 0) {
+                ImGui::SameLine();
+                if(ImGui::SmallButton("上移"))
+                    std::swap(data.layers[i], data.layers[i - 1]);
+            }
+            ImGui::Separator();
+            ImGui::PopID();
+        }
+        if(removed)
+            data.layers.erase(data.layers.begin() + *removed);
+        ImGui::BeginDisabled(data.layers.size() >= 8 || data.states.empty());
+        if(ImGui::Button("添加动画层")) {
+            for(unsigned i = 1;; ++i) {
+                const auto name = "layer" + std::to_string(i);
+                if(std::ranges::any_of(
+                       data.layers, [&](const auto& layer) { return layer.name == name; }))
+                    continue;
+                data.layers.push_back({name, data.states.front().name});
+                break;
+            }
+        }
+        ImGui::EndDisabled();
+    }
     void AnimationControllerEditor::render_details(Controller& data) {
         const auto before = data;
+        if(ImGui::CollapsingHeader("动画库与分层"))
+            render_layers(data);
         if(m_state && *m_state < data.states.size())
             render_state(data, *m_state);
         else if(m_transition && *m_transition < data.transitions.size())
@@ -646,20 +812,41 @@ namespace CometEditor {
             return;
         }
         const auto& state = data.states[*m_preview_index];
-        Comet::AnimationBlend sample;
-        if(state.parameter.empty() && !state.motions.empty())
-            sample.clip = state.motions.front().clip;
-        else if(const auto* value = data.parameter(state.parameter, m_preview_values);
-            value && std::holds_alternative<float>(*value)) {
-            auto blended = Comet::blend_animation_1d(state.motions, std::get<float>(*value));
-            if(!blended) {
-                preview->stop();
-                ImGui::TextColored({1, .45f, .35f, 1}, "%s", blended.error().c_str());
-                return;
-            }
-            sample = std::move(blended).value();
+        if(data.library && !m_library) {
+            preview->stop();
+            ImGui::TextWrapped("动画库不可用：%s", m_library_error.c_str());
+            return;
         }
-        sample.loop = state.loop;
+        if(auto bound = preview->set_library(data.library ? m_library : nullptr); !bound) {
+            preview->stop();
+            ImGui::TextWrapped("%s", bound.error().c_str());
+            return;
+        }
+        auto mixed = data.sample(state, data.blend_parameters(state, m_preview_values));
+        if(!mixed) {
+            preview->stop();
+            ImGui::TextWrapped("%s", mixed.error().c_str());
+            return;
+        }
+        auto sample = std::move(mixed).value();
+        std::vector<Comet::AnimationLayer> layers;
+        for(const auto& layer : data.layers) {
+            const auto* layer_state = data.find_state(layer.state);
+            if(!layer_state)
+                continue;
+            auto mixed_layer =
+                data.sample(*layer_state, data.blend_parameters(*layer_state, m_preview_values));
+            if(!mixed_layer)
+                continue;
+            float weight = layer.weight;
+            if(!layer.weight_parameter.empty()) {
+                const auto* value = data.parameter(layer.weight_parameter, m_preview_values);
+                if(value && std::holds_alternative<float>(*value))
+                    weight *= std::clamp(std::get<float>(*value), 0.f, 1.f);
+            }
+            layers.push_back({std::move(mixed_layer).value(), weight, layer.mask});
+        }
+        preview->set_layers(std::move(layers));
         if(!preview->select_sample(sample, m_preview_state != state.name)) {
             preview->stop();
             ImGui::TextColored({1, .45f, .35f, 1}, "预览角色缺少此状态的动画片段。");
@@ -686,11 +873,14 @@ namespace CometEditor {
         ImGui::SetNextItemWidth(80);
         if(ImGui::DragFloat("播放倍率", &speed, .05f, 0, 4, "%.2f", ImGuiSliderFlags_AlwaysClamp))
             static_cast<void>(preview->set_speed(speed));
-        if(sample.second_clip.empty())
-            ImGui::Text("%s", sample.clip.c_str());
-        else
-            ImGui::Text("%s %.0f%% + %s %.0f%%", sample.clip.c_str(), (1 - sample.weight) * 100,
-                sample.second_clip.c_str(), sample.weight * 100);
+        float base = 1;
+        for(const auto& part : sample.blends)
+            base -= part.weight;
+        ImGui::Text("%s %.0f%%", sample.clip.c_str(), base * 100);
+        for(const auto& part : sample.blends) {
+            ImGui::SameLine();
+            ImGui::Text("+ %s %.0f%%", part.clip.c_str(), part.weight * 100);
+        }
     }
 
     void AnimationControllerEditor::render_graph(Controller& data) {
@@ -788,7 +978,10 @@ namespace CometEditor {
             std::string kind = "可从任意状态进入目标";
             if(index) {
                 const auto& state = data.states[*index];
-                kind = state.parameter.empty() ? "单动画" : "1D 混合 · " + state.parameter;
+                kind = state.parameter.empty()
+                           ? "单动画"
+                           : (state.parameter_y.empty() ? "1D 混合 · " : "2D 混合 · ")
+                                 + state.parameter;
                 if(state.parameter.empty() && !state.motions.empty())
                     kind += " · " + state.motions.front().clip;
             }
@@ -879,7 +1072,7 @@ namespace CometEditor {
                 if(data.find_state(name))
                     continue;
                 data.states.push_back({name});
-                if(model())
+                if(model() && !model()->animation->clips.empty())
                     data.states.back().motions.front().clip =
                         model()->animation->clips.front().name;
                 select_state(data.states.size() - 1);

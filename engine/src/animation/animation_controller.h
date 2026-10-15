@@ -2,6 +2,7 @@
 
 #include "animation/animation_data.h"
 #include "common/parameters.h"
+#include "asset/handle.h"
 
 namespace Comet {
     // 共享定义只描述参数、采样和过渡；角色／物理条件由 Gameplay 提供。
@@ -19,6 +20,7 @@ namespace Comet {
             float smoothing = 0;
             bool loop = true;
             std::vector<Event> events;
+            std::string parameter_y;
             bool operator==(const State&) const = default;
         };
         struct Condition {
@@ -37,10 +39,23 @@ namespace Comet {
             std::vector<Condition> conditions;
             bool operator==(const Transition&) const = default;
         };
+        struct Layer {
+            std::string name;
+            std::string state;
+            float weight = 1;
+            std::string weight_parameter;
+            std::vector<std::string> mask;
+            bool operator==(const Layer&) const = default;
+        };
         ParameterMap parameters;
         std::string initial = "idle";
         std::vector<State> states{{"idle"}};
         std::vector<Transition> transitions;
+        AssetHandle library;
+        std::vector<Layer> layers;
+        [[nodiscard]] Result<AnimationBlend> sample(const State& state, Math::Vec2 value) const;
+        [[nodiscard]] Math::Vec2 blend_parameters(
+            const State& state, const ParameterMap& overrides) const;
 
         [[nodiscard]] Result<void> validate() const;
         [[nodiscard]] Result<void> validate_parameters(const ParameterMap& overrides) const;

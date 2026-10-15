@@ -27,6 +27,8 @@ namespace CometEditor {
         void select(Comet::AssetHandle handle);
         void complete_asset_read(
             const Comet::AssetTarget& request, Comet::Result<Comet::GameData> result);
+        void complete_asset_read(
+            const Comet::AssetTarget& request, Comet::Result<Comet::AnimationLibrary> result);
         void render(std::uint64_t generation, bool allow_drop);
         void set_material_layouts(
             std::vector<std::shared_ptr<const Comet::MaterialLayout>> layouts);
@@ -41,6 +43,7 @@ namespace CometEditor {
         [[nodiscard]] std::optional<Comet::AssetHandle> take_selection_request();
         [[nodiscard]] bool finish_controller_edit();
         void render_controller_window(AnimationPreview* preview);
+        [[nodiscard]] std::optional<Comet::AssetTarget> take_library_read();
         void open_controller(Comet::AssetHandle handle);
         [[nodiscard]] AnimationControllerEditor& controller_editor() { return m_controller_editor; }
         [[nodiscard]] bool controller_active() const { return m_controller_data.has_value(); }
@@ -75,10 +78,12 @@ namespace CometEditor {
         const Comet::MaterialProgramValidator& m_material_parameters;
         Comet::AssetHandle m_selected_asset;
         Comet::AssetTarget m_loaded_target;
+        Comet::AssetTarget m_library_target;
         std::optional<Comet::TextureImportSettings> m_texture_import_settings;
         std::optional<Comet::AudioImportSettings> m_audio_import_settings;
         std::optional<Comet::MaterialData> m_material_data;
         std::optional<Comet::GameData> m_data;
+        std::optional<Comet::AnimationLibrary> m_library_data;
         std::optional<Comet::MaterialData> m_material_before;
         std::optional<Comet::AnimationController> m_controller_data;
         std::optional<Comet::AnimationController> m_controller_saved;

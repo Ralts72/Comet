@@ -1,0 +1,39 @@
+{
+  "clips": [
+    {
+      "name": "idle",
+      "mesh": "13857136248767905793",
+      "clip": "idle"
+    },
+    {
+      "name": "walk",
+      "mesh": "13857136248767905793",
+      "clip": "walk"
+    },
+    {
+      "name": "run",
+      "mesh": "13857136248767905793",
+      "clip": "run"
+    },
+    {
+      "name": "crouch",
+      "mesh": "13857136248767905793",
+      "clip": "crouch"
+    },
+    {
+      "name": "crouch_walk",
+      "mesh": "13857136248767905793",
+      "clip": "crouch_walk"
+    },
+    {
+      "name": "jump",
+      "mesh": "13857136248767905793",
+      "clip": "jump"
+    },
+    {
+      "name": "fall",
+      "mesh": "13857136248767905793",
+      "clip": "fall"
+    }
+  ]
+}

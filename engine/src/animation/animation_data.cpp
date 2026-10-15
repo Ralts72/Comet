@@ -86,21 +86,71 @@ namespace Comet {
             }
         }
 
+        Result<float> base_weight(const AnimationBlend& sample) {
+            double total = 0;
+            for(const auto& part : sample.blends) {
+                if(!std::isfinite(part.weight) || part.weight < 0 || part.weight > 1)
+                    return Result<float>::failure("Invalid animation blend weight");
+                total += part.weight;
+            }
+            if(total > 1.00001 || sample.blends.size() > 64 || !std::isfinite(sample.time))
+                return Result<float>::failure("Invalid animation blend");
+            return Result<float>::success(float(std::max(0.0, 1 - total)));
+        }
         Result<std::vector<JointTransform>> blended_pose(
             const AnimationData& data, const AnimationBlend& sample) {
-            if(!std::isfinite(sample.time) || !std::isfinite(sample.weight) || sample.weight < 0
-                || sample.weight > 1)
-                return Result<std::vector<JointTransform>>::failure("Invalid animation blend");
-            auto pose =
-                local_pose(data, sample.clip, sample.time, sample.loop, sample.normalized_time);
-            if(!pose || sample.weight == 0)
+            auto base = base_weight(sample);
+            if(!base)
+                return Result<std::vector<JointTransform>>::failure(base.error());
+            auto pose = local_pose(data, base.value() > 0 ? sample.clip : std::string{},
+                sample.time, sample.loop, sample.normalized_time);
+            if(!pose)
                 return pose;
-            auto second = local_pose(
-                data, sample.second_clip, sample.time, sample.loop, sample.normalized_time);
-            if(!second)
-                return second;
-            blend_pose(pose.value(), second.value(), sample.weight);
+            float accumulated = base.value();
+            for(const auto& part : sample.blends) {
+                if(part.weight == 0)
+                    continue;
+                auto next =
+                    local_pose(data, part.clip, sample.time, sample.loop, sample.normalized_time);
+                if(!next)
+                    return next;
+                accumulated += part.weight;
+                blend_pose(pose.value(), next.value(), part.weight / accumulated);
+            }
             return pose;
+        }
+        Result<void> apply_layer(const AnimationData& data, const AnimationLayer& layer,
+            std::vector<JointTransform>& pose) {
+            if(!std::isfinite(layer.weight) || layer.weight < 0 || layer.weight > 1)
+                return Result<void>::failure("Invalid animation layer weight");
+            std::vector<bool> included(data.nodes.size(), layer.mask.empty());
+            for(const auto& name : layer.mask) {
+                const auto found = std::ranges::find(data.nodes, name, &AnimationNode::name);
+                if(found == data.nodes.end()
+                    || std::count_if(data.nodes.begin(), data.nodes.end(), [&](const auto& node) {
+                           return node.name == name;
+                       }) != 1)
+                    return Result<void>::failure("Missing or ambiguous mask node: " + name);
+                included[std::size_t(found - data.nodes.begin())] = true;
+            }
+            if(layer.weight == 0)
+                return Result<void>::success();
+            auto overlay = blended_pose(data, layer.sample);
+            if(!overlay)
+                return Result<void>::failure(overlay.error());
+            for(const auto index : data.evaluation_order) {
+                const auto parent = data.nodes[index].parent;
+                if(parent != NO_ANIMATION_NODE && included[parent])
+                    included[index] = true;
+                if(!included[index])
+                    continue;
+                auto& node = pose[index];
+                const auto& other = overlay.value()[index];
+                node.translation = glm::mix(node.translation, other.translation, layer.weight);
+                node.rotation = glm::slerp(node.rotation, other.rotation, layer.weight);
+                node.scale = glm::mix(node.scale, other.scale, layer.weight);
+            }
+            return Result<void>::success();
         }
     }
 
@@ -132,30 +182,79 @@ namespace Comet {
         else {
             const auto& lower = *(upper - 1);
             result.clip = lower.clip;
-            result.second_clip = upper->clip;
-            result.weight = float((double(parameter) - lower.threshold)
-                                  / (double(upper->threshold) - lower.threshold));
+            result.blends.push_back(
+                {upper->clip, float((double(parameter) - lower.threshold)
+                                    / (double(upper->threshold) - lower.threshold))});
         }
         return Result<AnimationBlend>::success(std::move(result));
     }
 
+    Result<AnimationBlend> blend_animation_2d(
+        std::span<const AnimationBlendPoint> points, Math::Vec2 parameter) {
+        using ResultType = Result<AnimationBlend>;
+        if(points.empty() || points.size() > 64 || !Math::is_finite(parameter))
+            return ResultType::failure("2D blend needs 1..64 points and finite parameters");
+        std::vector<double> weights(points.size(), 1);
+        double total = 0;
+        // 每对采样点定义一条线性权重带；归一化后支持不规则、共线及边界外输入。
+        for(std::size_t i = 0; i < points.size(); ++i) {
+            const auto& a = points[i];
+            if(!std::isfinite(a.threshold) || !std::isfinite(a.y))
+                return ResultType::failure("Non-finite 2D blend point");
+            for(std::size_t j = 0; j < points.size(); ++j) {
+                if(i == j)
+                    continue;
+                const auto& b = points[j];
+                const double x = double(b.threshold) - a.threshold, y = double(b.y) - a.y;
+                const double distance = x * x + y * y;
+                if(!std::isfinite(distance) || distance < 1e-12)
+                    return ResultType::failure("2D blend points must be distinct");
+                const double projection =
+                    ((double(parameter.x) - a.threshold) * x + (double(parameter.y) - a.y) * y)
+                    / distance;
+                weights[i] = std::min(weights[i], std::clamp(1 - projection, 0.0, 1.0));
+            }
+            total += weights[i];
+        }
+        if(total <= 0)
+            return ResultType::failure("Cannot resolve 2D blend weights");
+        AnimationBlend result{.normalized_time = true};
+        bool first = true;
+        for(std::size_t i = 0; i < points.size(); ++i) {
+            if(weights[i] <= 0)
+                continue;
+            if(first) {
+                result.clip = points[i].clip;
+                first = false;
+            } else
+                result.blends.push_back({points[i].clip, float(weights[i] / total)});
+        }
+        return ResultType::success(std::move(result));
+    }
     Result<float> animation_duration(const AnimationData& data, const AnimationBlend& sample) {
-        if(!std::isfinite(sample.weight) || sample.weight < 0 || sample.weight > 1)
-            return Result<float>::failure("Invalid animation blend weight");
-        const auto* first = data.find_clip(sample.clip);
-        if(!first && !sample.clip.empty())
-            return Result<float>::failure("Animation clip is missing: " + sample.clip);
-        const float first_duration = first ? first->duration : 0;
-        if(sample.weight == 0)
-            return Result<float>::success(first_duration);
-        const auto* second = data.find_clip(sample.second_clip);
-        if(!second && !sample.second_clip.empty())
-            return Result<float>::failure("Animation clip is missing: " + sample.second_clip);
-        const float second_duration = second ? second->duration : 0;
-        // 绑定姿态／静态片段不缩短另一片段的周期。
-        if(first_duration == 0 || second_duration == 0)
-            return Result<float>::success(std::max(first_duration, second_duration));
-        return Result<float>::success(glm::mix(first_duration, second_duration, sample.weight));
+        auto base = base_weight(sample);
+        if(!base)
+            return base;
+        float duration = 0, total = 0;
+        const auto accumulate = [&](const std::string& name, float weight) -> Result<void> {
+            if(weight == 0 || name.empty())
+                return Result<void>::success();
+            const auto* clip = data.find_clip(name);
+            if(!clip)
+                return Result<void>::failure("Animation clip is missing: " + name);
+            // 静态片段不缩短运动片段的周期。
+            if(clip->duration > 0) {
+                duration += clip->duration * weight;
+                total += weight;
+            }
+            return Result<void>::success();
+        };
+        if(auto status = accumulate(sample.clip, base.value()); !status)
+            return Result<float>::failure(status.error());
+        for(const auto& part : sample.blends)
+            if(auto status = accumulate(part.clip, part.weight); !status)
+                return Result<float>::failure(status.error());
+        return Result<float>::success(total > 0 ? duration / total : 0);
     }
     const AnimationClip* AnimationData::find_clip(const std::string_view name) const {
         for(const auto& clip : clips)
@@ -219,15 +318,23 @@ namespace Comet {
         if(playback
             && (!std::isfinite(playback->blend) || playback->blend < 0 || playback->blend > 1))
             return Result<AnimationPose>::failure("Invalid animation playback time");
-        auto local = blended_pose(data, playback ? playback->current : AnimationBlend{});
+        if(playback && playback->clips && playback->clips_target.get() != &data)
+            return Result<AnimationPose>::failure(
+                "Animation library target changed; rebind required");
+        const auto& clips = playback && playback->clips ? *playback->clips : data;
+        auto local = blended_pose(clips, playback ? playback->current : AnimationBlend{});
         if(!local)
             return Result<AnimationPose>::failure(local.error());
         if(playback && playback->blend < 1 && playback->previous.has_clip()) {
-            auto previous = blended_pose(data, playback->previous);
+            auto previous = blended_pose(clips, playback->previous);
             if(!previous)
                 return Result<AnimationPose>::failure(previous.error());
             blend_pose(local.value(), previous.value(), 1 - playback->blend);
         }
+        if(playback)
+            for(const auto& layer : playback->layers)
+                if(auto status = apply_layer(clips, layer, local.value()); !status)
+                    return Result<AnimationPose>::failure(status.error());
         std::vector<Math::Mat4> world(data.nodes.size());
         for(const auto index : data.evaluation_order) {
             const auto& node = local.value()[index];

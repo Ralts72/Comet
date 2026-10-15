@@ -22,6 +22,7 @@ namespace CometEditor {
     void AnimationPreview::reset() {
         m_target = {};
         m_animation.reset();
+        m_library.reset();
         m_frame = {.current = {.loop = false}};
         m_snapshot.reset();
         m_playing = false;
@@ -30,18 +31,19 @@ namespace CometEditor {
     }
 
     const Comet::AnimationClip* AnimationPreview::clip() const {
-        return m_animation ? m_animation->find_clip(m_frame.current.clip) : nullptr;
+        return m_animation ? clips()->find_clip(m_frame.current.clip) : nullptr;
     }
 
     bool AnimationPreview::select_clip(std::string_view name) {
-        if(!m_animation || !m_animation->find_clip(name))
+        if(!m_animation || !clips()->find_clip(name))
             return false;
-        m_frame.current.clip = name;
+        m_frame.current = {.clip = std::string(name), .loop = false};
+        m_frame.layers.clear();
         return seek(0);
     }
 
     bool AnimationPreview::select_sample(Comet::AnimationBlend sample, bool restart) {
-        if(!m_animation || !Comet::animation_duration(*m_animation, sample))
+        if(!m_animation || !Comet::animation_duration(*clips(), sample))
             return false;
         if(!restart && sample.normalized_time == m_frame.current.normalized_time)
             sample.time = m_frame.current.time;
@@ -56,7 +58,7 @@ namespace CometEditor {
     double AnimationPreview::duration() const {
         if(!m_animation)
             return 0;
-        const auto duration = Comet::animation_duration(*m_animation, m_frame.current);
+        const auto duration = Comet::animation_duration(*clips(), m_frame.current);
         if(!duration)
             return 0;
         return m_frame.current.normalized_time ? 1 : duration.value();
@@ -67,6 +69,12 @@ namespace CometEditor {
         if(!selected || !std::isfinite(time))
             return false;
         m_frame.current.time = std::clamp(time, 0.0, duration());
+        for(auto& layer : m_frame.layers) {
+            auto period = Comet::animation_duration(*clips(), layer.sample);
+            const double phase = duration() > 0 ? m_frame.current.time / duration() : 0;
+            layer.sample.time =
+                layer.sample.normalized_time ? phase : phase * (period ? period.value() : 0);
+        }
         pause();
         publish();
         return true;
@@ -86,6 +94,8 @@ namespace CometEditor {
     void AnimationPreview::stop() {
         pause();
         m_frame.current.time = 0;
+        for(auto& layer : m_frame.layers)
+            layer.sample.time = 0;
         m_snapshot.reset();
     }
 
@@ -102,7 +112,7 @@ namespace CometEditor {
             return;
         double step = delta_time * m_speed;
         if(m_frame.current.normalized_time) {
-            const auto period = Comet::animation_duration(*m_animation, m_frame.current);
+            const auto period = Comet::animation_duration(*clips(), m_frame.current);
             if(!period || period.value() <= 0)
                 return;
             step /= period.value();
@@ -113,9 +123,47 @@ namespace CometEditor {
         m_frame.current.time = Comet::animation_sample_time(next, duration(), m_loop);
         if(!m_loop && m_frame.current.time == duration())
             pause();
+        for(auto& layer : m_frame.layers) {
+            const auto period = Comet::animation_duration(*clips(), layer.sample);
+            if(!period || period.value() <= 0)
+                continue;
+            const auto seconds = delta_time * m_speed;
+            const double step = layer.sample.normalized_time ? seconds / period.value() : seconds;
+            layer.sample.time = Comet::animation_sample_time(layer.sample.time + step,
+                layer.sample.normalized_time ? 1 : period.value(), layer.sample.loop);
+        }
         publish();
     }
 
+    Comet::Result<void> AnimationPreview::set_library(
+        std::shared_ptr<const Comet::AnimationLibrary> library) {
+        if(library == m_library)
+            return Comet::Result<void>::success();
+        if(library) {
+            if(!m_animation)
+                return Comet::Result<void>::failure("Preview has no skeleton");
+            auto bound = library->bind(*m_animation);
+            if(!bound)
+                return Comet::Result<void>::failure(bound.error());
+            m_frame.clips = std::make_shared<const Comet::AnimationData>(std::move(bound).value());
+            m_frame.clips_target = m_animation;
+        } else {
+            m_frame.clips.reset();
+            m_frame.clips_target.reset();
+        }
+        m_library = std::move(library);
+        publish();
+        return Comet::Result<void>::success();
+    }
+    void AnimationPreview::set_layers(std::vector<Comet::AnimationLayer> layers) {
+        for(std::size_t i = 0; i < layers.size() && i < m_frame.layers.size(); ++i)
+            if((layers[i].sample.normalized_time && m_frame.layers[i].sample.normalized_time)
+                || layers[i].sample.clip == m_frame.layers[i].sample.clip)
+                layers[i].sample.time = m_frame.layers[i].sample.time;
+        m_frame.layers = std::move(layers);
+        if(m_snapshot)
+            publish();
+    }
     void AnimationPreview::publish() {
         if(!m_snapshot || *m_snapshot != m_frame)
             m_snapshot = std::make_shared<const Comet::AnimationPlayback>(m_frame);

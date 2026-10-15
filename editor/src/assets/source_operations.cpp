@@ -1,6 +1,7 @@
 #include "assets/source_operations.h"
 #include "asset/data/game_data.h"
 #include "asset/serialization/animation_controller_serializer.h"
+#include "asset/data/animation_library.h"
 #include "scene/prefab.h"
 
 #include "common/result.h"
@@ -132,6 +133,7 @@ namespace CometEditor::AssetSourceOperations {
                 case AssetType::Environment:
                 case AssetType::Script:
                 case AssetType::Audio:
+                case AssetType::AnimationLibrary:
                 case AssetType::AnimationController:
                 case AssetType::Data:
                     return type;
@@ -554,6 +556,10 @@ namespace CometEditor::AssetSourceOperations {
                 case AssetType::Data:
                     if(auto data = GameData::load(source); !data)
                         return Result<void>::failure(data.error());
+                    break;
+                case AssetType::AnimationLibrary:
+                    if(auto library = Comet::AnimationLibrary::load(source); !library)
+                        return Result<void>::failure(library.error());
                     break;
                 case AssetType::AnimationController:
                     if(auto controller = AnimationControllerSerializer{}.load(source); !controller)
@@ -989,6 +995,8 @@ return script
             return true;
         if(extension == ".lua")
             return record->type == AssetType::Script;
+        if(extension == ".anilib")
+            return record->type == AssetType::AnimationLibrary;
         if(extension == ".ani")
             return record->type == AssetType::AnimationController;
         if(extension == ".shader")

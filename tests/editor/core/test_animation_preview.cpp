@@ -38,28 +38,25 @@ namespace CometEditor::Tests {
         second.duration = 2;
         second.channels.front().times.back() = 2;
         data->clips.push_back(second);
-        Comet::AnimationBlend sample{.clip = "move",
-            .loop = true,
-            .second_clip = "long",
-            .weight = .5f,
-            .normalized_time = true};
+        Comet::AnimationBlend sample{
+            .clip = "move", .loop = true, .blends = {{"long", .5f}}, .normalized_time = true};
         ASSERT_TRUE(preview.select_sample(sample, true));
         ASSERT_TRUE(preview.play());
         preview.advance(.75);
         ASSERT_TRUE(preview.snapshot());
         EXPECT_NEAR(preview.time(), .5, 1e-6);
         const auto captured = preview.snapshot();
-        sample.weight = .75f;
+        sample.blends.front().weight = .75f;
         ASSERT_TRUE(preview.select_sample(sample));
         EXPECT_NEAR(preview.time(), .5, 1e-6);
-        EXPECT_EQ(captured->current.weight, .5f);
+        EXPECT_EQ(captured->current.blends.front().weight, .5f);
         ASSERT_TRUE(preview.seek(.8));
         preview.advance(.5);
         EXPECT_NEAR(preview.time(), .8, 1e-6);
         preview.stop();
         ASSERT_TRUE(preview.select_sample(sample));
         EXPECT_FALSE(preview.snapshot());
-        sample.second_clip = "missing";
+        sample.blends.front().clip = "missing";
         EXPECT_FALSE(preview.select_sample(sample));
     }
 

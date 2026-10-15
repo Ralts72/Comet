@@ -184,7 +184,8 @@ namespace Comet {
             if(asset != m_handles_by_path.end()) {
                 const auto type = m_assets.at(asset->second).type;
                 if(type == AssetType::Material || type == AssetType::ShaderProgram
-                    || type == AssetType::Data)
+                    || type == AssetType::Data || type == AssetType::AnimationLibrary
+                    || type == AssetType::AnimationController)
                     return std::nullopt;
                 affected.insert(asset->second);
             }

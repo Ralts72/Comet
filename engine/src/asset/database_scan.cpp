@@ -1,4 +1,6 @@
 #include "asset/data/game_data.h"
+#include "asset/data/animation_library.h"
+#include "asset/serialization/animation_controller_serializer.h"
 #include "asset/default_assets.h"
 #include "asset/database.h"
 #include "asset/data/material_data.h"
@@ -25,7 +27,8 @@ namespace Comet {
             std::filesystem::path relative_path;
             AssetType expected_type = AssetType::Unknown;
             std::optional<AssetMetadata> metadata;
-            std::variant<std::monostate, MaterialData, ShaderProgramData, GameData, std::string>
+            std::variant<std::monostate, MaterialData, ShaderProgramData, GameData,
+                AnimationLibrary, AnimationController, std::string>
                 parsed_source;
         };
 
@@ -294,7 +297,19 @@ namespace Comet {
                     continue;
                 }
             }
-            if(candidate.expected_type == AssetType::Data) {
+            if(candidate.expected_type == AssetType::AnimationLibrary) {
+                auto data = AnimationLibrary::load(source);
+                if(data)
+                    candidate.parsed_source = std::move(data).value();
+                else
+                    candidate.parsed_source = data.error();
+            } else if(candidate.expected_type == AssetType::AnimationController) {
+                auto data = AnimationControllerSerializer{}.load(source);
+                if(data)
+                    candidate.parsed_source = std::move(data).value();
+                else
+                    candidate.parsed_source = data.error();
+            } else if(candidate.expected_type == AssetType::Data) {
                 auto data = GameData::load(source);
                 if(data)
                     candidate.parsed_source = std::move(data).value();
@@ -543,6 +558,41 @@ namespace Comet {
                             + std::to_string(reference.handle.value()));
                 record.dependencies.push_back(reference.handle);
                 dependents_by_dependency[reference.handle].push_back(record.handle);
+            }
+            std::ranges::sort(record.dependencies);
+            record.dependencies.erase(
+                std::unique(record.dependencies.begin(), record.dependencies.end()),
+                record.dependencies.end());
+        }
+
+        for(const auto& candidate : candidates) {
+            if(candidate.expected_type != AssetType::AnimationLibrary
+                && candidate.expected_type != AssetType::AnimationController)
+                continue;
+            const auto found = handles_by_path.find(candidate.relative_path);
+            if(found == handles_by_path.end())
+                continue;
+            auto& record = assets.at(found->second);
+            const auto add = [&](AssetHandle handle, AssetType type) {
+                const auto input = assets.find(handle);
+                const auto* builtin = find_default_asset(handle);
+                if((input == assets.end() && (!builtin || builtin->type != type))
+                    || (input != assets.end() && input->second.type != type))
+                    add_issue(report, record.path,
+                        "Missing or mistyped animation dependency: "
+                            + std::to_string(handle.value()));
+                record.dependencies.push_back(handle);
+                dependents_by_dependency[handle].push_back(record.handle);
+            };
+            if(const auto* library = std::get_if<AnimationLibrary>(&candidate.parsed_source)) {
+                for(const auto& entry : library->entries)
+                    add(entry.mesh, AssetType::Mesh);
+            } else if(const auto* controller =
+                          std::get_if<AnimationController>(&candidate.parsed_source)) {
+                if(controller->library)
+                    add(controller->library, AssetType::AnimationLibrary);
+            } else {
+                add_issue(report, record.path, std::get<std::string>(candidate.parsed_source));
             }
             std::ranges::sort(record.dependencies);
             record.dependencies.erase(

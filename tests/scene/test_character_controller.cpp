@@ -136,8 +136,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(step());
         auto walk = scene.get_animation_playback(visual);
         EXPECT_EQ(walk->current.clip, "idle");
-        EXPECT_EQ(walk->current.second_clip, "walk");
-        EXPECT_NEAR(walk->current.weight, .5f, .01f);
+        EXPECT_EQ(walk->current.blends.front().clip, "walk");
+        EXPECT_NEAR(walk->current.blends.front().weight, .5f, .01f);
         EXPECT_GT(walk->current.time, idle->current.time);
         EXPECT_TRUE(walk->previous.clip.empty());
         intent->run = true;
@@ -145,8 +145,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(step());
         auto run = scene.get_animation_playback(visual);
         EXPECT_EQ(run->current.clip, "walk");
-        EXPECT_EQ(run->current.second_clip, "run");
-        EXPECT_NEAR(run->current.weight, .5f, .01f);
+        EXPECT_EQ(run->current.blends.front().clip, "run");
+        EXPECT_NEAR(run->current.blends.front().weight, .5f, .01f);
         EXPECT_GT(run->current.time, walk->current.time);
         EXPECT_TRUE(run->previous.clip.empty());
         for(auto& state : controller->states)
@@ -155,19 +155,19 @@ namespace Comet::Tests {
         ASSERT_TRUE(step());
         const auto slowing = scene.get_animation_playback(visual);
         EXPECT_EQ(slowing->current.clip, "walk");
-        EXPECT_EQ(slowing->current.second_clip, "run");
+        EXPECT_EQ(slowing->current.blends.front().clip, "run");
         const float speed = 5 * std::exp(-1.f / 60 / .15f);
-        EXPECT_NEAR(slowing->current.weight, (speed - 4) / 2, .01f);
+        EXPECT_NEAR(slowing->current.blends.front().weight, (speed - 4) / 2, .01f);
         EXPECT_GT(slowing->current.time, run->current.time);
         intent->crouch = true;
         intent->direction = {.5f, 0};
         ASSERT_TRUE(step());
         auto crouch = scene.get_animation_playback(visual);
         EXPECT_EQ(crouch->current.clip, "crouch");
-        EXPECT_EQ(crouch->current.second_clip, "crouch_walk");
-        EXPECT_NEAR(crouch->current.weight, .5f, .01f);
+        EXPECT_EQ(crouch->current.blends.front().clip, "crouch_walk");
+        EXPECT_NEAR(crouch->current.blends.front().weight, .5f, .01f);
         EXPECT_EQ(crouch->previous.clip, "walk");
-        EXPECT_EQ(crouch->previous.second_clip, "run");
+        EXPECT_EQ(crouch->previous.blends.front().clip, "run");
         EXPECT_LT(crouch->blend, 1);
         ASSERT_TRUE(sample_animation(*data, crouch.get()));
         ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
@@ -176,7 +176,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.request_step());
         ASSERT_TRUE(step());
         EXPECT_GT(scene.get_animation_playback(visual)->current.time, crouch->current.time);
-        EXPECT_NEAR(walk->current.weight, .5f, .01f);
+        EXPECT_NEAR(walk->current.blends.front().weight, .5f, .01f);
         ASSERT_TRUE(runtime.stop());
         EXPECT_FALSE(scene.get_animation_playback(visual));
     }
@@ -598,10 +598,22 @@ namespace Comet::Tests {
             ASSERT_TRUE(definition) << definition.error();
             auto controller = std::make_shared<AnimationController>(std::move(definition).value());
             ASSERT_TRUE(assets.register_asset(AssetHandle{13857136248767905804ULL}, controller));
+            auto layered = AnimationControllerSerializer{}.load(
+                project.value().paths().assets() / "animations/layered.ani");
+            ASSERT_TRUE(layered) << layered.error();
+            ASSERT_TRUE(assets.register_asset(AssetHandle{6729301842000000012ULL},
+                std::make_shared<AnimationController>(std::move(layered).value())));
+            auto library = AnimationLibrary::load(
+                project.value().paths().assets() / "animations/shared.anilib");
+            ASSERT_TRUE(library) << library.error();
+            library.value().sources.emplace(DEFAULT_CHARACTER_MESH, mesh.value().animation);
+            ASSERT_TRUE(assets.register_asset(AssetHandle{6729301842000000011ULL},
+                std::make_shared<AnimationLibrary>(std::move(library).value())));
             ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::CharacterAnimationSystem>()));
             ASSERT_TRUE(runtime.add_system(std::make_unique<AnimationSystem>(
                 [data = mesh.value().animation](AssetHandle) { return data; },
-                [controller](AssetHandle) { return controller; })));
+                [this](AssetHandle handle) { return assets.resolve<AnimationController>(handle); },
+                [this](AssetHandle handle) { return assets.resolve<AnimationLibrary>(handle); })));
             ASSERT_TRUE(runtime.add_system(std::make_unique<ParticleSystem>()));
             ASSERT_TRUE(runtime.add_system(std::make_unique<AudioSystem>(audio)));
             input.focus_event(true);

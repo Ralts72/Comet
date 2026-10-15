@@ -1,4 +1,5 @@
 #include "asset/runtime/asset_loader.h"
+#include "asset/data/animation_library.h"
 #include "asset/data/game_data.h"
 #include "asset/serialization/animation_controller_serializer.h"
 #include "asset/default_assets.h"
@@ -121,13 +122,46 @@ namespace Comet {
         return Loaded::success(std::move(shared));
     }
 
+    Result<std::shared_ptr<AnimationLibrary>, Error> AssetLoader::load_animation_library(
+        AssetHandle handle) {
+        using Loaded = Result<std::shared_ptr<AnimationLibrary>, Error>;
+        return load_runtime_asset<AnimationLibrary>(m_database, m_registry, handle,
+            AssetType::AnimationLibrary, [&](const AssetRecord& record) -> Loaded {
+                auto library = AnimationLibrary::load(m_database.paths().assets() / record.path);
+                if(!library)
+                    return Loaded::failure({library.error()});
+                for(const auto& entry : library.value().entries) {
+                    if(const auto found = library.value().sources.find(entry.mesh);
+                        found != library.value().sources.end()) {
+                        if(!found->second->find_clip(entry.clip))
+                            return Loaded::failure(
+                                {"Animation source has no requested clip: " + entry.clip});
+                        continue;
+                    }
+                    auto mesh = read_mesh_data(entry.mesh);
+                    if(!mesh)
+                        return Loaded::failure(mesh.error());
+                    if(!mesh.value().animation || !mesh.value().animation->find_clip(entry.clip))
+                        return Loaded::failure(
+                            {"Animation source has no requested clip: " + entry.clip});
+                    library.value().sources.emplace(entry.mesh, mesh.value().animation);
+                }
+                return Loaded::success(
+                    std::make_shared<AnimationLibrary>(std::move(library).value()));
+            });
+    }
     Result<std::shared_ptr<AnimationController>, Error> AssetLoader::load_animation_controller(
         AssetHandle handle) {
         using Loaded = Result<std::shared_ptr<AnimationController>, Error>;
-        const auto load = [](const std::filesystem::path& path) -> Loaded {
+        const auto load = [this](const std::filesystem::path& path) -> Loaded {
             auto data = AnimationControllerSerializer{}.load(path);
             if(!data)
                 return Loaded::failure({data.error()});
+            if(data.value().library) {
+                auto library = load_animation_library(data.value().library);
+                if(!library)
+                    return Loaded::failure(library.error());
+            }
             return Loaded::success(std::make_shared<AnimationController>(std::move(data).value()));
         };
         if(handle == DEFAULT_CHARACTER_ANIMATION && !m_database.is_read_only())

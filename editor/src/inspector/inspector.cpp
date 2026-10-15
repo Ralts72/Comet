@@ -646,7 +646,7 @@ namespace CometEditor {
         }
         const auto mesh = m_runtime_assets.resolve<Comet::Mesh>(
             entity.get_component<Comet::MeshRendererComponent>().mesh);
-        if(!mesh || !mesh->animation_data() || mesh->animation_data()->clips.empty()) {
+        if(!mesh || !mesh->animation_data()) {
             reset_animation_preview();
             return false;
         }
@@ -669,7 +669,7 @@ namespace CometEditor {
         scene.each<const Comet::AnimatorComponent, const Comet::MeshRendererComponent>(
             [&](Comet::Entity entity, const auto& animator, const auto& renderer) {
                 auto mesh = m_runtime_assets.resolve<Comet::Mesh>(renderer.mesh);
-                if(!mesh || !mesh->animation_data() || mesh->animation_data()->clips.empty())
+                if(!mesh || !mesh->animation_data())
                     return;
                 models.push_back(
                     {entity.get_uuid(), entity.get_component<Comet::NameComponent>().name,

@@ -59,21 +59,15 @@ namespace Comet {
             selection.transition = transition->duration;
         }
         const auto& state = *definition.find_state(selection.state);
-        if(state.parameter.empty()) {
-            selection.sample = {.clip = state.motions.front().clip, .loop = state.loop};
-        } else {
-            selection.parameter =
-                std::get<float>(*definition.parameter(state.parameter, animator.parameters));
-            if(selection.state == playback.state && state.smoothing > 0) {
-                const float weight = float(-std::expm1(-delta / state.smoothing));
-                selection.parameter = std::lerp(playback.parameter, selection.parameter, weight);
-            }
-            auto mixed = blend_animation_1d(state.motions, selection.parameter);
-            if(!mixed)
-                return Selected::failure({mixed.error()});
-            selection.sample = std::move(mixed).value();
-            selection.sample.loop = state.loop;
+        selection.parameter = definition.blend_parameters(state, animator.parameters);
+        if(selection.state == playback.state && state.smoothing > 0) {
+            const float weight = float(-std::expm1(-delta / state.smoothing));
+            selection.parameter = glm::mix(playback.parameter, selection.parameter, weight);
         }
+        auto mixed = definition.sample(state, selection.parameter);
+        if(!mixed)
+            return Selected::failure({mixed.error()});
+        selection.sample = std::move(mixed).value();
         return Selected::success(std::move(selection));
     }
     Result<void, Error> AnimationSystem::advance(Scene& scene, double delta) {
@@ -121,16 +115,38 @@ namespace Comet {
                 data = m_source(entity.get_component<MeshRendererComponent>().mesh);
             if(m_source)
                 scene.set_animation_source(entity, data);
+            if(playback.controller && playback.controller->library && data) {
+                auto library = m_libraries ? m_libraries(playback.controller->library) : nullptr;
+                if(!library) {
+                    result = Result<void, Error>::failure({"Animation library is not loaded"});
+                    return;
+                }
+                if(playback.library != library || frame.clips_target != data) {
+                    auto bound = library->bind(*data);
+                    if(!bound) {
+                        result = Result<void, Error>::failure({bound.error()});
+                        return;
+                    }
+                    frame.clips = std::make_shared<const AnimationData>(std::move(bound).value());
+                    frame.clips_target = data;
+                    playback.library = std::move(library);
+                }
+            } else {
+                frame.clips.reset();
+                frame.clips_target.reset();
+                playback.library.reset();
+            }
+            const auto clips = frame.clips ? frame.clips : data;
             const auto advance_sample = [&](AnimationBlend& sample, bool current) {
                 if(!sample.has_clip())
                     return;
                 double step = delta * animator.speed;
-                if(!data) {
+                if(!clips) {
                     if(!sample.normalized_time)
                         sample.time += step;
                     return;
                 }
-                const auto duration = animation_duration(*data, sample);
+                const auto duration = animation_duration(*clips, sample);
                 // 缺失片段由姿态采样诊断；加载后再推进，避免累计无效时间。
                 if(!duration)
                     return;
@@ -164,6 +180,39 @@ namespace Comet {
                 frame.previous = {};
                 frame.previous_state.clear();
             }
+            if(playback.controller) {
+                const auto& definition = *playback.controller;
+                const bool entering = frame.layers.size() != definition.layers.size();
+                frame.layers.resize(definition.layers.size());
+                playback.layer_parameters.resize(definition.layers.size());
+                for(std::size_t i = 0; i < definition.layers.size(); ++i) {
+                    const auto& layer = definition.layers[i];
+                    const auto& state = *definition.find_state(layer.state);
+                    auto value = definition.blend_parameters(state, animator.parameters);
+                    if(!entering && state.smoothing > 0)
+                        value = glm::mix(playback.layer_parameters[i], value,
+                            float(-std::expm1(-delta / state.smoothing)));
+                    playback.layer_parameters[i] = value;
+                    auto sample = definition.sample(state, value);
+                    if(!sample) {
+                        result = Result<void, Error>::failure({sample.error()});
+                        return;
+                    }
+                    sample.value().time = frame.layers[i].sample.time;
+                    auto& output = frame.layers[i];
+                    output.sample = std::move(sample).value();
+                    output.mask = layer.mask;
+                    output.weight = layer.weight;
+                    if(!layer.weight_parameter.empty())
+                        output.weight *= std::clamp(
+                            std::get<float>(
+                                *definition.parameter(layer.weight_parameter, animator.parameters)),
+                            0.f, 1.f);
+                    // 层有独立时钟，权重为零仍推进；事件只由基础状态发出。
+                    advance_sample(output.sample, false);
+                }
+            } else
+                frame.layers.clear();
             const auto published = scene.get_animation_playback(entity);
             if(!published || *published != frame)
                 scene.set_animation_playback(

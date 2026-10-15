@@ -1118,9 +1118,21 @@ namespace {
                 if(!opened)
                     LOG_WARN("Cannot open source '{}': {}", source->string(), opened.error());
             }
+            if(const auto request = m_inspector_panel->asset_inspector().take_library_read()) {
+                auto loaded = m_assets->load_reference(
+                    request->handle, Comet::AssetType::AnimationLibrary, request->revision);
+                m_inspector_panel->asset_inspector().controller_editor().set_library(
+                    loaded ? get_engine().get_asset_registry().resolve<Comet::AnimationLibrary>(
+                                 request->handle)
+                           : nullptr,
+                    loaded ? "" : loaded.error().message);
+            }
             if(const auto request = m_inspector_panel->asset_inspector().take_asset_read()) {
                 const auto* record = m_assets->database().find(request->handle);
-                if(record && record->type == Comet::AssetType::Data)
+                if(record && record->type == Comet::AssetType::AnimationLibrary)
+                    m_inspector_panel->asset_inspector().complete_asset_read(
+                        *request, m_assets->read_animation_library(*request));
+                else if(record && record->type == Comet::AssetType::Data)
                     m_inspector_panel->asset_inspector().complete_asset_read(
                         *request, m_assets->read_data(*request));
                 else if(record && record->type == Comet::AssetType::AnimationController)
