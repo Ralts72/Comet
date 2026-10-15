@@ -29,7 +29,15 @@ namespace Comet {
         static constexpr uint32_t MAX_LIGHTS = 32;
         static constexpr uint32_t SHADOW_CASCADES = 4;
         static constexpr uint32_t MAX_SPOT_SHADOWS = 4;
-        static constexpr uint32_t MAX_SHADOW_VIEWS = SHADOW_CASCADES + MAX_SPOT_SHADOWS;
+        static constexpr uint32_t MAX_POINT_SHADOWS = 2;
+        static constexpr uint32_t POINT_SHADOW_FACES = 6;
+        static constexpr uint32_t POINT_SHADOW_START = SHADOW_CASCADES + MAX_SPOT_SHADOWS;
+        static constexpr uint32_t MAX_SHADOW_VIEWS =
+            POINT_SHADOW_START + MAX_POINT_SHADOWS * POINT_SHADOW_FACES;
+        // 以局部光的半分辨率纹块为单位；方向光占上方 4×4，局部光按行排列。
+        static constexpr uint32_t SHADOW_ATLAS_COLUMNS = 4;
+        static constexpr uint32_t SHADOW_ATLAS_ROWS =
+            4 + (MAX_SPOT_SHADOWS + MAX_POINT_SHADOWS * POINT_SHADOW_FACES + 3) / 4;
         struct alignas(16) Shadow {
             Math::Mat4 view_projection{};
             Math::Vec4 atlas_rect{}; // UV 缩放 xy、偏移 zw。
@@ -62,6 +70,9 @@ namespace Comet {
         float spot_shadow_count = 0;
         float excess_spot_shadows = 0;
         float shadow_blend = 0.1f;
+        float point_shadow_count = 0;
+        float excess_point_shadows = 0;
+        Math::Vec2 shadow_reserved{};
         Math::Vec4 environment{0, 0, 0, 1}; // 强度、最大 LOD、旋转角正弦、旋转角余弦。
         [[nodiscard]] static LightingData prepare(std::span<const RenderLight> lights);
         void prepare_shadow(const BoundingBox& world_bounds, uint32_t resolution,
@@ -70,6 +81,8 @@ namespace Comet {
     private:
         void prepare_directional_shadow(const BoundingBox& world_bounds, uint32_t resolution,
             const Math::Mat4& view, const Math::Mat4& projection);
+        void prepare_point_shadows(
+            const BoundingBox& world_bounds, uint32_t resolution, const Frustum& camera_frustum);
         void prepare_spot_shadows(
             const BoundingBox& world_bounds, uint32_t resolution, const Frustum& camera_frustum);
     };

@@ -185,6 +185,9 @@ namespace Comet::Tests {
             std::pair{"spot_shadow_count", offsetof(LightingData, spot_shadow_count)},
             std::pair{"excess_spot_shadows", offsetof(LightingData, excess_spot_shadows)},
             std::pair{"shadow_blend", offsetof(LightingData, shadow_blend)},
+            std::pair{"point_shadow_count", offsetof(LightingData, point_shadow_count)},
+            std::pair{"excess_point_shadows", offsetof(LightingData, excess_point_shadows)},
+            std::pair{"shadow_reserved", offsetof(LightingData, shadow_reserved)},
             std::pair{"environment", offsetof(LightingData, environment)}};
         ASSERT_EQ(found->members.size(), fields.size());
         for(size_t index = 0; index < fields.size(); ++index) {
@@ -351,7 +354,7 @@ namespace Comet::Tests {
             const auto& shadow = data.shadows[LightingData::SHADOW_CASCADES + slot];
             EXPECT_EQ(shadow.light_index, slot + 1);
             EXPECT_EQ(shadow.texel_size, 1.0f / 512);
-            EXPECT_EQ(shadow.atlas_rect, Math::Vec4(.25f, .2f, slot * .25f, .8f));
+            EXPECT_EQ(shadow.atlas_rect, Math::Vec4(.25f, .125f, slot * .25f, .5f));
             const auto near = shadow.view_projection * Math::Vec4(0, 0, 2.95f, 1);
             const auto far = shadow.view_projection * Math::Vec4(0, 0, -7, 1);
             EXPECT_NEAR(near.z / near.w, 0, 1e-5f);
@@ -383,6 +386,94 @@ namespace Comet::Tests {
         EXPECT_EQ(data.spot_shadow_count, 0);
         for(const auto& shadow : data.shadows)
             EXPECT_EQ(shadow.light_index, -1);
+    }
+
+    TEST(LightingTest, PointShadowsCoverSixFacesWithGuardTexelsAndBoundedIndependentBudget) {
+        std::vector<RenderLight> lights{{.entity_id = 0, .casts_shadow = true},
+            {.entity_id = 1, .type = LightType::Spot, .position = {0, 0, 3}, .casts_shadow = true}};
+        for(unsigned id = 2; id < 6; ++id)
+            lights.push_back({.entity_id = id,
+                .type = LightType::Point,
+                .position = {0, 0, 3},
+                .range = 10,
+                .casts_shadow = true});
+        lights.push_back({.entity_id = 6,
+            .type = LightType::Point,
+            .position = {100, 0, 3},
+            .range = 10,
+            .casts_shadow = true});
+        const BoundingBox bounds{{-150, -15, -20}, {150, 15, 15}};
+        const auto projection = Math::ortho(-5, 5, -5, 5, .1f, 20);
+        auto view = Math::look_at({0, 0, 5}, {0, 0, 0}, {0, 1, 0});
+        auto data = LightingData::prepare(lights);
+        data.prepare_shadow(bounds, 1024, view, projection);
+        EXPECT_EQ(data.shadow_cascade_count, 4);
+        EXPECT_EQ(data.spot_shadow_count, 1);
+        ASSERT_EQ(data.point_shadow_count, 2);
+        EXPECT_EQ(data.excess_point_shadows, 2);
+        const std::array<Math::Vec3, 6> axes{
+            Math::Vec3(1, 0, 0), {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+        for(unsigned slot = 0; slot < 2; ++slot) {
+            for(unsigned face = 0; face < axes.size(); ++face) {
+                const auto& shadow =
+                    data.shadows[LightingData::POINT_SHADOW_START + slot * 6 + face];
+                SCOPED_TRACE(slot * 6 + face);
+                EXPECT_EQ(shadow.light_index, 2 + slot);
+                EXPECT_EQ(shadow.texel_size, 1.0f / 512);
+                EXPECT_GT(shadow.depth_bias, 0);
+                const auto project = [&](Math::Vec3 offset) {
+                    const auto clip =
+                        shadow.view_projection * Math::Vec4(Math::Vec3(0, 0, 3) + offset, 1);
+                    return Math::Vec3(clip) / clip.w;
+                };
+                EXPECT_NEAR(project(axes[face] * .05f).z, 0, 1e-5f);
+                EXPECT_NEAR(project(axes[face] * 10.0f).z, 1, 1e-5f);
+                const auto center = project(axes[face] * 2.0f);
+                EXPECT_NEAR(center.x, 0, 1e-5f);
+                EXPECT_NEAR(center.y, 0, 1e-5f);
+                // 四条 90° 接缝在面内保留两圈纹素，PCF 不触及相邻图块。
+                for(const auto adjacent : axes) {
+                    if(Math::dot(adjacent, axes[face]) != 0)
+                        continue;
+                    const auto edge = project(axes[face] + adjacent);
+                    EXPECT_NEAR(
+                        std::max(std::abs(edge.x), std::abs(edge.y)), 1 - 4.0f / 512, 1e-5f);
+                }
+            }
+        }
+        // 三类灯光的所有已分配图块均在图集内且不重叠。
+        for(size_t a = 0; a < data.shadows.size(); ++a) {
+            if(data.shadows[a].light_index < 0)
+                continue;
+            const auto ra = data.shadows[a].atlas_rect;
+            EXPECT_GE(ra.z, 0);
+            EXPECT_GE(ra.w, 0);
+            EXPECT_LE(ra.z + ra.x, 1);
+            EXPECT_LE(ra.w + ra.y, 1);
+            for(size_t b = a + 1; b < data.shadows.size(); ++b) {
+                if(data.shadows[b].light_index < 0)
+                    continue;
+                const auto rb = data.shadows[b].atlas_rect;
+                EXPECT_TRUE(ra.z + ra.x <= rb.z || rb.z + rb.x <= ra.z || ra.w + ra.y <= rb.w
+                            || rb.w + rb.y <= ra.w);
+            }
+        }
+        std::reverse(lights.begin(), lights.end());
+        const auto original = data;
+        data = LightingData::prepare(lights);
+        data.prepare_shadow(bounds, 1024, view, projection);
+        for(unsigned i = LightingData::POINT_SHADOW_START; i < data.shadows.size(); ++i)
+            EXPECT_EQ(data.shadows[i].view_projection, original.shadows[i].view_projection);
+        view = Math::look_at({100, 0, 5}, {100, 0, 0}, {0, 1, 0});
+        data.prepare_shadow(bounds, 1024, view, projection);
+        EXPECT_EQ(data.point_shadow_count, 1);
+        EXPECT_EQ(data.excess_point_shadows, 0);
+        EXPECT_EQ(data.shadows[LightingData::POINT_SHADOW_START].light_index, 6);
+        EXPECT_EQ(data.shadows[LightingData::POINT_SHADOW_START + 6].light_index, -1);
+        data.prepare_shadow({{-1, -1, -1}, {1, 1, 1}}, 1024, view, projection);
+        EXPECT_EQ(data.point_shadow_count, 0);
+        for(unsigned i = LightingData::POINT_SHADOW_START; i < data.shadows.size(); ++i)
+            EXPECT_EQ(data.shadows[i].light_index, -1);
     }
 
     TEST(LightingTest, ShadowSettingsUsePropertyUndoSerializationAndLegacyDefault) {

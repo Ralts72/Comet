@@ -25,7 +25,7 @@ namespace CometEditor {
                 {"Material prep", "材质程序准备"},
                 {"Geometry bounds", "世界界限计算"},
                 {"Lighting prep", "光源与阴影准备"},
-                {"shadow", "方向光／聚光阴影"},
+                {"shadow", "场景阴影"},
                 {"Submission prep", "提交准备"},
                 {"Queue submit", "队列提交"},
                 {"Present", "呈现调用"},
@@ -122,6 +122,8 @@ namespace CometEditor {
         m_display.shadow_triangles = snapshot.shadow_triangles;
         m_display.spot_shadows = snapshot.spot_shadows;
         m_display.excess_spot_shadows = snapshot.excess_spot_shadows;
+        m_display.point_shadows = snapshot.point_shadows;
+        m_display.excess_point_shadows = snapshot.excess_point_shadows;
         m_display.memory = snapshot.memory;
         m_display.has_memory = snapshot.memory_samples > 0;
         m_display.gpu_supported = snapshot.gpu_supported;
@@ -177,6 +179,10 @@ namespace CometEditor {
             Comet::LightingData::MAX_SPOT_SHADOWS, m_display.excess_spot_shadows);
         if(ImGui::IsItemHovered())
             ImGui::SetTooltip("视图内候选按实体 ID 选择；超预算的灯光仍照明，但不投射阴影。");
+        ImGui::Text("点光源阴影 %u / %u；超预算 %u", m_display.point_shadows,
+            Comet::LightingData::MAX_POINT_SHADOWS, m_display.excess_point_shadows);
+        if(ImGui::IsItemHovered())
+            ImGui::SetTooltip("每盏点光源绘制六面；候选按实体 ID 选择，超预算仍照明。");
         ImGui::SeparatorText("显存堆");
         constexpr double mib = 1024.0 * 1024.0;
         double usage = 0;

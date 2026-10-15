@@ -1,0 +1,572 @@
+{
+  "version": 2,
+  "post_process": {
+    "exposure": 1,
+    "bloom_enabled": false,
+    "bloom_strength": 0.15,
+    "bloom_threshold": 1
+  },
+  "entities": [
+    {
+      "uuid": "9499051e-cd93-5d9e-a75f-ba5027232c84",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [
+            0,
+            6,
+            14
+          ],
+          "rotation": [
+            -20,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "camera": {
+          "primary": true,
+          "fov": 45,
+          "near_clip": 0.1,
+          "far_clip": 100
+        },
+        "camera_controller": {
+          "enabled": true,
+          "move_speed": 5,
+          "look_sensitivity": 0.2,
+          "look_speed": 120
+        }
+      }
+    },
+    {
+      "uuid": "09edbe27-2540-5f82-96f1-b2c23b7a7209",
+      "components": {
+        "name": "微弱环境方向光",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            -65,
+            -30,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "light": {
+          "type": "directional",
+          "enabled": true,
+          "casts_shadow": false,
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "intensity": 0.15,
+          "range": 10,
+          "inner_angle": 20,
+          "outer_angle": 30
+        }
+      }
+    },
+    {
+      "uuid": "8baffd70-3f3b-5316-b2f8-577a68aac121",
+      "components": {
+        "name": "接收地面",
+        "transform": {
+          "translation": [
+            0,
+            -0.25,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            14,
+            0.5,
+            16
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 5783275031450616070
+        }
+      }
+    },
+    {
+      "uuid": "2bdb3636-9ef5-5fce-811d-8e4e27aefa7c",
+      "components": {
+        "name": "投影立柱 1",
+        "transform": {
+          "translation": [
+            -4,
+            1,
+            1.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            2,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "4f145ae9-e1e5-5d4b-a66d-58bb700a5b8a",
+      "components": {
+        "name": "投影横杆 1",
+        "transform": {
+          "translation": [
+            -4,
+            2,
+            1.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.4,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "b181441b-4ae1-5d56-90d3-04e2549f96ff",
+      "components": {
+        "name": "投影立柱 2",
+        "transform": {
+          "translation": [
+            -1.3,
+            1,
+            1.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            2,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "372e0cf3-455d-501b-9ff5-66aa7b26ee2d",
+      "components": {
+        "name": "投影横杆 2",
+        "transform": {
+          "translation": [
+            -1.3,
+            2,
+            1.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.4,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "5dd3c762-608c-5bac-9ad9-21b1d68ac6a3",
+      "components": {
+        "name": "投影立柱 3",
+        "transform": {
+          "translation": [
+            1.3,
+            1,
+            1.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            2,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "e1049322-2984-54a7-b602-5ac5e7e9b3fc",
+      "components": {
+        "name": "投影横杆 3",
+        "transform": {
+          "translation": [
+            1.3,
+            2,
+            1.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.4,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "35aeaf71-a8aa-5935-aa2e-2eb0090faf2f",
+      "components": {
+        "name": "投影立柱 4",
+        "transform": {
+          "translation": [
+            4,
+            1,
+            1.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            2,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "43601a4a-3508-55a1-b306-a243c67b4199",
+      "components": {
+        "name": "投影横杆 4",
+        "transform": {
+          "translation": [
+            4,
+            2,
+            1.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.4,
+            0.15,
+            0.15
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "ae03c4cf-3659-5287-ac5b-741bdb77e8d1",
+      "components": {
+        "transform": {
+          "translation": [
+            -3,
+            2.8,
+            3
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "light": {
+          "type": "point",
+          "enabled": true,
+          "casts_shadow": true,
+          "color": [
+            1,
+            0.65,
+            0.35
+          ],
+          "intensity": 65,
+          "range": 10,
+          "inner_angle": 20,
+          "outer_angle": 30
+        },
+        "name": "点光源 1"
+      }
+    },
+    {
+      "uuid": "31c95825-82b0-5204-90d6-eb23e6576377",
+      "components": {
+        "transform": {
+          "translation": [
+            3,
+            2.8,
+            3
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "light": {
+          "type": "point",
+          "enabled": true,
+          "casts_shadow": true,
+          "color": [
+            0.4,
+            0.65,
+            1
+          ],
+          "intensity": 65,
+          "range": 10,
+          "inner_angle": 20,
+          "outer_angle": 30
+        },
+        "name": "点光源 2"
+      }
+    },
+    {
+      "uuid": "1ba2790a-d9af-5c24-aeee-e87c37e148bf",
+      "components": {
+        "transform": {
+          "translation": [
+            0,
+            3,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "light": {
+          "type": "point",
+          "enabled": false,
+          "casts_shadow": true,
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "intensity": 50,
+          "range": 10,
+          "inner_angle": 20,
+          "outer_angle": 30
+        },
+        "name": "预算演示灯（默认关闭）"
+      }
+    },
+    {
+      "uuid": "df0896b7-4945-5d00-9575-b6d7932b106e",
+      "components": {
+        "transform": {
+          "translation": [
+            0,
+            3,
+            -3
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            14,
+            6,
+            0.3
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        },
+        "name": "接收后墙"
+      }
+    },
+    {
+      "uuid": "12ba8cf4-1e12-5f21-bfb8-6b0eb03e185b",
+      "components": {
+        "transform": {
+          "translation": [
+            -7,
+            3,
+            1
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.3,
+            6,
+            8
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        },
+        "name": "接收左墙"
+      }
+    },
+    {
+      "uuid": "c0ec3ed4-aeb5-5787-8515-14fbee543383",
+      "components": {
+        "transform": {
+          "translation": [
+            7,
+            3,
+            1
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.3,
+            6,
+            8
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        },
+        "name": "接收右墙"
+      }
+    },
+    {
+      "uuid": "c3bc04a7-1f34-5b81-807b-ce24557171a6",
+      "components": {
+        "transform": {
+          "translation": [
+            0,
+            6,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            14,
+            0.3,
+            6
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        },
+        "name": "接收顶板"
+      }
+    },
+    {
+      "uuid": "7aff8fa2-6676-5ba2-ad04-3f30673da7ab",
+      "components": {
+        "transform": {
+          "translation": [
+            0,
+            4.5,
+            2
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            10,
+            0.2,
+            0.3
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        },
+        "name": "向上投影横梁"
+      }
+    }
+  ]
+}

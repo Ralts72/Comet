@@ -18,13 +18,15 @@ namespace Comet {
     class Texture;
     class Sampler;
 
-    // 每个 View 的方向光级联与聚光灯阴影；每个飞行帧槽位拥有独立深度图集。
+    // 每个 View 的方向光级联与局部光阴影；每个飞行帧槽位拥有独立深度图集。
     class COMET_API ShadowPass {
     public:
         struct Statistics {
             uint32_t cascades = 0;
             uint32_t spot_lights = 0;
             uint32_t excess_spot_lights = 0;
+            uint32_t point_lights = 0;
+            uint32_t excess_point_lights = 0;
             uint32_t draw_calls = 0;
             uint32_t drawn_instances = 0;
             uint64_t drawn_triangles = 0;

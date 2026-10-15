@@ -138,6 +138,8 @@ namespace Comet {
         m_snapshot.shadow_triangles = 0;
         m_snapshot.spot_shadows = 0;
         m_snapshot.excess_spot_shadows = 0;
+        m_snapshot.point_shadows = 0;
+        m_snapshot.excess_point_shadows = 0;
         m_snapshot.cpu.reset();
         m_snapshot.frame.reset();
         m_snapshot.gpu.reset();

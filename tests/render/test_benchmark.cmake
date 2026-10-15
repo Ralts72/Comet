@@ -91,8 +91,8 @@ foreach(case static-0 static-1 scaled multi moving moving-singles script-moving 
         endif()
     endforeach()
     if(NOT csv MATCHES "timing_model=render-thread-v2"
-            OR NOT csv MATCHES "shadow_model=atlas-v2 cascades=4 tile_resolution=1024 spot_slots=4 spot_resolution=512"
-            OR NOT csv MATCHES "spot_shadows=0 excess_spot_shadows=0"
+            OR NOT csv MATCHES "shadow_model=atlas-v3 cascades=4 tile_resolution=1024 spot_slots=4 spot_resolution=512 point_slots=2 point_faces=6 point_resolution=512"
+            OR NOT csv MATCHES "spot_shadows=0 excess_spot_shadows=0 point_shadows=0 excess_point_shadows=0"
             OR NOT csv MATCHES "motion_model=runtime-v1"
             OR NOT csv MATCHES "scene_draws=${draws} lights=3 msaa=${msaa} bloom=${bloom}"
             OR NOT csv MATCHES "render_items=9 culled_items=${culled}"

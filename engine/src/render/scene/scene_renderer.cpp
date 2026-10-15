@@ -490,7 +490,8 @@ namespace Comet {
         if(diagnostics) {
             const auto shadow = get_shadow_statistics();
             diagnostics->record_draw_statistics(get_material_statistics().drawn_triangles,
-                shadow.drawn_triangles, shadow.spot_lights, shadow.excess_spot_lights);
+                shadow.drawn_triangles, shadow.spot_lights, shadow.excess_spot_lights,
+                shadow.point_lights, shadow.excess_point_lights);
         }
         return RenderResult::success(std::move(waits));
     }

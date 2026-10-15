@@ -22,18 +22,44 @@ namespace Comet {
     static_assert(offsetof(LightingData::Shadow, depth_bias) == 80);
     static_assert(offsetof(LightingData::Shadow, light_index) == 88);
     static_assert(offsetof(LightingData, shadows) == LightingData::MAX_LIGHTS * 64 + 16);
-    static_assert(offsetof(LightingData, shadow_splits) == LightingData::MAX_LIGHTS * 64 + 784);
-    static_assert(
-        offsetof(LightingData, shadow_camera_depth) == LightingData::MAX_LIGHTS * 64 + 800);
-    static_assert(
-        offsetof(LightingData, shadow_cascade_count) == LightingData::MAX_LIGHTS * 64 + 816);
-    static_assert(sizeof(LightingData) == LightingData::MAX_LIGHTS * 64 + 848);
+    static_assert(offsetof(LightingData, shadow_splits)
+                  == LightingData::MAX_LIGHTS * 64 + 16 + LightingData::MAX_SHADOW_VIEWS * 96);
+    static_assert(offsetof(LightingData, shadow_camera_depth)
+                  == LightingData::MAX_LIGHTS * 64 + 32 + LightingData::MAX_SHADOW_VIEWS * 96);
+    static_assert(offsetof(LightingData, shadow_cascade_count)
+                  == LightingData::MAX_LIGHTS * 64 + 48 + LightingData::MAX_SHADOW_VIEWS * 96);
+    static_assert(sizeof(LightingData)
+                  == LightingData::MAX_LIGHTS * 64 + 96 + LightingData::MAX_SHADOW_VIEWS * 96);
 
     static Math::Mat4 light_view_matrix(
         const Math::Vec3& direction, const Math::Vec3& position = {}) {
         const auto up = std::abs(direction.y) > 0.95f ? Math::Vec3(1, 0, 0) : Math::Vec3(0, 1, 0);
         return Math::look_at(Math::Vec3(0), direction, up)
                * Math::translate(Math::Mat4(1), -position);
+    }
+
+    static Math::Vec4 shadow_atlas_rect(uint32_t x, uint32_t y, uint32_t size) {
+        return {float(size) / LightingData::SHADOW_ATLAS_COLUMNS,
+            float(size) / LightingData::SHADOW_ATLAS_ROWS,
+            float(x) / LightingData::SHADOW_ATLAS_COLUMNS,
+            float(y) / LightingData::SHADOW_ATLAS_ROWS};
+    }
+
+    static LightingData::Shadow perspective_shadow(const Math::Mat4& view, float range,
+        float tangent, uint32_t resolution, uint32_t light_index, uint32_t tile) {
+        const float near_plane = std::min(0.05f, range * 0.01f);
+        LightingData::Shadow shadow;
+        shadow.view_projection =
+            Math::perspective(2 * std::atan(tangent) * Math::RAD_TO_DEG, 1, near_plane, range)
+            * view;
+        shadow.atlas_rect = shadow_atlas_rect(tile % LightingData::SHADOW_ATLAS_COLUMNS,
+            4 + tile / LightingData::SHADOW_ATLAS_COLUMNS, 1);
+        shadow.texel_size = 1.0f / resolution;
+        shadow.light_index = float(light_index);
+        // 透视投影下一个世界纹素的深度偏移；Shader 再除以接收点的 clip.w。
+        shadow.depth_bias =
+            0.5f * tangent * near_plane * range / (resolution * (range - near_plane));
+        return shadow;
     }
 
     static bool is_valid_light(const RenderLight& light) {
@@ -130,7 +156,9 @@ namespace Comet {
         shadow_cascade_count = 0;
         spot_shadow_count = 0;
         excess_spot_shadows = 0;
-        if(!world_bounds.is_valid() || resolution < 4 || !std::isfinite(light_count)
+        point_shadow_count = 0;
+        excess_point_shadows = 0;
+        if(!world_bounds.is_valid() || resolution < 10 || !std::isfinite(light_count)
             || Math::length(world_bounds.size()) < 1e-5f)
             return;
         const auto camera_frustum = Frustum::from_view_projection(camera_projection * camera_view);
@@ -138,6 +166,7 @@ namespace Comet {
             return;
         prepare_directional_shadow(world_bounds, resolution, camera_view, camera_projection);
         prepare_spot_shadows(world_bounds, resolution / 2, *camera_frustum);
+        prepare_point_shadows(world_bounds, resolution / 2, *camera_frustum);
     }
 
     void LightingData::prepare_directional_shadow(const BoundingBox& world_bounds,
@@ -233,7 +262,7 @@ namespace Comet {
                 * light_view;
             shadow.depth_bias = 0.25f * texel / (far_plane - near_plane);
             shadow.texel_size = 1.0f / resolution;
-            shadow.atlas_rect = {0.5f, 0.4f, float(cascade % 2) * 0.5f, float(cascade / 2) * 0.4f};
+            shadow.atlas_rect = shadow_atlas_rect((cascade % 2) * 2, (cascade / 2) * 2, 2);
             previous_start = previous;
             previous = split;
         }
@@ -260,10 +289,9 @@ namespace Comet {
                 {{-radius, -radius, -light.range}, {radius, radius, 0}}, Math::inverse(view));
             if(!bounds || !camera_frustum.intersects(*bounds))
                 continue;
-            const float near_plane = std::min(0.05f, light.range * 0.01f);
-            const auto matrix =
-                Math::perspective(2 * angle * Math::RAD_TO_DEG, 1, near_plane, light.range) * view;
-            const auto frustum = Frustum::from_view_projection(matrix);
+            const auto shadow = perspective_shadow(
+                view, light.range, tangent, resolution, index, uint32_t(spot_shadow_count));
+            const auto frustum = Frustum::from_view_projection(shadow.view_projection);
             if(!frustum || !frustum->intersects(world_bounds))
                 continue;
             if(spot_shadow_count >= MAX_SPOT_SHADOWS) {
@@ -271,14 +299,40 @@ namespace Comet {
                 continue;
             }
             const auto slot = uint32_t(spot_shadow_count++);
-            auto& shadow = shadows[SHADOW_CASCADES + slot];
-            shadow.view_projection = matrix;
-            shadow.atlas_rect = {0.25f, 0.2f, float(slot) * 0.25f, 0.8f};
-            shadow.texel_size = 1.0f / resolution;
-            shadow.light_index = float(index);
-            // 透视投影下一个世界纹素的深度偏移；Shader 再除以接收点的 clip.w。
-            shadow.depth_bias = 0.5f * tangent * near_plane * light.range
-                                / (resolution * (light.range - near_plane));
+            shadows[SHADOW_CASCADES + slot] = shadow;
+        }
+    }
+
+    void LightingData::prepare_point_shadows(
+        const BoundingBox& world_bounds, const uint32_t resolution, const Frustum& camera_frustum) {
+        // 与 forward.glsl 的主轴选面顺序一致；每个面多绘制两圈纹素供接缝处 PCF 采样。
+        static constexpr std::array<Math::Vec3, POINT_SHADOW_FACES> directions{
+            Math::Vec3(1, 0, 0), {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+        const float tangent = float(resolution) / float(resolution - 4);
+        const auto count = uint32_t(std::clamp(light_count, 0.0f, float(MAX_LIGHTS)));
+        for(uint32_t index = 0; index < count; ++index) {
+            const auto& light = lights[index];
+            if(light.type != float(LightType::Point) || light.casts_shadow == 0
+                || light.intensity <= 0)
+                continue;
+            const BoundingBox bounds{
+                light.position - Math::Vec3(light.range), light.position + Math::Vec3(light.range)};
+            const auto closest =
+                glm::clamp(light.position, world_bounds.minimum, world_bounds.maximum);
+            if(!camera_frustum.intersects(bounds)
+                || Math::length(closest - light.position) >= light.range)
+                continue;
+            if(point_shadow_count >= MAX_POINT_SHADOWS) {
+                ++excess_point_shadows;
+                continue;
+            }
+            const auto slot = uint32_t(point_shadow_count++);
+            for(uint32_t face = 0; face < POINT_SHADOW_FACES; ++face) {
+                const auto tile = MAX_SPOT_SHADOWS + slot * POINT_SHADOW_FACES + face;
+                shadows[SHADOW_CASCADES + tile] =
+                    perspective_shadow(light_view_matrix(directions[face], light.position),
+                        light.range, tangent, resolution, index, tile);
+            }
         }
     }
 }

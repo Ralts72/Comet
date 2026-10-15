@@ -52,9 +52,11 @@ namespace Comet {
         auto pass = RenderPass::create(device, {depth}, {subpass});
         if(!pass)
             return Creation::failure(pass.error());
-        // 上方 2×2 方向光级联，下方一行四块半分辨率的聚光灯阴影。
-        auto target = RenderTarget::try_create_multi_target(
-            device, *pass.value(), {RESOLUTION * 2, RESOLUTION * 5 / 2}, frame_slots);
+        // 图集布局由 LightingData 定义；局部光的每个投影占一个半分辨率纹块。
+        auto target = RenderTarget::try_create_multi_target(device, *pass.value(),
+            {RESOLUTION / 2 * LightingData::SHADOW_ATLAS_COLUMNS,
+                RESOLUTION / 2 * LightingData::SHADOW_ATLAS_ROWS},
+            frame_slots);
         if(!target)
             return Creation::failure(target.error());
         auto vertex = Shader::create(device, "shadow depth vertex", DEPTH_VERT);
@@ -238,6 +240,8 @@ namespace Comet {
         m_statistics.cascades = uint32_t(lighting.shadow_cascade_count);
         m_statistics.spot_lights = uint32_t(lighting.spot_shadow_count);
         m_statistics.excess_spot_lights = uint32_t(lighting.excess_spot_shadows);
+        m_statistics.point_lights = uint32_t(lighting.point_shadow_count);
+        m_statistics.excess_point_lights = uint32_t(lighting.excess_point_shadows);
         m_draw_queue.clear();
         m_transforms.clear();
         const ScopeExit release_draws([&] {

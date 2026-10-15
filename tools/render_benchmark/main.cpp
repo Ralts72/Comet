@@ -585,10 +585,13 @@ namespace {
             report.imbue(std::locale::classic());
             report << "# build=" << COMET_BENCHMARK_BUILD_TYPE << " validation_request=off\n";
             report << "# timing_model=render-thread-v2\n";
-            report << "# shadow_model=atlas-v2 cascades=" << Comet::LightingData::SHADOW_CASCADES
+            report << "# shadow_model=atlas-v3 cascades=" << Comet::LightingData::SHADOW_CASCADES
                    << " tile_resolution=" << Comet::ShadowPass::RESOLUTION
                    << " spot_slots=" << Comet::LightingData::MAX_SPOT_SHADOWS
-                   << " spot_resolution=" << Comet::ShadowPass::RESOLUTION / 2 << '\n';
+                   << " spot_resolution=" << Comet::ShadowPass::RESOLUTION / 2
+                   << " point_slots=" << Comet::LightingData::MAX_POINT_SHADOWS
+                   << " point_faces=" << Comet::LightingData::POINT_SHADOW_FACES
+                   << " point_resolution=" << Comet::ShadowPass::RESOLUTION / 2 << '\n';
             report << "# motion_model=runtime-v1\n";
 #ifdef __APPLE__
             report << "# cpu_qos_request=user_interactive\n";
@@ -657,6 +660,10 @@ namespace {
                    << renderer.get_scene_renderer().get_shadow_statistics().spot_lights
                    << " excess_spot_shadows="
                    << renderer.get_scene_renderer().get_shadow_statistics().excess_spot_lights
+                   << " point_shadows="
+                   << renderer.get_scene_renderer().get_shadow_statistics().point_lights
+                   << " excess_point_shadows="
+                   << renderer.get_scene_renderer().get_shadow_statistics().excess_point_lights
                    << '\n'
                    << "# window=" << m_options.width << 'x' << m_options.height
                    << " framebuffer=" << m_size.x << 'x' << m_size.y

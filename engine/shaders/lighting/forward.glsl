@@ -1,4 +1,5 @@
 const int LIGHT_DIRECTIONAL = 0;
+const int LIGHT_POINT = 1;
 const int LIGHT_SPOT = 2;
 
 struct Light {
@@ -27,13 +28,16 @@ layout(set = 0, binding = 1, std140) uniform LightingData {
     float excess_lights;
     float invalid_lights;
     float reserved;
-    Shadow shadows[8];
+    Shadow shadows[20];
     vec4 shadow_splits;
     vec4 shadow_camera_depth;
     float shadow_cascade_count;
     float spot_shadow_count;
     float excess_spot_shadows;
     float shadow_blend;
+    float point_shadow_count;
+    float excess_point_shadows;
+    vec2 shadow_reserved;
     vec4 environment; // intensity, max LOD, sin(rotation), cos(rotation)
 } lighting;
 layout(set = 0, binding = 2) uniform sampler2D shadow_map;
@@ -86,8 +90,28 @@ float sample_shadow_view(int shadow_view, vec3 position, vec3 position_dx, vec3 
     return visible / 9.0;
 }
 
+// Same +X, -X, +Y, -Y, +Z, -Z order as LightingData; guard texels cover PCF across seams.
+int point_shadow_face(vec3 direction) {
+    vec3 magnitude = abs(direction);
+    if(magnitude.x >= magnitude.y && magnitude.x >= magnitude.z)
+        return direction.x >= 0.0 ? 0 : 1;
+    if(magnitude.y >= magnitude.z)
+        return direction.y >= 0.0 ? 2 : 3;
+    return direction.z >= 0.0 ? 4 : 5;
+}
+
 // Position derivatives must be computed before divergent light/range branches.
 float shadow_visibility(int index, vec3 position, vec3 position_dx, vec3 position_dy, float n_dot_l) {
+    if(lighting.lights[index].type == LIGHT_POINT) {
+        for(int slot = 0; slot < int(lighting.point_shadow_count); ++slot) {
+            int first = 8 + slot * 6;
+            if(index == int(lighting.shadows[first].light_index)) {
+                int face = point_shadow_face(position - lighting.lights[index].position);
+                return sample_shadow_view(first + face, position, position_dx, position_dy, n_dot_l);
+            }
+        }
+        return 1.0;
+    }
     if(lighting.lights[index].type == LIGHT_SPOT) {
         for(int slot = 0; slot < int(lighting.spot_shadow_count); ++slot) {
             int shadow_view = 4 + slot;
