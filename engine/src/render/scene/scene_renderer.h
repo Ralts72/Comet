@@ -52,6 +52,7 @@ namespace Comet {
         [[nodiscard]] const RenderTarget& get_render_target() const;
         [[nodiscard]] bool is_offscreen() const;
         [[nodiscard]] std::shared_ptr<ImageView> get_offscreen_color_view(uint32_t slot) const;
+        [[nodiscard]] std::shared_ptr<ImageView> get_hdr_color_view(uint32_t slot) const;
 
         // 在录制前准备；OOM 保留上一份可用设置，并进行有界重试。
         [[nodiscard]] Result<void, GraphicsError> prepare_post_process(

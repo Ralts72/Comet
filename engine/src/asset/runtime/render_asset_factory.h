@@ -14,9 +14,11 @@ namespace Comet {
     class COMET_API Texture;
     class COMET_API Material;
     struct Environment;
+    struct COMET_API Irradiance;
     struct MeshData;
     struct TextureData;
     struct EnvironmentData;
+    struct COMET_API IrradianceData;
     struct MaterialData;
 
     // 接收独立 CPU 产品并返回完整 GPU 候选；不读取文件、索引或 Registry。
@@ -28,6 +30,7 @@ namespace Comet {
         [[nodiscard]] Result<std::shared_ptr<Mesh>, Error> prepare(MeshData data);
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> prepare(TextureData data);
         [[nodiscard]] Result<std::shared_ptr<Environment>, Error> prepare(EnvironmentData data);
+        [[nodiscard]] Result<std::shared_ptr<Irradiance>, Error> prepare(IrradianceData data);
         [[nodiscard]] Result<std::shared_ptr<Environment>, Error> prepare_preview(
             TextureData background);
         [[nodiscard]] static Result<std::shared_ptr<Material>, Error> prepare_material(

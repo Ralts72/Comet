@@ -108,6 +108,7 @@ namespace Comet {
     AssetManager::RefreshResult AssetManager::schedule_refresh(const AssetRecord& record) {
         bool accepted = false;
         switch(record.type) {
+            case AssetType::Irradiance:
             case AssetType::AnimationLibrary:
             case AssetType::Data:
             case AssetType::AnimationController:

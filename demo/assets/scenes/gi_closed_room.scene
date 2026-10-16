@@ -1,0 +1,418 @@
+{
+  "version": 2,
+  "environment": {
+    "asset": 6729301842000000104,
+    "background": false,
+    "intensity": 1,
+    "rotation": 0,
+    "lighting": true,
+    "lighting_intensity": 0.2,
+    "background_color": [
+      0.02,
+      0.02,
+      0.02
+    ],
+    "fog_enabled": false,
+    "fog_color": [
+      0.5,
+      0.5,
+      0.5
+    ],
+    "fog_start": 10,
+    "fog_end": 100
+  },
+  "post_process": {
+    "exposure": 1,
+    "bloom_enabled": false,
+    "bloom_strength": 0.05,
+    "bloom_threshold": 1,
+    "ao_enabled": false,
+    "ao_radius": 0.5,
+    "ao_strength": 1
+  },
+  "entities": [
+    {
+      "uuid": "0a726b51-864e-5cf0-a004-2c232c9502eb",
+      "components": {
+        "name": "红墙",
+        "transform": {
+          "translation": [
+            -2.1,
+            2,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.2,
+            4,
+            4.4
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000101
+        }
+      }
+    },
+    {
+      "uuid": "0e0f73a3-61fc-5104-95a9-0e42c2b5b052",
+      "components": {
+        "name": "地面",
+        "transform": {
+          "translation": [
+            0,
+            -0.1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.4,
+            0.2,
+            4.4
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000100
+        }
+      }
+    },
+    {
+      "uuid": "351d802a-7676-5e75-98ce-7162a8e370e0",
+      "components": {
+        "name": "发光顶灯",
+        "transform": {
+          "translation": [
+            0,
+            3.94,
+            -0.2
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.2,
+            0.08,
+            1.2
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000103
+        }
+      }
+    },
+    {
+      "uuid": "37090a10-3fd5-50a3-a55e-f8ac6a9ea9c5",
+      "components": {
+        "name": "静态矮方块",
+        "transform": {
+          "translation": [
+            0.7,
+            0.3,
+            -0.8
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000100
+        }
+      }
+    },
+    {
+      "uuid": "857f6d0a-f82b-5c06-baec-de6f748423f5",
+      "components": {
+        "name": "后墙",
+        "transform": {
+          "translation": [
+            0,
+            2,
+            -2.1
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4,
+            4,
+            0.2
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000100
+        }
+      }
+    },
+    {
+      "uuid": "8de5a0ba-be99-5ca5-a49f-b8273ec963cb",
+      "components": {
+        "name": "顶板",
+        "transform": {
+          "translation": [
+            0,
+            4.1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.4,
+            0.2,
+            4.4
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000100
+        }
+      }
+    },
+    {
+      "uuid": "9bb81aab-1da8-52e7-a0f0-8bfcf41c35d5",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [
+            0,
+            1.8,
+            1.65
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "camera": {
+          "primary": true,
+          "projection": "perspective",
+          "fov": 70,
+          "orthographic_height": 10,
+          "near_clip": 0.05,
+          "far_clip": 100
+        },
+        "camera_controller": {
+          "enabled": true,
+          "mode": "free",
+          "move_speed": 3,
+          "look_sensitivity": 0.2,
+          "look_speed": 120,
+          "orbit_distance": 6,
+          "orbit_height": 1.2,
+          "orbit_min_distance": 1.5,
+          "orbit_max_distance": 12,
+          "orbit_zoom_step": 0.5,
+          "collision_radius": 0.15
+        }
+      }
+    },
+    {
+      "uuid": "c0a4d871-03d0-588e-b2ef-896873e57ba2",
+      "components": {
+        "name": "蓝墙",
+        "transform": {
+          "translation": [
+            2.1,
+            2,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.2,
+            4,
+            4.4
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000102
+        }
+      }
+    },
+    {
+      "uuid": "c2801eb9-c22a-5db2-b46a-ae24aaa16394",
+      "components": {
+        "name": "移动采样方块",
+        "script": {
+          "asset": 14309634625000312006,
+          "parameters": {
+            "amplitude": 1.1,
+            "speed": 0.8
+          }
+        },
+        "transform": {
+          "translation": [
+            0,
+            1,
+            0.6
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            0.5,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000100
+        },
+        "rigid_body": {
+          "motion": "kinematic",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "db8171f9-929e-597d-be8b-d5e693575de9",
+      "components": {
+        "name": "前墙",
+        "transform": {
+          "translation": [
+            0,
+            2,
+            2.1
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4,
+            4,
+            0.2
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000100
+        }
+      }
+    },
+    {
+      "uuid": "e385ff57-d75e-5181-a5a7-265d822d25fe",
+      "components": {
+        "name": "静态高方块",
+        "transform": {
+          "translation": [
+            -0.6,
+            0.6,
+            -0.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.7,
+            1.2,
+            0.7
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000100
+        }
+      }
+    },
+    {
+      "uuid": "ec7747a0-8c3b-5b0c-9f9d-e0e9aa30d744",
+      "components": {
+        "name": "静态 GI 区域",
+        "transform": {
+          "translation": [
+            0,
+            2,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "irradiance_volume": {
+          "enabled": true,
+          "irradiance": 2125484164449164538,
+          "half_extents": [
+            2.1,
+            2.1,
+            2.1
+          ],
+          "spacing": 0.72,
+          "max_distance": 30,
+          "ray_samples": 1024,
+          "bounces": 3,
+          "intensity": 1,
+          "normal_bias": 0.05,
+          "bake_fingerprint": "811264844356645333:2125484164449164538"
+        }
+      }
+    }
+  ]
+}

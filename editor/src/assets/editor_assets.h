@@ -76,6 +76,10 @@ namespace CometEditor {
             const Comet::AssetTarget& target, const Comet::ComponentRegistry& registry);
         [[nodiscard]] Comet::AssetScanReport create_material(
             const std::filesystem::path& destination, const Comet::MaterialData& data);
+        [[nodiscard]] Comet::AssetScanReport create_environment(
+            const std::filesystem::path& destination, const Comet::TextureData& cubemap);
+        [[nodiscard]] Comet::AssetScanReport create_irradiance(
+            const std::filesystem::path& destination, const Comet::IrradianceData& data);
         [[nodiscard]] Comet::AssetScanReport create_script(const std::filesystem::path& destination,
             AssetSourceOperations::ScriptKind kind = AssetSourceOperations::ScriptKind::Component);
         [[nodiscard]] Comet::AssetScanReport move_module(
@@ -96,6 +100,7 @@ namespace CometEditor {
             m_thumbnails.enable_rendered_previews(renderer, factory);
         }
         [[nodiscard]] const Comet::AssetDatabase& database() const { return m_database; }
+        [[nodiscard]] const Comet::AssetImportLimits& import_limits() const { return m_limits; }
         [[nodiscard]] uint64_t mesh_data_revision(Comet::AssetHandle handle) const {
             return m_manager.mesh_data_revision(handle);
         }

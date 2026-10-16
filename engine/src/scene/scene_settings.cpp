@@ -9,6 +9,16 @@ namespace Comet {
             if(!std::isfinite(value) || value < 0.0f || value > MAX_COLOR)
                 return Result<void>::failure("background_color must contain finite HDR colors");
         }
+        for(int channel = 0; channel < 3; ++channel) {
+            const auto value = fog_color[channel];
+            if(!std::isfinite(value) || value < 0.0f || value > MAX_COLOR)
+                return Result<void>::failure("fog_color must contain finite HDR colors");
+        }
+        if(!std::isfinite(fog_start) || !std::isfinite(fog_end) || fog_start < 0
+            || fog_end <= fog_start || fog_end > MAX_FOG_DISTANCE
+            || !std::isfinite(1.0f / (fog_end - fog_start)))
+            return Result<void>::failure(
+                "fog distances require 0 <= fog_start < fog_end <= 100000 and a finite inverse range");
         if(!std::isfinite(intensity) || intensity < 0.0f || intensity > MAX_INTENSITY
             || !std::isfinite(lighting_intensity) || lighting_intensity < 0.0f
             || lighting_intensity > MAX_INTENSITY)

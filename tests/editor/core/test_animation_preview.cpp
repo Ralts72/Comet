@@ -32,6 +32,22 @@ namespace CometEditor::Tests {
         }
     };
 
+    TEST_F(AnimationPreviewTest, RootMotionPreviewStaysInPlaceAndDoesNotMoveSceneContent) {
+        preview.set_root_motion(Comet::AnimationRootMotion{});
+        ASSERT_TRUE(preview.play());
+        preview.advance(.4);
+        const auto snapshot = preview.snapshot();
+        ASSERT_TRUE(snapshot);
+        auto pose = Comet::sample_animation(*data, snapshot.get());
+        ASSERT_TRUE(pose) << pose.error();
+        EXPECT_NEAR(pose.value().matrices[0][3].x, 0, .0001);
+        preview.set_root_motion(std::nullopt);
+        auto restored = Comet::sample_animation(*data, preview.snapshot().get());
+        ASSERT_TRUE(restored);
+        EXPECT_NEAR(restored.value().matrices[0][3].x, .8, .0001);
+        EXPECT_TRUE(snapshot->root_motion);
+    }
+
     TEST_F(AnimationPreviewTest, BlendPreviewUsesTheRuntimePeriodAndKeepsPhaseWhenWeightsChange) {
         auto second = data->clips.front();
         second.name = "long";

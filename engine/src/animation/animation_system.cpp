@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <unordered_set>
 namespace Comet {
     Result<void, Error> AnimationSystem::emit_events(
         Scene& scene, EntityId id, Playback& playback, double from, double to) {
@@ -70,8 +71,10 @@ namespace Comet {
         selection.sample = std::move(mixed).value();
         return Selected::success(std::move(selection));
     }
-    Result<void, Error> AnimationSystem::advance(Scene& scene, double delta) {
+    Result<void, Error> AnimationSystem::advance(
+        Scene& scene, double delta, const RuntimeServices& services, std::optional<bool> fixed) {
         Result<void, Error> result = Result<void, Error>::success();
+        std::unordered_set<EntityUuid> motion_targets;
         scene.each<const AnimatorComponent>([&](Entity entity, const AnimatorComponent& animator) {
             if(!result)
                 return;
@@ -80,6 +83,13 @@ namespace Comet {
                 m_playbacks.erase(entity.get_id());
                 return;
             }
+            const RootMotionComponent* root =
+                entity.has_component<RootMotionComponent>()
+                        && entity.get_component<RootMotionComponent>().enabled
+                    ? &entity.get_component<RootMotionComponent>()
+                    : nullptr;
+            if(fixed && *fixed != bool(root))
+                return;
             if(!std::isfinite(animator.speed) || animator.speed < 0
                 || !std::isfinite(animator.transition) || animator.transition < 0) {
                 result = Result<void, Error>::failure({"Invalid Animator playback settings"});
@@ -137,7 +147,25 @@ namespace Comet {
                 playback.library.reset();
             }
             const auto clips = frame.clips ? frame.clips : data;
-            const auto advance_sample = [&](AnimationBlend& sample, bool current) {
+            frame.root_motion.reset();
+            if(root) {
+                if(!clips) {
+                    result = Result<void, Error>::failure(
+                        {"Root motion requires loaded animation data"});
+                    return;
+                }
+                const auto target = root->target ? root->target : entity.get_uuid();
+                if(!motion_targets.insert(target).second) {
+                    result = Result<void, Error>::failure(
+                        {"Multiple Animators drive the same root motion target"});
+                    return;
+                }
+                frame.root_motion = AnimationRootMotion{
+                    root->node, root->horizontal, root->vertical, root->rotation};
+            }
+            AnimationMotion current_motion, previous_motion;
+            const auto advance_sample = [&](AnimationBlend& sample, bool current,
+                                            AnimationMotion* motion = nullptr) {
                 if(!sample.has_clip())
                     return;
                 double step = delta * animator.speed;
@@ -167,15 +195,52 @@ namespace Comet {
                     step = period > 0 ? step / period : 0;
                     period = period > 0 ? 1 : 0;
                 }
+                if(motion && frame.root_motion) {
+                    auto extracted = animation_root_motion(
+                        *clips, sample, sample.time + step, *frame.root_motion);
+                    if(!extracted) {
+                        result = Result<void, Error>::failure({extracted.error()});
+                        return;
+                    }
+                    *motion = extracted.value();
+                }
                 sample.time = animation_sample_time(sample.time + step, period, sample.loop);
             };
-            advance_sample(frame.current, true);
-            advance_sample(frame.previous, false);
+            advance_sample(frame.current, true, &current_motion);
+            advance_sample(frame.previous, false, &previous_motion);
+            if(!result)
+                return;
+            const float transition_start = playback.transition_time;
+            const bool had_previous = frame.previous.has_clip();
             playback.transition_time += float(delta);
             frame.blend = 1;
             if(playback.transition_duration > 0 && frame.previous.has_clip())
                 frame.blend =
                     std::min(playback.transition_time / playback.transition_duration, 1.0f);
+            if(root) {
+                float weight = frame.blend;
+                if(had_previous && playback.transition_duration > 0 && delta > 0) {
+                    const double duration = playback.transition_duration;
+                    const auto integral = [&](double time) {
+                        return time < duration ? time * time / (2 * duration)
+                                               : time - duration * .5;
+                    };
+                    weight = float(
+                        (integral(playback.transition_time) - integral(transition_start)) / delta);
+                }
+                AnimationMotion motion{.translation = glm::mix(previous_motion.translation,
+                                           current_motion.translation, weight),
+                    .yaw = glm::mix(previous_motion.yaw, current_motion.yaw, weight),
+                    .up = current_motion.up};
+                if(!m_motion) {
+                    result =
+                        Result<void, Error>::failure({"Root motion requires a movement consumer"});
+                    return;
+                }
+                result = m_motion(scene, entity, *root, motion, delta, services);
+                if(!result)
+                    return;
+            }
             if(frame.blend == 1) {
                 frame.previous = {};
                 frame.previous_state.clear();
@@ -231,10 +296,13 @@ namespace Comet {
     Result<void, Error> AnimationSystem::on_start(
         Scene& scene, RuntimeSession&, const RuntimeServices& services) {
         m_playbacks.clear();
-        return advance(scene, 0);
+        return advance(scene, 0, services);
     }
     Result<void, Error> AnimationSystem::update(Scene& scene, const Context& context) {
-        return advance(scene, context.delta_time);
+        return advance(scene, context.delta_time, context.services, false);
+    }
+    Result<void, Error> AnimationSystem::fixed_update(Scene& scene, const Context& context) {
+        return advance(scene, context.delta_time, context.services, true);
     }
     void AnimationSystem::on_stop(Scene& scene, RuntimeSession&, const RuntimeServices&) noexcept {
         for(const auto& [id, playback] : m_playbacks)

@@ -1,5 +1,9 @@
 #ifdef COMET_TEST_EDITOR_UI
 #include "scene/command_history.h"
+#include "assets/irradiance_bake.h"
+#include "assets/editor_assets.h"
+#include "support/temporary_directory.h"
+#include "support/render_resource_factory.h"
 #include "scene/scene_commands.h"
 #include "ui/menu_bar.h"
 #include "inspector/inspector.h"
@@ -303,6 +307,49 @@ namespace CometEditor::Tests {
             EXPECT_EQ(selection.get_selected_entity(), entity);
         }
     };
+
+    TEST_F(EditingUiTest, GiBakeButtonQueuesEditRequestAndCancelReleasesTheJob) {
+        Comet::Tests::TemporaryDirectory directory;
+        Comet::ProjectPaths paths(directory.path());
+        std::filesystem::create_directories(paths.assets());
+        Comet::Tests::FakeRenderResourceFactory factory;
+        Comet::TaskScheduler scheduler(1);
+        EditorAssets editor_assets(paths, runtime_assets, factory, scheduler);
+        ASSERT_TRUE(editor_assets.refresh().succeeded());
+        CometEditor::IrradianceBake bake(editor_assets, runtime_assets, scheduler);
+        entity.add_component<Comet::IrradianceVolumeComponent>(
+            Comet::IrradianceVolumeComponent{.half_extents = {1, 1, 1}, .ray_samples = 32});
+        inspector = std::make_unique<InspectorPanel>(state, selection, history, edit, components,
+            widgets, assets, runtime_assets, programs, nullptr, nullptr, &bake);
+        ImGui::GetIO().DisplaySize.y = 2000;
+        inspector_height = 1600;
+        frame();
+        frame();
+        auto* window = ImGui::FindWindowByName("Inspector");
+        ASSERT_TRUE(window);
+        const auto component = window->GetID("irradiance_volume");
+        const auto button = ImHashStr("###Bake GI", 0, component);
+        ImGui::ActivateItemByID(button);
+        frame();
+        auto request = inspector->take_lighting_bake_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->kind, InspectorPanel::LightingBakeRequest::Kind::Irradiance);
+        EXPECT_EQ(request->entity, entity.get_uuid());
+        EXPECT_EQ(request->generation, history.generation());
+        state.mode = EditorMode::Play;
+        ImGui::ActivateItemByID(button);
+        frame();
+        EXPECT_FALSE(inspector->take_lighting_bake_request());
+        state.mode = EditorMode::Edit;
+        ASSERT_TRUE(bake.start(scene, entity.get_uuid(), history));
+        frame();
+        ImGui::ActivateItemByID(ImHashStr("###Cancel GI Bake", 0, component));
+        frame();
+        EXPECT_FALSE(bake.busy());
+        scheduler.wait_idle();
+        EXPECT_FALSE(entity.get_component<Comet::IrradianceVolumeComponent>().irradiance);
+        inspector.reset();
+    }
 
     TEST_F(EditingUiTest, HierarchySupportsToggleAndVisibleRangeSelection) {
         scene.create_entity("Second");

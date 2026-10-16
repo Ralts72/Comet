@@ -22,6 +22,12 @@ struct Shadow {
     float light_index;
     float reserved;
 };
+struct ReflectionProbe {
+    vec4 position_intensity;
+    vec4 minimum_blend;
+    vec4 maximum_lod;
+    vec4 rotation_projection;
+};
 layout(set = 0, binding = 1, std140) uniform LightingData {
     Light lights[32];
     float light_count;
@@ -41,6 +47,11 @@ layout(set = 0, binding = 1, std140) uniform LightingData {
     mat4 ao_inverse_view_projection;
     vec4 ao_parameters;
     vec4 environment; // intensity, max LOD, sin(rotation), cos(rotation)
+    ReflectionProbe reflection_probes[4];
+    vec4 reflection_metadata; // active count, excess count
+    vec4 irradiance_origin; // first cell center, intensity (zero disables GI)
+    vec4 irradiance_spacing_bias;
+    vec4 irradiance_dimensions;
 } lighting;
 layout(set = 0, binding = 2) uniform sampler2D shadow_map;
 

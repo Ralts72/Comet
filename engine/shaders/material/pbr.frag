@@ -2,8 +2,10 @@
 #extension GL_GOOGLE_include_directive : require
 #include "../common/frame.glsl"
 #include "../common/surface.glsl"
+#include "../common/fog.glsl"
 #include "../lighting/forward.glsl"
 #include "../lighting/ambient_occlusion.glsl"
+#include "../lighting/irradiance.glsl"
 #include "../environment/lighting.glsl"
 
 layout(location = 0) in vec3 world_position;
@@ -115,7 +117,7 @@ void main() {
         vec3 view = view_vector / view_length;
         float metallic = clamp(material.metallic * metal_roughness.x, 0.0, 1.0);
         float roughness = clamp(material.roughness * metal_roughness.y, 0.045, 1.0);
-        result = evaluate_environment(normal, view, base_color, metallic, roughness)
+        result = evaluate_environment(world_position, normal, view, base_color, metallic, roughness)
             * occlusion * ambient_visibility(world_position, geometric_normal);
         for(int index = 0; index < int(lighting.light_count); ++index) {
             vec3 direction, radiance;
@@ -127,5 +129,5 @@ void main() {
         }
     }
     // The scene target is RGBA16F; keep intense specular highlights finite.
-    color = vec4(clamp(result + emission, 0.0, 65504.0), surface_alpha(base_sample.a));
+    color = vec4(clamp(apply_distance_fog(result + emission), 0.0, 65504.0), surface_alpha(base_sample.a));
 }

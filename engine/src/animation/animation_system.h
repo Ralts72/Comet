@@ -9,18 +9,23 @@
 #include <unordered_map>
 #include <utility>
 namespace Comet {
+    class Entity;
     struct AnimatorComponent;
+    struct RootMotionComponent;
     class COMET_API AnimationSystem final: public System {
     public:
         using Source = std::function<std::shared_ptr<const AnimationData>(AssetHandle)>;
         using Controllers = std::function<std::shared_ptr<const AnimationController>(AssetHandle)>;
         using Libraries = std::function<std::shared_ptr<const AnimationLibrary>(AssetHandle)>;
-        explicit AnimationSystem(
-            Source source = {}, Controllers controllers = {}, Libraries libraries = {})
+        using MotionConsumer = std::function<Result<void, Error>(Scene&, Entity,
+            const RootMotionComponent&, const AnimationMotion&, double, const RuntimeServices&)>;
+        explicit AnimationSystem(Source source = {}, Controllers controllers = {},
+            Libraries libraries = {}, MotionConsumer motion = {})
             : m_source(std::move(source)), m_controllers(std::move(controllers)),
-              m_libraries(std::move(libraries)) {}
+              m_libraries(std::move(libraries)), m_motion(std::move(motion)) {}
         Result<void, Error> on_start(Scene&, RuntimeSession&, const RuntimeServices&) override;
         Result<void, Error> update(Scene&, const Context&) override;
+        Result<void, Error> fixed_update(Scene&, const Context&) override;
         void on_stop(Scene&, RuntimeSession&, const RuntimeServices&) noexcept override;
 
     private:
@@ -44,10 +49,12 @@ namespace Comet {
         };
         Result<void, Error> emit_events(Scene&, EntityId, Playback&, double from, double to);
         Result<Selection, Error> select(const AnimatorComponent&, Playback&, double delta);
-        Result<void, Error> advance(Scene&, double delta);
+        Result<void, Error> advance(
+            Scene&, double delta, const RuntimeServices&, std::optional<bool> fixed = std::nullopt);
         Source m_source;
         Controllers m_controllers;
         Libraries m_libraries;
+        MotionConsumer m_motion;
         std::unordered_map<EntityId, Playback> m_playbacks;
     };
 }

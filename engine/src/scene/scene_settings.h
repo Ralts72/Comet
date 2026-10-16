@@ -11,6 +11,7 @@ namespace Comet {
     struct COMET_API SceneEnvironment {
         static constexpr float MAX_INTENSITY = 64.0f;
         static constexpr float MAX_COLOR = 65504.0f;
+        static constexpr float MAX_FOG_DISTANCE = 100000.0f;
         AssetHandle asset;
         bool background = false;
         float intensity = 1.0f;
@@ -18,6 +19,10 @@ namespace Comet {
         bool lighting = false;
         float lighting_intensity = 1.0f;
         Math::Vec3 background_color{0.0f};
+        bool fog_enabled = false;
+        Math::Vec3 fog_color{0.5f};
+        float fog_start = 10.0f;
+        float fog_end = 100.0f;
 
         [[nodiscard]] Result<void> validate() const;
         bool operator==(const SceneEnvironment&) const = default;

@@ -1,4 +1,5 @@
 #include "assets/source_operations.h"
+#include "asset/data/irradiance_data.h"
 #include "asset/data/game_data.h"
 #include "asset/serialization/animation_controller_serializer.h"
 #include "asset/data/animation_library.h"
@@ -131,6 +132,7 @@ namespace CometEditor::AssetSourceOperations {
                 case AssetType::Model:
                 case AssetType::Texture:
                 case AssetType::Environment:
+                case AssetType::Irradiance:
                 case AssetType::Script:
                 case AssetType::Audio:
                 case AssetType::AnimationLibrary:
@@ -547,6 +549,10 @@ namespace CometEditor::AssetSourceOperations {
                     break;
                 case AssetType::Environment:
                     return EnvironmentImporter{}.validate_source(source);
+                case AssetType::Irradiance:
+                    if(auto result = Comet::IrradianceData::load(source); !result)
+                        return Result<void>::failure(result.error());
+                    break;
                 case AssetType::Script:
                     if(auto script = Script::load(source); !script)
                         return Result<void>::failure(
@@ -729,7 +735,7 @@ namespace CometEditor::AssetSourceOperations {
     }
 
     namespace {
-        struct TextAssetTransaction {
+        struct SourceAssetTransaction {
             AssetDatabase& database;
             ProjectPaths paths;
             const std::filesystem::path& destination;
@@ -876,14 +882,50 @@ namespace CometEditor::AssetSourceOperations {
             }
         };
 
-        AssetScanReport create_text_asset(AssetDatabase& database,
+        AssetScanReport create_source_asset(AssetDatabase& database,
             const std::filesystem::path& destination, const std::string_view contents,
             const std::optional<AssetType> type, const std::string_view extension,
             const std::string_view name) {
-            return TextAssetTransaction{
+            return SourceAssetTransaction{
                 database, database.paths(), destination, contents, type, extension, name}
                 .run();
         }
+    }
+
+    AssetScanReport create_environment(AssetDatabase& database,
+        const std::filesystem::path& destination, const Comet::TextureData& cubemap) {
+        auto encoded = EnvironmentImporter::encode_hdr(cubemap);
+        if(!encoded)
+            return operation_error(destination, encoded.error());
+        auto target = database.paths().resolve_asset_path(destination);
+        if(!target)
+            return operation_error(destination, target.error());
+        std::error_code error;
+        std::filesystem::create_directories(target.value().parent_path(), error);
+        if(error)
+            return operation_error(
+                destination, "Cannot create baked environment directory: " + error.message());
+        return create_source_asset(
+            database, destination, encoded.value(), AssetType::Environment, ".hdr", "Environment");
+    }
+
+    AssetScanReport create_irradiance(AssetDatabase& database,
+        const std::filesystem::path& destination, const Comet::IrradianceData& data) {
+        auto encoded = data.encode();
+        if(!encoded)
+            return operation_error(destination, encoded.error());
+        auto target = database.paths().resolve_asset_path(destination);
+        if(!target)
+            return operation_error(destination, target.error());
+        std::error_code error;
+        std::filesystem::create_directories(target.value().parent_path(), error);
+        if(error)
+            return operation_error(
+                destination, "Cannot create baked GI directory: " + error.message());
+        const std::string_view bytes(
+            reinterpret_cast<const char*>(encoded.value().data()), encoded.value().size());
+        return create_source_asset(
+            database, destination, bytes, AssetType::Irradiance, ".gi", "Irradiance");
     }
 
     AssetScanReport create_prefab(AssetDatabase& database, const std::filesystem::path& destination,
@@ -891,7 +933,7 @@ namespace CometEditor::AssetSourceOperations {
         auto serialized = prefab.serialize(registry);
         if(!serialized)
             return operation_error(destination, serialized.error());
-        return create_text_asset(
+        return create_source_asset(
             database, destination, serialized.value(), AssetType::Prefab, ".prefab", "Prefab");
     }
 
@@ -937,7 +979,7 @@ namespace CometEditor::AssetSourceOperations {
         auto serialized = AnimationControllerSerializer{}.serialize(data);
         if(!serialized)
             return operation_error(destination, serialized.error());
-        return create_text_asset(database, destination, serialized.value(),
+        return create_source_asset(database, destination, serialized.value(),
             AssetType::AnimationController, ".ani", "Animation Controller");
     }
     AssetScanReport save_animation_controller(
@@ -954,7 +996,7 @@ namespace CometEditor::AssetSourceOperations {
         auto serialized = MaterialSerializer{}.serialize(data);
         if(!serialized)
             return operation_error(destination, serialized.error());
-        return create_text_asset(
+        return create_source_asset(
             database, destination, serialized.value(), AssetType::Material, ".mat", "Material");
     }
 
@@ -964,7 +1006,8 @@ namespace CometEditor::AssetSourceOperations {
             if(auto valid = Script::module_name(destination); !valid)
                 return operation_error(destination, valid.error());
             constexpr std::string_view source = "local module = {}\n\nreturn module\n";
-            return create_text_asset(database, destination, source, std::nullopt, ".lua", "Module");
+            return create_source_asset(
+                database, destination, source, std::nullopt, ".lua", "Module");
         }
         if(is_lua_module_source(destination))
             return operation_error(destination,
@@ -979,7 +1022,7 @@ return script
 )";
         if(auto valid = Script::create(std::string(source), destination.generic_string()); !valid)
             return operation_error(destination, valid.error().message);
-        return create_text_asset(
+        return create_source_asset(
             database, destination, source, AssetType::Script, ".lua", "Script");
     }
 

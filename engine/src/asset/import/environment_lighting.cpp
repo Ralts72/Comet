@@ -1,4 +1,5 @@
 #include "asset/import/environment_importer.h"
+#include "asset/data/cubemap_sampling.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/packing.hpp>
@@ -12,94 +13,6 @@
 namespace Comet {
     static constexpr float PI = std::numbers::pi_v<float>;
     static constexpr uint32_t SAMPLE_COUNT = 256;
-
-    static glm::vec3 face_direction(int face, float x, float y) {
-        const std::array<glm::vec3, 6> directions{
-            {{1, -y, -x}, {-1, -y, x}, {x, 1, y}, {x, -1, -y}, {x, -y, 1}, {-x, -y, -1}}};
-        return glm::normalize(directions[face]);
-    }
-
-    struct CubeCoordinate {
-        int face;
-        glm::vec2 uv;
-    };
-
-    static CubeCoordinate cube_coordinate(glm::vec3 d) {
-        const auto a = glm::abs(d);
-        if(a.x >= a.y && a.x >= a.z) {
-            if(d.x > 0)
-                return {0, {-d.z / a.x, -d.y / a.x}};
-            return {1, {d.z / a.x, -d.y / a.x}};
-        }
-        if(a.y >= a.z) {
-            if(d.y > 0)
-                return {2, {d.x / a.y, d.z / a.y}};
-            return {3, {d.x / a.y, -d.z / a.y}};
-        }
-        if(d.z > 0)
-            return {4, {d.x / a.z, -d.y / a.z}};
-        return {5, {-d.x / a.z, -d.y / a.z}};
-    }
-
-    class CubeSampler {
-    public:
-        explicit CubeSampler(const TextureData& data) : m_data(data), m_levels(data.mip_levels) {
-            size_t offset = 0;
-            for(int size = data.width; size > 0; size /= 2) {
-                m_offsets.push_back(offset);
-                offset += size_t(size) * size * 6 * 8;
-            }
-        }
-
-        glm::vec3 sample(glm::vec3 direction, float lod) {
-            lod = std::clamp(lod, 0.0f, float(m_data.mip_levels - 1));
-            const auto low = static_cast<uint32_t>(lod);
-            const auto high = std::min(low + 1, m_data.mip_levels - 1);
-            const auto coordinate = cube_coordinate(direction);
-            const auto first = sample_level(coordinate, low);
-            if(low == high || lod == float(low))
-                return first;
-            return glm::mix(first, sample_level(coordinate, high), lod - low);
-        }
-
-    private:
-        glm::vec3 texel(int face, int x, int y, uint32_t mip) const {
-            const int size = m_data.width >> mip;
-            // 越过立方体面边缘的采样点投影到相邻面，避免边缘钳制造成接缝。
-            if(x < 0 || y < 0 || x >= size || y >= size) {
-                const auto next = cube_coordinate(face_direction(
-                    face, 2.0f * (x + 0.5f) / size - 1, 2.0f * (y + 0.5f) / size - 1));
-                face = next.face;
-                x = std::clamp(int((next.uv.x * 0.5f + 0.5f) * size), 0, size - 1);
-                y = std::clamp(int((next.uv.y * 0.5f + 0.5f) * size), 0, size - 1);
-            }
-            return m_levels[mip][(size_t(face) * size + y) * size + x];
-        }
-
-        glm::vec3 sample_level(CubeCoordinate c, uint32_t mip) {
-            auto& level = m_levels[mip];
-            if(level.empty()) {
-                // 每个被采样的 mip 只解码一次，避免卷积内层反复转换 float16。
-                const auto size = m_data.width >> mip;
-                level.resize(size_t(size) * size * 6);
-                for(size_t i = 0; i < level.size(); ++i) {
-                    glm::u16vec4 packed;
-                    std::memcpy(&packed, m_data.pixels.data() + m_offsets[mip] + i * 8, 8);
-                    level[i] = glm::vec3(glm::unpackHalf(packed));
-                }
-            }
-            const auto p = (c.uv * 0.5f + 0.5f) * float(m_data.width >> mip) - 0.5f;
-            const int x = int(std::floor(p.x)), y = int(std::floor(p.y));
-            return glm::mix(
-                glm::mix(texel(c.face, x, y, mip), texel(c.face, x + 1, y, mip), p.x - x),
-                glm::mix(texel(c.face, x, y + 1, mip), texel(c.face, x + 1, y + 1, mip), p.x - x),
-                p.y - y);
-        }
-
-        const TextureData& m_data;
-        std::vector<size_t> m_offsets;
-        std::vector<std::vector<glm::vec3>> m_levels;
-    };
 
     static glm::vec2 hammersley(uint32_t index) {
         const float x = float(index) / SAMPLE_COUNT;
@@ -174,7 +87,7 @@ namespace Comet {
         const int limit =
             specular ? EnvironmentData::SPECULAR_SIZE : EnvironmentData::IRRADIANCE_SIZE;
         auto result = make_texture(std::min(background.width, limit), true, specular);
-        CubeSampler source(background);
+        CpuCubeSampler source(background);
         const float texel_angle = 4 * PI / (6 * background.width * background.width);
         for(uint32_t mip = 0; mip < result.mip_levels; ++mip) {
             const int size = result.width >> mip;
@@ -214,7 +127,7 @@ namespace Comet {
             for(int face = 0; face < 6; ++face)
                 for(int y = 0; y < size; ++y)
                     for(int x = 0; x < size; ++x) {
-                        const auto n = face_direction(
+                        const auto n = CpuCubeSampler::face_direction(
                             face, 2.0f * (x + 0.5f) / size - 1, 2.0f * (y + 0.5f) / size - 1);
                         if(specular && mip == 0) {
                             append_pixel(result,
@@ -236,6 +149,66 @@ namespace Comet {
                     }
         }
         return result;
+    }
+
+    Result<std::string> EnvironmentImporter::encode_hdr(const TextureData& cubemap) {
+        using Encoded = Result<std::string>;
+        if(!cubemap.cubemap || cubemap.format != Format::R16G16B16A16_SFLOAT || cubemap.width < 1
+            || cubemap.width > 2048 || cubemap.width != cubemap.height
+            || !std::has_single_bit(static_cast<uint32_t>(cubemap.width)) || cubemap.mip_levels != 1
+            || cubemap.pixels.size() != std::size_t(cubemap.width) * cubemap.height * 6 * 8)
+            return Encoded::failure(
+                "HDR encoding requires six square float16 faces with one mip (1..2048, power of two)");
+        for(std::size_t i = 0; i < cubemap.pixels.size(); i += 8) {
+            glm::u16vec4 packed;
+            std::memcpy(&packed, cubemap.pixels.data() + i, 8);
+            const auto pixel = glm::unpackHalf(packed);
+            for(int channel = 0; channel < 3; ++channel)
+                if(!std::isfinite(pixel[channel]) || pixel[channel] < 0)
+                    return Encoded::failure("HDR encoding requires finite nonnegative radiance");
+        }
+        const int width = cubemap.width * 4;
+        const int height = cubemap.height * 2;
+        std::string encoded = "#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y " + std::to_string(height)
+                              + " +X " + std::to_string(width) + "\n";
+        CpuCubeSampler source(cubemap);
+        std::vector<std::array<unsigned char, 4>> scanline(width);
+        for(int y = 0; y < height; ++y) {
+            const float latitude = PI * (y + 0.5f) / height;
+            for(int x = 0; x < width; ++x) {
+                const float longitude = 2 * PI * ((x + 0.5f) / width - 0.5f);
+                const auto radiance =
+                    source.sample({std::sin(latitude) * std::cos(longitude), std::cos(latitude),
+                                      std::sin(latitude) * std::sin(longitude)},
+                        0);
+                const float maximum = std::max({radiance.r, radiance.g, radiance.b});
+                scanline[x] = {};
+                if(maximum < 1e-32f)
+                    continue;
+                int exponent = 0;
+                std::frexp(maximum, &exponent);
+                const float scale = std::ldexp(1.0f, 8 - exponent);
+                for(int channel = 0; channel < 3; ++channel)
+                    scanline[x][channel] = static_cast<unsigned char>(
+                        std::clamp(radiance[channel] * scale, 0.0f, 255.0f));
+                scanline[x][3] = static_cast<unsigned char>(exponent + 128);
+            }
+            if(width < 8) {
+                encoded.append(reinterpret_cast<const char*>(scanline.data()), scanline.size() * 4);
+                continue;
+            }
+            for(const unsigned char value : {2, 2, width >> 8, width & 255})
+                encoded.push_back(static_cast<char>(value));
+            for(int channel = 0; channel < 4; ++channel) {
+                for(int x = 0; x < width;) {
+                    const int count = std::min(width - x, 128);
+                    encoded.push_back(static_cast<char>(count));
+                    for(int i = 0; i < count; ++i)
+                        encoded.push_back(static_cast<char>(scanline[x++][channel]));
+                }
+            }
+        }
+        return Encoded::success(std::move(encoded));
     }
 
     EnvironmentData EnvironmentImporter::prepare_lighting(TextureData background) {

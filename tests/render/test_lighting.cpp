@@ -1,4 +1,5 @@
 #include "render/lighting.h"
+#include "render/resource/environment.h"
 #include "render/scene/scene_extractor.h"
 #include "render/scene/scene_resolver.h"
 #include "asset/registry.h"
@@ -191,7 +192,12 @@ namespace Comet::Tests {
             std::pair{
                 "ao_inverse_view_projection", offsetof(LightingData, ao_inverse_view_projection)},
             std::pair{"ao_parameters", offsetof(LightingData, ao_parameters)},
-            std::pair{"environment", offsetof(LightingData, environment)}};
+            std::pair{"environment", offsetof(LightingData, environment)},
+            std::pair{"reflection_probes", offsetof(LightingData, reflection_probes)},
+            std::pair{"reflection_metadata", offsetof(LightingData, reflection_metadata)},
+            std::pair{"irradiance_origin", offsetof(LightingData, irradiance_origin)},
+            std::pair{"irradiance_spacing_bias", offsetof(LightingData, irradiance_spacing_bias)},
+            std::pair{"irradiance_dimensions", offsetof(LightingData, irradiance_dimensions)}};
         ASSERT_EQ(found->members.size(), fields.size());
         for(size_t index = 0; index < fields.size(); ++index) {
             SCOPED_TRACE(fields[index].first);
@@ -391,6 +397,26 @@ namespace Comet::Tests {
             EXPECT_EQ(shadow.light_index, -1);
     }
 
+    TEST(LightingTest, RotatedSpotlightBoundsRemainAffineForEveryOrientation) {
+        const BoundingBox bounds{{-10, -10, -10}, {10, 10, 10}};
+        const auto view = Math::look_at({0, 0, 15}, {0, 0, 0}, {0, 1, 0});
+        const auto projection = Math::ortho(-15, 15, -15, 15, .1f, 30);
+        for(int index = 1; index <= 100; ++index) {
+            SCOPED_TRACE(index);
+            const RenderLight light{.type = LightType::Spot,
+                .position = {-.5f, 0, 2},
+                .direction = {float(index) * .037f, .23f, -1.5f},
+                .range = 5,
+                .inner_angle = 40,
+                .outer_angle = 45,
+                .casts_shadow = true};
+            auto data = LightingData::prepare(std::span(&light, 1));
+            data.prepare_shadow(bounds, 1024, view, projection);
+            EXPECT_EQ(data.spot_shadow_count, 1);
+            EXPECT_EQ(data.shadows[LightingData::SHADOW_CASCADES].light_index, 0);
+        }
+    }
+
     TEST(LightingTest, PointShadowsCoverSixFacesWithGuardTexelsAndBoundedIndependentBudget) {
         std::vector<RenderLight> lights{{.entity_id = 0, .casts_shadow = true},
             {.entity_id = 1, .type = LightType::Spot, .position = {0, 0, 3}, .casts_shadow = true}};
@@ -477,6 +503,67 @@ namespace Comet::Tests {
         EXPECT_EQ(data.point_shadow_count, 0);
         for(unsigned i = LightingData::POINT_SHADOW_START; i < data.shadows.size(); ++i)
             EXPECT_EQ(data.shadows[i].light_index, -1);
+    }
+
+    TEST(LightingTest, ReflectionProbeUsesScenePropertiesReferencesAndIndependentSnapshots) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        Scene scene;
+        auto entity = scene.create_entity("room reflection");
+        entity.add_component<ReflectionProbeComponent>(
+            ReflectionProbeComponent{.environment = AssetHandle(913)});
+        entity.edit_transform([](auto& value) {
+            value.translation = {2, 0, 0};
+            value.scale = {2, 1, 1};
+        });
+        CometEditor::CommandHistory history;
+        history.bind_scene(&scene);
+        CometEditor::PropertyEditTransaction edit(history, registry);
+        ASSERT_TRUE(edit.begin({entity.get_uuid(), "reflection_probe", "blend_distance"}));
+        ASSERT_TRUE(edit.preview(2.0f));
+        ASSERT_TRUE(edit.commit());
+        EXPECT_FLOAT_EQ(entity.get_component<ReflectionProbeComponent>().blend_distance, 2);
+        ASSERT_TRUE(history.undo());
+        EXPECT_FLOAT_EQ(entity.get_component<ReflectionProbeComponent>().blend_distance, 1);
+        ASSERT_TRUE(history.redo());
+        auto extracted = SceneExtractor::extract(scene);
+        ASSERT_EQ(extracted.reflection_probes.size(), 1);
+        const auto& probe = extracted.reflection_probes.front();
+        EXPECT_EQ(probe.position, Math::Vec3(2, 0, 0));
+        EXPECT_EQ(probe.bounds.minimum, Math::Vec3(-8, -5, -5));
+        EXPECT_EQ(probe.bounds.maximum, Math::Vec3(12, 5, 5));
+        const auto references = registry.collect_asset_references(scene);
+        ASSERT_EQ(references.size(), 1);
+        EXPECT_EQ(references.front().handle, AssetHandle(913));
+        EXPECT_EQ(references.front().type, AssetType::Environment);
+        const auto serialized = serializer.serialize(scene);
+        ASSERT_TRUE(serialized) << serialized.error();
+        auto loaded = serializer.deserialize(serialized.value());
+        ASSERT_TRUE(loaded) << loaded.error();
+        auto cloned = serializer.clone(*loaded.value());
+        ASSERT_TRUE(cloned) << cloned.error();
+        EXPECT_EQ(cloned.value()
+                      ->find_entity(entity.get_uuid())
+                      .get_component<ReflectionProbeComponent>(),
+            entity.get_component<ReflectionProbeComponent>());
+        AssetRegistry assets;
+        const auto first = std::make_shared<Environment>();
+        ASSERT_TRUE(assets.register_asset(AssetHandle(913), first));
+        SceneResolver resolver(assets);
+        const auto captured = resolver.update(extracted);
+        ASSERT_EQ(captured->reflection_probes.size(), 1);
+        EXPECT_EQ(captured->reflection_probes.front().environment, first);
+        const auto replacement = std::make_shared<Environment>();
+        ASSERT_TRUE(assets.replace_asset(AssetHandle(913), replacement));
+        const auto current = resolver.update(extracted);
+        EXPECT_EQ(current->reflection_probes.front().environment, replacement);
+        EXPECT_EQ(captured->reflection_probes.front().environment, first);
+        entity.edit_component<ReflectionProbeComponent>([](auto& value) { value.enabled = false; });
+        EXPECT_TRUE(SceneExtractor::extract(scene).reflection_probes.empty());
+        EXPECT_TRUE(
+            registry.collect_asset_references(scene, ComponentRegistry::ReferenceScope::Runtime)
+                .empty());
+        EXPECT_EQ(registry.collect_asset_references(scene).size(), 1);
     }
 
     TEST(LightingTest, ShadowSettingsUsePropertyUndoSerializationAndLegacyDefault) {

@@ -5,6 +5,8 @@
 #include "config/config_loader.h"
 #include "render/resource/render_resources.h"
 #include "assets/editor_assets.h"
+#include "assets/reflection_bake.h"
+#include "assets/irradiance_bake.h"
 #include "assets/system_text_editor.h"
 #include "assets/material_editing.h"
 #include "assets/material_edit_session.h"
@@ -139,6 +141,10 @@ namespace {
             auto initial_asset_scan = m_assets->refresh();
             m_assets->enable_rendered_previews(
                 engine.get_renderer(), engine.get_render_resource_factory());
+            m_reflection_bake = std::make_unique<CometEditor::ReflectionBake>(
+                renderer, *m_assets, engine.get_asset_registry());
+            m_irradiance_bake = std::make_unique<CometEditor::IrradianceBake>(
+                *m_assets, engine.get_asset_registry(), engine.get_task_scheduler());
             m_property_editor_registry =
                 CometEditor::create_property_editor_registry(m_assets->database());
             Comet::Engine* engine_ptr = &engine;
@@ -262,6 +268,24 @@ namespace {
             if(auto restored = m_assets->restore_references(); !restored)
                 return Comet::Result<void, Comet::Error>::failure(restored.error());
 
+            if(auto baked = m_reflection_bake->update(*get_engine().get_scene(), m_command_history);
+                !baked)
+                LOG_WARN("Reflection bake rejected: {}", baked.error());
+            else if(baked.value()) {
+                m_assets->track_scene(*get_engine().get_scene(), m_component_registry);
+                refresh_available_scenes();
+                LOG_INFO(
+                    "Reflection probe baked; save the scene to keep its environment reference");
+            }
+
+            if(auto baked = m_irradiance_bake->update(*get_engine().get_scene(), m_command_history);
+                !baked)
+                LOG_WARN("GI bake rejected: {}", baked.error());
+            else if(baked.value()) {
+                m_assets->track_scene(*get_engine().get_scene(), m_component_registry);
+                LOG_INFO("GI baked; save the scene to keep its irradiance reference");
+            }
+
             m_viewport->consume_pick(get_engine().get_scene());
             m_menu_bar->set_fps(frame.update.fps);
             return Comet::Result<void, Comet::Error>::success();
@@ -336,6 +360,8 @@ namespace {
             get_engine().get_window().confirm_close_requests(false);
             LOG_INFO("Editor shutting down...");
             get_engine().get_renderer().set_overlay({});
+            m_reflection_bake.reset();
+            m_irradiance_bake.reset();
             if(m_game_ui)
                 m_game_ui->deactivate();
             m_game_ui.reset();
@@ -779,6 +805,10 @@ namespace {
         std::unique_ptr<Comet::Scene> commit_scene(
             std::unique_ptr<Comet::Scene> scene, CometEditor::EditorMode mode) {
             // 旧场景仍存活时结束交互；返回 owner 后才允许调用者销毁或保留它。
+            if(m_reflection_bake)
+                m_reflection_bake->cancel();
+            if(m_irradiance_bake)
+                m_irradiance_bake->cancel();
             if(m_inspector_panel)
                 m_inspector_panel->reset_for_scene_change();
             else
@@ -961,7 +991,8 @@ namespace {
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(m_editor_state,
                 *m_selection, m_command_history, m_property_edit, m_component_registry,
                 m_property_editor_registry, m_assets->database(), get_engine().get_asset_registry(),
-                get_engine().get_material_parameters(), &get_engine().get_scene_runtime());
+                get_engine().get_material_parameters(), &get_engine().get_scene_runtime(),
+                m_reflection_bake.get(), m_irradiance_bake.get());
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>(m_assets->database(),
                 m_project.paths().assets(), std::move(initial_asset_scan), *m_selection,
                 m_command_history);
@@ -1281,6 +1312,7 @@ namespace {
             const auto menu_request = m_menu_bar->take_request();
             const auto mesh_drop = m_viewport->panel().take_mesh_drop();
             const auto asset_assignment = m_inspector_panel->take_asset_assignment();
+            const auto lighting_bake = m_inspector_panel->take_lighting_bake_request();
             const auto play_command = m_viewport->panel().take_play_command();
             const auto file_request = m_path_dialog.take_request();
             const bool dialog_cancelled = m_path_dialog.take_cancelled();
@@ -1301,6 +1333,7 @@ namespace {
                 .save_prefab = prefab_request.has_value(),
                 .mesh_drop = mesh_drop.has_value(),
                 .asset_assignment = asset_assignment.has_value(),
+                .lighting_bake = lighting_bake.has_value(),
                 .document_pending = m_scene_document->has_pending_request(),
                 .dialog_cancelled = dialog_cancelled,
             });
@@ -1359,6 +1392,27 @@ namespace {
                             return result;
                         LOG_WARN("Asset assignment rejected: {}", result.error().message);
                     }
+                    break;
+                }
+                case Kind::LightingBake: {
+                    auto* scene = get_engine().get_scene();
+                    if(m_editor_state.mode != CometEditor::EditorMode::Edit
+                        || lighting_bake->generation != m_command_history.generation()
+                        || !finish_active_edit())
+                        break;
+                    auto prepared = m_assets->prepare_scene(*scene, m_component_registry);
+                    if(!prepared) {
+                        LOG_WARN("Cannot prepare lighting bake: {}", prepared.error().message);
+                        break;
+                    }
+                    using BakeKind = CometEditor::InspectorPanel::LightingBakeRequest::Kind;
+                    auto started = lighting_bake->kind == BakeKind::Reflection
+                                       ? m_reflection_bake->start(
+                                             *scene, lighting_bake->entity, m_command_history)
+                                       : m_irradiance_bake->start(
+                                             *scene, lighting_bake->entity, m_command_history);
+                    if(!started)
+                        LOG_WARN("Cannot start lighting bake: {}", started.error());
                     break;
                 }
             }
@@ -1435,6 +1489,8 @@ namespace {
         std::unique_ptr<CometEditor::Ui::ImGuiContext> m_imgui_context;
         std::unique_ptr<CometEditor::GameUi> m_game_ui;
         std::unique_ptr<CometEditor::EditorAssets> m_assets;
+        std::unique_ptr<CometEditor::ReflectionBake> m_reflection_bake;
+        std::unique_ptr<CometEditor::IrradianceBake> m_irradiance_bake;
         std::unique_ptr<CometEditor::MaterialEditSession> m_material_edits;
         std::unique_ptr<CometEditor::MaterialShaderReload> m_material_shader_reload;
         std::optional<CometEditor::SelectionService> m_selection;

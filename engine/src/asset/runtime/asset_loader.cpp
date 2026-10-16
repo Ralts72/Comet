@@ -1,6 +1,7 @@
 #include "asset/runtime/asset_loader.h"
 #include "asset/data/animation_library.h"
 #include "asset/data/game_data.h"
+#include "asset/data/irradiance_data.h"
 #include "asset/serialization/animation_controller_serializer.h"
 #include "asset/default_assets.h"
 #include "asset/import/mesh_importer.h"
@@ -413,6 +414,21 @@ namespace Comet {
                 if(!prepared)
                     return Result<std::shared_ptr<Environment>, Error>::failure({prepared.error()});
                 return m_render_factory.prepare(std::move(prepared).value().data);
+            });
+    }
+
+    Result<std::shared_ptr<Irradiance>, Error> AssetLoader::load_irradiance(
+        const AssetHandle handle) {
+        using Loaded = Result<std::shared_ptr<Irradiance>, Error>;
+        return load_runtime_asset<Irradiance>(m_database, m_registry, handle, AssetType::Irradiance,
+            [this](const AssetRecord& record) -> Loaded {
+                auto path = m_database.paths().resolve_asset_path(record.path);
+                if(!path)
+                    return Loaded::failure({path.error()});
+                auto data = IrradianceData::load(path.value());
+                if(!data)
+                    return Loaded::failure({data.error()});
+                return m_render_factory.prepare(std::move(data).value());
             });
     }
 

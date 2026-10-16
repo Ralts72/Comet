@@ -19,6 +19,7 @@ set(UNIT_TEST_SOURCES
         asset/test_game_data.cpp
         asset/test_environment_artifact.cpp
         asset/test_environment_importer.cpp
+        asset/test_irradiance.cpp
         asset/test_handle.cpp
         asset/test_import_input_snapshot.cpp
         asset/test_material_serializer.cpp
@@ -60,6 +61,8 @@ set(UNIT_TEST_SOURCES
         editor/core/test_physics_overlay.cpp
         editor/core/test_command_history.cpp
         editor/core/test_editor_assets.cpp
+        editor/core/test_reflection_bake.cpp
+        editor/core/test_irradiance_bake.cpp
         editor/core/test_asset_thumbnails.cpp
         editor/core/test_external_file_import.cpp
         editor/core/test_editor_request_policy.cpp
@@ -111,6 +114,7 @@ set(UNIT_TEST_SOURCES
         render/test_scene_extractor.cpp
         render/test_scene_picking.cpp
         scene/test_animation.cpp
+        scene/test_root_motion.cpp
         scene/test_animation_layers.cpp
         scene/test_animation_controller.cpp
         scene/test_animation_events.cpp
@@ -183,6 +187,7 @@ set(INTEGRATION_SOURCES
         render/test_render_diagnostics.cpp
         render/test_render_graph_gpu.cpp
         render/test_render_pipeline_gpu.cpp
+        render/test_scene_preview.cpp
         render/test_instanced_rendering.cpp
         render/test_environment_rendering.cpp
         render/test_pbr_surfaces.cpp

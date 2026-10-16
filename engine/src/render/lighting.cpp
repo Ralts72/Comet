@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <glm/gtc/matrix_inverse.hpp>
 
 namespace Comet {
     static_assert(sizeof(LightingData::Light) == 64);
@@ -29,7 +30,8 @@ namespace Comet {
     static_assert(offsetof(LightingData, shadow_cascade_count)
                   == LightingData::MAX_LIGHTS * 64 + 48 + LightingData::MAX_SHADOW_VIEWS * 96);
     static_assert(sizeof(LightingData)
-                  == LightingData::MAX_LIGHTS * 64 + 176 + LightingData::MAX_SHADOW_VIEWS * 96);
+                  == LightingData::MAX_LIGHTS * 64 + 240 + LightingData::MAX_SHADOW_VIEWS * 96
+                         + LightingData::MAX_REFLECTION_PROBES * 64);
 
     static Math::Mat4 light_view_matrix(
         const Math::Vec3& direction, const Math::Vec3& position = {}) {
@@ -285,8 +287,9 @@ namespace Comet {
                 continue;
             const auto view = light_view_matrix(light.direction, light.position);
             const float radius = light.range * tangent;
+            // 通用求逆的末行可能有舍入误差；这里必须保留仿射矩阵的精确末行。
             const auto bounds = transform_box(
-                {{-radius, -radius, -light.range}, {radius, radius, 0}}, Math::inverse(view));
+                {{-radius, -radius, -light.range}, {radius, radius, 0}}, glm::affineInverse(view));
             if(!bounds || !camera_frustum.intersects(*bounds))
                 continue;
             const auto shadow = perspective_shadow(

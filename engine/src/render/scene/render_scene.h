@@ -116,6 +116,8 @@ namespace Comet {
         std::vector<RenderCamera> cameras;
         std::vector<RenderItem> render_items;
         std::vector<RenderLight> lights;
+        std::vector<RenderReflectionProbe> reflection_probes;
+        std::vector<RenderIrradianceVolume> irradiance_volumes;
         SceneEnvironment environment;
         PostProcessSettings post_process;
         RenderItemChanges item_changes;

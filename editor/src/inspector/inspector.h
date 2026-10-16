@@ -26,6 +26,8 @@ namespace Comet {
 namespace CometEditor {
     class PropertyEditorRegistry;
     class SelectionService;
+    class ReflectionBake;
+    class IrradianceBake;
     struct PropertyEditResult;
 
     class InspectorPanel: public EditorPanel {
@@ -34,13 +36,20 @@ namespace CometEditor {
             std::vector<PropertyEditTransaction::Target> targets;
             AssetDragPayload asset;
         };
+        struct LightingBakeRequest {
+            enum class Kind { Reflection, Irradiance };
+            Kind kind;
+            Comet::EntityUuid entity;
+            uint64_t generation;
+        };
         InspectorPanel(const EditorState& state, SelectionService& selection,
             CommandHistory& history, PropertyEditTransaction& property_edit,
             const Comet::ComponentRegistry& component_registry,
             const PropertyEditorRegistry& property_editor_registry,
             const Comet::AssetDatabase& asset_database, const Comet::AssetRegistry& runtime_assets,
             const Comet::MaterialProgramValidator& programs,
-            const Comet::SceneRuntime* runtime = nullptr);
+            const Comet::SceneRuntime* runtime = nullptr, ReflectionBake* reflection_bake = nullptr,
+            IrradianceBake* irradiance_bake = nullptr);
         ~InspectorPanel() override;
 
         void render() override;
@@ -49,6 +58,7 @@ namespace CometEditor {
         void update_previews(double delta_time);
         [[nodiscard]] AssetInspector& asset_inspector() { return m_asset_inspector; }
         [[nodiscard]] std::optional<AssetAssignment> take_asset_assignment();
+        [[nodiscard]] std::optional<LightingBakeRequest> take_lighting_bake_request();
 
     private:
         template<typename Value>
@@ -94,9 +104,12 @@ namespace CometEditor {
         const Comet::AssetDatabase& m_asset_database;
         const Comet::AssetRegistry& m_runtime_assets;
         const Comet::SceneRuntime* m_runtime;
+        ReflectionBake* m_reflection_bake;
+        IrradianceBake* m_irradiance_bake;
         std::shared_ptr<const Comet::Script> m_script_edit_version;
         AssetInspector m_asset_inspector;
         std::optional<AssetAssignment> m_asset_assignment;
+        std::optional<LightingBakeRequest> m_lighting_bake_request;
         std::vector<Comet::EntityUuid> m_entities;
         AnimationPreview m_animation_preview;
         std::shared_ptr<const Comet::AnimationPlayback> m_preview_publication;

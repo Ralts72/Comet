@@ -76,6 +76,11 @@ namespace Comet {
             uint32_t light_count = 0;
             uint32_t excess_lights = 0;
             uint32_t invalid_lights = 0;
+            uint32_t reflection_probes = 0;
+            uint32_t excess_reflection_probes = 0;
+            uint32_t irradiance_probes = 0;
+            uint32_t excess_irradiance_volumes = 0;
+            uint64_t irradiance_bytes = 0;
         };
         struct ReloadReport {
             uint32_t pipelines = 0;
@@ -196,6 +201,9 @@ namespace Comet {
             std::shared_ptr<ImageView> ao_depth;
             std::shared_ptr<Sampler> environment_sampler;
             std::shared_ptr<Environment> environment;
+            std::shared_ptr<Irradiance> irradiance;
+            std::array<std::shared_ptr<Environment>, LightingData::MAX_REFLECTION_PROBES>
+                reflection_probes;
             std::optional<DescriptorSet> descriptor;
             InstanceBuffer instances;
         };

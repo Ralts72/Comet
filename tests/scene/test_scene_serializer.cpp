@@ -840,8 +840,8 @@ namespace Comet::Tests {
 
     TEST(SceneEnvironmentTest, PersistsExtractsAndCollectsReferenceWithoutAnEntity) {
         Scene scene;
-        const SceneEnvironment environment{
-            AssetHandle(902), true, 2.0f, -90.0f, true, 0.75f, {0.25f, 0.5f, 2.0f}};
+        const SceneEnvironment environment{AssetHandle(902), true, 2.0f, -90.0f, true, 0.75f,
+            {0.25f, 0.5f, 2.0f}, true, {0.1f, 0.2f, 0.3f}, 5, 60};
         ASSERT_TRUE(scene.set_environment(environment));
         EXPECT_EQ(scene.get_environment().rotation, -90.0f);
         const auto registry = create_scene_component_registry();
@@ -859,10 +859,45 @@ namespace Comet::Tests {
         ASSERT_TRUE(cloned) << cloned.error();
         EXPECT_EQ(cloned.value()->get_environment(), scene.get_environment());
         EXPECT_EQ(cloned.value()->entity_count(), 0u);
+        auto serialized = serializer.serialize(scene);
+        ASSERT_TRUE(serialized) << serialized.error();
+        auto restored = serializer.deserialize(serialized.value());
+        ASSERT_TRUE(restored) << restored.error();
+        EXPECT_EQ(restored.value()->get_environment(), scene.get_environment());
         auto hidden = scene.get_environment();
         hidden.background = false;
         ASSERT_TRUE(scene.set_environment(hidden));
         EXPECT_EQ(registry.collect_asset_references(scene).size(), 1u);
+    }
+
+    TEST(SceneEnvironmentTest, FogRejectsInvalidRangesColorsAndTypesWithoutChangingScene) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        Scene scene;
+        const auto original = scene.get_environment();
+        for(const auto& field : {R"("fog_enabled":1)", R"("fog_color":[1,-1,1])",
+                R"("fog_color":[1,1,1e100])", R"("fog_color":null)", R"("fog_color":[1,1])",
+                R"("fog_start":-1)", R"("fog_start":100)", R"("fog_end":10)", R"("fog_end":100001)",
+                R"("fog_end":null)", R"("fog_start":0,"fog_end":1e-40)"}) {
+            SCOPED_TRACE(field);
+            const auto json = std::string(R"({"version":2,"entities":[],"environment":{
+                "asset":0,"background":false,"intensity":1,"rotation":0,)")
+                              + field + "}}";
+            auto loaded = serializer.deserialize(json);
+            EXPECT_FALSE(loaded);
+            if(!loaded)
+                EXPECT_NE(loaded.error().find("fog"), std::string::npos);
+        }
+        for(float invalid : {-1.0f, std::numeric_limits<float>::infinity(),
+                std::numeric_limits<float>::quiet_NaN()}) {
+            auto value = original;
+            value.fog_start = invalid;
+            EXPECT_FALSE(scene.set_environment(value));
+            value = original;
+            value.fog_color.y = invalid;
+            EXPECT_FALSE(scene.set_environment(value));
+            EXPECT_EQ(scene.get_environment(), original);
+        }
     }
 
     TEST(SceneEnvironmentTest, LegacyScenesDefaultOffAndInvalidEnvironmentIsRejected) {

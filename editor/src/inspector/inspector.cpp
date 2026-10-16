@@ -2,6 +2,8 @@
 #include "render/resource/mesh.h"
 #include "animation/animation_data.h"
 #include "inspector/inspector.h"
+#include "assets/reflection_bake.h"
+#include "assets/irradiance_bake.h"
 #include "inspector/property_editor_registry.h"
 #include "scene/selection.h"
 #include "scene/scene_commands.h"
@@ -345,14 +347,15 @@ namespace CometEditor {
         const Comet::ComponentRegistry& component_registry,
         const PropertyEditorRegistry& property_editor_registry,
         const Comet::AssetDatabase& asset_database, const Comet::AssetRegistry& runtime_assets,
-        const Comet::MaterialProgramValidator& programs, const Comet::SceneRuntime* runtime)
+        const Comet::MaterialProgramValidator& programs, const Comet::SceneRuntime* runtime,
+        ReflectionBake* reflection_bake, IrradianceBake* irradiance_bake)
         : EditorPanel("属性###Inspector"), m_state(state), m_selection(selection),
           m_history(history), m_property_edit(property_edit),
           m_component_registry(component_registry),
           m_component_descriptions(make_component_descriptions(component_registry)),
           m_property_editor_registry(property_editor_registry), m_asset_database(asset_database),
-          m_runtime_assets(runtime_assets), m_runtime(runtime),
-          m_asset_inspector(asset_database, programs) {}
+          m_runtime_assets(runtime_assets), m_runtime(runtime), m_reflection_bake(reflection_bake),
+          m_irradiance_bake(irradiance_bake), m_asset_inspector(asset_database, programs) {}
 
     InspectorPanel::~InspectorPanel() {
         reset_animation_preview();
@@ -457,6 +460,10 @@ namespace CometEditor {
                         "凸包适合可移动刚体；三角网格仅支持静态刚体，三角形正面参与碰撞。"
                         "使用网格原点与绑定姿态，支持正非等比缩放，不随骨骼动画变形。");
                 for(const Comet::PropertyDescriptor& property : component_descriptor.properties) {
+                    if((component_descriptor.id == "reflection_probe"
+                           || component_descriptor.id == "irradiance_volume")
+                        && property.id == "bake_fingerprint")
+                        continue;
                     if(!std::ranges::all_of(m_entities, [&](auto uuid) {
                            return property_visible(m_selection.get_scene().find_entity(uuid),
                                component_descriptor.id, property.id);
@@ -474,6 +481,51 @@ namespace CometEditor {
                     active_property_visible |= m_property_edit.targets_many(
                         property_targets(component_descriptor.id, property.id));
                     ImGui::PopID();
+                }
+                if(component_descriptor.id == "reflection_probe" && m_entities.size() == 1
+                    && m_reflection_bake) {
+                    ImGui::TextWrapped(
+                        "%s", m_reflection_bake->status(m_selection.get_scene(), entity.get_uuid())
+                                  .c_str());
+                    ImGui::BeginDisabled(!edit_structure || m_reflection_bake->busy());
+                    if(ImGui::Button("烘焙反射###Bake Reflection") && finish_edit())
+                        m_lighting_bake_request = {LightingBakeRequest::Kind::Reflection,
+                            entity.get_uuid(), m_history.generation()};
+                    ImGui::EndDisabled();
+                    ImGui::TextWrapped(
+                        "捕获静态网格与光源；不包含动画角色、动态刚体、粒子、雾和其他反射探针。");
+                }
+                if(component_descriptor.id == "irradiance_volume" && m_entities.size() == 1
+                    && m_irradiance_bake) {
+                    ImGui::TextWrapped(
+                        "%s", m_irradiance_bake->status(m_selection.get_scene(), entity.get_uuid())
+                                  .c_str());
+                    ImGui::BeginDisabled(!edit_structure || m_irradiance_bake->busy());
+                    if(ImGui::Button("烘焙 GI###Bake GI") && finish_edit())
+                        m_lighting_bake_request = {LightingBakeRequest::Kind::Irradiance,
+                            entity.get_uuid(), m_history.generation()};
+                    ImGui::EndDisabled();
+                    if(m_irradiance_bake->busy()) {
+                        ImGui::SameLine();
+                        if(ImGui::Button("取消###Cancel GI Bake"))
+                            m_irradiance_bake->cancel();
+                        const auto progress = m_irradiance_bake->progress();
+                        const float ratio =
+                            progress.total ? float(progress.completed) / progress.total : 0;
+                        ImGui::ProgressBar(ratio);
+                        ImGui::Text("探针 %u / %u", progress.completed, progress.total);
+                    }
+                    if(const auto& report = m_irradiance_bake->last_report(); report) {
+                        ImGui::TextWrapped("上次烘焙 %.2f 秒，%u 个有效探针，%u 个三角形",
+                            report->seconds, report->statistics.active_probes,
+                            report->statistics.triangles);
+                        ImGui::TextWrapped("输入 %.2f MiB，求解器 %.2f MiB，运行纹理 %.2f KiB",
+                            report->input_bytes / 1048576.0,
+                            report->statistics.working_bytes / 1048576.0,
+                            report->product_bytes / 1024.0);
+                    }
+                    ImGui::TextWrapped(
+                        "区域轴对齐，半尺寸与间距使用世界单位；静态内容烘焙，移动物体仅采样。修改静态内容或移动区域后需重新烘焙。");
                 }
             }
             ImGui::PopID();
@@ -573,6 +625,21 @@ namespace CometEditor {
             "%.2f", ImGuiSliderFlags_AlwaysClamp));
         result.include_item(ImGui::DragFloat(
             "旋转###Rotation", &environment.rotation, 0.5f, 0.0f, 0.0f, "%.1f deg"));
+        ImGui::Spacing();
+        const bool fog_changed = ImGui::Checkbox("距离雾###Distance fog", &environment.fog_enabled);
+        result.changed |= fog_changed;
+        result.finished |= fog_changed;
+        if(ImGui::IsItemHovered())
+            ImGui::SetTooltip("按相机前向距离混合网格与雾色；天空背景和粒子暂不受影响。");
+        ImGui::BeginDisabled(!environment.fog_enabled);
+        result.include_item(ImGui::ColorEdit3("雾颜色（线性）###Fog color",
+            &environment.fog_color.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR));
+        result.include_item(ImGui::DragFloat("起始距离###Fog start", &environment.fog_start, 0.1f,
+            0.0f, environment.fog_end - 0.01f, "%.2f m", ImGuiSliderFlags_AlwaysClamp));
+        result.include_item(ImGui::DragFloat("完全覆盖距离###Fog end", &environment.fog_end, 0.1f,
+            environment.fog_start + 0.01f, Comet::SceneEnvironment::MAX_FOG_DISTANCE, "%.2f m",
+            ImGuiSliderFlags_AlwaysClamp));
+        ImGui::EndDisabled();
         apply_scene_edit(environment_target, environment, result, can_edit);
         ImGui::EndDisabled();
     }
@@ -627,6 +694,7 @@ namespace CometEditor {
         reset_animation_preview();
         reset_particle_preview();
         m_asset_assignment.reset();
+        m_lighting_bake_request.reset();
         m_script_edit_version.reset();
         m_entities.clear();
         if(!finish_edit(true))
@@ -800,6 +868,13 @@ namespace CometEditor {
             entity = m_selection.get_scene().find_entity(controller.model()->entity);
         if(!bind_animation_preview(entity))
             return;
+        std::optional<Comet::AnimationRootMotion> root_motion;
+        if(entity.has_component<Comet::RootMotionComponent>()) {
+            const auto& root = entity.get_component<Comet::RootMotionComponent>();
+            if(root.enabled)
+                root_motion = {root.node, root.horizontal, root.vertical, root.rotation};
+        }
+        m_animation_preview.set_root_motion(std::move(root_motion));
         m_animation_preview.advance(delta_time);
         m_preview_publication = m_animation_preview.snapshot();
         m_selection.get_scene().set_animation_playback(entity, m_preview_publication);
@@ -899,8 +974,10 @@ namespace CometEditor {
             return;
         }
         PropertyEditResult result;
-        if(component.id == "bone_attachment" && property.id == "bone") {
-            auto parent = m_selection.get_scene().get_parent(entity);
+        if((component.id == "bone_attachment" && property.id == "bone")
+            || (component.id == "root_motion" && property.id == "node")) {
+            const bool root_motion = component.id == "root_motion";
+            auto parent = root_motion ? entity : m_selection.get_scene().get_parent(entity);
             std::shared_ptr<const Comet::AnimationData> data;
             if(parent && parent.has_component<Comet::MeshRendererComponent>()) {
                 const auto mesh = m_runtime_assets.resolve<Comet::Mesh>(
@@ -912,6 +989,10 @@ namespace CometEditor {
             if(data
                 && ImGui::BeginCombo(
                     property.display_name.c_str(), name.empty() ? "选择骨骼" : name.c_str())) {
+                if(root_motion && ImGui::Selectable("自动选择骨架根", !mixed && name.empty())) {
+                    name.clear();
+                    result.changed = true;
+                }
                 for(const auto& joint : data->joints) {
                     const auto& bone = data->nodes[joint.node].name;
                     if(ImGui::Selectable(bone.c_str(), !mixed && bone == name)) {
@@ -921,13 +1002,20 @@ namespace CometEditor {
                 }
                 ImGui::EndCombo();
             }
-            if(!data)
-                ImGui::TextWrapped("请先在层级中将此物体拖到角色模型下，再选择骨骼。");
-            else if(!name.empty() && std::ranges::none_of(data->joints, [&](const auto& joint) {
-                        return data->nodes[joint.node].name == name;
-                    }))
+            if(!data) {
+                if(root_motion)
+                    ImGui::TextWrapped("请先为此实体设置带骨骼的网格与动画。");
+                else
+                    ImGui::TextWrapped("请先在层级中将此物体拖到角色模型下，再选择骨骼。");
+            } else if(!name.empty() && std::ranges::none_of(data->joints, [&](const auto& joint) {
+                          return data->nodes[joint.node].name == name;
+                      }))
                 ImGui::TextColored({1, .45f, .35f, 1}, "骨骼已丢失：%s", name.c_str());
-            ImGui::TextWrapped("本地变换是骨骼空间的偏移；暂停时保留姿态，Stop 恢复绑定姿态。");
+            if(root_motion)
+                ImGui::TextWrapped(
+                    "选择包含全部关节的根骨骼；目标须为自身或祖先。角色位移参与碰撞求解；编辑预览保持原地。");
+            else
+                ImGui::TextWrapped("本地变换是骨骼空间的偏移；暂停时保留姿态，Stop 恢复绑定姿态。");
             result.finished = result.changed;
             apply_property_edit(entity, component, property, *value, result);
             return;
@@ -1325,6 +1413,11 @@ namespace CometEditor {
 
     std::optional<InspectorPanel::AssetAssignment> InspectorPanel::take_asset_assignment() {
         return std::exchange(m_asset_assignment, std::nullopt);
+    }
+
+    std::optional<InspectorPanel::LightingBakeRequest> InspectorPanel::
+        take_lighting_bake_request() {
+        return std::exchange(m_lighting_bake_request, std::nullopt);
     }
 
     std::optional<AssetDragPayload> InspectorPanel::accept_asset_drop(

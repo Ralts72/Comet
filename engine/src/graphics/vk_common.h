@@ -93,6 +93,8 @@ namespace Comet {
                     return 4;
                 case Format::R16G16B16A16_SFLOAT:
                     return 8;
+                case Format::R32G32B32A32_SFLOAT:
+                    return 16;
                 default:
                     LOG_FATAL("Unsupported format for byte size calculation");
             }

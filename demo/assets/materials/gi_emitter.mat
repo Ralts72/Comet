@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "template": "unlit_color",
+  "properties": {
+    "color": {
+      "type": "vector",
+      "value": [
+        8,
+        8,
+        8,
+        1
+      ]
+    }
+  }
+}

@@ -23,6 +23,7 @@
 #include "render/resource/render_resources.h"
 #include "render/resource/texture.h"
 #include "render/resource/environment.h"
+#include "render/resource/irradiance.h"
 #include "graphics/resource/image.h"
 #include "pbr_instanced_vert.h"
 #include "unlit_color_instanced_vert.h"
@@ -45,12 +46,15 @@ namespace Comet {
         Math::Vec3 camera_position;
         float orthographic;
         Math::Vec3 view_direction;
-        float reserved = 0;
+        float fog_start = 0;
+        Math::Vec4 fog_color{}; // RGB 线性雾色，W 为距离区间倒数；零表示关闭。
     };
-    static_assert(sizeof(MaterialFrameData) == 160);
+    static_assert(sizeof(MaterialFrameData) == 176);
     static_assert(offsetof(MaterialFrameData, camera_position) == 128);
     static_assert(offsetof(MaterialFrameData, orthographic) == 140);
     static_assert(offsetof(MaterialFrameData, view_direction) == 144);
+    static_assert(offsetof(MaterialFrameData, fog_start) == 156);
+    static_assert(offsetof(MaterialFrameData, fog_color) == 160);
 
     namespace {
         void append_wait(std::vector<QueueSemaphoreSubmit>& waits,
@@ -181,7 +185,7 @@ namespace Comet {
             1, DescriptorType::UniformBuffer, Flags<ShaderStage>(ShaderStage::Fragment));
         frame_bindings.add_binding(
             2, DescriptorType::CombinedImageSampler, Flags<ShaderStage>(ShaderStage::Fragment));
-        for(uint32_t binding = 3; binding <= 6; ++binding)
+        for(uint32_t binding = 3; binding <= 11; ++binding)
             frame_bindings.add_binding(binding, DescriptorType::CombinedImageSampler,
                 Flags<ShaderStage>(ShaderStage::Fragment));
         auto frame_layout = DescriptorSetLayout::create(device, frame_bindings);
@@ -190,7 +194,8 @@ namespace Comet {
         m_frame_layout = std::move(frame_layout).value();
         DescriptorPoolSizes pool_sizes;
         pool_sizes.add_pool_size(DescriptorType::UniformBuffer, frame_slot_count * 2);
-        pool_sizes.add_pool_size(DescriptorType::CombinedImageSampler, frame_slot_count * 5);
+        pool_sizes.add_pool_size(DescriptorType::CombinedImageSampler,
+            frame_slot_count * (6 + LightingData::MAX_REFLECTION_PROBES));
         auto pool_result = DescriptorPool::create(device, frame_slot_count, pool_sizes);
         if(!pool_result)
             return Result<void, GraphicsError>::failure(pool_result.error());
@@ -220,7 +225,9 @@ namespace Comet {
             const std::array writes{
                 DescriptorSet::UniformBufferWrite{0, *frame->buffer, sizeof(MaterialFrameData)},
                 DescriptorSet::UniformBufferWrite{1, *frame->lighting, sizeof(LightingData)}};
-            frame->descriptor->update(device, writes);
+            const DescriptorSet::ImageSamplerWrite gi_fallback{
+                11, *m_white_texture->get_image_view(), *frame->shadow_sampler};
+            frame->descriptor->update(device, writes, std::span(&gi_fallback, 1));
             m_frames.push_back(std::move(frame));
         }
         const auto defaults = default_material_shaders();
@@ -819,6 +826,8 @@ namespace Comet {
         const RenderSubmission& submission, const LightingData& lighting,
         const std::shared_ptr<ImageView>& shadow_map, const std::shared_ptr<ImageView>& ao_depth,
         std::vector<QueueSemaphoreSubmit>& waits) {
+        const auto previous_excess_probes = m_statistics.excess_reflection_probes;
+        const auto previous_excess_gi = m_statistics.excess_irradiance_volumes;
         const auto previous_omissions =
             std::pair(m_statistics.excess_lights, m_statistics.invalid_lights);
         m_statistics = {};
@@ -829,8 +838,13 @@ namespace Comet {
         const auto& frame = m_frames.at(frames.get_current_frame_slot_index());
         const auto camera_world = Math::inverse(view.view);
         // 引擎标准透视矩阵的该项为 -1，正交为 0；不是任意投影的分类器。
-        const MaterialFrameData camera{view, Math::Vec3(camera_world[3]),
+        MaterialFrameData camera{view, Math::Vec3(camera_world[3]),
             view.projection[2][3] == 0 ? 1.0f : 0.0f, Math::Vec3(camera_world[2])};
+        const auto& settings = submission.world.environment;
+        if(settings.fog_enabled) {
+            camera.fog_start = settings.fog_start;
+            camera.fog_color = {settings.fog_color, 1.0f / (settings.fog_end - settings.fog_start)};
+        }
         frame->buffer->write(&camera);
         auto environment = m_empty_environment;
         auto frame_lighting = lighting;
@@ -842,6 +856,91 @@ namespace Comet {
             frame_lighting.environment = {submission.world.environment.lighting_intensity,
                 float(image->get_info().mip_levels - 1), std::sin(rotation), std::cos(rotation)};
         }
+        const auto frustum = Frustum::from_view_projection(view.projection * view.view);
+        unsigned probe_count = 0;
+        for(const auto& resolved : submission.world.reflection_probes) {
+            const auto& probe = resolved.probe;
+            if(!resolved.environment || !resolved.environment->has_lighting()
+                || !probe.bounds.is_valid()
+                || glm::any(glm::lessThanEqual(probe.bounds.size(), Math::Vec3(0)))
+                || !Math::is_finite(probe.position) || !std::isfinite(probe.intensity)
+                || probe.intensity <= 0 || probe.intensity > SceneEnvironment::MAX_INTENSITY
+                || !std::isfinite(probe.rotation) || !std::isfinite(probe.blend_distance)
+                || probe.blend_distance < 0 || (frustum && !frustum->intersects(probe.bounds)))
+                continue;
+            if(probe_count == LightingData::MAX_REFLECTION_PROBES) {
+                ++m_statistics.excess_reflection_probes;
+                continue;
+            }
+            const auto& image = resolved.environment->specular->get_image_view()->get_image();
+            const float rotation = Math::radians(probe.rotation);
+            frame_lighting.reflection_probes[probe_count] = {{probe.position, probe.intensity},
+                {probe.bounds.minimum, probe.blend_distance},
+                {probe.bounds.maximum, float(image->get_info().mip_levels - 1)},
+                {std::sin(rotation), std::cos(rotation), probe.box_projection ? 1.0f : 0.0f, 0}};
+            if(frame->reflection_probes[probe_count] != resolved.environment) {
+                const DescriptorSet::ImageSamplerWrite write{7 + probe_count,
+                    *resolved.environment->specular->get_image_view(), *frame->environment_sampler};
+                frame->descriptor->update(m_device, {}, std::span(&write, 1));
+                frame->reflection_probes[probe_count] = resolved.environment;
+            }
+            append_wait(waits, resolved.environment->specular->get_ready_completion(),
+                Flags<PipelineStage>(PipelineStage::FragmentShader));
+            if(environment == m_empty_environment)
+                environment = resolved.environment; // 复用同一 BRDF LUT；全局强度仍为零。
+            ++probe_count;
+        }
+        for(unsigned index = probe_count; index < LightingData::MAX_REFLECTION_PROBES; ++index) {
+            if(frame->reflection_probes[index] == m_empty_environment)
+                continue;
+            const DescriptorSet::ImageSamplerWrite write{7 + index,
+                *m_empty_environment->specular->get_image_view(), *frame->environment_sampler};
+            frame->descriptor->update(m_device, {}, std::span(&write, 1));
+            frame->reflection_probes[index] = m_empty_environment;
+        }
+        m_statistics.reflection_probes = probe_count;
+        if(m_statistics.excess_reflection_probes
+            && previous_excess_probes != m_statistics.excess_reflection_probes)
+            LOG_WARN("Reflection probes omitted {} excess visible probes (limit {})",
+                m_statistics.excess_reflection_probes, LightingData::MAX_REFLECTION_PROBES);
+        frame_lighting.reflection_metadata = {
+            float(probe_count), float(m_statistics.excess_reflection_probes), 0, 0};
+        std::shared_ptr<Irradiance> irradiance;
+        for(const auto& resolved : submission.world.irradiance_volumes) {
+            const auto& volume = resolved.volume;
+            const auto& resource = resolved.resource;
+            if(!resource || !resource->probes || !std::isfinite(volume.intensity)
+                || volume.intensity <= 0 || volume.intensity > SceneEnvironment::MAX_INTENSITY
+                || !std::isfinite(volume.normal_bias) || volume.normal_bias < 0
+                || volume.normal_bias > 1 || (frustum && !frustum->intersects(resource->bounds())))
+                continue;
+            if(irradiance) {
+                ++m_statistics.excess_irradiance_volumes;
+                continue;
+            }
+            irradiance = resource;
+            frame_lighting.irradiance_origin = {resource->origin, volume.intensity};
+            frame_lighting.irradiance_spacing_bias = {resource->spacing, volume.normal_bias};
+            frame_lighting.irradiance_dimensions = {Math::Vec3(resource->dimensions), 0};
+            m_statistics.irradiance_probes =
+                resource->dimensions.x * resource->dimensions.y * resource->dimensions.z;
+            m_statistics.irradiance_bytes = uint64_t(m_statistics.irradiance_probes)
+                                            * Irradiance::TEXELS_PER_PROBE * sizeof(Math::Vec4);
+        }
+        if(m_statistics.excess_irradiance_volumes
+            && previous_excess_gi != m_statistics.excess_irradiance_volumes)
+            LOG_WARN("GI omitted {} excess visible volumes (limit 1)",
+                m_statistics.excess_irradiance_volumes);
+        if(frame->irradiance != irradiance) {
+            const auto& texture = irradiance ? irradiance->probes : m_white_texture;
+            const DescriptorSet::ImageSamplerWrite write{
+                11, *texture->get_image_view(), *frame->shadow_sampler};
+            frame->descriptor->update(m_device, {}, std::span(&write, 1));
+            frame->irradiance = irradiance;
+        }
+        if(irradiance)
+            append_wait(waits, irradiance->probes->get_ready_completion(),
+                Flags<PipelineStage>(PipelineStage::FragmentShader));
         frame->lighting->write(&frame_lighting);
         if(frame->environment != environment) {
             const std::array writes{

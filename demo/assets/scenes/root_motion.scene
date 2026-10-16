@@ -1,0 +1,256 @@
+{
+  "version": 2,
+  "environment": {
+    "asset": 0,
+    "background": false,
+    "intensity": 1,
+    "rotation": 0,
+    "lighting": false,
+    "lighting_intensity": 1,
+    "background_color": [
+      0.08,
+      0.1,
+      0.14
+    ]
+  },
+  "entities": [
+    {
+      "uuid": "9c24ffa0-e428-4cb0-9e54-538118eba170",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [
+            8,
+            5,
+            10
+          ],
+          "rotation": [
+            -18,
+            35,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "camera": {
+          "primary": true,
+          "fov": 45,
+          "near_clip": 0.1,
+          "far_clip": 100
+        },
+        "camera_controller": {
+          "enabled": true,
+          "move_speed": 5,
+          "look_sensitivity": 0.2,
+          "look_speed": 120
+        }
+      }
+    },
+    {
+      "uuid": "007fca8b-0152-4465-9cd1-205bfd81bd4f",
+      "components": {
+        "name": "主光源",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            -45,
+            -35,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "light": {
+          "type": "directional",
+          "enabled": true,
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "intensity": 2,
+          "range": 10,
+          "inner_angle": 20,
+          "outer_angle": 30
+        }
+      }
+    },
+    {
+      "uuid": "4c2b987f-3043-476d-94f1-550bca22bce6",
+      "components": {
+        "name": "地面",
+        "transform": {
+          "translation": [
+            0,
+            -0.5,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            12,
+            1,
+            10
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 9429603817048603172
+        },
+        "rigid_body": {
+          "motion": "static"
+        },
+        "collider": {
+          "shape": "box",
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "radius": 0.5,
+          "is_trigger": false
+        }
+      }
+    },
+    {
+      "uuid": "d19860d1-5c41-4315-93c3-93e51cbd0459",
+      "components": {
+        "name": "碰撞墙：角色应在此停下",
+        "transform": {
+          "translation": [
+            1.5,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.2,
+            2,
+            5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6482638524486200214
+        },
+        "rigid_body": {
+          "motion": "static"
+        },
+        "collider": {
+          "shape": "box",
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "radius": 0.5,
+          "is_trigger": false
+        }
+      }
+    },
+    {
+      "uuid": "6b859c57-a25c-47f5-ab22-2beeeef0b5dc",
+      "components": {
+        "name": "根运动角色：自动向墙行走",
+        "transform": {
+          "translation": [
+            -2,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "character_controller": {
+          "enabled": true,
+          "radius": 0.3,
+          "height": 1.8,
+          "move_speed": 4,
+          "jump_speed": 5,
+          "max_slope_angle": 45,
+          "step_height": 0.3,
+          "ground_snap_distance": 0.3,
+          "gravity_scale": 1,
+          "run_speed": 6,
+          "crouch_speed": 2,
+          "crouch_height_ratio": 0.6,
+          "air_control": 1,
+          "push_force": 100
+        }
+      },
+      "children": [
+        {
+          "uuid": "09fea758-3816-4b91-b23d-17b7b51d2be0",
+          "components": {
+            "name": "内置角色：模型由动作驱动",
+            "transform": {
+              "translation": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                90,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "mesh_renderer": {
+              "mesh": 13857136248767905793,
+              "material": 13857136248767905794
+            },
+            "animator": {
+              "enabled": true,
+              "clip": "idle",
+              "speed": 1,
+              "loop": true,
+              "transition": 0,
+              "controller": 6729301842000000047,
+              "parameters": {}
+            },
+            "root_motion": {
+              "enabled": true,
+              "node": "root",
+              "target": {
+                "entity": "6b859c57-a25c-47f5-ab22-2beeeef0b5dc"
+              },
+              "horizontal": true,
+              "vertical": false,
+              "rotation": true
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

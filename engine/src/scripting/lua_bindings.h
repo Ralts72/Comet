@@ -1,5 +1,7 @@
 #pragma once
 
+#include "asset/content_fwd.h"
+
 #include "scene/entity.h"
 #include "common/parameters.h"
 
@@ -13,7 +15,6 @@ struct lua_State;
 namespace Comet {
     class InputState;
     class AssetRegistry;
-    class COMET_API GameData;
     class ComponentRegistry;
     class MaterialParameterValidator;
     class Scene;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "asset/content_fwd.h"
+
 #include "animation/animation_controller.h"
 #include "asset/database.h"
 #include "asset/data/material_data.h"
@@ -23,8 +25,6 @@ namespace Comet {
     class AssetRegistry;
     class Scene;
     class ComponentRegistry;
-    class COMET_API Prefab;
-    class COMET_API GameData;
     struct AnimationLibrary;
     struct ModelData;
     class ImportService;
@@ -52,6 +52,7 @@ namespace Comet {
     struct ShaderProgramImportCandidate;
     class ShaderProgramArtifact;
     struct Environment;
+    struct COMET_API Irradiance;
 
     class COMET_API AssetManager final {
     public:
@@ -109,6 +110,8 @@ namespace Comet {
             Scene& scene, const ComponentRegistry& components,
             MissingAssetPolicy policy = MissingAssetPolicy::FailRequired);
         [[nodiscard]] Result<std::shared_ptr<GameData>, Error> load_data(AssetHandle handle);
+        [[nodiscard]] Result<std::shared_ptr<Irradiance>, Error> load_irradiance(
+            AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<AnimationLibrary>, Error> load_animation_library(
             AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<AnimationController>, Error> load_animation_controller(

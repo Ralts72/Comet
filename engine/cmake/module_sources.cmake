@@ -29,6 +29,7 @@ set(COMET_SHADER_CONTRACTS_SOURCES
 )
 
 set(COMET_ASSET_DATA_SOURCES
+    src/asset/content_fwd.h
     src/animation/animation_data.cpp
     src/animation/animation_controller.cpp
     src/asset/serialization/animation_controller_serializer.cpp
@@ -43,6 +44,8 @@ set(COMET_ASSET_DATA_SOURCES
     src/asset/registry.cpp
     src/asset/data/material_data.cpp
     src/asset/data/game_data.cpp
+    src/asset/data/irradiance_data.cpp
+    src/asset/data/cubemap_sampling.cpp
     src/asset/data/animation_library.cpp
     src/asset/serialization/material_serializer.cpp
     src/asset/serialization/metadata_serializer.cpp
@@ -113,6 +116,8 @@ set(COMET_GAMEPLAY_SOURCES
     src/gameplay/navigation_mesh.cpp
     src/gameplay/navigation_system.cpp
     src/gameplay/character_animation.cpp
+    src/gameplay/root_motion.cpp
+    src/gameplay/root_motion.h
     src/gameplay/checkpoint_store.cpp
     src/gameplay/checkpoint_store.h
     src/gameplay/game_session.cpp
@@ -230,6 +235,7 @@ set(COMET_RENDER_SOURCES
     src/render/resource/instance_buffer.cpp
     src/render/resource/texture.cpp
     src/render/resource/environment.cpp
+    src/render/resource/irradiance.cpp
     src/render/resource/render_asset_factory.cpp
     src/render/resource/sampled_image_binding.cpp
     src/render/render_context.cpp

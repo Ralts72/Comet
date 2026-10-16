@@ -1,5 +1,7 @@
 #pragma once
 
+#include "asset/content_fwd.h"
+
 #include "scene/entity_tree.h"
 #include <filesystem>
 

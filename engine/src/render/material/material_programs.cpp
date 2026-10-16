@@ -1,5 +1,6 @@
 #include "render/material/material_programs.h"
 #include "common/snapshot.h"
+#include "common/binary.h"
 
 #include "asset/artifact/shader_program_artifact.h"
 #include "asset/registry.h"
@@ -9,9 +10,34 @@
 #include "render/material/material_shader.h"
 
 #include <algorithm>
+#include <array>
 #include <utility>
 
 namespace Comet {
+    MaterialPrograms::MaterialPrograms() {
+        update_builtin_fingerprint();
+    }
+
+    void MaterialPrograms::update_builtin_fingerprint() {
+        static const auto defaults = default_material_shaders();
+        auto hash = Binary::HASH_SEED;
+        for(const auto& [name, initial] : defaults) {
+            const auto found = m_builtin_overrides.find(name);
+            const auto& shader = found == m_builtin_overrides.end() ? initial : found->second;
+            const auto append = [&](auto bytes) {
+                hash = Binary::hash_bytes(std::as_bytes(bytes), hash);
+            };
+            append(std::span(name));
+            append(std::span(shader.vertex));
+            append(std::span(shader.fragment));
+            append(std::span(shader.vertex_entry));
+            append(std::span(shader.fragment_entry));
+            const std::array failed{m_failed_builtins.contains(name)};
+            append(std::span(failed));
+        }
+        writable_publications().builtin_fingerprint = hash;
+    }
+
     Result<void> MaterialProgramValidator::validate(const MaterialOverrides& overrides) const {
         const auto material = m_assets.resolve<Material>(overrides.material);
         if(!material)
@@ -132,6 +158,7 @@ namespace Comet {
         for(const auto& [name, code] : shaders)
             m_failed_builtins.erase(name);
         merge_material_shaders(m_builtin_overrides, std::move(shaders));
+        update_builtin_fingerprint();
     }
 
     void MaterialPrograms::invalidate_builtin(const std::span<const std::string> programs) {
@@ -139,6 +166,8 @@ namespace Comet {
             ++writable_publications().builtin_revision;
         for(const auto& name : programs)
             m_failed_builtins.insert(name);
+        if(!programs.empty())
+            update_builtin_fingerprint();
     }
 
     bool MaterialPrograms::builtin_failed(const std::string& material) const {

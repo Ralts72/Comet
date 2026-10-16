@@ -10,3 +10,6 @@ build-release/
 
 # Optional demo assets and their metadata are installed together by tools/download_assets.sh.
 /demo/assets/environments/*
+
+# Small procedural probe examples ship with the project.
+!/demo/assets/environments/probes/

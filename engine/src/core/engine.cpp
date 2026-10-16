@@ -1,4 +1,5 @@
 #include "engine.h"
+#include "gameplay/root_motion.h"
 #include "gameplay/navigation_system.h"
 #include "gameplay/character_animation.h"
 #include "animation/animation_system.h"
@@ -159,8 +160,6 @@ namespace Comet {
                std::make_unique<ScriptSystem>(*m_asset_registry, m_material_parameters.get()));
             !added)
             return added;
-        if(auto added = add_system(std::make_unique<PhysicsSystem>(*m_physics_service)); !added)
-            return added;
         if(auto added = add_system(std::make_unique<Gameplay::CharacterAnimationSystem>()); !added)
             return added;
         if(auto added = add_system(std::make_unique<AnimationSystem>(
@@ -173,8 +172,11 @@ namespace Comet {
                },
                [this](AssetHandle handle) {
                    return m_asset_registry->resolve<AnimationLibrary>(handle);
-               }));
+               },
+               Gameplay::apply_root_motion));
             !added)
+            return added;
+        if(auto added = add_system(std::make_unique<PhysicsSystem>(*m_physics_service)); !added)
             return added;
         if(auto added = add_system(std::make_unique<ParticleSystem>()); !added)
             return added;

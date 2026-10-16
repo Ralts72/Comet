@@ -22,6 +22,7 @@ namespace Comet {
     class ShaderProgramArtifact;
     struct MaterialOverrides;
     struct Environment;
+    struct COMET_API Irradiance;
 
     struct MaterialBinding {
         AssetHandle material_handle = INVALID_ASSET_HANDLE;
@@ -49,12 +50,26 @@ namespace Comet {
         std::shared_ptr<const ResolvedMeshLod> lod;
     };
 
+    struct ResolvedReflectionProbe {
+        RenderReflectionProbe probe;
+        std::shared_ptr<Environment> environment;
+        uint64_t revision = 0;
+    };
+
+    struct ResolvedIrradianceVolume {
+        RenderIrradianceVolume volume;
+        std::shared_ptr<Irradiance> resource;
+        uint64_t revision = 0;
+    };
+
     // 与视图选择和输出目标无关的持久世界数据；资源引用由世界和在途 FrameSlot 保活。
     struct RenderWorld {
         uint64_t scene_lifetime = 0;
         std::vector<RenderCamera> cameras;
         std::vector<ResolvedRenderItem> render_items;
         std::vector<RenderLight> lights;
+        std::vector<ResolvedReflectionProbe> reflection_probes;
+        std::vector<ResolvedIrradianceVolume> irradiance_volumes;
         SceneEnvironment environment;
         PostProcessSettings post_process;
         uint64_t environment_revision = 0;
@@ -83,6 +98,8 @@ namespace Comet {
             cameras.clear();
             render_items.clear();
             lights.clear();
+            reflection_probes.clear();
+            irradiance_volumes.clear();
             particles.reset();
             particle_textures.clear();
             environment = {};

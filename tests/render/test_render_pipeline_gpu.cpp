@@ -8,6 +8,8 @@
 #include "unlit_color_vert.h"
 #include "pbr_frag.h"
 #include "scene/material_parameters.h"
+#include "asset/data/irradiance_data.h"
+#include "render/resource/irradiance.h"
 
 #include <algorithm>
 
@@ -537,11 +539,11 @@ namespace Comet::Tests {
         const auto directory = std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/material";
         auto source = read_text_file(directory / "pbr.frag");
         ASSERT_TRUE(source) << source.error();
-        const std::string color = "clamp(result + emission, 0.0, 65504.0)";
+        const std::string color = "apply_distance_fog(result + emission)";
         const auto offset = source.value().find(color);
         ASSERT_NE(offset, std::string::npos);
         source.value().replace(
-            offset, color.size(), "clamp((result + emission) * 0.5, 0.0, 65504.0)");
+            offset, color.size(), "apply_distance_fog((result + emission) * 0.5)");
         TemporaryDirectory temporary;
         const auto path = temporary.path() / "pbr.frag";
         ASSERT_TRUE(write_text_file_atomic(path, source.value()));
@@ -884,6 +886,10 @@ namespace Comet::Tests {
             auto drawn = scene.value()->render(frames, submission, geometry);
             ASSERT_TRUE(drawn) << drawn.error();
             EXPECT_EQ(scene.value()->get_shadow_statistics().cascades, 0u);
+            if(frame < 3) {
+                EXPECT_EQ(scene.value()->get_shadow_statistics().spot_lights, 1u);
+                EXPECT_EQ(scene.value()->get_shadow_statistics().drawn_instances, 2u);
+            }
             auto output = std::make_shared<Readback>(
                 device, context.get_context().get_physical_device(), 33 * 33 * 4);
             ASSERT_NO_FATAL_FAILURE(
@@ -1253,6 +1259,360 @@ namespace Comet::Tests {
                 EXPECT_NEAR(centers[8], centers[9], 2);
                 EXPECT_GT(centers[6], 80);
                 EXPECT_GT(centers[8], 80);
+            }
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest, DistanceFogBlendsMeshRadianceBeforeAlphaAndToneMapping) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        const Math::Vec3 radiance{0.8f, 0.2f, 0.1f};
+        const Math::Vec3 fog_color{0.1f, 0.4f, 0.8f};
+        const Math::Vec3 background{0.04f, 0.08f, 0.12f};
+        const auto mesh = lit_quad();
+        for(const auto samples : {SampleCount::Count1, SampleCount::Count4}) {
+            MaterialPrograms programs;
+            auto scene = create_scene(programs, {33, 33}, samples);
+            ASSERT_TRUE(scene) << scene.error();
+            FrameScheduler frames(device, 2);
+            frames.initialize_swapchain_images(2);
+            FrameWait wait{device, frames};
+            for(bool pbr : {false, true}) {
+                auto material = std::make_shared<Material>("fog", pbr ? "pbr" : "unlit_color");
+                if(pbr) {
+                    ASSERT_TRUE(material->set_vector_property("emissive_color", {radiance, 1}));
+                    ASSERT_TRUE(material->set_scalar_property("emissive_strength", 1));
+                }
+                RenderWorld world{
+                    .render_items = {
+                        {.entity_id = 1, .mesh = mesh, .material = {AssetHandle(1526), material}}}};
+                world.environment.background_color = background;
+                world.environment.fog_color = fog_color;
+                for(bool perspective : {false, true}) {
+                    SCOPED_TRACE(pbr);
+                    SCOPED_TRACE(perspective);
+                    RenderSubmission submission{
+                        world, ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                                   perspective ? Math::perspective(45, 1, .1f, 10)
+                                               : Math::ortho(-1, 1, -1, 1, .1f, 10)}};
+                    for(const auto mode : {AlphaMode::Opaque, AlphaMode::Blend, AlphaMode::Mask}) {
+                        SCOPED_TRACE(static_cast<int>(mode));
+                        ASSERT_TRUE(material->set_surface({.alpha_mode = mode}));
+                        const float alpha = mode == AlphaMode::Opaque ? 1.0f : 0.25f;
+                        ASSERT_TRUE(material->set_vector_property(
+                            pbr ? "base_color" : "color", {radiance, alpha}));
+                        for(unsigned frame = 0; frame < 5; ++frame) {
+                            SCOPED_TRACE(frame);
+                            const Math::Vec2u size(frame % 2 ? 65 : 33);
+                            ASSERT_TRUE(scene.value()->resize_offscreen_target(size));
+                            world.environment.fog_enabled = frame != 0 && frame != 4;
+                            world.environment.fog_start = frame == 1 ? 3.0f : 1.5f;
+                            world.environment.fog_end = frame == 3 ? 2.0f : 3.5f;
+                            begin_frame(frames);
+                            RenderGeometry geometry;
+                            geometry.prepare(world);
+                            auto drawn = scene.value()->render(frames, submission, geometry);
+                            ASSERT_TRUE(drawn) << drawn.error();
+                            auto output = std::make_shared<Readback>(device,
+                                context.get_context().get_physical_device(), size.x * size.y * 4);
+                            const auto view = scene.value()->get_offscreen_color_view(
+                                frames.get_current_frame_slot_index());
+                            ASSERT_NO_FATAL_FAILURE(finish_readback(
+                                *scene.value(), frames, output, size, drawn.value()));
+                            float amount = 0;
+                            if(frame == 2)
+                                amount = 0.5f;
+                            if(frame == 3)
+                                amount = 1;
+                            auto expected = radiance * (1 - amount) + fog_color * amount;
+                            if(mode == AlphaMode::Blend)
+                                expected = expected * alpha + background * (1 - alpha);
+                            if(mode == AlphaMode::Mask)
+                                expected = background;
+                            const auto pixels = output->read();
+                            const auto format = view->get_image()->get_info().format;
+                            const bool bgra =
+                                format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+                            for(unsigned channel = 0; channel < 3; ++channel) {
+                                const auto offset = ((size.y / 2) * size.x + size.x / 2) * 4;
+                                EXPECT_NEAR(std::to_integer<int>(
+                                                pixels[offset + (bgra ? 2 - channel : channel)]),
+                                    mapped_byte(expected[channel]), 2);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest, IrradianceGridMatchesCpuSamplingAndReplacesOnlyDiffuseIbl) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        TemporaryDirectory directory;
+        const auto path = directory.path() / "white.hdr";
+        write_hdr(path);
+        const auto imported = EnvironmentImporter{}.import(path);
+        ASSERT_TRUE(imported);
+        const auto environment =
+            Environment::try_create(engine->get_render_resources(), imported.value());
+        ASSERT_TRUE(environment);
+        IrradianceData data;
+        data.origin = Math::Vec3(-1);
+        data.spacing = Math::Vec3(2);
+        data.probes.resize(8);
+        for(std::size_t index = 0; index < data.probes.size(); ++index) {
+            auto& probe = data.probes[index];
+            probe.coefficients[0] =
+                Math::Vec4((index % 2 == 0 ? Math::Vec3(1, .3f, .1f) : Math::Vec3(.1f, .3f, 1))
+                               / 0.2820947918f,
+                    1);
+            for(std::size_t coefficient = 1; coefficient < 9; ++coefficient)
+                probe.coefficients[coefficient] =
+                    Math::Vec4(Math::Vec3(.01f, .02f, .03f) * float(coefficient), 0);
+            probe.visibility.fill({100, 10000});
+            if(index % 2 == 1)
+                for(std::size_t direction = 0; direction < probe.visibility.size(); ++direction) {
+                    const float distance = 1 + .01f * direction;
+                    probe.visibility[direction] = {distance, distance * distance + .04f};
+                }
+        }
+        const auto prepared = Irradiance::try_create(engine->get_render_resources(), data);
+        ASSERT_TRUE(prepared) << prepared.error().message;
+        auto black = data;
+        for(auto& probe : black.probes)
+            probe.coefficients = {};
+        const auto inactive = Irradiance::try_create(engine->get_render_resources(), black);
+        ASSERT_TRUE(inactive);
+        for(auto& probe : black.probes)
+            probe.coefficients[0].w = 1;
+        const auto dark = Irradiance::try_create(engine->get_render_resources(), black);
+        ASSERT_TRUE(dark);
+        auto hidden = data;
+        for(auto& probe : hidden.probes)
+            probe.visibility.fill({0, 0});
+        const auto blocked = Irradiance::try_create(engine->get_render_resources(), hidden);
+        ASSERT_TRUE(blocked);
+        const auto material = std::make_shared<Material>("GI", "pbr");
+        ASSERT_TRUE(material->set_vector_property("base_color", {.8f, .6f, .4f, 1}));
+        for(const auto samples : {SampleCount::Count1, SampleCount::Count4}) {
+            MaterialPrograms programs;
+            auto scene = create_scene(programs, {33, 33}, samples);
+            ASSERT_TRUE(scene);
+            FrameScheduler frames(device, 2);
+            frames.initialize_swapchain_images(2);
+            FrameWait wait{device, frames};
+            for(const auto normal : {Math::Vec3(0, 0, 1), glm::normalize(Math::Vec3(1, 2, 3))}) {
+                RenderWorld world{.render_items = {{.entity_id = 1,
+                                      .mesh = lit_quad(normal),
+                                      .material = {AssetHandle(1540), material}}},
+                    .environment_resource = environment.value()};
+                RenderSubmission submission{
+                    world, ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                               Math::ortho(-1, 1, -1, 1, .1f, 10)}};
+                std::array<std::array<std::array<int, 3>, 3>, 8> pixels{};
+                for(unsigned frame = 0; frame < pixels.size(); ++frame) {
+                    SCOPED_TRACE(frame);
+                    world.environment.lighting = frame >= 2;
+                    world.irradiance_volumes.clear();
+                    if(frame < 2)
+                        world.irradiance_volumes.push_back(
+                            {{2, AssetHandle(1541), frame == 0 ? 1.0f : .5f}, prepared.value(), 1});
+                    if(frame == 3)
+                        world.irradiance_volumes.push_back(
+                            {{2, AssetHandle(1541)}, dark.value(), 2});
+                    if(frame == 4)
+                        world.irradiance_volumes.push_back(
+                            {{2, AssetHandle(1541)}, inactive.value(), 3});
+                    if(frame == 5)
+                        world.irradiance_volumes.resize(
+                            2, ResolvedIrradianceVolume{{2, AssetHandle(1541)}, dark.value(), 2});
+                    if(frame == 6)
+                        world.irradiance_volumes.push_back(
+                            {{2, AssetHandle(1541)}, blocked.value(), 4});
+                    if(frame == 7) {
+                        world.irradiance_volumes.push_back(
+                            {{2, AssetHandle(1541)}, prepared.value(), 1});
+                        world.render_items[0].model_matrix =
+                            Math::translate(Math::Mat4(1), {0, 0, -3});
+                    }
+                    begin_frame(frames);
+                    RenderGeometry geometry;
+                    geometry.prepare(world);
+                    const auto drawn = scene.value()->render(frames, submission, geometry);
+                    ASSERT_TRUE(drawn) << drawn.error();
+                    const auto stats = scene.value()->get_material_statistics();
+                    EXPECT_EQ(stats.irradiance_probes, frame == 2 ? 0 : 8);
+                    EXPECT_EQ(stats.excess_irradiance_volumes, frame == 5 ? 1 : 0);
+                    EXPECT_EQ(stats.irradiance_bytes, frame == 2 ? 0 : 8 * sizeof(IrradianceProbe));
+                    const auto view = scene.value()->get_offscreen_color_view(
+                        frames.get_current_frame_slot_index());
+                    auto output = std::make_shared<Readback>(
+                        device, context.get_context().get_physical_device(), 33 * 33 * 4);
+                    ASSERT_NO_FATAL_FAILURE(
+                        finish_readback(*scene.value(), frames, output, {33, 33}, drawn.value()));
+                    const auto bytes = output->read();
+                    const auto format = view->get_image()->get_info().format;
+                    const bool bgra =
+                        format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+                    for(unsigned sample = 0; sample < 3; ++sample) {
+                        const unsigned x = 4 + sample * 12;
+                        for(unsigned channel = 0; channel < 3; ++channel)
+                            pixels[frame][sample][channel] = std::to_integer<int>(
+                                bytes[(16 * 33 + x) * 4 + (bgra ? 2 - channel : channel)]);
+                        if(frame < 2) {
+                            const Math::Vec3 position{(x + .5f) / 33 * 2 - 1, 0, .5f};
+                            const auto cpu = data.sample(position, normal);
+                            ASSERT_TRUE(cpu);
+                            const float fresnel = .04f + .96f * std::pow(1 - normal.z, 5);
+                            const auto expected = *cpu * Math::Vec3(.8f, .6f, .4f) * (1 - fresnel)
+                                                  * (frame == 0 ? 1 : .5f);
+                            for(unsigned channel = 0; channel < 3; ++channel)
+                                EXPECT_NEAR(pixels[frame][sample][channel],
+                                    mapped_byte(expected[channel]), 3);
+                        }
+                    }
+                }
+                for(unsigned sample = 0; sample < 3; ++sample)
+                    for(unsigned channel = 0; channel < 3; ++channel) {
+                        EXPECT_NEAR(pixels[4][sample][channel], pixels[2][sample][channel], 2);
+                        EXPECT_NEAR(pixels[5][sample][channel], pixels[3][sample][channel], 2);
+                        EXPECT_NEAR(pixels[6][sample][channel], pixels[3][sample][channel], 2);
+                        EXPECT_NEAR(pixels[7][sample][channel], pixels[2][sample][channel], 2);
+                        EXPECT_LT(pixels[3][sample][channel], pixels[2][sample][channel]);
+                    }
+            }
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest, LocalReflectionsBlendCorrectParallaxAndRestoreGlobalAfterRemoval) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        TemporaryDirectory directory;
+        std::array<std::shared_ptr<Environment>, 2> environments;
+        for(unsigned index = 0; index < environments.size(); ++index) {
+            const auto path = directory.path() / (std::to_string(index) + ".hdr");
+            write_hdr(path, 16, 8, [index](int, int) {
+                return std::array<unsigned char, 4>{128,
+                    static_cast<unsigned char>(index ? 0 : 128),
+                    static_cast<unsigned char>(index ? 0 : 128), 129};
+            });
+            auto imported = EnvironmentImporter{}.import(path);
+            ASSERT_TRUE(imported);
+            auto prepared =
+                Environment::try_create(engine->get_render_resources(), imported.value());
+            ASSERT_TRUE(prepared);
+            environments[index] = std::move(prepared).value();
+        }
+        TextureData cube{.width = 8,
+            .height = 8,
+            .format = Format::R16G16B16A16_SFLOAT,
+            .pixels = std::vector<uint8_t>(6 * 8 * 8 * 8),
+            .cubemap = true};
+        const std::array<Math::Vec3, 6> face_colors{
+            Math::Vec3(1, 0, 0), {0, 0, 1}, {1, 1, 1}, {1, 1, 1}, {0, 1, 0}, {1, 1, 1}};
+        for(unsigned face = 0; face < face_colors.size(); ++face) {
+            const auto rgba = glm::packHalf4x16(Math::Vec4(face_colors[face], 1));
+            for(unsigned pixel = 0; pixel < 64; ++pixel)
+                std::memcpy(cube.pixels.data() + (face * 64 + pixel) * 8, &rgba, 8);
+        }
+        auto texture = engine->get_render_resources().try_create_texture(cube);
+        ASSERT_TRUE(texture);
+        const auto colored = std::make_shared<Environment>(Environment{
+            texture.value(), environments[0]->irradiance, texture.value(), environments[0]->brdf});
+        const auto material = std::make_shared<Material>("metal", "pbr");
+        ASSERT_TRUE(material->set_scalar_property("metallic", 1));
+        ASSERT_TRUE(material->set_vector_property("base_color", {1, 1, 1, 1}));
+        RenderWorld world{.render_items = {{.entity_id = 1,
+                              .mesh = lit_quad(),
+                              .material = {AssetHandle(1530), material}}},
+            .environment = {{}, false, 0, 0, true, 1},
+            .environment_resource = environments[0]};
+        const RenderReflectionProbe settings{.environment = AssetHandle(1531),
+            .position = {0, 0, .5f},
+            .bounds = {{-1, -1, 0}, {1, 1, 1}},
+            .blend_distance = .5f};
+        for(const auto samples : {SampleCount::Count1, SampleCount::Count4}) {
+            MaterialPrograms programs;
+            auto scene = create_scene(programs, {33, 33}, samples);
+            ASSERT_TRUE(scene);
+            FrameScheduler frames(device, 2);
+            frames.initialize_swapchain_images(2);
+            FrameWait wait{device, frames};
+            for(bool perspective : {false, true}) {
+                RenderSubmission submission{
+                    world, ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                               perspective ? Math::perspective(45, 1, .1f, 10)
+                                           : Math::ortho(-1, 1, -1, 1, .1f, 10)}};
+                std::array<std::array<std::array<int, 3>, 3>, 9> pixels{};
+                for(unsigned frame = 0; frame < pixels.size(); ++frame) {
+                    SCOPED_TRACE(frame);
+                    world.environment.lighting = frame < 3 || frame == 7;
+                    world.reflection_probes.clear();
+                    if(frame != 0 && frame != 3) {
+                        auto probe = settings;
+                        if(frame == 2)
+                            probe.bounds = {{3, -1, 0}, {5, 1, 1}};
+                        if(frame >= 4)
+                            probe.blend_distance = 0;
+                        probe.box_projection = frame != 4;
+                        if(frame == 6)
+                            probe.intensity = 0;
+                        world.reflection_probes.push_back(
+                            {probe, frame >= 4 && frame < 7 ? colored : environments[1], 1});
+                        if(frame == 7)
+                            world.reflection_probes.front().environment.reset();
+                        if(frame == 8)
+                            world.reflection_probes.resize(5, world.reflection_probes.front());
+                    }
+                    begin_frame(frames);
+                    RenderGeometry geometry;
+                    geometry.prepare(world);
+                    auto drawn = scene.value()->render(frames, submission, geometry);
+                    ASSERT_TRUE(drawn) << drawn.error();
+                    if(frame == 8) {
+                        EXPECT_EQ(scene.value()->get_material_statistics().reflection_probes, 4);
+                        EXPECT_EQ(
+                            scene.value()->get_material_statistics().excess_reflection_probes, 1);
+                    }
+                    const auto view = scene.value()->get_offscreen_color_view(
+                        frames.get_current_frame_slot_index());
+                    auto output = std::make_shared<Readback>(
+                        device, context.get_context().get_physical_device(), 33 * 33 * 4);
+                    ASSERT_NO_FATAL_FAILURE(
+                        finish_readback(*scene.value(), frames, output, {33, 33}, drawn.value()));
+                    const auto bytes = output->read();
+                    const auto format = view->get_image()->get_info().format;
+                    const bool bgra =
+                        format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+                    for(unsigned sample = 0; sample < 3; ++sample)
+                        for(unsigned channel = 0; channel < 3; ++channel)
+                            pixels[frame][sample][channel] =
+                                std::to_integer<int>(bytes[(16 * 33 + 4 + sample * 12) * 4
+                                                           + (bgra ? 2 - channel : channel)]);
+                }
+                EXPECT_GT(pixels[0][1][0], 80);
+                EXPECT_NEAR(pixels[1][1][0], pixels[0][1][0], 2);
+                EXPECT_LE(pixels[1][1][1], 2);
+                EXPECT_LE(pixels[1][1][2], 2);
+                EXPECT_GT(pixels[1][0][1], 10);
+                EXPECT_LT(pixels[1][0][1], pixels[0][0][1]);
+                for(unsigned sample = 0; sample < 3; ++sample) {
+                    for(unsigned channel = 0; channel < 3; ++channel) {
+                        EXPECT_NEAR(pixels[2][sample][channel], pixels[0][sample][channel], 2);
+                        EXPECT_NEAR(pixels[7][sample][channel], pixels[0][sample][channel], 2);
+                        EXPECT_LE(pixels[3][sample][channel], 2);
+                        EXPECT_LE(pixels[6][sample][channel], 2);
+                    }
+                    EXPECT_GT(pixels[4][sample][1], 50);
+                    EXPECT_LE(pixels[4][sample][0], 2);
+                }
+                EXPECT_GT(pixels[5][0][2], 50);
+                EXPECT_LE(pixels[5][0][0], 2);
+                EXPECT_GT(pixels[5][2][0], 50);
+                EXPECT_LE(pixels[5][2][1], 2);
+                EXPECT_NEAR(pixels[8][1][0], pixels[0][1][0], 2);
+                EXPECT_LE(pixels[8][1][1], 2);
             }
         }
     }

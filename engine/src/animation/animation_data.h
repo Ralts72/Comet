@@ -10,6 +10,7 @@
 #include <string_view>
 #include <span>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace Comet {
@@ -88,6 +89,22 @@ namespace Comet {
         const AnimationData& data, const AnimationBlend& sample);
     [[nodiscard]] COMET_API double animation_sample_time(double time, double duration, bool loop);
 
+    struct AnimationRootMotion {
+        std::string node;
+        bool horizontal = true;
+        bool vertical = false;
+        bool rotation = true;
+        bool operator==(const AnimationRootMotion&) const = default;
+    };
+    struct AnimationMotion {
+        Math::Vec3 translation{0};
+        float yaw = 0;          // 弧度，绕源资产 Y 轴。
+        Math::Vec3 up{0, 1, 0}; // 源资产 Y 轴在网格局部空间中的方向。
+    };
+    // to 与 sample.time 使用相同时间单位；跨圈保留位移和旋转，不从取模后的时间反推。
+    [[nodiscard]] COMET_API Result<AnimationMotion> animation_root_motion(const AnimationData& data,
+        const AnimationBlend& sample, double to, const AnimationRootMotion& settings);
+
     // 时间和过渡归场景实例；混合空间与状态过渡分别求值，不改变共享片段。
     struct AnimationPose;
     struct AnimationPlayback {
@@ -97,6 +114,7 @@ namespace Comet {
         std::string state;
         std::string previous_state;
         std::vector<AnimationLayer> layers;
+        std::optional<AnimationRootMotion> root_motion;
         // 动画库绑定后的只读片段，节点顺序与目标网格一致。
         std::shared_ptr<const AnimationData> clips;
         std::shared_ptr<const AnimationData> clips_target;
@@ -107,8 +125,8 @@ namespace Comet {
         bool operator==(const AnimationPlayback& other) const {
             return current == other.current && previous == other.previous && blend == other.blend
                    && state == other.state && previous_state == other.previous_state
-                   && layers == other.layers && clips == other.clips
-                   && clips_target == other.clips_target;
+                   && layers == other.layers && root_motion == other.root_motion
+                   && clips == other.clips && clips_target == other.clips_target;
         }
     };
     struct AnimationPose {

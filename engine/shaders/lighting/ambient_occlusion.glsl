@@ -3,7 +3,8 @@ layout(set = 0, binding = 6) uniform sampler2D ao_depth;
 // Fixed disk kernel in camera depth. Missing/offscreen geometry contributes no occlusion.
 float ambient_visibility(vec3 position, vec3 normal) {
     float radius = lighting.ao_parameters.x;
-    if(radius <= 0.0 || lighting.environment.x <= 0.0 || comet_alpha_mode == 2)
+    if(radius <= 0.0 || (lighting.environment.x <= 0.0 && lighting.reflection_metadata.x <= 0.0
+        && lighting.irradiance_origin.w <= 0.0) || comet_alpha_mode == 2)
         return 1.0;
     vec4 clip = frame.projection * frame.view * vec4(position, 1.0);
     if(clip.w <= 0.0)

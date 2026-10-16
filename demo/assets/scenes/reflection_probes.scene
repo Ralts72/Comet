@@ -1,0 +1,242 @@
+{
+  "version": 2,
+  "environment": {
+    "asset": 0,
+    "background": false,
+    "intensity": 1,
+    "rotation": 0,
+    "lighting": false,
+    "lighting_intensity": 1,
+    "background_color": [
+      0.03,
+      0.03,
+      0.04
+    ]
+  },
+  "entities": [
+    {
+      "uuid": "e28fd994-c0bb-451c-89ce-6c3167812f8b",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [
+            6,
+            4,
+            10
+          ],
+          "rotation": [
+            -16,
+            28,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "camera": {
+          "primary": true,
+          "fov": 45,
+          "near_clip": 0.1,
+          "far_clip": 100
+        },
+        "camera_controller": {
+          "enabled": true,
+          "move_speed": 5,
+          "look_sensitivity": 0.2,
+          "look_speed": 120
+        }
+      }
+    },
+    {
+      "uuid": "83535438-4a65-4a26-bbb1-ce9e074bb37e",
+      "components": {
+        "name": "主光源",
+        "transform": {
+          "translation": [
+            0,
+            5,
+            3
+          ],
+          "rotation": [
+            -45,
+            -25,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "light": {
+          "type": "directional",
+          "enabled": true,
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "intensity": 2,
+          "range": 10,
+          "inner_angle": 20,
+          "outer_angle": 30
+        }
+      }
+    },
+    {
+      "uuid": "9d91c7b6-5ead-4c53-999f-fafb1906e14c",
+      "components": {
+        "name": "地面",
+        "transform": {
+          "translation": [
+            0,
+            -0.25,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            12,
+            0.5,
+            8
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 13857136248767905794
+        }
+      }
+    },
+    {
+      "uuid": "9eee69aa-91e6-4762-bd73-ab69fe153d9a",
+      "components": {
+        "name": "暖色反射体",
+        "transform": {
+          "translation": [
+            -2,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.5,
+            2,
+            1.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000041
+        }
+      }
+    },
+    {
+      "uuid": "6a1ecf00-dcdc-4c23-8532-ab9ef9148c0f",
+      "components": {
+        "name": "暖色反射探针",
+        "transform": {
+          "translation": [
+            -2,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "reflection_probe": {
+          "enabled": true,
+          "environment": 6729301842000000042,
+          "half_extents": [
+            3,
+            3,
+            4
+          ],
+          "blend_distance": 1,
+          "intensity": 1,
+          "rotation": 0,
+          "box_projection": true
+        }
+      }
+    },
+    {
+      "uuid": "16269334-069e-435e-9abb-231af4226be0",
+      "components": {
+        "name": "蓝色反射体",
+        "transform": {
+          "translation": [
+            2,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.5,
+            2,
+            1.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000041
+        }
+      }
+    },
+    {
+      "uuid": "513f70e7-9f24-446b-9375-c6385eace8be",
+      "components": {
+        "name": "蓝色反射探针",
+        "transform": {
+          "translation": [
+            2,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "reflection_probe": {
+          "enabled": true,
+          "environment": 6729301842000000043,
+          "half_extents": [
+            3,
+            3,
+            4
+          ],
+          "blend_distance": 1,
+          "intensity": 1,
+          "rotation": 0,
+          "box_projection": true
+        }
+      }
+    }
+  ]
+}

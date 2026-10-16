@@ -32,12 +32,18 @@ namespace Comet {
             bool running = false;
             bool crouched = false;
             float height_ratio = 1;
+            Math::Vec3 desired_velocity{0};
         };
         struct CharacterMove {
             Math::Vec2 direction{0};
             bool jump = false;
             bool run = false;
             bool crouch = false;
+        };
+        struct CharacterVelocity {
+            Math::Vec3 velocity{0};
+            bool horizontal = true;
+            bool vertical = false;
         };
         struct QueryFilter {
             EntityUuid ignored;
@@ -68,6 +74,8 @@ namespace Comet {
         [[nodiscard]] std::optional<Velocity> get_velocity(Entity entity) const;
         // 世界 XZ 平面的移动意图；长度超过 1 时归一化，最近一次请求只用于下一固定步。
         [[nodiscard]] bool request_character_move(Entity entity, CharacterMove move);
+        // 世界空间 m/s，只覆盖指定轴并保留本步跳跃／姿态请求；下一固定步后清除。
+        [[nodiscard]] bool request_character_velocity(Entity entity, CharacterVelocity velocity);
         [[nodiscard]] std::optional<CharacterState> get_character_state(Entity entity) const;
         // 同步球体扫掠，忽略指定实体和触发器；无命中返回 1，无运行域或无效参数返回空值。
         [[nodiscard]] std::optional<float> sweep_sphere(
@@ -103,6 +111,8 @@ namespace Comet {
         virtual std::optional<Velocity> read_velocity(EntityUuid uuid, EntityId entity) const = 0;
         virtual bool enqueue_character_move(
             EntityUuid uuid, EntityId entity, CharacterMove move) = 0;
+        virtual bool enqueue_character_velocity(
+            EntityUuid uuid, EntityId entity, CharacterVelocity velocity) = 0;
         virtual std::optional<CharacterState> read_character_state(
             EntityUuid uuid, EntityId entity) const = 0;
         virtual Result<std::optional<QueryHit>> query_shape(const ColliderComponent& shape,

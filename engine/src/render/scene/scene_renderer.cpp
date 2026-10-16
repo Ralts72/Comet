@@ -116,14 +116,15 @@ namespace Comet {
         if(samples == SampleCount::Count1) {
             color.description.store_op = AttachmentStoreOp::Store;
             color.usage |= ImageUsage::Sampled;
+            color.usage |= ImageUsage::CopySrc;
         }
         RenderSubPass subpass{.color_attachments = {SubpassColorAttachment(0)},
             .depth_stencil_attachments = {SubpassDepthStencilAttachment(1)},
             .sample_count = samples};
         subpass.resolve_initial_layout = ImageLayout::ColorAttachmentOptimal;
         subpass.resolve_final_layout = ImageLayout::ColorAttachmentOptimal;
-        subpass.resolve_usage =
-            Flags<ImageUsage>(ImageUsage::ColorAttachment) | ImageUsage::Sampled;
+        subpass.resolve_usage = Flags<ImageUsage>(ImageUsage::ColorAttachment) | ImageUsage::Sampled
+                                | ImageUsage::CopySrc;
         auto pass = RenderPass::create(
             m_device, {color, depth}, {subpass}, RenderSettings::SCENE_COLOR_FORMAT);
         if(!pass)
@@ -714,6 +715,14 @@ namespace Comet {
             LOG_FATAL(
                 "Offscreen frame slot {} exceeds frame slot count {}", slot, m_frame_slot_count);
         return m_state->output_target->get_color_view(slot);
+    }
+
+    std::shared_ptr<ImageView> SceneRenderer::get_hdr_color_view(uint32_t slot) const {
+        if(!m_state)
+            return nullptr;
+        if(slot >= m_frame_slot_count)
+            LOG_FATAL("HDR frame slot {} exceeds frame slot count {}", slot, m_frame_slot_count);
+        return m_state->hdr_target->get_color_view(slot);
     }
 
     void SceneRenderer::release_presentation_target() {

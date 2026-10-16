@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <memory>
 #include <mutex>
+#include <string>
 
 namespace Comet {
     class COMET_API EnvironmentImporter final {
@@ -27,6 +28,8 @@ namespace Comet {
         [[nodiscard]] Result<void> validate_source(const std::filesystem::path& source_path) const;
         [[nodiscard]] Result<EnvironmentData> import(const std::filesystem::path& source_path,
             std::size_t memory_budget = MAX_WORKING_BYTES, Preview* preview = nullptr) const;
+        // 将捕获的单 mip float16 cubemap 编码为可编辑、可重新导入的 Radiance HDR 源。
+        [[nodiscard]] static Result<std::string> encode_hdr(const TextureData& cubemap);
 
     private:
         static EnvironmentData prepare_lighting(TextureData background);

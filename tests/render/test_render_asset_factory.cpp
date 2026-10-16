@@ -1,4 +1,5 @@
 #include "asset/data/environment_data.h"
+#include "asset/data/irradiance_data.h"
 #include "asset/data/material_data.h"
 #include "asset/data/mesh_data.h"
 #include "asset/data/texture_data.h"
@@ -7,6 +8,7 @@
 #include "graphics/error.h"
 #include "render/material/material.h"
 #include "render/resource/environment.h"
+#include "render/resource/irradiance.h"
 #include "render/resource/mesh.h"
 #include "render/resource/texture.h"
 #include "support/render_resource_factory.h"
@@ -85,6 +87,29 @@ namespace Comet::Tests {
         ASSERT_TRUE(registry.replace_asset(handle, complete.value()));
         EXPECT_EQ(registry.resolve<Environment>(handle), complete.value());
         EXPECT_FALSE(RenderAssetFactory::has_lighting(preview.value()));
+    }
+
+    TEST_F(RenderAssetFactoryTest,
+        IrradianceUsesOneBoundedNearestTextureAndKeepsFailedCandidatesUnpublished) {
+        IrradianceData data;
+        data.origin = {1, 2, 3};
+        data.spacing = {2, 3, 4};
+        data.probes.resize(8);
+        auto prepared = factory.prepare(data);
+        ASSERT_TRUE(prepared) << prepared.error().message;
+        EXPECT_EQ(resources.texture_creation_count(), 1);
+        EXPECT_EQ(prepared.value()->dimensions, data.dimensions);
+        EXPECT_EQ(prepared.value()->bounds().minimum, (Math::Vec3{0, .5f, 1}));
+        EXPECT_EQ(resources.last_texture_sampler()->mag_filter, Filter::Nearest);
+        EXPECT_EQ(resources.last_texture_sampler()->min_filter, Filter::Nearest);
+        ASSERT_TRUE(registry.register_asset(handle, prepared.value()));
+        resources.fail_texture_creation(true);
+        auto failed = factory.prepare(data);
+        EXPECT_FALSE(failed);
+        EXPECT_EQ(registry.resolve<Irradiance>(handle), prepared.value());
+        data.probes.pop_back();
+        EXPECT_FALSE(factory.prepare(data));
+        EXPECT_EQ(resources.texture_creation_count(), 2);
     }
 
     TEST_F(RenderAssetFactoryTest, MaterialUsesResolvedDependenciesWithoutLoadingOrUploadingThem) {

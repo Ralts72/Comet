@@ -83,6 +83,10 @@ namespace {
         auto value = before;
         value.intensity = 3;
         value.background_color = {0.25f, 0.5f, 1.5f};
+        value.fog_enabled = true;
+        value.fog_color = {0.2f, 0.3f, 0.4f};
+        value.fog_start = 5;
+        value.fog_end = 40;
         ASSERT_TRUE(edit.begin(environment_target));
         ASSERT_TRUE(edit.preview(environment_target, value));
         EXPECT_EQ(history.undo_size(), 0u);

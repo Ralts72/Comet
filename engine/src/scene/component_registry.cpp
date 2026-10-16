@@ -193,6 +193,12 @@ namespace Comet {
                 if(scope == ReferenceScope::Runtime && component.id == "collider"
                     && !entity.get_component<ColliderComponent>().uses_mesh())
                     continue;
+                if(scope == ReferenceScope::Runtime && component.id == "reflection_probe"
+                    && !entity.get_component<ReflectionProbeComponent>().enabled)
+                    continue;
+                if(scope == ReferenceScope::Runtime && component.id == "irradiance_volume"
+                    && !entity.get_component<IrradianceVolumeComponent>().enabled)
+                    continue;
                 for(const auto& property : component.properties) {
                     if(property.type != PropertyType::AssetHandle || !property.asset_type)
                         continue;
@@ -427,6 +433,15 @@ namespace Comet {
                     {.required = false, .asset_type = AssetType::AnimationController}),
                 make_property_descriptor("parameters", "Parameters", &AnimatorComponent::parameters,
                     {.required = false})}));
+        register_component(make_component_descriptor<RootMotionComponent>("root_motion", "根运动",
+            {make_property_descriptor("enabled", "启用", &RootMotionComponent::enabled),
+                make_property_descriptor("node", "根骨骼（留空自动）", &RootMotionComponent::node),
+                make_property_descriptor(
+                    "target", "移动目标（留空自身）", &RootMotionComponent::target),
+                make_property_descriptor(
+                    "horizontal", "水平位移", &RootMotionComponent::horizontal),
+                make_property_descriptor("vertical", "垂直位移", &RootMotionComponent::vertical),
+                make_property_descriptor("rotation", "根旋转", &RootMotionComponent::rotation)}));
         register_component(make_component_descriptor<CharacterAnimationComponent>(
             "character_animation", "Character Animation",
             {make_property_descriptor(
@@ -804,6 +819,87 @@ namespace Comet {
                 make_property_descriptor("outer_angle", "Outer angle", &LightComponent::outer_angle,
                     {.numeric = {.speed = 0.5f, .minimum = 0.01f, .maximum = 89.0f}})}));
 
+        register_component(make_component_descriptor<ReflectionProbeComponent>("reflection_probe",
+            "局部反射探针",
+            {make_property_descriptor("enabled", "启用", &ReflectionProbeComponent::enabled),
+                make_property_descriptor("environment", "环境贴图",
+                    &ReflectionProbeComponent::environment, {.asset_type = AssetType::Environment}),
+                make_property_descriptor("half_extents", "影响范围半尺寸（米）",
+                    &ReflectionProbeComponent::half_extents,
+                    {.numeric = {.speed = .1f,
+                         .minimum = .01f,
+                         .maximum = 100000,
+                         .enforce_bounds = true}}),
+                make_property_descriptor("blend_distance", "边缘过渡（米）",
+                    &ReflectionProbeComponent::blend_distance,
+                    {.numeric = {.speed = .1f,
+                         .minimum = 0,
+                         .maximum = 100000,
+                         .enforce_bounds = true}}),
+                make_property_descriptor("intensity", "反射强度",
+                    &ReflectionProbeComponent::intensity,
+                    {.numeric =
+                            {.speed = .05f, .minimum = 0, .maximum = 64, .enforce_bounds = true}}),
+                make_property_descriptor(
+                    "rotation", "贴图旋转（度）", &ReflectionProbeComponent::rotation),
+                make_property_descriptor(
+                    "box_projection", "盒投影校正", &ReflectionProbeComponent::box_projection),
+                make_property_descriptor("capture_resolution", "烘焙面尺寸",
+                    &ReflectionProbeComponent::capture_resolution,
+                    {.required = false,
+                        .numeric =
+                            {.speed = 1, .minimum = 16, .maximum = 512, .enforce_bounds = true}}),
+                make_property_descriptor("capture_distance", "烘焙距离（米）",
+                    &ReflectionProbeComponent::capture_distance,
+                    {.required = false,
+                        .numeric = {.speed = 1,
+                            .minimum = 0.1f,
+                            .maximum = 100000,
+                            .enforce_bounds = true}}),
+                make_property_descriptor("bake_fingerprint", "烘焙输入",
+                    &ReflectionProbeComponent::bake_fingerprint,
+                    {.editable = false, .required = false})}));
+        register_component(make_component_descriptor<IrradianceVolumeComponent>("irradiance_volume",
+            "静态 GI 区域",
+            {make_property_descriptor("enabled", "启用", &IrradianceVolumeComponent::enabled),
+                make_property_descriptor("irradiance", "烘焙光照",
+                    &IrradianceVolumeComponent::irradiance, {.asset_type = AssetType::Irradiance}),
+                make_property_descriptor("half_extents", "区域半尺寸（米）",
+                    &IrradianceVolumeComponent::half_extents,
+                    {.numeric = {.speed = .1f,
+                         .minimum = .01f,
+                         .maximum = 100000,
+                         .enforce_bounds = true}}),
+                make_property_descriptor("spacing", "探针间距（米）",
+                    &IrradianceVolumeComponent::spacing,
+                    {.numeric = {.speed = .1f,
+                         .minimum = .01f,
+                         .maximum = 10000,
+                         .enforce_bounds = true}}),
+                make_property_descriptor("max_distance", "烘焙距离（米）",
+                    &IrradianceVolumeComponent::max_distance,
+                    {.numeric = {.speed = 1,
+                         .minimum = .1f,
+                         .maximum = 100000,
+                         .enforce_bounds = true}}),
+                make_property_descriptor("ray_samples", "每探针光线数",
+                    &IrradianceVolumeComponent::ray_samples,
+                    {.numeric =
+                            {.speed = 32, .minimum = 32, .maximum = 8192, .enforce_bounds = true}}),
+                make_property_descriptor("bounces", "漫反射反弹数",
+                    &IrradianceVolumeComponent::bounces,
+                    {.numeric = {.speed = 1, .minimum = 0, .maximum = 4, .enforce_bounds = true}}),
+                make_property_descriptor("intensity", "间接光强度",
+                    &IrradianceVolumeComponent::intensity,
+                    {.numeric =
+                            {.speed = .05f, .minimum = 0, .maximum = 64, .enforce_bounds = true}}),
+                make_property_descriptor("normal_bias", "采样偏移（米）",
+                    &IrradianceVolumeComponent::normal_bias,
+                    {.numeric =
+                            {.speed = .01f, .minimum = 0, .maximum = 1, .enforce_bounds = true}}),
+                make_property_descriptor("bake_fingerprint", "烘焙输入",
+                    &IrradianceVolumeComponent::bake_fingerprint,
+                    {.editable = false, .required = false})}));
         return registry;
     }
 }

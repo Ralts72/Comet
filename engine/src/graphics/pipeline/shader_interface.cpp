@@ -378,15 +378,17 @@ namespace Comet {
                && !arrayed && !multisampled && !depth;
     }
 
-    bool ShaderInterface::has_same_resource_layout(
+    bool ShaderInterface::accepts_resource_layout(
         const ShaderInterface& other, std::optional<uint32_t> ignored_descriptor_set) const {
-        const auto included = [&](const DescriptorBinding& binding) {
-            return !ignored_descriptor_set || binding.set != *ignored_descriptor_set;
-        };
-        return m_stage == other.m_stage
-               && std::ranges::equal(m_bindings | std::views::filter(included),
-                   other.m_bindings | std::views::filter(included))
-               && m_push_constants == other.m_push_constants;
+        if(m_stage != other.m_stage || m_push_constants != other.m_push_constants)
+            return false;
+        for(const auto& binding : other.m_bindings) {
+            if(ignored_descriptor_set && binding.set == *ignored_descriptor_set)
+                continue;
+            if(std::ranges::find(m_bindings, binding) == m_bindings.end())
+                return false;
+        }
+        return true;
     }
 
     Result<void> ShaderInterface::validate_stage_link(const ShaderInterface& fragment) const {

@@ -1123,8 +1123,12 @@ namespace Comet {
                     layer_filter, settings.collision_layer, settings.collision_mask));
                 const auto request = std::ranges::find(requests, entity, &CharacterRequest::entity);
                 CharacterMove move;
+                const CharacterVelocity* velocity_override = nullptr;
                 if(request != requests.end() && request->uuid == character.uuid)
                     move = request->move;
+                if(request != requests.end() && request->uuid == character.uuid
+                    && request->velocity)
+                    velocity_override = &*request->velocity;
                 if(move.crouch != character.crouched) {
                     const auto& shape =
                         move.crouch ? character.crouching_shape : character.standing_shape;
@@ -1152,15 +1156,20 @@ namespace Comet {
                     speed = settings.crouch_speed;
                 else if(character.running)
                     speed = settings.run_speed;
-                const auto desired = JPH::Vec3(move.direction.x, 0, move.direction.y) * speed;
+                auto desired = JPH::Vec3(move.direction.x, 0, move.direction.y) * speed;
+                if(velocity_override && velocity_override->horizontal)
+                    desired =
+                        JPH::Vec3(velocity_override->velocity.x, 0, velocity_override->velocity.z);
                 auto horizontal = desired;
-                if(!grounded) {
+                if(!grounded && !(velocity_override && velocity_override->horizontal)) {
                     const auto previous_horizontal = JPH::Vec3(previous.GetX(), 0, previous.GetZ());
                     const auto blend = 1 - std::exp(-settings.air_control * 10 * delta_time);
                     horizontal = previous_horizontal + (desired - previous_horizontal) * blend;
                 }
                 const auto gravity = world.GetGravity() * settings.gravity_scale;
                 velocity += horizontal + gravity * delta_time;
+                if(velocity_override && velocity_override->vertical)
+                    velocity.SetY(velocity_override->velocity.y + (grounded ? ground.GetY() : 0));
                 controller.SetLinearVelocity(velocity);
                 const auto before = controller.GetPosition();
                 JPH::CharacterVirtual::ExtendedUpdateSettings update;
@@ -1168,6 +1177,10 @@ namespace Comet {
                     JPH::Vec3(0, settings.step_height * character.last_transform.scale.x, 0);
                 update.mStickToFloorStepDown = JPH::Vec3(
                     0, -settings.ground_snap_distance * character.last_transform.scale.x, 0);
+                if(velocity_override && velocity_override->vertical) {
+                    update.mWalkStairsStepUp = JPH::Vec3::sZero();
+                    update.mStickToFloorStepDown = JPH::Vec3::sZero();
+                }
                 controller.ExtendedUpdate(delta_time, gravity, update,
                     world.GetDefaultBroadPhaseLayerFilter(MOVING_LAYER),
                     world.GetDefaultLayerFilter(MOVING_LAYER), filter, {}, allocator);
@@ -1704,12 +1717,31 @@ namespace Comet {
         const EntityUuid uuid, const EntityId entity, const CharacterMove move) {
         const auto found = std::ranges::find(m_character_moves, entity, &CharacterRequest::entity);
         if(found != m_character_moves.end()) {
-            *found = {uuid, entity, move};
+            if(found->uuid != uuid)
+                found->velocity.reset();
+            found->uuid = uuid;
+            found->move = move;
             return true;
         }
         if(m_character_moves.size() >= MAX_COMMANDS)
             return false;
         m_character_moves.push_back({uuid, entity, move});
+        return true;
+    }
+
+    bool PhysicsService::enqueue_character_velocity(
+        const EntityUuid uuid, const EntityId entity, const CharacterVelocity velocity) {
+        const auto found = std::ranges::find(m_character_moves, entity, &CharacterRequest::entity);
+        if(found != m_character_moves.end()) {
+            if(found->uuid != uuid)
+                found->move = {};
+            found->uuid = uuid;
+            found->velocity = velocity;
+            return true;
+        }
+        if(m_character_moves.size() >= MAX_COMMANDS)
+            return false;
+        m_character_moves.push_back({uuid, entity, {}, velocity});
         return true;
     }
 
@@ -1725,10 +1757,22 @@ namespace Comet {
         const auto normal = controller.GetGroundNormal();
         const auto& character = found->second;
         const float height = controller.GetShape()->GetLocalBounds().GetSize().GetY();
+        Math::Vec3 desired{0};
+        const auto pending =
+            std::ranges::find(m_character_moves, entity, &CharacterRequest::entity);
+        if(pending != m_character_moves.end() && pending->uuid == uuid) {
+            const auto& move = pending->move;
+            float speed = character.settings.move_speed;
+            if(move.crouch)
+                speed = character.settings.crouch_speed;
+            else if(move.run)
+                speed = character.settings.run_speed;
+            desired = Math::Vec3(move.direction.x, 0, move.direction.y) * speed;
+        }
         return CharacterState{{velocity.GetX(), velocity.GetY(), velocity.GetZ()},
             {normal.GetX(), normal.GetY(), normal.GetZ()}, character_grounded(controller),
             character.relative_velocity, character.running, character.crouched,
-            height / (character.settings.height * character.last_transform.scale.x)};
+            height / (character.settings.height * character.last_transform.scale.x), desired};
     }
 
     Result<std::optional<PhysicsAccess::QueryHit>> PhysicsService::query_shape(

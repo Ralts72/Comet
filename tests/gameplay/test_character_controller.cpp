@@ -172,6 +172,18 @@ namespace Comet::Tests {
         EXPECT_EQ(visual.get_component<TransformComponent>().rotation, facing.rotation);
     }
 
+    TEST_F(CharacterGameplayTest, RootRotationKeepsItsOwnershipUntilDisabled) {
+        auto visual = scene.create_entity("Root motion visual");
+        visual.add_component<RootMotionComponent>();
+        visual.add_component<AnimatorComponent>();
+        visual.edit_transform([](auto& value) { value.rotation.y = 25; });
+        ASSERT_TRUE(Gameplay::CharacterController::face_movement(scene, visual.get_uuid(), {1, 0}));
+        EXPECT_FLOAT_EQ(visual.get_component<TransformComponent>().rotation.y, 25);
+        visual.edit_component<RootMotionComponent>([](auto& value) { value.rotation = false; });
+        ASSERT_TRUE(Gameplay::CharacterController::face_movement(scene, visual.get_uuid(), {1, 0}));
+        EXPECT_NE(visual.get_component<TransformComponent>().rotation.y, 25);
+    }
+
     TEST_F(CharacterGameplayTest, MissingReferencesAndPhysicsFacingOwnersAreDiagnosed) {
         auto camera = scene.create_entity("Camera");
         controller.movement_reference = camera.get_uuid();

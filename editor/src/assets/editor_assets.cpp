@@ -476,6 +476,28 @@ namespace CometEditor {
         return report;
     }
 
+    Comet::AssetScanReport EditorAssets::create_environment(
+        const std::filesystem::path& destination, const Comet::TextureData& cubemap) {
+        auto report = AssetSourceOperations::create_environment(m_database, destination, cubemap);
+        if(report.snapshot_updated) {
+            acknowledge(destination);
+            acknowledge(Comet::metadata_path(destination));
+        }
+        accept_scan(report);
+        return report;
+    }
+
+    Comet::AssetScanReport EditorAssets::create_irradiance(
+        const std::filesystem::path& destination, const Comet::IrradianceData& data) {
+        auto report = AssetSourceOperations::create_irradiance(m_database, destination, data);
+        if(report.snapshot_updated) {
+            acknowledge(destination);
+            acknowledge(Comet::metadata_path(destination));
+        }
+        accept_scan(report);
+        return report;
+    }
+
     Comet::AssetScanReport EditorAssets::create_script(
         const std::filesystem::path& destination, const AssetSourceOperations::ScriptKind kind) {
         auto report = AssetSourceOperations::create_script(m_database, destination, kind);

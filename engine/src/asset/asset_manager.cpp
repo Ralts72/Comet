@@ -136,6 +136,8 @@ namespace Comet {
             return Result<void, Error>::success();
         };
         switch(expected_type) {
+            case AssetType::Irradiance:
+                return status(load_irradiance(handle));
             case AssetType::AnimationLibrary:
                 return status(load_animation_library(handle));
             case AssetType::Data:
@@ -259,6 +261,10 @@ namespace Comet {
 
     Result<std::shared_ptr<GameData>, Error> AssetManager::load_data(AssetHandle handle) {
         return m_loader->load_data(handle);
+    }
+
+    Result<std::shared_ptr<Irradiance>, Error> AssetManager::load_irradiance(AssetHandle handle) {
+        return m_loader->load_irradiance(handle);
     }
 
     Result<std::shared_ptr<Prefab>, Error> AssetManager::load_prefab(

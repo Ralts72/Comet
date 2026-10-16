@@ -795,6 +795,11 @@ namespace Comet {
             writer.field("lighting_intensity", environment.lighting_intensity);
             writer.key("background_color");
             Json::write_vector(writer, environment.background_color);
+            writer.field("fog_enabled", environment.fog_enabled);
+            writer.key("fog_color");
+            Json::write_vector(writer, environment.fog_color);
+            writer.field("fog_start", environment.fog_start);
+            writer.field("fog_end", environment.fog_end);
             writer.end_object();
             const auto& post_process = content.post_process;
             writer.key("post_process");
@@ -869,7 +874,8 @@ namespace Comet {
                 return LoadResult::failure(context.error("environment", "invalid object"));
             if(auto valid = context.validate_keys(environment_node,
                    {"asset", "background", "intensity", "rotation", "lighting",
-                       "lighting_intensity", "background_color"},
+                       "lighting_intensity", "background_color", "fog_enabled", "fog_color",
+                       "fog_start", "fog_end"},
                    "environment");
                 !valid)
                 return LoadResult::failure(valid.error());
@@ -916,6 +922,30 @@ namespace Comet {
                 if(!color)
                     return LoadResult::failure(color.error());
                 environment.background_color = color.value();
+            }
+            const auto fog_enabled = context.read_optional_field<bool>(
+                environment_node, "fog_enabled", "a boolean", "environment");
+            if(!fog_enabled)
+                return LoadResult::failure(fog_enabled.error());
+            environment.fog_enabled = fog_enabled.value().value_or(environment.fog_enabled);
+            for(const auto& [key, target] : {std::pair{"fog_start", &environment.fog_start},
+                    std::pair{"fog_end", &environment.fog_end}}) {
+                const auto value = context.read_optional_field<float>(
+                    environment_node, key, "a finite number", "environment");
+                if(!value)
+                    return LoadResult::failure(value.error());
+                *target = value.value().value_or(*target);
+            }
+            if(const auto error = environment_node["fog_color"].get(color_node);
+                error != simdjson::NO_SUCH_FIELD) {
+                if(error)
+                    return LoadResult::failure(
+                        context.error("environment.fog_color", "invalid color"));
+                auto color =
+                    Json::read_vector<Math::Vec3>(color_node, context, "environment.fog_color");
+                if(!color)
+                    return LoadResult::failure(color.error());
+                environment.fog_color = color.value();
             }
             content.environment = environment;
         }

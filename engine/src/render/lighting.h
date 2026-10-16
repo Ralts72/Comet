@@ -24,9 +24,34 @@ namespace Comet {
         float shadow_distance = 100;
     };
 
+    struct RenderReflectionProbe {
+        EntityId entity_id = INVALID_ENTITY_ID;
+        AssetHandle environment;
+        Math::Vec3 position{};
+        BoundingBox bounds;
+        float blend_distance = 1;
+        float intensity = 1;
+        float rotation = 0;
+        bool box_projection = true;
+    };
+
+    struct RenderIrradianceVolume {
+        EntityId entity_id = INVALID_ENTITY_ID;
+        AssetHandle irradiance;
+        float intensity = 1;
+        float normal_bias = 0.05f;
+    };
+
     // 与 forward.glsl 的 std140 布局匹配；不是 Scene 组件或 GPU owner。
     struct alignas(16) COMET_API LightingData {
         static constexpr uint32_t MAX_LIGHTS = 32;
+        static constexpr uint32_t MAX_REFLECTION_PROBES = 4;
+        struct alignas(16) ReflectionProbe {
+            Math::Vec4 position_intensity{};
+            Math::Vec4 minimum_blend{};
+            Math::Vec4 maximum_lod{};
+            Math::Vec4 rotation_projection{}; // sin、cos、盒投影开关。
+        };
         static constexpr uint32_t SHADOW_CASCADES = 4;
         static constexpr uint32_t MAX_SPOT_SHADOWS = 4;
         static constexpr uint32_t MAX_POINT_SHADOWS = 2;
@@ -76,6 +101,11 @@ namespace Comet {
         Math::Mat4 ao_inverse_view_projection{1};
         Math::Vec4 ao_parameters{};         // 世界半径、强度；半径为零表示关闭。
         Math::Vec4 environment{0, 0, 0, 1}; // 强度、最大 LOD、旋转角正弦、旋转角余弦。
+        std::array<ReflectionProbe, MAX_REFLECTION_PROBES> reflection_probes{};
+        Math::Vec4 reflection_metadata{}; // 有效探针数、超预算数。
+        Math::Vec4 irradiance_origin{};   // xyz 首个格心、w 强度；零表示关闭。
+        Math::Vec4 irradiance_spacing_bias{1, 1, 1, .05f};
+        Math::Vec4 irradiance_dimensions{};
         [[nodiscard]] static LightingData prepare(std::span<const RenderLight> lights);
         void prepare_shadow(const BoundingBox& world_bounds, uint32_t resolution,
             const Math::Mat4& view, const Math::Mat4& projection);

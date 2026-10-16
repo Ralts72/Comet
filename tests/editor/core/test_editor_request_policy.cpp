@@ -12,6 +12,7 @@ namespace CometEditor::Tests {
             .rename = true,
             .mesh_drop = true,
             .asset_assignment = true,
+            .lighting_bake = true,
         };
         EXPECT_EQ(select_scene_request(requests), SceneRequestKind::FileDialog);
         requests.file_dialog = false;
@@ -27,6 +28,8 @@ namespace CometEditor::Tests {
         requests.mesh_drop = false;
         EXPECT_EQ(select_scene_request(requests), SceneRequestKind::AssetAssignment);
         requests.asset_assignment = false;
+        EXPECT_EQ(select_scene_request(requests), SceneRequestKind::LightingBake);
+        requests.lighting_bake = false;
         EXPECT_EQ(select_scene_request(requests), SceneRequestKind::None);
     }
 

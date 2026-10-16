@@ -13,6 +13,8 @@
 #include <vector>
 
 namespace Comet {
+    struct COMET_API IrradianceData;
+    struct TextureData;
     struct AnimationController;
     class Prefab;
     class ComponentRegistry;
@@ -57,6 +59,10 @@ namespace CometEditor::AssetSourceOperations {
         const Comet::AssetTarget& target, const Comet::AnimationController& data);
     [[nodiscard]] Comet::AssetScanReport create_material(Comet::AssetDatabase& database,
         const std::filesystem::path& destination, const Comet::MaterialData& data);
+    [[nodiscard]] Comet::AssetScanReport create_environment(Comet::AssetDatabase& database,
+        const std::filesystem::path& destination, const Comet::TextureData& cubemap);
+    [[nodiscard]] Comet::AssetScanReport create_irradiance(Comet::AssetDatabase& database,
+        const std::filesystem::path& destination, const Comet::IrradianceData& data);
 
     [[nodiscard]] Comet::AssetScanReport create_script(Comet::AssetDatabase& database,
         const std::filesystem::path& destination, ScriptKind kind = ScriptKind::Component);

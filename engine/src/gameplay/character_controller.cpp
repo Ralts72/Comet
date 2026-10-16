@@ -114,6 +114,12 @@ namespace Comet::Gameplay {
             || visual.has_component<CharacterControllerComponent>() || !Math::is_finite(direction))
             return Result<void>::failure(
                 "Character facing requires a nonphysical visual entity and finite direction");
+        if(visual.has_component<RootMotionComponent>()) {
+            const auto& root = visual.get_component<RootMotionComponent>();
+            if(root.enabled && root.rotation && visual.has_component<AnimatorComponent>()
+                && visual.get_component<AnimatorComponent>().enabled)
+                return Result<void>::success();
+        }
         if(!visual.try_set_transform(facing_transform(scene, visual, direction)))
             return Result<void>::failure("Cannot update character facing transform");
         return Result<void>::success();

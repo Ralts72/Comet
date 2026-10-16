@@ -1,16 +1,21 @@
 #include "gameplay/character_animation.h"
 #include "gameplay/character_controller.h"
 #include "scene/scene.h"
+#include "physics/physics_access.h"
 #include <algorithm>
 #include <array>
 
 namespace Comet::Gameplay {
     void CharacterAnimationSystem::update_parameters(
-        Scene& scene, const RuntimeServices& services) {
+        Scene& scene, const RuntimeServices& services, std::optional<bool> fixed) {
         scene.each<const CharacterAnimationComponent, const AnimatorComponent>(
             [&](Entity entity, const CharacterAnimationComponent& driver,
                 const AnimatorComponent& animator) {
                 if(!animator.enabled || !animator.controller)
+                    return;
+                const bool root_motion = entity.has_component<RootMotionComponent>()
+                                         && entity.get_component<RootMotionComponent>().enabled;
+                if(fixed && *fixed != root_motion)
                     return;
                 CharacterController::State state;
                 state.grounded = true;
@@ -18,6 +23,11 @@ namespace Comet::Gameplay {
                     if(auto current = CharacterController::get_state(actor, *services.physics);
                         current)
                         state = current.value();
+                    if(root_motion) {
+                        const auto current = services.physics->get_character_state(actor);
+                        if(current)
+                            state.speed = Math::length(current->desired_velocity);
+                    }
                 }
                 const std::array<std::pair<std::string, ParameterValue>, 4> values{
                     {{"speed", state.speed}, {"grounded", state.grounded},
@@ -40,7 +50,12 @@ namespace Comet::Gameplay {
         return Result<void, Error>::success();
     }
     Result<void, Error> CharacterAnimationSystem::update(Scene& scene, const Context& context) {
-        update_parameters(scene, context.services);
+        update_parameters(scene, context.services, false);
+        return Result<void, Error>::success();
+    }
+    Result<void, Error> CharacterAnimationSystem::fixed_update(
+        Scene& scene, const Context& context) {
+        update_parameters(scene, context.services, true);
         return Result<void, Error>::success();
     }
 }

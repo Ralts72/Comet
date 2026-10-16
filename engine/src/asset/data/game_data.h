@@ -1,5 +1,7 @@
 #pragma once
 
+#include "asset/content_fwd.h"
+
 #include "asset/reference.h"
 #include "common/export.h"
 #include "common/result.h"

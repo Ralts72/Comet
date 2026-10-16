@@ -196,6 +196,12 @@ namespace Comet {
                 }
             }
         }
+        for(auto& probe : world.reflection_probes)
+            probe.environment =
+                m_asset_registry.resolve<Environment>(probe.probe.environment, &probe.revision);
+        for(auto& volume : world.irradiance_volumes)
+            volume.resource =
+                m_asset_registry.resolve<Irradiance>(volume.volume.irradiance, &volume.revision);
         if(world.environment_resource) {
             const auto environment_revision =
                 m_asset_registry.get_revision(world.environment.asset);
@@ -271,6 +277,24 @@ namespace Comet {
         refresh_assets(world);
         world.cameras = render_scene.cameras;
         world.lights = render_scene.lights;
+        world.irradiance_volumes.resize(render_scene.irradiance_volumes.size());
+        for(std::size_t index = 0; index < render_scene.irradiance_volumes.size(); ++index) {
+            const auto& volume = render_scene.irradiance_volumes[index];
+            auto& resolved = world.irradiance_volumes[index];
+            if(resolved.volume.irradiance != volume.irradiance || !resolved.resource)
+                resolved.resource =
+                    m_asset_registry.resolve<Irradiance>(volume.irradiance, &resolved.revision);
+            resolved.volume = volume;
+        }
+        world.reflection_probes.resize(render_scene.reflection_probes.size());
+        for(std::size_t index = 0; index < render_scene.reflection_probes.size(); ++index) {
+            const auto& probe = render_scene.reflection_probes[index];
+            auto& resolved = world.reflection_probes[index];
+            if(resolved.probe.environment != probe.environment || !resolved.environment)
+                resolved.environment =
+                    m_asset_registry.resolve<Environment>(probe.environment, &resolved.revision);
+            resolved.probe = probe;
+        }
         world.post_process = render_scene.post_process;
         resolve_particles(render_scene, world);
         resolve_environment(render_scene, world);

@@ -1,6 +1,7 @@
 #include "animation/animation_data.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/quaternion.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
 #include <algorithm>
 #include <cmath>
 #include <unordered_set>
@@ -42,12 +43,17 @@ namespace Comet {
             }
             return glm::mix(start, end, t);
         }
+        std::vector<JointTransform> rest_pose(const AnimationData& data) {
+            std::vector<JointTransform> rest;
+            rest.reserve(data.nodes.size());
+            for(const auto& node : data.nodes)
+                rest.push_back(node.rest);
+            return rest;
+        }
+
         Result<std::vector<JointTransform>> local_pose(const AnimationData& data,
             const std::string& name, double time, bool loop, bool normalized_time = false) {
-            std::vector<JointTransform> pose;
-            pose.reserve(data.nodes.size());
-            for(const auto& node : data.nodes)
-                pose.push_back(node.rest);
+            auto pose = rest_pose(data);
             if(name.empty())
                 return Result<std::vector<JointTransform>>::success(std::move(pose));
             const auto* clip = data.find_clip(name);
@@ -152,6 +158,161 @@ namespace Comet {
             }
             return Result<void>::success();
         }
+
+        bool contains_node(const AnimationData& data, uint32_t parent, uint32_t node) {
+            while(node != NO_ANIMATION_NODE) {
+                if(node == parent)
+                    return true;
+                node = data.nodes[node].parent;
+            }
+            return false;
+        }
+
+        Result<uint32_t> motion_node(const AnimationData& data, std::string_view name) {
+            if(data.joints.empty() || data.mesh_node >= data.nodes.size())
+                return Result<uint32_t>::failure("Root motion requires a skinned mesh");
+            uint32_t index = NO_ANIMATION_NODE;
+            if(!name.empty()) {
+                for(uint32_t i = 0; i < data.nodes.size(); ++i)
+                    if(data.nodes[i].name == name) {
+                        if(index != NO_ANIMATION_NODE)
+                            return Result<uint32_t>::failure(
+                                "Root motion node is ambiguous: " + std::string(name));
+                        index = i;
+                    }
+            } else {
+                index = data.joints.front().node;
+                while(index != NO_ANIMATION_NODE
+                      && !std::ranges::all_of(data.joints, [&](const auto& joint) {
+                             return contains_node(data, index, joint.node);
+                         }))
+                    index = data.nodes[index].parent;
+            }
+            if(index == NO_ANIMATION_NODE || contains_node(data, index, data.mesh_node)
+                || !std::ranges::all_of(data.joints,
+                    [&](const auto& joint) { return contains_node(data, index, joint.node); }))
+                return Result<uint32_t>::failure(
+                    "Root motion needs one skeleton root outside the mesh node: "
+                    + std::string(name));
+            return Result<uint32_t>::success(index);
+        }
+
+        Math::Mat4 node_world(
+            const AnimationData& data, const std::vector<JointTransform>& local, uint32_t index) {
+            Math::Mat4 matrix(1);
+            while(index != NO_ANIMATION_NODE) {
+                const auto& node = local[index];
+                matrix = glm::translate(Math::Mat4(1), node.translation)
+                         * glm::mat4_cast(node.rotation) * glm::scale(Math::Mat4(1), node.scale)
+                         * matrix;
+                index = data.nodes[index].parent;
+            }
+            return matrix;
+        }
+
+        Math::Mat4 motion_frame(const AnimationData& data, const std::vector<JointTransform>& local,
+            uint32_t index, const AnimationRootMotion& settings, const Math::Mat4& mesh_basis) {
+            const auto root = mesh_basis
+                              * glm::affineInverse(node_world(data, local, data.mesh_node))
+                              * node_world(data, local, index);
+            Math::Vec3 translation(root[3]);
+            if(!settings.horizontal)
+                translation.x = translation.z = 0;
+            if(!settings.vertical)
+                translation.y = 0;
+            float yaw = 0;
+            if(settings.rotation) {
+                if(root[2].x * root[2].x + root[2].z * root[2].z > 1e-12f)
+                    yaw = std::atan2(root[2].x, root[2].z);
+                else
+                    yaw = std::atan2(-root[0].z, root[0].x);
+            }
+            return glm::translate(Math::Mat4(1), translation)
+                   * glm::rotate(Math::Mat4(1), yaw, Math::Vec3(0, 1, 0));
+        }
+    }
+
+    Result<AnimationMotion> animation_root_motion(const AnimationData& data,
+        const AnimationBlend& sample, double to, const AnimationRootMotion& settings) {
+        using Outcome = Result<AnimationMotion>;
+        if(!std::isfinite(to) || !std::isfinite(sample.time) || sample.time < 0 || to < sample.time)
+            return Outcome::failure("Invalid root motion time interval");
+        auto index = motion_node(data, settings.node);
+        if(!index)
+            return Outcome::failure(index.error());
+        auto base = base_weight(sample);
+        if(!base)
+            return Outcome::failure(base.error());
+        const auto rest = rest_pose(data);
+        const auto mesh_basis = node_world(data, rest, data.mesh_node);
+        const auto mesh_inverse = glm::affineInverse(mesh_basis);
+        const auto reference = motion_frame(data, rest, index.value(), settings, mesh_basis);
+        AnimationMotion motion;
+        motion.up = Math::normalize(Math::Vec3(mesh_inverse * Math::Vec4(0, 1, 0, 0)));
+        const auto accumulate = [&](const std::string& name, float weight) -> Result<void> {
+            if(weight == 0 || name.empty())
+                return Result<void>::success();
+            const auto* clip = data.find_clip(name);
+            if(!clip)
+                return Result<void>::failure("Animation clip is missing: " + name);
+            if(clip->duration <= 0)
+                return Result<void>::success();
+            const auto at = [&](double time) -> Result<Math::Mat4> {
+                auto local = local_pose(data, name, time, false);
+                if(!local)
+                    return Result<Math::Mat4>::failure(local.error());
+                return Result<Math::Mat4>::success(
+                    motion_frame(data, local.value(), index.value(), settings, mesh_basis));
+            };
+            auto first = at(0);
+            auto last = at(clip->duration);
+            if(!first || !last)
+                return Result<void>::failure(!first ? first.error() : last.error());
+            const auto unwrapped = [&](double time) -> Result<Math::Mat4> {
+                if(sample.normalized_time)
+                    time *= clip->duration;
+                uint32_t cycles = 0;
+                if(sample.loop) {
+                    const auto count = std::floor(time / clip->duration);
+                    if(count > 1048576)
+                        return Result<Math::Mat4>::failure("Root motion cycle limit exceeded");
+                    cycles = static_cast<uint32_t>(count);
+                    time = std::fmod(time, clip->duration);
+                }
+                auto phase = at(time);
+                if(!phase)
+                    return phase;
+                auto cycle = glm::affineInverse(first.value()) * last.value();
+                Math::Mat4 accumulated(1);
+                while(cycles) {
+                    if(cycles & 1u)
+                        accumulated *= cycle;
+                    cycles >>= 1;
+                    if(cycles)
+                        cycle *= cycle;
+                }
+                return Result<Math::Mat4>::success(first.value() * accumulated
+                                                   * glm::affineInverse(first.value())
+                                                   * phase.value());
+            };
+            auto from = unwrapped(sample.time);
+            auto end = unwrapped(to);
+            if(!from || !end)
+                return Result<void>::failure(!from ? from.error() : end.error());
+            const auto delta = reference * glm::affineInverse(from.value()) * end.value()
+                               * glm::affineInverse(reference);
+            if(!finite_matrix(delta))
+                return Result<void>::failure("Root motion produced a non-finite transform");
+            motion.translation += Math::Vec3((mesh_inverse * delta * mesh_basis)[3]) * weight;
+            motion.yaw += std::atan2(delta[2].x, delta[2].z) * weight;
+            return Result<void>::success();
+        };
+        if(auto added = accumulate(sample.clip, base.value()); !added)
+            return Outcome::failure(added.error());
+        for(const auto& part : sample.blends)
+            if(auto added = accumulate(part.clip, part.weight); !added)
+                return Outcome::failure(added.error());
+        return Outcome::success(motion);
     }
 
     double animation_sample_time(double time, double duration, bool loop) {
@@ -335,6 +496,20 @@ namespace Comet {
             for(const auto& layer : playback->layers)
                 if(auto status = apply_layer(clips, layer, local.value()); !status)
                     return Result<AnimationPose>::failure(status.error());
+        Math::Mat4 motion_correction(1);
+        if(playback && playback->root_motion) {
+            const auto& settings = *playback->root_motion;
+            auto root = motion_node(data, settings.node);
+            if(!root)
+                return Result<AnimationPose>::failure(root.error());
+            const auto rest = rest_pose(data);
+            const auto basis = node_world(data, rest, data.mesh_node);
+            motion_correction =
+                glm::affineInverse(basis) * motion_frame(data, rest, root.value(), settings, basis)
+                * glm::affineInverse(
+                    motion_frame(data, local.value(), root.value(), settings, basis))
+                * basis;
+        }
         std::vector<Math::Mat4> world(data.nodes.size());
         for(const auto index : data.evaluation_order) {
             const auto& node = local.value()[index];
@@ -344,14 +519,14 @@ namespace Comet {
                 matrix = world[data.nodes[index].parent] * matrix;
             world[index] = matrix;
         }
-        const auto mesh_inverse = Math::inverse(world[data.mesh_node]);
+        const auto mesh_inverse = glm::affineInverse(world[data.mesh_node]);
         AnimationPose output;
         std::optional<BoundingBox> bounds;
         output.matrices.reserve(data.joints.size());
         if(include_bones)
             output.bone_matrices.reserve(data.joints.size());
         for(const auto& joint : data.joints) {
-            const auto bone = mesh_inverse * world[joint.node];
+            const auto bone = motion_correction * mesh_inverse * world[joint.node];
             const auto matrix = bone * joint.inverse_bind;
             if(!finite_matrix(matrix))
                 return Result<AnimationPose>::failure(

@@ -78,6 +78,17 @@ namespace Comet {
         bool operator==(const AnimatorComponent&) const = default;
     };
 
+    struct COMET_API RootMotionComponent {
+        bool enabled = true;
+        // 空名选择所有蒙皮关节的最近共同祖先；空目标驱动当前实体。
+        std::string node;
+        EntityUuid target;
+        bool horizontal = true;
+        bool vertical = false;
+        bool rotation = true;
+        bool operator==(const RootMotionComponent&) const = default;
+    };
+
     // 单个场景一个轴对齐区域；尺寸为世界米数，中心取实体世界位置。
     struct COMET_API NavigationRegionComponent {
         Math::Vec3 half_extents{20, 5, 20};
@@ -120,6 +131,36 @@ namespace Comet {
         bool operator==(const LightComponent&) const = default;
     };
 
+    // 影响范围随实体变换形成世界 AABB；rotation 单独控制环境贴图的 Y 轴旋转。
+    struct COMET_API ReflectionProbeComponent {
+        bool enabled = true;
+        AssetHandle environment;
+        Math::Vec3 half_extents{5};
+        float blend_distance = 1;
+        float intensity = 1;
+        float rotation = 0;
+        bool box_projection = true;
+        uint32_t capture_resolution = 128;
+        float capture_distance = 100;
+        std::string bake_fingerprint;
+        bool operator==(const ReflectionProbeComponent&) const = default;
+    };
+
+    // 轴对齐烘焙区域以实体世界位置为中心；产物保存固定世界坐标。
+    struct COMET_API IrradianceVolumeComponent {
+        bool enabled = true;
+        AssetHandle irradiance;
+        Math::Vec3 half_extents{5, 2.5f, 5};
+        float spacing = 1;
+        float max_distance = 100;
+        uint32_t ray_samples = 512;
+        uint32_t bounces = 2;
+        float intensity = 1;
+        float normal_bias = 0.05f;
+        std::string bake_fingerprint;
+        bool operator==(const IrradianceVolumeComponent&) const = default;
+    };
+
     struct COMET_API CameraComponent {
         enum class Projection { Perspective, Orthographic };
 
@@ -136,11 +177,14 @@ namespace Comet {
     template<typename T>
     inline constexpr bool is_scene_render_component_v =
         std::is_same_v<std::remove_cvref_t<T>, AnimatorComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, RootMotionComponent>
         || std::is_same_v<std::remove_cvref_t<T>, MeshRendererComponent>
         || std::is_same_v<std::remove_cvref_t<T>, MeshLodComponent>
         || std::is_same_v<std::remove_cvref_t<T>, CameraComponent>
         || std::is_same_v<std::remove_cvref_t<T>, ParticleEmitterComponent>
-        || std::is_same_v<std::remove_cvref_t<T>, LightComponent>;
+        || std::is_same_v<std::remove_cvref_t<T>, LightComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, ReflectionProbeComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, IrradianceVolumeComponent>;
 
     struct COMET_API CameraControllerComponent {
         enum class Mode { Free, Orbit };

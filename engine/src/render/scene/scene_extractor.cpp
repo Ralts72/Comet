@@ -5,12 +5,16 @@
 #include "scene/scene.h"
 #include <algorithm>
 
+#include <algorithm>
+
 namespace Comet {
     namespace {
         void extract_views(Scene& scene, RenderScene& output, bool interpolating) {
             output.particles = scene.get_particles();
             output.cameras.clear();
             output.lights.clear();
+            output.reflection_probes.clear();
+            output.irradiance_volumes.clear();
             output.environment = scene.get_environment();
             output.post_process = scene.get_post_process();
             output.cameras.reserve(scene.component_count<CameraComponent>());
@@ -32,6 +36,31 @@ namespace Comet {
                         .near_clip = camera.near_clip,
                         .far_clip = camera.far_clip});
                 });
+            output.reflection_probes.reserve(scene.component_count<ReflectionProbeComponent>());
+            scene.each<const ReflectionProbeComponent, WorldTransformComponent, IdComponent>(
+                [&](Entity entity, const ReflectionProbeComponent& probe,
+                    const WorldTransformComponent& authoritative, const IdComponent& id) {
+                    if(!probe.enabled || !probe.environment || probe.intensity <= 0)
+                        return;
+                    const auto& world =
+                        interpolating ? scene.get_render_transform(entity) : authoritative;
+                    const auto bounds = transform_box(
+                        {-probe.half_extents, probe.half_extents}, world.world_matrix);
+                    if(!bounds)
+                        return;
+                    output.reflection_probes.push_back({id.id, probe.environment,
+                        Math::Vec3(world.world_matrix[3]), *bounds, probe.blend_distance,
+                        probe.intensity, probe.rotation, probe.box_projection});
+                });
+            std::ranges::sort(output.reflection_probes, {}, &RenderReflectionProbe::entity_id);
+            output.irradiance_volumes.reserve(scene.component_count<IrradianceVolumeComponent>());
+            scene.each<const IrradianceVolumeComponent, IdComponent>(
+                [&](Entity, const IrradianceVolumeComponent& volume, const IdComponent& id) {
+                    if(volume.enabled && volume.irradiance && volume.intensity > 0)
+                        output.irradiance_volumes.push_back(
+                            {id.id, volume.irradiance, volume.intensity, volume.normal_bias});
+                });
+            std::ranges::sort(output.irradiance_volumes, {}, &RenderIrradianceVolume::entity_id);
             output.lights.reserve(scene.component_count<LightComponent>());
             scene.each<const LightComponent, WorldTransformComponent, IdComponent>(
                 [&](Entity entity, const LightComponent& light,

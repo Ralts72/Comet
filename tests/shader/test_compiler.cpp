@@ -54,7 +54,7 @@ namespace Comet::Tests {
             "#version 450\n" + frame + object
             + "void main(){gl_Position=2.0*frame.projection*frame.view*object.model*vec4(1);}");
         ASSERT_TRUE(changed_code) << changed_code.error();
-        EXPECT_TRUE(original.value().has_same_resource_layout(changed_code.value()));
+        EXPECT_TRUE(original.value().accepts_resource_layout(changed_code.value()));
         for(const std::string replacement :
             {"layout(set=0,binding=0,std140) uniform Frame {mat4 projection; mat4 view;} frame;\n",
                 "layout(set=0,binding=0,std140,row_major) uniform Frame {mat4 view; mat4 projection;} frame;\n"}) {
@@ -62,7 +62,7 @@ namespace Comet::Tests {
             ASSERT_TRUE(changed) << changed.error();
             EXPECT_EQ(original.value().get_bindings()[0].block_size,
                 changed.value().get_bindings()[0].block_size);
-            EXPECT_FALSE(original.value().has_same_resource_layout(changed.value()));
+            EXPECT_FALSE(original.value().accepts_resource_layout(changed.value()));
         }
         const auto changed_push = reflect_source(
             "#version 450\n" + frame
@@ -70,7 +70,29 @@ namespace Comet::Tests {
         ASSERT_TRUE(changed_push) << changed_push.error();
         EXPECT_EQ(original.value().get_push_constants()[0].size,
             changed_push.value().get_push_constants()[0].size);
-        EXPECT_FALSE(original.value().has_same_resource_layout(changed_push.value()));
+        EXPECT_FALSE(original.value().accepts_resource_layout(changed_push.value()));
+    }
+
+    TEST_F(
+        ShaderCompilerTest, ResourceContractAllowsUnusedBindingsButRejectsAddedOrTruncatedBuffers) {
+        const std::string frame =
+            "layout(set=0,binding=0,std140) uniform Frame {mat4 view; mat4 projection;} frame;\n";
+        const std::string object = "layout(push_constant) uniform Object {mat4 model;} object;\n";
+        const auto contract = reflect_source(
+            "#version 450\n" + frame + object
+            + "void main(){gl_Position=frame.projection*frame.view*object.model*vec4(1);}");
+        ASSERT_TRUE(contract) << contract.error();
+        const auto unused = reflect_source(
+            "#version 450\n" + object + "void main(){gl_Position=object.model*vec4(1);}");
+        ASSERT_TRUE(unused) << unused.error();
+        EXPECT_TRUE(contract.value().accepts_resource_layout(unused.value()));
+        EXPECT_FALSE(unused.value().accepts_resource_layout(contract.value()));
+        const auto truncated =
+            reflect_source("#version 450\n" + object
+                           + "layout(set=0,binding=0,std140) uniform Frame {mat4 view;} frame;\n"
+                             "void main(){gl_Position=frame.view*object.model*vec4(1);}");
+        ASSERT_TRUE(truncated) << truncated.error();
+        EXPECT_FALSE(contract.value().accepts_resource_layout(truncated.value()));
     }
 
     TEST_F(ShaderCompilerTest, ResourceContractOwnsNestedMembersAndArrayShape) {
@@ -90,7 +112,7 @@ namespace Comet::Tests {
         EXPECT_EQ(items.members[0].shape.array_stride, 16u);
         EXPECT_EQ(items.members[0].shape.array_dimensions, (std::vector<uint32_t>{2}));
         EXPECT_EQ(items.members[0].shape.scalar, ShaderInterface::TypeShape::Scalar::Float);
-        EXPECT_FALSE(original.value().has_same_resource_layout(changed.value()));
+        EXPECT_FALSE(original.value().accepts_resource_layout(changed.value()));
     }
 
     TEST_F(ShaderCompilerTest, MaterialTexturesRejectIncompatibleSampledImageShapes) {

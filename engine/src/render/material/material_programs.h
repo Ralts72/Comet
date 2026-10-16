@@ -21,6 +21,7 @@ namespace Comet {
     // 跨 RenderPass/目标重建保留已通过 GPU 发布的程序版本；不拥有目标相关 Pipeline。
     class COMET_API MaterialPrograms final {
     public:
+        MaterialPrograms();
         struct Published {
             std::shared_ptr<const ShaderProgramArtifact> source;
             std::shared_ptr<const MaterialLayout> layout;
@@ -28,6 +29,7 @@ namespace Comet {
 
         struct Publications {
             uint64_t builtin_revision = 0;
+            uint64_t builtin_fingerprint = 0;
             std::map<std::pair<AssetHandle, std::string>, Published> programs;
             [[nodiscard]] const Published* published(
                 AssetHandle handle, const std::string& template_name) const;
@@ -53,6 +55,7 @@ namespace Comet {
 
     private:
         Publications& writable_publications();
+        void update_builtin_fingerprint();
         std::shared_ptr<Publications> m_published = std::make_shared<Publications>();
         MaterialShaders m_builtin_overrides;
         std::set<std::string, std::less<>> m_failed_builtins;

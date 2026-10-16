@@ -2,16 +2,65 @@
 #include "asset/database.h"
 #include "support/hdr_image.h"
 #include "support/temporary_directory.h"
+#include "common/file_io.h"
 
 #include <gtest/gtest.h>
 #include <glm/gtc/packing.hpp>
 #include <cstring>
+#include <limits>
 
 namespace Comet::Tests {
     static glm::vec4 pixel_at(const TextureData& data, size_t pixel) {
         glm::u16vec4 packed;
         std::memcpy(&packed, data.pixels.data() + pixel * sizeof(packed), sizeof(packed));
         return glm::unpackHalf(packed);
+    }
+
+    TEST(EnvironmentImporterTest, CapturedCubemapRoundTripsHdrDirectionsAndRejectsInvalidInput) {
+        TemporaryDirectory directory;
+        for(const int size : {1, 2, 16}) {
+            TextureData cube{.width = size,
+                .height = size,
+                .format = Format::R16G16B16A16_SFLOAT,
+                .cubemap = true};
+            cube.pixels.resize(std::size_t(size) * size * 6 * 8);
+            for(int face = 0; face < 6; ++face)
+                for(int y = 0; y < size; ++y)
+                    for(int x = 0; x < size; ++x) {
+                        const auto packed = glm::packHalf(
+                            glm::vec4(2 + face, 2.0f + float(x) / size, 4.0f + float(y) / size, 1));
+                        std::memcpy(
+                            cube.pixels.data() + ((face * size + y) * size + x) * 8, &packed, 8);
+                    }
+            auto encoded = EnvironmentImporter::encode_hdr(cube);
+            ASSERT_TRUE(encoded) << encoded.error();
+            const auto path = directory.path() / "captured.hdr";
+            ASSERT_TRUE(write_text_file_atomic(path, encoded.value()));
+            auto imported = EnvironmentImporter{}.import(path);
+            ASSERT_TRUE(imported) << imported.error();
+            const auto& background = imported.value().background;
+            EXPECT_EQ(background.width, size);
+            if(size == 16)
+                for(int face = 0; face < 6; ++face)
+                    for(const int y : {4, 12})
+                        for(const int x : {4, 12}) {
+                            const auto pixel = pixel_at(background, (face * size + y) * size + x);
+                            EXPECT_NEAR(pixel.r, 2 + face, 0.04f);
+                            EXPECT_NEAR(pixel.g, 2.0f + float(x) / size, 0.04f);
+                            EXPECT_NEAR(pixel.b, 4.0f + float(y) / size, 0.04f);
+                        }
+            cube.cubemap = false;
+            EXPECT_FALSE(EnvironmentImporter::encode_hdr(cube));
+            cube.cubemap = true;
+            cube.mip_levels = 2;
+            EXPECT_FALSE(EnvironmentImporter::encode_hdr(cube));
+            cube.mip_levels = 1;
+            const auto nan = glm::packHalf(glm::vec4(std::numeric_limits<float>::quiet_NaN()));
+            std::memcpy(cube.pixels.data(), &nan, 8);
+            EXPECT_FALSE(EnvironmentImporter::encode_hdr(cube));
+            cube.pixels.pop_back();
+            EXPECT_FALSE(EnvironmentImporter::encode_hdr(cube));
+        }
     }
 
     TEST(EnvironmentImporterTest, PreviewIsBoundedAndDoesNotReduceFinalBackgroundQuality) {

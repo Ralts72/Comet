@@ -102,12 +102,15 @@ namespace Comet {
             EntityUuid uuid;
             EntityId entity;
             CharacterMove move;
+            std::optional<CharacterVelocity> velocity;
         };
 
         bool enqueue_command(EntityUuid uuid, EntityId entity, CommandKind kind, Math::Vec3 value,
             std::optional<Math::Vec3> point) override;
         std::optional<Velocity> read_velocity(EntityUuid uuid, EntityId entity) const override;
         bool enqueue_character_move(EntityUuid uuid, EntityId entity, CharacterMove move) override;
+        bool enqueue_character_velocity(
+            EntityUuid uuid, EntityId entity, CharacterVelocity velocity) override;
         std::optional<CharacterState> read_character_state(
             EntityUuid uuid, EntityId entity) const override;
         Result<std::optional<QueryHit>> query_shape(const ColliderComponent& shape,

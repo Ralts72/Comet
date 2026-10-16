@@ -8,6 +8,8 @@
 #include "scene/scene.h"
 #include "scene/scene_runtime.h"
 #include "support/math_assertions.h"
+#include "render/resource/irradiance.h"
+#include "render/scene/scene_resolver.h"
 
 #include <algorithm>
 #include <barrier>
@@ -28,6 +30,42 @@ namespace Comet::Tests {
                 EXPECT_TRUE(TestUtils::Mat4Equal(found->model_matrix, item.model_matrix));
             }
         }
+    }
+
+    TEST(SceneExtractorTest, IrradianceSnapshotsFreezeAssetVersionsAndTrackComponentEdits) {
+        Scene scene;
+        auto entity = scene.create_entity("GI");
+        entity.add_component<IrradianceVolumeComponent>(
+            IrradianceVolumeComponent{.irradiance = AssetHandle(71)});
+        AssetRegistry assets;
+        auto original = std::make_shared<Irradiance>();
+        ASSERT_TRUE(assets.register_asset(AssetHandle(71), original));
+        SceneExtractor extractor;
+        SceneResolver resolver(assets);
+        auto input = extractor.update(scene);
+        auto first = resolver.update(*input);
+        ASSERT_EQ(first->irradiance_volumes.size(), 1);
+        EXPECT_EQ(first->irradiance_volumes[0].resource, original);
+        const auto first_revision = first->irradiance_volumes[0].revision;
+        auto replacement = std::make_shared<Irradiance>();
+        ASSERT_TRUE(assets.replace_asset(AssetHandle(71), replacement));
+        auto second = resolver.update(*input);
+        EXPECT_EQ(first->irradiance_volumes[0].resource, original);
+        EXPECT_EQ(second->irradiance_volumes[0].resource, replacement);
+        EXPECT_NE(second->irradiance_volumes[0].revision, first_revision);
+        entity.edit_component<IrradianceVolumeComponent>(
+            [](auto& value) { value.intensity = .5f; });
+        input = extractor.update(scene);
+        second = resolver.update(*input);
+        EXPECT_EQ(second->irradiance_volumes[0].volume.intensity, .5f);
+        EXPECT_EQ(first->irradiance_volumes[0].volume.intensity, 1);
+        entity.edit_component<IrradianceVolumeComponent>(
+            [](auto& value) { value.enabled = false; });
+        input = extractor.update(scene);
+        EXPECT_TRUE(input->irradiance_volumes.empty());
+        second = resolver.update(*input);
+        EXPECT_TRUE(second->irradiance_volumes.empty());
+        EXPECT_EQ(first->irradiance_volumes.size(), 1);
     }
 
     TEST(SceneExtractorTest, IncrementalSnapshotsMatchFullExtractionAfterMixedEdits) {

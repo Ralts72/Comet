@@ -278,7 +278,7 @@ Runtime 统一控制系统启停、部分启动失败、暂停和单步；System
 每个固定步先按注册顺序执行 `fixed_update` 并提交结构请求，再执行 `post_fixed_update` 并提交本阶段的请求；最后才进入每帧 `update`。
 NavigationSystem 在首个固定步读取 PhysicsService 提供的静态碰撞三角形构建导航网格，之后只重置查询预算和回收角色路径。NavigationMesh 封装 Recast／Detour，公开头文件不暴露第三方类型；NavigationSystem 持有运行域路径缓存，Lua 只提交目标，Demo 决定巡逻／追逐规则。静态碰撞几何来源由 Engine 注入，Gameplay 不依赖 Jolt 或 PhysicsService 实现。Stop 清理网格与缓存，路径不进入场景序列化。
 
-默认 ScriptSystem 先执行固定步玩法，PhysicsSystem 同步配置并模拟／回写；接触在该步的后置阶段交付脚本，阶段结束即清空。
+默认固定步依次执行脚本意图、角色动画参数、根运动动画提取与 Gameplay 消费、PhysicsSystem 同步／求解／回写，再更新粒子；接触在该步的后置阶段交付脚本，阶段结束即清空。普通动画仍在帧更新中推进，不同时使用两套时钟。
 固定更新中删除的实体不再收到接触；接触回调的结构请求在下一固定步前生效。后置阶段复用本步时间和输入，不再次消费边沿。
 普通更新执行相机、脚本玩法／自定义事件和声音源同步，不重复交付接触。暂停不执行更新，单步完整执行一次固定、后置和普通阶段。
 
@@ -392,21 +392,22 @@ CameraControllerSystem 只选择主相机并转交更新／捕获意图，原生
 可选 `movement_reference` 使用即时同步的无缩放世界姿态计算平面方向；相机俯仰不缩短模拟输入，垂直俯视时使用右轴确定平面朝向。
 可选 `facing` 将移动方向转换到外观父级的旋转空间，只改外观旋转，保留位置／缩放及静止朝向；目标不得带刚体或角色控制器。demo 将外观和相机设为兄弟实体，转向不改相机。
 Lua 的 `comet.control_character(enabled, options)` 调用相同 C++ 控制器，实体选项复用已有场景代次／实体身份校验，返回是否提交跳跃；项目继续决定输入组、计分、完成与重开。
-基础控制借用当前 Scene，在固定更新、物理步进前调用，复用既有运行调度。Gameplay 提供实际移动状态、跑步／蹲伏和外观朝向；Physics 负责姿态空间检查与碰撞求解。后续 root motion 继续沿同一写入边界扩展。
+基础控制借用当前 Scene，在固定更新、物理步进前调用，复用既有运行调度。Gameplay 提供实际移动状态、跑步／蹲伏和外观朝向；Physics 负责姿态空间检查与碰撞求解。Gameplay 的根运动消费者将提取增量转换为目标变换或角色速度；根旋转启用时通用角色朝向控制让出写入权。
 
 ## 骨骼与动画
 
 Mesh 导入数据保存顶点权重和不可变 `AnimationData`，骨骼层级、绑定矩阵及片段属于资产，沿 Mesh Artifact 保存、校验与加载。
 `AnimatorComponent` 保存控制器引用、初始参数覆盖和单片段播放配置，复用组件描述符的保存、克隆、引用重映射与 Inspector 撤销。
 `.ani` 是不可变 `AnimationController` 定义的项目资产，包含参数、状态、1D／2D 混合、层定义、事件时间轴与有序条件过渡；复用 Metadata、Registry 和只读导出索引。引擎提供默认角色预设，项目可保存自己的副本。
-`AnimationSystem` 属于 Runtime：只读取控制器和参数、推进实例状态／时间，不依赖 Gameplay 或 Physics。播放完成条件单独记录本状态进度，不从已回绕的采样时间推断。
-Gameplay 的 `CharacterAnimationSystem` 在物理更新后读取实际移动状态，通过 `CharacterAnimationComponent` 将四个角色参数写入 Animator；不选择动作、不维护动画时钟。Lua 可通过 `comet.set_animation_parameter` 驱动其他对象。
+`AnimationSystem` 属于 Runtime：读取控制器和参数、推进实例状态／时间、提取基础状态的根运动，不依赖 Gameplay 或 Physics 实现。Engine 装配时注入 Gameplay 消费函数，由它选择变换写入或角色速度请求；Physics 继续独占角色位置回写。播放完成条件单独记录本状态进度，不从已回绕的采样时间推断。
+Gameplay 的 `CharacterAnimationSystem` 通过 `CharacterAnimationComponent` 将四个角色参数写入 Animator；普通动画在帧更新读取实际移动状态，根运动在物理步进前读取当前意图速度，避免等待动画产生速度后才能离开 idle 的循环依赖。它不选择动作、不维护动画时钟。Lua 可通过 `comet.set_animation_parameter` 驱动其他对象。
 `blend_animation_1d` 只按有序阈值选择相邻片段及权重，不依赖角色、场景或渲染。
 `blend_animation_2d` 对采样点对构造线性权重带再归一化，支持不规则／共线点和边界外输入；最多 64 点，X/Y 使用可比较的量纲。两种混合都生成 `AnimationBlend`，不另建采样链路。
 `.anilib` 是片段别名到源网格／片段名的独立目录。Loader 从 CPU 网格产物提取骨架和动作，不创建源网格的 GPU 资源；按节点名称、父层级、局部绑定姿态校验并重映射，拒绝缺失／重复名称和不兼容骨架，不做重定向。控制器到库、库到源网格走资产依赖闭包与导出索引；绑定后的片段归实例缓存，来源变化后重建，旧快照保持只读。
 层引用已有状态作为动作源，共用控制器参数、独立推进时间；按列表顺序在局部 TRS 上做覆盖混合。命名遮罩根包含后代，空遮罩为全身；层权重为固定权重乘以钳制到 [0,1] 的数值参数。权重为零仍推进时钟，基础状态独占事件，避免重复脚步／攻击。层没有独立状态机、加法参考姿态或 root motion。
 混合空间内共享归一化周期，时长按当前片段权重插值；System 通过组合层注入的只读资产查询取得定义与片段时长，不依赖 GPU Mesh。数值参数按状态定义指数平滑，跨阈值保持相位；状态切换分别保留旧／新混合输入，再按过渡时间混合。
 Scene 保存不可变播放快照，提取／解析交付同一快照给 RenderThread；Stop、销毁及重开清理播放状态，场景文件不保存时间与逐帧姿态。
+`RootMotionComponent` 保存根骨骼、目标实体及运动轴选择。纯采样沿源资产 Y 轴提取平移／转向，在网格导入基底间转换；循环按刚性变换组合，混合按增量组合。姿态采样移除已接管的运动，蒙皮、阴影与挂点共用结果。角色速度覆盖与普通移动意图共用单步请求寿命，保留跳跃／姿态输入；不累积碰撞拒绝的位移。多 Animator 同时驱动一个目标会拒绝，动态刚体不接受动画覆盖。
 Runtime、预览和姿态采样共用循环／终点时间规则。非循环片段到达终点后保留原快照，零速且过渡已结束的实例也不重复发布；零速仍允许片段过渡推进。
 动画事件使用实际推进区间处理跨帧与循环，1D 混合共用状态标记，逻辑切换后只交付目标状态的事件。Scene 沿用命名事件队列并支持实体目标；`System::post_update` 在所有普通更新后交付事件，消除脚本与动画的注册顺序依赖。
 
@@ -490,8 +491,13 @@ GPU 候选只用于一次帧边界提交，不跨帧保存回退候选。Editor 
 
 ### 场景环境与 IBL
 
-Scene 只保存环境资产引用及开关／强度；Environment 产品包含背景、辐照、预过滤和 BRDF 数据。
+SceneEnvironment 保存环境资产引用、背景／照明参数与距离雾设置；Environment 资产产品包含背景、辐照、预过滤和 BRDF 数据。
 Skybox 与材质 IBL 消费同一已发布版本；缺失／关闭使用有效回退绑定，背景和照明分别控制。
+距离雾随 RenderWorld 快照进入 MaterialRenderer，由帧 UBO 上传雾色与距离区间。内置 PBR／Unlit 片段程序共用 `common/fog.glsl`，从片元深度和投影恢复相机前向距离，在透明混合前应用线性雾；不引入全屏 pass、雾纹理或独立管理器。天空盒与粒子暂不消费该设置。
+
+局部反射由 ReflectionProbeComponent 描述资产和范围，SceneExtractor 只输出空间数据，SceneResolver 在 Main 固定 Environment 版本；GPU 消费只读快照。MaterialRenderer 为每个 View 选择最多四个相交探针，沿帧槽 UBO 和固定 cubemap 绑定上传。PBR 按片元位置混合镜面环境，盒投影在采样前校正方向，重叠权重归一化；全局漫反射与直接光保持独立。候选环境版本、描述符和在途帧沿现有资源寿命保活，不另建探针资源管理器。
+
+Editor 的 LightingBakeInput 共用静态筛选、依赖指纹与状态缓存；ReflectionBake 拥有捕获配置与结果接纳；ScenePreview 只处理不可变世界的离屏绘制与 GPU 读回，普通缩略图保留 SDR，六面捕获使用同一程序快照并返回线性 float16。EnvironmentImporter 将六面编码为 Radiance HDR，资产事务发布源和元数据，原有导入／产品链完成预过滤和独立 App 消费。来源变化仅提示重新烘焙，不在运行帧隐式重算；在途输入变化时拒绝发布。场景只保存捕获配置、内容指纹和环境引用，不拥有捕获设备或烘焙任务。反射捕获不计算漫反射间接反弹，不能替代 GI。
 
 ### 环境资产准备
 
@@ -499,11 +505,17 @@ CPU Worker 解码、预计算并写可重建 Artifact，任务受源大小、工
 CPU 产品移交 RenderAssetFactory 创建 GPU 候选；App／Editor 注入 Engine 的资源工厂，由 RenderThread 创建，Main 等待结果后复核源版本和运行发布版本，再注册到 Registry。失败保留旧完整版本，过期候选不能覆盖或删除更新的预览，旧帧继续保活原资源。
 临时背景用于首次预览，不冒充完整资产就绪；App 启动准备明确等待所需产品。导出／驻留／streaming 仍按资产主线推进。
 
+静态 GI 的离线求解归现有 `tools/asset`：输入持有静态 CPU 网格、材质、灯光与环境，私有三角形 BVH 负责遮挡和漫反射路径。Engine 的 `IrradianceData` 只定义有界探针网格、卷积后球谐系数、方向距离矩、产品读写和采样，不持有烘焙任务或设备。`CpuCubeSampler` 由环境预过滤、HDR 编码和 GI 共用，按需解码 mip 并统一跨面采样；各 Worker 独占缓存，源数据寿命由调用者保证。
+
+`.gi` 是已烘焙的 CPU 资产，经同一 RenderAssetFactory 创建 Irradiance 运行资源并发布到唯一 AssetRegistry；每个探针按 41 个 Vec4 打包进单张 RGBA32F 只读纹理，复用现有上传与完成点。RenderWorld 固定资源版本，MaterialRenderer 每 View 选择一个可见区域，帧槽保活资源及描述符。PBR 在有效区域内用 GI 替换全局 IBL 的漫反射，镜面保持独立；无有效探针或区域外回退全局漫反射，被遮挡则保持黑色。所有 PBR 表面按实际片元世界位置采样，烘焙区域移动不会平移旧产物。产品导出直接携带已验证 `.gi`，运行时不导入源几何或进行烘焙；Editor 的 IrradianceBake 通过现有 TaskScheduler 调度 CPU 烘焙，任务独占场景快照、资产记录和 CPU 产物，只有 Main 能复核输入并经资产事务发布结果和撤销命令。取消标记与任务数据共用寿命，任务不借用 Scene、数据库或 GPU；切场景、输入变化及过期版本不会接纳结果。反射捕获包含已发布 GI，其输入指纹包含 GI 引用、采样参数和真实源字节。
+
 ### 编译、反射与缓存边界
 
 内置 Shader 由构建工具编译并嵌入；项目 Shader 的 CPU 编译由 `tools/shader` 及 `tools/asset` 复用，engine／app 消费产品。
 输入快照包含真实字节、依赖路径和缺失 include 候选；缓存身份区分算法版本、设备无关产品与驱动缓存。
 Artifact 和依赖文件分别原子写入，单文件成功不代表跨文件事务或 GPU 发布成功。
+
+材质 Shader 的固定资源契约允许阶段省略未使用的描述符绑定；已声明绑定的类型、名称、大小、成员偏移与形状仍须完整匹配，push constant 仍严格比较。帧 UBO 扩展时同步维护项目 Shader 的帧声明，不能用截断布局绕过校验。
 
 ### 材质 Shader 热发布
 

@@ -98,7 +98,8 @@ namespace Comet {
                 }
                 case simdjson::dom::element_type::ARRAY: {
                     Value::Array result;
-                    for(auto item : node.get_array().value()) {
+                    const auto array = node.get_array().value();
+                    for(auto item : array) {
                         auto value = read_value(item, context,
                             location + "[" + std::to_string(result.size()) + "]", remaining,
                             depth + 1);

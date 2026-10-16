@@ -23,6 +23,7 @@ namespace CometEditor {
         [[nodiscard]] Comet::Result<void> set_library(
             std::shared_ptr<const Comet::AnimationLibrary> library);
         void set_layers(std::vector<Comet::AnimationLayer> layers);
+        void set_root_motion(std::optional<Comet::AnimationRootMotion> settings);
         [[nodiscard]] const Comet::AnimationData* clips() const {
             return m_frame.clips ? m_frame.clips.get() : m_animation.get();
         }

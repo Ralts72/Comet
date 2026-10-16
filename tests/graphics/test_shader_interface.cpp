@@ -123,11 +123,15 @@ namespace Comet::Tests {
         EXPECT_EQ(frame.set, 0u);
         EXPECT_EQ(frame.binding, 0u);
         EXPECT_EQ(frame.count, 1u);
-        EXPECT_EQ(frame.block_size, 160u);
+        EXPECT_EQ(frame.block_size, 176u);
         EXPECT_EQ(frame.type, DescriptorType::UniformBuffer);
-        ASSERT_EQ(frame.members.size(), 6u);
+        ASSERT_EQ(frame.members.size(), 7u);
         EXPECT_EQ(frame.members[0].format, Format::UNDEFINED);
         EXPECT_EQ(frame.members[1].format, Format::UNDEFINED);
+        EXPECT_EQ(frame.members[5].name, "fog_start");
+        EXPECT_EQ(frame.members[5].offset, 156u);
+        EXPECT_EQ(frame.members[6].name, "fog_color");
+        EXPECT_EQ(frame.members[6].offset, 160u);
         ASSERT_EQ(vertex.get_push_constants().size(), 1u);
         EXPECT_TRUE(vertex.get_push_constants()[0].stages == ShaderStage::Vertex);
         EXPECT_EQ(vertex.get_push_constants()[0].offset, 0u);
@@ -137,8 +141,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(fragment_result) << fragment_result.error();
         const auto fragment = std::move(fragment_result).value();
         EXPECT_EQ(fragment.get_stage(), ShaderStage::Fragment);
-        ASSERT_EQ(fragment.get_bindings().size(), 13u);
-        for(uint32_t index = 3; index <= 6; ++index) {
+        ASSERT_EQ(fragment.get_bindings().size(), 18u);
+        for(uint32_t index = 3; index <= 10; ++index) {
             const auto binding = std::ranges::find_if(fragment.get_bindings(),
                 [index](const auto& value) { return value.set == 0 && value.binding == index; });
             ASSERT_NE(binding, fragment.get_bindings().end());

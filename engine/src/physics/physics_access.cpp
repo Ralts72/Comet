@@ -67,6 +67,17 @@ namespace Comet {
         return enqueue_character_move(entity.get_uuid(), entity.get_id(), move);
     }
 
+    bool PhysicsAccess::request_character_velocity(
+        const Entity entity, CharacterVelocity velocity) {
+        if(!m_scene || !m_scene->is_valid(entity)
+            || !entity.has_component<CharacterControllerComponent>()
+            || !entity.get_component<CharacterControllerComponent>().enabled
+            || !Math::is_finite(velocity.velocity)
+            || !std::isfinite(glm::dot(velocity.velocity, velocity.velocity)))
+            return false;
+        return enqueue_character_velocity(entity.get_uuid(), entity.get_id(), velocity);
+    }
+
     std::optional<PhysicsAccess::CharacterState> PhysicsAccess::get_character_state(
         const Entity entity) const {
         if(!m_scene || !m_scene->is_valid(entity)

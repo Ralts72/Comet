@@ -164,6 +164,14 @@ namespace CometEditor {
         if(m_snapshot)
             publish();
     }
+    void AnimationPreview::set_root_motion(std::optional<Comet::AnimationRootMotion> settings) {
+        if(m_frame.root_motion == settings)
+            return;
+        m_frame.root_motion = std::move(settings);
+        if(m_snapshot)
+            publish();
+    }
+
     void AnimationPreview::publish() {
         if(!m_snapshot || *m_snapshot != m_frame)
             m_snapshot = std::make_shared<const Comet::AnimationPlayback>(m_frame);

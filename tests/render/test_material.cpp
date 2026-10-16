@@ -16,6 +16,26 @@
 #include <type_traits>
 
 namespace Comet::Tests {
+    TEST(MaterialProgramsTest, BuiltinFingerprintUsesContentAndKeepsPublishedSnapshotsImmutable) {
+        MaterialPrograms first;
+        MaterialPrograms reopened;
+        const auto initial = first.feedback();
+        EXPECT_EQ(initial->builtin_fingerprint, reopened.feedback()->builtin_fingerprint);
+        auto shaders = default_material_shaders();
+        first.publish_builtin(shaders);
+        EXPECT_EQ(initial->builtin_fingerprint, first.feedback()->builtin_fingerprint);
+        shaders.at("unlit_color").fragment[2] += 1;
+        first.publish_builtin(shaders);
+        EXPECT_NE(initial->builtin_fingerprint, first.feedback()->builtin_fingerprint);
+        EXPECT_EQ(initial->builtin_fingerprint, reopened.feedback()->builtin_fingerprint);
+        const auto successful = first.feedback();
+        const std::array failed{std::string("unlit_color")};
+        first.invalidate_builtin(failed);
+        EXPECT_NE(first.feedback()->builtin_fingerprint, successful->builtin_fingerprint);
+        first.publish_builtin(shaders);
+        EXPECT_EQ(first.feedback()->builtin_fingerprint, successful->builtin_fingerprint);
+    }
+
     TEST(MaterialRuntimeTest, ValueSnapshotsReuseUnchangedDataAndKeepIndependentParameters) {
         Material source("sample", "pbr", AssetHandle{42});
         ASSERT_TRUE(source.set_scalar_property("roughness", 0.2f));
@@ -112,8 +132,8 @@ namespace Comet::Tests {
         const auto frame = std::ranges::find_if(
             bindings, [](const auto& binding) { return binding.set == 0 && binding.binding == 0; });
         ASSERT_NE(frame, bindings.end());
-        EXPECT_EQ(frame->block_size, 160);
-        ASSERT_EQ(frame->members.size(), 6);
+        EXPECT_EQ(frame->block_size, 176);
+        ASSERT_EQ(frame->members.size(), 7);
         EXPECT_EQ(frame->members[2].name, "camera_position");
         EXPECT_EQ(frame->members[2].offset, 128);
         EXPECT_EQ(frame->members[3].name, "orthographic");

@@ -111,8 +111,8 @@ namespace Comet {
         [[nodiscard]] const std::vector<StageVariable>& get_inputs() const { return m_inputs; }
         [[nodiscard]] const std::vector<StageVariable>& get_outputs() const { return m_outputs; }
         Result<void> validate_stage_link(const ShaderInterface& fragment) const;
-        // 固定资源契约的保守比较；阶段连通性由 validate_stage_link 独立检查。
-        [[nodiscard]] bool has_same_resource_layout(const ShaderInterface& other,
+        // 允许省略未使用的绑定；已声明的绑定和 push constant 必须完整匹配固定契约。
+        [[nodiscard]] bool accepts_resource_layout(const ShaderInterface& other,
             std::optional<uint32_t> ignored_descriptor_set = std::nullopt) const;
         [[nodiscard]] const std::vector<DescriptorBinding>& get_bindings() const {
             return m_bindings;

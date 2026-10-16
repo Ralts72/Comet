@@ -1,5 +1,7 @@
 #pragma once
 
+#include "asset/content_fwd.h"
+
 #include "asset/reference.h"
 #include "common/error.h"
 #include "scene/property.h"
@@ -16,8 +18,6 @@
 
 namespace Comet {
     class Script;
-    class COMET_API Prefab;
-    class COMET_API GameData;
     struct ComponentDescriptor {
         std::string id;
         std::string display_name;
