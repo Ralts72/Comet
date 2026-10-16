@@ -1,4 +1,5 @@
 #pragma once
+#include "asset/content_fwd.h"
 #include "animation/animation_retarget.h"
 #include "asset/handle.h"
 #include <filesystem>

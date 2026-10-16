@@ -1,7 +1,8 @@
 #pragma once
 
+#include "asset/content_fwd.h"
+
 #include "common/result.h"
-#include "common/export.h"
 #include "core/math_utils.h"
 #include <memory>
 #include <optional>
@@ -10,7 +11,6 @@
 
 namespace Comet {
     struct NavigationRegionComponent;
-    struct COMET_API NavigationData;
 }
 namespace Comet::Gameplay {
     // CPU 导航几何与查询；不持有场景、物理或角色状态。

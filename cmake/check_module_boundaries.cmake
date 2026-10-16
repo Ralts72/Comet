@@ -47,7 +47,7 @@ set(PHYSICS_BACKEND_HEADERS "${ASSET_HEADERS}|${AUDIO_DATA_HEADERS}|particles/pa
 set(GAMEPLAY_HEADERS "${RUNTIME_HEADERS}|gameplay/|scene/systems/camera_controller\\.h$")
 set(SCRIPTING_HEADERS "${GAMEPLAY_HEADERS}|scripting/|scene/systems/script_system\\.h$")
 set(RUNTIME_ASSET_HEADERS "${PIPELINE_HEADERS}|${WORLD_HEADERS}|${AUDIO_DATA_HEADERS}|asset/(asset_manager\\.h$|runtime/)|scripting/script_compiler\\.h$|audio/audio\\.h$|graphics/error\\.h$")
-set(RENDER_ASSET_HEADERS "${FOUNDATION_HEADERS}|animation/animation_data\\.h$|asset/handle\\.h$|asset/data/|asset/runtime/render_asset_factory\\.h$|graphics/|render/(resource/|material/material\\.h$)")
+set(RENDER_ASSET_HEADERS "${FOUNDATION_HEADERS}|animation/animation_data\\.h$|asset/(content_fwd|handle)\\.h$|asset/data/|asset/runtime/render_asset_factory\\.h$|graphics/|render/(resource/|material/material\\.h$)")
 set(PLATFORM_HEADERS "${INPUT_HEADERS}|core/(window|window_settings)\\.h$")
 set(GRAPHICS_HEADERS "${FOUNDATION_HEADERS}|graphics/|${PLATFORM_HEADERS}")
 set(RENDER_HEADERS "${GRAPHICS_HEADERS}|${WORLD_HEADERS}|render/|asset/artifact/shader_program_artifact\\.h$|asset/runtime/render_asset_factory\\.h$")

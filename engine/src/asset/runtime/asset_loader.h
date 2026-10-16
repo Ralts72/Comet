@@ -17,22 +17,16 @@
 #include <unordered_set>
 
 namespace Comet {
-    struct COMET_API NavigationData;
     class AssetDatabase;
-    struct AnimationLibrary;
     class ComponentRegistry;
     class ModelArtifact;
     struct ModelData;
     class AssetRegistry;
     class ImportService;
     class RenderAssetFactory;
-    class COMET_API Mesh;
-    class COMET_API Texture;
-    class COMET_API Material;
     class ShaderProgramArtifact;
     class AudioClip;
     struct Environment;
-    struct COMET_API Irradiance;
     struct MaterialData;
     struct AssetRecord;
     struct TextureImportSettings;

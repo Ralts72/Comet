@@ -23,20 +23,15 @@
 #include <vector>
 
 namespace Comet {
-    struct COMET_API NavigationData;
     class AssetRegistry;
     class Scene;
     class ComponentRegistry;
-    struct AnimationLibrary;
     struct ModelData;
     class ImportService;
     class AssetLoader;
     class RenderAssetFactory;
-    class COMET_API Material;
-    class COMET_API Mesh;
     class RenderResourceFactory;
     class TaskScheduler;
-    class COMET_API Texture;
     class Script;
     class AudioClip;
     struct MaterialData;
@@ -54,7 +49,6 @@ namespace Comet {
     struct ShaderProgramImportCandidate;
     class ShaderProgramArtifact;
     struct Environment;
-    struct COMET_API Irradiance;
 
     class COMET_API AssetManager final {
     public:

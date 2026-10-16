@@ -1,7 +1,8 @@
 #pragma once
 
+#include "asset/content_fwd.h"
+
 #include "common/error.h"
-#include "common/export.h"
 #include "common/result.h"
 
 #include <map>
@@ -10,15 +11,10 @@
 
 namespace Comet {
     class RenderResourceFactory;
-    class COMET_API Mesh;
-    class COMET_API Texture;
-    class COMET_API Material;
     struct Environment;
-    struct COMET_API Irradiance;
     struct MeshData;
     struct TextureData;
     struct EnvironmentData;
-    struct COMET_API IrradianceData;
     struct MaterialData;
 
     // 接收独立 CPU 产品并返回完整 GPU 候选；不读取文件、索引或 Registry。

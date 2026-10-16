@@ -1,6 +1,6 @@
 #pragma once
 
-#include "common/export.h"
+#include "asset/content_fwd.h"
 #include "common/result.h"
 #include "core/math_utils.h"
 

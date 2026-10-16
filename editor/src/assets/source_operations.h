@@ -1,5 +1,7 @@
 #pragma once
 
+#include "asset/content_fwd.h"
+
 #include "asset/database.h"
 #include "asset/data/material_data.h"
 #include "asset/import/asset_task_types.h"
@@ -13,12 +15,8 @@
 #include <vector>
 
 namespace Comet {
-    struct COMET_API IrradianceData;
-    struct COMET_API NavigationData;
     struct TextureData;
     struct AnimationController;
-    struct COMET_API AnimationLibrary;
-    class Prefab;
     class ComponentRegistry;
 }
 

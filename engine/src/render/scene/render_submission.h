@@ -1,5 +1,7 @@
 #pragma once
 
+#include "asset/content_fwd.h"
+
 #include "asset/handle.h"
 #include "core/math_utils.h"
 #include "render/scene/render_types.h"
@@ -16,13 +18,9 @@
 
 namespace Comet {
     struct AnimationPlayback;
-    class Mesh;
-    class Material;
-    class Texture;
     class ShaderProgramArtifact;
     struct MaterialOverrides;
     struct Environment;
-    struct COMET_API Irradiance;
 
     struct MaterialBinding {
         AssetHandle material_handle = INVALID_ASSET_HANDLE;

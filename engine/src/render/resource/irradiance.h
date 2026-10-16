@@ -1,15 +1,14 @@
 #pragma once
 
-#include "common/export.h"
+#include "asset/content_fwd.h"
+
 #include "core/geometry.h"
 #include "graphics/result.h"
 
 #include <memory>
 
 namespace Comet {
-    class Texture;
     class RenderResourceFactory;
-    struct COMET_API IrradianceData;
 
     struct COMET_API Irradiance {
         static constexpr int TEXELS_PER_PROBE = 41;

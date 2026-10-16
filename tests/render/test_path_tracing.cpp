@@ -1,4 +1,5 @@
 #include "support/render_gpu_test.h"
+#include "support/temporary_directory.h"
 #include "render/path_trace_scene.h"
 #include "render/material/material.h"
 #include "render/path_trace_denoise.h"
@@ -156,15 +157,21 @@ namespace Comet::Tests {
             return total / float(image.size());
         }
         void capture_project_scene(const char* filename) {
-            const ProjectPaths paths(COMET_SAMPLE_PROJECT_DIRECTORY);
+            TemporaryDirectory project;
+            const ProjectPaths paths(project.path());
+            std::filesystem::copy(ProjectPaths(COMET_SAMPLE_PROJECT_DIRECTORY).assets(),
+                paths.assets(), std::filesystem::copy_options::recursive);
+            ASSERT_FALSE(std::filesystem::exists(paths.cache()));
             AssetManager assets(paths, engine->get_asset_registry(),
                 engine->get_render_resource_factory(), engine->get_task_scheduler());
-            static_cast<void>(assets.scan());
+            ASSERT_TRUE(assets.scan().succeeded());
             auto components = create_scene_component_registry();
             auto loaded = SceneSerializer(components).load((paths.assets() / filename).string());
             ASSERT_TRUE(loaded) << loaded.error();
             scene = SceneExtractor::extract(*loaded.value());
             for(const auto& item : scene.render_items) {
+                const auto imported = assets.import_mesh(item.mesh_handle);
+                ASSERT_TRUE(imported) << imported.error().message;
                 const auto geometry = assets.ensure_loaded(item.mesh_handle, AssetType::Mesh);
                 ASSERT_TRUE(geometry) << geometry.error().message;
                 const auto surface =

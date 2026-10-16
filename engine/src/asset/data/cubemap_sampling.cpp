@@ -25,7 +25,8 @@ namespace Comet {
         using Checked = Result<std::size_t>;
         if(!data.cubemap || data.width <= 0 || data.width > 2048 || data.width != data.height
             || !std::has_single_bit(static_cast<std::uint32_t>(data.width)) || data.mip_levels == 0
-            || data.mip_levels > std::bit_width(static_cast<std::uint32_t>(data.width))
+            || data.mip_levels > static_cast<std::uint32_t>(
+                   std::bit_width(static_cast<std::uint32_t>(data.width)))
             || (data.format != Format::R16G16B16A16_SFLOAT
                 && data.format != Format::R32G32B32A32_SFLOAT))
             return Checked::failure(

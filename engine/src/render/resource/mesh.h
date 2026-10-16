@@ -1,5 +1,5 @@
 #pragma once
-#include "common/export.h"
+#include "asset/content_fwd.h"
 #include "graphics/result.h"
 #include "graphics/synchronization/gpu_completion_point.h"
 #include "core/geometry.h"
