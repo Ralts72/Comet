@@ -189,7 +189,7 @@ Profile 拒绝玩家设置及未知字段。窗口尺寸与最大化状态由宿
 `config/player_settings` 用一份 `PlayerSettings<T>` 实现显示、画质和音量的文件检查、版本／项目身份校验、原子保存和保存后应用。
 别名保留各功能名称，具体类型的字段读取／写入／校验仍归 DisplaySettings、QualitySettings、AudioSettings。
 输入文件是按动作／绑定身份合并的覆盖，保留 PlayerInputSettings 的独立协议，不套用完整值存储。
-`PlayerSettingsOwner` 持有上述四种玩家设置，统一项目默认值、加载、保存、诊断和 Runtime 重绑定；通过 Engine 直接应用设置；Play 只适配离屏分辨率和运行状态。输入仍保存稀疏覆盖，其他设置仍保存完整值。
+`runtime/player_settings_owner` 是 App／Play 共用的宿主设置装配，持有上述四种玩家设置，统一默认值、加载、保存、诊断和 Runtime 重绑定，并通过 Engine 应用设置和向项目 UI 提供服务。Play 只适配离屏分辨率和运行状态。`config/` 的设置数据、存储及显示试用不依赖 Engine 或 UI；输入仍保存稀疏覆盖，其他设置仍保存完整值。
 App 的显示试用由 DisplaySettingsPreview 保存前态和 15 秒期限；确认成功才持久化，取消／超时恢复前态。Editor Play 只应用视口相关设置，不修改编辑器窗口、VSync、HDR 输出或帧率。保存成功但应用失败仍明确报告，不能当作未保存。
 项目显示默认值修改后，Editor 重新解析玩家设置并更新 Play 分辨率；已有个人选择仍优先，项目默认值不覆盖玩家文件。
 

@@ -206,9 +206,9 @@ set(INTEGRATION_SOURCES
         render/test_pbr_surfaces.cpp
         render/test_scene_resolver.cpp
         render/test_script_material.cpp
-        config/test_player_settings_owner.cpp
         runtime/test_engine.cpp
-        runtime/test_entry.cpp)
+        runtime/test_entry.cpp
+        runtime/test_player_settings_owner.cpp)
 set(ISOLATED_TEST_SOURCES
         graphics/pipeline_cache_probe.cpp
         graphics/test_swapchain_recovery.cpp

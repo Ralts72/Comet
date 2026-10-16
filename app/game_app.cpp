@@ -1,7 +1,7 @@
 #include "game_app.h"
 #include "gameplay/checkpoint_store.h"
 #include "gameplay/game_session.h"
-#include "config/player_settings_owner.h"
+#include "runtime/player_settings_owner.h"
 #include "runtime/application.h"
 #include "config/config_loader.h"
 #include "render/resource/render_resources.h"

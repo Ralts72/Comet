@@ -979,7 +979,7 @@ App／Editor 和性能基准使用现有 RenderThread；确定性 GPU 回归保�
 
 `input/player_input_edit` 已将玩家草稿、录入、候选校验和提交状态从 ImGui 面板分离；
 Editor 使用 `editor/src/project/player_input_panel`，ImGui 呈现适配与公共控件均归 Editor；
-App／Editor 按项目清单装配 `Ui::ProjectUi`；默认值、加载、保存及 Runtime 重绑定已共用 `PlayerSettingsOwner`，显示应用分别适配原生窗口和离屏视口，见[配置边界](architecture/overview.md#输入主链与配置边界)。
+App／Editor 按项目清单装配 `Ui::ProjectUi`；默认值、加载、保存及 Runtime 重绑定已共用宿主层 `runtime/player_settings_owner`，显示应用分别适配原生窗口和离屏视口，见[配置边界](architecture/overview.md#输入主链与配置边界)。
 demo 的 HUD、菜单状态、控件和快捷键已迁入项目 Lua 控制器；制作与发布等后续边界见下方计划。
 正式游戏界面沿以下契约接入，同一输入模型可由不同呈现层使用：
 

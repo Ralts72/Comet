@@ -117,6 +117,9 @@ check_module_closure(Serialization "${COMET_SERIALIZATION_SOURCES}" "${SERIALIZA
 check_module_closure(ShaderContracts "${COMET_SHADER_CONTRACTS_SOURCES}" "${SHADER_HEADERS}")
 check_module_closure(AssetData "${COMET_ASSET_DATA_SOURCES}" "${ASSET_HEADERS}")
 check_module_closure(Input "${COMET_INPUT_SOURCES}" "${INPUT_HEADERS}")
+check_module_closure(PlayerSettings
+    "src/config/player_settings.cpp;src/config/display_settings.cpp;src/config/display_settings_preview.cpp"
+    "${INPUT_HEADERS}|${AUDIO_DATA_HEADERS}|graphics/enums\\.h$|core/window_settings\\.h$|config/(display_settings(_preview)?|player_settings)\\.h$|render/(output_settings|quality_settings)\\.h$")
 check_module_closure(World "${COMET_WORLD_SOURCES}" "${WORLD_HEADERS}")
 check_module_closure(Runtime "${COMET_RUNTIME_SOURCES}" "${RUNTIME_HEADERS}")
 check_module_closure(Audio "${COMET_AUDIO_SOURCES}" "${AUDIO_HEADERS}")

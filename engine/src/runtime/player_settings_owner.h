@@ -9,7 +9,7 @@
 namespace Comet {
     class Engine;
 
-    // App 与 Editor Play 共用玩家设置；宿主只指定实际运行目标。
+    // App／Play 的宿主设置装配：将独立设置存储接到 Engine 和项目 UI。
     class COMET_API PlayerSettingsOwner final {
     public:
         struct Startup {

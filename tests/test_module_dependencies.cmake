@@ -55,3 +55,5 @@ probe_dependency("src/gameplay/character_controller.cpp" "\"physics/physics_serv
     "Gameplay violates module dependencies")
 probe_dependency("src/animation/animation_system.cpp" "\"gameplay/character_controller.h\""
     "Runtime violates module dependencies")
+probe_dependency("src/config/player_settings.cpp" "\"runtime/player_settings_owner.h\""
+    "PlayerSettings violates module dependencies")
