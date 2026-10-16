@@ -89,13 +89,10 @@ namespace CometEditor::Tests {
             }
             const auto component = ImHashStr(component_id, 0, window->ID);
             const auto id = ImHashStr(label, 0, component);
-            for(float y = window->WorkRect.Min.y; y < window->WorkRect.Max.y; y += 3) {
-                const ImVec2 point{window->WorkRect.Min.x + 12, y};
-                ImGui::GetIO().AddMousePosEvent(point.x, point.y);
-                frame();
-                if(ImGui::GetCurrentContext()->HoveredId == id)
-                    return point;
-            }
+            const ImRect area{{window->WorkRect.Min.x + 12, window->WorkRect.Min.y},
+                {window->WorkRect.Min.x + 13, window->WorkRect.Max.y}};
+            if(const auto point = Comet::Tests::find_imgui_item(id, area, [&] { frame(); }))
+                return *point;
             ADD_FAILURE() << "Preview widget is missing: " << label;
             return {};
         }
@@ -103,12 +100,7 @@ namespace CometEditor::Tests {
         void click(const char* label, float horizontal_offset = 0) {
             auto point = widget_point(label);
             point.x += horizontal_offset;
-            auto& io = ImGui::GetIO();
-            io.AddMousePosEvent(point.x, point.y);
-            io.AddMouseButtonEvent(0, true);
-            frame();
-            io.AddMouseButtonEvent(0, false);
-            frame();
+            Comet::Tests::click_imgui(point, [&] { frame(); });
         }
     };
 

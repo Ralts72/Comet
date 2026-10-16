@@ -489,69 +489,12 @@ namespace CometEditor {
                         property_targets(component_descriptor.id, property.id));
                     ImGui::PopID();
                 }
-                if(component_descriptor.id == "navigation_region" && m_entities.size() == 1
-                    && m_navigation_bake) {
-                    ImGui::TextWrapped(
-                        "%s", m_navigation_bake->status(m_selection.get_scene(), entity.get_uuid())
-                                  .c_str());
-                    ImGui::BeginDisabled(!edit_structure || m_navigation_bake->busy());
-                    if(ImGui::Button("烘焙导航###Bake Navigation") && finish_edit())
-                        m_bake_request = {BakeRequest::Kind::Navigation, entity.get_uuid(),
-                            m_history.generation()};
-                    ImGui::EndDisabled();
-                    if(m_navigation_bake->busy()) {
-                        ImGui::SameLine();
-                        if(ImGui::Button("取消烘焙###Cancel Navigation Bake"))
-                            m_navigation_bake->cancel();
-                    }
-                    ImGui::TextWrapped(
-                        "使用静态、非触发碰撞形状；移动障碍仍由运行时局部避障处理。");
-                }
-                if(component_descriptor.id == "reflection_probe" && m_entities.size() == 1
-                    && m_reflection_bake) {
-                    ImGui::TextWrapped(
-                        "%s", m_reflection_bake->status(m_selection.get_scene(), entity.get_uuid())
-                                  .c_str());
-                    ImGui::BeginDisabled(!edit_structure || m_reflection_bake->busy());
-                    if(ImGui::Button("烘焙反射###Bake Reflection") && finish_edit())
-                        m_bake_request = {BakeRequest::Kind::Reflection, entity.get_uuid(),
-                            m_history.generation()};
-                    ImGui::EndDisabled();
-                    ImGui::TextWrapped(
-                        "捕获静态网格与光源；不包含动画角色、动态刚体、粒子、雾和其他反射探针。");
-                }
-                if(component_descriptor.id == "irradiance_volume" && m_entities.size() == 1
-                    && m_irradiance_bake) {
-                    ImGui::TextWrapped(
-                        "%s", m_irradiance_bake->status(m_selection.get_scene(), entity.get_uuid())
-                                  .c_str());
-                    ImGui::BeginDisabled(!edit_structure || m_irradiance_bake->busy());
-                    if(ImGui::Button("烘焙 GI###Bake GI") && finish_edit())
-                        m_bake_request = {BakeRequest::Kind::Irradiance, entity.get_uuid(),
-                            m_history.generation()};
-                    ImGui::EndDisabled();
-                    if(m_irradiance_bake->busy()) {
-                        ImGui::SameLine();
-                        if(ImGui::Button("取消###Cancel GI Bake"))
-                            m_irradiance_bake->cancel();
-                        const auto progress = m_irradiance_bake->progress();
-                        const float ratio =
-                            progress.total ? float(progress.completed) / progress.total : 0;
-                        ImGui::ProgressBar(ratio);
-                        ImGui::Text("探针 %u / %u", progress.completed, progress.total);
-                    }
-                    if(const auto& report = m_irradiance_bake->last_report(); report) {
-                        ImGui::TextWrapped("上次烘焙 %.2f 秒，%u 个有效探针，%u 个三角形",
-                            report->seconds, report->statistics.active_probes,
-                            report->statistics.triangles);
-                        ImGui::TextWrapped("输入 %.2f MiB，求解器 %.2f MiB，运行纹理 %.2f KiB",
-                            report->input_bytes / 1048576.0,
-                            report->statistics.working_bytes / 1048576.0,
-                            report->product_bytes / 1024.0);
-                    }
-                    ImGui::TextWrapped(
-                        "区域轴对齐，半尺寸与间距使用世界单位；静态内容烘焙，移动物体仅采样。修改静态内容或移动区域后需重新烘焙。");
-                }
+                if(component_descriptor.id == "navigation_region")
+                    render_navigation_bake(entity, edit_structure);
+                if(component_descriptor.id == "reflection_probe")
+                    render_reflection_bake(entity, edit_structure);
+                if(component_descriptor.id == "irradiance_volume")
+                    render_irradiance_bake(entity, edit_structure);
             }
             ImGui::PopID();
         }
@@ -597,6 +540,69 @@ namespace CometEditor {
             if(!changed)
                 LOG_ERROR("Cannot change component structure");
         }
+    }
+
+    void InspectorPanel::render_navigation_bake(Comet::Entity entity, bool can_edit) {
+        if(m_entities.size() != 1 || !m_navigation_bake)
+            return;
+        ImGui::TextWrapped(
+            "%s", m_navigation_bake->status(m_selection.get_scene(), entity.get_uuid()).c_str());
+        ImGui::BeginDisabled(!can_edit || m_navigation_bake->busy());
+        if(ImGui::Button("烘焙导航###Bake Navigation") && finish_edit())
+            m_bake_request = {
+                BakeRequest::Kind::Navigation, entity.get_uuid(), m_history.generation()};
+        ImGui::EndDisabled();
+        if(m_navigation_bake->busy()) {
+            ImGui::SameLine();
+            if(ImGui::Button("取消烘焙###Cancel Navigation Bake"))
+                m_navigation_bake->cancel();
+        }
+        ImGui::TextWrapped(
+            "使用静态、非触发碰撞形状；运行时障碍按占用变化更新导航，并参与局部避障。");
+    }
+
+    void InspectorPanel::render_reflection_bake(Comet::Entity entity, bool can_edit) {
+        if(m_entities.size() != 1 || !m_reflection_bake)
+            return;
+        ImGui::TextWrapped(
+            "%s", m_reflection_bake->status(m_selection.get_scene(), entity.get_uuid()).c_str());
+        ImGui::BeginDisabled(!can_edit || m_reflection_bake->busy());
+        if(ImGui::Button("烘焙反射###Bake Reflection") && finish_edit())
+            m_bake_request = {
+                BakeRequest::Kind::Reflection, entity.get_uuid(), m_history.generation()};
+        ImGui::EndDisabled();
+        ImGui::TextWrapped(
+            "捕获静态网格与光源；不包含动画角色、动态刚体、粒子、雾和其他反射探针。");
+    }
+
+    void InspectorPanel::render_irradiance_bake(Comet::Entity entity, bool can_edit) {
+        if(m_entities.size() != 1 || !m_irradiance_bake)
+            return;
+        ImGui::TextWrapped(
+            "%s", m_irradiance_bake->status(m_selection.get_scene(), entity.get_uuid()).c_str());
+        ImGui::BeginDisabled(!can_edit || m_irradiance_bake->busy());
+        if(ImGui::Button("烘焙 GI###Bake GI") && finish_edit())
+            m_bake_request = {
+                BakeRequest::Kind::Irradiance, entity.get_uuid(), m_history.generation()};
+        ImGui::EndDisabled();
+        if(m_irradiance_bake->busy()) {
+            ImGui::SameLine();
+            if(ImGui::Button("取消###Cancel GI Bake"))
+                m_irradiance_bake->cancel();
+            const auto progress = m_irradiance_bake->progress();
+            const float ratio = progress.total ? float(progress.completed) / progress.total : 0;
+            ImGui::ProgressBar(ratio);
+            ImGui::Text("探针 %u / %u", progress.completed, progress.total);
+        }
+        if(const auto& report = m_irradiance_bake->last_report(); report) {
+            ImGui::TextWrapped("上次烘焙 %.2f 秒，%u 个有效探针，%u 个三角形", report->seconds,
+                report->statistics.active_probes, report->statistics.triangles);
+            ImGui::TextWrapped("输入 %.2f MiB，求解器 %.2f MiB，运行纹理 %.2f KiB",
+                report->input_bytes / 1048576.0, report->statistics.working_bytes / 1048576.0,
+                report->product_bytes / 1024.0);
+        }
+        ImGui::TextWrapped(
+            "区域轴对齐，半尺寸与间距使用世界单位；静态内容烘焙，移动物体仅采样。修改静态内容或移动区域后需重新烘焙。");
     }
 
     void InspectorPanel::render_scene(Comet::Scene& scene) {
@@ -750,17 +756,7 @@ namespace CometEditor {
     }
 
     void InspectorPanel::reset_animation_preview() {
-        if(m_preview_publication) {
-            auto& scene = m_selection.get_scene();
-            const auto target = m_animation_preview.target();
-            if(target.scene_lifetime == scene.get_lifetime()) {
-                const auto entity = scene.find_entity(target.entity);
-                if(scene.get_animation_playback(entity) == m_preview_publication)
-                    scene.set_animation_playback(entity, nullptr);
-            }
-        }
-        m_animation_preview.reset();
-        m_preview_publication.reset();
+        m_animation_preview.reset(&m_selection.get_scene());
         m_animation_preview_drawn = false;
     }
 
@@ -820,13 +816,7 @@ namespace CometEditor {
     }
 
     void InspectorPanel::reset_particle_preview() {
-        auto& scene = m_selection.get_scene();
-        if(m_particle_publication
-            && m_particle_preview.target().scene_lifetime == scene.get_lifetime()
-            && scene.get_particles() == m_particle_publication)
-            scene.set_particles(nullptr);
-        m_particle_preview.reset();
-        m_particle_publication.reset();
+        m_particle_preview.reset(&m_selection.get_scene());
         m_particle_preview_drawn = false;
     }
 
@@ -912,8 +902,7 @@ namespace CometEditor {
             reset_particle_preview();
             return;
         }
-        m_particle_publication = m_particle_preview.snapshot();
-        m_selection.get_scene().set_particles(m_particle_publication);
+        m_particle_preview.publish_to(m_selection.get_scene());
     }
 
     void InspectorPanel::update_animation_preview(double delta_time) {
@@ -935,9 +924,7 @@ namespace CometEditor {
         }
         m_animation_preview.set_root_motion(std::move(root_motion));
         m_animation_preview.advance(delta_time);
-        m_preview_publication = m_animation_preview.snapshot();
-        m_selection.get_scene().set_animation_playback(entity, m_preview_publication);
-        m_preview_publication = m_selection.get_scene().get_animation_playback(entity);
+        m_animation_preview.publish_to(m_selection.get_scene());
     }
 
     void InspectorPanel::render_animation_preview(Comet::Entity entity) {

@@ -582,26 +582,20 @@ namespace Comet::Tests {
                 EXPECT_FALSE(renderer.reload_material_shaders(broken));
                 broken.at("pbr").fragment = {0};
                 EXPECT_FALSE(renderer.reload_material_shaders(broken));
-                auto header = read_text_file(directory.parent_path() / "lighting/forward.glsl");
-                ASSERT_TRUE(header) << header.error();
-                const auto binding = header.value().find("binding = 1");
-                ASSERT_NE(binding, std::string::npos);
-                header.value().replace(
-                    binding, std::string_view("binding = 1").size(), "binding = 7");
-                auto incompatible_source = source.value();
-                const std::string include = "#include \"../lighting/surface_lighting.glsl\"";
-                const auto offset = incompatible_source.find(include);
-                ASSERT_NE(offset, std::string::npos);
-                incompatible_source.replace(
-                    offset, include.size(), header.value() + "\n" + include);
                 const auto incompatible_path = temporary.path() / "incompatible.frag";
-                ASSERT_TRUE(write_text_file_atomic(incompatible_path, incompatible_source));
-                const auto incompatible = ShaderCompiler::compile({.source = incompatible_path,
-                    .stage = ShaderStage::Fragment,
-                    .include_directories = {directory}});
+                ASSERT_TRUE(write_text_file_atomic(incompatible_path, R"glsl(#version 450
+layout(set = 0, binding = 31) uniform sampler2D unsupported_view_resource;
+layout(location = 0) out vec4 color;
+void main() { color = texture(unsupported_view_resource, vec2(0.5)); }
+)glsl"));
+                const auto incompatible = ShaderCompiler::compile(
+                    {.source = incompatible_path, .stage = ShaderStage::Fragment});
                 ASSERT_TRUE(incompatible.succeeded()) << incompatible.diagnostics;
                 broken.at("pbr").fragment = incompatible.words;
-                EXPECT_FALSE(renderer.reload_material_shaders(broken));
+                const auto rejected = renderer.reload_material_shaders(broken);
+                ASSERT_FALSE(rejected);
+                EXPECT_NE(
+                    rejected.error().message.find("fixed resource layout"), std::string::npos);
             }
             if(index == 2) {
                 // 更新其他程序及重建目标不能隐藏 PBR 的错误状态。

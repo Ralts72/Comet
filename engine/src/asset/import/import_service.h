@@ -3,6 +3,7 @@
 #include "asset/artifact/mesh_artifact.h"
 #include "asset/artifact/environment_artifact.h"
 #include "asset/artifact/model_artifact.h"
+#include "asset/artifact/texture_artifact.h"
 #include "asset/import/import_candidate.h"
 #include "asset/import/asset_task_types.h"
 #include "asset/import/environment_importer.h"
@@ -20,6 +21,9 @@ namespace Comet {
         explicit ImportService(ProjectPaths paths, AssetImportLimits limits = {});
 
         [[nodiscard]] std::filesystem::path model_artifact_path(AssetHandle handle) const;
+        [[nodiscard]] std::optional<ModelArtifact> find_current_model_artifact(
+            const AssetRecord& record) const;
+        [[nodiscard]] static Result<MeshData> prepare_default_character();
         // 后台只写未发布的产品；.meta 和可见索引由 owner 发布。
         [[nodiscard]] Result<ModelImportPrepared> stage_model(const AssetRecord& record,
             std::size_t memory_budget, AssetImportMode mode = AssetImportMode::IfNeeded) const;
@@ -37,10 +41,15 @@ namespace Comet {
             const std::filesystem::path& source_path, std::size_t memory_budget) const;
         [[nodiscard]] MeshArtifactCandidate prepare_mesh(const AssetRecord& record,
             AssetRevision revision, AssetImportMode mode, std::size_t memory_budget) const;
+        [[nodiscard]] std::optional<TextureArtifact> find_current_texture_artifact(
+            const AssetRecord& record, const TextureImportSettings& settings,
+            std::size_t memory_budget) const;
         [[nodiscard]] Result<TextureData> prepare_texture(const AssetRecord& record,
             const TextureImportSettings& settings, std::size_t memory_budget) const;
         [[nodiscard]] std::filesystem::path texture_artifact_path(AssetHandle handle) const;
         [[nodiscard]] std::filesystem::path environment_artifact_path(AssetHandle handle) const;
+        [[nodiscard]] std::optional<EnvironmentArtifact> find_current_environment_artifact(
+            const AssetRecord& record, std::size_t memory_budget) const;
         [[nodiscard]] Result<EnvironmentArtifact> prepare_environment(const AssetRecord& record,
             std::size_t memory_budget, EnvironmentImporter::Preview* preview = nullptr) const;
 

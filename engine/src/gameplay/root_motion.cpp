@@ -1,4 +1,5 @@
 #include "gameplay/root_motion.h"
+#include "gameplay/navigation_system.h"
 #include "animation/animation_data.h"
 #include "physics/physics_access.h"
 #include "scene/scene.h"
@@ -64,6 +65,9 @@ namespace Comet::Gameplay {
             return Result<void, Error>::failure(
                 {"Character root motion requires an upright model"});
         if(delta <= 0)
+            return Result<void, Error>::success();
+        if(character && services.navigation
+            && services.navigation->is_traversing_link(scene, target))
             return Result<void, Error>::success();
         const auto displacement = Math::Vec3(model_world * Math::Vec4(motion.translation, 0));
         if(character) {

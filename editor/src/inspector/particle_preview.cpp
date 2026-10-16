@@ -161,12 +161,23 @@ namespace CometEditor {
         static_cast<void>(m_runtime.stop());
     }
 
-    void ParticlePreview::reset() {
+    void ParticlePreview::reset(Comet::Scene* scene) {
+        if(scene && m_publication && m_target.scene_lifetime == scene->get_lifetime()
+            && scene->get_particles() == m_publication)
+            scene->set_particles(nullptr);
         stop();
         static_cast<void>(m_runtime.clear_systems());
         m_world.reset();
         m_collision_entities.clear();
+        m_publication.reset();
         m_target = {};
+    }
+
+    void ParticlePreview::publish_to(Comet::Scene& scene) {
+        if(m_target.scene_lifetime != scene.get_lifetime())
+            return;
+        m_publication = snapshot();
+        scene.set_particles(m_publication);
     }
 
     std::shared_ptr<const Comet::ParticleSnapshot> ParticlePreview::snapshot() const {

@@ -87,7 +87,8 @@ namespace CometEditor::Tests {
         EXPECT_NEAR(snapshot->instances.front().position_size.y, 3, 1e-5);
         EXPECT_FALSE(scene.get_particles());
         EXPECT_FALSE(scene.request_particle_burst(entity, 1));
-        scene.set_particles(snapshot);
+        preview.publish_to(scene);
+        EXPECT_EQ(scene.get_particles(), snapshot);
         auto components = Comet::create_scene_component_registry();
         Comet::SceneSerializer serializer(components);
         auto cloned = serializer.clone(scene);
@@ -97,6 +98,29 @@ namespace CometEditor::Tests {
                       ->find_entity(entity.get_uuid())
                       .get_component<Comet::ParticleEmitterComponent>(),
             settings);
+        preview.reset(&scene);
+        EXPECT_FALSE(scene.get_particles());
+    }
+
+    TEST(ParticlePreviewTest, ResetKeepsAnotherOwnerPublicationAndIgnoresOtherScenes) {
+        Comet::Scene scene;
+        auto entity = scene.create_entity();
+        ParticlePreview preview;
+        Comet::ParticleEmitterComponent settings;
+        settings.burst = 1;
+        settings.rate = 0;
+        ASSERT_TRUE(preview.bind(
+            {scene.get_lifetime(), entity.get_uuid()}, settings, Comet::Math::Mat4(1)));
+        ASSERT_TRUE(preview.play());
+        preview.publish_to(scene);
+        ASSERT_TRUE(scene.get_particles());
+        Comet::Scene other;
+        preview.publish_to(other);
+        EXPECT_FALSE(other.get_particles());
+        const auto replacement = std::make_shared<const Comet::ParticleSnapshot>();
+        scene.set_particles(replacement);
+        preview.reset(&scene);
+        EXPECT_EQ(scene.get_particles(), replacement);
     }
 
     TEST(ParticlePreviewTest, PauseStepAndConfigurationChangesPreserveTimeAndOldSnapshots) {

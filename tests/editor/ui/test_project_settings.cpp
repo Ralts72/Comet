@@ -169,27 +169,17 @@ namespace CometEditor::Tests {
         void edit_control(const char* text) { edit_text(details(), binding_id("##Control"), text); }
 
         std::optional<ImVec2> hover_point(ImGuiWindow* owner, const ImGuiID id) {
-            for(float y = owner->InnerClipRect.Min.y + 3; y < owner->InnerClipRect.Max.y; y += 6)
-                for(float x = owner->InnerClipRect.Min.x + 3; x < owner->InnerClipRect.Max.x;
-                    x += 6) {
-                    ImGui::GetIO().AddMousePosEvent(x, y);
-                    frame();
-                    if(ImGui::GetCurrentContext()->HoveredId == id)
-                        return ImVec2(x, y);
-                }
-            return std::nullopt;
+            const ImRect area{{owner->InnerClipRect.Min.x + 3, owner->InnerClipRect.Min.y + 3},
+                owner->InnerClipRect.Max};
+            return Comet::Tests::find_imgui_item(id, area, [&] { frame(); }, 6);
         }
 
         void mouse_click(const ImVec2 point) {
-            auto& io = ImGui::GetIO();
-            io.AddMousePosEvent(point.x, point.y);
-            frame();
-            io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
-            physical.mouse_button_event(Comet::Input::MouseButton::Left, true);
-            frame();
-            io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
-            physical.mouse_button_event(Comet::Input::MouseButton::Left, false);
-            frame();
+            Comet::Tests::click_imgui(
+                point, [&] { frame(); }, ImGuiMouseButton_Left,
+                [&](bool pressed) {
+                    physical.mouse_button_event(Comet::Input::MouseButton::Left, pressed);
+                });
         }
     };
 

@@ -10,8 +10,60 @@
 
 namespace Comet::Gameplay {
     namespace {
+        constexpr unsigned PATH_QUERY_BUDGET = 8;
+
         float planar_distance(Math::Vec3 a, Math::Vec3 b) {
             return std::hypot(a.x - b.x, a.z - b.z);
+        }
+
+        std::optional<NavigationMesh::Obstacle> quantized_obstacle(const Math::Mat4& world,
+            Math::Vec3 half_extents, Math::Vec3 region_center,
+            const NavigationRegionComponent& settings) {
+            const auto center = Math::Vec3(world[3]);
+            Math::Vec3 extent{0};
+            for(int axis = 0; axis < 3; ++axis)
+                extent += glm::abs(Math::Vec3(world[axis])) * half_extents[axis];
+            NavigationMesh::Obstacle box{center - extent, center + extent};
+            const auto origin = region_center - settings.half_extents;
+            if(glm::any(glm::lessThan(box.maximum, origin))
+                || glm::any(glm::greaterThan(box.minimum, region_center + settings.half_extents)))
+                return std::nullopt;
+            // 与 Recast 栅格对齐：同一批被遮挡单元内的微小移动不触发重建。
+            for(int axis = 0; axis < 3; ++axis) {
+                const float cell =
+                    axis == 1 ? std::min(.1f, settings.cell_size * .5f) : settings.cell_size;
+                box.minimum[axis] =
+                    origin[axis] + std::floor((box.minimum[axis] - origin[axis]) / cell) * cell;
+                box.maximum[axis] =
+                    origin[axis] + std::ceil((box.maximum[axis] - origin[axis]) / cell) * cell;
+            }
+            return box;
+        }
+
+        struct JumpTrajectory {
+            Math::Vec3 velocity;
+            float duration;
+        };
+        std::optional<JumpTrajectory> jump_trajectory(Math::Vec3 start, Math::Vec3 end,
+            const CharacterControllerComponent& character, float speed) {
+            const float gravity = 9.81f * character.gravity_scale;
+            const float vertical = character.jump_speed;
+            const float discriminant = vertical * vertical - 2 * gravity * (end.y - start.y);
+            if(gravity <= 0 || discriminant < 0)
+                return std::nullopt;
+            const float duration = (vertical + std::sqrt(discriminant)) / gravity;
+            auto velocity = (end - start) / duration;
+            velocity.y = 0;
+            if(!Math::is_finite(velocity) || Math::length(velocity) > speed + .01f)
+                return std::nullopt;
+            return JumpTrajectory{velocity, duration};
+        }
+
+        bool submit_jump(
+            PhysicsAccess& physics, Entity entity, Math::Vec3 velocity, bool takeoff = false) {
+            return physics.request_character_move(entity, {})
+                   && physics.request_character_velocity(
+                       entity, {.velocity = velocity, .horizontal = true, .vertical = takeoff});
         }
     }
 
@@ -46,6 +98,8 @@ namespace Comet::Gameplay {
         m_scene = &scene;
         m_prepared = false;
         m_agents.clear();
+        m_pending_queries.clear();
+        m_reserved_queries = 0;
         m_mesh.clear();
         m_step = 0;
         m_delta = 0;
@@ -155,27 +209,9 @@ namespace Comet::Gameplay {
                     "动态导航障碍应使用运动学刚体；静态碰撞体已包含在烘焙几何中");
                 return;
             }
-            const auto& world = scene.get_world_matrix(entity);
-            const auto center = Math::Vec3(world[3]);
-            Math::Vec3 extent{0};
-            for(int axis = 0; axis < 3; ++axis)
-                extent += glm::abs(Math::Vec3(world[axis])) * obstacle.half_extents[axis];
-            if(glm::any(glm::lessThan(center + extent, m_center - m_settings.half_extents))
-                || glm::any(glm::greaterThan(center - extent, m_center + m_settings.half_extents)))
-                return;
-            auto minimum = center - extent;
-            auto maximum = center + extent;
-            // 与 Recast 栅格对齐：同一批被遮挡单元内的微小移动不触发重建。
-            const auto origin = m_center - m_settings.half_extents;
-            for(int axis = 0; axis < 3; ++axis) {
-                const float cell =
-                    axis == 1 ? std::min(.1f, m_settings.cell_size * .5f) : m_settings.cell_size;
-                minimum[axis] =
-                    origin[axis] + std::floor((minimum[axis] - origin[axis]) / cell) * cell;
-                maximum[axis] =
-                    origin[axis] + std::ceil((maximum[axis] - origin[axis]) / cell) * cell;
-            }
-            next.push_back({minimum, maximum});
+            if(const auto box = quantized_obstacle(
+                   scene.get_world_matrix(entity), obstacle.half_extents, m_center, m_settings))
+                next.push_back(*box);
         });
         if(!valid)
             return valid;
@@ -196,10 +232,11 @@ namespace Comet::Gameplay {
             m_geometry_snapshot = std::move(geometry).value();
         }
         const auto begin = std::chrono::steady_clock::now();
-        const auto built =
-            next.empty() && m_base_product
-                ? m_mesh.load(*m_base_product)
-                : m_mesh.build(m_geometry_snapshot, m_center, m_settings, m_links, next);
+        auto built = Result<void>::success();
+        if(next.empty() && m_base_product)
+            built = m_mesh.load(*m_base_product);
+        else
+            built = m_mesh.build(m_geometry_snapshot, m_center, m_settings, m_links, next);
         m_statistics.obstacle_rebuild_milliseconds +=
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin)
                 .count();
@@ -226,10 +263,23 @@ namespace Comet::Gameplay {
                    || !entity.has_component<NavigationAgentComponent>()
                    || entry.second.last_step + 1 < m_step;
         });
+        std::erase_if(m_pending_queries, [&](EntityUuid uuid) { return !m_agents.contains(uuid); });
+        m_reserved_queries = 0;
+        for(auto& [uuid, agent] : m_agents)
+            agent.query_reserved = false;
+        // 先为上一步未获预算的请求预留位置，调用顺序不再决定长期查询优先级。
+        for(const auto uuid : m_pending_queries) {
+            if(m_reserved_queries == PATH_QUERY_BUDGET)
+                break;
+            m_agents.at(uuid).query_reserved = true;
+            ++m_reserved_queries;
+        }
         return Result<void, Error>::success();
     }
     void NavigationSystem::on_stop(Scene&, RuntimeSession&, const RuntimeServices&) noexcept {
         m_agents.clear();
+        m_pending_queries.clear();
+        m_reserved_queries = 0;
         m_mesh.clear();
         m_scene = nullptr;
         m_prepared = false;
@@ -238,6 +288,35 @@ namespace Comet::Gameplay {
         m_links.clear();
         m_obstacles.clear();
         m_base_product.reset();
+    }
+    bool NavigationSystem::is_traversing_link(const Scene& scene, Entity entity) const {
+        if(m_scene != &scene || !scene.is_valid(entity))
+            return false;
+        const auto found = m_agents.find(entity.get_uuid());
+        return found != m_agents.end() && found->second.entity == entity.get_id()
+               && found->second.last_step == m_step && found->second.jump.has_value();
+    }
+    void NavigationSystem::cancel_path_query(EntityUuid uuid, Agent& agent) {
+        if(agent.query_reserved)
+            --m_reserved_queries;
+        if(agent.query_pending)
+            std::erase(m_pending_queries, uuid);
+        agent.query_reserved = false;
+        agent.query_pending = false;
+    }
+    bool NavigationSystem::acquire_path_query(EntityUuid uuid, Agent& agent) {
+        if(!agent.query_reserved
+            && m_statistics.step_path_queries + m_reserved_queries >= PATH_QUERY_BUDGET) {
+            if(!agent.query_pending) {
+                agent.query_pending = true;
+                m_pending_queries.push_back(uuid);
+            }
+            return false;
+        }
+        cancel_path_query(uuid, agent);
+        ++m_statistics.step_path_queries;
+        ++m_statistics.path_queries;
+        return true;
     }
     Result<NavigationSystem::Status> NavigationSystem::move_to(
         Scene& scene, Entity entity, PhysicsAccess& physics, Math::Vec3 target, bool run) {
@@ -259,6 +338,8 @@ namespace Comet::Gameplay {
             if(auto found = m_agents.find(entity.get_uuid()); found != m_agents.end()) {
                 found->second.status = status;
                 found->second.jump.reset();
+                if(status != Status::BudgetExceeded)
+                    cancel_path_query(entity.get_uuid(), found->second);
             }
             if(character.enabled && !physics.request_character_move(entity, {}))
                 return Output::failure("Cannot stop navigation character");
@@ -295,29 +376,20 @@ namespace Comet::Gameplay {
                 ++agent.corner;
                 agent.next_query = 0;
             } else {
-                if(m_time > agent.jump->deadline + 1) {
-                    agent.jump.reset();
-                    agent.status = Status::Blocked;
-                    return stop(agent.status);
-                }
+                if(m_time > agent.jump->deadline + 1)
+                    return stop(Status::Blocked);
                 auto velocity = agent.jump->velocity;
                 if(distance < Math::length(velocity) * m_delta)
                     velocity *= distance / std::max(Math::length(velocity) * m_delta, .001f);
-                if(!physics.request_character_move(entity, {})
-                    || !physics.request_character_velocity(
-                        entity, {.velocity = velocity, .horizontal = true, .vertical = false}))
+                if(!submit_jump(physics, entity, velocity))
                     return Output::failure("Cannot continue navigation jump");
                 return Output::success(Status::Moving);
             }
         }
         if(query || agent.mesh_generation != m_mesh_generation) {
-            // 每步最多八次完整查询；超预算不继续沿已失效目标行走。
-            if(m_statistics.step_path_queries >= 8) {
-                agent.status = Status::BudgetExceeded;
-                return stop(agent.status);
-            }
-            ++m_statistics.step_path_queries;
-            ++m_statistics.path_queries;
+            // 超预算不继续沿已失效目标行走；待查请求保留到下一步。
+            if(!acquire_path_query(entity.get_uuid(), agent))
+                return stop(Status::BudgetExceeded);
             const auto path = m_mesh.find_path(position, target);
             if(!path)
                 return Output::failure(path.error());
@@ -329,13 +401,13 @@ namespace Comet::Gameplay {
                 agent.corner = 0;
             agent.next_query = m_time + options.repath_interval;
             agent.mesh_generation = m_mesh_generation;
+        } else {
+            cancel_path_query(entity.get_uuid(), agent);
         }
-        if(agent.path.status != NavigationMesh::Status::Complete) {
-            agent.status = Status::NoPath;
-            if(agent.path.status == NavigationMesh::Status::BudgetExceeded)
-                agent.status = Status::BudgetExceeded;
-            return stop(agent.status);
-        }
+        if(agent.path.status == NavigationMesh::Status::BudgetExceeded)
+            return stop(Status::BudgetExceeded);
+        if(agent.path.status != NavigationMesh::Status::Complete)
+            return stop(Status::NoPath);
         if(planar_distance(position, target) <= options.arrival_distance
             && std::abs(position.y - target.y) <= std::max(m_settings.max_climb, 0.2f))
             return stop(Status::Arrived);
@@ -358,30 +430,39 @@ namespace Comet::Gameplay {
             jump
             && planar_distance(position, destination) <= std::min(corner_distance, jump->radius)) {
             const auto state = physics.get_character_state(entity);
-            const float gravity = 9.81f * character.gravity_scale;
-            const float vertical = character.jump_speed;
-            const float discriminant =
-                vertical * vertical - 2 * gravity * (jump->end.y - position.y);
-            if(!state || !state->grounded || gravity <= 0 || discriminant < 0)
+            const auto trajectory = jump_trajectory(position, jump->end, character, speed);
+            if(!state || !state->grounded || !trajectory)
                 return stop(Status::Blocked);
-            const float duration = (vertical + std::sqrt(discriminant)) / gravity;
-            auto velocity = (jump->end - position) / duration;
-            velocity.y = 0;
-            if(!Math::is_finite(velocity) || Math::length(velocity) > speed + .01f)
-                return stop(Status::Blocked);
-            agent.jump = Agent::Jump{jump->end, velocity, m_time + duration};
-            velocity.y = vertical;
-            if(!physics.request_character_move(entity, {})
-                || !physics.request_character_velocity(
-                    entity, {.velocity = velocity, .horizontal = true, .vertical = true}))
+            agent.jump =
+                Agent::Jump{jump->end, trajectory->velocity, m_time + trajectory->duration};
+            auto velocity = trajectory->velocity;
+            velocity.y = character.jump_speed;
+            if(!submit_jump(physics, entity, velocity, true))
                 return Output::failure("Cannot start navigation jump");
             agent.status = Status::Moving;
             return Output::success(agent.status);
         }
+        if(planar_distance(position, destination) < .001f)
+            return stop(Status::NoPath);
+        const auto steering = steer(entity, physics, position, destination, speed, scale);
+        if(!steering)
+            return Output::failure(steering.error());
+        const auto direction = steering.value();
+        if(direction == Math::Vec2(0))
+            return stop(Status::Blocked);
+        if(auto faced = CharacterController::face_movement(scene, options.facing, direction);
+            !faced)
+            return Output::failure(faced.error());
+        if(!physics.request_character_move(entity, {.direction = direction, .run = run}))
+            return Output::failure("Cannot submit navigation character movement");
+        agent.status = Status::Moving;
+        return Output::success(agent.status);
+    }
+    Result<Math::Vec2> NavigationSystem::steer(Entity entity, PhysicsAccess& physics,
+        Math::Vec3 position, Math::Vec3 destination, float speed, float scale) {
+        const auto& character = entity.get_component<CharacterControllerComponent>();
         const auto delta = Math::Vec2(destination.x - position.x, destination.z - position.z);
         const float distance = glm::length(delta);
-        if(distance < 0.001f)
-            return stop(Status::NoPath);
         const auto desired = delta / distance;
         Math::Vec2 direction{0};
         float best = 0;
@@ -412,7 +493,7 @@ namespace Comet::Gameplay {
             const auto hit = physics.shape_cast(shape, pose, displacement,
                 {.ignored = entity.get_uuid(), .layers = character.collision_mask});
             if(!hit)
-                return Output::failure(hit.error());
+                return Result<Math::Vec2>::failure(hit.error());
             const float clearance = hit.value() ? hit.value()->fraction : 1;
             const float score = clearance * (0.2f + 0.8f * glm::dot(candidate, desired));
             if(clearance > 0.2f && score > best) {
@@ -420,20 +501,9 @@ namespace Comet::Gameplay {
                 direction = candidate * clearance;
             }
         }
-        if(direction == Math::Vec2(0)) {
-            agent.status = Status::Blocked;
-            return stop(agent.status);
-        }
-        const float remaining = planar_distance(position, destination);
         if(speed > 0)
-            direction *= std::min(1.f, remaining / (speed * m_delta));
-        if(auto faced = CharacterController::face_movement(scene, options.facing, direction);
-            !faced)
-            return Output::failure(faced.error());
-        if(!physics.request_character_move(entity, {.direction = direction, .run = run}))
-            return Output::failure("Cannot submit navigation character movement");
-        agent.status = Status::Moving;
-        return Output::success(agent.status);
+            direction *= std::min(1.f, distance / (speed * m_delta));
+        return Result<Math::Vec2>::success(direction);
     }
     const char* NavigationSystem::name(Status status) {
         switch(status) {

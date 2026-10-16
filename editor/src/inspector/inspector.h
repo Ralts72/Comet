@@ -70,6 +70,9 @@ namespace CometEditor {
         void render_environment(Comet::Scene& scene);
         void render_post_process(Comet::Scene& scene);
         void render_entity(Comet::Entity entity);
+        void render_navigation_bake(Comet::Entity entity, bool can_edit);
+        void render_reflection_bake(Comet::Entity entity, bool can_edit);
+        void render_irradiance_bake(Comet::Entity entity, bool can_edit);
         void render_animation_preview(Comet::Entity entity);
         [[nodiscard]] bool bind_animation_preview(Comet::Entity entity);
         void reset_animation_preview();
@@ -115,10 +118,8 @@ namespace CometEditor {
         std::optional<BakeRequest> m_bake_request;
         std::vector<Comet::EntityUuid> m_entities;
         AnimationPreview m_animation_preview;
-        std::shared_ptr<const Comet::AnimationPlayback> m_preview_publication;
         bool m_animation_preview_drawn = false;
         ParticlePreview m_particle_preview;
-        std::shared_ptr<const Comet::ParticleSnapshot> m_particle_publication;
         bool m_particle_preview_drawn = false;
         uint32_t m_active_item = 0;
         uint32_t m_script_active_item = 0;

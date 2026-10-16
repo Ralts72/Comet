@@ -130,8 +130,8 @@ namespace Comet {
             RenderState& state, Swapchain* swapchain, Math::Vec2u size);
         Result<void, GraphicsError> record_pass(std::size_t pass, FrameScheduler& frames,
             const RenderSubmission& submission, const RenderGeometry& geometry,
-            const LineDrawList& lines, const LightingData& lighting,
-            std::vector<QueueSemaphoreSubmit>& waits);
+            const RenderGeometry& main_geometry, const LineDrawList& lines,
+            const LightingData& lighting, std::vector<QueueSemaphoreSubmit>& waits);
         Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> draw_scene(FrameScheduler& frames,
             CommandBuffer& command, const RenderSubmission& submission, const LineDrawList& lines);
         void record_transparent(FrameScheduler& frames, std::vector<QueueSemaphoreSubmit>& waits);

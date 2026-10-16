@@ -47,8 +47,11 @@ namespace Comet {
         [[nodiscard]] std::shared_ptr<ImageView> get_motion_view(uint32_t slot) const;
         [[nodiscard]] Statistics get_statistics() const { return m_statistics; }
         void reset_statistics() { m_statistics = {}; }
+        enum class LodSelection { PerView, AlreadySelected };
+        // 相机使用所属主视图已选级的几何；阴影独立维护每个 View 的历史。
         [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render(
-            FrameScheduler& frames, std::span<const View> views, const RenderGeometry& geometry);
+            FrameScheduler& frames, std::span<const View> views, const RenderGeometry& geometry,
+            LodSelection lod = LodSelection::PerView);
 
     private:
         DepthPass(Device& device, uint32_t frame_slots, std::shared_ptr<RenderPass> pass,
@@ -75,7 +78,7 @@ namespace Comet {
         Result<std::shared_ptr<MaskBinding>, GraphicsError> prepare_mask(
             const std::shared_ptr<Texture>& texture);
         Result<void, GraphicsError> prepare_draws(
-            std::span<const View> views, const RenderGeometry& geometry);
+            std::span<const View> views, const RenderGeometry& geometry, LodSelection lod);
         Device& m_device;
         uint32_t m_frame_slots;
         std::shared_ptr<RenderPass> m_render_pass;

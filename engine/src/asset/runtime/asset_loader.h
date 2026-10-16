@@ -30,7 +30,6 @@ namespace Comet {
     struct MaterialData;
     struct AssetRecord;
     struct TextureImportSettings;
-    struct ImportInputFingerprint;
     struct EnvironmentData;
 
     // CPU reads and dependency loading; uses the same index and Registry as AssetManager.
@@ -77,8 +76,6 @@ namespace Comet {
         Result<std::filesystem::path, Error> model_product_path(const AssetRecord& record);
         Result<std::filesystem::path, Error> product_path(
             const AssetRecord& record, const std::filesystem::path& imported_path);
-        bool product_source_is_current(
-            const AssetRecord& record, const ImportInputFingerprint& source) const;
         Result<EnvironmentData, Error> read_environment_data(const AssetRecord& record);
         struct CachedModel {
             AssetRevision revision;

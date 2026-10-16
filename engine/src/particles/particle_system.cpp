@@ -31,6 +31,7 @@ namespace Comet {
                     return Result<void, Error>::failure({"粒子碰撞需要运行域物理服务"});
                 const PhysicsAccess::QueryFilter filter{
                     .ignored = emitter.ignored, .layers = settings.collision_layers};
+                ++m_statistics.collision_queries;
                 const auto query = [&] {
                     if(settings.collision_radius == 0)
                         return m_physics->raycast(particle.position, movement, filter);
@@ -94,15 +95,31 @@ namespace Comet {
             if(particle.age < settings.lifetime) {
                 emitter.particles.push_back(particle);
                 ++m_count;
+                m_dirty = true;
             }
         }
         return Result<void, Error>::success();
     }
 
     Result<void, Error> ParticleSystem::synchronize(Scene& scene) {
+        scene.update_world_transforms();
+        if(m_settings_revision == scene.m_particle_revision) {
+            if(m_transform_revision != scene.m_transform_revision) {
+                for(auto& [id, emitter] : m_emitters) {
+                    if(!emitter.present)
+                        continue;
+                    const auto entity = scene.find_entity(id);
+                    const auto& world = entity.get_component<WorldTransformComponent>();
+                    emitter.pose = world.pose_world_matrix;
+                    emitter.pose[3] = world.world_matrix[3];
+                }
+                m_transform_revision = scene.m_transform_revision;
+            }
+            return Result<void, Error>::success();
+        }
+        ++m_statistics.source_scans;
         for(auto& [id, emitter] : m_emitters)
             emitter.present = false;
-        scene.update_world_transforms();
         auto result = Result<void, Error>::success();
         std::vector<EntityId> initial_bursts;
         scene.each<const ParticleEmitterComponent>([&](Entity entity, const auto& settings) {
@@ -116,6 +133,8 @@ namespace Comet {
             auto& emitter = found->second;
             if(inserted || emitter.settings.seed != settings.seed)
                 emitter.random = settings.seed ? settings.seed : 1;
+            if(emitter.settings != settings && !emitter.particles.empty())
+                m_dirty = true;
             emitter.present = true;
             emitter.ignored = entity.get_uuid();
             emitter.settings = settings;
@@ -125,6 +144,7 @@ namespace Comet {
             if(emitter.particles.size() > settings.capacity) {
                 m_count -= uint32_t(emitter.particles.size() - settings.capacity);
                 emitter.particles.resize(settings.capacity);
+                m_dirty = true;
             }
             if(inserted && settings.enabled && settings.burst > 0)
                 initial_bursts.push_back(entity.get_id());
@@ -148,8 +168,14 @@ namespace Comet {
             }
             auto& trail = m_trails[entity.get_id()];
             trail.present = true;
+            if(trail.settings != settings && !trail.points.empty())
+                m_dirty = true;
             trail.settings = settings;
         });
+        if(result) {
+            m_settings_revision = scene.m_particle_revision;
+            m_transform_revision = scene.m_transform_revision;
+        }
         return result;
     }
 
@@ -160,6 +186,10 @@ namespace Comet {
         m_physics = services.physics;
         m_time = 0;
         m_count = 0;
+        m_settings_revision = UINT64_MAX;
+        m_transform_revision = 0;
+        m_statistics = {};
+        m_dirty = true;
         if(auto synced = synchronize(scene); !synced)
             return synced;
         advance_trails(scene);
@@ -171,6 +201,7 @@ namespace Comet {
         if(auto synced = synchronize(scene); !synced)
             return synced;
         m_time += context.delta_time;
+        m_dirty |= m_count != 0 || !m_trails.empty();
         for(auto& [id, emitter] : m_emitters) {
             for(auto& particle : emitter.particles)
                 if(auto advanced = advance(particle, emitter, context.delta_time); !advanced)
@@ -198,6 +229,7 @@ namespace Comet {
             auto [found, inserted] = m_emitters.try_emplace(request.entity);
             auto& emitter = found->second;
             if(request.clear) {
+                m_dirty |= !emitter.particles.empty();
                 m_count -= uint32_t(emitter.particles.size());
                 emitter.particles.clear();
                 emitter.remainder = 0;
@@ -205,6 +237,12 @@ namespace Comet {
             }
             if(inserted || emitter.settings.seed != request.settings.seed)
                 emitter.random = request.settings.seed ? request.settings.seed : 1;
+            if(emitter.settings != request.settings && !emitter.particles.empty())
+                m_dirty = true;
+            if(emitter.present && emitter.settings != request.settings)
+                m_settings_revision = UINT64_MAX;
+            if(emitter.present && emitter.pose != request.pose)
+                m_transform_revision = UINT64_MAX;
             emitter.settings = request.settings;
             emitter.pose = request.pose;
             if(auto emitted = emit(emitter, request.count); !emitted)
@@ -245,11 +283,14 @@ namespace Comet {
     }
 
     void ParticleSystem::publish(Scene& scene) {
+        if(!std::exchange(m_dirty, false))
+            return;
         if(m_count == 0 && m_trails.empty()) {
             scene.set_particles(nullptr);
             return;
         }
         auto snapshot = std::make_shared<ParticleSnapshot>();
+        ++m_statistics.snapshot_builds;
         snapshot->instances.reserve(m_count);
         std::vector<const Emitter*> emitters;
         emitters.reserve(m_emitters.size());

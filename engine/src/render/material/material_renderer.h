@@ -9,6 +9,7 @@
 #include "render/material/material_shader.h"
 #include "render/scene/render_submission.h"
 #include "render/scene/render_geometry.h"
+#include "render/material/view_lighting.h"
 #include "render/resource/instance_buffer.h"
 
 #include <cstdint>
@@ -58,7 +59,7 @@ namespace Comet {
             std::shared_ptr<MaterialResources> m_resources;
         };
 
-        struct Statistics {
+        struct Statistics: ViewBindings::Statistics {
             uint32_t render_items = 0;
             uint32_t culled_items = 0;
             uint32_t draw_calls = 0;
@@ -75,15 +76,6 @@ namespace Comet {
             uint32_t material_versions_created = 0;
             uint32_t material_bindings_created = 0;
             uint32_t cached_material_versions = 0;
-            uint32_t frame_set_count = 0;
-            uint32_t light_count = 0;
-            uint32_t excess_lights = 0;
-            uint32_t invalid_lights = 0;
-            uint32_t reflection_probes = 0;
-            uint32_t excess_reflection_probes = 0;
-            uint32_t irradiance_probes = 0;
-            uint32_t excess_irradiance_volumes = 0;
-            uint64_t irradiance_bytes = 0;
         };
         struct ReloadReport {
             uint32_t pipelines = 0;
@@ -133,13 +125,10 @@ namespace Comet {
         // 所有目标的候选准备完成后，才发布共享布局和各自的 Pipeline。
         [[nodiscard]] static Result<void, GraphicsError> prepare_programs(
             std::span<MaterialRenderer* const> renderers, const RenderWorld& world);
-        // 等待槽位后准备 CPU 数据；实际读取图像前由 RenderGraph 完成同步。
-        // 即使关闭阴影也需有效采样绑定。
-        [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> prepare(
-            FrameScheduler& frames, const RenderSubmission& submission,
-            const RenderGeometry& geometry, const LightingData& lighting,
-            const std::shared_ptr<ImageView>& shadow_map,
-            const std::shared_ptr<ImageView>& ao_depth = {}, const FogVolume* fog = nullptr);
+        [[nodiscard]] ViewBindings& view_bindings() { return m_view_bindings; }
+        // 几何已由所属视图选级；此处只按材质可见性准备绘制和实例数据。
+        [[nodiscard]] Result<void, GraphicsError> prepare_draws(FrameScheduler& frames,
+            const RenderSubmission& submission, const RenderGeometry& geometry);
         // 准备一次、按透明深度分段录制；本帧结束后释放借用的世界数据。
         [[nodiscard]] std::span<const float> transparent_depths() const {
             return m_transparent_depths;
@@ -149,18 +138,18 @@ namespace Comet {
             std::vector<QueueSemaphoreSubmit>& waits);
         void clear_draws() {
             m_draw_queue.clear();
-            m_view_geometry.clear_frame();
             m_transparent_depths.clear();
         }
         // 加载／激活时显式调用；程序必须已通过 prepare_programs 共同准备。
         [[nodiscard]] Result<void, GraphicsError> warmup_scene(const RenderWorld& world);
         [[nodiscard]] Statistics get_statistics() const;
-        void reset_statistics() { m_statistics = {}; }
+        void reset_statistics() {
+            m_statistics = {};
+            m_view_bindings.reset_statistics();
+        }
         void remove_assets(const AssetRegistry::Removals& removals);
 
     private:
-        friend class SceneRenderer;
-        [[nodiscard]] DescriptorSet frame_descriptor(uint32_t slot) const;
         MaterialRenderer(Device& device, PipelineManager& pipelines, SampleCount samples,
             MaterialPrograms* programs);
         Result<void, GraphicsError> initialize(PipelineManager& pipelines,
@@ -197,23 +186,6 @@ namespace Comet {
             std::shared_ptr<const PipelineState> pipeline;
             MaterialInputs materials;
             FailureCause failure_cause = FailureCause::Shader;
-        };
-        struct FrameResources {
-            std::shared_ptr<DescriptorSetLayout> layout;
-            std::shared_ptr<DescriptorPool> pool;
-            std::shared_ptr<CPUBuffer> buffer;
-            std::shared_ptr<CPUBuffer> lighting;
-            std::shared_ptr<Sampler> shadow_sampler;
-            std::shared_ptr<ImageView> shadow_map;
-            std::shared_ptr<ImageView> ao_depth;
-            std::shared_ptr<ImageView> fog;
-            std::shared_ptr<Sampler> environment_sampler;
-            std::shared_ptr<Environment> environment;
-            std::shared_ptr<Irradiance> irradiance;
-            std::array<std::shared_ptr<Environment>, LightingData::MAX_REFLECTION_PROBES>
-                reflection_probes;
-            std::optional<DescriptorSet> descriptor;
-            InstanceBuffer instances;
         };
         struct MaterialResources {
             std::shared_ptr<const PipelineState> pipeline;
@@ -268,10 +240,6 @@ namespace Comet {
         void sync_world_inputs(const RenderWorld& world);
         void sync_runtime_instances();
         void sync_program_inputs();
-        void update_frame_resources(FrameScheduler& frames, const RenderSubmission& submission,
-            const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map,
-            const std::shared_ptr<ImageView>& ao_depth, const FogVolume* fog,
-            std::vector<QueueSemaphoreSubmit>& waits);
         Result<void, GraphicsError> prepare_draw_queue(const RenderGeometry& geometry,
             uint64_t frame_serial, const Frustum* frustum, const Math::Mat4& view);
         void collect_visible_draws(const RenderGeometry& geometry, const Frustum* frustum);
@@ -325,9 +293,8 @@ namespace Comet {
         std::shared_ptr<Sampler> m_sampler;
         std::shared_ptr<Texture> m_white_texture;
         std::shared_ptr<Texture> m_normal_texture;
-        std::shared_ptr<Environment> m_empty_environment;
-        std::shared_ptr<DescriptorSetLayout> m_frame_layout;
-        std::vector<std::shared_ptr<FrameResources>> m_frames;
+        ViewBindings m_view_bindings;
+        std::vector<InstanceBuffer> m_instances;
         std::unordered_map<std::string, std::shared_ptr<const PipelineState>> m_pipelines;
         std::shared_ptr<MaterialResources> m_error_material;
         std::map<std::pair<AssetHandle, std::string>, ProjectPipeline> m_project_pipelines;
@@ -339,7 +306,6 @@ namespace Comet {
         std::vector<DrawItem> m_draw_queue;
         std::vector<float> m_transparent_depths;
         std::vector<Math::Mat4> m_instance_transforms;
-        RenderGeometry m_view_geometry;
         Statistics m_statistics;
         uint64_t m_warmup_pipeline_creations = 0;
         bool m_has_runtime_instances = false;

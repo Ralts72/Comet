@@ -7,6 +7,10 @@
 #include <memory>
 #include <string_view>
 
+namespace Comet {
+    class Scene;
+}
+
 namespace CometEditor {
     // 编辑器拥有预览时钟；只发布姿态输入，不修改 Animator 或推进游戏 Runtime。
     class AnimationPreview {
@@ -19,7 +23,8 @@ namespace CometEditor {
 
         void bind(Target target, std::shared_ptr<const Comet::AnimationData> animation,
             std::string_view initial_clip);
-        void reset();
+        void reset(Comet::Scene* scene = nullptr);
+        void publish_to(Comet::Scene& scene);
         [[nodiscard]] Comet::Result<void> set_library(
             std::shared_ptr<const Comet::AnimationLibrary> library);
         void set_layers(std::vector<Comet::AnimationLayer> layers);
@@ -57,6 +62,7 @@ namespace CometEditor {
         Comet::AnimationPlayback m_frame;
         std::shared_ptr<const Comet::AnimationLibrary> m_library;
         std::shared_ptr<const Comet::AnimationPlayback> m_snapshot;
+        std::shared_ptr<const Comet::AnimationPlayback> m_publication;
         bool m_playing = false;
         bool m_loop = true;
         float m_speed = 1;

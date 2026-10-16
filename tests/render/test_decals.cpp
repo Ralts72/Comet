@@ -112,4 +112,120 @@ namespace Comet::Tests {
             }
         }
     }
+
+    TEST_F(RenderGraphGpuTest, CameraDepthUsesColorLodAfterOffscreenReentry) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        const auto high = lit_quad();
+        auto low_data = MeshData{
+            .vertices = {{{-.2f, -1, .5f}}, {{.2f, -1, .5f}}, {{.2f, 1, .5f}}, {{-.2f, 1, .5f}}},
+            .indices = {0, 1, 2, 2, 3, 0}};
+        auto low = engine->get_render_resources().try_create_mesh(low_data);
+        ASSERT_TRUE(low);
+        auto black = std::make_shared<Material>("LOD receiver", "unlit_color");
+        ASSERT_TRUE(black->set_vector_property("color", {0, 0, 0, 1}));
+        const Math::Vec2u size{65, 65};
+        MaterialPrograms programs;
+        auto scene = create_scene(programs, size);
+        ASSERT_TRUE(scene);
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        const ViewProjectMatrix camera{
+            Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}), Math::ortho(-1, 1, -1, 1, .1f, 10)};
+        const auto projector = Math::translate(Math::Mat4(1), {.6f, 0, .5f})
+                               * glm::mat4_cast(glm::angleAxis(Math::PI / 2, Math::Vec3(1, 0, 0)))
+                               * Math::scale(Math::Mat4(1), {.4f, .5f, .4f});
+        const auto bounds = transform_box({Math::Vec3(-.5f), Math::Vec3(.5f)}, projector);
+        ASSERT_TRUE(bounds);
+        auto lod = std::make_shared<ResolvedMeshLod>();
+        lod->settings.level1 = AssetHandle(2);
+        lod->meshes[0] = low.value();
+        lod->revisions[0] = 1;
+        for(unsigned frame = 0; frame < 3; ++frame) {
+            SCOPED_TRACE(frame);
+            // 先选低模，离屏时转高模，再从迟滞区间返回。
+            const float height = std::array{.2f, .4f, .25f}[frame];
+            RenderWorld world{.scene_lifetime = 1};
+            world.render_items.push_back({.entity_id = 1,
+                .model_matrix = Math::translate(Math::Mat4(1), {frame == 1 ? 10.f : 0.f, 0, 0})
+                                * Math::scale(Math::Mat4(1), {1, height, 1}),
+                .mesh_handle = AssetHandle(1),
+                .mesh_revision = 1,
+                .mesh = high,
+                .material = {.resource = black},
+                .lod = lod});
+            world.lights.push_back({.direction = {0, 0, -1}, .intensity = Math::PI});
+            world.decals.push_back({.decal = {.entity_id = 9,
+                                        .world_to_local = Math::inverse(projector),
+                                        .bounds = *bounds,
+                                        .color = {1, 0, 0, 1},
+                                        .roughness = 1}});
+            ASSERT_TRUE(scene.value()->prepare_material_programs(world));
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            begin_frame(frames);
+            auto drawn = scene.value()->render(frames, {world, camera}, geometry);
+            ASSERT_TRUE(drawn) << drawn.error();
+            const auto output =
+                scene.value()->get_offscreen_color_view(frames.get_current_frame_slot_index());
+            auto pixels = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), size.x * size.y * 4);
+            copy_output(frames, output->get_image(), pixels, size);
+            submit(device, frames, drawn.value());
+            frames.wait_for_all_slots();
+            const auto bytes = pixels->read();
+            const auto format = output->get_image()->get_info().format;
+            const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+            const auto red = std::to_integer<int>(bytes[(32 * size.x + 52) * 4 + (bgra ? 2 : 0)]);
+            if(frame == 2)
+                EXPECT_GT(red, 100)
+                    << "Main depth must cover the same high-LOD silhouette as color";
+            else
+                EXPECT_EQ(red, 0);
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest, DecalTogglesReuseFogAndBloomImagesWhenTemporalDepthExists) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        MaterialPrograms programs;
+        const Math::Vec2u size{129, 97};
+        auto scene = create_scene(programs, size, SampleCount::Count1, true);
+        ASSERT_TRUE(scene);
+        ASSERT_TRUE(scene.value()->prepare_post_process({.bloom_enabled = true}));
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        RenderWorld world{.scene_lifetime = 1};
+        world.environment.volumetric_fog = {.enabled = true, .density = .1f};
+        const ViewProjectMatrix camera{
+            Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}), Math::ortho(-1, 1, -1, 1, .1f, 10)};
+        const auto allocated_bytes = [&] {
+            uint64_t bytes = 0;
+            for(const auto& heap : device.query_memory_budget().heaps)
+                bytes += heap.allocation_bytes;
+            return bytes;
+        };
+        for(unsigned frame = 0; frame < 8; ++frame) {
+            SCOPED_TRACE(frame);
+            world.decals.clear();
+            if(frame == 4 || frame == 6)
+                world.decals.push_back({.decal = {.entity_id = 9,
+                                            .world_to_local = Math::Mat4(1),
+                                            .bounds = {Math::Vec3(-.5f), Math::Vec3(.5f)},
+                                            .color = {1, 0, 0, 1}}});
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            begin_frame(frames);
+            const auto before = allocated_bytes();
+            auto drawn = scene.value()->render(frames, {world, camera}, geometry);
+            ASSERT_TRUE(drawn) << drawn.error();
+            // 切换只增加贴花管线和描述符，无新增图像／buffer；旧槽仍持有已有附件。
+            if(frame >= 4)
+                EXPECT_EQ(allocated_bytes(), before);
+            submit(device, frames, drawn.value());
+            frames.wait_for_all_slots();
+        }
+    }
 }

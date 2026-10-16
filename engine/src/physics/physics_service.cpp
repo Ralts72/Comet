@@ -602,6 +602,32 @@ namespace Comet {
             std::vector<CachedShape> shapes;
         };
 
+        struct QueryPrimitive {
+            ColliderShape kind = ColliderShape::Box;
+            Math::Vec3 dimensions{};
+            JPH::ShapeRefC shape;
+        };
+
+        JPH::ShapeRefC query_primitive(const ColliderComponent& collider, Math::Vec3 scale) {
+            Math::Vec3 dimensions{collider.radius * scale.x, 0, 0};
+            if(collider.shape == ColliderShape::Box)
+                dimensions = collider.half_extents * scale;
+            else if(collider.shape == ColliderShape::Capsule)
+                dimensions.y = collider.height * scale.x;
+            for(const auto& entry : query_primitives) {
+                if(entry.shape && entry.kind == collider.shape && entry.dimensions == dimensions) {
+                    ++query_shape_reuses;
+                    return entry.shape;
+                }
+            }
+            auto shape = create_collider_shape(collider, scale);
+            // 查询形状与位置、旋转和过滤器无关；固定容量避免连续尺寸输入累积驻留。
+            query_primitives[next_query_primitive] = {collider.shape, dimensions, shape};
+            next_query_primitive = (next_query_primitive + 1) % query_primitives.size();
+            ++query_shape_builds;
+            return shape;
+        }
+
         Result<JPH::ShapeRefC, Error> collider_shape(
             const ColliderComponent& collider, Math::Vec3 scale) {
             using ShapeResult = Result<JPH::ShapeRefC, Error>;
@@ -1508,6 +1534,10 @@ namespace Comet {
         std::vector<ContactChange> changes;
         const MeshSource& mesh_source;
         JoltLifetime lifetime;
+        std::array<QueryPrimitive, 16> query_primitives;
+        std::size_t next_query_primitive = 0;
+        uint64_t query_shape_builds = 0;
+        uint64_t query_shape_reuses = 0;
         std::unordered_map<AssetHandle, CachedMesh> mesh_shapes;
         JPH::Ref<LayerGroupFilter> layer_filter = new LayerGroupFilter;
         JPH::ObjectLayerPairFilterTable pairs;
@@ -1644,7 +1674,9 @@ namespace Comet {
             .active_bodies = m_impl->world.GetNumActiveBodies(JPH::EBodyType::RigidBody),
             .pose_updates = m_impl->poses.size(),
             .joints = m_impl->joints.size(),
-            .characters = m_impl->characters.size()};
+            .characters = m_impl->characters.size(),
+            .query_shape_builds = m_impl->query_shape_builds,
+            .query_shape_reuses = m_impl->query_shape_reuses};
     }
 
     PhysicsService::~PhysicsService() {
@@ -1785,7 +1817,10 @@ namespace Comet {
             return Hits::failure(valid.error().message);
         if(collider.shape == ColliderShape::TriangleMesh)
             return Hits::failure("Shape cast requires a convex shape, not a triangle mesh");
-        auto created = m_impl->collider_shape(collider, transform.scale);
+        auto created = collider.uses_mesh()
+                           ? m_impl->collider_shape(collider, transform.scale)
+                           : Result<JPH::ShapeRefC, Error>::success(
+                                 m_impl->query_primitive(collider, transform.scale));
         if(!created)
             return Hits::failure(created.error().message);
         const auto& shape = created.value();

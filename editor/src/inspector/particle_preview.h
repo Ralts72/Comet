@@ -26,7 +26,8 @@ namespace CometEditor {
         Comet::Result<void, Comet::Error> advance(double delta_time);
         void pause();
         void stop();
-        void reset();
+        void reset(Comet::Scene* scene = nullptr);
+        void publish_to(Comet::Scene& scene);
 
         [[nodiscard]] Target target() const { return m_target; }
         [[nodiscard]] bool playing() const {
@@ -42,6 +43,7 @@ namespace CometEditor {
         std::unique_ptr<Comet::Scene> m_world;
         std::unique_ptr<Comet::PhysicsService> m_physics;
         std::vector<Comet::EntityUuid> m_collision_entities;
+        std::shared_ptr<const Comet::ParticleSnapshot> m_publication;
         Comet::SceneRuntime m_runtime;
     };
 }

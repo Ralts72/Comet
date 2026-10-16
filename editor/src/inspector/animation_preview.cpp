@@ -1,5 +1,7 @@
 #include "inspector/animation_preview.h"
 
+#include "scene/scene.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -19,15 +21,29 @@ namespace CometEditor {
             m_frame.current.clip = m_animation->clips.front().name;
     }
 
-    void AnimationPreview::reset() {
+    void AnimationPreview::reset(Comet::Scene* scene) {
+        if(scene && m_publication && m_target.scene_lifetime == scene->get_lifetime()) {
+            const auto entity = scene->find_entity(m_target.entity);
+            if(scene->get_animation_playback(entity) == m_publication)
+                scene->set_animation_playback(entity, nullptr);
+        }
         m_target = {};
         m_animation.reset();
         m_library.reset();
         m_frame = {.current = {.loop = false}};
         m_snapshot.reset();
+        m_publication.reset();
         m_playing = false;
         m_loop = true;
         m_speed = 1;
+    }
+
+    void AnimationPreview::publish_to(Comet::Scene& scene) {
+        if(m_target.scene_lifetime != scene.get_lifetime())
+            return;
+        const auto entity = scene.find_entity(m_target.entity);
+        scene.set_animation_playback(entity, m_snapshot);
+        m_publication = scene.get_animation_playback(entity);
     }
 
     const Comet::AnimationClip* AnimationPreview::clip() const {

@@ -263,6 +263,10 @@ namespace Comet {
             if constexpr(is_scene_joint_component_v<Component>)
                 m_physics_joints_changed = true;
 
+            if constexpr(std::is_same_v<Component, ParticleEmitterComponent>
+                         || std::is_same_v<Component, TrailComponent>)
+                ++m_particle_revision;
+
             if(structure_changed) {
                 if constexpr(std::is_same_v<Component, TransformComponent>)
                     reset_transform_interpolation(handle);
@@ -307,6 +311,7 @@ namespace Comet {
         };
         std::vector<ParticleRequest> m_particle_requests;
         std::shared_ptr<const ParticleSnapshot> m_particles;
+        uint64_t m_particle_revision = 0;
         uint64_t m_render_revision = 1;
         uint64_t m_transform_revision = 0;
         TransformInterpolation m_transform_interpolation;

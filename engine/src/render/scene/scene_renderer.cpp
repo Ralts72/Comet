@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <utility>
+#include <tuple>
 
 namespace Comet {
     // 配套绘制资源按依赖逆序析构，scene_pass 最后释放。
@@ -46,6 +47,7 @@ namespace Comet {
         std::shared_ptr<RenderTarget> hdr_target;
         std::shared_ptr<RenderTarget> output_target;
         std::unique_ptr<MaterialRenderer> materials;
+        RenderGeometry view_geometry;
         std::unique_ptr<DebugRenderer> debug;
         std::unique_ptr<ParticlePass> particles;
         std::unique_ptr<DecalPass> decals;
@@ -202,7 +204,7 @@ namespace Comet {
         next->particles = std::move(particles).value();
         if(next->requirements.fog) {
             auto fog = VolumetricFogPass::create(
-                m_device, *next->pipelines, next->materials->m_frame_layout, samples);
+                m_device, *next->pipelines, next->materials->view_bindings().layout(), samples);
             if(!fog)
                 return Creation::failure(fog.error());
             next->fog = std::move(fog).value();
@@ -417,7 +419,7 @@ namespace Comet {
         std::unique_ptr<VolumetricFogPass> fog_candidate;
         if(requirements.fog && !m_state->fog) {
             auto created = VolumetricFogPass::create(m_device, *m_state->pipelines,
-                m_state->materials->m_frame_layout,
+                m_state->materials->view_bindings().layout(),
                 static_cast<SampleCount>(m_state->quality.msaa_samples));
             if(!created)
                 return Result<void, GraphicsError>::failure(created.error());
@@ -426,8 +428,9 @@ namespace Comet {
         std::unique_ptr<DecalPass> decal_candidate;
         if(requirements.decals && !m_state->decals) {
             auto created = DecalPass::create(m_device, *m_state->pipelines,
-                m_state->materials->m_white_texture, m_state->materials->m_frame_layout,
-                m_frame_slot_count, static_cast<SampleCount>(m_state->quality.msaa_samples));
+                m_state->materials->view_bindings().fallback_texture(),
+                m_state->materials->view_bindings().layout(), m_frame_slot_count,
+                static_cast<SampleCount>(m_state->quality.msaa_samples));
             if(!created)
                 return Result<void, GraphicsError>::failure(created.error());
             decal_candidate = std::move(created).value();
@@ -453,12 +456,21 @@ namespace Comet {
             if(auto resized = depth->resize(m_state->hdr_target->get_size()); !resized)
                 return resized;
         }
-        if(auto graph = rebuild_graph(*m_state, settings, requirements,
-               {candidate ? candidate.get() : m_state->bloom.get(),
-                   fog_candidate ? fog_candidate.get() : m_state->fog.get()},
-               m_state->hdr_target->get_size());
-            !graph)
-            return graph;
+        const auto graph_needs = [&](const PostProcessSettings& post,
+                                     const ViewRequirements& view) {
+            return std::tuple(view.shadows, view.needs_depth(post, bool(m_state->temporal)),
+                view.fog, post.uses_bloom());
+        };
+        if(graph_needs(settings, requirements)
+            != graph_needs(m_post_process, m_state->requirements)) {
+            if(auto graph = rebuild_graph(*m_state, settings, requirements,
+                   {candidate ? candidate.get() : m_state->bloom.get(),
+                       fog_candidate ? fog_candidate.get() : m_state->fog.get()},
+                   m_state->hdr_target->get_size());
+                !graph)
+                return graph;
+        }
+        m_state->requirements = requirements;
         if(fog_candidate)
             m_state->fog = std::move(fog_candidate);
         if(!requirements.fog)
@@ -718,18 +730,29 @@ namespace Comet {
         }
         const ScopeExit clear_draws([&] {
             m_state->materials->clear_draws();
+            m_state->view_geometry.clear_frame();
             m_state->particles->clear_draws();
         });
+        // 主颜色与相机深度共用一次选级；各 Pass 仍保留自己的可见性和材质规则。
+        const RenderGeometry* main_geometry = &geometry;
+        if(submission.view_project_matrix) {
+            const auto& camera = *submission.view_project_matrix;
+            main_geometry =
+                &m_state->view_geometry.prepare_view(geometry, camera.projection * camera.view);
+        }
         m_state->fog_frame = {};
         if(m_state->requirements.fog)
             m_state->fog_frame = m_state->fog->prepare_frame(
                 *m_state->fog_resources, image, submission, get_scene_size());
-        auto prepared = m_state->materials->prepare(frames, submission, geometry, lighting,
+        auto prepared = m_state->materials->view_bindings().prepare(frames, submission, lighting,
             m_shadow->get_depth_view(image),
             m_state->view_depth_resource ? m_state->view_depth->get_depth_view(image) : nullptr,
             m_state->requirements.fog ? &m_state->fog_frame : nullptr);
         if(!prepared)
             return RenderResult::failure(prepared.error());
+        if(auto draws = m_state->materials->prepare_draws(frames, submission, *main_geometry);
+            !draws)
+            return RenderResult::failure(draws.error());
         const auto& graph = m_state->graph;
         auto& bindings = m_state->bindings;
         bindings.resize(graph.resource_count());
@@ -749,9 +772,10 @@ namespace Comet {
         }
         m_state->transient_resources.bind_resources(bindings, image);
         auto waits = std::move(prepared).value();
-        const auto recorder = [this, &frames, &submission, &geometry, &lines, &lighting, &waits](
-                                  RenderGraph::PassId pass, CommandBuffer&) {
-            return record_pass(pass, frames, submission, geometry, lines, lighting, waits);
+        const auto recorder = [this, &frames, &submission, &geometry, &main_geometry, &lines,
+                                  &lighting, &waits](RenderGraph::PassId pass, CommandBuffer&) {
+            return record_pass(
+                pass, frames, submission, geometry, *main_geometry, lines, lighting, waits);
         };
         auto recorded = Result<void, GraphicsError>::success();
         if(diagnostics)
@@ -771,12 +795,12 @@ namespace Comet {
 
     Result<void, GraphicsError> SceneRenderer::record_pass(std::size_t pass, FrameScheduler& frames,
         const RenderSubmission& submission, const RenderGeometry& geometry,
-        const LineDrawList& lines, const LightingData& lighting,
-        std::vector<QueueSemaphoreSubmit>& waits) {
+        const RenderGeometry& main_geometry, const LineDrawList& lines,
+        const LightingData& lighting, std::vector<QueueSemaphoreSubmit>& waits) {
         const auto slot = frames.get_current_frame_slot_index();
         if(m_state->fog_pass && pass == *m_state->fog_pass) {
-            m_state->fog->render(
-                frames, *m_state->fog_resources, m_state->materials->frame_descriptor(slot));
+            m_state->fog->render(frames, *m_state->fog_resources,
+                m_state->materials->view_bindings().descriptor(slot));
             return Result<void, GraphicsError>::success();
         }
         if(pass == m_state->output_pass_id) {
@@ -803,7 +827,8 @@ namespace Comet {
                 view.previous_view_projection = m_state->temporal_camera.previous;
                 view.previous_projection = m_state->temporal_camera.previous_projection;
             }
-            drawn = m_state->view_depth->render(frames, std::span(&view, 1), geometry);
+            drawn = m_state->view_depth->render(frames, std::span(&view, 1), main_geometry,
+                DepthPass::LodSelection::AlreadySelected);
         } else if(m_state->shadow_pass_id && pass == *m_state->shadow_pass_id) {
             drawn = m_shadow->render(frames, lighting, geometry);
         } else if(pass == m_state->scene_pass_id)
@@ -839,7 +864,9 @@ namespace Comet {
         auto waits = std::move(skybox);
         if(m_state->requirements.fog)
             m_state->fog->render_background(frames,
-                m_state->materials->frame_descriptor(frames.get_current_frame_slot_index()), size);
+                m_state->materials->view_bindings().descriptor(
+                    frames.get_current_frame_slot_index()),
+                size);
         if(submission.view_project_matrix) {
             auto particles = m_state->particles->prepare(frames, *submission.view_project_matrix,
                 submission.world, !m_state->materials->transparent_depths().empty(),
@@ -856,7 +883,7 @@ namespace Comet {
             if(m_state->decals) {
                 const auto slot = frames.get_current_frame_slot_index();
                 auto drawn = m_state->decals->render(frames, submission,
-                    m_state->materials->frame_descriptor(slot),
+                    m_state->materials->view_bindings().descriptor(slot),
                     m_state->view_depth->get_depth_view(slot), size);
                 if(!drawn)
                     return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(

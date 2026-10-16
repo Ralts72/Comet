@@ -200,7 +200,7 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> DepthPass::prepare_draws(
-        std::span<const View> views, const RenderGeometry& geometry) {
+        std::span<const View> views, const RenderGeometry& geometry, LodSelection lod) {
         using Preparation = Result<void, GraphicsError>;
         for(auto& [texture, cached] : m_masks)
             cached.used = false;
@@ -212,12 +212,22 @@ namespace Comet {
                 continue;
             const auto& matrix = view.view_projection;
             auto& view_geometry = m_view_geometry[view_index];
-            const auto& selected = view_geometry.prepare_view(geometry, matrix, true);
-            m_statistics.coarse_culled_items += view_geometry.get_view_statistics().culled_items;
-            m_statistics.lod_selections += view_geometry.get_view_statistics().lod_selections;
+            const bool select_lod = lod == LodSelection::PerView;
+            const auto& selected =
+                select_lod ? view_geometry.prepare_view(geometry, matrix, true) : geometry;
+            const auto frustum = select_lod ? std::nullopt : Frustum::from_view_projection(matrix);
+            if(select_lod) {
+                m_statistics.coarse_culled_items +=
+                    view_geometry.get_view_statistics().culled_items;
+                m_statistics.lod_selections += view_geometry.get_view_statistics().lod_selections;
+            }
             for(const auto& prepared : selected.get_items()) {
                 if(!prepared.world_bounds)
                     continue;
+                if(frustum && !frustum->intersects(*prepared.world_bounds)) {
+                    ++m_statistics.coarse_culled_items;
+                    continue;
+                }
                 const auto& input = prepared.source->material;
                 const auto& source = input.resource;
                 const auto surface = source ? source->get_surface() : MaterialSurface{};
@@ -281,11 +291,13 @@ namespace Comet {
     }
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> DepthPass::render(
-        FrameScheduler& frames, std::span<const View> views, const RenderGeometry& geometry) {
+        FrameScheduler& frames, std::span<const View> views, const RenderGeometry& geometry,
+        LodSelection lod) {
         using Draw = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
         if(!frames.is_recording_frame() || &frames.get_device() != &m_device
             || frames.get_current_frame_slot_index() >= m_frame_slots
-            || views.size() != m_view_geometry.size())
+            || views.size() != m_view_geometry.size()
+            || (lod == LodSelection::AlreadySelected && views.size() != 1))
             return Draw::failure({"Invalid depth pass frame"});
         m_statistics = {};
         m_draw_queue.clear();
@@ -297,7 +309,7 @@ namespace Comet {
             for(auto& view : m_view_geometry)
                 view.clear_frame();
         });
-        if(auto prepared = prepare_draws(views, geometry); !prepared)
+        if(auto prepared = prepare_draws(views, geometry, lod); !prepared)
             return Draw::failure(prepared.error());
         auto& instances = m_instances.at(frames.get_current_frame_slot_index());
         auto uploaded = instances.upload(m_device, m_transforms);

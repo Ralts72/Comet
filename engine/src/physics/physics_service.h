@@ -25,6 +25,8 @@ namespace Comet {
             std::size_t pose_updates = 0;
             std::size_t joints = 0;
             std::size_t characters = 0;
+            uint64_t query_shape_builds = 0;
+            uint64_t query_shape_reuses = 0;
         };
 
         struct MeshSource {
@@ -35,7 +37,7 @@ namespace Comet {
         // 回调只在主线程同步阶段使用；提供者须活到运行系统停止之后。
         explicit PhysicsService(MeshSource meshes = {});
         ~PhysicsService() override;
-        // 主线程在固定步之外读取；pose_updates 对应最近完成的固定步。
+        // 主线程在固定步之外读取；pose_updates 对应最近固定步，查询计数在物理世界内累积。
         [[nodiscard]] Statistics get_statistics() const;
         // 最近同步的静态非触发碰撞面，世界坐标三角形列表；供导航烘焙复用真实形状。
         [[nodiscard]] Result<std::vector<Math::Vec3>, Error> static_triangles(

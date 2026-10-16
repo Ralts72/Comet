@@ -1,4 +1,7 @@
 #include "gameplay/navigation_system.h"
+#include "gameplay/root_motion.h"
+#include "animation/animation_system.h"
+#include "animation/animation_data.h"
 #include "physics/physics_service.h"
 #include "scene/scene.h"
 #include "scene/script_component.h"
@@ -14,6 +17,7 @@
 #include "asset/database.h"
 #include "support/temporary_directory.h"
 #include <gtest/gtest.h>
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -56,7 +60,7 @@ namespace Comet::Tests {
                     ColliderComponent{.half_extents = half_extents});
                 return entity;
             }
-            void SetUp() override {
+            void configure_runtime(std::unique_ptr<System> animation = {}) {
                 auto nav = std::make_unique<NavigationSystem>(
                     [&](Math::Vec3 a, Math::Vec3 b) {
                         ++geometry_requests;
@@ -71,7 +75,12 @@ namespace Comet::Tests {
                 auto controls = std::make_unique<Navigate>();
                 controller = controls.get();
                 ASSERT_TRUE(runtime.add_system(std::move(controls)));
+                if(animation)
+                    ASSERT_TRUE(runtime.add_system(std::move(animation)));
                 ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+            }
+            void SetUp() override {
+                configure_runtime();
                 box({0, -0.5f, 0}, {10, 0.5f, 10});
                 auto region = scene.create_entity("region");
                 region.add_component<NavigationRegionComponent>(
@@ -81,6 +90,19 @@ namespace Comet::Tests {
                 actor.add_component<CharacterControllerComponent>();
                 actor.add_component<NavigationAgentComponent>();
                 controller->actor = actor;
+            }
+            void create_jump_course() {
+                for(const auto entity : scene.get_entities())
+                    if(entity.has_component<RigidBodyComponent>())
+                        scene.destroy_entity(entity);
+                box({-2.5f, -.5f, 0}, {2.5f, .5f, 2});
+                box({2, .5f, 0}, {1.5f, .5f, 2});
+                actor.edit_transform([](auto& value) { value.translation = {-3, 0, 0}; });
+                controller->target = {2.3f, 1, 0};
+                auto link = scene.create_entity("jump up");
+                link.edit_transform([](auto& value) { value.translation = {-.8f, 0, 0}; });
+                link.add_component<NavigationLinkComponent>(
+                    NavigationLinkComponent{.end = {1.8f, 1, 0}, .radius = .5f});
             }
             bool step(int count = 1) {
                 for(int i = 0; i < count; ++i) {
@@ -150,17 +172,7 @@ namespace Comet::Tests {
     }
 
     TEST_F(NavigationTest, OffMeshJumpLinksSurviveProductsAndDrivePhysicalCrossLayerMovement) {
-        for(const auto entity : scene.get_entities())
-            if(entity.has_component<RigidBodyComponent>())
-                scene.destroy_entity(entity);
-        box({-2.5f, -.5f, 0}, {2.5f, .5f, 2});
-        box({2, .5f, 0}, {1.5f, .5f, 2});
-        actor.edit_transform([](auto& transform) { transform.translation = {-3, 0, 0}; });
-        controller->target = {2.3f, 1, 0};
-        auto link = scene.create_entity("jump up");
-        link.edit_transform([](auto& transform) { transform.translation = {-.8f, 0, 0}; });
-        link.add_component<NavigationLinkComponent>(
-            NavigationLinkComponent{.end = {1.8f, 1, 0}, .radius = .5f});
+        create_jump_course();
         ASSERT_TRUE(runtime.start(scene));
         const auto path = navigation->mesh().find_path({-3, 0, 0}, controller->target);
         ASSERT_TRUE(path);
@@ -212,6 +224,58 @@ namespace Comet::Tests {
             Gameplay::NavigationMesh::input_fingerprint(geometry.value(), {}, settings, one_way)
                 .value(),
             fingerprint.value());
+    }
+
+    TEST_F(NavigationTest, NavigationOwnsJumpTrajectoryBeforeRootMotionAndReleasesItAfterLanding) {
+        ASSERT_TRUE(runtime.clear_systems());
+        auto data = std::make_shared<AnimationData>();
+        data->mesh_node = 0;
+        data->nodes = {{"Mesh"}, {"Root"}};
+        data->evaluation_order = {0, 1};
+        data->joints = {{.node = 1, .bounds = BoundingBox::from_point({0, 0, 0})}};
+        data->clips = {{.name = "walk",
+            .duration = 1,
+            .channels = {{.node = 1,
+                .path = AnimationChannel::Path::Translation,
+                .interpolation = AnimationChannel::Interpolation::Linear,
+                .times = {0, 1},
+                .values = {{0, 0, 0, 0}, {2, 0, 0, 0}}}}}};
+        configure_runtime(std::make_unique<AnimationSystem>([data](AssetHandle) { return data; },
+            AnimationSystem::Controllers{}, AnimationSystem::Libraries{},
+            Gameplay::apply_root_motion));
+        controller->actor = actor;
+        create_jump_course();
+        auto model = scene.create_entity("animated model");
+        model.add_component<MeshRendererComponent>(AssetHandle(1), AssetHandle(2));
+        model.add_component<AnimatorComponent>(AnimatorComponent{.clip = "walk", .transition = 0});
+        model.add_component<RootMotionComponent>(RootMotionComponent{.target = actor.get_uuid()});
+        ASSERT_TRUE(scene.set_parent(model, actor));
+        ASSERT_TRUE(runtime.start(scene));
+        float highest = 0;
+        unsigned in_flight = 0;
+        for(int i = 0; i < 360 && controller->status != NavigationSystem::Status::Arrived; ++i) {
+            ASSERT_TRUE(step());
+            highest = std::max(highest, position().y);
+            in_flight += navigation->is_traversing_link(scene, actor);
+        }
+        EXPECT_GT(highest, 1.1f);
+        EXPECT_GT(in_flight, 10u);
+        ASSERT_EQ(controller->status, NavigationSystem::Status::Arrived);
+        EXPECT_NEAR(position().y, 1, .05f);
+        EXPECT_NEAR(position().x, controller->target.x, .4f);
+        EXPECT_FALSE(navigation->is_traversing_link(scene, actor));
+
+        model.edit_transform([](auto& value) { value.rotation.y = 180; });
+        controller->target = {-3, 0, 0};
+        ASSERT_TRUE(step());
+        for(int i = 0; i < 360 && controller->status != NavigationSystem::Status::Arrived; ++i)
+            ASSERT_TRUE(step());
+        ASSERT_EQ(controller->status, NavigationSystem::Status::Arrived);
+        EXPECT_NEAR(position().y, 0, .05f);
+        EXPECT_NEAR(position().x, -3, .4f);
+        EXPECT_FALSE(navigation->is_traversing_link(scene, actor));
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(navigation->is_traversing_link(scene, actor));
     }
 
     TEST_F(NavigationTest, OfflineProductPreservesQueriesAndOwnsItsTileAfterTheSourceWorldStops) {
@@ -498,6 +562,48 @@ namespace Comet::Tests {
         EXPECT_EQ(retry.value(), NavigationSystem::Status::Moving);
         EXPECT_EQ(navigation->get_statistics().path_queries, 9u);
         EXPECT_EQ(navigation->get_statistics().step_path_queries, 1u);
+    }
+    TEST_F(NavigationTest, QueryBudgetServesEveryAgentWhileObstaclesInvalidatePathsEachStep) {
+        controller->enabled = false;
+        scene.destroy_entity(actor);
+        auto obstacle = scene.create_entity("moving navigation obstacle");
+        obstacle.edit_transform([](auto& value) { value.translation = {0, 1, 0}; });
+        obstacle.add_component<NavigationObstacleComponent>(
+            NavigationObstacleComponent{.half_extents = {.3f, 1, .3f}});
+        std::vector<Entity> actors;
+        std::array<unsigned, 10> served{};
+        std::array<unsigned, 10> waiting{};
+        for(int i = 0; i < 10; ++i) {
+            auto npc = scene.create_entity("NPC");
+            npc.edit_transform([&](auto& value) { value.translation = {-6, 0, float(i) - 5}; });
+            npc.add_component<CharacterControllerComponent>();
+            npc.add_component<NavigationAgentComponent>(
+                NavigationAgentComponent{.repath_interval = 10});
+            actors.push_back(npc);
+        }
+        ASSERT_TRUE(runtime.start(scene));
+        const auto initial_rebuilds = navigation->get_statistics().obstacle_rebuilds;
+        for(int frame = 0; frame < 12; ++frame) {
+            obstacle.edit_transform([&](auto& value) { value.translation.x = frame % 2 ? 1 : 0; });
+            ASSERT_TRUE(step());
+            for(int i = 0; i < 10; ++i) {
+                const auto result =
+                    navigation->move_to(scene, actors[i], physics, {6, 0, float(i) - 5});
+                ASSERT_TRUE(result) << result.error();
+                if(result.value() == NavigationSystem::Status::Moving) {
+                    ++served[i];
+                    waiting[i] = 0;
+                } else {
+                    EXPECT_EQ(result.value(), NavigationSystem::Status::BudgetExceeded);
+                    // 十个持续请求者、每步八个额度：任何角色都不应连续两步得不到查询。
+                    EXPECT_LT(++waiting[i], 2u);
+                }
+            }
+            EXPECT_EQ(navigation->get_statistics().step_path_queries, 8u);
+        }
+        EXPECT_EQ(navigation->get_statistics().obstacle_rebuilds, initial_rebuilds + 11);
+        for(const auto queries : served)
+            EXPECT_GE(queries, 6u);
     }
     TEST(NavigationStartupTest, MissingPreparedCollisionWorldFailsBeforeSimulation) {
         Scene scene;

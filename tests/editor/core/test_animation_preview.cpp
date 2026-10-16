@@ -160,15 +160,15 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(content);
         preview.bind({scene.get_lifetime(), entity.get_uuid()}, data, "move");
         ASSERT_TRUE(preview.seek(0.5));
-        scene.set_animation_playback(entity, preview.snapshot());
+        preview.publish_to(scene);
         const auto frozen = Comet::SceneExtractor::extract(scene);
         ASSERT_EQ(frozen.render_items.size(), 1u);
         EXPECT_EQ(frozen.render_items.front().animation, preview.snapshot());
         const auto revision = scene.get_render_revision();
-        scene.set_animation_playback(entity, preview.snapshot());
+        preview.publish_to(scene);
         EXPECT_EQ(scene.get_render_revision(), revision);
         ASSERT_TRUE(preview.seek(1));
-        scene.set_animation_playback(entity, preview.snapshot());
+        preview.publish_to(scene);
         EXPECT_DOUBLE_EQ(frozen.render_items.front().animation->current.time, 0.5);
         EXPECT_EQ(serializer.serialize(scene).value(), content.value());
         auto clone = serializer.clone(scene);
@@ -179,5 +179,24 @@ namespace CometEditor::Tests {
         ASSERT_TRUE(runtime.start(scene));
         EXPECT_FALSE(scene.get_animation_playback(entity));
         ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST_F(AnimationPreviewTest, ResetWithdrawsOnlyItsPublicationFromTheBoundScene) {
+        Comet::Scene scene;
+        auto entity = scene.create_entity();
+        preview.bind({scene.get_lifetime(), entity.get_uuid()}, data, "move");
+        ASSERT_TRUE(preview.seek(.25));
+        preview.publish_to(scene);
+        ASSERT_TRUE(scene.get_animation_playback(entity));
+        preview.reset(&scene);
+        EXPECT_FALSE(scene.get_animation_playback(entity));
+
+        preview.bind({scene.get_lifetime(), entity.get_uuid()}, data, "move");
+        ASSERT_TRUE(preview.seek(.5));
+        preview.publish_to(scene);
+        const auto replacement = std::make_shared<const Comet::AnimationPlayback>();
+        scene.set_animation_playback(entity, replacement);
+        preview.reset(&scene);
+        EXPECT_EQ(scene.get_animation_playback(entity), replacement);
     }
 }

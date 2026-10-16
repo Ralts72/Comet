@@ -15,6 +15,102 @@
 #include <limits>
 
 namespace Comet::Tests {
+    TEST(ParticleSystemTest, RenderOnlyFramesReuseSnapshotsAndObserveSameFrameSourceChanges) {
+        Scene scene;
+        auto parent = scene.create_entity();
+        auto source = scene.create_entity();
+        ASSERT_TRUE(scene.set_parent(source, parent));
+        ParticleEmitterComponent settings;
+        settings.burst = 2;
+        settings.rate = 0;
+        source.add_component<ParticleEmitterComponent>(settings);
+        auto particles = std::make_unique<ParticleSystem>();
+        const auto* observed = particles.get();
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = .1}));
+        ASSERT_TRUE(runtime.add_system(std::move(particles)));
+        ASSERT_TRUE(runtime.start(scene));
+        const auto first = scene.get_particles();
+        const auto before = observed->get_statistics();
+        ASSERT_TRUE(first);
+        for(int frame = 0; frame < 10; ++frame)
+            ASSERT_TRUE(runtime.advance(.001));
+        EXPECT_EQ(scene.get_particles(), first);
+        EXPECT_EQ(observed->get_statistics().source_scans, before.source_scans);
+        EXPECT_EQ(observed->get_statistics().snapshot_builds, before.snapshot_builds);
+
+        source.edit_component<ParticleEmitterComponent>(
+            [](auto& emitter) { emitter.texture = AssetHandle{42}; });
+        ASSERT_TRUE(runtime.advance(0));
+        ASSERT_TRUE(scene.get_particles());
+        EXPECT_EQ(scene.get_particles()->batches.front().texture, AssetHandle{42});
+        EXPECT_EQ(first->batches.front().texture, AssetHandle{});
+        parent.edit_transform([](auto& transform) { transform.translation.x = 10; });
+        ASSERT_TRUE(scene.request_particle_burst(source, 1));
+        source.remove_component<ParticleEmitterComponent>();
+        ASSERT_TRUE(runtime.advance(0));
+        ASSERT_TRUE(scene.get_particles());
+        ASSERT_EQ(scene.get_particles()->instances.size(), 3u);
+        EXPECT_FLOAT_EQ(scene.get_particles()->instances.back().position_size.x, 10);
+        ASSERT_TRUE(scene.request_particle_clear(source));
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_FALSE(scene.get_particles());
+        EXPECT_EQ(first->instances.size(), 2u);
+        ASSERT_TRUE(runtime.stop());
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_FALSE(scene.get_particles());
+    }
+
+    TEST(ParticleSystemTest, CapturedBurstPoseDoesNotReplaceTheLiveEmitterPose) {
+        Scene scene;
+        auto parent = scene.create_entity();
+        auto source = scene.create_entity();
+        ASSERT_TRUE(scene.set_parent(source, parent));
+        ParticleEmitterComponent settings;
+        settings.rate = 10;
+        settings.speed = 0;
+        settings.acceleration = {};
+        source.add_component<ParticleEmitterComponent>(settings);
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = .1}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ParticleSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(scene.request_particle_burst(source, 1));
+        parent.edit_transform([](auto& transform) { transform.translation.x = 10; });
+        ASSERT_TRUE(runtime.advance(0));
+        const auto burst = scene.get_particles();
+        ASSERT_TRUE(burst);
+        EXPECT_FLOAT_EQ(burst->instances.front().position_size.x, 0);
+        ASSERT_TRUE(runtime.advance(.1));
+        ASSERT_TRUE(scene.get_particles());
+        ASSERT_EQ(scene.get_particles()->instances.size(), 2u);
+        EXPECT_FLOAT_EQ(scene.get_particles()->instances[0].position_size.x, 0);
+        EXPECT_FLOAT_EQ(scene.get_particles()->instances[1].position_size.x, 10);
+        EXPECT_FLOAT_EQ(burst->instances.front().position_size.x, 0);
+    }
+
+    TEST(ParticleSystemTest, TrailsReusePublishedSegmentsBetweenFixedStepsAndApplyEdits) {
+        Scene scene;
+        auto source = scene.create_entity();
+        source.add_component<TrailComponent>();
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = .1}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ParticleSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        source.edit_transform([](auto& transform) { transform.translation.x = 1; });
+        ASSERT_TRUE(runtime.advance(.1));
+        const auto first = scene.get_particles();
+        ASSERT_TRUE(first);
+        ASSERT_TRUE(runtime.advance(.01));
+        EXPECT_EQ(scene.get_particles(), first);
+        source.edit_component<TrailComponent>([](auto& trail) { trail.width = .5f; });
+        ASSERT_TRUE(runtime.advance(0));
+        ASSERT_TRUE(scene.get_particles());
+        EXPECT_FLOAT_EQ(scene.get_particles()->instances.front().end_position_size.w, .5f);
+        EXPECT_NE(scene.get_particles(), first);
+        EXPECT_FLOAT_EQ(first->instances.front().end_position_size.w, .15f);
+    }
+
     TEST(ParticleSystemTest, SweptCollisionsBounceOrKillAndRespectLayers) {
         for(const auto mode :
             {ParticleCollision::None, ParticleCollision::Bounce, ParticleCollision::Kill}) {

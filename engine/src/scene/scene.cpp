@@ -231,6 +231,8 @@ namespace Comet {
                 m_physics_joints_changed = true;
             m_animation_playbacks.erase(*it);
             m_animation_sources.erase(*it);
+            if(m_registry.any_of<ParticleEmitterComponent, TrailComponent>(*it))
+                ++m_particle_revision;
             m_registry.destroy(*it);
         }
     }

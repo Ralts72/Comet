@@ -42,22 +42,6 @@
 #include <tuple>
 
 namespace Comet {
-    // 私有帧 UBO，与 common/frame.glsl 对齐；不把相机姿态存入材质属性。
-    struct alignas(16) MaterialFrameData {
-        ViewProjectMatrix matrices;
-        Math::Vec3 camera_position;
-        float orthographic;
-        Math::Vec3 view_direction;
-        float fog_start = 0;
-        Math::Vec4 fog_color{}; // RGB 线性雾色，W 为距离区间倒数；零表示关闭。
-    };
-    static_assert(sizeof(MaterialFrameData) == 176);
-    static_assert(offsetof(MaterialFrameData, camera_position) == 128);
-    static_assert(offsetof(MaterialFrameData, orthographic) == 140);
-    static_assert(offsetof(MaterialFrameData, view_direction) == 144);
-    static_assert(offsetof(MaterialFrameData, fog_start) == 156);
-    static_assert(offsetof(MaterialFrameData, fog_color) == 160);
-
     namespace {
         void append_wait(std::vector<QueueSemaphoreSubmit>& waits,
             const GpuCompletionPoint& completion, const Flags<PipelineStage> stages) {
@@ -76,14 +60,10 @@ namespace Comet {
         auto statistics = m_statistics;
         statistics.pipeline_creations = m_pipeline_manager.get_pipeline_creations();
         statistics.warmup_pipeline_creations = m_warmup_pipeline_creations;
-        statistics.frame_set_count = static_cast<uint32_t>(m_frames.size());
+        static_cast<ViewBindings::Statistics&>(statistics) = m_view_bindings.statistics();
         statistics.cached_material_versions = static_cast<uint32_t>(std::ranges::count_if(
             m_materials, [](const auto& entry) { return bool(entry.second.resources); }));
         return statistics;
-    }
-
-    DescriptorSet MaterialRenderer::frame_descriptor(uint32_t slot) const {
-        return *m_frames.at(slot)->descriptor;
     }
 
     void MaterialRenderer::remove_assets(const AssetRegistry::Removals& removals) {
@@ -163,84 +143,11 @@ namespace Comet {
         if(!normal)
             return Result<void, GraphicsError>::failure(normal.error());
         m_normal_texture = std::move(normal).value();
-        auto black_cube = resources.try_create_texture({.width = 1,
-            .height = 1,
-            .format = Format::R16G16B16A16_SFLOAT,
-            .pixels = std::vector<uint8_t>(6 * 8),
-            .cubemap = true});
-        if(!black_cube)
-            return Result<void, GraphicsError>::failure(black_cube.error());
-        m_empty_environment = std::make_shared<Environment>(Environment{
-            black_cube.value(), black_cube.value(), black_cube.value(), m_white_texture});
-        SamplerDesc environment_desc{.address_mode_u = SamplerAddressMode::ClampToEdge,
-            .address_mode_v = SamplerAddressMode::ClampToEdge,
-            .address_mode_w = SamplerAddressMode::ClampToEdge};
-        if(!device.query_format_support(Format::R16G16B16A16_SFLOAT).linear_filter) {
-            environment_desc.mag_filter = Filter::Nearest;
-            environment_desc.min_filter = Filter::Nearest;
-            environment_desc.mipmap_mode = SamplerMipmapMode::Nearest;
-        }
-        auto environment_sampler = Sampler::create(device, environment_desc);
-        if(!environment_sampler)
-            return Result<void, GraphicsError>::failure(environment_sampler.error());
-        auto shadow_sampler = resources.get_sampler_manager().get_nearest_clamp();
-        if(!shadow_sampler)
-            return Result<void, GraphicsError>::failure(shadow_sampler.error());
-        DescriptorSetLayoutBindings frame_bindings;
-        frame_bindings.add_binding(0, DescriptorType::UniformBuffer,
-            Flags<ShaderStage>(ShaderStage::Vertex) | ShaderStage::Fragment | ShaderStage::Compute);
-        frame_bindings.add_binding(1, DescriptorType::UniformBuffer,
-            Flags<ShaderStage>(ShaderStage::Fragment) | ShaderStage::Compute);
-        frame_bindings.add_binding(2, DescriptorType::CombinedImageSampler,
-            Flags<ShaderStage>(ShaderStage::Fragment) | ShaderStage::Compute);
-        for(uint32_t binding = 3; binding <= 12; ++binding)
-            frame_bindings.add_binding(binding, DescriptorType::CombinedImageSampler,
-                Flags<ShaderStage>(ShaderStage::Fragment));
-        auto frame_layout = DescriptorSetLayout::create(device, frame_bindings);
-        if(!frame_layout)
-            return Result<void, GraphicsError>::failure(frame_layout.error());
-        m_frame_layout = std::move(frame_layout).value();
-        DescriptorPoolSizes pool_sizes;
-        pool_sizes.add_pool_size(DescriptorType::UniformBuffer, frame_slot_count * 2);
-        pool_sizes.add_pool_size(DescriptorType::CombinedImageSampler,
-            frame_slot_count * (7 + LightingData::MAX_REFLECTION_PROBES));
-        auto pool_result = DescriptorPool::create(device, frame_slot_count, pool_sizes);
-        if(!pool_result)
-            return Result<void, GraphicsError>::failure(pool_result.error());
-        std::shared_ptr<DescriptorPool> pool = std::move(pool_result).value();
-        auto descriptors = pool->allocate_descriptor_set(*m_frame_layout, frame_slot_count);
-        if(!descriptors)
-            return Result<void, GraphicsError>::failure(descriptors.error());
-        for(uint32_t slot = 0; slot < frame_slot_count; ++slot) {
-            auto frame = std::make_shared<FrameResources>();
-            frame->layout = m_frame_layout;
-            frame->pool = pool;
-            frame->shadow_sampler = shadow_sampler.value();
-            frame->environment_sampler = environment_sampler.value();
-            auto buffer =
-                Buffer::try_create_cpu_buffer(device, Flags<BufferUsage>(BufferUsage::Uniform),
-                    sizeof(MaterialFrameData), false, nullptr, "frame camera");
-            if(!buffer)
-                return Result<void, GraphicsError>::failure(buffer.error());
-            frame->buffer = std::move(buffer).value();
-            frame->descriptor = descriptors.value()[slot];
-            auto lighting =
-                Buffer::try_create_cpu_buffer(device, Flags<BufferUsage>(BufferUsage::Uniform),
-                    sizeof(LightingData), false, nullptr, "frame lighting");
-            if(!lighting)
-                return Result<void, GraphicsError>::failure(lighting.error());
-            frame->lighting = std::move(lighting).value();
-            const std::array writes{
-                DescriptorSet::UniformBufferWrite{0, *frame->buffer, sizeof(MaterialFrameData)},
-                DescriptorSet::UniformBufferWrite{1, *frame->lighting, sizeof(LightingData)}};
-            const std::array fallbacks{
-                DescriptorSet::ImageSamplerWrite{
-                    11, *m_white_texture->get_image_view(), *frame->shadow_sampler},
-                DescriptorSet::ImageSamplerWrite{
-                    12, *m_white_texture->get_image_view(), *frame->shadow_sampler}};
-            frame->descriptor->update(device, writes, fallbacks);
-            m_frames.push_back(std::move(frame));
-        }
+        if(auto bindings =
+                m_view_bindings.initialize(device, resources, frame_slot_count, m_white_texture);
+            !bindings)
+            return bindings;
+        m_instances.resize(frame_slot_count);
         const auto defaults = default_material_shaders();
         auto initial = defaults;
         if(shaders) {
@@ -574,7 +481,7 @@ namespace Comet {
         if(!surface.valid())
             return Creation::failure({"Invalid material surface"});
         ShaderLayout shader_layout;
-        shader_layout.descriptor_set_layouts = {m_frame_layout, program.material_layout};
+        shader_layout.descriptor_set_layouts = {m_view_bindings.layout(), program.material_layout};
         shader_layout.push_constants.push_back(
             std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, sizeof(PushConstant)));
         VertexInputDescription input;
@@ -791,37 +698,30 @@ namespace Comet {
         return Creation::success(std::move(candidate));
     }
 
-    Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> MaterialRenderer::prepare(
-        FrameScheduler& frames, const RenderSubmission& submission, const RenderGeometry& geometry,
-        const LightingData& lighting, const std::shared_ptr<ImageView>& shadow_map,
-        const std::shared_ptr<ImageView>& ao_depth, const FogVolume* fog) {
-        using Draw = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
+    Result<void, GraphicsError> MaterialRenderer::prepare_draws(FrameScheduler& frames,
+        const RenderSubmission& submission, const RenderGeometry& geometry) {
         clear_draws();
+        m_statistics = {};
         if(!frames.is_recording_frame() || &frames.get_device() != &m_device
-            || frames.get_current_frame_slot_index() >= m_frames.size() || !shadow_map)
-            return Draw::failure({"Invalid material render frame or shadow input"});
-
-        std::vector<QueueSemaphoreSubmit> waits;
-        update_frame_resources(frames, submission, lighting, shadow_map, ao_depth, fog, waits);
+            || frames.get_current_frame_slot_index() >= m_instances.size())
+            return Result<void, GraphicsError>::failure({"Invalid material render frame"});
         if(submission.view_project_matrix) {
             const auto& matrices = *submission.view_project_matrix;
             const auto frustum = Frustum::from_view_projection(matrices.projection * matrices.view);
-            const auto& selected =
-                m_view_geometry.prepare_view(geometry, matrices.projection * matrices.view);
-            auto queue = prepare_draw_queue(selected, frames.get_current_frame_serial(),
-                frustum ? &*frustum : nullptr, matrices.view);
-            if(!queue)
-                return Draw::failure(queue.error());
+            if(auto queue = prepare_draw_queue(geometry, frames.get_current_frame_serial(),
+                   frustum ? &*frustum : nullptr, matrices.view);
+                !queue)
+                return queue;
             if(auto instances = upload_instances(frames); !instances) {
                 m_draw_queue.clear();
-                return Draw::failure(instances.error());
+                return instances;
             }
             for(const auto& draw : m_draw_queue)
                 if(draw.material->prepared->surface.alpha_mode == AlphaMode::Blend)
                     m_transparent_depths.push_back(draw.camera_depth);
         }
         collect_unused_materials(frames.get_current_frame_serial());
-        return Draw::success(std::move(waits));
+        return Result<void, GraphicsError>::success();
     }
 
     void MaterialRenderer::record_opaque(
@@ -837,115 +737,8 @@ namespace Comet {
         record_draws(frames, std::span(m_draw_queue).subspan(offset + first, count), waits);
     }
 
-    void MaterialRenderer::update_frame_resources(FrameScheduler& frames,
-        const RenderSubmission& submission, const LightingData& lighting,
-        const std::shared_ptr<ImageView>& shadow_map, const std::shared_ptr<ImageView>& ao_depth,
-        const FogVolume* fog, std::vector<QueueSemaphoreSubmit>& waits) {
-        const auto previous_excess_probes = m_statistics.excess_reflection_probes;
-        const auto previous_excess_gi = m_statistics.excess_irradiance_volumes;
-        const auto previous_omissions =
-            std::pair(m_statistics.excess_lights, m_statistics.invalid_lights);
-        m_statistics = {};
-        if(!submission.view_project_matrix)
-            return;
-
-        const auto& view = *submission.view_project_matrix;
-        const auto& frame = m_frames.at(frames.get_current_frame_slot_index());
-        const auto camera_world = Math::inverse(view.view);
-        // 引擎标准透视矩阵的该项为 -1，正交为 0；不是任意投影的分类器。
-        MaterialFrameData camera{view, Math::Vec3(camera_world[3]),
-            view.projection[2][3] == 0 ? 1.0f : 0.0f, Math::Vec3(camera_world[2])};
-        const auto& settings = submission.world.environment;
-        if(settings.fog_enabled) {
-            camera.fog_start = settings.fog_start;
-            camera.fog_color = {settings.fog_color, 1.0f / (settings.fog_end - settings.fog_start)};
-        }
-        frame->buffer->write(&camera);
-        auto selected = ViewLightingData::prepare(submission, lighting);
-        selected.lighting.fog_parameters = fog ? fog->parameters : Math::Vec4(0);
-        const auto fog_image = fog ? fog->image : m_white_texture->get_image_view();
-        if(frame->fog != fog_image) {
-            const DescriptorSet::ImageSamplerWrite write{12, *fog_image, *frame->shadow_sampler};
-            frame->descriptor->update(m_device, {}, std::span(&write, 1));
-            frame->fog = fog_image;
-        }
-        const auto& environment = selected.environment ? selected.environment : m_empty_environment;
-        const auto& frame_lighting = selected.lighting;
-        for(unsigned index = 0; index < LightingData::MAX_REFLECTION_PROBES; ++index) {
-            const auto& probe =
-                selected.probes[index] ? selected.probes[index] : m_empty_environment;
-            if(frame->reflection_probes[index] != probe) {
-                const DescriptorSet::ImageSamplerWrite write{
-                    7 + index, *probe->specular->get_image_view(), *frame->environment_sampler};
-                frame->descriptor->update(m_device, {}, std::span(&write, 1));
-                frame->reflection_probes[index] = probe;
-            }
-            append_wait(waits, probe->specular->get_ready_completion(),
-                Flags<PipelineStage>(PipelineStage::FragmentShader));
-        }
-        m_statistics.reflection_probes = selected.probe_count;
-        m_statistics.excess_reflection_probes = selected.excess_probes;
-        if(selected.excess_probes && previous_excess_probes != selected.excess_probes)
-            LOG_WARN("Reflection probes omitted {} excess visible probes (limit {})",
-                selected.excess_probes, LightingData::MAX_REFLECTION_PROBES);
-        const auto& irradiance = selected.irradiance;
-        m_statistics.irradiance_probes = selected.irradiance_probes;
-        m_statistics.irradiance_bytes = selected.irradiance_bytes;
-        m_statistics.excess_irradiance_volumes = selected.excess_irradiance_volumes;
-        if(selected.excess_irradiance_volumes
-            && previous_excess_gi != selected.excess_irradiance_volumes)
-            LOG_WARN("GI omitted {} excess visible volumes (limit 1)",
-                selected.excess_irradiance_volumes);
-        if(frame->irradiance != irradiance) {
-            const auto& texture = irradiance ? irradiance->probes : m_white_texture;
-            const DescriptorSet::ImageSamplerWrite write{
-                11, *texture->get_image_view(), *frame->shadow_sampler};
-            frame->descriptor->update(m_device, {}, std::span(&write, 1));
-            frame->irradiance = irradiance;
-        }
-        if(irradiance)
-            append_wait(waits, irradiance->probes->get_ready_completion(),
-                Flags<PipelineStage>(PipelineStage::FragmentShader));
-        frame->lighting->write(&frame_lighting);
-        if(frame->environment != environment) {
-            const std::array writes{
-                DescriptorSet::ImageSamplerWrite{
-                    3, *environment->irradiance->get_image_view(), *frame->environment_sampler},
-                DescriptorSet::ImageSamplerWrite{
-                    4, *environment->specular->get_image_view(), *frame->environment_sampler},
-                DescriptorSet::ImageSamplerWrite{
-                    5, *environment->brdf->get_image_view(), *frame->environment_sampler}};
-            frame->descriptor->update(m_device, {}, writes);
-            frame->environment = environment;
-        }
-        for(const auto& texture :
-            {environment->irradiance, environment->specular, environment->brdf})
-            append_wait(waits, texture->get_ready_completion(),
-                Flags<PipelineStage>(PipelineStage::FragmentShader));
-        if(frame->shadow_map != shadow_map) {
-            const DescriptorSet::ImageSamplerWrite write{2, *shadow_map, *frame->shadow_sampler};
-            frame->descriptor->update(m_device, {}, std::span(&write, 1));
-            frame->shadow_map = shadow_map;
-        }
-        const auto& depth = ao_depth ? ao_depth : shadow_map;
-        if(frame->ao_depth != depth) {
-            const DescriptorSet::ImageSamplerWrite write{6, *depth, *frame->shadow_sampler};
-            frame->descriptor->update(m_device, {}, std::span(&write, 1));
-            frame->ao_depth = depth;
-        }
-        m_statistics.light_count = static_cast<uint32_t>(lighting.light_count);
-        m_statistics.excess_lights = static_cast<uint32_t>(lighting.excess_lights);
-        m_statistics.invalid_lights = static_cast<uint32_t>(lighting.invalid_lights);
-        if((m_statistics.excess_lights || m_statistics.invalid_lights)
-            && previous_omissions
-                   != std::pair(m_statistics.excess_lights, m_statistics.invalid_lights))
-            LOG_WARN("Lighting omitted {} excess and {} invalid lights (limit {})",
-                m_statistics.excess_lights, m_statistics.invalid_lights, LightingData::MAX_LIGHTS);
-        frames.retain_current_frame_resource(frame);
-    }
-
     Result<void, GraphicsError> MaterialRenderer::upload_instances(FrameScheduler& frames) {
-        auto& instances = m_frames.at(frames.get_current_frame_slot_index())->instances;
+        auto& instances = m_instances.at(frames.get_current_frame_slot_index());
         auto uploaded = instances.upload(m_device, m_instance_transforms);
         if(!uploaded)
             return Result<void, GraphicsError>::failure(uploaded.error());
@@ -958,10 +751,10 @@ namespace Comet {
 
     void MaterialRenderer::record_draws(FrameScheduler& frames,
         const std::span<const DrawItem> queue, std::vector<QueueSemaphoreSubmit>& waits) {
-        const auto& frame = m_frames.at(frames.get_current_frame_slot_index());
+        const auto slot = frames.get_current_frame_slot_index();
         auto& command = frames.get_current_command_buffer();
         if(!m_instance_transforms.empty())
-            frame->instances.bind(command);
+            m_instances.at(slot).bind(command);
         const Pipeline* active_pipeline = nullptr;
         const MaterialResources* active_material = nullptr;
         const Mesh* active_mesh = nullptr;
@@ -977,7 +770,7 @@ namespace Comet {
                 ++m_statistics.pipeline_binds;
             }
             if(active_material != material.get()) {
-                const std::array sets{*frame->descriptor, *material->descriptor};
+                const std::array sets{m_view_bindings.descriptor(slot), *material->descriptor};
                 command.bind_descriptor_sets(*pipeline->get_layout(), sets);
                 active_material = material.get();
                 ++m_statistics.material_binds;

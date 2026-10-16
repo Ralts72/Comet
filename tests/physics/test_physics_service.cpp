@@ -535,6 +535,36 @@ namespace Comet::Tests {
         EXPECT_FALSE(physics.shape_cast(shape, start, {5, 0, 0}, {}));
     }
 
+    TEST_F(PhysicsServiceTest, RepeatedSweepsReuseGeometryAndChangedSizesStillHitCorrectly) {
+        body.edit_component<RigidBodyComponent>(
+            [](auto& rigid) { rigid.motion = BodyMotion::Static; });
+        add_physics_system();
+        ASSERT_TRUE(runtime.start(scene));
+        const TransformComponent start{.translation = {-5, 0, 0}};
+        ColliderComponent sphere{.shape = ColliderShape::Sphere, .radius = .25f};
+        for(int query = 0; query < 100; ++query) {
+            auto cast = physics.shape_cast(sphere, start, {10, 0, 0}, {});
+            ASSERT_TRUE(cast && cast.value());
+            EXPECT_NEAR(cast.value()->fraction, .425f, .002f);
+        }
+        const auto repeated = physics.get_statistics();
+        EXPECT_EQ(repeated.query_shape_builds, 1u);
+        EXPECT_EQ(repeated.query_shape_reuses, 99u);
+        // 连续改变尺寸覆盖缓存容量，再查询最初尺寸，命中位置仍应由当前几何决定。
+        for(int size = 1; size <= 24; ++size) {
+            sphere.radius = .25f + size * .01f;
+            auto cast = physics.shape_cast(sphere, start, {10, 0, 0}, {});
+            ASSERT_TRUE(cast && cast.value());
+            EXPECT_NEAR(cast.value()->fraction, (4.5f - sphere.radius) / 10, .002f);
+        }
+        sphere.radius = .25f;
+        auto cast = physics.shape_cast(sphere, start, {10, 0, 0}, {});
+        ASSERT_TRUE(cast && cast.value());
+        EXPECT_NEAR(cast.value()->fraction, .425f, .002f);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_EQ(physics.get_statistics().query_shape_builds, 0u);
+    }
+
     TEST_F(PhysicsServiceTest, EditingCapsuleHeightRebuildsItsCollisionShapeAtTheNextFixedStep) {
         body.edit_component<RigidBodyComponent>(
             [](auto& rigid) { rigid.motion = BodyMotion::Static; });

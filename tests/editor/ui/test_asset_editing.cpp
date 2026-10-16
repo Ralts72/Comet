@@ -189,13 +189,7 @@ namespace CometEditor::Tests {
         }
 
         void click_item(ImVec2 point) {
-            auto& io = ImGui::GetIO();
-            io.AddMousePosEvent(point.x, point.y);
-            frame();
-            io.AddMouseButtonEvent(0, true);
-            frame();
-            io.AddMouseButtonEvent(0, false);
-            frame();
+            Comet::Tests::click_imgui(point, [&] { frame(); });
         }
 
         std::optional<InspectorPanel::AssetAssignment> click(ImVec2 point) {
@@ -242,13 +236,10 @@ namespace CometEditor::Tests {
             ImGuiID id = ImHashStr(label, 0, group);
             if(child)
                 id = ImHashStr(child, 0, id);
-            for(float y = window->WorkRect.Min.y; y < window->WorkRect.Max.y; y += 4) {
-                const ImVec2 point{window->WorkRect.Min.x + 40, y};
-                ImGui::GetIO().AddMousePosEvent(point.x, point.y);
-                frame();
-                if(ImGui::GetCurrentContext()->HoveredId == id)
-                    return point;
-            }
+            const ImRect area{{window->WorkRect.Min.x + 40, window->WorkRect.Min.y},
+                {window->WorkRect.Min.x + 41, window->WorkRect.Max.y}};
+            if(const auto point = Comet::Tests::find_imgui_item(id, area, [&] { frame(); }, 4))
+                return *point;
             ADD_FAILURE() << "Material widget not found: " << name;
             return {};
         }
@@ -280,13 +271,10 @@ namespace CometEditor::Tests {
                 return {};
             }
             const auto id = window->GetID(label);
-            for(float y = window->WorkRect.Min.y; y < window->WorkRect.Max.y; y += 3) {
-                const ImVec2 point{window->WorkRect.Min.x + 15, y};
-                ImGui::GetIO().AddMousePosEvent(point.x, point.y);
-                frame();
-                if(ImGui::GetCurrentContext()->HoveredId == id)
-                    return point;
-            }
+            const ImRect area{{window->WorkRect.Min.x + 15, window->WorkRect.Min.y},
+                {window->WorkRect.Min.x + 16, window->WorkRect.Max.y}};
+            if(const auto point = Comet::Tests::find_imgui_item(id, area, [&] { frame(); }))
+                return *point;
             ADD_FAILURE() << "Widget not found: " << window_name << "/" << label;
             return {};
         }

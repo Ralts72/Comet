@@ -6,7 +6,6 @@
 #include "asset/data/irradiance_data.h"
 #include "asset/serialization/animation_controller_serializer.h"
 #include "asset/default_assets.h"
-#include "asset/import/mesh_importer.h"
 #include "scene/prefab.h"
 
 #include "asset/artifact/mesh_artifact.h"
@@ -19,7 +18,6 @@
 #include "asset/registry.h"
 #include "asset/runtime/render_asset_factory.h"
 #include "asset/serialization/material_serializer.h"
-#include "asset/serialization/metadata_serializer.h"
 #include "audio/audio.h"
 #include "diagnostics/logger.h"
 
@@ -92,18 +90,11 @@ namespace Comet {
             cached != m_models.end() && cached->second.revision == revision)
             return Loaded::success(cached->second.artifact);
         m_models.erase(handle);
-        auto artifact = ModelArtifact::load(m_imports.model_artifact_path(handle), handle);
-        if(!artifact || artifact->importer_version != ModelArtifact::IMPORTER_VERSION
-            || artifact->source_inputs.files.front().relative_path
-                   != record->path.lexically_normal()
-            || !import_inputs_are_current(m_database.paths().assets(), artifact->source_inputs))
+        auto artifact = m_imports.find_current_model_artifact(*record);
+        if(!artifact)
             return Loaded::failure(
                 {"Model artifact is missing or stale; import the model before loading: "
                     + record->path.generic_string()});
-        const auto metadata =
-            MetadataSerializer{}.load(metadata_path(m_database.paths().assets() / record->path));
-        if(!metadata || metadata.value() != artifact->metadata)
-            return Loaded::failure({"Model artifact metadata is stale"});
         std::unordered_map<AssetHandle, std::size_t> children;
         for(const auto& child : artifact->metadata.subresources) {
             const auto* indexed = m_database.find(child.handle);
@@ -258,13 +249,6 @@ namespace Comet {
         return Result<std::filesystem::path, Error>::success(imported_path);
     }
 
-    bool AssetLoader::product_source_is_current(
-        const AssetRecord& record, const ImportInputFingerprint& source) const {
-        auto inputs = capture_import_inputs(
-            m_database.paths().assets(), m_database.paths().assets() / record.path, {});
-        return inputs && inputs.value().files.front() == source;
-    }
-
     Result<std::filesystem::path, Error> AssetLoader::model_product_path(
         const AssetRecord& record) {
         auto artifact = model_artifact(record.source_asset);
@@ -283,10 +267,10 @@ namespace Comet {
 
     Result<MeshData, Error> AssetLoader::read_mesh_data(const AssetHandle handle) {
         if(handle == DEFAULT_CHARACTER_MESH && !m_database.is_read_only()) {
-            static const auto imported = MeshImporter{}.import(default_character_source());
+            auto imported = ImportService::prepare_default_character();
             if(!imported)
                 return Result<MeshData, Error>::failure({imported.error()});
-            return Result<MeshData, Error>::success(imported.value());
+            return Result<MeshData, Error>::success(std::move(imported).value());
         }
         const auto* record = m_database.find(handle);
         if(!record || record->type != AssetType::Mesh)
@@ -337,20 +321,23 @@ namespace Comet {
         auto product = product_path(record, m_imports.texture_artifact_path(handle));
         if(!product)
             return Read::failure(product.error());
-        auto artifact = TextureArtifact::load(product.value(), handle, m_texture_bytes);
+        std::optional<TextureArtifact> artifact;
+        if(!m_database.is_read_only() && !record.source_asset) {
+            const auto* settings = std::get_if<TextureImportSettings>(&record.import_settings);
+            if(!settings)
+                return Read::failure({"Texture asset has incompatible import settings"});
+            artifact = m_imports.find_current_texture_artifact(record, *settings, m_texture_bytes);
+        } else {
+            artifact = TextureArtifact::load(product.value(), handle, m_texture_bytes);
+        }
         if(!artifact)
-            return Read::failure({"Texture CPU product is not ready"});
+            return Read::failure({"Texture CPU product is missing or stale; wait for import"});
         if(m_database.is_read_only()) {
             if(const auto* sampler = m_database.product_sampler(handle))
                 artifact->data.sampler = *sampler;
         } else if(record.source_asset) {
             artifact->data.sampler =
                 m_models.at(record.source_asset).artifact->texture_samplers.at(handle);
-        } else {
-            const auto* settings = std::get_if<TextureImportSettings>(&record.import_settings);
-            if(!product_source_is_current(record, artifact->source) || !settings
-                || artifact->settings != *settings)
-                return Read::failure({"Texture CPU product is stale; wait for import"});
         }
         return Read::success(std::move(artifact->data));
     }
@@ -360,11 +347,13 @@ namespace Comet {
         auto path = product_path(record, m_imports.environment_artifact_path(record.handle));
         if(!path)
             return Read::failure(path.error());
-        auto artifact = EnvironmentArtifact::load(path.value(), record.handle, m_environment_bytes);
+        std::optional<EnvironmentArtifact> artifact;
+        if(m_database.is_read_only())
+            artifact = EnvironmentArtifact::load(path.value(), record.handle, m_environment_bytes);
+        else
+            artifact = m_imports.find_current_environment_artifact(record, m_environment_bytes);
         if(!artifact)
-            return Read::failure({"Environment CPU product is not ready"});
-        if(!m_database.is_read_only() && !product_source_is_current(record, artifact->source))
-            return Read::failure({"Environment CPU product is stale; wait for import"});
+            return Read::failure({"Environment CPU product is missing or stale; wait for import"});
         return Read::success(std::move(artifact->data));
     }
 

@@ -159,13 +159,7 @@ namespace CometEditor::Tests {
         void drag() { drag_at(drag_point); }
 
         void click(ImVec2 point, ImGuiMouseButton button = ImGuiMouseButton_Left) {
-            auto& io = ImGui::GetIO();
-            io.AddMousePosEvent(point.x, point.y);
-            frame();
-            io.AddMouseButtonEvent(button, true);
-            frame();
-            io.AddMouseButtonEvent(button, false);
-            frame();
+            Comet::Tests::click_imgui(point, [&] { frame(); }, button);
         }
 
         void parameter_menu(ImVec2 point, const char* name) {
@@ -191,13 +185,10 @@ namespace CometEditor::Tests {
             ImGuiID id = window->GetID("script");
             for(const char* part : {"parameters", "player", "player"})
                 id = ImHashStr(part, 0, id);
-            for(float y = window->WorkRect.Min.y; y < window->WorkRect.Max.y; y += 3) {
-                const ImVec2 point{window->WorkRect.Min.x + 30, y};
-                ImGui::GetIO().AddMousePosEvent(point.x, point.y);
-                frame();
-                if(ImGui::GetCurrentContext()->HoveredId == id)
-                    return point;
-            }
+            const ImRect area{{window->WorkRect.Min.x + 30, window->WorkRect.Min.y},
+                {window->WorkRect.Min.x + 31, window->WorkRect.Max.y}};
+            if(const auto point = Comet::Tests::find_imgui_item(id, area, [&] { frame(); }))
+                return *point;
             ADD_FAILURE() << "Entity parameter widget not found";
             return {};
         }
@@ -214,18 +205,12 @@ namespace CometEditor::Tests {
             auto* window = ImGui::FindWindowByName("Inspector");
             const auto red_id = color_item_id("##X");
             const auto item_id = color_item_id(item);
-            for(float y = window->WorkRect.Min.y; y < window->WorkRect.Max.y; y += 3) {
-                ImGui::GetIO().AddMousePosEvent(window->WorkRect.Min.x + 20, y);
-                frame();
-                if(GImGui->HoveredId != red_id)
-                    continue;
-                for(float x = window->WorkRect.Min.x + 20; x < window->WorkRect.Max.x; x += 3) {
-                    ImGui::GetIO().AddMousePosEvent(x, y);
-                    frame();
-                    if(GImGui->HoveredId == item_id)
-                        return {x, y};
-                }
-                break;
+            const ImRect red_area{{window->WorkRect.Min.x + 20, window->WorkRect.Min.y},
+                {window->WorkRect.Min.x + 21, window->WorkRect.Max.y}};
+            if(const auto red = Comet::Tests::find_imgui_item(red_id, red_area, [&] { frame(); })) {
+                const ImRect row{{red->x, red->y}, {window->WorkRect.Max.x, red->y + 1}};
+                if(const auto point = Comet::Tests::find_imgui_item(item_id, row, [&] { frame(); }))
+                    return *point;
             }
             ADD_FAILURE() << "Color parameter widget not found: " << item;
             return {};

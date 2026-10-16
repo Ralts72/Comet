@@ -1,9 +1,9 @@
 #include "asset/import/import_service.h"
 
 #include "asset/import/mesh_importer.h"
+#include "asset/default_assets.h"
 #include "asset/import/environment_importer.h"
 #include "asset/import/texture_importer.h"
-#include "asset/artifact/texture_artifact.h"
 #include "asset/serialization/metadata_serializer.h"
 
 #include <utility>
@@ -17,11 +17,37 @@ namespace Comet {
                / "index.bin";
     }
 
+    std::optional<ModelArtifact> ImportService::find_current_model_artifact(
+        const AssetRecord& record) const {
+        if(record.type != AssetType::Model || record.source_asset)
+            return std::nullopt;
+        auto artifact = ModelArtifact::load(model_artifact_path(record.handle), record.handle);
+        if(!artifact || artifact->importer_version != ModelArtifact::IMPORTER_VERSION
+            || artifact->source_inputs.files.front().relative_path != record.path.lexically_normal()
+            || !import_inputs_are_current(m_paths.assets(), artifact->source_inputs))
+            return std::nullopt;
+        const auto metadata =
+            MetadataSerializer{}.load(metadata_path(m_paths.assets() / record.path));
+        if(!metadata || metadata.value() != artifact->metadata)
+            return std::nullopt;
+        return artifact;
+    }
+
+    Result<MeshData> ImportService::prepare_default_character() {
+        static const auto imported = MeshImporter{}.import(default_character_source());
+        return imported;
+    }
+
     Result<ModelImportPrepared> ImportService::stage_model(
         const AssetRecord& record, std::size_t memory_budget, AssetImportMode mode) const {
         using Prepared = Result<ModelImportPrepared>;
         if(record.type != AssetType::Model || record.source_asset)
             return Prepared::failure("Expected a source model asset");
+        if(mode == AssetImportMode::IfNeeded)
+            if(auto cached = find_current_model_artifact(record)) {
+                const auto metadata = cached->metadata;
+                return Prepared::success({std::move(*cached), metadata, true});
+            }
         const auto absolute_source = m_paths.resolve_asset_path(record.path);
         if(!absolute_source)
             return Prepared::failure(absolute_source.error());
@@ -33,13 +59,6 @@ namespace Comet {
         if(metadata.value().handle != record.handle || metadata.value().type != AssetType::Model)
             return Prepared::failure("Model metadata does not match its indexed identity");
         const auto index_path = model_artifact_path(record.handle);
-        if(auto cached = ModelArtifact::load(index_path, record.handle);
-            mode == AssetImportMode::IfNeeded && cached
-            && cached->importer_version == ModelArtifact::IMPORTER_VERSION
-            && cached->metadata == metadata.value()
-            && cached->source_inputs.files.front().relative_path == record.path.lexically_normal()
-            && import_inputs_are_current(m_paths.assets(), cached->source_inputs))
-            return Prepared::success({std::move(*cached), metadata.value(), true});
         const auto inspected = ModelImporter::inspect_source(absolute_source.value(), m_limits);
         if(!inspected)
             return Prepared::failure(inspected.error());
@@ -116,8 +135,26 @@ namespace Comet {
             build_mesh_artifact(record.handle, record.path, memory_budget)};
     }
 
+    std::optional<TextureArtifact> ImportService::find_current_texture_artifact(
+        const AssetRecord& record, const TextureImportSettings& settings,
+        std::size_t memory_budget) const {
+        const auto inputs =
+            capture_import_inputs(m_paths.assets(), m_paths.assets() / record.path, {});
+        if(!inputs || inputs.value().files.front().size > m_limits.source_bytes)
+            return std::nullopt;
+        auto artifact = TextureArtifact::load(
+            texture_artifact_path(record.handle), record.handle, memory_budget);
+        if(!artifact || artifact->importer_version != TextureImporter::VERSION
+            || artifact->source != inputs.value().files.front() || artifact->settings != settings
+            || !import_inputs_are_current(m_paths.assets(), inputs.value()))
+            return std::nullopt;
+        return artifact;
+    }
+
     Result<TextureData> ImportService::prepare_texture(const AssetRecord& record,
         const TextureImportSettings& settings, const std::size_t memory_budget) const {
+        if(auto cached = find_current_texture_artifact(record, settings, memory_budget))
+            return Result<TextureData>::success(std::move(cached->data));
         const auto source = m_paths.assets() / record.path;
         auto inputs = capture_import_inputs(m_paths.assets(), source, {});
         if(!inputs)
@@ -126,12 +163,6 @@ namespace Comet {
         if(fingerprint.size > m_limits.source_bytes)
             return Result<TextureData>::failure("Texture source exceeds its configured limit");
         const auto path = texture_artifact_path(record.handle);
-        if(auto cached = TextureArtifact::load(path, record.handle, memory_budget);
-            cached && cached->importer_version == TextureImporter::VERSION
-            && cached->source == fingerprint && cached->settings == settings
-            && import_inputs_are_current(m_paths.assets(), inputs.value()))
-            return Result<TextureData>::success(std::move(cached->data));
-
         auto imported = TextureImporter{}.import(source, settings, memory_budget, m_limits);
         if(!imported)
             return imported;
@@ -157,18 +188,29 @@ namespace Comet {
                / (std::to_string(handle.value()) + ".bin");
     }
 
+    std::optional<EnvironmentArtifact> ImportService::find_current_environment_artifact(
+        const AssetRecord& record, std::size_t memory_budget) const {
+        const auto inputs =
+            capture_import_inputs(m_paths.assets(), m_paths.assets() / record.path, {});
+        if(!inputs)
+            return std::nullopt;
+        auto artifact =
+            EnvironmentArtifact::load(environment_artifact_path(record.handle), record.handle,
+                memory_budget, inputs.value().files.front(), EnvironmentImporter::VERSION);
+        if(!artifact || !import_inputs_are_current(m_paths.assets(), inputs.value()))
+            return std::nullopt;
+        return artifact;
+    }
+
     Result<EnvironmentArtifact> ImportService::prepare_environment(const AssetRecord& record,
         const std::size_t memory_budget, EnvironmentImporter::Preview* preview) const {
+        if(auto cached = find_current_environment_artifact(record, memory_budget))
+            return Result<EnvironmentArtifact>::success(std::move(*cached));
         const auto source = m_paths.assets() / record.path;
         auto inputs = capture_import_inputs(m_paths.assets(), source, {});
         if(!inputs)
             return Result<EnvironmentArtifact>::failure(inputs.error());
         const auto& fingerprint = inputs.value().files.front();
-        if(auto cached = EnvironmentArtifact::load(environment_artifact_path(record.handle),
-               record.handle, memory_budget, fingerprint, EnvironmentImporter::VERSION)) {
-            if(import_inputs_are_current(m_paths.assets(), inputs.value()))
-                return Result<EnvironmentArtifact>::success(std::move(*cached));
-        }
         auto imported = EnvironmentImporter{}.import(source, memory_budget, preview);
         if(!imported)
             return Result<EnvironmentArtifact>::failure(imported.error());

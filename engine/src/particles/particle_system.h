@@ -10,6 +10,12 @@
 namespace Comet {
     class COMET_API ParticleSystem final: public System {
     public:
+        struct Statistics {
+            uint64_t source_scans = 0;
+            uint64_t snapshot_builds = 0;
+            uint64_t collision_queries = 0;
+        };
+        [[nodiscard]] Statistics get_statistics() const { return m_statistics; }
         Result<void, Error> on_start(Scene&, RuntimeSession&, const RuntimeServices&) override;
         Result<void, Error> fixed_update(Scene&, const Context&) override;
         Result<void, Error> post_update(Scene&, const Context&) override;
@@ -54,5 +60,9 @@ namespace Comet {
         PhysicsAccess* m_physics = nullptr;
         double m_time = 0;
         uint32_t m_count = 0;
+        uint64_t m_settings_revision = UINT64_MAX;
+        uint64_t m_transform_revision = 0;
+        bool m_dirty = false;
+        Statistics m_statistics;
     };
 }
