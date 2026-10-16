@@ -442,6 +442,40 @@ namespace Comet {
                     "horizontal", "水平位移", &RootMotionComponent::horizontal),
                 make_property_descriptor("vertical", "垂直位移", &RootMotionComponent::vertical),
                 make_property_descriptor("rotation", "根旋转", &RootMotionComponent::rotation)}));
+        register_component(make_component_descriptor<FootPlacementComponent>("foot_placement",
+            "脚部 IK",
+            {make_property_descriptor("enabled", "启用", &FootPlacementComponent::enabled),
+                make_property_descriptor(
+                    "character", "角色（留空使用父实体）", &FootPlacementComponent::character),
+                make_property_descriptor(
+                    "left_foot", "左脚骨骼", &FootPlacementComponent::left_foot),
+                make_property_descriptor(
+                    "right_foot", "右脚骨骼", &FootPlacementComponent::right_foot),
+                make_property_descriptor("weight", "权重", &FootPlacementComponent::weight,
+                    {.numeric =
+                            {.speed = .01f, .minimum = 0, .maximum = 1, .enforce_bounds = true}}),
+                make_property_descriptor("foot_height", "脚底到踝关节 (m)",
+                    &FootPlacementComponent::foot_height,
+                    {.numeric = {.speed = .01f, .minimum = 0, .enforce_bounds = true}}),
+                make_property_descriptor("max_offset", "最大高度修正 (m)",
+                    &FootPlacementComponent::max_offset,
+                    {.numeric = {.speed = .01f, .minimum = 0, .enforce_bounds = true}}),
+                make_property_descriptor("plant_height", "抬脚解除高度 (m)",
+                    &FootPlacementComponent::plant_height,
+                    {.numeric = {.speed = .01f, .minimum = .001f, .enforce_bounds = true}}),
+                make_property_descriptor("probe_up", "向上探测距离 (m)",
+                    &FootPlacementComponent::probe_up,
+                    {.numeric = {.speed = .01f, .minimum = 0, .enforce_bounds = true}}),
+                make_property_descriptor("probe_down", "向下探测距离 (m)",
+                    &FootPlacementComponent::probe_down,
+                    {.numeric = {.speed = .01f, .minimum = .001f, .enforce_bounds = true}}),
+                make_property_descriptor("max_slope", "最大坡度 (°)",
+                    &FootPlacementComponent::max_slope,
+                    {.numeric = {.speed = 1, .minimum = 0, .maximum = 89, .enforce_bounds = true}}),
+                make_property_descriptor("response", "响应速度", &FootPlacementComponent::response,
+                    {.numeric = {.speed = .5f, .minimum = .01f, .enforce_bounds = true}}),
+                make_property_descriptor("knee_forward", "膝盖朝向（模型空间）",
+                    &FootPlacementComponent::knee_forward)}));
         register_component(make_component_descriptor<CharacterAnimationComponent>(
             "character_animation", "Character Animation",
             {make_property_descriptor(

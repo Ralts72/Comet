@@ -16,6 +16,7 @@ namespace Comet {
     struct COMET_API IrradianceData;
     struct TextureData;
     struct AnimationController;
+    struct COMET_API AnimationLibrary;
     class Prefab;
     class ComponentRegistry;
 }
@@ -57,6 +58,8 @@ namespace CometEditor::AssetSourceOperations {
         const std::filesystem::path& destination, const Comet::AnimationController& data);
     [[nodiscard]] Comet::AssetScanReport save_animation_controller(Comet::AssetDatabase& database,
         const Comet::AssetTarget& target, const Comet::AnimationController& data);
+    [[nodiscard]] Comet::AssetScanReport save_animation_library(Comet::AssetDatabase& database,
+        const Comet::AssetTarget& target, const Comet::AnimationLibrary& data);
     [[nodiscard]] Comet::AssetScanReport create_material(Comet::AssetDatabase& database,
         const std::filesystem::path& destination, const Comet::MaterialData& data);
     [[nodiscard]] Comet::AssetScanReport create_environment(Comet::AssetDatabase& database,

@@ -45,6 +45,9 @@ namespace Comet {
             float weight = 1;
             std::string weight_parameter;
             std::vector<std::string> mask;
+            AnimationLayer::Mode mode = AnimationLayer::Mode::Override;
+            std::string reference_clip;
+            float reference_time = 0;
             bool operator==(const Layer&) const = default;
         };
         ParameterMap parameters;
@@ -54,6 +57,8 @@ namespace Comet {
         AssetHandle library;
         std::vector<Layer> layers;
         [[nodiscard]] Result<AnimationBlend> sample(const State& state, Math::Vec2 value) const;
+        [[nodiscard]] Result<AnimationLayer> sample_layer(
+            const Layer& layer, const ParameterMap& overrides, Math::Vec2 value) const;
         [[nodiscard]] Math::Vec2 blend_parameters(
             const State& state, const ParameterMap& overrides) const;
 

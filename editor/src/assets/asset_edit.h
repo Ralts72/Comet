@@ -2,6 +2,7 @@
 
 #include "asset/handle.h"
 #include "animation/animation_controller.h"
+#include "asset/data/animation_library.h"
 #include "asset/import_settings.h"
 #include "asset/data/material_data.h"
 
@@ -23,6 +24,11 @@ namespace CometEditor {
         Comet::AnimationController after;
     };
 
+    struct AnimationLibraryEdit {
+        Comet::AnimationLibrary before;
+        Comet::AnimationLibrary after;
+    };
+
     struct AudioEdit {
         Comet::AudioImportSettings before;
         Comet::AudioImportSettings after;
@@ -31,7 +37,9 @@ namespace CometEditor {
     struct AssetEdit {
         enum class Action { Apply, Preview, Commit, Cancel };
         Comet::AssetTarget target;
-        std::variant<MaterialEdit, TextureEdit, AnimationControllerEdit, AudioEdit> value;
+        std::variant<MaterialEdit, TextureEdit, AnimationControllerEdit, AnimationLibraryEdit,
+            AudioEdit>
+            value;
         Action action = Action::Apply;
     };
 }

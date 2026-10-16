@@ -81,15 +81,16 @@ namespace Comet {
             return Result<std::vector<JointTransform>>::success(std::move(pose));
         }
 
+        JointTransform mix_transform(
+            const JointTransform& first, const JointTransform& second, float weight) {
+            return {glm::mix(first.translation, second.translation, weight),
+                glm::normalize(glm::slerp(first.rotation, second.rotation, weight)),
+                glm::mix(first.scale, second.scale, weight)};
+        }
         void blend_pose(std::vector<JointTransform>& first,
             const std::vector<JointTransform>& second, float weight) {
-            for(std::size_t index = 0; index < first.size(); ++index) {
-                auto& node = first[index];
-                const auto& other = second[index];
-                node.translation = glm::mix(node.translation, other.translation, weight);
-                node.rotation = glm::slerp(node.rotation, other.rotation, weight);
-                node.scale = glm::mix(node.scale, other.scale, weight);
-            }
+            for(std::size_t index = 0; index < first.size(); ++index)
+                first[index] = mix_transform(first[index], second[index], weight);
         }
 
         Result<float> base_weight(const AnimationBlend& sample) {
@@ -127,7 +128,10 @@ namespace Comet {
         }
         Result<void> apply_layer(const AnimationData& data, const AnimationLayer& layer,
             std::vector<JointTransform>& pose) {
-            if(!std::isfinite(layer.weight) || layer.weight < 0 || layer.weight > 1)
+            if(!std::isfinite(layer.weight) || layer.weight < 0 || layer.weight > 1
+                || (layer.mode != AnimationLayer::Mode::Override
+                    && layer.mode != AnimationLayer::Mode::Additive)
+                || !std::isfinite(layer.reference_time) || layer.reference_time < 0)
                 return Result<void>::failure("Invalid animation layer weight");
             std::vector<bool> included(data.nodes.size(), layer.mask.empty());
             for(const auto& name : layer.mask) {
@@ -144,6 +148,13 @@ namespace Comet {
             auto overlay = blended_pose(data, layer.sample);
             if(!overlay)
                 return Result<void>::failure(overlay.error());
+            std::vector<JointTransform> reference;
+            if(layer.mode == AnimationLayer::Mode::Additive) {
+                auto sampled = local_pose(data, layer.reference_clip, layer.reference_time, false);
+                if(!sampled)
+                    return Result<void>::failure(sampled.error());
+                reference = std::move(sampled).value();
+            }
             for(const auto index : data.evaluation_order) {
                 const auto parent = data.nodes[index].parent;
                 if(parent != NO_ANIMATION_NODE && included[parent])
@@ -152,9 +163,19 @@ namespace Comet {
                     continue;
                 auto& node = pose[index];
                 const auto& other = overlay.value()[index];
-                node.translation = glm::mix(node.translation, other.translation, layer.weight);
-                node.rotation = glm::slerp(node.rotation, other.rotation, layer.weight);
-                node.scale = glm::mix(node.scale, other.scale, layer.weight);
+                if(layer.mode == AnimationLayer::Mode::Override) {
+                    node = mix_transform(node, other, layer.weight);
+                    continue;
+                }
+                const auto& rest = reference[index];
+                if(glm::any(glm::lessThanEqual(glm::abs(rest.scale), Math::Vec3(1e-6f))))
+                    return Result<void>::failure(
+                        "Additive reference has a zero scale: " + data.nodes[index].name);
+                node.translation += (other.translation - rest.translation) * layer.weight;
+                const auto delta = glm::inverse(rest.rotation) * other.rotation;
+                node.rotation = glm::normalize(
+                    node.rotation * glm::slerp(Math::Quat(1, 0, 0, 0), delta, layer.weight));
+                node.scale *= glm::mix(Math::Vec3(1), other.scale / rest.scale, layer.weight);
             }
             return Result<void>::success();
         }
@@ -474,31 +495,14 @@ namespace Comet {
         }
         return Result<void>::success();
     }
-    Result<AnimationPose> sample_animation(
-        const AnimationData& data, const AnimationPlayback* playback, bool include_bones) {
-        if(playback
-            && (!std::isfinite(playback->blend) || playback->blend < 0 || playback->blend > 1))
-            return Result<AnimationPose>::failure("Invalid animation playback time");
-        if(playback && playback->clips && playback->clips_target.get() != &data)
-            return Result<AnimationPose>::failure(
-                "Animation library target changed; rebind required");
-        const auto& clips = playback && playback->clips ? *playback->clips : data;
-        auto local = blended_pose(clips, playback ? playback->current : AnimationBlend{});
-        if(!local)
-            return Result<AnimationPose>::failure(local.error());
-        if(playback && playback->blend < 1 && playback->previous.has_clip()) {
-            auto previous = blended_pose(clips, playback->previous);
-            if(!previous)
-                return Result<AnimationPose>::failure(previous.error());
-            blend_pose(local.value(), previous.value(), 1 - playback->blend);
-        }
-        if(playback)
-            for(const auto& layer : playback->layers)
-                if(auto status = apply_layer(clips, layer, local.value()); !status)
-                    return Result<AnimationPose>::failure(status.error());
+    Result<AnimationPose> build_animation_pose(const AnimationData& data,
+        std::vector<JointTransform> local, const AnimationRootMotion* root_motion,
+        bool include_bones) {
+        if(local.size() != data.nodes.size() || data.mesh_node >= data.nodes.size())
+            return Result<AnimationPose>::failure("Invalid local animation pose");
         Math::Mat4 motion_correction(1);
-        if(playback && playback->root_motion) {
-            const auto& settings = *playback->root_motion;
+        if(root_motion) {
+            const auto& settings = *root_motion;
             auto root = motion_node(data, settings.node);
             if(!root)
                 return Result<AnimationPose>::failure(root.error());
@@ -506,13 +510,12 @@ namespace Comet {
             const auto basis = node_world(data, rest, data.mesh_node);
             motion_correction =
                 glm::affineInverse(basis) * motion_frame(data, rest, root.value(), settings, basis)
-                * glm::affineInverse(
-                    motion_frame(data, local.value(), root.value(), settings, basis))
+                * glm::affineInverse(motion_frame(data, local, root.value(), settings, basis))
                 * basis;
         }
         std::vector<Math::Mat4> world(data.nodes.size());
         for(const auto index : data.evaluation_order) {
-            const auto& node = local.value()[index];
+            const auto& node = local[index];
             auto matrix = glm::translate(Math::Mat4(1), node.translation)
                           * glm::mat4_cast(node.rotation) * glm::scale(Math::Mat4(1), node.scale);
             if(data.nodes[index].parent != NO_ANIMATION_NODE)
@@ -547,7 +550,51 @@ namespace Comet {
         if(!bounds)
             return Result<AnimationPose>::failure("Skin has no weighted vertices");
         output.bounds = *bounds;
+        output.local_transforms = std::move(local);
         return Result<AnimationPose>::success(std::move(output));
+    }
+    Result<AnimationPose> sample_animation(
+        const AnimationData& data, const AnimationPlayback* playback, bool include_bones) {
+        if(playback
+            && (!std::isfinite(playback->blend) || playback->blend < 0 || playback->blend > 1))
+            return Result<AnimationPose>::failure("Invalid animation playback time");
+        if(playback && playback->clips && playback->clips_target.get() != &data)
+            return Result<AnimationPose>::failure(
+                "Animation library target changed; rebind required");
+        if(playback && !playback->ik.empty() && playback->pose_source
+            && playback->pose_source.get() != &data)
+            return Result<AnimationPose>::failure("IK target skeleton changed; rebuild required");
+        const auto& clips = playback && playback->clips ? *playback->clips : data;
+        auto local = blended_pose(clips, playback ? playback->current : AnimationBlend{});
+        if(!local)
+            return Result<AnimationPose>::failure(local.error());
+        if(playback && playback->blend < 1 && playback->previous.has_clip()) {
+            auto previous = blended_pose(clips, playback->previous);
+            if(!previous)
+                return Result<AnimationPose>::failure(previous.error());
+            blend_pose(local.value(), previous.value(), 1 - playback->blend);
+        }
+        if(playback)
+            for(const auto& layer : playback->layers)
+                if(auto status = apply_layer(clips, layer, local.value()); !status)
+                    return Result<AnimationPose>::failure(status.error());
+        const auto* root = playback && playback->root_motion ? &*playback->root_motion : nullptr;
+        auto pose = build_animation_pose(data, std::move(local).value(), root,
+            include_bones || (playback && !playback->ik.empty()));
+        if(!pose || !playback || playback->ik.empty())
+            return pose;
+        return apply_animation_ik(data, std::move(pose).value(), playback->ik, root);
+    }
+    Result<AnimationPose> interpolate_animation_pose(const AnimationData& data,
+        const AnimationPose& previous, const AnimationPose& current, float alpha,
+        const AnimationRootMotion* root_motion) {
+        if(!std::isfinite(alpha) || alpha < 0 || alpha > 1
+            || previous.local_transforms.size() != data.nodes.size()
+            || current.local_transforms.size() != data.nodes.size())
+            return Result<AnimationPose>::failure("Invalid animation interpolation inputs");
+        auto local = previous.local_transforms;
+        blend_pose(local, current.local_transforms, alpha);
+        return build_animation_pose(data, std::move(local), root_motion, true);
     }
     Result<AnimationPose> resolve_animation_pose(const AnimationData& data,
         const AnimationPlayback* playback, std::string& error, bool include_bones) {

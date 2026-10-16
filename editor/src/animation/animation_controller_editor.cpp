@@ -636,13 +636,39 @@ namespace CometEditor {
             ImGui::EndCombo();
         }
         ImGui::TextWrapped(
-            "层按列表顺序覆盖基础状态。遮罩节点包含全部后代；空遮罩覆盖全身。层共用参数，独立播放；事件只来自基础状态。");
+            "层按顺序叠加：覆盖层替换姿态，加法层叠加相对参考姿态的变化。遮罩包含后代，空遮罩为全身；事件只来自基础状态。");
         std::optional<std::size_t> removed;
         for(std::size_t i = 0; i < data.layers.size(); ++i) {
             auto& layer = data.layers[i];
             ImGui::PushID(int(i));
             Ui::input_text("层名称", layer.name);
             state_choice("动作状态", layer.state, data, false);
+            int mode = int(layer.mode);
+            if(ImGui::Combo("混合方式", &mode, "覆盖\0加法\0")) {
+                layer.mode = Comet::AnimationLayer::Mode(mode);
+                if(layer.mode == Comet::AnimationLayer::Mode::Override) {
+                    layer.reference_clip.clear();
+                    layer.reference_time = 0;
+                }
+            }
+            if(layer.mode == Comet::AnimationLayer::Mode::Additive) {
+                bool rest = layer.reference_clip.empty();
+                if(ImGui::Checkbox("使用绑定姿态作为参考", &rest)) {
+                    layer.reference_clip.clear();
+                    layer.reference_time = 0;
+                    if(!rest) {
+                        const auto* state = data.find_state(layer.state);
+                        if(state && !state->motions.empty())
+                            layer.reference_clip = state->motions.front().clip;
+                    }
+                }
+                if(!layer.reference_clip.empty()) {
+                    clip_choice("参考片段", layer.reference_clip);
+                    ImGui::DragFloat("参考时间 (s)", &layer.reference_time, .01f, 0, 3600);
+                }
+                ImGui::TextWrapped(
+                    "叠加动作相对参考的平移、旋转和缩放，适合呼吸、瞄准与受击。参考片段使用固定时间。");
+            }
             ImGui::SliderFloat("权重", &layer.weight, 0, 1);
             if(ImGui::BeginCombo("权重参数",
                    layer.weight_parameter.empty() ? "固定权重" : layer.weight_parameter.c_str())) {
@@ -834,17 +860,14 @@ namespace CometEditor {
             const auto* layer_state = data.find_state(layer.state);
             if(!layer_state)
                 continue;
-            auto mixed_layer =
-                data.sample(*layer_state, data.blend_parameters(*layer_state, m_preview_values));
-            if(!mixed_layer)
-                continue;
-            float weight = layer.weight;
-            if(!layer.weight_parameter.empty()) {
-                const auto* value = data.parameter(layer.weight_parameter, m_preview_values);
-                if(value && std::holds_alternative<float>(*value))
-                    weight *= std::clamp(std::get<float>(*value), 0.f, 1.f);
+            auto mixed_layer = data.sample_layer(
+                layer, m_preview_values, data.blend_parameters(*layer_state, m_preview_values));
+            if(!mixed_layer) {
+                preview->stop();
+                ImGui::TextColored({1, .45f, .35f, 1}, "%s", mixed_layer.error().c_str());
+                return;
             }
-            layers.push_back({std::move(mixed_layer).value(), weight, layer.mask});
+            layers.push_back(std::move(mixed_layer).value());
         }
         preview->set_layers(std::move(layers));
         if(!preview->select_sample(sample, m_preview_state != state.name)) {

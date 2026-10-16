@@ -2,6 +2,8 @@
 #include "asset/default_assets.h"
 #include "asset/serialization/animation_controller_serializer.h"
 #include "asset/data/animation_library.h"
+#include "animation/animation_system.h"
+#include "gameplay/root_motion.h"
 #include "asset/import/import_service.h"
 #include "asset/product_index.h"
 #include "asset/project_prepare.h"
@@ -536,4 +538,79 @@ namespace Comet::Tests {
         EXPECT_FALSE(limited.request_load(handle, AssetType::Environment));
         EXPECT_FALSE(limited_registry.contains(handle));
     }
+    TEST(ProductIndexTest,
+        RetargetLibraryAndRootMotionRunFromExportedProductsAfterSourcesAreRemoved) {
+        const TemporaryProject source;
+        const TemporaryDirectory outputs;
+        const auto assets = std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets";
+        const auto motion_path = source.paths().assets() / "motions.glb";
+        std::filesystem::copy_file(assets / "animations/retarget_walk.glb", motion_path);
+        auto library = AnimationLibrary::load(assets / "animations/retarget.anilib");
+        ASSERT_TRUE(library);
+        const auto motion = library.value().entries[0].mesh;
+        ASSERT_TRUE(MetadataSerializer{}.save(
+            {.handle = motion, .type = AssetType::Mesh}, metadata_path(motion_path)));
+        const AssetHandle library_handle{42}, controller_handle{43};
+        const auto library_path = source.paths().assets() / "motions.anilib";
+        ASSERT_TRUE(library.value().save(library_path));
+        ASSERT_TRUE(MetadataSerializer{}.save(
+            {.handle = library_handle, .type = AssetType::AnimationLibrary},
+            metadata_path(library_path)));
+        AnimationController controller;
+        controller.library = library_handle;
+        controller.states[0].motions = {{0, "retarget_walk"}};
+        const auto controller_path = source.paths().assets() / "actor.ani";
+        ASSERT_TRUE(AnimationControllerSerializer{}.save(controller, controller_path));
+        ASSERT_TRUE(MetadataSerializer{}.save(
+            {.handle = controller_handle, .type = AssetType::AnimationController},
+            metadata_path(controller_path)));
+        const auto components = create_scene_component_registry();
+        Scene scene;
+        auto actor = scene.create_entity();
+        actor.add_component<MeshRendererComponent>(DEFAULT_CHARACTER_MESH, DEFAULT_PBR_MATERIAL);
+        actor.add_component<AnimatorComponent>(AnimatorComponent{.controller = controller_handle});
+        actor.add_component<RootMotionComponent>(RootMotionComponent{.node = "root"});
+        ASSERT_TRUE(
+            SceneSerializer(components).save(scene, source.paths().assets() / "main.scene"));
+        ASSERT_TRUE(write_text_file_atomic(source.paths().root() / "project.json", R"({
+            "version":2,"id":"00000000-0000-4000-8000-000000000001",
+            "name":"Retarget","startup_scene":"main.scene"})"));
+        const auto project = Project::load(source.paths().root());
+        ASSERT_TRUE(project);
+        ASSERT_TRUE(prepare_project(project.value(), {}));
+        const auto destination = outputs.path() / "game";
+        auto exported = export_project_assets(project.value(), destination, {});
+        ASSERT_TRUE(exported) << exported.error();
+        std::filesystem::remove_all(source.paths().root());
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(ProjectPaths(destination), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        ASSERT_TRUE(manager.get_database().is_read_only());
+        auto loaded = manager.load_animation_controller(controller_handle);
+        ASSERT_TRUE(loaded) << loaded.error().message;
+        auto shared = registry.resolve<AnimationLibrary>(library_handle);
+        ASSERT_TRUE(shared);
+        EXPECT_EQ(shared->retargets, library.value().retargets);
+        auto mesh = manager.read_mesh_data(DEFAULT_CHARACTER_MESH);
+        ASSERT_TRUE(mesh) << mesh.error().message;
+        ASSERT_TRUE(mesh.value().animation);
+        EXPECT_FALSE(registry.contains<Mesh>(motion));
+        EXPECT_FALSE(registry.contains<Mesh>(DEFAULT_CHARACTER_MESH));
+        SceneRuntime runtime;
+        const auto animation = mesh.value().animation;
+        ASSERT_TRUE(runtime.add_system(
+            std::make_unique<AnimationSystem>([animation](AssetHandle) { return animation; },
+                [data = loaded.value()](AssetHandle) { return data; },
+                [shared](AssetHandle) { return shared; }, Gameplay::apply_root_motion)));
+        ASSERT_TRUE(runtime.start(scene));
+        auto advanced = runtime.advance(.1);
+        ASSERT_TRUE(advanced) << advanced.error().message;
+        EXPECT_NEAR(actor.get_component<TransformComponent>().translation.z, .2, .001);
+        EXPECT_TRUE(scene.get_animation_playback(actor)->pose_error.empty());
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(std::filesystem::exists(ProjectPaths(destination).cache()));
+    }
+
 }

@@ -63,7 +63,7 @@ namespace CometEditor {
             m_next_asset.reset();
             return;
         }
-        if(m_controller_data && m_controller_saved && *m_controller_data != *m_controller_saved) {
+        if(animation_dirty()) {
             m_next_asset = handle;
             return;
         }
@@ -81,6 +81,7 @@ namespace CometEditor {
         m_material_data.reset();
         m_data.reset();
         m_library_data.reset();
+        m_library_saved.reset();
         m_controller_data.reset();
         m_controller_saved.reset();
         m_controller_editor.close();
@@ -187,29 +188,8 @@ namespace CometEditor {
         }
 
         if(record->type == Comet::AssetType::AnimationLibrary) {
-            ImGui::TextWrapped(
-                "独立动作目录；在动画控制器的“动画库与分层”中引用。右键资产打开源码可编辑别名与来源。");
-            if(m_library_data
-                && ImGui::BeginTable("Animation library", 3,
-                    ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable)) {
-                ImGui::TableSetupColumn("别名");
-                ImGui::TableSetupColumn("源网格");
-                ImGui::TableSetupColumn("片段");
-                ImGui::TableHeadersRow();
-                for(const auto& entry : m_library_data->entries) {
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    ImGui::TextUnformatted(entry.name.c_str());
-                    ImGui::TableNextColumn();
-                    const auto* mesh = m_asset_database.find(entry.mesh);
-                    const auto label =
-                        mesh ? mesh->path.generic_string() : std::to_string(entry.mesh.value());
-                    ImGui::TextUnformatted(label.c_str());
-                    ImGui::TableNextColumn();
-                    ImGui::TextUnformatted(entry.clip.c_str());
-                }
-                ImGui::EndTable();
-            }
+            if(m_library_data)
+                render_animation_library();
             return;
         }
         if(record->type == Comet::AssetType::Data) {
@@ -606,6 +586,7 @@ namespace CometEditor {
         m_material_data.reset();
         m_data.reset();
         m_library_data.reset();
+        m_library_saved.reset();
         m_controller_data.reset();
         m_controller_saved.reset();
         m_template_change.reset();
@@ -714,9 +695,14 @@ namespace CometEditor {
         if(m_loaded_target != edit.target)
             return;
         m_asset_error = std::move(error);
-        if(const auto* controller = std::get_if<AnimationControllerEdit>(&edit.value)) {
+        const auto* controller = std::get_if<AnimationControllerEdit>(&edit.value);
+        const auto* library = std::get_if<AnimationLibraryEdit>(&edit.value);
+        if(controller || library) {
             if(succeeded) {
-                m_controller_saved = controller->after;
+                if(controller)
+                    m_controller_saved = controller->after;
+                else
+                    m_library_saved = library->after;
                 m_loaded_target.revision = m_asset_database.get_revision(edit.target.handle);
                 if(m_next_asset) {
                     const auto next = *m_next_asset;

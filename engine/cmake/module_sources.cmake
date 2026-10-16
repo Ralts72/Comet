@@ -31,6 +31,9 @@ set(COMET_SHADER_CONTRACTS_SOURCES
 set(COMET_ASSET_DATA_SOURCES
     src/asset/content_fwd.h
     src/animation/animation_data.cpp
+    src/animation/animation_ik.cpp
+    src/animation/animation_retarget.cpp
+    src/animation/animation_retarget.h
     src/animation/animation_controller.cpp
     src/asset/serialization/animation_controller_serializer.cpp
     src/asset/data/import_input_snapshot.h
@@ -118,6 +121,8 @@ set(COMET_GAMEPLAY_SOURCES
     src/gameplay/character_animation.cpp
     src/gameplay/root_motion.cpp
     src/gameplay/root_motion.h
+    src/gameplay/foot_placement.cpp
+    src/gameplay/foot_placement.h
     src/gameplay/checkpoint_store.cpp
     src/gameplay/checkpoint_store.h
     src/gameplay/game_session.cpp

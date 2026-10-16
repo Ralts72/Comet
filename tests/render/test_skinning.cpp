@@ -327,4 +327,98 @@ namespace Comet::Tests {
             EXPECT_NEAR(centroid(), expected, 1);
         EXPECT_EQ(m_scene.render_items[0].animation, playback);
     }
+    TEST_F(SkinningGpuTest, PresentedLocalPoseAndAdditiveReferenceReachGpuAcrossFrameSlots) {
+        const double quarter = centroid(.25);
+        const double three_quarters = centroid(.75);
+        const auto data = m_source.animation;
+        AnimationPlayback frame{.current = {.clip = "move", .time = 0, .loop = false}};
+        auto first = sample_animation(*data, &frame);
+        frame.current.time = 1;
+        auto last = sample_animation(*data, &frame);
+        ASSERT_TRUE(first);
+        ASSERT_TRUE(last);
+        auto interpolated = interpolate_animation_pose(*data, first.value(), last.value(), .25f);
+        ASSERT_TRUE(interpolated);
+        frame.pose_source = data;
+        frame.pose = std::make_shared<const AnimationPose>(std::move(interpolated).value());
+        const auto frozen = std::make_shared<const AnimationPlayback>(frame);
+        m_scene.render_items[0].animation = frozen;
+        for(int i = 0; i < 4; ++i)
+            EXPECT_NEAR(centroid(), quarter, 1);
+        frame.pose.reset();
+        frame.current.time = .25;
+        frame.layers = {{.sample = {.clip = "move", .time = 1, .loop = false},
+            .weight = .5f,
+            .mask = {"Bone"},
+            .mode = AnimationLayer::Mode::Additive,
+            .reference_clip = "move",
+            .reference_time = 0}};
+        m_scene.render_items[0].animation = std::make_shared<const AnimationPlayback>(frame);
+        for(int i = 0; i < 4; ++i)
+            EXPECT_NEAR(centroid(), three_quarters, 1);
+        m_scene.render_items[0].animation = frozen;
+        EXPECT_NEAR(centroid(), quarter, 1);
+        EXPECT_TRUE(messages.str().empty()) << messages.str();
+    }
+
+    TEST_F(SkinningGpuTest, TwoBoneConstraintReachesSkinnedVerticesAndMatchesTargetRotation) {
+        const double expected = centroid(.85);
+        auto source = m_source;
+        auto data = std::make_shared<AnimationData>();
+        data->mesh_node = 0;
+        data->nodes = {{"Mesh"}, {"hip", NO_ANIMATION_NODE, {.translation = {0, 1, 0}}},
+            {"knee", 1, {.translation = {0, -.5f, .2f}}},
+            {"Bone", 2, {.translation = {0, -.5f, -.2f}}}};
+        data->evaluation_order = {0, 1, 2, 3};
+        data->joints = {
+            {.node = 1}, {.node = 2}, {.node = 3, .bounds = m_source.animation->joints[0].bounds}};
+        source.animation = data;
+        source.skin = std::vector<SkinInfluences>(3, {{2, 0, 0, 0}, {1, 0, 0, 0}});
+        auto mesh = engine->get_render_resources().try_create_mesh(source);
+        ASSERT_TRUE(mesh);
+        ASSERT_TRUE(engine->get_asset_registry().replace_asset(AssetHandle(10), mesh.value()));
+        AnimationPlayback frame{.ik = {{.tip = 3,
+                                    .target = {.35f, 0, 0},
+                                    .pole = {0, 0, 1},
+                                    .rotation = Math::Quat(1, 0, 0, 0)}},
+            .pose_source = data};
+        m_scene.render_items[0].animation = std::make_shared<const AnimationPlayback>(frame);
+        for(int i = 0; i < 4; ++i)
+            EXPECT_NEAR(centroid(), expected, 1);
+        auto pose = sample_animation(*data, &frame);
+        ASSERT_TRUE(pose) << pose.error();
+        frame.pose = std::make_shared<const AnimationPose>(std::move(pose).value());
+        m_scene.render_items[0].animation = std::make_shared<const AnimationPlayback>(frame);
+        for(int i = 0; i < 4; ++i)
+            EXPECT_NEAR(centroid(), expected, 1);
+        EXPECT_TRUE(messages.str().empty()) << messages.str();
+    }
+
+    TEST_F(SkinningGpuTest, RetargetedLibraryKeepsTargetBindShapeAndAppliesSelectedMotionScale) {
+        const double expected = centroid(.7);
+        auto source = std::make_shared<AnimationData>(*m_source.animation);
+        source->nodes[1].name = "source_bone";
+        source->nodes[1].rest.translation.x = .1f;
+        source->nodes[1].rest.rotation = Math::angle_axis(.7f, {0, 0, 1});
+        const auto q = source->nodes[1].rest.rotation;
+        source->clips[0].channels.push_back(
+            {1, AnimationChannel::Path::Rotation, AnimationChannel::Interpolation::Linear, {0, 1},
+                {{q.x, q.y, q.z, q.w}, {q.x, q.y, q.z, q.w}}});
+        AnimationLibrary library;
+        library.entries = {{"retargeted", AssetHandle(99), "move"}};
+        library.sources = {{AssetHandle(99), source}};
+        library.retargets = {{AssetHandle(99), {.nodes = {{"source_bone", "Bone"}},
+                                                   .translations = {"source_bone"},
+                                                   .translation_scale = .5f}}};
+        auto bound = library.bind(*m_source.animation);
+        ASSERT_TRUE(bound) << bound.error();
+        AnimationPlayback frame{.current = {.clip = "retargeted", .time = 1, .loop = false},
+            .clips = std::make_shared<const AnimationData>(std::move(bound).value()),
+            .clips_target = m_source.animation};
+        m_scene.render_items[0].animation = std::make_shared<const AnimationPlayback>(frame);
+        for(int i = 0; i < 4; ++i)
+            EXPECT_NEAR(centroid(), expected, 1);
+        EXPECT_TRUE(messages.str().empty()) << messages.str();
+    }
+
 }

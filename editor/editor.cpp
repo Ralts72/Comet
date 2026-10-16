@@ -576,7 +576,7 @@ namespace {
 
         bool finish_active_edit() {
             m_viewport->cancel_interaction();
-            if(m_inspector_panel->asset_inspector().finish_controller_edit()
+            if(m_inspector_panel->asset_inspector().finish_animation_edit()
                 && m_inspector_panel->finish_edit() && process_asset_edit())
                 return true;
             LOG_ERROR("Cannot finish active property edit; editor request rejected");
@@ -1112,8 +1112,9 @@ namespace {
         Comet::Result<void, Comet::Error> apply_asset_edit(const CometEditor::AssetEdit& edit) {
             if(std::holds_alternative<CometEditor::MaterialEdit>(edit.value))
                 return m_material_edits->process(edit);
-            if(std::holds_alternative<CometEditor::AnimationControllerEdit>(edit.value))
-                return m_assets->apply_animation_controller_edit(edit);
+            if(std::holds_alternative<CometEditor::AnimationControllerEdit>(edit.value)
+                || std::holds_alternative<CometEditor::AnimationLibraryEdit>(edit.value))
+                return m_assets->apply_animation_edit(edit);
             if(std::holds_alternative<CometEditor::AudioEdit>(edit.value))
                 return m_assets->apply_audio_edit(edit);
             return m_assets->apply_texture_edit(edit);

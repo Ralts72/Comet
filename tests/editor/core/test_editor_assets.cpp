@@ -143,6 +143,35 @@ namespace CometEditor::Tests {
         }
     };
 
+    TEST_F(EditorAssetsTest, RetargetLibrarySavePreservesIdentityAndRejectsStaleOrInvalidDrafts) {
+        Comet::AnimationLibrary library;
+        library.entries = {{"idle", Comet::DEFAULT_CHARACTER_MESH, "idle"}};
+        const auto path = Comet::ProjectPaths(root).assets() / "motion.anilib";
+        ASSERT_TRUE(library.save(path));
+        ASSERT_TRUE(assets->refresh().succeeded());
+        const auto* record = assets->database().find("motion.anilib");
+        ASSERT_TRUE(record);
+        const Comet::AssetTarget target{
+            record->handle, assets->database().get_revision(record->handle)};
+        auto edited = library;
+        edited.retargets[Comet::DEFAULT_CHARACTER_MESH].translations = {"root"};
+        const AssetEdit edit{target, AnimationLibraryEdit{library, edited}};
+        const auto saved = assets->apply_animation_edit(edit);
+        ASSERT_TRUE(saved) << saved.error().message;
+        EXPECT_EQ(Comet::AnimationLibrary::load(path).value(), edited);
+        EXPECT_FALSE(assets->apply_animation_edit(edit));
+        auto invalid = edited;
+        invalid.retargets.begin()->second.translation_scale = -1;
+        const Comet::AssetTarget current{
+            target.handle, assets->database().get_revision(target.handle)};
+        EXPECT_FALSE(
+            assets->apply_animation_edit({current, AnimationLibraryEdit{edited, invalid}}));
+        EXPECT_EQ(Comet::AnimationLibrary::load(path).value(), edited);
+        const auto published = runtime.resolve<Comet::AnimationLibrary>(target.handle);
+        ASSERT_TRUE(published);
+        EXPECT_EQ(*published, edited);
+    }
+
     TEST_F(
         EditorAssetsTest, AnimationControllerSavePreservesIdentityAndRejectsStaleOrInvalidDrafts) {
         const std::filesystem::path path = "character.ani";
@@ -156,17 +185,17 @@ namespace CometEditor::Tests {
         auto edited = loaded.value();
         edited.states[0].motions[1].threshold = 3;
         const AssetEdit edit{target, AnimationControllerEdit{loaded.value(), edited}};
-        ASSERT_TRUE(assets->apply_animation_controller_edit(edit));
+        ASSERT_TRUE(assets->apply_animation_edit(edit));
         const auto published = runtime.resolve<Comet::AnimationController>(target.handle);
         ASSERT_TRUE(published);
         EXPECT_EQ(*published, edited);
-        EXPECT_FALSE(assets->apply_animation_controller_edit(edit));
+        EXPECT_FALSE(assets->apply_animation_edit(edit));
         const Comet::AssetTarget current{
             target.handle, assets->database().get_revision(target.handle)};
         auto invalid = edited;
         invalid.transitions[0].to = "missing";
-        EXPECT_FALSE(assets->apply_animation_controller_edit(
-            {current, AnimationControllerEdit{edited, invalid}}));
+        EXPECT_FALSE(
+            assets->apply_animation_edit({current, AnimationControllerEdit{edited, invalid}}));
         EXPECT_EQ(assets->read_animation_controller(current).value(), edited);
         EXPECT_EQ(runtime.resolve<Comet::AnimationController>(target.handle), published);
         auto reopened =

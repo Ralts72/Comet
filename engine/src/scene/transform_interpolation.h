@@ -35,7 +35,7 @@ namespace Comet {
         void mark_subtree(Scene& scene, entt::entity handle);
         void update_presented(Scene& scene, entt::entity handle);
         const WorldTransformComponent& world(Scene& scene, entt::entity handle);
-        bool active() const noexcept { return m_alpha != 1 && !m_previous.empty(); }
+        bool active() const noexcept { return m_alpha != 1 && !m_presented.empty(); }
 
         bool m_fixed = false;
         float m_alpha = 1;

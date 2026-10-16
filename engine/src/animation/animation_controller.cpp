@@ -109,7 +109,10 @@ namespace Comet {
         for(const auto& layer : layers) {
             if(!valid_parameter_name(layer.name) || !names.insert(layer.name).second
                 || !find_state(layer.state) || !std::isfinite(layer.weight) || layer.weight < 0
-                || layer.weight > 1 || layer.mask.size() > 128)
+                || layer.weight > 1 || layer.mask.size() > 128
+                || (layer.mode != AnimationLayer::Mode::Override
+                    && layer.mode != AnimationLayer::Mode::Additive)
+                || !std::isfinite(layer.reference_time) || layer.reference_time < 0)
                 return Result<void>::failure("Invalid animation layer: " + layer.name);
             if(!layer.weight_parameter.empty()) {
                 const auto* value = parameter(layer.weight_parameter, {});
@@ -167,6 +170,27 @@ namespace Comet {
             return scalar ? *scalar : 0.f;
         };
         return {number(state.parameter), number(state.parameter_y)};
+    }
+    Result<AnimationLayer> AnimationController::sample_layer(
+        const Layer& layer, const ParameterMap& overrides, Math::Vec2 value) const {
+        const auto* state = find_state(layer.state);
+        if(!state)
+            return Result<AnimationLayer>::failure(
+                "Animation layer state is missing: " + layer.state);
+        auto sampled = sample(*state, value);
+        if(!sampled)
+            return Result<AnimationLayer>::failure(sampled.error());
+        float weight = layer.weight;
+        if(!layer.weight_parameter.empty()) {
+            const auto* input = parameter(layer.weight_parameter, overrides);
+            const auto* number = input ? std::get_if<float>(input) : nullptr;
+            if(!number || !std::isfinite(*number))
+                return Result<AnimationLayer>::failure(
+                    "Invalid layer weight parameter: " + layer.weight_parameter);
+            weight *= std::clamp(*number, 0.f, 1.f);
+        }
+        return Result<AnimationLayer>::success({std::move(sampled).value(), weight, layer.mask,
+            layer.mode, layer.reference_clip, layer.reference_time});
     }
     Result<AnimationBlend> AnimationController::sample(const State& state, Math::Vec2 value) const {
         if(state.motions.empty())

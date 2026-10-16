@@ -82,13 +82,23 @@ namespace Comet {
                 for(const auto node : layers.value()) {
                     AnimationController::Layer layer;
                     for(auto read : {context.validate_keys(node,
-                                         {"name", "state", "weight", "weight_parameter", "mask"}),
+                                         {"name", "state", "weight", "weight_parameter", "mask",
+                                             "mode", "reference_clip", "reference_time"}),
                             field(node, context, "name", layer.name),
                             field(node, context, "state", layer.state),
                             field(node, context, "weight", layer.weight),
-                            field(node, context, "weight_parameter", layer.weight_parameter)})
+                            field(node, context, "weight_parameter", layer.weight_parameter),
+                            field(node, context, "reference_clip", layer.reference_clip),
+                            field(node, context, "reference_time", layer.reference_time)})
                         if(!read)
                             return Read::failure(read.error());
+                    std::string mode = "override";
+                    if(auto read = field(node, context, "mode", mode); !read)
+                        return Read::failure(read.error());
+                    if(mode == "additive")
+                        layer.mode = AnimationLayer::Mode::Additive;
+                    else if(mode != "override")
+                        return Read::failure("Unknown animation layer mode: " + mode);
                     auto mask = array(node, "mask", context);
                     if(!mask)
                         return Read::failure(mask.error());
@@ -239,6 +249,13 @@ namespace Comet {
                 writer.field("state", layer.state);
                 writer.field("weight", layer.weight);
                 writer.field("weight_parameter", layer.weight_parameter);
+                if(layer.mode == AnimationLayer::Mode::Additive)
+                    writer.field("mode", "additive");
+                if(layer.mode == AnimationLayer::Mode::Additive || !layer.reference_clip.empty()
+                    || layer.reference_time != 0) {
+                    writer.field("reference_clip", layer.reference_clip);
+                    writer.field("reference_time", layer.reference_time);
+                }
                 writer.key("mask");
                 writer.begin_array();
                 for(const auto& bone : layer.mask)

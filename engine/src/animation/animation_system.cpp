@@ -88,7 +88,9 @@ namespace Comet {
                         && entity.get_component<RootMotionComponent>().enabled
                     ? &entity.get_component<RootMotionComponent>()
                     : nullptr;
-            if(fixed && *fixed != bool(root))
+            const bool foot_placement = entity.has_component<FootPlacementComponent>()
+                                        && entity.get_component<FootPlacementComponent>().enabled;
+            if(fixed && *fixed != (bool(root) || foot_placement))
                 return;
             if(!std::isfinite(animator.speed) || animator.speed < 0
                 || !std::isfinite(animator.transition) || animator.transition < 0) {
@@ -258,21 +260,14 @@ namespace Comet {
                         value = glm::mix(playback.layer_parameters[i], value,
                             float(-std::expm1(-delta / state.smoothing)));
                     playback.layer_parameters[i] = value;
-                    auto sample = definition.sample(state, value);
+                    auto sample = definition.sample_layer(layer, animator.parameters, value);
                     if(!sample) {
                         result = Result<void, Error>::failure({sample.error()});
                         return;
                     }
-                    sample.value().time = frame.layers[i].sample.time;
+                    sample.value().sample.time = frame.layers[i].sample.time;
                     auto& output = frame.layers[i];
-                    output.sample = std::move(sample).value();
-                    output.mask = layer.mask;
-                    output.weight = layer.weight;
-                    if(!layer.weight_parameter.empty())
-                        output.weight *= std::clamp(
-                            std::get<float>(
-                                *definition.parameter(layer.weight_parameter, animator.parameters)),
-                            0.f, 1.f);
+                    output = std::move(sample).value();
                     // 层有独立时钟，权重为零仍推进；事件只由基础状态发出。
                     advance_sample(output.sample, false);
                 }

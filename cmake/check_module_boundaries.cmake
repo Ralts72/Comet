@@ -31,7 +31,7 @@ set(FOUNDATION_HEADERS
 set(SERIALIZATION_HEADERS "${FOUNDATION_HEADERS}")
 set(SHADER_HEADERS "${FOUNDATION_HEADERS}|graphics/(enums|pipeline/shader_interface)\\.h$")
 set(ASSET_HEADERS
-    "${SERIALIZATION_HEADERS}|${SHADER_HEADERS}|animation/(animation_data|animation_controller)\\.h$|asset/(data/|serialization/|(content_fwd|default_assets|handle|metadata|import_settings|registry|reference|script)\\.h$)")
+    "${SERIALIZATION_HEADERS}|${SHADER_HEADERS}|animation/(animation_data|animation_controller|animation_retarget)\\.h$|asset/(data/|serialization/|(content_fwd|default_assets|handle|metadata|import_settings|registry|reference|script)\\.h$)")
 set(INPUT_HEADERS "${SERIALIZATION_HEADERS}|input/")
 set(AUDIO_DATA_HEADERS "audio/(audio_category|audio_settings)\\.h$")
 set(WORLD_HEADERS

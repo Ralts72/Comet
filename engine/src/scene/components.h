@@ -111,6 +111,22 @@ namespace Comet {
         EntityUuid character;
         bool operator==(const CharacterAnimationComponent&) const = default;
     };
+    struct COMET_API FootPlacementComponent {
+        bool enabled = true;
+        EntityUuid character;
+        std::string left_foot = "foot_l";
+        std::string right_foot = "foot_r";
+        float weight = 1;
+        float foot_height = .08f;
+        float max_offset = .35f;
+        float plant_height = .15f;
+        float probe_up = .5f;
+        float probe_down = .8f;
+        float max_slope = 55;
+        float response = 18;
+        Math::Vec3 knee_forward{0, 0, 1};
+        bool operator==(const FootPlacementComponent&) const = default;
+    };
     // 父实体为蒙皮模型；本地 Transform 表示骨骼空间偏移。
     struct COMET_API BoneAttachmentComponent {
         std::string bone;
@@ -178,6 +194,7 @@ namespace Comet {
     inline constexpr bool is_scene_render_component_v =
         std::is_same_v<std::remove_cvref_t<T>, AnimatorComponent>
         || std::is_same_v<std::remove_cvref_t<T>, RootMotionComponent>
+        || std::is_same_v<std::remove_cvref_t<T>, FootPlacementComponent>
         || std::is_same_v<std::remove_cvref_t<T>, MeshRendererComponent>
         || std::is_same_v<std::remove_cvref_t<T>, MeshLodComponent>
         || std::is_same_v<std::remove_cvref_t<T>, CameraComponent>

@@ -1,0 +1,17 @@
+#pragma once
+#include "animation/animation_data.h"
+#include <map>
+
+namespace Comet {
+    // 每个源骨架一份映射；未列出的同名节点自动匹配，目标骨长和缩放保持不变。
+    struct COMET_API AnimationRetarget {
+        std::map<std::string, std::string> nodes;
+        std::vector<std::string> translations;
+        // 0 按对应骨段的长度比中位数推导；正数显式指定网格空间位移比例。
+        float translation_scale = 0;
+        [[nodiscard]] Result<void> validate() const;
+        bool operator==(const AnimationRetarget&) const = default;
+    };
+    [[nodiscard]] COMET_API Result<AnimationData> retarget_animation(const AnimationData& source,
+        const AnimationData& target, const AnimationRetarget& settings);
+}

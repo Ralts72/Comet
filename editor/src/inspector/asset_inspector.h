@@ -41,7 +41,7 @@ namespace CometEditor {
         void complete_asset_read(
             const Comet::AssetTarget& request, Comet::Result<Comet::AnimationController> result);
         [[nodiscard]] std::optional<Comet::AssetHandle> take_selection_request();
-        [[nodiscard]] bool finish_controller_edit();
+        [[nodiscard]] bool finish_animation_edit();
         void render_controller_window(AnimationPreview* preview);
         [[nodiscard]] std::optional<Comet::AssetTarget> take_library_read();
         void open_controller(Comet::AssetHandle handle);
@@ -51,12 +51,15 @@ namespace CometEditor {
         [[nodiscard]] Comet::AssetHandle controller_handle() const {
             return m_loaded_target.handle;
         }
-        [[nodiscard]] bool controller_selection_pending() const {
-            return m_controller_data.has_value() && m_next_asset.has_value();
+        [[nodiscard]] bool animation_selection_pending() const {
+            return animation_dirty() && m_next_asset.has_value();
         }
 
     private:
         void render_animation_controller();
+        void render_animation_library();
+        void render_unsaved_animation();
+        [[nodiscard]] bool animation_dirty() const;
         void render_data();
         void render_texture(const Comet::AssetRecord& record);
         void render_audio(const Comet::AssetRecord& record);
@@ -84,6 +87,7 @@ namespace CometEditor {
         std::optional<Comet::MaterialData> m_material_data;
         std::optional<Comet::GameData> m_data;
         std::optional<Comet::AnimationLibrary> m_library_data;
+        std::optional<Comet::AnimationLibrary> m_library_saved;
         std::optional<Comet::MaterialData> m_material_before;
         std::optional<Comet::AnimationController> m_controller_data;
         std::optional<Comet::AnimationController> m_controller_saved;

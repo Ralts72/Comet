@@ -87,7 +87,7 @@ namespace Comet {
             const WorldTransformComponent& world, EntityId id, bool same_scene, RenderItem& item) {
             if(!same_scene || item.entity_id != id || item.transform_revision != world.revision)
                 item.model_matrix = world.world_matrix;
-            item.animation = scene.get_animation_playback(entity);
+            item.animation = scene.get_render_animation_playback(entity);
             item.entity_id = id;
             item.transform_revision = world.revision;
             item.lod.reset();

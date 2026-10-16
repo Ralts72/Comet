@@ -62,6 +62,7 @@ namespace CometEditor::Tests {
         bool material_update_success = true;
         Comet::MaterialData submitted_material;
         int controller_updates = 0;
+        int library_updates = 0;
         int audio_updates = 0;
         bool audio_update_success = true;
 
@@ -130,6 +131,9 @@ namespace CometEditor::Tests {
                 if(record->type == Comet::AssetType::AnimationController)
                     inspector->asset_inspector().complete_asset_read(*request,
                         Comet::AnimationControllerSerializer{}.load(paths.assets() / record->path));
+                else if(record->type == Comet::AssetType::AnimationLibrary)
+                    inspector->asset_inspector().complete_asset_read(
+                        *request, Comet::AnimationLibrary::load(paths.assets() / record->path));
                 else
                     inspector->asset_inspector().complete_asset_read(
                         *request, Comet::MaterialSerializer{}.load(paths.assets() / record->path));
@@ -141,6 +145,14 @@ namespace CometEditor::Tests {
                     ASSERT_TRUE(saved) << saved.error();
                     ++controller_updates;
                     ASSERT_TRUE(database.scan().succeeded());
+                    inspector->asset_inspector().complete_asset_edit(*request, true);
+                    return;
+                }
+                if(const auto* library = std::get_if<AnimationLibraryEdit>(&request->value)) {
+                    const auto report = AssetSourceOperations::save_animation_library(
+                        database, request->target, library->after);
+                    ASSERT_TRUE(report.succeeded());
+                    ++library_updates;
                     inspector->asset_inspector().complete_asset_edit(*request, true);
                     return;
                 }
@@ -341,13 +353,13 @@ namespace CometEditor::Tests {
         selection.select_entity(entity.get_id());
         frame();
         frame();
-        const auto* prompt = ImGui::FindWindowByName("未保存的动画控制器");
+        const auto* prompt = ImGui::FindWindowByName("未保存的动画资产");
         ASSERT_NE(prompt, nullptr);
         ASSERT_TRUE(prompt->Active);
-        activate("未保存的动画控制器", "继续编辑");
+        activate("未保存的动画资产", "继续编辑");
         EXPECT_EQ(selection.get_selected_asset(), controller);
         EXPECT_EQ(controller_updates, 0);
-        ASSERT_TRUE(inspector->asset_inspector().finish_controller_edit());
+        ASSERT_TRUE(inspector->asset_inspector().finish_animation_edit());
         frame();
         EXPECT_EQ(controller_updates, 1);
         auto saved = Comet::AnimationControllerSerializer{}.load(path);
@@ -357,7 +369,7 @@ namespace CometEditor::Tests {
         selection.select_asset(material);
         frame();
         frame();
-        activate("未保存的动画控制器", "放弃并切换");
+        activate("未保存的动画资产", "放弃并切换");
         EXPECT_EQ(selection.get_selected_asset(), material);
         EXPECT_EQ(controller_updates, 1);
         saved = Comet::AnimationControllerSerializer{}.load(path);
@@ -1737,5 +1749,57 @@ namespace CometEditor::Tests {
         EXPECT_EQ(history.undo_size(), 0);
         EXPECT_FALSE(entity.get_component<Comet::MeshRendererComponent>().material);
     }
+    TEST_F(AssetEditingUiTest, RetargetLibrarySavesAndSelectionChangesKeepUnappliedDraftExplicit) {
+        const Comet::AssetHandle library{91};
+        Comet::AnimationLibrary data;
+        data.entries = {{"idle", mesh, "idle"}};
+        const auto path = paths.assets() / "shared.anilib";
+        ASSERT_TRUE(data.save(path));
+        ASSERT_TRUE(Comet::MetadataSerializer{}.save(
+            {.handle = library, .type = Comet::AssetType::AnimationLibrary},
+            Comet::metadata_path(path)));
+        ASSERT_TRUE(database.scan().succeeded());
+        selection.select_asset(library);
+        frame();
+        frame();
+        const auto activate = [&](const char* window_name, const char* label) {
+            auto* window = ImGui::FindWindowByName(window_name);
+            ASSERT_NE(window, nullptr);
+            ImGui::ActivateItemByID(window->GetID(label));
+            frame();
+            frame();
+        };
+        const auto toggle = [&] {
+            auto* window = ImGui::FindWindowByName("Inspector");
+            ASSERT_NE(window, nullptr);
+            const auto group = window->GetID(std::to_string(mesh.value()).c_str());
+            ImGui::ActivateItemByID(ImHashStr("启用重定向", 0, group));
+            frame();
+            frame();
+        };
+        toggle();
+        EXPECT_EQ(library_updates, 0);
+        activate("Inspector", "###Save Animation Library");
+        EXPECT_EQ(library_updates, 1);
+        auto saved = Comet::AnimationLibrary::load(path);
+        ASSERT_TRUE(saved);
+        EXPECT_TRUE(saved.value().retargets.contains(mesh));
+        toggle();
+        selection.select_asset(material);
+        frame();
+        frame();
+        auto* prompt = ImGui::FindWindowByName("未保存的动画资产");
+        ASSERT_TRUE(prompt && prompt->Active);
+        activate("未保存的动画资产", "继续编辑");
+        EXPECT_EQ(selection.get_selected_asset(), library);
+        activate("Inspector", "###Discard Animation Library");
+        selection.select_asset(material);
+        frame();
+        frame();
+        EXPECT_EQ(selection.get_selected_asset(), material);
+        EXPECT_EQ(library_updates, 1);
+        EXPECT_TRUE(Comet::AnimationLibrary::load(path).value().retargets.contains(mesh));
+    }
+
 }
 #endif

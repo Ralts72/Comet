@@ -146,10 +146,13 @@ namespace Comet {
 
         [[nodiscard]] std::shared_ptr<const AnimationPlayback> get_animation_playback(
             Entity entity) const;
+        // 呈现快照共用插值后的骨骼；玩法继续读取上面的真实姿态。
+        [[nodiscard]] std::shared_ptr<const AnimationPlayback> get_render_animation_playback(
+            Entity entity);
         // Main 发布瞬时姿态输入；不进入内容序列化，Runtime 开始／停止时清理。
         void set_animation_playback(
             Entity entity, std::shared_ptr<const AnimationPlayback> playback);
-        // 宿主解析挂点父实体的网格；Scene 只缓存其 CPU 动画数据与绑定姿态。
+        // 宿主解析 CPU 动画数据；Scene 缓存挂点和固定步呈现所需的姿态。
         void set_animation_source(Entity entity, std::shared_ptr<const AnimationData> source);
 
         [[nodiscard]] bool is_valid(Entity entity) const;
@@ -230,7 +233,7 @@ namespace Comet {
         void update_world_transform(entt::entity handle);
         void mark_attachments_dirty(entt::entity parent);
         void apply_parent_transform(entt::entity child, const WorldTransformComponent& parent,
-            Math::Mat4& model, Math::Mat4& pose) const;
+            Math::Mat4& model, Math::Mat4& pose, bool presented = false);
         std::size_t sync_transform_chain(entt::entity handle);
         void mark_render_dirty() { ++m_render_revision; }
         void mark_render_entity_changed(entt::entity handle);
@@ -321,6 +324,8 @@ namespace Comet {
         struct AnimationSource {
             std::shared_ptr<const AnimationData> data;
             std::shared_ptr<const AnimationPose> bind_pose;
+            std::shared_ptr<const AnimationPose> previous_pose;
+            std::shared_ptr<const AnimationPlayback> presented;
         };
         std::unordered_map<entt::entity, AnimationSource> m_animation_sources;
         entt::registry m_registry;

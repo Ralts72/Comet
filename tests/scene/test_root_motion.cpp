@@ -2,6 +2,7 @@
 #include "animation/animation_system.h"
 #include "gameplay/character_animation.h"
 #include "gameplay/root_motion.h"
+#include "gameplay/foot_placement.h"
 #include "asset/import/mesh_importer.h"
 #include "asset/serialization/animation_controller_serializer.h"
 #include "physics/physics_service.h"
@@ -288,7 +289,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(runtime.start(scene));
     }
 
-    TEST(RootMotionTest, DemoReusesBuiltinCharacterWithCompatibleRootWalkLibrary) {
+    TEST(RootMotionTest, DemoRootWalkAndGroundIkShareBuiltinRigWithoutChangingCollisionMotion) {
         const auto assets = std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets";
         auto source = MeshImporter{}.import(assets / "animations/root_walk.glb");
         ASSERT_TRUE(source) << source.error();
@@ -325,10 +326,14 @@ namespace Comet::Tests {
             std::make_shared<AnimationController>(std::move(loaded_controller).value());
         auto shared_library = std::make_shared<AnimationLibrary>(library.value());
         auto animation = target.value().animation;
-        Entity actor;
-        scene.value()->each<const RootMotionComponent>(
-            [&](Entity, const auto& root) { actor = scene.value()->find_entity(root.target); });
+        Entity actor, model;
+        scene.value()->each<const RootMotionComponent>([&](Entity entity, const auto& root) {
+            model = entity;
+            actor = scene.value()->find_entity(root.target);
+        });
         ASSERT_TRUE(actor);
+        model.add_component<FootPlacementComponent>(
+            FootPlacementComponent{.character = actor.get_uuid(), .foot_height = .105f});
         PhysicsService physics;
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.set_services({.physics = &physics}));
@@ -338,16 +343,128 @@ namespace Comet::Tests {
                 [shared_library](AssetHandle) { return shared_library; },
                 Gameplay::apply_root_motion)));
         ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<Gameplay::FootPlacementSystem>()));
         auto started = runtime.start(*scene.value());
         ASSERT_TRUE(started) << started.error().message;
+        int constrained_frames = 0;
         for(int i = 0; i < 180; ++i) {
             auto advanced = runtime.advance(1.0 / 60);
             ASSERT_TRUE(advanced) << advanced.error().message;
+            const auto frame = scene.value()->get_animation_playback(model);
+            ASSERT_TRUE(frame && frame->pose && frame->root_motion);
+            EXPECT_TRUE(frame->pose_error.empty()) << frame->pose_error;
+            constrained_frames += !frame->ik.empty();
         }
+        EXPECT_GT(constrained_frames, 30);
         const auto position = actor.get_component<TransformComponent>().translation;
         EXPECT_GT(position.x, .8);
         EXPECT_LT(position.x, 1.2);
         EXPECT_NEAR(position.y, 0, .05);
         ASSERT_TRUE(runtime.stop());
     }
+    TEST(AnimationPresentationTest, InterpolatesLocalRotationAndRecomputesBounds) {
+        auto data = motion_data();
+        data.joints[0].bounds = BoundingBox::from_point({1, 0, 0});
+        const auto turn = Math::angle_axis(Math::PI * .75f, {0, 0, 1});
+        data.clips[0].channels.push_back({.node = 1,
+            .path = AnimationChannel::Path::Rotation,
+            .interpolation = AnimationChannel::Interpolation::Linear,
+            .times = {0, 1},
+            .values = {{0, 0, 0, 1}, {turn.x, turn.y, turn.z, turn.w}}});
+        AnimationPlayback frame{.current = {.clip = "move", .loop = false}};
+        auto previous = sample_animation(data, &frame);
+        frame.current.time = 1;
+        auto current = sample_animation(data, &frame);
+        ASSERT_TRUE(previous);
+        ASSERT_TRUE(current);
+        auto halfway = interpolate_animation_pose(data, previous.value(), current.value(), .5f);
+        ASSERT_TRUE(halfway) << halfway.error();
+        auto expected = frame;
+        expected.current.time = .5;
+        auto sampled = sample_animation(data, &expected);
+        ASSERT_TRUE(sampled);
+        const auto& matrix = halfway.value().matrices[0];
+        EXPECT_NEAR(Math::length(Math::Vec3(matrix[0])), 1, .0001);
+        for(int column = 0; column < 4; ++column)
+            EXPECT_LT(Math::length(matrix[column] - sampled.value().matrices[0][column]), .0001);
+        EXPECT_LT(
+            Math::length(halfway.value().bounds.minimum - sampled.value().bounds.minimum), .0001);
+        EXPECT_LT(
+            Math::length(halfway.value().bounds.maximum - sampled.value().bounds.maximum), .0001);
+        EXPECT_FALSE(interpolate_animation_pose(data, previous.value(), current.value(), -1));
+        current.value().local_transforms.clear();
+        EXPECT_FALSE(interpolate_animation_pose(data, previous.value(), current.value(), .5f));
+    }
+
+    TEST(
+        AnimationPresentationTest, FixedPoseAndAttachmentsShareAlphaWhileQueriesStayAuthoritative) {
+        auto data = std::make_shared<AnimationData>(motion_data());
+        Scene scene;
+        auto model = add_model(scene);
+        auto attachment = scene.create_entity("attachment");
+        attachment.add_component<MeshRendererComponent>(AssetHandle(3), AssetHandle(2));
+        attachment.add_component<BoneAttachmentComponent>(BoneAttachmentComponent{.bone = "Root"});
+        ASSERT_TRUE(scene.set_parent(attachment, model));
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = .1}));
+        ASSERT_TRUE(runtime.add_system(root_system(data)));
+        ASSERT_TRUE(runtime.start(scene));
+        SceneExtractor extractor;
+        ASSERT_TRUE(runtime.advance(.15));
+        const auto frozen = extractor.update(scene);
+        const auto frame = scene.get_render_animation_playback(model);
+        ASSERT_TRUE(frame && frame->pose);
+        EXPECT_NEAR(frame->pose->bone_matrices[0][3].y, .05, .0001);
+        EXPECT_NEAR(scene.get_animation_playback(model)->pose->bone_matrices[0][3].y, .1, .0001);
+        EXPECT_NEAR(scene.get_render_transform(model).world_matrix[3].x, .1, .0001);
+        EXPECT_NEAR(scene.get_render_transform(attachment).world_matrix[3].y, .05, .0001);
+        EXPECT_NEAR(scene.get_world_matrix(attachment)[3].y, .1, .0001);
+        ASSERT_TRUE(runtime.advance(.025));
+        EXPECT_NEAR(
+            scene.get_render_animation_playback(model)->pose->bone_matrices[0][3].y, .075, .0001);
+        EXPECT_NEAR(scene.get_render_transform(attachment).world_matrix[3].y, .075, .0001);
+        EXPECT_NE(extractor.update(scene), frozen);
+        EXPECT_NEAR(frame->pose->bone_matrices[0][3].y, .05, .0001);
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        EXPECT_EQ(scene.get_render_animation_playback(model), scene.get_animation_playback(model));
+        EXPECT_NEAR(scene.get_render_transform(attachment).world_matrix[3].y, .1, .0001);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(runtime.advance(1));
+        EXPECT_NEAR(scene.get_render_transform(attachment).world_matrix[3].y, .2, .0001);
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_FALSE(scene.get_render_animation_playback(model));
+    }
+
+    TEST(AnimationPresentationTest, StationaryRootStillPresentsBonesAndSettlesWhenAnimationStops) {
+        auto data = std::make_shared<AnimationData>(motion_data());
+        data->clips[0].channels[0].values = {{0, 0, 0, 0}, {0, 1, 0, 0}};
+        Scene scene;
+        auto model = add_model(scene);
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = .1}));
+        ASSERT_TRUE(runtime.add_system(root_system(data)));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(.15));
+        EXPECT_NEAR(scene.get_render_animation_playback(model)->pose->matrices[0][3].y, .05, .0001);
+        SceneExtractor extractor;
+        const auto interpolated = extractor.update(scene);
+        model.edit_component<AnimatorComponent>([](auto& animator) { animator.speed = 0; });
+        ASSERT_TRUE(runtime.advance(.1));
+        const auto stopped = extractor.update(scene);
+        EXPECT_NE(stopped, interpolated);
+        EXPECT_EQ(scene.get_render_animation_playback(model), scene.get_animation_playback(model));
+        EXPECT_NEAR(scene.get_render_animation_playback(model)->pose->matrices[0][3].y, .1, .0001);
+        model.edit_component<AnimatorComponent>([](auto& animator) { animator.speed = 1; });
+        ASSERT_TRUE(runtime.advance(.1));
+        const auto frozen = scene.get_render_animation_playback(model);
+        auto changed = std::make_shared<AnimationData>(*data);
+        changed->clips[0].channels[0].values[1].y = 4;
+        data = changed;
+        // 更换数据源；新骨架姿态不能与旧来源的姿态混合。
+        scene.set_animation_source(model, changed);
+        EXPECT_EQ(scene.get_render_animation_playback(model), scene.get_animation_playback(model));
+        EXPECT_NEAR(frozen->pose->matrices[0][3].y, .15, .0001);
+        ASSERT_TRUE(runtime.stop());
+    }
+
 }

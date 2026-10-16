@@ -53,8 +53,7 @@ namespace CometEditor {
         [[nodiscard]] Comet::Result<void, Comet::Error> apply_audio_edit(const AssetEdit& edit);
         [[nodiscard]] Comet::Result<Comet::AnimationController> read_animation_controller(
             const Comet::AssetTarget& request) const;
-        [[nodiscard]] Comet::Result<void, Comet::Error> apply_animation_controller_edit(
-            const AssetEdit& edit);
+        [[nodiscard]] Comet::Result<void, Comet::Error> apply_animation_edit(const AssetEdit& edit);
         [[nodiscard]] Comet::AssetScanReport create_animation_controller(
             const std::filesystem::path& destination);
         [[nodiscard]] Comet::Result<Comet::MaterialData> read_material(

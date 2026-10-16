@@ -1,0 +1,364 @@
+{
+  "version": 2,
+  "environment": {
+    "asset": 0,
+    "background": false,
+    "intensity": 1,
+    "rotation": 0,
+    "lighting": false,
+    "lighting_intensity": 1,
+    "background_color": [
+      0.08,
+      0.1,
+      0.14
+    ]
+  },
+  "entities": [
+    {
+      "uuid": "b0a9eaba-ba12-42e9-8037-1b534d9ce835",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [
+            8,
+            5,
+            10
+          ],
+          "rotation": [
+            -18,
+            35,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "camera": {
+          "primary": true,
+          "fov": 45,
+          "near_clip": 0.1,
+          "far_clip": 100
+        },
+        "camera_controller": {
+          "enabled": true,
+          "move_speed": 5,
+          "look_sensitivity": 0.2,
+          "look_speed": 120
+        }
+      }
+    },
+    {
+      "uuid": "b6c1306f-6024-4a49-9277-3378879481a9",
+      "components": {
+        "name": "主光源",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            -45,
+            -35,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "light": {
+          "type": "directional",
+          "enabled": true,
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "intensity": 2,
+          "range": 10,
+          "inner_angle": 20,
+          "outer_angle": 30
+        }
+      }
+    },
+    {
+      "uuid": "656152fc-0531-4047-9d7c-b70aabafd11f",
+      "components": {
+        "name": "地面",
+        "transform": {
+          "translation": [
+            0,
+            -0.5,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            12,
+            1,
+            10
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 9429603817048603172
+        },
+        "rigid_body": {
+          "motion": "static"
+        },
+        "collider": {
+          "shape": "box",
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "radius": 0.5,
+          "is_trigger": false
+        }
+      }
+    },
+    {
+      "uuid": "f0201358-20e2-4b61-b768-5514d1b3138b",
+      "components": {
+        "name": "碰撞墙：角色应在此停下",
+        "transform": {
+          "translation": [
+            1.5,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.2,
+            2,
+            5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6482638524486200214
+        },
+        "rigid_body": {
+          "motion": "static"
+        },
+        "collider": {
+          "shape": "box",
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "radius": 0.5,
+          "is_trigger": false
+        }
+      }
+    },
+    {
+      "uuid": "048f919d-55e0-4356-a373-e8924e2b8524",
+      "components": {
+        "name": "原始骨架动作",
+        "transform": {
+          "translation": [
+            -2,
+            0,
+            -1.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "character_controller": {
+          "enabled": true,
+          "radius": 0.3,
+          "height": 1.8,
+          "move_speed": 4,
+          "jump_speed": 5,
+          "max_slope_angle": 45,
+          "step_height": 0.3,
+          "ground_snap_distance": 0.3,
+          "gravity_scale": 1,
+          "run_speed": 6,
+          "crouch_speed": 2,
+          "crouch_height_ratio": 0.6,
+          "air_control": 1,
+          "push_force": 100
+        }
+      },
+      "children": [
+        {
+          "uuid": "34e2456c-eea4-46d8-8d32-ffab11c7ee0c",
+          "components": {
+            "name": "内置角色：模型由动作驱动",
+            "transform": {
+              "translation": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                90,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "mesh_renderer": {
+              "mesh": 13857136248767905793,
+              "material": 13857136248767905794
+            },
+            "animator": {
+              "enabled": true,
+              "clip": "idle",
+              "speed": 1,
+              "loop": true,
+              "transition": 0,
+              "controller": 6729301842000000047,
+              "parameters": {}
+            },
+            "root_motion": {
+              "enabled": true,
+              "node": "root",
+              "target": {
+                "entity": "048f919d-55e0-4356-a373-e8924e2b8524"
+              },
+              "horizontal": true,
+              "vertical": false,
+              "rotation": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "uuid": "906f2b73-ee0d-4334-85bb-ae71eb015177",
+      "components": {
+        "name": "重定向动作 + 脚部 IK",
+        "transform": {
+          "translation": [
+            -2,
+            0,
+            1.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "character_controller": {
+          "enabled": true,
+          "radius": 0.3,
+          "height": 1.8,
+          "move_speed": 4,
+          "jump_speed": 5,
+          "max_slope_angle": 45,
+          "step_height": 0.3,
+          "ground_snap_distance": 0.3,
+          "gravity_scale": 1,
+          "run_speed": 6,
+          "crouch_speed": 2,
+          "crouch_height_ratio": 0.6,
+          "air_control": 1,
+          "push_force": 100
+        }
+      },
+      "children": [
+        {
+          "uuid": "2193be9e-7ca0-4457-9a9a-93e6925ae276",
+          "components": {
+            "name": "内置角色：模型由动作驱动",
+            "transform": {
+              "translation": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                90,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "mesh_renderer": {
+              "mesh": 13857136248767905793,
+              "material": 13857136248767905794
+            },
+            "animator": {
+              "enabled": true,
+              "clip": "idle",
+              "speed": 1,
+              "loop": true,
+              "transition": 0,
+              "controller": 1372551630452941650,
+              "parameters": {}
+            },
+            "root_motion": {
+              "enabled": true,
+              "node": "root",
+              "target": {
+                "entity": "906f2b73-ee0d-4334-85bb-ae71eb015177"
+              },
+              "horizontal": true,
+              "vertical": false,
+              "rotation": true
+            },
+            "foot_placement": {
+              "enabled": true,
+              "character": {
+                "entity": "906f2b73-ee0d-4334-85bb-ae71eb015177"
+              },
+              "left_foot": "foot_l",
+              "right_foot": "foot_r",
+              "weight": 1,
+              "foot_height": 0.105,
+              "max_offset": 0.35,
+              "plant_height": 0.15,
+              "probe_up": 0.5,
+              "probe_down": 0.8,
+              "max_slope": 55,
+              "response": 18,
+              "knee_forward": [
+                0,
+                0,
+                1
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

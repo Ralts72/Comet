@@ -395,7 +395,7 @@ namespace CometEditor {
             return;
         }
 
-        if(m_asset_inspector.controller_selection_pending()) {
+        if(m_asset_inspector.animation_selection_pending()) {
             m_asset_inspector.render(m_history.generation(), m_state.mode == EditorMode::Edit);
         } else if(Comet::Entity entity = m_selection.get_selected_entity()) {
             if(m_entities.size() > 1)
@@ -975,9 +975,13 @@ namespace CometEditor {
         }
         PropertyEditResult result;
         if((component.id == "bone_attachment" && property.id == "bone")
-            || (component.id == "root_motion" && property.id == "node")) {
+            || (component.id == "root_motion" && property.id == "node")
+            || (component.id == "foot_placement"
+                && (property.id == "left_foot" || property.id == "right_foot"))) {
             const bool root_motion = component.id == "root_motion";
-            auto parent = root_motion ? entity : m_selection.get_scene().get_parent(entity);
+            const bool foot_placement = component.id == "foot_placement";
+            const bool own_skeleton = root_motion || foot_placement;
+            auto parent = own_skeleton ? entity : m_selection.get_scene().get_parent(entity);
             std::shared_ptr<const Comet::AnimationData> data;
             if(parent && parent.has_component<Comet::MeshRendererComponent>()) {
                 const auto mesh = m_runtime_assets.resolve<Comet::Mesh>(
@@ -993,7 +997,17 @@ namespace CometEditor {
                     name.clear();
                     result.changed = true;
                 }
+                if(foot_placement && ImGui::Selectable("不使用此脚", !mixed && name.empty())) {
+                    name.clear();
+                    result.changed = true;
+                }
                 for(const auto& joint : data->joints) {
+                    if(foot_placement) {
+                        const auto middle = data->nodes[joint.node].parent;
+                        if(middle >= data->nodes.size()
+                            || data->nodes[middle].parent >= data->nodes.size())
+                            continue;
+                    }
                     const auto& bone = data->nodes[joint.node].name;
                     if(ImGui::Selectable(bone.c_str(), !mixed && bone == name)) {
                         name = bone;
@@ -1003,7 +1017,7 @@ namespace CometEditor {
                 ImGui::EndCombo();
             }
             if(!data) {
-                if(root_motion)
+                if(own_skeleton)
                     ImGui::TextWrapped("请先为此实体设置带骨骼的网格与动画。");
                 else
                     ImGui::TextWrapped("请先在层级中将此物体拖到角色模型下，再选择骨骼。");
@@ -1014,6 +1028,9 @@ namespace CometEditor {
             if(root_motion)
                 ImGui::TextWrapped(
                     "选择包含全部关节的根骨骼；目标须为自身或祖先。角色位移参与碰撞求解；编辑预览保持原地。");
+            else if(foot_placement)
+                ImGui::TextWrapped(
+                    "选择踝关节，其父／祖父为膝盖／大腿；至少配置一只脚。Play／App 中按物理地面修正，抬脚与离地时释放。");
             else
                 ImGui::TextWrapped("本地变换是骨骼空间的偏移；暂停时保留姿态，Stop 恢复绑定姿态。");
             result.finished = result.changed;

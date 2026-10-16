@@ -1,5 +1,6 @@
 #include "scene/transform_interpolation.h"
 #include "scene/scene.h"
+#include "animation/animation_data.h"
 
 #include <algorithm>
 
@@ -26,12 +27,20 @@ namespace Comet {
         if(m_presented.empty())
             return;
         scene.mark_render_dirty();
+        for(auto& [handle, source] : scene.m_animation_sources)
+            source.presented.reset();
         for(const auto& [handle, presented] : m_presented)
             scene.record_render_change(handle);
     }
 
     void TransformInterpolation::begin_fixed(Scene& scene) {
         m_discontinuities.clear();
+        for(auto& [handle, source] : scene.m_animation_sources) {
+            const auto frame = scene.m_animation_playbacks.find(handle);
+            source.previous_pose =
+                frame != scene.m_animation_playbacks.end() ? frame->second->pose : nullptr;
+            source.presented.reset();
+        }
         for(auto& [handle, previous] : m_previous)
             previous = scene.m_registry.get<TransformComponent>(handle);
         m_fixed = true;
@@ -66,6 +75,14 @@ namespace Comet {
             presented.active = false;
         for(const auto& [handle, previous] : m_previous)
             mark_subtree(scene, handle);
+        for(const auto& [handle, source] : scene.m_animation_sources) {
+            const auto frame = scene.m_animation_playbacks.find(handle);
+            if(source.previous_pose && frame != scene.m_animation_playbacks.end()
+                && frame->second->pose && source.previous_pose != frame->second->pose)
+                mark_subtree(scene, handle);
+        }
+        if(std::ranges::any_of(m_presented, [](const auto& entry) { return !entry.second.active; }))
+            invalidate(scene);
         std::erase_if(m_presented, [](const auto& entry) { return !entry.second.active; });
     }
 
@@ -78,7 +95,7 @@ namespace Comet {
     }
 
     void TransformInterpolation::discontinuity(Scene& scene, const entt::entity handle) {
-        if(!m_fixed && m_previous.empty())
+        if(!m_fixed && m_presented.empty())
             return;
         m_work.clear();
         m_work.push_back(handle);
@@ -86,6 +103,12 @@ namespace Comet {
         for(std::size_t index = 0; index < m_work.size(); ++index) {
             const auto current = m_work[index];
             changed |= m_previous.erase(current) != 0;
+            if(const auto source = scene.m_animation_sources.find(current);
+                source != scene.m_animation_sources.end()) {
+                changed |= bool(source->second.previous_pose);
+                source->second.previous_pose.reset();
+                source->second.presented.reset();
+            }
             if(m_fixed && !m_discontinuities.contains(current))
                 m_discontinuities.push(current);
             const auto id = scene.m_registry.get<IdComponent>(current).id;
@@ -114,6 +137,10 @@ namespace Comet {
         if(!m_presented.empty()) {
             scene.mark_render_dirty();
             scene.m_render_full_update = true;
+        }
+        for(auto& [handle, source] : scene.m_animation_sources) {
+            source.previous_pose.reset();
+            source.presented.reset();
         }
         m_previous.clear();
         m_presented.clear();
@@ -184,7 +211,7 @@ namespace Comet {
                 cached != m_presented.end()
                     ? cached->second.world
                     : scene.m_registry.get<WorldTransformComponent>(parent_handle);
-            scene.apply_parent_transform(handle, parent_world, model, pose);
+            scene.apply_parent_transform(handle, parent_world, model, pose, true);
         }
         pose[3] = model[3];
         auto& output = presented.world;

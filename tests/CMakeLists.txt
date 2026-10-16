@@ -89,6 +89,7 @@ set(UNIT_TEST_SOURCES
         graphics/test_allocator.cpp
         gameplay/test_navigation.cpp
         gameplay/test_character_controller.cpp
+        gameplay/test_foot_placement.cpp
         gameplay/test_game_session.cpp
         graphics/test_barrier.cpp
         graphics/test_device_capability.cpp
@@ -115,6 +116,8 @@ set(UNIT_TEST_SOURCES
         render/test_scene_picking.cpp
         scene/test_animation.cpp
         scene/test_root_motion.cpp
+        scene/test_animation_ik.cpp
+        scene/test_animation_retarget.cpp
         scene/test_animation_layers.cpp
         scene/test_animation_controller.cpp
         scene/test_animation_events.cpp

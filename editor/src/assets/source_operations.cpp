@@ -3,6 +3,7 @@
 #include "asset/data/game_data.h"
 #include "asset/serialization/animation_controller_serializer.h"
 #include "asset/data/animation_library.h"
+#include "asset/data/animation_library.h"
 #include "scene/prefab.h"
 
 #include "common/result.h"
@@ -989,6 +990,14 @@ namespace CometEditor::AssetSourceOperations {
             return operation_error({}, serialized.error());
         return save_text_asset(
             database, target, AssetType::AnimationController, serialized.value());
+    }
+
+    AssetScanReport save_animation_library(
+        AssetDatabase& database, const AssetTarget& target, const Comet::AnimationLibrary& data) {
+        auto serialized = data.serialize();
+        if(!serialized)
+            return operation_error({}, serialized.error());
+        return save_text_asset(database, target, AssetType::AnimationLibrary, serialized.value());
     }
 
     AssetScanReport create_material(AssetDatabase& database,

@@ -78,22 +78,30 @@ namespace CometEditor {
             acknowledge(destination);
         return report;
     }
-    Comet::Result<void, Comet::Error> EditorAssets::apply_animation_controller_edit(
-        const AssetEdit& edit) {
-        const auto* value = std::get_if<AnimationControllerEdit>(&edit.value);
+    Comet::Result<void, Comet::Error> EditorAssets::apply_animation_edit(const AssetEdit& edit) {
+        const auto* controller = std::get_if<AnimationControllerEdit>(&edit.value);
+        const auto* library = std::get_if<AnimationLibraryEdit>(&edit.value);
         const auto* record = m_database.find(edit.target.handle);
-        if(!value || edit.action != AssetEdit::Action::Apply || !record
+        if((!controller && !library) || edit.action != AssetEdit::Action::Apply || !record
             || !m_database.is_current(edit.target))
             return Comet::Result<void, Comet::Error>::failure(
-                {"Animation controller edit is stale or invalid"});
+                {"Animation asset edit is stale or invalid"});
         const auto path = record->path;
-        auto report =
-            AssetSourceOperations::save_animation_controller(m_database, edit.target, value->after);
+        Comet::AssetScanReport report;
+        auto type = Comet::AssetType::AnimationController;
+        if(controller)
+            report = AssetSourceOperations::save_animation_controller(
+                m_database, edit.target, controller->after);
+        else {
+            type = Comet::AssetType::AnimationLibrary;
+            report = AssetSourceOperations::save_animation_library(
+                m_database, edit.target, library->after);
+        }
         accept_scan(report);
         if(!report.succeeded())
             return Comet::Result<void, Comet::Error>::failure({report.issues.front().message});
         acknowledge(path);
-        return m_manager.ensure_loaded(edit.target.handle, Comet::AssetType::AnimationController);
+        return m_manager.ensure_loaded(edit.target.handle, type);
     }
 
     Comet::Result<Comet::MaterialData> EditorAssets::read_material(

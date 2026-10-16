@@ -180,5 +180,38 @@ namespace CometEditor::Tests {
         EXPECT_TRUE(editor.redo(data));
         EXPECT_TRUE(data.states[0].events.empty());
     }
+    TEST_F(AnimationControllerEditorUiTest, AdditiveReferenceControlsKeepPreviewAndUndoInSync) {
+        data.layers = {{.name = "breath",
+            .state = "jump",
+            .weight = .5f,
+            .mode = Comet::AnimationLayer::Mode::Additive,
+            .reference_clip = "idle",
+            .reference_time = .25f}};
+        editor.reset(data);
+        editor.set_models({source}, Comet::AssetHandle{42}, false);
+        frame();
+        activate("Controller properties", "动画库与分层");
+        activate("动画控制器", "###Play Controller Preview");
+        ASSERT_TRUE(preview.snapshot());
+        ASSERT_EQ(preview.snapshot()->layers.size(), 1u);
+        EXPECT_EQ(preview.snapshot()->layers[0].mode, Comet::AnimationLayer::Mode::Additive);
+        EXPECT_EQ(preview.snapshot()->layers[0].reference_clip, "idle");
+        const int index = 0;
+        auto* properties = ImGui::FindWindowByName("Controller properties");
+        ASSERT_NE(properties, nullptr);
+        const auto group = ImHashData(&index, sizeof(index), properties->ID);
+        ImGui::ActivateItemByID(ImHashStr("使用绑定姿态作为参考", 0, group));
+        frame();
+        frame();
+        EXPECT_TRUE(data.layers[0].reference_clip.empty());
+        EXPECT_FLOAT_EQ(data.layers[0].reference_time, 0);
+        EXPECT_TRUE(preview.snapshot()->layers[0].reference_clip.empty());
+        activate("动画控制器", "###Undo Controller");
+        EXPECT_EQ(data.layers[0].reference_clip, "idle");
+        EXPECT_FLOAT_EQ(data.layers[0].reference_time, .25f);
+        activate("动画控制器", "###Redo Controller");
+        EXPECT_TRUE(data.layers[0].reference_clip.empty());
+    }
+
 }
 #endif

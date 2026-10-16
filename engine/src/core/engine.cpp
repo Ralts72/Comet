@@ -2,6 +2,7 @@
 #include "gameplay/root_motion.h"
 #include "gameplay/navigation_system.h"
 #include "gameplay/character_animation.h"
+#include "gameplay/foot_placement.h"
 #include "animation/animation_system.h"
 #include "particles/particle_system.h"
 #include "common/scope_exit.h"
@@ -177,6 +178,8 @@ namespace Comet {
             !added)
             return added;
         if(auto added = add_system(std::make_unique<PhysicsSystem>(*m_physics_service)); !added)
+            return added;
+        if(auto added = add_system(std::make_unique<Gameplay::FootPlacementSystem>()); !added)
             return added;
         if(auto added = add_system(std::make_unique<ParticleSystem>()); !added)
             return added;

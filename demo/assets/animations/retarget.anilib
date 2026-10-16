@@ -1,0 +1,30 @@
+{
+  "clips": [
+    {
+      "name": "retarget_walk",
+      "mesh": "501798315270321838",
+      "clip": "stride"
+    }
+  ],
+  "retargets": [
+    {
+      "mesh": "501798315270321838",
+      "nodes": {
+        "src_spine_01": "spine_01",
+        "src_foot_l": "foot_l",
+        "src_calf_l": "calf_l",
+        "src_thigh_l": "thigh_l",
+        "src_foot_r": "foot_r",
+        "src_calf_r": "calf_r",
+        "src_thigh_r": "thigh_r",
+        "src_pelvis": "pelvis",
+        "src_root": "root"
+      },
+      "translations": [
+        "src_root",
+        "src_pelvis"
+      ],
+      "translation_scale": 0
+    }
+  ]
+}

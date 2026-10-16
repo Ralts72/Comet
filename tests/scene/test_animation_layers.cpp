@@ -245,4 +245,99 @@ namespace Comet::Tests {
         EXPECT_DOUBLE_EQ(preview.snapshot()->layers[0].sample.time, 0);
     }
 
+    TEST(AnimationLayersTest, AdditiveLayerPreservesBaseAndAppliesMaskedReferenceDelta) {
+        auto data = skeleton();
+        data.clips.clear();
+        const auto rotation = [](float angle) {
+            const auto q = Math::angle_axis(angle, {0, 0, 1});
+            return Math::Vec4(q.x, q.y, q.z, q.w);
+        };
+        const auto clip = [&](std::string name, float x, float angle, float scale) {
+            return AnimationClip{.name = std::move(name),
+                .channels = {{2, AnimationChannel::Path::Translation,
+                                 AnimationChannel::Interpolation::Linear, {0}, {{x, 0, 0, 0}}},
+                    {2, AnimationChannel::Path::Rotation, AnimationChannel::Interpolation::Linear,
+                        {0}, {rotation(angle)}},
+                    {2, AnimationChannel::Path::Scale, AnimationChannel::Interpolation::Linear, {0},
+                        {{scale, scale, scale, 0}}}}};
+        };
+        data.clips = {clip("base", 5, Math::PI / 4, 2), clip("reference", 1, Math::PI / 6, 1),
+            clip("overlay", 3, Math::PI / 2, 3)};
+        AnimationPlayback frame{.current = {.clip = "base"},
+            .layers = {{.sample = {.clip = "overlay"},
+                .weight = .5f,
+                .mask = {"spine"},
+                .mode = AnimationLayer::Mode::Additive,
+                .reference_clip = "reference"}}};
+        auto pose = sample_animation(data, &frame);
+        ASSERT_TRUE(pose) << pose.error();
+        const auto& spine = pose.value().local_transforms[2];
+        EXPECT_NEAR(spine.translation.x, 6, .0001);
+        EXPECT_NEAR(spine.scale.x, 4, .0001);
+        const auto expected = Math::angle_axis(Math::PI * 5 / 12, {0, 0, 1});
+        EXPECT_NEAR(std::abs(glm::dot(spine.rotation, expected)), 1, .0001);
+        EXPECT_EQ(pose.value().local_transforms[1].translation, Math::Vec3(0));
+        // 末端骨骼没有动画通道，参考差值为零，不能再次加上绑定偏移。
+        EXPECT_EQ(pose.value().local_transforms[3].translation, data.nodes[3].rest.translation);
+        frame.layers[0].weight = 0;
+        pose = sample_animation(data, &frame);
+        ASSERT_TRUE(pose);
+        EXPECT_NEAR(pose.value().local_transforms[2].translation.x, 5, .0001);
+        frame.layers[0].weight = 1;
+        frame.layers[0].reference_clip = "missing";
+        EXPECT_FALSE(sample_animation(data, &frame));
+        frame.layers[0].reference_clip.clear();
+        data.nodes[2].rest.scale.x = 0;
+        EXPECT_FALSE(sample_animation(data, &frame));
+    }
+
+    TEST(
+        AnimationLayersTest, AdditiveReferenceTimeRoundTripsAndRuntimePreviewShareLayerEvaluation) {
+        auto definition = std::make_shared<AnimationController>(controller());
+        auto& layer = definition->layers[0];
+        layer.mode = AnimationLayer::Mode::Additive;
+        layer.reference_clip = "c";
+        layer.reference_time = .25f;
+        const AnimationControllerSerializer serializer;
+        auto text = serializer.serialize(*definition);
+        ASSERT_TRUE(text) << text.error();
+        auto restored = serializer.deserialize(text.value());
+        ASSERT_TRUE(restored) << restored.error();
+        EXPECT_EQ(restored.value(), *definition);
+        auto invalid_text = text.value();
+        invalid_text.replace(invalid_text.find("additive"), 8, "unknown");
+        EXPECT_FALSE(serializer.deserialize(invalid_text));
+        auto sampled_layer = definition->sample_layer(layer, {}, {0, 0});
+        ASSERT_TRUE(sampled_layer);
+        EXPECT_FLOAT_EQ(sampled_layer.value().weight, .5f);
+        EXPECT_FLOAT_EQ(sampled_layer.value().reference_time, .25f);
+        auto data = std::make_shared<AnimationData>(skeleton());
+        Scene scene;
+        auto entity = scene.create_entity();
+        entity.add_component<MeshRendererComponent>();
+        entity.add_component<AnimatorComponent>(AnimatorComponent{.controller = AssetHandle(4)});
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(
+            std::make_unique<AnimationSystem>([data](AssetHandle) { return data; },
+                [definition](AssetHandle) { return definition; })));
+        ASSERT_TRUE(runtime.start(scene));
+        ASSERT_TRUE(runtime.advance(.1));
+        const auto frame = scene.get_animation_playback(entity);
+        ASSERT_TRUE(frame && frame->layers.size() == 1);
+        EXPECT_EQ(frame->layers[0].mode, AnimationLayer::Mode::Additive);
+        EXPECT_EQ(frame->layers[0].reference_clip, "c");
+        CometEditor::AnimationPreview preview;
+        preview.bind({1, EntityUuid::generate()}, data, "a");
+        ASSERT_TRUE(preview.select_sample(frame->current));
+        preview.set_layers(frame->layers);
+        auto expected = sample_animation(*data, frame.get());
+        auto actual = sample_animation(*data, preview.snapshot().get());
+        ASSERT_TRUE(expected);
+        ASSERT_TRUE(actual);
+        EXPECT_EQ(actual.value().matrices, expected.value().matrices);
+        layer.reference_time = -1;
+        EXPECT_FALSE(definition->validate());
+        ASSERT_TRUE(runtime.stop());
+    }
+
 }

@@ -4,7 +4,8 @@
   "parameters": {
     "pace": 0.5,
     "crouch": 0.35,
-    "upper": 0.5
+    "upper": 0.5,
+    "breath": 0.5
   },
   "states": [
     {
@@ -43,6 +44,15 @@
           "clip": "run"
         }
       ]
+    },
+    {
+      "name": "breath",
+      "motions": [
+        {
+          "threshold": 0,
+          "clip": "idle"
+        }
+      ]
     }
   ],
   "layers": [
@@ -54,6 +64,18 @@
       "mask": [
         "spine_01"
       ]
+    },
+    {
+      "name": "breathing",
+      "state": "breath",
+      "weight": 1,
+      "weight_parameter": "breath",
+      "mask": [
+        "spine_01"
+      ],
+      "mode": "additive",
+      "reference_clip": "idle",
+      "reference_time": 0
     }
   ],
   "transitions": []

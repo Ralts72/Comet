@@ -241,6 +241,28 @@ namespace Comet {
         const auto found = m_animation_playbacks.find(entity.m_handle);
         return found == m_animation_playbacks.end() ? nullptr : found->second;
     }
+    std::shared_ptr<const AnimationPlayback> Scene::get_render_animation_playback(Entity entity) {
+        const auto current = get_animation_playback(entity);
+        if(!current || m_transform_interpolation.m_alpha == 1)
+            return current;
+        const auto source = m_animation_sources.find(entity.m_handle);
+        if(source == m_animation_sources.end() || !source->second.previous_pose || !current->pose
+            || source->second.previous_pose == current->pose)
+            return current;
+        auto& binding = source->second;
+        if(!binding.presented) {
+            auto frame = std::make_shared<AnimationPlayback>(*current);
+            auto pose = interpolate_animation_pose(*binding.data, *binding.previous_pose,
+                *current->pose, m_transform_interpolation.m_alpha,
+                current->root_motion ? &*current->root_motion : nullptr);
+            if(pose)
+                frame->pose = std::make_shared<const AnimationPose>(std::move(pose).value());
+            else
+                frame->pose_error = pose.error();
+            binding.presented = std::move(frame);
+        }
+        return binding.presented;
+    }
     void Scene::set_animation_playback(
         Entity entity, std::shared_ptr<const AnimationPlayback> playback) {
         if(!is_valid(entity))
@@ -251,10 +273,16 @@ namespace Comet {
         if(!playback && !m_animation_playbacks.erase(entity.m_handle))
             return;
         if(playback) {
-            if(const auto binding = m_animation_sources.find(entity.m_handle);
-                binding != m_animation_sources.end()) {
+            if(const auto binding_it = m_animation_sources.find(entity.m_handle);
+                binding_it != m_animation_sources.end()) {
+                auto& binding = binding_it->second;
+                binding.presented.reset();
+                if(!m_transform_interpolation.m_fixed || found == m_animation_playbacks.end()
+                    || found->second->clips != playback->clips
+                    || found->second->root_motion != playback->root_motion)
+                    binding.previous_pose.reset();
                 auto frame = std::make_shared<AnimationPlayback>(*playback);
-                frame->pose_source = binding->second.data;
+                frame->pose_source = binding.data;
                 auto pose =
                     resolve_animation_pose(*frame->pose_source, frame.get(), frame->pose_error);
                 frame->pose =
@@ -270,9 +298,13 @@ namespace Comet {
         if(!is_valid(entity))
             return;
         const auto children = m_children_by_parent.find(entity.get_id());
-        if(children == m_children_by_parent.end()
-            || std::ranges::none_of(children->second,
-                [&](auto child) { return m_registry.any_of<BoneAttachmentComponent>(child); }))
+        const auto* root = m_registry.try_get<RootMotionComponent>(entity.m_handle);
+        const auto* feet = m_registry.try_get<FootPlacementComponent>(entity.m_handle);
+        const bool attachments = children != m_children_by_parent.end()
+                                 && std::ranges::any_of(children->second, [&](auto child) {
+                                        return m_registry.any_of<BoneAttachmentComponent>(child);
+                                    });
+        if(!attachments && !(root && root->enabled) && !(feet && feet->enabled))
             source.reset();
         const auto found = m_animation_sources.find(entity.m_handle);
         if(found == m_animation_sources.end() && !source)
@@ -805,7 +837,7 @@ namespace Comet {
         world.revision = ++m_transform_revision;
     }
     void Scene::apply_parent_transform(entt::entity child, const WorldTransformComponent& parent,
-        Math::Mat4& model, Math::Mat4& pose) const {
+        Math::Mat4& model, Math::Mat4& pose, bool presented) {
         const auto* attachment = m_registry.try_get<BoneAttachmentComponent>(child);
         if(attachment && !attachment->bone.empty()) {
             const auto id = m_registry.get<RelationshipComponent>(child).parent;
@@ -813,10 +845,10 @@ namespace Comet {
             const auto source = m_animation_sources.find(handle);
             if(source != m_animation_sources.end() && source->second.bind_pose) {
                 const auto& data = *source->second.data;
-                const auto frame = m_animation_playbacks.find(handle);
-                const auto& sample = frame != m_animation_playbacks.end() && frame->second->pose
-                                         ? frame->second->pose
-                                         : source->second.bind_pose;
+                const Entity parent_entity(handle, this);
+                const auto frame = presented ? get_render_animation_playback(parent_entity)
+                                             : get_animation_playback(parent_entity);
+                const auto& sample = frame && frame->pose ? frame->pose : source->second.bind_pose;
                 for(std::size_t i = 0; i < data.joints.size(); ++i) {
                     if(data.nodes[data.joints[i].node].name != attachment->bone)
                         continue;
