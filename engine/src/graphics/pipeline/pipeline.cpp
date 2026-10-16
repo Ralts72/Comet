@@ -281,6 +281,7 @@ namespace Comet {
         if(!pipeline)
             return pipeline;
         m_pipelines.insert_or_assign(std::move(key), pipeline.value());
+        ++m_pipeline_creations;
         LOG_INFO("Pipeline '{}' created successfully", name);
         return pipeline;
     }

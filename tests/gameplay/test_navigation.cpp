@@ -11,6 +11,7 @@
 #include "asset/script.h"
 #include "core/project.h"
 #include <gtest/gtest.h>
+#include <cmath>
 #include <limits>
 
 namespace Comet::Tests {
@@ -40,6 +41,7 @@ namespace Comet::Tests {
             SceneRuntime runtime;
             NavigationSystem* navigation;
             Navigate* controller;
+            uint64_t geometry_requests = 0;
             Entity actor;
             Entity box(Math::Vec3 position, Math::Vec3 half_extents,
                 BodyMotion motion = BodyMotion::Static) {
@@ -51,8 +53,11 @@ namespace Comet::Tests {
                 return entity;
             }
             void SetUp() override {
-                auto nav = std::make_unique<NavigationSystem>(
-                    [&](Math::Vec3 a, Math::Vec3 b) { return physics.static_triangles(a, b); });
+                auto nav = std::make_unique<NavigationSystem>([&](Math::Vec3 a, Math::Vec3 b) {
+                    ++geometry_requests;
+                    EXPECT_GT(physics.get_statistics().bodies, 0u);
+                    return physics.static_triangles(a, b);
+                });
                 navigation = nav.get();
                 ASSERT_TRUE(runtime.set_services({.physics = &physics, .navigation = navigation}));
                 ASSERT_TRUE(runtime.set_settings({.fixed_delta = 1.0 / 60}));
@@ -101,6 +106,70 @@ namespace Comet::Tests {
         EXPECT_EQ(controller->status, NavigationSystem::Status::Arrived);
         EXPECT_NEAR(position().x, 6, 0.4f);
         EXPECT_NEAR(position().z, 0, 0.4f);
+    }
+    TEST_F(NavigationTest, PausedStartupBuildsAfterPhysicsBeforeAnyFixedStepOrQuery) {
+        ASSERT_TRUE(runtime.start(scene, SceneRuntime::State::Paused));
+        ASSERT_TRUE(navigation->mesh().ready());
+        EXPECT_EQ(geometry_requests, 1u);
+        const auto prepared = navigation->get_statistics();
+        EXPECT_EQ(prepared.builds, 1u);
+        EXPECT_GE(prepared.build_milliseconds, 0);
+        EXPECT_TRUE(std::isfinite(prepared.build_milliseconds));
+        EXPECT_EQ(prepared.path_queries, 0u);
+        EXPECT_EQ(prepared.surface_queries, 0u);
+        EXPECT_EQ(prepared.obstacle_queries, 0u);
+        EXPECT_EQ(runtime.get_timing().fixed_index, 0u);
+        EXPECT_FALSE(navigation->move_to(scene, actor, physics, {6, 0, 0}));
+        ASSERT_TRUE(step());
+        EXPECT_EQ(geometry_requests, 1u);
+        EXPECT_EQ(navigation->get_statistics().path_queries, 0u);
+        ASSERT_TRUE(runtime.request_step());
+        ASSERT_TRUE(step());
+        const auto simulated = navigation->get_statistics();
+        EXPECT_EQ(geometry_requests, 1u);
+        EXPECT_EQ(simulated.builds, prepared.builds);
+        EXPECT_EQ(simulated.build_milliseconds, prepared.build_milliseconds);
+        EXPECT_EQ(simulated.path_queries, 1u);
+        EXPECT_GT(simulated.surface_queries, 0u);
+        EXPECT_GT(simulated.obstacle_queries, 0u);
+    }
+    TEST_F(NavigationTest, FailedStartupBuildCleansEveryRuntimeServiceAndCanRestart) {
+        Entity region;
+        scene.each<const NavigationRegionComponent>(
+            [&](Entity entity, const auto&) { region = entity; });
+        region.get_component<NavigationRegionComponent>().cell_size = 0;
+        const auto initial = position();
+        const auto started = runtime.start(scene);
+        ASSERT_FALSE(started);
+        EXPECT_FALSE(runtime.is_active());
+        EXPECT_FALSE(physics.is_bound_to(scene));
+        EXPECT_EQ(physics.get_statistics().bodies, 0u);
+        EXPECT_FALSE(navigation->mesh().ready());
+        EXPECT_EQ(navigation->get_statistics().builds, 1u);
+        EXPECT_EQ(navigation->get_statistics().path_queries, 0u);
+        EXPECT_EQ(geometry_requests, 1u);
+        EXPECT_EQ(position(), initial);
+        EXPECT_EQ(runtime.get_timing().fixed_index, 0u);
+        region.get_component<NavigationRegionComponent>().cell_size = 0.15f;
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_TRUE(navigation->mesh().ready());
+        EXPECT_EQ(navigation->get_statistics().builds, 1u);
+        EXPECT_EQ(navigation->get_statistics().path_queries, 0u);
+        EXPECT_EQ(geometry_requests, 2u);
+    }
+    TEST_F(NavigationTest, ScenesWithoutRegionsDoNotBakeAtStartupOrOnFirstStep) {
+        controller->enabled = false;
+        Entity region;
+        scene.each<const NavigationRegionComponent>(
+            [&](Entity entity, const auto&) { region = entity; });
+        region.remove_component<NavigationRegionComponent>();
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_FALSE(navigation->mesh().ready());
+        EXPECT_EQ(geometry_requests, 0u);
+        EXPECT_EQ(navigation->get_statistics().builds, 0u);
+        ASSERT_TRUE(step());
+        EXPECT_EQ(geometry_requests, 0u);
+        EXPECT_EQ(navigation->get_statistics().builds, 0u);
     }
     TEST_F(NavigationTest, DisconnectedAndOutsideTargetsStopInsteadOfFollowingPartialPath) {
         box({0, 2, 0}, {0.6f, 2, 10});
@@ -190,10 +259,35 @@ namespace Comet::Tests {
             if(i >= 8)
                 EXPECT_EQ(result.value(), NavigationSystem::Status::BudgetExceeded);
         }
+        EXPECT_EQ(navigation->get_statistics().path_queries, 8u);
+        EXPECT_EQ(navigation->get_statistics().step_path_queries, 8u);
+        EXPECT_EQ(navigation->get_statistics().builds, 1u);
         ASSERT_TRUE(step());
         auto retry = navigation->move_to(scene, actors.back(), physics, {6, 0, 4});
         ASSERT_TRUE(retry);
         EXPECT_EQ(retry.value(), NavigationSystem::Status::Moving);
+        EXPECT_EQ(navigation->get_statistics().path_queries, 9u);
+        EXPECT_EQ(navigation->get_statistics().step_path_queries, 1u);
+    }
+    TEST(NavigationStartupTest, MissingPreparedCollisionWorldFailsBeforeSimulation) {
+        Scene scene;
+        scene.create_entity("region").add_component<NavigationRegionComponent>();
+        PhysicsService physics;
+        SceneRuntime runtime;
+        auto nav = std::make_unique<NavigationSystem>(
+            [&](Math::Vec3 a, Math::Vec3 b) { return physics.static_triangles(a, b); });
+        const auto* navigation = nav.get();
+        ASSERT_TRUE(runtime.set_services({.physics = &physics, .navigation = nav.get()}));
+        ASSERT_TRUE(runtime.add_system(std::move(nav)));
+        const auto started = runtime.start(scene);
+        ASSERT_FALSE(started);
+        EXPECT_NE(started.error().message.find("active world"), std::string::npos);
+        EXPECT_FALSE(runtime.is_active());
+        EXPECT_FALSE(physics.is_bound_to(scene));
+        EXPECT_FALSE(navigation->mesh().ready());
+        EXPECT_EQ(navigation->get_statistics().builds, 1u);
+        EXPECT_EQ(navigation->get_statistics().path_queries, 0u);
+        EXPECT_EQ(runtime.get_timing().fixed_index, 0u);
     }
     TEST(NavigationDemoTest, SerializedScenePatrolsChasesReturnsAndClones) {
         const auto project = Project::load(COMET_SAMPLE_PROJECT_DIRECTORY);

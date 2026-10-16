@@ -16,10 +16,15 @@ namespace Comet {
 
     class COMET_API ScriptSystem final: public System {
     public:
+        struct Statistics {
+            uint64_t structure_scans = 0;
+            uint64_t asset_scans = 0;
+        };
         explicit ScriptSystem(
             const AssetRegistry& assets, const MaterialParameterValidator* materials = nullptr);
         ~ScriptSystem() override;
         [[nodiscard]] std::shared_ptr<const Script> running_script(Entity entity) const;
+        [[nodiscard]] const Statistics& get_statistics() const { return m_statistics; }
         Result<void, Error> on_start(
             Scene& scene, RuntimeSession&, const RuntimeServices&) override;
         Result<void, Error> fixed_update(Scene& scene, const Context& context) override;
@@ -54,6 +59,7 @@ namespace Comet {
             ParameterMap overrides;
         };
         using FailedReload = std::map<Key, FailedInstance>;
+        bool failed_reloads_unchanged(const std::map<Key, Entity>& pending) const;
         bool matches_failed_reload(const ReloadGroup& group, const FailedReload& failed) const;
         std::vector<ReloadGroup> reload_groups(const std::map<Key, Entity>& pending) const;
         Result<std::set<AssetHandle>, Error> reload_changed_scripts(
@@ -77,6 +83,9 @@ namespace Comet {
         std::map<Key, Entry> m_entries;
         std::vector<Key> m_start_order;
         std::vector<FailedReload> m_failed_reloads;
+        std::optional<uint64_t> m_asset_revision;
+        std::set<AssetHandle> m_blocked_assets;
+        Statistics m_statistics;
         Scene* m_scene = nullptr;
         RuntimeSession* m_session = nullptr;
         AudioCommands* m_audio = nullptr;

@@ -158,6 +158,11 @@ namespace Comet::Tests {
         TaskScheduler scheduler(1);
         AssetManager manager(product.paths(), registry, factory, scheduler);
         ASSERT_TRUE(manager.scan().succeeded());
+        auto cpu_texture = manager.read_texture_data(texture);
+        ASSERT_TRUE(cpu_texture) << cpu_texture.error().message;
+        EXPECT_EQ(cpu_texture.value().sampler, sampler);
+        EXPECT_FALSE(registry.contains(texture));
+        EXPECT_EQ(factory.texture_creation_count(), 0);
         auto cpu_mesh = manager.read_mesh_data(mesh);
         ASSERT_TRUE(cpu_mesh) << cpu_mesh.error().message;
         EXPECT_EQ(cpu_mesh.value().vertices.size(), 3);
@@ -168,6 +173,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(loaded_material) << loaded_material.error().message;
         EXPECT_TRUE(registry.contains<Texture>(texture));
         EXPECT_EQ(factory.last_texture_sampler(), sampler);
+        EXPECT_EQ(loaded_material.value()->get_texture_source("base_color_texture"), texture);
         auto loaded_script = manager.load_script(script);
         ASSERT_TRUE(loaded_script) << loaded_script.error().message;
         Scene scene;
@@ -519,6 +525,11 @@ namespace Comet::Tests {
         TaskScheduler scheduler(1);
         AssetManager manager(product.paths(), registry, factory, scheduler);
         ASSERT_TRUE(manager.scan().succeeded());
+        const auto background = manager.read_environment_background(handle);
+        ASSERT_TRUE(background) << background.error().message;
+        EXPECT_TRUE(background.value().cubemap);
+        EXPECT_EQ(factory.texture_creation_count(), 0);
+        EXPECT_FALSE(registry.contains(handle));
         BlockedWorker blocked(scheduler);
         ASSERT_TRUE(manager.request_load(handle, AssetType::Environment));
         EXPECT_FALSE(registry.contains(handle));

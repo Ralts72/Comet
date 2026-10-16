@@ -26,6 +26,8 @@ namespace Comet {
             uint32_t drawn_instances = 0;
             uint64_t drawn_triangles = 0;
             uint64_t instance_upload_bytes = 0;
+            uint32_t coarse_culled_items = 0;
+            uint32_t lod_selections = 0;
         };
         struct View {
             Math::Mat4 view_projection{1};

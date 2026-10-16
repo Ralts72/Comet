@@ -52,6 +52,8 @@ namespace Comet {
         [[nodiscard]] bool unregister_asset(AssetHandle handle);
 
         [[nodiscard]] std::size_t size() const;
+        // Main 上的身份快照；不保活资源，可用于显式需求清理和驻留观测。
+        [[nodiscard]] std::vector<AssetHandle> handles() const;
 
         void clear();
 

@@ -2,6 +2,7 @@
 #include "render/scene/draw_order.h"
 #include "render/material/material_programs.h"
 #include "render/material/material_layout.h"
+#include "render/material/view_lighting.h"
 #include "asset/registry.h"
 #include "core/geometry.h"
 #include "asset/artifact/shader_program_artifact.h"
@@ -72,6 +73,8 @@ namespace Comet {
 
     MaterialRenderer::Statistics MaterialRenderer::get_statistics() const {
         auto statistics = m_statistics;
+        statistics.pipeline_creations = m_pipeline_manager.get_pipeline_creations();
+        statistics.warmup_pipeline_creations = m_warmup_pipeline_creations;
         statistics.frame_set_count = static_cast<uint32_t>(m_frames.size());
         statistics.cached_material_versions = static_cast<uint32_t>(std::ranges::count_if(
             m_materials, [](const auto& entry) { return bool(entry.second.resources); }));
@@ -846,91 +849,34 @@ namespace Comet {
             camera.fog_color = {settings.fog_color, 1.0f / (settings.fog_end - settings.fog_start)};
         }
         frame->buffer->write(&camera);
-        auto environment = m_empty_environment;
-        auto frame_lighting = lighting;
-        if(submission.world.environment.lighting && submission.world.environment_resource
-            && submission.world.environment_resource->has_lighting()) {
-            environment = submission.world.environment_resource;
-            const float rotation = Math::radians(submission.world.environment.rotation);
-            const auto& image = environment->specular->get_image_view()->get_image();
-            frame_lighting.environment = {submission.world.environment.lighting_intensity,
-                float(image->get_info().mip_levels - 1), std::sin(rotation), std::cos(rotation)};
-        }
-        const auto frustum = Frustum::from_view_projection(view.projection * view.view);
-        unsigned probe_count = 0;
-        for(const auto& resolved : submission.world.reflection_probes) {
-            const auto& probe = resolved.probe;
-            if(!resolved.environment || !resolved.environment->has_lighting()
-                || !probe.bounds.is_valid()
-                || glm::any(glm::lessThanEqual(probe.bounds.size(), Math::Vec3(0)))
-                || !Math::is_finite(probe.position) || !std::isfinite(probe.intensity)
-                || probe.intensity <= 0 || probe.intensity > SceneEnvironment::MAX_INTENSITY
-                || !std::isfinite(probe.rotation) || !std::isfinite(probe.blend_distance)
-                || probe.blend_distance < 0 || (frustum && !frustum->intersects(probe.bounds)))
-                continue;
-            if(probe_count == LightingData::MAX_REFLECTION_PROBES) {
-                ++m_statistics.excess_reflection_probes;
-                continue;
-            }
-            const auto& image = resolved.environment->specular->get_image_view()->get_image();
-            const float rotation = Math::radians(probe.rotation);
-            frame_lighting.reflection_probes[probe_count] = {{probe.position, probe.intensity},
-                {probe.bounds.minimum, probe.blend_distance},
-                {probe.bounds.maximum, float(image->get_info().mip_levels - 1)},
-                {std::sin(rotation), std::cos(rotation), probe.box_projection ? 1.0f : 0.0f, 0}};
-            if(frame->reflection_probes[probe_count] != resolved.environment) {
-                const DescriptorSet::ImageSamplerWrite write{7 + probe_count,
-                    *resolved.environment->specular->get_image_view(), *frame->environment_sampler};
+        const auto selected = ViewLightingData::prepare(submission, lighting);
+        const auto& environment = selected.environment ? selected.environment : m_empty_environment;
+        const auto& frame_lighting = selected.lighting;
+        for(unsigned index = 0; index < LightingData::MAX_REFLECTION_PROBES; ++index) {
+            const auto& probe =
+                selected.probes[index] ? selected.probes[index] : m_empty_environment;
+            if(frame->reflection_probes[index] != probe) {
+                const DescriptorSet::ImageSamplerWrite write{
+                    7 + index, *probe->specular->get_image_view(), *frame->environment_sampler};
                 frame->descriptor->update(m_device, {}, std::span(&write, 1));
-                frame->reflection_probes[probe_count] = resolved.environment;
+                frame->reflection_probes[index] = probe;
             }
-            append_wait(waits, resolved.environment->specular->get_ready_completion(),
+            append_wait(waits, probe->specular->get_ready_completion(),
                 Flags<PipelineStage>(PipelineStage::FragmentShader));
-            if(environment == m_empty_environment)
-                environment = resolved.environment; // 复用同一 BRDF LUT；全局强度仍为零。
-            ++probe_count;
         }
-        for(unsigned index = probe_count; index < LightingData::MAX_REFLECTION_PROBES; ++index) {
-            if(frame->reflection_probes[index] == m_empty_environment)
-                continue;
-            const DescriptorSet::ImageSamplerWrite write{7 + index,
-                *m_empty_environment->specular->get_image_view(), *frame->environment_sampler};
-            frame->descriptor->update(m_device, {}, std::span(&write, 1));
-            frame->reflection_probes[index] = m_empty_environment;
-        }
-        m_statistics.reflection_probes = probe_count;
-        if(m_statistics.excess_reflection_probes
-            && previous_excess_probes != m_statistics.excess_reflection_probes)
+        m_statistics.reflection_probes = selected.probe_count;
+        m_statistics.excess_reflection_probes = selected.excess_probes;
+        if(selected.excess_probes && previous_excess_probes != selected.excess_probes)
             LOG_WARN("Reflection probes omitted {} excess visible probes (limit {})",
-                m_statistics.excess_reflection_probes, LightingData::MAX_REFLECTION_PROBES);
-        frame_lighting.reflection_metadata = {
-            float(probe_count), float(m_statistics.excess_reflection_probes), 0, 0};
-        std::shared_ptr<Irradiance> irradiance;
-        for(const auto& resolved : submission.world.irradiance_volumes) {
-            const auto& volume = resolved.volume;
-            const auto& resource = resolved.resource;
-            if(!resource || !resource->probes || !std::isfinite(volume.intensity)
-                || volume.intensity <= 0 || volume.intensity > SceneEnvironment::MAX_INTENSITY
-                || !std::isfinite(volume.normal_bias) || volume.normal_bias < 0
-                || volume.normal_bias > 1 || (frustum && !frustum->intersects(resource->bounds())))
-                continue;
-            if(irradiance) {
-                ++m_statistics.excess_irradiance_volumes;
-                continue;
-            }
-            irradiance = resource;
-            frame_lighting.irradiance_origin = {resource->origin, volume.intensity};
-            frame_lighting.irradiance_spacing_bias = {resource->spacing, volume.normal_bias};
-            frame_lighting.irradiance_dimensions = {Math::Vec3(resource->dimensions), 0};
-            m_statistics.irradiance_probes =
-                resource->dimensions.x * resource->dimensions.y * resource->dimensions.z;
-            m_statistics.irradiance_bytes = uint64_t(m_statistics.irradiance_probes)
-                                            * Irradiance::TEXELS_PER_PROBE * sizeof(Math::Vec4);
-        }
-        if(m_statistics.excess_irradiance_volumes
-            && previous_excess_gi != m_statistics.excess_irradiance_volumes)
+                selected.excess_probes, LightingData::MAX_REFLECTION_PROBES);
+        const auto& irradiance = selected.irradiance;
+        m_statistics.irradiance_probes = selected.irradiance_probes;
+        m_statistics.irradiance_bytes = selected.irradiance_bytes;
+        m_statistics.excess_irradiance_volumes = selected.excess_irradiance_volumes;
+        if(selected.excess_irradiance_volumes
+            && previous_excess_gi != selected.excess_irradiance_volumes)
             LOG_WARN("GI omitted {} excess visible volumes (limit 1)",
-                m_statistics.excess_irradiance_volumes);
+                selected.excess_irradiance_volumes);
         if(frame->irradiance != irradiance) {
             const auto& texture = irradiance ? irradiance->probes : m_white_texture;
             const DescriptorSet::ImageSamplerWrite write{

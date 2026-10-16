@@ -154,6 +154,15 @@ namespace Comet {
             Entity entity, std::shared_ptr<const AnimationPlayback> playback);
         // 宿主解析 CPU 动画数据；Scene 缓存挂点和固定步呈现所需的姿态。
         void set_animation_source(Entity entity, std::shared_ptr<const AnimationData> source);
+        struct AnimationStatistics {
+            uint64_t pose_resolutions = 0;
+            uint64_t ik_pose_reuses = 0;
+            uint64_t presentation_interpolations = 0;
+        };
+        // 场景生命期内的 Main 姿态求值次数；不影响播放与呈现时钟。
+        [[nodiscard]] AnimationStatistics get_animation_statistics() const {
+            return m_animation_statistics;
+        }
 
         [[nodiscard]] bool is_valid(Entity entity) const;
 
@@ -328,6 +337,7 @@ namespace Comet {
             std::shared_ptr<const AnimationPlayback> presented;
         };
         std::unordered_map<entt::entity, AnimationSource> m_animation_sources;
+        AnimationStatistics m_animation_statistics;
         entt::registry m_registry;
         std::unordered_map<EntityId, entt::entity> m_entities_by_id;
         std::unordered_map<EntityUuid, entt::entity> m_entities_by_uuid;

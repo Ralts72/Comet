@@ -66,6 +66,8 @@ namespace Comet {
             uint32_t instanced_draw_calls = 0;
             uint64_t instance_upload_bytes = 0;
             uint32_t pipeline_binds = 0;
+            uint64_t pipeline_creations = 0;
+            uint64_t warmup_pipeline_creations = 0;
             uint32_t material_binds = 0;
             uint32_t mesh_binds = 0;
             uint32_t material_preparations = 0;
@@ -149,6 +151,8 @@ namespace Comet {
             m_view_geometry.clear_frame();
             m_transparent_depths.clear();
         }
+        // 加载／激活时显式调用；程序必须已通过 prepare_programs 共同准备。
+        [[nodiscard]] Result<void, GraphicsError> warmup_scene(const RenderWorld& world);
         [[nodiscard]] Statistics get_statistics() const;
         void reset_statistics() { m_statistics = {}; }
         void remove_assets(const AssetRegistry::Removals& removals);
@@ -332,6 +336,7 @@ namespace Comet {
         std::vector<Math::Mat4> m_instance_transforms;
         RenderGeometry m_view_geometry;
         Statistics m_statistics;
+        uint64_t m_warmup_pipeline_creations = 0;
         bool m_has_runtime_instances = false;
     };
 }

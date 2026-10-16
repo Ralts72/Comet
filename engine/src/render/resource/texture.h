@@ -4,6 +4,7 @@
 #include "graphics/synchronization/gpu_completion_point.h"
 
 #include <memory>
+#include <cstddef>
 
 namespace Comet {
     class ImageView;
@@ -23,6 +24,8 @@ namespace Comet {
         [[nodiscard]] int get_width() const { return m_width; }
         [[nodiscard]] int get_height() const { return m_height; }
         [[nodiscard]] std::shared_ptr<ImageView> get_image_view() const { return m_image_view; }
+        // 全 mip/layer 的格式数据字节，不等于 GPU 分配大小或分配器保留量。
+        [[nodiscard]] std::size_t pixel_bytes() const;
         [[nodiscard]] const GpuCompletionPoint& get_ready_completion() const {
             return m_ready_completion;
         }

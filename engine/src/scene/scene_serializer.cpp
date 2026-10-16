@@ -3,6 +3,7 @@
 
 #include "common/file_io.h"
 #include "common/json.h"
+#include "common/serialization/parameters_json.h"
 #include "scene/component_registry.h"
 #include "scene/components.h"
 #include "scene/scene.h"
@@ -50,65 +51,29 @@ namespace Comet {
             writer.end_object();
         }
 
+        Result<Uuid> read_entity_reference(
+            Json::Node node, const Json::Context& context, const std::string_view location) {
+            if(auto valid = context.validate_keys(node, {"entity"}, location); !valid)
+                return Result<Uuid>::failure(valid.error());
+            auto text = context.read_field<std::string>(node, "entity", "a UUID string", location);
+            if(!text)
+                return Result<Uuid>::failure(text.error());
+            const auto uuid = EntityUuid::parse(text.value());
+            if(!uuid)
+                return Result<Uuid>::failure(
+                    context.error(location, "expected a canonical entity UUID"));
+            return Result<Uuid>::success(*uuid);
+        }
+
         Result<PropertyValue> read_property_value(const PropertyDescriptor& property,
             const Json::Node& node, const Json::Context& context, const std::string_view location) {
             switch(property.type) {
                 case PropertyType::Parameters: {
-                    auto object = context.object(node, location);
-                    if(!object)
-                        return Result<PropertyValue>::failure(object.error());
-                    ParameterMap parameters;
-                    for(const auto field : object.value()) {
-                        if(parameters.size() >= 128 || !valid_parameter_name(field.key))
-                            return Result<PropertyValue>::failure(
-                                context.error(location, "Invalid or duplicate parameter"));
-                        PropertyDescriptor item;
-                        if(field.value.is_bool())
-                            item.type = PropertyType::Bool;
-                        else if(field.value.is_number())
-                            item.type = PropertyType::Float;
-                        else if(field.value.is_string())
-                            item.type = PropertyType::String;
-                        else if(field.value.is_array()) {
-                            const auto elements = context.array(field.value, location);
-                            if(!elements)
-                                return Result<PropertyValue>::failure(elements.error());
-                            if(elements.value().size() == 3)
-                                item.type = PropertyType::Vec3;
-                            else if(elements.value().size() == 4)
-                                item.type = PropertyType::Vec4;
-                            else
-                                return Result<PropertyValue>::failure(context.error(
-                                    location, "Vector parameter needs exactly 3 or 4 numbers"));
-                        } else if(field.value.is_object())
-                            item.type = PropertyType::EntityReference;
-                        else
-                            return Result<PropertyValue>::failure(
-                                context.error(location, "Unsupported parameter type"));
-                        auto value = read_property_value(item, field.value, context,
-                            std::string(location) + "." + std::string(field.key));
-                        if(!value)
-                            return value;
-                        const bool inserted = std::visit(
-                            [&](const auto& scalar) {
-                                using T = std::remove_cvref_t<decltype(scalar)>;
-                                if constexpr(std::is_same_v<T, AssetHandle>
-                                             || std::is_same_v<T, ParameterMap>
-                                             || std::is_same_v<T, uint32_t>)
-                                    return false;
-                                else
-                                    return parameters.emplace(std::string(field.key), scalar)
-                                        .second;
-                            },
-                            value.value());
-                        if(!inserted)
-                            return Result<PropertyValue>::failure(
-                                context.error(location, "Invalid or duplicate parameter"));
-                    }
-                    if(!valid_parameters(parameters))
-                        return Result<PropertyValue>::failure(
-                            context.error(location, "Invalid or duplicate parameter"));
-                    return Result<PropertyValue>::success(std::move(parameters));
+                    auto parameters =
+                        Json::read_parameters(node, context, location, read_entity_reference);
+                    if(!parameters)
+                        return Result<PropertyValue>::failure(parameters.error());
+                    return Result<PropertyValue>::success(std::move(parameters).value());
                 }
                 case PropertyType::Bool: {
                     auto value = context.read_scalar<bool>(node, location, "a boolean");
@@ -170,17 +135,10 @@ namespace Comet {
                     return Result<PropertyValue>::success(AssetHandle(value.value()));
                 }
                 case PropertyType::EntityReference: {
-                    if(auto valid = context.validate_keys(node, {"entity"}, location); !valid)
-                        return Result<PropertyValue>::failure(valid.error());
-                    auto text =
-                        context.read_field<std::string>(node, "entity", "a UUID string", location);
-                    if(!text)
-                        return Result<PropertyValue>::failure(text.error());
-                    const auto uuid = EntityUuid::parse(text.value());
-                    if(!uuid)
-                        return Result<PropertyValue>::failure(
-                            context.error(location, "expected a canonical entity UUID"));
-                    return Result<PropertyValue>::success(*uuid);
+                    auto reference = read_entity_reference(node, context, location);
+                    if(!reference)
+                        return Result<PropertyValue>::failure(reference.error());
+                    return Result<PropertyValue>::success(reference.value());
                 }
             }
             return Result<PropertyValue>::failure(
@@ -216,9 +174,9 @@ namespace Comet {
             return Result<PropertyValue>::success(std::move(*value));
         }
 
-        void write_property_value(Json::Writer& writer, const PropertyRecord& property) {
-            std::visit(
-                [&writer](const auto& value) {
+        Result<void> write_property_value(Json::Writer& writer, const PropertyRecord& property) {
+            return std::visit(
+                [&writer](const auto& value) -> Result<void> {
                     using T = std::remove_cvref_t<decltype(value)>;
                     if constexpr(std::is_same_v<T, Math::Vec3> || std::is_same_v<T, Math::Vec4>)
                         Json::write_vector(writer, value);
@@ -228,28 +186,13 @@ namespace Comet {
                         writer.value(uint64_t{value});
                     else if constexpr(std::is_same_v<T, EntityUuid>)
                         write_entity_reference(writer, value);
-                    else if constexpr(std::is_same_v<T, ParameterMap>) {
-                        writer.begin_object();
-                        for(const auto& [name, parameter] : value) {
-                            writer.key(name);
-                            std::visit(
-                                [&](const auto& item) {
-                                    using T = std::remove_cvref_t<decltype(item)>;
-                                    if constexpr(std::is_same_v<T, Math::Vec3>
-                                                 || std::is_same_v<T, Math::Vec4>)
-                                        Json::write_vector(writer, item);
-                                    else if constexpr(std::is_same_v<
-                                                          std::remove_cvref_t<decltype(item)>,
-                                                          EntityUuid>)
-                                        write_entity_reference(writer, item);
-                                    else
-                                        writer.value(item);
-                                },
-                                parameter);
-                        }
-                        writer.end_object();
-                    } else
+                    else if constexpr(std::is_same_v<T, ParameterMap>)
+                        return Json::write_parameters(writer, value,
+                            Json::Context("scene", "<memory>"), "parameters",
+                            write_entity_reference);
+                    else
                         writer.value(value);
+                    return Result<void>::success();
                 },
                 property.value);
         }
@@ -615,7 +558,8 @@ namespace Comet {
                 writer.begin_object();
                 for(const PropertyRecord& property : component_record.properties) {
                     writer.key(property.descriptor->id);
-                    write_property_value(writer, property);
+                    if(auto written = write_property_value(writer, property); !written)
+                        return written;
                 }
                 writer.end_object();
             }

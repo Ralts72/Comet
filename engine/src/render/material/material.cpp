@@ -23,18 +23,25 @@ namespace Comet {
         return copy;
     }
 
-    void Material::set_texture_property(const std::string& name, std::shared_ptr<Texture> texture) {
+    void Material::set_texture_property(
+        const std::string& name, std::shared_ptr<Texture> texture, AssetHandle source) {
         const auto found = m_texture_properties.find(name);
-        if(found != m_texture_properties.end() && found->second == texture) {
+        if(found != m_texture_properties.end() && found->second.resource == texture
+            && found->second.source == source) {
             return;
         }
-        m_texture_properties[name] = std::move(texture);
+        m_texture_properties[name] = {std::move(texture), source};
         mark_changed();
     }
 
     std::shared_ptr<Texture> Material::get_texture_property(const std::string& name) const {
         const auto property = m_texture_properties.find(name);
-        return property == m_texture_properties.end() ? nullptr : property->second;
+        return property == m_texture_properties.end() ? nullptr : property->second.resource;
+    }
+
+    AssetHandle Material::get_texture_source(const std::string& name) const {
+        const auto property = m_texture_properties.find(name);
+        return property == m_texture_properties.end() ? AssetHandle{} : property->second.source;
     }
 
     bool Material::set_scalar_property(const std::string& name, const float value) {

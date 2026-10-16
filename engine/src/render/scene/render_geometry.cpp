@@ -161,13 +161,14 @@ namespace Comet {
     }
 
     const RenderGeometry& RenderGeometry::prepare_view(
-        const RenderGeometry& world, const Math::Mat4& clip) {
+        const RenderGeometry& world, const Math::Mat4& clip, const bool cull_before_lod) {
         clear_frame();
+        m_view_statistics = {};
         if(!world.m_scene_version.identity
             || m_scene_version.identity != world.m_scene_version.identity)
             m_lod_history.clear();
         m_scene_version = world.m_scene_version;
-        if(world.m_lod_count == 0) {
+        if(world.m_lod_count == 0 && !cull_before_lod) {
             m_lod_history.clear();
             return world;
         }
@@ -178,13 +179,22 @@ namespace Comet {
         m_items.reserve(inputs.size());
         // 预留后才保存指针，保证本帧各队列借用的地址稳定。
         m_selected_items.reserve(world.m_lod_count);
+        const auto frustum = cull_before_lod ? Frustum::from_view_projection(clip) : std::nullopt;
         for(const auto& input : inputs) {
             const auto& item = *input.source;
+            if(frustum && input.world_bounds && !frustum->intersects(*input.world_bounds)) {
+                ++m_view_statistics.culled_items;
+                if(const auto history = m_lod_history.find(item.entity_id);
+                    history != m_lod_history.end())
+                    history->second.used = true;
+                continue;
+            }
             if(!item.lod || !input.world_bounds) {
                 m_items.push_back(input);
                 continue;
             }
             const auto& lod = *item.lod;
+            ++m_view_statistics.lod_selections;
             auto& history = m_lod_history[item.entity_id];
             if(history.settings != lod.settings || item.entity_id == INVALID_ENTITY_ID)
                 history.level = -1;

@@ -10,6 +10,8 @@
 #include "render/scene/render_scene.h"
 #include "render/scene/render_geometry.h"
 #include "render/scene/scene_resolver.h"
+#include "render/path_trace_scene.h"
+#include "render/passes/skinning_pass.h"
 #include "render/scene/scene_picking.h"
 #include "render/debug/line_draw_list.h"
 #include "render/material/material_renderer.h"
@@ -115,6 +117,9 @@ namespace Comet {
         [[nodiscard]] Result<MaterialUpdate, GraphicsError> prepare_material_update(
             AssetHandle handle, const std::shared_ptr<const Material>& snapshot,
             const std::shared_ptr<const ShaderProgramArtifact>& program_source);
+        // 加载阶段同步准备实际场景组合；只消费 Main 已固定资产版本的快照。
+        [[nodiscard]] Result<void, GraphicsError> warmup_scene(
+            std::shared_ptr<const RenderWorld> world);
         void request_swapchain_recreation();
         // 修改请求在下一次 prepare_frame 的交换链重建中生效。
         void set_vsync_enabled(bool enabled);
@@ -132,6 +137,11 @@ namespace Comet {
         [[nodiscard]] const QualitySettings& get_quality_settings() const;
         [[nodiscard]] Math::Vec2u get_scene_size() const;
         [[nodiscard]] uint32_t path_trace_samples(ViewId id = DEFAULT_VIEW) const;
+        [[nodiscard]] const std::string& path_trace_error(ViewId id = DEFAULT_VIEW) const;
+        void set_path_trace_sources(PathTraceSceneBuilder::MeshReader read,
+            PathTraceSceneBuilder::MeshRevision revision = {},
+            PathTraceSceneBuilder::Images images = {});
+        [[nodiscard]] SkinningPass::Statistics get_skinning_statistics() const;
         [[nodiscard]] Result<void, GraphicsError> check_path_trace_support() const;
         [[nodiscard]] std::vector<uint32_t> supported_msaa_samples() const;
         [[nodiscard]] float max_anisotropy() const;
@@ -181,10 +191,14 @@ namespace Comet {
         [[nodiscard]] Result<void, GraphicsError> begin_render_loop();
         void end_render_loop();
         void collect_resources();
+        [[nodiscard]] Result<void, GraphicsError> maintain_assets(AssetRegistry::Removals removals);
+        [[nodiscard]] Result<void, GraphicsError> apply_pending_quality();
         [[nodiscard]] Result<FramePreparation, GraphicsError> prepare_gpu_frame(
             Math::Vec2u framebuffer_size, AssetRegistry::Removals removals);
         [[nodiscard]] Result<void, GraphicsError> record_frame(RenderFrame frame);
         [[nodiscard]] Result<void, GraphicsError> draw_frame(RenderFrame& frame);
+        // Main 在一次场景解析之后准备各 View 的只读附加输入。
+        void prepare_scene_views(RenderFrame& frame);
         Renderer(const Window& window, std::unique_ptr<RenderContext> context,
             std::unique_ptr<RenderResources> resources, std::unique_ptr<FrameScheduler> frames,
             std::unique_ptr<MaterialPrograms> programs, std::unique_ptr<SceneRenderer> scene,
@@ -200,6 +214,8 @@ namespace Comet {
             std::optional<RenderFrame::Pick> pick_request;
             std::optional<ViewportPickResult> pick_result;
             LineDrawList lines;
+            std::unique_ptr<PathTraceSceneBuilder> path_trace_builder;
+            std::string path_trace_error;
         };
         [[nodiscard]] ViewState& get_view(ViewId id);
         [[nodiscard]] const ViewState& get_view(ViewId id) const;
@@ -218,6 +234,10 @@ namespace Comet {
         std::unique_ptr<MaterialPrograms> m_programs;
         std::map<ViewId, ViewState> m_views;
         ViewId m_next_view_id = 1;
+        PathTraceSceneBuilder::MeshReader m_path_trace_read;
+        PathTraceSceneBuilder::MeshRevision m_path_trace_revision;
+        PathTraceSceneBuilder::Images m_path_trace_images;
+        std::string m_path_trace_support_error;
         Settings m_settings;
         std::function<OverlayDrawList()> m_capture_overlay;
         std::function<void()> m_shutdown_overlay;

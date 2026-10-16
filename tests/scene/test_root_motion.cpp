@@ -411,6 +411,8 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.start(scene));
         SceneExtractor extractor;
         ASSERT_TRUE(runtime.advance(.15));
+        const auto before_presentation =
+            scene.get_animation_statistics().presentation_interpolations;
         const auto frozen = extractor.update(scene);
         const auto frame = scene.get_render_animation_playback(model);
         ASSERT_TRUE(frame && frame->pose);
@@ -419,6 +421,8 @@ namespace Comet::Tests {
         EXPECT_NEAR(scene.get_render_transform(model).world_matrix[3].x, .1, .0001);
         EXPECT_NEAR(scene.get_render_transform(attachment).world_matrix[3].y, .05, .0001);
         EXPECT_NEAR(scene.get_world_matrix(attachment)[3].y, .1, .0001);
+        EXPECT_EQ(
+            scene.get_animation_statistics().presentation_interpolations, before_presentation + 1);
         ASSERT_TRUE(runtime.advance(.025));
         EXPECT_NEAR(
             scene.get_render_animation_playback(model)->pose->bone_matrices[0][3].y, .075, .0001);

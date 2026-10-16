@@ -142,7 +142,11 @@ namespace Comet::Tests {
         const auto prefix = std::string(R"({"version":1,"project":")") + project.to_string()
                             + R"(","scene":123,"checkpoint":"gate",)";
         const std::vector<std::string> corrupt{"{", prefix + R"("values":{"score":1,"score":2}})",
+            prefix + R"("values":{"score":1,"\u0073core":2}})",
             prefix + R"("values":{"position":[1,2]}})", prefix + R"("values":{"score":null}})",
+            prefix + R"("values":{"position":[1,2,3,4]}})",
+            prefix + R"("values":{"position":[1,2,1e100]}})",
+            prefix + R"("values":{"target":{"entity":"00000000-0000-0000-0000-000000000000"}}})",
             prefix + R"("values":{"score":1e100}})", prefix + R"("values":{},"unexpected":true})",
             prefix + R"("values":{},"version":2})",
             std::string(R"({"version":2,"project":")") + project.to_string()

@@ -5,6 +5,8 @@
 #include "asset/data/texture_data.h"
 #include "render/resource/mesh.h"
 #include "asset/data/animation_library.h"
+#include "render/passes/skinning_pass.h"
+#include "render/scene/render_geometry.h"
 namespace Comet::Tests {
     class SkinningGpuTest: public RenderGpuTest {
     protected:
@@ -206,6 +208,77 @@ namespace Comet::Tests {
         for(int frame = 0; frame < 4; ++frame)
             EXPECT_NEAR(centroid(1), second, 1);
     }
+    TEST_F(SkinningGpuTest, UnchangedActualPoseReusesSafeSlotsAndMovementStillUpdatesBounds) {
+        auto& renderer = engine->get_renderer();
+        const auto slots = Config{}.render.max_frames_in_flight;
+        const double start = centroid(0);
+        const double initial = centroid(0.25);
+        for(uint32_t frame = 0; frame < slots * 2; ++frame)
+            EXPECT_NEAR(centroid(0.25), initial, 1);
+        auto statistics = renderer.get_skinning_statistics();
+        EXPECT_EQ(statistics.dispatches, 0u);
+        EXPECT_EQ(statistics.reused_outputs, 1u);
+        EXPECT_EQ(statistics.palette_upload_bytes, 0u);
+
+        // 包装对象、采样时间变化但实际骨骼矩阵相同，也不重发 dispatch。
+        m_scene.render_items[0].animation = std::make_shared<const AnimationPlayback>(
+            AnimationPlayback{.current = {.clip = "move", .time = 2, .loop = false}});
+        const double endpoint = centroid();
+        for(uint32_t frame = 0; frame < slots * 2; ++frame)
+            EXPECT_NEAR(centroid(3), endpoint, 1);
+        EXPECT_EQ(renderer.get_skinning_statistics().dispatches, 0u);
+        EXPECT_EQ(renderer.get_skinning_statistics().reused_outputs, 1u);
+
+        m_scene.render_items[0].model_matrix = Math::translate(Math::Mat4(1), {0.25f, 0, 0});
+        EXPECT_GT(centroid() - endpoint, 10);
+        EXPECT_EQ(renderer.get_skinning_statistics().dispatches, 0u);
+        m_scene.render_items[0].model_matrix = Math::translate(Math::Mat4(1), {10, 0, 0});
+        render_and_copy(renderer, m_scene, *m_readback_frames, m_readback);
+        EXPECT_EQ(renderer.get_skinning_statistics().dispatches, 0u);
+        m_readback_frames->wait_for_all_slots();
+        const auto hidden = m_readback->read();
+        for(size_t index = 0; index < hidden.size(); index += 4)
+            EXPECT_LT(std::to_integer<int>(hidden[index]), 10);
+
+        m_scene.render_items[0].model_matrix = Math::Mat4(1);
+        EXPECT_LT(centroid(0), endpoint - 40);
+        EXPECT_EQ(renderer.get_skinning_statistics().dispatches, 1u);
+        EXPECT_GT(renderer.get_skinning_statistics().palette_upload_bytes, 0u);
+        auto replacement = engine->get_render_resources().try_create_mesh(m_source);
+        ASSERT_TRUE(replacement);
+        ASSERT_TRUE(
+            engine->get_asset_registry().replace_asset(AssetHandle(10), replacement.value()));
+        EXPECT_NEAR(centroid(0), start, 1);
+        EXPECT_EQ(renderer.get_skinning_statistics().dispatches, 1u);
+    }
+
+    TEST_F(SkinningGpuTest, ReusedOutputRecomputesConcreteWorldBounds) {
+        auto& device = engine->get_renderer().get_render_context().get_device();
+        const auto source = engine->get_render_resources().try_create_mesh(m_source);
+        ASSERT_TRUE(source);
+        FrameScheduler frames(device, 1);
+        frames.initialize_swapchain_images(1);
+        FrameWait wait{device, frames};
+        SkinningPass skinning(device, 1);
+        RenderWorld world{.render_items = {{.entity_id = 1, .mesh = source.value()}}};
+        RenderGeometry geometry;
+        for(uint32_t index = 0; index < 3; ++index) {
+            world.render_items[0].model_matrix =
+                Math::translate(Math::Mat4(1), {float(index * 10), 0, 0});
+            geometry.prepare(world);
+            begin_frame(frames);
+            std::vector<QueueSemaphoreSubmit> waits;
+            ASSERT_TRUE(skinning.prepare(world, frames, geometry, waits));
+            ASSERT_EQ(geometry.get_items().size(), 1u);
+            ASSERT_NE(geometry.get_items()[0].world_bounds, nullptr);
+            EXPECT_NEAR(geometry.get_items()[0].world_bounds->center().x, index * 10.f, 1e-5f);
+            EXPECT_EQ(skinning.get_statistics().dispatches, index == 0 ? 1u : 0u);
+            EXPECT_EQ(skinning.get_statistics().reused_outputs, index == 0 ? 0u : 1u);
+            submit(device, frames, waits);
+        }
+        frames.wait_for_all_slots();
+    }
+
     TEST_F(SkinningGpuTest, MissingClipUsesBindPoseAndReplacementInvalidatesPausedPose) {
         const double first = centroid(0);
         const double second = centroid(1);

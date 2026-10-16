@@ -48,7 +48,8 @@ namespace Comet {
         std::vector<RenderGraph::Binding> bindings;
         RenderGraph::ResourceId shadow_resource;
         std::vector<RenderGraph::ResourceId> scene_attachments;
-        RenderGraph::PassId shadow_pass_id;
+        std::optional<RenderGraph::PassId> shadow_pass_id;
+        bool shadows_enabled = false;
         RenderGraph::PassId scene_pass_id;
         RenderGraph::PassId output_pass_id;
         std::optional<BloomPass::Passes> bloom_passes;
@@ -184,17 +185,24 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> SceneRenderer::rebuild_graph(
-        RenderState& state, const PostProcessSettings& settings) {
+        RenderState& state, const PostProcessSettings& settings, const bool shadows) {
         RenderGraph graph;
         // 丢弃旧内容仍需等待上一轮附件写入与片段采样。
         auto shadow_access = *resolve_resource_state(ResourceUsage::DepthStencilAttachmentWrite);
         shadow_access.stages |= PipelineStage::FragmentShader;
         ImageState shadow_initial{.resource = shadow_access,
             .subresources = {.aspects = Flags<ImageAspect>(ImageAspect::Depth)}};
-        const auto shadow = graph.import_image("shadow depth", shadow_initial);
-        RenderGraph::Pass shadow_pass{"shadow", {}};
-        shadow_pass.uses.push_back({shadow, ResourceUsage::DepthStencilAttachmentWrite, {}});
-        const auto shadow_pass_id = graph.add_pass(std::move(shadow_pass));
+        const auto fallback_initial = *resolve_image_state(ResourceUsage::SampledRead,
+            {.aspects = Flags<ImageAspect>(ImageAspect::Depth)},
+            Flags<PipelineStage>(PipelineStage::FragmentShader));
+        const auto shadow =
+            graph.import_image("shadow depth", shadows ? shadow_initial : fallback_initial);
+        std::optional<RenderGraph::PassId> shadow_pass_id;
+        if(shadows) {
+            RenderGraph::Pass shadow_pass{"shadow", {}};
+            shadow_pass.uses.push_back({shadow, ResourceUsage::DepthStencilAttachmentWrite, {}});
+            shadow_pass_id = graph.add_pass(std::move(shadow_pass));
+        }
         std::optional<RenderGraph::ResourceId> ao_depth_resource;
         std::optional<RenderGraph::PassId> ao_depth_pass;
         if(settings.uses_ao()) {
@@ -246,6 +254,7 @@ namespace Comet {
         state.shadow_resource = shadow;
         state.scene_attachments = std::move(scene_attachments);
         state.shadow_pass_id = shadow_pass_id;
+        state.shadows_enabled = shadows;
         state.scene_pass_id = scene_pass_id;
         state.output_pass_id = output_pass_id;
         state.bloom_passes = bloom_passes;
@@ -297,6 +306,12 @@ namespace Comet {
         return m_state->materials->prepare_programs(world);
     }
 
+    Result<void, GraphicsError> SceneRenderer::warmup_scene(const RenderWorld& world) {
+        if(!m_state)
+            return Result<void, GraphicsError>::failure({"Scene renderer is not configured"});
+        return m_state->materials->warmup_scene(world);
+    }
+
     Result<void, GraphicsError> SceneRenderer::configure_effects(
         const PostProcessSettings& settings) {
         std::unique_ptr<BloomPass> candidate;
@@ -326,7 +341,7 @@ namespace Comet {
             if(auto resized = depth->resize(m_state->hdr_target->get_size()); !resized)
                 return resized;
         }
-        if(auto graph = rebuild_graph(*m_state, settings); !graph)
+        if(auto graph = rebuild_graph(*m_state, settings, m_state->shadows_enabled); !graph)
             return graph;
         if(depth_candidate)
             m_state->ao_depth = std::move(depth_candidate);
@@ -537,6 +552,13 @@ namespace Comet {
         auto lighting = RenderDiagnostics::measure_preparation(diagnostics,
             RenderDiagnostics::PreparationPhase::Lighting,
             [&] { return ShadowPass::prepare(submission, geometry); });
+        const bool shadows = ShadowPass::needs_shadow(lighting);
+        if(shadows != m_state->shadows_enabled) {
+            if(auto rebuilt = rebuild_graph(*m_state, m_post_process, shadows); !rebuilt)
+                return RenderResult::failure(rebuilt.error());
+        }
+        if(auto prepared = m_shadow->prepare_frame(frames, lighting); !prepared)
+            return RenderResult::failure(prepared.error());
         if(m_post_process.uses_ao() && submission.view_project_matrix) {
             const auto& camera = *submission.view_project_matrix;
             lighting.ao_inverse_view_projection = Math::inverse(camera.projection * camera.view);
@@ -597,7 +619,7 @@ namespace Comet {
                 view.view_projection = submission.view_project_matrix->projection
                                        * submission.view_project_matrix->view;
             drawn = m_state->ao_depth->render(frames, std::span(&view, 1), geometry);
-        } else if(pass == m_state->shadow_pass_id) {
+        } else if(m_state->shadow_pass_id && pass == *m_state->shadow_pass_id) {
             drawn = m_shadow->render(frames, lighting, geometry);
         } else if(pass == m_state->scene_pass_id)
             drawn = draw_scene(

@@ -5,9 +5,17 @@ layout(local_size_x = 8, local_size_y = 8) in;
 struct Triangle {
     vec4 p[3];
     vec4 n[3];
+    vec4 tangent[3];
+    vec4 bitangent[3];
+    uvec4 surface;
+};
+struct Surface {
     vec4 albedo_metallic;
     vec4 emission_roughness;
+    uvec4 textures;
+    vec4 parameters;
 };
+struct Texture { uvec4 extent; uvec4 sampler_state; };
 struct Node { vec4 minimum; vec4 maximum; uvec4 links; };
 struct Light {
     vec3 position; float type;
@@ -20,11 +28,19 @@ layout(std430, set = 0, binding = 1) readonly buffer Triangles { Triangle triang
 layout(std430, set = 0, binding = 2) readonly buffer Lights { Light lights[]; };
 layout(rgba32f, set = 0, binding = 3) uniform image2D accumulation;
 layout(std430, set = 0, binding = 4) readonly buffer Emitters { uint emitters[]; };
+layout(std430, set = 0, binding = 5) readonly buffer Surfaces { Surface surfaces[]; };
+layout(std430, set = 0, binding = 6) readonly buffer Textures { Texture textures[]; };
+layout(std430, set = 0, binding = 7) readonly buffer Texels { vec4 texels[]; };
+layout(std430, set = 0, binding = 8) readonly buffer EnvironmentMap {
+    uvec4 environment_size;
+    vec4 environment_texels[];
+};
 layout(push_constant) uniform Parameters {
     mat4 inverse_view_projection;
     vec4 background;
     uvec4 dimensions; // width, height, sample, bounces
     uvec4 counts; // nodes, lights, seed, emitters
+    vec4 environment; // background scale (-1: solid), lighting scale, rotation sin/cos
 } parameters;
 
 const float PI = 3.141592653589793;
@@ -37,6 +53,156 @@ uint hash_uint(uint x) {
 float random_float() {
     rng = rng * 1664525u + 1013904223u;
     return float(hash_uint(rng) >> 8) * (1.0 / 16777216.0);
+}
+
+int texture_address(int value, int size, uint mode) {
+    if(mode == 1) return (value % size + size) % size;
+    if(mode == 2) {
+        int period = size * 2;
+        value = (value % period + period) % period;
+        return value < size ? value : period - 1 - value;
+    }
+    if(mode == 3 && (value < 0 || value >= size)) return -1;
+    return clamp(value, 0, size - 1);
+}
+vec4 texture_texel(Texture image, ivec2 p) {
+    int x = texture_address(p.x, int(image.extent.y), image.sampler_state.x);
+    int y = texture_address(p.y, int(image.extent.z), image.sampler_state.y);
+    if(x < 0 || y < 0) return vec4(0, 0, 0, 1);
+    return texels[image.extent.x + uint(y) * image.extent.y + uint(x)];
+}
+vec4 sample_texture(uint index, vec2 uv, vec4 fallback) {
+    if(index == 0) return fallback;
+    Texture image = textures[index];
+    for(int axis = 0; axis < 2; ++axis) {
+        uint mode = image.sampler_state[axis];
+        if(mode == 1) uv[axis] = fract(uv[axis]);
+        else if(mode == 2) uv[axis] = mod(uv[axis], 2.0);
+        else uv[axis] = clamp(uv[axis], -1.0, 2.0);
+    }
+    vec2 p = uv * vec2(image.extent.yz) - 0.5;
+    if(image.sampler_state.z == 0) return texture_texel(image, ivec2(floor(p + 0.5)));
+    ivec2 low = ivec2(floor(p));
+    vec2 f = fract(p);
+    return mix(mix(texture_texel(image, low), texture_texel(image, low + ivec2(1, 0)), f.x),
+        mix(texture_texel(image, low + ivec2(0, 1)), texture_texel(image, low + ivec2(1)), f.x), f.y);
+}
+vec2 hit_uv(Triangle triangle, vec3 barycentric) {
+    vec2 a = vec2(triangle.n[0].w, triangle.tangent[0].w);
+    vec2 b = vec2(triangle.n[1].w, triangle.tangent[1].w);
+    vec2 c = vec2(triangle.n[2].w, triangle.tangent[2].w);
+    // 差值形式保留常量 UV，避免重复边界因重心和的舍入跳到相邻纹素。
+    return a + (b - a) * barycentric.y + (c - a) * barycentric.z;
+}
+Surface hit_surface(Triangle triangle, vec3 barycentric) {
+    Surface value = surfaces[triangle.surface.x];
+    if(value.emission_roughness.w < 0.0) return value;
+    vec2 uv = hit_uv(triangle, barycentric);
+    value.albedo_metallic.rgb = clamp(value.albedo_metallic.rgb
+        * sample_texture(value.textures.x, uv, vec4(1)).rgb, 0.0, 1.0);
+    vec2 mr = sample_texture(value.textures.z, uv, vec4(1)).bg;
+    value.albedo_metallic.w = clamp(value.albedo_metallic.w * mr.x, 0.0, 1.0);
+    value.emission_roughness.w = clamp(value.emission_roughness.w * mr.y, 0.045, 1.0);
+    value.emission_roughness.rgb *= sample_texture(value.textures.w, uv, vec4(1)).rgb;
+    return value;
+}
+vec3 hit_normal(Triangle triangle, Surface surface, vec3 barycentric, vec3 geometric, vec3 outgoing) {
+    vec3 basis_normal = triangle.n[0].xyz * barycentric.x + triangle.n[1].xyz * barycentric.y + triangle.n[2].xyz * barycentric.z;
+    vec3 normal = dot(basis_normal, basis_normal) < 1e-12 ? geometric : normalize(basis_normal);
+    if(surface.textures.y != 0 && surface.parameters.x != 0.0) {
+        vec3 tangent = triangle.tangent[0].xyz * barycentric.x + triangle.tangent[1].xyz * barycentric.y + triangle.tangent[2].xyz * barycentric.z;
+        vec3 bitangent = triangle.bitangent[0].xyz * barycentric.x + triangle.bitangent[1].xyz * barycentric.y + triangle.bitangent[2].xyz * barycentric.z;
+        // 无源切线时从三角形 UV 求基；与光栅 PBR 的导数回退保持一致。
+        if(dot(tangent, tangent) < 1e-12) {
+            vec2 uv0 = vec2(triangle.n[0].w, triangle.tangent[0].w);
+            vec2 du = vec2(triangle.n[1].w, triangle.tangent[1].w) - uv0;
+            vec2 dv = vec2(triangle.n[2].w, triangle.tangent[2].w) - uv0;
+            float determinant = du.x * dv.y - du.y * dv.x;
+            if(abs(determinant) > 1e-8) {
+                vec3 e1 = triangle.p[1].xyz - triangle.p[0].xyz;
+                vec3 e2 = triangle.p[2].xyz - triangle.p[0].xyz;
+                tangent = (e1 * dv.y - e2 * du.y) / determinant;
+                bitangent = (e2 * du.x - e1 * dv.x) / determinant;
+                tangent -= normal * dot(normal, tangent);
+                if(dot(tangent, tangent) > 1e-12) {
+                    tangent = normalize(tangent);
+                    bitangent = cross(normal, tangent) * sign(dot(cross(normal, tangent), bitangent));
+                    basis_normal = normal;
+                }
+            }
+        }
+        if(dot(tangent, tangent) > 1e-12) {
+            vec3 sampled = sample_texture(surface.textures.y, hit_uv(triangle, barycentric), vec4(0.5, 0.5, 1, 1)).rgb * 2.0 - 1.0;
+            sampled.xy *= surface.parameters.x;
+            vec3 mapped = mat3(tangent, bitangent, basis_normal) * sampled;
+            if(dot(mapped, mapped) > 1e-12) normal = normalize(mapped);
+        }
+    }
+    if(dot(normal, geometric) < 0.0) normal = -normal;
+    return dot(normal, outgoing) > 0.0 ? normal : geometric;
+}
+
+vec3 environment_local(vec3 direction) {
+    float sine = parameters.environment.z, cosine = parameters.environment.w;
+    return vec3(cosine * direction.x - sine * direction.z, direction.y,
+        sine * direction.x + cosine * direction.z);
+}
+vec2 environment_uv(vec3 local) {
+    return vec2(fract(0.5 + atan(local.z, local.x) / (2.0 * PI)), clamp((1.0 - local.y) * 0.5, 0.0, 1.0));
+}
+vec4 environment_texel(ivec2 p) {
+    ivec2 size = ivec2(environment_size.xy);
+    int x = (p.x % size.x + size.x) % size.x;
+    int y = clamp(p.y, 0, size.y - 1);
+    return environment_texels[uint(y * size.x + x)];
+}
+uint environment_cell(vec2 uv) {
+    uvec2 size = environment_size.xy;
+    uvec2 cell = min(uvec2(uv * vec2(size)), size - 1);
+    return cell.y * size.x + cell.x;
+}
+float environment_pdf(vec3 direction) {
+    uvec2 size = environment_size.xy;
+    if(size.x == 0 || parameters.environment.y <= 0.0) return 0.0;
+    uint cell = environment_cell(environment_uv(environment_local(direction)));
+    float low = cell == 0 ? 0.0 : environment_texels[cell - 1].w;
+    float mass = environment_texels[cell].w - low;
+    // 均匀分量保证双线性插值及 float CDF 舍入后的所有方向仍有采样概率。
+    return (0.1 + 0.9 * mass * float(size.x * size.y)) / (4.0 * PI);
+}
+vec3 environment_radiance(vec3 direction, bool primary) {
+    uvec2 size = environment_size.xy;
+    if(size.x == 0) return parameters.background.xyz;
+    float scale = primary ? parameters.environment.x : parameters.environment.y;
+    if(primary && scale < 0.0) return parameters.background.xyz;
+    if(scale <= 0.0) return vec3(0);
+    vec2 uv = environment_uv(environment_local(direction));
+    vec2 p = uv * vec2(size) - 0.5;
+    ivec2 low = ivec2(floor(p));
+    vec2 f = fract(p);
+    return scale * mix(mix(environment_texel(low).rgb, environment_texel(low + ivec2(1, 0)).rgb, f.x),
+        mix(environment_texel(low + ivec2(0, 1)).rgb, environment_texel(low + ivec2(1)).rgb, f.x), f.y);
+}
+vec3 sample_environment() {
+    uvec2 size = environment_size.xy;
+    vec2 uv = vec2(random_float(), random_float());
+    if(random_float() >= 0.1) {
+        float value = random_float();
+        uint low = 0, high = size.x * size.y;
+        while(low < high) {
+            uint middle = low + (high - low) / 2;
+            if(environment_texels[middle].w <= value) low = middle + 1;
+            else high = middle;
+        }
+        uint cell = min(low, size.x * size.y - 1);
+        uv = (vec2(cell % size.x, cell / size.x) + uv) / vec2(size);
+    }
+    float vertical = 1.0 - 2.0 * uv.y;
+    float radius = sqrt(max(0.0, 1.0 - vertical * vertical));
+    float angle = 2.0 * PI * (uv.x - 0.5);
+    vec3 local = vec3(radius * cos(angle), vertical, radius * sin(angle));
+    float sine = parameters.environment.z, cosine = parameters.environment.w;
+    return vec3(cosine * local.x + sine * local.z, local.y, -sine * local.x + cosine * local.z);
 }
 
 bool box_hit(Node node, vec3 origin, vec3 direction, float maximum) {
@@ -76,7 +242,7 @@ bool intersect_scene(vec3 origin, vec3 direction, inout float maximum,
             vec3 e2 = triangle.p[2].xyz - triangle.p[0].xyz;
             vec3 p = cross(direction, e2);
             float determinant = dot(e1, p);
-            if(abs(determinant) < 1e-10 || (triangle.p[0].w == 0.0 && determinant < 0.0))
+            if(abs(determinant) < 1e-10 || (surfaces[triangle.surface.x].parameters.y == 0.0 && determinant < 0.0))
                 continue;
             vec3 delta = origin - triangle.p[0].xyz;
             float u = dot(delta, p) / determinant;
@@ -107,7 +273,7 @@ float distribution(float nh, float alpha2) {
 float masking(float cosine, float alpha2) {
     return 2.0 * cosine / (cosine + sqrt(alpha2 + (1.0 - alpha2) * cosine * cosine));
 }
-vec3 bsdf(Triangle triangle, vec3 normal, vec3 outgoing, vec3 incoming, out float pdf) {
+vec3 bsdf(Surface surface, vec3 normal, vec3 outgoing, vec3 incoming, out float pdf) {
     float nv = dot(normal, outgoing);
     float nl = dot(normal, incoming);
     pdf = 0.0;
@@ -116,9 +282,9 @@ vec3 bsdf(Triangle triangle, vec3 normal, vec3 outgoing, vec3 incoming, out floa
     vec3 half_vector = normalize(outgoing + incoming);
     float nh = max(dot(normal, half_vector), 0.0);
     float vh = max(dot(outgoing, half_vector), 1e-7);
-    float metallic = triangle.albedo_metallic.w;
-    vec3 base = triangle.albedo_metallic.xyz;
-    float alpha2 = pow(triangle.emission_roughness.w, 4.0);
+    float metallic = surface.albedo_metallic.w;
+    vec3 base = surface.albedo_metallic.xyz;
+    float alpha2 = pow(surface.emission_roughness.w, 4.0);
     float d = distribution(nh, alpha2);
     vec3 f0 = mix(vec3(0.04), base, metallic);
     vec3 fresnel = f0 + (1.0 - f0) * pow(1.0 - vh, 5.0);
@@ -128,11 +294,11 @@ vec3 bsdf(Triangle triangle, vec3 normal, vec3 outgoing, vec3 incoming, out floa
         + fresnel * d * masking(nv, alpha2) * masking(nl, alpha2) / (4.0 * nv * nl);
 }
 
-vec3 sample_bsdf(Triangle triangle, vec3 normal, vec3 outgoing) {
+vec3 sample_bsdf(Surface surface, vec3 normal, vec3 outgoing) {
     float u = random_float();
     float phi = 2.0 * PI * random_float();
-    if(random_float() < 0.5 + 0.5 * triangle.albedo_metallic.w) {
-        float alpha2 = pow(triangle.emission_roughness.w, 4.0);
+    if(random_float() < 0.5 + 0.5 * surface.albedo_metallic.w) {
+        float alpha2 = pow(surface.emission_roughness.w, 4.0);
         float cosine = sqrt((1.0 - u) / (1.0 + (alpha2 - 1.0) * u));
         float sine = sqrt(max(0.0, 1.0 - cosine * cosine));
         vec3 half_vector = local_direction(vec3(sine * cos(phi), sine * sin(phi), cosine), normal);
@@ -152,13 +318,13 @@ float emitter_pdf(Triangle triangle, vec3 from, vec3 to) {
     vec3 delta = to - from;
     float squared_distance = dot(delta, delta);
     float cosine = dot(area_normal / twice_area, -normalize(delta));
-    if(triangle.p[0].w != 0.0)
+    if(surfaces[triangle.surface.x].parameters.y != 0.0)
         cosine = abs(cosine);
     if(cosine <= 1e-7 || squared_distance <= 1e-10)
         return 0.0;
     return 2.0 * squared_distance / (float(parameters.counts.w) * twice_area * cosine);
 }
-vec3 direct_emitter(Triangle triangle, vec3 position, vec3 normal, vec3 geometric,
+vec3 direct_emitter(Surface surface, vec3 position, vec3 normal, vec3 geometric,
                     vec3 outgoing, float bias, bool use_mis) {
     if(parameters.counts.w == 0)
         return vec3(0);
@@ -166,7 +332,8 @@ vec3 direct_emitter(Triangle triangle, vec3 position, vec3 normal, vec3 geometri
     Triangle emitter = triangles[emitters[selected]];
     float root = sqrt(random_float());
     float v = random_float();
-    vec3 point = emitter.p[0].xyz * (1.0 - root) + emitter.p[1].xyz * (root * (1.0 - v)) + emitter.p[2].xyz * (root * v);
+    vec3 emitter_barycentric = vec3(1.0 - root, root * (1.0 - v), root * v);
+    vec3 point = emitter.p[0].xyz * emitter_barycentric.x + emitter.p[1].xyz * emitter_barycentric.y + emitter.p[2].xyz * emitter_barycentric.z;
     vec3 delta = point - position;
     float distance = length(delta);
     if(distance <= 2.0 * bias)
@@ -182,12 +349,12 @@ vec3 direct_emitter(Triangle triangle, vec3 position, vec3 normal, vec3 geometri
     if(intersect_scene(position + geometric * bias, direction, maximum, index, barycentric, true))
         return vec3(0);
     float bsdf_pdf;
-    vec3 value = bsdf(triangle, normal, outgoing, direction, bsdf_pdf);
+    vec3 value = bsdf(surface, normal, outgoing, direction, bsdf_pdf);
     float weight = use_mis ? power_heuristic(light_pdf, bsdf_pdf) : 1.0;
-    return value * emitter.emission_roughness.xyz * max(dot(normal, direction), 0.0) * weight / light_pdf;
+    return value * hit_surface(emitter, emitter_barycentric).emission_roughness.xyz * max(dot(normal, direction), 0.0) * weight / light_pdf;
 }
 
-vec3 direct_light(Triangle triangle, vec3 position, vec3 normal, vec3 geometric, vec3 outgoing, float bias) {
+vec3 direct_light(Surface surface, vec3 position, vec3 normal, vec3 geometric, vec3 outgoing, float bias) {
     vec3 result = vec3(0);
     for(uint i = 0; i < parameters.counts.y; ++i) {
         Light light = lights[i];
@@ -219,9 +386,26 @@ vec3 direct_light(Triangle triangle, vec3 position, vec3 normal, vec3 geometric,
         if(intersect_scene(position + geometric * bias, direction, maximum, index, barycentric, true))
             continue;
         float pdf;
-        result += bsdf(triangle, normal, outgoing, direction, pdf) * cosine * light.color * light.intensity * attenuation;
+        result += bsdf(surface, normal, outgoing, direction, pdf) * cosine * light.color * light.intensity * attenuation;
     }
     return result;
+}
+
+vec3 direct_environment(Surface surface, vec3 position, vec3 normal, vec3 geometric,
+                        vec3 outgoing, float bias, bool use_mis) {
+    if(environment_size.x == 0 || parameters.environment.y <= 0.0) return vec3(0);
+    vec3 direction = sample_environment();
+    float cosine = dot(normal, direction);
+    if(cosine <= 0.0 || dot(geometric, direction) <= 0.0) return vec3(0);
+    float maximum = 1e30;
+    uint index; vec3 barycentric;
+    if(intersect_scene(position + geometric * bias, direction, maximum, index, barycentric, true))
+        return vec3(0);
+    float pdf;
+    vec3 value = bsdf(surface, normal, outgoing, direction, pdf);
+    float light_pdf = environment_pdf(direction);
+    float weight = use_mis ? power_heuristic(light_pdf, pdf) : 1.0;
+    return value * environment_radiance(direction, false) * cosine * weight / light_pdf;
 }
 
 vec3 radiance(vec3 origin, vec3 direction, float primary_distance) {
@@ -233,7 +417,8 @@ vec3 radiance(vec3 origin, vec3 direction, float primary_distance) {
         float distance = bounce == 0 ? primary_distance : 1e30;
         uint index; vec3 barycentric;
         if(!intersect_scene(origin, direction, distance, index, barycentric, false)) {
-            result += throughput * parameters.background.xyz;
+            float weight = bounce > 0 ? power_heuristic(previous_pdf, environment_pdf(direction)) : 1.0;
+            result += throughput * environment_radiance(direction, bounce == 0) * weight;
             break;
         }
         Triangle triangle = triangles[index];
@@ -241,27 +426,25 @@ vec3 radiance(vec3 origin, vec3 direction, float primary_distance) {
         vec3 geometric = normalize(cross(triangle.p[1].xyz - triangle.p[0].xyz, triangle.p[2].xyz - triangle.p[0].xyz));
         if(dot(geometric, direction) > 0.0)
             geometric = -geometric;
-        vec3 normal = triangle.n[0].xyz * barycentric.x + triangle.n[1].xyz * barycentric.y + triangle.n[2].xyz * barycentric.z;
-        normal = dot(normal, normal) < 1e-12 ? geometric : normalize(normal);
-        if(dot(normal, geometric) < 0.0)
-            normal = -normal;
-        if(dot(normal, -direction) <= 0.0)
-            normal = geometric;
+        Surface surface = hit_surface(triangle, barycentric);
+        vec3 normal = hit_normal(triangle, surface, barycentric, geometric, -direction);
         float emission_weight = 1.0;
-        if(bounce > 0 && parameters.counts.w > 0 && any(greaterThan(triangle.emission_roughness.xyz, vec3(0))))
+        if(bounce > 0 && parameters.counts.w > 0 && any(greaterThan(surface.emission_roughness.xyz, vec3(0))))
             emission_weight = power_heuristic(previous_pdf, emitter_pdf(triangle, previous_position, position));
-        result += throughput * triangle.emission_roughness.xyz * emission_weight;
-        if(triangle.emission_roughness.w < 0.0)
+        result += throughput * surface.emission_roughness.xyz * emission_weight;
+        if(surface.emission_roughness.w < 0.0)
             break;
         float bias = 1e-4 * max(1.0, max(abs(position.x), max(abs(position.y), abs(position.z))));
-        result += throughput * direct_light(triangle, position, normal, geometric, -direction, bias);
-        result += throughput * direct_emitter(triangle, position, normal, geometric, -direction, bias,
+        result += throughput * direct_light(surface, position, normal, geometric, -direction, bias);
+        result += throughput * direct_emitter(surface, position, normal, geometric, -direction, bias,
             bounce + 1 < parameters.dimensions.w);
-        vec3 incoming = sample_bsdf(triangle, normal, -direction);
+        result += throughput * direct_environment(surface, position, normal, geometric, -direction, bias,
+            bounce + 1 < parameters.dimensions.w);
+        vec3 incoming = sample_bsdf(surface, normal, -direction);
         if(dot(geometric, incoming) <= 0.0)
             break;
         float pdf;
-        vec3 value = bsdf(triangle, normal, -direction, incoming, pdf);
+        vec3 value = bsdf(surface, normal, -direction, incoming, pdf);
         if(pdf < 1e-12)
             break;
         throughput *= value * max(dot(normal, incoming), 0.0) / pdf;

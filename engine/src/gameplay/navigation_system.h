@@ -9,17 +9,29 @@
 namespace Comet::Gameplay {
     class COMET_API NavigationSystem final: public System {
     public:
+        struct Statistics {
+            uint64_t builds = 0;
+            double build_milliseconds = 0;
+            uint64_t path_queries = 0;
+            uint64_t surface_queries = 0;
+            uint64_t obstacle_queries = 0;
+            unsigned step_path_queries = 0;
+        };
         using GeometrySource =
             std::function<Result<std::vector<Math::Vec3>, Error>(Math::Vec3, Math::Vec3)>;
         enum class Status { Moving, Arrived, NoPath, Blocked, BudgetExceeded, Disabled };
         explicit NavigationSystem(GeometrySource geometry);
         Result<void, Error> on_start(Scene&, RuntimeSession&, const RuntimeServices&) override;
+        Result<void, Error> on_runtime_ready(
+            Scene&, RuntimeSession&, const RuntimeServices&) override;
         Result<void, Error> fixed_update(Scene&, const Context&) override;
         void on_stop(Scene&, RuntimeSession&, const RuntimeServices&) noexcept override;
         // 每固定步调用；路径缓存由运行域持有，脚本只提交目标与跑步意图。
         [[nodiscard]] Result<Status> move_to(
             Scene&, Entity, PhysicsAccess&, Math::Vec3 target, bool run = false);
         [[nodiscard]] const NavigationMesh& mesh() const { return m_mesh; }
+        // 构建发生在启动准备，查询累计于固定步；停止后保留本次运行统计。
+        [[nodiscard]] const Statistics& get_statistics() const { return m_statistics; }
         [[nodiscard]] static const char* name(Status);
 
     private:
@@ -41,7 +53,7 @@ namespace Comet::Gameplay {
         double m_time = 0;
         float m_delta = 0;
         uint64_t m_step = 0;
-        unsigned m_queries = 0;
+        Statistics m_statistics;
         bool m_prepared = false;
         Result<void> prepare(Scene&);
     };

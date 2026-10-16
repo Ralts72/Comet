@@ -555,6 +555,14 @@ namespace Comet::Tests {
                 auto& scene = *scene_owner.value();
                 auto drawn = scene.render(frames, submission, geometry);
                 ASSERT_TRUE(drawn) << drawn.error();
+                const auto shadow_statistics = scene.get_shadow_statistics();
+                EXPECT_EQ(shadow_statistics.rendered_passes, shadow_enabled ? 1u : 0u);
+                EXPECT_EQ(shadow_statistics.skipped_passes, shadow_enabled ? 0u : 1u);
+                EXPECT_EQ(shadow_statistics.atlas_texels == 0, !shadow_enabled);
+                if(!shadow_enabled) {
+                    EXPECT_EQ(shadow_statistics.draw_calls, 0u);
+                    EXPECT_EQ(shadow_statistics.instance_upload_bytes, 0u);
+                }
                 if(scenario == Scenario::OffscreenOccluder) {
                     EXPECT_EQ(scene.get_material_statistics().culled_items, 1u);
                     EXPECT_EQ(scene.get_material_statistics().draw_calls, 1u);
@@ -628,8 +636,8 @@ namespace Comet::Tests {
         auto created = ShadowPass::create(device, 2);
         ASSERT_TRUE(created) << created.error();
         auto shadow = std::move(created).value();
-        std::weak_ptr<ImageView> view = shadow->get_depth_view(0);
-        auto image = shadow->get_depth_view(0)->get_image();
+        EXPECT_EQ(shadow->get_depth_view(0)->get_image()->get_info().extent, Math::Vec3u(1));
+        EXPECT_EQ(shadow->get_statistics().atlas_texels, 0u);
         RenderWorld world{
             .render_items = {{.mesh = lit_quad()}}, .lights = {{.casts_shadow = true}}};
         RenderGeometry geometry;
@@ -637,6 +645,13 @@ namespace Comet::Tests {
         const auto lighting =
             ShadowPass::prepare({world, ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)}}, geometry);
         ASSERT_EQ(lighting.shadows[0].light_index, 0);
+        frames.wait_for_current_slot();
+        frames.begin_frame(0);
+        frames.get_current_command_buffer().begin();
+        ASSERT_TRUE(shadow->prepare_frame(frames, lighting));
+        std::weak_ptr<ImageView> view = shadow->get_depth_view(0);
+        auto image = shadow->get_depth_view(0)->get_image();
+        EXPECT_GT(image->get_info().extent.x, 1u);
         RenderGraph graph;
         const auto depth = graph.import_image(
             "shadow depth", *resolve_image_state(ResourceUsage::Undefined,
@@ -645,9 +660,6 @@ namespace Comet::Tests {
         graph.export_resource({depth, ResourceUsage::SampledRead,
             Flags<PipelineStage>(PipelineStage::FragmentShader)});
         const std::vector<RenderGraph::Binding> bindings{image};
-        frames.wait_for_current_slot();
-        frames.begin_frame(0);
-        frames.get_current_command_buffer().begin();
         const auto plan = graph.compile();
         ASSERT_TRUE(plan) << plan.error();
         ASSERT_TRUE(plan.value().record(frames, bindings, [&](size_t, CommandBuffer&) {

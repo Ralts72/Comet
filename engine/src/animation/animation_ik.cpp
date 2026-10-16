@@ -1,4 +1,5 @@
 #include "animation/animation_data.h"
+#include "diagnostics/profiler.h"
 #include <glm/gtx/quaternion.hpp>
 #include <algorithm>
 #include <cmath>
@@ -28,6 +29,7 @@ namespace Comet {
     Result<AnimationPose> apply_animation_ik(const AnimationData& data, AnimationPose pose,
         std::span<const AnimationIKConstraint> constraints,
         const AnimationRootMotion* root_motion) {
+        PROFILE_SCOPE("Animation::apply_ik");
         using Outcome = Result<AnimationPose>;
         if(pose.local_transforms.size() != data.nodes.size() || constraints.size() > 16)
             return Outcome::failure("Invalid IK pose or constraint count");

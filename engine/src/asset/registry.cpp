@@ -126,6 +126,15 @@ namespace Comet {
         return m_assets.size();
     }
 
+    std::vector<AssetHandle> AssetRegistry::handles() const {
+        std::vector<AssetHandle> result;
+        result.reserve(m_assets.size());
+        for(const auto& [handle, entry] : m_assets)
+            result.push_back(handle);
+        std::ranges::sort(result);
+        return result;
+    }
+
     void AssetRegistry::clear() {
         m_assets.clear();
         m_revision = next_revision();

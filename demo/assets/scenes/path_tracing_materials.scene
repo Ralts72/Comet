@@ -1,0 +1,204 @@
+{
+  "version": 2,
+  "post_process": {
+    "exposure": 1,
+    "bloom_enabled": false,
+    "bloom_strength": 0.15,
+    "bloom_threshold": 1
+  },
+  "entities": [
+    {
+      "uuid": "8815b44d-747a-431e-83e9-4f957765f0b3",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [
+            0,
+            3,
+            12
+          ],
+          "rotation": [
+            -15,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "camera": {
+          "primary": true,
+          "fov": 45,
+          "near_clip": 0.1,
+          "far_clip": 100
+        },
+        "camera_controller": {
+          "enabled": true,
+          "move_speed": 3,
+          "look_sensitivity": 0.2,
+          "look_speed": 120
+        }
+      }
+    },
+    {
+      "uuid": "48cfcc8e-72a4-49f1-b2ca-cd3343591275",
+      "components": {
+        "name": "主光",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            -30,
+            -35,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "light": {
+          "type": "directional",
+          "enabled": true,
+          "casts_shadow": true,
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "intensity": 4,
+          "range": 10,
+          "inner_angle": 20,
+          "outer_angle": 30
+        }
+      }
+    },
+    {
+      "uuid": "4701e8d1-ae9e-4864-b44b-f40f4d92cf03",
+      "components": {
+        "name": "法线凹凸",
+        "transform": {
+          "translation": [
+            -2.2,
+            0,
+            -1
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.6,
+            1.6,
+            1.6
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 5783275031450616067
+        }
+      }
+    },
+    {
+      "uuid": "d8728900-c5a1-4bb4-b8a4-1539b44385b9",
+      "components": {
+        "name": "金属与粗糙度分区",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            -1
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.6,
+            1.6,
+            1.6
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 5783275031450616068
+        }
+      }
+    },
+    {
+      "uuid": "b0c0b222-0db4-4184-a6ae-61d006589bcf",
+      "components": {
+        "name": "自发光网格",
+        "transform": {
+          "translation": [
+            2.2,
+            0,
+            -1
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.6,
+            1.6,
+            1.6
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 5783275031450616069
+        }
+      }
+    },
+    {
+      "uuid": "302e495c-ac39-4af5-9df7-269643093680",
+      "components": {
+        "name": "地板",
+        "transform": {
+          "translation": [
+            0,
+            -0.9,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            11,
+            0.1,
+            8
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 5783275031450616070
+        }
+      }
+    }
+  ],
+  "environment": {
+    "asset": 6729301842000000042,
+    "background": true,
+    "intensity": 1,
+    "rotation": 0,
+    "lighting": true,
+    "lighting_intensity": 1,
+    "background_color": [
+      0,
+      0,
+      0
+    ]
+  }
+}

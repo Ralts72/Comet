@@ -51,6 +51,8 @@ namespace CometEditor {
 
         [[nodiscard]] Comet::Result<bool, Comet::Error> apply_mode_request(
             Comet::SceneRuntime::State restart_state = Comet::SceneRuntime::State::Running);
+        // 宿主收集驻留需求时同时保留这份 Edit 基线；不以当前 Play 替代它。
+        [[nodiscard]] Comet::Scene* retained_edit_scene() const { return m_edit_scene.get(); }
 
     private:
         [[nodiscard]] Comet::Result<bool, Comet::Error> start_play_mode(

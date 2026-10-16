@@ -1,37 +1,11 @@
 #include "gameplay/checkpoint_store.h"
 #include "common/json.h"
+#include "common/serialization/parameters_json.h"
 #include "common/player_settings_path.h"
 #include "scene/runtime_session.h"
 
 namespace Comet {
     namespace {
-        Result<ParameterValue> read_value(
-            Json::Node node, const Json::Context& context, const std::string& location) {
-            if(node.is_bool()) {
-                auto value = context.read_scalar<bool>(node, location, "a boolean");
-                if(!value)
-                    return Result<ParameterValue>::failure(value.error());
-                return Result<ParameterValue>::success(value.value());
-            }
-            if(node.is_string()) {
-                auto value = context.read_scalar<std::string>(node, location, "a string");
-                if(!value)
-                    return Result<ParameterValue>::failure(value.error());
-                return Result<ParameterValue>::success(std::move(value).value());
-            }
-            if(node.is_array()) {
-                auto value = Json::read_vector<Math::Vec3>(node, context, location);
-                if(!value)
-                    return Result<ParameterValue>::failure(value.error());
-                return Result<ParameterValue>::success(value.value());
-            }
-            auto value = context.read_scalar<float>(
-                node, location, "a finite number, boolean, string or Vec3");
-            if(!value)
-                return Result<ParameterValue>::failure(value.error());
-            return Result<ParameterValue>::success(value.value());
-        }
-
         Result<Checkpoint> read_checkpoint(
             Json::Node root, const Json::Context& context, Uuid project) {
             using Read = Result<Checkpoint>;
@@ -62,21 +36,13 @@ namespace Comet {
             auto node = context.required_child(root, "values");
             if(!node)
                 return Read::failure(node.error());
-            auto values = context.object(node.value(), "values");
+            auto values = Json::read_parameters(node.value(), context, "values");
             if(!values)
                 return Read::failure(values.error());
-            Checkpoint checkpoint{AssetHandle{scene.value()}, std::move(marker).value(), {}};
-            for(const auto field : values.value()) {
-                if(checkpoint.values.size() >= 128 || !valid_parameter_name(field.key))
-                    return Read::failure(
-                        context.error("values", "invalid name or too many saved values"));
-                auto value = read_value(field.value, context, "values." + std::string(field.key));
-                if(!value)
-                    return Read::failure(value.error());
-                checkpoint.values.emplace(field.key, std::move(value).value());
-            }
-            if(!RuntimeSession::valid_values(checkpoint.values))
+            if(!RuntimeSession::valid_values(values.value()))
                 return Read::failure(context.error("values", "invalid saved values"));
+            Checkpoint checkpoint{
+                AssetHandle{scene.value()}, std::move(marker).value(), std::move(values).value()};
             return Read::success(std::move(checkpoint));
         }
     }
@@ -128,20 +94,10 @@ namespace Comet {
         writer.field("scene", checkpoint.scene.value());
         writer.field("checkpoint", checkpoint.marker);
         writer.key("values");
-        writer.begin_object();
-        for(const auto& [name, value] : checkpoint.values) {
-            writer.key(name);
-            std::visit(
-                [&](const auto& item) {
-                    using T = std::remove_cvref_t<decltype(item)>;
-                    if constexpr(std::is_same_v<T, Math::Vec3>)
-                        Json::write_vector(writer, item);
-                    else if constexpr(!std::is_same_v<T, Uuid> && !std::is_same_v<T, Math::Vec4>)
-                        writer.value(item);
-                },
-                value);
-        }
-        writer.end_object();
+        if(auto written = Json::write_parameters(
+               writer, checkpoint.values, Json::Context("checkpoint", "<memory>"), "values");
+            !written)
+            return written;
         writer.end_object();
         auto contents = std::move(writer).finish();
         if(!contents)

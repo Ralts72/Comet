@@ -32,7 +32,8 @@ namespace Comet {
         // Main 捕获独立参数版本；同版本复用，之后修改不影响旧快照。
         [[nodiscard]] std::shared_ptr<const Material> snapshot() const;
 
-        void set_texture_property(const std::string& name, std::shared_ptr<Texture> texture);
+        void set_texture_property(
+            const std::string& name, std::shared_ptr<Texture> texture, AssetHandle source = {});
         // 非有限值被拒绝；相同值成功但不改变版本。
         [[nodiscard]] bool set_scalar_property(const std::string& name, float value);
         [[nodiscard]] bool set_vector_property(const std::string& name, Math::Vec4 value);
@@ -40,6 +41,7 @@ namespace Comet {
         [[nodiscard]] std::optional<Math::Vec4> get_vector_property(const std::string& name) const;
 
         [[nodiscard]] std::shared_ptr<Texture> get_texture_property(const std::string& name) const;
+        [[nodiscard]] AssetHandle get_texture_source(const std::string& name) const;
 
     private:
         void mark_changed();
@@ -49,7 +51,11 @@ namespace Comet {
         AssetHandle m_shader_program;
         uint64_t m_revision = 1;
         MaterialSurface m_surface;
-        std::map<std::string, std::shared_ptr<Texture>> m_texture_properties;
+        struct TextureProperty {
+            std::shared_ptr<Texture> resource;
+            AssetHandle source;
+        };
+        std::map<std::string, TextureProperty> m_texture_properties;
         std::map<std::string, float> m_scalar_properties;
         std::map<std::string, Math::Vec4> m_vector_properties;
         mutable std::weak_ptr<const Material> m_snapshot;

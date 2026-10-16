@@ -62,6 +62,8 @@ namespace Comet {
             std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
         [[nodiscard]] Result<void, GraphicsError> prepare_material_programs(
             const RenderWorld& world);
+        // 宿主加载期预热已发布程序的实际材质组合，不在稳定帧重复遍历。
+        [[nodiscard]] Result<void, GraphicsError> warmup_scene(const RenderWorld& world);
         // 仅录制已准备的状态；场景快照的后处理设置由上一步消费。
         [[nodiscard]] Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> render(
             FrameScheduler& frames, const RenderSubmission& submission,
@@ -98,7 +100,7 @@ namespace Comet {
             RenderResources& resources, Swapchain& swapchain, const QualitySettings& settings);
         void install_quality(std::shared_ptr<RenderState> state, const QualitySettings& settings);
         Result<void, GraphicsError> rebuild_graph(
-            RenderState& state, const PostProcessSettings& settings);
+            RenderState& state, const PostProcessSettings& settings, bool shadows = false);
         struct TargetRetry {
             Math::Vec2u size;
             RetryBackoff retry;

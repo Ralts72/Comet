@@ -27,9 +27,14 @@ namespace Comet {
         RenderGeometry& operator=(const RenderGeometry&) = delete;
 
         void prepare(const RenderWorld& world);
-        // 每个 View 独立保存滞回历史；输出先选级，再交给现有剔除／实例化队列。
-        const RenderGeometry& prepare_view(
-            const RenderGeometry& world, const Math::Mat4& view_projection);
+        // 固定深度程序按源几何界限先粗裁剪；Main 保留实际材质管线的可见性策略。
+        const RenderGeometry& prepare_view(const RenderGeometry& world,
+            const Math::Mat4& view_projection, bool cull_before_lod = false);
+        struct ViewStatistics {
+            uint32_t culled_items = 0;
+            uint32_t lod_selections = 0;
+        };
+        [[nodiscard]] ViewStatistics get_view_statistics() const { return m_view_statistics; }
         [[nodiscard]] static float projected_height(
             const BoundingBox& bounds, const Math::Mat4& view_projection);
         [[nodiscard]] static int select_lod(
@@ -67,5 +72,6 @@ namespace Comet {
         std::optional<BoundingBox> m_scene_bounds;
         std::optional<BoundingBox> m_cached_scene_bounds;
         VersionStamp<uint64_t> m_scene_version;
+        ViewStatistics m_view_statistics;
     };
 }

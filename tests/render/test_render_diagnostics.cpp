@@ -255,7 +255,10 @@ namespace Comet::Tests {
         EXPECT_GE(submission->present_ms, 0);
         EXPECT_LE(submission->finalize_ms + submission->submit_ms + submission->present_ms,
             render_frame->milliseconds);
-        EXPECT_EQ(diagnostics.get_snapshot().cpu->passes.size(), 3);
+        const auto& passes = diagnostics.get_snapshot().cpu->passes;
+        EXPECT_EQ(passes.size(), 2u);
+        EXPECT_TRUE(std::none_of(passes.begin(), passes.end(),
+            [](const auto& pass) { return pass.name.find("shadow") != std::string::npos; }));
         if(diagnostics.get_snapshot().gpu_supported) {
             ASSERT_TRUE(diagnostics.get_snapshot().gpu) << diagnostics.get_snapshot().gpu_error;
             EXPECT_EQ(

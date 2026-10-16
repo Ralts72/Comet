@@ -156,6 +156,66 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(other.get_component<TransformComponent>().translation.x, 4);
     }
 
+    TEST_F(ScriptSystemTest, StableRegistrySkipsAssetScansButKeepsPhaseStructureAndParameterSync) {
+        source(R"(return {properties = {speed = 1},
+            update = function(self) comet.translate(self.parameters.speed, 0, 0) end})");
+        const auto first = actor();
+        ASSERT_TRUE(runtime.start(scene));
+        const auto initial = script_system->get_statistics();
+        EXPECT_EQ(initial.asset_scans, 1u);
+        ASSERT_TRUE(runtime.advance(0.03));
+        const auto stable = script_system->get_statistics();
+        EXPECT_EQ(stable.asset_scans, initial.asset_scans);
+        EXPECT_GT(stable.structure_scans, initial.structure_scans);
+        auto second = actor();
+        second.get_component<ScriptComponent>().parameters["speed"] = 3.f;
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_TRUE(script_system->running_script(second));
+        EXPECT_FLOAT_EQ(second.get_component<TransformComponent>().translation.x, 3);
+        EXPECT_EQ(script_system->get_statistics().asset_scans, initial.asset_scans);
+        scene.destroy_entity(first);
+        second.get_component<ScriptComponent>().parameters["speed"] = 4.f;
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_FLOAT_EQ(second.get_component<TransformComponent>().translation.x, 7);
+        EXPECT_EQ(script_system->get_statistics().asset_scans, initial.asset_scans);
+        source(R"(return {properties = {speed = 2},
+            update = function(self) comet.translate(0, self.parameters.speed, 0) end})");
+        ASSERT_TRUE(runtime.advance(0.03));
+        EXPECT_EQ(script_system->get_statistics().asset_scans, initial.asset_scans + 1);
+        EXPECT_EQ(script_system->running_script(second), assets.resolve<Script>(handle));
+        EXPECT_FLOAT_EQ(second.get_component<TransformComponent>().translation.y, 4);
+        ASSERT_TRUE(runtime.stop());
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_EQ(script_system->get_statistics().asset_scans, 1u);
+    }
+
+    TEST_F(ScriptSystemTest, UnchangedRejectedGroupSkipsAssetScansAndRetriesCorrectedParameters) {
+        source("return {properties = {speed = 1}}");
+        const auto installed = actor();
+        ASSERT_TRUE(runtime.start(scene));
+        const auto previous = script_system->running_script(installed);
+        source("return {properties = {speed = 100}}");
+        const auto revision = assets.get_revision();
+        auto pending = actor();
+        pending.get_component<ScriptComponent>().parameters["speed"] = true;
+        ASSERT_TRUE(runtime.advance(0));
+        const auto rejected = script_system->get_statistics().asset_scans;
+        EXPECT_EQ(script_system->running_script(installed), previous);
+        EXPECT_FALSE(script_system->running_script(pending));
+        for(int index = 0; index < 3; ++index)
+            ASSERT_TRUE(runtime.advance(0.03));
+        EXPECT_EQ(script_system->get_statistics().asset_scans, rejected);
+        EXPECT_EQ(assets.get_revision(), revision);
+        pending.get_component<ScriptComponent>().parameters["speed"] = 4.f;
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(script_system->get_statistics().asset_scans, rejected + 1);
+        EXPECT_EQ(assets.get_revision(), revision);
+        for(auto entity : {installed, pending})
+            EXPECT_EQ(script_system->running_script(entity), assets.resolve<Script>(handle));
+        ASSERT_TRUE(runtime.advance(0.03));
+        EXPECT_EQ(script_system->get_statistics().asset_scans, rejected + 1);
+    }
+
     TEST_F(ScriptSystemTest, RunningDefinitionSnapshotsRetainDefinitionsWithoutRetainingInstances) {
         source("return {on_start = function() comet.translate(1, 0, 0) end}");
         const auto entity = actor();

@@ -57,4 +57,8 @@ namespace Comet {
         MotionConsumer m_motion;
         std::unordered_map<EntityId, Playback> m_playbacks;
     };
+
+    // Edit/Play 在推进或提取场景前共用；每个挂点父实体只解析一次模型。
+    COMET_API void prepare_bone_attachment_sources(
+        Scene& scene, const AnimationSystem::Source& source);
 }

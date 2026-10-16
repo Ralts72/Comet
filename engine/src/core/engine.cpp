@@ -109,6 +109,16 @@ namespace Comet {
         static_cast<void>(replace_scene(std::move(scene)));
     }
 
+    Result<void, Error> Engine::prepare_scene_rendering() {
+        if(!m_scene)
+            return Result<void, Error>::failure({"Scene rendering preparation requires a scene"});
+        const auto scene = m_scene_extractor.update(*m_scene);
+        auto world = m_scene_resolver.update(*scene);
+        if(auto prepared = m_renderer->warmup_scene(std::move(world)); !prepared)
+            return Result<void, Error>::failure(prepared.error().as_error());
+        return Result<void, Error>::success();
+    }
+
     const Input::Frame& Engine::get_input_frame() const {
         return m_window->get_input_frame();
     }
@@ -314,19 +324,18 @@ namespace Comet {
         }
 
         const auto framebuffer_size = m_window->get_framebuffer_size();
-        if(framebuffer_size.x == 0 || framebuffer_size.y == 0) {
-            m_window->set_cursor_locked(false);
-            if(auto discarded = m_scene_runtime.discard_input(); !discarded)
-                return discarded;
-            m_window->wait_events();
+        const bool suspended =
+            m_window->is_minimized() || framebuffer_size.x == 0 || framebuffer_size.y == 0;
+        if(suspended)
             m_window->discard_pending_input();
-            m_frame_timer->tick();
-            return Result<void, Error>::success();
-        }
-
-        m_window->publish_input_frame();
+        else
+            m_window->publish_input_frame();
         m_frame_timer->tick();
-        const FrameContext frame{m_frame_timer->get_update_context(), m_window->get_input_frame()};
+        auto update = m_frame_timer->get_update_context();
+        if(suspended)
+            update.delta_time = 0;
+        const Input::Frame no_input;
+        const FrameContext frame{update, suspended ? no_input : m_window->get_input_frame()};
         m_frame_diagnostics.set_frame_index(frame.update.frame_index);
         m_material_parameters->accept(m_renderer->get_material_program_feedback());
         if(callbacks.update) {
@@ -336,6 +345,23 @@ namespace Comet {
         if(m_window->should_close()) {
             m_frame_diagnostics.cancel_pending_frame();
             discard_unfinished_diagnostics.release();
+            return Result<void, Error>::success();
+        }
+
+        if(suspended) {
+            // App/Editor 继续有界接纳后台结果；最小化期间不推进模拟、不捕获游戏输入。
+            m_scene_resolver.refresh_assets();
+            if(auto maintained = m_renderer->maintain_assets(m_asset_registry->take_removals());
+                !maintained) {
+                prepare_shutdown();
+                return Result<void, Error>::failure(maintained.error().as_error());
+            }
+            m_window->set_cursor_locked(false);
+            if(auto discarded = m_scene_runtime.discard_input(); !discarded)
+                return discarded;
+            m_window->wait_events(0.1);
+            m_window->discard_pending_input();
+            m_frame_timer->tick();
             return Result<void, Error>::success();
         }
 
@@ -357,16 +383,11 @@ namespace Comet {
         }
 
         m_frame_diagnostics.mark_prepare();
-        if(m_scene) {
-            m_scene->each<const BoneAttachmentComponent>([&](Entity child, const auto&) {
-                auto parent = m_scene->get_parent(child);
-                if(!parent || !parent.has_component<MeshRendererComponent>())
-                    return;
-                const auto mesh = m_asset_registry->resolve<Mesh>(
-                    parent.get_component<MeshRendererComponent>().mesh);
-                m_scene->set_animation_source(parent, mesh ? mesh->animation_data() : nullptr);
+        if(m_scene)
+            prepare_bone_attachment_sources(*m_scene, [this](AssetHandle handle) {
+                const auto mesh = m_asset_registry->resolve<Mesh>(handle);
+                return mesh ? mesh->animation_data() : nullptr;
             });
-        }
         std::optional<Input::Frame> runtime_input;
         if(callbacks.runtime_input)
             runtime_input = callbacks.runtime_input(frame);
@@ -400,6 +421,7 @@ namespace Comet {
                 m_scene_extractor.reset();
                 m_scene_resolver.reset();
             }
+            m_renderer->prepare_scene_views(render_frame);
             const auto rendered = m_render_thread->submit(std::move(render_frame));
             if(!rendered) {
                 prepare_shutdown();

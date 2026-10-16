@@ -10,6 +10,93 @@
 #include <algorithm>
 
 namespace Comet::Tests {
+    TEST_F(RenderGraphGpuTest, ExplicitSceneWarmupPreparesOnlyActualSurfaceAndMirrorCombinations) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        const auto mesh = lit_quad();
+        auto opaque = std::make_shared<Material>("opaque", "unlit_color");
+        auto masked = std::make_shared<Material>("masked", "unlit_color");
+        auto blended = std::make_shared<Material>("blended", "unlit_color");
+        for(const auto& material : {opaque, masked, blended})
+            ASSERT_TRUE(material->set_vector_property("color", {1, .2f, .1f, 1}));
+        ASSERT_TRUE(masked->set_surface(
+            {.alpha_mode = AlphaMode::Mask, .alpha_cutoff = .25f, .double_sided = true}));
+        ASSERT_TRUE(blended->set_surface({.alpha_mode = AlphaMode::Blend, .double_sided = true}));
+        for(const auto samples : {SampleCount::Count1, SampleCount::Count4}) {
+            SCOPED_TRACE(static_cast<uint32_t>(samples));
+            MaterialPrograms programs;
+            auto scene = create_scene(programs, {33, 33}, samples);
+            ASSERT_TRUE(scene);
+            RenderWorld world;
+            for(const auto& [handle, material] :
+                {std::pair{1u, opaque}, {2u, masked}, {3u, blended}}) {
+                world.render_items.push_back({.entity_id = handle,
+                    .model_matrix = Math::translate(Math::Mat4(1), {10, 0, 0}),
+                    .mesh = mesh,
+                    .material = {AssetHandle(handle), material->snapshot()}});
+                if(handle != 1) {
+                    auto mirrored = world.render_items.back();
+                    mirrored.entity_id += 10;
+                    mirrored.model_matrix *= Math::scale(Math::Mat4(1), {-1, 1, 1});
+                    world.render_items.push_back(std::move(mirrored));
+                }
+            }
+            ASSERT_TRUE(scene.value()->prepare_material_programs(world));
+            ASSERT_TRUE(scene.value()->warmup_scene(world));
+            const auto warmed = scene.value()->get_material_statistics().pipeline_creations;
+            EXPECT_EQ(scene.value()->get_material_statistics().warmup_pipeline_creations, 6u);
+            ASSERT_TRUE(scene.value()->warmup_scene(world));
+            EXPECT_EQ(scene.value()->get_material_statistics().warmup_pipeline_creations, 0u);
+            EXPECT_EQ(scene.value()->get_material_statistics().pipeline_creations, warmed);
+
+            FrameScheduler frames(device, 2);
+            frames.initialize_swapchain_images(2);
+            FrameWait wait{device, frames};
+            for(unsigned frame = 0; frame < 3; ++frame) {
+                for(auto& item : world.render_items)
+                    item.model_matrix[3].x = frame == 0 ? 10.f : 0.f;
+                ASSERT_TRUE(scene.value()->prepare_material_programs(world));
+                begin_frame(frames);
+                RenderGeometry geometry;
+                geometry.prepare(world);
+                auto drawn = scene.value()->render(
+                    frames, {world, ViewProjectMatrix{Math::Mat4(1), Math::Mat4(1)}}, geometry);
+                ASSERT_TRUE(drawn) << drawn.error();
+                EXPECT_EQ(scene.value()->get_material_statistics().pipeline_creations, warmed);
+                EXPECT_EQ(scene.value()->get_material_statistics().material_versions_created, 0u);
+                EXPECT_EQ(scene.value()->get_material_statistics().drawn_instances,
+                    frame == 0 ? 0u : world.render_items.size());
+                submit(device, frames, drawn.value());
+            }
+            frames.wait_for_all_slots();
+        }
+    }
+
+    TEST_F(RenderGraphGpuTest, SceneWarmupSettlesPendingQualityBeforePreparingPipelines) {
+        auto& renderer = engine->get_renderer();
+        ASSERT_TRUE(prepare_offscreen_host({33, 33}));
+        auto quality = renderer.get_quality_settings();
+        quality.msaa_samples = 4;
+        ASSERT_TRUE(renderer.request_quality_settings(quality));
+        ASSERT_TRUE(renderer.quality_pending());
+        auto world = std::make_shared<RenderWorld>();
+        world->cameras.push_back({.primary = true});
+        world->render_items.push_back({.entity_id = 1,
+            .mesh = lit_quad(),
+            .material = {.resource = std::make_shared<Material>("surface", "unlit_color")}});
+        ASSERT_TRUE(renderer.warmup_scene(world));
+        EXPECT_FALSE(renderer.quality_pending());
+        EXPECT_EQ(renderer.get_quality_settings().msaa_samples, 4u);
+        const auto warmed =
+            renderer.get_scene_renderer().get_material_statistics().pipeline_creations;
+        for(unsigned frame = 0; frame < 2; ++frame) {
+            ASSERT_TRUE(render_frontend->prepare_frame());
+            ASSERT_TRUE(renderer.render_frame(world));
+            EXPECT_EQ(
+                renderer.get_scene_renderer().get_material_statistics().pipeline_creations, warmed);
+        }
+    }
+
     TEST_F(RenderGraphGpuTest, ParticlesAndTransparentMeshesShareDepthOrderAndSurvivePassSwitches) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();

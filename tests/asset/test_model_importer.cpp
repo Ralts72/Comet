@@ -532,6 +532,46 @@ namespace Comet::Tests {
         EXPECT_FALSE(std::filesystem::exists(metadata_path(source)));
     }
 
+    TEST(ModelImporterTest, ModelCacheFollowsExplicitDemandAndOldViewsSurviveReleaseAndReload) {
+        const ModelInputs inputs;
+        const auto original = inputs.model(
+            ModelInputs::document(R"([{"name":"Model","mesh":0}])", R"(,"materials":[{},{}])"));
+        const ProjectPaths paths(inputs.directory.path());
+        std::filesystem::create_directories(paths.assets());
+        const auto source = paths.assets() / "model.gltf";
+        std::filesystem::copy_file(original, source);
+        std::filesystem::copy_file(
+            inputs.directory.path() / "geometry.bin", paths.assets() / "geometry.bin");
+        const AssetHandle handle{1234};
+        ASSERT_TRUE(MetadataSerializer{}.save(
+            {.handle = handle, .type = AssetType::Model}, metadata_path(source)));
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(paths, registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        ASSERT_TRUE(manager.import_model(handle));
+        const auto original_view = manager.load_model(handle);
+        ASSERT_TRUE(original_view);
+        ASSERT_FALSE(original_view.value()->nodes.empty());
+        const auto mesh = original_view.value()->nodes[0].parts[0].mesh;
+        EXPECT_EQ(manager.residency().model_cache_entries, 1u);
+        EXPECT_GT(manager.residency().model_payload_bytes, 0u);
+        const std::array child_demand{AssetReference{mesh, AssetType::Mesh, true, true}};
+        EXPECT_EQ(manager.release_unused(child_demand).model_cache_entries, 0u);
+        EXPECT_EQ(manager.residency().model_cache_entries, 1u);
+        EXPECT_EQ(manager.release_unused({}).model_cache_entries, 1u);
+        EXPECT_EQ(manager.residency().model_cache_entries, 0u);
+        EXPECT_EQ(original_view.value()->nodes[0].parts[0].mesh, mesh);
+        const auto reloaded = manager.load_model(handle);
+        ASSERT_TRUE(reloaded) << reloaded.error().message;
+        EXPECT_NE(reloaded.value(), original_view.value());
+        EXPECT_EQ(reloaded.value()->nodes[0].parts[0].mesh, mesh);
+        EXPECT_EQ(manager.residency().model_cache_entries, 1u);
+        EXPECT_EQ(factory.mesh_creation_count(), 0u);
+        EXPECT_EQ(factory.texture_creation_count(), 0u);
+    }
+
     TEST(ModelImporterTest, RuntimeLoadsModelChildrenAndInvalidatesTheWholeModelOnSourceFailure) {
         const ModelInputs inputs;
         const auto original = inputs.model(

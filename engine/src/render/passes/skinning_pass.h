@@ -8,10 +8,16 @@ namespace Comet {
     class Device;
     class FrameScheduler;
     class RenderGeometry;
-    class SkinningPass {
+    class COMET_API SkinningPass {
     public:
+        struct Statistics {
+            uint32_t dispatches = 0;
+            uint32_t reused_outputs = 0;
+            uint64_t palette_upload_bytes = 0;
+        };
         explicit SkinningPass(Device& device, uint32_t frame_slots);
         ~SkinningPass();
+        [[nodiscard]] Statistics get_statistics() const { return m_statistics; }
         Result<void, GraphicsError> prepare(const RenderWorld& world, FrameScheduler& frames,
             RenderGeometry& geometry, std::vector<QueueSemaphoreSubmit>& waits);
 
@@ -26,5 +32,6 @@ namespace Comet {
         std::vector<std::unordered_map<std::size_t, std::shared_ptr<Instance>>> m_frames;
         std::vector<ResolvedRenderItem> m_items;
         std::vector<std::size_t> m_slots;
+        Statistics m_statistics;
     };
 }

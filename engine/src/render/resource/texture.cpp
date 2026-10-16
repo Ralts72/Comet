@@ -107,4 +107,16 @@ namespace Comet {
         const GpuCompletionPoint ready_completion, std::shared_ptr<Sampler> sampler)
         : m_width(width), m_height(height), m_image_view(std::move(image_view)),
           m_ready_completion(ready_completion), m_sampler(std::move(sampler)) {}
+
+    std::size_t Texture::pixel_bytes() const {
+        if(!m_image_view)
+            return 0;
+        const auto info = m_image_view->get_image()->get_info();
+        std::size_t result = 0;
+        for(uint32_t level = 0; level < info.mip_levels; ++level)
+            result += std::size_t(std::max(info.extent.x >> level, 1u))
+                      * std::max(info.extent.y >> level, 1u) * std::max(info.extent.z >> level, 1u)
+                      * info.array_layers * Graphics::format_size_in_bytes(info.format);
+        return result;
+    }
 }

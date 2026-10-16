@@ -286,7 +286,7 @@ namespace Comet::Tests {
             MeshRendererComponent{AssetHandle{3}, AssetHandle{2}});
         item.edit_transform([](auto& transform) { transform.translation.x = .2f; });
         ASSERT_TRUE(scene.set_parent(item, model));
-        scene.set_animation_source(model, data);
+        prepare_bone_attachment_sources(scene, [data](AssetHandle) { return data; });
         EXPECT_NEAR(scene.get_world_matrix(item)[3].x, 10.4, .0001);
         SceneRuntime runtime;
         ASSERT_TRUE(runtime.add_system(
@@ -338,7 +338,7 @@ namespace Comet::Tests {
         auto item = scene.create_entity();
         item.add_component<BoneAttachmentComponent>(BoneAttachmentComponent{"Joint"});
         ASSERT_TRUE(scene.set_parent(item, model));
-        scene.set_animation_source(model, data);
+        prepare_bone_attachment_sources(scene, [data](AssetHandle) { return data; });
         class MoveModel final: public System {
         public:
             explicit MoveModel(Entity target) : m_target(target) {}
@@ -364,13 +364,58 @@ namespace Comet::Tests {
         EXPECT_NE(scene.get_render_transform(item).world_matrix, scene.get_world_matrix(item));
         auto changed = std::make_shared<AnimationData>(*data);
         changed->clips[0].channels[0].values[1].x = 4;
-        scene.set_animation_source(model, changed);
+        prepare_bone_attachment_sources(scene, [changed](AssetHandle) { return changed; });
         EXPECT_EQ(scene.get_animation_playback(model)->pose_source, changed);
         EXPECT_NE(scene.get_animation_playback(model)->pose, frame->pose);
         EXPECT_NEAR(scene.get_animation_playback(model)->pose->bone_matrices[0][3].x, .1, .0001);
         EXPECT_NEAR(frame->pose->bone_matrices[0][3].x, .05, .0001);
-        scene.set_animation_source(model, nullptr);
+        prepare_bone_attachment_sources(scene, [](AssetHandle) { return nullptr; });
         EXPECT_EQ(scene.get_world_matrix(item), scene.get_world_matrix(model));
+    }
+
+    TEST(AnimationTest, AttachmentPreparationResolvesEachParentOnceAndTracksHierarchyChanges) {
+        auto data = std::make_shared<AnimationData>(simple_animation());
+        data->nodes[1].rest.translation.x = 3;
+        Scene scene;
+        auto first = scene.create_entity("First model");
+        first.add_component<MeshRendererComponent>(AssetHandle{1}, AssetHandle{2});
+        auto second = scene.create_entity("Second model");
+        second.add_component<MeshRendererComponent>(AssetHandle{1}, AssetHandle{2});
+        second.edit_transform([](auto& value) { value.translation.x = 10; });
+        auto plain = scene.create_entity("No mesh");
+        auto left = scene.create_entity("Left");
+        left.add_component<BoneAttachmentComponent>(BoneAttachmentComponent{"Joint"});
+        auto right = scene.create_entity("Right");
+        right.add_component<BoneAttachmentComponent>(BoneAttachmentComponent{"Joint"});
+        auto orphan = scene.create_entity("Orphan");
+        orphan.add_component<BoneAttachmentComponent>(BoneAttachmentComponent{"Joint"});
+        ASSERT_TRUE(scene.set_parent(left, first));
+        ASSERT_TRUE(scene.set_parent(right, first));
+        ASSERT_TRUE(scene.set_parent(orphan, plain));
+        unsigned resolutions = 0;
+        const AnimationSystem::Source source = [&](AssetHandle handle) {
+            EXPECT_EQ(handle, AssetHandle{1});
+            ++resolutions;
+            return data;
+        };
+        prepare_bone_attachment_sources(scene, source);
+        EXPECT_EQ(resolutions, 1u);
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(left)[3].x, 3);
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(right)[3].x, 3);
+        const auto revision = left.get_component<WorldTransformComponent>().revision;
+        prepare_bone_attachment_sources(scene, source);
+        EXPECT_EQ(resolutions, 2u);
+        static_cast<void>(scene.get_world_matrix(left));
+        EXPECT_EQ(left.get_component<WorldTransformComponent>().revision, revision);
+        ASSERT_TRUE(scene.set_parent(right, second));
+        prepare_bone_attachment_sources(scene, source);
+        EXPECT_EQ(resolutions, 4u);
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(right)[3].x, 13);
+        ASSERT_TRUE(scene.clear_parent(left));
+        prepare_bone_attachment_sources(scene, source);
+        EXPECT_EQ(resolutions, 5u);
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(left)[3].x, 0);
+        EXPECT_FLOAT_EQ(scene.get_world_matrix(orphan)[3].x, 0);
     }
 
 }

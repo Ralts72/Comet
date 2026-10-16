@@ -6,6 +6,7 @@
 #include "common/error.h"
 #include "common/result.h"
 #include "render/debug/line_draw_list.h"
+#include "render/path_trace_scene.h"
 
 namespace Comet {
     class AssetRegistry;
@@ -17,7 +18,6 @@ namespace CometEditor::Ui {
 }
 
 namespace CometEditor {
-    class PathTracePreview;
     class Viewport final {
     public:
         Viewport(EditorState& state, const Comet::SceneRuntime& runtime,
@@ -25,7 +25,8 @@ namespace CometEditor {
             const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
             const EditorShortcuts& shortcuts, Comet::Renderer& renderer,
             Comet::AssetRegistry& assets, Ui::ImGuiContext& ui,
-            Comet::PhysicsService::MeshSource meshes = {});
+            Comet::PhysicsService::MeshSource meshes = {},
+            Comet::PathTraceSceneBuilder::Images images = {});
         ~Viewport();
 
         Viewport(const Viewport&) = delete;
@@ -54,7 +55,6 @@ namespace CometEditor {
         ViewportPanel m_panel;
         Comet::LineDrawList m_feedback_lines;
         ColliderOverlay m_colliders;
-        std::unique_ptr<PathTracePreview> m_path_trace;
-        std::string m_path_trace_support_error;
+        uint64_t m_path_trace_generation = 0;
     };
 }

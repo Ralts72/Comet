@@ -4,12 +4,14 @@
 #include "common/uuid.h"
 #include "core/math_utils.h"
 
+#include <cstddef>
 #include <map>
 #include <string>
 #include <string_view>
 #include <variant>
 
 namespace Comet {
+    inline constexpr std::size_t MAX_PARAMETER_COUNT = 128;
     using ParameterValue = std::variant<bool, float, Math::Vec3, Math::Vec4, std::string, Uuid>;
     using ParameterMap = std::map<std::string, ParameterValue>;
     [[nodiscard]] COMET_API bool valid_parameter_name(std::string_view name);

@@ -72,6 +72,7 @@ namespace Comet::Tests {
         const auto planted = scene.get_animation_playback(model);
         ASSERT_TRUE(planted && planted->pose);
         ASSERT_EQ(planted->ik.size(), 2u);
+        EXPECT_GT(scene.get_animation_statistics().ik_pose_reuses, 0u);
         EXPECT_NEAR(planted->pose->bone_matrices[3][3].y, .18, .001);
         EXPECT_NEAR(planted->pose->bone_matrices[6][3].y, .08, .001);
         EXPECT_NEAR(initial->pose->bone_matrices[3][3].y, .2, .0001);

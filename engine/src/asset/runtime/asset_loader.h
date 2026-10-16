@@ -5,6 +5,7 @@
 #include "animation/animation_controller.h"
 #include "asset/handle.h"
 #include "asset/data/mesh_data.h"
+#include "asset/data/texture_data.h"
 #include "common/error.h"
 #include "common/export.h"
 #include "common/result.h"
@@ -13,6 +14,7 @@
 #include <memory>
 #include <filesystem>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Comet {
     class AssetDatabase;
@@ -33,6 +35,8 @@ namespace Comet {
     struct MaterialData;
     struct AssetRecord;
     struct TextureImportSettings;
+    struct ImportInputFingerprint;
+    struct EnvironmentData;
 
     // CPU reads and dependency loading; uses the same index and Registry as AssetManager.
     class AssetLoader final {
@@ -51,8 +55,16 @@ namespace Comet {
         Result<std::shared_ptr<const ModelData>, Error> load_model(AssetHandle handle);
         void invalidate_model(AssetHandle handle);
         bool model_is_loaded(AssetHandle handle) const;
+        struct ModelResidency {
+            std::size_t count = 0;
+            std::size_t payload_bytes = 0;
+        };
+        [[nodiscard]] ModelResidency model_residency() const;
+        std::size_t release_models_except(const std::unordered_set<AssetHandle>& retained);
         Result<std::shared_ptr<Mesh>, Error> load_mesh(AssetHandle handle);
         Result<MeshData, Error> read_mesh_data(AssetHandle handle);
+        Result<TextureData, Error> read_texture_data(AssetHandle handle);
+        Result<TextureData, Error> read_environment_background(AssetHandle handle);
         Result<std::shared_ptr<Texture>, Error> load_texture(AssetHandle handle);
         Result<std::shared_ptr<Material>, Error> load_material(AssetHandle handle);
         Result<std::shared_ptr<Environment>, Error> load_environment(AssetHandle handle);
@@ -69,7 +81,12 @@ namespace Comet {
     private:
         Result<MeshData, Error> read_mesh_data(const AssetRecord& record);
         Result<std::shared_ptr<const ModelArtifact>, Error> model_artifact(AssetHandle handle);
-        Result<std::filesystem::path, Error> product_path(const AssetRecord& record);
+        Result<std::filesystem::path, Error> model_product_path(const AssetRecord& record);
+        Result<std::filesystem::path, Error> product_path(
+            const AssetRecord& record, const std::filesystem::path& imported_path);
+        bool product_source_is_current(
+            const AssetRecord& record, const ImportInputFingerprint& source) const;
+        Result<EnvironmentData, Error> read_environment_data(const AssetRecord& record);
         struct CachedModel {
             AssetRevision revision;
             std::shared_ptr<const ModelArtifact> artifact;

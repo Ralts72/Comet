@@ -38,6 +38,7 @@ namespace Comet {
             const Input::Frame& physical_input;
         };
         struct Callbacks {
+            // 宿主维护每轮执行；最小化时 delta_time=0、物理输入为空，模拟暂停。
             std::function<Result<void, Error>(const FrameContext&)> update;
             std::function<Result<void, Error>(const FrameContext&)> frame_ready;
             // 每个非挂起帧在 UI 后调用一次，包括渲染延期帧；空值关闭游戏输入。
@@ -62,6 +63,7 @@ namespace Comet {
         [[nodiscard]] int frame_rate_limit() const { return m_frame_pacer.limit(); }
 
         void set_scene(std::unique_ptr<Scene> scene);
+        [[nodiscard]] Result<void, Error> prepare_scene_rendering();
 
         [[nodiscard]] std::unique_ptr<Scene> replace_scene(std::unique_ptr<Scene> scene) noexcept;
 

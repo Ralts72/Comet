@@ -9,6 +9,7 @@
 #include "render/resource/mesh.h"
 #include "render/scene/render_geometry.h"
 #include "diagnostics/logger.h"
+#include "diagnostics/profiler.h"
 #include "skinning_comp.h"
 #include <array>
 
@@ -27,6 +28,9 @@ namespace Comet {
         std::vector<DescriptorSet> descriptors;
         std::shared_ptr<const AnimationPlayback> playback;
         std::optional<BoundingBox> pose_bounds;
+        std::vector<Math::Mat4> matrices;
+        bool output_ready = false;
+        uint64_t recorded_serial = 0;
         std::string animation_error;
     };
     SkinningPass::SkinningPass(Device& device, uint32_t frame_slots)
@@ -120,6 +124,11 @@ namespace Comet {
     Result<void, GraphicsError> SkinningPass::prepare(const RenderWorld& world,
         FrameScheduler& frames, RenderGeometry& geometry,
         std::vector<QueueSemaphoreSubmit>& waits) {
+        PROFILE_SCOPE("SkinningPass::prepare");
+        m_statistics = {};
+        if(!frames.is_recording_frame() || &frames.get_device() != &m_device
+            || frames.get_current_frame_slot_index() >= m_frames.size())
+            return Result<void, GraphicsError>::failure({"Invalid skinning frame"});
         auto& cache = m_frames.at(frames.get_current_frame_slot_index());
         const auto is_skinned = [&](std::size_t index) {
             return index < world.render_items.size() && world.render_items[index].mesh
@@ -147,6 +156,13 @@ namespace Comet {
                     return Result<void, GraphicsError>::failure(next.error());
                 instance = std::move(next).value();
             }
+            // 未成功提交的录制不能成为复用来源；当前槽已等待上次提交完成。
+            if(instance->recorded_serial) {
+                instance->output_ready = instance->recorded_serial
+                                         == frames.get_current_frame_slot().last_submission_serial;
+                instance->recorded_serial = 0;
+            }
+            bool changed = !instance->output_ready;
             if(!instance->pose_bounds || instance->playback != item.animation) {
                 const auto& data = *item.mesh->m_animation;
                 std::string error;
@@ -169,7 +185,10 @@ namespace Comet {
                         LOG_ERROR("Animation for entity {}: {}", item.entity_id, error);
                     instance->animation_error = std::move(error);
                 }
-                instance->palette->write(pose->matrices.data());
+                if(instance->matrices != pose->matrices) {
+                    instance->matrices = pose->matrices;
+                    changed = true;
+                }
                 instance->pose_bounds = pose->bounds;
                 instance->playback = item.animation;
             }
@@ -178,25 +197,33 @@ namespace Comet {
                 merge_semaphore_wait(
                     waits, QueueSemaphoreSubmit(
                                ready, Flags<PipelineStage>(PipelineStage::ComputeShader)));
-            // 输入上传与上一次顶点读取在 dispatch 前完成；输出在所有绘制前可见。
-            const vk::MemoryBarrier before(
-                vk::AccessFlagBits::eTransferWrite | vk::AccessFlagBits::eVertexAttributeRead,
-                vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite);
-            command.pipelineBarrier(
-                vk::PipelineStageFlagBits::eTransfer | vk::PipelineStageFlagBits::eVertexInput,
-                vk::PipelineStageFlagBits::eComputeShader, {}, before, {}, {});
-            command.bindPipeline(vk::PipelineBindPoint::eCompute, m_program->pipeline.get());
-            const auto descriptor = instance->descriptors.front().get();
-            command.bindDescriptorSets(
-                vk::PipelineBindPoint::eCompute, m_program->layout.get(), 0, descriptor, {});
-            const uint32_t vertices = item.mesh->m_vertex_count;
-            command.pushConstants(m_program->layout.get(), vk::ShaderStageFlagBits::eCompute, 0,
-                sizeof(vertices), &vertices);
-            command.dispatch((vertices + 63) / 64, 1, 1);
-            const vk::MemoryBarrier after(
-                vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eVertexAttributeRead);
-            command.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                vk::PipelineStageFlagBits::eVertexInput, {}, after, {}, {});
+            if(changed) {
+                instance->palette->write(instance->matrices.data());
+                m_statistics.palette_upload_bytes += instance->matrices.size() * sizeof(Math::Mat4);
+                // 输入上传与上一次顶点读取在 dispatch 前完成；输出在所有绘制前可见。
+                const vk::MemoryBarrier before(
+                    vk::AccessFlagBits::eTransferWrite | vk::AccessFlagBits::eVertexAttributeRead,
+                    vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite);
+                command.pipelineBarrier(
+                    vk::PipelineStageFlagBits::eTransfer | vk::PipelineStageFlagBits::eVertexInput,
+                    vk::PipelineStageFlagBits::eComputeShader, {}, before, {}, {});
+                command.bindPipeline(vk::PipelineBindPoint::eCompute, m_program->pipeline.get());
+                const auto descriptor = instance->descriptors.front().get();
+                command.bindDescriptorSets(
+                    vk::PipelineBindPoint::eCompute, m_program->layout.get(), 0, descriptor, {});
+                const uint32_t vertices = item.mesh->m_vertex_count;
+                command.pushConstants(m_program->layout.get(), vk::ShaderStageFlagBits::eCompute, 0,
+                    sizeof(vertices), &vertices);
+                command.dispatch((vertices + 63) / 64, 1, 1);
+                const vk::MemoryBarrier after(
+                    vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eVertexAttributeRead);
+                command.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                    vk::PipelineStageFlagBits::eVertexInput, {}, after, {}, {});
+                instance->output_ready = false;
+                instance->recorded_serial = frames.get_current_frame_serial();
+                ++m_statistics.dispatches;
+            } else
+                ++m_statistics.reused_outputs;
             frames.retain_current_frame_resource(instance);
             item.mesh = instance->output;
             instance->output->m_local_bounds = *instance->pose_bounds;

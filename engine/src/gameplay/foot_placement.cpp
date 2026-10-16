@@ -2,6 +2,7 @@
 #include "animation/animation_data.h"
 #include "physics/physics_access.h"
 #include "scene/scene.h"
+#include "diagnostics/profiler.h"
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <algorithm>
@@ -135,6 +136,7 @@ namespace Comet::Gameplay {
     }
     Result<void, Error> FootPlacementSystem::post_fixed_update(
         Scene& scene, const Context& context) {
+        PROFILE_SCOPE("FootPlacementSystem::post_fixed_update");
         auto result = Result<void, Error>::success();
         scene.each<const FootPlacementComponent, const AnimatorComponent>(
             [&](Entity model, const FootPlacementComponent& settings,

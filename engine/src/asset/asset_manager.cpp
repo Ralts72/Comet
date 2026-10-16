@@ -109,6 +109,84 @@ namespace Comet {
 
     AssetManager::~AssetManager() = default;
 
+    AssetManager::Residency AssetManager::residency() const {
+        Residency result;
+        const auto models = m_loader->model_residency();
+        result.model_cache_entries = models.count;
+        result.model_payload_bytes = models.payload_bytes;
+        RenderAssetFactory::ResidencyInput render_resources;
+        std::unordered_set<const AudioClip*> clips;
+        std::unordered_set<const ShaderProgramArtifact*> programs;
+        for(const auto handle : m_registry.handles()) {
+            ++result.registry_assets;
+            const auto* record = m_database.find(handle);
+            const auto* builtin = find_default_asset(handle);
+            auto type = AssetType::Unknown;
+            if(record)
+                type = record->type;
+            else if(builtin)
+                type = builtin->type;
+            ++result.registry_counts[type];
+            if(auto mesh = m_registry.resolve<Mesh>(handle))
+                render_resources.meshes.push_back(std::move(mesh));
+            if(auto texture = m_registry.resolve<Texture>(handle))
+                render_resources.textures.push_back(std::move(texture));
+            if(auto environment = m_registry.resolve<Environment>(handle))
+                render_resources.environments.push_back(std::move(environment));
+            if(auto irradiance = m_registry.resolve<Irradiance>(handle))
+                render_resources.irradiance.push_back(std::move(irradiance));
+            if(const auto clip = m_registry.resolve<AudioClip>(handle);
+                clip && clips.insert(clip.get()).second)
+                result.audio_pcm_bytes += clip->samples().size_bytes();
+            if(const auto program = m_registry.resolve<ShaderProgramArtifact>(handle);
+                program && programs.insert(program.get()).second)
+                result.shader_code_bytes +=
+                    (program->vertex_words.size() + program->fragment_words.size())
+                    * sizeof(uint32_t);
+        }
+        const auto gpu = RenderAssetFactory::resident_bytes(render_resources);
+        result.mesh_buffer_bytes = gpu.mesh_buffer_bytes;
+        result.texture_pixel_bytes = gpu.texture_pixel_bytes;
+        return result;
+    }
+
+    AssetManager::ResidencyRelease AssetManager::release_unused(
+        const std::span<const AssetReference> references,
+        const std::span<const AssetHandle> retained_roots) {
+        std::unordered_set<AssetHandle> retained(retained_roots.begin(), retained_roots.end());
+        for(const auto& reference : references)
+            retained.insert(reference.handle);
+        std::vector<AssetHandle> pending(retained.begin(), retained.end());
+        while(!pending.empty()) {
+            const auto handle = pending.back();
+            pending.pop_back();
+            const auto* record = m_database.find(handle);
+            if(!record)
+                continue;
+            const auto retain = [&](AssetHandle dependency) {
+                if(dependency && retained.insert(dependency).second)
+                    pending.push_back(dependency);
+            };
+            retain(record->source_asset);
+            for(const auto dependency : m_database.get_dependencies(handle))
+                retain(dependency);
+        }
+        ResidencyRelease released;
+        for(const auto& record : m_database.get_assets()) {
+            if(find_default_asset(record.handle) || retained.contains(record.handle)) {
+                m_released_assets.erase(record.handle);
+                continue;
+            }
+            m_released_assets.insert(record.handle);
+            released.registry_assets += m_registry.unregister_asset(record.handle);
+            m_refresh_requests.erase(record.handle);
+            m_environment_previews.erase(record.handle);
+            m_failed_environments.erase(record.handle);
+        }
+        released.model_cache_entries = m_loader->release_models_except(retained);
+        return released;
+    }
+
     Result<void> AssetManager::update_import_dependencies(
         const AssetHandle handle, std::vector<std::filesystem::path> dependencies) {
         // 导出产品的依赖已固定；加载 Lua 时无需维护编辑器的源文件观察列表。
@@ -130,6 +208,7 @@ namespace Comet {
 
     Result<void, Error> AssetManager::ensure_loaded(
         const AssetHandle handle, const AssetType expected_type) {
+        m_released_assets.erase(handle);
         const auto status = [](const auto& loaded) {
             if(!loaded)
                 return Result<void, Error>::failure(loaded.error());
@@ -195,6 +274,7 @@ namespace Comet {
 
     Result<void, Error> AssetManager::request_load(
         const AssetHandle handle, const AssetType expected_type) {
+        m_released_assets.erase(handle);
         if(expected_type != AssetType::Environment)
             return ensure_loaded(handle, expected_type);
         const auto state = environment_state(handle);
@@ -451,6 +531,8 @@ namespace Comet {
             LOG_WARN("Shader program {} dependencies: {}", handle.value(), indexed.error());
             return ImportPublication::success(std::nullopt);
         }
+        if(m_released_assets.contains(handle) && !m_registry.contains(handle))
+            return ImportPublication::success(handle);
         auto version = std::make_shared<ShaderProgramArtifact>(std::move(artifact));
         bool stored = false;
         if(m_registry.contains(handle))
@@ -545,6 +627,8 @@ namespace Comet {
 
     AssetManager::ImportPublication AssetManager::publish_texture_candidate(
         TextureImportCandidate& candidate) {
+        if(m_released_assets.contains(candidate.handle) && !m_registry.contains(candidate.handle))
+            return ImportPublication::success(std::nullopt);
         if(!candidate.result) {
             LOG_ERROR("Failed to prepare texture asset '{}' (handle {}): {}",
                 candidate.relative_path.generic_string(), candidate.handle.value(),
@@ -583,6 +667,8 @@ namespace Comet {
     AssetManager::ImportPublication AssetManager::publish_environment_candidate(
         EnvironmentImportCandidate& candidate) {
         m_environment_previews.erase(candidate.handle);
+        if(m_released_assets.contains(candidate.handle) && !m_registry.contains(candidate.handle))
+            return ImportPublication::success(std::nullopt);
         const auto publication = m_registry.get_revision(candidate.handle);
         // 失败时移除临时预览，不把它当成最后一个成功版本。
         const auto mark_failed = [this, &candidate] {
@@ -659,6 +745,11 @@ namespace Comet {
         if(!report.succeeded())
             return reject("Cannot index imported model products");
         m_loader->invalidate_model(handle);
+        if(m_released_assets.contains(handle)) {
+            publish_model_meshes(handle);
+            m_source_imports_needing_recheck.erase(handle);
+            return ImportPublication::success(handle);
+        }
         auto loaded = m_loader->load_model(handle);
         if(!loaded)
             return reject(loaded.error().message);
@@ -694,6 +785,7 @@ namespace Comet {
     }
 
     Result<std::shared_ptr<const ModelData>, Error> AssetManager::load_model(AssetHandle handle) {
+        m_released_assets.erase(handle);
         return m_loader->load_model(handle);
     }
 
@@ -832,15 +924,30 @@ namespace Comet {
     }
 
     Result<std::shared_ptr<Mesh>, Error> AssetManager::load_mesh(const AssetHandle handle) {
+        m_released_assets.erase(handle);
+        if(const auto* record = m_database.find(handle); record && record->source_asset)
+            m_released_assets.erase(record->source_asset);
         return m_loader->load_mesh(handle);
     }
 
     Result<std::shared_ptr<Texture>, Error> AssetManager::load_texture(const AssetHandle handle) {
+        m_released_assets.erase(handle);
+        if(const auto* record = m_database.find(handle); record && record->source_asset)
+            m_released_assets.erase(record->source_asset);
         return m_loader->load_texture(handle);
+    }
+
+    Result<TextureData, Error> AssetManager::read_texture_data(AssetHandle handle) {
+        return m_loader->read_texture_data(handle);
+    }
+
+    Result<TextureData, Error> AssetManager::read_environment_background(AssetHandle handle) {
+        return m_loader->read_environment_background(handle);
     }
 
     Result<std::shared_ptr<ShaderProgramArtifact>, Error> AssetManager::load_shader_program(
         const AssetHandle handle) {
+        m_released_assets.erase(handle);
         return m_loader->load_shader_program(handle);
     }
 
@@ -850,6 +957,7 @@ namespace Comet {
 
     Result<std::shared_ptr<Environment>, Error> AssetManager::load_environment(
         const AssetHandle handle) {
+        m_released_assets.erase(handle);
         const auto state = environment_state(handle);
         if(!state)
             return Result<std::shared_ptr<Environment>, Error>::failure(state.error());
@@ -971,6 +1079,9 @@ namespace Comet {
     }
 
     Result<std::shared_ptr<Material>, Error> AssetManager::load_material(const AssetHandle handle) {
+        m_released_assets.erase(handle);
+        if(const auto* record = m_database.find(handle); record && record->source_asset)
+            m_released_assets.erase(record->source_asset);
         return m_loader->load_material(handle);
     }
 

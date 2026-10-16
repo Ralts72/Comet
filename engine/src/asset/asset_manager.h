@@ -6,6 +6,7 @@
 #include "asset/database.h"
 #include "asset/data/material_data.h"
 #include "asset/data/mesh_data.h"
+#include "asset/data/texture_data.h"
 #include "asset/import/asset_task_types.h"
 #include "asset/reference.h"
 #include "common/export.h"
@@ -95,6 +96,27 @@ namespace Comet {
         [[nodiscard]] Result<std::vector<AssetHandle>, Error> process_completions(
             AssetCompletionBudget budget);
         [[nodiscard]] AssetAsyncStatus get_async_status() const;
+        struct Residency {
+            std::map<AssetType, std::size_t> registry_counts;
+            std::size_t registry_assets = 0;
+            std::size_t model_cache_entries = 0;
+            // 当前 ModelData 的节点、场景、字符串和 Part 内容；不含容器余量及索引开销。
+            std::size_t model_payload_bytes = 0;
+            std::size_t mesh_buffer_bytes = 0;
+            std::size_t texture_pixel_bytes = 0;
+            std::size_t audio_pcm_bytes = 0;
+            std::size_t shader_code_bytes = 0;
+        };
+        // 仅统计 owner 当前持有的资源；旧帧／Voice 的 shared_ptr 和分配器保留块另计。
+        [[nodiscard]] Residency residency() const;
+        struct ResidencyRelease {
+            std::size_t registry_assets = 0;
+            std::size_t model_cache_entries = 0;
+        };
+        // 宿主仅在成功激活后提交全部需求，包括 Edit 基线与预览；失败候选不得调用。
+        // 数据库依赖与模型源形成闭包；内置身份、未索引的外部资源始终保留。
+        [[nodiscard]] ResidencyRelease release_unused(std::span<const AssetReference> references,
+            std::span<const AssetHandle> retained_roots = {});
         [[nodiscard]] Result<void, Error> ensure_loaded(
             AssetHandle handle, AssetType expected_type);
         // 环境资源异步准备；成功仅表示已接受加载需求，不保证 GPU 资源已驻留。
@@ -146,6 +168,9 @@ namespace Comet {
         // 读取已导入的 CPU 几何；不创建 GPU 资源，也不发布到运行时 Registry。
         [[nodiscard]] Result<MeshData, Error> read_mesh_data(AssetHandle handle);
         [[nodiscard]] uint64_t mesh_data_revision(AssetHandle handle) const;
+        // 只读取已有 CPU 导入产物；不会触发同步导入或创建 GPU 资源。
+        [[nodiscard]] Result<TextureData, Error> read_texture_data(AssetHandle handle);
+        [[nodiscard]] Result<TextureData, Error> read_environment_background(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Texture>, Error> load_texture(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<Script>, Error> load_script(AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<AudioClip>, Error> load_audio(AssetHandle handle);
@@ -235,6 +260,8 @@ namespace Comet {
         std::unordered_map<AssetHandle, std::shared_ptr<PendingEnvironmentPreview>>
             m_environment_previews;
         std::unordered_set<AssetHandle> m_source_imports_needing_recheck;
+        // 显式释放后拒绝旧后台任务重新发布；下一次真实加载请求解除标记。
+        std::unordered_set<AssetHandle> m_released_assets;
         bool m_processing_completions = false;
     };
 }

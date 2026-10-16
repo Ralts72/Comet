@@ -103,9 +103,9 @@ Engine／Renderer／设备等工厂先准备完整 owner，成功后交付；部
 
 ## 一帧经过哪里
 
-1. Main 处理窗口事件，再等待上一帧 RenderThread 完成；绘制错误原样返回。宿主 `on_update` 消费上次 UI 请求、维护资产与切换模式。
+1. Main 处理窗口事件，再等待上一帧 RenderThread 完成；绘制错误原样返回。宿主 `on_update` 消费上次 UI 请求、维护资产与切换模式。最小化／零尺寸仍接纳有界后台结果，但 delta_time 为零、输入为空，不进入模拟与绘制，Main 刷新资产引用并由 GPU owner 执行失效与退役回收；恢复时不追赶挂起时间。
 2. Main 捕获窗口尺寸，RenderThread 准备 slot／交换链、回收资源并重建 GPU dependent；帧就绪时调用 `on_frame_ready`，收集 ImGui 请求、属性编辑、Gizmo 和输入授权。
-3. `on_runtime_input` 交付只读授权快照；暂停单步先推进模拟，Main 在 `on_frame_capture` 生成依赖当前姿态的反馈，再由 SceneExtractor 提取场景。SceneResolver 固定资源、材质值和选定 Shader 引用，组合视图、拾取、调试线段及 UI 绘制数据，交付只读 RenderFrame。交接最多保留一帧，包括已经开始录制的帧。
+3. `on_runtime_input` 交付只读授权快照；暂停单步先推进模拟，Main 在 `on_frame_capture` 生成依赖当前姿态的反馈，再由 SceneExtractor 提取场景。SceneResolver 固定资源、材质值和选定 Shader 引用；路径追踪从这一份 RenderWorld 准备 CPU 快照，Editor 只提交模式／参数与显示诊断。组合视图、拾取、调试线段及 UI 绘制数据后交付只读 RenderFrame。交接最多保留一帧，包括已经开始录制的帧。
 4. 持续运行时，Main 的 Runtime 执行有界 Fixed Update 和一次普通 Update，与 RenderThread 绘制刚交付的快照重叠，模拟结果在下一帧提取。暂停单步则在本次提取前完成，编辑和单步结果直接显示在本帧。提取仍等上一份绘制完成，复用已有快照存储。更新失败先取回绘制结果，再交给宿主恢复，不提取部分写入的场景。
 5. RenderThread 准备世界界限；各 View 根据自己的相机生成级联阴影、裁剪、绘制和后处理，再绘制 Overlay、提交并呈现。Main 在取回结果前不修改 Renderer、View 或 UI 后端。退出主循环前取回最后一帧结果并接回资源回收，宿主关闭前由 RenderThread 等待 GPU 空闲、关闭 UI GPU 后端，再停止并 join；窗口输入与文档由 Main 关闭。
 
@@ -189,7 +189,8 @@ Profile 拒绝玩家设置及未知字段。窗口尺寸与最大化状态由宿
 `config/player_settings` 用一份 `PlayerSettings<T>` 实现显示、画质和音量的文件检查、版本／项目身份校验、原子保存和保存后应用。
 别名保留各功能名称，具体类型的字段读取／写入／校验仍归 DisplaySettings、QualitySettings、AudioSettings。
 输入文件是按动作／绑定身份合并的覆盖，保留 PlayerInputSettings 的独立协议，不套用完整值存储。
-App 的显示试用由 DisplaySettingsPreview 保存前态和 15 秒期限；确认成功才持久化，取消／超时恢复前态。Editor Play 只应用视口相关设置。
+`PlayerSettingsOwner` 持有上述四种玩家设置，统一项目默认值、加载、保存、诊断和 Runtime 重绑定；App／Play 只提供具体应用目标。输入仍保存稀疏覆盖，其他设置仍保存完整值。
+App 的显示试用由 DisplaySettingsPreview 保存前态和 15 秒期限；确认成功才持久化，取消／超时恢复前态。Editor Play 只应用视口相关设置，不修改编辑器窗口、VSync、HDR 输出或帧率。保存成功但应用失败仍明确报告，不能当作未保存。
 项目显示默认值修改后，Editor 重新解析玩家设置并更新 Play 分辨率；已有个人选择仍优先，项目默认值不覆盖玩家文件。
 
 ### 序列化与复用边界
@@ -198,6 +199,7 @@ App 的显示试用由 DisplaySettingsPreview 保存前态和 15 秒期限；确
 | --- | --- | --- |
 | `common/file_io` | 文本读取、有大小上限的二进制读取、原子文本／二进制分块写入 | 文件是否可缺失、预算和业务提交顺序 |
 | `common/binary` | 小端整数／浮点数、带长度的字符串读写、分块 FNV-1a 哈希 | Magic、版本、长度前缀宽度、字段限制与领域校验 |
+| `common/serialization/parameters_json` | 参数名称、容量、重复键、有限数值与向量校验及编解码 | 允许类型、Scene 实体 UUID 回调及存档值范围 |
 | `common/json` | simdjson 解析、对象／数组检查、必填与可选标量字段读取、固定长度浮点向量读写、键校验、可选路径查找、可缺失文件读取、原子保存、Writer、编解码与 Serializer 文件入口 | 项目、场景、材质等 Schema 与版本，缺省值、颜色及数值范围的领域校验 |
 
 项目、资产、开发者 Profile 与快捷键共用 JSON 工具。JSON DOM 借用 parser；`Json::deserialize` 的回调必须返回拥有数据的结果。
@@ -276,7 +278,7 @@ RuntimeSession 只收集保存／继续意图，GameSession 在帧边界调用�
 父子关系只由 Scene 修改并保持无环；子树删除直接遍历子节点索引，收集完毕后从后代向祖先清理。
 Runtime 统一控制系统启停、部分启动失败、暂停和单步；System 不重复实现生命周期状态机。
 每个固定步先按注册顺序执行 `fixed_update` 并提交结构请求，再执行 `post_fixed_update` 并提交本阶段的请求；最后才进入每帧 `update`。
-NavigationSystem 在首个固定步读取 PhysicsService 提供的静态碰撞三角形构建导航网格，之后只重置查询预算和回收角色路径。NavigationMesh 封装 Recast／Detour，公开头文件不暴露第三方类型；NavigationSystem 持有运行域路径缓存，Lua 只提交目标，Demo 决定巡逻／追逐规则。静态碰撞几何来源由 Engine 注入，Gameplay 不依赖 Jolt 或 PhysicsService 实现。Stop 清理网格与缓存，路径不进入场景序列化。
+全部 System 的 on_start 与启动结构提交结束后，SceneRuntime 调用 on_runtime_ready。NavigationSystem 此时读取已准备物理世界的静态碰撞三角形并同步构建网格；失败沿既有逆序停止路径处理，尚未推进模拟。固定步只重置查询预算和回收角色路径；构建耗时与运行查询分别计数。NavigationMesh 封装 Recast／Detour，公开头文件不暴露第三方类型；NavigationSystem 持有运行域路径缓存，Lua 只提交目标，Demo 决定巡逻／追逐规则。静态碰撞几何来源由 Engine 注入，Gameplay 不依赖 Jolt 或 PhysicsService 实现。Stop 清理网格与缓存，路径不进入场景序列化。
 
 默认固定步依次执行脚本意图、角色动画参数、根运动动画提取与 Gameplay 消费、PhysicsSystem 同步／求解／回写，再更新粒子；接触在该步的后置阶段交付脚本，阶段结束即清空。根运动或脚部 IK 的实例使用固定步，其他动画仍在帧更新中推进，不同时使用两套时钟。
 固定更新中删除的实体不再收到接触；接触回调的结构请求在下一固定步前生效。后置阶段复用本步时间和输入，不再次消费边沿。
@@ -375,7 +377,7 @@ miniaudio 的设备、解码器、页面与任务队列封装在 AudioPlayback �
 换版保留兼容参数覆盖，重建 self／模块，不迁移任意 Lua 状态，也不自动改写 Edit 内容；暂停时待继续或单步再换版。
 项目 require 使用预先冻结的源码闭包，实例只执行已准备模块，不在运行回调中查找文件。模块为 source-only，不创建资产身份。
 内存、指令、日志、实体／事件请求都有预算；实体和接触交付在阶段边界复核身份，停止回调不访问 Scene。
-ScriptSystem 不监听文件、不另建资产版本缓存；UI 控制器的 VM 与行为实例分别拥有权限和寿命。
+ScriptSystem 每个阶段保留结构同步，用 Registry revision 跳过没有发布变化的资产扫描；失败组比较成员与参数快照，修正参数仍可重试。结构扫描与资产扫描分别计数，不隐藏 fixed／update 之间的实体变更。UI 控制器的 VM 与行为实例分别拥有权限和寿命。
 
 ### 脚本材质覆盖
 
@@ -421,7 +423,9 @@ Editor 的 `AnimationPreview` 拥有所选模型的预览时钟，Inspector 在 
 姿态采样统一处理局部 TRS、混合与骨骼矩阵；有挂点的实例在 Main 求值，其他实例在 RenderThread 求值。`SkinningPass` 每帧槽复用角色的调色板和输出顶点缓冲。
 Compute 在绘制前生成普通 Mesh 顶点，主绘制、阴影及项目材质共用结果，不扩展材质顶点接口。
 按每个关节影响的顶点界限计算保守姿态界限，供裁剪和阴影范围使用；在途帧保留输入资产、输出缓冲和 descriptor owner。
-同一帧槽复用未变化播放快照的调色板和局部界限；替换 Mesh owner 后重新采样。GPU dispatch 与同步保持逐帧录制，避免把取消录制当作已经生成顶点。
+同一安全帧槽按源 Mesh 与实际矩阵复用调色板、局部界限和已经成功提交的蒙皮输出；没有变化时跳过 dispatch，世界界限仍随对象变换更新。取消录制不会标记输出有效。
+脚部 IK 仅在同一骨架、无旧约束、其余播放语义完全相同时复用已解析基础局部姿态，沿同一求解函数生成最终骨骼和界限；失败沿原完整解析路径。Scene 分别计数完整姿态求值、IK 复用与呈现插值；动画推进、采样、IK 与插值各有 Profiler 区间。
+挂点动画来源由动画模块准备函数按父实体去重；Edit 和 Play 共用，不在 Engine 主循环解释挂点组件与资产关系。
 采样接口严格报告无效片段；呈现层记录诊断后显示绑定姿态，旧过渡片段缺失时可直接采样有效的新片段。同一实例每帧槽不重复报告相同错误，内容或资源修正后重新检查；GPU 创建与提交错误仍交由渲染故障边界处理。
 默认角色和基础材质在 `asset/default_assets.h` 声明固定身份，按需由 AssetLoader 加载，复用 Registry、资源工厂和普通引用选择／撤销路径。
 角色使用同一 MeshImporter／GPU 工厂；默认材质参数只取自 MaterialLayout，不额外保存重复配置。项目资产仍沿数据库、缓存和发布版本工作。
@@ -464,22 +468,28 @@ Engine 持有 Main 的 MaterialProgramValidator；脚本参数校验与 Inspecto
 MaterialRenderer 负责具体 Pipeline、参数／纹理绑定与绘制；ShaderInterface 由 SPIR-V 反射，不把 Vk 对象写入资产字段。
 路径追踪是 `RenderView` 的替代场景积分方式。Main 通过已有 CPU 网格读取服务和解析后的材质快照生成
 `PathTraceScene`，仅启用预览时保留几何并构建世界空间 BVH；不把 CPU 几何常驻到所有 raster Mesh。
-常量材质复用 `MaterialRuntimeCache` 的默认值、实例覆盖与校验，再从不可变参数中读取 BSDF 数据。
-Render 只消费不可变快照；`PathTracePass` 拥有 compute 管线、描述符和 RGBA32F 累积图，RenderGraph 声明
-初始化／compute 读写／显示采样的依赖，沿同一 graphics queue 执行。输入或尺寸换代后，旧资源由在途 FrameSlot 保活。
-相机与采样参数控制每个视图的累积，曝光在显示阶段应用。Editor 的 `PathTracePreview` 只负责获取输入和呈现诊断，
-不在渲染线程访问 ECS、资产数据库、窗口或 ImGui；路径追踪不叠加 raster 阴影、AO 或已烘焙 GI。
+材质复用 `MaterialRuntimeCache` 的默认值、实例覆盖与校验，再从不可变参数中读取 BSDF 数据。
+Material 同时保存贴图的源资产身份，`AssetManager` 只读接口获取已有 CPU 贴图／环境产物，不在预览时同步重导入。
+`CpuTextureImage` 为 GI 烘焙和路径追踪共用线性解码及地址／过滤逻辑；快照按资产去重像素，每个渲染实例保留稳定表面参数槽，换材质不会改变三角形的槽位或重建 BVH。
+环境复用 `CpuCubeSampler`，构建有界等面积 HDR 图和亮度 CDF；GPU PDF 使用实际 CDF 差值，混合均匀采样保证插值邻域的完整支撑。
+贴图与环境数据均进入独立只读 storage buffer，不要求描述符索引扩展；未启用路径追踪的 raster 路径不保留这些 CPU 像素。
+几何／BVH、材质像素、HDR 环境与灯光使用独立不可变块；灯光或材质参数变化不重建几何，环境旋转／强度不重新解码图像。重采样只推进累积代次。
+`PathTracePass` 按块身份复用只读 GPU buffer；resize 仅换累积图与描述符。RenderGraph 沿同一 graphics queue 声明初始化、采样与显示，达到样本上限后只显示，不录制 compute；旧资源继续由在途 FrameSlot 保活。
+相机与采样参数控制每个视图的累积，曝光只影响显示。RenderThread 不访问 ECS、资产数据库、窗口或 ImGui；路径追踪不叠加 raster 阴影、AO 或已烘焙 GI。
 
 内置材质采用 Forward PBR、方向／点／聚光灯、一盏方向光的四级阴影、最多四盏聚光灯与两盏点光源阴影；Skybox、IBL 与辅助线共用场景输出。
 级联按相机深度划分，透视使用线性／对数混合分割，正交使用等距分割；球形范围、投影中心纹素对齐和 10% 重叠稳定采样。投射者深度范围包含世界界限，防止画面外遮挡者丢失；每级独立剔除、选 LOD，再分组绘制。Shader 在交界混合相邻级，最远一级淡出到无阴影，PCF 采样限制在各自图块内。
 聚光灯使用范围与外角构造透视投影。保守光锥界限通过相机裁剪、且覆盖场景界限的有效候选按实体 ID 分配四个槽位；超预算只取消投影，计数进入诊断。LightingData 统一保存各阴影视图的投影、图集区域、光源索引与偏移，ShadowPass 将几何绘制交给 DepthPass，共用深度管线、裁切绑定和实例缓冲；Shader 在透视除法后计算接收面偏移，不把方向光的仿射深度假设用于聚光灯。
 点光源按范围包围盒通过视锥筛选，再检查球形范围是否覆盖场景界限；每盏保留 ±X／±Y／±Z 六面，Shader 按接收点相对光源的主轴选面。每面在 90° 范围外保留两圈保护纹素，供 3×3 PCF 在交界处采样；与聚光灯共用透视投影、深度偏移和图集区域计算。
-图集为 2048×4096 D32（每帧槽 32 MiB），上方四块 1024×1024 用于方向光，下方四块 512×512 用于聚光灯，其余十二块用于两盏点光源。每帧完整清理并录制，灯光关闭或移出候选时不会残留旧投影；首版不增加动态图集分配器或跨帧阴影缓存。
+图集为 2048×4096 D32（每帧槽 32 MiB），上方四块 1024×1024 用于方向光，下方四块 512×512 用于聚光灯，其余十二块用于两盏点光源。有阴影需求时完整清理并录制；无需求时释放图集 owner，使用安全帧槽仅初始化一次的 1×1 深度 fallback 并跳过阴影 pass，旧图集仍由在途帧保活。固定深度程序使用源几何界限先保守视锥裁剪再计算 LOD；Main 的自定义顶点可见性仍由实际管线判断；不增加动态图集分配器或跨帧阴影缓存。
 基础 AO 复用 DepthPass 绘制相机深度，各帧槽独立；RenderGraph 在深度写入与 PBR 采样之间管理屏障。DepthPass 只负责给定投影视图的几何深度，ShadowPass 继续负责光源选择与阴影统计。AO 不复制裁切、实例化或 LOD 逻辑；主视图开启 MSAA 时，相机预深度仍保持单采样。
 LightingData 保存 AO 的逆视投影矩阵、世界半径和强度。PBR 从深度重建世界位置，固定 16 次采样计算几何法线半球的遮挡，仅衰减环境光项；直接光、自发光与 Alpha Blend 保持原链路。首次开启时分配深度目标，关闭后跳过预深度，帧资源保留直至 GPU 完成。没有额外 AO 合成图、跨帧历史或独立后处理框架。
 网格顶点保存位置、UV、法线与四分量切线（遵循 [glTF 约定](https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html)）；切线 w 保存副切线方向，零值表示没有源切线。glTF 导入保留切线，Mesh Artifact 版本随顶点格式更新。
 材质输入 location 0～2 保持位置／UV／法线，3～6 保留实例矩阵，7 为切线；普通与实例化 PBR 共用顶点逻辑。
 GPU 蒙皮同时变换位置、法线和切线，骨骼与对象镜像分别更新切线方向符号；有 UV 的 glTF 缺少源切线时由导入层使用 MikkTSpace 生成；缺少法线时生成逐面法线。按源顶点和面角属性排序合并，仅在硬边／切线接缝拆分顶点并同步复制蒙皮权重，导入预算包括拆分与临时数组。PBR 在顶点阶段构建切线基并整体插值，片元阶段只归一化贴图变换后的法线；程序网格仍可使用片元 UV 导数补足。
+
+App／Play 成功启动候选 Runtime 后、接纳关卡前，通过 Engine 现有提取／解析器生成固定版本快照，在 RenderThread 同步预热实际材质、Alpha／双面与镜像组合；普通帧不重复扫描预热。共享 PipelineManager 仍是唯一管线缓存，统计真实原生创建次数和本次预热创建数。预热错误保留原失败契约，失败候选不触发资源卸载。
+CPU 的 `ViewLightingData` 选择光栅反射探针与 GI 区域，GPU 材质 owner 负责描述符、上传等待和保活；路径追踪自行积分，不复用光栅环境能量。
 
 ### 材质准备与寿命
 
@@ -578,6 +588,9 @@ flowchart LR
 后台完成结果、昂贵的延期重试与环境预览共用一次调用的数量／时间预算；零发布预算仍可派发已有排队任务，不进行新的昂贵源检查。脚本重试以关联原子组计数，组内不抢占，尚未处理的请求留到后续调用。
 过期结果不得覆盖新版本；Shader 内容错误让后续帧显示错误材质，已经提交的旧帧继续使用自己捕获的资源。
 Registry 接纳与渲染域程序发布分别核对各自状态，不建立第二份资产身份或让文件通知直接切换 GPU 对象。
+
+关卡成功激活后，AssetManager 依据当前场景引用、数据库依赖与模型来源闭包释放无需求的 Registry 资源及 CPU 模型缓存；内置和未索引的外部身份保留。Editor 同时收集入关引用、原 Edit、当前 Play、选中资源和独立预览需求；活动材质编辑或引用收集失败时保守保留，不猜测 `use_count`。
+`residency()` 分别报告 Registry 类型数量、模型内容、Mesh buffer、纹理像素、PCM 与 Shader payload 字节；不把它当成分配器保留块或 GPU 在途占用。旧快照／音频 Voice 继续保活已移出 Registry 的对象，后台旧候选不能复活已取消需求。
 
 ### 游戏数值资产
 

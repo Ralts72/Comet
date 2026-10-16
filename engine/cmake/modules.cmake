@@ -21,6 +21,8 @@ endfunction()
 comet_add_module(foundation)
 comet_add_module(serialization)
 comet_add_module(shader_contracts)
+# These small modules do not amortize a separate standard-library PCH.
+set_target_properties(comet_serialization comet_shader_contracts PROPERTIES DISABLE_PRECOMPILE_HEADERS ON)
 comet_add_module(asset_data)
 comet_add_module(input)
 comet_add_module(world)

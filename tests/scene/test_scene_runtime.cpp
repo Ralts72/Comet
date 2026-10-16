@@ -39,6 +39,15 @@ namespace Comet::Tests {
                     return start(scene);
                 return UpdateResult::success();
             }
+            UpdateResult on_runtime_ready(
+                Scene& scene, RuntimeSession& session, const RuntimeServices&) override {
+                EXPECT_TRUE(session.is_bound_to(scene));
+                if(ready) {
+                    calls.order.push_back("ready " + name);
+                    return ready(scene);
+                }
+                return UpdateResult::success();
+            }
             UpdateResult fixed_update(Scene& scene, const Context& context) override {
                 calls.order.push_back("fixed " + name);
                 calls.fixed.push_back({context.delta_time, context.total_time, context.index,
@@ -78,6 +87,7 @@ namespace Comet::Tests {
                 return capture && capture(scene, input);
             }
             std::function<UpdateResult(Scene&)> start;
+            std::function<UpdateResult(Scene&)> ready;
             std::function<UpdateResult(Scene&, const Context&)> fixed;
             std::function<UpdateResult(Scene&, const Context&)> post_fixed;
             std::function<UpdateResult(Scene&, const Context&)> update_frame;
@@ -382,6 +392,63 @@ namespace Comet::Tests {
         EXPECT_EQ(runtime.get_timing().frame_index, 1u);
         ASSERT_TRUE(runtime.stop());
         ASSERT_TRUE(runtime.clear_systems());
+    }
+
+    TEST_F(SceneRuntimeTest, StartupPreparationWaitsForEveryStartAndCommittedStructure) {
+        auto removed = scene.create_entity("Removed during startup");
+        auto* first = add("A");
+        auto* second = add("B");
+        second->start = [&](Scene& current) {
+            EXPECT_TRUE(current.request_destroy_entity(removed));
+            return UpdateResult::success();
+        };
+        for(auto* system : {first, second})
+            system->ready = [&](Scene&) {
+                EXPECT_FALSE(removed);
+                EXPECT_TRUE(calls.fixed.empty());
+                EXPECT_FALSE(runtime.stop());
+                EXPECT_FALSE(runtime.start(scene));
+                return UpdateResult::success();
+            };
+        ASSERT_TRUE(runtime.start(scene, State::Paused));
+        EXPECT_EQ(
+            calls.order, (std::vector<std::string>{"start A", "start B", "ready A", "ready B"}));
+        advance(0.1);
+        EXPECT_TRUE(calls.fixed.empty());
+        ASSERT_TRUE(runtime.stop());
+        EXPECT_EQ(calls.order[calls.order.size() - 2], "stop B");
+        EXPECT_EQ(calls.order.back(), "stop A");
+    }
+
+    TEST_F(SceneRuntimeTest, FailedStartupPreparationStopsAllStartedSystemsAndClearsPendingState) {
+        auto kept = scene.create_entity("Kept after rejected preparation");
+        auto* first = add("A");
+        auto* second = add("B");
+        auto* third = add("C");
+        first->ready = [&](Scene& current) {
+            EXPECT_TRUE(current.request_destroy_entity(kept));
+            EXPECT_TRUE(runtime.get_session().set_value("pending", true));
+            return UpdateResult::success();
+        };
+        second->ready = [](Scene&) { return UpdateResult::failure({"preparation failed"}); };
+        third->ready = [](Scene&) {
+            ADD_FAILURE() << "Preparation continued after failure";
+            return UpdateResult::success();
+        };
+        const auto result = runtime.start(scene);
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error().message, "preparation failed");
+        EXPECT_EQ(calls.order, (std::vector<std::string>{"start A", "start B", "start C", "ready A",
+                                   "ready B", "stop C", "stop B", "stop A"}));
+        EXPECT_TRUE(kept);
+        EXPECT_FALSE(runtime.is_active());
+        EXPECT_FALSE(runtime.get_session().get_value("pending"));
+        EXPECT_TRUE(calls.fixed.empty());
+        first->ready = second->ready =
+            third->ready = [](Scene&) { return UpdateResult::success(); };
+        ASSERT_TRUE(runtime.start(scene));
+        EXPECT_TRUE(kept);
+        ASSERT_TRUE(runtime.stop());
     }
 
     TEST_F(SceneRuntimeTest, InitiallyPausedStartPrecedesSystemStartupAndStepsOnlyOnRequest) {

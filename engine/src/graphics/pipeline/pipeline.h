@@ -109,10 +109,12 @@ namespace Comet {
 
         void collect_unused();
         [[nodiscard]] size_t get_cached_pipeline_count() const { return m_pipelines.size(); }
+        [[nodiscard]] uint64_t get_pipeline_creations() const { return m_pipeline_creations; }
 
     private:
         Device& m_device;
         RenderPass& m_render_pass;
         std::unordered_map<PipelineKey, std::weak_ptr<Pipeline>, PipelineKey::Hash> m_pipelines;
+        uint64_t m_pipeline_creations = 0;
     };
 }

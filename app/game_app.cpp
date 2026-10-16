@@ -1,8 +1,7 @@
 #include "game_app.h"
 #include "gameplay/checkpoint_store.h"
 #include "gameplay/game_session.h"
-#include "config/player_settings.h"
-#include "config/display_settings_preview.h"
+#include "config/player_settings_owner.h"
 #include "runtime/application.h"
 #include "config/config_loader.h"
 #include "render/resource/render_resources.h"
@@ -11,7 +10,6 @@
 #include "core/project.h"
 #include "common/executable_path.h"
 #include "core/window.h"
-#include "input/player_input_settings.h"
 #include "ui/project_ui.h"
 #include "render/renderer.h"
 #include "scene/scene.h"
@@ -48,18 +46,14 @@ namespace {
 
     class GameApp final: public Comet::Application {
     public:
-        GameApp(Comet::Project project, Comet::PlayerDisplaySettings display_settings,
-            Comet::PlayerQualitySettings quality_settings,
-            Comet::PlayerAudioSettings audio_settings, std::filesystem::path local_data)
+        GameApp(Comet::Project project, Comet::PlayerSettingsOwner::Startup settings,
+            std::filesystem::path local_data)
             : Application({.cache_directory = local_data / "cache",
                   .log_directory = local_data / "logs",
                   .window_title = project.name(),
-                  .display_settings = display_settings.settings(),
-                  .quality_settings = quality_settings.settings()}),
-              m_project(std::move(project)), m_display_settings(std::move(display_settings)),
-              m_display_preview(m_display_settings),
-              m_quality_settings(std::move(quality_settings)),
-              m_audio_settings(std::move(audio_settings)) {}
+                  .display_settings = settings.display.settings(),
+                  .quality_settings = settings.quality.settings()}),
+              m_project(std::move(project)), m_player_settings(m_project, std::move(settings)) {}
 
         Comet::Result<void, Comet::Error> on_init() override {
             using Init = Comet::Result<void, Comet::Error>;
@@ -77,6 +71,7 @@ namespace {
             auto scene = std::move(initial).value().scene;
 
             auto& engine = get_engine();
+            m_player_settings.bind_app(engine);
             m_asset_manager = std::make_unique<Comet::AssetManager>(m_project.paths(),
                 engine.get_asset_registry(), engine.get_render_resource_factory(),
                 engine.get_task_scheduler(), get_config().assets);
@@ -102,7 +97,7 @@ namespace {
             m_pending_scene = std::move(scene);
             m_pending_references = std::move(references).value();
             engine.get_window().set_title(m_project.name() + " | Loading assets");
-            if(auto applied = engine.apply_audio_settings(m_audio_settings.settings()); !applied)
+            if(auto applied = m_player_settings.activate_audio(); !applied)
                 return applied;
             if(auto added = engine.add_default_scene_systems(
                    {.read =
@@ -117,93 +112,21 @@ namespace {
                 return added;
             if(!m_project.ui())
                 return Init::success();
+            auto services = m_player_settings.ui_services();
+            services.session_get =
+                [this](std::string_view key) -> std::optional<Comet::ParameterValue> {
+                const auto& runtime = get_engine().get_scene_runtime();
+                if(!runtime.is_active())
+                    return std::nullopt;
+                return runtime.get_session().get_value(key);
+            };
+            services.emit = [this](std::string_view event) {
+                auto& engine = get_engine();
+                auto* scene = engine.get_scene();
+                return engine.get_scene_runtime().is_active() && scene && scene->emit_event(event);
+            };
             auto ui = Comet::Ui::ProjectUi::create(engine.get_window(), engine.get_renderer(),
-                *m_project.ui(), game_ui_options(m_project),
-                {.input_actions = m_project.input_actions(),
-                    .load_input = [this] { return load_player_input(); },
-                    .apply_input =
-                        [this](Comet::InputOverrides overrides) {
-                            return apply_player_input(std::move(overrides));
-                        },
-                    .display_defaults = m_project.display_settings(),
-                    .load_display =
-                        [this] {
-                            return Comet::Result<Comet::DisplaySettings>::success(
-                                current_display_settings());
-                        },
-                    .apply_display =
-                        [this](Comet::DisplaySettings settings) {
-                            return m_display_preview.apply(settings, current_display_settings(),
-                                [this](const auto& candidate) {
-                                    return apply_display_settings(candidate);
-                                });
-                        },
-                    .display_confirmation = [this] { return m_display_preview.remaining(); },
-                    .confirm_display =
-                        [this] {
-                            if(get_engine().get_renderer().output_pending())
-                                return Comet::Result<void>::failure(
-                                    "Display output is still being applied");
-                            return m_display_preview.confirm();
-                        },
-                    .revert_display =
-                        [this] {
-                            return m_display_preview.revert([this](const auto& previous) {
-                                return apply_display_settings(previous);
-                            });
-                        },
-                    .quality_defaults = m_project.quality_settings(),
-                    .load_quality =
-                        [this] {
-                            return Comet::Result<Comet::QualitySettings>::success(
-                                m_quality_settings.settings());
-                        },
-                    .apply_quality =
-                        [this](Comet::QualitySettings settings) {
-                            return m_quality_settings.save_and_apply(
-                                settings, [this](const auto& candidate) {
-                                    const auto applied =
-                                        get_engine().get_renderer().request_quality_settings(
-                                            candidate);
-                                    if(!applied)
-                                        return Comet::Result<void>::failure(
-                                            applied.error().message);
-                                    return Comet::Result<void>::success();
-                                });
-                        },
-                    .audio_defaults = m_project.audio_settings(),
-                    .load_audio =
-                        [this] {
-                            return Comet::Result<Comet::AudioSettings>::success(
-                                m_audio_settings.settings());
-                        },
-                    .active_audio = [this] { return get_engine().get_audio_settings(); },
-                    .apply_audio =
-                        [this](Comet::AudioSettings settings) {
-                            return m_audio_settings.save_and_apply(
-                                settings, [this](const auto& candidate) {
-                                    const auto applied =
-                                        get_engine().apply_audio_settings(candidate);
-                                    if(!applied)
-                                        return Comet::Result<void>::failure(
-                                            applied.error().message);
-                                    return Comet::Result<void>::success();
-                                });
-                        },
-                    .session_get =
-                        [this](std::string_view key) -> std::optional<Comet::ParameterValue> {
-                        const auto& runtime = get_engine().get_scene_runtime();
-                        if(!runtime.is_active())
-                            return std::nullopt;
-                        return runtime.get_session().get_value(key);
-                    },
-                    .emit =
-                        [this](std::string_view event) {
-                            auto& engine = get_engine();
-                            auto* scene = engine.get_scene();
-                            return engine.get_scene_runtime().is_active() && scene
-                                   && scene->emit_event(event);
-                        }});
+                *m_project.ui(), game_ui_options(m_project), std::move(services));
             if(!ui)
                 return Init::failure(ui.error());
             m_ui = std::move(ui).value();
@@ -225,9 +148,7 @@ namespace {
 
         Comet::Result<void, Comet::Error> on_update(
             const Comet::Engine::FrameContext& frame) override {
-            if(auto expired = m_display_preview.expire(
-                   [this](const auto& previous) { return apply_display_settings(previous); });
-                !expired)
+            if(auto expired = m_player_settings.expire_display(); !expired)
                 return Comet::Result<void, Comet::Error>::failure({expired.error()});
             if((!m_ui || !m_ui->is_modal()) && !m_ui_blocked
                 && frame.physical_input.key(Comet::Input::Key::Escape).pressed) {
@@ -282,15 +203,12 @@ namespace {
 
         void on_shutdown() override {
             LOG_INFO("app shutdown");
-            const auto display = current_display_settings();
-            if(!m_display_preview.is_pending() && display != m_display_settings.settings()) {
-                if(auto saved = m_display_settings.save(display); !saved)
-                    LOG_WARN("Cannot save game window state: {}", saved.error());
-            }
+            if(auto saved = m_player_settings.save_window_state(); !saved)
+                LOG_WARN("Cannot save game window state: {}", saved.error());
             get_engine().get_renderer().set_overlay({});
             if(m_ui)
                 m_ui->deactivate();
-            m_player_input_settings.reset();
+            m_player_settings.reset_input();
             m_ui.reset();
             m_asset_manager.reset();
             m_pending_scene.reset();
@@ -299,30 +217,6 @@ namespace {
         }
 
     private:
-        Comet::Result<void> apply_display_settings(const Comet::DisplaySettings& settings) {
-            auto& engine = get_engine();
-            auto window = engine.get_window().set_display_settings(settings.mode,
-                {static_cast<uint32_t>(settings.width), static_cast<uint32_t>(settings.height)});
-            if(!window)
-                return window;
-            engine.get_renderer().set_vsync_enabled(settings.vsync);
-            auto output = engine.get_renderer().request_output_settings(settings.output);
-            if(!output)
-                return Comet::Result<void>::failure(output.error().message);
-            auto limit = engine.set_frame_rate_limit(settings.frame_rate_limit);
-            if(!limit)
-                return Comet::Result<void>::failure(limit.error().message);
-            return Comet::Result<void>::success();
-        }
-        Comet::DisplaySettings current_display_settings() const {
-            auto settings = m_display_preview.settings();
-            const auto& window = get_engine().get_window();
-            const auto size = window.get_restore_size();
-            settings.width = static_cast<int>(size.x);
-            settings.height = static_cast<int>(size.y);
-            settings.mode = window.get_mode();
-            return settings;
-        }
         Comet::Result<void, Comet::Error> activate_pending_scene() {
             using Activation = Comet::Result<void, Comet::Error>;
             if(!m_pending_scene)
@@ -334,11 +228,10 @@ namespace {
             if(!ready.value())
                 return Activation::success();
             get_engine().set_scene(std::move(m_pending_scene));
-            m_pending_references.clear();
             if(m_ui)
                 m_ui->deactivate();
-            m_player_input_settings.reset();
-            if(auto configured = configure_player_input(); !configured)
+            m_player_settings.reset_input();
+            if(auto configured = m_player_settings.configure_input(); !configured)
                 return configured;
             const auto values =
                 m_pending_transition ? m_pending_transition->values : Comet::ParameterMap{};
@@ -346,47 +239,32 @@ namespace {
                    m_pending_transition ? m_pending_transition->checkpoint : std::string{});
                 !started)
                 return started;
+            if(auto prepared = get_engine().prepare_scene_rendering(); !prepared)
+                return prepared;
             if(m_pending_transition) {
                 m_game.accept(std::move(*m_pending_transition));
                 m_pending_transition.reset();
             }
+            Comet::AssetManager::ResidencyRelease released;
+            auto demands =
+                m_asset_manager->collect_scene_references(*get_engine().get_scene(), m_components);
+            if(demands) {
+                demands.value().insert(demands.value().end(), m_pending_references.begin(),
+                    m_pending_references.end());
+                released = m_asset_manager->release_unused(demands.value());
+            } else {
+                LOG_WARN(
+                    "Keeping asset residency because active scene demands could not be collected: {}",
+                    demands.error().message);
+            }
+            m_pending_references.clear();
+            const auto resident = m_asset_manager->residency();
+            LOG_INFO(
+                "Asset residency: {} registered, {} CPU models, {} mesh buffer bytes, {} texture pixel bytes; released {} registered and {} model cache entries",
+                resident.registry_assets, resident.model_cache_entries, resident.mesh_buffer_bytes,
+                resident.texture_pixel_bytes, released.registry_assets,
+                released.model_cache_entries);
             return Activation::success();
-        }
-
-        Comet::Result<Comet::InputOverrides> load_player_input() {
-            if(!m_player_input_settings) {
-                auto loaded = Comet::PlayerInputSettings::load(m_project.id());
-                if(!loaded)
-                    return Comet::Result<Comet::InputOverrides>::failure(loaded.error());
-                m_player_input_settings = std::move(loaded).value();
-            }
-            return Comet::Result<Comet::InputOverrides>::success(
-                m_player_input_settings->overrides());
-        }
-
-        Comet::Result<void> apply_player_input(Comet::InputOverrides overrides) {
-            if(!m_player_input_settings || !get_engine().get_scene_runtime().is_active())
-                return Comet::Result<void>::failure("Player input settings require an active game");
-            return m_player_input_settings->save_and_apply(m_project.input_actions(),
-                std::move(overrides), [this](Comet::InputActions actions) {
-                    return get_engine().rebind_input_actions(std::move(actions));
-                });
-        }
-
-        Comet::Result<void, Comet::Error> configure_player_input() {
-            auto overrides = load_player_input();
-            if(!overrides) {
-                LOG_WARN("Player input settings unavailable; using project defaults: {}",
-                    overrides.error());
-                return get_engine().set_input_actions(m_project.input_actions());
-            }
-            auto resolved = overrides.value().resolve(m_project.input_actions());
-            if(!resolved)
-                return Comet::Result<void, Comet::Error>::failure({resolved.error()});
-            for(const auto& issue : resolved.value().issues)
-                LOG_WARN("Player input override ignored for action '{}', binding '{}': {}",
-                    issue.action.to_string(), issue.binding.to_string(), issue.message);
-            return get_engine().set_input_actions(std::move(resolved).value().actions);
         }
 
         void configure_checkpoints() {
@@ -426,9 +304,7 @@ namespace {
                 LOG_ERROR("Cannot prepare scene: {}", references.error().message);
                 return Requested::success();
             }
-            if(auto reverted = m_display_preview.revert(
-                   [this](const auto& previous) { return apply_display_settings(previous); });
-                !reverted)
+            if(auto reverted = m_player_settings.revert_display(); !reverted)
                 return Requested::failure({reverted.error()});
             m_pending_state = get_engine().get_scene_runtime().get_state();
             if(auto paused = get_engine().set_runtime_state(Comet::SceneRuntime::State::Paused);
@@ -441,13 +317,9 @@ namespace {
         }
 
         Comet::Project m_project;
-        Comet::PlayerDisplaySettings m_display_settings;
-        Comet::DisplaySettingsPreview m_display_preview;
-        Comet::PlayerQualitySettings m_quality_settings;
-        Comet::PlayerAudioSettings m_audio_settings;
+        Comet::PlayerSettingsOwner m_player_settings;
         Comet::Input::Gate m_input_gate;
         std::unique_ptr<Comet::Ui::ProjectUi> m_ui;
-        std::optional<Comet::PlayerInputSettings> m_player_input_settings;
         bool m_ui_blocked = false;
         bool m_ui_pointer_blocked = false;
         std::unique_ptr<Comet::AssetManager> m_asset_manager;
@@ -490,23 +362,13 @@ namespace CometApp {
         auto config = Comet::ConfigLoader{}.load(config_file.string(), profile);
         if(!config)
             return RunResult::failure({config.error()});
-        auto display = Comet::PlayerDisplaySettings::load(
-            project.value().id(), project.value().display_settings());
-        if(!display)
-            return RunResult::failure({display.error()});
-        auto quality = Comet::PlayerQualitySettings::load(
-            project.value().id(), project.value().quality_settings());
-        if(!quality)
-            return RunResult::failure({quality.error()});
-        auto audio = Comet::PlayerAudioSettings::load(
-            project.value().id(), project.value().audio_settings());
-        if(!audio)
-            return RunResult::failure({audio.error()});
+        auto settings = Comet::PlayerSettingsOwner::load_startup(project.value());
+        if(!settings)
+            return RunResult::failure({settings.error()});
         auto local_data = project.value().paths().local_data();
         if(std::filesystem::exists(project.value().paths().root() / Comet::ProductIndex::FILENAME))
-            local_data = display.value().path().parent_path();
-        GameApp app(std::move(project).value(), std::move(display).value(),
-            std::move(quality).value(), std::move(audio).value(), std::move(local_data));
+            local_data = settings.value().display.path().parent_path();
+        GameApp app(std::move(project).value(), std::move(settings).value(), std::move(local_data));
         return app.run(std::move(config).value());
     }
 }

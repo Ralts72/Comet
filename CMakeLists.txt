@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.31)
 project(Comet)
 
+include(cmake/compiler_cache.cmake)
+
 if (WIN32)
     enable_language(RC)
 endif ()

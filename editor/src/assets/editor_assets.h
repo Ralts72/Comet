@@ -88,6 +88,17 @@ namespace CometEditor {
         [[nodiscard]] Comet::Result<std::size_t, Comet::Error> prepare_scene(
             Comet::Scene& scene, const Comet::ComponentRegistry& components);
         void track_scene(Comet::Scene& scene, const Comet::ComponentRegistry& components);
+        [[nodiscard]] Comet::Result<std::vector<Comet::AssetReference>, Comet::Error>
+        capture_play_references(Comet::Scene& scene, const Comet::ComponentRegistry& components);
+        // 成功安装后由宿主交付完整作用域；预览需求不从 shared_ptr 数量推断。
+        [[nodiscard]] Comet::Result<Comet::AssetManager::ResidencyRelease, Comet::Error>
+        release_unused(Comet::Scene& active, Comet::Scene* retained_edit,
+            const Comet::ComponentRegistry& components,
+            std::span<const Comet::AssetHandle> preview_roots,
+            std::span<const Comet::AssetReference> entry_references = {});
+        [[nodiscard]] Comet::AssetManager::Residency residency() const {
+            return m_manager.residency();
+        }
         [[nodiscard]] Comet::Result<std::size_t, Comet::Error> restore_references(
             Comet::AssetCompletionBudget budget = {});
         void request_source_reimport(Comet::AssetHandle handle);
@@ -106,6 +117,14 @@ namespace CometEditor {
         [[nodiscard]] Comet::Result<Comet::MeshData, Comet::Error> read_mesh_data(
             Comet::AssetHandle handle) {
             return m_manager.read_mesh_data(handle);
+        }
+        [[nodiscard]] Comet::Result<Comet::TextureData, Comet::Error> read_texture_data(
+            Comet::AssetHandle handle) {
+            return m_manager.read_texture_data(handle);
+        }
+        [[nodiscard]] Comet::Result<Comet::TextureData, Comet::Error> read_environment_background(
+            Comet::AssetHandle handle) {
+            return m_manager.read_environment_background(handle);
         }
         [[nodiscard]] std::shared_ptr<const Comet::ShaderProgramArtifact> compiled_shader_program(
             Comet::AssetHandle handle) const;

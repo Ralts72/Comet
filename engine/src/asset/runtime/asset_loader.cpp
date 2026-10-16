@@ -224,7 +224,49 @@ namespace Comet {
         m_models.erase(handle);
     }
 
-    Result<std::filesystem::path, Error> AssetLoader::product_path(const AssetRecord& record) {
+    AssetLoader::ModelResidency AssetLoader::model_residency() const {
+        ModelResidency result{.count = m_models.size()};
+        for(const auto& [handle, cached] : m_models) {
+            const auto& model = cached.artifact->model;
+            result.payload_bytes += model.nodes.size() * sizeof(ModelData::Node)
+                                    + model.scenes.size() * sizeof(ModelData::Scene);
+            for(const auto& node : model.nodes)
+                result.payload_bytes += node.key.size() + node.name.size()
+                                        + node.parts.size() * sizeof(ModelData::Part);
+            for(const auto& scene : model.scenes)
+                result.payload_bytes += scene.name.size() + scene.roots.size() * sizeof(uint32_t);
+        }
+        return result;
+    }
+
+    std::size_t AssetLoader::release_models_except(
+        const std::unordered_set<AssetHandle>& retained) {
+        return std::erase_if(
+            m_models, [&](const auto& entry) { return !retained.contains(entry.first); });
+    }
+
+    Result<std::filesystem::path, Error> AssetLoader::product_path(
+        const AssetRecord& record, const std::filesystem::path& imported_path) {
+        if(m_database.is_read_only()) {
+            auto resolved = m_database.paths().resolve_asset_path(record.path);
+            if(!resolved)
+                return Result<std::filesystem::path, Error>::failure({resolved.error()});
+            return Result<std::filesystem::path, Error>::success(std::move(resolved).value());
+        }
+        if(record.source_asset)
+            return model_product_path(record);
+        return Result<std::filesystem::path, Error>::success(imported_path);
+    }
+
+    bool AssetLoader::product_source_is_current(
+        const AssetRecord& record, const ImportInputFingerprint& source) const {
+        auto inputs = capture_import_inputs(
+            m_database.paths().assets(), m_database.paths().assets() / record.path, {});
+        return inputs && inputs.value().files.front() == source;
+    }
+
+    Result<std::filesystem::path, Error> AssetLoader::model_product_path(
+        const AssetRecord& record) {
         auto artifact = model_artifact(record.source_asset);
         if(!artifact)
             return Result<std::filesystem::path, Error>::failure(artifact.error());
@@ -256,20 +298,10 @@ namespace Comet {
     }
 
     Result<MeshData, Error> AssetLoader::read_mesh_data(const AssetRecord& record) {
-        auto path = m_imports.mesh_artifact_path(record.handle);
-        if(m_database.is_read_only()) {
-            auto product = m_database.paths().resolve_asset_path(record.path);
-            if(!product)
-                return Result<MeshData, Error>::failure({product.error()});
-            path = std::move(product).value();
-        }
-        if(record.source_asset) {
-            auto product = product_path(record);
-            if(!product)
-                return Result<MeshData, Error>::failure(product.error());
-            path = std::move(product).value();
-        }
-        auto artifact = MeshArtifact::load(path, record.handle, m_mesh_bytes);
+        auto path = product_path(record, m_imports.mesh_artifact_path(record.handle));
+        if(!path)
+            return Result<MeshData, Error>::failure(path.error());
+        auto artifact = MeshArtifact::load(path.value(), record.handle, m_mesh_bytes);
         if(!artifact)
             return Result<MeshData, Error>::failure(
                 {"Mesh artifact is missing or invalid; import the asset before loading: "
@@ -296,34 +328,64 @@ namespace Comet {
             [&](const AssetRecord& record) { return create(read_mesh_data(record)); });
     }
 
+    Result<TextureData, Error> AssetLoader::read_texture_data(const AssetHandle handle) {
+        using Read = Result<TextureData, Error>;
+        const auto* indexed = m_database.find(handle);
+        if(!indexed || indexed->type != AssetType::Texture)
+            return Read::failure({"Texture asset is not indexed"});
+        const AssetRecord record = *indexed;
+        auto product = product_path(record, m_imports.texture_artifact_path(handle));
+        if(!product)
+            return Read::failure(product.error());
+        auto artifact = TextureArtifact::load(product.value(), handle, m_texture_bytes);
+        if(!artifact)
+            return Read::failure({"Texture CPU product is not ready"});
+        if(m_database.is_read_only()) {
+            if(const auto* sampler = m_database.product_sampler(handle))
+                artifact->data.sampler = *sampler;
+        } else if(record.source_asset) {
+            artifact->data.sampler =
+                m_models.at(record.source_asset).artifact->texture_samplers.at(handle);
+        } else {
+            const auto* settings = std::get_if<TextureImportSettings>(&record.import_settings);
+            if(!product_source_is_current(record, artifact->source) || !settings
+                || artifact->settings != *settings)
+                return Read::failure({"Texture CPU product is stale; wait for import"});
+        }
+        return Read::success(std::move(artifact->data));
+    }
+
+    Result<EnvironmentData, Error> AssetLoader::read_environment_data(const AssetRecord& record) {
+        using Read = Result<EnvironmentData, Error>;
+        auto path = product_path(record, m_imports.environment_artifact_path(record.handle));
+        if(!path)
+            return Read::failure(path.error());
+        auto artifact = EnvironmentArtifact::load(path.value(), record.handle, m_environment_bytes);
+        if(!artifact)
+            return Read::failure({"Environment CPU product is not ready"});
+        if(!m_database.is_read_only() && !product_source_is_current(record, artifact->source))
+            return Read::failure({"Environment CPU product is stale; wait for import"});
+        return Read::success(std::move(artifact->data));
+    }
+
+    Result<TextureData, Error> AssetLoader::read_environment_background(const AssetHandle handle) {
+        const auto* record = m_database.find(handle);
+        if(!record || record->type != AssetType::Environment)
+            return Result<TextureData, Error>::failure({"Environment asset is not indexed"});
+        auto data = read_environment_data(*record);
+        if(!data)
+            return Result<TextureData, Error>::failure(data.error());
+        return Result<TextureData, Error>::success(std::move(data).value().background);
+    }
+
     Result<std::shared_ptr<Texture>, Error> AssetLoader::load_texture(const AssetHandle handle) {
         return load_runtime_asset<Texture>(m_database, m_registry, handle, AssetType::Texture,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Texture>, Error> {
-                if(m_database.is_read_only()) {
-                    auto path = m_database.paths().resolve_asset_path(record.path);
-                    if(!path)
-                        return Result<std::shared_ptr<Texture>, Error>::failure({path.error()});
-                    auto product =
-                        TextureArtifact::load(path.value(), record.handle, m_texture_bytes);
-                    if(!product)
-                        return Result<std::shared_ptr<Texture>, Error>::failure(
-                            {"Texture product is missing or invalid"});
-                    if(const auto* sampler = m_database.product_sampler(record.handle))
-                        product->data.sampler = *sampler;
-                    return m_render_factory.prepare(std::move(product->data));
-                }
-                if(record.source_asset) {
-                    auto path = product_path(record);
-                    if(!path)
-                        return Result<std::shared_ptr<Texture>, Error>::failure(path.error());
-                    auto texture =
-                        TextureArtifact::load(path.value(), record.handle, m_texture_bytes);
-                    if(!texture)
-                        return Result<std::shared_ptr<Texture>, Error>::failure(
-                            {"Model texture product is missing or invalid"});
-                    const auto& model = m_models.at(record.source_asset).artifact;
-                    texture->data.sampler = model->texture_samplers.at(record.handle);
-                    return m_render_factory.prepare(std::move(texture->data));
+                if(m_database.is_read_only() || record.source_asset) {
+                    auto data = read_texture_data(record.handle);
+                    if(!data)
+                        return Result<std::shared_ptr<Texture>, Error>::failure(data.error());
+                    return m_render_factory.prepare(std::move(data).value());
                 }
                 const auto* settings = std::get_if<TextureImportSettings>(&record.import_settings);
                 if(!settings) {
@@ -338,15 +400,11 @@ namespace Comet {
         const AssetHandle handle) {
         return load_runtime_asset<ShaderProgramArtifact>(m_database, m_registry, handle,
             AssetType::ShaderProgram, [this, handle](const AssetRecord& record) {
-                auto path = m_imports.shader_program_artifact_path(handle);
-                if(m_database.is_read_only()) {
-                    auto product = m_database.paths().resolve_asset_path(record.path);
-                    if(!product)
-                        return Result<std::shared_ptr<ShaderProgramArtifact>, Error>::failure(
-                            {product.error()});
-                    path = std::move(product).value();
-                }
-                auto artifact = ShaderProgramArtifact::load(path, handle);
+                auto path = product_path(record, m_imports.shader_program_artifact_path(handle));
+                if(!path)
+                    return Result<std::shared_ptr<ShaderProgramArtifact>, Error>::failure(
+                        path.error());
+                auto artifact = ShaderProgramArtifact::load(path.value(), handle);
                 if(!artifact
                     || (!m_database.is_read_only()
                         && !import_inputs_are_current(
@@ -380,14 +438,10 @@ namespace Comet {
         }
         return load_runtime_asset<Material>(m_database, m_registry, handle, AssetType::Material,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Material>, Error> {
-                auto path = m_database.paths().assets() / record.path;
-                if(record.source_asset) {
-                    auto product = product_path(record);
-                    if(!product)
-                        return Result<std::shared_ptr<Material>, Error>::failure(product.error());
-                    path = std::move(product).value();
-                }
-                const auto data = MaterialSerializer{}.load(path);
+                auto path = product_path(record, m_database.paths().assets() / record.path);
+                if(!path)
+                    return Result<std::shared_ptr<Material>, Error>::failure(path.error());
+                const auto data = MaterialSerializer{}.load(path.value());
                 if(!data)
                     return Result<std::shared_ptr<Material>, Error>::failure({data.error()});
                 return prepare_material(record, data.value());
@@ -400,15 +454,10 @@ namespace Comet {
             AssetType::Environment,
             [this](const AssetRecord& record) -> Result<std::shared_ptr<Environment>, Error> {
                 if(m_database.is_read_only()) {
-                    auto path = m_database.paths().resolve_asset_path(record.path);
-                    if(!path)
-                        return Result<std::shared_ptr<Environment>, Error>::failure({path.error()});
-                    auto product =
-                        EnvironmentArtifact::load(path.value(), record.handle, m_environment_bytes);
-                    if(!product)
-                        return Result<std::shared_ptr<Environment>, Error>::failure(
-                            {"Environment product is missing or invalid"});
-                    return m_render_factory.prepare(std::move(product->data));
+                    auto data = read_environment_data(record);
+                    if(!data)
+                        return Result<std::shared_ptr<Environment>, Error>::failure(data.error());
+                    return m_render_factory.prepare(std::move(data).value());
                 }
                 auto prepared = m_imports.prepare_environment(record, m_environment_bytes);
                 if(!prepared)

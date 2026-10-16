@@ -143,6 +143,110 @@ namespace CometEditor::Tests {
         }
     };
 
+    TEST_F(EditorAssetsTest, ResidencyRetainsEditPlayAndExplicitPreviewDemands) {
+        const auto source = Comet::ProjectPaths(root).assets() / "model.gltf";
+        const std::array extra{
+            Comet::AssetHandle{101}, Comet::AssetHandle{102}, Comet::AssetHandle{103}};
+        for(std::size_t i = 0; i < extra.size(); ++i) {
+            const auto path = source.parent_path() / (std::to_string(i) + ".gltf");
+            std::filesystem::copy_file(source, path);
+            ASSERT_TRUE(Comet::MetadataSerializer{}.save(
+                {.handle = extra[i], .type = Comet::AssetType::Mesh}, Comet::metadata_path(path)));
+        }
+        ASSERT_TRUE(assets->refresh().succeeded());
+        complete_imports();
+        const auto components = Comet::create_scene_component_registry();
+        Comet::Scene edit, play;
+        edit.create_entity().add_component<Comet::MeshRendererComponent>(
+            mesh, Comet::DEFAULT_PBR_MATERIAL);
+        play.create_entity().add_component<Comet::MeshRendererComponent>(
+            extra[0], Comet::DEFAULT_PBR_MATERIAL);
+        ASSERT_TRUE(assets->prepare_scene(edit, components));
+        ASSERT_TRUE(assets->prepare_scene(play, components));
+        for(const auto handle : {extra[1], extra[2]})
+            ASSERT_TRUE(assets->load_reference(
+                handle, Comet::AssetType::Mesh, assets->database().get_revision(handle)));
+        const auto previous = runtime.resolve<Comet::Mesh>(extra[2]);
+        const std::array previews{extra[1]};
+        const auto released = assets->release_unused(play, &edit, components, previews);
+        ASSERT_TRUE(released) << released.error().message;
+        EXPECT_EQ(released.value().registry_assets, 1u);
+        EXPECT_TRUE(runtime.contains(mesh));
+        EXPECT_TRUE(runtime.contains(extra[0]));
+        EXPECT_TRUE(runtime.contains(extra[1]));
+        EXPECT_FALSE(runtime.contains(extra[2]));
+        EXPECT_TRUE(previous);
+        const auto restored = assets->release_unused(edit, nullptr, components, {});
+        ASSERT_TRUE(restored);
+        EXPECT_EQ(restored.value().registry_assets, 2u);
+        EXPECT_TRUE(runtime.contains(mesh));
+        EXPECT_FALSE(runtime.contains(extra[0]));
+        EXPECT_FALSE(runtime.contains(extra[1]));
+    }
+
+    TEST_F(EditorAssetsTest, EntryDemandsRetainPrefabAfterStartupDestroysItsDeclaringEntity) {
+        using namespace Comet;
+        const auto components = create_scene_component_registry();
+        const AssetHandle prefab_handle{501}, bootstrap_handle{502}, consumer_handle{503};
+        const auto asset_root = ProjectPaths(root).assets();
+        Scene prefab_scene;
+        const auto prefab_root = prefab_scene.create_entity("Spawned");
+        auto prefab = Prefab::capture(prefab_scene, components, prefab_root);
+        ASSERT_TRUE(prefab);
+        const auto prefab_path = asset_root / "dynamic.prefab";
+        ASSERT_TRUE(prefab.value().save(prefab_path, components));
+        ASSERT_TRUE(MetadataSerializer{}.save(
+            {.handle = prefab_handle, .type = AssetType::Prefab}, metadata_path(prefab_path)));
+        const auto write_script = [&](AssetHandle handle, const char* name, const char* source) {
+            const auto path = asset_root / name;
+            EXPECT_TRUE(write_text_file_atomic(path, source));
+            EXPECT_TRUE(MetadataSerializer{}.save(
+                {.handle = handle, .type = AssetType::Script}, metadata_path(path)));
+        };
+        write_script(bootstrap_handle, "bootstrap.lua", R"(
+            return {properties={unit={type='prefab'}}, on_start=function(self)
+                comet.session_set('unit', self.parameters.unit)
+                comet.destroy_entity(comet.self_entity())
+            end}
+        )");
+        write_script(consumer_handle, "consumer.lua", R"(
+            return {update=function(self)
+                if self.done then return end
+                comet.instantiate_prefab(comet.session_get('unit'))
+                self.done = true
+            end}
+        )");
+        ASSERT_TRUE(assets->refresh().succeeded());
+        Scene edit, play;
+        auto bootstrap = play.create_entity("Bootstrap");
+        auto& binding = bootstrap.add_component<ScriptComponent>();
+        binding.asset = bootstrap_handle;
+        binding.parameters = {{"unit", std::to_string(prefab_handle.value())}};
+        play.create_entity("Consumer").add_component<ScriptComponent>().asset = consumer_handle;
+        ASSERT_TRUE(assets->prepare_scene(play, components));
+        auto entry = assets->capture_play_references(play, components);
+        ASSERT_TRUE(entry) << entry.error().message;
+        EXPECT_TRUE(std::ranges::any_of(entry.value(),
+            [&](const auto& reference) { return reference.handle == prefab_handle; }));
+        SceneRuntime simulation;
+        ASSERT_TRUE(simulation.add_system(std::make_unique<ScriptSystem>(runtime)));
+        const auto started = simulation.start(play);
+        ASSERT_TRUE(started) << started.error().message;
+        EXPECT_EQ(play.entity_count(), 1u);
+        const auto active = assets->capture_play_references(play, components);
+        ASSERT_TRUE(active);
+        EXPECT_FALSE(std::ranges::any_of(active.value(),
+            [&](const auto& reference) { return reference.handle == prefab_handle; }));
+        ASSERT_TRUE(assets->release_unused(play, &edit, components, {}, entry.value()));
+        EXPECT_TRUE(runtime.contains(prefab_handle));
+        const auto advanced = simulation.advance(0);
+        ASSERT_TRUE(advanced) << advanced.error().message;
+        EXPECT_EQ(play.entity_count(), 2u);
+        ASSERT_TRUE(simulation.stop());
+        ASSERT_TRUE(assets->release_unused(edit, nullptr, components, {}));
+        EXPECT_FALSE(runtime.contains(prefab_handle));
+    }
+
     TEST_F(EditorAssetsTest, RetargetLibrarySavePreservesIdentityAndRejectsStaleOrInvalidDrafts) {
         Comet::AnimationLibrary library;
         library.entries = {{"idle", Comet::DEFAULT_CHARACTER_MESH, "idle"}};

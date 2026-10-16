@@ -634,6 +634,33 @@ namespace CometEditor {
         m_scene_assets.track_scene(scene, components);
     }
 
+    Comet::Result<std::vector<Comet::AssetReference>, Comet::Error> EditorAssets::
+        capture_play_references(Comet::Scene& scene, const Comet::ComponentRegistry& components) {
+        return m_manager.collect_scene_references(scene, components);
+    }
+
+    Comet::Result<Comet::AssetManager::ResidencyRelease, Comet::Error> EditorAssets::release_unused(
+        Comet::Scene& active, Comet::Scene* retained_edit,
+        const Comet::ComponentRegistry& components,
+        const std::span<const Comet::AssetHandle> preview_roots,
+        const std::span<const Comet::AssetReference> entry_references) {
+        using Released = Comet::Result<Comet::AssetManager::ResidencyRelease, Comet::Error>;
+        m_scene_assets.track_scene(active, components);
+        auto references = m_manager.collect_scene_references(active, components);
+        if(!references)
+            return Released::failure(references.error());
+        references.value().insert(
+            references.value().end(), entry_references.begin(), entry_references.end());
+        if(retained_edit && retained_edit != &active) {
+            auto baseline = m_manager.collect_scene_references(*retained_edit, components);
+            if(!baseline)
+                return Released::failure(baseline.error());
+            references.value().insert(
+                references.value().end(), baseline.value().begin(), baseline.value().end());
+        }
+        return Released::success(m_manager.release_unused(references.value(), preview_roots));
+    }
+
     Comet::Result<std::size_t, Comet::Error> EditorAssets::restore_references(
         const Comet::AssetCompletionBudget budget) {
         return m_scene_assets.restore(budget);

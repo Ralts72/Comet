@@ -6,7 +6,9 @@
 #include "render/scene/render_submission.h"
 #include "asset/artifact/shader_program_artifact.h"
 #include "graphics/pipeline/shader.h"
+#include "graphics/pipeline/pipeline.h"
 #include "diagnostics/logger.h"
+#include "common/scope_exit.h"
 
 #include <algorithm>
 #include <utility>
@@ -57,6 +59,35 @@ namespace Comet {
                     refresh_program(renderers, key.first, key.second, requested.requested_source);
                 !prepared)
                 return prepared;
+        }
+        return Result<void, GraphicsError>::success();
+    }
+
+    Result<void, GraphicsError> MaterialRenderer::warmup_scene(const RenderWorld& world) {
+        const auto before = m_pipeline_manager.get_pipeline_creations();
+        const ScopeExit count_created([&] {
+            m_warmup_pipeline_creations = m_pipeline_manager.get_pipeline_creations() - before;
+        });
+        // 与绘制相同的材质身份；重复输入沿用最后一份快照。
+        std::map<MaterialInstanceKey, std::pair<const MaterialBinding*, bool>> inputs;
+        for(const auto& item : world.render_items) {
+            if(!item.material.resource)
+                continue;
+            auto& input = inputs[DrawOrder::material_key(item.material)];
+            input.first = &item.material;
+            input.second |= DrawOrder::reverses_winding(item);
+        }
+        for(const auto& [key, input] : inputs) {
+            auto material = prepare_material(*input.first, 0);
+            if(!material)
+                return Result<void, GraphicsError>::failure(material.error());
+            if(!material.value() || !input.second || material.value()->mirrored_draws)
+                continue;
+            auto mirrored = create_surface_pipelines(m_pipeline_manager,
+                *material.value()->pipeline, material.value()->prepared->surface, true);
+            if(!mirrored)
+                return Result<void, GraphicsError>::failure(mirrored.error());
+            material.value()->mirrored_draws = std::move(mirrored).value();
         }
         return Result<void, GraphicsError>::success();
     }

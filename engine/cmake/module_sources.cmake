@@ -21,6 +21,7 @@ set(COMET_FOUNDATION_SOURCES
 )
 
 set(COMET_SERIALIZATION_SOURCES
+    src/common/serialization/parameters_json.cpp
     src/common/json.cpp
 )
 
@@ -48,6 +49,7 @@ set(COMET_ASSET_DATA_SOURCES
     src/asset/data/material_data.cpp
     src/asset/data/game_data.cpp
     src/asset/data/irradiance_data.cpp
+    src/asset/data/texture_sampling.cpp
     src/asset/data/cubemap_sampling.cpp
     src/asset/data/animation_library.cpp
     src/asset/serialization/material_serializer.cpp
@@ -261,6 +263,7 @@ set(COMET_RENDER_SOURCES
     src/render/material/material_shader.cpp
     src/render/material/material_runtime.cpp
     src/render/material/material_renderer.cpp
+    src/render/material/view_lighting.cpp
     src/render/material/material_program_pipeline.cpp
     src/render/material/material_draw_queue.cpp
     src/render/render_settings.h

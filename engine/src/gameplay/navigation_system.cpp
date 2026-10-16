@@ -3,6 +3,7 @@
 #include "physics/physics_access.h"
 #include "scene/scene.h"
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 
 namespace Comet::Gameplay {
@@ -20,6 +21,29 @@ namespace Comet::Gameplay {
         m_mesh.clear();
         m_step = 0;
         m_delta = 0;
+        m_time = 0;
+        m_statistics = {};
+        return Result<void, Error>::success();
+    }
+    Result<void, Error> NavigationSystem::on_runtime_ready(
+        Scene& scene, RuntimeSession&, const RuntimeServices&) {
+        if(m_scene != &scene)
+            return Result<void, Error>::failure({"Navigation requires its started scene"});
+        if(m_prepared)
+            return Result<void, Error>::success();
+        // 注册顺序保留 Navigation -> Script -> Physics 的固定步意图提交顺序；
+        // 此处全部 on_start 已完成，PhysicsSystem 已同步初始碰撞世界。
+        if(scene.component_count<NavigationRegionComponent>() != 0) {
+            const auto begin = std::chrono::steady_clock::now();
+            ++m_statistics.builds;
+            const auto prepared = prepare(scene);
+            m_statistics.build_milliseconds =
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin)
+                    .count();
+            if(!prepared)
+                return Result<void, Error>::failure({prepared.error()});
+        }
+        m_prepared = true;
         return Result<void, Error>::success();
     }
     Result<void> NavigationSystem::prepare(Scene& scene) {
@@ -41,16 +65,13 @@ namespace Comet::Gameplay {
         return m_mesh.build(geometry.value(), center, m_settings);
     }
     Result<void, Error> NavigationSystem::fixed_update(Scene& scene, const Context& context) {
-        // PhysicsSystem 已在 on_start 同步碰撞世界；首个固定步构建一次静态导航。
-        if(!m_prepared) {
-            if(auto result = prepare(scene); !result)
-                return Result<void, Error>::failure({result.error()});
-            m_prepared = true;
-        }
+        if(m_scene != &scene || !m_prepared)
+            return Result<void, Error>::failure(
+                {"Navigation startup preparation has not completed"});
         m_time = context.total_time;
         m_delta = float(context.delta_time);
         ++m_step;
-        m_queries = 0;
+        m_statistics.step_path_queries = 0;
         std::erase_if(m_agents, [&](const auto& entry) {
             const Entity entity = scene.find_entity(entry.first);
             return !entity || entity.get_id() != entry.second.entity
@@ -110,11 +131,12 @@ namespace Comet::Gameplay {
         agent.last_step = m_step;
         if(query) {
             // 每步最多八次完整查询；超预算不继续沿已失效目标行走。
-            if(m_queries >= 8) {
+            if(m_statistics.step_path_queries >= 8) {
                 agent.status = Status::BudgetExceeded;
                 return stop(agent.status);
             }
-            ++m_queries;
+            ++m_statistics.step_path_queries;
+            ++m_statistics.path_queries;
             const auto path = m_mesh.find_path(position, target);
             if(!path)
                 return Output::failure(path.error());
@@ -157,6 +179,7 @@ namespace Comet::Gameplay {
                 desired.x * std::sin(radians) + desired.y * std::cos(radians)};
             const auto flat_step =
                 Math::Vec3(candidate.x, 0, candidate.y) * std::min(horizon, distance);
+            ++m_statistics.surface_queries;
             const auto surface = m_mesh.surface_step(position, position + flat_step);
             if(!surface)
                 continue;
@@ -169,6 +192,7 @@ namespace Comet::Gameplay {
             // 胶囊稍抬离地面，保留可跨越的台阶；Jolt 角色负责最终步进与接触。
             pose.translation =
                 position + Math::Vec3(0, m_settings.max_climb + shape.height * 0.5f + 0.02f, 0);
+            ++m_statistics.obstacle_queries;
             const auto hit = physics.shape_cast(shape, pose, displacement,
                 {.ignored = entity.get_uuid(), .layers = character.collision_mask});
             if(!hit)

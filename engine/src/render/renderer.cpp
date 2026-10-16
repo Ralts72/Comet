@@ -209,11 +209,8 @@ namespace Comet {
         if(m_frames->is_frame_active())
             return Preparation::failure({"A render frame is already active"});
         PROFILE_SCOPE("prepare frame");
-        if(m_render_context->get_device().is_resource_owner_thread())
-            collect_resources();
-        m_programs->remove_assets(removals);
-        for(auto& [id, view] : m_views)
-            view.scene->remove_assets(removals);
+        if(auto maintained = maintain_assets(std::move(removals)); !maintained)
+            return Preparation::failure(maintained.error());
 
         if(m_pending_output) {
             const auto output = std::exchange(m_pending_output, std::nullopt).value();
@@ -235,27 +232,9 @@ namespace Comet {
         }
         if(preparation.value())
             m_output_recreating = false;
-        if(preparation.value() && m_pending_quality) {
-            const auto quality = std::exchange(m_pending_quality, std::nullopt).value();
-            std::vector<std::shared_ptr<SceneRenderer::RenderState>> candidates;
-            candidates.reserve(m_views.size());
-            for(auto& [id, view] : m_views) {
-                auto candidate = view.scene->prepare_quality(
-                    *m_render_resources, m_render_context->get_swapchain(), quality);
-                if(!candidate) {
-                    m_quality_error = candidate.error().message;
-                    if(candidate.error().is_device_lost())
-                        return Preparation::failure(candidate.error());
-                    LOG_WARN("Keeping previous render quality: {}", m_quality_error);
-                    break;
-                }
-                candidates.push_back(std::move(candidate).value());
-            }
-            if(candidates.size() == m_views.size()) {
-                auto candidate = candidates.begin();
-                for(auto& [id, view] : m_views)
-                    view.scene->install_quality(std::move(*candidate++), quality);
-            }
+        if(preparation.value()) {
+            if(auto applied = apply_pending_quality(); !applied)
+                return Preparation::failure(applied.error());
         }
         if(auto collected = m_diagnostics->collect_completed(); !collected)
             return Preparation::failure(collected.error());
@@ -289,9 +268,59 @@ namespace Comet {
         return frame;
     }
 
+    void Renderer::set_path_trace_sources(PathTraceSceneBuilder::MeshReader read,
+        PathTraceSceneBuilder::MeshRevision revision, PathTraceSceneBuilder::Images images) {
+        m_path_trace_read = std::move(read);
+        m_path_trace_revision = std::move(revision);
+        m_path_trace_images = std::move(images);
+        auto support = check_path_trace_support();
+        m_path_trace_support_error = support ? std::string{} : support.error().message;
+        for(auto& [id, view] : m_views) {
+            view.path_trace_builder.reset();
+            view.path_trace_error.clear();
+        }
+    }
+
+    const std::string& Renderer::path_trace_error(ViewId id) const {
+        return get_view(id).path_trace_error;
+    }
+
+    SkinningPass::Statistics Renderer::get_skinning_statistics() const {
+        return m_skinning ? m_skinning->get_statistics() : SkinningPass::Statistics{};
+    }
+
+    void Renderer::prepare_scene_views(RenderFrame& frame) {
+        for(auto& input : frame.views) {
+            auto& view = get_view(input.id);
+            view.path_trace_error.clear();
+            if(!input.draw || !input.parameters.path_trace_enabled || !frame.world) {
+                view.path_trace_builder.reset();
+                continue;
+            }
+            input.parameters.path_trace.reset();
+            if(!m_path_trace_support_error.empty()) {
+                view.path_trace_error = m_path_trace_support_error;
+                continue;
+            }
+            if(!frame.world->resolution.pending_asset_slots.empty()) {
+                view.path_trace_error = "场景资源尚未加载，路径追踪等待导入完成";
+                continue;
+            }
+            if(!view.path_trace_builder)
+                view.path_trace_builder = std::make_unique<PathTraceSceneBuilder>();
+            auto scene = view.path_trace_builder->update(
+                *frame.world, m_path_trace_read, m_path_trace_revision, m_path_trace_images);
+            if(scene)
+                input.parameters.path_trace = std::move(scene).value();
+            else
+                view.path_trace_error = scene.error();
+        }
+    }
+
     Result<void, GraphicsError> Renderer::render_frame(std::shared_ptr<const RenderWorld> world) {
         auto frame = capture_frame();
         frame.world = std::move(world);
+        prepare_scene_views(frame);
         auto result = record_frame(std::move(frame));
         if(!result)
             prepare_shutdown();
@@ -518,6 +547,68 @@ namespace Comet {
         update.m_owner = this;
         update.m_views = std::move(candidates).value();
         return Preparation::success(std::move(update));
+    }
+
+    Result<void, GraphicsError> Renderer::maintain_assets(AssetRegistry::Removals removals) {
+        if(m_render_thread && !m_render_context->get_device().is_resource_owner_thread())
+            return m_render_thread->invoke([this, removals = std::move(removals)]() mutable {
+                return maintain_assets(std::move(removals));
+            });
+        if(m_shutdown_prepared)
+            return Result<void, GraphicsError>::failure({"Renderer is shutting down"});
+        m_programs->remove_assets(removals);
+        for(auto& [id, view] : m_views)
+            view.scene->remove_assets(removals);
+        collect_resources();
+        return Result<void, GraphicsError>::success();
+    }
+
+    Result<void, GraphicsError> Renderer::apply_pending_quality() {
+        if(!m_pending_quality)
+            return Result<void, GraphicsError>::success();
+        const auto quality = std::exchange(m_pending_quality, std::nullopt).value();
+        std::vector<std::shared_ptr<SceneRenderer::RenderState>> candidates;
+        candidates.reserve(m_views.size());
+        for(auto& [id, view] : m_views) {
+            auto candidate = view.scene->prepare_quality(
+                *m_render_resources, m_render_context->get_swapchain(), quality);
+            if(!candidate) {
+                m_quality_error = candidate.error().message;
+                if(candidate.error().is_device_lost())
+                    return Result<void, GraphicsError>::failure(candidate.error());
+                LOG_WARN("Keeping previous render quality: {}", m_quality_error);
+                break;
+            }
+            candidates.push_back(std::move(candidate).value());
+        }
+        if(candidates.size() == m_views.size()) {
+            auto candidate = candidates.begin();
+            for(auto& [id, view] : m_views)
+                view.scene->install_quality(std::move(*candidate++), quality);
+        }
+        return Result<void, GraphicsError>::success();
+    }
+
+    Result<void, GraphicsError> Renderer::warmup_scene(std::shared_ptr<const RenderWorld> world) {
+        if(m_render_thread && !m_render_thread->is_current())
+            return m_render_thread->invoke(
+                [this, world = std::move(world)] { return warmup_scene(world); });
+        if(m_shutdown_prepared || !world)
+            return Result<void, GraphicsError>::failure(
+                {"Scene warmup requires a live renderer and snapshot"});
+        if(auto applied = apply_pending_quality(); !applied)
+            return applied;
+        std::vector<MaterialRenderer*> materials;
+        materials.reserve(m_views.size());
+        for(auto& [id, view] : m_views)
+            materials.push_back(&view.scene->get_material_renderer());
+        if(auto prepared = MaterialRenderer::prepare_programs(materials, *world); !prepared)
+            return prepared;
+        for(auto& [id, view] : m_views) {
+            if(auto prepared = view.scene->warmup_scene(*world); !prepared)
+                return prepared;
+        }
+        return Result<void, GraphicsError>::success();
     }
 
     void Renderer::set_vsync_enabled(bool enabled) {

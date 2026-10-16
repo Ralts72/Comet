@@ -1,6 +1,8 @@
 #include "render/path_trace_scene.h"
 
 #include "common/binary.h"
+#include "asset/data/texture_sampling.h"
+#include "asset/data/cubemap_sampling.h"
 #include "render/material/material.h"
 #include "render/material/material_layout.h"
 #include "render/material/material_runtime.h"
@@ -10,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <utility>
 
 namespace Comet {
     Result<void> PathTraceSettings::validate() const {
@@ -32,8 +35,57 @@ namespace Comet {
                 key.write_float(value[i]);
         }
 
-        std::vector<std::byte> source_key(
-            const RenderWorld& world, const PathTraceSceneBuilder::MeshRevision& revision) {
+        void write_material(Binary::Writer& key, const MaterialBinding& binding,
+            const PathTraceSceneBuilder::Images& images) {
+            key.write_u64(binding.material_handle.value());
+            key.write_u64(binding.asset_revision);
+            key.write_u64(binding.resource ? binding.resource->get_revision() : 0);
+            if(binding.resource) {
+                const auto& material = *binding.resource;
+                if(const auto layout = MaterialLayout::find_builtin(material.get_template_name()))
+                    for(const auto& texture : layout->get_textures()) {
+                        const auto handle = material.get_texture_source(texture.name);
+                        key.write_u64(handle.value());
+                        key.write_u64(images.revision && handle ? images.revision(handle) : 0);
+                    }
+            }
+            key.write_u32(bool(binding.overrides));
+            if(binding.overrides) {
+                const auto& overrides = *binding.overrides;
+                key.write_u64(overrides.instance_id);
+                key.write_u64(overrides.material.value());
+                key.write_u64(overrides.scalar_properties.size());
+                for(const auto& [name, value] : overrides.scalar_properties) {
+                    key.write_string(name, name.size());
+                    key.write_float(value);
+                }
+                key.write_u64(overrides.vector_properties.size());
+                for(const auto& [name, value] : overrides.vector_properties) {
+                    key.write_string(name, name.size());
+                    for(int axis = 0; axis < 4; ++axis)
+                        key.write_float(value[axis]);
+                }
+            }
+        }
+
+        std::vector<std::byte> lighting_key(const RenderWorld& world) {
+            Binary::Writer key;
+            key.write_u64(world.lights.size());
+            for(const auto& light : world.lights) {
+                key.write_u32(static_cast<uint32_t>(light.type));
+                write(key, light.position);
+                write(key, light.direction);
+                write(key, light.color);
+                for(float value :
+                    {light.intensity, light.range, light.inner_angle, light.outer_angle})
+                    key.write_float(value);
+            }
+            return key.data();
+        }
+
+        std::vector<std::byte> source_key(const RenderWorld& world,
+            const PathTraceSceneBuilder::MeshRevision& revision,
+            const PathTraceSceneBuilder::Images& images) {
             Binary::Writer key;
             key.write_u64(world.scene_lifetime);
             key.write_u64(world.render_items.size());
@@ -41,26 +93,7 @@ namespace Comet {
                 key.write_u64(item.mesh_handle.value());
                 key.write_u64(item.mesh_revision);
                 key.write_u64(revision ? revision(item.mesh_handle) : 0);
-                key.write_u64(item.material.material_handle.value());
-                key.write_u64(item.material.asset_revision);
-                key.write_u64(item.material.resource ? item.material.resource->get_revision() : 0);
-                key.write_u32(bool(item.material.overrides));
-                if(item.material.overrides) {
-                    const auto& overrides = *item.material.overrides;
-                    key.write_u64(overrides.instance_id);
-                    key.write_u64(overrides.material.value());
-                    key.write_u64(overrides.scalar_properties.size());
-                    for(const auto& [name, value] : overrides.scalar_properties) {
-                        key.write_string(name, name.size());
-                        key.write_float(value);
-                    }
-                    key.write_u64(overrides.vector_properties.size());
-                    for(const auto& [name, value] : overrides.vector_properties) {
-                        key.write_string(name, name.size());
-                        for(int axis = 0; axis < 4; ++axis)
-                            key.write_float(value[axis]);
-                    }
-                }
+                write_material(key, item.material, images);
                 for(int col = 0; col < 4; ++col)
                     for(int row = 0; row < 4; ++row)
                         key.write_float(item.model_matrix[col][row]);
@@ -79,6 +112,12 @@ namespace Comet {
             const auto& environment = world.environment;
             write(key, environment.background_color);
             key.write_u64(environment.asset.value());
+            key.write_u64(world.environment_revision);
+            key.write_u64(
+                images.revision && environment.asset ? images.revision(environment.asset) : 0);
+            key.write_float(environment.intensity);
+            key.write_float(environment.lighting_intensity);
+            key.write_float(environment.rotation);
             key.write_u32(environment.background);
             key.write_u32(environment.lighting);
             key.write_u32(environment.fog_enabled);
@@ -86,53 +125,186 @@ namespace Comet {
             return key.data();
         }
 
-        struct Surface {
-            Math::Vec4 albedo_metallic{};
-            Math::Vec4 emission_roughness{};
-            bool double_sided = false;
+        std::vector<std::byte> geometry_key(
+            const RenderWorld& world, const PathTraceSceneBuilder::MeshRevision& revision) {
+            Binary::Writer key;
+            key.write_u64(world.scene_lifetime);
+            key.write_u64(world.render_items.size());
+            for(const auto& item : world.render_items) {
+                key.write_u64(item.mesh_handle.value());
+                key.write_u64(item.mesh_revision);
+                key.write_u64(revision ? revision(item.mesh_handle) : 0);
+                for(int column = 0; column < 4; ++column)
+                    for(int row = 0; row < 4; ++row)
+                        key.write_float(item.model_matrix[column][row]);
+            }
+            return key.data();
+        }
+
+        std::vector<std::byte> material_key(
+            const RenderWorld& world, const PathTraceSceneBuilder::Images& images) {
+            Binary::Writer key;
+            key.write_u64(world.scene_lifetime);
+            key.write_u64(world.render_items.size());
+            for(const auto& item : world.render_items)
+                write_material(key, item.material, images);
+            return key.data();
+        }
+
+        std::vector<std::byte> environment_key(
+            const RenderWorld& world, const PathTraceSceneBuilder::Images& images) {
+            Binary::Writer key;
+            const auto handle = world.environment.asset;
+            key.write_u64(handle.value());
+            key.write_u64(world.environment_revision);
+            key.write_u64(images.revision && handle ? images.revision(handle) : 0);
+            key.write_u32(world.environment.background || world.environment.lighting);
+            return key.data();
+        }
+
+        class TexturePacker {
+        public:
+            TexturePacker(
+                PathTraceScene::Materials& scene, const PathTraceSceneBuilder::Images& sources)
+                : m_scene(scene), m_sources(sources) {
+                m_scene.textures.emplace_back();
+            }
+
+            Result<uint32_t> add(const Material& material, const std::string& property) {
+                using Added = Result<uint32_t>;
+                if(!material.get_texture_property(property))
+                    return Added::success(0);
+                const auto handle = material.get_texture_source(property);
+                if(!handle || !m_sources.texture)
+                    return Added::failure("路径追踪贴图没有 CPU 源：" + property);
+                if(const auto found = m_textures.find(handle); found != m_textures.end())
+                    return Added::success(found->second);
+                auto data = m_sources.texture(handle);
+                if(!data)
+                    return Added::failure(data.error().message);
+                auto decoded = CpuTextureImage::decode(data.value(), remaining());
+                if(!decoded)
+                    return Added::failure(decoded.error());
+                const auto& image = decoded.value();
+                const auto index = static_cast<uint32_t>(m_scene.textures.size());
+                m_scene.textures.push_back({{static_cast<uint32_t>(m_scene.texels.size()),
+                                                image.width, image.height, 0},
+                    {uint32_t(image.sampler.address_mode_u), uint32_t(image.sampler.address_mode_v),
+                        uint32_t(image.sampler.mag_filter), 0}});
+                m_scene.texels.insert(
+                    m_scene.texels.end(), image.pixels.begin(), image.pixels.end());
+                m_textures.emplace(handle, index);
+                return Added::success(index);
+            }
+
+        private:
+            size_t remaining() const {
+                return PathTraceScene::MAX_TEXTURE_BYTES
+                       - m_scene.texels.size() * sizeof(Math::Vec4);
+            }
+            PathTraceScene::Materials& m_scene;
+            const PathTraceSceneBuilder::Images& m_sources;
+            std::map<AssetHandle, uint32_t> m_textures;
         };
 
-        Result<Surface> surface(const MaterialBinding& binding, MaterialRuntimeCache& cache) {
+        Result<std::shared_ptr<const PathTraceScene::Environment>> build_environment(
+            const SceneEnvironment& settings, const PathTraceSceneBuilder::Images& sources) {
+            using Built = Result<std::shared_ptr<const PathTraceScene::Environment>>;
+            auto output = std::make_shared<PathTraceScene::Environment>();
+            if(!settings.asset || (!settings.background && !settings.lighting))
+                return Built::success(output);
+            if(!sources.environment)
+                return Built::failure("路径追踪没有 CPU 环境读取服务");
+            auto data = sources.environment(settings.asset);
+            if(!data)
+                return Built::failure(data.error().message);
+            auto valid = CpuCubeSampler::validate(data.value());
+            if(!valid)
+                return Built::failure(valid.error());
+            if(valid.value() > PathTraceScene::MAX_TEXTURE_BYTES)
+                return Built::failure("路径追踪环境超过 CPU 解码预算");
+            CpuCubeSampler cube(data.value());
+            const uint32_t width = std::clamp(uint32_t(data.value().width) * 4, 16u, 1024u);
+            const uint32_t height = width / 2;
+            const auto count = size_t(width) * height;
+            if(count * sizeof(Math::Vec4) > PathTraceScene::MAX_TEXTURE_BYTES)
+                return Built::failure("路径追踪环境超过纹理预算");
+            output->size = {width, height};
+            output->texels.resize(count);
+            double sum = 0;
+            for(uint32_t y = 0; y < height; ++y) {
+                const float vertical = 1.f - 2.f * (y + .5f) / height;
+                const float radius = std::sqrt(std::max(0.f, 1 - vertical * vertical));
+                for(uint32_t x = 0; x < width; ++x) {
+                    const float angle = 2 * Math::PI * ((x + .5f) / width - .5f);
+                    const auto color =
+                        cube.sample({radius * std::cos(angle), vertical, radius * std::sin(angle)});
+                    auto& pixel = output->texels[size_t(y) * width + x];
+                    pixel = {color, glm::dot(color, Math::Vec3(.2126f, .7152f, .0722f))};
+                    if(!Math::is_finite(pixel))
+                        return Built::failure("路径追踪环境解码溢出");
+                    sum += pixel.w;
+                }
+            }
+            // 等面积参数化下像素的立体角相同；GPU 使用实际 float CDF 差值求 PDF。
+            double cumulative = 0;
+            for(size_t i = 0; i < count; ++i) {
+                auto& pixel = output->texels[i];
+                cumulative += sum > 0 ? double(pixel.w) / sum : 1.0 / count;
+                pixel.w = static_cast<float>(cumulative);
+            }
+            output->texels.back().w = 1;
+            return Built::success(output);
+        }
+
+        Result<PathTraceScene::Surface> surface(
+            const MaterialBinding& binding, MaterialRuntimeCache& cache, TexturePacker& textures) {
+            using Surface = Result<PathTraceScene::Surface>;
             if(!binding.resource)
-                return Result<Surface>::failure("路径追踪材质尚未加载");
+                return Surface::failure("路径追踪材质尚未加载");
             const auto& material = *binding.resource;
             const auto layout = MaterialLayout::find_builtin(material.get_template_name());
             if(material.get_shader_program() || !layout
                 || (material.get_template_name() != "pbr"
                     && material.get_template_name() != "unlit_color"))
-                return Result<Surface>::failure("路径追踪首版仅支持内置 PBR／无光照材质");
+                return Surface::failure("路径追踪仅支持内置 PBR／无光照材质");
             if(material.get_surface().alpha_mode != AlphaMode::Opaque)
-                return Result<Surface>::failure("路径追踪首版暂不支持透明／裁切材质");
+                return Surface::failure("路径追踪暂不支持透明／裁切材质");
             auto prepared =
                 cache.prepare(binding.material_handle, binding.resource, layout, binding.overrides);
             if(!prepared)
-                return Result<Surface>::failure(prepared.error());
-            for(const auto& property : layout->get_textures())
-                if(material.get_texture_property(property.name))
-                    return Result<Surface>::failure("路径追踪首版暂不支持材质贴图");
+                return Surface::failure(prepared.error());
             const auto scalar = [&](const std::string& name) {
                 return prepared.value()->get_scalar_property(name).value();
             };
             const auto vector = [&](const std::string& name) {
                 return prepared.value()->get_vector_property(name).value();
             };
-            Surface result;
-            result.double_sided = material.get_surface().double_sided;
+            PathTraceScene::Surface result{};
+            result.parameters.y = material.get_surface().double_sided ? 1.f : 0.f;
             if(material.get_template_name() == "unlit_color") {
                 result.emission_roughness = {Math::Vec3(vector("color")) * scalar("intensity"), -1};
             } else {
-                result.albedo_metallic = {
-                    glm::clamp(Math::Vec3(vector("base_color")), Math::Vec3(0), Math::Vec3(1)),
-                    std::clamp(scalar("metallic"), 0.f, 1.f)};
+                result.albedo_metallic = {Math::Vec3(vector("base_color")), scalar("metallic")};
                 result.emission_roughness = {
                     Math::Vec3(vector("emissive_color")) * scalar("emissive_strength"),
-                    std::clamp(scalar("roughness"), .045f, 1.f)};
+                    scalar("roughness")};
+                result.parameters.x = scalar("normal_scale");
+                const std::array<std::string, 4> properties{"base_color_texture", "normal_texture",
+                    "metallic_roughness_texture", "emissive_texture"};
+                for(size_t i = 0; i < properties.size(); ++i) {
+                    auto index = textures.add(material, properties[i]);
+                    if(!index)
+                        return Surface::failure(index.error());
+                    result.textures[i] = index.value();
+                }
             }
             if(!Math::is_finite(result.albedo_metallic)
                 || !Math::is_finite(result.emission_roughness)
+                || !Math::is_finite(result.parameters)
                 || glm::any(glm::lessThan(Math::Vec3(result.emission_roughness), Math::Vec3(0))))
-                return Result<Surface>::failure("路径追踪材质包含无效参数");
-            return Result<Surface>::success(result);
+                return Surface::failure("路径追踪材质包含无效参数");
+            return Surface::success(result);
         }
 
         BoundingBox bounds(const PathTraceScene::Triangle& triangle) {
@@ -142,7 +314,7 @@ namespace Comet {
             return result;
         }
 
-        void build_node(PathTraceScene& scene, uint32_t first, uint32_t count) {
+        void build_node(PathTraceScene::Geometry& scene, uint32_t first, uint32_t count) {
             const auto index = scene.nodes.size();
             auto box = bounds(scene.triangles[first]);
             for(uint32_t i = 1; i < count; ++i)
@@ -167,33 +339,18 @@ namespace Comet {
             scene.nodes[index].links[3] = static_cast<uint32_t>(scene.nodes.size());
         }
 
-        Result<std::shared_ptr<const PathTraceScene>> build(
+        Result<std::shared_ptr<const PathTraceScene::Geometry>> build_geometry(
             const RenderWorld& world, const PathTraceSceneBuilder::MeshReader& read) {
-            using Built = Result<std::shared_ptr<const PathTraceScene>>;
+            using Built = Result<std::shared_ptr<const PathTraceScene::Geometry>>;
             if(!read)
                 return Built::failure("路径追踪没有 CPU 网格读取服务");
-            if(auto valid = world.environment.validate(); !valid)
-                return Built::failure(valid.error());
-            if(world.environment.asset
-                && (world.environment.background || world.environment.lighting))
-                return Built::failure("路径追踪首版暂不支持 HDR 环境贴图，请使用常量背景");
-            if(world.environment.fog_enabled
-                || (world.particles && !world.particles->batches.empty()))
-                return Built::failure("路径追踪首版暂不支持雾／粒子");
-            auto result = std::make_shared<PathTraceScene>();
-            result->background = world.environment.background_color;
-            result->lighting = LightingData::prepare(world.lights);
-            if(result->lighting.excess_lights || result->lighting.invalid_lights)
-                return Built::failure("路径追踪灯光无效或超过 32 盏预算");
+            auto result = std::make_shared<PathTraceScene::Geometry>();
             std::map<AssetHandle, MeshData> meshes;
-            MaterialRuntimeCache materials;
+            uint32_t surface_index = 0;
             for(const auto& item : world.render_items) {
                 if(!Math::is_finite(item.model_matrix)
                     || std::abs(glm::determinant(Math::Mat3(item.model_matrix))) < 1e-10f)
                     return Built::failure("路径追踪物体变换无效或不可逆");
-                auto material = surface(item.material, materials);
-                if(!material)
-                    return Built::failure(material.error());
                 if(!meshes.contains(item.mesh_handle)) {
                     auto data = read(item.mesh_handle);
                     if(!data)
@@ -219,9 +376,30 @@ namespace Comet {
                             return Built::failure("路径追踪网格索引越界");
                         const auto& vertex = mesh.vertices[index];
                         triangle.positions[i] = item.model_matrix * Math::Vec4(vertex.position, 1);
-                        triangle.normals[i] = Math::Vec4(normal_matrix * vertex.normal, 0);
-                        if(!Math::is_finite(triangle.positions[i])
-                            || !Math::is_finite(triangle.normals[i]))
+                        auto normal = Math::normalized_direction(normal_matrix * vertex.normal);
+                        triangle.normals[i] =
+                            Math::Vec4(normal.value_or(Math::Vec3(0)), vertex.texcoord.x);
+                        Math::Vec3 tangent{}, bitangent{};
+                        if(normal && vertex.tangent.w != 0) {
+                            auto transformed = Math::Vec3(
+                                item.model_matrix * Math::Vec4(Math::Vec3(vertex.tangent), 0));
+                            const auto direction = Math::normalized_direction(
+                                transformed - *normal * glm::dot(*normal, transformed));
+                            if(direction) {
+                                tangent = *direction;
+                                const float orientation =
+                                    glm::determinant(Math::Mat3(item.model_matrix));
+                                bitangent = glm::cross(*normal, tangent) * vertex.tangent.w
+                                            * (orientation < 0 ? -1.f : 1.f);
+                            }
+                        }
+                        triangle.tangents[i] = Math::Vec4(tangent, vertex.texcoord.y);
+                        triangle.bitangents[i] = Math::Vec4(bitangent, 0);
+                        if(!Math::is_finite(vertex.normal) || !Math::is_finite(vertex.tangent)
+                            || !Math::is_finite(triangle.positions[i])
+                            || !Math::is_finite(triangle.normals[i])
+                            || !Math::is_finite(triangle.tangents[i])
+                            || !Math::is_finite(triangle.bitangents[i]))
                             return Built::failure("路径追踪网格包含非有限顶点");
                     }
                     const auto geometric =
@@ -229,38 +407,131 @@ namespace Comet {
                             Math::Vec3(triangle.positions[2] - triangle.positions[0]));
                     if(glm::dot(geometric, geometric) < 1e-16f)
                         continue;
-                    triangle.positions[0].w = material.value().double_sided ? 1.f : 0.f;
-                    triangle.albedo_metallic = material.value().albedo_metallic;
-                    triangle.emission_roughness = material.value().emission_roughness;
+                    triangle.surface[0] = surface_index;
                     result->triangles.push_back(triangle);
                 }
+                ++surface_index;
             }
             if(!result->triangles.empty())
                 build_node(*result, 0, static_cast<uint32_t>(result->triangles.size()));
-            for(uint32_t i = 0; i < result->triangles.size(); ++i)
-                if(glm::any(glm::greaterThan(
-                       Math::Vec3(result->triangles[i].emission_roughness), Math::Vec3(0))))
-                    result->emitters.push_back(i);
             return Built::success(std::move(result));
         }
+        Result<std::shared_ptr<const PathTraceScene::Materials>> build_materials(
+            const RenderWorld& world, const PathTraceSceneBuilder::Images& images) {
+            using Built = Result<std::shared_ptr<const PathTraceScene::Materials>>;
+            auto result = std::make_shared<PathTraceScene::Materials>();
+            MaterialRuntimeCache cache;
+            TexturePacker textures(*result, images);
+            // 每个实例使用稳定槽位，换材质不改变 BVH 中的几何记录。
+            for(const auto& item : world.render_items) {
+                auto value = surface(item.material, cache, textures);
+                if(!value)
+                    return Built::failure(value.error());
+                result->surfaces.push_back(value.value());
+            }
+            return Built::success(std::move(result));
+        }
+
     }
 
     Result<std::shared_ptr<const PathTraceScene>> PathTraceSceneBuilder::update(
-        const RenderWorld& world, const MeshReader& read, const MeshRevision& revision) {
-        auto key = source_key(world, revision);
-        if(key != m_key || (!m_scene && m_error.empty())) {
-            auto candidate = build(world, read);
-            m_key = std::move(key);
-            m_scene = candidate ? std::move(candidate).value() : nullptr;
-            m_error = candidate ? std::string{} : candidate.error();
+        const RenderWorld& world, const MeshReader& read, const MeshRevision& revision,
+        const Images& images) {
+        auto key = source_key(world, revision, images);
+        if(key == m_key && (m_scene || !m_error.empty())) {
+            if(!m_scene)
+                return Result<std::shared_ptr<const PathTraceScene>>::failure(m_error);
+            return Result<std::shared_ptr<const PathTraceScene>>::success(m_scene);
         }
-        if(!m_scene)
-            return Result<std::shared_ptr<const PathTraceScene>>::failure(m_error);
-        return Result<std::shared_ptr<const PathTraceScene>>::success(m_scene);
+        m_key = std::move(key);
+        const auto previous = std::exchange(m_scene, nullptr);
+        const auto build = [&]() -> Result<std::shared_ptr<const PathTraceScene>> {
+            using Built = Result<std::shared_ptr<const PathTraceScene>>;
+            if(auto valid = world.environment.validate(); !valid)
+                return Built::failure(valid.error());
+            if(world.environment.fog_enabled
+                || (world.particles && !world.particles->batches.empty()))
+                return Built::failure("路径追踪暂不支持雾／粒子");
+            auto geometry = geometry_key(world, revision);
+            if(!m_geometry || geometry != m_geometry_key) {
+                auto candidate = build_geometry(world, read);
+                if(!candidate)
+                    return Built::failure(candidate.error());
+                m_geometry = candidate.value();
+                m_geometry_key = std::move(geometry);
+                ++m_statistics.geometry_builds;
+            }
+            auto materials = material_key(world, images);
+            if(!m_materials || materials != m_material_key) {
+                auto candidate = build_materials(world, images);
+                if(!candidate)
+                    return Built::failure(candidate.error());
+                m_materials = candidate.value();
+                m_material_key = std::move(materials);
+                ++m_statistics.material_builds;
+            }
+            auto environment = environment_key(world, images);
+            if(!m_environment || environment != m_environment_key) {
+                auto candidate = build_environment(world.environment, images);
+                if(!candidate)
+                    return Built::failure(candidate.error());
+                m_environment = candidate.value();
+                m_environment_key = std::move(environment);
+                ++m_statistics.environment_builds;
+            }
+            const auto texture_bytes =
+                (m_materials->texels.size() + m_environment->texels.size()) * sizeof(Math::Vec4);
+            if(texture_bytes > PathTraceScene::MAX_TEXTURE_BYTES)
+                return Built::failure("路径追踪材质与环境超过解码纹理总预算");
+            auto scene = std::make_shared<PathTraceScene>();
+            scene->geometry = m_geometry;
+            scene->materials = m_materials;
+            scene->environment_map = m_environment;
+            auto lights = lighting_key(world);
+            if(!m_lighting || lights != m_lighting_key) {
+                auto prepared = std::make_shared<LightingData>(LightingData::prepare(world.lights));
+                if(prepared->excess_lights || prepared->invalid_lights)
+                    return Built::failure("路径追踪灯光无效或超过 32 盏预算");
+                m_lighting = std::move(prepared);
+                m_lighting_key = std::move(lights);
+            }
+            scene->lighting = m_lighting;
+            scene->background = world.environment.background_color;
+            const float rotation = Math::radians(Math::wrap_degrees(world.environment.rotation));
+            scene->environment = {world.environment.background ? world.environment.intensity : -1.f,
+                world.environment.lighting ? world.environment.lighting_intensity : 0.f,
+                std::sin(rotation), std::cos(rotation)};
+            if(previous && previous->geometry == m_geometry && previous->materials == m_materials) {
+                scene->emitters = previous->emitters;
+            } else {
+                auto emitters = std::make_shared<std::vector<uint32_t>>();
+                for(uint32_t i = 0; i < m_geometry->triangles.size(); ++i) {
+                    const auto slot = m_geometry->triangles[i].surface[0];
+                    if(glm::any(glm::greaterThan(
+                           Math::Vec3(m_materials->surfaces[slot].emission_roughness),
+                           Math::Vec3(0))))
+                        emitters->push_back(i);
+                }
+                scene->emitters = std::move(emitters);
+            }
+            return Built::success(std::move(scene));
+        };
+        auto result = build();
+        m_scene = result ? result.value() : nullptr;
+        m_error = result ? std::string{} : result.error();
+        return result;
     }
 
     void PathTraceSceneBuilder::reset() {
         m_key.clear();
+        m_geometry_key.clear();
+        m_material_key.clear();
+        m_environment_key.clear();
+        m_lighting_key.clear();
+        m_geometry.reset();
+        m_materials.reset();
+        m_environment.reset();
+        m_lighting.reset();
         m_scene.reset();
         m_error.clear();
     }

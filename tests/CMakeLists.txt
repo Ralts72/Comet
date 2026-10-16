@@ -8,6 +8,12 @@ add_test(NAME module_dependency_contract COMMAND "${CMAKE_COMMAND}"
     "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/module-dependency-contract"
     -P "${CMAKE_CURRENT_SOURCE_DIR}/test_module_dependencies.cmake")
 set_tests_properties(module_dependency_contract PROPERTIES LABELS "cpu")
+add_test(NAME compiler_cache_contract COMMAND "${CMAKE_COMMAND}"
+    "-DCOMET_SOURCE_ROOT=${CMAKE_SOURCE_DIR}"
+    "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/compiler-cache-contract"
+    "-DGENERATOR=${CMAKE_GENERATOR}"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/test_compiler_cache.cmake")
+set_tests_properties(compiler_cache_contract PROPERTIES LABELS "cpu")
 # 按运行依赖显式分组；扫描只检查遗漏，不替新测试猜测执行环境。
 set(UNIT_TEST_SOURCES
         audio/test_audio.cpp
@@ -37,12 +43,14 @@ set(UNIT_TEST_SOURCES
         asset/test_texture_artifact.cpp
         common/test_file_io.cpp
         common/test_result.cpp
+        common/test_parameters_json.cpp
         common/test_retry_backoff.cpp
         common/test_scope_exit.cpp
         config/test_config.cpp
         config/test_display_settings.cpp
         config/test_display_settings_preview.cpp
         config/test_player_settings.cpp
+        config/test_player_settings_owner.cpp
         render/test_mesh_lod.cpp
         core/test_geometry.cpp
         core/test_math_utils.cpp
@@ -108,6 +116,7 @@ set(UNIT_TEST_SOURCES
         ui/test_resource_dependencies.cpp
         render/test_path_trace_scene.cpp
         render/test_lighting.cpp
+        render/test_view_work_selection.cpp
         render/test_line_draw_list.cpp
         render/test_material.cpp
         render/test_material_shader.cpp

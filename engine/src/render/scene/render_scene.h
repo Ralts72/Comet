@@ -129,6 +129,7 @@ namespace Comet {
         uint32_t samples = 256;
         uint32_t bounces = 4;
         uint32_t seed = 0;
+        uint64_t reset_generation = 0;
         uint32_t max_dimension = 512;
         [[nodiscard]] Result<void> validate() const;
         [[nodiscard]] Math::Vec2u image_size(Math::Vec2u output) const;
@@ -142,6 +143,7 @@ namespace Comet {
         Math::Vec2u render_size{};
         CameraSelection camera_selection = CameraSelection::ScenePrimary;
         std::optional<RenderCamera> camera_override;
+        bool path_trace_enabled = false;
         std::shared_ptr<const PathTraceScene> path_trace;
         PathTraceSettings path_trace_settings;
     };

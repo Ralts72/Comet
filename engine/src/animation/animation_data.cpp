@@ -1,4 +1,5 @@
 #include "animation/animation_data.h"
+#include "diagnostics/profiler.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
@@ -555,6 +556,7 @@ namespace Comet {
     }
     Result<AnimationPose> sample_animation(
         const AnimationData& data, const AnimationPlayback* playback, bool include_bones) {
+        PROFILE_SCOPE("Animation::sample");
         if(playback
             && (!std::isfinite(playback->blend) || playback->blend < 0 || playback->blend > 1))
             return Result<AnimationPose>::failure("Invalid animation playback time");
@@ -588,6 +590,7 @@ namespace Comet {
     Result<AnimationPose> interpolate_animation_pose(const AnimationData& data,
         const AnimationPose& previous, const AnimationPose& current, float alpha,
         const AnimationRootMotion* root_motion) {
+        PROFILE_SCOPE("Animation::interpolate");
         if(!std::isfinite(alpha) || alpha < 0 || alpha > 1
             || previous.local_transforms.size() != data.nodes.size()
             || current.local_transforms.size() != data.nodes.size())

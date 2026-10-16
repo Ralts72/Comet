@@ -1,10 +1,25 @@
 #include "animation/animation_system.h"
 #include "scene/scene.h"
+#include "diagnostics/profiler.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <unordered_set>
 namespace Comet {
+    void prepare_bone_attachment_sources(Scene& scene, const AnimationSystem::Source& source) {
+        if(!source)
+            return;
+        std::unordered_set<EntityId> prepared;
+        scene.each<const BoneAttachmentComponent>([&](Entity child, const auto&) {
+            const auto parent = scene.get_parent(child);
+            if(!parent || !parent.has_component<MeshRendererComponent>()
+                || !prepared.insert(parent.get_id()).second)
+                return;
+            scene.set_animation_source(
+                parent, source(parent.get_component<MeshRendererComponent>().mesh));
+        });
+    }
+
     Result<void, Error> AnimationSystem::emit_events(
         Scene& scene, EntityId id, Playback& playback, double from, double to) {
         if(!playback.controller || to <= from)
@@ -73,6 +88,7 @@ namespace Comet {
     }
     Result<void, Error> AnimationSystem::advance(
         Scene& scene, double delta, const RuntimeServices& services, std::optional<bool> fixed) {
+        PROFILE_SCOPE("AnimationSystem::advance");
         Result<void, Error> result = Result<void, Error>::success();
         std::unordered_set<EntityUuid> motion_targets;
         scene.each<const AnimatorComponent>([&](Entity entity, const AnimatorComponent& animator) {

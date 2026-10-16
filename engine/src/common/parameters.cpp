@@ -24,7 +24,7 @@ namespace Comet {
     }
 
     bool valid_parameters(const ParameterMap& parameters) {
-        if(parameters.size() > 128)
+        if(parameters.size() > MAX_PARAMETER_COUNT)
             return false;
         for(const auto& [name, value] : parameters) {
             if(!valid_parameter_name(name) || !valid_parameter_value(value))

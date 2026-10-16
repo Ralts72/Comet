@@ -251,6 +251,7 @@ namespace Comet {
             return current;
         auto& binding = source->second;
         if(!binding.presented) {
+            ++m_animation_statistics.presentation_interpolations;
             auto frame = std::make_shared<AnimationPlayback>(*current);
             auto pose = interpolate_animation_pose(*binding.data, *binding.previous_pose,
                 *current->pose, m_transform_interpolation.m_alpha,
@@ -283,8 +284,29 @@ namespace Comet {
                     binding.previous_pose.reset();
                 auto frame = std::make_shared<AnimationPlayback>(*playback);
                 frame->pose_source = binding.data;
-                auto pose =
-                    resolve_animation_pose(*frame->pose_source, frame.get(), frame->pose_error);
+                const auto evaluate = [&] {
+                    if(found != m_animation_playbacks.end() && found->second->ik.empty()
+                        && found->second->pose && found->second->pose_error.empty()
+                        && found->second->pose_source == binding.data
+                        && playback->pose_source == binding.data && !frame->ik.empty()) {
+                        auto base = *frame;
+                        base.ik.clear();
+                        if(base == *found->second) {
+                            auto constrained =
+                                apply_animation_ik(*binding.data, *found->second->pose, frame->ik,
+                                    frame->root_motion ? &*frame->root_motion : nullptr);
+                            if(constrained) {
+                                ++m_animation_statistics.ik_pose_reuses;
+                                frame->pose_error.clear();
+                                return constrained;
+                            }
+                        }
+                    }
+                    ++m_animation_statistics.pose_resolutions;
+                    return resolve_animation_pose(
+                        *frame->pose_source, frame.get(), frame->pose_error);
+                };
+                auto pose = evaluate();
                 frame->pose =
                     pose ? std::make_shared<const AnimationPose>(std::move(pose).value()) : nullptr;
                 playback = std::move(frame);

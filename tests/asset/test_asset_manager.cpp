@@ -2,8 +2,148 @@
 #include "support/asset_manager_fixture.h"
 #include "asset/import/import_service.h"
 #include "scene/component_registry.h"
+#include "asset/artifact/shader_program_artifact.h"
 
 namespace Comet::Tests {
+    TEST(AssetManagerTest,
+        SuccessfulSceneDemandCommitReleasesPreviousSceneButFailedCandidateDoesNot) {
+        const TemporaryProject project;
+        const AssetHandle first{41}, second{42}, external{43};
+        project.add_mesh(first, R"({"attributes":{"POSITION":0},"indices":1})", "first.gltf");
+        project.add_mesh(second, R"({"attributes":{"POSITION":0},"indices":1})", "second.gltf");
+        AssetRegistry registry;
+        const auto external_owner = std::make_shared<int>(7);
+        ASSERT_TRUE(registry.register_asset(external, external_owner));
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        const auto components = create_scene_component_registry();
+        const auto activate = [&](Scene& candidate) -> Result<void, Error> {
+            auto prepared = manager.prepare_scene(candidate, components);
+            if(!prepared)
+                return Result<void, Error>::failure(prepared.error());
+            const auto ready = manager.references_ready(
+                prepared.value(), AssetManager::MissingAssetPolicy::FailRequired);
+            if(!ready || !ready.value())
+                return Result<void, Error>::failure({"Candidate is not ready"});
+            static_cast<void>(manager.release_unused(prepared.value()));
+            return Result<void, Error>::success();
+        };
+        Scene first_scene, second_scene;
+        first_scene.create_entity().add_component<MeshRendererComponent>(
+            first, DEFAULT_PBR_MATERIAL);
+        second_scene.create_entity().add_component<MeshRendererComponent>(
+            second, DEFAULT_PBR_MATERIAL);
+        ASSERT_TRUE(activate(first_scene));
+        const auto previous = registry.resolve<Mesh>(first);
+        ASSERT_TRUE(previous);
+        factory.fail_mesh_creation(true);
+        EXPECT_FALSE(activate(second_scene));
+        EXPECT_EQ(registry.resolve<Mesh>(first), previous);
+        EXPECT_FALSE(registry.contains(second));
+        factory.fail_mesh_creation(false);
+        ASSERT_TRUE(activate(second_scene));
+        EXPECT_FALSE(registry.contains(first));
+        EXPECT_TRUE(registry.contains(second));
+        EXPECT_TRUE(registry.contains(DEFAULT_PBR_MATERIAL));
+        EXPECT_EQ(registry.resolve<int>(external), external_owner);
+        EXPECT_TRUE(previous);
+        const auto reloaded = manager.load_mesh(first);
+        ASSERT_TRUE(reloaded);
+        EXPECT_NE(reloaded.value(), previous);
+        EXPECT_EQ(factory.mesh_creation_count(), 4u);
+    }
+
+    TEST(AssetManagerTest, DemandClosureRetainsMaterialTexturesAndExplicitPreviewRoots) {
+        const TemporaryProject project;
+        const AssetHandle material{41}, texture{42}, other{43};
+        project.add_texture(texture);
+        project.add_textured_material(material, texture);
+        project.add_mesh(other);
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        const auto old_material = manager.load_material(material);
+        ASSERT_TRUE(old_material) << old_material.error().message;
+        const auto old_texture = registry.resolve<Texture>(texture);
+        ASSERT_TRUE(old_texture);
+        ASSERT_TRUE(manager.import_mesh(other));
+        ASSERT_TRUE(manager.load_mesh(other));
+        const std::array roots{AssetReference{other, AssetType::Mesh}};
+        const std::array preview{material};
+        EXPECT_EQ(manager.release_unused(roots, preview).registry_assets, 0u);
+        EXPECT_TRUE(registry.contains(texture));
+        EXPECT_TRUE(registry.contains(material));
+        EXPECT_EQ(manager.release_unused(roots).registry_assets, 2u);
+        EXPECT_FALSE(registry.contains(texture));
+        EXPECT_FALSE(registry.contains(material));
+        EXPECT_EQ(old_material.value()->get_texture_property("u_Texture0"), old_texture);
+    }
+
+    TEST(AssetManagerTest, ResidencyReportsTypedCountsAndKnownCpuPayloadWithoutAllocatorClaims) {
+        const TemporaryProject project;
+        const AssetHandle audio{41}, external{42}, program{43}, alias{44};
+        const auto audio_path = project.paths().assets() / "sound.wav";
+        std::filesystem::copy_file(
+            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/audio/play_chime.wav",
+            audio_path);
+        ASSERT_TRUE(MetadataSerializer{}.save(
+            {.handle = audio, .type = AssetType::Audio}, metadata_path(audio_path)));
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        const auto clip = manager.load_audio(audio);
+        ASSERT_TRUE(clip);
+        ASSERT_TRUE(registry.register_asset(alias, clip.value()));
+        ASSERT_TRUE(registry.register_asset(external, std::make_shared<int>(7)));
+        const auto shader = std::make_shared<ShaderProgramArtifact>();
+        shader->vertex_words = {1, 2, 3};
+        shader->fragment_words = {4, 5};
+        ASSERT_TRUE(registry.register_asset(program, shader));
+        const auto resident = manager.residency();
+        EXPECT_EQ(resident.registry_assets, 4u);
+        EXPECT_EQ(resident.registry_counts.at(AssetType::Audio), 1u);
+        EXPECT_EQ(resident.registry_counts.at(AssetType::Unknown), 3u);
+        EXPECT_EQ(resident.audio_pcm_bytes, clip.value()->samples().size_bytes());
+        EXPECT_EQ(resident.shader_code_bytes, 5 * sizeof(uint32_t));
+        EXPECT_EQ(resident.mesh_buffer_bytes, 0u);
+        EXPECT_EQ(resident.texture_pixel_bytes, 0u);
+        EXPECT_EQ(resident.model_cache_entries, 0u);
+    }
+
+    TEST(AssetManagerTest, ReleasedEnvironmentDoesNotReturnFromAnOldBackgroundTask) {
+        const TemporaryProject project;
+        write_hdr(project.paths().assets() / "sky.hdr");
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        const auto environment = manager.get_database().find("sky.hdr")->handle;
+        BlockedWorker blocker(scheduler);
+        ASSERT_TRUE(manager.request_load(environment, AssetType::Environment));
+        static_cast<void>(manager.release_unused({}));
+        blocker.release();
+        scheduler.wait_idle();
+        ASSERT_TRUE(manager.process_completions());
+        EXPECT_FALSE(registry.contains(environment));
+        EXPECT_EQ(factory.texture_creation_count(), 0u);
+        ASSERT_TRUE(manager.request_load(environment, AssetType::Environment));
+        scheduler.wait_idle();
+        ASSERT_TRUE(manager.process_completions());
+        const std::array demand{AssetReference{environment, AssetType::Environment}};
+        const auto ready =
+            manager.references_ready(demand, AssetManager::MissingAssetPolicy::FailRequired);
+        ASSERT_TRUE(ready) << ready.error().message;
+        EXPECT_TRUE(ready.value());
+        EXPECT_TRUE(registry.contains(environment));
+    }
+
     TEST(AssetManagerTest, AudioImportSwitchesDecodedAndStreamingWithoutLosingTheOldClip) {
         const TemporaryProject project;
         const AssetHandle handle{99};
@@ -61,6 +201,47 @@ namespace Comet::Tests {
         scene.create_entity("Missing mesh")
             .add_component<MeshRendererComponent>(AssetHandle{999}, DEFAULT_PBR_MATERIAL);
         EXPECT_FALSE(manager.prepare_scene(scene, components));
+    }
+
+    TEST(AssetManagerTest, ReadsCpuImageProductsWithoutImportingOrPublishingRenderResources) {
+        const TemporaryProject project;
+        const AssetHandle texture{42};
+        project.add_texture(texture);
+        const auto sky = project.paths().assets() / "studio.hdr";
+        write_hdr(sky);
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(project.paths(), registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        const auto environment = manager.get_database().find("studio.hdr")->handle;
+        EXPECT_FALSE(manager.read_texture_data(texture));
+        EXPECT_FALSE(manager.read_environment_background(environment));
+        ImportService imports(project.paths());
+        ASSERT_TRUE(
+            imports.prepare_texture(*manager.get_database().find(texture), {}, 64 * 1024 * 1024));
+        ASSERT_TRUE(imports.prepare_environment(
+            *manager.get_database().find(environment), EnvironmentImporter::MAX_WORKING_BYTES));
+        const auto image = manager.read_texture_data(texture);
+        const auto background = manager.read_environment_background(environment);
+        ASSERT_TRUE(image) << image.error().message;
+        ASSERT_TRUE(background) << background.error().message;
+        EXPECT_FALSE(image.value().cubemap);
+        EXPECT_TRUE(background.value().cubemap);
+        EXPECT_FALSE(registry.contains(texture));
+        EXPECT_FALSE(registry.contains(environment));
+        EXPECT_EQ(factory.texture_creation_count(), 0u);
+        EXPECT_FALSE(manager.read_texture_data(environment));
+        EXPECT_FALSE(manager.read_environment_background(texture));
+        const auto path = project.paths().assets() / manager.get_database().find(texture)->path;
+        auto metadata = MetadataSerializer{}.load(metadata_path(path)).value();
+        metadata.import_settings = TextureImportSettings{.color_space = TextureColorSpace::Linear};
+        ASSERT_TRUE(MetadataSerializer{}.save(metadata, metadata_path(path)));
+        ASSERT_TRUE(manager.scan().succeeded());
+        EXPECT_FALSE(manager.read_texture_data(texture));
+        std::ofstream(sky) << "changed HDR";
+        EXPECT_FALSE(manager.read_environment_background(environment));
+        EXPECT_EQ(factory.texture_creation_count(), 0u);
     }
 
     TEST(AssetManagerTest, ReadsCpuMeshWithoutCreatingOrPublishingRenderResources) {

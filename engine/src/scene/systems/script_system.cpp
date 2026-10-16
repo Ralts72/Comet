@@ -60,6 +60,8 @@ namespace Comet {
         }
         m_start_order.clear();
         m_failed_reloads.clear();
+        m_asset_revision.reset();
+        m_blocked_assets.clear();
         m_scene = nullptr;
         m_session = nullptr;
         m_audio = nullptr;
@@ -194,8 +196,35 @@ namespace Comet {
         return true;
     }
 
+    bool ScriptSystem::failed_reloads_unchanged(const std::map<Key, Entity>& pending) const {
+        if(m_failed_reloads.empty())
+            return true;
+        for(const auto& [key, entity] : pending)
+            if(std::ranges::none_of(
+                   m_failed_reloads, [&](const auto& failed) { return failed.contains(key); }))
+                return false;
+        for(const auto& failed : m_failed_reloads) {
+            for(const auto& [key, previous] : failed) {
+                const auto installed = m_entries.find(key);
+                const auto waiting = pending.find(key);
+                if(installed == m_entries.end() && waiting == pending.end())
+                    return false;
+                const auto entity =
+                    installed != m_entries.end() ? installed->second.entity : waiting->second;
+                if(previous.overrides != entity.get_component<ScriptComponent>().parameters)
+                    return false;
+            }
+        }
+        return true;
+    }
+
     Result<std::set<AssetHandle>, Error> ScriptSystem::reload_changed_scripts(
         const std::map<Key, Entity>& pending) {
+        const auto revision = m_assets.get_revision();
+        // 结构同步仍逐阶段执行；失败组的参数或成员改变也可重新准备。
+        if(m_asset_revision == revision && failed_reloads_unchanged(pending))
+            return Result<std::set<AssetHandle>, Error>::success(m_blocked_assets);
+        ++m_statistics.asset_scans;
         std::set<AssetHandle> blocked;
         const bool changed = std::ranges::any_of(m_entries, [&](const auto& value) {
             const auto script = m_assets.resolve<const Script>(value.first.asset);
@@ -203,6 +232,8 @@ namespace Comet {
         });
         if(!changed) {
             m_failed_reloads.clear();
+            m_blocked_assets.clear();
+            m_asset_revision = revision;
             return Result<std::set<AssetHandle>, Error>::success({});
         }
         std::vector<FailedReload> rejected;
@@ -254,6 +285,8 @@ namespace Comet {
                 prepared.size());
         }
         m_failed_reloads = std::move(rejected);
+        m_asset_revision = revision;
+        m_blocked_assets = blocked;
         return Result<std::set<AssetHandle>, Error>::success(std::move(blocked));
     }
 
@@ -279,6 +312,7 @@ namespace Comet {
     }
 
     Result<void, Error> ScriptSystem::synchronize(Scene& scene) {
+        ++m_statistics.structure_scans;
         for(auto it = m_start_order.rbegin(); it != m_start_order.rend(); ++it) {
             auto found = m_entries.find(*it);
             if(is_live(found->first, found->second))
@@ -320,6 +354,7 @@ namespace Comet {
 
     Result<void, Error> ScriptSystem::on_start(
         Scene& scene, RuntimeSession& session, const RuntimeServices& services) {
+        m_statistics = {};
         m_scene = &scene;
         m_session = &session;
         m_audio = services.audio;

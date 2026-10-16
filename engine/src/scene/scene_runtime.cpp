@@ -108,6 +108,12 @@ namespace Comet {
         }
         if(!scene.commit_entity_requests())
             return Result<void, Error>::failure({"Cannot commit startup entity requests"});
+        for(auto& system : m_systems)
+            if(auto result = system->on_runtime_ready(scene, m_session, m_services); !result)
+                return result;
+        if(!scene.commit_entity_requests())
+            return Result<void, Error>::failure(
+                {"Cannot commit runtime preparation entity requests"});
         cleanup.release();
         m_executing = false;
         return Result<void, Error>::success();

@@ -10,6 +10,7 @@ set(SOURCES
     src/config/display_settings.cpp
     src/config/display_settings_preview.cpp
     src/config/player_settings.cpp
+    src/config/player_settings_owner.cpp
     src/diagnostics/diagnostics.cpp
     src/runtime/entry.cpp
     src/runtime/application.cpp

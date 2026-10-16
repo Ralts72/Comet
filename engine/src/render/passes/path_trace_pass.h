@@ -16,6 +16,9 @@ namespace Comet {
             uint32_t triangles = 0;
             uint32_t nodes = 0;
             Math::Vec2u size{};
+            uint64_t upload_bytes = 0;
+            uint64_t geometry_upload_bytes = 0;
+            uint64_t dispatches = 0;
         };
         explicit PathTracePass(Device& device);
         ~PathTracePass();
@@ -40,5 +43,9 @@ namespace Comet {
         Math::Mat4 m_view_projection{0};
         PathTraceSettings m_settings;
         uint32_t m_samples = 0;
+        uint64_t m_recorded_serial = 0;
+        uint64_t m_upload_bytes = 0;
+        uint64_t m_geometry_upload_bytes = 0;
+        uint64_t m_dispatches = 0;
     };
 }

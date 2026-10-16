@@ -175,11 +175,12 @@ namespace Comet {
             if(!view.enabled)
                 continue;
             const auto& matrix = view.view_projection;
-            const auto frustum = Frustum::from_view_projection(matrix);
-            const auto& selected = m_view_geometry[view_index].prepare_view(geometry, matrix);
+            auto& view_geometry = m_view_geometry[view_index];
+            const auto& selected = view_geometry.prepare_view(geometry, matrix, true);
+            m_statistics.coarse_culled_items += view_geometry.get_view_statistics().culled_items;
+            m_statistics.lod_selections += view_geometry.get_view_statistics().lod_selections;
             for(const auto& prepared : selected.get_items()) {
-                if(!prepared.world_bounds
-                    || (frustum && !frustum->intersects(*prepared.world_bounds)))
+                if(!prepared.world_bounds)
                     continue;
                 const auto& input = prepared.source->material;
                 const auto& source = input.resource;
