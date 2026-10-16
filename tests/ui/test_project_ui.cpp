@@ -555,6 +555,30 @@ namespace Comet::Tests {
         EXPECT_NE(std::ranges::find(samples, saved_quality.msaa_samples), samples.end());
     }
 
+    TEST_F(ProjectUiGpuTest, DeferredPathSwitchesAtRuntimeAndKeepsSingleSampleTaa) {
+        quality_services = true;
+        create_ui(InputActions{});
+        click("settings");
+        click("quality-path");
+        click("quality-balanced");
+        EXPECT_NE(document().GetElementById("quality-path")->GetInnerRML().find("Deferred"),
+            std::string::npos);
+        EXPECT_EQ(quality_applications, 0u);
+        click("quality-msaa");
+        click("quality-apply");
+        ASSERT_EQ(quality_applications, 1u);
+        EXPECT_EQ(saved_quality.render_path, RenderPath::Deferred);
+        EXPECT_EQ(saved_quality.msaa_samples, 1u);
+        EXPECT_TRUE(saved_quality.temporal_aa);
+        ASSERT_TRUE(submit_frame());
+        EXPECT_EQ(engine->get_renderer().get_quality_settings(), saved_quality);
+        click("quality-restore");
+        click("quality-apply");
+        ASSERT_EQ(quality_applications, 2u);
+        ASSERT_TRUE(submit_frame());
+        EXPECT_EQ(engine->get_renderer().get_quality_settings(), default_quality);
+    }
+
     TEST_F(ProjectUiGpuTest, QualityPresetsStageValuesAndKeepCustomDefaultsAndSavedParameters) {
         quality_services = true;
         saved_quality = {1, 1, 0.6f};

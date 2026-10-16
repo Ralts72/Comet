@@ -1,6 +1,7 @@
 #pragma once
 
 #include "graphics/enums.h"
+#include "render/quality_settings.h"
 
 #include <cstdint>
 
@@ -18,5 +19,6 @@ namespace Comet {
         float max_anisotropy = 8.0f;
         float render_scale = 1.0f;
         bool temporal_aa = false;
+        RenderPath render_path = RenderPath::Forward;
     };
 }

@@ -48,6 +48,17 @@
 #include <string_view>
 
 namespace Comet::Tests {
+    namespace {
+        Result<std::string> material_fragment_source(const char* file) {
+            auto source = read_text_file(
+                std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/material" / file);
+            if(source)
+                source.value().insert(
+                    0, "#version 450\n#extension GL_GOOGLE_include_directive : require\n");
+            return source;
+        }
+    }
+
     TEST_F(RenderGpuTest, MaterialMinificationSamplesUploadedTwoDimensionalMips) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();
@@ -1011,7 +1022,7 @@ namespace Comet::Tests {
         TemporaryDirectory temporary;
         const auto path = temporary.path() / "relocated.frag";
         const auto shader_directory = std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders";
-        auto source_text = read_text_file(shader_directory / "material/pbr.frag");
+        auto source_text = material_fragment_source("pbr_surface.glsl");
         ASSERT_TRUE(source_text) << source_text.error();
         constexpr std::string_view binding = "layout(set = 1, binding = 1)";
         const auto offset = source_text.value().find(binding);
@@ -1467,10 +1478,9 @@ namespace Comet::Tests {
         TemporaryDirectory sources;
         const auto shader_directory =
             std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/material";
-        auto solid_source = read_text_file(
-            std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/material/unlit_color.frag");
+        auto solid_source = material_fragment_source("unlit_surface.glsl");
         ASSERT_TRUE(solid_source) << solid_source.error();
-        const auto expression = solid_source.value().find("material.intensity");
+        const auto expression = solid_source.value().rfind("material.intensity");
         ASSERT_NE(expression, std::string::npos);
         solid_source.value().insert(expression, "0.5 * ");
         ASSERT_TRUE(write_text_file_atomic(sources.path() / "solid.frag", solid_source.value()));
@@ -1482,8 +1492,7 @@ namespace Comet::Tests {
                                                   {std::begin(PBR_FRAG), std::end(PBR_FRAG)}}},
             {"unlit_color",
                 {{std::begin(UNLIT_COLOR_VERT), std::end(UNLIT_COLOR_VERT)}, compiled.words}}};
-        auto textured_source = read_text_file(
-            std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/material/pbr.frag");
+        auto textured_source = material_fragment_source("pbr_surface.glsl");
         ASSERT_TRUE(textured_source) << textured_source.error();
         auto relocated_source = textured_source.value();
         const auto assignment = textured_source.value().find("color = ");

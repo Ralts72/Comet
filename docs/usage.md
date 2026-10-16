@@ -353,7 +353,7 @@ App 与 Editor Play 共用设置能力和项目页面；显示、画质、音量
 | 设置 | 选项 |
 | --- | --- |
 | 显示 | 宽高、窗口／无边框／全屏、VSync、帧率上限、HDR 输出与校准 |
-| 画质 | MSAA 1／2／4／8 或 TAA、各向异性 1～16、渲染比例 0.5～1 |
+| 画质 | Forward／Deferred、MSAA 1／2／4／8 或 TAA、各向异性 1～16、渲染比例 0.5～1 |
 | 音量 | 主音量、音效、音乐；音源选择分类 |
 
 App 更改尺寸、窗口或输出模式后试用 15 秒，确认才保存；超时或取消还原。
@@ -362,6 +362,7 @@ VSync、GPU 和调度可能使实际帧率低于上限，限制不改变物理�
 
 Editor Play 的宽高用于预览，窗口模式、VSync、帧率限制及 HDR 属于独立 App；画质和音量仍可调试。
 画质选项受设备能力限制，渲染比例只缩放场景，游戏 UI 保持输出分辨率。
+Forward 保留 MSAA；Deferred 使用单采样，可开启 TAA。项目默认值和 App／Play 玩家设置共用同一个渲染路径选项，运行中应用后在帧边界重建。内置 PBR／无光照的不透明和裁切表面进入 G-buffer，透明、自定义程序和开发 Shader 覆盖继续 Forward，并使用已还原的场景深度。设备能力不足时报告应用错误，不静默换成其他路径。
 TAA 使用 8 相位亚像素抖动和运动向量积累边缘覆盖，包含物体变换与骨骼变形；切场景、resize、投影改变、大幅相机跳变及隐藏视图后恢复会重置历史。透明网格与粒子减少历史混合，可能保留少量锯齿；快速运动、细线和透明边缘仍需实际观察。TAA 当前不做时域升采样，渲染比例沿用空间上采样。
 最终音频增益为音源音量 × 分类音量 × 主音量；空间声源另乘距离衰减。
 
@@ -843,12 +844,26 @@ python3 tools/export_app.py ./demo /tmp/CometGame.app --scene scenes/character_s
 ./tools/render_benchmark/run.sh --help
 ./tools/render_benchmark/run.sh /tmp/comet-moving.csv 2048 640 360 240 0 64 moving
 ./tools/render_benchmark/run.sh /tmp/comet-skeletal.csv 64 640 360 480 0 8 skeletal
+./tools/render_benchmark/run.sh /tmp/comet-forward.csv 512 640 360 240 0 8 static 1 1 1 forward
+./tools/render_benchmark/run.sh /tmp/comet-deferred.csv 512 640 360 240 0 8 static 1 1 1 deferred
 ```
 
 默认报告位于 `build-release/reports/render-benchmark.csv`；支持静态／移动、脚本、骨骼动画、光源、裁剪、项目 Shader 及活动／休眠刚体场景。
 报告记录画质与负载、整帧和分段耗时、P50/P95/P99、draw／上传量及 VMA 当前分配字节（不代表 CPU 分配次数或内存峰值）。
+Deferred 另记录 G-buffer 绘制数与每帧槽像素数据预算：四张 RGBA16F 加 D32 深度共 36 字节／像素，未含对齐；1920×1080 约 71.2 MiB／槽。其光照仍逐像素遍历现有光源列表，尚无 tiled／clustered 裁剪，不能预期所有负载都比 Forward 快。
 `skeletal` 使用默认角色的 `walk` 片段，生产动画系统按每帧 1/60 秒推进，继续使用 Runtime／RenderThread 重叠路径。
 CPU 采样与蒙皮准备包含在渲染准备／录制时间中；当前 GPU graph 区间不包含图录制前的蒙皮 compute，不能把它当作全部 GPU 成本。
+
+2026-10-17 本机 Apple M4 的初步对照：Release，512 个物体／8 材质／3 光源，1280×720 framebuffer，单采样、Bloom／IBL 关闭，按 Forward／Deferred／Deferred／Forward 各采样 240 帧。以下为两轮 P50 的范围，不代表所有场景或设备：
+
+| 指标 | Forward | Deferred |
+| --- | --- | --- |
+| CPU 整帧 P50 | 1.071～1.081 ms | 1.088～1.723 ms |
+| GPU graph P50 | 0.716～0.719 ms | 0.797～0.813 ms |
+| VMA 当前分配 | 98.9 MiB | 164.6 MiB |
+
+该负载没有显示 Deferred 性能收益；CPU 波动也不足以推断稳定差异。默认继续 Forward，后续随 SSR 和更多光源场景验证附件带宽与光照裁剪。
+
 正式比较使用同设备 Release、相同负载，多次交替运行；避免并行构建和其他 GPU 任务。
 CPU 墙钟包含等待，GPU 不包含呈现完成，分段百分位不能相加；旧计时口径应单独比较。
 

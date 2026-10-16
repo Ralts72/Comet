@@ -204,6 +204,7 @@ set(INTEGRATION_SOURCES
         render/test_scene_preview.cpp
         render/test_instanced_rendering.cpp
         render/test_decals.cpp
+        render/test_deferred.cpp
         render/test_volumetric_fog.cpp
         render/test_environment_rendering.cpp
         render/test_pbr_surfaces.cpp

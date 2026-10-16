@@ -50,6 +50,8 @@ namespace Comet {
                 static_cast<SampleCount>(m_options.quality_settings->msaa_samples);
             config.render.max_anisotropy = m_options.quality_settings->max_anisotropy;
             config.render.render_scale = m_options.quality_settings->render_scale;
+            config.render.temporal_aa = m_options.quality_settings->temporal_aa;
+            config.render.render_path = m_options.quality_settings->render_path;
         }
         m_config = std::move(config);
         auto engine = Engine::create(m_config);

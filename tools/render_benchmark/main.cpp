@@ -65,7 +65,7 @@ namespace {
     constexpr std::string_view USAGE =
         "Usage: render_benchmark OUTPUT.csv OBJECTS WIDTH HEIGHT FRAMES BLOOM(0/1) "
         "[MATERIALS [static|moving|script-moving|skeletal|light-moving|culling|project-shader|physics-active|physics-sleeping "
-        "[MSAA ANISOTROPY RENDER_SCALE]]]";
+        "[MSAA ANISOTROPY RENDER_SCALE [forward|deferred]]]]";
 
     enum class Workload {
         Static,
@@ -121,7 +121,7 @@ namespace {
             && std::string_view(argv[argc - 1]) == "NO")
             argc -= 2;
 #endif
-        if(argc < 7 || (argc > 9 && argc != 12) || std::string_view(argv[1]).empty())
+        if(argc < 7 || (argc > 9 && argc != 12 && argc != 13) || std::string_view(argv[1]).empty())
             return Result<Options>::failure(std::string(USAGE));
         const std::array<unsigned, 6> minimum{1, 64, 64, 8, 0, 1};
         const std::array<unsigned, 6> maximum{4096, 4096, 4096, 10000, 1, 256};
@@ -163,7 +163,7 @@ namespace {
             return Result<Options>::failure(
                 "Physics workloads support at most 512 objects plus ground");
         Comet::QualitySettings quality{4, 1, 1};
-        if(argc == 12) {
+        if(argc >= 12) {
             // 与 JSON 相同的数值范围；采用固定 locale，不受系统小数分隔符影响。
             const auto number = [](const char* text, auto& value) {
                 std::istringstream input(text);
@@ -174,6 +174,13 @@ namespace {
             if(!number(argv[9], quality.msaa_samples) || !number(argv[10], quality.max_anisotropy)
                 || !number(argv[11], quality.render_scale))
                 return Result<Options>::failure("Invalid benchmark quality arguments");
+            if(argc == 13) {
+                const std::string_view path(argv[12]);
+                if(path == "deferred")
+                    quality.render_path = Comet::RenderPath::Deferred;
+                else if(path != "forward")
+                    return Result<Options>::failure("Invalid rendering path");
+            }
             if(auto valid = quality.validate(); !valid)
                 return Result<Options>::failure("Invalid benchmark quality: " + valid.error());
         }
@@ -461,7 +468,10 @@ namespace {
                 if(instances > 1)
                     m_expected_instance_bytes += instances * sizeof(Comet::Math::Mat4);
             }
-            m_passes = {"shadow", "scene"};
+            if(m_quality.render_path == Comet::RenderPath::Deferred)
+                m_passes = {"shadow", "G-buffer", "deferred lighting and Forward"};
+            else
+                m_passes = {"shadow", "scene"};
             if(options.bloom)
                 m_passes.insert(
                     m_passes.end(), {"bloom extract", "bloom horizontal", "bloom vertical"});
@@ -605,6 +615,14 @@ namespace {
                    << "# objects=" << m_options.objects << " scene_draws=" << stats.draw_calls
                    << " lights=" << stats.light_count << " msaa=" << m_quality.msaa_samples
                    << " bloom=" << m_options.bloom << " ibl=off output=sdr\n"
+                   << "# render_path="
+                   << (m_quality.render_path == Comet::RenderPath::Deferred ? "deferred"
+                                                                            : "forward")
+                   << " gbuffer_draws=" << stats.gbuffer_draw_calls << " gbuffer_bytes_per_slot="
+                   << (m_quality.render_path == Comet::RenderPath::Deferred
+                              ? uint64_t(m_scene_size.x) * m_scene_size.y * 36
+                              : 0)
+                   << '\n'
                    << "# anisotropy=" << m_quality.max_anisotropy
                    << " render_scale=" << m_quality.render_scale << " scene=" << m_scene_size.x
                    << 'x' << m_scene_size.y << '\n'
@@ -728,8 +746,7 @@ namespace {
                 || stats.material_preparations != visible_materials || stats.mesh_binds != meshes
                 || stats.cached_material_versions != visible_materials
                 || scene.get_post_process_settings().uses_bloom() != m_options.bloom)
-                return Result<void>::failure(
-                    "Benchmark did not execute the expected forward scene");
+                return Result<void>::failure("Benchmark did not execute the expected scene");
             for(size_t index = 0; index < m_passes.size(); ++index)
                 if(frame.passes[index].name != m_passes[index])
                     return Result<void>::failure("Unexpected benchmark pass order");
@@ -814,10 +831,11 @@ namespace {
         config.window.width = static_cast<int>(options.width);
         config.window.height = static_cast<int>(options.height);
         config.window.resizable = false;
-        config.window.title = "Comet Forward Benchmark";
+        config.window.title = "Comet Render Benchmark";
         config.vulkan.msaa_samples = static_cast<Comet::SampleCount>(options.quality.msaa_samples);
         config.render.max_anisotropy = options.quality.max_anisotropy;
         config.render.render_scale = options.quality.render_scale;
+        config.render.render_path = options.quality.render_path;
         config.vulkan.enable_validation = false;
         config.diagnostics.log.level = "warn";
         config.diagnostics.log.enable_file_logging = false;

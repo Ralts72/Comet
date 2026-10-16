@@ -1,5 +1,7 @@
 #include "render/passes/volumetric_fog_pass.h"
 #include "render/material/material_renderer.h"
+#include "pbr_gbuffer_frag.h"
+#include "unlit_gbuffer_frag.h"
 #include "render/scene/draw_order.h"
 #include "render/material/material_programs.h"
 #include "render/material/material_layout.h"
@@ -56,9 +58,14 @@ namespace Comet {
         : m_device(device), m_pipeline_manager(pipelines), m_samples(samples),
           m_programs(programs) {}
 
+    uint64_t MaterialRenderer::get_pipeline_creations() const {
+        return m_pipeline_manager.get_pipeline_creations()
+               + (m_gbuffer_pipelines ? m_gbuffer_pipelines->get_pipeline_creations() : 0);
+    }
+
     MaterialRenderer::Statistics MaterialRenderer::get_statistics() const {
         auto statistics = m_statistics;
-        statistics.pipeline_creations = m_pipeline_manager.get_pipeline_creations();
+        statistics.pipeline_creations = get_pipeline_creations();
         statistics.warmup_pipeline_creations = m_warmup_pipeline_creations;
         static_cast<ViewBindings::Statistics&>(statistics) = m_view_bindings.statistics();
         statistics.cached_material_versions = static_cast<uint32_t>(std::ranges::count_if(
@@ -104,9 +111,11 @@ namespace Comet {
     Result<std::unique_ptr<MaterialRenderer>, GraphicsError> MaterialRenderer::create(
         Device& device, PipelineManager& pipelines, RenderResources& resources,
         const uint32_t frame_slot_count, const SampleCount samples, const MaterialShaders* shaders,
-        MaterialPrograms* programs, std::optional<float> max_anisotropy) {
+        MaterialPrograms* programs, std::optional<float> max_anisotropy,
+        PipelineManager* gbuffer_pipelines) {
         auto candidate = std::unique_ptr<MaterialRenderer>(
             new MaterialRenderer(device, pipelines, samples, programs));
+        candidate->m_gbuffer_pipelines = gbuffer_pipelines;
         if(auto result = candidate->initialize(
                pipelines, resources, frame_slot_count, samples, shaders, max_anisotropy);
             !result) {
@@ -218,9 +227,19 @@ namespace Comet {
                 return Result<void, GraphicsError>::failure(shader.error());
             instanced_vertex = std::move(shader).value();
         }
-        auto candidate =
-            create_pipeline(pipelines, vertex.value(), fragment.value(), reflected.value(), samples,
-                descriptor_layout, INVALID_ASSET_HANDLE, instanced_vertex, static_mesh_bounds);
+        std::shared_ptr<Shader> gbuffer_fragment;
+        if(m_gbuffer_pipelines && static_mesh_bounds && code.fragment_entry == "main"
+            && code.fragment == builtins.at(name).fragment) {
+            const auto words = name == "pbr" ? std::span<const uint32_t>(PBR_GBUFFER_FRAG)
+                                             : std::span<const uint32_t>(UNLIT_GBUFFER_FRAG);
+            auto shader = Shader::create(m_device, name + " G-buffer", words);
+            if(!shader)
+                return Result<void, GraphicsError>::failure(shader.error());
+            gbuffer_fragment = std::move(shader).value();
+        }
+        auto candidate = create_pipeline(pipelines, vertex.value(), fragment.value(),
+            reflected.value(), samples, descriptor_layout, INVALID_ASSET_HANDLE, instanced_vertex,
+            static_mesh_bounds, gbuffer_fragment);
         if(!candidate)
             return Result<void, GraphicsError>::failure(candidate.error());
         if(old != m_pipelines.end() && old->second->pipeline == candidate.value()->pipeline
@@ -436,7 +455,7 @@ namespace Comet {
             const std::shared_ptr<Shader>& fragment, std::shared_ptr<const MaterialLayout> layout,
             const SampleCount samples, std::shared_ptr<DescriptorSetLayout> material_layout,
             const AssetHandle shader_program, const std::shared_ptr<Shader>& instanced_vertex,
-            const bool static_mesh_bounds) {
+            const bool static_mesh_bounds, const std::shared_ptr<Shader>& gbuffer_fragment) {
         using Creation = Result<std::shared_ptr<const PipelineState>, GraphicsError>;
         if(!layout)
             return Creation::failure({"Missing material layout"});
@@ -466,11 +485,14 @@ namespace Comet {
         state->vertex = vertex;
         state->fragment = fragment;
         state->instanced_vertex = instanced_vertex;
+        state->gbuffer_fragment = gbuffer_fragment;
         auto defaults = create_surface_pipelines(pipelines, *state, {});
         if(!defaults)
             return Creation::failure(defaults.error());
         state->pipeline = defaults.value().pipeline;
         state->instanced_pipeline = defaults.value().instanced_pipeline;
+        state->gbuffer_pipeline = defaults.value().gbuffer_pipeline;
+        state->gbuffer_instanced_pipeline = defaults.value().gbuffer_instanced_pipeline;
         return Creation::success(std::move(state));
     }
 
@@ -525,6 +547,7 @@ namespace Comet {
         }
         if(surface.alpha_mode == AlphaMode::Mask && (!has_mode || !has_cutoff))
             return Creation::failure({"Alpha Mask Shader must implement common/surface.glsl"});
+        const auto base_input = input;
         SurfacePipelines result;
         auto pipeline = pipelines.create_pipeline(
             program.layout->get_name(), shader_layout, config, program.vertex, program.fragment);
@@ -539,6 +562,30 @@ namespace Comet {
             if(!instanced)
                 return Creation::failure(instanced.error());
             result.instanced_pipeline = std::move(instanced).value();
+        }
+        if(m_gbuffer_pipelines && program.gbuffer_fragment
+            && surface.alpha_mode != AlphaMode::Blend) {
+            config.color_blend_state.colorWriteMask =
+                vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG
+                | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
+            input = base_input;
+            config.set_vertex_input_state(input);
+            auto gbuffer =
+                m_gbuffer_pipelines->create_pipeline(program.layout->get_name() + " G-buffer",
+                    shader_layout, config, program.vertex, program.gbuffer_fragment);
+            if(!gbuffer)
+                return Creation::failure(gbuffer.error());
+            result.gbuffer_pipeline = std::move(gbuffer).value();
+            if(program.instanced_vertex) {
+                InstanceBuffer::describe(input);
+                config.set_vertex_input_state(input);
+                auto instanced = m_gbuffer_pipelines->create_pipeline(
+                    program.layout->get_name() + " G-buffer instanced", shader_layout, config,
+                    program.instanced_vertex, program.gbuffer_fragment);
+                if(!instanced)
+                    return Creation::failure(instanced.error());
+                result.gbuffer_instanced_pipeline = std::move(instanced).value();
+            }
         }
         return Creation::success(std::move(result));
     }
@@ -628,7 +675,8 @@ namespace Comet {
             const std::shared_ptr<const PipelineState>& pipeline,
             const std::shared_ptr<MaterialResources>& previous) {
         using Creation = Result<std::shared_ptr<MaterialResources>, GraphicsError>;
-        SurfacePipelines draws{pipeline->pipeline, pipeline->instanced_pipeline};
+        SurfacePipelines draws{pipeline->pipeline, pipeline->instanced_pipeline,
+            pipeline->gbuffer_pipeline, pipeline->gbuffer_instanced_pipeline};
         if(prepared->surface != MaterialSurface{}) {
             auto selected =
                 create_surface_pipelines(m_pipeline_manager, *pipeline, prepared->surface);
@@ -724,6 +772,13 @@ namespace Comet {
         return Result<void, GraphicsError>::success();
     }
 
+    void MaterialRenderer::record_gbuffer(
+        FrameScheduler& frames, std::vector<QueueSemaphoreSubmit>& waits) {
+        record_draws(frames,
+            std::span(m_draw_queue).first(m_draw_queue.size() - m_transparent_depths.size()), waits,
+            DrawPhase::GBuffer);
+    }
+
     void MaterialRenderer::record_opaque(
         FrameScheduler& frames, std::vector<QueueSemaphoreSubmit>& waits) {
         record_draws(frames,
@@ -750,7 +805,8 @@ namespace Comet {
     }
 
     void MaterialRenderer::record_draws(FrameScheduler& frames,
-        const std::span<const DrawItem> queue, std::vector<QueueSemaphoreSubmit>& waits) {
+        const std::span<const DrawItem> queue, std::vector<QueueSemaphoreSubmit>& waits,
+        DrawPhase phase) {
         const auto slot = frames.get_current_frame_slot_index();
         auto& command = frames.get_current_command_buffer();
         if(!m_instance_transforms.empty())
@@ -762,7 +818,14 @@ namespace Comet {
             const auto& material = draw.material;
             const bool instanced = draw.instance_count > 1;
             const auto& pipelines = draw.mirrored ? *material->mirrored_draws : material->draws;
-            const auto& pipeline = instanced ? pipelines.instanced_pipeline : pipelines.pipeline;
+            const bool deferred = bool(pipelines.gbuffer_pipeline);
+            if((phase == DrawPhase::GBuffer) != deferred)
+                continue;
+            const auto& pipeline =
+                phase == DrawPhase::GBuffer
+                    ? (instanced ? pipelines.gbuffer_instanced_pipeline
+                                 : pipelines.gbuffer_pipeline)
+                    : (instanced ? pipelines.instanced_pipeline : pipelines.pipeline);
             if(active_pipeline != pipeline.get()) {
                 command.bind_pipeline(*pipeline);
                 active_pipeline = pipeline.get();
@@ -797,6 +860,8 @@ namespace Comet {
             }
             draw.item->mesh->draw(command, draw.instance_count, draw.first_instance);
             ++m_statistics.draw_calls;
+            if(phase == DrawPhase::GBuffer)
+                ++m_statistics.gbuffer_draw_calls;
             m_statistics.drawn_instances += draw.instance_count;
             m_statistics.drawn_triangles +=
                 uint64_t(draw.item->mesh->get_triangle_count()) * draw.instance_count;

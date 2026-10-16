@@ -64,10 +64,9 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> MaterialRenderer::warmup_scene(const RenderWorld& world) {
-        const auto before = m_pipeline_manager.get_pipeline_creations();
-        const ScopeExit count_created([&] {
-            m_warmup_pipeline_creations = m_pipeline_manager.get_pipeline_creations() - before;
-        });
+        const auto before = get_pipeline_creations();
+        const ScopeExit count_created(
+            [&] { m_warmup_pipeline_creations = get_pipeline_creations() - before; });
         // 与绘制相同的材质身份；重复输入沿用最后一份快照。
         std::map<MaterialInstanceKey, std::pair<const MaterialBinding*, bool>> inputs;
         for(const auto& item : world.render_items) {

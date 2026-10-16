@@ -67,6 +67,8 @@
                 <button id="quality-balanced" data-event-click="command('quality_preset', 'balanced')" data-attrif-disabled="waiting">均衡</button>
                 <button id="quality-quality" data-event-click="command('quality_preset', 'quality')" data-attrif-disabled="waiting">质量</button>
                 <p class="hint">档位只修改草稿；MSAA 和各向异性按设备能力降低，仍可逐项调整。</p>
+                <button id="quality-path" data-event-click="command('quality_path')" data-attrif-disabled="waiting">渲染路径：{{ quality_path }}</button>
+                <p class="hint">Deferred 使用单采样或 TAA；Forward 支持 MSAA。</p>
                 <button id="quality-msaa" data-event-click="command('quality_msaa')" data-attrif-disabled="waiting">抗锯齿：{{ quality_msaa }}</button>
                 <button id="quality-anisotropy" data-event-click="command('quality_anisotropy')" data-attrif-disabled="waiting">各向异性：{{ quality_anisotropy }}</button>
                 <button id="quality-scale" data-event-click="command('quality_scale')" data-attrif-disabled="waiting">渲染比例：{{ quality_scale }}</button>

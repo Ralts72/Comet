@@ -117,10 +117,11 @@ namespace Comet::Tests {
         }
         Result<std::unique_ptr<SceneRenderer>, GraphicsError> create_scene(
             MaterialPrograms& programs, Math::Vec2u size, SampleCount samples = SampleCount::Count1,
-            bool temporal_aa = false) {
+            bool temporal_aa = false, RenderPath path = RenderPath::Forward) {
             Config config;
             config.vulkan.msaa_samples = samples;
             config.render.temporal_aa = temporal_aa;
+            config.render.render_path = path;
             return SceneRenderer::create(engine->get_renderer().get_render_context().get_device(),
                 programs, engine->get_render_resources(), config.vulkan, config.render, size);
         }

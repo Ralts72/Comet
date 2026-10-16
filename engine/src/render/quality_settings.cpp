@@ -5,6 +5,11 @@
 
 namespace Comet {
     Result<void> QualitySettings::validate() const {
+        if(render_path != RenderPath::Forward && render_path != RenderPath::Deferred)
+            return Result<void>::failure("Unknown rendering path");
+        if(render_path == RenderPath::Deferred && msaa_samples != 1)
+            return Result<void>::failure(
+                "Deferred rendering requires one sample; use TAA for anti-aliasing");
         if(msaa_samples != 1 && msaa_samples != 2 && msaa_samples != 4 && msaa_samples != 8)
             return Result<void>::failure("MSAA samples must be 1, 2, 4 or 8");
         if(!std::isfinite(max_anisotropy) || max_anisotropy < 1 || max_anisotropy > 16)
@@ -24,8 +29,9 @@ namespace Comet {
     Result<QualitySettings> QualitySettings::read(
         Json::Node node, const Json::Context& context, std::string_view location) {
         using Read = Result<QualitySettings>;
-        if(auto valid = context.validate_keys(
-               node, {"msaa_samples", "max_anisotropy", "render_scale", "temporal_aa"}, location);
+        if(auto valid = context.validate_keys(node,
+               {"msaa_samples", "max_anisotropy", "render_scale", "temporal_aa", "render_path"},
+               location);
             !valid)
             return Read::failure(valid.error());
         auto samples =
@@ -44,6 +50,16 @@ namespace Comet {
         if(!temporal)
             return Read::failure(temporal.error());
         settings.temporal_aa = temporal.value().value_or(false);
+        auto path = context.read_optional_field<std::string>(
+            node, "render_path", "a rendering path", location);
+        if(!path)
+            return Read::failure(path.error());
+        if(path.value()) {
+            if(*path.value() == "deferred")
+                settings.render_path = RenderPath::Deferred;
+            else if(*path.value() != "forward")
+                return Read::failure(context.error(location, "Unknown rendering path"));
+        }
         if(auto valid = settings.validate(); !valid)
             return Read::failure(context.error(location, valid.error()));
         return Read::success(settings);
@@ -55,6 +71,8 @@ namespace Comet {
         writer.field("max_anisotropy", max_anisotropy);
         writer.field("render_scale", render_scale);
         writer.field("temporal_aa", temporal_aa);
+        writer.field("render_path",
+            std::string_view(render_path == RenderPath::Deferred ? "deferred" : "forward"));
         writer.end_object();
     }
 }

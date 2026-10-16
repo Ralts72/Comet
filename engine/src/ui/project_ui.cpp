@@ -709,7 +709,7 @@ namespace Comet::Ui {
                 return 2;
             }
             const auto push_settings = [&](const Comet::QualitySettings& settings) {
-                lua_createtable(state, 0, 4);
+                lua_createtable(state, 0, 5);
                 lua_pushinteger(state, settings.msaa_samples);
                 lua_setfield(state, -2, "msaa_samples");
                 lua_pushnumber(state, settings.max_anisotropy);
@@ -718,6 +718,9 @@ namespace Comet::Ui {
                 lua_setfield(state, -2, "render_scale");
                 lua_pushboolean(state, settings.temporal_aa);
                 lua_setfield(state, -2, "temporal_aa");
+                lua_pushstring(
+                    state, settings.render_path == RenderPath::Deferred ? "deferred" : "forward");
+                lua_setfield(state, -2, "render_path");
             };
             push_settings(loaded.value());
             push_settings(m_services.quality_defaults);
@@ -749,9 +752,19 @@ namespace Comet::Ui {
             return luaL_error(state, "Quality settings service is unavailable");
         if(!lua_isnoneornil(state, 4))
             luaL_checktype(state, 4, LUA_TBOOLEAN);
+        auto path = m_renderer.get_quality_settings().render_path;
+        if(!lua_isnoneornil(state, 5)) {
+            const std::string_view name(luaL_checkstring(state, 5));
+            if(name == "deferred")
+                path = RenderPath::Deferred;
+            else if(name == "forward")
+                path = RenderPath::Forward;
+            else
+                return luaL_error(state, "Unknown rendering path");
+        }
         m_pending_quality =
             Comet::QualitySettings{static_cast<uint32_t>(samples), static_cast<float>(anisotropy),
-                static_cast<float>(scale), bool(lua_toboolean(state, 4))};
+                static_cast<float>(scale), bool(lua_toboolean(state, 4)), path};
         return 0;
     }
 

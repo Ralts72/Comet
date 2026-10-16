@@ -116,12 +116,14 @@ local function settings(options)
         quality_preset_order[#quality_preset_order + 1] = preset.id
     end
 
-    local function resolve_preset(preset, settings)
+    local function resolve_preset(preset, settings, path)
         local samples = 1
         for _, supported in ipairs(settings.supported_msaa) do
             if supported <= preset.msaa_samples then samples = math.max(samples, supported) end
         end
-        return {msaa_samples = samples,
+        path = preset.render_path or path or settings.render_path or "forward"
+        if path == "deferred" then samples = 1 end
+        return {msaa_samples = samples, render_path = path,
             max_anisotropy = math.min(preset.max_anisotropy, settings.max_anisotropy_supported),
             render_scale = preset.render_scale, temporal_aa = preset.temporal_aa or false}
     end
@@ -131,15 +133,17 @@ local function settings(options)
         state.quality_anisotropy = settings.max_anisotropy
         state.quality_scale = settings.render_scale
         state.quality_temporal = settings.temporal_aa or false
+        state.quality_path = settings.render_path or "forward"
     end
 
     local function quality_preset_label(state, settings)
         local names = {}
         for _, key in ipairs(quality_preset_order) do
             local preset = quality_presets[key]
-            local resolved = resolve_preset(preset, settings)
+            local resolved = resolve_preset(preset, settings, state.quality_path)
             if state.quality_msaa == resolved.msaa_samples
                 and state.quality_temporal == resolved.temporal_aa
+                and state.quality_path == resolved.render_path
                 and math.abs(state.quality_anisotropy - resolved.max_anisotropy) < 0.000001
                 and math.abs(state.quality_scale - resolved.render_scale) < 0.000001 then
                 names[#names + 1] = preset.name
@@ -255,6 +259,7 @@ local function settings(options)
         local state = self.state
         ui.set("quality_available", state.quality_available)
         if not state.quality_available then return end
+        ui.set("quality_path", state.quality_path == "deferred" and "Deferred" or "Forward")
         ui.set("quality_msaa", state.quality_temporal and "TAA" or tostring(state.quality_msaa) .. "×")
         ui.set("quality_anisotropy", tostring(state.quality_anisotropy) .. "×")
         ui.set("quality_scale", string.format("%.0f%%", state.quality_scale * 100))
@@ -279,8 +284,9 @@ local function settings(options)
         if not settings then return end
         local active = settings.active
         local aa = active.temporal_aa and "TAA" or "MSAA " .. tostring(active.msaa_samples) .. "×"
-        ui.set("quality_active", string.format("当前生效：%s · 各向异性 %.0f× · 渲染比例 %.0f%%",
-            aa, active.max_anisotropy, active.render_scale * 100))
+        local path = active.render_path == "deferred" and "Deferred" or "Forward"
+        ui.set("quality_active", string.format("当前生效：%s · %s · 各向异性 %.0f× · 渲染比例 %.0f%%",
+            path, aa, active.max_anisotropy, active.render_scale * 100))
         local status = "渲染比例仅调整场景画面，UI 保持输出分辨率。更改应用后保存。"
         if settings.pending then status = "设置已保存，等待下一帧应用…" end
         local message = self.state.quality_error
@@ -433,9 +439,15 @@ local function settings(options)
         local settings = ui.quality_settings()
         if not settings then return end
         if quality_presets[action] and operation == "quality_preset" then
-            quality_draft(draft, resolve_preset(quality_presets[action], settings))
+            quality_draft(draft, resolve_preset(quality_presets[action], settings, draft.quality_path))
+        elseif operation == "quality_path" then
+            draft.quality_path = draft.quality_path == "deferred" and "forward" or "deferred"
+            if draft.quality_path == "deferred" then draft.quality_msaa = 1 end
         elseif operation == "quality_msaa" then
-            if draft.quality_temporal then
+            if draft.quality_path == "deferred" then
+                draft.quality_temporal = not draft.quality_temporal
+                draft.quality_msaa = 1
+            elseif draft.quality_temporal then
                 draft.quality_temporal = false
                 draft.quality_msaa = settings.supported_msaa[1]
             elseif draft.quality_msaa == settings.supported_msaa[#settings.supported_msaa] then
@@ -459,7 +471,7 @@ local function settings(options)
             draft.quality_error = ""
             draft.quality_waiting = true
             ui.quality_apply(draft.quality_msaa, draft.quality_anisotropy, draft.quality_scale,
-                draft.quality_temporal)
+                draft.quality_temporal, draft.quality_path)
         end
         quality_labels(self, ui, settings)
     end
@@ -541,7 +553,7 @@ local function settings(options)
             display_confirming = false, display_output_pending = false, display_confirmation_text = "",
             display_output_mode = "SDR", display_hdr_headroom = 4, display_hdr_white = 100,
             display_hdr_disabled = true, display_output_active = "",
-            quality_available = false, quality_msaa = "", quality_anisotropy = "", quality_scale = "",
+            quality_available = false, quality_path = "Forward", quality_msaa = "", quality_anisotropy = "", quality_scale = "",
             quality_active = "", quality_status = "", quality_error = "",
             quality_preset = "",
             audio_available = false, audio_master = 100, audio_effects = 100, audio_music = 100,
@@ -552,7 +564,7 @@ local function settings(options)
             revision = -1, error = "", display_waiting = false,
             display_confirming = false, display_output_pending = false,
             quality_available = false, quality_waiting = false, quality_error = "",
-            quality_msaa = 4, quality_anisotropy = 8, quality_scale = 1, quality_temporal = false,
+            quality_path = "forward", quality_msaa = 4, quality_anisotropy = 8, quality_scale = 1, quality_temporal = false,
             audio_available = false, audio_waiting = false, audio_error = "",
             audio_master = 100, audio_effects = 100, audio_music = 100,
             display_available = false, display_width = "960", display_height = "720",

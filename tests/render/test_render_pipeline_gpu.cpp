@@ -537,8 +537,10 @@ namespace Comet::Tests {
         auto& device = context.get_device();
         ASSERT_TRUE(prepare_offscreen_host({4, 4}));
         const auto directory = std::filesystem::path(PROJECT_ROOT_DIR) / "engine/shaders/material";
-        auto source = read_text_file(directory / "pbr.frag");
+        auto source = read_text_file(directory / "pbr_surface.glsl");
         ASSERT_TRUE(source) << source.error();
+        source.value().insert(
+            0, "#version 450\n#extension GL_GOOGLE_include_directive : require\n");
         const std::string color = "apply_distance_fog(result + emission)";
         const auto offset = source.value().find(color);
         ASSERT_NE(offset, std::string::npos);

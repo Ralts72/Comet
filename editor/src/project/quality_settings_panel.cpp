@@ -27,10 +27,25 @@ namespace CometEditor {
             ImGui::TextWrapped(
                 "%s", "修改项目默认值；已有玩家选择保持不变，可在游戏菜单恢复默认。");
             ImGui::SetNextItemWidth(160);
+            const char* path =
+                m_draft.render_path == Comet::RenderPath::Deferred ? "Deferred" : "Forward";
+            if(ImGui::BeginCombo("渲染路径###Render Path", path)) {
+                if(ImGui::Selectable("Forward", m_draft.render_path == Comet::RenderPath::Forward))
+                    m_draft.render_path = Comet::RenderPath::Forward;
+                if(ImGui::Selectable("Deferred（单采样／TAA）",
+                       m_draft.render_path == Comet::RenderPath::Deferred)) {
+                    m_draft.render_path = Comet::RenderPath::Deferred;
+                    m_draft.msaa_samples = 1;
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SetNextItemWidth(160);
             const auto samples =
                 m_draft.temporal_aa ? "TAA" : std::to_string(m_draft.msaa_samples) + "x";
             if(ImGui::BeginCombo("抗锯齿###MSAA", samples.c_str())) {
                 for(const uint32_t count : {1u, 2u, 4u, 8u}) {
+                    if(m_draft.render_path == Comet::RenderPath::Deferred && count != 1)
+                        continue;
                     const auto label = std::to_string(count) + "x";
                     if(ImGui::Selectable(
                            label.c_str(), !m_draft.temporal_aa && m_draft.msaa_samples == count)) {

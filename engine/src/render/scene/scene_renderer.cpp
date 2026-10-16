@@ -26,6 +26,7 @@
 #include "render/passes/particle_pass.h"
 #include "render/passes/temporal_pass.h"
 #include "render/passes/decal_pass.h"
+#include "render/passes/deferred_pass.h"
 #include "render/passes/volumetric_fog_pass.h"
 
 #include <algorithm>
@@ -46,6 +47,10 @@ namespace Comet {
         std::unique_ptr<SkyboxPass> skybox_pass;
         std::shared_ptr<RenderTarget> hdr_target;
         std::shared_ptr<RenderTarget> output_target;
+        std::unique_ptr<DeferredPass> deferred;
+        std::shared_ptr<DeferredPass::Resources> deferred_resources;
+        std::vector<RenderGraph::ResourceId> gbuffer_resources;
+        std::optional<RenderGraph::PassId> gbuffer_pass;
         std::unique_ptr<MaterialRenderer> materials;
         RenderGeometry view_geometry;
         std::unique_ptr<DebugRenderer> debug;
@@ -108,7 +113,7 @@ namespace Comet {
           m_depth_format(vulkan.depth_format),
           m_quality{static_cast<uint32_t>(vulkan.msaa_samples),
               std::min(render.max_anisotropy, device.get_capability().max_sampler_anisotropy),
-              render.render_scale, render.temporal_aa},
+              render.render_scale, render.temporal_aa, render.render_path},
           m_frame_slot_count(render.max_frames_in_flight) {}
 
     Result<std::shared_ptr<SceneRenderer::RenderState>, GraphicsError> SceneRenderer::create_state(
@@ -187,12 +192,24 @@ namespace Comet {
         if(!skybox)
             return Creation::failure(skybox.error());
         next->skybox_pass = std::move(skybox).value();
-        auto materials =
-            MaterialRenderer::create(m_device, *next->pipelines, resources, m_frame_slot_count,
-                samples, m_programs.builtin_overrides(), &m_programs, quality.max_anisotropy);
+        if(quality.render_path == RenderPath::Deferred) {
+            auto deferred = DeferredPass::create(m_device, m_frame_slot_count);
+            if(!deferred)
+                return Creation::failure(deferred.error());
+            next->deferred = std::move(deferred).value();
+        }
+        auto materials = MaterialRenderer::create(m_device, *next->pipelines, resources,
+            m_frame_slot_count, samples, m_programs.builtin_overrides(), &m_programs,
+            quality.max_anisotropy, next->deferred ? &next->deferred->pipelines() : nullptr);
         if(!materials)
             return Creation::failure(materials.error());
         next->materials = std::move(materials).value();
+        if(next->deferred) {
+            auto lighting = next->deferred->create_lighting(
+                *next->pipelines, next->materials->view_bindings().layout());
+            if(!lighting)
+                return Creation::failure(lighting.error());
+        }
         auto debug = DebugRenderer::create(m_device, *next->pipelines, m_frame_slot_count, samples);
         if(!debug)
             return Creation::failure(debug.error());
@@ -265,7 +282,29 @@ namespace Comet {
                                        {*fog_resource, ResourceUsage::StorageWrite,
                                            Flags<PipelineStage>(PipelineStage::ComputeShader)}}});
         }
-        RenderGraph::Pass scene{"scene", {}};
+        std::vector<RenderGraph::ResourceId> gbuffer_resources;
+        std::optional<RenderGraph::PassId> gbuffer_pass;
+        if(state.deferred) {
+            RenderGraph::Pass geometry{"G-buffer", {}};
+            for(uint32_t index = 0; index <= DeferredPass::COLOR_COUNT; ++index) {
+                const bool depth = index == DeferredPass::COLOR_COUNT;
+                const auto usage = depth ? ResourceUsage::DepthStencilAttachmentWrite
+                                         : ResourceUsage::ColorAttachmentWrite;
+                auto access = *resolve_resource_state(usage);
+                access.stages |= PipelineStage::FragmentShader;
+                const auto resource = graph.import_image("G-buffer " + std::to_string(index),
+                    {.resource = access,
+                        .subresources = {.aspects = Flags<ImageAspect>(
+                                             depth ? ImageAspect::Depth : ImageAspect::Color)}});
+                gbuffer_resources.push_back(resource);
+                geometry.uses.push_back({resource, usage, {}});
+            }
+            gbuffer_pass = graph.add_pass(std::move(geometry));
+        }
+        RenderGraph::Pass scene{state.deferred ? "deferred lighting and Forward" : "scene", {}};
+        for(const auto resource : gbuffer_resources)
+            scene.uses.push_back({resource, ResourceUsage::SampledRead,
+                Flags<PipelineStage>(PipelineStage::FragmentShader)});
         if(fog_resource)
             scene.uses.push_back({*fog_resource, ResourceUsage::SampledRead,
                 Flags<PipelineStage>(PipelineStage::FragmentShader)});
@@ -345,6 +384,8 @@ namespace Comet {
                 !prepared)
                 return prepared;
         }
+        state.gbuffer_resources = std::move(gbuffer_resources);
+        state.gbuffer_pass = gbuffer_pass;
         state.fog_resources = std::move(fog_resources);
         state.fog_pass = fog_pass;
         state.graph = std::move(compiled).value();
@@ -523,6 +564,13 @@ namespace Comet {
                 return Result<void, GraphicsError>::failure(candidate.error());
             view_depth = std::move(candidate).value();
         }
+        std::shared_ptr<DeferredPass::Resources> deferred;
+        if(state.deferred) {
+            auto candidate = state.deferred->create_resources(state.quality.scene_size(size));
+            if(!candidate)
+                return Result<void, GraphicsError>::failure(candidate.error());
+            deferred = std::move(candidate).value();
+        }
         if(auto graph = rebuild_graph(state, m_post_process, state.requirements,
                {state.bloom.get(), state.fog.get()}, state.quality.scene_size(size));
             !graph)
@@ -530,6 +578,7 @@ namespace Comet {
         // 所有候选均成功后再发布，不改变在途帧保留的旧目标。
         if(view_depth)
             state.view_depth = std::move(view_depth);
+        state.deferred_resources = std::move(deferred);
         state.hdr_target = std::move(hdr).value();
         state.output_target = std::move(output);
         return Result<void, GraphicsError>::success();
@@ -761,6 +810,11 @@ namespace Comet {
         const auto& attachments = m_state->hdr_target->get_framebuffer(image)->get_attachments();
         for(std::size_t index = 0; index < attachments.size(); ++index)
             bindings[m_state->scene_attachments[index].index] = attachments[index]->get_image();
+        if(m_state->deferred) {
+            const auto images = DeferredPass::images(*m_state->deferred_resources, image);
+            for(std::size_t index = 0; index < images.size(); ++index)
+                bindings[m_state->gbuffer_resources[index].index] = images[index]->get_image();
+        }
         if(m_state->view_depth_resource)
             bindings[m_state->view_depth_resource->index] =
                 m_state->view_depth->get_depth_view(image)->get_image();
@@ -798,6 +852,11 @@ namespace Comet {
         const RenderGeometry& main_geometry, const LineDrawList& lines,
         const LightingData& lighting, std::vector<QueueSemaphoreSubmit>& waits) {
         const auto slot = frames.get_current_frame_slot_index();
+        if(m_state->gbuffer_pass && pass == *m_state->gbuffer_pass) {
+            m_state->deferred->record_geometry(
+                frames, m_state->deferred_resources, *m_state->materials, waits);
+            return Result<void, GraphicsError>::success();
+        }
         if(m_state->fog_pass && pass == *m_state->fog_pass) {
             m_state->fog->render(frames, *m_state->fog_resources,
                 m_state->materials->view_bindings().descriptor(slot));
@@ -879,6 +938,10 @@ namespace Comet {
                     particles.error());
             for(const auto& wait : particles.value())
                 merge_semaphore_wait(waits.value(), wait);
+            if(m_state->deferred)
+                m_state->deferred->record_lighting(frames, m_state->deferred_resources,
+                    m_state->materials->view_bindings().descriptor(
+                        frames.get_current_frame_slot_index()));
             m_state->materials->record_opaque(frames, waits.value());
             if(m_state->decals) {
                 const auto slot = frames.get_current_frame_slot_index();
