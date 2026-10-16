@@ -1,6 +1,6 @@
 #include "support/render_gpu_test.h"
 #include "support/temporary_directory.h"
-#include "render/path_trace_scene.h"
+#include "render/ray_scene.h"
 #include "render/material/material.h"
 #include "asset/asset_manager.h"
 #include "scene/scene_serializer.h"
@@ -17,7 +17,7 @@ namespace Comet::Tests {
         static constexpr Math::Vec2u SIZE{32, 32};
         RenderScene scene;
         RenderView view;
-        PathTraceSceneBuilder builder;
+        RaySceneBuilder builder;
         RenderWorld source;
         MeshData mesh;
         std::map<AssetHandle, TextureData> images;

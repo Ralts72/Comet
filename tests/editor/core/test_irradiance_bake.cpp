@@ -146,6 +146,9 @@ namespace CometEditor::Tests {
         child.add_component<MeshRendererComponent>(
             MeshRendererComponent{AssetHandle(70191), DEFAULT_PBR_MATERIAL});
         ASSERT_TRUE(scene.set_parent(child, dynamic));
+        scene.create_entity("manual GI exclusion")
+            .add_component<MeshRendererComponent>(
+                MeshRendererComponent{AssetHandle(70191), DEFAULT_PBR_MATERIAL, false});
         EXPECT_EQ(fingerprint(), original);
         auto input = CometEditor::IrradianceBake::describe_input(scene, volume, assets->database());
         ASSERT_TRUE(input);

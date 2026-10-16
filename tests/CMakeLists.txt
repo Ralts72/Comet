@@ -114,7 +114,7 @@ set(UNIT_TEST_SOURCES
         physics/test_physics_service.cpp
         ui/test_demo_ui.cpp
         ui/test_resource_dependencies.cpp
-        render/test_path_trace_scene.cpp
+        render/test_ray_scene.cpp
         render/test_lighting.cpp
         render/test_view_work_selection.cpp
         render/test_line_draw_list.cpp
@@ -185,6 +185,7 @@ set(INTEGRATION_SOURCES
         graphics/test_swapchain.cpp
         graphics/test_upload_manager.cpp
         render/test_path_tracing.cpp
+        render/test_realtime_irradiance.cpp
         render/test_bloom.cpp
         render/test_debug_renderer.cpp
         render/test_frame_edit_order.cpp

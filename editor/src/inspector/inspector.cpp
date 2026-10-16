@@ -295,6 +295,15 @@ namespace CometEditor {
 
         bool property_visible(
             Comet::Entity entity, std::string_view component, std::string_view property) {
+            if(component == "irradiance_volume") {
+                const auto realtime =
+                    entity.get_component<Comet::IrradianceVolumeComponent>().realtime;
+                if(property == "irradiance" || property == "ray_samples" || property == "bounces")
+                    return !realtime;
+                if(property == "update_budget" || property == "update_rays"
+                    || property == "history_weight")
+                    return realtime;
+            }
             if(component == "animator") {
                 const bool controlled =
                     bool(entity.get_component<Comet::AnimatorComponent>().controller);
@@ -493,8 +502,13 @@ namespace CometEditor {
                     render_navigation_bake(entity, edit_structure);
                 if(component_descriptor.id == "reflection_probe")
                     render_reflection_bake(entity, edit_structure);
-                if(component_descriptor.id == "irradiance_volume")
-                    render_irradiance_bake(entity, edit_structure);
+                if(component_descriptor.id == "irradiance_volume") {
+                    if(entity.get_component<Comet::IrradianceVolumeComponent>().realtime)
+                        ImGui::TextWrapped(
+                            "实时模式更新静态几何的间接光。移动物体可采样；移动网格应关闭“参与静态 GI 几何”。蒙皮角色自动排除。预算越小、历史权重越大，灯光响应越慢。");
+                    else
+                        render_irradiance_bake(entity, edit_structure);
+                }
             }
             ImGui::PopID();
         }

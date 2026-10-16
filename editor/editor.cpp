@@ -140,6 +140,21 @@ namespace {
                 engine.get_asset_registry(), engine.get_render_resource_factory(),
                 engine.get_task_scheduler(), quiet_period, get_config().assets);
             auto initial_asset_scan = m_assets->refresh();
+            renderer.set_ray_scene_sources(
+                [this](Comet::AssetHandle handle) { return m_assets->read_mesh_data(handle); },
+                [this](Comet::AssetHandle handle) { return m_assets->mesh_data_revision(handle); },
+                {.texture =
+                        [this](Comet::AssetHandle handle) {
+                            return m_assets->read_texture_data(handle);
+                        },
+                    .environment =
+                        [this](Comet::AssetHandle handle) {
+                            return m_assets->read_environment_background(handle);
+                        },
+                    .revision =
+                        [this](Comet::AssetHandle handle) {
+                            return m_assets->database().get_revision(handle);
+                        }});
             m_assets->enable_rendered_previews(
                 engine.get_renderer(), engine.get_render_resource_factory());
             m_reflection_bake = std::make_unique<CometEditor::ReflectionBake>(
@@ -410,6 +425,7 @@ namespace {
                     LOG_WARN("Cannot restore material preview: {}", cancelled.error().message);
             }
             m_material_edits.reset();
+            get_engine().get_renderer().set_ray_scene_sources({});
             m_assets.reset();
             m_material_shader_reload.reset();
             m_project_session.reset();
@@ -924,20 +940,8 @@ namespace {
             m_viewport = std::make_unique<CometEditor::Viewport>(m_editor_state,
                 get_engine().get_scene_runtime(), *m_selection, m_command_history,
                 m_component_registry, m_property_edit, m_shortcuts, get_engine().get_renderer(),
-                get_engine().get_asset_registry(), *m_imgui_context, preview_meshes,
-                Comet::PathTraceSceneBuilder::Images{.texture =
-                                                         [this](Comet::AssetHandle handle) {
-                                                             return m_assets->read_texture_data(
-                                                                 handle);
-                                                         },
-                    .environment =
-                        [this](Comet::AssetHandle handle) {
-                            return m_assets->read_environment_background(handle);
-                        },
-                    .revision =
-                        [this](Comet::AssetHandle handle) {
-                            return m_assets->database().get_revision(handle);
-                        }});
+                get_engine().get_asset_registry(), *m_imgui_context, preview_meshes);
+
             m_inspector_panel = std::make_unique<CometEditor::InspectorPanel>(m_editor_state,
                 *m_selection, m_command_history, m_property_edit, m_component_registry,
                 m_property_editor_registry, m_assets->database(), get_engine().get_asset_registry(),

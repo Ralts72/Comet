@@ -108,4 +108,11 @@ namespace Comet {
         : m_width(width), m_height(height), m_image_view(std::move(image_view)),
           m_ready_completion(ready_completion), m_sampler(std::move(sampler)) {}
 
+    std::shared_ptr<Texture> Texture::from_image(
+        std::shared_ptr<ImageView> image, std::shared_ptr<Sampler> sampler) {
+        const auto extent = image->get_image()->get_info().extent;
+        return std::shared_ptr<Texture>(
+            new Texture(int(extent.x), int(extent.y), std::move(image), {}, std::move(sampler)));
+    }
+
 }

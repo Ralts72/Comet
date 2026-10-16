@@ -1,4 +1,4 @@
-#include "render/path_trace_scene.h"
+#include "render/ray_scene.h"
 #include "render/material/material.h"
 #include "render/scene/render_submission.h"
 #include "scene/material_parameters.h"
@@ -27,14 +27,14 @@ namespace Comet::Tests {
         }
     }
 
-    TEST(PathTraceSceneTest, ReusesInputAndKeepsOldSnapshotsAcrossEachChange) {
+    TEST(RaySceneTest, ReusesInputAndKeepsOldSnapshotsAcrossEachChange) {
         auto material = std::make_shared<Material>("surface", "pbr");
         ASSERT_TRUE(material->set_vector_property("base_color", {.2f, .2f, .2f, 1}));
         auto world = trace_world(material);
         auto mesh = triangle_mesh();
         size_t reads = 0;
         uint64_t revision = 1;
-        PathTraceSceneBuilder builder;
+        RaySceneBuilder builder;
         const auto read = [&](AssetHandle) {
             ++reads;
             return Result<MeshData, Error>::success(mesh);
@@ -71,7 +71,7 @@ namespace Comet::Tests {
         EXPECT_NE(builder.update(world, read, version).value(), lit);
     }
 
-    TEST(PathTraceSceneTest, PacksBvhWithoutLosingInstancesOrMaterialOverrides) {
+    TEST(RaySceneTest, PacksBvhWithoutLosingInstancesOrMaterialOverrides) {
         auto material = std::make_shared<Material>("surface", "pbr");
         auto world = trace_world(material);
         auto overrides = std::make_shared<MaterialOverrides>();
@@ -87,7 +87,7 @@ namespace Comet::Tests {
             world.render_items.push_back(item);
         }
         int reads = 0;
-        PathTraceSceneBuilder builder;
+        RaySceneBuilder builder;
         const auto read = [&](AssetHandle) {
             ++reads;
             return Result<MeshData, Error>::success(triangle_mesh());
@@ -121,12 +121,12 @@ namespace Comet::Tests {
         EXPECT_NE(builder.update(world, read).value(), scene.value());
     }
 
-    TEST(PathTraceSceneTest, RejectsUnsupportedOrInvalidInputsAndRecoversOnPublication) {
+    TEST(RaySceneTest, RejectsUnsupportedOrInvalidInputsAndRecoversOnPublication) {
         auto material = std::make_shared<Material>("surface", "pbr");
         auto world = trace_world(material);
         auto mesh = triangle_mesh();
         uint64_t revision = 1;
-        PathTraceSceneBuilder builder;
+        RaySceneBuilder builder;
         const auto read = [&](AssetHandle) { return Result<MeshData, Error>::success(mesh); };
         const auto update = [&] {
             return builder.update(world, read, [&](AssetHandle) { return revision; });
@@ -159,10 +159,10 @@ namespace Comet::Tests {
         EXPECT_FALSE(update());
     }
 
-    TEST(PathTraceSceneTest, PbrOpticsUseSharedDefaultsAndValidatedInstanceOverrides) {
+    TEST(RaySceneTest, PbrOpticsUseSharedDefaultsAndValidatedInstanceOverrides) {
         auto material = std::make_shared<Material>("glass", "pbr");
         auto world = trace_world(material);
-        PathTraceSceneBuilder builder;
+        RaySceneBuilder builder;
         const auto read = [](AssetHandle) {
             return Result<MeshData, Error>::success(triangle_mesh());
         };
@@ -186,11 +186,11 @@ namespace Comet::Tests {
         EXPECT_FALSE(builder.update(world, read));
     }
 
-    TEST(PathTraceSceneTest, AlphaModesAndInstanceOpacityShareGeometryButKeepOldMaterials) {
+    TEST(RaySceneTest, AlphaModesAndInstanceOpacityShareGeometryButKeepOldMaterials) {
         auto material = std::make_shared<Material>("surface", "pbr");
         ASSERT_TRUE(material->set_vector_property("base_color", {1, 1, 1, .4f}));
         auto world = trace_world(material);
-        PathTraceSceneBuilder builder;
+        RaySceneBuilder builder;
         unsigned reads = 0;
         const auto read = [&](AssetHandle) {
             ++reads;
@@ -218,7 +218,7 @@ namespace Comet::Tests {
         EXPECT_EQ(reads, 1u);
     }
 
-    TEST(PathTraceSceneTest, TexturesShareDecodedPixelsAndPreserveSourceVersionsAndTangentBasis) {
+    TEST(RaySceneTest, TexturesShareDecodedPixelsAndPreserveSourceVersionsAndTangentBasis) {
         TextureData image{.width = 2,
             .height = 1,
             .format = Format::R8G8B8A8_SRGB,
@@ -239,15 +239,14 @@ namespace Comet::Tests {
         }
         uint64_t revision = 1;
         int reads = 0;
-        PathTraceSceneBuilder::Images images{.texture =
-                                                 [&](AssetHandle handle) {
-                                                     EXPECT_EQ(handle, AssetHandle(20));
-                                                     ++reads;
-                                                     return Result<TextureData, Error>::success(
-                                                         image);
-                                                 },
+        RaySceneBuilder::Images images{.texture =
+                                           [&](AssetHandle handle) {
+                                               EXPECT_EQ(handle, AssetHandle(20));
+                                               ++reads;
+                                               return Result<TextureData, Error>::success(image);
+                                           },
             .revision = [&](AssetHandle) { return revision; }};
-        PathTraceSceneBuilder builder;
+        RaySceneBuilder builder;
         const auto read = [&](AssetHandle) { return Result<MeshData, Error>::success(mesh); };
         const auto first = builder.update(world, read, {}, images);
         ASSERT_TRUE(first) << first.error();
@@ -301,7 +300,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(CpuTextureImage::decode(data, 32));
     }
 
-    TEST(PathTraceSceneTest, BuildsNormalizedEqualAreaEnvironmentAndResetsOnSettingsOrPublication) {
+    TEST(RaySceneTest, BuildsNormalizedEqualAreaEnvironmentAndResetsOnSettingsOrPublication) {
         TextureData cube{.width = 1,
             .height = 1,
             .format = Format::R32G32B32A32_SFLOAT,
@@ -315,15 +314,15 @@ namespace Comet::Tests {
             .asset = AssetHandle(12), .rotation = 90, .lighting = true, .lighting_intensity = 2};
         uint64_t revision = 1;
         bool ready = true;
-        PathTraceSceneBuilder::Images images{
-            .environment =
-                [&](AssetHandle) {
-                    if(!ready)
-                        return Result<TextureData, Error>::failure({"not ready"});
-                    return Result<TextureData, Error>::success(cube);
-                },
+        RaySceneBuilder::Images images{.environment =
+                                           [&](AssetHandle) {
+                                               if(!ready)
+                                                   return Result<TextureData, Error>::failure(
+                                                       {"not ready"});
+                                               return Result<TextureData, Error>::success(cube);
+                                           },
             .revision = [&](AssetHandle) { return revision; }};
-        PathTraceSceneBuilder builder;
+        RaySceneBuilder builder;
         const auto read = [](AssetHandle) { return Result<MeshData, Error>::success({}); };
         const auto first = builder.update(world, read, {}, images);
         ASSERT_TRUE(first) << first.error();
@@ -355,10 +354,10 @@ namespace Comet::Tests {
         EXPECT_TRUE(builder.update(world, read, {}, images));
     }
 
-    TEST(PathTraceSceneTest, NonGeometryChangesReuseGeometryAndEnvironment) {
+    TEST(RaySceneTest, NonGeometryChangesReuseGeometryAndEnvironment) {
         auto material = std::make_shared<Material>("surface", "pbr");
         auto world = trace_world(material);
-        PathTraceSceneBuilder builder;
+        RaySceneBuilder builder;
         size_t reads = 0;
         const auto read = [&](AssetHandle) {
             ++reads;
@@ -391,14 +390,14 @@ namespace Comet::Tests {
         EXPECT_EQ(reads, 2u);
     }
 
-    TEST(PathTraceSceneTest, SceneIdentitySeparatesSameRevisionMaterials) {
+    TEST(RaySceneTest, SceneIdentitySeparatesSameRevisionMaterials) {
         auto first_material = std::make_shared<Material>("first", "pbr");
         auto second_material = std::make_shared<Material>("second", "pbr");
         ASSERT_TRUE(first_material->set_vector_property("base_color", {1, 0, 0, 1}));
         ASSERT_TRUE(second_material->set_vector_property("base_color", {0, 1, 0, 1}));
         ASSERT_EQ(first_material->get_revision(), second_material->get_revision());
         auto world = trace_world(first_material);
-        PathTraceSceneBuilder builder;
+        RaySceneBuilder builder;
         const auto read = [](AssetHandle) {
             return Result<MeshData, Error>::success(triangle_mesh());
         };
@@ -411,7 +410,7 @@ namespace Comet::Tests {
         EXPECT_EQ(Math::Vec3(second->materials->surfaces[0].albedo_metallic), Math::Vec3(0, 1, 0));
     }
 
-    TEST(PathTraceSceneTest, ValidatesBoundedQualityAndPreservesAspect) {
+    TEST(RaySceneTest, ValidatesBoundedQualityAndPreservesAspect) {
         PathTraceSettings settings;
         EXPECT_TRUE(settings.validate());
         EXPECT_EQ(settings.image_size({1920, 1080}), Math::Vec2u(512, 288));
@@ -422,4 +421,72 @@ namespace Comet::Tests {
         settings.bounces = 9;
         EXPECT_FALSE(settings.validate());
     }
+    TEST(CpuTextureSamplingTest, BoundedDecodeUsesMipOrLinearAreaWithoutFullFloatExpansion) {
+        TextureData image{.width = 2,
+            .height = 2,
+            .format = Format::R8G8B8A8_SRGB,
+            .pixels = {255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255}};
+        auto reduced = CpuTextureImage::decode(image, sizeof(Math::Vec4), 1);
+        ASSERT_TRUE(reduced) << reduced.error();
+        EXPECT_EQ(reduced.value().width, 1u);
+        EXPECT_EQ(reduced.value().height, 1u);
+        EXPECT_EQ(reduced.value().pixels[0], Math::Vec4(.5f, .5f, .5f, 1));
+        image.mip_levels = 2;
+        image.pixels.insert(image.pixels.end(), {0, 255, 0, 255});
+        auto mip = CpuTextureImage::decode(image, sizeof(Math::Vec4), 1);
+        ASSERT_TRUE(mip) << mip.error();
+        EXPECT_EQ(mip.value().pixels[0], Math::Vec4(0, 1, 0, 1));
+        EXPECT_FALSE(CpuTextureImage::decode(image, sizeof(Math::Vec4) - 1, 1));
+        image.pixels.resize(16);
+        EXPECT_FALSE(CpuTextureImage::decode(image, sizeof(Math::Vec4), 1));
+        EXPECT_FALSE(CpuTextureImage::decode(image, sizeof(Math::Vec4), 0));
+        EXPECT_FALSE(CpuTextureImage::decode(image, sizeof(Math::Vec4), 8193));
+    }
+
+    TEST(CpuTextureSamplingTest, NonIntegralReductionPreservesAreaAndAspectRatio) {
+        TextureData image{.width = 3,
+            .height = 2,
+            .format = Format::R8G8B8A8_UNORM,
+            .pixels = {255, 0, 0, 255, 0, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 0, 0, 0, 255,
+                255, 0, 0, 255}};
+        const auto reduced = CpuTextureImage::decode(image, 2 * sizeof(Math::Vec4), 2);
+        ASSERT_TRUE(reduced) << reduced.error();
+        EXPECT_EQ(reduced.value().width, 2u);
+        EXPECT_EQ(reduced.value().height, 1u);
+        for(const auto pixel : reduced.value().pixels) {
+            EXPECT_NEAR(pixel.r, 2.f / 3, 1e-6);
+            EXPECT_EQ(pixel.g, 0);
+            EXPECT_EQ(pixel.b, 0);
+            EXPECT_EQ(pixel.a, 1);
+        }
+    }
+
+    TEST(RaySceneTest, LowFrequencyTextureBudgetKeepsFullResolutionConsumersIndependent) {
+        TextureData image{.width = 2,
+            .height = 2,
+            .format = Format::R8G8B8A8_SRGB,
+            .pixels = {255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255}};
+        FakeRenderResourceFactory factory;
+        auto material = std::make_shared<Material>("textured", "pbr");
+        material->set_texture_property(
+            "base_color_texture", factory.try_create_texture(image).value(), AssetHandle(20));
+        auto world = trace_world(material);
+        const auto read = [&](AssetHandle) {
+            return Result<MeshData, Error>::success(triangle_mesh());
+        };
+        const RaySceneBuilder::Images images{
+            .texture = [&](AssetHandle) { return Result<TextureData, Error>::success(image); }};
+        RaySceneBuilder full;
+        RaySceneBuilder low(1);
+        const auto original = full.update(world, read, {}, images);
+        const auto reduced = low.update(world, read, {}, images);
+        ASSERT_TRUE(original) << original.error();
+        ASSERT_TRUE(reduced) << reduced.error();
+        EXPECT_EQ(original.value()->materials->texels.size(), 4u);
+        ASSERT_EQ(reduced.value()->materials->texels.size(), 1u);
+        EXPECT_EQ(reduced.value()->materials->texels[0], Math::Vec4(.5f, .5f, .5f, 1));
+        EXPECT_EQ(image.pixels.size(), 16u);
+        EXPECT_EQ(full.update(world, read, {}, images).value(), original.value());
+    }
+
 }

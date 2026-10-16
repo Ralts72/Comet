@@ -4,14 +4,12 @@
 #include "graphics/device.h"
 #include "graphics/pipeline/descriptor_set.h"
 #include "graphics/pipeline/shader.h"
-#include "graphics/resource/buffer.h"
+#include "render/resource/ray_scene_buffers.h"
 #include "graphics/resource/image.h"
 #include "graphics/resource/image_view.h"
 #include "render/frame_scheduler.h"
 #include "render/render_diagnostics.h"
 #include "path_trace_comp.h"
-
-#include <cstring>
 
 namespace Comet {
     namespace {
@@ -23,10 +21,10 @@ namespace Comet {
             Math::Vec4 environment;
         };
         static_assert(sizeof(Parameters) == 128);
-        static_assert(sizeof(PathTraceScene::Triangle) == 208);
-        static_assert(sizeof(PathTraceScene::Node) == 48);
-        static_assert(sizeof(PathTraceScene::Surface) == 80);
-        static_assert(sizeof(PathTraceScene::Texture) == 32);
+        static_assert(sizeof(RayScene::Triangle) == 208);
+        static_assert(sizeof(RayScene::Node) == 48);
+        static_assert(sizeof(RayScene::Surface) == 80);
+        static_assert(sizeof(RayScene::Texture) == 32);
     }
 
     struct PathTracePass::Program {
@@ -36,10 +34,10 @@ namespace Comet {
     };
     struct PathTracePass::Resources {
         std::shared_ptr<Program> program;
-        std::shared_ptr<const PathTraceScene> source;
+        std::shared_ptr<const RayScene> source;
         Math::Vec2u size;
         std::shared_ptr<ImageView> image;
-        std::array<std::shared_ptr<CPUBuffer>, 8> buffers;
+        std::shared_ptr<RaySceneBuffers> buffers;
         std::unique_ptr<DescriptorPool> pool;
         std::vector<DescriptorSet> descriptors;
         bool initialized = false;
@@ -118,7 +116,7 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> PathTracePass::prepare(
-        const std::shared_ptr<const PathTraceScene>& scene, Math::Vec2u size) {
+        const std::shared_ptr<const RayScene>& scene, Math::Vec2u size) {
         if(m_resources && m_resources->source == scene && m_resources->size == size)
             return Result<void, GraphicsError>::success();
         if(auto initialized = initialize(); !initialized)
@@ -149,64 +147,11 @@ namespace Comet {
                     {"Cannot create path trace image view", view.result()});
             next->image = std::move(view).value();
         }
-        const PathTraceScene::Node empty_node{};
-        const PathTraceScene::Triangle empty_triangle{};
-        const uint32_t empty_emitter = 0;
-        const PathTraceScene::Surface empty_surface{};
-        const PathTraceScene::Texture empty_texture{};
-        const Math::Vec4 empty_texel{};
-        const auto* previous = m_resources ? m_resources->source.get() : nullptr;
-        const bool same_geometry = previous && previous->geometry == scene->geometry;
-        const bool same_materials = previous && previous->materials == scene->materials;
-        const std::array<bool, 8> reused{same_geometry, same_geometry,
-            previous && previous->lighting == scene->lighting, same_geometry && same_materials,
-            same_materials, same_materials, same_materials,
-            previous && previous->environment_map == scene->environment_map};
-        const auto& geometry = *scene->geometry;
-        const auto& materials = *scene->materials;
-        const auto& environment = *scene->environment_map;
-        std::vector<std::byte> environment_bytes;
-        if(!reused[7]) {
-            environment_bytes.resize(16 + environment.texels.size() * sizeof(Math::Vec4));
-            const std::array<uint32_t, 4> extent{environment.size.x, environment.size.y, 0, 0};
-            std::memcpy(environment_bytes.data(), extent.data(), sizeof(extent));
-            if(!environment.texels.empty())
-                std::memcpy(environment_bytes.data() + 16, environment.texels.data(),
-                    environment.texels.size() * sizeof(Math::Vec4));
-        }
-        const std::array<const void*, 8> sources{
-            geometry.nodes.empty() ? &empty_node : geometry.nodes.data(),
-            geometry.triangles.empty() ? &empty_triangle : geometry.triangles.data(),
-            scene->lighting.get(),
-            scene->emitters->empty() ? &empty_emitter : scene->emitters->data(),
-            materials.surfaces.empty() ? &empty_surface : materials.surfaces.data(),
-            materials.textures.empty() ? &empty_texture : materials.textures.data(),
-            materials.texels.empty() ? &empty_texel : materials.texels.data(),
-            environment_bytes.data()};
-        const std::array<size_t, 8> sizes{
-            std::max(size_t(1), geometry.nodes.size()) * sizeof(empty_node),
-            std::max(size_t(1), geometry.triangles.size()) * sizeof(empty_triangle),
-            sizeof(LightingData), std::max(size_t(1), scene->emitters->size()) * sizeof(uint32_t),
-            std::max(size_t(1), materials.surfaces.size()) * sizeof(empty_surface),
-            std::max(size_t(1), materials.textures.size()) * sizeof(empty_texture),
-            std::max(size_t(1), materials.texels.size()) * sizeof(empty_texel),
-            16 + environment.texels.size() * sizeof(Math::Vec4)};
-        for(size_t i = 0; i < sources.size(); ++i) {
-            if(reused[i]) {
-                next->buffers[i] = m_resources->buffers[i];
-                continue;
-            }
-            if(sizes[i] > limits.maxStorageBufferRange)
-                return Result<void, GraphicsError>::failure(
-                    {"路径追踪输入超过设备 storage buffer 限制"});
-            auto buffer =
-                Buffer::try_create_cpu_buffer(m_device, Flags<BufferUsage>(BufferUsage::Storage),
-                    sizes[i], false, sources[i], "path trace scene");
-            if(!buffer)
-                return Result<void, GraphicsError>::failure(
-                    {"Cannot allocate path trace scene", buffer.result()});
-            next->buffers[i] = std::move(buffer).value();
-        }
+        auto buffers =
+            RaySceneBuffers::prepare(m_device, scene, m_resources ? m_resources->buffers : nullptr);
+        if(!buffers)
+            return Result<void, GraphicsError>::failure(buffers.error());
+        next->buffers = std::move(buffers).value();
         DescriptorPoolSizes pool_sizes;
         pool_sizes.add_pool_size(DescriptorType::StorageBuffer, 8);
         pool_sizes.add_pool_size(DescriptorType::StorageImage, 1);
@@ -218,30 +163,20 @@ namespace Comet {
         if(!sets)
             return Result<void, GraphicsError>::failure(sets.error());
         next->descriptors = std::move(sets).value();
-        std::array<vk::DescriptorBufferInfo, 8> infos;
-        std::array<vk::WriteDescriptorSet, 9> writes;
-        for(uint32_t i = 0; i < infos.size(); ++i) {
-            infos[i] = vk::DescriptorBufferInfo(next->buffers[i]->get(), 0, sizes[i]);
-            writes[i] = {next->descriptors[0].get(), i >= 3 ? i + 1 : i, 0, 1,
-                vk::DescriptorType::eStorageBuffer, nullptr, &infos[i]};
-        }
+        next->buffers->write(m_device, next->descriptors[0]);
         const vk::DescriptorImageInfo image_info({}, next->image->get(), vk::ImageLayout::eGeneral);
-        writes[8] = {
+        const vk::WriteDescriptorSet write{
             next->descriptors[0].get(), 3, 0, 1, vk::DescriptorType::eStorageImage, &image_info};
-        m_device.get().updateDescriptorSets(writes, {});
-        for(size_t i = 0; i < sizes.size(); ++i)
-            if(!reused[i]) {
-                m_upload_bytes += sizes[i];
-                if(i < 2)
-                    m_geometry_upload_bytes += sizes[i];
-            }
+        m_device.get().updateDescriptorSets(write, {});
+        m_upload_bytes += next->buffers->upload_bytes;
+        m_geometry_upload_bytes += next->buffers->geometry_upload_bytes;
         m_resources = std::move(next);
         m_samples = 0;
         return Result<void, GraphicsError>::success();
     }
 
     Result<void, GraphicsError> PathTracePass::render(FrameScheduler& frames,
-        const std::shared_ptr<const PathTraceScene>& scene, const ViewProjectMatrix& camera,
+        const std::shared_ptr<const RayScene>& scene, const ViewProjectMatrix& camera,
         const PathTraceSettings& settings, Math::Vec2u output_size,
         const RenderGraph::RecordPass& display, RenderDiagnostics* diagnostics) {
         if(auto valid = settings.validate(); !valid)

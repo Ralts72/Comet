@@ -28,6 +28,7 @@ namespace Comet {
         };
         uint64_t serial = 0;
         std::shared_ptr<const RenderWorld> world;
+        std::shared_ptr<const RayScene> irradiance_scene;
         std::vector<View> views;
         OverlayDrawList overlays;
 

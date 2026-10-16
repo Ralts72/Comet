@@ -1,3 +1,5 @@
+#include "irradiance_basis.glsl"
+
 layout(set = 0, binding = 11) uniform sampler2D irradiance_grid;
 
 vec2 irradiance_oct_coordinate(vec3 direction) {
@@ -53,11 +55,8 @@ bool sample_irradiance(vec3 position, vec3 normal, out vec3 result) {
     vec3 fraction = grid - vec3(lower);
     float bias = lighting.irradiance_spacing_bias.w;
     vec3 biased = position + normal * bias;
-    float harmonics[9] = float[9](0.2820947918,
-        0.4886025119 * normal.y, 0.4886025119 * normal.z, 0.4886025119 * normal.x,
-        1.0925484306 * normal.x * normal.y, 1.0925484306 * normal.y * normal.z,
-        0.3153915653 * (3.0 * normal.z * normal.z - 1.0),
-        1.0925484306 * normal.x * normal.z, 0.5462742153 * (normal.x * normal.x - normal.y * normal.y));
+    float harmonics[9];
+    irradiance_basis(normal, harmonics);
     float total = 0.0;
     bool has_probe = false;
     for(int corner = 0; corner < 8; ++corner) {

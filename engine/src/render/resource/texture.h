@@ -17,6 +17,10 @@ namespace Comet {
         [[nodiscard]] static GpuResourceResult<std::shared_ptr<Texture>> try_create(Device& device,
             UploadManager& upload_manager, const TextureData& data, bool within_budget);
 
+        // 已由渲染图创建并同步的图像；调用方负责首次使用前的布局与写入。
+        [[nodiscard]] static std::shared_ptr<Texture> from_image(
+            std::shared_ptr<ImageView> image, std::shared_ptr<Sampler> sampler);
+
         ~Texture() = default;
 
         [[nodiscard]] const std::shared_ptr<Sampler>& get_sampler() const { return m_sampler; }

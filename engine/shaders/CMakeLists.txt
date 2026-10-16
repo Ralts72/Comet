@@ -20,6 +20,7 @@ endforeach()
 list(APPEND SHADER_FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/animation/skinning.comp"
         "${CMAKE_CURRENT_SOURCE_DIR}/path_trace.comp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/realtime_irradiance.comp"
         "${CMAKE_CURRENT_SOURCE_DIR}/depth/depth_mask.frag"
         "${CMAKE_CURRENT_SOURCE_DIR}/depth/motion_mask.frag"
         "${CMAKE_CURRENT_SOURCE_DIR}/post/temporal.frag"

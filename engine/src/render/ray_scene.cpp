@@ -1,4 +1,4 @@
-#include "render/path_trace_scene.h"
+#include "render/ray_scene.h"
 
 #include "common/binary.h"
 #include "asset/data/texture_sampling.h"
@@ -36,7 +36,7 @@ namespace Comet {
         }
 
         void write_material(Binary::Writer& key, const MaterialBinding& binding,
-            const PathTraceSceneBuilder::Images& images) {
+            const RaySceneBuilder::Images& images) {
             key.write_u64(binding.material_handle.value());
             key.write_u64(binding.asset_revision);
             key.write_u64(binding.resource ? binding.resource->get_revision() : 0);
@@ -84,8 +84,7 @@ namespace Comet {
         }
 
         std::vector<std::byte> source_key(const RenderWorld& world,
-            const PathTraceSceneBuilder::MeshRevision& revision,
-            const PathTraceSceneBuilder::Images& images) {
+            const RaySceneBuilder::MeshRevision& revision, const RaySceneBuilder::Images& images) {
             Binary::Writer key;
             key.write_u64(world.scene_lifetime);
             key.write_u64(world.render_items.size());
@@ -120,13 +119,11 @@ namespace Comet {
             key.write_float(environment.rotation);
             key.write_u32(environment.background);
             key.write_u32(environment.lighting);
-            key.write_u32(environment.fog_enabled);
-            key.write_u32(world.particles && !world.particles->batches.empty());
             return key.data();
         }
 
         std::vector<std::byte> geometry_key(
-            const RenderWorld& world, const PathTraceSceneBuilder::MeshRevision& revision) {
+            const RenderWorld& world, const RaySceneBuilder::MeshRevision& revision) {
             Binary::Writer key;
             key.write_u64(world.scene_lifetime);
             key.write_u64(world.render_items.size());
@@ -142,7 +139,7 @@ namespace Comet {
         }
 
         std::vector<std::byte> material_key(
-            const RenderWorld& world, const PathTraceSceneBuilder::Images& images) {
+            const RenderWorld& world, const RaySceneBuilder::Images& images) {
             Binary::Writer key;
             key.write_u64(world.scene_lifetime);
             key.write_u64(world.render_items.size());
@@ -152,7 +149,7 @@ namespace Comet {
         }
 
         std::vector<std::byte> environment_key(
-            const RenderWorld& world, const PathTraceSceneBuilder::Images& images) {
+            const RenderWorld& world, const RaySceneBuilder::Images& images) {
             Binary::Writer key;
             const auto handle = world.environment.asset;
             key.write_u64(handle.value());
@@ -164,9 +161,9 @@ namespace Comet {
 
         class TexturePacker {
         public:
-            TexturePacker(
-                PathTraceScene::Materials& scene, const PathTraceSceneBuilder::Images& sources)
-                : m_scene(scene), m_sources(sources) {
+            TexturePacker(RayScene::Materials& scene, const RaySceneBuilder::Images& sources,
+                uint32_t maximum_dimension)
+                : m_scene(scene), m_sources(sources), m_maximum_dimension(maximum_dimension) {
                 m_scene.textures.emplace_back();
             }
 
@@ -176,15 +173,21 @@ namespace Comet {
                     return Added::success(0);
                 const auto handle = material.get_texture_source(property);
                 if(!handle || !m_sources.texture)
-                    return Added::failure("路径追踪贴图没有 CPU 源：" + property);
+                    return Added::failure("射线场景贴图没有 CPU 源：" + property);
                 if(const auto found = m_textures.find(handle); found != m_textures.end())
                     return Added::success(found->second);
                 auto data = m_sources.texture(handle);
                 if(!data)
                     return Added::failure(data.error().message);
-                auto decoded = CpuTextureImage::decode(data.value(), remaining());
+                auto decoded =
+                    CpuTextureImage::decode(data.value(), remaining(), m_maximum_dimension);
                 if(!decoded)
-                    return Added::failure(decoded.error());
+                    return Added::failure(
+                        decoded.error() + ": " + property + " [" + std::to_string(handle.value())
+                        + "] " + std::to_string(data.value().width) + "x"
+                        + std::to_string(data.value().height)
+                        + ", payload=" + std::to_string(data.value().pixels.size())
+                        + ", remaining=" + std::to_string(remaining()));
                 const auto& image = decoded.value();
                 const auto index = static_cast<uint32_t>(m_scene.textures.size());
                 m_scene.textures.push_back({{static_cast<uint32_t>(m_scene.texels.size()),
@@ -199,36 +202,36 @@ namespace Comet {
 
         private:
             size_t remaining() const {
-                return PathTraceScene::MAX_TEXTURE_BYTES
-                       - m_scene.texels.size() * sizeof(Math::Vec4);
+                return RayScene::MAX_TEXTURE_BYTES - m_scene.texels.size() * sizeof(Math::Vec4);
             }
-            PathTraceScene::Materials& m_scene;
-            const PathTraceSceneBuilder::Images& m_sources;
+            RayScene::Materials& m_scene;
+            const RaySceneBuilder::Images& m_sources;
             std::map<AssetHandle, uint32_t> m_textures;
+            uint32_t m_maximum_dimension;
         };
 
-        Result<std::shared_ptr<const PathTraceScene::Environment>> build_environment(
-            const SceneEnvironment& settings, const PathTraceSceneBuilder::Images& sources) {
-            using Built = Result<std::shared_ptr<const PathTraceScene::Environment>>;
-            auto output = std::make_shared<PathTraceScene::Environment>();
+        Result<std::shared_ptr<const RayScene::Environment>> build_environment(
+            const SceneEnvironment& settings, const RaySceneBuilder::Images& sources) {
+            using Built = Result<std::shared_ptr<const RayScene::Environment>>;
+            auto output = std::make_shared<RayScene::Environment>();
             if(!settings.asset || (!settings.background && !settings.lighting))
                 return Built::success(output);
             if(!sources.environment)
-                return Built::failure("路径追踪没有 CPU 环境读取服务");
+                return Built::failure("射线场景没有 CPU 环境读取服务");
             auto data = sources.environment(settings.asset);
             if(!data)
                 return Built::failure(data.error().message);
             auto valid = CpuCubeSampler::validate(data.value());
             if(!valid)
                 return Built::failure(valid.error());
-            if(valid.value() > PathTraceScene::MAX_TEXTURE_BYTES)
-                return Built::failure("路径追踪环境超过 CPU 解码预算");
+            if(valid.value() > RayScene::MAX_TEXTURE_BYTES)
+                return Built::failure("射线场景环境超过 CPU 解码预算");
             CpuCubeSampler cube(data.value());
             const uint32_t width = std::clamp(uint32_t(data.value().width) * 4, 16u, 1024u);
             const uint32_t height = width / 2;
             const auto count = size_t(width) * height;
-            if(count * sizeof(Math::Vec4) > PathTraceScene::MAX_TEXTURE_BYTES)
-                return Built::failure("路径追踪环境超过纹理预算");
+            if(count * sizeof(Math::Vec4) > RayScene::MAX_TEXTURE_BYTES)
+                return Built::failure("射线场景环境超过纹理预算");
             output->size = {width, height};
             output->texels.resize(count);
             double sum = 0;
@@ -242,7 +245,7 @@ namespace Comet {
                     auto& pixel = output->texels[size_t(y) * width + x];
                     pixel = {color, glm::dot(color, Math::Vec3(.2126f, .7152f, .0722f))};
                     if(!Math::is_finite(pixel))
-                        return Built::failure("路径追踪环境解码溢出");
+                        return Built::failure("射线场景环境解码溢出");
                     sum += pixel.w;
                 }
             }
@@ -257,17 +260,19 @@ namespace Comet {
             return Built::success(output);
         }
 
-        Result<PathTraceScene::Surface> surface(
+        Result<RayScene::Surface> surface(
             const MaterialBinding& binding, MaterialRuntimeCache& cache, TexturePacker& textures) {
-            using Surface = Result<PathTraceScene::Surface>;
+            using Surface = Result<RayScene::Surface>;
             if(!binding.resource)
-                return Surface::failure("路径追踪材质尚未加载");
+                return Surface::failure("射线场景材质尚未加载");
             const auto& material = *binding.resource;
             const auto layout = MaterialLayout::find_builtin(material.get_template_name());
             if(material.get_shader_program() || !layout
                 || (material.get_template_name() != "pbr"
                     && material.get_template_name() != "unlit_color"))
-                return Surface::failure("路径追踪仅支持内置 PBR／无光照材质");
+                return Surface::failure("射线场景仅支持内置 PBR／无光照材质：" + material.get_name()
+                                        + " [" + std::to_string(binding.material_handle.value())
+                                        + "]");
             auto prepared =
                 cache.prepare(binding.material_handle, binding.resource, layout, binding.overrides);
             if(!prepared)
@@ -278,7 +283,7 @@ namespace Comet {
             const auto vector = [&](const std::string& name) {
                 return prepared.value()->get_vector_property(name).value();
             };
-            PathTraceScene::Surface result{};
+            RayScene::Surface result{};
             result.parameters.y = material.get_surface().double_sided ? 1.f : 0.f;
             result.opacity.y = material.get_surface().alpha_cutoff;
             result.opacity.z = static_cast<float>(material.get_surface().alpha_mode);
@@ -307,18 +312,18 @@ namespace Comet {
                 || !Math::is_finite(result.emission_roughness)
                 || !Math::is_finite(result.parameters) || !Math::is_finite(result.opacity)
                 || glm::any(glm::lessThan(Math::Vec3(result.emission_roughness), Math::Vec3(0))))
-                return Surface::failure("路径追踪材质包含无效参数");
+                return Surface::failure("射线场景材质包含无效参数");
             return Surface::success(result);
         }
 
-        BoundingBox bounds(const PathTraceScene::Triangle& triangle) {
+        BoundingBox bounds(const RayScene::Triangle& triangle) {
             auto result = BoundingBox::from_point(Math::Vec3(triangle.positions[0]));
             result.include(Math::Vec3(triangle.positions[1]));
             result.include(Math::Vec3(triangle.positions[2]));
             return result;
         }
 
-        void build_node(PathTraceScene::Geometry& scene, uint32_t first, uint32_t count) {
+        void build_node(RayScene::Geometry& scene, uint32_t first, uint32_t count) {
             const auto index = scene.nodes.size();
             auto box = bounds(scene.triangles[first]);
             for(uint32_t i = 1; i < count; ++i)
@@ -343,18 +348,18 @@ namespace Comet {
             scene.nodes[index].links[3] = static_cast<uint32_t>(scene.nodes.size());
         }
 
-        Result<std::shared_ptr<const PathTraceScene::Geometry>> build_geometry(
-            const RenderWorld& world, const PathTraceSceneBuilder::MeshReader& read) {
-            using Built = Result<std::shared_ptr<const PathTraceScene::Geometry>>;
+        Result<std::shared_ptr<const RayScene::Geometry>> build_geometry(
+            const RenderWorld& world, const RaySceneBuilder::MeshReader& read) {
+            using Built = Result<std::shared_ptr<const RayScene::Geometry>>;
             if(!read)
-                return Built::failure("路径追踪没有 CPU 网格读取服务");
-            auto result = std::make_shared<PathTraceScene::Geometry>();
+                return Built::failure("射线场景没有 CPU 网格读取服务");
+            auto result = std::make_shared<RayScene::Geometry>();
             std::map<AssetHandle, MeshData> meshes;
             uint32_t surface_index = 0;
             for(const auto& item : world.render_items) {
                 if(!Math::is_finite(item.model_matrix)
                     || std::abs(glm::determinant(Math::Mat3(item.model_matrix))) < 1e-10f)
-                    return Built::failure("路径追踪物体变换无效或不可逆");
+                    return Built::failure("射线场景物体变换无效或不可逆");
                 if(!meshes.contains(item.mesh_handle)) {
                     auto data = read(item.mesh_handle);
                     if(!data)
@@ -363,21 +368,21 @@ namespace Comet {
                 }
                 const auto& mesh = meshes.at(item.mesh_handle);
                 if(!mesh.skin.empty())
-                    return Built::failure("路径追踪首版仅接受静态网格，暂不支持蒙皮");
+                    return Built::failure("射线场景首版仅接受静态网格，暂不支持蒙皮");
                 const auto vertices =
                     mesh.indices.empty() ? mesh.vertices.size() : mesh.indices.size();
                 if(vertices % 3 != 0
-                    || vertices / 3 > PathTraceScene::MAX_TRIANGLES - result->triangles.size())
-                    return Built::failure("路径追踪三角形不完整或超过 262144 个预算");
+                    || vertices / 3 > RayScene::MAX_TRIANGLES - result->triangles.size())
+                    return Built::failure("射线场景三角形不完整或超过 262144 个预算");
                 const auto normal_matrix =
                     glm::transpose(glm::inverse(Math::Mat3(item.model_matrix)));
                 for(size_t first = 0; first < vertices; first += 3) {
-                    PathTraceScene::Triangle triangle;
+                    RayScene::Triangle triangle;
                     for(size_t i = 0; i < 3; ++i) {
                         const auto index =
                             mesh.indices.empty() ? first + i : mesh.indices[first + i];
                         if(index >= mesh.vertices.size())
-                            return Built::failure("路径追踪网格索引越界");
+                            return Built::failure("射线场景网格索引越界");
                         const auto& vertex = mesh.vertices[index];
                         triangle.positions[i] = item.model_matrix * Math::Vec4(vertex.position, 1);
                         auto normal = Math::normalized_direction(normal_matrix * vertex.normal);
@@ -404,7 +409,7 @@ namespace Comet {
                             || !Math::is_finite(triangle.normals[i])
                             || !Math::is_finite(triangle.tangents[i])
                             || !Math::is_finite(triangle.bitangents[i]))
-                            return Built::failure("路径追踪网格包含非有限顶点");
+                            return Built::failure("射线场景网格包含非有限顶点");
                     }
                     const auto geometric =
                         glm::cross(Math::Vec3(triangle.positions[1] - triangle.positions[0]),
@@ -420,12 +425,12 @@ namespace Comet {
                 build_node(*result, 0, static_cast<uint32_t>(result->triangles.size()));
             return Built::success(std::move(result));
         }
-        Result<std::shared_ptr<const PathTraceScene::Materials>> build_materials(
-            const RenderWorld& world, const PathTraceSceneBuilder::Images& images) {
-            using Built = Result<std::shared_ptr<const PathTraceScene::Materials>>;
-            auto result = std::make_shared<PathTraceScene::Materials>();
+        Result<std::shared_ptr<const RayScene::Materials>> build_materials(const RenderWorld& world,
+            const RaySceneBuilder::Images& images, uint32_t maximum_dimension) {
+            using Built = Result<std::shared_ptr<const RayScene::Materials>>;
+            auto result = std::make_shared<RayScene::Materials>();
             MaterialRuntimeCache cache;
-            TexturePacker textures(*result, images);
+            TexturePacker textures(*result, images, maximum_dimension);
             // 每个实例使用稳定槽位，换材质不改变 BVH 中的几何记录。
             for(const auto& item : world.render_items) {
                 auto value = surface(item.material, cache, textures);
@@ -438,24 +443,20 @@ namespace Comet {
 
     }
 
-    Result<std::shared_ptr<const PathTraceScene>> PathTraceSceneBuilder::update(
-        const RenderWorld& world, const MeshReader& read, const MeshRevision& revision,
-        const Images& images) {
+    Result<std::shared_ptr<const RayScene>> RaySceneBuilder::update(const RenderWorld& world,
+        const MeshReader& read, const MeshRevision& revision, const Images& images) {
         auto key = source_key(world, revision, images);
         if(key == m_key && (m_scene || !m_error.empty())) {
             if(!m_scene)
-                return Result<std::shared_ptr<const PathTraceScene>>::failure(m_error);
-            return Result<std::shared_ptr<const PathTraceScene>>::success(m_scene);
+                return Result<std::shared_ptr<const RayScene>>::failure(m_error);
+            return Result<std::shared_ptr<const RayScene>>::success(m_scene);
         }
         m_key = std::move(key);
         const auto previous = std::exchange(m_scene, nullptr);
-        const auto build = [&]() -> Result<std::shared_ptr<const PathTraceScene>> {
-            using Built = Result<std::shared_ptr<const PathTraceScene>>;
+        const auto build = [&]() -> Result<std::shared_ptr<const RayScene>> {
+            using Built = Result<std::shared_ptr<const RayScene>>;
             if(auto valid = world.environment.validate(); !valid)
                 return Built::failure(valid.error());
-            if(world.environment.fog_enabled
-                || (world.particles && !world.particles->batches.empty()))
-                return Built::failure("路径追踪暂不支持雾／粒子");
             auto geometry = geometry_key(world, revision);
             if(!m_geometry || geometry != m_geometry_key) {
                 auto candidate = build_geometry(world, read);
@@ -467,7 +468,7 @@ namespace Comet {
             }
             auto materials = material_key(world, images);
             if(!m_materials || materials != m_material_key) {
-                auto candidate = build_materials(world, images);
+                auto candidate = build_materials(world, images, m_texture_dimension);
                 if(!candidate)
                     return Built::failure(candidate.error());
                 m_materials = candidate.value();
@@ -485,9 +486,9 @@ namespace Comet {
             }
             const auto texture_bytes =
                 (m_materials->texels.size() + m_environment->texels.size()) * sizeof(Math::Vec4);
-            if(texture_bytes > PathTraceScene::MAX_TEXTURE_BYTES)
-                return Built::failure("路径追踪材质与环境超过解码纹理总预算");
-            auto scene = std::make_shared<PathTraceScene>();
+            if(texture_bytes > RayScene::MAX_TEXTURE_BYTES)
+                return Built::failure("射线场景材质与环境超过解码纹理总预算");
+            auto scene = std::make_shared<RayScene>();
             scene->geometry = m_geometry;
             scene->materials = m_materials;
             scene->environment_map = m_environment;
@@ -495,7 +496,7 @@ namespace Comet {
             if(!m_lighting || lights != m_lighting_key) {
                 auto prepared = std::make_shared<LightingData>(LightingData::prepare(world.lights));
                 if(prepared->excess_lights || prepared->invalid_lights)
-                    return Built::failure("路径追踪灯光无效或超过 32 盏预算");
+                    return Built::failure("射线场景灯光无效或超过 32 盏预算");
                 m_lighting = std::move(prepared);
                 m_lighting_key = std::move(lights);
             }
@@ -526,7 +527,7 @@ namespace Comet {
         return result;
     }
 
-    void PathTraceSceneBuilder::reset() {
+    void RaySceneBuilder::reset() {
         m_key.clear();
         m_geometry_key.clear();
         m_material_key.clear();

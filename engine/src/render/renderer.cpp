@@ -1,4 +1,6 @@
 #include "render/passes/skinning_pass.h"
+#include "render/passes/realtime_irradiance_pass.h"
+#include "render/resource/mesh.h"
 #include "renderer.h"
 #include "render/render_thread.h"
 #include "asset/registry.h"
@@ -64,6 +66,10 @@ namespace Comet {
           m_render_resources(std::move(resources)), m_frames(std::move(frames)),
           m_programs(std::move(programs)), m_settings(settings) {
         m_views.emplace(DEFAULT_VIEW, ViewState{.scene = std::move(scene)});
+        const auto irradiance_support =
+            RealtimeIrradiancePass::check_support(m_render_context->get_device());
+        if(!irradiance_support)
+            m_irradiance_support_error = irradiance_support.error().message;
         m_diagnostics = std::make_unique<RenderDiagnostics>(*m_frames);
         m_presentation = std::make_unique<Presentation>(*m_render_context, *m_frames,
             Presentation::Dependent{
@@ -269,11 +275,14 @@ namespace Comet {
         return frame;
     }
 
-    void Renderer::set_path_trace_sources(PathTraceSceneBuilder::MeshReader read,
-        PathTraceSceneBuilder::MeshRevision revision, PathTraceSceneBuilder::Images images) {
-        m_path_trace_read = std::move(read);
-        m_path_trace_revision = std::move(revision);
-        m_path_trace_images = std::move(images);
+    void Renderer::set_ray_scene_sources(RaySceneBuilder::MeshReader read,
+        RaySceneBuilder::MeshRevision revision, RaySceneBuilder::Images images) {
+        m_ray_read = std::move(read);
+        m_ray_revision = std::move(revision);
+        m_ray_images = std::move(images);
+        m_irradiance_builder.reset();
+        m_irradiance_input.reset();
+        m_irradiance_error.clear();
         auto support = check_path_trace_support();
         m_path_trace_support_error = support ? std::string{} : support.error().message;
         for(auto& [id, view] : m_views) {
@@ -290,7 +299,69 @@ namespace Comet {
         return m_skinning ? m_skinning->get_statistics() : SkinningPass::Statistics{};
     }
 
+    RealtimeIrradiancePass::Statistics Renderer::get_irradiance_statistics() const {
+        return m_realtime_irradiance ? m_realtime_irradiance->statistics()
+                                     : RealtimeIrradiancePass::Statistics{};
+    }
+
+    void Renderer::prepare_irradiance(RenderFrame& frame) {
+        frame.irradiance_scene.reset();
+        const auto report = [&](std::string error) {
+            if(error != m_irradiance_error && !error.empty())
+                LOG_ERROR("实时探针 GI 准备失败：{}", error);
+            m_irradiance_error = std::move(error);
+        };
+        const ResolvedIrradianceVolume* selected = nullptr;
+        if(frame.world && frame.has_visible_view())
+            for(const auto& volume : frame.world->irradiance_volumes)
+                if(volume.volume.realtime) {
+                    selected = &volume;
+                    break;
+                }
+        if(!selected) {
+            m_irradiance_builder.reset();
+            m_irradiance_input.reset();
+            report({});
+            return;
+        }
+        if(!frame.world->resolution.pending_asset_slots.empty())
+            return;
+        if(auto valid = RealtimeIrradiancePass::validate_region(selected->volume); !valid) {
+            report(valid.error());
+            return;
+        }
+        if(!m_irradiance_support_error.empty()) {
+            report(m_irradiance_support_error);
+            return;
+        }
+        if(!m_irradiance_builder) {
+            m_irradiance_builder = std::make_unique<RaySceneBuilder>(512);
+            m_irradiance_input = std::make_unique<RenderWorld>();
+        }
+        // 从同一份已解析世界筛选追踪几何，不再次提取 Scene，也不按视图重复构建。
+        auto& input = *m_irradiance_input;
+        input.scene_lifetime = frame.world->scene_lifetime;
+        input.environment = frame.world->environment;
+        input.environment.fog_enabled = false;
+        input.environment.background = false;
+        input.environment.background_color = {};
+        input.environment.intensity = 1;
+        input.environment_revision = frame.world->environment_revision;
+        if(!input.environment.lighting)
+            input.environment.asset = {};
+        input.lights = frame.world->lights;
+        input.render_items.clear();
+        for(const auto& item : frame.world->render_items)
+            if(item.gi_static && item.mesh && !item.mesh->is_skinned())
+                input.render_items.push_back(item);
+        auto scene = m_irradiance_builder->update(input, m_ray_read, m_ray_revision, m_ray_images);
+        report(scene ? std::string{} : scene.error());
+        if(scene)
+            frame.irradiance_scene = std::move(scene).value();
+    }
+
     void Renderer::prepare_scene_views(RenderFrame& frame) {
+        prepare_irradiance(frame);
         for(auto& input : frame.views) {
             auto& view = get_view(input.id);
             view.path_trace_error.clear();
@@ -299,6 +370,11 @@ namespace Comet {
                 continue;
             }
             input.parameters.path_trace.reset();
+            if(frame.world->environment.fog_enabled
+                || (frame.world->particles && !frame.world->particles->batches.empty())) {
+                view.path_trace_error = "路径追踪暂不支持雾／粒子";
+                continue;
+            }
             if(!m_path_trace_support_error.empty()) {
                 view.path_trace_error = m_path_trace_support_error;
                 continue;
@@ -308,9 +384,9 @@ namespace Comet {
                 continue;
             }
             if(!view.path_trace_builder)
-                view.path_trace_builder = std::make_unique<PathTraceSceneBuilder>();
+                view.path_trace_builder = std::make_unique<RaySceneBuilder>();
             auto scene = view.path_trace_builder->update(
-                *frame.world, m_path_trace_read, m_path_trace_revision, m_path_trace_images);
+                *frame.world, m_ray_read, m_ray_revision, m_ray_images);
             if(scene)
                 input.parameters.path_trace = std::move(scene).value();
             else
@@ -387,6 +463,23 @@ namespace Comet {
                 return skinned;
             m_frames->retain_current_frame_resource(m_skinning);
         }
+        std::optional<ResolvedIrradianceVolume> irradiance;
+        if(needs_raster && frame.irradiance_scene) {
+            const auto selected = std::ranges::find_if(
+                world.irradiance_volumes, [](const auto& item) { return item.volume.realtime; });
+            if(selected != world.irradiance_volumes.end()) {
+                if(!m_realtime_irradiance)
+                    m_realtime_irradiance =
+                        std::make_unique<RealtimeIrradiancePass>(m_render_context->get_device());
+                auto updated = m_realtime_irradiance->update(*m_frames, world.scene_lifetime,
+                    frame.irradiance_scene, selected->volume, m_diagnostics->is_enabled());
+                if(!updated)
+                    return Result<void, GraphicsError>::failure(updated.error());
+                irradiance = ResolvedIrradianceVolume{selected->volume, std::move(updated).value()};
+            }
+        } else if(m_realtime_irradiance) {
+            m_realtime_irradiance->reset();
+        }
         // 诊断查询覆盖第一个可见 View；其他 View 不重复开启同一组 GPU 查询。
         bool diagnosed = false;
         for(const auto& input : frame.views) {
@@ -397,8 +490,8 @@ namespace Comet {
                 continue;
             }
             auto* diagnostics = diagnosed ? nullptr : m_diagnostics.get();
-            if(auto recorded = render_view(
-                   view, input, world, frame.world != nullptr, resource_waits, diagnostics);
+            if(auto recorded = render_view(view, input, world, frame.world != nullptr,
+                   resource_waits, diagnostics, irradiance ? &*irradiance : nullptr);
                 !recorded)
                 return recorded;
             diagnosed = true;
@@ -411,11 +504,12 @@ namespace Comet {
 
     Result<void, GraphicsError> Renderer::render_view(ViewState& view,
         const RenderFrame::View& input, const RenderWorld& world, const bool has_scene,
-        std::vector<QueueSemaphoreSubmit>& waits, RenderDiagnostics* diagnostics) {
+        std::vector<QueueSemaphoreSubmit>& waits, RenderDiagnostics* diagnostics,
+        const ResolvedIrradianceVolume* irradiance) {
         const auto& frame_view = input.parameters;
         const RenderSubmission submission{world,
             has_scene ? view.camera.resolve(world, frame_view) : std::nullopt,
-            frame_view.path_trace, frame_view.path_trace_settings};
+            frame_view.path_trace, frame_view.path_trace_settings, irradiance};
         if(auto prepared = view.scene->prepare_post_process(world.post_process); !prepared)
             return prepared;
         const auto& pick_request = input.pick;
@@ -800,6 +894,9 @@ namespace Comet {
         m_presentation.reset();
         m_diagnostics.reset();
         m_skinning.reset();
+        m_realtime_irradiance.reset();
+        m_irradiance_input.reset();
+        m_irradiance_builder.reset();
         m_frames.reset();
         m_views.clear();
         m_render_resources.reset();

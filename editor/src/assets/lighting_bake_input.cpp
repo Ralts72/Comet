@@ -31,7 +31,8 @@ namespace CometEditor::LightingBakeInput {
         using Described = Result<Snapshot>;
         Snapshot input{.scene = SceneExtractor::extract(scene)};
         std::erase_if(input.scene.render_items, [&](const auto& item) {
-            return !static_geometry(scene, scene.find_entity(item.entity_id));
+            return (purpose == Purpose::Irradiance && !item.gi_static)
+                   || !static_geometry(scene, scene.find_entity(item.entity_id));
         });
         std::erase_if(input.scene.lights, [&](const auto& light) {
             return !static_geometry(scene, scene.find_entity(light.entity_id));
@@ -61,6 +62,9 @@ namespace CometEditor::LightingBakeInput {
                 environment.rotation = 0;
             }
         }
+        // 静态反射捕获只读取固定的烘焙 GI，不捕获实时探针的进行中历史。
+        std::erase_if(
+            input.scene.irradiance_volumes, [](const auto& volume) { return volume.realtime; });
         std::erase_if(input.scene.decals, [&](const auto& decal) {
             return !static_geometry(scene, scene.find_entity(decal.entity_id));
         });

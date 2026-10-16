@@ -15,7 +15,7 @@ namespace Comet {
     struct RenderWorld;
 
     // Main 构造的只读世界空间快照；不持有 Scene、资产服务或 GPU 对象。
-    struct PathTraceScene {
+    struct RayScene {
         static constexpr uint32_t MAX_TRIANGLES = 262144;
         static constexpr size_t MAX_TEXTURE_BYTES = 128 * 1024 * 1024;
         struct Triangle {
@@ -68,8 +68,10 @@ namespace Comet {
     };
 
     // 主线程按内容／已发布 CPU 版本重建，普通 raster 路径不读取或保留 CPU 几何。
-    class COMET_API PathTraceSceneBuilder {
+    class COMET_API RaySceneBuilder {
     public:
+        explicit RaySceneBuilder(uint32_t texture_dimension = 8192)
+            : m_texture_dimension(texture_dimension) {}
         using MeshReader = std::function<Result<MeshData, Error>(AssetHandle)>;
         using MeshRevision = std::function<uint64_t(AssetHandle)>;
         struct Images {
@@ -78,7 +80,7 @@ namespace Comet {
             Reader environment;
             MeshRevision revision;
         };
-        [[nodiscard]] Result<std::shared_ptr<const PathTraceScene>> update(const RenderWorld& world,
+        [[nodiscard]] Result<std::shared_ptr<const RayScene>> update(const RenderWorld& world,
             const MeshReader& read, const MeshRevision& revision = {}, const Images& images = {});
         struct Statistics {
             uint64_t geometry_builds = 0;
@@ -89,17 +91,18 @@ namespace Comet {
         void reset();
 
     private:
+        uint32_t m_texture_dimension;
         std::vector<std::byte> m_key;
         std::vector<std::byte> m_geometry_key;
         std::vector<std::byte> m_material_key;
         std::vector<std::byte> m_environment_key;
         std::vector<std::byte> m_lighting_key;
-        std::shared_ptr<const PathTraceScene::Geometry> m_geometry;
-        std::shared_ptr<const PathTraceScene::Materials> m_materials;
-        std::shared_ptr<const PathTraceScene::Environment> m_environment;
+        std::shared_ptr<const RayScene::Geometry> m_geometry;
+        std::shared_ptr<const RayScene::Materials> m_materials;
+        std::shared_ptr<const RayScene::Environment> m_environment;
         std::shared_ptr<const LightingData> m_lighting;
         Statistics m_statistics;
-        std::shared_ptr<const PathTraceScene> m_scene;
+        std::shared_ptr<const RayScene> m_scene;
         std::string m_error;
     };
 }

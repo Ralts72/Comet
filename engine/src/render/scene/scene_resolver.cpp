@@ -32,6 +32,7 @@ namespace Comet {
                 || resolved.transform_revision != item.transform_revision)
                 resolved.model_matrix = item.model_matrix;
             resolved.animation = item.animation;
+            resolved.gi_static = item.gi_static;
             resolved.entity_id = item.entity_id;
             resolved.transform_revision = item.transform_revision;
             if(resolved.material.overrides != item.material_overrides)
@@ -200,8 +201,9 @@ namespace Comet {
             probe.environment =
                 m_asset_registry.resolve<Environment>(probe.probe.environment, &probe.revision);
         for(auto& volume : world.irradiance_volumes)
-            volume.resource =
-                m_asset_registry.resolve<Irradiance>(volume.volume.irradiance, &volume.revision);
+            if(!volume.volume.realtime)
+                volume.resource = m_asset_registry.resolve<Irradiance>(
+                    volume.volume.irradiance, &volume.revision);
         for(auto& decal : world.decals)
             decal.texture = m_asset_registry.resolve<Texture>(decal.decal.texture);
         if(world.environment_resource) {
@@ -283,9 +285,13 @@ namespace Comet {
         for(std::size_t index = 0; index < render_scene.irradiance_volumes.size(); ++index) {
             const auto& volume = render_scene.irradiance_volumes[index];
             auto& resolved = world.irradiance_volumes[index];
-            if(resolved.volume.irradiance != volume.irradiance || !resolved.resource)
+            if(volume.realtime) {
+                resolved.resource.reset();
+                resolved.revision = 0;
+            } else if(resolved.volume.irradiance != volume.irradiance || !resolved.resource) {
                 resolved.resource =
                     m_asset_registry.resolve<Irradiance>(volume.irradiance, &resolved.revision);
+            }
             resolved.volume = volume;
         }
         world.reflection_probes.resize(render_scene.reflection_probes.size());

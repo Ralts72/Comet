@@ -225,8 +225,10 @@ set(COMET_GRAPHICS_SOURCES
 )
 
 set(COMET_RENDER_SOURCES
-    src/render/path_trace_scene.cpp
+    src/render/ray_scene.cpp
     src/render/passes/path_trace_pass.cpp
+    src/render/passes/realtime_irradiance_pass.cpp
+    src/render/resource/ray_scene_buffers.cpp
     src/render/passes/particle_pass.cpp
     src/render/passes/skinning_pass.cpp
     src/render/presentation.cpp

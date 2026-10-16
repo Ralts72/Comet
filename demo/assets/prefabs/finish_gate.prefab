@@ -67,7 +67,8 @@
             },
             "mesh_renderer": {
               "mesh": 7535385251553858160,
-              "material": 1749083215601001004
+              "material": 1749083215601001004,
+              "gi_static": false
             }
           }
         },

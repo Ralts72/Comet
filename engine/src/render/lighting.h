@@ -40,6 +40,14 @@ namespace Comet {
         AssetHandle irradiance;
         float intensity = 1;
         float normal_bias = 0.05f;
+        bool realtime = false;
+        Math::Vec3 center{};
+        Math::Vec3 half_extents{5, 2.5f, 5};
+        float spacing = 1;
+        float max_distance = 100;
+        uint32_t update_budget = 8;
+        uint32_t update_rays = 64;
+        float history_weight = .9f;
     };
 
     // 与 forward.glsl 的 std140 布局匹配；不是 Scene 组件或 GPU owner。

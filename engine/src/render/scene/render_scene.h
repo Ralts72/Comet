@@ -19,7 +19,7 @@
 namespace Comet {
     struct AnimationPlayback;
     struct MaterialOverrides;
-    struct PathTraceScene;
+    struct RayScene;
 
     struct COMET_API RenderCamera {
         enum class Projection { Perspective, Orthographic };
@@ -53,6 +53,7 @@ namespace Comet {
         AssetHandle mesh_handle = INVALID_ASSET_HANDLE;
         AssetHandle material_handle = INVALID_ASSET_HANDLE;
         std::shared_ptr<const MaterialOverrides> material_overrides;
+        bool gi_static = true;
     };
 
     // revision 为 0 时逐项核对；局部批次只能接在 base_revision 对应的输出后。
@@ -157,7 +158,7 @@ namespace Comet {
         CameraSelection camera_selection = CameraSelection::ScenePrimary;
         std::optional<RenderCamera> camera_override;
         bool path_trace_enabled = false;
-        std::shared_ptr<const PathTraceScene> path_trace;
+        std::shared_ptr<const RayScene> path_trace;
         PathTraceSettings path_trace_settings;
     };
 }

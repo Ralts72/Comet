@@ -12,6 +12,7 @@
 #include "asset/registry.h"
 #include "support/temporary_directory.h"
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <limits>
@@ -1675,4 +1676,54 @@ namespace Comet::Tests {
 })",
             "unknown field 'runtime_value'");
     }
+    TEST(SceneSerializerTest, RealtimeIrradianceKeepsSettingsAndSkipsBakedRuntimeDependency) {
+        const auto registry = create_scene_component_registry();
+        const SceneSerializer serializer(registry);
+        Scene scene;
+        auto entity = scene.create_entity("实时探针");
+        auto transform = entity.get_component<TransformComponent>();
+        transform.translation = {2, 3, 4};
+        entity.set_transform(transform);
+        IrradianceVolumeComponent volume;
+        volume.realtime = true;
+        volume.irradiance = AssetHandle(999);
+        volume.update_budget = 12;
+        volume.update_rays = 128;
+        volume.history_weight = .85f;
+        entity.add_component<IrradianceVolumeComponent>(volume);
+        auto moving = scene.create_entity("移动网格");
+        moving.add_component<MeshRendererComponent>(
+            MeshRendererComponent{AssetHandle(1), AssetHandle(2), false});
+        const auto text = serializer.serialize(scene);
+        ASSERT_TRUE(text) << text.error();
+        auto loaded = serializer.deserialize(text.value());
+        ASSERT_TRUE(loaded) << loaded.error();
+        auto copy = serializer.clone(*loaded.value());
+        ASSERT_TRUE(copy) << copy.error();
+        EXPECT_EQ(
+            copy.value()->find_entity(entity.get_uuid()).get_component<IrradianceVolumeComponent>(),
+            volume);
+        EXPECT_FALSE(copy.value()
+                ->find_entity(moving.get_uuid())
+                .get_component<MeshRendererComponent>()
+                .gi_static);
+        const auto snapshot = SceneExtractor::extract(*copy.value());
+        ASSERT_EQ(snapshot.irradiance_volumes.size(), 1u);
+        const auto& extracted = snapshot.irradiance_volumes[0];
+        EXPECT_TRUE(extracted.realtime);
+        EXPECT_EQ(extracted.center, Math::Vec3(2, 3, 4));
+        EXPECT_EQ(extracted.update_budget, 12u);
+        EXPECT_EQ(extracted.update_rays, 128u);
+        EXPECT_FLOAT_EQ(extracted.history_weight, .85f);
+        ASSERT_EQ(snapshot.render_items.size(), 1u);
+        EXPECT_FALSE(snapshot.render_items[0].gi_static);
+        const auto runtime = registry.collect_asset_references(
+            *copy.value(), ComponentRegistry::ReferenceScope::Runtime);
+        EXPECT_FALSE(std::ranges::any_of(
+            runtime, [](const auto& ref) { return ref.type == AssetType::Irradiance; }));
+        const auto edit = registry.collect_asset_references(*copy.value());
+        EXPECT_TRUE(std::ranges::any_of(
+            edit, [](const auto& ref) { return ref.type == AssetType::Irradiance; }));
+    }
+
 }

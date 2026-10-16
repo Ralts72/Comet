@@ -49,20 +49,14 @@ namespace CometEditor {
         SelectionService& selection, CommandHistory& history,
         const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
         const EditorShortcuts& shortcuts, Comet::Renderer& renderer, Comet::AssetRegistry& assets,
-        Ui::ImGuiContext& ui, Comet::PhysicsService::MeshSource meshes,
-        Comet::PathTraceSceneBuilder::Images images)
+        Ui::ImGuiContext& ui, Comet::PhysicsService::MeshSource meshes)
         : m_state(state), m_selection(selection), m_renderer(renderer), m_assets(assets), m_ui(ui),
           m_gizmo(history, components),
           m_panel(state, runtime, selection, m_gizmo, inspector_edit,
               std::min(renderer.max_render_target_dimension(), std::uint32_t{4096}), shortcuts),
-          m_colliders(meshes) {
-        renderer.set_path_trace_sources(
-            std::move(meshes.read), std::move(meshes.revision), std::move(images));
-    }
+          m_colliders(std::move(meshes)) {}
 
-    Viewport::~Viewport() {
-        m_renderer.set_path_trace_sources({});
-    }
+    Viewport::~Viewport() = default;
 
     void Viewport::update_texture() {
         const auto frame = m_renderer.get_offscreen_frame();

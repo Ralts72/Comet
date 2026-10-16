@@ -197,7 +197,8 @@ namespace Comet {
                     && !entity.get_component<ReflectionProbeComponent>().enabled)
                     continue;
                 if(scope == ReferenceScope::Runtime && component.id == "irradiance_volume"
-                    && !entity.get_component<IrradianceVolumeComponent>().enabled)
+                    && (!entity.get_component<IrradianceVolumeComponent>().enabled
+                        || entity.get_component<IrradianceVolumeComponent>().realtime))
                     continue;
                 if(scope == ReferenceScope::Runtime && component.id == "decal"
                     && !entity.get_component<DecalComponent>().enabled)
@@ -444,7 +445,9 @@ namespace Comet {
                 {make_property_descriptor(
                      "mesh", "Mesh", &MeshRendererComponent::mesh, {.asset_type = AssetType::Mesh}),
                     make_property_descriptor("material", "Material",
-                        &MeshRendererComponent::material, {.asset_type = AssetType::Material})}));
+                        &MeshRendererComponent::material, {.asset_type = AssetType::Material}),
+                    make_property_descriptor("gi_static", "参与静态 GI 几何",
+                        &MeshRendererComponent::gi_static, {.required = false})}));
 
         register_component(make_component_descriptor<AnimatorComponent>("animator", "Animator",
             {make_property_descriptor(
@@ -1055,8 +1058,27 @@ namespace Comet {
                     &ReflectionProbeComponent::bake_fingerprint,
                     {.editable = false, .required = false})}));
         register_component(make_component_descriptor<IrradianceVolumeComponent>("irradiance_volume",
-            "静态 GI 区域",
+            "探针 GI 区域",
             {make_property_descriptor("enabled", "启用", &IrradianceVolumeComponent::enabled),
+                make_property_descriptor("realtime", "实时更新",
+                    &IrradianceVolumeComponent::realtime, {.required = false}),
+                make_property_descriptor("update_budget", "每帧更新探针数",
+                    &IrradianceVolumeComponent::update_budget,
+                    {.required = false,
+                        .numeric =
+                            {.speed = 1, .minimum = 1, .maximum = 4096, .enforce_bounds = true}}),
+                make_property_descriptor("update_rays", "每次更新光线数",
+                    &IrradianceVolumeComponent::update_rays,
+                    {.required = false,
+                        .numeric =
+                            {.speed = 16, .minimum = 64, .maximum = 256, .enforce_bounds = true}}),
+                make_property_descriptor("history_weight", "历史权重",
+                    &IrradianceVolumeComponent::history_weight,
+                    {.required = false,
+                        .numeric = {.speed = .01f,
+                            .minimum = 0,
+                            .maximum = .99f,
+                            .enforce_bounds = true}}),
                 make_property_descriptor("irradiance", "烘焙光照",
                     &IrradianceVolumeComponent::irradiance, {.asset_type = AssetType::Irradiance}),
                 make_property_descriptor("half_extents", "区域半尺寸（米）",

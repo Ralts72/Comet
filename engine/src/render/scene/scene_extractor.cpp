@@ -55,10 +55,14 @@ namespace Comet {
             std::ranges::sort(output.reflection_probes, {}, &RenderReflectionProbe::entity_id);
             output.irradiance_volumes.reserve(scene.component_count<IrradianceVolumeComponent>());
             scene.each<const IrradianceVolumeComponent, IdComponent>(
-                [&](Entity, const IrradianceVolumeComponent& volume, const IdComponent& id) {
-                    if(volume.enabled && volume.irradiance && volume.intensity > 0)
+                [&](Entity entity, const IrradianceVolumeComponent& volume, const IdComponent& id) {
+                    if(volume.enabled && (volume.realtime || volume.irradiance)
+                        && volume.intensity > 0)
                         output.irradiance_volumes.push_back(
-                            {id.id, volume.irradiance, volume.intensity, volume.normal_bias});
+                            {id.id, volume.irradiance, volume.intensity, volume.normal_bias,
+                                volume.realtime, Math::Vec3(scene.get_world_matrix(entity)[3]),
+                                volume.half_extents, volume.spacing, volume.max_distance,
+                                volume.update_budget, volume.update_rays, volume.history_weight});
                 });
             std::ranges::sort(output.irradiance_volumes, {}, &RenderIrradianceVolume::entity_id);
             scene.each<const DecalComponent, WorldTransformComponent, IdComponent>(
@@ -114,6 +118,7 @@ namespace Comet {
             item.lod.reset();
             if(entity.has_component<MeshLodComponent>())
                 item.lod = entity.get_component<MeshLodComponent>();
+            item.gi_static = mesh.gi_static;
             item.mesh_handle = mesh.mesh;
             item.material_handle = mesh.material;
             const auto overrides = scene.get_material_overrides(entity);

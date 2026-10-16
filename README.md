@@ -3,8 +3,8 @@
 Comet 是供作者个人学习使用的 3D 游戏引擎与编辑器，使用 C++20、CMake 和 Vulkan。
 引擎对外提供一个 `engine` 动态库；ImGui 编辑器与独立 App 共用场景、资产、Gameplay 和 RmlUi 游戏界面。
 
-目前支持场景编辑与撤销、glTF 静态／骨骼模型、参数化动画状态机、1D／2D 混合、独立动画库、基础跨骨架重定向、覆盖／加法分层与骨骼遮罩、动画事件、骨骼挂点、根运动与脚部 IK、静态网格 LOD、纹理 Mipmap、Forward／Deferred PBR／方向光级联与局部光阴影／IBL／局部反射探针／SSR／静态探针 GI／AO／距离雾／体积高度雾／Bloom／TAA／投影贴花、Lua 热重载、刚体、凸包／静态网格碰撞、碰撞层与角色控制、导航离线烘焙／动态障碍／跨层跳跃与 NPC 寻路避障、射线／形状扫掠／范围查询、游戏内关卡切换与检查点存档、空间音效／监听者、流式 WAV 音乐、CPU billboard 粒子／图集序列帧／软交界／碰撞与运动拖尾和游戏设置。
-独立渲染线程与场景更新重叠执行。Prefab 子树与嵌套复用、基础覆盖和 Lua 生成已接入；高级动画／粒子、实时 GI 等继续按路线图推进；支持 PBR 贴图、裁切／半透明覆盖、粗糙介质折射与 HDR 环境的静态软件 BVH／compute 渐进路径追踪预览已接入，可导出 PNG／线性 HDR 图像。macOS 已支持独立 App 导出。
+目前支持场景编辑与撤销、glTF 静态／骨骼模型、参数化动画状态机、1D／2D 混合、独立动画库、基础跨骨架重定向、覆盖／加法分层与骨骼遮罩、动画事件、骨骼挂点、根运动与脚部 IK、静态网格 LOD、纹理 Mipmap、Forward／Deferred PBR／方向光级联与局部光阴影／IBL／局部反射探针／SSR／静态与实时探针 GI／AO／距离雾／体积高度雾／Bloom／TAA／投影贴花、Lua 热重载、刚体、凸包／静态网格碰撞、碰撞层与角色控制、导航离线烘焙／动态障碍／跨层跳跃与 NPC 寻路避障、射线／形状扫掠／范围查询、游戏内关卡切换与检查点存档、空间音效／监听者、流式 WAV 音乐、CPU billboard 粒子／图集序列帧／软交界／碰撞与运动拖尾和游戏设置。
+独立渲染线程与场景更新重叠执行。Prefab 子树与嵌套复用、基础覆盖和 Lua 生成已接入；高级动画／粒子和实时 GI 扩展等继续按路线图推进；支持 PBR 贴图、裁切／半透明覆盖、粗糙介质折射与 HDR 环境的静态软件 BVH／compute 渐进路径追踪预览已接入，可导出 PNG／线性 HDR 图像。macOS 已支持独立 App 导出。
 单队列 RenderGraph 管理同步、逻辑资源寿命与瞬态目标复用，Bloom 与体积雾已使用同一套资源计划。
 
 ## 快速开始
@@ -63,6 +63,7 @@ Windows 可使用相同 CMake preset，随后启动构建目录中的可执行�
 第一关起点旁的烟雾与透明面板用于观察粒子和玻璃的前后遮挡，也可在 Edit 中选中烟雾发射器预览。
 `scenes/realtime_quality.scene` 演示投影贴花、带阴影的体积高度雾与光束，可在画质设置中切换 TAA／MSAA。
 `scenes/screen_space_reflections.scene` 对比平滑／粗糙镜面和移动物体；画质选择 Deferred 后观察屏幕空间反射，见[SSR 用法](docs/usage.md#屏幕空间反射ssr)。
+`scenes/realtime_gi.scene` 演示静态房间的实时探针间接光、移动点光源与移动物体采样，Forward／Deferred 共用，见[实时 GI 用法](docs/usage.md#实时探针-gi)。
 `scenes/particle_effects.scene` 对比烟雾的硬／软交界，并演示图集序列帧、火花反弹／碰撞消失与运动拖尾，见[粒子说明](docs/usage.md#粒子反馈)。
 起点旁的“动画分层示例”引用 `animations/layered.ani`：二维混合控制步态与蹲伏，上半身由独立层覆盖，并叠加可调权重的呼吸动作；动作来自共享 `.anilib`。双击控制器可调整试播参数；具体入口见[动画使用说明](docs/usage.md#2d-混合动画库与分层)。
 `scenes/root_motion.scene` 演示动作驱动的行走与碰撞；在模型实体添加“根运动”可配置目标与运动轴，详见[根运动说明](docs/usage.md#根运动)。

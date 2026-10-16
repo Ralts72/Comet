@@ -1,6 +1,6 @@
 #pragma once
 
-#include "render/path_trace_scene.h"
+#include "render/ray_scene.h"
 #include "render/render_graph.h"
 #include "render/scene/render_types.h"
 
@@ -24,7 +24,7 @@ namespace Comet {
         ~PathTracePass();
         [[nodiscard]] static Result<void, GraphicsError> check_support(const Device& device);
         [[nodiscard]] Result<void, GraphicsError> render(FrameScheduler& frames,
-            const std::shared_ptr<const PathTraceScene>& scene, const ViewProjectMatrix& camera,
+            const std::shared_ptr<const RayScene>& scene, const ViewProjectMatrix& camera,
             const PathTraceSettings& settings, Math::Vec2u output_size,
             const RenderGraph::RecordPass& display, RenderDiagnostics* diagnostics = nullptr);
         [[nodiscard]] std::shared_ptr<ImageView> output() const;
@@ -36,7 +36,7 @@ namespace Comet {
         struct Resources;
         Result<void, GraphicsError> initialize();
         Result<void, GraphicsError> prepare(
-            const std::shared_ptr<const PathTraceScene>& scene, Math::Vec2u size);
+            const std::shared_ptr<const RayScene>& scene, Math::Vec2u size);
         Device& m_device;
         std::shared_ptr<Program> m_program;
         std::shared_ptr<Resources> m_resources;

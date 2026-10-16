@@ -7,7 +7,6 @@
 #include "common/error.h"
 #include "common/result.h"
 #include "render/debug/line_draw_list.h"
-#include "render/path_trace_scene.h"
 
 namespace Comet {
     class AssetRegistry;
@@ -26,8 +25,7 @@ namespace CometEditor {
             const Comet::ComponentRegistry& components, PropertyEditTransaction& inspector_edit,
             const EditorShortcuts& shortcuts, Comet::Renderer& renderer,
             Comet::AssetRegistry& assets, Ui::ImGuiContext& ui,
-            Comet::PhysicsService::MeshSource meshes = {},
-            Comet::PathTraceSceneBuilder::Images images = {});
+            Comet::PhysicsService::MeshSource meshes = {});
         ~Viewport();
 
         Viewport(const Viewport&) = delete;

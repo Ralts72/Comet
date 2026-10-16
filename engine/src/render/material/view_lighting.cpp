@@ -81,7 +81,12 @@ namespace Comet {
             float(selected.probe_count), float(selected.excess_probes), 0, 0};
         for(const auto& resolved : submission.world.irradiance_volumes) {
             const auto& volume = resolved.volume;
-            const auto& resource = resolved.resource;
+            const auto& realtime = submission.realtime_irradiance;
+            const auto resource = volume.realtime
+                                      ? (realtime && realtime->volume.entity_id == volume.entity_id
+                                                ? realtime->resource
+                                                : nullptr)
+                                      : resolved.resource;
             if(!resource || !resource->probes || !std::isfinite(volume.intensity)
                 || volume.intensity <= 0 || volume.intensity > SceneEnvironment::MAX_INTENSITY
                 || !std::isfinite(volume.normal_bias) || volume.normal_bias < 0

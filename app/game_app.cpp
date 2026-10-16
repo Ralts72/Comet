@@ -75,6 +75,24 @@ namespace {
             m_asset_manager = std::make_unique<Comet::AssetManager>(m_project.paths(),
                 engine.get_asset_registry(), engine.get_render_resource_factory(),
                 engine.get_task_scheduler(), get_config().assets);
+            engine.get_renderer().set_ray_scene_sources(
+                [this](
+                    Comet::AssetHandle handle) { return m_asset_manager->read_mesh_data(handle); },
+                [this](Comet::AssetHandle handle) {
+                    return m_asset_manager->mesh_data_revision(handle);
+                },
+                {.texture =
+                        [this](Comet::AssetHandle handle) {
+                            return m_asset_manager->read_texture_data(handle);
+                        },
+                    .environment =
+                        [this](Comet::AssetHandle handle) {
+                            return m_asset_manager->read_environment_background(handle);
+                        },
+                    .revision =
+                        [this](Comet::AssetHandle handle) {
+                            return m_asset_manager->get_database().get_revision(handle);
+                        }});
             const auto scan = m_asset_manager->scan();
             for(const auto& issue : scan.issues)
                 LOG_WARN(
@@ -210,6 +228,7 @@ namespace {
                 m_ui->deactivate();
             m_player_settings.reset_input();
             m_ui.reset();
+            get_engine().get_renderer().set_ray_scene_sources({});
             m_asset_manager.reset();
             m_pending_scene.reset();
             m_pending_transition.reset();

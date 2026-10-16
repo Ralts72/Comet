@@ -51,6 +51,27 @@ def main():
             project = json.loads((root / "demo/project.json").read_text())
             project["id"] = project_id
             (source / "project.json").write_text(json.dumps(project))
+            # 第二关启用实时 GI，搬移后必须只从只读产品读取 BVH 的 CPU 输入。
+            second_path = source / "assets/scenes/character_second.scene"
+            second = json.loads(second_path.read_text())
+            stripes = json.loads((source / "assets/materials/stripes.mat.meta").read_text())["guid"]
+            for entity in second["entities"]:
+                components = entity["components"]
+                moving_body = ("rigid_body" in components
+                               and components["rigid_body"].get("motion", "dynamic") != "static")
+                if "mesh_renderer" in components and (
+                        "script" in components or moving_body
+                        or components["mesh_renderer"]["material"] == stripes):
+                    components["mesh_renderer"]["gi_static"] = False
+            second["entities"].append({"uuid": str(uuid.uuid4()), "components": {
+                "name": "打包实时 GI", "transform": {
+                    "translation": [0, 2, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1]},
+                "irradiance_volume": {"enabled": True, "irradiance": 0,
+                    "half_extents": [12, 4, 12], "spacing": 2, "max_distance": 50,
+                    "ray_samples": 512, "bounces": 2, "intensity": 1, "normal_bias": .05,
+                    "realtime": True, "update_budget": 8, "update_rays": 64,
+                    "history_weight": .9}}})
+            second_path.write_text(json.dumps(second, ensure_ascii=False))
             script = source / "assets/scripts/character.lua"
             script.write_text("local controller = (function()\n" + script.read_text() + "\nend)()\n" + """
                 local previous = controller.update
@@ -157,7 +178,8 @@ def main():
                     assert checkpoint["project"] == project_id
                     assert checkpoint["checkpoint"] == "export_smoke"
                     assert "Application failed" not in text
-                    print("Relocated App rendered both levels, returned and restored a checkpoint "
+                    assert "实时探针 GI 准备失败" not in text, text
+                    print("Relocated App rendered both levels with realtime GI, returned and restored a checkpoint "
                           "outside its read-only bundle")
                 finally:
                     # 此项验证启动与运行；关闭交互由用户验收，不注入生产用测试入口。

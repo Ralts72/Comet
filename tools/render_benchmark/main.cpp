@@ -64,7 +64,7 @@ namespace {
     constexpr unsigned MAX_PHYSICS_OBJECTS = 512;
     constexpr std::string_view USAGE =
         "Usage: render_benchmark OUTPUT.csv OBJECTS WIDTH HEIGHT FRAMES BLOOM(0/1) "
-        "[MATERIALS [static|moving|script-moving|skeletal|light-moving|culling|project-shader|physics-active|physics-sleeping|reflections-off|reflections "
+        "[MATERIALS [static|moving|script-moving|skeletal|light-moving|culling|project-shader|physics-active|physics-sleeping|reflections-off|reflections|gi-off|gi "
         "[MSAA ANISOTROPY RENDER_SCALE [forward|deferred]]]]";
 
     enum class Workload {
@@ -78,7 +78,9 @@ namespace {
         PhysicsActive,
         PhysicsSleeping,
         ReflectionSurface,
-        Reflections
+        Reflections,
+        IrradianceOff,
+        Irradiance
     };
 
     std::string_view workload_name(Workload workload) {
@@ -103,9 +105,17 @@ namespace {
                 return "reflections-off";
             case Workload::Reflections:
                 return "reflections";
+            case Workload::IrradianceOff:
+                return "gi-off";
+            case Workload::Irradiance:
+                return "gi";
             default:
                 return "static";
         }
+    }
+
+    bool uses_irradiance(Workload workload) {
+        return workload == Workload::Irradiance || workload == Workload::IrradianceOff;
     }
 
     bool uses_physics(Workload workload) {
@@ -164,6 +174,10 @@ namespace {
                 workload = Workload::ReflectionSurface;
             else if(name == "reflections")
                 workload = Workload::Reflections;
+            else if(name == "gi-off")
+                workload = Workload::IrradianceOff;
+            else if(name == "gi")
+                workload = Workload::Irradiance;
             else if(name != "static")
                 return Result<Options>::failure("Invalid benchmark workload: " + std::string(name));
         }
@@ -451,7 +465,7 @@ namespace {
         key.set_transform({.rotation = {-30, -35, 0}});
         key.add_component<Comet::LightComponent>(
             Comet::LightComponent{.intensity = 4, .casts_shadow = true});
-        if(options.workload == Workload::LightMoving)
+        if(options.workload == Workload::LightMoving || uses_irradiance(options.workload))
             initial_poses.push_back({key, key.get_component<Comet::TransformComponent>()});
         auto point = create_entity("Point");
         point.set_transform({.translation = {-3, 2, 0}});
@@ -467,6 +481,17 @@ namespace {
                 .color = {0.1f, 0.2f, 1},
                 .intensity = 20,
                 .range = 12});
+        if(uses_irradiance(options.workload)) {
+            auto region = create_entity("Realtime GI region");
+            region.set_transform({.translation = {0, 1, 0}});
+            region.add_component<Comet::IrradianceVolumeComponent>(Comet::IrradianceVolumeComponent{
+                .enabled = options.workload == Workload::Irradiance,
+                .half_extents = {5.5f, 2, 5.5f},
+                .spacing = 1,
+                .realtime = true,
+                .update_budget = 8,
+                .update_rays = 64});
+        }
         engine.set_scene(std::move(scene));
         return Result<void>::success();
     }
@@ -477,7 +502,8 @@ namespace {
         Measurement(Comet::Engine& engine, const Options& options)
             : m_engine(engine), m_options(options),
               m_physics(engine.get_scene_runtime().find_system<Comet::PhysicsSystem>()),
-              m_warmup(std::max(WARMUP_FRAMES, options.frames / 4)
+              m_warmup(std::max(uses_irradiance(options.workload) ? 128u : WARMUP_FRAMES,
+                           options.frames / 4)
                        + (options.workload == Workload::PhysicsSleeping ? SETTLE_STEPS : 0)),
               m_size(engine.get_renderer().get_scene_renderer().get_render_target().get_size()),
               m_scene_size(engine.get_renderer().get_scene_size()),
@@ -510,6 +536,8 @@ namespace {
                     "cpu_geometry", "cpu_lighting", "cpu_submission_prep", "cpu_queue_submit",
                     "cpu_present", "cpu_render_prepare_record", "cpu_graph", "gpu_graph"})
                 m_samples[name].reserve(options.frames);
+            if(options.workload == Workload::Irradiance)
+                m_samples["gpu_realtime_gi"].reserve(options.frames);
             for(const auto& pass : m_passes)
                 for(const auto* prefix : {"cpu_", "gpu_"})
                     m_samples[prefix + pass].reserve(options.frames);
@@ -580,6 +608,12 @@ namespace {
                 if(in_range(m_last_gpu))
                     append_graph("gpu_", *snapshot.gpu);
             }
+            const auto irradiance = renderer.get_irradiance_statistics();
+            if(irradiance.gpu && irradiance.gpu->serial > m_last_gi_gpu) {
+                m_last_gi_gpu = irradiance.gpu->serial;
+                if(in_range(m_last_gi_gpu))
+                    m_samples.at("gpu_realtime_gi").push_back(irradiance.gpu->milliseconds);
+            }
             const auto drain = renderer.get_frame_scheduler().get_frame_slot_count() + 2;
             if(update.frame_index > m_warmup + m_options.frames + drain) {
                 m_finished = true;
@@ -605,6 +639,7 @@ namespace {
             const auto& snapshot = renderer.get_diagnostics().get_snapshot();
             const auto& stats = renderer.get_scene_renderer().get_material_statistics();
             const auto& post_process = renderer.get_scene_renderer().get_post_process_settings();
+            const auto irradiance = renderer.get_irradiance_statistics();
             const auto gpu_samples = m_samples.at("gpu_graph").size();
             std::string_view gpu_status = "complete";
             if(!snapshot.gpu_supported)
@@ -673,7 +708,11 @@ namespace {
                    << " animation_clip="
                    << (m_options.workload == Workload::Skeletal ? "walk" : "none") << '\n'
                    << "# light_rotation_degrees_per_frame="
-                   << (m_options.workload == Workload::LightMoving ? 0.5 : 0.0) << '\n'
+                   << (m_options.workload == Workload::LightMoving
+                                  || uses_irradiance(m_options.workload)
+                              ? 0.5
+                              : 0.0)
+                   << '\n'
                    << "# physics_bodies=" << physics_statistics().bodies
                    << " active_bodies_min=" << m_active_min << " active_bodies_max=" << m_active_max
                    << " pose_updates_min=" << m_pose_min << " pose_updates_max=" << m_pose_max
@@ -718,6 +757,11 @@ namespace {
                    << "# warmup=" << m_warmup << " requested_samples=" << m_options.frames
                    << " gpu_samples=" << gpu_samples << " gpu_status=" << gpu_status << '\n'
                    << "# gpu_error=" << snapshot.gpu_error << '\n'
+                   << "# realtime_gi=" << (m_options.workload == Workload::Irradiance)
+                   << " probes=" << irradiance.probes
+                   << " updated_probes=" << irradiance.updated_probes << " rays=" << irradiance.rays
+                   << " image_bytes=" << irradiance.image_bytes
+                   << " geometry_upload_bytes=" << irradiance.geometry_upload_bytes << '\n'
                    << "# vma_allocation_bytes=" << allocated << '\n'
                    << "metric,samples,p50_ms,p95_ms,p99_ms,mean_ms\n";
             for(auto& [name, values] : m_samples) {
@@ -782,7 +826,16 @@ namespace {
                     return Result<void>::failure("Unexpected benchmark pass order");
             return Result<void>::success();
         }
-        Result<void> validate_workload(const Comet::PhysicsService::Statistics& physics) const {
+        Result<void> validate_workload(const Comet::PhysicsService::Statistics& physics) {
+            if(m_options.workload == Workload::Irradiance) {
+                const auto gi = m_engine.get_renderer().get_irradiance_statistics();
+                if(gi.probes != 484 || gi.updated_probes != 8 || gi.rays != 1024
+                    || !gi.geometry_upload_bytes
+                    || (m_gi_geometry_bytes && m_gi_geometry_bytes != gi.geometry_upload_bytes))
+                    return Result<void>::failure(
+                        "GI benchmark did not update probes or rebuilt unchanged geometry");
+                m_gi_geometry_bytes = gi.geometry_upload_bytes;
+            }
             if(!uses_physics(m_options.workload)) {
                 if(physics.bodies != 0)
                     return Result<void>::failure("Non-physics benchmark unexpectedly ran physics");
@@ -839,6 +892,8 @@ namespace {
         std::size_t m_pose_min = std::numeric_limits<std::size_t>::max();
         std::size_t m_pose_max = 0;
         bool m_finished = false;
+        uint64_t m_last_gi_gpu = 0;
+        uint64_t m_gi_geometry_bytes = 0;
     };
 
     Result<void> measure(const Options& options) {
@@ -878,6 +933,18 @@ namespace {
         Comet::AssetManager assets(Comet::ProjectPaths(project.value()),
             engine->get_asset_registry(), engine->get_render_resources(),
             engine->get_task_scheduler());
+        engine->get_renderer().set_ray_scene_sources(
+            [&](Comet::AssetHandle handle) { return assets.read_mesh_data(handle); },
+            [&](Comet::AssetHandle handle) { return assets.mesh_data_revision(handle); },
+            {.texture = [&](Comet::AssetHandle handle) { return assets.read_texture_data(handle); },
+                .environment =
+                    [&](Comet::AssetHandle handle) {
+                        return assets.read_environment_background(handle);
+                    },
+                .revision =
+                    [&](Comet::AssetHandle handle) {
+                        return assets.get_database().get_revision(handle);
+                    }});
         const Comet::ScopeExit shutdown([&] { engine->prepare_shutdown(); });
         std::vector<InitialPose> initial_poses;
         if(auto populated =
@@ -899,7 +966,8 @@ namespace {
             if(auto started = engine->start_scene_runtime(); !started)
                 return Result<void>::failure(started.error().message);
         }
-        if(options.workload == Workload::Moving || options.workload == Workload::LightMoving) {
+        if(options.workload == Workload::Moving || options.workload == Workload::LightMoving
+            || uses_irradiance(options.workload)) {
             if(auto added = engine->add_system(
                    std::make_unique<SceneAnimationSystem>(std::move(initial_poses)));
                 !added)

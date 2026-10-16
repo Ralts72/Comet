@@ -64,6 +64,7 @@ namespace Comet {
     struct COMET_API MeshRendererComponent {
         AssetHandle mesh;
         AssetHandle material;
+        bool gi_static = true;
         bool operator==(const MeshRendererComponent&) const = default;
     };
 
@@ -188,7 +189,7 @@ namespace Comet {
         bool operator==(const DecalComponent&) const = default;
     };
 
-    // 轴对齐烘焙区域以实体世界位置为中心；产物保存固定世界坐标。
+    // 轴对齐探针区域以实体世界位置为中心；烘焙产物保存固定世界坐标。
     struct COMET_API IrradianceVolumeComponent {
         bool enabled = true;
         AssetHandle irradiance;
@@ -200,6 +201,10 @@ namespace Comet {
         float intensity = 1;
         float normal_bias = 0.05f;
         std::string bake_fingerprint;
+        bool realtime = false;
+        uint32_t update_budget = 8;
+        uint32_t update_rays = 64;
+        float history_weight = .9f;
         bool operator==(const IrradianceVolumeComponent&) const = default;
     };
 

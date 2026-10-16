@@ -10,8 +10,9 @@
 #include "render/scene/render_scene.h"
 #include "render/scene/render_geometry.h"
 #include "render/scene/scene_resolver.h"
-#include "render/path_trace_scene.h"
+#include "render/ray_scene.h"
 #include "render/passes/skinning_pass.h"
+#include "render/passes/realtime_irradiance_pass.h"
 #include "render/scene/scene_picking.h"
 #include "render/debug/line_draw_list.h"
 #include "render/material/material_renderer.h"
@@ -141,10 +142,11 @@ namespace Comet {
         [[nodiscard]] Result<TextureData, GraphicsError> capture_path_trace(
             ViewId id = DEFAULT_VIEW);
         [[nodiscard]] const std::string& path_trace_error(ViewId id = DEFAULT_VIEW) const;
-        void set_path_trace_sources(PathTraceSceneBuilder::MeshReader read,
-            PathTraceSceneBuilder::MeshRevision revision = {},
-            PathTraceSceneBuilder::Images images = {});
+        // Main 读取已发布的 CPU 产物，供实时 GI 与路径追踪共用；GPU 不调用这些接口。
+        void set_ray_scene_sources(RaySceneBuilder::MeshReader read,
+            RaySceneBuilder::MeshRevision revision = {}, RaySceneBuilder::Images images = {});
         [[nodiscard]] SkinningPass::Statistics get_skinning_statistics() const;
+        [[nodiscard]] RealtimeIrradiancePass::Statistics get_irradiance_statistics() const;
         [[nodiscard]] Result<void, GraphicsError> check_path_trace_support() const;
         [[nodiscard]] std::vector<uint32_t> supported_msaa_samples() const;
         [[nodiscard]] float max_anisotropy() const;
@@ -202,6 +204,7 @@ namespace Comet {
         [[nodiscard]] Result<void, GraphicsError> draw_frame(RenderFrame& frame);
         // Main 在一次场景解析之后准备各 View 的只读附加输入。
         void prepare_scene_views(RenderFrame& frame);
+        void prepare_irradiance(RenderFrame& frame);
         Renderer(const Window& window, std::unique_ptr<RenderContext> context,
             std::unique_ptr<RenderResources> resources, std::unique_ptr<FrameScheduler> frames,
             std::unique_ptr<MaterialPrograms> programs, std::unique_ptr<SceneRenderer> scene,
@@ -217,14 +220,15 @@ namespace Comet {
             std::optional<RenderFrame::Pick> pick_request;
             std::optional<ViewportPickResult> pick_result;
             LineDrawList lines;
-            std::unique_ptr<PathTraceSceneBuilder> path_trace_builder;
+            std::unique_ptr<RaySceneBuilder> path_trace_builder;
             std::string path_trace_error;
         };
         [[nodiscard]] ViewState& get_view(ViewId id);
         [[nodiscard]] const ViewState& get_view(ViewId id) const;
         [[nodiscard]] Result<void, GraphicsError> render_view(ViewState& view,
             const RenderFrame::View& input, const RenderWorld& world, bool has_scene,
-            std::vector<QueueSemaphoreSubmit>& waits, RenderDiagnostics* diagnostics);
+            std::vector<QueueSemaphoreSubmit>& waits, RenderDiagnostics* diagnostics,
+            const ResolvedIrradianceVolume* irradiance);
 
         const Window& m_window;
         std::unique_ptr<RenderContext> m_render_context;
@@ -237,10 +241,15 @@ namespace Comet {
         std::unique_ptr<MaterialPrograms> m_programs;
         std::map<ViewId, ViewState> m_views;
         ViewId m_next_view_id = 1;
-        PathTraceSceneBuilder::MeshReader m_path_trace_read;
-        PathTraceSceneBuilder::MeshRevision m_path_trace_revision;
-        PathTraceSceneBuilder::Images m_path_trace_images;
+        RaySceneBuilder::MeshReader m_ray_read;
+        RaySceneBuilder::MeshRevision m_ray_revision;
+        RaySceneBuilder::Images m_ray_images;
         std::string m_path_trace_support_error;
+        std::unique_ptr<RaySceneBuilder> m_irradiance_builder;
+        std::unique_ptr<RenderWorld> m_irradiance_input;
+        std::unique_ptr<class RealtimeIrradiancePass> m_realtime_irradiance;
+        std::string m_irradiance_error;
+        std::string m_irradiance_support_error;
         Settings m_settings;
         std::function<OverlayDrawList()> m_capture_overlay;
         std::function<void()> m_shutdown_overlay;

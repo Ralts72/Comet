@@ -46,6 +46,7 @@ namespace Comet {
         std::shared_ptr<Mesh> mesh;
         MaterialBinding material;
         std::shared_ptr<const ResolvedMeshLod> lod;
+        bool gi_static = true;
     };
 
     struct ResolvedReflectionProbe {
@@ -125,7 +126,8 @@ namespace Comet {
     struct RenderSubmission {
         const RenderWorld& world;
         std::optional<ViewProjectMatrix> view_project_matrix;
-        std::shared_ptr<const PathTraceScene> path_trace;
+        std::shared_ptr<const RayScene> path_trace;
         PathTraceSettings path_trace_settings;
+        const ResolvedIrradianceVolume* realtime_irradiance = nullptr;
     };
 }

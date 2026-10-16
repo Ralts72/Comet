@@ -1,0 +1,441 @@
+{
+  "version": 2,
+  "environment": {
+    "asset": 6729301842000000104,
+    "background": false,
+    "intensity": 1,
+    "rotation": 0,
+    "lighting": true,
+    "lighting_intensity": 0.2,
+    "background_color": [
+      0.02,
+      0.02,
+      0.02
+    ],
+    "fog_enabled": false,
+    "fog_color": [
+      0.5,
+      0.5,
+      0.5
+    ],
+    "fog_start": 10,
+    "fog_end": 100
+  },
+  "post_process": {
+    "exposure": 1,
+    "bloom_enabled": false,
+    "bloom_strength": 0.05,
+    "bloom_threshold": 1,
+    "ao_enabled": false,
+    "ao_radius": 0.5,
+    "ao_strength": 1
+  },
+  "entities": [
+    {
+      "uuid": "ca18463e-eb8a-523b-ac5a-688c154db885",
+      "components": {
+        "name": "后墙",
+        "transform": {
+          "translation": [
+            0,
+            2,
+            -2.1
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4,
+            4,
+            0.2
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000100
+        }
+      }
+    },
+    {
+      "uuid": "45387758-2e45-537b-ae8b-93edf44a56d9",
+      "components": {
+        "name": "红墙",
+        "transform": {
+          "translation": [
+            -2.1,
+            2,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.2,
+            4,
+            4.4
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000101
+        }
+      }
+    },
+    {
+      "uuid": "77ba4364-930d-522f-94d0-3be698b3ad35",
+      "components": {
+        "name": "顶板",
+        "transform": {
+          "translation": [
+            0,
+            4.1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.4,
+            0.2,
+            4.4
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000100
+        }
+      }
+    },
+    {
+      "uuid": "4dabf01a-f5bf-56a2-a07d-bc43844f8f92",
+      "components": {
+        "name": "静态高方块",
+        "transform": {
+          "translation": [
+            -0.6,
+            0.6,
+            -0.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.7,
+            1.2,
+            0.7
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000100
+        }
+      }
+    },
+    {
+      "uuid": "884ad2fa-8cd8-5282-992b-ea59250d9e07",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [
+            0,
+            1.8,
+            1.65
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "camera": {
+          "primary": true,
+          "projection": "perspective",
+          "fov": 70,
+          "orthographic_height": 10,
+          "near_clip": 0.05,
+          "far_clip": 50
+        },
+        "camera_controller": {
+          "enabled": true,
+          "mode": "free",
+          "move_speed": 3,
+          "look_sensitivity": 0.2,
+          "look_speed": 120,
+          "orbit_distance": 6,
+          "orbit_height": 1.2,
+          "orbit_min_distance": 1.5,
+          "orbit_max_distance": 12,
+          "orbit_zoom_step": 0.5,
+          "collision_radius": 0.15
+        }
+      }
+    },
+    {
+      "uuid": "4a1648ac-51c6-5f7f-8a1d-9b10e479dbd9",
+      "components": {
+        "name": "静态矮方块",
+        "transform": {
+          "translation": [
+            0.7,
+            0.3,
+            -0.8
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000100
+        }
+      }
+    },
+    {
+      "uuid": "547a8fad-1b23-502b-bda4-dfcd64106278",
+      "components": {
+        "name": "实时探针 GI 区域",
+        "transform": {
+          "translation": [
+            0,
+            2,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "irradiance_volume": {
+          "enabled": true,
+          "irradiance": 0,
+          "half_extents": [
+            2.1,
+            2.1,
+            2.1
+          ],
+          "spacing": 0.72,
+          "max_distance": 30,
+          "ray_samples": 1024,
+          "bounces": 3,
+          "intensity": 1,
+          "normal_bias": 0.05,
+          "bake_fingerprint": "",
+          "realtime": true,
+          "update_budget": 16,
+          "update_rays": 128,
+          "history_weight": 0.85
+        }
+      }
+    },
+    {
+      "uuid": "3a1a5654-a86a-51af-b467-b367d08148c0",
+      "components": {
+        "name": "移动采样方块",
+        "script": {
+          "asset": 14309634625000312006,
+          "parameters": {
+            "amplitude": 1.1,
+            "speed": 0.8
+          }
+        },
+        "transform": {
+          "translation": [
+            0,
+            1,
+            0.6
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            0.5,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000100,
+          "gi_static": false
+        },
+        "rigid_body": {
+          "motion": "kinematic",
+          "mass_mode": "mass",
+          "mass": 1,
+          "density": 1000,
+          "continuous_collision": false
+        },
+        "collider": {
+          "shape": "box",
+          "mesh": 0,
+          "collision_layer": 1,
+          "collision_mask": 4294967295,
+          "half_extents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "radius": 0.5,
+          "height": 2,
+          "is_trigger": false,
+          "friction": 0.2,
+          "restitution": 0
+        }
+      }
+    },
+    {
+      "uuid": "3267ad3a-9e4d-5c3c-a2b2-83d5850456b3",
+      "components": {
+        "name": "地面",
+        "transform": {
+          "translation": [
+            0,
+            -0.1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            4.4,
+            0.2,
+            4.4
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000100
+        }
+      }
+    },
+    {
+      "uuid": "f7b07b11-e841-5ea6-bf79-92cb7d36322e",
+      "components": {
+        "name": "发光顶灯",
+        "transform": {
+          "translation": [
+            0,
+            3.94,
+            -0.2
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.2,
+            0.08,
+            1.2
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000103
+        }
+      }
+    },
+    {
+      "uuid": "0d51a60b-c12c-5368-8383-3f52c941d8ff",
+      "components": {
+        "name": "蓝墙",
+        "transform": {
+          "translation": [
+            2.1,
+            2,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.2,
+            4,
+            4.4
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 6729301842000000102
+        }
+      }
+    },
+    {
+      "uuid": "8c81f3ce-0f0c-5eae-97e5-c8a1da82b949",
+      "components": {
+        "name": "移动点光源（运行后观察间接光变化）",
+        "transform": {
+          "translation": [
+            0,
+            2.8,
+            0.4
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "light": {
+          "type": "point",
+          "enabled": true,
+          "color": [
+            1,
+            0.8,
+            0.5
+          ],
+          "intensity": 12,
+          "range": 8,
+          "inner_angle": 20,
+          "outer_angle": 30,
+          "casts_shadow": true,
+          "shadow_distance": 30
+        },
+        "script": {
+          "asset": 14309634625000312006,
+          "parameters": {
+            "amplitude": 1.2,
+            "speed": 0.7
+          }
+        }
+      }
+    }
+  ]
+}
