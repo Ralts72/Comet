@@ -55,11 +55,7 @@ namespace Comet {
         Result<std::shared_ptr<const ModelData>, Error> load_model(AssetHandle handle);
         void invalidate_model(AssetHandle handle);
         bool model_is_loaded(AssetHandle handle) const;
-        struct ModelResidency {
-            std::size_t count = 0;
-            std::size_t payload_bytes = 0;
-        };
-        [[nodiscard]] ModelResidency model_residency() const;
+        [[nodiscard]] std::size_t model_cache_entries() const { return m_models.size(); }
         std::size_t release_models_except(const std::unordered_set<AssetHandle>& retained);
         Result<std::shared_ptr<Mesh>, Error> load_mesh(AssetHandle handle);
         Result<MeshData, Error> read_mesh_data(AssetHandle handle);

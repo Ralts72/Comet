@@ -12,7 +12,6 @@
 #include "render/resource/texture.h"
 
 #include <utility>
-#include <unordered_set>
 
 namespace Comet {
     namespace {
@@ -79,33 +78,6 @@ namespace Comet {
 
     bool RenderAssetFactory::has_lighting(const std::shared_ptr<Environment>& environment) {
         return environment && environment->has_lighting();
-    }
-
-    RenderAssetFactory::ResidentBytes RenderAssetFactory::resident_bytes(
-        const ResidencyInput& input) {
-        ResidentBytes result;
-        std::unordered_set<const Mesh*> meshes;
-        std::unordered_set<const Texture*> textures;
-        const auto count_texture = [&](const std::shared_ptr<Texture>& texture) {
-            if(texture && textures.insert(texture.get()).second)
-                result.texture_pixel_bytes += texture->pixel_bytes();
-        };
-        for(const auto& mesh : input.meshes)
-            if(mesh && meshes.insert(mesh.get()).second)
-                result.mesh_buffer_bytes += mesh->buffer_bytes();
-        for(const auto& texture : input.textures)
-            count_texture(texture);
-        for(const auto& environment : input.environments)
-            if(environment) {
-                count_texture(environment->background);
-                count_texture(environment->irradiance);
-                count_texture(environment->specular);
-                count_texture(environment->brdf);
-            }
-        for(const auto& irradiance : input.irradiance)
-            if(irradiance)
-                count_texture(irradiance->probes);
-        return result;
     }
 
 }

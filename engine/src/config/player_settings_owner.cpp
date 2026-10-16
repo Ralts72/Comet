@@ -51,73 +51,41 @@ namespace Comet {
           m_quality(std::move(startup.quality)), m_audio(std::move(startup.audio)) {}
 
     void PlayerSettingsOwner::bind_app(Engine& engine) {
-        bind({.host = Host::App,
-            .input_active = [&engine] { return engine.get_scene_runtime().is_active(); },
-            .configure_input =
-                [&engine](
-                    InputActions actions) { return engine.set_input_actions(std::move(actions)); },
-            .rebind_input =
-                [&engine](InputActions actions) {
-                    return engine.rebind_input_actions(std::move(actions));
-                },
-            .current_display =
-                [&engine](DisplaySettings settings) {
-                    const auto& window = engine.get_window();
-                    const auto size = window.get_restore_size();
-                    settings.width = static_cast<int>(size.x);
-                    settings.height = static_cast<int>(size.y);
-                    settings.mode = window.get_mode();
-                    return settings;
-                },
-            .apply_display =
-                [&engine](const DisplaySettings& settings) {
-                    if(auto window = engine.get_window().set_display_settings(
-                           settings.mode, {static_cast<uint32_t>(settings.width),
-                                              static_cast<uint32_t>(settings.height)});
-                        !window)
-                        return window;
-                    auto& renderer = engine.get_renderer();
-                    renderer.set_vsync_enabled(settings.vsync);
-                    if(auto output = renderer.request_output_settings(settings.output); !output)
-                        return Result<void>::failure(output.error().message);
-                    return ui_result(engine.set_frame_rate_limit(settings.frame_rate_limit));
-                },
-            .output_pending = [&engine] { return engine.get_renderer().output_pending(); },
-            .apply_quality =
-                [&engine](const QualitySettings& settings) {
-                    const auto applied = engine.get_renderer().request_quality_settings(settings);
-                    if(!applied)
-                        return Result<void, Error>::failure(applied.error().as_error());
-                    return Result<void, Error>::success();
-                },
-            .apply_audio =
-                [&engine](const AudioSettings& settings) {
-                    return engine.apply_audio_settings(settings);
-                },
-            .active_audio = [&engine] { return engine.get_audio_settings(); }});
+        m_engine = &engine;
+        m_set_play_resolution = {};
+        m_play_active = {};
     }
 
     void PlayerSettingsOwner::bind_play(Engine& engine,
         std::function<void(Math::Vec2u)> set_resolution, std::function<bool()> play_active) {
+        if(!set_resolution || !play_active)
+            LOG_FATAL("Play settings require resolution and session callbacks");
         bind_app(engine);
-        m_targets.host = Host::Play;
-        m_targets.input_active = [&engine, play_active = std::move(play_active)] {
-            return play_active && play_active() && engine.get_scene_runtime().is_active();
-        };
-        m_targets.current_display = {};
-        m_targets.apply_display = [set_resolution = std::move(set_resolution)](
-                                      const DisplaySettings& settings) {
-            if(!set_resolution)
-                return Result<void>::failure("Play resolution service is unavailable");
-            set_resolution(
-                {static_cast<uint32_t>(settings.width), static_cast<uint32_t>(settings.height)});
-            return Result<void>::success();
-        };
-        m_targets.output_pending = {};
+        m_set_play_resolution = std::move(set_resolution);
+        m_play_active = std::move(play_active);
     }
 
-    void PlayerSettingsOwner::bind(Targets targets) {
-        m_targets = std::move(targets);
+    Engine& PlayerSettingsOwner::engine() const {
+        if(!m_engine)
+            LOG_FATAL("Player settings require a bound host");
+        return *m_engine;
+    }
+
+    Result<void> PlayerSettingsOwner::apply_display_target(const DisplaySettings& settings) {
+        const Math::Vec2u size{
+            static_cast<uint32_t>(settings.width), static_cast<uint32_t>(settings.height)};
+        if(is_play()) {
+            m_set_play_resolution(size);
+            return Result<void>::success();
+        }
+        auto& host = engine();
+        if(auto window = host.get_window().set_display_settings(settings.mode, size); !window)
+            return window;
+        auto& renderer = host.get_renderer();
+        renderer.set_vsync_enabled(settings.vsync);
+        if(auto output = renderer.request_output_settings(settings.output); !output)
+            return Result<void>::failure(output.error().message);
+        return ui_result(host.set_frame_rate_limit(settings.frame_rate_limit));
     }
 
     Ui::ProjectUi::Services PlayerSettingsOwner::ui_services() {
@@ -133,17 +101,14 @@ namespace Comet {
             .apply_quality = [this](QualitySettings settings) { return apply_quality(settings); },
             .audio_defaults = m_project.audio_settings(),
             .load_audio = [this] { return load_audio(); },
-            .active_audio =
-                [this] {
-                    return m_targets.active_audio ? m_targets.active_audio() : AudioSettings{};
-                },
+            .active_audio = [this] { return engine().get_audio_settings(); },
             .apply_audio = [this](AudioSettings settings) { return apply_audio(settings); }};
-        if(m_targets.host == Host::App) {
+        if(!is_play()) {
             services.display_confirmation = [this] {
                 return m_display_preview ? m_display_preview->remaining() : std::optional<float>{};
             };
             services.confirm_display = [this] {
-                if(m_targets.output_pending && m_targets.output_pending())
+                if(engine().get_renderer().output_pending())
                     return Result<void>::failure("Display output is still being applied");
                 if(!m_display_preview)
                     return Result<void>::failure("No display preview is pending");
@@ -174,16 +139,21 @@ namespace Comet {
                 return Result<void>::failure(loaded.error());
             m_display = std::move(loaded).value();
         }
-        if(!m_display_preview)
+        if(!is_play() && !m_display_preview)
             m_display_preview = std::make_unique<DisplaySettingsPreview>(*m_display);
         return Result<void>::success();
     }
 
     DisplaySettings PlayerSettingsOwner::current_display() const {
+        if(is_play())
+            return m_display->settings();
         auto settings = m_display_preview->settings();
-        return m_targets.host == Host::App && m_targets.current_display
-                   ? m_targets.current_display(settings)
-                   : settings;
+        const auto& window = engine().get_window();
+        const auto size = window.get_restore_size();
+        settings.width = static_cast<int>(size.x);
+        settings.height = static_cast<int>(size.y);
+        settings.mode = window.get_mode();
+        return settings;
     }
 
     Result<DisplaySettings> PlayerSettingsOwner::load_display() {
@@ -215,23 +185,20 @@ namespace Comet {
     }
 
     Result<void> PlayerSettingsOwner::apply_input(InputOverrides overrides) {
-        if(!m_input || !m_targets.input_active || !m_targets.input_active())
-            return Result<void>::failure(
-                m_targets.host == Host::App
-                    ? "Player input settings require an active game"
-                    : "Player input settings require an active Play session");
+        if(!m_input || !engine().get_scene_runtime().is_active() || (is_play() && !m_play_active()))
+            return Result<void>::failure("Player input settings require an active game session");
         return m_input->save_and_apply(
-            m_project.input_actions(), std::move(overrides), m_targets.rebind_input);
+            m_project.input_actions(), std::move(overrides), [this](InputActions actions) {
+                return engine().rebind_input_actions(std::move(actions));
+            });
     }
 
     Result<void, Error> PlayerSettingsOwner::configure_input() {
-        if(!m_targets.configure_input)
-            return Result<void, Error>::failure({"Player input service is unavailable"});
         auto overrides = load_input();
         if(!overrides) {
             LOG_WARN(
                 "Player input settings unavailable; using project defaults: {}", overrides.error());
-            return m_targets.configure_input(m_project.input_actions());
+            return engine().set_input_actions(m_project.input_actions());
         }
         auto resolved = overrides.value().resolve(m_project.input_actions());
         if(!resolved)
@@ -239,73 +206,78 @@ namespace Comet {
         for(const auto& issue : resolved.value().issues)
             LOG_WARN("Player input override ignored for action '{}', binding '{}': {}",
                 issue.action.to_string(), issue.binding.to_string(), issue.message);
-        return m_targets.configure_input(std::move(resolved).value().actions);
+        return engine().set_input_actions(std::move(resolved).value().actions);
     }
 
     Result<void, Error> PlayerSettingsOwner::activate_quality() {
         const auto loaded = load_quality();
         if(!loaded)
             return Result<void, Error>::failure({loaded.error()});
-        if(!m_targets.apply_quality)
-            return Result<void, Error>::failure({"Quality apply service is unavailable"});
-        return m_targets.apply_quality(loaded.value());
+        const auto applied = engine().get_renderer().request_quality_settings(loaded.value());
+        if(!applied)
+            return Result<void, Error>::failure(applied.error().as_error());
+        return Result<void, Error>::success();
     }
 
     Result<void, Error> PlayerSettingsOwner::activate_audio() {
         const auto loaded = load_audio();
         if(!loaded)
             return Result<void, Error>::failure({loaded.error()});
-        if(!m_targets.apply_audio)
-            return Result<void, Error>::failure({"Audio apply service is unavailable"});
-        return m_targets.apply_audio(loaded.value());
+        return engine().apply_audio_settings(loaded.value());
     }
 
     Result<void> PlayerSettingsOwner::apply_display(DisplaySettings settings) {
         if(auto loaded = ensure_display(); !loaded)
             return loaded;
-        if(m_targets.host == Host::App)
-            return m_display_preview->apply(settings, current_display(), m_targets.apply_display);
+        const auto apply = [this](const DisplaySettings& candidate) {
+            return apply_display_target(candidate);
+        };
+        if(!is_play())
+            return m_display_preview->apply(settings, current_display(), apply);
         const auto& current = m_display->settings();
         if(settings.mode != current.mode || settings.vsync != current.vsync
             || settings.output != current.output
             || settings.frame_rate_limit != current.frame_rate_limit)
             return Result<void>::failure(
                 "Window mode, VSync, HDR and frame rate limit apply only in the standalone App");
-        return m_display->save_and_apply(settings, m_targets.apply_display);
+        return m_display->save_and_apply(settings, apply);
     }
 
     Result<void> PlayerSettingsOwner::apply_quality(QualitySettings settings) {
         if(auto loaded = load_quality(); !loaded)
             return Result<void>::failure(loaded.error());
-        if(!m_targets.apply_quality)
-            return Result<void>::failure("Quality apply service is unavailable");
         return m_quality->save_and_apply(settings, [this](const QualitySettings& candidate) {
-            return ui_result(m_targets.apply_quality(candidate));
+            const auto applied = engine().get_renderer().request_quality_settings(candidate);
+            if(!applied)
+                return Result<void>::failure(applied.error().message);
+            return Result<void>::success();
         });
     }
 
     Result<void> PlayerSettingsOwner::apply_audio(AudioSettings settings) {
         if(auto loaded = load_audio(); !loaded)
             return Result<void>::failure(loaded.error());
-        if(!m_targets.apply_audio)
-            return Result<void>::failure("Audio apply service is unavailable");
         return m_audio->save_and_apply(settings, [this](const AudioSettings& candidate) {
-            return ui_result(m_targets.apply_audio(candidate));
+            return ui_result(engine().apply_audio_settings(candidate));
         });
     }
 
     Result<void> PlayerSettingsOwner::expire_display() {
-        return m_display_preview ? m_display_preview->expire(m_targets.apply_display)
-                                 : Result<void>::success();
+        if(!m_display_preview)
+            return Result<void>::success();
+        return m_display_preview->expire(
+            [this](const DisplaySettings& settings) { return apply_display_target(settings); });
     }
 
     Result<void> PlayerSettingsOwner::revert_display() {
-        return m_display_preview ? m_display_preview->revert(m_targets.apply_display)
-                                 : Result<void>::success();
+        if(!m_display_preview)
+            return Result<void>::success();
+        return m_display_preview->revert(
+            [this](const DisplaySettings& settings) { return apply_display_target(settings); });
     }
 
     Result<void> PlayerSettingsOwner::save_window_state() {
-        if(m_targets.host != Host::App || !m_display_preview || m_display_preview->is_pending())
+        if(is_play() || !m_display_preview || m_display_preview->is_pending())
             return Result<void>::success();
         const auto settings = current_display();
         return settings != m_display->settings() ? m_display->save(settings)

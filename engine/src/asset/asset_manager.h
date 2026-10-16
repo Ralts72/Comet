@@ -97,17 +97,10 @@ namespace Comet {
             AssetCompletionBudget budget);
         [[nodiscard]] AssetAsyncStatus get_async_status() const;
         struct Residency {
-            std::map<AssetType, std::size_t> registry_counts;
             std::size_t registry_assets = 0;
             std::size_t model_cache_entries = 0;
-            // 当前 ModelData 的节点、场景、字符串和 Part 内容；不含容器余量及索引开销。
-            std::size_t model_payload_bytes = 0;
-            std::size_t mesh_buffer_bytes = 0;
-            std::size_t texture_pixel_bytes = 0;
-            std::size_t audio_pcm_bytes = 0;
-            std::size_t shader_code_bytes = 0;
         };
-        // 仅统计 owner 当前持有的资源；旧帧／Voice 的 shared_ptr 和分配器保留块另计。
+        // 当前 Registry 与 CPU 模型缓存的条目数；GPU 内存见渲染诊断。
         [[nodiscard]] Residency residency() const;
         struct ResidencyRelease {
             std::size_t registry_assets = 0;

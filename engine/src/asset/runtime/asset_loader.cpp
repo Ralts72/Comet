@@ -224,21 +224,6 @@ namespace Comet {
         m_models.erase(handle);
     }
 
-    AssetLoader::ModelResidency AssetLoader::model_residency() const {
-        ModelResidency result{.count = m_models.size()};
-        for(const auto& [handle, cached] : m_models) {
-            const auto& model = cached.artifact->model;
-            result.payload_bytes += model.nodes.size() * sizeof(ModelData::Node)
-                                    + model.scenes.size() * sizeof(ModelData::Scene);
-            for(const auto& node : model.nodes)
-                result.payload_bytes += node.key.size() + node.name.size()
-                                        + node.parts.size() * sizeof(ModelData::Part);
-            for(const auto& scene : model.scenes)
-                result.payload_bytes += scene.name.size() + scene.roots.size() * sizeof(uint32_t);
-        }
-        return result;
-    }
-
     std::size_t AssetLoader::release_models_except(
         const std::unordered_set<AssetHandle>& retained) {
         return std::erase_if(

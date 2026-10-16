@@ -50,7 +50,6 @@ set(UNIT_TEST_SOURCES
         config/test_display_settings.cpp
         config/test_display_settings_preview.cpp
         config/test_player_settings.cpp
-        config/test_player_settings_owner.cpp
         render/test_mesh_lod.cpp
         core/test_geometry.cpp
         core/test_math_utils.cpp
@@ -207,6 +206,7 @@ set(INTEGRATION_SOURCES
         render/test_pbr_surfaces.cpp
         render/test_scene_resolver.cpp
         render/test_script_material.cpp
+        config/test_player_settings_owner.cpp
         runtime/test_engine.cpp
         runtime/test_entry.cpp)
 set(ISOLATED_TEST_SOURCES

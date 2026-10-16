@@ -108,12 +108,6 @@ namespace Comet {
           m_ready_completion(ready_completion), m_local_bounds(local_bounds),
           m_vertex_count(vertex_count), m_index_count(index_count) {}
 
-    std::size_t Mesh::buffer_bytes() const {
-        return (m_vertex_buffer ? m_vertex_buffer->get_size() : 0)
-               + (m_index_buffer ? m_index_buffer->get_size() : 0)
-               + (m_skin_buffer ? m_skin_buffer->get_size() : 0);
-    }
-
     void Mesh::bind(const CommandBuffer& command_buffer) const {
         command_buffer.bind_vertex_buffer({*m_vertex_buffer, 0});
         if(m_index_count > 0)

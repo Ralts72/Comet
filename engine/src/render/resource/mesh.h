@@ -5,7 +5,6 @@
 #include "core/geometry.h"
 
 #include <cstdint>
-#include <cstddef>
 #include <memory>
 
 namespace Comet {
@@ -39,8 +38,6 @@ namespace Comet {
             return m_animation;
         }
         [[nodiscard]] const BoundingBox& get_local_bounds() const { return m_local_bounds; }
-        // 缓冲逻辑字节，不含驱动对齐、上传暂存或分配器保留块。
-        [[nodiscard]] std::size_t buffer_bytes() const;
 
     private:
         friend class SkinningPass;

@@ -7,8 +7,6 @@
 #include <map>
 #include <memory>
 #include <string>
-#include <cstddef>
-#include <vector>
 
 namespace Comet {
     class RenderResourceFactory;
@@ -40,18 +38,6 @@ namespace Comet {
             const std::map<std::string, std::shared_ptr<Texture>>& textures);
 
         [[nodiscard]] static bool has_lighting(const std::shared_ptr<Environment>& environment);
-        struct ResidentBytes {
-            std::size_t mesh_buffer_bytes = 0;
-            std::size_t texture_pixel_bytes = 0;
-        };
-        struct ResidencyInput {
-            std::vector<std::shared_ptr<Mesh>> meshes;
-            std::vector<std::shared_ptr<Texture>> textures;
-            std::vector<std::shared_ptr<Environment>> environments;
-            std::vector<std::shared_ptr<Irradiance>> irradiance;
-        };
-        // 只读去重统计逻辑 payload；不含分配器保留块、暂存或旧帧的独占资源。
-        [[nodiscard]] static ResidentBytes resident_bytes(const ResidencyInput& input);
 
     private:
         RenderResourceFactory& m_resources;

@@ -17,19 +17,6 @@ namespace Comet {
             PlayerQualitySettings quality;
             PlayerAudioSettings audio;
         };
-        enum class Host { App, Play };
-        struct Targets {
-            Host host = Host::Play;
-            std::function<bool()> input_active;
-            std::function<Result<void, Error>(InputActions)> configure_input;
-            std::function<Result<void, Error>(InputActions)> rebind_input;
-            std::function<DisplaySettings(DisplaySettings)> current_display;
-            std::function<Result<void>(const DisplaySettings&)> apply_display;
-            std::function<bool()> output_pending;
-            std::function<Result<void, Error>(const QualitySettings&)> apply_quality;
-            std::function<Result<void, Error>(const AudioSettings&)> apply_audio;
-            std::function<AudioSettings()> active_audio;
-        };
 
         [[nodiscard]] static Result<Startup> load_startup(const Project& project,
             const std::optional<std::filesystem::path>& directory = std::nullopt);
@@ -39,10 +26,10 @@ namespace Comet {
         PlayerSettingsOwner(const PlayerSettingsOwner&) = delete;
         PlayerSettingsOwner& operator=(const PlayerSettingsOwner&) = delete;
 
+        // 先绑定宿主，再应用设置；Engine 的寿命须覆盖本对象及其 UI 服务。
         void bind_app(Engine& engine);
         void bind_play(Engine& engine, std::function<void(Math::Vec2u)> set_resolution,
             std::function<bool()> play_active);
-        void bind(Targets targets);
         [[nodiscard]] Ui::ProjectUi::Services ui_services();
 
         [[nodiscard]] Result<InputOverrides> load_input();
@@ -68,10 +55,15 @@ namespace Comet {
         [[nodiscard]] Result<void> apply_audio(AudioSettings settings);
         [[nodiscard]] Result<void> ensure_display();
         [[nodiscard]] DisplaySettings current_display() const;
+        [[nodiscard]] Result<void> apply_display_target(const DisplaySettings& settings);
+        [[nodiscard]] Engine& engine() const;
+        [[nodiscard]] bool is_play() const { return bool(m_set_play_resolution); }
 
         const Project& m_project;
         std::optional<std::filesystem::path> m_directory;
-        Targets m_targets;
+        Engine* m_engine = nullptr;
+        std::function<void(Math::Vec2u)> m_set_play_resolution;
+        std::function<bool()> m_play_active;
         std::optional<PlayerInputSettings> m_input;
         std::optional<PlayerDisplaySettings> m_display;
         std::unique_ptr<DisplaySettingsPreview> m_display_preview;

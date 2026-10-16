@@ -556,7 +556,6 @@ namespace Comet::Tests {
         ASSERT_FALSE(original_view.value()->nodes.empty());
         const auto mesh = original_view.value()->nodes[0].parts[0].mesh;
         EXPECT_EQ(manager.residency().model_cache_entries, 1u);
-        EXPECT_GT(manager.residency().model_payload_bytes, 0u);
         const std::array child_demand{AssetReference{mesh, AssetType::Mesh, true, true}};
         EXPECT_EQ(manager.release_unused(child_demand).model_cache_entries, 0u);
         EXPECT_EQ(manager.residency().model_cache_entries, 1u);

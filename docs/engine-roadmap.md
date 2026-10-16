@@ -331,7 +331,7 @@ Mesh 缓存可删除重建但不替代源资产；Runtime 加载不能隐式回�
 
 ### 资产生产与运行时驻留
 
-已有 Artifact、ImportService、AssetLoader 与渲染发布分工；只读产品、导出、成功激活后的需求闭包释放与分类驻留观测见[资产链路](architecture/overview.md#资产从源码到画面)。
+已有 Artifact、ImportService、AssetLoader 与渲染发布分工；只读产品、导出、成功激活后的需求闭包释放与驻留数量观测见[资产链路](architecture/overview.md#资产从源码到画面)。
 后续以独立重资源关卡测 GPU 完成后的真实驻留和峰值；不重复建设已有导出入口：
 
 1. **明确加载需求**：场景及组件／脚本写入新 Handle 时请求资源，资源不足／损坏明确诊断；更新、取消与卸载拒绝过期结果。

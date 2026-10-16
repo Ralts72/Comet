@@ -110,44 +110,7 @@ namespace Comet {
     AssetManager::~AssetManager() = default;
 
     AssetManager::Residency AssetManager::residency() const {
-        Residency result;
-        const auto models = m_loader->model_residency();
-        result.model_cache_entries = models.count;
-        result.model_payload_bytes = models.payload_bytes;
-        RenderAssetFactory::ResidencyInput render_resources;
-        std::unordered_set<const AudioClip*> clips;
-        std::unordered_set<const ShaderProgramArtifact*> programs;
-        for(const auto handle : m_registry.handles()) {
-            ++result.registry_assets;
-            const auto* record = m_database.find(handle);
-            const auto* builtin = find_default_asset(handle);
-            auto type = AssetType::Unknown;
-            if(record)
-                type = record->type;
-            else if(builtin)
-                type = builtin->type;
-            ++result.registry_counts[type];
-            if(auto mesh = m_registry.resolve<Mesh>(handle))
-                render_resources.meshes.push_back(std::move(mesh));
-            if(auto texture = m_registry.resolve<Texture>(handle))
-                render_resources.textures.push_back(std::move(texture));
-            if(auto environment = m_registry.resolve<Environment>(handle))
-                render_resources.environments.push_back(std::move(environment));
-            if(auto irradiance = m_registry.resolve<Irradiance>(handle))
-                render_resources.irradiance.push_back(std::move(irradiance));
-            if(const auto clip = m_registry.resolve<AudioClip>(handle);
-                clip && clips.insert(clip.get()).second)
-                result.audio_pcm_bytes += clip->samples().size_bytes();
-            if(const auto program = m_registry.resolve<ShaderProgramArtifact>(handle);
-                program && programs.insert(program.get()).second)
-                result.shader_code_bytes +=
-                    (program->vertex_words.size() + program->fragment_words.size())
-                    * sizeof(uint32_t);
-        }
-        const auto gpu = RenderAssetFactory::resident_bytes(render_resources);
-        result.mesh_buffer_bytes = gpu.mesh_buffer_bytes;
-        result.texture_pixel_bytes = gpu.texture_pixel_bytes;
-        return result;
+        return {m_registry.size(), m_loader->model_cache_entries()};
     }
 
     AssetManager::ResidencyRelease AssetManager::release_unused(

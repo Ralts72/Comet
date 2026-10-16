@@ -2,7 +2,6 @@
 #include "support/asset_manager_fixture.h"
 #include "asset/import/import_service.h"
 #include "scene/component_registry.h"
-#include "asset/artifact/shader_program_artifact.h"
 
 namespace Comet::Tests {
     TEST(AssetManagerTest,
@@ -81,39 +80,6 @@ namespace Comet::Tests {
         EXPECT_FALSE(registry.contains(texture));
         EXPECT_FALSE(registry.contains(material));
         EXPECT_EQ(old_material.value()->get_texture_property("u_Texture0"), old_texture);
-    }
-
-    TEST(AssetManagerTest, ResidencyReportsTypedCountsAndKnownCpuPayloadWithoutAllocatorClaims) {
-        const TemporaryProject project;
-        const AssetHandle audio{41}, external{42}, program{43}, alias{44};
-        const auto audio_path = project.paths().assets() / "sound.wav";
-        std::filesystem::copy_file(
-            std::filesystem::path(COMET_SAMPLE_PROJECT_DIRECTORY) / "assets/audio/play_chime.wav",
-            audio_path);
-        ASSERT_TRUE(MetadataSerializer{}.save(
-            {.handle = audio, .type = AssetType::Audio}, metadata_path(audio_path)));
-        AssetRegistry registry;
-        FakeRenderResourceFactory factory;
-        TaskScheduler scheduler(1);
-        AssetManager manager(project.paths(), registry, factory, scheduler);
-        ASSERT_TRUE(manager.scan().succeeded());
-        const auto clip = manager.load_audio(audio);
-        ASSERT_TRUE(clip);
-        ASSERT_TRUE(registry.register_asset(alias, clip.value()));
-        ASSERT_TRUE(registry.register_asset(external, std::make_shared<int>(7)));
-        const auto shader = std::make_shared<ShaderProgramArtifact>();
-        shader->vertex_words = {1, 2, 3};
-        shader->fragment_words = {4, 5};
-        ASSERT_TRUE(registry.register_asset(program, shader));
-        const auto resident = manager.residency();
-        EXPECT_EQ(resident.registry_assets, 4u);
-        EXPECT_EQ(resident.registry_counts.at(AssetType::Audio), 1u);
-        EXPECT_EQ(resident.registry_counts.at(AssetType::Unknown), 3u);
-        EXPECT_EQ(resident.audio_pcm_bytes, clip.value()->samples().size_bytes());
-        EXPECT_EQ(resident.shader_code_bytes, 5 * sizeof(uint32_t));
-        EXPECT_EQ(resident.mesh_buffer_bytes, 0u);
-        EXPECT_EQ(resident.texture_pixel_bytes, 0u);
-        EXPECT_EQ(resident.model_cache_entries, 0u);
     }
 
     TEST(AssetManagerTest, ReleasedEnvironmentDoesNotReturnFromAnOldBackgroundTask) {

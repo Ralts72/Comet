@@ -36,6 +36,14 @@ namespace Comet::Tests {
             EXPECT_EQ(applications, 1u);
             EXPECT_EQ(loaded.value().settings(), choice);
             std::filesystem::remove(path);
+            const auto failed = loaded.value().save_and_apply(defaults,
+                [](const Settings&) { return Result<void>::failure("Runtime unavailable"); });
+            ASSERT_FALSE(failed);
+            EXPECT_NE(failed.error().find("saved but not applied"), std::string::npos);
+            const auto saved = Store::load(id, choice, path);
+            ASSERT_TRUE(saved);
+            EXPECT_EQ(saved.value().settings(), defaults);
+            EXPECT_EQ(loaded.value().settings(), defaults);
             ASSERT_TRUE(write_text_file_atomic(path, "{broken"));
             EXPECT_FALSE(Store::load(id, defaults, path));
         }

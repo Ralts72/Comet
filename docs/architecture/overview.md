@@ -189,7 +189,7 @@ Profile 拒绝玩家设置及未知字段。窗口尺寸与最大化状态由宿
 `config/player_settings` 用一份 `PlayerSettings<T>` 实现显示、画质和音量的文件检查、版本／项目身份校验、原子保存和保存后应用。
 别名保留各功能名称，具体类型的字段读取／写入／校验仍归 DisplaySettings、QualitySettings、AudioSettings。
 输入文件是按动作／绑定身份合并的覆盖，保留 PlayerInputSettings 的独立协议，不套用完整值存储。
-`PlayerSettingsOwner` 持有上述四种玩家设置，统一项目默认值、加载、保存、诊断和 Runtime 重绑定；App／Play 只提供具体应用目标。输入仍保存稀疏覆盖，其他设置仍保存完整值。
+`PlayerSettingsOwner` 持有上述四种玩家设置，统一项目默认值、加载、保存、诊断和 Runtime 重绑定；通过 Engine 直接应用设置；Play 只适配离屏分辨率和运行状态。输入仍保存稀疏覆盖，其他设置仍保存完整值。
 App 的显示试用由 DisplaySettingsPreview 保存前态和 15 秒期限；确认成功才持久化，取消／超时恢复前态。Editor Play 只应用视口相关设置，不修改编辑器窗口、VSync、HDR 输出或帧率。保存成功但应用失败仍明确报告，不能当作未保存。
 项目显示默认值修改后，Editor 重新解析玩家设置并更新 Play 分辨率；已有个人选择仍优先，项目默认值不覆盖玩家文件。
 
@@ -590,7 +590,7 @@ flowchart LR
 Registry 接纳与渲染域程序发布分别核对各自状态，不建立第二份资产身份或让文件通知直接切换 GPU 对象。
 
 关卡成功激活后，AssetManager 依据当前场景引用、数据库依赖与模型来源闭包释放无需求的 Registry 资源及 CPU 模型缓存；内置和未索引的外部身份保留。Editor 同时收集入关引用、原 Edit、当前 Play、选中资源和独立预览需求；活动材质编辑或引用收集失败时保守保留，不猜测 `use_count`。
-`residency()` 分别报告 Registry 类型数量、模型内容、Mesh buffer、纹理像素、PCM 与 Shader payload 字节；不把它当成分配器保留块或 GPU 在途占用。旧快照／音频 Voice 继续保活已移出 Registry 的对象，后台旧候选不能复活已取消需求。
+`residency()` 报告 Registry 和 CPU 模型缓存的条目数，`release_unused()` 返回卸载数量；GPU 分配与在途占用沿用渲染诊断。旧快照／音频 Voice 继续保活已移出 Registry 的对象，后台旧候选不能复活已取消需求。
 
 ### 游戏数值资产
 

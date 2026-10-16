@@ -260,9 +260,8 @@ namespace {
             m_pending_references.clear();
             const auto resident = m_asset_manager->residency();
             LOG_INFO(
-                "Asset residency: {} registered, {} CPU models, {} mesh buffer bytes, {} texture pixel bytes; released {} registered and {} model cache entries",
-                resident.registry_assets, resident.model_cache_entries, resident.mesh_buffer_bytes,
-                resident.texture_pixel_bytes, released.registry_assets,
+                "Asset residency: {} registered, {} CPU models; released {} registered and {} model cache entries",
+                resident.registry_assets, resident.model_cache_entries, released.registry_assets,
                 released.model_cache_entries);
             return Activation::success();
         }
