@@ -22,6 +22,7 @@ namespace Comet {
     class RenderResources;
     class Texture;
     class Sampler;
+    class ImageView;
     class DescriptorSetLayout;
     struct SampledImageBinding;
     struct RenderWorld;
@@ -32,7 +33,8 @@ namespace Comet {
             PipelineManager& pipelines, RenderResources& resources, uint32_t frame_slots,
             SampleCount samples);
         Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> prepare(FrameScheduler& frames,
-            const ViewProjectMatrix& camera, const RenderWorld& world, bool sort_for_meshes);
+            const ViewProjectMatrix& camera, const RenderWorld& world, bool sort_for_meshes,
+            std::shared_ptr<ImageView> scene_depth = {});
         [[nodiscard]] std::span<const float> depths() const { return m_depths; }
         [[nodiscard]] uint32_t instance_count() const { return m_instance_count; }
         void record(FrameScheduler& frames, uint32_t first, uint32_t count);
@@ -41,6 +43,8 @@ namespace Comet {
         void reset() {
             clear_draws();
             m_bindings.clear();
+            for(auto& binding : m_depth_bindings)
+                binding.reset();
         }
 
     private:
@@ -52,6 +56,7 @@ namespace Comet {
             std::shared_ptr<SampledImageBinding> binding;
             ParticleBlend blend;
             bool textured;
+            float soft_distance;
         };
         struct DrawBatch {
             uint32_t first, count, source;
@@ -71,11 +76,15 @@ namespace Comet {
         std::vector<DrawSource> m_sources;
         std::vector<float> m_depths;
         BillboardCamera m_camera;
+        Math::Vec4 m_depth_coefficients{};
         uint32_t m_instance_count = 0;
         std::vector<std::shared_ptr<CPUBuffer>> m_buffers;
         std::shared_ptr<Texture> m_white;
         std::shared_ptr<Sampler> m_sampler;
         std::shared_ptr<DescriptorSetLayout> m_layout;
+        std::shared_ptr<DescriptorSetLayout> m_depth_layout;
+        std::shared_ptr<Sampler> m_depth_sampler;
+        std::vector<std::shared_ptr<SampledImageBinding>> m_depth_bindings;
         std::unordered_map<AssetHandle, std::shared_ptr<SampledImageBinding>> m_bindings;
     };
 }

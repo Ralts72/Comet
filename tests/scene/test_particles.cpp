@@ -101,6 +101,10 @@ namespace Comet::Tests {
             emitter.seed = 42;
             emitter.rate = 80;
             emitter.burst = 5;
+            emitter.atlas_columns = emitter.atlas_rows = 2;
+            emitter.frame_count = 4;
+            emitter.frame_rate = 7;
+            emitter.loop_animation = true;
             entity.add_component<ParticleEmitterComponent>(emitter);
             SceneRuntime runtime;
             EXPECT_TRUE(runtime.set_settings({.fixed_delta = 0.05, .max_fixed_steps = 8}));
@@ -189,6 +193,81 @@ namespace Comet::Tests {
         EXPECT_EQ(render_scene.particles->instances.size(), 7u);
     }
 
+    TEST(ParticleSystemTest, FlipbookUsesParticleAgeAndDoesNotAdvanceWhilePaused) {
+        ParticleEmitterComponent settings;
+        settings.atlas_columns = settings.atlas_rows = 2;
+        settings.frame_count = 3;
+        settings.lifetime = 1.5f;
+        ASSERT_TRUE(settings.validate());
+        EXPECT_EQ(settings.texture_region(0), (Math::Vec4{0, 0, .5f, .5f}));
+        EXPECT_EQ(settings.texture_region(.5), (Math::Vec4{.5f, 0, .5f, .5f}));
+        EXPECT_EQ(settings.texture_region(1.49), (Math::Vec4{0, .5f, .5f, .5f}));
+        settings.frame_rate = 4;
+        EXPECT_EQ(settings.texture_region(1), (Math::Vec4{0, .5f, .5f, .5f}));
+        settings.loop_animation = true;
+        EXPECT_EQ(settings.texture_region(1), (Math::Vec4{.5f, 0, .5f, .5f}));
+        settings.rate = 0;
+        settings.burst = 1;
+        Scene scene;
+        auto entity = scene.create_entity();
+        entity.add_component<ParticleEmitterComponent>(settings);
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.set_settings({.fixed_delta = .05, .max_frame_delta = 1}));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ParticleSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        const auto initial = scene.get_particles();
+        ASSERT_TRUE(runtime.advance(.3));
+        EXPECT_EQ(scene.get_particles()->instances[0].uv_rect, settings.texture_region(.3));
+        EXPECT_EQ(initial->instances[0].uv_rect, settings.texture_region(0));
+        ASSERT_TRUE(runtime.set_state(SceneRuntime::State::Paused));
+        const auto paused = scene.get_particles();
+        ASSERT_TRUE(runtime.advance(.5));
+        EXPECT_EQ(scene.get_particles(), paused);
+    }
+
+    TEST(ParticleSystemTest, SoftDistancesSplitBatchesButFlipbookLayoutsCanShareATexture) {
+        Scene scene;
+        ParticleEmitterComponent settings;
+        settings.rate = 0;
+        settings.burst = 2;
+        settings.texture = AssetHandle(11);
+        for(int i = 0; i < 3; ++i) {
+            settings.soft_distance = i == 0 ? 0 : .5f;
+            settings.atlas_columns = settings.frame_count = i + 1;
+            scene.create_entity().add_component<ParticleEmitterComponent>(settings);
+        }
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.add_system(std::make_unique<ParticleSystem>()));
+        ASSERT_TRUE(runtime.start(scene));
+        const auto snapshot = scene.get_particles();
+        ASSERT_TRUE(snapshot);
+        ASSERT_EQ(snapshot->batches.size(), 2u);
+        EXPECT_EQ(snapshot->batches[0].count, 2u);
+        EXPECT_EQ(snapshot->batches[1].count, 4u);
+        EXPECT_TRUE(snapshot->uses_soft_depth());
+        auto empty = *snapshot;
+        for(auto& batch : empty.batches)
+            batch.count = 0;
+        EXPECT_FALSE(empty.uses_soft_depth());
+    }
+
+    TEST(ParticleSystemTest, RejectsInvalidAtlasFramesRatesAndSoftDistances) {
+        ParticleEmitterComponent settings;
+        for(const auto columns : {0u, 65u, std::numeric_limits<uint32_t>::max()}) {
+            settings.atlas_columns = columns;
+            EXPECT_FALSE(settings.validate());
+        }
+        settings = {};
+        settings.frame_count = 2;
+        EXPECT_FALSE(settings.validate());
+        settings = {};
+        settings.frame_rate = std::numeric_limits<float>::quiet_NaN();
+        EXPECT_FALSE(settings.validate());
+        settings = {};
+        settings.soft_distance = -1;
+        EXPECT_FALSE(settings.validate());
+    }
+
     TEST(ParticleSystemTest, EmitterAndSceneBudgetsDropExcessAndInvalidDataFails) {
         Scene scene;
         for(unsigned index = 0; index < 20; ++index) {
@@ -228,6 +307,11 @@ namespace Comet::Tests {
         settings.spread = 90;
         settings.texture = AssetHandle{987};
         settings.blend = ParticleBlend::Alpha;
+        settings.soft_distance = .4f;
+        settings.atlas_columns = settings.atlas_rows = 4;
+        settings.frame_count = 13;
+        settings.frame_rate = 10;
+        settings.loop_animation = true;
         entity.add_component<ParticleEmitterComponent>(settings);
         auto components = create_scene_component_registry();
         SceneRuntime runtime;

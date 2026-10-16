@@ -10,6 +10,170 @@
 #include <algorithm>
 
 namespace Comet::Tests {
+    TEST_F(RenderGraphGpuTest, FlipbookCellsKeepTheirColorOrientationAndBaseMip) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        const std::array<Math::Vec3, 4> colors{{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {1, 1, 0}}};
+        TextureData atlas{
+            .width = 4, .height = 4, .pixels = std::vector<uint8_t>(80), .mip_levels = 2};
+        for(unsigned y = 0; y < 4; ++y)
+            for(unsigned x = 0; x < 4; ++x) {
+                const auto color = colors[(y / 2) * 2 + x / 2];
+                const auto offset = (y * 4 + x) * 4;
+                for(unsigned channel = 0; channel < 3; ++channel)
+                    atlas.pixels[offset + channel] = uint8_t(color[channel] * 255);
+                atlas.pixels[offset + 3] = 255;
+            }
+        for(unsigned offset = 64; offset < 80; offset += 4) {
+            atlas.pixels[offset] = atlas.pixels[offset + 2] = atlas.pixels[offset + 3] = 255;
+            atlas.pixels[offset + 1] = 0;
+        }
+        auto texture = engine->get_render_resources().try_create_texture(atlas);
+        ASSERT_TRUE(texture);
+        MaterialPrograms programs;
+        auto scene = create_scene(programs, {33, 33});
+        ASSERT_TRUE(scene);
+        FrameScheduler frames(device, 2);
+        frames.initialize_swapchain_images(2);
+        FrameWait wait{device, frames};
+        std::array<std::shared_ptr<Readback>, 3> pixels;
+        Format format{};
+        for(unsigned frame = 0; frame < pixels.size(); ++frame) {
+            RenderWorld world;
+            auto particles = std::make_shared<ParticleSnapshot>();
+            if(frame == 0)
+                particles->instances = {{{0, 0, 0, 2}, {1, 1, 1, 1}}};
+            else {
+                ParticleEmitterComponent settings;
+                settings.atlas_columns = settings.atlas_rows = 2;
+                settings.frame_count = 4;
+                settings.frame_rate = 1;
+                for(unsigned cell = 0; cell < (frame == 1 ? 4u : 1u); ++cell) {
+                    Math::Vec3 position{};
+                    if(frame == 1)
+                        position = {cell % 2 == 0 ? -.5f : .5f, cell / 2 == 0 ? .5f : -.5f, 0};
+                    particles->instances.push_back({Math::Vec4(position, frame == 1 ? .8f : .04f),
+                        {1, 1, 1, 1}, settings.texture_region(cell)});
+                }
+            }
+            particles->batches = {
+                {AssetHandle{1}, 0, uint32_t(particles->instances.size()), ParticleBlend::Alpha}};
+            world.particles = particles;
+            world.particle_textures = {texture.value()};
+            RenderGeometry geometry;
+            geometry.prepare(world);
+            begin_frame(frames);
+            auto drawn = scene.value()->render(frames,
+                {world, ViewProjectMatrix{Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0}),
+                            Math::ortho(-1, 1, -1, 1, .1f, 10)}},
+                geometry);
+            ASSERT_TRUE(drawn) << drawn.error();
+            const auto output =
+                scene.value()->get_offscreen_color_view(frames.get_current_frame_slot_index());
+            format = output->get_image()->get_info().format;
+            pixels[frame] = std::make_shared<Readback>(
+                device, context.get_context().get_physical_device(), 33 * 33 * 4);
+            copy_output(frames, output->get_image(), pixels[frame], {33, 33});
+            submit(device, frames, drawn.value());
+        }
+        frames.wait_for_all_slots();
+        const bool bgra = format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM;
+        for(unsigned frame = 0; frame < pixels.size(); ++frame) {
+            const auto bytes = pixels[frame]->read();
+            for(unsigned cell = 0; cell < (frame == 2 ? 1u : 4u); ++cell) {
+                const auto x = frame == 2 ? 16 : (cell % 2 == 0 ? 8 : 24);
+                const auto y = frame == 2 ? 16 : (cell / 2 == 0 ? 8 : 24);
+                for(unsigned channel = 0; channel < 3; ++channel)
+                    EXPECT_NEAR(std::to_integer<int>(
+                                    bytes[(y * 33 + x) * 4 + (bgra ? 2 - channel : channel)]),
+                        mapped_byte(colors[cell][channel]), 2)
+                        << frame << '/' << cell;
+            }
+        }
+    }
+
+    TEST_F(
+        RenderGraphGpuTest, SoftParticlesShareCameraDepthWithAoAndHandleProjectionResizeAndMsaa) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        const auto mesh = lit_quad();
+        auto black = std::make_shared<Material>("occluder", "unlit_color");
+        ASSERT_TRUE(black->set_vector_property("color", {0, 0, 0, 1}));
+        auto white = engine->get_render_resources().try_create_texture(
+            TextureData{.width = 1, .height = 1, .pixels = {255, 255, 255, 255}});
+        ASSERT_TRUE(white);
+        for(const auto samples : {SampleCount::Count1, SampleCount::Count4}) {
+            for(const bool perspective : {false, true}) {
+                SCOPED_TRACE(static_cast<unsigned>(samples));
+                SCOPED_TRACE(perspective);
+                MaterialPrograms programs;
+                auto scene = create_scene(programs, {33, 33}, samples);
+                ASSERT_TRUE(scene);
+                FrameScheduler frames(device, 2);
+                frames.initialize_swapchain_images(2);
+                FrameWait wait{device, frames};
+                const std::array<float, 5> soft_distances{0, 1, 2, 0, 1000};
+                for(unsigned frame = 0; frame < soft_distances.size(); ++frame) {
+                    SCOPED_TRACE(frame);
+                    const auto size = frame >= 3 ? Math::Vec2u(45, 39) : Math::Vec2u(33);
+                    if(frame == 3)
+                        ASSERT_TRUE(scene.value()->resize_offscreen_target(size));
+                    PostProcessSettings settings;
+                    settings.ao_enabled = frame == 2;
+                    ASSERT_TRUE(scene.value()->prepare_post_process(settings));
+                    const float distance = soft_distances[frame];
+                    RenderWorld world;
+                    const auto transform =
+                        Math::translate(Math::Mat4(1), {0, .5f, 0})
+                        * Math::scale(Math::Mat4(1), {frame == 4 ? -1.f : 1.f, .5f, 1});
+                    world.render_items.push_back({.entity_id = 1,
+                        .model_matrix = transform,
+                        .mesh = mesh,
+                        .material = {.resource = black}});
+                    auto particles = std::make_shared<ParticleSnapshot>();
+                    particles->instances = {
+                        {{0, .5f, .75f, .5f}, {1, 0, 0, 1}}, {{0, -.5f, .75f, .5f}, {1, 0, 0, 1}}};
+                    particles->batches = {{AssetHandle(1), 0, 2, ParticleBlend::Alpha, distance}};
+                    world.particles = particles;
+                    world.particle_textures = {white.value()};
+                    ASSERT_TRUE(scene.value()->prepare_material_programs(world));
+                    RenderGeometry geometry;
+                    geometry.prepare(world);
+                    const auto view = Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0});
+                    const auto projection =
+                        perspective ? Math::perspective(90, float(size.x) / size.y, .1f, 10)
+                                    : Math::ortho(-1, 1, -1, 1, .1f, 10);
+                    begin_frame(frames);
+                    auto drawn = scene.value()->render(
+                        frames, {world, ViewProjectMatrix{view, projection}}, geometry);
+                    ASSERT_TRUE(drawn) << drawn.error();
+                    const auto output = scene.value()->get_offscreen_color_view(
+                        frames.get_current_frame_slot_index());
+                    const auto format = output->get_image()->get_info().format;
+                    const auto readback = std::make_shared<Readback>(
+                        device, context.get_context().get_physical_device(), size.x * size.y * 4);
+                    copy_output(frames, output->get_image(), readback, size);
+                    submit(device, frames, drawn.value());
+                    frames.wait_for_all_slots();
+                    const auto bytes = readback->read();
+                    const auto red =
+                        format == Format::B8G8R8A8_SRGB || format == Format::B8G8R8A8_UNORM ? 2u
+                                                                                            : 0u;
+                    for(const bool upper : {true, false}) {
+                        const auto clip =
+                            projection * view * Math::Vec4(0, upper ? .5f : -.5f, .75f, 1);
+                        const auto x = uint32_t((clip.x / clip.w * .5f + .5f) * size.x);
+                        const auto y = uint32_t((.5f - clip.y / clip.w * .5f) * size.y);
+                        const float expected = upper && distance > 0 ? .25f / distance : 1;
+                        EXPECT_NEAR(std::to_integer<int>(bytes[(y * size.x + x) * 4 + red]),
+                            mapped_byte(expected), 2)
+                            << "upper=" << upper;
+                    }
+                }
+            }
+        }
+    }
+
     TEST_F(RenderGraphGpuTest, ExplicitSceneWarmupPreparesOnlyActualSurfaceAndMirrorCombinations) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();

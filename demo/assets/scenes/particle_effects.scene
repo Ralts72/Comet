@@ -1,0 +1,273 @@
+{
+  "version": 2,
+  "post_process": {
+    "exposure": 1,
+    "bloom_enabled": true,
+    "bloom_strength": 0.15,
+    "bloom_threshold": 1
+  },
+  "entities": [
+    {
+      "uuid": "936affaa-e964-58d0-a962-ecbf32451b47",
+      "components": {
+        "name": "主相机",
+        "transform": {
+          "translation": [
+            0,
+            3,
+            11
+          ],
+          "rotation": [
+            -13,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "camera": {
+          "primary": true,
+          "fov": 45,
+          "near_clip": 0.1,
+          "far_clip": 100
+        },
+        "camera_controller": {
+          "enabled": true,
+          "move_speed": 3,
+          "look_sensitivity": 0.2,
+          "look_speed": 120
+        }
+      }
+    },
+    {
+      "uuid": "2a930832-4239-5745-99d9-527d4b3def12",
+      "components": {
+        "name": "主光",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            -40,
+            -25,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "light": {
+          "type": "directional",
+          "enabled": true,
+          "casts_shadow": true,
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "intensity": 3,
+          "range": 10,
+          "inner_angle": 20,
+          "outer_angle": 30
+        }
+      }
+    },
+    {
+      "uuid": "6dbdbd43-6ae4-5a7b-a27f-92ba1f751f6b",
+      "components": {
+        "name": "地面",
+        "transform": {
+          "translation": [
+            0,
+            -0.15,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            10,
+            0.3,
+            6
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 9429603817048603172
+        }
+      }
+    },
+    {
+      "uuid": "23b65ffa-2009-5099-b810-576c534a4271",
+      "components": {
+        "name": "左：硬交界（关闭淡出）",
+        "transform": {
+          "translation": [
+            -2.5,
+            0.3,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "particle_emitter": {
+          "capacity": 80,
+          "seed": 23,
+          "rate": 10,
+          "lifetime": 3,
+          "speed": 0.45,
+          "spread": 20,
+          "acceleration": [
+            0,
+            0.05,
+            0
+          ],
+          "start_color": [
+            0.7,
+            0.8,
+            0.95,
+            0.5
+          ],
+          "end_color": [
+            0.7,
+            0.8,
+            0.95,
+            0
+          ],
+          "start_size": 1.4,
+          "end_size": 2.2,
+          "blend": "alpha",
+          "soft_distance": 0
+        }
+      }
+    },
+    {
+      "uuid": "730a40fd-a6cb-565d-ac21-e551321100c8",
+      "components": {
+        "name": "右：软交界（0.5 米）",
+        "transform": {
+          "translation": [
+            2.5,
+            0.3,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "particle_emitter": {
+          "capacity": 80,
+          "seed": 23,
+          "rate": 10,
+          "lifetime": 3,
+          "speed": 0.45,
+          "spread": 20,
+          "acceleration": [
+            0,
+            0.05,
+            0
+          ],
+          "start_color": [
+            0.7,
+            0.8,
+            0.95,
+            0.5
+          ],
+          "end_color": [
+            0.7,
+            0.8,
+            0.95,
+            0
+          ],
+          "start_size": 1.4,
+          "end_size": 2.2,
+          "blend": "alpha",
+          "soft_distance": 0.5
+        }
+      }
+    },
+    {
+      "uuid": "2b6ce957-c541-5fd3-84a2-79976a37db36",
+      "components": {
+        "name": "序列帧能量环（4×4，8 FPS）",
+        "transform": {
+          "translation": [
+            0,
+            1,
+            1
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "particle_emitter": {
+          "capacity": 8,
+          "seed": 7,
+          "burst": 1,
+          "rate": 0.6,
+          "lifetime": 2,
+          "speed": 0,
+          "spread": 0,
+          "acceleration": [
+            0,
+            0,
+            0
+          ],
+          "start_color": [
+            3,
+            1.5,
+            0.5,
+            1
+          ],
+          "end_color": [
+            3,
+            0.8,
+            0.2,
+            0
+          ],
+          "start_size": 1.8,
+          "end_size": 2.4,
+          "blend": "additive",
+          "texture": 5783275031450616120,
+          "atlas_columns": 4,
+          "atlas_rows": 4,
+          "frame_count": 16,
+          "frame_rate": 8,
+          "loop_animation": false,
+          "soft_distance": 0.25
+        }
+      }
+    }
+  ]
+}

@@ -36,7 +36,7 @@ namespace Comet {
         std::unique_ptr<PipelineManager> pipelines;
         std::unique_ptr<OutputPass> output_pass;
         std::unique_ptr<BloomPass> bloom;
-        std::unique_ptr<DepthPass> ao_depth;
+        std::unique_ptr<DepthPass> view_depth;
         std::unique_ptr<SkyboxPass> skybox_pass;
         std::shared_ptr<RenderTarget> hdr_target;
         std::shared_ptr<RenderTarget> output_target;
@@ -51,11 +51,12 @@ namespace Comet {
         std::vector<RenderGraph::ResourceId> scene_attachments;
         std::optional<RenderGraph::PassId> shadow_pass_id;
         bool shadows_enabled = false;
+        bool soft_particles = false;
         RenderGraph::PassId scene_pass_id;
         RenderGraph::PassId output_pass_id;
         std::optional<BloomPass::Passes> bloom_passes;
-        std::optional<RenderGraph::ResourceId> ao_depth_resource;
-        std::optional<RenderGraph::PassId> ao_depth_pass;
+        std::optional<RenderGraph::ResourceId> view_depth_resource;
+        std::optional<RenderGraph::PassId> view_depth_pass;
         bool offscreen = false;
         QualitySettings quality;
     };
@@ -110,6 +111,7 @@ namespace Comet {
         const auto samples = static_cast<SampleCount>(quality.msaa_samples);
         auto next = std::make_shared<RenderState>();
         next->quality = quality;
+        next->soft_particles = m_state && m_state->soft_particles;
         next->offscreen = !swapchain;
         auto color = Attachment::get_color_attachment(RenderSettings::SCENE_COLOR_FORMAT, samples);
         auto depth = Attachment::get_depth_attachment(m_depth_format, samples);
@@ -184,8 +186,8 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> SceneRenderer::rebuild_graph(RenderState& state,
-        const PostProcessSettings& settings, const bool shadows, BloomPass* bloom,
-        Math::Vec2u source_size) {
+        const PostProcessSettings& settings, const bool shadows, const bool soft_particles,
+        BloomPass* bloom, Math::Vec2u source_size) {
         if(source_size == Math::Vec2u{})
             source_size = state.hdr_target->get_size();
         if(!bloom)
@@ -207,16 +209,16 @@ namespace Comet {
             shadow_pass.uses.push_back({shadow, ResourceUsage::DepthStencilAttachmentWrite, {}});
             shadow_pass_id = graph.add_pass(std::move(shadow_pass));
         }
-        std::optional<RenderGraph::ResourceId> ao_depth_resource;
-        std::optional<RenderGraph::PassId> ao_depth_pass;
-        if(settings.uses_ao()) {
-            ao_depth_resource = graph.import_image("ao depth", shadow_initial);
-            ao_depth_pass = graph.add_pass({"ao depth",
-                {{*ao_depth_resource, ResourceUsage::DepthStencilAttachmentWrite, {}}}});
+        std::optional<RenderGraph::ResourceId> view_depth_resource;
+        std::optional<RenderGraph::PassId> view_depth_pass;
+        if(settings.uses_ao() || soft_particles) {
+            view_depth_resource = graph.import_image("view depth", shadow_initial);
+            view_depth_pass = graph.add_pass({"view depth",
+                {{*view_depth_resource, ResourceUsage::DepthStencilAttachmentWrite, {}}}});
         }
         RenderGraph::Pass scene{"scene", {}};
-        if(ao_depth_resource)
-            scene.uses.push_back({*ao_depth_resource, ResourceUsage::SampledRead,
+        if(view_depth_resource)
+            scene.uses.push_back({*view_depth_resource, ResourceUsage::SampledRead,
                 Flags<PipelineStage>(PipelineStage::FragmentShader)});
         std::vector<RenderGraph::ResourceId> scene_attachments;
         RenderGraph::ResourceId output;
@@ -268,11 +270,12 @@ namespace Comet {
         state.scene_attachments = std::move(scene_attachments);
         state.shadow_pass_id = shadow_pass_id;
         state.shadows_enabled = shadows;
+        state.soft_particles = soft_particles;
         state.scene_pass_id = scene_pass_id;
         state.output_pass_id = output_pass_id;
         state.bloom_passes = bloom_passes;
-        state.ao_depth_resource = ao_depth_resource;
-        state.ao_depth_pass = ao_depth_pass;
+        state.view_depth_resource = view_depth_resource;
+        state.view_depth_pass = view_depth_pass;
         return Result<void, GraphicsError>::success();
     }
 
@@ -293,7 +296,8 @@ namespace Comet {
             m_post_process_failure.reset();
         if(m_post_process_failure && !m_post_process_failure->retry.consume(now))
             return Result<void, GraphicsError>::success();
-        const auto prepared = configure_effects(settings);
+        const auto prepared =
+            configure_effects(settings, m_state->soft_particles, m_state->shadows_enabled);
         if(prepared) {
             m_post_process = settings;
             m_post_process_failure.reset();
@@ -326,7 +330,7 @@ namespace Comet {
     }
 
     Result<void, GraphicsError> SceneRenderer::configure_effects(
-        const PostProcessSettings& settings) {
+        const PostProcessSettings& settings, const bool soft_particles, const bool shadows) {
         std::unique_ptr<BloomPass> candidate;
         if(settings.uses_bloom() && !m_state->bloom) {
             auto created = BloomPass::create(m_device, m_frame_slot_count);
@@ -335,8 +339,8 @@ namespace Comet {
             candidate = std::move(created).value();
         }
         std::unique_ptr<DepthPass> depth_candidate;
-        if(settings.uses_ao()) {
-            auto* depth = m_state->ao_depth.get();
+        if(settings.uses_ao() || soft_particles) {
+            auto* depth = m_state->view_depth.get();
             if(!depth) {
                 auto created = DepthPass::create(
                     m_device, m_frame_slot_count, m_state->hdr_target->get_size(), 1);
@@ -348,12 +352,13 @@ namespace Comet {
             if(auto resized = depth->resize(m_state->hdr_target->get_size()); !resized)
                 return resized;
         }
-        if(auto graph =
-                rebuild_graph(*m_state, settings, m_state->shadows_enabled, candidate.get());
+        if(auto graph = rebuild_graph(*m_state, settings, shadows, soft_particles, candidate.get());
             !graph)
             return graph;
         if(depth_candidate)
-            m_state->ao_depth = std::move(depth_candidate);
+            m_state->view_depth = std::move(depth_candidate);
+        if(!settings.uses_ao() && !soft_particles)
+            m_state->view_depth.reset();
         if(candidate)
             m_state->bloom = std::move(candidate);
         return Result<void, GraphicsError>::success();
@@ -386,21 +391,21 @@ namespace Comet {
                 return Result<void, GraphicsError>::failure(candidate.error());
             output = std::move(candidate).value();
         }
-        std::unique_ptr<DepthPass> ao_depth;
-        if(m_post_process.uses_ao()) {
+        std::unique_ptr<DepthPass> view_depth;
+        if(m_post_process.uses_ao() || state.soft_particles) {
             auto candidate =
                 DepthPass::create(m_device, m_frame_slot_count, state.quality.scene_size(size), 1);
             if(!candidate)
                 return Result<void, GraphicsError>::failure(candidate.error());
-            ao_depth = std::move(candidate).value();
+            view_depth = std::move(candidate).value();
         }
-        if(auto graph = rebuild_graph(state, m_post_process, state.shadows_enabled, nullptr,
-               state.quality.scene_size(size));
+        if(auto graph = rebuild_graph(state, m_post_process, state.shadows_enabled,
+               state.soft_particles, nullptr, state.quality.scene_size(size));
             !graph)
             return graph;
         // 所有候选均成功后再发布，不改变在途帧保留的旧目标。
-        if(ao_depth)
-            state.ao_depth = std::move(ao_depth);
+        if(view_depth)
+            state.view_depth = std::move(view_depth);
         state.hdr_target = std::move(hdr).value();
         state.output_target = std::move(output);
         return Result<void, GraphicsError>::success();
@@ -571,8 +576,10 @@ namespace Comet {
             RenderDiagnostics::PreparationPhase::Lighting,
             [&] { return ShadowPass::prepare(submission, geometry); });
         const bool shadows = ShadowPass::needs_shadow(lighting);
-        if(shadows != m_state->shadows_enabled) {
-            if(auto rebuilt = rebuild_graph(*m_state, m_post_process, shadows); !rebuilt)
+        const bool soft_particles =
+            submission.world.particles && submission.world.particles->uses_soft_depth();
+        if(shadows != m_state->shadows_enabled || soft_particles != m_state->soft_particles) {
+            if(auto rebuilt = configure_effects(m_post_process, soft_particles, shadows); !rebuilt)
                 return RenderResult::failure(rebuilt.error());
         }
         if(auto prepared = m_shadow->prepare_frame(frames, lighting); !prepared)
@@ -590,9 +597,9 @@ namespace Comet {
         const auto& attachments = m_state->hdr_target->get_framebuffer(image)->get_attachments();
         for(std::size_t index = 0; index < attachments.size(); ++index)
             bindings[m_state->scene_attachments[index].index] = attachments[index]->get_image();
-        if(m_state->ao_depth_resource)
-            bindings[m_state->ao_depth_resource->index] =
-                m_state->ao_depth->get_depth_view(image)->get_image();
+        if(m_state->view_depth_resource)
+            bindings[m_state->view_depth_resource->index] =
+                m_state->view_depth->get_depth_view(image)->get_image();
         m_state->transient_resources.bind_resources(bindings, image);
         std::vector<QueueSemaphoreSubmit> waits;
         const auto recorder = [this, &frames, &submission, &geometry, &lines, &lighting, &waits](
@@ -629,13 +636,13 @@ namespace Comet {
                 frames, m_state->output_target, hdr, m_post_process, bloom);
         }
         auto drawn = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::success({});
-        if(m_state->ao_depth_pass && pass == *m_state->ao_depth_pass) {
+        if(m_state->view_depth_pass && pass == *m_state->view_depth_pass) {
             DepthPass::View view;
             view.enabled = bool(submission.view_project_matrix);
             if(view.enabled)
                 view.view_projection = submission.view_project_matrix->projection
                                        * submission.view_project_matrix->view;
-            drawn = m_state->ao_depth->render(frames, std::span(&view, 1), geometry);
+            drawn = m_state->view_depth->render(frames, std::span(&view, 1), geometry);
         } else if(m_state->shadow_pass_id && pass == *m_state->shadow_pass_id) {
             drawn = m_shadow->render(frames, lighting, geometry);
         } else if(pass == m_state->scene_pass_id)
@@ -673,8 +680,8 @@ namespace Comet {
             return skybox;
         auto waits = m_state->materials->prepare(frames, submission, geometry, lighting,
             m_shadow->get_depth_view(frames.get_current_frame_slot_index()),
-            m_state->ao_depth_resource
-                ? m_state->ao_depth->get_depth_view(frames.get_current_frame_slot_index())
+            m_state->view_depth_resource
+                ? m_state->view_depth->get_depth_view(frames.get_current_frame_slot_index())
                 : nullptr);
         if(!waits)
             return waits;
@@ -682,7 +689,10 @@ namespace Comet {
             merge_semaphore_wait(waits.value(), wait);
         if(submission.view_project_matrix) {
             auto particles = m_state->particles->prepare(frames, *submission.view_project_matrix,
-                submission.world, !m_state->materials->transparent_depths().empty());
+                submission.world, !m_state->materials->transparent_depths().empty(),
+                m_state->soft_particles
+                    ? m_state->view_depth->get_depth_view(frames.get_current_frame_slot_index())
+                    : nullptr);
             if(!particles)
                 return Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>::failure(
                     particles.error());

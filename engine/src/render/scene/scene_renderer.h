@@ -86,7 +86,8 @@ namespace Comet {
         void skip_frame();
         MaterialRenderer& get_material_renderer();
         void remove_assets(const AssetRegistry::Removals& removals);
-        Result<void, GraphicsError> configure_effects(const PostProcessSettings& settings);
+        Result<void, GraphicsError> configure_effects(
+            const PostProcessSettings& settings, bool soft_particles, bool shadows);
         Result<void, GraphicsError> validate_quality_settings(
             const QualitySettings& settings) const;
         Result<void, GraphicsError> configure_output_calibration(float headroom, float white_level);
@@ -104,8 +105,8 @@ namespace Comet {
             RenderResources& resources, Swapchain& swapchain, const QualitySettings& settings);
         void install_quality(std::shared_ptr<RenderState> state, const QualitySettings& settings);
         Result<void, GraphicsError> rebuild_graph(RenderState& state,
-            const PostProcessSettings& settings, bool shadows = false, BloomPass* bloom = nullptr,
-            Math::Vec2u source_size = {});
+            const PostProcessSettings& settings, bool shadows = false, bool soft_particles = false,
+            BloomPass* bloom = nullptr, Math::Vec2u source_size = {});
         struct TargetRetry {
             Math::Vec2u size;
             RetryBackoff retry;

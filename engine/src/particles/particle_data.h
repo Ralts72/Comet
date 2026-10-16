@@ -28,7 +28,14 @@ namespace Comet {
         float end_size = 0;
         AssetHandle texture;
         ParticleBlend blend = ParticleBlend::Additive;
+        float soft_distance = 0;
+        uint32_t atlas_columns = 1;
+        uint32_t atlas_rows = 1;
+        uint32_t frame_count = 1;
+        float frame_rate = 0;
+        bool loop_animation = false;
 
+        [[nodiscard]] Math::Vec4 texture_region(double age) const;
         [[nodiscard]] Result<void> validate() const;
         bool operator==(const ParticleEmitterComponent&) const = default;
     };
@@ -36,19 +43,22 @@ namespace Comet {
     struct ParticleInstance {
         Math::Vec4 position_size{};
         Math::Vec4 color{};
+        Math::Vec4 uv_rect{0, 0, 1, 1};
         bool operator==(const ParticleInstance&) const = default;
     };
 
     // Main 发布的世界空间数据；Render 只上传，不访问实体或模拟状态。
-    struct ParticleSnapshot {
+    struct COMET_API ParticleSnapshot {
         struct Batch {
             AssetHandle texture;
             uint32_t first;
             uint32_t count;
             ParticleBlend blend = ParticleBlend::Additive;
+            float soft_distance = 0;
         };
         static constexpr uint32_t MAX_PARTICLES = 65536;
         std::vector<ParticleInstance> instances;
         std::vector<Batch> batches;
+        [[nodiscard]] bool uses_soft_depth() const;
     };
 }

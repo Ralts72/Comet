@@ -162,25 +162,28 @@ namespace Comet {
         std::stable_sort(emitters.begin(), emitters.end(), [](const auto* a, const auto* b) {
             if(a->settings.blend != b->settings.blend)
                 return a->settings.blend < b->settings.blend;
-            return a->settings.texture < b->settings.texture;
+            if(a->settings.texture != b->settings.texture)
+                return a->settings.texture < b->settings.texture;
+            return a->settings.soft_distance < b->settings.soft_distance;
         });
         for(const auto* source : emitters) {
             const auto& emitter = *source;
             const auto& settings = emitter.settings;
             const auto count = uint32_t(emitter.particles.size());
             if(!snapshot->batches.empty() && snapshot->batches.back().texture == settings.texture
-                && snapshot->batches.back().blend == settings.blend)
+                && snapshot->batches.back().blend == settings.blend
+                && snapshot->batches.back().soft_distance == settings.soft_distance)
                 snapshot->batches.back().count += count;
             else
                 snapshot->batches.push_back({settings.texture, uint32_t(snapshot->instances.size()),
-                    count, settings.blend});
+                    count, settings.blend, settings.soft_distance});
             for(const auto& particle : emitter.particles) {
                 const float phase = std::clamp(float(particle.age / settings.lifetime), 0.0f, 1.0f);
                 snapshot->instances.push_back(
                     {Math::Vec4(particle.position,
                          settings.start_size + (settings.end_size - settings.start_size) * phase),
-                        settings.start_color
-                            + (settings.end_color - settings.start_color) * phase});
+                        settings.start_color + (settings.end_color - settings.start_color) * phase,
+                        settings.texture_region(particle.age)});
             }
         }
         scene.set_particles(std::move(snapshot));

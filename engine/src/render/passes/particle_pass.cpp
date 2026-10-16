@@ -26,10 +26,10 @@
 #include <algorithm>
 
 namespace Comet {
-    static_assert(sizeof(ParticleInstance) == 32);
+    static_assert(sizeof(ParticleInstance) == 48);
 
     ParticlePass::ParticlePass(Device& device, const uint32_t frame_slots)
-        : m_device(device), m_buffers(frame_slots) {}
+        : m_device(device), m_buffers(frame_slots), m_depth_bindings(frame_slots) {}
 
     Result<std::unique_ptr<ParticlePass>, GraphicsError> ParticlePass::create(Device& device,
         PipelineManager& pipelines, RenderResources& resources, const uint32_t frame_slots,
@@ -51,16 +51,20 @@ namespace Comet {
         auto image_layout = DescriptorSetLayout::create(device, bindings);
         if(!image_layout)
             return Creation::failure(image_layout.error());
-        layout.descriptor_set_layouts = {image_layout.value()};
+        auto depth_layout = DescriptorSetLayout::create(device, bindings);
+        if(!depth_layout)
+            return Creation::failure(depth_layout.error());
+        layout.descriptor_set_layouts = {image_layout.value(), depth_layout.value()};
         layout.push_constants.push_back(
             std::make_shared<PushConstantRange>(ShaderStage::Vertex, 0, sizeof(BillboardCamera)));
-        layout.push_constants.push_back(
-            std::make_shared<PushConstantRange>(ShaderStage::Fragment, 96, sizeof(uint32_t)));
+        layout.push_constants.push_back(std::make_shared<PushConstantRange>(
+            ShaderStage::Fragment, 96, sizeof(Math::Vec4) + sizeof(Math::Vec2)));
         VertexInputDescription input;
         input.add_binding(0, sizeof(ParticleInstance), VertexInputRate::Instance);
         input.add_attribute(
             0, 0, Format::R32G32B32A32_SFLOAT, offsetof(ParticleInstance, position_size));
         input.add_attribute(1, 0, Format::R32G32B32A32_SFLOAT, offsetof(ParticleInstance, color));
+        input.add_attribute(2, 0, Format::R32G32B32A32_SFLOAT, offsetof(ParticleInstance, uv_rect));
         PipelineConfig config;
         config.set_vertex_input_state(input);
         config.set_multisample_state(samples, false);
@@ -93,6 +97,16 @@ namespace Comet {
                                         .address_mode_w = SamplerAddressMode::ClampToEdge});
         if(!sampler)
             return Creation::failure(sampler.error());
+        auto depth_sampler =
+            Sampler::create(device, {.mag_filter = Filter::Nearest,
+                                        .min_filter = Filter::Nearest,
+                                        .mipmap_mode = SamplerMipmapMode::Nearest,
+                                        .address_mode_u = SamplerAddressMode::ClampToEdge,
+                                        .address_mode_v = SamplerAddressMode::ClampToEdge});
+        if(!depth_sampler)
+            return Creation::failure(depth_sampler.error());
+        pass->m_depth_sampler = std::move(depth_sampler).value();
+        pass->m_depth_layout = std::move(depth_layout).value();
         pass->m_layout = std::move(image_layout).value();
         pass->m_white = std::move(white).value();
         pass->m_sampler = std::move(sampler).value();
@@ -108,6 +122,9 @@ namespace Comet {
                 return Prepared::failure({"Invalid particle batch range"});
             if(batch.blend != ParticleBlend::Additive && batch.blend != ParticleBlend::Alpha)
                 return Prepared::failure({"Invalid particle blend mode"});
+            if(!std::isfinite(batch.soft_distance) || batch.soft_distance < 0
+                || batch.soft_distance > 1000)
+                return Prepared::failure({"Invalid particle soft distance"});
             covered += batch.count;
             ordered |= batch.blend == ParticleBlend::Alpha && batch.count != 0;
         }
@@ -161,11 +178,11 @@ namespace Comet {
 
     Result<std::vector<QueueSemaphoreSubmit>, GraphicsError> ParticlePass::prepare(
         FrameScheduler& frames, const ViewProjectMatrix& camera, const RenderWorld& world,
-        const bool sort_for_meshes) {
+        const bool sort_for_meshes, std::shared_ptr<ImageView> scene_depth) {
         using Prepared = Result<std::vector<QueueSemaphoreSubmit>, GraphicsError>;
         clear_draws();
         if(!world.particles || world.particles->instances.empty()) {
-            m_bindings.clear();
+            reset();
             return Prepared::success({});
         }
         const auto& particles = *world.particles;
@@ -181,6 +198,26 @@ namespace Comet {
         if(auto prepared = prepare_instances(particles, batches, camera.view, sort_for_meshes);
             !prepared)
             return Prepared::failure(prepared.error());
+        if(particles.uses_soft_depth() && !scene_depth)
+            return Prepared::failure({"Soft particles require scene depth"});
+        auto& depth_binding = m_depth_bindings.at(frames.get_current_frame_slot_index());
+        if(!scene_depth)
+            scene_depth = m_white->get_image_view();
+        if(!depth_binding || depth_binding->images.front() != scene_depth) {
+            auto binding = SampledImageBinding::create(
+                m_device, {scene_depth}, m_depth_layout, m_depth_sampler);
+            if(!binding)
+                return Prepared::failure(binding.error());
+            depth_binding = std::move(binding).value();
+        }
+        frames.retain_current_frame_resource(depth_binding);
+        if(particles.uses_soft_depth()) {
+            const auto inverse_projection = Math::inverse(camera.projection);
+            if(!Math::is_finite(inverse_projection))
+                return Prepared::failure({"Invalid particle projection"});
+            m_depth_coefficients = {inverse_projection[2][2], inverse_projection[3][2],
+                inverse_projection[2][3], inverse_projection[3][3]};
+        }
         auto& buffer = m_buffers.at(frames.get_current_frame_slot_index());
         const auto bytes = count * sizeof(ParticleInstance);
         if(!buffer || buffer->get_size() < bytes) {
@@ -199,12 +236,16 @@ namespace Comet {
         const auto pose = Math::inverse(camera.view);
         m_camera = {camera.projection * camera.view, pose[0], pose[1]};
         std::vector<QueueSemaphoreSubmit> waits;
+        const auto& white_ready = m_white->get_ready_completion();
+        if(white_ready.is_valid())
+            merge_semaphore_wait(waits, QueueSemaphoreSubmit(white_ready,
+                                            Flags<PipelineStage>(PipelineStage::FragmentShader)));
         std::unordered_set<AssetHandle> used;
         m_sources.reserve(batches.size());
         for(size_t index = 0; index < batches.size(); ++index) {
             const auto& batch = batches[index];
-            auto& source =
-                m_sources.emplace_back(DrawSource{nullptr, batch.blend, bool(batch.texture)});
+            auto& source = m_sources.emplace_back(
+                DrawSource{nullptr, batch.blend, bool(batch.texture), batch.soft_distance});
             auto texture = m_white;
             if(batch.texture)
                 texture = world.particle_textures[index];
@@ -258,12 +299,16 @@ namespace Comet {
                 command.bind_pipeline(*pipeline);
                 command.push_constants(layout, Flags<ShaderStage>(ShaderStage::Vertex), 0,
                     &m_camera, sizeof(m_camera));
+                const auto& depth = m_depth_bindings.at(frames.get_current_frame_slot_index());
+                command.bind_descriptor_sets(layout, std::span(&depth->descriptor, 1), 1);
                 active_pipeline = pipeline.get();
             }
             command.bind_descriptor_sets(layout, std::span(&source.binding->descriptor, 1));
-            const uint32_t textured = source.textured;
-            command.push_constants(
-                layout, Flags<ShaderStage>(ShaderStage::Fragment), 96, &textured, sizeof(textured));
+            const std::array<float, 6> settings{m_depth_coefficients.x, m_depth_coefficients.y,
+                m_depth_coefficients.z, m_depth_coefficients.w, source.textured ? 1.0f : 0.0f,
+                source.soft_distance};
+            command.push_constants(layout, Flags<ShaderStage>(ShaderStage::Fragment), 96,
+                settings.data(), sizeof(settings));
             const auto begin = std::max(first, batch->first);
             command.draw(6, std::min(end, batch->first + batch->count) - begin, 0, begin);
         }

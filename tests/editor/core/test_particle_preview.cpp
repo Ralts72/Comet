@@ -63,6 +63,11 @@ namespace CometEditor::Tests {
         settings.texture = Comet::AssetHandle{12};
         settings.blend = Comet::ParticleBlend::Alpha;
         settings.start_color = {0, 0, 1, 1};
+        settings.soft_distance = 0.4f;
+        settings.atlas_columns = 2;
+        settings.atlas_rows = 2;
+        settings.frame_count = 4;
+        settings.frame_rate = 90;
         ASSERT_TRUE(preview.bind(target, settings, Comet::Math::Mat4(1)));
         EXPECT_FALSE(preview.playing());
         const auto updated = preview.snapshot();
@@ -72,10 +77,16 @@ namespace CometEditor::Tests {
         EXPECT_EQ(first->batches.front().texture, Comet::AssetHandle{11});
         EXPECT_EQ(updated->batches.front().blend, Comet::ParticleBlend::Alpha);
         EXPECT_EQ(first->batches.front().blend, Comet::ParticleBlend::Additive);
+        EXPECT_FLOAT_EQ(updated->batches.front().soft_distance, 0.4f);
+        EXPECT_FLOAT_EQ(first->batches.front().soft_distance, 0);
+        EXPECT_EQ(updated->instances.front().uv_rect, (Comet::Math::Vec4{0, 0, 0.5f, 0.5f}));
+        EXPECT_EQ(first->instances.front().uv_rect, (Comet::Math::Vec4{0, 0, 1, 1}));
         EXPECT_EQ(updated->instances.front().color, (Comet::Math::Vec4{0, 0, 1, 1}));
         ASSERT_TRUE(preview.step());
         EXPECT_NE(preview.snapshot()->instances.front().position_size,
             updated->instances.front().position_size);
+        EXPECT_EQ(preview.snapshot()->instances.front().uv_rect,
+            (Comet::Math::Vec4{0.5f, 0, 0.5f, 0.5f}));
         EXPECT_FALSE(preview.playing());
         preview.stop();
         EXPECT_FALSE(preview.snapshot());

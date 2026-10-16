@@ -353,11 +353,13 @@ Collider 保存摩擦和弹性系数（0～1），默认 0.2／0；PropertyDescr
 
 ParticleEmitterComponent 保存内容配置；ParticleSystem 在固定步维护连续存储的有限粒子池，不为每个粒子创建 Entity。
 Lua 爆发请求在 Scene 内保存触发配置和世界姿态，脚本／动画事件完成后交付；已出生粒子可在源实体销毁后自然消退。
-Scene 只发布不可变 ParticleSnapshot，按混合方式与纹理分组；提取与资产解析沿现有 RenderScene／RenderWorld 传递，不借用模拟容器。
+图集动画由 ParticleSystem 按粒子年龄计算每实例 UV 区域，共用固定步和预览时钟；不同图集布局可以复用同一纹理批次。
+Scene 只发布不可变 ParticleSnapshot，按混合方式、纹理与软交界距离分组；提取与资产解析沿现有 RenderScene／RenderWorld 传递，不借用模拟容器。
 纹理引用归 Emitter 配置，源实体销毁后的存活粒子仍参与运行时资产需求；SceneResolver 在 Main 解析纹理，RenderWorld 保留该帧资源。
 ParticlePass 在 Render 线程上传当前帧槽的实例缓冲，支持加法／Alpha billboard，随后进入后处理；管线、缓冲和不可变纹理绑定沿 FrameSlot 保活。
 纯加法且没有透明网格时直接上传快照；存在 Alpha 粒子或透明网格时，在 Render 私有可复用数组按相机深度排序全部粒子，再合并连续同状态实例。相同深度使用原快照次序，不改写 Main 数据。
 MaterialRenderer 与 ParticlePass 分开准备资源和录制命令；SceneRenderer 先画不透明物体，再线性归并透明网格与粒子的深度流，按连续同类区间录制。网格可切开粒子批次，切换后重新绑定各自的顶点、管线与描述符；每帧结束清理借用数据。
+软交界与 AO 复用 SceneRenderer 拥有的单采样 view depth；仅在存在对应需求时分配并执行。ParticlePass 按投影恢复线性相机深度，独立保活各帧槽深度描述符，resize 或关闭效果不改写在途绑定。
 网格使用包围盒中心，粒子使用中心深度；同深度先网格后粒子。对象级排序不能精确解决相交几何或同一网格内部的透明层叠，OIT 另行扩展。
 纹理上传完成信号参与提交等待，替换资源不改写在途描述符。未指定纹理使用柔边圆形，显式引用缺失时诊断并跳过对应批次。
 暂停／单步与 Stop／切关复用 Runtime 协议；场景保存、克隆和 Prefab 不携带存活粒子。素材与触发规则继续归项目。
