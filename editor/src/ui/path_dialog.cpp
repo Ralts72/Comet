@@ -17,6 +17,8 @@ namespace CometEditor {
             m_path = (default_directory / "untitled.scene").string();
         } else if(dialog == Action::SavePrefab && m_path.empty()) {
             m_path = (default_directory / "NewPrefab.prefab").string();
+        } else if(dialog == Action::SaveImage && m_path.empty()) {
+            m_path = (default_directory / "reference.png").string();
         } else if(dialog == Action::CreateProject && m_path.empty()) {
             m_path = (default_directory / "NewProject").string();
         } else if(m_path.empty()) {
@@ -29,12 +31,15 @@ namespace CometEditor {
             return;
         }
 
-        const bool is_open = m_action != Action::SaveScene && m_action != Action::SavePrefab;
+        const bool is_open = m_action != Action::SaveScene && m_action != Action::SavePrefab
+                             && m_action != Action::SaveImage;
         const char* title = "打开场景###Open Scene";
         if(m_action == Action::SaveScene)
             title = "保存场景###Save Scene";
         else if(m_action == Action::SavePrefab)
             title = "保存 Prefab###Save Prefab";
+        else if(m_action == Action::SaveImage)
+            title = "导出图像###Save Image";
         else if(m_action == Action::OpenProject)
             title = "打开项目###Open Project";
         else if(m_action == Action::CreateProject)

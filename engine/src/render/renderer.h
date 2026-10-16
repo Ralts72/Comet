@@ -137,6 +137,9 @@ namespace Comet {
         [[nodiscard]] const QualitySettings& get_quality_settings() const;
         [[nodiscard]] Math::Vec2u get_scene_size() const;
         [[nodiscard]] uint32_t path_trace_samples(ViewId id = DEFAULT_VIEW) const;
+        // 显式导出操作：在 RenderThread 取回当前积分的原尺寸 RGBA32F，不含曝光与 UI。
+        [[nodiscard]] Result<TextureData, GraphicsError> capture_path_trace(
+            ViewId id = DEFAULT_VIEW);
         [[nodiscard]] const std::string& path_trace_error(ViewId id = DEFAULT_VIEW) const;
         void set_path_trace_sources(PathTraceSceneBuilder::MeshReader read,
             PathTraceSceneBuilder::MeshRevision revision = {},

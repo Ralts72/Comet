@@ -17,6 +17,7 @@
 #include <unordered_set>
 
 namespace Comet {
+    struct COMET_API NavigationData;
     class AssetDatabase;
     struct AnimationLibrary;
     class ComponentRegistry;
@@ -46,6 +47,8 @@ namespace Comet {
             std::size_t environment_bytes);
 
         [[nodiscard]] Result<std::shared_ptr<GameData>, Error> load_data(AssetHandle handle);
+        [[nodiscard]] Result<std::shared_ptr<NavigationData>, Error> load_navigation(
+            AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<AnimationLibrary>, Error> load_animation_library(
             AssetHandle handle);
         [[nodiscard]] Result<std::shared_ptr<AnimationController>, Error> load_animation_controller(

@@ -28,6 +28,7 @@ namespace CometEditor {
     class SelectionService;
     class ReflectionBake;
     class IrradianceBake;
+    class NavigationBake;
     struct PropertyEditResult;
 
     class InspectorPanel: public EditorPanel {
@@ -36,8 +37,8 @@ namespace CometEditor {
             std::vector<PropertyEditTransaction::Target> targets;
             AssetDragPayload asset;
         };
-        struct LightingBakeRequest {
-            enum class Kind { Reflection, Irradiance };
+        struct BakeRequest {
+            enum class Kind { Reflection, Irradiance, Navigation };
             Kind kind;
             Comet::EntityUuid entity;
             uint64_t generation;
@@ -49,7 +50,7 @@ namespace CometEditor {
             const Comet::AssetDatabase& asset_database, const Comet::AssetRegistry& runtime_assets,
             const Comet::MaterialProgramValidator& programs,
             const Comet::SceneRuntime* runtime = nullptr, ReflectionBake* reflection_bake = nullptr,
-            IrradianceBake* irradiance_bake = nullptr);
+            IrradianceBake* irradiance_bake = nullptr, NavigationBake* navigation_bake = nullptr);
         ~InspectorPanel() override;
 
         void render() override;
@@ -58,7 +59,7 @@ namespace CometEditor {
         void update_previews(double delta_time);
         [[nodiscard]] AssetInspector& asset_inspector() { return m_asset_inspector; }
         [[nodiscard]] std::optional<AssetAssignment> take_asset_assignment();
-        [[nodiscard]] std::optional<LightingBakeRequest> take_lighting_bake_request();
+        [[nodiscard]] std::optional<BakeRequest> take_bake_request();
 
     private:
         template<typename Value>
@@ -106,10 +107,11 @@ namespace CometEditor {
         const Comet::SceneRuntime* m_runtime;
         ReflectionBake* m_reflection_bake;
         IrradianceBake* m_irradiance_bake;
+        NavigationBake* m_navigation_bake;
         std::shared_ptr<const Comet::Script> m_script_edit_version;
         AssetInspector m_asset_inspector;
         std::optional<AssetAssignment> m_asset_assignment;
-        std::optional<LightingBakeRequest> m_lighting_bake_request;
+        std::optional<BakeRequest> m_bake_request;
         std::vector<Comet::EntityUuid> m_entities;
         AnimationPreview m_animation_preview;
         std::shared_ptr<const Comet::AnimationPlayback> m_preview_publication;

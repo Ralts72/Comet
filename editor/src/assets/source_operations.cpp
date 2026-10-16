@@ -1,5 +1,6 @@
 #include "assets/source_operations.h"
 #include "asset/data/irradiance_data.h"
+#include "asset/data/navigation_data.h"
 #include "asset/data/game_data.h"
 #include "asset/serialization/animation_controller_serializer.h"
 #include "asset/data/animation_library.h"
@@ -134,6 +135,7 @@ namespace CometEditor::AssetSourceOperations {
                 case AssetType::Texture:
                 case AssetType::Environment:
                 case AssetType::Irradiance:
+                case AssetType::Navigation:
                 case AssetType::Script:
                 case AssetType::Audio:
                 case AssetType::AnimationLibrary:
@@ -554,6 +556,10 @@ namespace CometEditor::AssetSourceOperations {
                     if(auto result = Comet::IrradianceData::load(source); !result)
                         return Result<void>::failure(result.error());
                     break;
+                case AssetType::Navigation:
+                    if(auto result = Comet::NavigationData::load(source); !result)
+                        return Result<void>::failure(result.error());
+                    break;
                 case AssetType::Script:
                     if(auto script = Script::load(source); !script)
                         return Result<void>::failure(
@@ -910,28 +916,58 @@ namespace CometEditor::AssetSourceOperations {
             database, destination, encoded.value(), AssetType::Environment, ".hdr", "Environment");
     }
 
+    namespace {
+        AssetScanReport create_baked_asset(AssetDatabase& database,
+            const std::filesystem::path& destination, Result<std::vector<std::byte>> encoded,
+            AssetType type, std::string_view extension, std::string_view label) {
+            if(!encoded)
+                return operation_error(destination, encoded.error());
+            auto target = database.paths().resolve_asset_path(destination);
+            if(!target)
+                return operation_error(destination, target.error());
+            std::error_code error;
+            std::filesystem::create_directories(target.value().parent_path(), error);
+            if(error)
+                return operation_error(
+                    destination, "Cannot create baked asset directory: " + error.message());
+            const std::string_view bytes(
+                reinterpret_cast<const char*>(encoded.value().data()), encoded.value().size());
+            return create_source_asset(database, destination, bytes, type, extension, label);
+        }
+    }
+
     AssetScanReport create_irradiance(AssetDatabase& database,
         const std::filesystem::path& destination, const Comet::IrradianceData& data) {
-        auto encoded = data.encode();
-        if(!encoded)
-            return operation_error(destination, encoded.error());
-        auto target = database.paths().resolve_asset_path(destination);
-        if(!target)
-            return operation_error(destination, target.error());
-        std::error_code error;
-        std::filesystem::create_directories(target.value().parent_path(), error);
-        if(error)
-            return operation_error(
-                destination, "Cannot create baked GI directory: " + error.message());
-        const std::string_view bytes(
-            reinterpret_cast<const char*>(encoded.value().data()), encoded.value().size());
-        return create_source_asset(
-            database, destination, bytes, AssetType::Irradiance, ".gi", "Irradiance");
+        return create_baked_asset(
+            database, destination, data.encode(), AssetType::Irradiance, ".gi", "Irradiance");
+    }
+    AssetScanReport create_navigation(AssetDatabase& database,
+        const std::filesystem::path& destination, const Comet::NavigationData& data) {
+        return create_baked_asset(
+            database, destination, data.encode(), AssetType::Navigation, ".nav", "Navigation");
+    }
+
+    namespace {
+        Result<Comet::Prefab> prepare_prefab_source(const AssetDatabase& database,
+            const Comet::Prefab& prefab, const Comet::ComponentRegistry& registry,
+            AssetHandle source = {}) {
+            return prefab.resolve_nested(
+                registry, source, [&](AssetHandle handle) -> Result<Comet::Prefab> {
+                    const auto* record = database.find(handle);
+                    if(!record || record->type != AssetType::Prefab)
+                        return Result<Comet::Prefab>::failure(
+                            "Nested Prefab source is missing or mistyped");
+                    return Comet::Prefab::load(database.paths().assets() / record->path, registry);
+                });
+        }
     }
 
     AssetScanReport create_prefab(AssetDatabase& database, const std::filesystem::path& destination,
         const Comet::Prefab& prefab, const Comet::ComponentRegistry& registry) {
-        auto serialized = prefab.serialize(registry);
+        auto prepared = prepare_prefab_source(database, prefab, registry);
+        if(!prepared)
+            return operation_error(destination, prepared.error());
+        auto serialized = prepared.value().serialize(registry);
         if(!serialized)
             return operation_error(destination, serialized.error());
         return create_source_asset(
@@ -970,7 +1006,10 @@ namespace CometEditor::AssetSourceOperations {
     }
     AssetScanReport save_prefab(AssetDatabase& database, const AssetTarget& target,
         const Comet::Prefab& prefab, const Comet::ComponentRegistry& registry) {
-        auto serialized = prefab.serialize(registry);
+        auto prepared = prepare_prefab_source(database, prefab, registry, target.handle);
+        if(!prepared)
+            return operation_error({}, prepared.error());
+        auto serialized = prepared.value().serialize(registry);
         if(!serialized)
             return operation_error({}, serialized.error());
         return save_text_asset(database, target, AssetType::Prefab, serialized.value());

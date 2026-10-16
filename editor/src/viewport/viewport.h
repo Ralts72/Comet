@@ -1,4 +1,5 @@
 #pragma once
+#include <filesystem>
 
 #include "viewport/viewport_panel.h"
 #include "viewport/transform_gizmo.h"
@@ -36,6 +37,8 @@ namespace CometEditor {
         void cancel_interaction();
 
         void update_texture();
+        [[nodiscard]] Comet::Result<void, Comet::Error> export_path_trace(
+            const std::filesystem::path& path);
         // 主线程在构建面板前消费上一帧结果；场景切换和失效实体不改变选择。
         void consume_pick(Comet::Scene* scene);
         // 面板命令处理后、SceneExtractor 提取前调用。

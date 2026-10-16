@@ -31,7 +31,8 @@ namespace Comet {
             Math::Vec4 emission_roughness;
             // base color、normal、metallic/roughness、emissive；0 表示默认贴图。
             std::array<uint32_t, 4> textures{};
-            Math::Vec4 parameters{}; // normal scale、double sided，保留
+            Math::Vec4 parameters{};          // normal scale、double sided、transmission、IOR
+            Math::Vec4 opacity{1, .5f, 0, 0}; // alpha factor、cutoff、AlphaMode，保留
         };
         struct Texture {
             std::array<uint32_t, 4> extent{};  // texel offset、width、height，保留

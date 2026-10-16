@@ -8,7 +8,6 @@
 namespace Comet {
     class Device;
     class RenderPass;
-    class RenderTarget;
     class ImageView;
     class Pipeline;
     class DescriptorSetLayout;
@@ -20,20 +19,22 @@ namespace Comet {
     public:
         struct Passes {
             RenderGraph::ResourceId output;
+            RenderGraph::ResourceId extracted;
             RenderGraph::ResourceId intermediate;
             std::array<RenderGraph::PassId, 3> ids;
+            bool operator==(const Passes&) const = default;
         };
 
         static Result<std::unique_ptr<BloomPass>, GraphicsError> create(
             Device& device, uint32_t frame_slots);
-        static Passes append_passes(RenderGraph& graph, RenderGraph::ResourceId hdr);
+        static Passes append_passes(
+            RenderGraph& graph, RenderGraph::ResourceId hdr, Math::Vec2u source_size);
         BloomPass(const BloomPass&) = delete;
         BloomPass& operator=(const BloomPass&) = delete;
 
-        // 两个候选目标均创建成功后才替换旧目标。
-        Result<void, GraphicsError> resize(Math::Vec2u source_size);
-        void bind_resources(
-            std::span<RenderGraph::Binding> bindings, const Passes& passes, uint32_t slot) const;
+        // 图分配和 framebuffer 全部成功后才发布；旧代由在途帧保活。
+        Result<void, GraphicsError> prepare(
+            const RenderGraph::Resources& resources, const Passes& passes, Math::Vec2u source_size);
         [[nodiscard]] std::shared_ptr<ImageView> get_output(uint32_t slot) const;
         [[nodiscard]] Result<void, GraphicsError> render(FrameScheduler& frames,
             RenderGraph::PassId pass, const Passes& passes, const std::shared_ptr<ImageView>& hdr,
@@ -44,12 +45,12 @@ namespace Comet {
 
         Device& m_device;
         uint32_t m_frame_slots;
-        Math::Vec2u m_source_size{};
         std::shared_ptr<RenderPass> m_render_pass;
         std::shared_ptr<DescriptorSetLayout> m_layout;
         std::shared_ptr<Sampler> m_sampler;
         std::shared_ptr<Pipeline> m_pipeline;
-        std::array<std::shared_ptr<RenderTarget>, 2> m_targets;
+        struct Targets;
+        std::shared_ptr<Targets> m_targets;
         std::vector<std::array<std::shared_ptr<SampledImageBinding>, 3>> m_bindings;
     };
 }

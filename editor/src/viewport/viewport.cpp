@@ -2,6 +2,8 @@
 #include "viewport/physics_overlay.h"
 
 #include "asset/registry.h"
+#include "asset/import/image_encoding.h"
+#include "common/file_io.h"
 #include "diagnostics/logger.h"
 #include "render/renderer.h"
 #include "render/resource/mesh.h"
@@ -95,6 +97,29 @@ namespace CometEditor {
         update_texture();
         m_panel.draw_gizmo();
         return Comet::Result<void, Comet::Error>::success();
+    }
+
+    Comet::Result<void, Comet::Error> Viewport::export_path_trace(
+        const std::filesystem::path& path) {
+        using Exported = Comet::Result<void, Comet::Error>;
+        if(m_state.mode != EditorMode::Edit || !m_panel.path_trace_enabled()
+            || !m_renderer.path_trace_error().empty())
+            return Exported::failure({"当前没有可导出的路径追踪预览"});
+        const auto extension = path.extension().string();
+        if(extension != ".png" && extension != ".hdr")
+            return Exported::failure({"请选择 .png 或 .hdr 文件"});
+        auto image = m_renderer.capture_path_trace();
+        if(!image)
+            return Exported::failure(image.error().as_error());
+        auto encoded = Comet::encode_image(
+            image.value(), extension, m_selection.get_scene().get_post_process().exposure);
+        if(!encoded)
+            return Exported::failure({encoded.error()});
+        auto saved =
+            Comet::write_binary_file_atomic(path, std::as_bytes(std::span(encoded.value())));
+        if(!saved)
+            return Exported::failure({saved.error()});
+        return Exported::success();
     }
 
     void Viewport::focus_selection(Comet::Scene* scene) {

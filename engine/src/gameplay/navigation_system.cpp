@@ -2,6 +2,7 @@
 #include "gameplay/character_controller.h"
 #include "physics/physics_access.h"
 #include "scene/scene.h"
+#include "asset/data/navigation_data.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -12,7 +13,8 @@ namespace Comet::Gameplay {
             return std::hypot(a.x - b.x, a.z - b.z);
         }
     }
-    NavigationSystem::NavigationSystem(GeometrySource geometry) : m_geometry(std::move(geometry)) {}
+    NavigationSystem::NavigationSystem(GeometrySource geometry, ProductSource products)
+        : m_geometry(std::move(geometry)), m_products(std::move(products)) {}
     Result<void, Error> NavigationSystem::on_start(
         Scene& scene, RuntimeSession&, const RuntimeServices&) {
         m_scene = &scene;
@@ -35,9 +37,8 @@ namespace Comet::Gameplay {
         // 此处全部 on_start 已完成，PhysicsSystem 已同步初始碰撞世界。
         if(scene.component_count<NavigationRegionComponent>() != 0) {
             const auto begin = std::chrono::steady_clock::now();
-            ++m_statistics.builds;
             const auto prepared = prepare(scene);
-            m_statistics.build_milliseconds =
+            m_statistics.prepare_milliseconds =
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin)
                     .count();
             if(!prepared)
@@ -62,7 +63,33 @@ namespace Comet::Gameplay {
             m_geometry(center - m_settings.half_extents, center + m_settings.half_extents);
         if(!geometry)
             return Result<void>::failure(geometry.error().message);
-        return m_mesh.build(geometry.value(), center, m_settings);
+        if(m_settings.data) {
+            const auto product = m_products ? m_products(m_settings.data) : nullptr;
+            if(!product)
+                return Result<void>::failure("Navigation product is not prepared");
+            const auto fingerprint =
+                NavigationMesh::input_fingerprint(geometry.value(), center, m_settings);
+            if(!fingerprint)
+                return Result<void>::failure(fingerprint.error());
+            if(product->input_fingerprint != fingerprint.value())
+                return Result<void>::failure(
+                    "Navigation product is stale; rebake after changing geometry or settings");
+            const auto begin = std::chrono::steady_clock::now();
+            const auto loaded = m_mesh.load(*product);
+            m_statistics.product_load_milliseconds =
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin)
+                    .count();
+            if(loaded)
+                ++m_statistics.product_loads;
+            return loaded;
+        }
+        const auto begin = std::chrono::steady_clock::now();
+        ++m_statistics.builds;
+        const auto built = m_mesh.build(geometry.value(), center, m_settings);
+        m_statistics.build_milliseconds =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin)
+                .count();
+        return built;
     }
     Result<void, Error> NavigationSystem::fixed_update(Scene& scene, const Context& context) {
         if(m_scene != &scene || !m_prepared)

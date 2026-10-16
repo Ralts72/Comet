@@ -4,6 +4,7 @@
 #include "inspector/inspector.h"
 #include "assets/reflection_bake.h"
 #include "assets/irradiance_bake.h"
+#include "assets/navigation_bake.h"
 #include "inspector/property_editor_registry.h"
 #include "scene/selection.h"
 #include "scene/scene_commands.h"
@@ -348,14 +349,16 @@ namespace CometEditor {
         const PropertyEditorRegistry& property_editor_registry,
         const Comet::AssetDatabase& asset_database, const Comet::AssetRegistry& runtime_assets,
         const Comet::MaterialProgramValidator& programs, const Comet::SceneRuntime* runtime,
-        ReflectionBake* reflection_bake, IrradianceBake* irradiance_bake)
+        ReflectionBake* reflection_bake, IrradianceBake* irradiance_bake,
+        NavigationBake* navigation_bake)
         : EditorPanel("属性###Inspector"), m_state(state), m_selection(selection),
           m_history(history), m_property_edit(property_edit),
           m_component_registry(component_registry),
           m_component_descriptions(make_component_descriptions(component_registry)),
           m_property_editor_registry(property_editor_registry), m_asset_database(asset_database),
           m_runtime_assets(runtime_assets), m_runtime(runtime), m_reflection_bake(reflection_bake),
-          m_irradiance_bake(irradiance_bake), m_asset_inspector(asset_database, programs) {}
+          m_irradiance_bake(irradiance_bake), m_navigation_bake(navigation_bake),
+          m_asset_inspector(asset_database, programs) {}
 
     InspectorPanel::~InspectorPanel() {
         reset_animation_preview();
@@ -482,6 +485,24 @@ namespace CometEditor {
                         property_targets(component_descriptor.id, property.id));
                     ImGui::PopID();
                 }
+                if(component_descriptor.id == "navigation_region" && m_entities.size() == 1
+                    && m_navigation_bake) {
+                    ImGui::TextWrapped(
+                        "%s", m_navigation_bake->status(m_selection.get_scene(), entity.get_uuid())
+                                  .c_str());
+                    ImGui::BeginDisabled(!edit_structure || m_navigation_bake->busy());
+                    if(ImGui::Button("烘焙导航###Bake Navigation") && finish_edit())
+                        m_bake_request = {BakeRequest::Kind::Navigation, entity.get_uuid(),
+                            m_history.generation()};
+                    ImGui::EndDisabled();
+                    if(m_navigation_bake->busy()) {
+                        ImGui::SameLine();
+                        if(ImGui::Button("取消烘焙###Cancel Navigation Bake"))
+                            m_navigation_bake->cancel();
+                    }
+                    ImGui::TextWrapped(
+                        "使用静态、非触发碰撞形状；移动障碍仍由运行时局部避障处理。");
+                }
                 if(component_descriptor.id == "reflection_probe" && m_entities.size() == 1
                     && m_reflection_bake) {
                     ImGui::TextWrapped(
@@ -489,8 +510,8 @@ namespace CometEditor {
                                   .c_str());
                     ImGui::BeginDisabled(!edit_structure || m_reflection_bake->busy());
                     if(ImGui::Button("烘焙反射###Bake Reflection") && finish_edit())
-                        m_lighting_bake_request = {LightingBakeRequest::Kind::Reflection,
-                            entity.get_uuid(), m_history.generation()};
+                        m_bake_request = {BakeRequest::Kind::Reflection, entity.get_uuid(),
+                            m_history.generation()};
                     ImGui::EndDisabled();
                     ImGui::TextWrapped(
                         "捕获静态网格与光源；不包含动画角色、动态刚体、粒子、雾和其他反射探针。");
@@ -502,8 +523,8 @@ namespace CometEditor {
                                   .c_str());
                     ImGui::BeginDisabled(!edit_structure || m_irradiance_bake->busy());
                     if(ImGui::Button("烘焙 GI###Bake GI") && finish_edit())
-                        m_lighting_bake_request = {LightingBakeRequest::Kind::Irradiance,
-                            entity.get_uuid(), m_history.generation()};
+                        m_bake_request = {BakeRequest::Kind::Irradiance, entity.get_uuid(),
+                            m_history.generation()};
                     ImGui::EndDisabled();
                     if(m_irradiance_bake->busy()) {
                         ImGui::SameLine();
@@ -694,7 +715,7 @@ namespace CometEditor {
         reset_animation_preview();
         reset_particle_preview();
         m_asset_assignment.reset();
-        m_lighting_bake_request.reset();
+        m_bake_request.reset();
         m_script_edit_version.reset();
         m_entities.clear();
         if(!finish_edit(true))
@@ -1432,9 +1453,8 @@ namespace CometEditor {
         return std::exchange(m_asset_assignment, std::nullopt);
     }
 
-    std::optional<InspectorPanel::LightingBakeRequest> InspectorPanel::
-        take_lighting_bake_request() {
-        return std::exchange(m_lighting_bake_request, std::nullopt);
+    std::optional<InspectorPanel::BakeRequest> InspectorPanel::take_bake_request() {
+        return std::exchange(m_bake_request, std::nullopt);
     }
 
     std::optional<AssetDragPayload> InspectorPanel::accept_asset_drop(

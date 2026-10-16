@@ -21,6 +21,7 @@ add_library(editor_core STATIC
         src/assets/asset_thumbnails.cpp
         src/assets/thumbnail_renderer.cpp
         src/assets/irradiance_bake.cpp
+        src/assets/navigation_bake.cpp
         src/assets/reflection_bake.cpp
         src/assets/lighting_bake_input.cpp
         src/assets/editor_assets.cpp

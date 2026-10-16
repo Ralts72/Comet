@@ -6,6 +6,8 @@
 #include "graphics/device.h"
 
 #include <algorithm>
+#include <cassert>
+#include <numeric>
 #include <unordered_set>
 
 namespace Comet {
@@ -143,6 +145,27 @@ namespace Comet {
                     return {};
             }
         }
+        Flags<BufferUsage> buffer_usage(ResourceUsage usage) {
+            switch(usage) {
+                case ResourceUsage::TransferSource:
+                    return Flags<BufferUsage>(BufferUsage::CopySrc);
+                case ResourceUsage::TransferDestination:
+                    return Flags<BufferUsage>(BufferUsage::CopyDst);
+                case ResourceUsage::StorageRead:
+                case ResourceUsage::StorageReadWrite:
+                    return Flags<BufferUsage>(BufferUsage::Storage);
+                case ResourceUsage::UniformRead:
+                    return Flags<BufferUsage>(BufferUsage::Uniform);
+                case ResourceUsage::VertexBuffer:
+                    return Flags<BufferUsage>(BufferUsage::Vertex);
+                case ResourceUsage::IndexBuffer:
+                    return Flags<BufferUsage>(BufferUsage::Index);
+                case ResourceUsage::IndirectBuffer:
+                    return Flags<BufferUsage>(BufferUsage::Indirect);
+                default:
+                    return {};
+            }
+        }
         Result<State> resolve(const State& previous, const RenderGraph::Use& use) {
             if(use.usage == ResourceUsage::Undefined)
                 return Result<State>::failure("RenderGraph pass cannot use undefined contents");
@@ -241,6 +264,21 @@ namespace Comet {
     RenderGraph::ResourceId RenderGraph::import_buffer(std::string name, BufferState initial) {
         return add_resource({std::move(name), initial});
     }
+    RenderGraph::ResourceId RenderGraph::create_image(
+        std::string name, ImageDescription description) {
+        auto aspects = Flags<ImageAspect>(ImageAspect::Color);
+        if(Graphics::is_depth_stencil_format(description.format)) {
+            aspects = Flags<ImageAspect>(ImageAspect::Depth);
+            if(!Graphics::is_depth_only_format(description.format))
+                aspects |= ImageAspect::Stencil;
+        }
+        return add_resource(
+            {std::move(name), ImageState{.subresources = {.aspects = aspects}}, description});
+    }
+    RenderGraph::ResourceId RenderGraph::create_buffer(
+        std::string name, BufferDescription description) {
+        return add_resource({std::move(name), BufferState{{}, 0, description.size}, description});
+    }
     RenderGraph::PassId RenderGraph::add_pass(Pass pass) {
         const PassId id = m_passes.size();
         m_passes.push_back(std::move(pass));
@@ -250,7 +288,7 @@ namespace Comet {
         m_exports.push_back(use);
     }
 
-    Result<RenderGraph::Plan> RenderGraph::compile() const {
+    Result<RenderGraph::Plan> RenderGraph::compile(const bool reuse_transients) const {
         if(m_resources.size() > 256 || m_passes.size() > 512 || m_exports.size() > 256)
             return Result<Plan>::failure("RenderGraph declaration limit exceeded");
         std::unordered_set<std::string> names;
@@ -260,6 +298,14 @@ namespace Comet {
                     "RenderGraph resource names must be nonempty and unique");
             if(auto valid = validate_initial(resource.initial); !valid)
                 return Result<Plan>::failure(resource.name + ": " + valid.error());
+            if(resource.transient) {
+                if(const auto* image = std::get_if<ImageDescription>(&*resource.transient)) {
+                    const auto samples = static_cast<uint32_t>(image->samples);
+                    if(image->format == Format::UNDEFINED || !image->width || !image->height
+                        || !samples || samples > 64 || (samples & (samples - 1)))
+                        return Result<Plan>::failure("Invalid transient image description");
+                }
+            }
         }
         names.clear();
         for(const auto& pass : m_passes)
@@ -272,10 +318,11 @@ namespace Comet {
         std::optional<uint32_t> queue;
         for(const auto& resource : m_resources) {
             const auto owner = access(resource.initial).queue_family;
-            if(queue && *queue != owner)
+            if(!resource.transient && queue && *queue != owner)
                 return Result<Plan>::failure(
                     "RenderGraph requires one queue owner; import explicit handoffs first");
-            queue = owner;
+            if(!resource.transient)
+                queue = owner;
             tracked.push_back({resource.initial, writes(access(resource.initial)),
                 initialized(resource.initial), {}});
         }
@@ -293,7 +340,141 @@ namespace Comet {
             return Result<Plan>::failure("Exports: " + uses.error());
         for(auto& state : tracked)
             result.m_final_states.push_back(std::move(state.state));
+
+        result.m_lifetimes.resize(m_resources.size());
+        std::vector<Flags<BufferUsage>> buffer_usages(m_resources.size());
+        for(PassId pass = 0; pass < m_passes.size(); ++pass) {
+            for(const auto& use : m_passes[pass].uses) {
+                auto& lifetime = result.m_lifetimes[use.resource.index];
+                lifetime.first = std::min(lifetime.first, pass);
+                lifetime.last = pass;
+                buffer_usages[use.resource.index] =
+                    buffer_usages[use.resource.index] | buffer_usage(use.usage);
+            }
+        }
+        for(const auto& use : m_exports) {
+            result.m_lifetimes[use.resource.index].last = m_passes.size();
+            buffer_usages[use.resource.index] =
+                buffer_usages[use.resource.index] | buffer_usage(use.usage);
+        }
+        std::vector<uint32_t> ordered(m_resources.size());
+        std::iota(ordered.begin(), ordered.end(), 0);
+        std::ranges::stable_sort(ordered, [&](uint32_t a, uint32_t b) {
+            return result.m_lifetimes[a].first < result.m_lifetimes[b].first;
+        });
+        std::vector<std::vector<uint32_t>> occupants;
+        for(const auto index : ordered) {
+            const auto& description = m_resources[index].transient;
+            if(!description)
+                continue;
+            auto& lifetime = result.m_lifetimes[index];
+            if(lifetime.first == std::numeric_limits<PassId>::max())
+                return Result<Plan>::failure(
+                    "Unused transient resource: " + m_resources[index].name);
+            uint32_t allocation = 0;
+            for(; allocation < result.m_allocations.size(); ++allocation) {
+                const auto previous = occupants[allocation].back();
+                if(reuse_transients && result.m_allocations[allocation].description == *description
+                    && result.m_lifetimes[previous].last < lifetime.first)
+                    break;
+            }
+            if(allocation == result.m_allocations.size()) {
+                result.m_allocations.push_back({*description, {}, {}});
+                occupants.emplace_back();
+            }
+            lifetime.allocation = allocation;
+            occupants[allocation].push_back(index);
+            auto& physical = result.m_allocations[allocation];
+            physical.image_usage = physical.image_usage | result.m_image_usages[index];
+            physical.buffer_usage = physical.buffer_usage | buffer_usages[index];
+        }
+        // 同一 VkImage/VkBuffer 的逻辑内容可丢弃，先前 reader/writer 的执行依赖不能丢。
+        // 第一位 occupant 还要等待该 slot 上一次执行计划的最后使用。
+        for(const auto& group : occupants) {
+            auto previous = group.back();
+            for(const auto index : group) {
+                const auto first = result.m_lifetimes[index].first;
+                auto& barriers = result.m_passes[first].barriers;
+                auto before = m_resources[index].initial;
+                access(before) = access(result.m_final_states[previous]);
+                const auto& uses = m_passes[first].uses;
+                const auto use = std::ranges::find(uses, ResourceId{index}, &Use::resource);
+                const auto after = resolve(m_resources[index].initial, *use).value();
+                const auto barrier =
+                    std::ranges::find(barriers, ResourceId{index}, &Barrier::resource);
+                if(barrier == barriers.end())
+                    barriers.push_back({{index}, std::move(before), after});
+                else
+                    barrier->before = std::move(before);
+                previous = index;
+            }
+        }
         return Result<Plan>::success(std::move(result));
+    }
+
+    Result<RenderGraph::Resources, GraphicsError> RenderGraph::Plan::allocate(
+        Device& device, const uint32_t frame_slots) const {
+        using Creation = Result<Resources, GraphicsError>;
+        if(!frame_slots)
+            return Creation::failure({"RenderGraph requires at least one frame slot"});
+        for(const auto& allocation : m_allocations) {
+            if(const auto* image = std::get_if<ImageDescription>(&allocation.description)) {
+                vk::ImageFormatProperties properties;
+                const auto status =
+                    device.get_capability().physical_device.getImageFormatProperties(
+                        Graphics::format_to_vk(image->format), vk::ImageType::e2D,
+                        vk::ImageTiling::eOptimal,
+                        Graphics::image_usage_to_vk(allocation.image_usage), {}, &properties);
+                if(status != vk::Result::eSuccess || image->width > properties.maxExtent.width
+                    || image->height > properties.maxExtent.height
+                    || !(properties.sampleCounts & Graphics::sample_count_to_vk(image->samples)))
+                    return Creation::failure({"Unsupported RenderGraph transient image description",
+                        vk::Result::eErrorFormatNotSupported});
+            }
+        }
+        Resources result;
+        for(uint32_t index = 0; index < m_resources.size(); ++index)
+            if(m_resources[index].transient)
+                result.m_ids.push_back({index});
+        for(uint32_t slot = 0; slot < frame_slots; ++slot) {
+            std::vector<Binding> physical;
+            for(const auto& allocation : m_allocations) {
+                if(const auto* image = std::get_if<ImageDescription>(&allocation.description)) {
+                    auto created = Image::try_create(device,
+                        {.format = image->format,
+                            .extent = {image->width, image->height, 1},
+                            .usage = allocation.image_usage},
+                        true, image->samples, "render graph transient image");
+                    if(!created)
+                        return Creation::failure(created.error());
+                    physical.emplace_back(std::move(created).value());
+                } else {
+                    auto created = Buffer::try_create_gpu_buffer(device, allocation.buffer_usage,
+                        std::get<BufferDescription>(allocation.description).size, true,
+                        "render graph transient buffer");
+                    if(!created)
+                        return Creation::failure(created.error());
+                    physical.emplace_back(std::move(created).value());
+                }
+            }
+            std::vector<Binding> bindings(m_resources.size());
+            for(const auto id : result.m_ids)
+                bindings[id.index] = physical[m_lifetimes[id.index].allocation];
+            result.m_bindings.push_back(std::move(bindings));
+        }
+        return Creation::success(std::move(result));
+    }
+
+    std::span<const RenderGraph::Binding> RenderGraph::Resources::get_bindings(
+        const uint32_t slot) const {
+        return m_bindings.at(slot);
+    }
+    void RenderGraph::Resources::bind_resources(
+        std::span<Binding> bindings, const uint32_t slot) const {
+        const auto source = get_bindings(slot);
+        assert(bindings.size() == source.size());
+        for(const auto id : m_ids)
+            bindings[id.index] = source[id.index];
     }
 
     Result<void, GraphicsError> RenderGraph::Plan::record(FrameScheduler& frames,
@@ -318,6 +499,14 @@ namespace Comet {
                     {"RenderGraph binding is null or belongs to another device"});
             if(const auto* image = std::get_if<ImageState>(&m_resources[index].initial)) {
                 const auto info = std::get<std::shared_ptr<Image>>(bindings[index])->get_info();
+                if(m_resources[index].transient) {
+                    const auto& description =
+                        std::get<ImageDescription>(*m_resources[index].transient);
+                    if(info.format != description.format
+                        || info.extent != Math::Vec3u(description.width, description.height, 1))
+                        return Result<void, GraphicsError>::failure(
+                            {"RenderGraph transient image binding does not match description"});
+                }
                 const auto& range = image->subresources;
                 if((info.usage & m_image_usages[index]) != m_image_usages[index])
                     return Result<void, GraphicsError>::failure(
@@ -361,7 +550,10 @@ namespace Comet {
                                 == std::get<std::shared_ptr<Buffer>>(bindings[other])->get()
                             && overlaps(a.offset, a.size, b.offset, b.size);
                 }
-                if(alias)
+                const auto allocation = m_lifetimes[index].allocation;
+                const bool planned = m_resources[index].transient && m_resources[other].transient
+                                     && allocation == m_lifetimes[other].allocation;
+                if(alias && !planned)
                     return Result<void, GraphicsError>::failure(
                         {"RenderGraph overlapping aliases need one resource declaration"});
             }

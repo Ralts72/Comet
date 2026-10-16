@@ -1,6 +1,7 @@
 #ifdef COMET_TEST_EDITOR_UI
 #include "scene/command_history.h"
 #include "assets/irradiance_bake.h"
+#include "assets/navigation_bake.h"
 #include "assets/editor_assets.h"
 #include "support/temporary_directory.h"
 #include "support/render_resource_factory.h"
@@ -308,6 +309,52 @@ namespace CometEditor::Tests {
         }
     };
 
+    TEST_F(EditingUiTest, NavigationBakeUsesTheSharedRequestAndPlayCannotQueueIt) {
+        Comet::Tests::TemporaryDirectory directory;
+        Comet::ProjectPaths paths(directory.path());
+        std::filesystem::create_directories(paths.assets());
+        Comet::Tests::FakeRenderResourceFactory factory;
+        Comet::TaskScheduler scheduler(1);
+        EditorAssets editor_assets(paths, runtime_assets, factory, scheduler);
+        ASSERT_TRUE(editor_assets.refresh().succeeded());
+        NavigationBake bake(editor_assets, scheduler, components);
+        entity.add_component<Comet::NavigationRegionComponent>(
+            Comet::NavigationRegionComponent{.half_extents = {10, 4, 10}});
+        auto ground = scene.create_entity("ground");
+        ground.edit_transform([](auto& value) { value.translation.y = -0.5f; });
+        ground.add_component<Comet::RigidBodyComponent>(
+            Comet::RigidBodyComponent{.motion = Comet::BodyMotion::Static});
+        ground.add_component<Comet::ColliderComponent>(
+            Comet::ColliderComponent{.half_extents = {10, .5f, 10}});
+        inspector = std::make_unique<InspectorPanel>(state, selection, history, edit, components,
+            widgets, assets, runtime_assets, programs, nullptr, nullptr, nullptr, &bake);
+        ImGui::GetIO().DisplaySize.y = 2000;
+        inspector_height = 1600;
+        frame();
+        frame();
+        auto* window = ImGui::FindWindowByName("Inspector");
+        ASSERT_TRUE(window);
+        const auto component = window->GetID("navigation_region");
+        const auto button = ImHashStr("###Bake Navigation", 0, component);
+        ImGui::ActivateItemByID(button);
+        frame();
+        const auto request = inspector->take_bake_request();
+        ASSERT_TRUE(request);
+        EXPECT_EQ(request->kind, InspectorPanel::BakeRequest::Kind::Navigation);
+        EXPECT_EQ(request->entity, entity.get_uuid());
+        state.mode = EditorMode::Play;
+        ImGui::ActivateItemByID(button);
+        frame();
+        EXPECT_FALSE(inspector->take_bake_request());
+        state.mode = EditorMode::Edit;
+        ASSERT_TRUE(bake.start(scene, entity.get_uuid(), history));
+        frame();
+        ImGui::ActivateItemByID(ImHashStr("###Cancel Navigation Bake", 0, component));
+        frame();
+        EXPECT_FALSE(bake.busy());
+        EXPECT_FALSE(entity.get_component<Comet::NavigationRegionComponent>().data);
+    }
+
     TEST_F(EditingUiTest, GiBakeButtonQueuesEditRequestAndCancelReleasesTheJob) {
         Comet::Tests::TemporaryDirectory directory;
         Comet::ProjectPaths paths(directory.path());
@@ -331,15 +378,15 @@ namespace CometEditor::Tests {
         const auto button = ImHashStr("###Bake GI", 0, component);
         ImGui::ActivateItemByID(button);
         frame();
-        auto request = inspector->take_lighting_bake_request();
+        auto request = inspector->take_bake_request();
         ASSERT_TRUE(request);
-        EXPECT_EQ(request->kind, InspectorPanel::LightingBakeRequest::Kind::Irradiance);
+        EXPECT_EQ(request->kind, InspectorPanel::BakeRequest::Kind::Irradiance);
         EXPECT_EQ(request->entity, entity.get_uuid());
         EXPECT_EQ(request->generation, history.generation());
         state.mode = EditorMode::Play;
         ImGui::ActivateItemByID(button);
         frame();
-        EXPECT_FALSE(inspector->take_lighting_bake_request());
+        EXPECT_FALSE(inspector->take_bake_request());
         state.mode = EditorMode::Edit;
         ASSERT_TRUE(bake.start(scene, entity.get_uuid(), history));
         frame();

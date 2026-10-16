@@ -204,11 +204,11 @@ namespace Comet {
         Result<void> read_entity_tree(Json::Node node, std::optional<EntityUuid> parent,
             const std::string& location, const Json::Context& context,
             const ComponentRegistry& component_registry, std::vector<EntityRecord>& records,
-            std::unordered_set<EntityUuid>& uuids, std::size_t depth, bool allow_prefab = true);
+            std::unordered_set<EntityUuid>& uuids, std::size_t depth, std::size_t prefab_depth = 0);
 
         Result<std::shared_ptr<PrefabRecord>> read_prefab_record(Json::Node node,
             const std::string& location, const Json::Context& context,
-            const ComponentRegistry& registry) {
+            const ComponentRegistry& registry, const std::size_t prefab_depth) {
             using Read = Result<std::shared_ptr<PrefabRecord>>;
             if(auto valid =
                     context.validate_keys(node, {"asset", "base", "entities", "type"}, location);
@@ -237,7 +237,7 @@ namespace Comet {
                 return Read::failure(base.error());
             std::unordered_set<EntityUuid> uuids;
             if(auto parsed = read_entity_tree(base.value(), {}, location + ".base", context,
-                   registry, result->base, uuids, 1, false);
+                   registry, result->base, uuids, 1, prefab_depth + 1);
                 !parsed)
                 return Read::failure(parsed.error());
             auto mapping = context.required_child(node, "entities", location);
@@ -271,7 +271,7 @@ namespace Comet {
 
         Result<EntityRecord> read_entity_record(const Json::Node& node, const std::string& location,
             const Json::Context& context, const ComponentRegistry& component_registry,
-            bool allow_prefab) {
+            const std::size_t prefab_depth) {
             if(auto valid = context.validate_keys(
                    node, {"uuid", "components", "children", "prefab"}, location);
                 !valid)
@@ -289,11 +289,11 @@ namespace Comet {
             record.uuid = *uuid;
             Json::Node prefab;
             if(const auto error = node["prefab"].get(prefab); error != simdjson::NO_SUCH_FIELD) {
-                if(error || !allow_prefab)
-                    return Result<EntityRecord>::failure(
-                        context.error(location, "nested prefab metadata is not supported"));
-                auto parsed =
-                    read_prefab_record(prefab, location + ".prefab", context, component_registry);
+                if(error || prefab_depth >= SceneSerializer::MAX_PREFAB_DEPTH)
+                    return Result<EntityRecord>::failure(context.error(
+                        location, "invalid prefab metadata or nesting depth exceeded"));
+                auto parsed = read_prefab_record(
+                    prefab, location + ".prefab", context, component_registry, prefab_depth);
                 if(!parsed)
                     return Result<EntityRecord>::failure(parsed.error());
                 record.prefab = std::move(parsed).value();
@@ -374,12 +374,13 @@ namespace Comet {
         Result<void> read_entity_tree(const Json::Node node, const std::optional<EntityUuid> parent,
             const std::string& location, const Json::Context& context,
             const ComponentRegistry& component_registry, std::vector<EntityRecord>& records,
-            std::unordered_set<EntityUuid>& uuids, const std::size_t depth, bool allow_prefab) {
+            std::unordered_set<EntityUuid>& uuids, const std::size_t depth,
+            const std::size_t prefab_depth) {
             if(depth > SceneSerializer::MAX_HIERARCHY_DEPTH)
                 return Result<void>::failure(
                     context.error(location, "maximum hierarchy depth exceeded"));
             auto parsed =
-                read_entity_record(node, location, context, component_registry, allow_prefab);
+                read_entity_record(node, location, context, component_registry, prefab_depth);
             if(!parsed)
                 return Result<void>::failure(parsed.error());
             auto record = std::move(parsed).value();
@@ -400,7 +401,7 @@ namespace Comet {
                 for(const auto child : array.value()) {
                     auto result = read_entity_tree(child, uuid,
                         children_location + "[" + std::to_string(index++) + "]", context,
-                        component_registry, records, uuids, depth + 1, allow_prefab);
+                        component_registry, records, uuids, depth + 1, prefab_depth);
                     if(!result)
                         return result;
                 }
@@ -448,8 +449,10 @@ namespace Comet {
             return Result<void>::success();
         }
 
-        Result<void> validate_records(
-            const std::vector<EntityRecord>& records, const Json::Context& context) {
+        Result<void> validate_records(const std::vector<EntityRecord>& records,
+            const Json::Context& context, const std::size_t prefab_depth = 0) {
+            if(prefab_depth > SceneSerializer::MAX_PREFAB_DEPTH)
+                return Result<void>::failure("Maximum prefab nesting depth exceeded");
             std::unordered_map<EntityUuid, std::size_t> indices;
             indices.reserve(records.size());
             for(std::size_t index = 0; index < records.size(); ++index) {
@@ -459,7 +462,28 @@ namespace Comet {
                 }
             }
 
-            std::unordered_set<EntityUuid> instance_members;
+            for(std::size_t index = 0; index < records.size(); ++index) {
+                if(records[index].parent && !indices.contains(*records[index].parent))
+                    return Result<void>::failure(context.error(entity_location(index) + ".parent",
+                        "missing parent UUID " + records[index].parent->to_string()));
+            }
+            std::unordered_map<EntityUuid, RecordVisit> states;
+            for(std::size_t index = 0; index < records.size(); ++index)
+                if(auto result = visit_parent_chain(index, 1, records, indices, states, context);
+                    !result)
+                    return result;
+            const auto contains = [&](EntityUuid root, EntityUuid child) {
+                while(child) {
+                    if(child == root)
+                        return true;
+                    const auto found = indices.find(child);
+                    if(found == indices.end())
+                        return false;
+                    child = records[found->second].parent.value_or(EntityUuid{});
+                }
+                return false;
+            };
+            std::unordered_map<EntityUuid, std::vector<EntityUuid>> owners;
             for(const auto& record : records) {
                 if(!record.prefab)
                     continue;
@@ -471,15 +495,28 @@ namespace Comet {
                     return Result<void>::failure(
                         context.error(record.uuid.to_string(), "incomplete prefab identity"));
                 std::size_t roots = 0;
+                std::unordered_set<EntityUuid> members;
+                if(auto valid = validate_records(prefab.base, context, prefab_depth + 1); !valid)
+                    return valid;
                 for(const auto& source : prefab.base) {
                     const auto found = prefab.entities.find(source.uuid);
                     if(found == prefab.entities.end() || !found->second
-                        || !instance_members.insert(found->second).second || source.prefab)
+                        || !members.insert(found->second).second)
                         return Result<void>::failure(context.error(
                             record.uuid.to_string(), "invalid or overlapping prefab identity"));
+                    auto& previous_owners = owners[found->second];
+                    for(const auto owner : previous_owners) {
+                        if((!contains(owner, record.uuid) && !contains(record.uuid, owner))
+                            || (indices.contains(found->second)
+                                && (!contains(owner, found->second)
+                                    || !contains(record.uuid, found->second))))
+                            return Result<void>::failure(context.error(record.uuid.to_string(),
+                                "prefab identity overlap must follow nested subtrees"));
+                    }
+                    previous_owners.push_back(record.uuid);
                     if(!source.parent) {
                         ++roots;
-                        if(found->second != record.uuid)
+                        if(found->second != record.uuid || source.prefab)
                             return Result<void>::failure(context.error(
                                 record.uuid.to_string(), "prefab root identity mismatch"));
                     }
@@ -489,20 +526,6 @@ namespace Comet {
                         context.error(record.uuid.to_string(), "prefab must have one root"));
             }
 
-            for(std::size_t index = 0; index < records.size(); ++index) {
-                if(records[index].parent && !indices.contains(*records[index].parent)) {
-                    return Result<void>::failure(context.error(entity_location(index) + ".parent",
-                        "missing parent UUID " + records[index].parent->to_string()));
-                }
-            }
-
-            std::unordered_map<EntityUuid, RecordVisit> states;
-            states.reserve(records.size());
-            for(std::size_t index = 0; index < records.size(); ++index) {
-                if(auto result = visit_parent_chain(index, 1, records, indices, states, context);
-                    !result)
-                    return result;
-            }
             return Result<void>::success();
         }
 
@@ -590,7 +613,9 @@ namespace Comet {
         : m_component_registry(component_registry) {}
 
     Result<SceneSerializer::ContentSnapshot> SceneSerializer::capture_content(
-        const Scene& scene) const {
+        const Scene& scene, const std::size_t prefab_depth) const {
+        if(prefab_depth > MAX_PREFAB_DEPTH)
+            return Result<ContentSnapshot>::failure("Maximum prefab nesting depth exceeded");
         const Json::Context context("scene", "<memory>");
         ContentSnapshot content{
             .environment = scene.get_environment(), .post_process = scene.get_post_process()};
@@ -635,7 +660,7 @@ namespace Comet {
                 Scene base;
                 if(!EntityTrees::restore(base, m_component_registry, instance.base->m_entities))
                     return Result<ContentSnapshot>::failure("Cannot restore prefab baseline");
-                auto captured = capture_content(base);
+                auto captured = capture_content(base, prefab_depth + 1);
                 if(!captured)
                     return Result<ContentSnapshot>::failure(captured.error());
                 record.prefab = std::make_shared<PrefabRecord>(PrefabRecord{instance.asset,
@@ -942,11 +967,11 @@ namespace Comet {
         return restore_content(content, source);
     }
 
-    Result<std::unique_ptr<Scene>> SceneSerializer::restore_content(
-        const ContentSnapshot& content, const std::string_view source) const {
+    Result<std::unique_ptr<Scene>> SceneSerializer::restore_content(const ContentSnapshot& content,
+        const std::string_view source, const std::size_t prefab_depth) const {
         using LoadResult = Result<std::unique_ptr<Scene>>;
         const Json::Context context("scene", source);
-        if(auto valid = validate_records(content.entities, context); !valid)
+        if(auto valid = validate_records(content.entities, context, prefab_depth); !valid)
             return LoadResult::failure(valid.error());
         if(auto valid = content.environment.validate(); !valid)
             return LoadResult::failure(context.error("environment", valid.error()));
@@ -1041,17 +1066,20 @@ namespace Comet {
             if(!record.prefab)
                 continue;
             ContentSnapshot base_content{.entities = record.prefab->base};
-            auto base_scene = restore_content(base_content, source);
+            auto base_scene = restore_content(base_content, source, prefab_depth + 1);
             if(!base_scene)
                 return LoadResult::failure(base_scene.error());
             const auto root = base_scene.value()->get_root_entities().front();
-            auto base = Prefab::capture(*base_scene.value(), m_component_registry, root);
-            if(!base)
-                return LoadResult::failure(base.error());
+            auto entities = EntityTrees::capture(*base_scene.value(), m_component_registry, root);
+            if(!entities
+                || !EntityTrees::has_only_internal_references(
+                    *base_scene.value(), m_component_registry, *entities))
+                return LoadResult::failure("Prefab baseline contains external entity references");
             loaded_entities.at(record.uuid)
-                .add_component<PrefabInstanceComponent>(PrefabInstanceComponent{
-                    record.prefab->asset, std::make_shared<const Prefab>(std::move(base).value()),
-                    record.prefab->entities, record.prefab->source_type});
+                .add_component<PrefabInstanceComponent>(
+                    PrefabInstanceComponent{record.prefab->asset,
+                        std::shared_ptr<const Prefab>(new Prefab(std::move(*entities))),
+                        record.prefab->entities, record.prefab->source_type});
         }
         scene->update_world_transforms();
         return Result<std::unique_ptr<Scene>>::success(std::move(scene));

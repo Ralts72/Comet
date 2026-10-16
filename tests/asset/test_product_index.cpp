@@ -10,6 +10,9 @@
 #include "core/project.h"
 #include "scene/component_registry.h"
 #include "scene/prefab.h"
+#include "asset/navigation_bake.h"
+#include "gameplay/navigation_system.h"
+#include "scene/systems/physics_system.h"
 #include "scene/scene.h"
 #include "scene/scene_serializer.h"
 #include "scene/script_component.h"
@@ -17,6 +20,85 @@
 #include "scene/systems/script_system.h"
 
 namespace Comet::Tests {
+    TEST(ProductIndexTest, ExportedNavigationProductRunsAfterDeletingItsSourceAndCache) {
+        const TemporaryProject source;
+        const TemporaryDirectory output;
+        const auto components = create_scene_component_registry();
+        Scene scene;
+        const auto add_box = [&](Math::Vec3 position, Math::Vec3 extents) {
+            auto entity = scene.create_entity("static collision");
+            entity.edit_transform([&](auto& value) { value.translation = position; });
+            entity.add_component<RigidBodyComponent>(
+                RigidBodyComponent{.motion = BodyMotion::Static});
+            entity.add_component<ColliderComponent>(ColliderComponent{.half_extents = extents});
+        };
+        add_box({0, -.5f, 0}, {10, .5f, 10});
+        add_box({0, 1.5f, 0}, {.6f, 1.5f, 3});
+        auto region = scene.create_entity("navigation");
+        region.add_component<NavigationRegionComponent>(
+            NavigationRegionComponent{.half_extents = {10, 4, 10}});
+        const auto input = NavigationBake::capture(scene, components, region.get_uuid());
+        ASSERT_TRUE(input) << input.error().message;
+        const auto baked = NavigationBake::bake(input.value());
+        ASSERT_TRUE(baked) << baked.error();
+        const AssetHandle handle{729};
+        const auto path = source.paths().assets() / "ground.nav";
+        ASSERT_TRUE(baked.value().save(path));
+        ASSERT_TRUE(MetadataSerializer{}.save(
+            {.handle = handle, .type = AssetType::Navigation}, metadata_path(path)));
+        region.get_component<NavigationRegionComponent>().data = handle;
+        ASSERT_TRUE(
+            SceneSerializer(components).save(scene, source.paths().assets() / "startup.scene"));
+        ASSERT_TRUE(write_text_file_atomic(source.paths().root() / "project.json", R"({
+            "version":2,"id":"00000000-0000-4000-8000-000000000001",
+            "name":"Navigation runtime","startup_scene":"startup.scene",
+            "input_contexts":[],"input_actions":[]})"));
+        const auto project = Project::load(source.paths().root());
+        ASSERT_TRUE(project);
+        const auto destination = output.path() / "game";
+        const auto exported = export_project_assets(project.value(), destination, {});
+        ASSERT_TRUE(exported) << exported.error();
+        std::filesystem::remove_all(source.paths().root());
+        const ProjectPaths paths(destination);
+        AssetRegistry registry;
+        FakeRenderResourceFactory factory;
+        TaskScheduler scheduler(1);
+        AssetManager manager(paths, registry, factory, scheduler);
+        ASSERT_TRUE(manager.scan().succeeded());
+        EXPECT_TRUE(manager.get_database().is_read_only());
+        const auto loaded = SceneSerializer(components).load(paths.assets() / "startup.scene");
+        ASSERT_TRUE(loaded);
+        const auto references = manager.prepare_scene(*loaded.value(), components);
+        ASSERT_TRUE(references) << references.error().message;
+        ASSERT_TRUE(manager
+                .references_ready(
+                    references.value(), AssetManager::MissingAssetPolicy::FailRequired)
+                .value());
+        ASSERT_TRUE(registry.contains<NavigationData>(handle));
+        PhysicsService physics;
+        SceneRuntime runtime;
+        auto navigation = std::make_unique<Gameplay::NavigationSystem>(
+            [&](Math::Vec3 minimum, Math::Vec3 maximum) {
+                return physics.static_triangles(minimum, maximum);
+            },
+            [&](AssetHandle asset) { return registry.resolve<NavigationData>(asset); });
+        const auto* service = navigation.get();
+        ASSERT_TRUE(runtime.set_services({.physics = &physics, .navigation = navigation.get()}));
+        ASSERT_TRUE(runtime.add_system(std::move(navigation)));
+        ASSERT_TRUE(runtime.add_system(std::make_unique<PhysicsSystem>(physics)));
+        const auto started = runtime.start(*loaded.value());
+        ASSERT_TRUE(started) << started.error().message;
+        EXPECT_EQ(service->get_statistics().builds, 0u);
+        EXPECT_EQ(service->get_statistics().product_loads, 1u);
+        const auto route = service->mesh().find_path({-6, 0, 0}, {6, 0, 0});
+        ASSERT_TRUE(route);
+        EXPECT_EQ(route.value().status, Gameplay::NavigationMesh::Status::Complete);
+        EXPECT_GT(route.value().points.size(), 2u);
+        EXPECT_EQ(factory.mesh_creation_count(), 0u);
+        EXPECT_FALSE(std::filesystem::exists(paths.cache()));
+        ASSERT_TRUE(runtime.stop());
+    }
+
     TEST(ProductIndexTest, RoundTripPreservesIdentityDependenciesAndSamplerWithoutSourceMetadata) {
         const TemporaryProject project;
         const AssetHandle texture{11}, material{22};
@@ -317,7 +399,7 @@ namespace Comet::Tests {
         EXPECT_FALSE(std::filesystem::exists(paths.cache()));
     }
 
-    TEST(ProductIndexTest, ExportedLuaPrefabSpawnsUsePreparedAssetsAfterSourceDeletion) {
+    TEST(ProductIndexTest, ExportedLuaNestedPrefabSpawnsUsePreparedAssetsAfterSourceDeletion) {
         const TemporaryProject source;
         const TemporaryDirectory outputs;
         const auto components = create_scene_component_registry();
@@ -356,6 +438,22 @@ namespace Comet::Tests {
         child_binding.asset = child_script;
         child_binding.parameters = {{"owner", root.get_uuid()}};
         auto prefab = Prefab::capture(tree, components, root);
+        ASSERT_TRUE(prefab);
+        const AssetHandle nested_handle{66};
+        Scene nested;
+        auto nested_root = nested.create_entity("Nested sensor");
+        nested_root.add_component<ScriptComponent>(child_binding);
+        nested_root.get_component<ScriptComponent>().parameters = {
+            {"owner", nested_root.get_uuid()}};
+        auto nested_source = Prefab::capture(nested, components, nested_root);
+        ASSERT_TRUE(nested_source);
+        const auto nested_path = source.paths().assets() / "sensor.prefab";
+        ASSERT_TRUE(nested_source.value().save(nested_path, components));
+        ASSERT_TRUE(MetadataSerializer{}.save(
+            {.handle = nested_handle, .type = AssetType::Prefab}, metadata_path(nested_path)));
+        ASSERT_TRUE(nested_source.value().instantiate(
+            tree, components, std::nullopt, root.get_uuid(), nested_handle));
+        prefab = Prefab::capture(tree, components, root);
         ASSERT_TRUE(prefab);
         const auto prefab_path = source.paths().assets() / "unit.prefab";
         ASSERT_TRUE(prefab.value().save(prefab_path, components));
@@ -402,7 +500,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(runtime.add_system(std::make_unique<ScriptSystem>(registry)));
         const auto started = runtime.start(*loaded.value());
         ASSERT_TRUE(started) << started.error().message;
-        EXPECT_EQ(loaded.value()->entity_count(), 5);
+        EXPECT_EQ(loaded.value()->entity_count(), 7);
         ASSERT_TRUE(runtime.advance(0));
         ASSERT_TRUE(runtime.get_session().get_value("child.started"));
         const auto first_value = runtime.get_session().get_value("spawn.first");
@@ -414,6 +512,9 @@ namespace Comet::Tests {
         EXPECT_EQ(first.get_component<TransformComponent>().translation, Math::Vec3(2, 3, 4));
         EXPECT_EQ(first.get_component<MeshRendererComponent>().mesh, mesh);
         EXPECT_FALSE(first.has_component<PrefabInstanceComponent>());
+        for(const auto entity : loaded.value()->get_entities())
+            EXPECT_FALSE(entity.has_component<PrefabInstanceComponent>());
+        EXPECT_FALSE(manager.get_database().find(nested_handle));
         EXPECT_FALSE(std::filesystem::exists(paths.cache()));
         ASSERT_TRUE(runtime.stop());
     }

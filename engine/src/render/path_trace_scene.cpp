@@ -268,8 +268,6 @@ namespace Comet {
                 || (material.get_template_name() != "pbr"
                     && material.get_template_name() != "unlit_color"))
                 return Surface::failure("路径追踪仅支持内置 PBR／无光照材质");
-            if(material.get_surface().alpha_mode != AlphaMode::Opaque)
-                return Surface::failure("路径追踪暂不支持透明／裁切材质");
             auto prepared =
                 cache.prepare(binding.material_handle, binding.resource, layout, binding.overrides);
             if(!prepared)
@@ -282,14 +280,20 @@ namespace Comet {
             };
             PathTraceScene::Surface result{};
             result.parameters.y = material.get_surface().double_sided ? 1.f : 0.f;
+            result.opacity.y = material.get_surface().alpha_cutoff;
+            result.opacity.z = static_cast<float>(material.get_surface().alpha_mode);
             if(material.get_template_name() == "unlit_color") {
                 result.emission_roughness = {Math::Vec3(vector("color")) * scalar("intensity"), -1};
+                result.opacity.x = vector("color").a;
             } else {
                 result.albedo_metallic = {Math::Vec3(vector("base_color")), scalar("metallic")};
+                result.opacity.x = vector("base_color").a;
                 result.emission_roughness = {
                     Math::Vec3(vector("emissive_color")) * scalar("emissive_strength"),
                     scalar("roughness")};
                 result.parameters.x = scalar("normal_scale");
+                result.parameters.z = scalar("transmission");
+                result.parameters.w = scalar("ior");
                 const std::array<std::string, 4> properties{"base_color_texture", "normal_texture",
                     "metallic_roughness_texture", "emissive_texture"};
                 for(size_t i = 0; i < properties.size(); ++i) {
@@ -301,7 +305,7 @@ namespace Comet {
             }
             if(!Math::is_finite(result.albedo_metallic)
                 || !Math::is_finite(result.emission_roughness)
-                || !Math::is_finite(result.parameters)
+                || !Math::is_finite(result.parameters) || !Math::is_finite(result.opacity)
                 || glm::any(glm::lessThan(Math::Vec3(result.emission_roughness), Math::Vec3(0))))
                 return Surface::failure("路径追踪材质包含无效参数");
             return Surface::success(result);

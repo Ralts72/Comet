@@ -1,3 +1,5 @@
+#include "asset/runtime/prefab_loader.h"
+#include "asset/data/navigation_data.h"
 #include "asset/project_prepare.h"
 #include "asset/data/game_data.h"
 #include "asset/data/irradiance_data.h"
@@ -50,8 +52,7 @@ namespace Comet {
                     const auto* record = database.find(handle);
                     if(!record || record->type != AssetType::Prefab)
                         return Loaded::failure({"Prefab dependency is missing or mistyped"});
-                    auto prefab =
-                        Prefab::load(database.paths().assets() / record->path, components);
+                    auto prefab = read_prefab_content(database, handle, components);
                     if(!prefab)
                         return Loaded::failure({prefab.error()});
                     return Loaded::success(std::make_shared<Prefab>(std::move(prefab).value()));
@@ -76,6 +77,12 @@ namespace Comet {
             const auto& paths = database.paths();
             const ImportService imports(paths, limits);
             switch(record.type) {
+                case AssetType::Navigation: {
+                    auto data = NavigationData::load(paths.assets() / record.path);
+                    if(!data)
+                        return Result<void>::failure(data.error());
+                    break;
+                }
                 case AssetType::Irradiance: {
                     auto data = IrradianceData::load(paths.assets() / record.path);
                     if(!data)
@@ -441,6 +448,10 @@ namespace Comet {
                     return Result<void>::failure(
                         record.path.generic_string() + ": " + prepared.error());
                 switch(record.type) {
+                    case AssetType::Navigation:
+                        product.path =
+                            ".products/" + std::to_string(record.handle.value()) + ".nav";
+                        break;
                     case AssetType::Irradiance:
                         product.path = ".products/" + std::to_string(record.handle.value()) + ".gi";
                         break;
@@ -490,14 +501,24 @@ namespace Comet {
                         break;
                     }
                     case AssetType::Prefab: {
-                        auto prefab = Prefab::load(source, components);
+                        auto prefab = read_prefab_content(database, record.handle, components);
                         if(!prefab)
                             return Result<void>::failure(prefab.error());
                         Scene scene;
-                        if(auto instance = prefab.value().instantiate(scene, components); !instance)
+                        auto instance = prefab.value().instantiate(scene, components);
+                        if(!instance)
                             return Result<void>::failure(instance.error());
                         if(auto collected = append_references(scene, product); !collected)
                             return collected;
+                        auto runtime = Prefab::capture(scene, components, instance.value());
+                        if(!runtime)
+                            return Result<void>::failure(runtime.error());
+                        product.path =
+                            ".products/" + std::to_string(record.handle.value()) + ".prefab";
+                        if(auto saved =
+                                runtime.value().save(output.assets() / product.path, components);
+                            !saved)
+                            return saved;
                         break;
                     }
                     case AssetType::Material: {
@@ -516,7 +537,7 @@ namespace Comet {
                     || record.type == AssetType::ShaderProgram)
                     product.path = ".products/" + std::to_string(record.handle.value()) + "."
                                    + std::string(to_string(record.type));
-                if(record.type != AssetType::Data)
+                if(record.type != AssetType::Data && record.type != AssetType::Prefab)
                     if(auto written = copy(source, product.path); !written)
                         return written;
                 for(const auto dependency : dependencies) {

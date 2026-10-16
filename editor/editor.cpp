@@ -7,6 +7,7 @@
 #include "assets/editor_assets.h"
 #include "assets/reflection_bake.h"
 #include "assets/irradiance_bake.h"
+#include "assets/navigation_bake.h"
 #include "assets/system_text_editor.h"
 #include "assets/material_editing.h"
 #include "assets/material_edit_session.h"
@@ -145,6 +146,8 @@ namespace {
                 renderer, *m_assets, engine.get_asset_registry());
             m_irradiance_bake = std::make_unique<CometEditor::IrradianceBake>(
                 *m_assets, engine.get_asset_registry(), engine.get_task_scheduler());
+            m_navigation_bake = std::make_unique<CometEditor::NavigationBake>(
+                *m_assets, engine.get_task_scheduler(), m_component_registry);
             m_property_editor_registry =
                 CometEditor::create_property_editor_registry(m_assets->database());
             Comet::Engine* engine_ptr = &engine;
@@ -288,6 +291,14 @@ namespace {
                 m_assets->track_scene(*get_engine().get_scene(), m_component_registry);
                 LOG_INFO("GI baked; save the scene to keep its irradiance reference");
             }
+            if(auto baked = m_navigation_bake->update(
+                   *get_engine().get_scene(), m_command_history, m_property_edit);
+                !baked)
+                LOG_WARN("Navigation bake rejected: {}", baked.error());
+            else if(baked.value()) {
+                m_assets->track_scene(*get_engine().get_scene(), m_component_registry);
+                LOG_INFO("Navigation baked; save the scene to keep its product reference");
+            }
 
             m_viewport->consume_pick(get_engine().get_scene());
             m_menu_bar->set_fps(frame.update.fps);
@@ -367,6 +378,7 @@ namespace {
             get_engine().get_renderer().set_overlay({});
             m_reflection_bake.reset();
             m_irradiance_bake.reset();
+            m_navigation_bake.reset();
             if(m_game_ui)
                 m_game_ui->deactivate();
             m_game_ui.reset();
@@ -727,6 +739,8 @@ namespace {
                 m_reflection_bake->cancel();
             if(m_irradiance_bake)
                 m_irradiance_bake->cancel();
+            if(m_navigation_bake)
+                m_navigation_bake->cancel();
             if(m_inspector_panel)
                 m_inspector_panel->reset_for_scene_change();
             else
@@ -929,7 +943,7 @@ namespace {
                 *m_selection, m_command_history, m_property_edit, m_component_registry,
                 m_property_editor_registry, m_assets->database(), get_engine().get_asset_registry(),
                 get_engine().get_material_parameters(), &get_engine().get_scene_runtime(),
-                m_reflection_bake.get(), m_irradiance_bake.get());
+                m_reflection_bake.get(), m_irradiance_bake.get(), m_navigation_bake.get());
             m_project_panel = std::make_unique<CometEditor::ProjectPanel>(m_assets->database(),
                 m_project.paths().assets(), std::move(initial_asset_scan), *m_selection,
                 m_command_history);
@@ -1033,6 +1047,9 @@ namespace {
                     LOG_WARN("Project input actions were saved; restart the editor to apply: {}",
                         configured.error().message);
             }
+            if(m_viewport->panel().take_path_trace_export())
+                m_path_dialog.request(
+                    CometEditor::PathDialog::Action::SaveImage, {}, m_project.paths().root());
             if(auto shortcuts = m_shortcut_settings_dialog.take_request()) {
                 const auto saved = shortcuts->save_overrides(m_shortcut_settings_path);
                 m_shortcut_settings_dialog.complete(saved);
@@ -1175,6 +1192,13 @@ namespace {
 
         Comet::Result<void, Comet::Error> handle_path_request(
             const CometEditor::PathDialog::Request& request) {
+            if(request.action == CometEditor::PathDialog::Action::SaveImage) {
+                const auto saved = m_viewport->export_path_trace(request.path);
+                m_path_dialog.complete(saved);
+                if(!saved && is_device_lost(saved.error()))
+                    return saved;
+                return Comet::Result<void, Comet::Error>::success();
+            }
             if(request.action == CometEditor::PathDialog::Action::SavePrefab) {
                 auto result =
                     Comet::Result<void, Comet::Error>::failure({"Prefab save request expired"});
@@ -1250,7 +1274,7 @@ namespace {
             const auto menu_request = m_menu_bar->take_request();
             const auto mesh_drop = m_viewport->panel().take_mesh_drop();
             const auto asset_assignment = m_inspector_panel->take_asset_assignment();
-            const auto lighting_bake = m_inspector_panel->take_lighting_bake_request();
+            const auto bake = m_inspector_panel->take_bake_request();
             const auto play_command = m_viewport->panel().take_play_command();
             const auto file_request = m_path_dialog.take_request();
             const bool dialog_cancelled = m_path_dialog.take_cancelled();
@@ -1271,7 +1295,7 @@ namespace {
                 .save_prefab = prefab_request.has_value(),
                 .mesh_drop = mesh_drop.has_value(),
                 .asset_assignment = asset_assignment.has_value(),
-                .lighting_bake = lighting_bake.has_value(),
+                .bake = bake.has_value(),
                 .document_pending = m_scene_document->has_pending_request(),
                 .dialog_cancelled = dialog_cancelled,
             });
@@ -1332,25 +1356,36 @@ namespace {
                     }
                     break;
                 }
-                case Kind::LightingBake: {
+                case Kind::Bake: {
                     auto* scene = get_engine().get_scene();
                     if(m_editor_state.mode != CometEditor::EditorMode::Edit
-                        || lighting_bake->generation != m_command_history.generation()
+                        || bake->generation != m_command_history.generation()
                         || !finish_active_edit())
                         break;
-                    auto prepared = m_assets->prepare_scene(*scene, m_component_registry);
-                    if(!prepared) {
-                        LOG_WARN("Cannot prepare lighting bake: {}", prepared.error().message);
-                        break;
+                    using BakeKind = CometEditor::InspectorPanel::BakeRequest::Kind;
+                    if(bake->kind != BakeKind::Navigation) {
+                        auto prepared = m_assets->prepare_scene(*scene, m_component_registry);
+                        if(!prepared) {
+                            LOG_WARN("Cannot prepare bake: {}", prepared.error().message);
+                            break;
+                        }
                     }
-                    using BakeKind = CometEditor::InspectorPanel::LightingBakeRequest::Kind;
-                    auto started = lighting_bake->kind == BakeKind::Reflection
-                                       ? m_reflection_bake->start(
-                                             *scene, lighting_bake->entity, m_command_history)
-                                       : m_irradiance_bake->start(
-                                             *scene, lighting_bake->entity, m_command_history);
+                    const auto started = [&]() -> Comet::Result<void> {
+                        switch(bake->kind) {
+                            case BakeKind::Reflection:
+                                return m_reflection_bake->start(
+                                    *scene, bake->entity, m_command_history);
+                            case BakeKind::Irradiance:
+                                return m_irradiance_bake->start(
+                                    *scene, bake->entity, m_command_history);
+                            case BakeKind::Navigation:
+                                return m_navigation_bake->start(
+                                    *scene, bake->entity, m_command_history);
+                        }
+                        return Comet::Result<void>::failure("Unknown bake request");
+                    }();
                     if(!started)
-                        LOG_WARN("Cannot start lighting bake: {}", started.error());
+                        LOG_WARN("Cannot start bake: {}", started.error());
                     break;
                 }
             }
@@ -1429,6 +1464,7 @@ namespace {
         std::unique_ptr<CometEditor::EditorAssets> m_assets;
         std::unique_ptr<CometEditor::ReflectionBake> m_reflection_bake;
         std::unique_ptr<CometEditor::IrradianceBake> m_irradiance_bake;
+        std::unique_ptr<CometEditor::NavigationBake> m_navigation_bake;
         std::unique_ptr<CometEditor::MaterialEditSession> m_material_edits;
         std::unique_ptr<CometEditor::MaterialShaderReload> m_material_shader_reload;
         std::optional<CometEditor::SelectionService> m_selection;

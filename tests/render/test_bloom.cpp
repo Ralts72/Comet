@@ -24,7 +24,7 @@ namespace Comet::Tests {
             graph.import_image("hdr", *resolve_image_state(ResourceUsage::SampledRead,
                                           {.aspects = Flags<ImageAspect>(ImageAspect::Color)},
                                           Flags<PipelineStage>(PipelineStage::FragmentShader)));
-        const auto passes = BloomPass::append_passes(graph, hdr);
+        const auto passes = BloomPass::append_passes(graph, hdr, {32, 24});
         graph.add_pass({"display", {{passes.output, ResourceUsage::SampledRead,
                                        Flags<PipelineStage>(PipelineStage::FragmentShader)}}});
         const auto plan = graph.compile();
@@ -34,8 +34,18 @@ namespace Comet::Tests {
         const auto rewrite =
             std::ranges::find(vertical.barriers, passes.output, &RenderGraph::Barrier::resource);
         ASSERT_NE(rewrite, vertical.barriers.end());
-        EXPECT_EQ(std::get<ImageState>(rewrite->before).layout, ImageLayout::ShaderReadOnlyOptimal);
+        EXPECT_EQ(std::get<ImageState>(rewrite->before).layout, ImageLayout::Undefined);
+        EXPECT_TRUE(static_cast<bool>(
+            std::get<ImageState>(rewrite->before).resource.stages & PipelineStage::FragmentShader));
         EXPECT_EQ(std::get<ImageState>(rewrite->after).layout, ImageLayout::ColorAttachmentOptimal);
+        ASSERT_EQ(plan.value().get_allocations().size(), 2u);
+        const auto lifetimes = plan.value().get_lifetimes();
+        EXPECT_EQ(lifetimes[passes.extracted.index].allocation,
+            lifetimes[passes.output.index].allocation);
+        EXPECT_NE(lifetimes[passes.intermediate.index].allocation,
+            lifetimes[passes.output.index].allocation);
+        ASSERT_TRUE(graph.compile(false));
+        EXPECT_EQ(graph.compile(false).value().get_allocations().size(), 3u);
         const auto bloom = ShaderInterface::reflect(BLOOM_FRAG);
         const auto display = ShaderInterface::reflect(DISPLAY_FRAG);
         ASSERT_TRUE(bloom);
@@ -168,95 +178,106 @@ namespace Comet::Tests {
                 auto texture = engine->get_render_resources().try_create_texture(data);
                 ASSERT_TRUE(texture);
                 texture.value()->get_ready_completion().wait();
-                ASSERT_TRUE(bloom.value()->resize(size));
                 auto target = RenderTarget::try_create_multi_target(
                     device, display.value()->get_render_pass(), size, 2);
                 ASSERT_TRUE(target);
                 std::shared_ptr<RenderTarget> output = std::move(target).value();
-                for(const auto settings :
-                    {PostProcessSettings{}, PostProcessSettings{1, true, 0.5f, 1},
-                        PostProcessSettings{0.25f, true, 1, 0},
-                        PostProcessSettings{1, true, 1, 65504}, PostProcessSettings{0, true, 1, 1},
-                        PostProcessSettings{100, true, 10, 0}, PostProcessSettings{1, true, 0, 0},
-                        PostProcessSettings{1, false, 10, 0}}) {
-                    SCOPED_TRACE(std::to_string(settings.exposure) + "/"
-                                 + std::to_string(settings.bloom_strength) + "/"
-                                 + std::to_string(settings.bloom_threshold));
-                    RenderGraph graph;
-                    const auto input = graph.import_image(
-                        "hdr", *resolve_image_state(ResourceUsage::SampledRead,
-                                   {.aspects = Flags<ImageAspect>(ImageAspect::Color)},
-                                   Flags<PipelineStage>(PipelineStage::FragmentShader)));
-                    std::optional<BloomPass::Passes> passes;
-                    RenderGraph::Pass output_pass{
-                        "display", {{input, ResourceUsage::SampledRead,
-                                       Flags<PipelineStage>(PipelineStage::FragmentShader)}}};
-                    if(settings.uses_bloom()) {
-                        passes = BloomPass::append_passes(graph, input);
-                        output_pass.uses.push_back({passes->output, ResourceUsage::SampledRead,
-                            Flags<PipelineStage>(PipelineStage::FragmentShader)});
-                    }
-                    const auto display_id = graph.add_pass(std::move(output_pass));
-                    const auto plan = graph.compile();
-                    ASSERT_TRUE(plan) << plan.error();
-                    EXPECT_EQ(plan.value().get_passes().size(), settings.uses_bloom() ? 4u : 1u);
-                    frames.wait_for_current_slot();
-                    frames.begin_frame(0);
-                    frames.get_current_command_buffer().begin();
-                    const auto slot = frames.get_current_frame_slot_index();
-                    const auto source_view = texture.value()->get_image_view();
-                    std::vector<RenderGraph::Binding> bindings(plan.value().resource_count());
-                    bindings[input.index] = source_view->get_image();
-                    std::shared_ptr<ImageView> glow;
-                    if(passes) {
-                        bloom.value()->bind_resources(bindings, *passes, slot);
-                        glow = bloom.value()->get_output(slot);
-                    }
-                    const auto recorded =
-                        plan.value().record(frames, bindings, [&](auto pass, CommandBuffer&) {
-                            if(pass == display_id)
-                                return display.value()->render(
-                                    frames, output, source_view, settings, glow);
-                            return bloom.value()->render(
-                                frames, pass, *passes, source_view, settings.bloom_threshold);
-                        });
-                    ASSERT_TRUE(recorded) << recorded.error().message;
-                    const size_t stride = hdr_output ? 8 : 4;
-                    auto readback = std::make_shared<Readback>(device,
-                        context.get_context().get_physical_device(), source.size() * stride);
-                    ASSERT_TRUE(readback->get());
-                    copy_output(frames, output->get_color_view(slot)->get_image(), readback, size);
-                    submit(device, frames);
-                    frames.wait_for_all_slots();
-                    const auto bytes = readback->read();
-                    const auto blurred = reference(source, size, settings.bloom_threshold);
-                    const double strength = settings.uses_bloom() ? settings.bloom_strength : 0;
-                    for(size_t pixel = 0; pixel < source.size(); ++pixel) {
-                        for(size_t channel = 0; channel < 3; ++channel) {
-                            const double value = std::clamp(
-                                source[pixel][channel] + blurred[pixel][channel] * strength, 0.0,
-                                65504.0);
-                            const double mapped =
-                                headroom * (1 - std::exp(-value * settings.exposure / headroom));
+                for(const bool reuse : {false, true})
+                    for(const auto settings :
+                        {PostProcessSettings{}, PostProcessSettings{1, true, 0.5f, 1},
+                            PostProcessSettings{0.25f, true, 1, 0},
+                            PostProcessSettings{1, true, 1, 65504},
+                            PostProcessSettings{0, true, 1, 1},
+                            PostProcessSettings{100, true, 10, 0},
+                            PostProcessSettings{1, true, 0, 0},
+                            PostProcessSettings{1, false, 10, 0}}) {
+                        SCOPED_TRACE(std::to_string(settings.exposure) + "/"
+                                     + std::to_string(settings.bloom_strength) + "/"
+                                     + std::to_string(settings.bloom_threshold));
+                        RenderGraph graph;
+                        const auto input = graph.import_image(
+                            "hdr", *resolve_image_state(ResourceUsage::SampledRead,
+                                       {.aspects = Flags<ImageAspect>(ImageAspect::Color)},
+                                       Flags<PipelineStage>(PipelineStage::FragmentShader)));
+                        std::optional<BloomPass::Passes> passes;
+                        RenderGraph::Pass output_pass{
+                            "display", {{input, ResourceUsage::SampledRead,
+                                           Flags<PipelineStage>(PipelineStage::FragmentShader)}}};
+                        if(settings.uses_bloom()) {
+                            passes = BloomPass::append_passes(graph, input, size);
+                            output_pass.uses.push_back({passes->output, ResourceUsage::SampledRead,
+                                Flags<PipelineStage>(PipelineStage::FragmentShader)});
+                        }
+                        const auto display_id = graph.add_pass(std::move(output_pass));
+                        SCOPED_TRACE(reuse);
+                        const auto plan = graph.compile(reuse);
+                        ASSERT_TRUE(plan) << plan.error();
+                        const auto resources = plan.value().allocate(device, 2);
+                        ASSERT_TRUE(resources);
+                        if(passes)
+                            ASSERT_TRUE(bloom.value()->prepare(resources.value(), *passes, size));
+                        EXPECT_EQ(
+                            plan.value().get_passes().size(), settings.uses_bloom() ? 4u : 1u);
+                        frames.wait_for_current_slot();
+                        frames.begin_frame(0);
+                        frames.get_current_command_buffer().begin();
+                        const auto slot = frames.get_current_frame_slot_index();
+                        const auto source_view = texture.value()->get_image_view();
+                        std::vector<RenderGraph::Binding> bindings(plan.value().resource_count());
+                        bindings[input.index] = source_view->get_image();
+                        std::shared_ptr<ImageView> glow;
+                        if(passes) {
+                            resources.value().bind_resources(bindings, slot);
+                            glow = bloom.value()->get_output(slot);
+                        }
+                        const auto recorded =
+                            plan.value().record(frames, bindings, [&](auto pass, CommandBuffer&) {
+                                if(pass == display_id)
+                                    return display.value()->render(
+                                        frames, output, source_view, settings, glow);
+                                return bloom.value()->render(
+                                    frames, pass, *passes, source_view, settings.bloom_threshold);
+                            });
+                        ASSERT_TRUE(recorded) << recorded.error().message;
+                        const size_t stride = hdr_output ? 8 : 4;
+                        auto readback = std::make_shared<Readback>(device,
+                            context.get_context().get_physical_device(), source.size() * stride);
+                        ASSERT_TRUE(readback->get());
+                        copy_output(
+                            frames, output->get_color_view(slot)->get_image(), readback, size);
+                        submit(device, frames);
+                        frames.wait_for_all_slots();
+                        const auto bytes = readback->read();
+                        const auto blurred = reference(source, size, settings.bloom_threshold);
+                        const double strength = settings.uses_bloom() ? settings.bloom_strength : 0;
+                        for(size_t pixel = 0; pixel < source.size(); ++pixel) {
+                            for(size_t channel = 0; channel < 3; ++channel) {
+                                const double value = std::clamp(
+                                    source[pixel][channel] + blurred[pixel][channel] * strength,
+                                    0.0, 65504.0);
+                                const double mapped =
+                                    headroom
+                                    * (1 - std::exp(-value * settings.exposure / headroom));
+                                if(hdr_output) {
+                                    uint16_t packed;
+                                    std::memcpy(
+                                        &packed, bytes.data() + pixel * stride + channel * 2, 2);
+                                    EXPECT_NEAR(glm::unpackHalf1x16(packed), mapped, 0.008);
+                                } else {
+                                    EXPECT_NEAR(
+                                        std::to_integer<int>(bytes[pixel * stride + channel]),
+                                        std::lround(encode_srgb(mapped) * 255), 2);
+                                }
+                            }
                             if(hdr_output) {
-                                uint16_t packed;
-                                std::memcpy(
-                                    &packed, bytes.data() + pixel * stride + channel * 2, 2);
-                                EXPECT_NEAR(glm::unpackHalf1x16(packed), mapped, 0.008);
+                                uint16_t alpha;
+                                std::memcpy(&alpha, bytes.data() + pixel * stride + 6, 2);
+                                EXPECT_EQ(glm::unpackHalf1x16(alpha), 1.0f);
                             } else {
-                                EXPECT_NEAR(std::to_integer<int>(bytes[pixel * stride + channel]),
-                                    std::lround(encode_srgb(mapped) * 255), 2);
+                                EXPECT_EQ(bytes[pixel * stride + 3], std::byte{255});
                             }
                         }
-                        if(hdr_output) {
-                            uint16_t alpha;
-                            std::memcpy(&alpha, bytes.data() + pixel * stride + 6, 2);
-                            EXPECT_EQ(glm::unpackHalf1x16(alpha), 1.0f);
-                        } else {
-                            EXPECT_EQ(bytes[pixel * stride + 3], std::byte{255});
-                        }
                     }
-                }
             }
         }
     }
@@ -319,13 +340,23 @@ namespace Comet::Tests {
         auto bloom = BloomPass::create(device, 2);
         ASSERT_TRUE(bloom);
         EXPECT_FALSE(bloom.value()->get_output(0));
-        ASSERT_TRUE(bloom.value()->resize({17, 9}));
+        RenderGraph graph;
+        const auto hdr =
+            graph.import_image("hdr", *resolve_image_state(ResourceUsage::SampledRead,
+                                          {.aspects = Flags<ImageAspect>(ImageAspect::Color)},
+                                          Flags<PipelineStage>(PipelineStage::FragmentShader)));
+        const auto passes = BloomPass::append_passes(graph, hdr, {17, 9});
+        const auto plan = graph.compile();
+        ASSERT_TRUE(plan);
+        const auto resources = plan.value().allocate(device, 2);
+        ASSERT_TRUE(resources);
+        ASSERT_TRUE(bloom.value()->prepare(resources.value(), passes, {17, 9}));
         auto first = bloom.value()->get_output(0);
         EXPECT_EQ(first->get_image()->get_info().extent, Math::Vec3u(9, 5, 1));
         EXPECT_FALSE(bloom.value()->get_output(2));
-        EXPECT_FALSE(bloom.value()->resize({0, 9}));
+        EXPECT_FALSE(bloom.value()->prepare(resources.value(), passes, {0, 9}));
         EXPECT_EQ(bloom.value()->get_output(0), first);
-        ASSERT_TRUE(bloom.value()->resize({17, 9}));
+        EXPECT_FALSE(bloom.value()->prepare(resources.value(), passes, {33, 25}));
         EXPECT_EQ(bloom.value()->get_output(0), first);
 
         TextureData data{.width = 17, .height = 9, .format = Format::R16G16B16A16_SFLOAT};
@@ -336,20 +367,6 @@ namespace Comet::Tests {
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(2);
         FrameWait wait{device, frames};
-        RenderGraph graph;
-        const auto hdr =
-            graph.import_image("hdr", *resolve_image_state(ResourceUsage::SampledRead,
-                                          {.aspects = Flags<ImageAspect>(ImageAspect::Color)},
-                                          Flags<PipelineStage>(PipelineStage::FragmentShader)));
-        const auto passes = BloomPass::append_passes(graph, hdr);
-        const auto plan = graph.compile();
-        ASSERT_TRUE(plan);
-        std::vector<RenderGraph::Binding> reordered(4);
-        bloom.value()->bind_resources(reordered, {.output = {3}, .intermediate = {1}}, 0);
-        EXPECT_EQ(std::get<std::shared_ptr<Image>>(reordered[3]), first->get_image());
-        EXPECT_TRUE(std::get<std::shared_ptr<Image>>(reordered[1]));
-        EXPECT_FALSE(std::get<std::shared_ptr<Image>>(reordered[0]));
-        EXPECT_FALSE(std::get<std::shared_ptr<Image>>(reordered[2]));
         EXPECT_FALSE(bloom.value()->render(
             frames, passes.ids[0], passes, source.value()->get_image_view(), 1));
         frames.wait_for_current_slot();
@@ -364,14 +381,26 @@ namespace Comet::Tests {
                 frames, passes.ids[0], passes, source.value()->get_image_view(), invalid));
         std::vector<RenderGraph::Binding> bindings(plan.value().resource_count());
         bindings[hdr.index] = source.value()->get_image_view()->get_image();
-        bloom.value()->bind_resources(bindings, passes, 0);
+        resources.value().bind_resources(bindings, 0);
+        EXPECT_EQ(
+            std::get<std::shared_ptr<Image>>(bindings[passes.extracted.index]), first->get_image());
         ASSERT_TRUE(plan.value().record(frames, bindings, [&](auto pass, CommandBuffer&) {
             return bloom.value()->render(frames, pass, passes, source.value()->get_image_view(), 1);
         }));
         const std::weak_ptr<ImageView> retained = first;
         first.reset();
         bindings.clear();
-        ASSERT_TRUE(bloom.value()->resize({33, 25}));
+        RenderGraph resized_graph;
+        const auto resized_hdr = resized_graph.import_image(
+            "hdr", *resolve_image_state(ResourceUsage::SampledRead,
+                       {.aspects = Flags<ImageAspect>(ImageAspect::Color)},
+                       Flags<PipelineStage>(PipelineStage::FragmentShader)));
+        const auto resized_passes = BloomPass::append_passes(resized_graph, resized_hdr, {33, 25});
+        const auto resized_plan = resized_graph.compile();
+        ASSERT_TRUE(resized_plan);
+        const auto resized_resources = resized_plan.value().allocate(device, 2);
+        ASSERT_TRUE(resized_resources);
+        ASSERT_TRUE(bloom.value()->prepare(resized_resources.value(), resized_passes, {33, 25}));
         EXPECT_FALSE(retained.expired());
         bloom.value().reset();
         EXPECT_FALSE(retained.expired());

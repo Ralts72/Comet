@@ -145,7 +145,7 @@ namespace Comet::Tests {
         mesh.skin.clear();
         ++revision;
         ASSERT_TRUE(material->set_surface({.alpha_mode = AlphaMode::Blend}));
-        EXPECT_FALSE(update());
+        EXPECT_TRUE(update());
         ASSERT_TRUE(material->set_surface({}));
         EXPECT_TRUE(update());
         world.environment.asset = AssetHandle(12);
@@ -157,6 +157,65 @@ namespace Comet::Tests {
         EXPECT_FALSE(update());
         world.render_items[0].model_matrix = Math::Mat4(0);
         EXPECT_FALSE(update());
+    }
+
+    TEST(PathTraceSceneTest, PbrOpticsUseSharedDefaultsAndValidatedInstanceOverrides) {
+        auto material = std::make_shared<Material>("glass", "pbr");
+        auto world = trace_world(material);
+        PathTraceSceneBuilder builder;
+        const auto read = [](AssetHandle) {
+            return Result<MeshData, Error>::success(triangle_mesh());
+        };
+        const auto first = builder.update(world, read).value();
+        EXPECT_FLOAT_EQ(first->materials->surfaces[0].parameters.z, 0);
+        EXPECT_FLOAT_EQ(first->materials->surfaces[0].parameters.w, 1.5f);
+        auto values = std::make_shared<MaterialOverrides>();
+        values->instance_id = 1;
+        values->material = AssetHandle(11);
+        values->scalar_properties = {{"transmission", 1}, {"ior", 1.33f}};
+        world.render_items[0].material.overrides = values;
+        const auto glass = builder.update(world, read);
+        ASSERT_TRUE(glass) << glass.error();
+        EXPECT_EQ(glass.value()->geometry, first->geometry);
+        EXPECT_FLOAT_EQ(glass.value()->materials->surfaces[0].parameters.z, 1);
+        EXPECT_FLOAT_EQ(glass.value()->materials->surfaces[0].parameters.w, 1.33f);
+        EXPECT_FLOAT_EQ(first->materials->surfaces[0].parameters.z, 0);
+        values = std::make_shared<MaterialOverrides>(*values);
+        values->scalar_properties["ior"] = .5f;
+        world.render_items[0].material.overrides = values;
+        EXPECT_FALSE(builder.update(world, read));
+    }
+
+    TEST(PathTraceSceneTest, AlphaModesAndInstanceOpacityShareGeometryButKeepOldMaterials) {
+        auto material = std::make_shared<Material>("surface", "pbr");
+        ASSERT_TRUE(material->set_vector_property("base_color", {1, 1, 1, .4f}));
+        auto world = trace_world(material);
+        PathTraceSceneBuilder builder;
+        unsigned reads = 0;
+        const auto read = [&](AssetHandle) {
+            ++reads;
+            return Result<MeshData, Error>::success(triangle_mesh());
+        };
+        const auto opaque = builder.update(world, read).value();
+        EXPECT_EQ(opaque->materials->surfaces[0].opacity, Math::Vec4(.4f, .5f, 0, 0));
+        for(const auto mode : {AlphaMode::Mask, AlphaMode::Blend}) {
+            ASSERT_TRUE(material->set_surface({.alpha_mode = mode, .alpha_cutoff = .3f}));
+            const auto current = builder.update(world, read);
+            ASSERT_TRUE(current) << current.error();
+            EXPECT_EQ(current.value()->geometry, opaque->geometry);
+            EXPECT_EQ(current.value()->materials->surfaces[0].opacity,
+                Math::Vec4(.4f, .3f, static_cast<float>(mode), 0));
+        }
+        auto overrides = std::make_shared<MaterialOverrides>();
+        overrides->instance_id = 1;
+        overrides->material = AssetHandle(11);
+        overrides->vector_properties["base_color"] = {1, 1, 1, .8f};
+        world.render_items[0].material.overrides = overrides;
+        const auto changed = builder.update(world, read);
+        ASSERT_TRUE(changed);
+        EXPECT_FLOAT_EQ(changed.value()->materials->surfaces[0].opacity.x, .8f);
+        EXPECT_FLOAT_EQ(opaque->materials->surfaces[0].opacity.x, .4f);
+        EXPECT_EQ(reads, 1u);
     }
 
     TEST(PathTraceSceneTest, TexturesShareDecodedPixelsAndPreserveSourceVersionsAndTangentBasis) {

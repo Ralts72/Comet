@@ -14,6 +14,7 @@
 
 namespace Comet {
     struct COMET_API IrradianceData;
+    struct COMET_API NavigationData;
     struct TextureData;
     struct AnimationController;
     struct COMET_API AnimationLibrary;
@@ -66,6 +67,8 @@ namespace CometEditor::AssetSourceOperations {
         const std::filesystem::path& destination, const Comet::TextureData& cubemap);
     [[nodiscard]] Comet::AssetScanReport create_irradiance(Comet::AssetDatabase& database,
         const std::filesystem::path& destination, const Comet::IrradianceData& data);
+    [[nodiscard]] Comet::AssetScanReport create_navigation(Comet::AssetDatabase& database,
+        const std::filesystem::path& destination, const Comet::NavigationData& data);
 
     [[nodiscard]] Comet::AssetScanReport create_script(Comet::AssetDatabase& database,
         const std::filesystem::path& destination, ScriptKind kind = ScriptKind::Component);

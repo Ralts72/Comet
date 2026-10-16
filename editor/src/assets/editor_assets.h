@@ -79,6 +79,8 @@ namespace CometEditor {
             const std::filesystem::path& destination, const Comet::TextureData& cubemap);
         [[nodiscard]] Comet::AssetScanReport create_irradiance(
             const std::filesystem::path& destination, const Comet::IrradianceData& data);
+        [[nodiscard]] Comet::AssetScanReport create_navigation(
+            const std::filesystem::path& destination, const Comet::NavigationData& data);
         [[nodiscard]] Comet::AssetScanReport create_script(const std::filesystem::path& destination,
             AssetSourceOperations::ScriptKind kind = AssetSourceOperations::ScriptKind::Component);
         [[nodiscard]] Comet::AssetScanReport move_module(

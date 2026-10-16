@@ -15,6 +15,8 @@ namespace Comet {
 
     std::string_view to_string(const AssetType type) noexcept {
         switch(type) {
+            case AssetType::Navigation:
+                return "navigation";
             case AssetType::Irradiance:
                 return "irradiance";
             case AssetType::AnimationLibrary:
@@ -52,6 +54,8 @@ namespace Comet {
     }
 
     std::optional<AssetType> asset_type_from_string(const std::string_view value) noexcept {
+        if(value == "navigation")
+            return AssetType::Navigation;
         if(value == "irradiance")
             return AssetType::Irradiance;
         if(value == "animation_library")
@@ -117,6 +121,8 @@ namespace Comet {
 
     std::optional<AssetType> asset_type_from_path(const std::filesystem::path& path) {
         const auto extension = source_extension(path);
+        if(extension == ".nav")
+            return AssetType::Navigation;
         if(extension == ".gi")
             return AssetType::Irradiance;
         if(extension == ".csv" || lowercase(path.filename().string()).ends_with(".data.json"))

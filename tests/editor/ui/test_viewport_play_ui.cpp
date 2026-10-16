@@ -34,6 +34,12 @@ namespace CometEditor::Tests {
         choose("重新采样###Restart trace");
         EXPECT_TRUE(viewport.take_path_trace_restart());
         EXPECT_FALSE(viewport.take_path_trace_restart());
+        choose("导出图像…###Export trace");
+        EXPECT_FALSE(viewport.take_path_trace_export());
+        viewport.set_path_trace_status(12, {});
+        choose("导出图像…###Export trace");
+        EXPECT_TRUE(viewport.take_path_trace_export());
+        EXPECT_FALSE(viewport.take_path_trace_export());
         viewport.set_path_trace_status(12, "测试：不支持贴图");
         frame({300, 700});
         EXPECT_GT(viewport.get_layout().image_visible_rect.size().y, 0);

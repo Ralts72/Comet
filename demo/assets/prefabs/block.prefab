@@ -1,0 +1,32 @@
+{
+  "version": 2,
+  "entities": [
+    {
+      "uuid": "7ac811c7-c310-49e2-bed1-c37b74fc96e1",
+      "components": {
+        "name": "基础方块",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            0.5,
+            0.5,
+            0.5
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 1749083215601001004
+        }
+      }
+    }
+  ]
+}

@@ -1,3 +1,5 @@
+#include "asset/runtime/prefab_loader.h"
+#include "asset/data/navigation_data.h"
 #include "asset/runtime/asset_loader.h"
 #include "asset/data/animation_library.h"
 #include "asset/data/game_data.h"
@@ -191,14 +193,27 @@ namespace Comet {
             });
     }
 
+    Result<std::shared_ptr<NavigationData>, Error> AssetLoader::load_navigation(
+        AssetHandle handle) {
+        return load_runtime_asset<NavigationData>(m_database, m_registry, handle,
+            AssetType::Navigation,
+            [&](const AssetRecord& record) -> Result<std::shared_ptr<NavigationData>, Error> {
+                auto path = m_database.paths().resolve_asset_path(record.path);
+                if(!path)
+                    return Result<std::shared_ptr<NavigationData>, Error>::failure({path.error()});
+                auto data = NavigationData::load(path.value());
+                if(!data)
+                    return Result<std::shared_ptr<NavigationData>, Error>::failure({data.error()});
+                return Result<std::shared_ptr<NavigationData>, Error>::success(
+                    std::make_shared<NavigationData>(std::move(data).value()));
+            });
+    }
+
     Result<std::shared_ptr<Prefab>, Error> AssetLoader::load_prefab(
         AssetHandle handle, const ComponentRegistry& components) {
         return load_runtime_asset<Prefab>(m_database, m_registry, handle, AssetType::Prefab,
             [&](const AssetRecord& record) -> Result<std::shared_ptr<Prefab>, Error> {
-                auto path = m_database.paths().resolve_asset_path(record.path);
-                if(!path)
-                    return Result<std::shared_ptr<Prefab>, Error>::failure({path.error()});
-                auto prefab = Prefab::load(path.value(), components);
+                auto prefab = read_prefab_content(m_database, record.handle, components);
                 if(!prefab)
                     return Result<std::shared_ptr<Prefab>, Error>::failure({prefab.error()});
                 return Result<std::shared_ptr<Prefab>, Error>::success(

@@ -2,6 +2,120 @@
 #include "support/render_graph_gpu_fixture.h"
 
 namespace Comet::Tests {
+    TEST_F(RenderGraphGpuTest, PlannedImageAndBufferReuseMatchesDistinctAllocationsAcrossSlots) {
+        auto& context = engine->get_renderer().get_render_context();
+        auto& device = context.get_device();
+        std::array<uint64_t, 2> allocation_bytes{};
+        const auto allocated_bytes = [&] {
+            uint64_t bytes = 0;
+            for(const auto& heap : device.query_memory_budget().heaps)
+                bytes += heap.allocation_bytes;
+            return bytes;
+        };
+        for(const bool reuse : {false, true}) {
+            SCOPED_TRACE(reuse);
+            RenderGraph graph;
+            const auto a = graph.create_image("a", {Format::R8G8B8A8_UNORM, 4, 4});
+            const auto b = graph.create_image("b", {Format::R8G8B8A8_UNORM, 4, 4});
+            const auto left = graph.create_buffer("left", {16});
+            const auto right = graph.create_buffer("right", {16});
+            const auto host = graph.import_buffer("readback", {{}, 0, 160});
+            const auto produce =
+                graph.add_pass({"produce", {{a, ResourceUsage::TransferDestination, {}},
+                                               {left, ResourceUsage::TransferDestination, {}}}});
+            const auto consume = graph.add_pass({"consume",
+                {{a, ResourceUsage::TransferSource, {}}, {left, ResourceUsage::TransferSource, {}},
+                    {host, ResourceUsage::TransferDestination, {}}}});
+            const auto overwrite =
+                graph.add_pass({"overwrite", {{b, ResourceUsage::TransferDestination, {}},
+                                                 {right, ResourceUsage::TransferDestination, {}}}});
+            graph.add_pass({"consume replacement",
+                {{b, ResourceUsage::TransferSource, {}}, {right, ResourceUsage::TransferSource, {}},
+                    {host, ResourceUsage::TransferDestination, {}}}});
+            graph.export_resource({host, ResourceUsage::HostRead, {}});
+            const auto plan = graph.compile(reuse);
+            ASSERT_TRUE(plan) << plan.error();
+            ASSERT_EQ(plan.value().get_allocations().size(), reuse ? 2u : 4u);
+            const auto before = allocated_bytes();
+            auto allocated = plan.value().allocate(device, 2);
+            ASSERT_TRUE(allocated) << allocated.error().message;
+            allocation_bytes[reuse] = allocated_bytes() - before;
+            RecordProperty(reuse ? "reused_allocation_bytes" : "distinct_allocation_bytes",
+                std::to_string(allocation_bytes[reuse]));
+            auto resources = std::move(allocated).value();
+            const auto image_at = [&](uint32_t slot, RenderGraph::ResourceId id) {
+                return std::get<std::shared_ptr<Image>>(resources.get_bindings(slot)[id.index]);
+            };
+            EXPECT_NE(image_at(0, a), image_at(1, a));
+            EXPECT_EQ(image_at(0, a) == image_at(0, b), reuse);
+            FrameScheduler frames(device, 2);
+            frames.initialize_swapchain_images(2);
+            FrameWait wait{device, frames};
+            for(uint32_t frame = 0; frame < 4; ++frame) {
+                auto output = std::make_shared<Readback>(
+                    device, context.get_context().get_physical_device(), 160);
+                ASSERT_TRUE(output->get());
+                frames.wait_for_current_slot();
+                frames.begin_frame(0);
+                frames.get_current_command_buffer().begin();
+                const auto slot = frames.get_current_frame_slot_index();
+                std::vector<RenderGraph::Binding> bindings(plan.value().resource_count());
+                resources.bind_resources(bindings, slot);
+                bindings[host.index] = std::static_pointer_cast<Buffer>(output);
+                const auto image_a = image_at(slot, a), image_b = image_at(slot, b);
+                const auto buffer_a = std::get<std::shared_ptr<Buffer>>(bindings[left.index]);
+                const auto buffer_b = std::get<std::shared_ptr<Buffer>>(bindings[right.index]);
+                const auto record = [&](RenderGraph::PassId pass, const CommandBuffer& commands) {
+                    const bool first = pass == produce || pass == consume;
+                    const auto image = first ? image_a : image_b;
+                    const auto buffer = first ? buffer_a : buffer_b;
+                    auto cmd = commands.get();
+                    if(pass == produce || pass == overwrite) {
+                        const std::array<float, 4> color =
+                            first ? std::array<float, 4>{1, float(frame % 2), 0, 1}
+                                  : std::array<float, 4>{0, float(frame % 2), 1, 1};
+                        cmd.clearColorImage(image->get(), vk::ImageLayout::eTransferDstOptimal,
+                            vk::ClearColorValue(color),
+                            vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
+                        cmd.fillBuffer(buffer->get(), 0, 16, first ? 0x11223344 : 0x55667788);
+                    } else {
+                        const uint64_t offset = first ? 0 : 80;
+                        vk::BufferImageCopy copy;
+                        copy.bufferOffset = offset;
+                        copy.imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1};
+                        copy.imageExtent = vk::Extent3D(4, 4, 1);
+                        cmd.copyImageToBuffer(image->get(), vk::ImageLayout::eTransferSrcOptimal,
+                            output->get(), copy);
+                        cmd.copyBuffer(
+                            buffer->get(), output->get(), vk::BufferCopy(0, offset + 64, 16));
+                    }
+                    return Result<void, GraphicsError>::success();
+                };
+                ASSERT_TRUE(plan.value().record(frames, bindings, record));
+                submit(device, frames);
+                frames.wait_for_all_slots();
+                const auto bytes = output->read();
+                for(size_t pixel = 0; pixel < 16; ++pixel) {
+                    const auto offset = pixel * 4;
+                    EXPECT_EQ(bytes[offset], std::byte{255});
+                    EXPECT_EQ(bytes[offset + 1], std::byte(frame % 2 ? 255 : 0));
+                    EXPECT_EQ(bytes[offset + 2], std::byte{0});
+                    EXPECT_EQ(bytes[offset + 80], std::byte{0});
+                    EXPECT_EQ(bytes[offset + 81], std::byte(frame % 2 ? 255 : 0));
+                    EXPECT_EQ(bytes[offset + 82], std::byte{255});
+                }
+                for(size_t word = 0; word < 4; ++word) {
+                    uint32_t left_value = 0, right_value = 0;
+                    std::memcpy(&left_value, bytes.data() + 64 + word * 4, 4);
+                    std::memcpy(&right_value, bytes.data() + 144 + word * 4, 4);
+                    EXPECT_EQ(left_value, 0x11223344u);
+                    EXPECT_EQ(right_value, 0x55667788u);
+                }
+            }
+        }
+        EXPECT_GT(allocation_bytes[false], allocation_bytes[true]);
+    }
+
     TEST_F(RenderGraphGpuTest, ExecutesFourPassesOnDisjointMipsLayersAndBufferRanges) {
         auto& context = engine->get_renderer().get_render_context();
         auto& device = context.get_device();

@@ -1,4 +1,5 @@
-add_library(comet_asset_tools STATIC shader_program_import.cpp project_prepare.cpp irradiance_bake.cpp)
+add_library(comet_asset_tools STATIC shader_program_import.cpp project_prepare.cpp irradiance_bake.cpp
+    navigation_bake.cpp)
 target_include_directories(comet_asset_tools PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/..")
 target_link_libraries(comet_asset_tools PUBLIC engine PRIVATE comet_shader_tools)
 

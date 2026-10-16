@@ -17,6 +17,7 @@ namespace Comet {
     public:
         static constexpr std::uint32_t FORMAT_VERSION = 2;
         static constexpr std::size_t MAX_HIERARCHY_DEPTH = 128;
+        static constexpr std::size_t MAX_PREFAB_DEPTH = 16;
 
         explicit SceneSerializer(const ComponentRegistry& component_registry);
 
@@ -37,9 +38,10 @@ namespace Comet {
         struct ContentSnapshot;
         [[nodiscard]] Result<std::string> serialize_content(
             const ContentSnapshot& content, bool include_scene_settings) const;
-        [[nodiscard]] Result<ContentSnapshot> capture_content(const Scene& scene) const;
-        [[nodiscard]] Result<std::unique_ptr<Scene>> restore_content(
-            const ContentSnapshot& content, std::string_view source) const;
+        [[nodiscard]] Result<ContentSnapshot> capture_content(
+            const Scene& scene, std::size_t prefab_depth = 0) const;
+        [[nodiscard]] Result<std::unique_ptr<Scene>> restore_content(const ContentSnapshot& content,
+            std::string_view source, std::size_t prefab_depth = 0) const;
 
         const ComponentRegistry& m_component_registry;
     };

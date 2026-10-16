@@ -30,6 +30,7 @@ namespace Comet {
     class RenderTarget;
     class ImageView;
     class Swapchain;
+    class BloomPass;
     struct SwapchainCompatibility;
 
     class COMET_API SceneRenderer {
@@ -99,8 +100,9 @@ namespace Comet {
         Result<std::shared_ptr<RenderState>, GraphicsError> prepare_quality(
             RenderResources& resources, Swapchain& swapchain, const QualitySettings& settings);
         void install_quality(std::shared_ptr<RenderState> state, const QualitySettings& settings);
-        Result<void, GraphicsError> rebuild_graph(
-            RenderState& state, const PostProcessSettings& settings, bool shadows = false);
+        Result<void, GraphicsError> rebuild_graph(RenderState& state,
+            const PostProcessSettings& settings, bool shadows = false, BloomPass* bloom = nullptr,
+            Math::Vec2u source_size = {});
         struct TargetRetry {
             Math::Vec2u size;
             RetryBackoff retry;

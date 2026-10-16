@@ -1,6 +1,10 @@
 #include "asset/import/texture_importer.h"
+#include "asset/import/image_encoding.h"
+#include <cstring>
+#include <cmath>
 #include "asset/data/texture_data.h"
 #include "common/file_io.h"
+#include "core/math_utils.h"
 #include "support/temporary_directory.h"
 
 #include <gtest/gtest.h>
@@ -31,6 +35,53 @@ namespace Comet::Tests {
                 output.write(reinterpret_cast<const char*>(bgra.data()), bgra.size());
             }
         }
+    }
+
+    TEST(ImageEncodingTest, PngUsesExposureAndSrgbWhileHdrPreservesLinearRadianceAndRowOrder) {
+        const std::array<Math::Vec4, 4> radiance{Math::Vec4(4, 0, 0, 1),
+            Math::Vec4(.5f, .5f, .5f, 1), Math::Vec4(0, 0, 2, 1), Math::Vec4(0, 0, 0, 1)};
+        TextureData image{.width = 2,
+            .height = 2,
+            .format = Format::R32G32B32A32_SFLOAT,
+            .pixels = std::vector<uint8_t>(sizeof(radiance))};
+        std::memcpy(image.pixels.data(), radiance.data(), sizeof(radiance));
+        const auto decode = [&](std::string_view extension, float exposure) {
+            auto encoded = encode_image(image, extension, exposure);
+            EXPECT_TRUE(encoded) << encoded.error();
+            return TextureImporter{}.import(std::as_bytes(std::span(encoded.value())));
+        };
+        const auto hdr = encode_image(image, ".hdr", 2);
+        ASSERT_TRUE(hdr);
+        ASSERT_NE(hdr.value().find("-Y 2 +X 2"), std::string::npos);
+        ASSERT_GE(hdr.value().size(), 16u);
+        // 短扫描线使用逐像素 RGBE；二维 TextureImporter 的 8 位输出不适合验证 HDR 数值。
+        const auto* rgbe =
+            reinterpret_cast<const uint8_t*>(hdr.value().data() + hdr.value().size() - 16);
+        for(std::size_t i = 0; i < radiance.size(); ++i) {
+            const auto* pixel = rgbe + i * 4;
+            const float scale = std::ldexp(1.f, int(pixel[3]) - 136);
+            const Math::Vec3 linear{pixel[0] * scale, pixel[1] * scale, pixel[2] * scale};
+            EXPECT_LE(glm::length(linear - Math::Vec3(radiance[i])), .02f);
+        }
+        auto dim = decode(".png", .5f);
+        auto bright = decode(".png", 2);
+        ASSERT_TRUE(dim);
+        ASSERT_TRUE(bright);
+        EXPECT_EQ(bright.value().pixels[0], 255);
+        EXPECT_EQ(bright.value().pixels[1], 0);
+        EXPECT_EQ(bright.value().pixels[2], 0);
+        EXPECT_EQ(bright.value().pixels[8], 0);
+        EXPECT_GT(bright.value().pixels[10], 250);
+        EXPECT_GT(bright.value().pixels[4], dim.value().pixels[4]);
+        EXPECT_EQ(bright.value().pixels[15], 255);
+        auto black = decode(".png", 0);
+        ASSERT_TRUE(black);
+        EXPECT_EQ(black.value().pixels[0], 0);
+        EXPECT_EQ(black.value().pixels[10], 0);
+        EXPECT_FALSE(encode_image(image, ".jpg"));
+        EXPECT_FALSE(encode_image(image, ".png", -1));
+        image.pixels.resize(1);
+        EXPECT_FALSE(encode_image(image, ".hdr"));
     }
 
     TEST(TextureImporterTest, DecodesTextureIntoRgbaPixels) {

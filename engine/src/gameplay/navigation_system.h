@@ -12,6 +12,9 @@ namespace Comet::Gameplay {
         struct Statistics {
             uint64_t builds = 0;
             double build_milliseconds = 0;
+            uint64_t product_loads = 0;
+            double product_load_milliseconds = 0;
+            double prepare_milliseconds = 0;
             uint64_t path_queries = 0;
             uint64_t surface_queries = 0;
             uint64_t obstacle_queries = 0;
@@ -19,8 +22,9 @@ namespace Comet::Gameplay {
         };
         using GeometrySource =
             std::function<Result<std::vector<Math::Vec3>, Error>(Math::Vec3, Math::Vec3)>;
+        using ProductSource = std::function<std::shared_ptr<const NavigationData>(AssetHandle)>;
         enum class Status { Moving, Arrived, NoPath, Blocked, BudgetExceeded, Disabled };
-        explicit NavigationSystem(GeometrySource geometry);
+        explicit NavigationSystem(GeometrySource geometry, ProductSource products = {});
         Result<void, Error> on_start(Scene&, RuntimeSession&, const RuntimeServices&) override;
         Result<void, Error> on_runtime_ready(
             Scene&, RuntimeSession&, const RuntimeServices&) override;
@@ -46,6 +50,7 @@ namespace Comet::Gameplay {
             Status status = Status::NoPath;
         };
         GeometrySource m_geometry;
+        ProductSource m_products;
         NavigationMesh m_mesh;
         NavigationRegionComponent m_settings;
         std::unordered_map<EntityUuid, Agent> m_agents;

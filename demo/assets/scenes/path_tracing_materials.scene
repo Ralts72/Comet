@@ -186,6 +186,141 @@
           "material": 5783275031450616070
         }
       }
+    },
+    {
+      "uuid": "6ee4819e-8f3d-44cd-b99c-ef2111da0232",
+      "components": {
+        "name": "双面树叶与裁切阴影",
+        "transform": {
+          "translation": [
+            -2.2,
+            0,
+            1.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.8,
+            1.8,
+            1
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 5783275031450616072,
+          "material": 5783275031450616074
+        }
+      }
+    },
+    {
+      "uuid": "32bd9ddd-8e73-40f2-a436-9826eb97c7e8",
+      "components": {
+        "name": "蓝色透明层",
+        "transform": {
+          "translation": [
+            0.1,
+            0,
+            1.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.8,
+            1.8,
+            1
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 5783275031450616072,
+          "material": 5783275031450616075
+        }
+      }
+    },
+    {
+      "uuid": "b5c9f92e-3792-4099-a7c3-ae24b3b8a4a8",
+      "components": {
+        "name": "红色透明层",
+        "transform": {
+          "translation": [
+            0.6,
+            0,
+            1.8
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.8,
+            1.8,
+            1
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 5783275031450616072,
+          "material": 5783275031450616076
+        }
+      }
+    },
+    {
+      "uuid": "ab4b16db-aecd-4264-bbde-330f6e101ca1",
+      "components": {
+        "name": "clear_dielectric",
+        "transform": {
+          "translation": [
+            -3.5,
+            0,
+            3.3
+          ],
+          "rotation": [
+            0,
+            25,
+            0
+          ],
+          "scale": [
+            1.5,
+            1.5,
+            0.8
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 5783275031450616100
+        }
+      }
+    },
+    {
+      "uuid": "46e02b0b-90c8-4a92-b2e5-35b14f6df627",
+      "components": {
+        "name": "rough_dielectric",
+        "transform": {
+          "translation": [
+            2.8,
+            0,
+            3.3
+          ],
+          "rotation": [
+            0,
+            25,
+            0
+          ],
+          "scale": [
+            1.5,
+            1.5,
+            0.8
+          ]
+        },
+        "mesh_renderer": {
+          "mesh": 7535385251553858160,
+          "material": 5783275031450616101
+        }
+      }
     }
   ],
   "environment": {

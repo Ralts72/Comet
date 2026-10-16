@@ -157,7 +157,7 @@ namespace Comet::Tests {
         EXPECT_EQ(parameters.set, 1u);
         EXPECT_EQ(parameters.binding, 0u);
         EXPECT_EQ(parameters.block_size, 64u);
-        ASSERT_EQ(parameters.members.size(), 7u);
+        ASSERT_EQ(parameters.members.size(), 9u);
         EXPECT_EQ(parameters.members[0].name, "base_color");
         EXPECT_EQ(parameters.members[0].offset, 0u);
         EXPECT_EQ(parameters.members[0].format, Format::R32G32B32A32_SFLOAT);
@@ -166,6 +166,12 @@ namespace Comet::Tests {
         EXPECT_EQ(parameters.members[1].format, Format::R32_SFLOAT);
         EXPECT_EQ(parameters.members[2].name, "roughness");
         EXPECT_EQ(parameters.members[2].offset, 20u);
+        EXPECT_EQ(parameters.members[7].name, "transmission");
+        EXPECT_EQ(parameters.members[7].offset, 52u);
+        EXPECT_EQ(parameters.members[7].format, Format::R32_SFLOAT);
+        EXPECT_EQ(parameters.members[8].name, "ior");
+        EXPECT_EQ(parameters.members[8].offset, 56u);
+        EXPECT_EQ(parameters.members[8].format, Format::R32_SFLOAT);
         const auto texture = std::ranges::find_if(fragment.get_bindings(),
             [](const auto& binding) { return binding.set == 1 && binding.binding == 1; });
         ASSERT_NE(texture, fragment.get_bindings().end());

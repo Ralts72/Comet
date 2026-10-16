@@ -1,0 +1,156 @@
+{
+  "version": 2,
+  "entities": [
+    {
+      "uuid": "9648b8fe-c65d-4888-96b0-91e979847d02",
+      "components": {
+        "name": "嵌套方块组",
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      "children": [
+        {
+          "uuid": "dc370ed2-ae9e-496e-8c68-542f1977fcb4",
+          "components": {
+            "name": "基础方块",
+            "transform": {
+              "translation": [
+                -1,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                0.5,
+                0.5,
+                0.5
+              ]
+            },
+            "mesh_renderer": {
+              "mesh": 7535385251553858160,
+              "material": 1749083215601001004
+            }
+          },
+          "prefab": {
+            "asset": 5783275031450616110,
+            "base": {
+              "uuid": "7ac811c7-c310-49e2-bed1-c37b74fc96e1",
+              "components": {
+                "name": "基础方块",
+                "transform": {
+                  "translation": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "rotation": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "scale": [
+                    0.5,
+                    0.5,
+                    0.5
+                  ]
+                },
+                "mesh_renderer": {
+                  "mesh": 7535385251553858160,
+                  "material": 1749083215601001004
+                }
+              }
+            },
+            "entities": [
+              {
+                "source": "7ac811c7-c310-49e2-bed1-c37b74fc96e1",
+                "instance": "dc370ed2-ae9e-496e-8c68-542f1977fcb4"
+              }
+            ]
+          }
+        },
+        {
+          "uuid": "44a926c5-bf2b-4f7f-90d0-501f29fa19b9",
+          "components": {
+            "name": "基础方块",
+            "transform": {
+              "translation": [
+                1,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                0.5,
+                0.5,
+                0.5
+              ]
+            },
+            "mesh_renderer": {
+              "mesh": 7535385251553858160,
+              "material": 1749083215601001004
+            }
+          },
+          "prefab": {
+            "asset": 5783275031450616110,
+            "base": {
+              "uuid": "7ac811c7-c310-49e2-bed1-c37b74fc96e1",
+              "components": {
+                "name": "基础方块",
+                "transform": {
+                  "translation": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "rotation": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "scale": [
+                    0.5,
+                    0.5,
+                    0.5
+                  ]
+                },
+                "mesh_renderer": {
+                  "mesh": 7535385251553858160,
+                  "material": 1749083215601001004
+                }
+              }
+            },
+            "entities": [
+              {
+                "source": "7ac811c7-c310-49e2-bed1-c37b74fc96e1",
+                "instance": "44a926c5-bf2b-4f7f-90d0-501f29fa19b9"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

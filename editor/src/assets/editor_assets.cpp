@@ -1,3 +1,4 @@
+#include "asset/runtime/prefab_loader.h"
 #include "assets/editor_assets.h"
 #include "asset/serialization/animation_controller_serializer.h"
 #include "asset/default_assets.h"
@@ -463,7 +464,7 @@ namespace CometEditor {
         if(!record || !m_database.is_current(target))
             return Comet::Result<Comet::Prefab>::failure("Prefab identity is stale or invalid");
         if(record->type == Comet::AssetType::Prefab)
-            return Comet::Prefab::load(m_database.paths().assets() / record->path, registry);
+            return Comet::read_prefab_content(m_database, target.handle, registry);
         if(record->type != Comet::AssetType::Model)
             return Comet::Result<Comet::Prefab>::failure("Asset is not a prefab or model source");
         const auto name = record->path.stem().string();
@@ -498,6 +499,17 @@ namespace CometEditor {
     Comet::AssetScanReport EditorAssets::create_irradiance(
         const std::filesystem::path& destination, const Comet::IrradianceData& data) {
         auto report = AssetSourceOperations::create_irradiance(m_database, destination, data);
+        if(report.snapshot_updated) {
+            acknowledge(destination);
+            acknowledge(Comet::metadata_path(destination));
+        }
+        accept_scan(report);
+        return report;
+    }
+
+    Comet::AssetScanReport EditorAssets::create_navigation(
+        const std::filesystem::path& destination, const Comet::NavigationData& data) {
+        auto report = AssetSourceOperations::create_navigation(m_database, destination, data);
         if(report.snapshot_updated) {
             acknowledge(destination);
             acknowledge(Comet::metadata_path(destination));

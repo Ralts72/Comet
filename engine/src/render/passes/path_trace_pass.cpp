@@ -25,7 +25,7 @@ namespace Comet {
         static_assert(sizeof(Parameters) == 128);
         static_assert(sizeof(PathTraceScene::Triangle) == 208);
         static_assert(sizeof(PathTraceScene::Node) == 48);
-        static_assert(sizeof(PathTraceScene::Surface) == 64);
+        static_assert(sizeof(PathTraceScene::Surface) == 80);
         static_assert(sizeof(PathTraceScene::Texture) == 32);
     }
 

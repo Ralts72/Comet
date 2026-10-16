@@ -36,6 +36,17 @@ namespace Comet {
         if(!report.snapshot_updated) {
             return;
         }
+        const bool prefab_changed = std::ranges::any_of(report.modified_assets,
+                                        [&](AssetHandle handle) {
+                                            const auto* record = m_database.find(handle);
+                                            return record && record->type == AssetType::Prefab;
+                                        })
+                                    || !report.removed_assets.empty();
+        // Prefab 是低频编辑的内容定义；失效缓存，下次展开时再读取内层来源。
+        if(prefab_changed)
+            for(const auto& record : m_database.get_assets())
+                if(record.type == AssetType::Prefab)
+                    static_cast<void>(m_registry.unregister_asset(record.handle));
         for(const auto handle : report.removed_assets)
             if(m_mesh_data.contains(handle))
                 change_mesh_data(handle, false);
@@ -108,6 +119,7 @@ namespace Comet {
     AssetManager::RefreshResult AssetManager::schedule_refresh(const AssetRecord& record) {
         bool accepted = false;
         switch(record.type) {
+            case AssetType::Navigation:
             case AssetType::Irradiance:
             case AssetType::AnimationLibrary:
             case AssetType::Data:

@@ -49,6 +49,7 @@ set(COMET_ASSET_DATA_SOURCES
     src/asset/data/material_data.cpp
     src/asset/data/game_data.cpp
     src/asset/data/irradiance_data.cpp
+    src/asset/data/navigation_data.cpp
     src/asset/data/texture_sampling.cpp
     src/asset/data/cubemap_sampling.cpp
     src/asset/data/animation_library.cpp
@@ -166,6 +167,7 @@ set(COMET_ASSET_PIPELINE_SOURCES
     src/asset/import/texture_importer.cpp
     src/asset/import/environment_importer.cpp
     src/asset/import/environment_lighting.cpp
+    src/asset/import/image_encoding.cpp
 )
 
 set(COMET_RUNTIME_ASSETS_SOURCES
@@ -176,6 +178,8 @@ set(COMET_RUNTIME_ASSETS_SOURCES
     src/asset/runtime/script_loader.cpp
     src/asset/runtime/asset_loader.cpp
     src/asset/runtime/asset_loader.h
+    src/asset/runtime/prefab_loader.cpp
+    src/asset/runtime/prefab_loader.h
     src/asset/runtime/render_asset_factory.h
 )
 
@@ -255,6 +259,7 @@ set(COMET_RENDER_SOURCES
     src/render/scene/scene_extractor.cpp
     src/render/scene/scene_renderer.cpp
     src/render/scene/scene_preview.cpp
+    src/render/scene/path_trace_capture.cpp
     src/render/resource/render_resources.cpp
     src/render/frame_scheduler.cpp
     src/render/material/material.cpp

@@ -1,7 +1,9 @@
+#include "asset/runtime/prefab_loader.h"
 #include "scene/prefab.h"
 #include "scene/scene_runtime.h"
 #include <limits>
 #include "asset/data/model_data.h"
+#include "asset/database.h"
 #include "scene/scene_serializer.h"
 #include "scene/script_component.h"
 #include "common/file_io.h"
@@ -9,6 +11,151 @@
 #include <gtest/gtest.h>
 
 namespace Comet::Tests {
+    TEST(PrefabTest, NestedBlockSampleLoadsThroughTheProjectIndex) {
+        const auto registry = create_scene_component_registry();
+        AssetDatabase database(ProjectPaths(std::filesystem::path(PROJECT_ROOT_DIR) / "demo"));
+        ASSERT_TRUE(database.scan().succeeded());
+        const auto* record = database.find("prefabs/block_pair.prefab");
+        ASSERT_TRUE(record);
+        const auto prefab = read_prefab_content(database, record->handle, registry);
+        ASSERT_TRUE(prefab) << prefab.error();
+        Scene scene;
+        const auto placed =
+            prefab.value().instantiate(scene, registry, std::nullopt, {}, record->handle);
+        ASSERT_TRUE(placed);
+        const auto children = scene.get_children(placed.value());
+        ASSERT_EQ(children.size(), 2u);
+        for(const auto child : children)
+            EXPECT_TRUE(child.has_component<PrefabInstanceComponent>());
+        EXPECT_NE(children[0].get_uuid(), children[1].get_uuid());
+    }
+
+    TEST(PrefabTest, NestedSourcesKeepOverridesAndStableReferencesAcrossResolveCloneAndPlacement) {
+        const auto registry = create_scene_component_registry();
+        const AssetHandle inner_handle{710}, outer_handle{711};
+        Scene inner_source;
+        auto inner = inner_source.create_entity("Inner");
+        auto leaf = inner_source.create_entity("Leaf");
+        ASSERT_TRUE(inner_source.set_parent(leaf, inner));
+        leaf.add_component<ScriptComponent>().parameters = {{"owner", inner.get_uuid()}};
+        const auto first_inner = Prefab::capture(inner_source, registry, inner);
+        ASSERT_TRUE(first_inner);
+        Scene assembly;
+        const auto assembly_root = assembly.create_entity("Assembly");
+        const auto placed_inner = first_inner.value().instantiate(
+            assembly, registry, Math::Vec3(3, 0, 0), assembly_root.get_uuid(), inner_handle);
+        ASSERT_TRUE(placed_inner);
+        auto local_leaf = assembly.get_children(placed_inner.value()).front();
+        local_leaf.edit_transform([](auto& value) { value.translation.y = 7; });
+        ASSERT_TRUE(first_inner.value().instantiate(
+            assembly, registry, std::nullopt, placed_inner.value().get_uuid(), inner_handle));
+        const auto outer = Prefab::capture(assembly, registry, assembly_root);
+        ASSERT_TRUE(outer) << outer.error();
+        const auto text = outer.value().serialize(registry);
+        ASSERT_TRUE(text) << text.error();
+        const auto restored = Prefab::deserialize(text.value(), registry);
+        ASSERT_TRUE(restored) << restored.error();
+        leaf.get_component<NameComponent>().name = "Updated leaf";
+        leaf.edit_transform([](auto& value) { value.translation.y = 2; });
+        auto added = inner_source.create_entity("Added");
+        ASSERT_TRUE(inner_source.set_parent(added, inner));
+        const auto updated_inner = Prefab::capture(inner_source, registry, inner);
+        ASSERT_TRUE(updated_inner);
+        const auto load = [&](AssetHandle handle) -> Result<Prefab> {
+            if(handle != inner_handle)
+                return Result<Prefab>::failure("Unexpected nested source");
+            return updated_inner;
+        };
+        const auto resolved = restored.value().resolve_nested(registry, outer_handle, load);
+        const auto repeated = restored.value().resolve_nested(registry, outer_handle, load);
+        ASSERT_TRUE(resolved) << resolved.error();
+        ASSERT_TRUE(repeated) << repeated.error();
+        EXPECT_EQ(resolved.value().serialize(registry).value(),
+            repeated.value().serialize(registry).value());
+        Scene level;
+        const auto a =
+            resolved.value().instantiate(level, registry, Math::Vec3(10, 0, 0), {}, outer_handle);
+        const auto b =
+            resolved.value().instantiate(level, registry, Math::Vec3(20, 0, 0), {}, outer_handle);
+        ASSERT_TRUE(a);
+        ASSERT_TRUE(b);
+        const auto a_inner = level.get_children(a.value()).front();
+        const auto b_inner = level.get_children(b.value()).front();
+        ASSERT_TRUE(a_inner.has_component<PrefabInstanceComponent>());
+        ASSERT_TRUE(b_inner.has_component<PrefabInstanceComponent>());
+        const auto& link = a_inner.get_component<PrefabInstanceComponent>();
+        size_t local_nested = 0;
+        for(const auto child : level.get_children(a_inner))
+            if(child.has_component<PrefabInstanceComponent>()) {
+                ++local_nested;
+                EXPECT_TRUE(child.get_component<PrefabInstanceComponent>().entities.contains(
+                    added.get_uuid()));
+            }
+        EXPECT_EQ(local_nested, 1u);
+        EXPECT_EQ(link.asset, inner_handle);
+        EXPECT_EQ(a_inner.get_component<TransformComponent>().translation, Math::Vec3(3, 0, 0));
+        const auto changed = level.find_entity(link.entities.at(leaf.get_uuid()));
+        EXPECT_EQ(changed.get_component<NameComponent>().name, "Updated leaf");
+        EXPECT_EQ(changed.get_component<TransformComponent>().translation.y, 7);
+        EXPECT_EQ(
+            std::get<EntityUuid>(changed.get_component<ScriptComponent>().parameters.at("owner")),
+            a_inner.get_uuid());
+        EXPECT_NE(link.entities.at(added.get_uuid()),
+            b_inner.get_component<PrefabInstanceComponent>().entities.at(added.get_uuid()));
+        const SceneSerializer serializer(registry);
+        const auto clone = serializer.clone(level);
+        ASSERT_TRUE(clone) << clone.error();
+        const auto saved = serializer.serialize(level);
+        ASSERT_TRUE(saved) << saved.error();
+        const auto reopened = serializer.deserialize(saved.value());
+        ASSERT_TRUE(reopened) << reopened.error();
+        EXPECT_EQ(reopened.value()
+                      ->find_entity(a_inner.get_uuid())
+                      .get_component<PrefabInstanceComponent>()
+                      .entities,
+            link.entities);
+        EXPECT_EQ(clone.value()->entity_count(), level.entity_count());
+        Scene playing;
+        SceneRuntime runtime;
+        ASSERT_TRUE(runtime.start(playing));
+        const auto requested =
+            playing.request_instantiate_prefab(std::make_shared<const Prefab>(resolved.value()),
+                std::make_shared<const ComponentRegistry>(registry));
+        ASSERT_TRUE(requested);
+        ASSERT_TRUE(runtime.advance(0));
+        EXPECT_EQ(playing.entity_count(), resolved.value().entity_count());
+        for(const auto entity : playing.get_entities())
+            EXPECT_FALSE(entity.has_component<PrefabInstanceComponent>());
+        ASSERT_TRUE(runtime.stop());
+    }
+
+    TEST(PrefabTest, NestedDependencyCyclesFailWithoutChangingTheStoredContent) {
+        const auto registry = create_scene_component_registry();
+        const AssetHandle a_handle{810}, b_handle{811};
+        Scene plain;
+        const auto plain_root = plain.create_entity("Plain");
+        const auto empty = Prefab::capture(plain, registry, plain_root);
+        ASSERT_TRUE(empty);
+        Scene a_scene, b_scene;
+        const auto a_root = a_scene.create_entity("A");
+        const auto b_root = b_scene.create_entity("B");
+        ASSERT_TRUE(empty.value().instantiate(
+            a_scene, registry, std::nullopt, a_root.get_uuid(), b_handle));
+        ASSERT_TRUE(empty.value().instantiate(
+            b_scene, registry, std::nullopt, b_root.get_uuid(), a_handle));
+        const auto a = Prefab::capture(a_scene, registry, a_root);
+        const auto b = Prefab::capture(b_scene, registry, b_root);
+        ASSERT_TRUE(a);
+        ASSERT_TRUE(b);
+        const auto before = a.value().serialize(registry);
+        const auto failed = a.value().resolve_nested(
+            registry, a_handle, [&](AssetHandle handle) { return handle == a_handle ? a : b; });
+        EXPECT_FALSE(failed);
+        EXPECT_EQ(a.value().serialize(registry).value(), before.value());
+        EXPECT_FALSE(a.value().resolve_nested(registry, a_handle,
+            [](AssetHandle) { return Result<Prefab>::failure("Missing child source"); }));
+    }
+
     TEST(PrefabTest, RuntimeRequestsShareInstanceRemappingAndDiscardPendingWorkOnStop) {
         const auto components =
             std::make_shared<ComponentRegistry>(create_scene_component_registry());

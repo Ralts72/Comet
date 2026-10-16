@@ -91,7 +91,7 @@ namespace Comet::Tests {
         ASSERT_TRUE(reflected) << reflected.error();
         EXPECT_EQ(reflected.value(), layout);
         ASSERT_EQ(layout->get_parameter_size(), 64);
-        ASSERT_EQ(layout->get_scalars().size(), 5);
+        ASSERT_EQ(layout->get_scalars().size(), 7);
         ASSERT_EQ(layout->get_textures().size(), 5);
         EXPECT_EQ(layout->get_textures()[0].name, "base_color_texture");
         EXPECT_TRUE(layout->get_textures()[0].optional);
@@ -108,6 +108,8 @@ namespace Comet::Tests {
         EXPECT_FLOAT_EQ(values[0], 0.8f);
         EXPECT_FLOAT_EQ(values[4], 0);
         EXPECT_FLOAT_EQ(values[5], 0.5f);
+        EXPECT_FLOAT_EQ(values[13], 0);
+        EXPECT_FLOAT_EQ(values[14], 1.5f);
         EXPECT_TRUE(material->set_scalar_property("metallic", 0.75f));
         EXPECT_TRUE(material->set_scalar_property("roughness", 0.2f));
         EXPECT_TRUE(material->set_vector_property("base_color", {0.3f, 0.1f, 0.05f, 1}));

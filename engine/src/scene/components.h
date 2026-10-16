@@ -91,6 +91,7 @@ namespace Comet {
 
     // 单个场景一个轴对齐区域；尺寸为世界米数，中心取实体世界位置。
     struct COMET_API NavigationRegionComponent {
+        AssetHandle data;
         Math::Vec3 half_extents{20, 5, 20};
         float cell_size = 0.2f;
         float agent_radius = 0.4f;

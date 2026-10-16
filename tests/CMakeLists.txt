@@ -70,6 +70,7 @@ set(UNIT_TEST_SOURCES
         editor/core/test_editor_assets.cpp
         editor/core/test_reflection_bake.cpp
         editor/core/test_irradiance_bake.cpp
+        editor/core/test_navigation_bake.cpp
         editor/core/test_asset_thumbnails.cpp
         editor/core/test_external_file_import.cpp
         editor/core/test_editor_request_policy.cpp

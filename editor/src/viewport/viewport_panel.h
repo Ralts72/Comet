@@ -58,6 +58,7 @@ namespace CometEditor {
             return m_path_trace_settings;
         }
         bool take_path_trace_restart() { return std::exchange(m_path_trace_restart, false); }
+        bool take_path_trace_export() { return std::exchange(m_path_trace_export, false); }
         void set_path_trace_status(uint32_t samples, std::string error) {
             m_path_trace_samples = samples;
             m_path_trace_error = std::move(error);
@@ -134,6 +135,7 @@ namespace CometEditor {
         bool m_game_ui_reload_requested = false;
         bool m_path_trace = false;
         bool m_path_trace_restart = false;
+        bool m_path_trace_export = false;
         Comet::PathTraceSettings m_path_trace_settings;
         uint32_t m_path_trace_samples = 0;
         std::string m_path_trace_error;

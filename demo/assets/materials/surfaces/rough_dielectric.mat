@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "template": "pbr",
+  "properties": {
+    "base_color": {
+      "type": "vector",
+      "value": [
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "roughness": {
+      "type": "scalar",
+      "value": 0.5
+    },
+    "transmission": {
+      "type": "scalar",
+      "value": 1
+    },
+    "ior": {
+      "type": "scalar",
+      "value": 1.5
+    }
+  }
+}

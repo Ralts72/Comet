@@ -264,7 +264,10 @@ ComponentRegistry 通过调用方提供的 Script／Prefab 加载器收集递归
 Script 的 Prefab 参数沿用参数表，以字符串保存精确资产身份；Inspector 用资产选择器编辑，不向 Lua 暴露文件加载。
 Scene 在阶段末提交拥有 Prefab 与组件描述生命周期的生成请求，复用 EntityTrees 身份重映射；Lua 返回预留根 UUID，提交后可查询。
 运行生成不带编辑器来源基线；物理仍要求刚体在根实体，子树中的渲染及脚本实体可以引用这个根。
-首版基线随每个实例保存，优先保证保存后仍能区分覆盖；不引入额外缓存数据库、自动合并后台或嵌套 Prefab 系统。
+基线随每个实例保存，内层实例保留独立来源和覆盖；保存外层不将其展平，也不把根关联写成变体。
+资产层的 `read_prefab_content` 通过索引读入来源，World 的 `Prefab::resolve_nested` 仅接收读取回调并在独立候选中递归合并；循环、缺失与超过 16 层的来源关系明确失败。
+内层新增节点按实例根与源 UUID 派生稳定身份，重复加载不会不断换 UUID；碰撞时拒绝候选。更新未独立改变的内层来源关系，保留已单独更新／解除的关系。
+Prefab 修改或资产删除时释放定义缓存，下次展开读取当前来源；活动场景仍持有原基线，只有显式更新命令修改实体。导出 Prefab 和 Scene 都移除编辑基线，仅保留已展开内容及真正的运行资源依赖。
 
 ### 系统更新与场景边界
 
@@ -278,7 +281,10 @@ RuntimeSession 只收集保存／继续意图，GameSession 在帧边界调用�
 父子关系只由 Scene 修改并保持无环；子树删除直接遍历子节点索引，收集完毕后从后代向祖先清理。
 Runtime 统一控制系统启停、部分启动失败、暂停和单步；System 不重复实现生命周期状态机。
 每个固定步先按注册顺序执行 `fixed_update` 并提交结构请求，再执行 `post_fixed_update` 并提交本阶段的请求；最后才进入每帧 `update`。
-全部 System 的 on_start 与启动结构提交结束后，SceneRuntime 调用 on_runtime_ready。NavigationSystem 此时读取已准备物理世界的静态碰撞三角形并同步构建网格；失败沿既有逆序停止路径处理，尚未推进模拟。固定步只重置查询预算和回收角色路径；构建耗时与运行查询分别计数。NavigationMesh 封装 Recast／Detour，公开头文件不暴露第三方类型；NavigationSystem 持有运行域路径缓存，Lua 只提交目标，Demo 决定巡逻／追逐规则。静态碰撞几何来源由 Engine 注入，Gameplay 不依赖 Jolt 或 PhysicsService 实现。Stop 清理网格与缓存，路径不进入场景序列化。
+全部 System 的 on_start 与启动结构提交结束后，SceneRuntime 调用 on_runtime_ready。NavigationSystem 此时读取已准备物理世界的静态碰撞三角形；有离线产品时验证几何／参数指纹并初始化 Detour，否则临时执行 Recast。指定产品无效时明确失败，沿既有逆序停止路径处理，尚未推进模拟。
+NavigationData 属于资产数据层，封装有界 tile、版本与校验和；NavigationMesh 在交给 Detour 前核对 native 布局、数组范围与索引，并独立拥有查询数据。Registry、资产准备与导出共用现有 CPU 资源链路。
+离线准备在 `tools/asset/navigation_bake`：Main 克隆内容、准备独立物理世界并捕获静态几何，后台只持有 CPU 三角形与设置。Editor 接纳前复核场景寿命与输入；按区域及指纹复用产物，引用通过既有属性事务提交，撤销保留独立资产。
+固定步只重置查询预算和回收角色路径；Recast 构建、产品加载、整个准备和查询分别计数。NavigationMesh 的公开头不暴露第三方类型；NavigationSystem 持有路径缓存，Lua 只提交目标，Demo 决定巡逻／追逐规则。几何与产品都由 Engine 通过回调提供，Gameplay 不依赖资产数据库、Jolt 或 PhysicsService 实现。Stop 清理网格与缓存，路径不进入场景序列化。
 
 默认固定步依次执行脚本意图、角色动画参数、根运动动画提取与 Gameplay 消费、PhysicsSystem 同步／求解／回写，再更新粒子；接触在该步的后置阶段交付脚本，阶段结束即清空。根运动或脚部 IK 的实例使用固定步，其他动画仍在帧更新中推进，不同时使用两套时钟。
 固定更新中删除的实体不再收到接触；接触回调的结构请求在下一固定步前生效。后置阶段复用本步时间和输入，不再次消费边沿。
@@ -475,6 +481,10 @@ Material 同时保存贴图的源资产身份，`AssetManager` 只读接口获�
 贴图与环境数据均进入独立只读 storage buffer，不要求描述符索引扩展；未启用路径追踪的 raster 路径不保留这些 CPU 像素。
 几何／BVH、材质像素、HDR 环境与灯光使用独立不可变块；灯光或材质参数变化不重建几何，环境旋转／强度不重新解码图像。重采样只推进累积代次。
 `PathTracePass` 按块身份复用只读 GPU buffer；resize 仅换累积图与描述符。RenderGraph 沿同一 graphics queue 声明初始化、采样与显示，达到样本上限后只显示，不录制 compute；旧资源继续由在途 FrameSlot 保活。
+Alpha Mask／随机覆盖的 Alpha Blend 在射线命中、阴影可见性与发光面采样中共用基础色 alpha／裁切阈值，不另建透明材质权威。
+粗糙介质复用 PBR 参数区中的 transmission／IOR，GPU 在命中副本中按几何绕序区分进出，使用 GGX BTDF、Fresnel 和全反射；不修改共享材质，不维护嵌套介质栈。透射是独立于 alpha 覆盖的 BSDF 路径，光栅尚不消费这两个参数。
+显式导出在 RenderThread 通过现有 RenderGraph／ReadbackBuffer 复制当前积分图，等待复制完成后返回自有 RGBA32F；恢复采样布局并保留积分。
+宿主决定路径与当前曝光，CPU 编码复用 stb 写入 PNG／Radiance HDR，并沿用原子文件保存；HDR 不经过显示映射，编码与文件写入不放入逐帧渲染。
 相机与采样参数控制每个视图的累积，曝光只影响显示。RenderThread 不访问 ECS、资产数据库、窗口或 ImGui；路径追踪不叠加 raster 阴影、AO 或已烘焙 GI。
 
 内置材质采用 Forward PBR、方向／点／聚光灯、一盏方向光的四级阴影、最多四盏聚光灯与两盏点光源阴影；Skybox、IBL 与辅助线共用场景输出。
@@ -616,13 +626,16 @@ Presentation 的等待列表与 Queue 的提交／呈现参数转换使用调用
 
 ## 有序 RenderGraph
 
-当前图声明 imported 资源、有序 pass 和 exported usage，`compile` 生成不拥有 GPU 资源的 Plan；不改变 pass 顺序或自动分配资源。
+当前图声明 imported 资源、逻辑 Image／Buffer、有序 pass 和 exported usage，`compile` 生成不拥有 GPU 资源的 Plan，不改变 pass 顺序。
 编译按 image subresource／buffer 范围跟踪 writer、reader 和初始化，生成 RAW／WAR／WAW 与 layout 依赖。
+逻辑资源按首次／最后使用规划；描述完全相同且寿命不重叠时复用同一个 VkImage／VkBuffer，用途取并集。export 将寿命延长至图边界；未生产的读取和未使用的逻辑资源明确拒绝。
+首版逻辑图像是单 mip、单层 2D；其他图像和子资源继续 import。这里复用物理对象，不将不同对象绑定到同一块裸内存。
+`Plan::allocate` 创建各 GPU slot 独立的资源集合，SceneRenderer 缓存并在图变化时整体替换；Pass 只根据逻辑身份建立自己的 view／framebuffer。
 录制前核对绑定、范围和设备，再保活资源并执行 barrier／pass／export；回调失败立即退出该帧，已录命令不回滚。
 SceneRenderer 保存编译计划，每帧绑定当前 slot 目标；resize 更换 owner，旧目标由在途帧保留。
-重用目标即使以 Undefined 丢弃旧内容，也保留先前附件写入与采样的同步范围；丢弃不代表资源从未使用过。
+复用目标即使以 Undefined 丢弃旧内容，也保留先前逻辑使用者和该 slot 上一轮执行的读写范围；丢弃不代表资源从未使用过。
 图负责场景／阴影／Bloom 的同步；最终输出 RenderPass、ImGui、WSI 与 upload completion 仍有独立职责。
-资源别名规划与跨队列调度尚未实现。独立 RenderThread 已负责录制、提交与呈现，仍不改变图的 pass 顺序。
+跨描述裸内存别名、自动 pass 排序／裁剪与跨队列调度尚未实现。独立 RenderThread 已负责录制、提交与呈现。
 
 ## HDR 与 SDR 输出
 
@@ -632,7 +645,8 @@ App 直接呈现，Editor 离屏后经 ImGui 呈现并固定 SDR；场景输出�
 
 ### Bloom
 
-高亮提取、横纵模糊和 ping-pong 目标归 BloomPass，目标按帧槽拥有并由图声明依赖。
+BloomPass 声明高亮提取、横纵模糊三个逻辑输出，图编译将第一与第三个输出复用为两个物理目标；view、framebuffer、采样绑定和绘制归 BloomPass。
+这保持原来手动 ping-pong 的两个目标成本，不把三个逻辑输出都分配显存；资源规划不另建一套 Pass 内存池。
 启停／尺寸／画质通过完整 RenderState 候选替换，失败保留旧状态；当前没有自动曝光或局部后处理区域。
 
 ## Swapchain 与关闭

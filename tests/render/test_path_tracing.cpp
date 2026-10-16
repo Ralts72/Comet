@@ -287,6 +287,204 @@ namespace Comet::Tests {
         EXPECT_GT(mean.g, mean.b * 1.5f);
     }
 
+    TEST_F(PathTraceGpuTest, RefractionBendsRaysAndRoughnessBroadensTransmission) {
+        ASSERT_TRUE(material->set_vector_property("base_color", {1, 1, 1, 1}));
+        ASSERT_TRUE(material->set_scalar_property("transmission", 1));
+        ASSERT_TRUE(material->set_scalar_property("ior", 1));
+        ASSERT_TRUE(material->set_scalar_property("roughness", .045f));
+        mesh.vertices = {{{-3, -3, 0}, {0, 0}, {0, 0, 1}}, {{3, -3, 0}, {1, 0}, {0, 0, 1}},
+            {{0, 3, 0}, {.5f, 1}, {0, 0, 1}}};
+        source.render_items[0].model_matrix =
+            glm::rotate(Math::Mat4(1), glm::radians(30.f), Math::Vec3(0, 1, 0));
+        auto target = std::make_shared<Material>("target", "pbr");
+        ASSERT_TRUE(target->set_vector_property("base_color", {0, 0, 0, 1}));
+        ASSERT_TRUE(target->set_vector_property("emissive_color", {1, 1, 1, 1}));
+        TextureData texture{.width = 2,
+            .height = 1,
+            .format = Format::R8G8B8A8_UNORM,
+            .pixels = {255, 0, 0, 255, 0, 0, 255, 255},
+            .sampler = SamplerDesc{.mag_filter = Filter::Nearest, .min_filter = Filter::Nearest}};
+        auto gpu = engine->get_render_resource_factory().try_create_texture(texture);
+        ASSERT_TRUE(gpu);
+        images[AssetHandle(20)] = texture;
+        target->set_texture_property("emissive_texture", gpu.value(), AssetHandle(20));
+        auto plane = source.render_items[0];
+        plane.material.resource = target;
+        plane.model_matrix = Math::translate(Math::Mat4(1), {0, 0, -2});
+        source.render_items.push_back(plane);
+        view.path_trace_settings.bounces = 2;
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        ASSERT_NO_FATAL_FAILURE(draw());
+        EXPECT_GT(pixels()[16 * SIZE.x + 16].b, .9f);
+        ASSERT_TRUE(material->set_scalar_property("ior", 1.5f));
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        ASSERT_NO_FATAL_FAILURE(draw(128));
+        const auto clear = pixels()[16 * SIZE.x + 16];
+        EXPECT_GT(clear.r, .25f);
+        EXPECT_LT(clear.b, .03f);
+        ASSERT_TRUE(material->set_scalar_property("roughness", .6f));
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        ASSERT_NO_FATAL_FAILURE(draw(128));
+        const auto rough = pixels()[16 * SIZE.x + 16];
+        EXPECT_TRUE(Math::is_finite(rough));
+        EXPECT_GT(rough.b, clear.b + .025f);
+    }
+
+    TEST_F(PathTraceGpuTest, IndexMatchedTransmissionPassesThroughRegardlessOfRoughness) {
+        source.environment.background_color = {2, 1, .5f};
+        ASSERT_TRUE(material->set_vector_property("base_color", {1, 1, 1, 1}));
+        ASSERT_TRUE(material->set_scalar_property("transmission", 1));
+        ASSERT_TRUE(material->set_scalar_property("ior", 1));
+        ASSERT_TRUE(material->set_scalar_property("roughness", .7f));
+        view.path_trace_settings.bounces = 2;
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        ASSERT_NO_FATAL_FAILURE(draw());
+        EXPECT_EQ(mean(pixels()), Math::Vec3(2, 1, .5f));
+    }
+
+    TEST_F(PathTraceGpuTest, EnteringAndLeavingClosedGlassConservesConstantEnvironmentRadiance) {
+        source.environment.background_color = {2, 1, .5f};
+        ASSERT_TRUE(material->set_vector_property("base_color", {1, 1, 1, 1}));
+        ASSERT_TRUE(material->set_scalar_property("transmission", 1));
+        ASSERT_TRUE(material->set_scalar_property("roughness", .045f));
+        mesh.vertices.insert(
+            mesh.vertices.end(), {{{-20, -20, -1}, {}, {0, 0, -1}}, {{0, 20, -1}, {}, {0, 0, -1}},
+                                     {{20, -20, -1}, {}, {0, 0, -1}}});
+        mesh.indices = {0, 1, 2, 3, 4, 5};
+        view.path_trace_settings.bounces = 8;
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        ASSERT_NO_FATAL_FAILURE(draw(128));
+        auto image = pixels();
+        for(const auto pixel : image)
+            EXPECT_TRUE(Math::is_finite(pixel));
+        const auto color = mean(image);
+        EXPECT_NEAR(color.r, 2, .06);
+        EXPECT_NEAR(color.g, 1, .03);
+        EXPECT_NEAR(color.b, .5, .015);
+    }
+
+    TEST_F(PathTraceGpuTest, InsideMediumUsesCriticalAngleAndTotalInternalReflection) {
+        source.environment.background_color = {1, 1, 1};
+        ASSERT_TRUE(material->set_vector_property("base_color", {1, 1, 1, 1}));
+        ASSERT_TRUE(material->set_scalar_property("transmission", 1));
+        ASSERT_TRUE(material->set_scalar_property("roughness", .045f));
+        mesh.indices = {0, 2, 1};
+        for(auto& vertex : mesh.vertices)
+            vertex.normal = {0, 0, -1};
+        scene.cameras[0].view_matrix =
+            glm::lookAt(Math::Vec3(0, 0, 1), Math::Vec3(1.7320508f, 0, 0), Math::Vec3(0, 1, 0));
+        view.path_trace_settings.bounces = 2;
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        ASSERT_NO_FATAL_FAILURE(draw(128));
+        const auto reflected = mean(pixels());
+        EXPECT_NEAR(reflected.r, 1, .03);
+        ASSERT_TRUE(material->set_scalar_property("ior", 1.1f));
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        ASSERT_NO_FATAL_FAILURE(draw(128));
+        const auto transmitted = mean(pixels());
+        EXPECT_GT(transmitted.r, reflected.r + .12f);
+        EXPECT_LT(transmitted.r, 1.25f);
+    }
+
+    TEST_F(PathTraceGpuTest, ExportReadsNativeLinearPixelsAndPreservesAccumulationAndLayout) {
+        auto& renderer = engine->get_renderer();
+        EXPECT_FALSE(renderer.capture_path_trace());
+        source.environment.background_color = {0, 0, 2};
+        ASSERT_TRUE(material->set_vector_property("emissive_color", {4, 0, 0, 1}));
+        ASSERT_TRUE(material->set_scalar_property("emissive_strength", 1));
+        mesh.vertices = {
+            {{-1, 0, 0}, {}, {0, 0, 1}}, {{1, 0, 0}, {}, {0, 0, 1}}, {{0, 1, 0}, {}, {0, 0, 1}}};
+        scene.post_process.exposure = 2;
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        ASSERT_NO_FATAL_FAILURE(draw());
+        const auto expected = pixels();
+        auto captured = renderer.capture_path_trace();
+        ASSERT_TRUE(captured) << captured.error().message;
+        EXPECT_EQ(captured.value().format, Format::R32G32B32A32_SFLOAT);
+        EXPECT_EQ(captured.value().width, SIZE.x);
+        EXPECT_EQ(captured.value().height, SIZE.y);
+        const auto decoded = CpuTextureImage::decode(captured.value(), 1024 * 1024);
+        ASSERT_TRUE(decoded);
+        EXPECT_EQ(decoded.value().pixels, expected);
+        EXPECT_GT(mean(expected).r, 0);
+        EXPECT_GT(mean(expected).b, 0);
+        EXPECT_EQ(samples(), 1u);
+        ASSERT_NO_FATAL_FAILURE(draw());
+        EXPECT_EQ(samples(), 2u);
+        EXPECT_FALSE(renderer.capture_path_trace(9999));
+    }
+
+    TEST_F(PathTraceGpuTest, AlphaMaskUsesFactorAndTextureAndOpaqueIgnoresAlpha) {
+        source.environment.background_color = {0, 0, 1};
+        ASSERT_TRUE(material->set_scalar_property("emissive_strength", 1));
+        ASSERT_TRUE(material->set_vector_property("emissive_color", {1, 0, 0, 1}));
+        ASSERT_TRUE(material->set_vector_property("base_color", {1, 1, 1, .5f}));
+        ASSERT_TRUE(material->set_surface({.alpha_mode = AlphaMode::Mask, .alpha_cutoff = .25f}));
+        set_texture("base_color_texture", AssetHandle(20),
+            {.width = 2,
+                .height = 1,
+                .format = Format::R8G8B8A8_UNORM,
+                .pixels = {255, 255, 255, 64, 255, 255, 255, 255}});
+        view.path_trace_settings.bounces = 1;
+        for(auto& vertex : mesh.vertices)
+            vertex.texcoord = {.25f, .5f};
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        ASSERT_NO_FATAL_FAILURE(draw());
+        EXPECT_EQ(mean(pixels()), Math::Vec3(0, 0, 1));
+        for(auto& vertex : mesh.vertices)
+            vertex.texcoord = {.75f, .5f};
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        ASSERT_NO_FATAL_FAILURE(draw());
+        EXPECT_EQ(mean(pixels()), Math::Vec3(1, 0, 0));
+        ASSERT_TRUE(material->set_surface({.alpha_mode = AlphaMode::Opaque}));
+        ASSERT_TRUE(material->set_vector_property("base_color", {1, 1, 1, 0}));
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        ASSERT_NO_FATAL_FAILURE(draw());
+        EXPECT_EQ(mean(pixels()), Math::Vec3(1, 0, 0));
+    }
+
+    TEST_F(PathTraceGpuTest, CutoutBlockersDoNotCastSolidShadows) {
+        ASSERT_TRUE(material->set_scalar_property("roughness", 1));
+        source.lights = {{.type = LightType::Directional,
+            .direction = glm::normalize(Math::Vec3(-1, 0, -1)),
+            .intensity = 10}};
+        view.path_trace_settings.bounces = 1;
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        ASSERT_NO_FATAL_FAILURE(draw());
+        const auto clear = pixels()[16 * SIZE.x + 16];
+        auto cutout = std::make_shared<Material>("cutout", "pbr");
+        ASSERT_TRUE(cutout->set_surface({.alpha_mode = AlphaMode::Mask, .double_sided = true}));
+        ASSERT_TRUE(cutout->set_vector_property("base_color", {1, 1, 1, 0}));
+        auto blocker = source.render_items[0];
+        blocker.material.resource = cutout;
+        blocker.model_matrix =
+            Math::translate(Math::Mat4(1), {1, 0, 1}) * Math::scale(Math::Mat4(1), {.02f, .05f, 1});
+        source.render_items.push_back(blocker);
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        ASSERT_NO_FATAL_FAILURE(draw());
+        EXPECT_EQ(pixels()[16 * SIZE.x + 16], clear);
+        ASSERT_TRUE(cutout->set_vector_property("base_color", {1, 1, 1, 1}));
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        ASSERT_NO_FATAL_FAILURE(draw());
+        EXPECT_LT(pixels()[16 * SIZE.x + 16].r, .001f);
+        EXPECT_GT(clear.r, .1f);
+    }
+
+    TEST_F(PathTraceGpuTest, BlendCoverageConvergesWithoutSpendingBouncesOnHoles) {
+        source.environment.background_color = {0, 0, 1};
+        material = std::make_shared<Material>("blend", "unlit_color");
+        ASSERT_TRUE(material->set_surface({.alpha_mode = AlphaMode::Blend}));
+        ASSERT_TRUE(material->set_vector_property("color", {1, 0, 0, .25f}));
+        source.render_items[0].material.resource = material;
+        view.path_trace_settings.bounces = 1;
+        ASSERT_NO_FATAL_FAILURE(capture_source());
+        ASSERT_NO_FATAL_FAILURE(draw(128));
+        const auto color = mean(pixels());
+        EXPECT_NEAR(color.r, .25f, .01f);
+        EXPECT_NEAR(color.b, .75f, .01f);
+        EXPECT_FLOAT_EQ(color.g, 0);
+    }
+
     TEST_F(PathTraceGpuTest, AnalyticLightsUseBvhVisibility) {
         ASSERT_TRUE(material->set_vector_property("base_color", {.8f, .8f, .8f, 1}));
         ASSERT_TRUE(material->set_scalar_property("roughness", 1));
@@ -587,6 +785,10 @@ namespace Comet::Tests {
     TEST_F(PathTraceGpuTest, MaterialReferenceUsesImportedTexturesAndEnvironmentProducts) {
         ASSERT_NO_FATAL_FAILURE(capture_project_scene("scenes/path_tracing_materials.scene"));
         EXPECT_GT(view.path_trace->materials->textures.size(), 3u);
+        EXPECT_TRUE(std::ranges::any_of(view.path_trace->materials->surfaces,
+            [](const auto& surface) { return surface.opacity.z == float(AlphaMode::Mask); }));
+        EXPECT_TRUE(std::ranges::any_of(view.path_trace->materials->surfaces,
+            [](const auto& surface) { return surface.opacity.z == float(AlphaMode::Blend); }));
         EXPECT_GT(view.path_trace->environment_map->size.x, 0u);
         view.path_trace_settings.bounces = 3;
         ASSERT_NO_FATAL_FAILURE(draw(32));

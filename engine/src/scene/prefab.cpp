@@ -3,10 +3,26 @@
 #include "common/file_io.h"
 #include "common/json.h"
 #include "common/scope_exit.h"
+#include "common/binary.h"
 #include <unordered_set>
 
 namespace Comet {
     namespace {
+        EntityUuid member_uuid(EntityUuid instance, EntityUuid source) {
+            std::array<std::byte, 32> input;
+            for(size_t i = 0; i < 16; ++i) {
+                input[i] = std::byte(instance.bytes()[i]);
+                input[i + 16] = std::byte(source.bytes()[i]);
+            }
+            const std::array hashes{Binary::hash_bytes(input),
+                Binary::hash_bytes(input, Binary::HASH_SEED ^ 0x9e3779b97f4a7c15ull)};
+            Uuid::Bytes bytes;
+            for(size_t i = 0; i < bytes.size(); ++i)
+                bytes[i] = static_cast<uint8_t>(hashes[i / 8] >> ((i % 8) * 8));
+            bytes[6] = (bytes[6] & 0x0f) | 0x80;
+            bytes[8] = (bytes[8] & 0x3f) | 0x80;
+            return EntityUuid(bytes);
+        }
         Entity single_root(Scene& scene) {
             Entity root;
             for(const auto entity : scene.get_entities()) {
@@ -50,8 +66,28 @@ namespace Comet {
             return true;
         }
 
+        bool same_instance(const ComponentRegistry& registry, Entity a, Entity b) {
+            const auto has = [](Entity entity) {
+                return entity && entity.has_component<PrefabInstanceComponent>();
+            };
+            if(has(a) != has(b))
+                return false;
+            if(!has(a))
+                return true;
+            const auto& left = a.get_component<PrefabInstanceComponent>();
+            const auto& right = b.get_component<PrefabInstanceComponent>();
+            if(left.asset != right.asset || left.source_type != right.source_type
+                || left.entities != right.entities || !left.base || !right.base)
+                return false;
+            const auto left_content = left.base->serialize(registry);
+            const auto right_content = right.base->serialize(registry);
+            return left_content && right_content && left_content.value() == right_content.value();
+        }
+
         bool same_entity(const ComponentRegistry& registry, Entity a, Entity b) {
             if(a.get_component<NameComponent>().name != b.get_component<NameComponent>().name)
+                return false;
+            if(!same_instance(registry, a, b))
                 return false;
             for(const auto& component : registry.components())
                 if(component.serializable && !same_component(component, a, b))
@@ -142,9 +178,8 @@ namespace Comet {
         if(!entities)
             return Result<Prefab>::failure("Cannot capture prefab subtree");
         entities->front().parent = {};
-        // 保存为独立资产时展开已有实例，不隐式创建嵌套 Prefab。
-        for(auto& entity : *entities)
-            entity.prefab.reset();
+        // 根的来源不写成自身变体；子树中的实例保留独立来源和覆盖。
+        entities->front().prefab.reset();
         Scene isolated;
         if(!EntityTrees::restore(isolated, registry, *entities))
             return Result<Prefab>::failure("Cannot restore prefab subtree");
@@ -184,12 +219,11 @@ namespace Comet {
         auto scene = SceneSerializer(registry).deserialize(contents, source);
         if(!scene)
             return Result<Prefab>::failure(scene.error());
-        for(const auto entity : scene.value()->get_entities())
-            if(entity.has_component<PrefabInstanceComponent>())
-                return Result<Prefab>::failure("Prefab source must not contain instance metadata");
         auto root = single_root(*scene.value());
         if(!root)
             return Result<Prefab>::failure("Prefab must contain exactly one root entity");
+        if(root.has_component<PrefabInstanceComponent>())
+            return Result<Prefab>::failure("Prefab source root must not be a variant instance");
         auto entities = EntityTrees::capture(*scene.value(), registry, root);
         if(!entities
             || !EntityTrees::has_only_internal_references(*scene.value(), registry, *entities))
@@ -203,6 +237,63 @@ namespace Comet {
         if(!contents)
             return Result<Prefab>::failure(contents.error());
         return deserialize(contents.value(), registry, path.string());
+    }
+
+    Result<Prefab> Prefab::resolve_nested(const ComponentRegistry& registry,
+        const AssetHandle source, const SourceLoader& load) const {
+        std::unordered_set<AssetHandle> visiting;
+        std::unordered_map<AssetHandle, Prefab> resolved;
+        const auto resolve = [&](auto&& self, const Prefab& content, AssetHandle handle,
+                                 size_t depth) -> Result<Prefab> {
+            if(depth >= SceneSerializer::MAX_PREFAB_DEPTH
+                || (handle && !visiting.insert(handle).second))
+                return Result<Prefab>::failure("Prefab source cycle or nesting depth exceeded");
+            const ScopeExit leave([&] {
+                if(handle)
+                    visiting.erase(handle);
+            });
+            Scene candidate;
+            if(!EntityTrees::restore(candidate, registry, content.m_entities))
+                return Result<Prefab>::failure("Cannot restore nested Prefab content");
+            std::vector<EntityUuid> pending{content.root_uuid()};
+            for(size_t index = 0; index < pending.size(); ++index) {
+                auto root = candidate.find_entity(pending[index]);
+                if(!root)
+                    continue;
+                if(!root.has_component<PrefabInstanceComponent>()
+                    || root.get_component<PrefabInstanceComponent>().source_type
+                           != AssetType::Prefab) {
+                    for(const auto child : candidate.get_children(root))
+                        pending.push_back(child.get_uuid());
+                    continue;
+                }
+                const auto asset = root.get_component<PrefabInstanceComponent>().asset;
+                if(visiting.contains(asset))
+                    return Result<Prefab>::failure("Prefab source dependency forms a cycle");
+                auto found = resolved.find(asset);
+                if(found == resolved.end()) {
+                    auto loaded = load(asset);
+                    if(!loaded)
+                        return Result<Prefab>::failure(loaded.error());
+                    auto nested = self(self, loaded.value(), asset, depth + 1);
+                    if(!nested)
+                        return nested;
+                    found = resolved.emplace(asset, std::move(nested).value()).first;
+                }
+                auto updated = found->second.update_candidate(candidate, registry, root);
+                if(!updated)
+                    return Result<Prefab>::failure(updated.error());
+                candidate.destroy_entity(root);
+                if(!EntityTrees::restore(candidate, registry, updated.value()))
+                    return Result<Prefab>::failure("Cannot restore nested Prefab update");
+                root = candidate.find_entity(pending[index]);
+                // 也刷新实例本地新增的内层 Prefab；它们不属于源资产的定义。
+                for(const auto child : candidate.get_children(root))
+                    pending.push_back(child.get_uuid());
+            }
+            return capture(candidate, registry, candidate.find_entity(content.root_uuid()));
+        };
+        return resolve(resolve, *this, source, 0);
     }
 
     Result<std::string> Prefab::serialize(const ComponentRegistry& registry) const {
@@ -228,6 +319,9 @@ namespace Comet {
         if(root_position && !Math::is_finite(*root_position))
             return Result<Entity>::failure("Invalid prefab placement");
         auto entities = m_entities;
+        if(!source)
+            for(auto& entity : entities)
+                entity.prefab.reset();
         auto remap = EntityTrees::make_instance_ids(entities, scene, parent, reserved_root);
         if(!remap || !EntityTrees::restore(scene, registry, entities, *remap))
             return Result<Entity>::failure("Cannot instantiate prefab subtree");
@@ -281,10 +375,11 @@ namespace Comet {
             if(const auto found = link.entities.find(source.uuid); found != link.entities.end())
                 id = found->second;
             else {
-                do {
-                    id = EntityUuid::generate();
-                } while(scene.find_entity(id) || occupied.contains(id));
-                occupied.insert(id);
+                // 内层资产新增节点在反复展开时也需要稳定身份。
+                id = member_uuid(instance_root.get_uuid(), source.uuid);
+                if(scene.find_entity(id) || !occupied.insert(id).second)
+                    return Update::failure(
+                        "New Prefab member identity conflicts with local content");
             }
             mapping.emplace(source.uuid, id);
         }
@@ -337,6 +432,18 @@ namespace Comet {
                        == original.get_component<NameComponent>().name)
                 local.get_component<NameComponent>().name =
                     next.get_component<NameComponent>().name;
+            // 内层实例没有独立更新／解除时跟随外层来源；独立改变的来源关系保留。
+            if(same_instance(registry, original, local)) {
+                if(next.has_component<PrefabInstanceComponent>()) {
+                    if(local.has_component<PrefabInstanceComponent>())
+                        local.get_component<PrefabInstanceComponent>() =
+                            next.get_component<PrefabInstanceComponent>();
+                    else
+                        local.add_component<PrefabInstanceComponent>(
+                            next.get_component<PrefabInstanceComponent>());
+                } else if(local.has_component<PrefabInstanceComponent>())
+                    local.remove_component<PrefabInstanceComponent>();
+            }
             for(const auto& component : registry.components()) {
                 if(!component.serializable
                     || (id == instance_root.get_uuid() && component.id == "transform"))
@@ -425,8 +532,7 @@ namespace Comet {
         }
         auto content = instance;
         content.front().parent = {};
-        for(auto& entity : content)
-            entity.prefab.reset();
+        content.front().prefab.reset();
         // 场景中的根变换用于放置，写回源内容时保留原来的根变换。
         auto& root_components = content.front().components;
         std::erase_if(
@@ -440,8 +546,7 @@ namespace Comet {
         auto source = capture(source_scene, registry, source_scene.find_entity(root_uuid()));
         if(!source)
             return Update::failure(source.error());
-        for(auto& entity : instance)
-            entity.prefab.reset();
+        instance.front().prefab.reset();
         instance.front().prefab = std::make_shared<const PrefabInstanceComponent>(
             PrefabInstanceComponent{link->asset, std::make_shared<const Prefab>(source.value()),
                 std::move(to_instance), link->source_type});

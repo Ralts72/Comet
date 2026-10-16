@@ -217,4 +217,81 @@ namespace Comet::Tests {
         EXPECT_TRUE(static_cast<bool>(state.resource.stages & PipelineStage::Transfer));
         EXPECT_TRUE(static_cast<bool>(state.resource.access & Access::TransferWrite));
     }
+
+    TEST_F(RenderGraphTest, PlansByUseOrderAndKeepsOverlappingAndExportedContentsIndependent) {
+        const RenderGraph::ImageDescription description{Format::R16G16B16A16_SFLOAT, 64, 32};
+        const auto c = graph.create_image("later", description);
+        const auto a = graph.create_image("first", description);
+        const auto b = graph.create_image("overlap", description);
+        const auto d = graph.create_image("last", description);
+        pass("produce a", a, ResourceUsage::ColorAttachmentWrite);
+        graph.add_pass({"a to b", {{a, ResourceUsage::SampledRead, fragment},
+                                      {b, ResourceUsage::ColorAttachmentWrite, {}}}});
+        graph.add_pass({"b to c", {{b, ResourceUsage::SampledRead, fragment},
+                                      {c, ResourceUsage::ColorAttachmentWrite, {}}}});
+        pass("produce d", d, ResourceUsage::ColorAttachmentWrite);
+        graph.export_resource({c, ResourceUsage::SampledRead, fragment});
+        const auto plan = graph.compile();
+        ASSERT_TRUE(plan) << plan.error();
+        const auto lifetimes = plan.value().get_lifetimes();
+        ASSERT_EQ(plan.value().get_allocations().size(), 2u);
+        EXPECT_EQ(lifetimes[c.index].first, 2u);
+        EXPECT_EQ(lifetimes[c.index].last, 4u);
+        EXPECT_EQ(lifetimes[a.index].allocation, lifetimes[c.index].allocation);
+        EXPECT_EQ(lifetimes[b.index].allocation, lifetimes[d.index].allocation);
+        EXPECT_NE(lifetimes[a.index].allocation, lifetimes[b.index].allocation);
+        const auto& barriers = plan.value().get_passes()[2].barriers;
+        const auto transition = std::ranges::find(barriers, c, &RenderGraph::Barrier::resource);
+        ASSERT_NE(transition, barriers.end());
+        const auto before = std::get<ImageState>(transition->before);
+        EXPECT_EQ(before.layout, ImageLayout::Undefined);
+        EXPECT_TRUE(static_cast<bool>(before.resource.stages & PipelineStage::FragmentShader));
+        EXPECT_TRUE(static_cast<bool>(before.resource.access & Access::ShaderRead));
+        const auto independent = graph.compile(false);
+        ASSERT_TRUE(independent);
+        EXPECT_EQ(independent.value().get_allocations().size(), 4u);
+    }
+
+    TEST_F(RenderGraphTest, BufferPlanningUnionsUsageAndRequiresExactDescriptions) {
+        const auto a = graph.create_buffer("a", {64});
+        const auto b = graph.create_buffer("b", {64});
+        const auto larger = graph.create_buffer("larger", {128});
+        pass("fill a", a, ResourceUsage::TransferDestination);
+        pass("read a", a, ResourceUsage::UniformRead, vertex);
+        pass("fill b", b, ResourceUsage::TransferDestination);
+        pass("read b", b, ResourceUsage::StorageRead, fragment);
+        pass("fill larger", larger, ResourceUsage::TransferDestination);
+        const auto plan = graph.compile();
+        ASSERT_TRUE(plan) << plan.error();
+        ASSERT_EQ(plan.value().get_allocations().size(), 2u);
+        const auto flags = plan.value().get_allocations()[0].buffer_usage;
+        EXPECT_TRUE(static_cast<bool>(flags & BufferUsage::CopyDst));
+        EXPECT_TRUE(static_cast<bool>(flags & BufferUsage::Uniform));
+        EXPECT_TRUE(static_cast<bool>(flags & BufferUsage::Storage));
+        const auto before = std::get<RenderGraph::BufferState>(
+            plan.value().get_passes()[2].barriers.front().before);
+        EXPECT_TRUE(static_cast<bool>(before.resource.stages & PipelineStage::VertexShader));
+        EXPECT_TRUE(static_cast<bool>(before.resource.access & Access::UniformRead));
+    }
+
+    TEST_F(RenderGraphTest, TransientsRejectMissingProducersAndInvalidDescriptions) {
+        auto id = graph.create_image("empty", {Format::R8G8B8A8_UNORM, 8, 8});
+        pass("read", id, ResourceUsage::SampledRead, fragment);
+        EXPECT_FALSE(graph.compile());
+        graph = {};
+        id = graph.create_buffer("rmw", {64});
+        pass("rmw", id, ResourceUsage::StorageReadWrite, fragment);
+        EXPECT_FALSE(graph.compile());
+        graph = {};
+        static_cast<void>(graph.create_image("unused", {Format::R8G8B8A8_UNORM, 8, 8}));
+        EXPECT_FALSE(graph.compile());
+        graph = {};
+        id = graph.create_image("zero width", {Format::R8G8B8A8_UNORM, 0, 8});
+        pass("write", id, ResourceUsage::ColorAttachmentWrite);
+        EXPECT_FALSE(graph.compile());
+        graph = {};
+        id = graph.create_buffer("zero size", {0});
+        pass("write", id, ResourceUsage::TransferDestination);
+        EXPECT_FALSE(graph.compile());
+    }
 }

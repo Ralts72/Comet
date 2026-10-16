@@ -11,5 +11,6 @@
 *.wav filter=lfs diff=lfs merge=lfs -text
 *.glb filter=lfs diff=lfs merge=lfs -text
 *.gi filter=lfs diff=lfs merge=lfs -text
+*.nav filter=lfs diff=lfs merge=lfs -text
 demo/assets/environments/probes/*.hdr filter=lfs diff=lfs merge=lfs -text
 demo/assets/baked/*.hdr filter=lfs diff=lfs merge=lfs -text

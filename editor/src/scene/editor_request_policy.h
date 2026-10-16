@@ -11,7 +11,7 @@ namespace CometEditor {
         SavePrefab,
         MeshDrop,
         AssetAssignment,
-        LightingBake
+        Bake
     };
 
     struct SceneRequestAvailability {
@@ -23,7 +23,7 @@ namespace CometEditor {
         bool save_prefab = false;
         bool mesh_drop = false;
         bool asset_assignment = false;
-        bool lighting_bake = false;
+        bool bake = false;
         bool document_pending = false;
         bool dialog_cancelled = false;
     };
@@ -51,8 +51,8 @@ namespace CometEditor {
             return SceneRequestKind::MeshDrop;
         if(requests.asset_assignment)
             return SceneRequestKind::AssetAssignment;
-        if(requests.lighting_bake)
-            return SceneRequestKind::LightingBake;
+        if(requests.bake)
+            return SceneRequestKind::Bake;
         return SceneRequestKind::None;
     }
 }

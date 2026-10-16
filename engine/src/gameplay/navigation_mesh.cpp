@@ -1,5 +1,10 @@
 #include "gameplay/navigation_mesh.h"
 #include "scene/components.h"
+#include "asset/data/navigation_data.h"
+#include "common/binary.h"
+#include <bit>
+#include <cstring>
+#include <utility>
 #include <Recast.h>
 #include <DetourNavMesh.h>
 #include <DetourNavMeshBuilder.h>
@@ -11,6 +16,139 @@
 #include <numeric>
 
 namespace Comet::Gameplay {
+    namespace {
+        Result<rcConfig> configuration(std::span<const Math::Vec3> triangles, Math::Vec3 center,
+            const NavigationRegionComponent& s) {
+            const auto fail = [](const char* message) {
+                return Result<rcConfig>::failure(message);
+            };
+            if(!Math::is_finite(center) || !Math::is_finite(s.half_extents)
+                || !glm::all(glm::greaterThan(s.half_extents, Math::Vec3(0)))
+                || !std::isfinite(s.cell_size) || s.cell_size < 0.05f || s.cell_size > 2
+                || !std::isfinite(s.agent_radius) || s.agent_radius <= 0 || s.agent_radius > 10
+                || !std::isfinite(s.agent_height) || s.agent_height < s.agent_radius * 2
+                || s.agent_height > 20 || !std::isfinite(s.max_climb) || s.max_climb < 0
+                || s.max_climb > s.agent_height || !std::isfinite(s.max_slope) || s.max_slope < 0
+                || s.max_slope >= 90)
+                return fail("Invalid navigation region dimensions or agent settings");
+            if(triangles.empty() || triangles.size() % 3 || triangles.size() > 3000000)
+                return fail("Navigation requires between one and one million triangles");
+            rcConfig cfg{};
+            cfg.cs = s.cell_size;
+            cfg.ch = std::min(0.1f, cfg.cs * 0.5f);
+            const auto minimum = center - s.half_extents;
+            const auto maximum = center + s.half_extents;
+            if(!Math::is_finite(minimum) || !Math::is_finite(maximum)
+                || 2.0 * s.half_extents.x / cfg.cs > 4096 || 2.0 * s.half_extents.z / cfg.cs > 4096
+                || 2.0 * s.half_extents.y / cfg.ch > 65000)
+                return fail("Navigation region exceeds voxel limits");
+            std::copy_n(&minimum.x, 3, cfg.bmin);
+            std::copy_n(&maximum.x, 3, cfg.bmax);
+            rcCalcGridSize(cfg.bmin, cfg.bmax, cfg.cs, &cfg.width, &cfg.height);
+            if(cfg.width < 3 || cfg.height < 3 || int64_t(cfg.width) * cfg.height > 2000000)
+                return fail("Navigation region exceeds two million ground cells");
+            cfg.walkableSlopeAngle = s.max_slope;
+            cfg.walkableHeight = int(std::ceil(s.agent_height / cfg.ch));
+            cfg.walkableClimb = int(std::floor(s.max_climb / cfg.ch));
+            cfg.walkableRadius = int(std::ceil(s.agent_radius / cfg.cs));
+            cfg.maxEdgeLen = int(12 / cfg.cs);
+            cfg.maxSimplificationError = 1.3f;
+            cfg.minRegionArea = 0;
+            cfg.mergeRegionArea = 20 * 20;
+            cfg.maxVertsPerPoly = 6;
+            cfg.detailSampleDist = cfg.cs * 6;
+            cfg.detailSampleMaxError = cfg.ch;
+            for(const auto point : triangles)
+                if(!Math::is_finite(point))
+                    return fail("Navigation geometry contains nonfinite vertices");
+            return Result<rcConfig>::success(cfg);
+        }
+        Result<void> validate_product(const NavigationData& product) {
+            const auto fail = [](const char* message) { return Result<void>::failure(message); };
+            if(auto valid = product.validate(); !valid)
+                return valid;
+            const uint32_t byte_order = std::endian::native == std::endian::little ? 1 : 2;
+            if(product.library_version != DT_NAVMESH_VERSION
+                || product.reference_bytes != sizeof(dtPolyRef) || product.byte_order != byte_order
+                || product.tile.size() < sizeof(dtMeshHeader))
+                return fail("Navigation backend format changed; rebake the product");
+            dtMeshHeader header;
+            std::memcpy(&header, product.tile.data(), sizeof(header));
+            if(header.magic != DT_NAVMESH_MAGIC || header.version != DT_NAVMESH_VERSION
+                || header.polyCount <= 0 || header.polyCount > 1000000 || header.vertCount < 3
+                || header.vertCount >= 65535 || header.maxLinkCount <= 0
+                || header.detailMeshCount != header.polyCount || header.detailVertCount < 0
+                || header.detailTriCount <= 0 || header.bvNodeCount < 0
+                || header.offMeshConCount != 0 || header.offMeshBase != header.polyCount)
+                return fail("Invalid navigation tile counts or unsupported off-mesh connections");
+            const auto aligned = [](uint64_t size) { return (size + 3) & ~uint64_t(3); };
+            const uint64_t vertices = aligned(sizeof(dtMeshHeader));
+            const uint64_t polygons =
+                vertices + aligned(uint64_t(header.vertCount) * 3 * sizeof(float));
+            const uint64_t links = polygons + aligned(uint64_t(header.polyCount) * sizeof(dtPoly));
+            const uint64_t details =
+                links + aligned(uint64_t(header.maxLinkCount) * sizeof(dtLink));
+            const uint64_t detail_vertices =
+                details + aligned(uint64_t(header.detailMeshCount) * sizeof(dtPolyDetail));
+            const uint64_t triangles =
+                detail_vertices + aligned(uint64_t(header.detailVertCount) * 3 * sizeof(float));
+            const uint64_t tree = triangles + aligned(uint64_t(header.detailTriCount) * 4);
+            const uint64_t size = tree + aligned(uint64_t(header.bvNodeCount) * sizeof(dtBVNode));
+            if(size != product.tile.size())
+                return fail("Navigation tile counts exceed its payload");
+            const auto read = [&]<typename T>(uint64_t offset) {
+                T value;
+                std::memcpy(&value, product.tile.data() + offset, sizeof(value));
+                return value;
+            };
+            for(int axis = 0; axis < 3; ++axis)
+                if(!std::isfinite(header.bmin[axis]) || !std::isfinite(header.bmax[axis])
+                    || header.bmin[axis] > header.bmax[axis])
+                    return fail("Invalid navigation tile bounds");
+            if(!std::isfinite(header.bvQuantFactor) || header.bvQuantFactor <= 0)
+                return fail("Invalid navigation tile quantization");
+            for(const auto& [offset, count] : {std::pair{vertices, header.vertCount},
+                    std::pair{detail_vertices, header.detailVertCount}})
+                for(int i = 0; i < count * 3; ++i)
+                    if(!std::isfinite(
+                           read.template operator()<float>(offset + uint64_t(i) * sizeof(float))))
+                        return fail("Navigation tile contains nonfinite vertices");
+            for(int i = 0; i < header.polyCount; ++i) {
+                const auto poly =
+                    read.template operator()<dtPoly>(polygons + uint64_t(i) * sizeof(dtPoly));
+                const auto detail = read.template operator()<dtPolyDetail>(
+                    details + uint64_t(i) * sizeof(dtPolyDetail));
+                if(poly.vertCount < 3 || poly.vertCount > DT_VERTS_PER_POLYGON
+                    || poly.getType() != DT_POLYTYPE_GROUND
+                    || uint64_t(detail.vertBase) + detail.vertCount
+                           > uint64_t(header.detailVertCount)
+                    || uint64_t(detail.triBase) + detail.triCount > uint64_t(header.detailTriCount))
+                    return fail("Invalid navigation polygon or detail range");
+                for(int vertex = 0; vertex < poly.vertCount; ++vertex)
+                    if(poly.verts[vertex] >= header.vertCount
+                        || (!(poly.neis[vertex] & DT_EXT_LINK)
+                            && poly.neis[vertex] > header.polyCount))
+                        return fail("Navigation polygon references an invalid vertex or neighbor");
+                for(unsigned triangle = 0; triangle < detail.triCount; ++triangle)
+                    for(unsigned vertex = 0; vertex < 3; ++vertex) {
+                        const auto index = std::to_integer<unsigned>(
+                            product.tile[triangles + (uint64_t(detail.triBase) + triangle) * 4
+                                         + vertex]);
+                        if(index >= unsigned(poly.vertCount) + detail.vertCount)
+                            return fail("Navigation detail triangle references an invalid vertex");
+                    }
+            }
+            for(int i = 0; i < header.bvNodeCount; ++i) {
+                const auto node =
+                    read.template operator()<dtBVNode>(tree + uint64_t(i) * sizeof(dtBVNode));
+                if(node.i >= header.polyCount
+                    || (node.i < 0 && -int64_t(node.i) > header.bvNodeCount - i))
+                    return fail("Navigation BVH references an invalid node");
+            }
+            return Result<void>::success();
+        }
+    }
+
     struct NavigationMesh::Impl {
         std::unique_ptr<dtNavMesh, decltype(&dtFreeNavMesh)> mesh{nullptr, dtFreeNavMesh};
         std::unique_ptr<dtNavMeshQuery, decltype(&dtFreeNavMeshQuery)> query{
@@ -32,51 +170,89 @@ namespace Comet::Gameplay {
         return bool(m_impl);
     }
 
+    Result<uint64_t> NavigationMesh::input_fingerprint(std::span<const Math::Vec3> triangles,
+        Math::Vec3 center, const NavigationRegionComponent& settings) {
+        if(auto described = configuration(triangles, center, settings); !described)
+            return Result<uint64_t>::failure(described.error());
+        std::vector<uint64_t> triangle_hashes;
+        triangle_hashes.reserve(triangles.size() / 3);
+        for(size_t i = 0; i < triangles.size(); i += 3) {
+            std::array<float, 9> values;
+            for(size_t vertex = 0; vertex < 3; ++vertex)
+                for(int axis = 0; axis < 3; ++axis) {
+                    const float value = triangles[i + vertex][axis];
+                    values[vertex * 3 + axis] = value == 0 ? 0 : value;
+                }
+            triangle_hashes.push_back(Binary::hash_bytes(std::as_bytes(std::span(values))));
+        }
+        // 后端或实体插入顺序改变不会让相同碰撞几何失效；绕序仍参与身份。
+        std::ranges::sort(triangle_hashes);
+        Binary::Writer input;
+        input.write_u32(1); // 烘焙算法版本；改变 Recast 构建策略时更新。
+        input.write_u32(DT_NAVMESH_VERSION);
+        input.write_u32(sizeof(dtPolyRef));
+        input.write_u32(std::endian::native == std::endian::little ? 1 : 2);
+        for(const auto vector : {center, settings.half_extents})
+            for(int axis = 0; axis < 3; ++axis)
+                input.write_float(vector[axis] == 0 ? 0 : vector[axis]);
+        for(const float value : {settings.cell_size, settings.agent_radius, settings.agent_height,
+                settings.max_climb, settings.max_slope})
+            input.write_float(value == 0 ? 0 : value);
+        return Result<uint64_t>::success(Binary::hash_bytes(
+            std::as_bytes(std::span(triangle_hashes)), Binary::hash_bytes(input.data())));
+    }
+
+    Result<NavigationData> NavigationMesh::product(const uint64_t fingerprint) const {
+        if(!m_impl)
+            return Result<NavigationData>::failure("Navigation product requires a built mesh");
+        const auto* tile = std::as_const(*m_impl->mesh).getTile(0);
+        if(!tile || !tile->data || tile->dataSize <= 0)
+            return Result<NavigationData>::failure("Navigation mesh has no tile");
+        NavigationData result{.library_version = DT_NAVMESH_VERSION,
+            .reference_bytes = sizeof(dtPolyRef),
+            .byte_order = std::endian::native == std::endian::little ? 1u : 2u,
+            .input_fingerprint = fingerprint,
+            .query_extents = m_impl->extents};
+        const auto* bytes = reinterpret_cast<const std::byte*>(tile->data);
+        result.tile.assign(bytes, bytes + tile->dataSize);
+        if(auto valid = result.validate(); !valid)
+            return Result<NavigationData>::failure(valid.error());
+        return Result<NavigationData>::success(std::move(result));
+    }
+
+    Result<void> NavigationMesh::load(const NavigationData& product) {
+        if(auto valid = validate_product(product); !valid)
+            return valid;
+        const auto fail = [](const char* message) { return Result<void>::failure(message); };
+        auto result = std::make_unique<Impl>();
+        result->mesh.reset(dtAllocNavMesh());
+        result->query.reset(dtAllocNavMeshQuery());
+        auto* data = static_cast<unsigned char*>(dtAlloc(product.tile.size(), DT_ALLOC_PERM));
+        std::unique_ptr<unsigned char, decltype(&dtFree)> owned(data, dtFree);
+        if(!result->mesh || !result->query || !data)
+            return fail("Cannot allocate navigation product");
+        std::memcpy(data, product.tile.data(), product.tile.size());
+        if(dtStatusFailed(result->mesh->init(data, int(product.tile.size()), DT_TILE_FREE_DATA)))
+            return fail("Cannot initialize navigation product");
+        owned.release();
+        if(dtStatusFailed(result->query->init(result->mesh.get(), 2048)))
+            return fail("Cannot initialize navigation product query");
+        result->extents = product.query_extents;
+        m_impl = std::move(result);
+        return Result<void>::success();
+    }
+
     Result<void> NavigationMesh::build(std::span<const Math::Vec3> triangles, Math::Vec3 center,
         const NavigationRegionComponent& s) {
         clear();
+        auto described = configuration(triangles, center, s);
+        if(!described)
+            return Result<void>::failure(described.error());
+        const auto cfg = described.value();
         const auto fail = [](const char* message) { return Result<void>::failure(message); };
-        if(!Math::is_finite(center) || !Math::is_finite(s.half_extents)
-            || !glm::all(glm::greaterThan(s.half_extents, Math::Vec3(0)))
-            || !std::isfinite(s.cell_size) || s.cell_size < 0.05f || s.cell_size > 2
-            || !std::isfinite(s.agent_radius) || s.agent_radius <= 0 || s.agent_radius > 10
-            || !std::isfinite(s.agent_height) || s.agent_height < s.agent_radius * 2
-            || s.agent_height > 20 || !std::isfinite(s.max_climb) || s.max_climb < 0
-            || s.max_climb > s.agent_height || !std::isfinite(s.max_slope) || s.max_slope < 0
-            || s.max_slope >= 90)
-            return fail("Invalid navigation region dimensions or agent settings");
-        if(triangles.empty() || triangles.size() % 3 || triangles.size() > 3000000)
-            return fail("Navigation requires between one and one million triangles");
-        rcConfig cfg{};
-        cfg.cs = s.cell_size;
-        cfg.ch = std::min(0.1f, cfg.cs * 0.5f);
-        const auto minimum = center - s.half_extents;
-        const auto maximum = center + s.half_extents;
-        if(!Math::is_finite(minimum) || !Math::is_finite(maximum)
-            || 2.0 * s.half_extents.x / cfg.cs > 4096 || 2.0 * s.half_extents.z / cfg.cs > 4096
-            || 2.0 * s.half_extents.y / cfg.ch > 65000)
-            return fail("Navigation region exceeds voxel limits");
-        std::copy_n(&minimum.x, 3, cfg.bmin);
-        std::copy_n(&maximum.x, 3, cfg.bmax);
-        rcCalcGridSize(cfg.bmin, cfg.bmax, cfg.cs, &cfg.width, &cfg.height);
-        if(cfg.width < 3 || cfg.height < 3 || int64_t(cfg.width) * cfg.height > 2000000)
-            return fail("Navigation region exceeds two million ground cells");
-        cfg.walkableSlopeAngle = s.max_slope;
-        cfg.walkableHeight = int(std::ceil(s.agent_height / cfg.ch));
-        cfg.walkableClimb = int(std::floor(s.max_climb / cfg.ch));
-        cfg.walkableRadius = int(std::ceil(s.agent_radius / cfg.cs));
-        cfg.maxEdgeLen = int(12 / cfg.cs);
-        cfg.maxSimplificationError = 1.3f;
-        cfg.minRegionArea = 0;
-        cfg.mergeRegionArea = 20 * 20;
-        cfg.maxVertsPerPoly = 6;
-        cfg.detailSampleDist = cfg.cs * 6;
-        cfg.detailSampleMaxError = cfg.ch;
         std::vector<float> vertices;
         vertices.reserve(triangles.size() * 3);
         for(const auto point : triangles) {
-            if(!Math::is_finite(point))
-                return fail("Navigation geometry contains nonfinite vertices");
             vertices.insert(vertices.end(), {point.x, point.y, point.z});
         }
         std::vector<int> indices(triangles.size());

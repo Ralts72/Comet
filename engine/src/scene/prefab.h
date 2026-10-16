@@ -4,6 +4,7 @@
 
 #include "scene/entity_tree.h"
 #include <filesystem>
+#include <functional>
 
 namespace Comet {
     struct ModelData;
@@ -19,9 +20,14 @@ namespace Comet {
             const ComponentRegistry& registry, std::string_view source = "<prefab>");
         [[nodiscard]] static Result<Prefab> load(
             const std::filesystem::path& path, const ComponentRegistry& registry);
+        using SourceLoader = std::function<Result<Prefab>(AssetHandle)>;
+        // 在独立候选中刷新内层来源，保留覆盖；循环／冲突不发布部分结果。
+        [[nodiscard]] Result<Prefab> resolve_nested(
+            const ComponentRegistry& registry, AssetHandle source, const SourceLoader& load) const;
         [[nodiscard]] Result<std::string> serialize(const ComponentRegistry& registry) const;
         [[nodiscard]] Result<void> save(
             const std::filesystem::path& path, const ComponentRegistry& registry) const;
+        // source 为空时生成纯运行内容；提供来源时保留各层编辑关联。
         [[nodiscard]] Result<Entity> instantiate(Scene& scene, const ComponentRegistry& registry,
             std::optional<Math::Vec3> root_position = std::nullopt, EntityUuid parent = {},
             AssetHandle source = {}, AssetType source_type = AssetType::Prefab,

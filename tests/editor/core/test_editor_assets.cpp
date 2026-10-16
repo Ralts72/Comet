@@ -382,6 +382,63 @@ namespace CometEditor::Tests {
         }
     };
 
+    TEST_F(PrefabEditingTest, NestedUpdateKeepsLocalOverridesAndUndoRestoresBothInstanceLevels) {
+        const auto assembly = SceneCommands::create_entity(history, components, "Assembly");
+        ASSERT_TRUE(assembly);
+        ASSERT_TRUE(SceneCommands::reparent_entity(history, first, assembly));
+        const auto assembly_path = path.parent_path() / "assembly.prefab";
+        ASSERT_TRUE(editor->save_prefab(&scene, assembly, assembly_path, history.generation()));
+        const auto handle = assets->database().find("assembly.prefab")->handle;
+        ASSERT_TRUE(assets->load_reference(
+            handle, Comet::AssetType::Prefab, assets->database().get_revision(handle)));
+        ASSERT_TRUE(runtime.contains<Comet::Prefab>(handle));
+        const SceneEditor::AssetInput input{{handle, assets->database().get_revision(handle)},
+            history.generation(), Comet::AssetType::Prefab};
+        ASSERT_TRUE(editor->place_asset(&scene, input, {12, 0, 0}));
+        const auto instance = selection.get_selected_entity().get_uuid();
+        const auto inner = scene.get_children(scene.find_entity(instance)).front().get_uuid();
+        const auto leaf = child_of(inner);
+        ASSERT_TRUE(edit.apply({leaf, "transform", "scale"}, Comet::Math::Vec3(2)));
+        ASSERT_TRUE(
+            edit.apply({child_of(first), "transform", "translation"}, Comet::Math::Vec3(0, 4, 0)));
+        ASSERT_TRUE(operate(Type::ApplyPrefab, first));
+        EXPECT_FALSE(runtime.contains<Comet::Prefab>(handle));
+        const auto before = scene_contents();
+        ASSERT_TRUE(operate(Type::UpdatePrefab, instance));
+        EXPECT_EQ(child_of(inner), leaf);
+        EXPECT_EQ(
+            scene.find_entity(leaf).get_component<Comet::TransformComponent>().translation.y, 4);
+        EXPECT_EQ(scene.find_entity(leaf).get_component<Comet::TransformComponent>().scale,
+            Comet::Math::Vec3(2));
+        EXPECT_EQ(
+            scene.find_entity(instance).get_component<Comet::TransformComponent>().translation.x,
+            12);
+        ASSERT_TRUE(editor->undo(&scene));
+        EXPECT_EQ(scene_contents(), before);
+        ASSERT_TRUE(editor->redo(&scene));
+        EXPECT_EQ(child_of(inner), leaf);
+        ASSERT_TRUE(operate(Type::DetachPrefab, inner));
+        EXPECT_FALSE(scene.find_entity(inner).has_component<Comet::PrefabInstanceComponent>());
+        EXPECT_TRUE(scene.find_entity(instance).has_component<Comet::PrefabInstanceComponent>());
+        ASSERT_TRUE(editor->undo(&scene));
+        EXPECT_TRUE(scene.find_entity(inner).has_component<Comet::PrefabInstanceComponent>());
+        EXPECT_TRUE(Comet::SceneSerializer(components).deserialize(scene_contents()));
+    }
+
+    TEST_F(PrefabEditingTest, CyclicSourceApplyPreservesFileSceneAndHistory) {
+        const auto source =
+            assets->load_prefab({prefab, assets->database().get_revision(prefab)}, components);
+        ASSERT_TRUE(source);
+        ASSERT_TRUE(source.value().instantiate(scene, components, std::nullopt, first, prefab));
+        const auto file_before = contents();
+        const auto scene_before = scene_contents();
+        const auto cursor = history.undo_size();
+        EXPECT_FALSE(operate(Type::ApplyPrefab, first));
+        EXPECT_EQ(contents(), file_before);
+        EXPECT_EQ(scene_contents(), scene_before);
+        EXPECT_EQ(history.undo_size(), cursor);
+    }
+
     TEST_F(PrefabEditingTest,
         MultiSelectionSurvivesPrefabUpdatesAndBatchPlacementUsesOneHistoryEntry) {
         selection.select_entities(std::vector{first, second});

@@ -1,4 +1,5 @@
 #include "engine.h"
+#include "asset/data/navigation_data.h"
 #include "gameplay/root_motion.h"
 #include "gameplay/navigation_system.h"
 #include "gameplay/character_animation.h"
@@ -155,7 +156,9 @@ namespace Comet {
         auto navigation = std::make_unique<Gameplay::NavigationSystem>(
             [this](Math::Vec3 minimum, Math::Vec3 maximum) {
                 return m_physics_service->static_triangles(minimum, maximum);
-            });
+            },
+            [this](
+                AssetHandle handle) { return m_asset_registry->resolve<NavigationData>(handle); });
         auto* navigation_service = navigation.get();
         if(auto added = add_system(std::move(navigation)); !added)
             return added;

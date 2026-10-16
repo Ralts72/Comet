@@ -8,7 +8,15 @@
 namespace CometEditor {
     class PathDialog {
     public:
-        enum class Action { None, OpenScene, SaveScene, SavePrefab, OpenProject, CreateProject };
+        enum class Action {
+            None,
+            OpenScene,
+            SaveScene,
+            SavePrefab,
+            OpenProject,
+            CreateProject,
+            SaveImage
+        };
         struct Request {
             Action action;
             std::string path;

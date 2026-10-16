@@ -336,6 +336,9 @@ namespace CometEditor {
                 m_path_trace_settings.max_dimension = uint32_t(dimension);
             if(ImGui::MenuItem("重新采样###Restart trace"))
                 m_path_trace_restart = true;
+            if(ImGui::MenuItem("导出图像…###Export trace", nullptr, false,
+                   m_path_trace_samples != 0 && m_path_trace_error.empty()))
+                m_path_trace_export = true;
             if(!m_path_trace_error.empty())
                 ImGui::TextWrapped("%s\n当前显示光栅预览。", m_path_trace_error.c_str());
         }

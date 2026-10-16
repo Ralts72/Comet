@@ -45,6 +45,7 @@ namespace Comet {
         std::unique_ptr<ParticlePass> particles;
         std::unique_ptr<PathTracePass> path_trace;
         RenderGraph::Plan graph;
+        RenderGraph::Resources transient_resources;
         std::vector<RenderGraph::Binding> bindings;
         RenderGraph::ResourceId shadow_resource;
         std::vector<RenderGraph::ResourceId> scene_attachments;
@@ -179,13 +180,16 @@ namespace Comet {
         if(!particles)
             return Creation::failure(particles.error());
         next->particles = std::move(particles).value();
-        if(auto graph = rebuild_graph(*next, m_post_process); !graph)
-            return Creation::failure(graph.error());
         return Creation::success(std::move(next));
     }
 
-    Result<void, GraphicsError> SceneRenderer::rebuild_graph(
-        RenderState& state, const PostProcessSettings& settings, const bool shadows) {
+    Result<void, GraphicsError> SceneRenderer::rebuild_graph(RenderState& state,
+        const PostProcessSettings& settings, const bool shadows, BloomPass* bloom,
+        Math::Vec2u source_size) {
+        if(source_size == Math::Vec2u{})
+            source_size = state.hdr_target->get_size();
+        if(!bloom)
+            bloom = state.bloom.get();
         RenderGraph graph;
         // 丢弃旧内容仍需等待上一轮附件写入与片段采样。
         auto shadow_access = *resolve_resource_state(ResourceUsage::DepthStencilAttachmentWrite);
@@ -242,7 +246,7 @@ namespace Comet {
             "display", {{output, ResourceUsage::SampledRead,
                            Flags<PipelineStage>(PipelineStage::FragmentShader)}}};
         if(settings.uses_bloom()) {
-            bloom_passes = BloomPass::append_passes(graph, output);
+            bloom_passes = BloomPass::append_passes(graph, output, source_size);
             display.uses.push_back({bloom_passes->output, ResourceUsage::SampledRead,
                 Flags<PipelineStage>(PipelineStage::FragmentShader)});
         }
@@ -250,7 +254,16 @@ namespace Comet {
         auto compiled = graph.compile();
         if(!compiled)
             return Result<void, GraphicsError>::failure({compiled.error()});
+        auto resources = compiled.value().allocate(m_device, m_frame_slot_count);
+        if(!resources)
+            return Result<void, GraphicsError>::failure(resources.error());
+        if(bloom_passes) {
+            if(auto prepared = bloom->prepare(resources.value(), *bloom_passes, source_size);
+                !prepared)
+                return prepared;
+        }
         state.graph = std::move(compiled).value();
+        state.transient_resources = std::move(resources).value();
         state.shadow_resource = shadow;
         state.scene_attachments = std::move(scene_attachments);
         state.shadow_pass_id = shadow_pass_id;
@@ -315,17 +328,11 @@ namespace Comet {
     Result<void, GraphicsError> SceneRenderer::configure_effects(
         const PostProcessSettings& settings) {
         std::unique_ptr<BloomPass> candidate;
-        if(settings.uses_bloom()) {
-            auto* bloom = m_state->bloom.get();
-            if(!bloom) {
-                auto created = BloomPass::create(m_device, m_frame_slot_count);
-                if(!created)
-                    return Result<void, GraphicsError>::failure(created.error());
-                candidate = std::move(created).value();
-                bloom = candidate.get();
-            }
-            if(auto resized = bloom->resize(m_state->hdr_target->get_size()); !resized)
-                return resized;
+        if(settings.uses_bloom() && !m_state->bloom) {
+            auto created = BloomPass::create(m_device, m_frame_slot_count);
+            if(!created)
+                return Result<void, GraphicsError>::failure(created.error());
+            candidate = std::move(created).value();
         }
         std::unique_ptr<DepthPass> depth_candidate;
         if(settings.uses_ao()) {
@@ -341,7 +348,9 @@ namespace Comet {
             if(auto resized = depth->resize(m_state->hdr_target->get_size()); !resized)
                 return resized;
         }
-        if(auto graph = rebuild_graph(*m_state, settings, m_state->shadows_enabled); !graph)
+        if(auto graph =
+                rebuild_graph(*m_state, settings, m_state->shadows_enabled, candidate.get());
+            !graph)
             return graph;
         if(depth_candidate)
             m_state->ao_depth = std::move(depth_candidate);
@@ -385,10 +394,10 @@ namespace Comet {
                 return Result<void, GraphicsError>::failure(candidate.error());
             ao_depth = std::move(candidate).value();
         }
-        if(m_post_process.uses_bloom()) {
-            if(auto bloom = state.bloom->resize(state.quality.scene_size(size)); !bloom)
-                return bloom;
-        }
+        if(auto graph = rebuild_graph(state, m_post_process, state.shadows_enabled, nullptr,
+               state.quality.scene_size(size));
+            !graph)
+            return graph;
         // 所有候选均成功后再发布，不改变在途帧保留的旧目标。
         if(ao_depth)
             state.ao_depth = std::move(ao_depth);
@@ -575,8 +584,7 @@ namespace Comet {
         if(m_state->ao_depth_resource)
             bindings[m_state->ao_depth_resource->index] =
                 m_state->ao_depth->get_depth_view(image)->get_image();
-        if(m_state->bloom_passes)
-            m_state->bloom->bind_resources(bindings, *m_state->bloom_passes, image);
+        m_state->transient_resources.bind_resources(bindings, image);
         std::vector<QueueSemaphoreSubmit> waits;
         const auto recorder = [this, &frames, &submission, &geometry, &lines, &lighting, &waits](
                                   RenderGraph::PassId pass, CommandBuffer&) {

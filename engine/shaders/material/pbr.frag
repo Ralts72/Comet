@@ -22,6 +22,8 @@ layout(set = 1, binding = 0, std140) uniform MaterialData {
     float occlusion_strength;
     vec4 emissive_color;
     float emissive_strength;
+    float transmission;
+    float ior;
 } material;
 layout(set = 1, binding = 1) uniform sampler2D base_color_texture;
 layout(set = 1, binding = 2) uniform sampler2D normal_texture;
