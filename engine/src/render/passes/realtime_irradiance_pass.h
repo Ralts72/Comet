@@ -50,6 +50,8 @@ namespace Comet {
         [[nodiscard]] Result<std::shared_ptr<Timing>, GraphicsError> prepare_timing(
             FrameScheduler& frames);
         [[nodiscard]] Result<void, GraphicsError> initialize();
+        [[nodiscard]] Result<std::shared_ptr<History>, GraphicsError> create_history(
+            uint64_t scene_lifetime, const RenderIrradianceVolume& volume, Math::Vec3u dimensions);
         [[nodiscard]] Result<void, GraphicsError> prepare(uint64_t scene_lifetime,
             const std::shared_ptr<const RayScene>& scene, const RenderIrradianceVolume& volume);
         Device& m_device;

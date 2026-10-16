@@ -302,7 +302,7 @@ if(COMET_BUILD_EDITOR)
     add_test(NAME editor_ui_testing COMMAND editor_ui_testing)
     set_tests_properties(editor_ui_testing PROPERTIES LABELS "integration;ui")
 endif()
-set(SYNC_VALIDATION_FILTER "QualityGpuTest.*:RenderGraphGpuTest.*:PathTraceGpuTest.*:SkinningGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.*:ImGuiOverlayGpuTest.*:RmlUiGpuTest.*:RmlContextGpuTest.*:ProjectUiGpuTest.*:EditorGameUiGpuTest.*:OverlayRecordContextTest.*:ResourceRetirementTest.*:RenderThreadTest.*")
+set(SYNC_VALIDATION_FILTER "QualityGpuTest.*:RenderGraphGpuTest.*:RealtimeIrradianceGpuTest.*:PathTraceGpuTest.*:SkinningGpuTest.*:BloomGpuTest.*:RenderDiagnosticsGpuTest.*:ImGuiOverlayGpuTest.*:RmlUiGpuTest.*:RmlContextGpuTest.*:ProjectUiGpuTest.*:EditorGameUiGpuTest.*:OverlayRecordContextTest.*:ResourceRetirementTest.*:RenderThreadTest.*")
 add_test(NAME integration_testing COMMAND integration_testing
         "--gtest_filter=-${SYNC_VALIDATION_FILTER}" ${TEST_PLATFORM_ARGS})
 set_tests_properties(integration_testing PROPERTIES LABELS "integration;gpu" RESOURCE_LOCK comet_gpu)

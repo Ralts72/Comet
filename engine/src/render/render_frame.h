@@ -38,6 +38,13 @@ namespace Comet {
                     return true;
             return false;
         }
+
+        [[nodiscard]] bool has_raster_view() const {
+            for(const auto& view : views)
+                if(view.draw && !view.parameters.path_trace)
+                    return true;
+            return false;
+        }
     };
 
 }

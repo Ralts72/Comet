@@ -61,6 +61,7 @@ namespace Comet {
         std::shared_ptr<RaySceneBuffers> buffers;
         std::unique_ptr<DescriptorPool> pool;
         std::vector<DescriptorSet> descriptors;
+        Result<void, GraphicsError> bind(Device& device);
     };
 
     struct RealtimeIrradiancePass::Timing {
@@ -200,6 +201,69 @@ namespace Comet {
         return Result<Math::Vec3u>::success(Math::Vec3u(cells));
     }
 
+    Result<std::shared_ptr<RealtimeIrradiancePass::History>, GraphicsError> RealtimeIrradiancePass::
+        create_history(
+            uint64_t scene_lifetime, const RenderIrradianceVolume& volume, Math::Vec3u dimensions) {
+        using Created = Result<std::shared_ptr<History>, GraphicsError>;
+        auto history = std::make_shared<History>();
+        history->scene_lifetime = scene_lifetime;
+        history->region = volume;
+        const uint32_t count = dimensions.x * dimensions.y * dimensions.z;
+        const auto limits = m_device.get_capability().physical_device.getProperties().limits;
+        if(count > limits.maxImageDimension2D)
+            return Created::failure({"探针纹理超过设备尺寸限制"});
+        const auto spacing = volume.half_extents * 2.0f / Math::Vec3(dimensions);
+        for(auto& output : history->volumes) {
+            auto image = Image::try_create(m_device,
+                {Format::R32G32B32A32_SFLOAT, {Irradiance::TEXELS_PER_PROBE, count, 1},
+                    Flags<ImageUsage>(ImageUsage::StorageBinding) | ImageUsage::Sampled
+                        | ImageUsage::CopySrc | ImageUsage::CopyDst},
+                false, SampleCount::Count1, "realtime GI history");
+            if(!image)
+                return Created::failure({"Cannot allocate realtime GI history", image.result()});
+            auto view = ImageView::try_create(
+                m_device, std::move(image).value(), Flags<ImageAspect>(ImageAspect::Color));
+            if(!view)
+                return Created::failure({"Cannot create realtime GI view", view.result()});
+            output = std::make_shared<Irradiance>();
+            output->origin = volume.center - volume.half_extents + spacing * .5f;
+            output->spacing = spacing;
+            output->dimensions = dimensions;
+            output->probes = Texture::from_image(std::move(view).value(), m_program->sampler);
+        }
+        return Created::success(std::move(history));
+    }
+
+    Result<void, GraphicsError> RealtimeIrradiancePass::Resources::bind(Device& device) {
+        using Bound = Result<void, GraphicsError>;
+        DescriptorPoolSizes sizes;
+        sizes.add_pool_size(DescriptorType::StorageBuffer, 16);
+        sizes.add_pool_size(DescriptorType::StorageImage, 4);
+        auto created_pool = DescriptorPool::create(device, 2, sizes);
+        if(!created_pool)
+            return Bound::failure(created_pool.error());
+        pool = std::move(created_pool).value();
+        auto sets = pool->allocate_descriptor_set(*program->descriptors, 2);
+        if(!sets)
+            return Bound::failure(sets.error());
+        descriptors = std::move(sets).value();
+        for(uint32_t output = 0; output < 2; ++output) {
+            buffers->write(device, descriptors[output]);
+            const auto& images = history->volumes;
+            const std::array infos{
+                vk::DescriptorImageInfo(
+                    {}, images[output]->probes->get_image_view()->get(), vk::ImageLayout::eGeneral),
+                vk::DescriptorImageInfo({}, images[1 - output]->probes->get_image_view()->get(),
+                    vk::ImageLayout::eGeneral)};
+            const std::array writes{vk::WriteDescriptorSet(descriptors[output].get(), 3, 0, 1,
+                                        vk::DescriptorType::eStorageImage, &infos[0]),
+                vk::WriteDescriptorSet(descriptors[output].get(), 9, 0, 1,
+                    vk::DescriptorType::eStorageImage, &infos[1])};
+            device.get().updateDescriptorSets(writes, {});
+        }
+        return Bound::success();
+    }
+
     Result<void, GraphicsError> RealtimeIrradiancePass::prepare(uint64_t scene_lifetime,
         const std::shared_ptr<const RayScene>& scene, const RenderIrradianceVolume& volume) {
         using Prepared = Result<void, GraphicsError>;
@@ -208,7 +272,6 @@ namespace Comet {
         const auto grid = validate_region(volume);
         if(!grid)
             return Prepared::failure({grid.error()});
-        const auto cells = Math::Vec3(grid.value());
         if(auto initialized = initialize(); !initialized)
             return initialized;
         const auto* prior = m_resources ? m_resources->buffers->source.get() : nullptr;
@@ -230,61 +293,13 @@ namespace Comet {
         if(reuse_history) {
             next->history = m_resources->history;
         } else {
-            auto history = std::make_shared<History>();
-            history->scene_lifetime = scene_lifetime;
-            history->region = volume;
-            const auto dimensions = Math::Vec3u(cells);
-            const uint32_t count = dimensions.x * dimensions.y * dimensions.z;
-            const auto limits = m_device.get_capability().physical_device.getProperties().limits;
-            if(count > limits.maxImageDimension2D)
-                return Prepared::failure({"探针纹理超过设备尺寸限制"});
-            const auto spacing = volume.half_extents * 2.0f / cells;
-            for(auto& output : history->volumes) {
-                auto image = Image::try_create(m_device,
-                    {Format::R32G32B32A32_SFLOAT, {Irradiance::TEXELS_PER_PROBE, count, 1},
-                        Flags<ImageUsage>(ImageUsage::StorageBinding) | ImageUsage::Sampled
-                            | ImageUsage::CopySrc | ImageUsage::CopyDst},
-                    false, SampleCount::Count1, "realtime GI history");
-                if(!image)
-                    return Prepared::failure(
-                        {"Cannot allocate realtime GI history", image.result()});
-                auto view = ImageView::try_create(
-                    m_device, std::move(image).value(), Flags<ImageAspect>(ImageAspect::Color));
-                if(!view)
-                    return Prepared::failure({"Cannot create realtime GI view", view.result()});
-                output = std::make_shared<Irradiance>();
-                output->origin = volume.center - volume.half_extents + spacing * .5f;
-                output->spacing = spacing;
-                output->dimensions = dimensions;
-                output->probes = Texture::from_image(std::move(view).value(), m_program->sampler);
-            }
-            next->history = std::move(history);
+            auto history = create_history(scene_lifetime, volume, grid.value());
+            if(!history)
+                return Prepared::failure(history.error());
+            next->history = std::move(history).value();
         }
-        DescriptorPoolSizes sizes;
-        sizes.add_pool_size(DescriptorType::StorageBuffer, 16);
-        sizes.add_pool_size(DescriptorType::StorageImage, 4);
-        auto pool = DescriptorPool::create(m_device, 2, sizes);
-        if(!pool)
-            return Prepared::failure(pool.error());
-        next->pool = std::move(pool).value();
-        auto sets = next->pool->allocate_descriptor_set(*m_program->descriptors, 2);
-        if(!sets)
-            return Prepared::failure(sets.error());
-        next->descriptors = std::move(sets).value();
-        for(uint32_t output = 0; output < 2; ++output) {
-            next->buffers->write(m_device, next->descriptors[output]);
-            const auto& images = next->history->volumes;
-            const std::array infos{
-                vk::DescriptorImageInfo(
-                    {}, images[output]->probes->get_image_view()->get(), vk::ImageLayout::eGeneral),
-                vk::DescriptorImageInfo({}, images[1 - output]->probes->get_image_view()->get(),
-                    vk::ImageLayout::eGeneral)};
-            const std::array writes{vk::WriteDescriptorSet(next->descriptors[output].get(), 3, 0, 1,
-                                        vk::DescriptorType::eStorageImage, &infos[0]),
-                vk::WriteDescriptorSet(next->descriptors[output].get(), 9, 0, 1,
-                    vk::DescriptorType::eStorageImage, &infos[1])};
-            m_device.get().updateDescriptorSets(writes, {});
-        }
+        if(auto bound = next->bind(m_device); !bound)
+            return bound;
         m_statistics.upload_bytes += next->buffers->upload_bytes;
         m_statistics.geometry_upload_bytes += next->buffers->geometry_upload_bytes;
         m_resources = std::move(next);

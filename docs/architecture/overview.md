@@ -480,13 +480,13 @@ MaterialData 保存后端无关参数和表面模式（Alpha 模式、裁切阈�
 Engine 持有 Main 的 MaterialProgramValidator；脚本参数校验与 Inspector 接纳只读布局反馈，后续 GPU 发布／清理不修改旧反馈。首次绘制前只反射 CPU 产物校验，不提前发布 GPU 版本。
 MaterialRenderer 负责具体 Pipeline、参数／纹理绑定与绘制；ShaderInterface 由 SPIR-V 反射，不把 Vk 对象写入资产字段。
 路径追踪是 `RenderView` 的替代场景积分方式。Main 通过已有 CPU 网格读取服务和解析后的材质快照生成
-`RayScene`，仅启用预览时保留几何并构建世界空间 BVH；不把 CPU 几何常驻到所有 raster Mesh。
+`RayScene`，仅路径追踪或实时 GI 需要时保留几何并构建世界空间 BVH；不把 CPU 几何常驻到所有 raster Mesh。
 材质复用 `MaterialRuntimeCache` 的默认值、实例覆盖与校验，再从不可变参数中读取 BSDF 数据。
 Material 同时保存贴图的源资产身份，`AssetManager` 只读接口获取已有 CPU 贴图／环境产物，不在预览时同步重导入。
 `CpuTextureImage` 为 GI 烘焙和路径追踪共用线性解码及地址／过滤逻辑；快照按资产去重像素，每个渲染实例保留稳定表面参数槽，换材质不会改变三角形的槽位或重建 BVH。
 环境复用 `CpuCubeSampler`，构建有界等面积 HDR 图和亮度 CDF；GPU PDF 使用实际 CDF 差值，混合均匀采样保证插值邻域的完整支撑。
-贴图与环境数据均进入独立只读 storage buffer，不要求描述符索引扩展；未启用路径追踪的 raster 路径不保留这些 CPU 像素。
-几何／BVH、材质像素、HDR 环境与灯光使用独立不可变块；灯光或材质参数变化不重建几何，环境旋转／强度不重新解码图像。重采样只推进累积代次。
+贴图与环境数据均进入独立只读 storage buffer，不要求描述符索引扩展；未启用射线效果时不保留这些 CPU 像素。
+几何／BVH、材质像素、HDR 环境与灯光使用独立不可变块，各自缓存键每次准备只生成一次；无变化时复用快照，失败输入不重复构建。灯光或材质参数变化不重建几何，环境旋转／强度不重新解码图像。重采样只推进累积代次。
 `PathTracePass` 按块身份复用只读 GPU buffer；resize 仅换累积图与描述符。RenderGraph 沿同一 graphics queue 声明初始化、采样与显示，达到样本上限后只显示，不录制 compute；旧资源继续由在途 FrameSlot 保活。
 Alpha Mask／随机覆盖的 Alpha Blend 在射线命中、阴影可见性与发光面采样中共用基础色 alpha／裁切阈值，不另建透明材质权威。
 粗糙介质复用 PBR 参数区中的 transmission／IOR，GPU 在命中副本中按几何绕序区分进出，使用 GGX BTDF、Fresnel 和全反射；不修改共享材质，不维护嵌套介质栈。透射是独立于 alpha 覆盖的 BSDF 路径，光栅尚不消费这两个参数。
@@ -562,9 +562,13 @@ CPU 产品移交 RenderAssetFactory 创建 GPU 候选；App／Editor 注入 Engi
 
 静态 GI 的离线求解归现有 `tools/asset`：输入持有静态 CPU 网格、材质、灯光与环境，私有三角形 BVH 负责遮挡和漫反射路径。Engine 的 `IrradianceData` 只定义有界探针网格、卷积后球谐系数、方向距离矩、产品读写和采样，不持有烘焙任务或设备。`CpuCubeSampler` 由环境预过滤、HDR 编码和 GI 共用，按需解码 mip 并统一跨面采样；各 Worker 独占缓存，源数据寿命由调用者保证。
 
-`.gi` 是已烘焙的 CPU 资产，经同一 RenderAssetFactory 创建 Irradiance 运行资源并发布到唯一 AssetRegistry；每个探针按 41 个 Vec4 打包进单张 RGBA32F 只读纹理，复用现有上传与完成点。RenderWorld 固定资源版本，MaterialRenderer 每 View 选择一个可见区域，帧槽保活资源及描述符。PBR 在有效区域内用 GI 替换全局 IBL 的漫反射，镜面保持独立；无有效探针或区域外回退全局漫反射，被遮挡则保持黑色。所有 PBR 表面按实际片元世界位置采样，烘焙区域移动不会平移旧产物。产品导出直接携带已验证 `.gi`，运行时不导入源几何或进行烘焙；Editor 的 IrradianceBake 通过现有 TaskScheduler 调度 CPU 烘焙，任务独占场景快照、资产记录和 CPU 产物，只有 Main 能复核输入并经资产事务发布结果和撤销命令。取消标记与任务数据共用寿命，任务不借用 Scene、数据库或 GPU；切场景、输入变化及过期版本不会接纳结果。反射捕获包含已发布 GI，其输入指纹包含 GI 引用、采样参数和真实源字节。
+`.gi` 是已烘焙的 CPU 资产，经同一 RenderAssetFactory 创建 Irradiance 运行资源并发布到唯一 AssetRegistry；每个探针按 41 个 Vec4 打包进单张 RGBA32F 只读纹理，复用现有上传与完成点。RenderWorld 固定资源版本，ViewLightingData 每 View 选择一个可见区域，ViewBindings 与帧槽保活资源及描述符。PBR 在有效区域内用 GI 替换全局 IBL 的漫反射，镜面保持独立；无有效探针或区域外回退全局漫反射，被遮挡则保持黑色。所有 PBR 表面按实际片元世界位置采样，烘焙区域移动不会平移旧产物。产品导出直接携带已验证 `.gi`，运行时不导入源几何或进行烘焙；Editor 的 IrradianceBake 通过现有 TaskScheduler 调度 CPU 烘焙，任务独占场景快照、资产记录和 CPU 产物，只有 Main 能复核输入并经资产事务发布结果和撤销命令。取消标记与任务数据共用寿命，任务不借用 Scene、数据库或 GPU；切场景、输入变化及过期版本不会接纳结果。反射捕获包含已发布 GI，其输入指纹包含 GI 引用、采样参数和真实源字节。
 
-实时 GI 与离线 `.gi` 共用探针采样格式。Main 从当帧 RenderWorld 筛选静态贡献者，`RaySceneBuilder` 与路径追踪共用不可变 BVH／材质／光源输入；`RaySceneBuffers` 按几何、材质、光源和环境各自版本上传。实时 GI 的材质图按 512 长边读取已有 Mip 或缩小，不改变正常绘制和路径追踪的源分辨率。Renderer 在各 View 绘制之前调用一次 `RealtimeIrradiancePass`，以有限探针预算更新球谐和方向距离矩，两个历史图像交替读写；各 View 的 ViewBindings 只采样同一份已发布输出。动态灯光不重建 BVH，几何／材质／区域和场景变化清除历史；旧代继续由 GPU 帧槽保活，App 和 Play 不依赖编辑器烘焙服务。
+实时 GI 与离线 `.gi` 共用探针采样格式。Main 确认当帧有光栅视图后，从 RenderWorld 筛选静态贡献者，`RaySceneBuilder` 与路径追踪共用不可变 BVH／材质／光源输入；`RaySceneBuffers` 按几何、材质、光源和环境各自版本上传。实时 GI 的材质图按 512 长边读取已有 Mip 或缩小，不改变正常绘制和路径追踪的源分辨率。
+
+Renderer 在各 View 绘制之前调用一次 `RealtimeIrradiancePass`，以有限探针预算更新球谐和方向距离矩，两个历史图像交替读写；各 View 的 ViewBindings 只采样同一份已发布输出。历史图像创建、资源描述符绑定与逐帧更新分别处理；先完整准备候选，再替换当前资源。
+
+动态灯光不重建 BVH，几何／材质／区域和场景变化清除历史；旧代继续由 GPU 帧槽保活，App 和 Play 不依赖编辑器烘焙服务。
 
 
 ### 编译、反射与缓存边界

@@ -33,18 +33,24 @@ namespace Comet::Tests {
         auto world = trace_world(material);
         auto mesh = triangle_mesh();
         size_t reads = 0;
+        size_t revision_reads = 0;
         uint64_t revision = 1;
         RaySceneBuilder builder;
         const auto read = [&](AssetHandle) {
             ++reads;
             return Result<MeshData, Error>::success(mesh);
         };
-        const auto version = [&](AssetHandle) { return revision; };
+        const auto version = [&](AssetHandle) {
+            ++revision_reads;
+            return revision;
+        };
         auto first = builder.update(world, read, version);
         ASSERT_TRUE(first) << first.error();
         EXPECT_EQ(reads, 1u);
+        EXPECT_EQ(revision_reads, 1u);
         EXPECT_EQ(builder.update(world, read, version).value(), first.value());
         EXPECT_EQ(reads, 1u);
+        EXPECT_EQ(revision_reads, 2u);
         world.post_process.exposure = 2;
         EXPECT_EQ(builder.update(world, read, version).value(), first.value());
         ASSERT_TRUE(material->set_vector_property("base_color", {.8f, .1f, .2f, 1}));
@@ -136,6 +142,8 @@ namespace Comet::Tests {
         ++revision;
         EXPECT_FALSE(update());
         EXPECT_FALSE(update());
+        world.lights.push_back({.intensity = 2});
+        EXPECT_FALSE(update()); // 改灯不能绕过尚未修正的网格错误。
         mesh.indices[2] = 2;
         ++revision;
         EXPECT_TRUE(update());
@@ -410,7 +418,7 @@ namespace Comet::Tests {
         EXPECT_EQ(Math::Vec3(second->materials->surfaces[0].albedo_metallic), Math::Vec3(0, 1, 0));
     }
 
-    TEST(RaySceneTest, ValidatesBoundedQualityAndPreservesAspect) {
+    TEST(PathTraceSettingsTest, ValidatesBoundedQualityAndPreservesAspect) {
         PathTraceSettings settings;
         EXPECT_TRUE(settings.validate());
         EXPECT_EQ(settings.image_size({1920, 1080}), Math::Vec2u(512, 288));

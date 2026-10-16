@@ -312,7 +312,7 @@ namespace Comet {
             m_irradiance_error = std::move(error);
         };
         const ResolvedIrradianceVolume* selected = nullptr;
-        if(frame.world && frame.has_visible_view())
+        if(frame.world && frame.has_raster_view())
             for(const auto& volume : frame.world->irradiance_volumes)
                 if(volume.volume.realtime) {
                     selected = &volume;
@@ -361,7 +361,6 @@ namespace Comet {
     }
 
     void Renderer::prepare_scene_views(RenderFrame& frame) {
-        prepare_irradiance(frame);
         for(auto& input : frame.views) {
             auto& view = get_view(input.id);
             view.path_trace_error.clear();
@@ -392,6 +391,8 @@ namespace Comet {
             else
                 view.path_trace_error = scene.error();
         }
+        // 路径追踪准备失败时仍绘制光栅；据最终视图路径决定是否需要 GI 输入。
+        prepare_irradiance(frame);
     }
 
     Result<void, GraphicsError> Renderer::render_frame(std::shared_ptr<const RenderWorld> world) {
@@ -441,8 +442,7 @@ namespace Comet {
         const RenderWorld empty_world;
         const auto& world = frame.world ? *frame.world : empty_world;
         std::vector<QueueSemaphoreSubmit> resource_waits;
-        const bool needs_raster = std::ranges::any_of(frame.views,
-            [](const auto& input) { return input.draw && !input.parameters.path_trace; });
+        const bool needs_raster = frame.has_raster_view();
         if(needs_raster) {
             RenderDiagnostics::measure_preparation(m_diagnostics.get(),
                 RenderDiagnostics::PreparationPhase::Geometry, [&] { m_geometry.prepare(world); });

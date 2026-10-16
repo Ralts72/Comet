@@ -15,20 +15,6 @@
 #include <utility>
 
 namespace Comet {
-    Result<void> PathTraceSettings::validate() const {
-        if(samples == 0 || samples > 4096 || bounces == 0 || bounces > 8 || max_dimension < 32
-            || max_dimension > 1024)
-            return Result<void>::failure(
-                "路径追踪参数超出范围（采样 1～4096，反弹 1～8，尺寸 32～1024）");
-        return Result<void>::success();
-    }
-
-    Math::Vec2u PathTraceSettings::image_size(Math::Vec2u output) const {
-        const float scale =
-            std::min(1.f, float(max_dimension) / std::max({output.x, output.y, 1u}));
-        return {std::max(1u, uint32_t(output.x * scale)), std::max(1u, uint32_t(output.y * scale))};
-    }
-
     namespace {
         void write(Binary::Writer& key, Math::Vec3 value) {
             for(int i = 0; i < 3; ++i)
@@ -83,43 +69,22 @@ namespace Comet {
             return key.data();
         }
 
-        std::vector<std::byte> source_key(const RenderWorld& world,
-            const RaySceneBuilder::MeshRevision& revision, const RaySceneBuilder::Images& images) {
+        std::vector<std::byte> settings_key(const SceneEnvironment& environment) {
             Binary::Writer key;
-            key.write_u64(world.scene_lifetime);
-            key.write_u64(world.render_items.size());
-            for(const auto& item : world.render_items) {
-                key.write_u64(item.mesh_handle.value());
-                key.write_u64(item.mesh_revision);
-                key.write_u64(revision ? revision(item.mesh_handle) : 0);
-                write_material(key, item.material, images);
-                for(int col = 0; col < 4; ++col)
-                    for(int row = 0; row < 4; ++row)
-                        key.write_float(item.model_matrix[col][row]);
-                key.write_u32(bool(item.mesh));
-            }
-            key.write_u64(world.lights.size());
-            for(const auto& light : world.lights) {
-                key.write_u32(static_cast<uint32_t>(light.type));
-                write(key, light.position);
-                write(key, light.direction);
-                write(key, light.color);
-                for(float value :
-                    {light.intensity, light.range, light.inner_angle, light.outer_angle})
-                    key.write_float(value);
-            }
-            const auto& environment = world.environment;
             write(key, environment.background_color);
-            key.write_u64(environment.asset.value());
-            key.write_u64(world.environment_revision);
-            key.write_u64(
-                images.revision && environment.asset ? images.revision(environment.asset) : 0);
             key.write_float(environment.intensity);
             key.write_float(environment.lighting_intensity);
             key.write_float(environment.rotation);
             key.write_u32(environment.background);
             key.write_u32(environment.lighting);
             return key.data();
+        }
+
+        bool update_key(std::vector<std::byte>& cached, std::vector<std::byte> key) {
+            if(cached == key)
+                return false;
+            cached = std::move(key);
+            return true;
         }
 
         std::vector<std::byte> geometry_key(
@@ -134,6 +99,7 @@ namespace Comet {
                 for(int column = 0; column < 4; ++column)
                     for(int row = 0; row < 4; ++row)
                         key.write_float(item.model_matrix[column][row]);
+                key.write_u32(bool(item.mesh));
             }
             return key.data();
         }
@@ -445,43 +411,51 @@ namespace Comet {
 
     Result<std::shared_ptr<const RayScene>> RaySceneBuilder::update(const RenderWorld& world,
         const MeshReader& read, const MeshRevision& revision, const Images& images) {
-        auto key = source_key(world, revision, images);
-        if(key == m_key && (m_scene || !m_error.empty())) {
+        const bool geometry_changed = update_key(m_geometry_key, geometry_key(world, revision));
+        const bool materials_changed = update_key(m_material_key, material_key(world, images));
+        const bool environment_changed =
+            update_key(m_environment_key, environment_key(world, images));
+        const bool lighting_changed = update_key(m_lighting_key, lighting_key(world));
+        const bool settings_changed = update_key(m_settings_key, settings_key(world.environment));
+        if(!geometry_changed && !materials_changed && !environment_changed && !lighting_changed
+            && !settings_changed && (m_scene || !m_error.empty())) {
             if(!m_scene)
                 return Result<std::shared_ptr<const RayScene>>::failure(m_error);
             return Result<std::shared_ptr<const RayScene>>::success(m_scene);
         }
-        m_key = std::move(key);
         const auto previous = std::exchange(m_scene, nullptr);
+        // 键记录本次输入；失败的领域保留空缓存，避免之后改灯时复用过期内容。
+        if(geometry_changed)
+            m_geometry.reset();
+        if(materials_changed)
+            m_materials.reset();
+        if(environment_changed)
+            m_environment.reset();
+        if(lighting_changed)
+            m_lighting.reset();
         const auto build = [&]() -> Result<std::shared_ptr<const RayScene>> {
             using Built = Result<std::shared_ptr<const RayScene>>;
             if(auto valid = world.environment.validate(); !valid)
                 return Built::failure(valid.error());
-            auto geometry = geometry_key(world, revision);
-            if(!m_geometry || geometry != m_geometry_key) {
+            if(!m_geometry) {
                 auto candidate = build_geometry(world, read);
                 if(!candidate)
                     return Built::failure(candidate.error());
                 m_geometry = candidate.value();
-                m_geometry_key = std::move(geometry);
                 ++m_statistics.geometry_builds;
             }
-            auto materials = material_key(world, images);
-            if(!m_materials || materials != m_material_key) {
+            if(!m_materials) {
                 auto candidate = build_materials(world, images, m_texture_dimension);
                 if(!candidate)
                     return Built::failure(candidate.error());
                 m_materials = candidate.value();
-                m_material_key = std::move(materials);
                 ++m_statistics.material_builds;
             }
-            auto environment = environment_key(world, images);
-            if(!m_environment || environment != m_environment_key) {
+            if(!m_environment) {
                 auto candidate = build_environment(world.environment, images);
                 if(!candidate)
                     return Built::failure(candidate.error());
                 m_environment = candidate.value();
-                m_environment_key = std::move(environment);
                 ++m_statistics.environment_builds;
             }
             const auto texture_bytes =
@@ -492,13 +466,11 @@ namespace Comet {
             scene->geometry = m_geometry;
             scene->materials = m_materials;
             scene->environment_map = m_environment;
-            auto lights = lighting_key(world);
-            if(!m_lighting || lights != m_lighting_key) {
+            if(!m_lighting) {
                 auto prepared = std::make_shared<LightingData>(LightingData::prepare(world.lights));
                 if(prepared->excess_lights || prepared->invalid_lights)
                     return Built::failure("射线场景灯光无效或超过 32 盏预算");
                 m_lighting = std::move(prepared);
-                m_lighting_key = std::move(lights);
             }
             scene->lighting = m_lighting;
             scene->background = world.environment.background_color;
@@ -528,7 +500,7 @@ namespace Comet {
     }
 
     void RaySceneBuilder::reset() {
-        m_key.clear();
+        m_settings_key.clear();
         m_geometry_key.clear();
         m_material_key.clear();
         m_environment_key.clear();

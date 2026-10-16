@@ -3,6 +3,7 @@
 #include "render/ray_scene.h"
 #include "render/render_graph.h"
 #include "render/scene/render_types.h"
+#include "render/scene/render_scene.h"
 
 namespace Comet {
     class Device;

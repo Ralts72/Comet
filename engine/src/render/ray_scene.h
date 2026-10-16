@@ -5,7 +5,6 @@
 #include "common/error.h"
 #include "common/result.h"
 #include "render/lighting.h"
-#include "render/scene/render_scene.h"
 
 #include <functional>
 #include <memory>
@@ -92,7 +91,7 @@ namespace Comet {
 
     private:
         uint32_t m_texture_dimension;
-        std::vector<std::byte> m_key;
+        std::vector<std::byte> m_settings_key;
         std::vector<std::byte> m_geometry_key;
         std::vector<std::byte> m_material_key;
         std::vector<std::byte> m_environment_key;

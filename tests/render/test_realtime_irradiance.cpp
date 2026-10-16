@@ -90,7 +90,69 @@ namespace Comet::Tests {
         }
     }
 
-    TEST_F(RenderGraphGpuTest, RealtimeIrradianceFollowsLightsWithoutRebuildingGeometry) {
+    class RealtimeIrradianceGpuTest: public RenderGraphGpuTest {
+    protected:
+        static IrradianceData read_probes(FrameScheduler& frames, RealtimeIrradiancePass& pass,
+            const ProbeScene& scene, const RenderIrradianceVolume& settings,
+            const std::shared_ptr<Readback>& readback, uint64_t lifetime = 1,
+            bool measure = false) {
+            begin_frame(frames);
+            auto result = pass.update(frames, lifetime, scene.snapshot, settings, measure);
+            EXPECT_TRUE(result) << result.error().message;
+            if(!result)
+                return {};
+            copy_probes(frames, *result.value(), readback);
+            if(HasFatalFailure())
+                return {};
+            submit(frames.get_device(), frames);
+            frames.wait_for_all_slots();
+            return decode_probes(*result.value(), *readback);
+        }
+    };
+
+    TEST_F(RealtimeIrradianceGpuTest, PreparesGiOnlyForViewsThatActuallyRasterize) {
+        auto& renderer = engine->get_renderer();
+        ProbeScene source;
+        source.world.render_items[0].mesh = lit_quad();
+        source.world.irradiance_volumes.push_back({.volume = region()});
+        unsigned mesh_reads = 0;
+        renderer.set_ray_scene_sources([&](AssetHandle) {
+            ++mesh_reads;
+            return Result<MeshData, Error>::success(source.mesh);
+        });
+        ASSERT_TRUE(prepare_offscreen_host({33, 33}));
+        source.world.cameras.push_back(
+            {.primary = true, .view_matrix = Math::look_at({0, 0, 3}, {0, 0, 0}, {0, 1, 0})});
+        RenderView view{
+            .path_trace_enabled = true, .path_trace_settings = {.samples = 1, .max_dimension = 32}};
+        const auto draw = [&] {
+            ASSERT_TRUE(renderer.set_render_view(view));
+            const auto prepared = renderer.prepare_frame();
+            ASSERT_TRUE(prepared) << prepared.error().message;
+            ASSERT_EQ(prepared.value(), Renderer::FramePreparation::Ready);
+            ASSERT_TRUE(renderer.render_frame(std::make_shared<RenderWorld>(source.world)));
+            renderer.wait_idle();
+        };
+        ASSERT_NO_FATAL_FAILURE(draw());
+        EXPECT_TRUE(renderer.path_trace_error().empty());
+        EXPECT_EQ(renderer.path_trace_samples(), 1u);
+        EXPECT_EQ(renderer.get_irradiance_statistics().probes, 0u);
+        EXPECT_EQ(mesh_reads, 1u);
+
+        // 不支持的预览内容会回退光栅，仍需要正常的 GI。
+        source.world.environment.fog_enabled = true;
+        ASSERT_NO_FATAL_FAILURE(draw());
+        EXPECT_FALSE(renderer.path_trace_error().empty());
+        EXPECT_EQ(renderer.get_irradiance_statistics().probes, 8u);
+        EXPECT_EQ(mesh_reads, 2u);
+
+        view.visible = false;
+        ASSERT_NO_FATAL_FAILURE(draw());
+        EXPECT_EQ(mesh_reads, 2u);
+        renderer.set_ray_scene_sources({});
+    }
+
+    TEST_F(RealtimeIrradianceGpuTest, RealtimeIrradianceFollowsLightsWithoutRebuildingGeometry) {
         auto& device = engine->get_renderer().get_render_context().get_device();
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(1);
@@ -101,16 +163,8 @@ namespace Comet::Tests {
         auto settings = region();
         auto readback = std::make_shared<Readback>(
             device, device.get_capability().physical_device, 8 * sizeof(IrradianceProbe));
-        const auto draw = [&]() -> IrradianceData {
-            begin_frame(frames);
-            auto result = pass.update(frames, 1, scene.snapshot, settings, true);
-            EXPECT_TRUE(result) << result.error().message;
-            if(!result)
-                return {};
-            copy_probes(frames, *result.value(), readback);
-            submit(device, frames);
-            frames.wait_for_all_slots();
-            return decode_probes(*result.value(), *readback);
+        const auto draw = [&] {
+            return read_probes(frames, pass, scene, settings, readback, 1, true);
         };
         IrradianceData red;
         for(int i = 0; i < 8; ++i)
@@ -151,7 +205,7 @@ namespace Comet::Tests {
         EXPECT_TRUE(green.sample({.3f, .2f, .9f}, {0, 0, -1}));
     }
 
-    TEST_F(RenderGraphGpuTest, RealtimeIrradianceBudgetsUpdatesAndInvalidatesHistory) {
+    TEST_F(RealtimeIrradianceGpuTest, RealtimeIrradianceBudgetsUpdatesAndInvalidatesHistory) {
         auto& device = engine->get_renderer().get_render_context().get_device();
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(1);
@@ -165,16 +219,8 @@ namespace Comet::Tests {
         uint64_t lifetime = 1;
         auto readback = std::make_shared<Readback>(
             device, device.get_capability().physical_device, 8 * sizeof(IrradianceProbe));
-        const auto draw = [&]() -> IrradianceData {
-            begin_frame(frames);
-            auto result = pass.update(frames, lifetime, scene.snapshot, settings);
-            EXPECT_TRUE(result) << result.error().message;
-            if(!result)
-                return {};
-            copy_probes(frames, *result.value(), readback);
-            submit(device, frames);
-            frames.wait_for_all_slots();
-            return decode_probes(*result.value(), *readback);
+        const auto draw = [&] {
+            return read_probes(frames, pass, scene, settings, readback, lifetime);
         };
         const auto active = [](const IrradianceData& data) {
             return std::ranges::count_if(data.probes, &IrradianceProbe::active);
@@ -215,7 +261,7 @@ namespace Comet::Tests {
         settings.half_extents = {100, 100, 100};
         EXPECT_FALSE(pass.update(frames, lifetime, scene.snapshot, settings));
     }
-    TEST_F(RenderGraphGpuTest, RealtimeIrradianceVisibilityKeepsLightBehindTheWall) {
+    TEST_F(RealtimeIrradianceGpuTest, RealtimeIrradianceVisibilityKeepsLightBehindTheWall) {
         auto& device = engine->get_renderer().get_render_context().get_device();
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(1);
@@ -243,15 +289,8 @@ namespace Comet::Tests {
         auto readback = std::make_shared<Readback>(
             device, device.get_capability().physical_device, 16 * sizeof(IrradianceProbe));
         IrradianceData data;
-        for(int i = 0; i < 24; ++i) {
-            begin_frame(frames);
-            auto result = pass.update(frames, 1, scene.snapshot, settings);
-            ASSERT_TRUE(result) << result.error().message;
-            ASSERT_NO_FATAL_FAILURE(copy_probes(frames, *result.value(), readback));
-            submit(device, frames);
-            frames.wait_for_all_slots();
-            data = decode_probes(*result.value(), *readback);
-        }
+        for(int i = 0; i < 24; ++i)
+            data = read_probes(frames, pass, scene, settings, readback);
         const auto bright = data.sample({-.8f, 0, 1}, {0, 0, -1});
         const auto hidden = data.sample({.25f, 0, 1}, {0, 0, -1});
         ASSERT_TRUE(bright);
@@ -266,7 +305,7 @@ namespace Comet::Tests {
         }
     }
 
-    TEST_F(RenderGraphGpuTest, RealtimeIrradianceIsSampledByForwardAndDeferredSurfaces) {
+    TEST_F(RealtimeIrradianceGpuTest, RealtimeIrradianceIsSampledByForwardAndDeferredSurfaces) {
         auto& device = engine->get_renderer().get_render_context().get_device();
         ProbeScene source;
         source.world.render_items[0].model_matrix =
@@ -332,7 +371,8 @@ namespace Comet::Tests {
         }
     }
 
-    TEST_F(RenderGraphGpuTest, RealtimeIrradianceKeepsQueuedVersionsThroughResetAndSceneChange) {
+    TEST_F(RealtimeIrradianceGpuTest,
+        RealtimeIrradianceKeepsQueuedVersionsThroughResetAndSceneChange) {
         auto& device = engine->get_renderer().get_render_context().get_device();
         FrameScheduler frames(device, 2);
         frames.initialize_swapchain_images(1);
